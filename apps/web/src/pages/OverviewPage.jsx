@@ -100,9 +100,9 @@ export function OverviewPage({ project, assets, shots, jobs, billing, setActiveS
           ],
           [
             '02',
-            '角色资产',
+            '项目资产',
             `${assets.length} 项`,
-            '确认人物、场景与声音',
+            '确认人物、场景、物品、服装与音频',
             'assets',
             assets.length ? 'complete' : 'pending',
           ],

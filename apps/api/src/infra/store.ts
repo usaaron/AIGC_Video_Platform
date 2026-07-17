@@ -1,4 +1,13 @@
-import type { Asset, GenerationTask, LedgerEntry, Plan, Project, Role, Shot } from '@seqora/contracts'
+import type {
+  Asset,
+  GenerationTask,
+  LedgerEntry,
+  MediaKind,
+  Plan,
+  Project,
+  Role,
+  Shot,
+} from '@seqora/contracts'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { hashPassword } from '../core/auth/password.js'
@@ -14,6 +23,18 @@ export type StoredUser = {
   credits: number
 }
 
+export type StoredMedia = {
+  id: string
+  projectId: string
+  tenantId: string
+  kind: MediaKind
+  name: string
+  contentType: string
+  size: number
+  storageKey: string
+  createdAt: string
+}
+
 export type AppState = {
   users: StoredUser[]
   projects: Project[]
@@ -21,6 +42,7 @@ export type AppState = {
   shots: Shot[]
   tasks: GenerationTask[]
   ledger: LedgerEntry[]
+  media: StoredMedia[]
 }
 
 export class AppStore {
@@ -32,7 +54,8 @@ export class AppStore {
   async initialize(): Promise<void> {
     if (this.filePath) {
       try {
-        this.state = JSON.parse(await readFile(this.filePath, 'utf8')) as AppState
+        this.state = normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>)
+        await this.persist()
         return
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code
@@ -115,6 +138,7 @@ function createSeedState(): AppState {
     assets: seedAssets(projectId, tenantId, now),
     shots: seedShots(projectId, tenantId, now),
     tasks: [],
+    media: [],
     ledger: [
       {
         id: 'ledger-initial',
@@ -164,21 +188,101 @@ function seedAssets(projectId: string, tenantId: string, now: string): Asset[] {
       '老式候车室，木质长椅，昏暗壁灯，窗外大雨，悬疑电影氛围',
       '/demo/room.jpg',
     ],
-    ['asset-rain', 'sound', '雨夜站台', '环境音 · 48秒', '密集雨声，远处列车低鸣，偶尔金属震动', null],
-    ['asset-train', 'sound', '幽灵列车', '环境音 · 22秒', '由远及近的老式列车进站声，低频压迫感', null],
-  ].map(([id, kind, name, description, prompt, imageUrl]) => ({
-    id: id as string,
-    projectId,
-    tenantId,
-    kind: kind as Asset['kind'],
-    name: name as string,
-    description: description as string,
-    prompt: prompt as string,
-    imageUrl: imageUrl as string | null,
-    status: 'confirmed' as const,
-    createdAt: now,
-    updatedAt: now,
-  }))
+    ['asset-rain', 'audio', '雨夜站台', '环境音 · 48秒', '密集雨声，远处列车低鸣，偶尔金属震动', null],
+    ['asset-train', 'audio', '幽灵列车', '环境音 · 22秒', '由远及近的老式列车进站声，低频压迫感', null],
+  ].map(([id, rawKind, name, description, prompt, imageUrl]) => {
+    const kind = rawKind as Asset['kind']
+    return {
+      id: id as string,
+      projectId,
+      tenantId,
+      kind,
+      sourceMode: 'generate' as const,
+      name: name as string,
+      description: description as string,
+      prompt: prompt as string,
+      promptMode: 'standard' as const,
+      customPromptMode: 'append' as const,
+      customPrompt: '',
+      negativePrompt: '',
+      references: [],
+      attributes: defaultAssetAttributes(kind),
+      imageUrl: imageUrl as string | null,
+      status: 'confirmed' as const,
+      createdAt: now,
+      updatedAt: now,
+    }
+  })
+}
+
+export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes'] {
+  if (kind === 'character') {
+    return {
+      type: 'character',
+      subjectType: 'human',
+      gender: 'female',
+      ageGroup: 'young',
+      exactAge: null,
+      species: '',
+      anthropomorphic: false,
+      visualStyle: 'cinematic-cg',
+      framing: 'full',
+      bodyType: 'balanced',
+      background: 'solid',
+      legStretch: false,
+      turnaround: false,
+    }
+  }
+  if (kind === 'scene') {
+    return {
+      type: 'scene',
+      space: 'exterior',
+      sceneType: 'street',
+      era: 'modern',
+      time: 'night',
+      weather: 'clear',
+      mood: 'mystery',
+      camera: 'wide',
+      visualStyle: 'cinematic-cg',
+      emptyScene: true,
+      activitySpace: true,
+    }
+  }
+  if (kind === 'prop') {
+    return {
+      type: 'prop',
+      category: 'daily',
+      material: 'mixed',
+      condition: 'used',
+      view: 'front',
+      background: 'solid',
+      visualStyle: 'cinematic-cg',
+    }
+  }
+  if (kind === 'costume') {
+    return {
+      type: 'costume',
+      audience: 'unisex',
+      category: 'daily',
+      season: 'all-season',
+      design: 'minimal',
+      presentation: 'flat',
+      visualStyle: 'cinematic-cg',
+      turnaround: false,
+    }
+  }
+  return {
+    type: 'audio',
+    audioType: 'ambience',
+    gender: 'unspecified',
+    ageGroup: 'young',
+    emotion: 'neutral',
+    tone: 'warm',
+    speed: 'normal',
+    language: 'mandarin',
+    duration: 15,
+    loop: false,
+  }
 }
 
 function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
@@ -201,6 +305,54 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
     createdAt: now,
     updatedAt: now,
   }))
+}
+
+function normalizeState(input: Partial<AppState>): AppState {
+  const assets = (input.assets ?? []).map((stored) => {
+    const legacy = stored as Omit<Partial<Asset>, 'kind'> & {
+      id: string
+      projectId: string
+      tenantId: string
+      kind: Asset['kind'] | 'sound'
+      name: string
+      description: string
+      prompt: string
+      imageUrl: string | null
+      status: Asset['status']
+      createdAt: string
+      updatedAt: string
+    }
+    const kind: Asset['kind'] = legacy.kind === 'sound' ? 'audio' : legacy.kind
+    return {
+      ...legacy,
+      kind,
+      sourceMode: legacy.sourceMode ?? 'generate',
+      promptMode: legacy.promptMode ?? 'standard',
+      customPromptMode: legacy.customPromptMode ?? 'append',
+      customPrompt: legacy.customPrompt ?? '',
+      negativePrompt: legacy.negativePrompt ?? '',
+      references: legacy.references ?? [],
+      attributes: legacy.attributes?.type === kind ? legacy.attributes : defaultAssetAttributes(kind),
+    } as Asset
+  })
+  const tasks = (input.tasks ?? []).map((task) => ({
+    ...task,
+    prompt: task.prompt ?? '',
+    negativePrompt: task.negativePrompt ?? '',
+    provider: task.provider ?? 'local',
+    model: task.model ?? null,
+    metadata: task.metadata ?? {},
+    outputs: task.outputs ?? [],
+  }))
+  return {
+    users: input.users ?? [],
+    projects: input.projects ?? [],
+    assets,
+    shots: input.shots ?? [],
+    tasks,
+    ledger: input.ledger ?? [],
+    media: input.media ?? [],
+  }
 }
 
 const DEFAULT_SCRIPT = `雨夜，临港市旧火车站。

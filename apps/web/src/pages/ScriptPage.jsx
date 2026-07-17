@@ -153,7 +153,7 @@ export function ScriptPage({ project, onSave, onGenerate, onNext }) {
       <div className="sticky-actions">
         <span>剧本保存后才能在其他设备继续编辑。</span>
         <button className="button primary" onClick={onNext}>
-          管理角色资产 <ArrowRight size={16} />
+          管理项目资产 <ArrowRight size={16} />
         </button>
       </div>
     </div>

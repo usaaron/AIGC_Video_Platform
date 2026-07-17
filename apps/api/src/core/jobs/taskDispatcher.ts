@@ -69,19 +69,29 @@ export class LocalTaskRunner implements TaskDispatcher {
           task.updatedAt = now
           if (task.progress >= 100) {
             task.status = 'completed'
-            task.resultUrl = resultFor(task)
+            task.outputs = outputsFor(task)
+            task.resultUrl = task.outputs[0]?.url ?? null
           }
         })
     })
   }
 }
 
-function resultFor(task: GenerationTask): string | null {
+function outputsFor(task: GenerationTask): GenerationTask['outputs'] {
   if (task.kind === 'image' || task.kind === 'video') {
     const images = ['/demo/lin.jpg', '/demo/station.jpg', '/demo/rain.jpg', '/demo/room.jpg']
-    return images[Math.abs(hash(task.id)) % images.length] ?? null
+    const start = Math.abs(hash(task.id)) % images.length
+    const mediaType: 'image' | 'video' = task.kind
+    const views =
+      task.metadata.turnaround === true ? (['front', 'side', 'back'] as const) : (['single'] as const)
+    return views.map((view, index) => ({
+      id: `${task.id}-${view}`,
+      url: images[(start + index) % images.length] ?? images[0]!,
+      mediaType,
+      view,
+    }))
   }
-  return null
+  return []
 }
 
 function hash(value: string): number {

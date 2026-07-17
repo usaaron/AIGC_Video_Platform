@@ -37,4 +37,20 @@ describe('api client', () => {
       message: '邮箱或密码错误',
     })
   })
+
+  it('uploads media as multipart data without overriding its content type', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: 'media-1', url: '/api/v1/media/media-1' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.uploadMedia('project-1', new File(['image'], 'reference.png', { type: 'image/png' }))
+
+    const options = fetchMock.mock.calls[0][1]
+    expect(options.body).toBeInstanceOf(FormData)
+    expect(options.headers).not.toHaveProperty('Content-Type')
+  })
 })

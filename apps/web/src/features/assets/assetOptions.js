@@ -1,0 +1,263 @@
+export const ASSET_TABS = [
+  ['character', '人物'],
+  ['scene', '场景'],
+  ['prop', '物品'],
+  ['costume', '服装'],
+  ['audio', '音频'],
+]
+
+export const VISUAL_STYLES = [
+  ['photorealistic', '仿真人'],
+  ['cinematic-cg', '影视 CG'],
+  ['chinese-3d', '3D 国漫'],
+  ['chinese-2d', '2D 国漫'],
+  ['anime', '日漫'],
+  ['storybook', '绘本'],
+]
+
+export const DEFAULT_ATTRIBUTES = {
+  character: {
+    type: 'character',
+    subjectType: 'human',
+    gender: 'female',
+    ageGroup: 'young',
+    exactAge: null,
+    species: '',
+    anthropomorphic: false,
+    visualStyle: 'cinematic-cg',
+    framing: 'full',
+    bodyType: 'balanced',
+    background: 'solid',
+    legStretch: false,
+    turnaround: false,
+  },
+  scene: {
+    type: 'scene',
+    space: 'exterior',
+    sceneType: 'street',
+    era: 'modern',
+    time: 'night',
+    weather: 'clear',
+    mood: 'mystery',
+    camera: 'wide',
+    visualStyle: 'cinematic-cg',
+    emptyScene: true,
+    activitySpace: true,
+  },
+  prop: {
+    type: 'prop',
+    category: 'daily',
+    material: 'mixed',
+    condition: 'used',
+    view: 'front',
+    background: 'solid',
+    visualStyle: 'cinematic-cg',
+  },
+  costume: {
+    type: 'costume',
+    audience: 'unisex',
+    category: 'daily',
+    season: 'all-season',
+    design: 'minimal',
+    presentation: 'flat',
+    visualStyle: 'cinematic-cg',
+    turnaround: false,
+  },
+  audio: {
+    type: 'audio',
+    audioType: 'ambience',
+    gender: 'unspecified',
+    ageGroup: 'young',
+    emotion: 'neutral',
+    tone: 'warm',
+    speed: 'normal',
+    language: 'mandarin',
+    duration: 15,
+    loop: false,
+  },
+}
+
+export const OPTIONS = {
+  subjectType: [
+    ['human', '真人'],
+    ['animal', '动物'],
+  ],
+  gender: [
+    ['male', '男'],
+    ['female', '女'],
+    ['unspecified', '不限'],
+  ],
+  ageGroup: [
+    ['child', '儿童'],
+    ['teen', '少年'],
+    ['young', '青年'],
+    ['middle', '中年'],
+    ['senior', '老年'],
+  ],
+  framing: [
+    ['portrait', '头像'],
+    ['half', '半身'],
+    ['full', '全身'],
+  ],
+  bodyType: [
+    ['slim', '纤细'],
+    ['balanced', '匀称'],
+    ['athletic', '健壮'],
+    ['full', '丰满'],
+  ],
+  background: [
+    ['solid', '纯色'],
+    ['transparent', '透明'],
+    ['environment', '环境'],
+  ],
+  space: [
+    ['interior', '室内'],
+    ['exterior', '室外'],
+  ],
+  sceneType: [
+    ['city', '城市'],
+    ['street', '街道'],
+    ['residential', '住宅'],
+    ['commercial', '商业'],
+    ['nature', '自然'],
+    ['ancient', '古建筑'],
+    ['industrial', '工业'],
+    ['fantasy', '幻想'],
+  ],
+  era: [
+    ['ancient', '古代'],
+    ['recent', '近代'],
+    ['modern', '现代'],
+    ['future', '未来'],
+  ],
+  time: [
+    ['dawn', '清晨'],
+    ['day', '白天'],
+    ['sunset', '黄昏'],
+    ['night', '夜晚'],
+  ],
+  weather: [
+    ['clear', '晴'],
+    ['cloudy', '阴'],
+    ['rain', '雨'],
+    ['snow', '雪'],
+    ['fog', '雾'],
+  ],
+  mood: [
+    ['warm', '温馨'],
+    ['tense', '压抑'],
+    ['mystery', '悬疑'],
+    ['romantic', '浪漫'],
+    ['epic', '宏大'],
+    ['desolate', '荒凉'],
+  ],
+  camera: [
+    ['eye-level', '平视'],
+    ['overhead', '俯视'],
+    ['low-angle', '仰视'],
+    ['aerial', '航拍'],
+    ['wide', '广角'],
+  ],
+  propCategory: [
+    ['weapon', '武器'],
+    ['vehicle', '交通'],
+    ['furniture', '家具'],
+    ['electronics', '电子'],
+    ['jewelry', '首饰'],
+    ['food', '食物'],
+    ['daily', '日用品'],
+    ['other', '其他'],
+  ],
+  material: [
+    ['wood', '木材'],
+    ['metal', '金属'],
+    ['glass', '玻璃'],
+    ['fabric', '布料'],
+    ['leather', '皮革'],
+    ['ceramic', '陶瓷'],
+    ['mixed', '混合'],
+  ],
+  condition: [
+    ['new', '全新'],
+    ['used', '使用中'],
+    ['aged', '陈旧'],
+    ['damaged', '破损'],
+  ],
+  view: [
+    ['front', '正面'],
+    ['side', '侧面'],
+    ['turnaround', '三视图'],
+  ],
+  audience: [
+    ['male', '男装'],
+    ['female', '女装'],
+    ['unisex', '中性'],
+  ],
+  costumeCategory: [
+    ['daily', '日常'],
+    ['formal', '正式'],
+    ['professional', '职业'],
+    ['uniform', '制服'],
+    ['ancient', '古装'],
+    ['ceremonial', '礼服'],
+    ['fantasy', '奇幻'],
+    ['armor', '战甲'],
+  ],
+  season: [
+    ['spring-summer', '春夏'],
+    ['autumn-winter', '秋冬'],
+    ['all-season', '四季'],
+  ],
+  design: [
+    ['minimal', '简约'],
+    ['luxury', '华丽'],
+    ['retro', '复古'],
+    ['future', '未来'],
+    ['chinese', '国风'],
+  ],
+  presentation: [
+    ['flat', '平铺'],
+    ['model', '模特'],
+    ['worn', '人物穿着'],
+  ],
+  audioType: [
+    ['voice', '配音'],
+    ['ambience', '环境音'],
+    ['sfx', '音效'],
+    ['music', '音乐'],
+  ],
+  emotion: [
+    ['neutral', '平静'],
+    ['happy', '开心'],
+    ['sad', '悲伤'],
+    ['angry', '愤怒'],
+    ['tense', '紧张'],
+    ['warm', '温暖'],
+  ],
+  tone: [
+    ['bright', '明亮'],
+    ['warm', '温和'],
+    ['deep', '低沉'],
+    ['cold', '冷峻'],
+  ],
+  speed: [
+    ['slow', '慢'],
+    ['normal', '正常'],
+    ['fast', '快'],
+  ],
+  language: [
+    ['mandarin', '普通话'],
+    ['dialect', '方言'],
+    ['english', '英语'],
+    ['none', '无语言'],
+  ],
+}
+
+export function createDefaultAttributes(kind) {
+  return structuredClone(DEFAULT_ATTRIBUTES[kind])
+}
+
+export function optionLabel(key, value) {
+  const options = key === 'visualStyle' ? VISUAL_STYLES : OPTIONS[key] || []
+  return options.find(([id]) => id === value)?.[1] || value
+}

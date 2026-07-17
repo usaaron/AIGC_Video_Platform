@@ -101,16 +101,23 @@ function App() {
     await refreshSession()
   }
 
-  const createJob = async (label, type = '图片', cost = 6, metadata) => {
+  const createJob = async (label, type = '图片', cost = 6, options = {}) => {
     if (!project) return
     try {
+      const kind = kindByType[type] || 'image'
+      const provider =
+        kind === 'image' ? 'img2' : kind === 'video' ? 'seedance' : kind === 'audio' ? 'audio' : 'local'
       await api.createTask({
         clientRequestId: crypto.randomUUID(),
         projectId: project.id,
-        kind: kindByType[type] || 'image',
+        kind,
         label,
+        prompt: options.prompt,
+        negativePrompt: options.negativePrompt,
+        provider,
+        model: kind === 'video' ? 'seedance-2.0' : kind === 'image' ? 'img2-default' : undefined,
         estimatedCredits: cost,
-        metadata,
+        metadata: options.metadata,
       })
       setTasks(await api.tasks(project.id))
       await refreshBilling()
@@ -182,6 +189,7 @@ function App() {
       ),
       assets: (
         <AssetsPage
+          project={project}
           assets={workspace.assets}
           billing={billing}
           onCreate={async (input) => {
@@ -199,16 +207,38 @@ function App() {
             await refreshWorkspace()
             setToast('资产已删除')
           }}
+          onUpload={(file) => api.uploadMedia(project.id, file)}
           onGenerate={(asset) =>
-            createJob(`${asset.name} · 重新生成`, asset.kind === 'sound' ? '音频' : '图片', 6, {
-              assetId: asset.id,
+            createJob(`${asset.name} · 重新生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
+              prompt: asset.prompt,
+              negativePrompt: asset.negativePrompt,
+              metadata: {
+                assetId: asset.id,
+                assetKind: asset.kind,
+                aspectRatio: project.aspectRatio,
+                sourceMode: asset.sourceMode,
+                references: asset.references,
+                attributes: asset.attributes,
+                turnaround: asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
+              },
             })
           }
-          onGenerateAll={() =>
-            workspace.assets.forEach(
+          onGenerateAll={(selectedAssets) =>
+            selectedAssets.forEach(
               (asset) =>
-                void createJob(`${asset.name} · 资产生成`, asset.kind === 'sound' ? '音频' : '图片', 6, {
-                  assetId: asset.id,
+                void createJob(`${asset.name} · 资产生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
+                  prompt: asset.prompt,
+                  negativePrompt: asset.negativePrompt,
+                  metadata: {
+                    assetId: asset.id,
+                    assetKind: asset.kind,
+                    aspectRatio: project.aspectRatio,
+                    sourceMode: asset.sourceMode,
+                    references: asset.references,
+                    attributes: asset.attributes,
+                    turnaround:
+                      asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
+                  },
                 }),
             )
           }

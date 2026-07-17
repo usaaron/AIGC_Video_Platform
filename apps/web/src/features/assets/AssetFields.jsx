@@ -1,0 +1,359 @@
+import { Check } from 'lucide-react'
+import { OPTIONS, VISUAL_STYLES } from './assetOptions'
+
+export function AssetFields({ attributes, onChange }) {
+  const update = (key, value) => onChange({ ...attributes, [key]: value })
+
+  return (
+    <div className="asset-fields">
+      {attributes.type === 'character' && <CharacterFields value={attributes} update={update} />}
+      {attributes.type === 'scene' && <SceneFields value={attributes} update={update} />}
+      {attributes.type === 'prop' && <PropFields value={attributes} update={update} />}
+      {attributes.type === 'costume' && <CostumeFields value={attributes} update={update} />}
+      {attributes.type === 'audio' && <AudioFields value={attributes} update={update} />}
+    </div>
+  )
+}
+
+function CharacterFields({ value, update }) {
+  return (
+    <>
+      <ChoiceField
+        label="角色类型"
+        value={value.subjectType}
+        options={OPTIONS.subjectType}
+        onChange={(next) => update('subjectType', next)}
+      />
+      <ChoiceField
+        label="性别"
+        value={value.gender}
+        options={OPTIONS.gender}
+        onChange={(next) => update('gender', next)}
+      />
+      <ChoiceField
+        label="年龄段"
+        value={value.ageGroup}
+        options={OPTIONS.ageGroup}
+        onChange={(next) => update('ageGroup', next)}
+      />
+      <div className="asset-inline-fields">
+        <label>
+          <span>具体年龄（可选）</span>
+          <input
+            type="number"
+            min="1"
+            max="120"
+            value={value.exactAge ?? ''}
+            onChange={(event) => update('exactAge', event.target.value ? Number(event.target.value) : null)}
+          />
+        </label>
+        {value.subjectType === 'animal' && (
+          <label>
+            <span>动物物种</span>
+            <input
+              value={value.species}
+              placeholder="例如：橘猫、白马"
+              onChange={(event) => update('species', event.target.value)}
+            />
+          </label>
+        )}
+      </div>
+      {value.subjectType === 'animal' && (
+        <ToggleField
+          label="拟人化表现"
+          description="保留物种特征，增加人物姿态和服装表现"
+          checked={value.anthropomorphic}
+          onChange={(next) => update('anthropomorphic', next)}
+        />
+      )}
+      <VisualStyle value={value.visualStyle} onChange={(next) => update('visualStyle', next)} />
+      <ChoiceField
+        label="景别"
+        value={value.framing}
+        options={OPTIONS.framing}
+        onChange={(next) => update('framing', next)}
+      />
+      <ChoiceField
+        label="体型"
+        value={value.bodyType}
+        options={OPTIONS.bodyType}
+        onChange={(next) => update('bodyType', next)}
+      />
+      <ChoiceField
+        label="背景"
+        value={value.background}
+        options={OPTIONS.background}
+        onChange={(next) => update('background', next)}
+      />
+      <div className="asset-toggle-grid">
+        <ToggleField
+          label="适度拉长腿部"
+          description="通过 Img2 提示词优化，不直接拉伸像素"
+          checked={value.legStretch}
+          onChange={(next) => update('legStretch', next)}
+        />
+        <ToggleField
+          label="创建三视图"
+          description="生成正面、侧面和背面三张独立图片"
+          checked={value.turnaround}
+          onChange={(next) => update('turnaround', next)}
+        />
+      </div>
+    </>
+  )
+}
+
+function SceneFields({ value, update }) {
+  return (
+    <>
+      <ChoiceField
+        label="空间"
+        value={value.space}
+        options={OPTIONS.space}
+        onChange={(next) => update('space', next)}
+      />
+      <ChoiceField
+        label="场景类型"
+        value={value.sceneType}
+        options={OPTIONS.sceneType}
+        onChange={(next) => update('sceneType', next)}
+      />
+      <ChoiceField
+        label="年代"
+        value={value.era}
+        options={OPTIONS.era}
+        onChange={(next) => update('era', next)}
+      />
+      <ChoiceField
+        label="时间"
+        value={value.time}
+        options={OPTIONS.time}
+        onChange={(next) => update('time', next)}
+      />
+      <ChoiceField
+        label="天气"
+        value={value.weather}
+        options={OPTIONS.weather}
+        onChange={(next) => update('weather', next)}
+      />
+      <ChoiceField
+        label="氛围"
+        value={value.mood}
+        options={OPTIONS.mood}
+        onChange={(next) => update('mood', next)}
+      />
+      <ChoiceField
+        label="镜头"
+        value={value.camera}
+        options={OPTIONS.camera}
+        onChange={(next) => update('camera', next)}
+      />
+      <VisualStyle value={value.visualStyle} onChange={(next) => update('visualStyle', next)} />
+      <div className="asset-toggle-grid">
+        <ToggleField
+          label="空场景"
+          description="画面中不生成人物"
+          checked={value.emptyScene}
+          onChange={(next) => update('emptyScene', next)}
+        />
+        <ToggleField
+          label="预留表演区域"
+          description="为人物走位和镜头运动保留空间"
+          checked={value.activitySpace}
+          onChange={(next) => update('activitySpace', next)}
+        />
+      </div>
+    </>
+  )
+}
+
+function PropFields({ value, update }) {
+  return (
+    <>
+      <ChoiceField
+        label="物品类型"
+        value={value.category}
+        options={OPTIONS.propCategory}
+        onChange={(next) => update('category', next)}
+      />
+      <ChoiceField
+        label="主要材质"
+        value={value.material}
+        options={OPTIONS.material}
+        onChange={(next) => update('material', next)}
+      />
+      <ChoiceField
+        label="使用状态"
+        value={value.condition}
+        options={OPTIONS.condition}
+        onChange={(next) => update('condition', next)}
+      />
+      <ChoiceField
+        label="展示角度"
+        value={value.view}
+        options={OPTIONS.view}
+        onChange={(next) => update('view', next)}
+      />
+      <ChoiceField
+        label="背景"
+        value={value.background}
+        options={OPTIONS.background}
+        onChange={(next) => update('background', next)}
+      />
+      <VisualStyle value={value.visualStyle} onChange={(next) => update('visualStyle', next)} />
+    </>
+  )
+}
+
+function CostumeFields({ value, update }) {
+  return (
+    <>
+      <ChoiceField
+        label="适用对象"
+        value={value.audience}
+        options={OPTIONS.audience}
+        onChange={(next) => update('audience', next)}
+      />
+      <ChoiceField
+        label="服装类型"
+        value={value.category}
+        options={OPTIONS.costumeCategory}
+        onChange={(next) => update('category', next)}
+      />
+      <ChoiceField
+        label="季节"
+        value={value.season}
+        options={OPTIONS.season}
+        onChange={(next) => update('season', next)}
+      />
+      <ChoiceField
+        label="设计方向"
+        value={value.design}
+        options={OPTIONS.design}
+        onChange={(next) => update('design', next)}
+      />
+      <ChoiceField
+        label="展示方式"
+        value={value.presentation}
+        options={OPTIONS.presentation}
+        onChange={(next) => update('presentation', next)}
+      />
+      <VisualStyle value={value.visualStyle} onChange={(next) => update('visualStyle', next)} />
+      <ToggleField
+        label="服装三视图"
+        description="生成正面、背面和细节三张独立图片"
+        checked={value.turnaround}
+        onChange={(next) => update('turnaround', next)}
+      />
+    </>
+  )
+}
+
+function AudioFields({ value, update }) {
+  return (
+    <>
+      <ChoiceField
+        label="音频类型"
+        value={value.audioType}
+        options={OPTIONS.audioType}
+        onChange={(next) => update('audioType', next)}
+      />
+      {value.audioType === 'voice' && (
+        <>
+          <ChoiceField
+            label="声音性别"
+            value={value.gender}
+            options={OPTIONS.gender}
+            onChange={(next) => update('gender', next)}
+          />
+          <ChoiceField
+            label="年龄段"
+            value={value.ageGroup}
+            options={OPTIONS.ageGroup}
+            onChange={(next) => update('ageGroup', next)}
+          />
+        </>
+      )}
+      <ChoiceField
+        label="情绪"
+        value={value.emotion}
+        options={OPTIONS.emotion}
+        onChange={(next) => update('emotion', next)}
+      />
+      <ChoiceField
+        label="音色"
+        value={value.tone}
+        options={OPTIONS.tone}
+        onChange={(next) => update('tone', next)}
+      />
+      <ChoiceField
+        label="速度"
+        value={value.speed}
+        options={OPTIONS.speed}
+        onChange={(next) => update('speed', next)}
+      />
+      <ChoiceField
+        label="语言"
+        value={value.language}
+        options={OPTIONS.language}
+        onChange={(next) => update('language', next)}
+      />
+      <div className="asset-inline-fields">
+        <label>
+          <span>时长（秒）</span>
+          <input
+            type="number"
+            min="1"
+            max="300"
+            value={value.duration}
+            onChange={(event) => update('duration', Number(event.target.value) || 1)}
+          />
+        </label>
+      </div>
+      <ToggleField
+        label="无缝循环"
+        description="适合环境音和持续音效"
+        checked={value.loop}
+        onChange={(next) => update('loop', next)}
+      />
+    </>
+  )
+}
+
+function VisualStyle({ value, onChange }) {
+  return <ChoiceField label="视觉风格" value={value} options={VISUAL_STYLES} onChange={onChange} />
+}
+
+function ChoiceField({ label, value, options, onChange }) {
+  return (
+    <fieldset className="asset-choice-field">
+      <legend>{label}</legend>
+      <div>
+        {options.map(([id, text]) => (
+          <button
+            type="button"
+            className={value === id ? 'active' : ''}
+            aria-pressed={value === id}
+            key={id}
+            onClick={() => onChange(id)}
+          >
+            {text}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
+function ToggleField({ label, description, checked, onChange }) {
+  return (
+    <label className={`asset-toggle ${checked ? 'active' : ''}`}>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span className="asset-toggle-check">{checked && <Check size={13} />}</span>
+      <span>
+        <strong>{label}</strong>
+        <small>{description}</small>
+      </span>
+    </label>
+  )
+}

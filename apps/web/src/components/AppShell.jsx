@@ -24,7 +24,7 @@ import { IconButton, StatusDot } from './ui'
 const STEPS = [
   { id: 'overview', label: '项目概览', icon: LayoutDashboard },
   { id: 'script', label: '剧本', icon: BookOpenText },
-  { id: 'assets', label: '角色资产', icon: UsersRound },
+  { id: 'assets', label: '资产设计', icon: UsersRound },
   { id: 'storyboard', label: '分镜', icon: Layers3 },
   { id: 'generate', label: '生成队列', icon: WandSparkles },
   { id: 'film', label: '成片', icon: Clapperboard },

@@ -1,7 +1,114 @@
 import { z } from 'zod'
 
 export const projectStatusSchema = z.enum(['draft', 'producing', 'completed', 'archived'])
-export const assetKindSchema = z.enum(['character', 'scene', 'sound', 'prop'])
+export const assetKindSchema = z.enum(['character', 'scene', 'prop', 'costume', 'audio'])
+export const assetSourceSchema = z.enum(['import', 'generate'])
+export const promptModeSchema = z.enum(['standard', 'advanced'])
+export const customPromptModeSchema = z.enum(['append', 'replace'])
+export const visualStyleSchema = z.enum([
+  'photorealistic',
+  'cinematic-cg',
+  'chinese-3d',
+  'chinese-2d',
+  'anime',
+  'storybook',
+])
+
+export const mediaReferenceSchema = z.object({
+  id: z.string().min(1).max(128),
+  url: z.string().min(1).max(2_000),
+  name: z.string().min(1).max(255),
+})
+
+export const characterAttributesSchema = z.object({
+  type: z.literal('character'),
+  subjectType: z.enum(['human', 'animal']),
+  gender: z.enum(['male', 'female', 'unspecified']),
+  ageGroup: z.enum(['child', 'teen', 'young', 'middle', 'senior']),
+  exactAge: z.number().int().min(1).max(120).nullable(),
+  species: z.string().max(80),
+  anthropomorphic: z.boolean(),
+  visualStyle: visualStyleSchema,
+  framing: z.enum(['portrait', 'half', 'full']),
+  bodyType: z.enum(['slim', 'balanced', 'athletic', 'full']),
+  background: z.enum(['solid', 'transparent', 'environment']),
+  legStretch: z.boolean(),
+  turnaround: z.boolean(),
+})
+
+export const sceneAttributesSchema = z.object({
+  type: z.literal('scene'),
+  space: z.enum(['interior', 'exterior']),
+  sceneType: z.enum([
+    'city',
+    'street',
+    'residential',
+    'commercial',
+    'nature',
+    'ancient',
+    'industrial',
+    'fantasy',
+  ]),
+  era: z.enum(['ancient', 'recent', 'modern', 'future']),
+  time: z.enum(['dawn', 'day', 'sunset', 'night']),
+  weather: z.enum(['clear', 'cloudy', 'rain', 'snow', 'fog']),
+  mood: z.enum(['warm', 'tense', 'mystery', 'romantic', 'epic', 'desolate']),
+  camera: z.enum(['eye-level', 'overhead', 'low-angle', 'aerial', 'wide']),
+  visualStyle: visualStyleSchema,
+  emptyScene: z.boolean(),
+  activitySpace: z.boolean(),
+})
+
+export const propAttributesSchema = z.object({
+  type: z.literal('prop'),
+  category: z.enum(['weapon', 'vehicle', 'furniture', 'electronics', 'jewelry', 'food', 'daily', 'other']),
+  material: z.enum(['wood', 'metal', 'glass', 'fabric', 'leather', 'ceramic', 'mixed']),
+  condition: z.enum(['new', 'used', 'aged', 'damaged']),
+  view: z.enum(['front', 'side', 'turnaround']),
+  background: z.enum(['solid', 'transparent', 'environment']),
+  visualStyle: visualStyleSchema,
+})
+
+export const costumeAttributesSchema = z.object({
+  type: z.literal('costume'),
+  audience: z.enum(['male', 'female', 'unisex']),
+  category: z.enum([
+    'daily',
+    'formal',
+    'professional',
+    'uniform',
+    'ancient',
+    'ceremonial',
+    'fantasy',
+    'armor',
+  ]),
+  season: z.enum(['spring-summer', 'autumn-winter', 'all-season']),
+  design: z.enum(['minimal', 'luxury', 'retro', 'future', 'chinese']),
+  presentation: z.enum(['flat', 'model', 'worn']),
+  visualStyle: visualStyleSchema,
+  turnaround: z.boolean(),
+})
+
+export const audioAttributesSchema = z.object({
+  type: z.literal('audio'),
+  audioType: z.enum(['voice', 'ambience', 'sfx', 'music']),
+  gender: z.enum(['male', 'female', 'unspecified']),
+  ageGroup: z.enum(['child', 'teen', 'young', 'middle', 'senior']),
+  emotion: z.enum(['neutral', 'happy', 'sad', 'angry', 'tense', 'warm']),
+  tone: z.enum(['bright', 'warm', 'deep', 'cold']),
+  speed: z.enum(['slow', 'normal', 'fast']),
+  language: z.enum(['mandarin', 'dialect', 'english', 'none']),
+  duration: z.number().int().min(1).max(300),
+  loop: z.boolean(),
+})
+
+export const assetAttributesSchema = z.discriminatedUnion('type', [
+  characterAttributesSchema,
+  sceneAttributesSchema,
+  propAttributesSchema,
+  costumeAttributesSchema,
+  audioAttributesSchema,
+])
 
 export const projectSchema = z.object({
   id: z.string().min(1),
@@ -38,24 +145,55 @@ export const assetSchema = z.object({
   projectId: z.string().min(1),
   tenantId: z.string().min(1),
   kind: assetKindSchema,
+  sourceMode: assetSourceSchema,
   name: z.string().min(1).max(120),
   description: z.string().max(500),
   prompt: z.string().max(5_000),
+  promptMode: promptModeSchema,
+  customPromptMode: customPromptModeSchema,
+  customPrompt: z.string().max(5_000),
+  negativePrompt: z.string().max(2_000),
+  references: z.array(mediaReferenceSchema).max(3),
+  attributes: assetAttributesSchema,
   imageUrl: z.string().max(2_000).nullable(),
   status: z.enum(['draft', 'confirmed']),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
 
-export const createAssetSchema = z.object({
+const assetInputSchema = z.object({
   kind: assetKindSchema,
+  sourceMode: assetSourceSchema,
   name: z.string().trim().min(1).max(120),
   description: z.string().max(500).default(''),
   prompt: z.string().max(5_000).default(''),
+  promptMode: promptModeSchema.default('standard'),
+  customPromptMode: customPromptModeSchema.default('append'),
+  customPrompt: z.string().max(5_000).default(''),
+  negativePrompt: z.string().max(2_000).default(''),
+  references: z.array(mediaReferenceSchema).max(3).default([]),
+  attributes: assetAttributesSchema,
   imageUrl: z.string().max(2_000).nullable().default(null),
 })
 
-export const updateAssetSchema = createAssetSchema
+export const createAssetSchema = assetInputSchema.superRefine((input, context) => {
+  if (input.kind !== input.attributes.type) {
+    context.addIssue({
+      code: 'custom',
+      path: ['attributes', 'type'],
+      message: 'Asset kind must match attributes',
+    })
+  }
+  if (input.sourceMode === 'import' && input.references.length === 0 && !input.imageUrl) {
+    context.addIssue({
+      code: 'custom',
+      path: ['references'],
+      message: 'Imported assets require a reference',
+    })
+  }
+})
+
+export const updateAssetSchema = assetInputSchema
   .omit({ kind: true })
   .partial()
   .extend({ status: z.enum(['draft', 'confirmed']).optional() })

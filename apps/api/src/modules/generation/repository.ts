@@ -26,12 +26,18 @@ export class GenerationTaskRepository {
       userId: principal.userId,
       kind: input.kind,
       label: input.label,
+      prompt: input.prompt ?? '',
+      negativePrompt: input.negativePrompt ?? '',
+      provider: input.provider,
+      model: input.model ?? null,
+      metadata: input.metadata ?? {},
       status: 'queued',
       progress: 0,
       estimatedCredits: input.estimatedCredits,
       createdAt: now,
       updatedAt: now,
       resultUrl: null,
+      outputs: [],
       error: null,
     }
     return this.store.mutate((state) => {

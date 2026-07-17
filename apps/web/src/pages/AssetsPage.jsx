@@ -1,33 +1,33 @@
-import { useState } from 'react'
 import {
   ArrowRight,
   BadgeCheck,
-  Check,
+  Boxes,
   Gauge,
   Music2,
   Pencil,
   Plus,
   RefreshCw,
   Search,
+  Shirt,
   Sparkles,
-  Trash2,
-  X,
+  UsersRound,
 } from 'lucide-react'
+import { useState } from 'react'
 import { IconButton, PageHeader } from '../components/ui'
+import { AssetEditor } from '../features/assets/AssetEditor'
+import { ASSET_TABS } from '../features/assets/assetOptions'
+import { summarizeAsset } from '../features/assets/promptCompiler'
 
-const tabs = [
-  ['character', '人物'],
-  ['scene', '场景'],
-  ['sound', '声音'],
-  ['prop', '道具'],
-]
+const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, audio: Music2 }
 
 export function AssetsPage({
+  project,
   assets,
   billing,
   onCreate,
   onUpdate,
   onDelete,
+  onUpload,
   onGenerate,
   onGenerateAll,
   onNext,
@@ -38,25 +38,30 @@ export function AssetsPage({
   const filtered = assets.filter(
     (asset) => asset.kind === tab && asset.name.toLowerCase().includes(search.toLowerCase()),
   )
+  const tabLabel = ASSET_TABS.find(([kind]) => kind === tab)?.[1]
 
   return (
-    <div className="page">
+    <div className="page assets-page">
       <PageHeader
         eyebrow="第 2 步 · 资产"
-        title="让角色与世界保持一致"
-        description="人物、场景、声音和道具都归入项目资产库。"
+        title="建立可复用的视觉资产"
+        description="人物、场景、物品、服装和音频分别管理，并保持同一项目风格一致。"
       >
+        <span className="inherited-ratio">
+          项目比例 <strong>{project.aspectRatio}</strong>
+        </span>
         <button className="button secondary" onClick={() => setEditing({ kind: tab })}>
-          <Plus size={16} /> 添加资产
+          <Plus size={16} /> 添加{tabLabel}
         </button>
-        {billing.plan === 'member' && (
-          <button className="button primary" onClick={onGenerateAll}>
-            <Sparkles size={16} /> 全部并发生成
+        {billing.plan === 'member' && filtered.length > 0 && (
+          <button className="button primary" onClick={() => onGenerateAll(filtered)}>
+            <Sparkles size={16} /> 当前分类并发生成
           </button>
         )}
       </PageHeader>
-      <div className="asset-tabs">
-        {tabs.map(([kind, label]) => (
+
+      <div className="asset-tabs asset-tabs-five">
+        {ASSET_TABS.map(([kind, label]) => (
           <button key={kind} className={tab === kind ? 'active' : ''} onClick={() => setTab(kind)}>
             {label} <span>{assets.filter((asset) => asset.kind === kind).length}</span>
           </button>
@@ -68,64 +73,48 @@ export function AssetsPage({
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="搜索当前分类"
+            placeholder={`搜索${tabLabel}`}
           />
         </div>
         <div className="generation-note">
-          <Gauge size={15} />{' '}
+          <Gauge size={15} />
           {billing.plan === 'member' ? '会员模式：最多同时生成 3 项' : '免费模式：任务按顺序逐个生成'}
         </div>
       </div>
+
       <div className="asset-grid">
         {filtered.map((asset) => (
-          <article className="asset-card" key={asset.id}>
-            <div className={`asset-image ${asset.kind === 'sound' ? 'sound-asset' : ''}`}>
-              {asset.imageUrl ? <img src={asset.imageUrl} alt={asset.name} /> : <Music2 size={42} />}
-              <span>{asset.status === 'confirmed' ? '已确认' : '草稿'}</span>
-              <IconButton label="编辑资产" onClick={() => setEditing(asset)}>
-                <Pencil size={17} />
-              </IconButton>
-            </div>
-            <div className="asset-body">
-              <div className="asset-title">
-                <div>
-                  <h3>{asset.name}</h3>
-                  <p>{asset.description}</p>
-                </div>
-                <span className="asset-check">
-                  <Check size={13} />
-                </span>
-              </div>
-              <label>生成提示词</label>
-              <p className="prompt-text">{asset.prompt || '尚未填写提示词'}</p>
-              <div className="asset-actions">
-                <button onClick={() => onGenerate(asset)}>
-                  <RefreshCw size={14} /> 生成新版本
-                </button>
-                <button onClick={() => setEditing(asset)}>编辑</button>
-              </div>
-            </div>
-          </article>
+          <AssetCard
+            asset={asset}
+            key={asset.id}
+            onEdit={() => setEditing(asset)}
+            onGenerate={() => onGenerate(asset)}
+          />
         ))}
         <button className="add-asset" onClick={() => setEditing({ kind: tab })}>
           <span>
             <Plus size={21} />
           </span>
-          <strong>添加{tabs.find(([kind]) => kind === tab)?.[1]}</strong>
-          <small>填写信息后保存到项目</small>
+          <strong>添加{tabLabel}</strong>
+          <small>本地导入或使用 AI 生成</small>
         </button>
       </div>
+
       <div className="sticky-actions">
         <span>
-          <BadgeCheck size={15} /> 当前项目共 {assets.length} 项资产。
+          <BadgeCheck size={15} />
+          当前项目共 {assets.length} 项资产
         </span>
         <button className="button primary" onClick={onNext}>
           进入分镜设计 <ArrowRight size={16} />
         </button>
       </div>
+
       {editing && (
         <AssetEditor
           asset={editing}
+          aspectRatio={project.aspectRatio}
+          onUpload={onUpload}
           onClose={() => setEditing(null)}
           onSave={async (input) => {
             if (editing.id) await onUpdate(editing.id, input)
@@ -146,83 +135,42 @@ export function AssetsPage({
   )
 }
 
-function AssetEditor({ asset, onClose, onSave, onDelete }) {
-  const [name, setName] = useState(asset.name || '')
-  const [description, setDescription] = useState(asset.description || '')
-  const [prompt, setPrompt] = useState(asset.prompt || '')
-  const [imageUrl, setImageUrl] = useState(asset.imageUrl || '')
-  const [status, setStatus] = useState(asset.status || 'draft')
-
+function AssetCard({ asset, onEdit, onGenerate }) {
+  const EmptyIcon = emptyIcons[asset.kind] || Sparkles
+  const tags = summarizeAsset(asset)
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <form
-        className="modal asset-editor"
-        onSubmit={(event) => {
-          event.preventDefault()
-          void onSave({
-            ...(asset.id ? {} : { kind: asset.kind }),
-            name,
-            description,
-            prompt,
-            imageUrl: imageUrl || null,
-            ...(asset.id ? { status } : {}),
-          })
-        }}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="modal-head">
+    <article className="asset-card">
+      <div className={`asset-image ${asset.kind === 'audio' ? 'sound-asset' : ''}`}>
+        {asset.imageUrl ? <img src={asset.imageUrl} alt={asset.name} /> : <EmptyIcon size={42} />}
+        <span>
+          {asset.sourceMode === 'import' ? '本地导入' : asset.status === 'confirmed' ? '已确认' : 'AI 资产'}
+        </span>
+        <IconButton label="编辑资产" onClick={onEdit}>
+          <Pencil size={17} />
+        </IconButton>
+      </div>
+      <div className="asset-body">
+        <div className="asset-title">
           <div>
-            <span className="eyebrow">{asset.id ? '编辑资产' : '新建资产'}</span>
-            <h2>{asset.id ? asset.name : '添加项目资产'}</h2>
+            <h3>{asset.name}</h3>
+            <p>{asset.description || '暂无补充说明'}</p>
           </div>
-          <IconButton label="关闭" type="button" onClick={onClose}>
-            <X size={20} />
-          </IconButton>
         </div>
-        <label className="field-label">名称</label>
-        <input
-          className="text-input"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          required
-        />
-        <label className="field-label">说明</label>
-        <input
-          className="text-input"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-        />
-        <label className="field-label">生成提示词</label>
-        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
-        <label className="field-label">预览图片 URL（声音可留空）</label>
-        <input
-          className="text-input"
-          value={imageUrl}
-          onChange={(event) => setImageUrl(event.target.value)}
-        />
-        {asset.id && (
-          <label className="field-label">
-            状态
-            <select value={status} onChange={(event) => setStatus(event.target.value)}>
-              <option value="draft">草稿</option>
-              <option value="confirmed">已确认</option>
-            </select>
-          </label>
-        )}
-        <div className="modal-actions">
-          {onDelete && (
-            <button className="button danger" type="button" onClick={onDelete}>
-              <Trash2 size={15} /> 删除
-            </button>
-          )}
-          <button className="button secondary" type="button" onClick={onClose}>
-            取消
-          </button>
-          <button className="button primary" type="submit">
-            保存资产
-          </button>
+        <div className="asset-meta-tags">
+          {tags.map((tag) => (
+            <span key={tag}>{tag}</span>
+          ))}
         </div>
-      </form>
-    </div>
+        <label>最终提示词</label>
+        <p className="prompt-text">{asset.prompt || '编辑资产后自动生成中文提示词'}</p>
+        <div className="asset-actions">
+          <button onClick={onGenerate}>
+            <RefreshCw size={14} />
+            生成新版本
+          </button>
+          <button onClick={onEdit}>编辑</button>
+        </div>
+      </div>
+    </article>
   )
 }

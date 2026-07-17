@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
+import { rm } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { buildApp } from './app.js'
 import type { AppConfig } from './config.js'
 
@@ -11,6 +13,10 @@ const testConfig: AppConfig = {
   AUTH_MODE: 'demo',
   AUTH_SECRET: 'test-secret-with-at-least-32-characters',
   DATA_FILE: ':memory:',
+  STORAGE_DRIVER: 'local',
+  UPLOAD_DIR: resolve('./data/test-uploads'),
+  GCS_BUCKET: '',
+  MAX_UPLOAD_BYTES: 10_485_760,
 }
 
 let app: FastifyInstance | undefined
@@ -18,6 +24,7 @@ let app: FastifyInstance | undefined
 afterEach(async () => {
   await app?.close()
   app = undefined
+  await rm(testConfig.UPLOAD_DIR, { recursive: true, force: true })
 })
 
 describe('API authorization', () => {
@@ -122,7 +129,26 @@ describe('local authentication', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/assets',
       headers,
-      payload: { kind: 'sound', name: '风声', description: '环境音', prompt: '夜晚风声', imageUrl: null },
+      payload: {
+        kind: 'audio',
+        sourceMode: 'generate',
+        name: '风声',
+        description: '环境音',
+        prompt: '夜晚风声',
+        imageUrl: null,
+        attributes: {
+          type: 'audio',
+          audioType: 'ambience',
+          gender: 'unspecified',
+          ageGroup: 'young',
+          emotion: 'neutral',
+          tone: 'warm',
+          speed: 'normal',
+          language: 'none',
+          duration: 15,
+          loop: true,
+        },
+      },
     })
     expect(asset.statusCode).toBe(201)
 
@@ -142,5 +168,38 @@ describe('local authentication', () => {
 
     const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(billing.json()).toMatchObject({ credits: 280 })
+  })
+
+  it('uploads and serves authenticated project media', async () => {
+    app = await buildApp({ config: { ...testConfig, AUTH_MODE: 'local' }, startWorker: false })
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+    })
+    const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
+    const cookie = `seqora_session=${sessionCookie?.value}`
+    const boundary = 'seqora-test-boundary'
+    const payload = Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="reference.png"\r\nContent-Type: image/png\r\n\r\n`,
+      ),
+      Buffer.from('demo-image-content'),
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ])
+
+    const upload = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/media',
+      headers: { cookie, 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload,
+    })
+
+    expect(upload.statusCode).toBe(201)
+    expect(upload.json()).toMatchObject({ kind: 'image', name: 'reference.png' })
+    const media = await app.inject({ method: 'GET', url: upload.json().url, headers: { cookie } })
+    expect(media.statusCode).toBe(200)
+    expect(media.headers['content-type']).toContain('image/png')
+    expect(media.body).toBe('demo-image-content')
   })
 })

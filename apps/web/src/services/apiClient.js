@@ -1,11 +1,12 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
 async function request(path, options = {}) {
+  const hasJsonBody = options.body && !(options.body instanceof FormData)
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
     ...options,
     headers: {
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(hasJsonBody ? { 'Content-Type': 'application/json' } : {}),
       ...options.headers,
     },
   })
@@ -23,6 +24,12 @@ async function request(path, options = {}) {
 
 const json = (method, body) => ({ method, body: JSON.stringify(body) })
 
+const upload = (file) => {
+  const body = new FormData()
+  body.append('file', file)
+  return { method: 'POST', body }
+}
+
 export const api = {
   login: (input) => request('/auth/login', json('POST', input)),
   logout: () => request('/auth/logout', { method: 'POST' }),
@@ -37,6 +44,7 @@ export const api = {
     request(`/projects/${projectId}/assets/${assetId}`, json('PATCH', input)),
   deleteAsset: (projectId, assetId) =>
     request(`/projects/${projectId}/assets/${assetId}`, { method: 'DELETE' }),
+  uploadMedia: (projectId, file) => request(`/projects/${projectId}/media`, upload(file)),
   createShot: (projectId, input) => request(`/projects/${projectId}/shots`, json('POST', input)),
   updateShot: (projectId, shotId, input) =>
     request(`/projects/${projectId}/shots/${shotId}`, json('PATCH', input)),

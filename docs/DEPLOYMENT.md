@@ -8,6 +8,8 @@
 
 Web 使用 `VITE_API_BASE_URL` 指向 API。API 使用 `WEB_ORIGIN` 限制跨域来源。生产中两者可以使用 `studio.example.com` 和 `api.example.com`。
 
+Demo 媒体存储可设置 `STORAGE_DRIVER=gcs` 和 `GCS_BUCKET`，凭据使用 Google ADC 或 `GOOGLE_APPLICATION_CREDENTIALS`。本地开发保持 `STORAGE_DRIVER=local`。迁移阿里云 OSS 时实现同一个 `ObjectStorage` 接口，禁止在业务模块直接调用云厂商 SDK。
+
 ## 生产前必须替换
 
 1. 使用 OIDC/JWT `AuthProvider`，禁止 Demo Header。

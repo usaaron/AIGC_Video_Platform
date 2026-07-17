@@ -1,5 +1,6 @@
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
+import multipart from '@fastify/multipart'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { resolve } from 'node:path'
 import type { AppConfig } from './config.js'
@@ -8,6 +9,7 @@ import { createAuthProvider } from './core/auth/provider.js'
 import { AppError } from './core/errors.js'
 import { LocalTaskRunner } from './core/jobs/taskDispatcher.js'
 import { AppStore } from './infra/store.js'
+import { createObjectStorage } from './infra/objectStorage.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
 import { registerAuthRoutes } from './modules/auth/routes.js'
 import { AuthService } from './modules/auth/service.js'
@@ -16,6 +18,9 @@ import { StoreCreditLedger } from './modules/billing/creditLedger.js'
 import { registerGenerationRoutes } from './modules/generation/routes.js'
 import { GenerationTaskRepository } from './modules/generation/repository.js'
 import { GenerationService } from './modules/generation/service.js'
+import { MediaRepository } from './modules/media/repository.js'
+import { registerMediaRoutes } from './modules/media/routes.js'
+import { MediaService } from './modules/media/service.js'
 import { registerProjectRoutes } from './modules/projects/routes.js'
 import { ProjectRepository } from './modules/projects/repository.js'
 import { ProjectService } from './modules/projects/service.js'
@@ -37,6 +42,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(cookie)
   await app.register(cors, { origin: options.config.WEB_ORIGIN, credentials: true })
+  await app.register(multipart, {
+    limits: { files: 1, fileSize: options.config.MAX_UPLOAD_BYTES, parts: 2 },
+  })
 
   const users = new UserRepository(store)
   const authService = new AuthService(users, options.config.AUTH_SECRET)
@@ -48,12 +56,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     taskRunner,
   )
   const projectService = new ProjectService(new ProjectRepository(store))
+  const mediaService = new MediaService(new MediaRepository(store), createObjectStorage(options.config))
 
   installAuth(app, createAuthProvider(options.config, users))
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {
       return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message } })
+    }
+    if ((error as { code?: string }).code === 'FST_REQ_FILE_TOO_LARGE') {
+      return reply.code(413).send({ error: { code: 'FILE_TOO_LARGE', message: '上传文件超过大小限制' } })
     }
     request.log.error(error)
     return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: '服务器内部错误' } })
@@ -64,6 +76,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     async (api) => {
       await registerAuthRoutes(api, authService, options.config.NODE_ENV === 'production')
       await registerProjectRoutes(api, projectService)
+      await registerMediaRoutes(api, mediaService, options.config.MAX_UPLOAD_BYTES)
       await registerGenerationRoutes(api, generationService)
       await registerBillingRoutes(api, creditLedger)
       await registerAdminRoutes(api, store)

@@ -9,6 +9,10 @@ const configSchema = z
     AUTH_MODE: z.enum(['local', 'demo', 'oidc']).default('local'),
     AUTH_SECRET: z.string().min(32).default('seqora-development-secret-change-me'),
     DATA_FILE: z.string().default('./data/app.json'),
+    STORAGE_DRIVER: z.enum(['local', 'gcs']).default('local'),
+    UPLOAD_DIR: z.string().default('./data/uploads'),
+    GCS_BUCKET: z.string().default(''),
+    MAX_UPLOAD_BYTES: z.coerce.number().int().min(1_048_576).max(52_428_800).default(10_485_760),
   })
   .superRefine((config, context) => {
     if (config.NODE_ENV === 'production' && config.AUTH_MODE === 'demo') {
@@ -24,6 +28,9 @@ const configSchema = z
         path: ['AUTH_SECRET'],
         message: 'A unique AUTH_SECRET is required in production',
       })
+    }
+    if (config.STORAGE_DRIVER === 'gcs' && !config.GCS_BUCKET) {
+      context.addIssue({ code: 'custom', path: ['GCS_BUCKET'], message: 'GCS_BUCKET is required' })
     }
   })
 

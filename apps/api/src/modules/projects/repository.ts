@@ -124,6 +124,7 @@ export class ProjectRepository {
       )
       const asset = state.assets.find((item) => item.id === assetId && item.projectId === projectId)
       if (!ownsProject || !asset) return null
+      if (input.attributes && input.attributes.type !== asset.kind) return null
       Object.assign(asset, input, { updatedAt: new Date().toISOString() })
       return asset
     })
