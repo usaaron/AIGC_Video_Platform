@@ -1,0 +1,7 @@
+{
+  "job_id": "job.manual_json_daily_v1",
+  "lookback_runs": 5,
+  "metadata": {
+    "purpose": "mvp_trend_review"
+  }
+}

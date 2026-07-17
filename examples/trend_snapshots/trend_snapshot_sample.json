@@ -1,0 +1,45 @@
+{
+  "id": "sample-trend-snapshot-id",
+  "job_id": "job.manual_json_daily_v1",
+  "platform_profile_id": "tiktok_v1",
+  "run_history_ids": [
+    "run-history-1",
+    "run-history-2"
+  ],
+  "lookback_runs": 2,
+  "successful_run_count": 1,
+  "skipped_run_count": 1,
+  "failed_run_count": 0,
+  "total_imported_records": 1,
+  "total_duplicate_skips": 1,
+  "average_preference_score": 0.734,
+  "average_commercial_score": 0.612,
+  "average_platform_fit_score": 0.84,
+  "top_mapped_tags": [
+    {
+      "ontology_node_id": "hook.fake_marriage",
+      "occurrences": 1,
+      "share_of_runs": 1.0
+    },
+    {
+      "ontology_node_id": "genre.drama",
+      "occurrences": 1,
+      "share_of_runs": 1.0
+    }
+  ],
+  "top_content_spec_tags": [
+    {
+      "ontology_node_id": "hook.fake_marriage",
+      "occurrences": 1,
+      "share_of_runs": 1.0
+    }
+  ],
+  "generated_at": "2026-07-09T10:00:05Z",
+  "metadata": {
+    "purpose": "mvp_trend_review"
+  },
+  "notes": [
+    "Trend snapshot is generated from ingestion run history, not direct raw scraping.",
+    "Current snapshot aggregates recent run outcomes and controlled tag signals."
+  ]
+}

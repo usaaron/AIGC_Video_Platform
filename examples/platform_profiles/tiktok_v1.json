@@ -1,0 +1,58 @@
+{
+  "id": "tiktok_v1",
+  "platform_name": "TikTok",
+  "version": "v1",
+  "content_mode": "short_video",
+  "primary_regions": ["US", "CA", "UK"],
+  "supported_aspect_ratios": ["9:16"],
+  "recommendation_rules": [
+    {
+      "code": "fast_hook",
+      "title": "Fast Hook",
+      "summary": "The opening moments should establish the emotional conflict quickly."
+    },
+    {
+      "code": "completion_bias",
+      "title": "Completion Bias",
+      "summary": "Episode structure should encourage strong watch-through and rewatch behavior."
+    }
+  ],
+  "creator_rewards": [
+    {
+      "code": "retention_signal",
+      "title": "Retention Signal",
+      "summary": "Higher retention and replay patterns can improve revenue potential."
+    }
+  ],
+  "ai_policies": [
+    {
+      "code": "ai_disclosure",
+      "title": "AI Disclosure",
+      "summary": "AI-assisted content should remain compatible with platform disclosure expectations."
+    }
+  ],
+  "community_guidelines": [
+    {
+      "code": "safety_compliance",
+      "title": "Safety Compliance",
+      "summary": "Content should avoid harmful, abusive, or otherwise prohibited framing."
+    }
+  ],
+  "best_practices": [
+    {
+      "code": "vertical_native",
+      "title": "Vertical Native",
+      "summary": "Creative should be optimized for native vertical viewing."
+    }
+  ],
+  "publishing_strategy": {
+    "recommended_posts_per_day": 3,
+    "preferred_time_windows": ["11:00-13:00", "18:00-21:00"],
+    "notes": [
+      "Test time windows with stable cadence before increasing output volume."
+    ]
+  },
+  "metadata": {
+    "source": "example_seed"
+  }
+}

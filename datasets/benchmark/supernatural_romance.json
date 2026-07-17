@@ -1,0 +1,48 @@
+{
+  "benchmark_id": "supernatural_romance",
+  "dataset_type": "benchmark",
+  "title": "Supernatural Romance",
+  "audience_hint": "US female 18-34 viewers who respond to forbidden supernatural romance reveals",
+  "commercial_objective": "Validate supernatural romance retention and cliffhanger demand",
+  "records": [
+    {
+      "source_name": "benchmark_dataset",
+      "source_item_id": "supernatural_romance_001",
+      "platform": "tiktok",
+      "source_url": "https://example.com/benchmark/supernatural-romance-001",
+      "title": "She fell for the vampire she was sent to betray",
+      "body_text": "A supernatural romance becomes revenge when betrayal exposes the vampire groom at the altar.",
+      "author_handle": "benchmark_creator",
+      "language": "en",
+      "region": "US",
+      "published_at": "2026-02-06T21:00:00Z",
+      "engagement": {
+        "view_count": 205000,
+        "like_count": 17900,
+        "comment_count": 1380,
+        "share_count": 960,
+        "save_count": 890,
+        "completion_rate": 0.68
+      },
+      "metadata": {
+        "hashtags": ["#supernaturalromance", "#vampire", "#betrayal", "#revenge"],
+        "comments": [
+          "The vampire reveal made me replay it immediately.",
+          "Forbidden supernatural romance with betrayal is always a hook."
+        ],
+        "manual_notes": ["Fixed benchmark for supernatural romance capability validation."]
+      }
+    }
+  ],
+  "expected_analysis": {
+    "topics": ["supernatural romance", "vampire romance", "betrayal fallout"],
+    "genre_tags": ["genre.romance", "genre.supernatural"],
+    "emotion_tags": ["emotion.revenge"],
+    "audience_signal": "US supernatural romance viewers",
+    "commercial_signal": "high sequel potential",
+    "preference_score_range": [0.56, 1.0],
+    "recommended_hook_type": "forbidden world reveal",
+    "recommended_cliffhanger_type": "public betrayal escalation"
+  },
+  "manual_notes": ["Do not modify without recording a benchmark decision."]
+}

@@ -1,0 +1,25 @@
+{
+  "platform_profile_id": "tiktok_v1",
+  "audience_hint": "TikTok viewers who respond to melodramatic romance twists",
+  "commercial_objective": "Find high-retention concepts with sequel potential",
+  "records": [
+    {
+      "source_name": "manual_json",
+      "source_item_id": "item_001",
+      "platform": "tiktok",
+      "title": "Revenge wedding drama",
+      "body_text": "A fake marriage turns into revenge when the bride exposes a betrayal.",
+      "author_handle": "creator_a",
+      "language": "en",
+      "region": "US",
+      "engagement": {
+        "view_count": 220000,
+        "like_count": 18000,
+        "comment_count": 1400,
+        "share_count": 950,
+        "save_count": 720,
+        "completion_rate": 0.68
+      }
+    }
+  ]
+}

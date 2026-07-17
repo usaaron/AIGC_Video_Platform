@@ -1,0 +1,41 @@
+{
+  "benchmark_id": "us_female_dark_romance",
+  "dataset_type": "benchmark",
+  "score_summary": {
+    "draft_script_score": 0.731,
+    "draft_story_qc_score": 0.695,
+    "revised_draft_script_score": 0.812,
+    "revised_story_qc_score": 0.795,
+    "final_script_score": 0.873,
+    "revision_script_gain": 0.081,
+    "revision_qc_gain": 0.1,
+    "final_gain_over_draft": 0.142,
+    "final_gain_over_revised_draft": 0.061
+  },
+  "revision_summary": {
+    "action_count": 2,
+    "applied_action_ids": [
+      "revision.draft.dialogue",
+      "revision.draft.cliffhanger"
+    ],
+    "dominant_target_types": [
+      "dialogue",
+      "cliffhanger"
+    ],
+    "improved": true,
+    "notes": [
+      "Placeholder revision pass improved or preserved the draft Story QC score.",
+      "Story QC score changed from 0.695 to 0.795."
+    ]
+  },
+  "highlights": {
+    "headline": "Benchmark 'us_female_dark_romance' revision stage improved the draft; final script score is 0.873.",
+    "strongest_gain_stage": "final_gain_over_draft",
+    "pass_flags": [
+      "revision_improves_over_draft",
+      "final_improves_over_draft",
+      "final_improves_over_revised_draft"
+    ],
+    "warnings": []
+  }
+}

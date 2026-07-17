@@ -1,0 +1,253 @@
+{
+  "data": {
+    "content_spec_id": "content_spec_demo_001",
+    "generation_strategy_id": "strategy.tiktok.master_script.v1",
+    "orchestration_plan": {
+      "id": "orchestration_plan_demo_001",
+      "content_spec_id": "content_spec_demo_001",
+      "episode_goal": "Deliver a fast fake-marriage reveal and end on a social cliffhanger.",
+      "target_duration_seconds": 40,
+      "scene_blueprints": [
+        {
+          "scene_number": 1,
+          "purpose": "Open with the fake wedding setup.",
+          "target_emotion": "revenge",
+          "recommended_focus": "hook"
+        },
+        {
+          "scene_number": 2,
+          "purpose": "Escalate the altar confrontation.",
+          "target_emotion": "shock",
+          "recommended_focus": "cliffhanger"
+        }
+      ],
+      "asset_requests": []
+    },
+    "retrieval_result": {
+      "id": "retrieval_plan_demo_001",
+      "plan_id": "orchestration_plan_demo_001",
+      "status": "resolved",
+      "resolved_requests": []
+    },
+    "prompt_retrieval_result": {
+      "generation_strategy_id": "strategy.tiktok.master_script.v1",
+      "strategy_name": "TikTok Master Script Strategy",
+      "prompt_ids": [
+        "prompt.story_planning.v1"
+      ],
+      "prompts": [
+        {
+          "id": "prompt.story_planning.v1",
+          "name": "Story Planning Prompt",
+          "prompt_type": "story_planning",
+          "target_module": "script_engine",
+          "applicable_tags": [
+            "genre.romance"
+          ],
+          "target_platform": "tiktok",
+          "target_audience": "women 18-34",
+          "version": "v1",
+          "prompt_template": "Plan the story with retrieved assets and platform constraints.",
+          "input_variables": [
+            "content_spec_title",
+            "retrieved_asset_ids"
+          ],
+          "output_schema": {
+            "type": "object"
+          },
+          "evaluation_notes": [
+            "Open with immediate emotional conflict."
+          ],
+          "created_at": "2026-07-10T12:00:00Z",
+          "updated_at": "2026-07-10T12:00:00Z"
+        }
+      ],
+      "retrieval_mode": "exact_ids",
+      "notes": [
+        "Current MVP prompt retrieval uses exact GenerationStrategy.prompt_ids resolution.",
+        "Future phases may extend retrieval with tag, audience and platform matching."
+      ],
+      "resolved_at": "2026-07-10T12:00:00Z"
+    },
+    "prompt_build_result": {
+      "prompt_text": "Plan the story with retrieved assets and platform constraints.",
+      "rendered_variables": {
+        "content_spec_title": "Fake marriage revenge story"
+      },
+      "trace": {
+        "generation_strategy_id": "strategy.tiktok.master_script.v1",
+        "prompt_ids": [
+          "prompt.story_planning.v1"
+        ],
+        "builder_version": "v0.1"
+      },
+      "created_at": "2026-07-10T12:00:00Z"
+    },
+    "llm_model_info": {
+      "provider": "mock",
+      "model_name": "mock-script-generator",
+      "supports_structured_output": true,
+      "max_context_tokens": 16000
+    },
+    "llm_raw_output": {
+      "title": "The Wedding Trap",
+      "hook": "She only realized who the groom was after saying yes.",
+      "synopsis": "A revenge marriage plot turns into a public trap at the altar.",
+      "_meta": {
+        "provider": "mock",
+        "version": "v0.1"
+      }
+    },
+    "draft_master_script": {
+      "id": "draft_master_script_demo_001",
+      "content_spec_id": "content_spec_demo_001",
+      "generation_strategy_id": "strategy.tiktok.master_script.v1",
+      "title": "The Wedding Trap",
+      "language": "en",
+      "tone": "intense",
+      "hook": "She only realized who the groom was after saying yes.",
+      "synopsis": "A revenge marriage plot turns into a public trap at the altar.",
+      "episode_goal": "Deliver a fast fake-marriage reveal and end on a social cliffhanger.",
+      "target_duration_seconds": 40,
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "SCENE 1 - HOOK",
+          "purpose": "Open with the fake wedding setup.",
+          "setting_hint": "Wedding hall",
+          "beat_summary": "Open the ceremony under pressure and build immediate suspicion.",
+          "emotional_shift": "revenge_to_hook",
+          "cliffhanger": false,
+          "dialogue_prompts": [
+            "Advance the hook beat clearly.",
+            "Express the target emotion: revenge."
+          ],
+          "supporting_asset_ids": [
+            "scene.wedding_set",
+            "character.lead_pair"
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "SCENE 2 - CLIFFHANGER",
+          "purpose": "Escalate the altar confrontation.",
+          "setting_hint": "Wedding hall",
+          "beat_summary": "Expose the revenge intent and end with an unresolved social threat.",
+          "emotional_shift": "shock_to_suspense",
+          "cliffhanger": true,
+          "dialogue_prompts": [
+            "Advance the cliffhanger beat clearly.",
+            "Express the target emotion: shock."
+          ],
+          "supporting_asset_ids": [
+            "scene.wedding_set",
+            "character.lead_pair"
+          ]
+        }
+      ],
+      "qa_notes": [
+        "Draft generated from orchestration, retrieval and strategy constraints.",
+        "Review dialogue prompts before promoting to final master script."
+      ],
+      "llm_metadata": {
+        "provider": "mock",
+        "version": "v0.1"
+      },
+      "created_at": "2026-07-10T12:00:00Z",
+      "updated_at": "2026-07-10T12:00:00Z"
+    },
+    "story_qc_report": {
+      "overall_score": 0.72,
+      "status": "placeholder",
+      "checks": [
+        {
+          "check_name": "hook_present",
+          "passed": true,
+          "score": 1.0,
+          "note": "Rubric-aligned check for hook presence."
+        },
+        {
+          "check_name": "scenes_present",
+          "passed": true,
+          "score": 1.0,
+          "note": "Rubric-aligned check for scene structure presence."
+        },
+        {
+          "check_name": "strategy_qc_enabled",
+          "passed": true,
+          "score": 0.8,
+          "note": "Rubric-aligned check for strategy QC configuration."
+        },
+        {
+          "check_name": "rubric_score",
+          "passed": true,
+          "score": 0.718,
+          "note": "Story quality rubric aggregate score."
+        }
+      ],
+      "recommended_actions": [
+        "Use the story rubric deductions and suggestions to build a revision plan."
+      ],
+      "rubric_overall_score": 0.718,
+      "rubric_categories": [
+        {
+          "category_name": "Dialogue Quality",
+          "score": 2.0,
+          "max_score": 5,
+          "deduction_reasons": [
+            "Draft uses prompts instead of final dialogue lines."
+          ],
+          "revision_suggestions": [
+            "Replace generic lines with concrete, high-stakes phrasing."
+          ]
+        },
+        {
+          "category_name": "Cliffhanger Strength",
+          "score": 5.0,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "End on a sharper unanswered reveal or power reversal."
+          ]
+        }
+      ],
+      "created_at": "2026-07-10T12:00:00Z"
+    },
+    "revision_plan": {
+      "draft_master_script_id": "draft_master_script_demo_001",
+      "content_spec_id": "content_spec_demo_001",
+      "generation_strategy_id": "strategy.tiktok.master_script.v1",
+      "story_qc_status": "placeholder",
+      "overall_priority": "high",
+      "focus_summary": "Strengthen dialogue quality",
+      "actions": [
+        {
+          "action_id": "revision.draft_master_script_demo_001.dialogue",
+          "target_type": "dialogue",
+          "priority": "high",
+          "title": "Strengthen dialogue quality",
+          "rationale": "Draft uses prompts instead of final dialogue lines.",
+          "based_on_checks": [
+            "rubric.dialogue_quality"
+          ],
+          "related_scene_numbers": [
+            1,
+            2
+          ],
+          "instructions": [
+            "Replace generic lines with concrete, high-stakes phrasing.",
+            "Fix issue: Draft uses prompts instead of final dialogue lines."
+          ],
+          "expected_impact": "Improves line specificity and performability."
+        }
+      ],
+      "must_re_qc": true,
+      "notes": [
+        "RevisionPlan is derived from Story QC checks and rubric deductions.",
+        "After revisions, run Story QC again before promoting to Final MasterScript."
+      ],
+      "created_at": "2026-07-10T12:00:00Z"
+    },
+    "generated_at": "2026-07-10T12:00:00Z"
+  }
+}

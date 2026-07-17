@@ -1,0 +1,66 @@
+[
+  {
+    "id": "scene.wedding_hall_v1",
+    "asset_type": "scene",
+    "title": "Luxury Wedding Hall",
+    "summary": "Reusable wedding hall scene for reveal-heavy romance episodes.",
+    "tags": [
+      {
+        "ontology_node_id": "scene.wedding_hall",
+        "label": "Wedding Hall",
+        "category": "Scene",
+        "confidence": 0.96
+      },
+      {
+        "ontology_node_id": "hook.fake_marriage",
+        "label": "Fake Marriage",
+        "category": "Hook",
+        "confidence": 0.91
+      }
+    ],
+    "content": {
+      "text": "Grand wedding hall with aisle, floral arch, and audience reaction space.",
+      "payload": {
+        "visual_elements": ["floral arch", "aisle", "guest seating"],
+        "tone": "luxury melodrama"
+      }
+    },
+    "applicable_platform_profile_ids": ["tiktok_v1"],
+    "metadata": {
+      "source": "manual_seed"
+    },
+    "is_active": true
+  },
+  {
+    "id": "character.cold_ceo_v1",
+    "asset_type": "character",
+    "title": "Cold CEO Male Lead",
+    "summary": "Reusable male lead profile for revenge-romance and fake-marriage concepts.",
+    "tags": [
+      {
+        "ontology_node_id": "character.ceo",
+        "label": "CEO",
+        "category": "Character",
+        "confidence": 0.95
+      },
+      {
+        "ontology_node_id": "genre.romance",
+        "label": "Romance",
+        "category": "Genre",
+        "confidence": 0.9
+      }
+    ],
+    "content": {
+      "text": "Reserved, wealthy, emotionally guarded CEO archetype with strong reversal potential.",
+      "payload": {
+        "traits": ["wealthy", "guarded", "protective"],
+        "arc_function": "delayed emotional reveal"
+      }
+    },
+    "applicable_platform_profile_ids": ["tiktok_v1"],
+    "metadata": {
+      "source": "manual_seed"
+    },
+    "is_active": true
+  }
+]

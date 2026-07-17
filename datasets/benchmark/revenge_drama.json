@@ -1,0 +1,48 @@
+{
+  "benchmark_id": "revenge_drama",
+  "dataset_type": "benchmark",
+  "title": "Revenge Drama",
+  "audience_hint": "US female 18-34 viewers who stay for revenge drama escalations",
+  "commercial_objective": "Validate revenge drama retention and sequel demand",
+  "records": [
+    {
+      "source_name": "benchmark_dataset",
+      "source_item_id": "revenge_drama_001",
+      "platform": "tiktok",
+      "source_url": "https://example.com/benchmark/revenge-drama-001",
+      "title": "He betrayed her on the wedding stage",
+      "body_text": "A revenge drama explodes when betrayal and fake marriage secrets are revealed in public.",
+      "author_handle": "benchmark_creator",
+      "language": "en",
+      "region": "US",
+      "published_at": "2026-02-07T19:15:00Z",
+      "engagement": {
+        "view_count": 232000,
+        "like_count": 20100,
+        "comment_count": 1620,
+        "share_count": 1190,
+        "save_count": 905,
+        "completion_rate": 0.74
+      },
+      "metadata": {
+        "hashtags": ["#revengedrama", "#betrayal", "#weddingtwist", "#fakemarriage"],
+        "comments": [
+          "Public betrayal revenge stories always make me need the next episode.",
+          "The wedding reveal was brutal and perfect."
+        ],
+        "manual_notes": ["Fixed benchmark for revenge drama capability validation."]
+      }
+    }
+  ],
+  "expected_analysis": {
+    "topics": ["revenge drama", "wedding betrayal", "fake marriage"],
+    "genre_tags": ["genre.drama"],
+    "emotion_tags": ["emotion.revenge"],
+    "audience_signal": "US revenge drama viewers",
+    "commercial_signal": "high sequel potential",
+    "preference_score_range": [0.65, 1.0],
+    "recommended_hook_type": "identity reveal",
+    "recommended_cliffhanger_type": "public betrayal escalation"
+  },
+  "manual_notes": ["Do not modify without recording a benchmark decision."]
+}

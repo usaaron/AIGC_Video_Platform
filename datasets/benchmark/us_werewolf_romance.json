@@ -1,0 +1,48 @@
+{
+  "benchmark_id": "us_werewolf_romance",
+  "dataset_type": "benchmark",
+  "title": "US Werewolf Romance",
+  "audience_hint": "US female 18-34 viewers who rewatch alpha werewolf mate-bond romance",
+  "commercial_objective": "Validate fantasy romance retention and sequel demand",
+  "records": [
+    {
+      "source_name": "benchmark_dataset",
+      "source_item_id": "werewolf_romance_001",
+      "platform": "tiktok",
+      "source_url": "https://example.com/benchmark/werewolf-romance-001",
+      "title": "The alpha discovered his bride was his enemy",
+      "body_text": "A werewolf romance erupts into revenge when the alpha sees the betrayal at the wedding.",
+      "author_handle": "benchmark_creator",
+      "language": "en",
+      "region": "US",
+      "published_at": "2026-02-03T20:00:00Z",
+      "engagement": {
+        "view_count": 225000,
+        "like_count": 19800,
+        "comment_count": 1520,
+        "share_count": 1180,
+        "save_count": 940,
+        "completion_rate": 0.71
+      },
+      "metadata": {
+        "hashtags": ["#werewolfromance", "#alpha", "#revenge", "#weddingtwist"],
+        "comments": [
+          "The alpha mate reveal was wild.",
+          "Werewolf betrayal wedding stories always make me stay."
+        ],
+        "manual_notes": ["Fixed benchmark for werewolf romance capability validation."]
+      }
+    }
+  ],
+  "expected_analysis": {
+    "topics": ["werewolf romance", "alpha mate conflict", "revenge drama"],
+    "genre_tags": ["genre.romance"],
+    "emotion_tags": ["emotion.revenge"],
+    "audience_signal": "US fantasy romance viewers",
+    "commercial_signal": "high sequel potential",
+    "preference_score_range": [0.6, 1.0],
+    "recommended_hook_type": "dangerous mate-bond reveal",
+    "recommended_cliffhanger_type": "public betrayal escalation"
+  },
+  "manual_notes": ["Do not modify without recording a benchmark decision."]
+}

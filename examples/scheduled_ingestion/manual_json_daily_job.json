@@ -1,0 +1,30 @@
+{
+  "id": "job.manual_json_daily_v1",
+  "title": "Daily manual json import",
+  "adapter_type": "manual_json",
+  "schedule_type": "daily",
+  "platform_profile_id": "tiktok_v1",
+  "audience_hint": "TikTok romance viewers who respond to betrayal and fake-marriage twists",
+  "commercial_objective": "Find reusable high-retention concepts with sequel potential",
+  "manual_json_records": [
+    {
+      "source_name": "manual_json",
+      "source_item_id": "item_001",
+      "platform": "tiktok",
+      "source_url": "https://example.com/item_001",
+      "title": "Revenge wedding drama",
+      "body_text": "A fake marriage turns into revenge when the bride exposes a betrayal.",
+      "author_handle": "creator_a",
+      "language": "en",
+      "region": "US",
+      "engagement": {
+        "view_count": 220000,
+        "like_count": 18000,
+        "comment_count": 1400,
+        "share_count": 950,
+        "save_count": 720,
+        "completion_rate": 0.68
+      }
+    }
+  ]
+}

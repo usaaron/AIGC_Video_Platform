@@ -1,0 +1,48 @@
+{
+  "benchmark_id": "tiktok_us_werewolf_mock",
+  "dataset_type": "mock",
+  "title": "TikTok US Werewolf Mock",
+  "audience_hint": "US romance viewers who respond to alpha werewolf mate-bond tension",
+  "commercial_objective": "Explore fantasy romance retention potential",
+  "records": [
+    {
+      "source_name": "mock_dataset",
+      "source_item_id": "mock_werewolf_001",
+      "platform": "tiktok",
+      "source_url": "https://example.com/mock/werewolf-001",
+      "title": "The alpha claimed his enemy bride",
+      "body_text": "A werewolf romance spirals into revenge when the alpha discovers betrayal during the ceremony.",
+      "author_handle": "mock_creator",
+      "language": "en",
+      "region": "US",
+      "published_at": "2026-01-12T19:00:00Z",
+      "engagement": {
+        "view_count": 165000,
+        "like_count": 14900,
+        "comment_count": 1100,
+        "share_count": 840,
+        "save_count": 690,
+        "completion_rate": 0.64
+      },
+      "metadata": {
+        "hashtags": ["#werewolfromance", "#alpha", "#revenge"],
+        "comments": [
+          "The alpha mate reveal needs a part 2.",
+          "Werewolf revenge wedding stories always hook me."
+        ],
+        "manual_notes": ["Used for fantasy romance debugging."]
+      }
+    }
+  ],
+  "expected_analysis": {
+    "topics": ["werewolf romance", "alpha mate conflict", "revenge drama"],
+    "genre_tags": ["genre.romance"],
+    "emotion_tags": ["emotion.revenge"],
+    "audience_signal": "US fantasy romance viewers",
+    "commercial_signal": "high sequel potential",
+    "preference_score_range": [0.5, 1.0],
+    "recommended_hook_type": "dangerous mate-bond reveal",
+    "recommended_cliffhanger_type": "public betrayal escalation"
+  },
+  "manual_notes": ["Mock dataset for werewolf romance iteration."]
+}

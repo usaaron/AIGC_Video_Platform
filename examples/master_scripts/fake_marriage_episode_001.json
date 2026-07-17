@@ -1,0 +1,47 @@
+{
+  "content_spec_id": "replace_with_real_content_spec_id",
+  "title": "Fake marriage cliffhanger episode",
+  "language": "en",
+  "tone": "intense",
+  "hook": "She said yes before she recognized the groom.",
+  "synopsis": "A strategic fake marriage spirals into a public betrayal reveal.",
+  "episode_goal": "Deliver a marriage twist and end on a social-status cliffhanger.",
+  "target_duration_seconds": 45,
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. WEDDING HALL - DAY",
+      "purpose": "Establish the public fake marriage setup.",
+      "setting": "Wedding hall",
+      "beat_summary": "The heroine agrees to a rushed public marriage.",
+      "emotional_shift": "confusion_to_commitment",
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Nina",
+          "intent": "accept the arrangement",
+          "text": "Fine. I will marry you, but only for one month."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. WEDDING HALL STAGE - DAY",
+      "purpose": "Reveal the twist and lock the cliffhanger.",
+      "setting": "Ceremony stage",
+      "beat_summary": "The groom exposes the true reason for the marriage.",
+      "emotional_shift": "relief_to_shock",
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Adrian",
+          "intent": "reveal hidden leverage",
+          "text": "You are not my wife, Nina. You are my witness."
+        }
+      ]
+    }
+  ],
+  "qa_notes": [
+    "Hook lands in the first scene."
+  ]
+}

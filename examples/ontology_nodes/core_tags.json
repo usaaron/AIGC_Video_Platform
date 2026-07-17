@@ -1,0 +1,50 @@
+[
+  {
+    "id": "genre.romance",
+    "label": "Romance",
+    "category": "Genre",
+    "description": "Romantic relationship-driven stories and emotional arcs.",
+    "aliases": ["Love Story"],
+    "is_active": true
+  },
+  {
+    "id": "emotion.revenge",
+    "label": "Revenge",
+    "category": "Emotion",
+    "description": "Revenge-oriented emotional motivation or payoff.",
+    "aliases": [],
+    "is_active": true
+  },
+  {
+    "id": "genre.drama",
+    "label": "Drama",
+    "category": "Genre",
+    "description": "Conflict-driven dramatic storytelling.",
+    "aliases": [],
+    "is_active": true
+  },
+  {
+    "id": "hook.fake_marriage",
+    "label": "Fake Marriage",
+    "category": "Hook",
+    "description": "A false or strategic marriage premise used as an opening hook.",
+    "aliases": [],
+    "is_active": true
+  },
+  {
+    "id": "scene.wedding_hall",
+    "label": "Wedding Hall",
+    "category": "Scene",
+    "description": "Wedding hall setting suitable for reveal-driven romance scenes.",
+    "aliases": [],
+    "is_active": true
+  },
+  {
+    "id": "character.ceo",
+    "label": "CEO",
+    "category": "Character",
+    "description": "Executive or wealthy business leader character archetype.",
+    "aliases": ["Chief Executive"],
+    "is_active": true
+  }
+]

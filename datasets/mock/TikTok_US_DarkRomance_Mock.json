@@ -1,0 +1,48 @@
+{
+  "benchmark_id": "tiktok_us_dark_romance_mock",
+  "dataset_type": "mock",
+  "title": "TikTok US Dark Romance Mock",
+  "audience_hint": "US female 18-34 viewers who respond to dark romance betrayal twists",
+  "commercial_objective": "Explore dark romance retention potential",
+  "records": [
+    {
+      "source_name": "mock_dataset",
+      "source_item_id": "mock_dark_romance_001",
+      "platform": "tiktok",
+      "source_url": "https://example.com/mock/dark-romance-001",
+      "title": "She married the enemy for revenge",
+      "body_text": "A fake marriage wedding drama turns into betrayal and revenge in public.",
+      "author_handle": "mock_creator",
+      "language": "en",
+      "region": "US",
+      "published_at": "2026-01-10T18:00:00Z",
+      "engagement": {
+        "view_count": 180000,
+        "like_count": 16000,
+        "comment_count": 1300,
+        "share_count": 900,
+        "save_count": 700,
+        "completion_rate": 0.66
+      },
+      "metadata": {
+        "hashtags": ["#darkromance", "#fakemarriage", "#revenge"],
+        "comments": [
+          "Episode 2 please, the betrayal was insane.",
+          "The wedding reveal and revenge twist were so addictive."
+        ],
+        "manual_notes": ["Used for daily dark romance prompt testing."]
+      }
+    }
+  ],
+  "expected_analysis": {
+    "topics": ["fake marriage", "revenge drama", "wedding betrayal"],
+    "genre_tags": ["genre.romance", "genre.drama"],
+    "emotion_tags": ["emotion.revenge"],
+    "audience_signal": "US female dark romance viewers",
+    "commercial_signal": "high sequel potential",
+    "preference_score_range": [0.55, 1.0],
+    "recommended_hook_type": "identity reveal",
+    "recommended_cliffhanger_type": "public betrayal escalation"
+  },
+  "manual_notes": ["Mock dataset for everyday development."]
+}

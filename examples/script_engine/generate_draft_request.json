@@ -1,0 +1,6 @@
+{
+  "content_spec_id": "replace_with_content_spec_id",
+  "generation_strategy_id": "strategy.tiktok.master_script.v1",
+  "output_language": "en",
+  "desired_scene_count": 3
+}

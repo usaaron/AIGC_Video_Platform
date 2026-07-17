@@ -1,0 +1,47 @@
+{
+  "data": {
+    "generation_strategy_id": "strategy.tiktok.master_script.v1",
+    "strategy_name": "TikTok Master Script Strategy",
+    "prompt_ids": [
+      "prompt.story_planning.v1"
+    ],
+    "prompts": [
+      {
+        "id": "prompt.story_planning.v1",
+        "name": "Story Planning Prompt",
+        "prompt_type": "story_planning",
+        "target_module": "script_engine",
+        "applicable_tags": [
+          "genre.romance"
+        ],
+        "target_platform": "tiktok",
+        "target_audience": "women 18-34",
+        "version": "v1",
+        "prompt_template": "Plan {content_spec_title} using retrieved assets {retrieved_asset_ids}.",
+        "input_variables": [
+          "content_spec_title",
+          "retrieved_asset_ids"
+        ],
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            }
+          }
+        },
+        "evaluation_notes": [
+          "Open with immediate emotional conflict."
+        ],
+        "created_at": "2026-07-10T12:00:00Z",
+        "updated_at": "2026-07-10T12:00:00Z"
+      }
+    ],
+    "retrieval_mode": "exact_ids",
+    "notes": [
+      "Current MVP prompt retrieval uses exact GenerationStrategy.prompt_ids resolution.",
+      "Future phases may extend retrieval with tag, audience and platform matching."
+    ],
+    "resolved_at": "2026-07-10T12:00:00Z"
+  }
+}

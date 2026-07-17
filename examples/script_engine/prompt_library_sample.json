@@ -1,0 +1,51 @@
+[
+  {
+    "id": "prompt.story_planning.v1",
+    "name": "TikTok Story Planning Prompt",
+    "prompt_type": "story_planning",
+    "target_module": "script_engine",
+    "applicable_tags": ["genre.romance", "theme.revenge"],
+    "target_platform": "tiktok",
+    "target_audience": "women 18-34",
+    "version": "v1",
+    "prompt_template": "Use {content_spec_title} and {creative_brief_summary} to outline a short-form dramatic episode. Keep the opening hook strong and platform-fit for {platform_profile_id}.",
+    "input_variables": [
+      "content_spec_title",
+      "creative_brief_summary",
+      "platform_profile_id"
+    ],
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "title": {"type": "string"},
+        "hook": {"type": "string"},
+        "scene_plan": {"type": "array"}
+      }
+    },
+    "evaluation_notes": [
+      "Opening hook should land immediately.",
+      "Keep emotional escalation visible."
+    ]
+  },
+  {
+    "id": "prompt.tiktok_optimization.v1",
+    "name": "TikTok Optimization Prompt",
+    "prompt_type": "tiktok_optimization",
+    "target_module": "script_engine",
+    "applicable_tags": ["platform.tiktok"],
+    "target_platform": "tiktok",
+    "target_audience": "short-form drama viewers",
+    "version": "v1",
+    "prompt_template": "Tighten pacing for TikTok retention. Use audience hint: {audience_profile_summary}.",
+    "input_variables": ["audience_profile_summary"],
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "retention_notes": {"type": "array"}
+      }
+    },
+    "evaluation_notes": [
+      "Favor immediate clarity over slow setup."
+    ]
+  }
+]

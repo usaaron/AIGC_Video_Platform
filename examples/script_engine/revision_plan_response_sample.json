@@ -1,0 +1,37 @@
+{
+  "data": {
+    "draft_master_script_id": "draft_master_script_demo_001",
+    "content_spec_id": "content_spec_demo_001",
+    "generation_strategy_id": "strategy.tiktok.master_script.v1",
+    "story_qc_status": "placeholder",
+    "overall_priority": "high",
+    "focus_summary": "Strengthen dialogue quality",
+    "actions": [
+      {
+        "action_id": "revision.draft_master_script_demo_001.dialogue",
+        "target_type": "dialogue",
+        "priority": "high",
+        "title": "Strengthen dialogue quality",
+        "rationale": "Draft uses prompts instead of final dialogue lines.",
+        "based_on_checks": [
+          "rubric.dialogue_quality"
+        ],
+        "related_scene_numbers": [
+          1,
+          2
+        ],
+        "instructions": [
+          "Replace generic lines with concrete, high-stakes phrasing.",
+          "Fix issue: Draft uses prompts instead of final dialogue lines."
+        ],
+        "expected_impact": "Improves line specificity and performability."
+      }
+    ],
+    "must_re_qc": true,
+    "notes": [
+      "RevisionPlan is derived from Story QC checks and rubric deductions.",
+      "After revisions, run Story QC again before promoting to Final MasterScript."
+    ],
+    "created_at": "2026-07-10T12:00:00Z"
+  }
+}

@@ -1,0 +1,194 @@
+{
+  "data": {
+    "original_draft_master_script": {
+      "id": "draft_master_script_demo_001",
+      "content_spec_id": "content_spec_demo_001",
+      "generation_strategy_id": "strategy.tiktok.master_script.v1",
+      "title": "The Wedding Trap",
+      "language": "en",
+      "tone": "intense",
+      "hook": "She only realized who the groom was after saying yes.",
+      "synopsis": "A revenge marriage plot turns into a public trap at the altar.",
+      "episode_goal": "Deliver a fast fake-marriage reveal and end on a social cliffhanger.",
+      "target_duration_seconds": 40,
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "SCENE 1 - HOOK",
+          "purpose": "Open with the fake wedding setup.",
+          "setting_hint": "Wedding hall",
+          "beat_summary": "Open the ceremony under pressure and build immediate suspicion.",
+          "emotional_shift": "revenge_to_hook",
+          "cliffhanger": false,
+          "dialogue_prompts": [
+            "Advance the hook beat clearly.",
+            "Express the target emotion: revenge."
+          ],
+          "supporting_asset_ids": [
+            "scene.wedding_set",
+            "character.lead_pair"
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "SCENE 2 - CLIFFHANGER",
+          "purpose": "Escalate the altar confrontation.",
+          "setting_hint": "Wedding hall",
+          "beat_summary": "Expose the revenge intent and end with an unresolved social threat.",
+          "emotional_shift": "shock_to_suspense",
+          "cliffhanger": true,
+          "dialogue_prompts": [
+            "Advance the cliffhanger beat clearly.",
+            "Express the target emotion: shock."
+          ],
+          "supporting_asset_ids": [
+            "scene.wedding_set",
+            "character.lead_pair"
+          ]
+        }
+      ],
+      "qa_notes": [
+        "Draft generated from orchestration, retrieval and strategy constraints."
+      ],
+      "llm_metadata": {
+        "provider": "mock",
+        "version": "v0.1"
+      },
+      "created_at": "2026-07-10T12:00:00Z",
+      "updated_at": "2026-07-10T12:00:00Z"
+    },
+    "revision_plan": {
+      "draft_master_script_id": "draft_master_script_demo_001",
+      "content_spec_id": "content_spec_demo_001",
+      "generation_strategy_id": "strategy.tiktok.master_script.v1",
+      "story_qc_status": "placeholder",
+      "overall_priority": "high",
+      "focus_summary": "Strengthen dialogue quality",
+      "actions": [
+        {
+          "action_id": "revision.draft_master_script_demo_001.dialogue",
+          "target_type": "dialogue",
+          "priority": "high",
+          "title": "Strengthen dialogue quality",
+          "rationale": "Draft uses prompts instead of final dialogue lines.",
+          "based_on_checks": [
+            "rubric.dialogue_quality"
+          ],
+          "related_scene_numbers": [
+            1,
+            2
+          ],
+          "instructions": [
+            "Replace generic lines with concrete, high-stakes phrasing.",
+            "Fix issue: Draft uses prompts instead of final dialogue lines."
+          ],
+          "expected_impact": "Improves line specificity and performability."
+        }
+      ],
+      "must_re_qc": true,
+      "notes": [
+        "RevisionPlan is derived from Story QC checks and rubric deductions.",
+        "After revisions, run Story QC again before promoting to Final MasterScript."
+      ],
+      "created_at": "2026-07-10T12:00:00Z"
+    },
+    "revised_draft_master_script": {
+      "id": "draft_master_script_demo_001",
+      "content_spec_id": "content_spec_demo_001",
+      "generation_strategy_id": "strategy.tiktok.master_script.v1",
+      "title": "The Wedding Trap",
+      "language": "en",
+      "tone": "intense",
+      "hook": "She only realized who the groom was after saying yes.",
+      "synopsis": "A revenge marriage plot turns into a public trap at the altar.",
+      "episode_goal": "Deliver a fast fake-marriage reveal and end on a social cliffhanger.",
+      "target_duration_seconds": 40,
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "SCENE 1 - HOOK",
+          "purpose": "Open with the fake wedding setup.",
+          "setting_hint": "Wedding hall",
+          "beat_summary": "Open the ceremony under pressure and build immediate suspicion.",
+          "emotional_shift": "revenge_to_hook",
+          "cliffhanger": false,
+          "dialogue_prompts": [
+            "Advance the hook beat clearly.",
+            "Express the target emotion: revenge.",
+            "Use one line with a concrete accusation and one line with a power reversal.",
+            "Make each line short, performable and impossible to scroll past."
+          ],
+          "supporting_asset_ids": [
+            "scene.wedding_set",
+            "character.lead_pair"
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "SCENE 2 - CLIFFHANGER",
+          "purpose": "Escalate the altar confrontation.",
+          "setting_hint": "Wedding hall",
+          "beat_summary": "Expose the revenge intent and end with an unresolved social threat.",
+          "emotional_shift": "shock_to_suspense",
+          "cliffhanger": true,
+          "dialogue_prompts": [
+            "Advance the cliffhanger beat clearly.",
+            "Express the target emotion: shock.",
+            "Use one line with a concrete accusation and one line with a power reversal.",
+            "Make each line short, performable and impossible to scroll past."
+          ],
+          "supporting_asset_ids": [
+            "scene.wedding_set",
+            "character.lead_pair"
+          ]
+        }
+      ],
+      "qa_notes": [
+        "Draft generated from orchestration, retrieval and strategy constraints.",
+        "Applied revision action: Strengthen dialogue quality.",
+        "Placeholder script revision pass completed from RevisionPlan actions."
+      ],
+      "llm_metadata": {
+        "provider": "mock",
+        "version": "v0.1",
+        "revision_signals": {
+          "dialogue_polish_complete": true
+        }
+      },
+      "created_at": "2026-07-10T12:00:00Z",
+      "updated_at": "2026-07-10T12:00:00Z"
+    },
+    "original_story_qc_report": {
+      "overall_score": 0.695,
+      "status": "placeholder",
+      "checks": [],
+      "recommended_actions": [
+        "Use the story rubric deductions and suggestions to build a revision plan."
+      ],
+      "rubric_overall_score": 0.531,
+      "rubric_categories": [],
+      "created_at": "2026-07-10T12:00:00Z"
+    },
+    "revised_story_qc_report": {
+      "overall_score": 0.795,
+      "status": "placeholder",
+      "checks": [],
+      "recommended_actions": [
+        "Use the story rubric deductions and suggestions to build a revision plan."
+      ],
+      "rubric_overall_score": 0.731,
+      "rubric_categories": [],
+      "created_at": "2026-07-10T12:00:00Z"
+    },
+    "applied_action_ids": [
+      "revision.draft_master_script_demo_001.dialogue"
+    ],
+    "improvement_summary": [
+      "Placeholder revision pass improved or preserved the draft Story QC score.",
+      "Story QC score changed from 0.695 to 0.795.",
+      "Re-run Final MasterScript mapping only after the revised draft is accepted."
+    ],
+    "improved": true,
+    "generated_at": "2026-07-10T12:00:00Z"
+  }
+}

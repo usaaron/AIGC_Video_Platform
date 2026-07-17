@@ -1,0 +1,96 @@
+{
+  "draft_master_script": {
+    "id": "draft_master_script_demo_001",
+    "content_spec_id": "content_spec_demo_001",
+    "generation_strategy_id": "strategy.tiktok.master_script.v1",
+    "title": "The Wedding Trap",
+    "language": "en",
+    "tone": "intense",
+    "hook": "She only realized who the groom was after saying yes.",
+    "synopsis": "A revenge marriage plot turns into a public trap at the altar.",
+    "episode_goal": "Deliver a fast fake-marriage reveal and end on a social cliffhanger.",
+    "target_duration_seconds": 40,
+    "scenes": [
+      {
+        "scene_number": 1,
+        "slug": "SCENE 1 - HOOK",
+        "purpose": "Open with the fake wedding setup.",
+        "setting_hint": "Wedding hall",
+        "beat_summary": "Open the ceremony under pressure and build immediate suspicion.",
+        "emotional_shift": "revenge_to_hook",
+        "cliffhanger": false,
+        "dialogue_prompts": [
+          "Advance the hook beat clearly.",
+          "Express the target emotion: revenge."
+        ],
+        "supporting_asset_ids": [
+          "scene.wedding_set",
+          "character.lead_pair"
+        ]
+      },
+      {
+        "scene_number": 2,
+        "slug": "SCENE 2 - CLIFFHANGER",
+        "purpose": "Escalate the altar confrontation.",
+        "setting_hint": "Wedding hall",
+        "beat_summary": "Expose the revenge intent and end with an unresolved social threat.",
+        "emotional_shift": "shock_to_suspense",
+        "cliffhanger": true,
+        "dialogue_prompts": [
+          "Advance the cliffhanger beat clearly.",
+          "Express the target emotion: shock."
+        ],
+        "supporting_asset_ids": [
+          "scene.wedding_set",
+          "character.lead_pair"
+        ]
+      }
+    ],
+    "qa_notes": [
+      "Draft generated from orchestration, retrieval and strategy constraints.",
+      "Review dialogue prompts before promoting to final master script."
+    ],
+    "llm_metadata": {
+      "provider": "mock",
+      "version": "v0.1"
+    },
+    "created_at": "2026-07-10T12:00:00Z",
+    "updated_at": "2026-07-10T12:00:00Z"
+  },
+  "story_qc_report": {
+    "overall_score": 0.72,
+    "status": "placeholder",
+    "checks": [
+      {
+        "check_name": "hook_present",
+        "passed": true,
+        "score": 1.0,
+        "note": "Rubric-aligned check for hook presence."
+      },
+      {
+        "check_name": "rubric_score",
+        "passed": true,
+        "score": 0.718,
+        "note": "Story quality rubric aggregate score."
+      }
+    ],
+    "recommended_actions": [
+      "Use the story rubric deductions and suggestions to build a revision plan."
+    ],
+    "rubric_overall_score": 0.718,
+    "rubric_categories": [
+      {
+        "category_name": "Dialogue Quality",
+        "score": 2.0,
+        "max_score": 5,
+        "deduction_reasons": [
+          "Draft uses prompts instead of final dialogue lines."
+        ],
+        "revision_suggestions": [
+          "Replace generic lines with concrete, high-stakes phrasing."
+        ]
+      }
+    ],
+    "created_at": "2026-07-10T12:00:00Z"
+  }
+}

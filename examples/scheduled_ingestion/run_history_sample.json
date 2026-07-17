@@ -1,0 +1,21 @@
+{
+  "id": "sample-run-history-id",
+  "job_id": "job.manual_json_daily_v1",
+  "adapter_type": "manual_json",
+  "schedule_type": "daily",
+  "platform_profile_id": "tiktok_v1",
+  "started_at": "2026-07-08T10:00:00Z",
+  "completed_at": "2026-07-08T10:00:02Z",
+  "run_status": "succeeded",
+  "error_message": null,
+  "imported_record_count": 1,
+  "skipped_duplicate_count": 0,
+  "skipped_duplicate_keys": [],
+  "raw_content_record_ids": ["sample-raw-record-id"],
+  "analysis_result_ids": ["sample-analysis-result-id"],
+  "content_spec_draft_id": "sample-content-spec-draft-id",
+  "content_spec_id": "sample-content-spec-id",
+  "notes": [
+    "Scheduled ingestion ran through the standard DataSourceAdapter and Data Intelligence pipeline."
+  ]
+}

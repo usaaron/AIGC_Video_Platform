@@ -1,0 +1,48 @@
+{
+  "benchmark_id": "us_female_dark_romance",
+  "dataset_type": "benchmark",
+  "title": "US Female Dark Romance",
+  "audience_hint": "US female 18-34 viewers who binge dark romance betrayal twists",
+  "commercial_objective": "Validate dark romance sequel demand and rewatch potential",
+  "records": [
+    {
+      "source_name": "benchmark_dataset",
+      "source_item_id": "dark_romance_001",
+      "platform": "tiktok",
+      "source_url": "https://example.com/benchmark/dark-romance-001",
+      "title": "She married the enemy to destroy his family",
+      "body_text": "A fake marriage wedding drama becomes revenge after a shocking betrayal.",
+      "author_handle": "benchmark_creator",
+      "language": "en",
+      "region": "US",
+      "published_at": "2026-02-01T18:30:00Z",
+      "engagement": {
+        "view_count": 240000,
+        "like_count": 21000,
+        "comment_count": 1700,
+        "share_count": 1200,
+        "save_count": 910,
+        "completion_rate": 0.73
+      },
+      "metadata": {
+        "hashtags": ["#darkromance", "#fakemarriage", "#revenge", "#weddingdrama"],
+        "comments": [
+          "The fake marriage revenge reveal was vicious.",
+          "I need episode 2 after that wedding betrayal."
+        ],
+        "manual_notes": ["Fixed benchmark for dark romance capability validation."]
+      }
+    }
+  ],
+  "expected_analysis": {
+    "topics": ["fake marriage", "revenge drama", "wedding betrayal"],
+    "genre_tags": ["genre.romance", "genre.drama"],
+    "emotion_tags": ["emotion.revenge"],
+    "audience_signal": "US female dark romance viewers",
+    "commercial_signal": "high sequel potential",
+    "preference_score_range": [0.65, 1.0],
+    "recommended_hook_type": "identity reveal",
+    "recommended_cliffhanger_type": "public betrayal escalation"
+  },
+  "manual_notes": ["Do not modify without recording a benchmark decision."]
+}

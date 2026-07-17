@@ -1,0 +1,99 @@
+{
+  "data": {
+    "master_script": {
+      "id": "master_script_demo_001",
+      "content_spec_id": "content_spec_demo_001",
+      "version": "final_master_script.v1",
+      "title": "The Wedding Trap",
+      "language": "en",
+      "tone": "intense",
+      "hook": "She only realized who the groom was after saying yes. Then the groom said the name she buried years ago.",
+      "synopsis": "A revenge marriage plot turns into a public trap at the altar.",
+      "episode_goal": "Deliver a fast fake-marriage reveal and end on a social cliffhanger.",
+      "target_duration_seconds": 40,
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "SCENE 1 - HOOK",
+          "purpose": "Establish the hook and public conflict immediately.",
+          "setting": "Wedding Set",
+          "beat_summary": "Open the ceremony under pressure and build immediate suspicion.",
+          "emotional_shift": "revenge_to_hook",
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Heroine",
+              "intent": "Establish the hook and public conflict immediately.",
+              "text": "Advance the hook beat clearly."
+            },
+            {
+              "character_name": "Counterpart",
+              "intent": "Establish the hook and public conflict immediately.",
+              "text": "Express the target emotion: revenge."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "SCENE 2 - CLIFFHANGER",
+          "purpose": "Escalate the conflict and land the cliffhanger ending.",
+          "setting": "Wedding Set",
+          "beat_summary": "Expose the revenge intent and end with an unresolved social threat. End with a public reveal that flips power and leaves one answer withheld.",
+          "emotional_shift": "shock_to_suspense",
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Heroine",
+              "intent": "Escalate the conflict and land the cliffhanger ending.",
+              "text": "Advance the cliffhanger beat clearly."
+            },
+            {
+              "character_name": "Counterpart",
+              "intent": "Escalate the conflict and land the cliffhanger ending.",
+              "text": "Express the target emotion: shock."
+            }
+          ]
+        }
+      ],
+      "qa_notes": [
+        "Review dialogue prompts before final script expansion.",
+        "Applied revision action: Strengthen dialogue quality.",
+        "Final MasterScript was finalized from a validated revised draft chain.",
+        "Finalization policy: master_script_finalization_policy.v1."
+      ],
+      "lineage": {
+        "content_spec_id": "content_spec_demo_001",
+        "platform_profile_id": "tiktok_v1",
+        "generation_strategy_id": "strategy.tiktok.master_script.v1",
+        "generation_strategy_version": "v1",
+        "selected_prompt_ids": ["prompt.story_planning.v1"],
+        "prompt_builder_version": "v0.1",
+        "llm_provider": "mock",
+        "llm_model_name": "mock-script-generator",
+        "original_draft_master_script_id": "draft_master_script_demo_001",
+        "original_story_qc_score": 0.71,
+        "original_story_qc_status": "placeholder",
+        "revision_plan_created_at": "2026-07-13T12:00:00Z",
+        "revision_action_ids": ["revision.draft_master_script_demo_001.dialogue"],
+        "revised_draft_master_script_id": "draft_master_script_demo_001",
+        "re_qc_score": 0.78,
+        "re_qc_status": "placeholder",
+        "minimum_re_qc_score_required": 0.65,
+        "dialogue_line_count_per_scene": 2,
+        "speaker_name_cycle": ["Heroine", "Counterpart"],
+        "finalization_policy_id": "master_script_finalization_policy.v1",
+        "finalization_version": "final_master_script.v1",
+        "draft_generated_at": "2026-07-13T12:00:00Z",
+        "revision_generated_at": "2026-07-13T12:05:00Z",
+        "finalized_at": "2026-07-13T12:10:00Z"
+      },
+      "created_at": "2026-07-13T12:10:00Z",
+      "updated_at": "2026-07-13T12:10:00Z"
+    },
+    "source_draft_id": "draft_master_script_demo_001",
+    "mapping_notes": [
+      "Final MasterScript was finalized from a validated revised draft chain.",
+      "Finalization policy: master_script_finalization_policy.v1."
+    ]
+  }
+}

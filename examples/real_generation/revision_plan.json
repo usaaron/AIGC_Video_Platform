@@ -1,0 +1,34 @@
+{
+  "draft_master_script_id": "03bf3be6-0c4a-485c-b9fb-7166ca260b98",
+  "content_spec_id": "a80c772a-bd95-48cb-a359-8a3b06f973d9",
+  "generation_strategy_id": "strategy.tiktok.real_validation.real_generation.v1",
+  "story_qc_status": "placeholder",
+  "overall_priority": "high",
+  "focus_summary": "Strengthen cliffhanger strength",
+  "actions": [
+    {
+      "action_id": "revision.03bf3be6-0c4a-485c-b9fb-7166ca260b98.cliffhanger",
+      "target_type": "cliffhanger",
+      "priority": "high",
+      "title": "Strengthen cliffhanger strength",
+      "rationale": "Final scene could end on a sharper unresolved reveal.",
+      "based_on_checks": [
+        "rubric.cliffhanger_strength"
+      ],
+      "related_scene_numbers": [
+        3
+      ],
+      "instructions": [
+        "End on a sharper unanswered reveal or power reversal.",
+        "Fix issue: Final scene could end on a sharper unresolved reveal."
+      ],
+      "expected_impact": "Makes the unresolved ending more compelling."
+    }
+  ],
+  "must_re_qc": true,
+  "notes": [
+    "RevisionPlan is derived from Story QC checks and rubric deductions.",
+    "After revisions, run Story QC again before promoting to Final MasterScript."
+  ],
+  "created_at": "2026-07-17T01:55:58.532711Z"
+}

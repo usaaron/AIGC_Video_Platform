@@ -1,0 +1,48 @@
+{
+  "id": "strategy.tiktok.master_script.v1",
+  "name": "TikTok Final Master Script Strategy",
+  "target_platform": "tiktok",
+  "target_content_type": "ai_comic_drama",
+  "applicable_tags": ["genre.romance", "theme.revenge"],
+  "model_provider": "mock",
+  "model_name": "mock-script-generator",
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "workflow_steps": [
+    {
+      "step_order": 1,
+      "name": "story_planning",
+      "description": "Generate a strong story plan with a retention-first hook.",
+      "prompt_id": "prompt.story_planning.v1",
+      "multi_turn_enabled": false,
+      "structured_output_required": true
+    },
+    {
+      "step_order": 2,
+      "name": "tiktok_optimization",
+      "description": "Adapt pacing and hook density for TikTok playback.",
+      "prompt_id": "prompt.tiktok_optimization.v1",
+      "multi_turn_enabled": false,
+      "structured_output_required": true
+    }
+  ],
+  "prompt_ids": [
+    "prompt.story_planning.v1",
+    "prompt.tiktok_optimization.v1"
+  ],
+  "qc_enabled": true,
+  "self_check_enabled": true,
+  "human_review_required": false,
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "title": {"type": "string"},
+      "hook": {"type": "string"},
+      "synopsis": {"type": "string"},
+      "scenes": {"type": "array"}
+    }
+  },
+  "version": "v1",
+  "status": "active"
+}

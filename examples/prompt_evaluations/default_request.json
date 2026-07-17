@@ -1,0 +1,156 @@
+{
+  "evaluation_case_id": "prompt_eval_minimal_v1",
+  "dataset_id": "us_female_dark_romance",
+  "dataset_type": "benchmark",
+  "save_report": true,
+  "report_dir": "examples/prompt_evaluations/reports",
+  "variants": [
+    {
+      "case_id": "prompt_v1",
+      "generation_strategy": {
+        "id": "strategy.tiktok.prompt_eval.prompt_v1",
+        "name": "Prompt Eval Strategy V1",
+        "target_platform": "tiktok",
+        "target_content_type": "ai_comic_drama",
+        "applicable_tags": [
+          "genre.romance"
+        ],
+        "model_provider": "mock",
+        "model_name": "mock-script-generator",
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "max_tokens": 3000,
+        "workflow_steps": [
+          {
+            "step_order": 1,
+            "name": "story_planning",
+            "description": "Build the initial story plan.",
+            "prompt_id": "prompt.story_planning.benchmark.v1",
+            "multi_turn_enabled": false,
+            "structured_output_required": true
+          }
+        ],
+        "prompt_ids": [
+          "prompt.story_planning.benchmark.v1"
+        ],
+        "qc_enabled": true,
+        "self_check_enabled": true,
+        "human_review_required": false,
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "hook": {
+              "type": "string"
+            }
+          }
+        },
+        "version": "v1",
+        "status": "active"
+      },
+      "repeat_count": 1,
+      "output_language": "en",
+      "desired_scene_count": 3
+    },
+    {
+      "case_id": "prompt_v2",
+      "generation_strategy": {
+        "id": "strategy.tiktok.prompt_eval.prompt_v2",
+        "name": "Prompt Eval Strategy V2",
+        "target_platform": "tiktok",
+        "target_content_type": "ai_comic_drama",
+        "applicable_tags": [
+          "genre.romance"
+        ],
+        "model_provider": "mock",
+        "model_name": "mock-script-generator",
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "max_tokens": 3000,
+        "workflow_steps": [
+          {
+            "step_order": 1,
+            "name": "story_planning",
+            "description": "Build the initial story plan with stronger public-reveal instructions.",
+            "prompt_id": "prompt.story_planning.benchmark.v2",
+            "multi_turn_enabled": false,
+            "structured_output_required": true
+          }
+        ],
+        "prompt_ids": [
+          "prompt.story_planning.benchmark.v2"
+        ],
+        "qc_enabled": true,
+        "self_check_enabled": true,
+        "human_review_required": false,
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "hook": {
+              "type": "string"
+            }
+          }
+        },
+        "version": "v1",
+        "status": "active"
+      },
+      "repeat_count": 1,
+      "output_language": "en",
+      "desired_scene_count": 3
+    },
+    {
+      "case_id": "strategy_v2_repeat",
+      "generation_strategy": {
+        "id": "strategy.tiktok.prompt_eval.strategy_v2",
+        "name": "Prompt Eval Strategy V2 Repeat",
+        "target_platform": "tiktok",
+        "target_content_type": "ai_comic_drama",
+        "applicable_tags": [
+          "genre.romance"
+        ],
+        "model_provider": "mock",
+        "model_name": "mock-script-generator",
+        "temperature": 0.4,
+        "top_p": 0.85,
+        "max_tokens": 3200,
+        "workflow_steps": [
+          {
+            "step_order": 1,
+            "name": "story_planning",
+            "description": "Build the initial story plan with stronger cliffhanger control.",
+            "prompt_id": "prompt.story_planning.benchmark.v2",
+            "multi_turn_enabled": false,
+            "structured_output_required": true
+          }
+        ],
+        "prompt_ids": [
+          "prompt.story_planning.benchmark.v2"
+        ],
+        "qc_enabled": true,
+        "self_check_enabled": true,
+        "human_review_required": false,
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "hook": {
+              "type": "string"
+            }
+          }
+        },
+        "version": "v2",
+        "status": "active"
+      },
+      "repeat_count": 2,
+      "output_language": "en",
+      "desired_scene_count": 3
+    }
+  ]
+}
