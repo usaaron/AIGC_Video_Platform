@@ -28,8 +28,13 @@ export const DEFAULT_ATTRIBUTES = {
     framing: 'full',
     bodyType: 'balanced',
     background: 'solid',
+    faceStatus: 'pending',
+    bodyStatus: 'pending',
+    faceReference: null,
+    bodyReference: null,
     legStretch: false,
     turnaround: false,
+    turnaroundLayout: 'sheet',
   },
   scene: {
     type: 'scene',

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultAttributes } from './assetOptions'
-import { compileAssetPrompt } from './promptCompiler'
+import { compileAssetPrompt, compileCharacterStagePrompt } from './promptCompiler'
 
 describe('asset prompt compiler', () => {
   it('includes selected character controls and project ratio', () => {
@@ -40,5 +40,20 @@ describe('asset prompt compiler', () => {
         '16:9',
       ),
     ).toBe('完全自定义内容')
+  })
+
+  it('uses dedicated ratios and constraints for character workflow stages', () => {
+    const asset = {
+      name: '林夏',
+      description: '青年导演',
+      sourceMode: 'generate',
+      promptMode: 'standard',
+      customPrompt: '',
+      attributes: createDefaultAttributes('character'),
+    }
+
+    expect(compileCharacterStagePrompt(asset, '9:16', 'face')).toContain('画面比例1:1')
+    expect(compileCharacterStagePrompt(asset, '9:16', 'body')).toContain('画面比例9:16')
+    expect(compileCharacterStagePrompt(asset, '9:16', 'turnaround')).toContain('16:9三栏')
   })
 })

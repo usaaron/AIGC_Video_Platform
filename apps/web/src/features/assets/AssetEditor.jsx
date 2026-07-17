@@ -4,10 +4,21 @@ import { createPortal } from 'react-dom'
 import { IconButton } from '../../components/ui'
 import { AssetFields } from './AssetFields'
 import { ASSET_TABS, createDefaultAttributes } from './assetOptions'
-import { compileAssetPrompt } from './promptCompiler'
+import { CharacterWorkflow } from './CharacterWorkflow'
+import { compileAssetPrompt, compileCharacterStagePrompt } from './promptCompiler'
 import { ReferenceUploader } from './ReferenceUploader'
 
-export function AssetEditor({ asset, aspectRatio, onClose, onSave, onDelete, onUpload }) {
+export function AssetEditor({
+  asset,
+  aspectRatio,
+  tasks = [],
+  onClose,
+  onSave,
+  onPersist,
+  onGenerateStage,
+  onDelete,
+  onUpload,
+}) {
   const kind = asset.kind
   const [draft, setDraft] = useState(() => ({
     sourceMode: asset.sourceMode || 'generate',
@@ -20,10 +31,32 @@ export function AssetEditor({ asset, aspectRatio, onClose, onSave, onDelete, onU
     references: asset.references || [],
     attributes: asset.attributes?.type === kind ? asset.attributes : createDefaultAttributes(kind),
   }))
+  const [characterStage, setCharacterStage] = useState(() => {
+    if (kind !== 'character' || draft?.attributes?.faceStatus !== 'approved') return 'face'
+    return draft.attributes.bodyStatus === 'approved' ? 'turnaround' : 'body'
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const generatedPrompt = compileAssetPrompt(draft, aspectRatio)
+  const generatedPrompt =
+    kind === 'character'
+      ? compileCharacterStagePrompt(draft, aspectRatio, characterStage)
+      : compileAssetPrompt(draft, aspectRatio)
   const kindLabel = ASSET_TABS.find(([id]) => id === kind)?.[1]
+
+  const inputFor = (nextDraft = draft) => ({
+    ...(asset.id ? {} : { kind }),
+    ...nextDraft,
+    prompt: compileAssetPrompt(nextDraft, aspectRatio),
+    imageUrl:
+      kind === 'audio'
+        ? null
+        : nextDraft.attributes.bodyReference?.url ||
+          nextDraft.attributes.faceReference?.url ||
+          nextDraft.references[0]?.url ||
+          asset.imageUrl ||
+          null,
+    ...(asset.id ? { status: asset.status } : {}),
+  })
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -34,17 +67,31 @@ export function AssetEditor({ asset, aspectRatio, onClose, onSave, onDelete, onU
     setSaving(true)
     setError('')
     try {
-      await onSave({
-        ...(asset.id ? {} : { kind }),
-        ...draft,
-        prompt: generatedPrompt,
-        imageUrl: kind === 'audio' ? null : draft.references[0]?.url || asset.imageUrl || null,
-        ...(asset.id ? { status: asset.status } : {}),
-      })
+      await onSave(inputFor())
     } catch (saveError) {
       setError(saveError.message)
       setSaving(false)
     }
+  }
+
+  const persistCharacterAttributes = async (attributes) => {
+    if (!asset.id || !onPersist) return
+    const nextDraft = { ...draft, attributes }
+    setDraft(nextDraft)
+    await onPersist(inputFor(nextDraft))
+  }
+
+  const generateCharacterStage = async (stage) => {
+    if (!asset.id || !onGenerateStage) return
+    const attributes = stage === 'turnaround' ? { ...draft.attributes, turnaround: true } : draft.attributes
+    const nextDraft = { ...draft, attributes }
+    setDraft(nextDraft)
+    await onPersist?.(inputFor(nextDraft))
+    await onGenerateStage(
+      { ...asset, ...nextDraft },
+      stage,
+      compileCharacterStagePrompt(nextDraft, aspectRatio, stage),
+    )
   }
 
   return createPortal(
@@ -66,32 +113,34 @@ export function AssetEditor({ asset, aspectRatio, onClose, onSave, onDelete, onU
 
         <div className="asset-studio-body">
           <section className="asset-studio-form">
-            <div className="source-switch" role="group" aria-label="资产来源">
-              <button
-                type="button"
-                className={draft.sourceMode === 'generate' ? 'active' : ''}
-                onClick={() => setDraft({ ...draft, sourceMode: 'generate' })}
-              >
-                <Bot size={17} />
-                <span>
-                  <strong>AI 生成</strong>
-                  <small>使用 Img2 创建新资产</small>
-                </span>
-              </button>
-              <button
-                type="button"
-                className={draft.sourceMode === 'import' ? 'active' : ''}
-                onClick={() => setDraft({ ...draft, sourceMode: 'import' })}
-              >
-                <FileUp size={17} />
-                <span>
-                  <strong>本地导入</strong>
-                  <small>直接使用或作为 Img2 参考</small>
-                </span>
-              </button>
-            </div>
+            {(kind !== 'character' || characterStage === 'face') && (
+              <div className="source-switch" role="group" aria-label="资产来源">
+                <button
+                  type="button"
+                  className={draft.sourceMode === 'generate' ? 'active' : ''}
+                  onClick={() => setDraft({ ...draft, sourceMode: 'generate' })}
+                >
+                  <Bot size={17} />
+                  <span>
+                    <strong>AI 生成</strong>
+                    <small>使用 Img2 创建新资产</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={draft.sourceMode === 'import' ? 'active' : ''}
+                  onClick={() => setDraft({ ...draft, sourceMode: 'import' })}
+                >
+                  <FileUp size={17} />
+                  <span>
+                    <strong>本地导入</strong>
+                    <small>直接使用或作为 Img2 参考</small>
+                  </span>
+                </button>
+              </div>
+            )}
 
-            {draft.sourceMode === 'import' && (
+            {draft.sourceMode === 'import' && (kind !== 'character' || characterStage === 'face') && (
               <ReferenceUploader
                 kind={kind}
                 references={draft.references}
@@ -120,8 +169,24 @@ export function AssetEditor({ asset, aspectRatio, onClose, onSave, onDelete, onU
               </label>
             </div>
 
+            {kind === 'character' && (
+              <CharacterWorkflow
+                assetId={asset.id}
+                assetName={draft.name}
+                stage={characterStage}
+                attributes={draft.attributes}
+                references={draft.references}
+                tasks={tasks}
+                onStageChange={setCharacterStage}
+                onAttributesChange={(attributes) => setDraft({ ...draft, attributes })}
+                onPersist={persistCharacterAttributes}
+                onGenerate={generateCharacterStage}
+              />
+            )}
+
             <AssetFields
               attributes={draft.attributes}
+              characterStage={characterStage}
               onChange={(attributes) => setDraft({ ...draft, attributes })}
             />
           </section>
@@ -132,7 +197,15 @@ export function AssetEditor({ asset, aspectRatio, onClose, onSave, onDelete, onU
                 <Sparkles size={16} />
                 提示词工作台
               </span>
-              <strong>中文</strong>
+              <strong>
+                {kind === 'character'
+                  ? characterStage === 'face'
+                    ? '1:1'
+                    : characterStage === 'turnaround'
+                      ? '16:9'
+                      : aspectRatio
+                  : '中文'}
+              </strong>
             </div>
             <div className="prompt-mode-switch">
               <button

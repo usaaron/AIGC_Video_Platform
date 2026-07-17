@@ -32,8 +32,13 @@ export const characterAttributesSchema = z.object({
   framing: z.enum(['portrait', 'half', 'full']),
   bodyType: z.enum(['slim', 'balanced', 'athletic', 'full']),
   background: z.enum(['solid', 'transparent', 'environment']),
+  faceStatus: z.enum(['pending', 'approved']),
+  bodyStatus: z.enum(['pending', 'approved']),
+  faceReference: mediaReferenceSchema.nullable(),
+  bodyReference: mediaReferenceSchema.nullable(),
   legStretch: z.boolean(),
   turnaround: z.boolean(),
+  turnaroundLayout: z.enum(['sheet', 'separate']),
 })
 
 export const sceneAttributesSchema = z.object({

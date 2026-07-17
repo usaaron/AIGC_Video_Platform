@@ -13,8 +13,13 @@ const character = {
   framing: 'full' as const,
   bodyType: 'balanced' as const,
   background: 'solid' as const,
+  faceStatus: 'pending' as const,
+  bodyStatus: 'pending' as const,
+  faceReference: null,
+  bodyReference: null,
   legStretch: false,
   turnaround: false,
+  turnaroundLayout: 'sheet' as const,
 }
 
 const reference = (index: number) => ({ id: `media-${index}`, url: `/media/${index}`, name: `${index}.png` })

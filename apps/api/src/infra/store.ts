@@ -229,8 +229,13 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
       framing: 'full',
       bodyType: 'balanced',
       background: 'solid',
+      faceStatus: 'pending',
+      bodyStatus: 'pending',
+      faceReference: null,
+      bodyReference: null,
       legStretch: false,
       turnaround: false,
+      turnaroundLayout: 'sheet',
     }
   }
   if (kind === 'scene') {
@@ -332,7 +337,10 @@ function normalizeState(input: Partial<AppState>): AppState {
       customPrompt: legacy.customPrompt ?? '',
       negativePrompt: legacy.negativePrompt ?? '',
       references: legacy.references ?? [],
-      attributes: legacy.attributes?.type === kind ? legacy.attributes : defaultAssetAttributes(kind),
+      attributes:
+        legacy.attributes?.type === kind
+          ? { ...defaultAssetAttributes(kind), ...legacy.attributes }
+          : defaultAssetAttributes(kind),
     } as Asset
   })
   const tasks = (input.tasks ?? []).map((task) => ({

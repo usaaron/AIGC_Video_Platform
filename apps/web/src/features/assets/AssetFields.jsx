@@ -1,12 +1,14 @@
 import { Check } from 'lucide-react'
 import { OPTIONS, VISUAL_STYLES } from './assetOptions'
 
-export function AssetFields({ attributes, onChange }) {
+export function AssetFields({ attributes, characterStage = 'face', onChange }) {
   const update = (key, value) => onChange({ ...attributes, [key]: value })
 
   return (
     <div className="asset-fields">
-      {attributes.type === 'character' && <CharacterFields value={attributes} update={update} />}
+      {attributes.type === 'character' && (
+        <CharacterFields value={attributes} stage={characterStage} update={update} />
+      )}
       {attributes.type === 'scene' && <SceneFields value={attributes} update={update} />}
       {attributes.type === 'prop' && <PropFields value={attributes} update={update} />}
       {attributes.type === 'costume' && <CostumeFields value={attributes} update={update} />}
@@ -15,7 +17,26 @@ export function AssetFields({ attributes, onChange }) {
   )
 }
 
-function CharacterFields({ value, update }) {
+function CharacterFields({ value, stage, update }) {
+  if (stage === 'turnaround') return null
+  if (stage === 'body') {
+    return (
+      <>
+        <ChoiceField
+          label="体型"
+          value={value.bodyType}
+          options={OPTIONS.bodyType}
+          onChange={(next) => update('bodyType', next)}
+        />
+        <ChoiceField
+          label="背景"
+          value={value.background}
+          options={OPTIONS.background}
+          onChange={(next) => update('background', next)}
+        />
+      </>
+    )
+  }
   return (
     <>
       <ChoiceField
@@ -67,38 +88,6 @@ function CharacterFields({ value, update }) {
         />
       )}
       <VisualStyle value={value.visualStyle} onChange={(next) => update('visualStyle', next)} />
-      <ChoiceField
-        label="景别"
-        value={value.framing}
-        options={OPTIONS.framing}
-        onChange={(next) => update('framing', next)}
-      />
-      <ChoiceField
-        label="体型"
-        value={value.bodyType}
-        options={OPTIONS.bodyType}
-        onChange={(next) => update('bodyType', next)}
-      />
-      <ChoiceField
-        label="背景"
-        value={value.background}
-        options={OPTIONS.background}
-        onChange={(next) => update('background', next)}
-      />
-      <div className="asset-toggle-grid">
-        <ToggleField
-          label="适度拉长腿部"
-          description="通过 Img2 提示词优化，不直接拉伸像素"
-          checked={value.legStretch}
-          onChange={(next) => update('legStretch', next)}
-        />
-        <ToggleField
-          label="创建三视图"
-          description="生成正面、侧面和背面三张独立图片"
-          checked={value.turnaround}
-          onChange={(next) => update('turnaround', next)}
-        />
-      </div>
     </>
   )
 }

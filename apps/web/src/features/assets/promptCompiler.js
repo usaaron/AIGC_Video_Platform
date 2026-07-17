@@ -2,6 +2,53 @@ import { optionLabel } from './assetOptions'
 
 export function compileAssetPrompt(asset, aspectRatio) {
   const automatic = compileAutomatic(asset, aspectRatio)
+  return applyCustomPrompt(asset, automatic)
+}
+
+export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
+  if (asset.attributes.type !== 'character') return compileAssetPrompt(asset, aspectRatio)
+  const attributes = asset.attributes
+  const identity = [
+    asset.name,
+    asset.description,
+    attributes.subjectType === 'animal' ? `动物角色，${attributes.species || '自定义物种'}` : '人物角色',
+    optionLabel('gender', attributes.gender),
+    attributes.exactAge ? `${attributes.exactAge}岁` : optionLabel('ageGroup', attributes.ageGroup),
+    attributes.subjectType === 'animal' && attributes.anthropomorphic ? '拟人化表现' : '',
+    `${optionLabel('visualStyle', attributes.visualStyle)}风格`,
+  ]
+  let stageParts
+  if (stage === 'face') {
+    stageParts = [
+      '人物面部大头照，头部和肩部完整入镜，五官清晰可调整',
+      '正面平视镜头，自然中性表情，均匀柔光，纯色背景',
+      '不出现手部，不出现文字和饰边',
+      '画面比例1:1',
+    ]
+  } else if (stage === 'turnaround') {
+    stageParts = [
+      '严格保持已确认的面部、发型、身材和服装一致',
+      '标准站姿，全身完整，视线平视，统一比例和光线',
+      '分别生成正面、侧面、背面三张独立源图',
+      '最终组合为一张16:9三栏人物三视图设定表',
+    ]
+  } else {
+    stageParts = [
+      '严格保持已确认面部的五官、脸型、发型和年龄特征',
+      optionLabel('bodyType', attributes.bodyType),
+      '全身完整入镜',
+      attributes.legStretch ? '自然适度拉长腿部比例，保持身体结构正确' : '',
+      `${optionLabel('background', attributes.background)}背景`,
+      `画面比例${aspectRatio}`,
+    ]
+  }
+  if (asset.sourceMode === 'import' && asset.references?.length) {
+    stageParts.push('严格保持导入参考图中的身份和关键外观特征')
+  }
+  return applyCustomPrompt(asset, [...identity, ...stageParts].filter(Boolean).join('，'))
+}
+
+function applyCustomPrompt(asset, automatic) {
   const custom = asset.customPrompt?.trim() || ''
   if (asset.promptMode === 'advanced' && asset.customPromptMode === 'replace' && custom) return custom
   return [automatic, asset.promptMode === 'advanced' ? custom : ''].filter(Boolean).join('，')

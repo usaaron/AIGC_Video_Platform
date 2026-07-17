@@ -23,12 +23,14 @@ const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, audio: 
 export function AssetsPage({
   project,
   assets,
+  tasks,
   billing,
   onCreate,
   onUpdate,
   onDelete,
   onUpload,
   onGenerate,
+  onGenerateStage,
   onGenerateAll,
   onNext,
 }) {
@@ -114,6 +116,7 @@ export function AssetsPage({
         <AssetEditor
           asset={editing}
           aspectRatio={project.aspectRatio}
+          tasks={tasks}
           onUpload={onUpload}
           onClose={() => setEditing(null)}
           onSave={async (input) => {
@@ -121,6 +124,8 @@ export function AssetsPage({
             else await onCreate(input)
             setEditing(null)
           }}
+          onPersist={async (input) => onUpdate(editing.id, input)}
+          onGenerateStage={onGenerateStage}
           onDelete={
             editing.id
               ? async () => {
@@ -143,7 +148,13 @@ function AssetCard({ asset, onEdit, onGenerate }) {
       <div className={`asset-image ${asset.kind === 'audio' ? 'sound-asset' : ''}`}>
         {asset.imageUrl ? <img src={asset.imageUrl} alt={asset.name} /> : <EmptyIcon size={42} />}
         <span>
-          {asset.sourceMode === 'import' ? '本地导入' : asset.status === 'confirmed' ? '已确认' : 'AI 资产'}
+          {asset.kind === 'character'
+            ? characterStatus(asset)
+            : asset.sourceMode === 'import'
+              ? '本地导入'
+              : asset.status === 'confirmed'
+                ? '已确认'
+                : 'AI 资产'}
         </span>
         <IconButton label="编辑资产" onClick={onEdit}>
           <Pencil size={17} />
@@ -164,13 +175,19 @@ function AssetCard({ asset, onEdit, onGenerate }) {
         <label>最终提示词</label>
         <p className="prompt-text">{asset.prompt || '编辑资产后自动生成中文提示词'}</p>
         <div className="asset-actions">
-          <button onClick={onGenerate}>
+          <button onClick={asset.kind === 'character' ? onEdit : onGenerate}>
             <RefreshCw size={14} />
-            生成新版本
+            {asset.kind === 'character' ? '继续人物设定' : '生成新版本'}
           </button>
           <button onClick={onEdit}>编辑</button>
         </div>
       </div>
     </article>
   )
+}
+
+function characterStatus(asset) {
+  if (asset.attributes.faceStatus !== 'approved') return '待确认面部'
+  if (asset.attributes.bodyStatus !== 'approved') return '面部已确认'
+  return '全身已确认'
 }

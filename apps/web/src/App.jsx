@@ -191,6 +191,7 @@ function App() {
         <AssetsPage
           project={project}
           assets={workspace.assets}
+          tasks={tasks}
           billing={billing}
           onCreate={async (input) => {
             await api.createAsset(project.id, input)
@@ -208,6 +209,32 @@ function App() {
             setToast('资产已删除')
           }}
           onUpload={(file) => api.uploadMedia(project.id, file)}
+          onGenerateStage={(asset, stage, prompt) => {
+            const references =
+              stage === 'face'
+                ? asset.references
+                : stage === 'body'
+                  ? [asset.attributes.faceReference].filter(Boolean)
+                  : [asset.attributes.faceReference, asset.attributes.bodyReference].filter(Boolean)
+            const labels = { face: '面部大头照', body: '全身设定', turnaround: '三视图设定表' }
+            const costs = { face: 4, body: 6, turnaround: 18 }
+            return createJob(`${asset.name} · ${labels[stage]}`, '图片', costs[stage], {
+              prompt,
+              negativePrompt: asset.negativePrompt,
+              metadata: {
+                assetId: asset.id,
+                assetKind: asset.kind,
+                generationStage: stage,
+                aspectRatio: stage === 'face' ? '1:1' : stage === 'turnaround' ? '16:9' : project.aspectRatio,
+                sourceMode: asset.sourceMode,
+                references,
+                attributes: asset.attributes,
+                turnaround: stage === 'turnaround',
+                composeSheet: stage === 'turnaround',
+                outputLayout: asset.attributes.turnaroundLayout,
+              },
+            })
+          }}
           onGenerate={(asset) =>
             createJob(`${asset.name} · 重新生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
               prompt: asset.prompt,
