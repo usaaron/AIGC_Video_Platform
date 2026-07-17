@@ -1,0 +1,25 @@
+{
+  "name": "seqora-platform",
+  "private": true,
+  "version": "0.2.0",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=22.12.0",
+    "pnpm": ">=11.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @seqora/contracts build && pnpm --parallel --filter @seqora/api --filter @seqora/web dev",
+    "dev:web": "pnpm --filter @seqora/web dev",
+    "dev:api": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/api dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "lint:fix": "pnpm -r lint:fix",
+    "test": "pnpm -r test",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "check": "pnpm format:check && pnpm lint && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "prettier": "3.9.5"
+  }
+}

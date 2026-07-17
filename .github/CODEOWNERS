@@ -1,0 +1,8 @@
+# Default owner. Add the other maintainers after their GitHub usernames are known.
+* @usaaron
+
+# Security-sensitive and shared-contract changes always require the repository owner.
+/.github/ @usaaron
+/apps/api/ @usaaron
+/packages/contracts/ @usaaron
+/SECURITY.md @usaaron

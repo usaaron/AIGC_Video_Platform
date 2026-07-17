@@ -1,0 +1,38 @@
+name: 功能需求
+description: 提议一个有明确用户价值的改进
+title: 'feat: '
+labels: [enhancement]
+body:
+  - type: textarea
+    id: user-problem
+    attributes:
+      label: 用户问题
+      description: 哪类用户在什么场景遇到了什么问题？
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 期望结果
+      description: 描述结果，不必先限定实现方式。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      placeholder: |
+        - [ ] 用户可以...
+        - [ ] 失败时显示...
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 建议优先级
+      options:
+        - P2 - 常规迭代
+        - P1 - 近期需要
+        - P0 - 阻塞核心流程
+    validations:
+      required: true

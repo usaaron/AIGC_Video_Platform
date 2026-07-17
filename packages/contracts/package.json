@@ -1,0 +1,26 @@
+{
+  "name": "@seqora/contracts",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "oxlint src",
+    "lint:fix": "oxlint src --fix",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "oxlint": "1.74.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}

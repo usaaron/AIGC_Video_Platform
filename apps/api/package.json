@@ -1,0 +1,28 @@
+{
+  "name": "@seqora/api",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "oxlint src",
+    "lint:fix": "oxlint src --fix",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/cors": "11.3.0",
+    "@seqora/contracts": "workspace:*",
+    "dotenv": "17.4.2",
+    "fastify": "5.10.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "oxlint": "1.74.0",
+    "tsx": "4.23.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}

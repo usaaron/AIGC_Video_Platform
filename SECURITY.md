@@ -1,0 +1,21 @@
+# 安全策略
+
+## 私密报告漏洞
+
+不要在公开 Issue 中提交 API Key、用户数据、支付信息或可直接利用的漏洞细节。
+
+请使用 GitHub Private Vulnerability Reporting：
+
+1. 打开仓库的 **Security > Advisories**。
+2. 选择 **Report a vulnerability** 或 **New draft security advisory**。
+3. 提供影响范围、复现步骤、受影响版本和建议修复方式。
+
+直接入口：[新建私密安全报告](https://github.com/usaaron/AIGC_Video_Platform/security/advisories/new)。仓库所有者需要在 GitHub 的 **Settings > Security > Private vulnerability reporting** 中启用该功能。
+
+## 开发要求
+
+- 任何密钥只能保存在本地环境变量或部署平台的 Secret 中。
+- `VITE_` 前缀变量会进入浏览器构建，不能放置服务端密钥。
+- 会员权限、并发限制、积分扣减和支付回调必须在后端校验。
+- 日志不得记录完整提示词中的个人敏感信息或第三方访问令牌。
+- 依赖升级必须通过 CI，并检查高危漏洞和破坏性版本变更。
