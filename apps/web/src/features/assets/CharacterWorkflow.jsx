@@ -20,13 +20,26 @@ export function CharacterWorkflow({
   onGenerate,
 }) {
   const [error, setError] = useState('')
-  const relatedTasks = tasks.filter((task) => task.metadata?.assetId === assetId)
+  const [submittingStage, setSubmittingStage] = useState(null)
+  const relatedTasks = assetId ? tasks.filter((task) => task.metadata?.assetId === assetId) : []
   const taskFor = (targetStage) => relatedTasks.find((task) => task.metadata?.generationStage === targetStage)
   const faceTask = taskFor('face')
   const bodyTask = taskFor('body')
   const turnaroundTask = taskFor('turnaround')
   const faceCandidate = completedOutput(faceTask) || references[0] || null
   const bodyCandidate = completedOutput(bodyTask)
+
+  const generate = async (targetStage) => {
+    setError('')
+    setSubmittingStage(targetStage)
+    try {
+      await onGenerate(targetStage)
+    } catch (generationError) {
+      setError(generationError.message)
+    } finally {
+      setSubmittingStage(null)
+    }
+  }
 
   const persist = async (next) => {
     setError('')
@@ -101,22 +114,28 @@ export function CharacterWorkflow({
           task={faceTask}
           reference={attributes.faceReference || faceCandidate}
           emptyText={
-            assetId ? '生成一张大头照，或切换本地导入上传参考图。' : '先保存人物资产，再生成面部大头照。'
+            assetId
+              ? '生成一张大头照，或切换本地导入上传参考图。'
+              : '填写人物名称后可直接生成，系统会自动保存人物草稿。'
           }
         >
           <button
             className="button secondary"
             type="button"
-            disabled={!assetId || isActive(faceTask)}
-            onClick={() => onGenerate('face')}
+            disabled={submittingStage !== null || isActive(faceTask)}
+            onClick={() => void generate('face')}
           >
-            {isActive(faceTask) ? <LoaderCircle size={15} className="spin" /> : <ScanFace size={15} />}
-            {faceTask ? '重新生成大头照' : '生成面部大头照'}
+            {submittingStage === 'face' || isActive(faceTask) ? (
+              <LoaderCircle size={15} className="spin" />
+            ) : (
+              <ScanFace size={15} />
+            )}
+            {submittingStage === 'face' ? '正在创建并生成' : faceTask ? '重新生成大头照' : '生成面部大头照'}
           </button>
           <button
             className="button primary"
             type="button"
-            disabled={!assetId || !faceCandidate}
+            disabled={submittingStage !== null || !faceCandidate}
             onClick={() => void approveFace()}
           >
             <CheckCircle2 size={15} />
@@ -149,16 +168,20 @@ export function CharacterWorkflow({
           <button
             className="button secondary"
             type="button"
-            disabled={isActive(bodyTask)}
-            onClick={() => onGenerate('body')}
+            disabled={submittingStage !== null || isActive(bodyTask)}
+            onClick={() => void generate('body')}
           >
-            {isActive(bodyTask) ? <LoaderCircle size={15} className="spin" /> : <UserRound size={15} />}
+            {submittingStage === 'body' || isActive(bodyTask) ? (
+              <LoaderCircle size={15} className="spin" />
+            ) : (
+              <UserRound size={15} />
+            )}
             {bodyTask ? '重新生成全身' : '生成全身候选'}
           </button>
           <button
             className="button primary"
             type="button"
-            disabled={!bodyCandidate}
+            disabled={submittingStage !== null || !bodyCandidate}
             onClick={() => void approveBody()}
           >
             <CheckCircle2 size={15} />
@@ -199,10 +222,14 @@ export function CharacterWorkflow({
             <button
               className="button secondary"
               type="button"
-              disabled={isActive(turnaroundTask)}
-              onClick={() => onGenerate('turnaround')}
+              disabled={submittingStage !== null || isActive(turnaroundTask)}
+              onClick={() => void generate('turnaround')}
             >
-              {isActive(turnaroundTask) ? <LoaderCircle size={15} className="spin" /> : <Images size={15} />}
+              {submittingStage === 'turnaround' || isActive(turnaroundTask) ? (
+                <LoaderCircle size={15} className="spin" />
+              ) : (
+                <Images size={15} />
+              )}
               {turnaroundTask ? '重新生成三视图' : '生成三视图'}
             </button>
             {turnaroundTask?.status === 'completed' && turnaroundTask.outputs.length >= 3 && (

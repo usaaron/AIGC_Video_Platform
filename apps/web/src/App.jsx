@@ -194,9 +194,10 @@ function App() {
           tasks={tasks}
           billing={billing}
           onCreate={async (input) => {
-            await api.createAsset(project.id, input)
+            const created = await api.createAsset(project.id, input)
             await refreshWorkspace()
             setToast('资产已添加')
+            return created
           }}
           onUpdate={async (assetId, input) => {
             await api.updateAsset(project.id, assetId, input)

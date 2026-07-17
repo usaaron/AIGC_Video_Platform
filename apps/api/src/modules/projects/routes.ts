@@ -49,11 +49,14 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
   app.post(
     '/projects/:projectId/assets',
     { preHandler: requirePermission(PERMISSIONS.ASSET_WRITE) },
-    (request, reply) => {
+    async (request, reply) => {
       const { projectId } = parse(projectParams, request.params)
-      return reply
-        .code(201)
-        .send(service.createAsset(projectId, parse(createAssetSchema, request.body), request.principal!))
+      const asset = await service.createAsset(
+        projectId,
+        parse(createAssetSchema, request.body),
+        request.principal!,
+      )
+      return reply.code(201).send(asset)
     },
   )
   app.patch(

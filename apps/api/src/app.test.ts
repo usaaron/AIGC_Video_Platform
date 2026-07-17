@@ -151,6 +151,13 @@ describe('local authentication', () => {
       },
     })
     expect(asset.statusCode).toBe(201)
+    expect(asset.json()).toMatchObject({
+      projectId: 'project-midnight-film',
+      kind: 'audio',
+      name: '风声',
+      status: 'draft',
+    })
+    expect(asset.json().id).toEqual(expect.any(String))
 
     const task = await app.inject({
       method: 'POST',

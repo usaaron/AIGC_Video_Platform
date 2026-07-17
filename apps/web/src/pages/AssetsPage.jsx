@@ -119,6 +119,11 @@ export function AssetsPage({
           tasks={tasks}
           onUpload={onUpload}
           onClose={() => setEditing(null)}
+          onCreateDraft={async (input) => {
+            const created = await onCreate(input)
+            setEditing(created)
+            return created
+          }}
           onSave={async (input) => {
             if (editing.id) await onUpdate(editing.id, input)
             else await onCreate(input)

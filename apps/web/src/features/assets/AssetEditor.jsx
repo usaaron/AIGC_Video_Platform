@@ -13,6 +13,7 @@ export function AssetEditor({
   aspectRatio,
   tasks = [],
   onClose,
+  onCreateDraft,
   onSave,
   onPersist,
   onGenerateStage,
@@ -58,10 +59,30 @@ export function AssetEditor({
     ...(asset.id ? { status: asset.status } : {}),
   })
 
+  const validateDraft = (nextDraft) => {
+    if (!nextDraft.name.trim()) throw new Error('请先填写资产名称')
+    if (nextDraft.sourceMode === 'import' && nextDraft.references.length === 0) {
+      throw new Error('本地导入模式至少需要上传一个文件')
+    }
+  }
+
+  const persistCharacterDraft = async (nextDraft) => {
+    validateDraft(nextDraft)
+    if (asset.id) {
+      await onPersist?.(inputFor(nextDraft))
+      return { ...asset, ...nextDraft }
+    }
+    if (!onCreateDraft) throw new Error('人物草稿创建功能不可用')
+    const created = await onCreateDraft(inputFor(nextDraft))
+    return { ...created, ...nextDraft }
+  }
+
   const handleSubmit = async (event) => {
     event.preventDefault()
-    if (draft.sourceMode === 'import' && draft.references.length === 0) {
-      setError('本地导入模式至少需要上传一个文件')
+    try {
+      validateDraft(draft)
+    } catch (validationError) {
+      setError(validationError.message)
       return
     }
     setSaving(true)
@@ -75,23 +96,18 @@ export function AssetEditor({
   }
 
   const persistCharacterAttributes = async (attributes) => {
-    if (!asset.id || !onPersist) return
     const nextDraft = { ...draft, attributes }
     setDraft(nextDraft)
-    await onPersist(inputFor(nextDraft))
+    await persistCharacterDraft(nextDraft)
   }
 
   const generateCharacterStage = async (stage) => {
-    if (!asset.id || !onGenerateStage) return
+    if (!onGenerateStage) return
     const attributes = stage === 'turnaround' ? { ...draft.attributes, turnaround: true } : draft.attributes
     const nextDraft = { ...draft, attributes }
     setDraft(nextDraft)
-    await onPersist?.(inputFor(nextDraft))
-    await onGenerateStage(
-      { ...asset, ...nextDraft },
-      stage,
-      compileCharacterStagePrompt(nextDraft, aspectRatio, stage),
-    )
+    const persistedAsset = await persistCharacterDraft(nextDraft)
+    await onGenerateStage(persistedAsset, stage, compileCharacterStagePrompt(nextDraft, aspectRatio, stage))
   }
 
   return createPortal(
