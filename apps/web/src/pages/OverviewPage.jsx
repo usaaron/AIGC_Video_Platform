@@ -1,15 +1,27 @@
 import { ArrowRight, BadgeCheck, Check, Crown, Play, Plus } from 'lucide-react'
 import { JobRow, PageHeader, StatusDot } from '../components/ui'
 
-export function OverviewPage({ projectName, setActiveStep, runningJobs, jobs, member, setNewProjectOpen }) {
+export function OverviewPage({ project, assets, shots, jobs, billing, setActiveStep, setNewProjectOpen }) {
   const completed = jobs.filter((job) => job.status === 'completed').length
+  const running = jobs.filter((job) => job.status === 'running')
+  const totalDuration = shots.reduce((sum, shot) => sum + shot.duration, 0)
+  const progress = Math.min(
+    100,
+    Math.round(
+      (Number(Boolean(project.script)) +
+        Number(assets.length > 0) +
+        Number(shots.length > 0) +
+        Number(completed > 0)) *
+        25,
+    ),
+  )
 
   return (
     <div className="page overview-page">
       <PageHeader
         eyebrow="项目工作台"
-        title={`继续创作《${projectName}》`}
-        description="所有素材和生成任务都在一个流程里，继续上次停下的位置。"
+        title={`继续创作《${project.name}》`}
+        description="项目、素材和生成任务都已同步到你的账号。"
       >
         <button className="button secondary" onClick={() => setNewProjectOpen(true)}>
           <Plus size={16} /> 新建项目
@@ -18,36 +30,37 @@ export function OverviewPage({ projectName, setActiveStep, runningJobs, jobs, me
           继续创作 <ArrowRight size={16} />
         </button>
       </PageHeader>
-
       <section className="project-hero">
         <div className="hero-copy">
           <div className="hero-meta">
             <span className="live-chip">
-              <StatusDot status="running" /> 制作中
+              <StatusDot status="running" /> {project.status === 'producing' ? '制作中' : '草稿'}
             </span>
-            <span>竖屏短剧 · 约 2 分钟</span>
+            <span>
+              {project.aspectRatio} · {project.contentType === 'short-drama' ? '短剧' : '视频项目'}
+            </span>
           </div>
-          <h2>雨夜，一卷能预见明天的胶片，正等待被打开。</h2>
+          <h2>{project.synopsis || '为这个项目写下一句清晰的故事简介。'}</h2>
           <div className="progress-row">
             <div>
               <span>项目进度</span>
-              <strong>68%</strong>
+              <strong>{progress}%</strong>
             </div>
             <div className="project-progress">
-              <span />
+              <span style={{ width: `${progress}%` }} />
             </div>
           </div>
           <div className="hero-stats">
             <div>
-              <strong>2</strong>
+              <strong>{assets.filter((asset) => asset.kind === 'character').length}</strong>
               <span>角色</span>
             </div>
             <div>
-              <strong>5</strong>
+              <strong>{shots.length}</strong>
               <span>分镜</span>
             </div>
             <div>
-              <strong>22s</strong>
+              <strong>{totalDuration}s</strong>
               <span>预计时长</span>
             </div>
             <div>
@@ -57,7 +70,7 @@ export function OverviewPage({ projectName, setActiveStep, runningJobs, jobs, me
           </div>
         </div>
         <button className="hero-preview" onClick={() => setActiveStep('film')} aria-label="预览成片">
-          <img src="/demo/station.jpg" alt="雨夜车站影片预览" />
+          <img src={shots[0]?.imageUrl || '/demo/station.jpg'} alt="项目预览" />
           <span className="preview-play">
             <Play size={21} fill="currentColor" />
           </span>
@@ -66,28 +79,48 @@ export function OverviewPage({ projectName, setActiveStep, runningJobs, jobs, me
           </span>
         </button>
       </section>
-
       <div className="section-heading">
         <div>
           <span className="eyebrow">制作流程</span>
           <h2>接下来要做什么</h2>
         </div>
         <span className="autosave">
-          <BadgeCheck size={15} /> 已自动保存
+          <BadgeCheck size={15} /> 数据已同步
         </span>
       </div>
       <div className="workflow-grid">
         {[
-          ['01', '剧本', '已完成', '完成故事梗概与对白', 'script', 'complete'],
-          ['02', '角色资产', '1 项待确认', '确认周野的角色形象', 'assets', 'current'],
-          ['03', '分镜', '5 / 5', '检查镜头与提示词', 'storyboard', 'complete'],
+          [
+            '01',
+            '剧本',
+            project.script ? '已保存' : '待填写',
+            '完成故事内容与对白',
+            'script',
+            project.script ? 'complete' : 'current',
+          ],
+          [
+            '02',
+            '角色资产',
+            `${assets.length} 项`,
+            '确认人物、场景与声音',
+            'assets',
+            assets.length ? 'complete' : 'pending',
+          ],
+          [
+            '03',
+            '分镜',
+            `${shots.length} 个`,
+            '检查镜头与提示词',
+            'storyboard',
+            shots.length ? 'complete' : 'pending',
+          ],
           [
             '04',
             '视频生成',
-            runningJobs.length ? `${runningJobs.length} 项进行中` : '可开始',
-            member ? '会员并发生成已开启' : '逐个生成，会员可并发',
+            running.length ? `${running.length} 项进行中` : `${completed} 项完成`,
+            `当前可并发 ${billing.concurrency} 项`,
             'generate',
-            'pending',
+            running.length ? 'current' : 'pending',
           ],
         ].map(([number, title, status, description, id, state]) => (
           <button className={`workflow-card ${state}`} key={id} onClick={() => setActiveStep(id)}>
@@ -101,7 +134,6 @@ export function OverviewPage({ projectName, setActiveStep, runningJobs, jobs, me
           </button>
         ))}
       </div>
-
       <div className="two-column">
         <section className="activity-panel">
           <div className="panel-head">
@@ -110,8 +142,9 @@ export function OverviewPage({ projectName, setActiveStep, runningJobs, jobs, me
           </div>
           <div className="activity-list">
             {jobs.slice(0, 3).map((job) => (
-              <JobRow key={job.id} job={job} compact />
+              <JobRow key={job.id} job={toDisplayJob(job)} compact />
             ))}
+            {!jobs.length && <p className="panel-empty">还没有生成任务。</p>}
           </div>
         </section>
         <section className="membership-panel">
@@ -119,16 +152,17 @@ export function OverviewPage({ projectName, setActiveStep, runningJobs, jobs, me
             <Crown size={19} />
           </div>
           <div>
-            <span className="eyebrow">{member ? '创作会员已开启' : '加速你的创作'}</span>
-            <h2>{member ? '3 路任务并发中' : '批量生成，不必逐个等待'}</h2>
-            <p>
-              {member
-                ? '当前项目已获得会员并发与批量生成权限。'
-                : '会员可同时生成角色、场景和视频，项目交付更快。'}
-            </p>
+            <span className="eyebrow">{billing.plan === 'member' ? '创作会员' : '免费版'}</span>
+            <h2>{billing.concurrency} 路任务并发</h2>
+            <p>可用 {billing.credits} 积分，所有消耗都记录在积分账单。</p>
           </div>
         </section>
       </div>
     </div>
   )
+}
+
+function toDisplayJob(job) {
+  const type = { text: '文本', image: '图片', video: '视频', audio: '音频' }[job.kind]
+  return { ...job, type, cost: job.estimatedCredits }
 }

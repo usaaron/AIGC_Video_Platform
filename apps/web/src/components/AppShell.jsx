@@ -32,13 +32,14 @@ const STEPS = [
 
 export function AppHeader({
   projectName,
-  credits,
-  member,
-  setMember,
+  billing,
+  account,
   runningJobs,
   onOpenNav,
   onProjectClick,
   onCreditsClick,
+  onPlanClick,
+  onAccountClick,
 }) {
   return (
     <header className="topbar">
@@ -64,21 +65,23 @@ export function AppHeader({
           {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '生成服务正常'}
         </div>
         <button className="credit-button" onClick={onCreditsClick}>
-          <Zap size={15} fill="currentColor" /> {credits} 积分
+          <Zap size={15} fill="currentColor" /> {billing?.credits ?? 0} 积分
         </button>
         <button
-          className={`plan-button ${member ? 'is-member' : ''}`}
-          onClick={() => setMember((value) => !value)}
+          className={`plan-button ${billing?.plan === 'member' ? 'is-member' : ''}`}
+          onClick={onPlanClick}
         >
-          <Crown size={15} /> {member ? '创作会员' : '免费版'}
+          <Crown size={15} /> {billing?.plan === 'member' ? '创作会员' : '免费版'}
         </button>
-        <div className="avatar">夏</div>
+        <button className="avatar" onClick={onAccountClick} title="账号设置">
+          {account?.name?.slice(0, 1) ?? '用'}
+        </button>
       </div>
     </header>
   )
 }
 
-export function AppSidebar({ activeStep, mobileNav, member, onNavigate, onClose }) {
+export function AppSidebar({ activeStep, mobileNav, billing, assetCount, onNavigate, onClose }) {
   const activeIndex = STEPS.findIndex((item) => item.id === activeStep)
 
   return (
@@ -109,24 +112,30 @@ export function AppSidebar({ activeStep, mobileNav, member, onNavigate, onClose 
         })}
       </nav>
       <div className="sidebar-spacer" />
-      <button className="sidebar-link">
-        <PackageOpen size={17} /> 资产库 <span>12</span>
+      <button className="sidebar-link" onClick={() => onNavigate('assets')}>
+        <PackageOpen size={17} /> 资产库 <span>{assetCount}</span>
       </button>
-      <button className="sidebar-link">
+      <button
+        className={`sidebar-link ${activeStep === 'billing' ? 'active' : ''}`}
+        onClick={() => onNavigate('billing')}
+      >
         <CircleDollarSign size={17} /> 积分账单
       </button>
-      <button className="sidebar-link">
+      <button
+        className={`sidebar-link ${activeStep === 'settings' ? 'active' : ''}`}
+        onClick={() => onNavigate('settings')}
+      >
         <Settings size={17} /> 项目设置
       </button>
       <div className="usage-box">
         <div>
           <span>本月用量</span>
-          <strong>714 / 1000</strong>
+          <strong>{billing?.credits ?? 0} 积分</strong>
         </div>
         <div className="usage-track">
           <span />
         </div>
-        <small>{member ? '会员并发 3 个任务' : '免费版并发 1 个任务'}</small>
+        <small>当前可并发 {billing?.concurrency ?? 1} 个任务</small>
       </div>
     </aside>
   )
@@ -134,6 +143,8 @@ export function AppSidebar({ activeStep, mobileNav, member, onNavigate, onClose 
 
 export function NewProjectModal({ onClose, onCreate }) {
   const [name, setName] = useState('未命名影片')
+  const [contentType, setContentType] = useState('short-drama')
+  const [aspectRatio, setAspectRatio] = useState('9:16')
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -159,18 +170,18 @@ export function NewProjectModal({ onClose, onCreate }) {
         <div className="field-grid">
           <label>
             <span>内容类型</span>
-            <select>
-              <option>短剧</option>
-              <option>广告</option>
-              <option>动画短片</option>
+            <select value={contentType} onChange={(event) => setContentType(event.target.value)}>
+              <option value="short-drama">短剧</option>
+              <option value="advertisement">广告</option>
+              <option value="animation">动画短片</option>
             </select>
           </label>
           <label>
             <span>画面比例</span>
-            <select>
-              <option>9:16 竖屏</option>
-              <option>16:9 横屏</option>
-              <option>1:1 方形</option>
+            <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>
+              <option value="9:16">9:16 竖屏</option>
+              <option value="16:9">16:9 横屏</option>
+              <option value="1:1">1:1 方形</option>
             </select>
           </label>
         </div>
@@ -178,7 +189,10 @@ export function NewProjectModal({ onClose, onCreate }) {
           <button className="button secondary" onClick={onClose}>
             取消
           </button>
-          <button className="button primary" onClick={() => onCreate(name || '未命名影片')}>
+          <button
+            className="button primary"
+            onClick={() => onCreate({ name: name || '未命名影片', contentType, aspectRatio })}
+          >
             创建并写剧本 <ArrowRight size={16} />
           </button>
         </div>

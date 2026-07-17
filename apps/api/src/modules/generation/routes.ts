@@ -32,4 +32,14 @@ export async function registerGenerationRoutes(
       return service.listProjectTasks(parsed.data.projectId, request.principal!)
     },
   )
+
+  app.delete(
+    '/projects/:projectId/generation/tasks/completed',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
+    async (request) => {
+      const parsed = projectParamsSchema.safeParse(request.params)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      return { cleared: await service.clearCompleted(parsed.data.projectId, request.principal!) }
+    },
+  )
 }

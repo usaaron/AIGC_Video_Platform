@@ -1,7 +1,17 @@
+import { useState } from 'react'
 import { ArrowRight, Check, Clapperboard, Clock3, Crown, LoaderCircle, Play, Zap } from 'lucide-react'
 import { JobRow, PageHeader } from '../components/ui'
 
-export function GenerationPage({ jobs, concurrency, member, setMember, onClear, onNext }) {
+const filters = [
+  ['all', '全部'],
+  ['image', '图片'],
+  ['video', '视频'],
+  ['audio', '音频'],
+]
+
+export function GenerationPage({ jobs, concurrency, member, onUpgrade, onClear, onNext }) {
+  const [filter, setFilter] = useState('all')
+  const visibleJobs = filter === 'all' ? jobs : jobs.filter((job) => job.kind === filter)
   const active = jobs.filter((job) => job.status !== 'completed')
 
   return (
@@ -9,7 +19,7 @@ export function GenerationPage({ jobs, concurrency, member, setMember, onClear, 
       <PageHeader
         eyebrow="第 4 步 · 生成队列"
         title="创作正在发生"
-        description="离开页面也不会中断任务，完成后会自动汇入成片。"
+        description="任务由后端持续处理，刷新页面不会中断。"
       >
         <button className="button secondary" onClick={onClear}>
           清理已完成
@@ -60,10 +70,10 @@ export function GenerationPage({ jobs, concurrency, member, setMember, onClear, 
           <div>
             <span className="eyebrow">节省等待时间</span>
             <h2>开启 3 路并发生成</h2>
-            <p>免费版会逐个处理任务；会员可同时生成角色、场景和视频。</p>
+            <p>免费版任务会依次执行，会员可同时处理 3 项。</p>
           </div>
-          <button className="button dark" onClick={() => setMember(true)}>
-            体验会员并发 <ArrowRight size={16} />
+          <button className="button dark" onClick={onUpgrade}>
+            查看会员方案 <ArrowRight size={16} />
           </button>
         </section>
       )}
@@ -74,23 +84,30 @@ export function GenerationPage({ jobs, concurrency, member, setMember, onClear, 
             <span>{active.length ? `${active.length} 项尚未完成` : '所有任务已完成'}</span>
           </div>
           <div className="queue-filter">
-            <button className="active">全部</button>
-            <button>图片</button>
-            <button>视频</button>
+            {filters.map(([id, label]) => (
+              <button key={id} className={filter === id ? 'active' : ''} onClick={() => setFilter(id)}>
+                {label}
+              </button>
+            ))}
           </div>
         </div>
         <div className="jobs-list">
-          {jobs.length ? (
-            jobs.map((job) => <JobRow job={job} key={job.id} />)
+          {visibleJobs.length ? (
+            visibleJobs.map((job) => <JobRow job={toDisplayJob(job)} key={job.id} />)
           ) : (
             <div className="empty-state">
               <Clapperboard size={28} />
-              <h3>暂无生成任务</h3>
-              <p>从分镜页面选择镜头开始生成。</p>
+              <h3>当前分类没有任务</h3>
+              <p>从资产或分镜页面开始生成。</p>
             </div>
           )}
         </div>
       </section>
     </div>
   )
+}
+
+function toDisplayJob(job) {
+  const type = { text: '文本', image: '图片', video: '视频', audio: '音频' }[job.kind]
+  return { ...job, type, cost: job.estimatedCredits }
 }

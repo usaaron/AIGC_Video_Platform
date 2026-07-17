@@ -6,7 +6,9 @@ const configSchema = z
     API_HOST: z.string().default('127.0.0.1'),
     API_PORT: z.coerce.number().int().min(1).max(65_535).default(8787),
     WEB_ORIGIN: z.string().default('http://localhost:5173'),
-    AUTH_MODE: z.enum(['demo', 'oidc']).default('demo'),
+    AUTH_MODE: z.enum(['local', 'demo', 'oidc']).default('local'),
+    AUTH_SECRET: z.string().min(32).default('seqora-development-secret-change-me'),
+    DATA_FILE: z.string().default('./data/app.json'),
   })
   .superRefine((config, context) => {
     if (config.NODE_ENV === 'production' && config.AUTH_MODE === 'demo') {
@@ -14,6 +16,13 @@ const configSchema = z
         code: 'custom',
         path: ['AUTH_MODE'],
         message: 'Demo authentication is forbidden in production',
+      })
+    }
+    if (config.NODE_ENV === 'production' && config.AUTH_SECRET.includes('development')) {
+      context.addIssue({
+        code: 'custom',
+        path: ['AUTH_SECRET'],
+        message: 'A unique AUTH_SECRET is required in production',
       })
     }
   })

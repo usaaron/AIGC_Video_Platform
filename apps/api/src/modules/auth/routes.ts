@@ -1,10 +1,36 @@
+import { loginSchema } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
-import { permissionsFor } from '../../core/auth/authorization.js'
+import { z } from 'zod'
+import { SESSION_COOKIE } from '../../core/auth/provider.js'
 import { AppError } from '../../core/errors.js'
+import type { AuthService } from './service.js'
 
-export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
+export async function registerAuthRoutes(
+  app: FastifyInstance,
+  service: AuthService,
+  secureCookies: boolean,
+): Promise<void> {
+  app.post('/auth/login', async (request, reply) => {
+    const parsed = loginSchema.safeParse(request.body)
+    if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+    const { session, token } = service.login(parsed.data)
+    reply.setCookie(SESSION_COOKIE, token, {
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: secureCookies,
+      maxAge: 60 * 60 * 24 * 7,
+    })
+    return session
+  })
+
+  app.post('/auth/logout', async (_request, reply) => {
+    reply.clearCookie(SESSION_COOKIE, { path: '/' })
+    return reply.code(204).send()
+  })
+
   app.get('/auth/me', async (request) => {
-    if (!request.principal) throw new AppError(401, 'AUTHENTICATION_REQUIRED', 'Authentication is required')
-    return { ...request.principal, permissions: [...permissionsFor(request.principal)] }
+    if (!request.principal) throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录')
+    return service.session(request.principal)
   })
 }

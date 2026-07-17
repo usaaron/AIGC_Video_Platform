@@ -1,15 +1,23 @@
 import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
+import type { AppStore } from '../../infra/store.js'
 
-export interface GenerationTaskRepository {
-  create(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask>
-  listByProject(projectId: string, principal: Principal): Promise<GenerationTask[]>
-}
+export class GenerationTaskRepository {
+  constructor(private readonly store: AppStore) {}
 
-export class InMemoryGenerationTaskRepository implements GenerationTaskRepository {
-  private readonly tasks = new Map<string, GenerationTask>()
+  canCreate(projectId: string, principal: Principal): boolean {
+    return this.store.read((state) =>
+      state.projects.some(
+        (project) =>
+          project.id === projectId &&
+          project.tenantId === principal.tenantId &&
+          project.ownerId === principal.userId,
+      ),
+    )
+  }
 
   async create(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask> {
+    const now = new Date().toISOString()
     const task: GenerationTask = {
       id: randomUUID(),
       clientRequestId: input.clientRequestId,
@@ -21,15 +29,45 @@ export class InMemoryGenerationTaskRepository implements GenerationTaskRepositor
       status: 'queued',
       progress: 0,
       estimatedCredits: input.estimatedCredits,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      error: null,
     }
-    this.tasks.set(task.id, task)
-    return task
+    return this.store.mutate((state) => {
+      const existing = state.tasks.find(
+        (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
+      )
+      if (existing) return existing
+      state.tasks.unshift(task)
+      return task
+    })
   }
 
-  async listByProject(projectId: string, principal: Principal): Promise<GenerationTask[]> {
-    return [...this.tasks.values()].filter(
-      (task) => task.projectId === projectId && task.tenantId === principal.tenantId,
+  listByProject(projectId: string, principal: Principal): GenerationTask[] {
+    const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+    return this.store.read((state) =>
+      state.tasks.filter(
+        (task) =>
+          task.projectId === projectId &&
+          task.tenantId === principal.tenantId &&
+          (canReadAll || task.userId === principal.userId),
+      ),
     )
+  }
+
+  async clearCompleted(projectId: string, principal: Principal): Promise<number> {
+    return this.store.mutate((state) => {
+      const before = state.tasks.length
+      state.tasks = state.tasks.filter(
+        (task) =>
+          !(
+            task.projectId === projectId &&
+            task.userId === principal.userId &&
+            (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled')
+          ),
+      )
+      return before - state.tasks.length
+    })
   }
 }

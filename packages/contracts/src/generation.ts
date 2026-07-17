@@ -25,6 +25,9 @@ export const generationTaskSchema = z.object({
   progress: z.number().int().min(0).max(100),
   estimatedCredits: z.number().int().nonnegative(),
   createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  resultUrl: z.string().max(2_000).nullable(),
+  error: z.string().max(1_000).nullable(),
 })
 
 export type CreateGenerationTask = z.infer<typeof createGenerationTaskSchema>
