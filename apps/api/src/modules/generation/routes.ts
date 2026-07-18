@@ -6,6 +6,7 @@ import { AppError } from '../../core/errors.js'
 import type { GenerationService } from './service.js'
 
 const projectParamsSchema = z.object({ projectId: z.string().min(1).max(128) })
+const taskParamsSchema = z.object({ taskId: z.string().min(1).max(128) })
 
 export async function registerGenerationRoutes(
   app: FastifyInstance,
@@ -30,6 +31,19 @@ export async function registerGenerationRoutes(
       const parsed = projectParamsSchema.safeParse(request.params)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
       return service.listProjectTasks(parsed.data.projectId, request.principal!)
+    },
+  )
+
+  app.get(
+    '/generation/tasks/:taskId/content',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ) },
+    async (request, reply) => {
+      const parsed = taskParamsSchema.safeParse(request.params)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      const content = await service.getVideoContent(parsed.data.taskId, request.principal!)
+      reply.header('Cache-Control', 'private, no-store').type(content.contentType)
+      if (content.contentLength) reply.header('Content-Length', content.contentLength)
+      return reply.send(content.stream)
     },
   )
 

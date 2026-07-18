@@ -62,6 +62,19 @@ export class GenerationTaskRepository {
     )
   }
 
+  findById(taskId: string, principal: Principal): GenerationTask | null {
+    const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+    return this.store.read(
+      (state) =>
+        state.tasks.find(
+          (task) =>
+            task.id === taskId &&
+            task.tenantId === principal.tenantId &&
+            (canReadAll || task.userId === principal.userId),
+        ) ?? null,
+    )
+  }
+
   async clearCompleted(projectId: string, principal: Principal): Promise<number> {
     return this.store.mutate((state) => {
       const before = state.tasks.length

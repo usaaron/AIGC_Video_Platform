@@ -7,7 +7,9 @@ import type { AppConfig } from './config.js'
 import { installAuth } from './core/auth/installAuth.js'
 import { createAuthProvider } from './core/auth/provider.js'
 import { AppError } from './core/errors.js'
-import { LocalTaskRunner } from './core/jobs/taskDispatcher.js'
+import { AideosSeedanceProvider } from './core/generation/aideosSeedanceProvider.js'
+import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
+import { GenerationTaskRunner } from './core/jobs/taskDispatcher.js'
 import { AppStore } from './infra/store.js'
 import { createObjectStorage } from './infra/objectStorage.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
@@ -31,6 +33,7 @@ type BuildAppOptions = {
   logger?: boolean
   store?: AppStore
   startWorker?: boolean
+  videoProvider?: VideoGenerationProvider | null
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -49,11 +52,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const users = new UserRepository(store)
   const authService = new AuthService(users, options.config.AUTH_SECRET)
   const creditLedger = new StoreCreditLedger(store)
-  const taskRunner = new LocalTaskRunner(store)
+  const videoProvider =
+    options.videoProvider === undefined ? createVideoProvider(options.config) : options.videoProvider
+  const taskRunner = new GenerationTaskRunner(store, videoProvider, options.config.SEEDANCE_POLL_INTERVAL_MS)
   const generationService = new GenerationService(
     new GenerationTaskRepository(store),
     creditLedger,
     taskRunner,
+    videoProvider,
   )
   const projectService = new ProjectService(new ProjectRepository(store))
   const mediaService = new MediaService(new MediaRepository(store), createObjectStorage(options.config))
@@ -71,7 +77,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: '服务器内部错误' } })
   })
 
-  app.get('/api/v1/health', async () => ({ status: 'ok', service: 'seqora-api' }))
+  app.get('/api/v1/health', async () => ({
+    status: 'ok',
+    service: 'seqora-api',
+    providers: { seedance: videoProvider ? 'configured' : 'local-mock' },
+  }))
   await app.register(
     async (api) => {
       await registerAuthRoutes(api, authService, options.config.NODE_ENV === 'production')
@@ -87,4 +97,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   if (options.startWorker !== false) taskRunner.start()
   app.addHook('onClose', async () => taskRunner.stop())
   return app
+}
+
+function createVideoProvider(config: AppConfig): VideoGenerationProvider | null {
+  if (!config.SEEDANCE_API_KEY) return null
+  return new AideosSeedanceProvider({
+    baseUrl: config.SEEDANCE_API_BASE_URL,
+    apiKey: config.SEEDANCE_API_KEY,
+    defaultModel: config.SEEDANCE_MODEL,
+    requestTimeoutMs: config.SEEDANCE_REQUEST_TIMEOUT_MS,
+  })
 }

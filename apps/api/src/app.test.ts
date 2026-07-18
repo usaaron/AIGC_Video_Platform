@@ -1,9 +1,13 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import type { GenerationTask } from '@seqora/contracts'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { Readable } from 'node:stream'
 import { buildApp } from './app.js'
 import type { AppConfig } from './config.js'
+import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
+import { AppStore } from './infra/store.js'
 
 const testConfig: AppConfig = {
   NODE_ENV: 'test',
@@ -17,6 +21,11 @@ const testConfig: AppConfig = {
   UPLOAD_DIR: resolve('./data/test-uploads'),
   GCS_BUCKET: '',
   MAX_UPLOAD_BYTES: 10_485_760,
+  SEEDANCE_API_BASE_URL: 'https://aideos.openrouter.icu',
+  SEEDANCE_API_KEY: '',
+  SEEDANCE_MODEL: 'doubao-seedance-2-0-260128',
+  SEEDANCE_POLL_INTERVAL_MS: 5_000,
+  SEEDANCE_REQUEST_TIMEOUT_MS: 30_000,
 }
 
 let app: FastifyInstance | undefined
@@ -73,6 +82,60 @@ describe('API authorization', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({ users: 2, activeTasks: 0 })
+  })
+
+  it('proxies completed Seedance video content through the authenticated API', async () => {
+    const getContent = vi.fn(async () => ({
+      stream: Readable.from([Buffer.from('video-content')]),
+      contentType: 'video/mp4',
+      contentLength: '13',
+    }))
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(),
+      getStatus: vi.fn(),
+      getContent,
+    }
+    const store = new AppStore(null)
+    app = await buildApp({ config: testConfig, store, videoProvider: provider, startWorker: false })
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'completed-video-task',
+      clientRequestId: 'completed-video-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-creator',
+      kind: 'video',
+      label: '已完成镜头',
+      prompt: '雨夜车站',
+      negativePrompt: '',
+      provider: 'seedance',
+      model: 'doubao-seedance-2-0-260128',
+      metadata: { providerTaskId: 'remote-video-task' },
+      status: 'completed',
+      progress: 100,
+      estimatedCredits: 18,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: '/api/v1/generation/tasks/completed-video-task/content',
+      outputs: [],
+      error: null,
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+
+    const response = await app.inject({
+      method: 'GET',
+      url: task.resultUrl!,
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['content-type']).toContain('video/mp4')
+    expect(response.body).toBe('video-content')
+    expect(getContent).toHaveBeenCalledWith('remote-video-task')
   })
 })
 

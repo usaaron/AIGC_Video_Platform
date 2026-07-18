@@ -13,6 +13,11 @@ const configSchema = z
     UPLOAD_DIR: z.string().default('./data/uploads'),
     GCS_BUCKET: z.string().default(''),
     MAX_UPLOAD_BYTES: z.coerce.number().int().min(1_048_576).max(52_428_800).default(10_485_760),
+    SEEDANCE_API_BASE_URL: z.string().url().default('https://aideos.openrouter.icu'),
+    SEEDANCE_API_KEY: z.string().default(''),
+    SEEDANCE_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
+    SEEDANCE_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).max(60_000).default(5_000),
+    SEEDANCE_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(30_000),
   })
   .superRefine((config, context) => {
     if (config.NODE_ENV === 'production' && config.AUTH_MODE === 'demo') {

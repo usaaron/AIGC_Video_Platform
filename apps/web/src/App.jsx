@@ -115,7 +115,8 @@ function App() {
         prompt: options.prompt,
         negativePrompt: options.negativePrompt,
         provider,
-        model: kind === 'video' ? 'seedance-2.0' : kind === 'image' ? 'img2-default' : undefined,
+        model:
+          kind === 'video' ? 'doubao-seedance-2-0-260128' : kind === 'image' ? 'img2-default' : undefined,
         estimatedCredits: cost,
         metadata: options.metadata,
       })
@@ -292,7 +293,16 @@ function App() {
           }}
           onGenerate={(shot) =>
             createJob(`镜头 ${String(shot.order).padStart(2, '0')} · ${shot.title}`, '视频', 18, {
-              shotId: shot.id,
+              prompt: shot.prompt || `${shot.title}，${shot.framing}，电影感`,
+              metadata: {
+                shotId: shot.id,
+                duration: shot.duration,
+                aspectRatio: project.aspectRatio,
+                resolution: '720p',
+                generateAudio: false,
+                watermark: false,
+                images: shot.imageUrl ? [shot.imageUrl] : [],
+              },
             })
           }
           onNext={() => navigateTo('generate')}

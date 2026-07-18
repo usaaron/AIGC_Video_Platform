@@ -61,4 +61,14 @@ Content-Type: multipart/form-data
 
 第三方中转适配器实现 `apps/api/src/core/generation/imageProvider.ts` 中的 `ImageGenerationProvider`。Provider 负责把受保护的参考图转换为中转服务可读取的上传文件或签名 URL，并映射创建任务、查询状态和输出结果。API Key 只能存在于 API/Worker 环境变量中。
 
-Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。
+## Seedance 2.0 视频接入
+
+Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。API 服务通过 Aideos 中转调用以下接口：
+
+- `POST /v1/video/generations`：创建异步视频任务
+- `GET /v1/videos/:taskId`：每 5 秒轮询一次任务状态
+- `GET /v1/videos/:taskId/content`：读取已完成视频
+
+分镜生成会提交标准模型、分镜提示词、时长、项目画面比例、`720p` 和可公开读取的参考图。第三方任务 ID 只保存在服务端任务 `metadata` 中；前端通过受登录权限保护的 `/api/v1/generation/tasks/:taskId/content` 播放或下载，不接触第三方 API Key。
+
+本地开发在 `apps/api/.env` 配置 `SEEDANCE_API_KEY`。未配置密钥时，开发环境继续使用本地模拟视频结果；部署环境应通过密钥管理服务注入，不能写入镜像或 Git。
