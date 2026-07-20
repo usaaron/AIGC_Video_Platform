@@ -185,6 +185,7 @@ export class ProjectRepository implements ProjectStore {
         tenantId: principal.tenantId,
         order: Math.max(0, ...projectShots.map((item) => item.order)) + 1,
         ...input,
+        assetIds: input.assetIds ?? [],
         createdAt: now,
         updatedAt: now,
       }
@@ -227,6 +228,7 @@ export class ProjectRepository implements ProjectStore {
         tenantId: principal.tenantId,
         order: index + 1,
         ...input,
+        assetIds: input.assetIds ?? [],
         createdAt: now,
         updatedAt: now,
       }))

@@ -22,14 +22,16 @@ const statusLabels = {
   cancelled: '已取消',
 }
 
-export function GenerationPage({ jobs, onClear, onRetry, onNext, pollError }) {
+export function GenerationPage({ jobs, onClear, onRetry, onCancel, onNext, pollError }) {
   const [previewJob, setPreviewJob] = useState(null)
   const [retryingId, setRetryingId] = useState('')
+  const [cancellingId, setCancellingId] = useState('')
   const [actionError, setActionError] = useState('')
   const runningCount = jobs.filter((job) => job.status === 'running').length
   const queuedCount = jobs.filter((job) => job.status === 'queued').length
   const completedCount = jobs.filter((job) => job.status === 'completed').length
   const failedCount = jobs.filter((job) => job.status === 'failed').length
+  const cancelledCount = jobs.filter((job) => job.status === 'cancelled').length
   const activeCount = runningCount + queuedCount
   const lastUpdatedAt = latestUpdatedAt(jobs)
 
@@ -46,12 +48,25 @@ export function GenerationPage({ jobs, onClear, onRetry, onNext, pollError }) {
     }
   }
 
+  const handleCancel = async (job) => {
+    if (!onCancel) return
+    setCancellingId(job.id)
+    setActionError('')
+    try {
+      await onCancel(job)
+    } catch (error) {
+      setActionError(error.message || '取消失败，请稍后再试')
+    } finally {
+      setCancellingId('')
+    }
+  }
+
   return (
     <div className="page queue-page">
       <PageHeader
         eyebrow="第 4 步 · 生成"
         title="任务状态"
-        description="只看任务是否完成、为什么失败，以及结果在哪里。"
+        description="查看排队、轮询、失败原因和结果入口；单个任务可取消或重试。"
       >
         <button className="button secondary" onClick={onClear}>
           清理已结束
@@ -65,6 +80,7 @@ export function GenerationPage({ jobs, onClear, onRetry, onNext, pollError }) {
         <span>等待中 {queuedCount}</span>
         <span>已完成 {completedCount}</span>
         <span className={failedCount ? 'bad' : ''}>失败 {failedCount}</span>
+        <span>已取消 {cancelledCount}</span>
       </div>
       {(pollError || actionError) && (
         <div className="queue-alert" role="status">
@@ -76,7 +92,7 @@ export function GenerationPage({ jobs, onClear, onRetry, onNext, pollError }) {
         <div className="panel-head queue-panel-head">
           <div>
             <h2>任务列表</h2>
-            <span>{queueSummary(activeCount, failedCount)}</span>
+            <span>{queueSummary(activeCount, failedCount, cancelledCount)}</span>
           </div>
           <div className="queue-panel-tools">
             <span className={`queue-sync ${pollError ? 'failed' : ''}`}>
@@ -91,15 +107,17 @@ export function GenerationPage({ jobs, onClear, onRetry, onNext, pollError }) {
                 job={job}
                 key={job.id}
                 isRetrying={retryingId === job.id}
+                isCancelling={cancellingId === job.id}
                 onPreview={setPreviewJob}
                 onRetry={handleRetry}
+                onCancel={handleCancel}
               />
             ))
           ) : (
             <div className="empty-state">
               <Clapperboard size={28} />
               <h3>还没有任务</h3>
-              <p>从资产或分镜页面开始生成。</p>
+              <p>从资产或分镜页开始生成。</p>
             </div>
           )}
         </div>
@@ -109,10 +127,12 @@ export function GenerationPage({ jobs, onClear, onRetry, onNext, pollError }) {
   )
 }
 
-function GenerationJobRow({ job, isRetrying, onPreview, onRetry }) {
+function GenerationJobRow({ job, isRetrying, isCancelling, onPreview, onRetry, onCancel }) {
   const resultUrl = resultUrlForTask(job)
   const canPreview = job.status === 'completed' && Boolean(resultUrl)
   const canDownload = job.status === 'completed' && Boolean(resultUrl)
+  const canRetry = job.status === 'failed' || job.status === 'cancelled'
+  const canCancel = job.status === 'queued' || job.status === 'running'
   const progress = Math.min(100, Math.max(0, job.progress ?? 0))
 
   return (
@@ -134,6 +154,7 @@ function GenerationJobRow({ job, isRetrying, onPreview, onRetry }) {
           </>
         )}
         {job.status === 'queued' && <span className="job-poll-note">等待并发空位</span>}
+        {job.status === 'cancelled' && <span className="job-poll-note">任务已取消，可按退款策略重试</span>}
         {job.status === 'failed' && (
           <div className="job-error">
             <AlertCircle size={14} />
@@ -145,9 +166,19 @@ function GenerationJobRow({ job, isRetrying, onPreview, onRetry }) {
         <span className={`job-state ${job.status}`}>
           {job.status === 'running' ? `${progress}%` : statusLabels[job.status] || job.status}
         </span>
-        {(job.status === 'failed' || canPreview || canDownload) && (
+        {(canRetry || canCancel || canPreview || canDownload) && (
           <div className="job-actions">
-            {job.status === 'failed' && (
+            {canCancel && (
+              <button
+                className="job-action"
+                type="button"
+                onClick={() => onCancel(job)}
+                disabled={isCancelling}
+              >
+                <X size={13} /> {isCancelling ? '取消中' : '取消'}
+              </button>
+            )}
+            {canRetry && (
               <button className="job-action" type="button" onClick={() => onRetry(job)} disabled={isRetrying}>
                 <RotateCcw size={13} /> {isRetrying ? '重试中' : '重试'}
               </button>
@@ -179,7 +210,7 @@ function VideoPreviewModal({ job, onClose }) {
       <div className="modal video-result-modal" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <span className="eyebrow">视频结果</span>
+            <span className="eyebrow">生成结果</span>
             <h2>{job.label}</h2>
           </div>
           <IconButton label="关闭" onClick={onClose}>
@@ -194,7 +225,7 @@ function VideoPreviewModal({ job, onClose }) {
           ) : (
             <img className="video-result-player" src={resultUrl} alt={job.label} />
           )}
-          {!isPlayable && <p>当前结果为本地演示占位，真实视频完成后会在这里播放。</p>}
+          {!isPlayable && !isAudio && <p>当前结果不是可直接播放的视频文件，可先下载或查看图片预览。</p>}
         </div>
         <div className="modal-actions">
           <a className="button secondary" href={resultUrl} download={downloadNameForTask(job)}>
@@ -209,9 +240,9 @@ function VideoPreviewModal({ job, onClose }) {
   )
 }
 
-function queueSummary(activeCount, failedCount) {
+function queueSummary(activeCount, failedCount, cancelledCount) {
   if (activeCount) return `${activeCount} 项正在处理`
-  if (failedCount) return `${failedCount} 项需要处理`
+  if (failedCount || cancelledCount) return `${failedCount + cancelledCount} 项需要处理`
   return '所有任务已结束'
 }
 

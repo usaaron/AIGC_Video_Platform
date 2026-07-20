@@ -24,6 +24,7 @@ import {
 export function FilmPage({
   project,
   shots,
+  assets = [],
   tasks = [],
   playing,
   setPlaying,
@@ -42,8 +43,16 @@ export function FilmPage({
   const exportTask = latestFilmExportTask(tasks)
   const completedExportTask = completedFilmExportTask(tasks)
   const exportUrl = completedExportTask ? resultUrlForTask(completedExportTask) : ''
-  const hasAllShotVideos = shots.every((item) => completedVideoTaskForShot(tasks, item.id))
+  const completedShotCount = shots.filter((item) => completedVideoTaskForShot(tasks, item.id)).length
+  const hasAllShotVideos = shots.length > 0 && completedShotCount === shots.length
+  const audioAssets = assets.filter((asset) => asset.kind === 'audio')
+  const audioTasks = tasks.filter((task) => task.kind === 'audio')
+  const completedAudioTasks = audioTasks.filter(
+    (task) => task.status === 'completed' && resultUrlForTask(task),
+  )
+  const audioAccepted = audioAssets.length === 0 || completedAudioTasks.length > 0
   const isExporting = exportTask?.status === 'queued' || exportTask?.status === 'running'
+  const canExport = hasAllShotVideos && audioAccepted && !isExporting
   const resultUrl = resultTask ? resultUrlForTask(resultTask) : ''
   const hasPlayableVideo = isPlayableVideoUrl(resultUrl)
   const previewUrl = resultUrl && !hasPlayableVideo ? resultUrl : shot?.imageUrl || '/demo/station.jpg'
@@ -74,7 +83,7 @@ export function FilmPage({
       <PageHeader
         eyebrow={`第 5 步 · 成片 · v${project.version}`}
         title="预览和导出"
-        description={`先预览《${project.name}》，确认后导出项目包。`}
+        description={`先验收镜头视频和音频，再导出《${project.name}》成片 MP4。`}
       >
         <button className="button secondary" onClick={onSave}>
           <Save size={16} /> 保存版本
@@ -93,10 +102,18 @@ export function FilmPage({
             <Download size={16} /> 下载成片 MP4
           </a>
         )}
-        <button className="button primary" onClick={onExport} disabled={!hasAllShotVideos || isExporting}>
-          <Download size={16} /> 导出项目包
+        <button className="button primary" onClick={onExport} disabled={!canExport}>
+          <Download size={16} /> 导出 MP4
         </button>
       </PageHeader>
+      <AcceptanceChecklist
+        completedShotCount={completedShotCount}
+        totalShots={shots.length}
+        audioAssets={audioAssets}
+        completedAudioTasks={completedAudioTasks}
+        exportTask={exportTask}
+        completedExportTask={completedExportTask}
+      />
       <div className="film-layout">
         <section className="player-panel">
           <div className={`film-player ${hasPlayableVideo ? 'has-video' : ''}`}>
@@ -205,6 +222,72 @@ export function FilmPage({
       </section>
     </div>
   )
+}
+
+function AcceptanceChecklist({
+  completedShotCount,
+  totalShots,
+  audioAssets,
+  completedAudioTasks,
+  exportTask,
+  completedExportTask,
+}) {
+  const shotOk = totalShots > 0 && completedShotCount === totalShots
+  const audioOk = audioAssets.length === 0 || completedAudioTasks.length > 0
+  const exportOk = Boolean(completedExportTask)
+  return (
+    <section className="film-acceptance">
+      <AcceptanceItem
+        ok={shotOk}
+        title="镜头视频"
+        detail={`${completedShotCount}/${totalShots} 个镜头已完成`}
+      />
+      <AcceptanceItem
+        ok={audioOk}
+        title="音频"
+        detail={
+          audioAssets.length
+            ? `${completedAudioTasks.length}/${audioAssets.length} 个音频结果可用于导出`
+            : '未配置音频资产，可直接导出无音轨版本'
+        }
+      />
+      <AcceptanceItem
+        ok={exportOk}
+        pending={exportTask?.status === 'queued' || exportTask?.status === 'running'}
+        title="成片 MP4"
+        detail={exportLabel(exportTask, completedExportTask)}
+      />
+    </section>
+  )
+}
+
+function AcceptanceItem({ ok, pending = false, title, detail }) {
+  const className = ok ? 'good' : pending ? 'pending' : 'bad'
+  return (
+    <div className={`film-acceptance-item ${className}`}>
+      <span>
+        {ok ? (
+          <Check size={15} />
+        ) : pending ? (
+          <LoaderCircle size={15} className="spin" />
+        ) : (
+          <AlertCircle size={15} />
+        )}
+      </span>
+      <div>
+        <strong>{title}</strong>
+        <small>{detail}</small>
+      </div>
+    </div>
+  )
+}
+
+function exportLabel(exportTask, completedExportTask) {
+  if (completedExportTask) return 'MP4 已生成，可下载验收'
+  if (exportTask?.status === 'queued') return '导出任务等待中'
+  if (exportTask?.status === 'running') return `导出中 ${exportTask.progress}%`
+  if (exportTask?.status === 'failed') return exportTask.error || '导出失败，可返回生成页重试'
+  return '待导出'
 }
 
 function shotStatusLabel(task, resultTask) {

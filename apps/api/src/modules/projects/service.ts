@@ -7,6 +7,7 @@ import type {
   UpdateProject,
   UpdateShot,
 } from '@seqora/contracts'
+import { analyzeScriptForProduction } from '@seqora/contracts'
 import { AppError } from '../../core/errors.js'
 import type { ProjectStore } from './repository.js'
 
@@ -71,29 +72,19 @@ export class ProjectService {
 
   async generateShots(projectId: string, principal: Principal) {
     const workspace = await this.workspace(projectId, principal)
-    const paragraphs = workspace.project.script
-      .split(/\n+/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .slice(0, 8)
-    if (!paragraphs.length) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本')
+    const analysis = analyzeScriptForProduction(workspace.project.script, workspace.assets)
+    if (!analysis.shots.length) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本')
 
-    const images = [
-      '/demo/rain.jpg',
-      '/demo/lin.jpg',
-      '/demo/station.jpg',
-      '/demo/zhou.jpg',
-      '/demo/room.jpg',
-    ]
-    const shots: CreateShot[] = paragraphs.map((paragraph, index) => ({
-      title: `镜头 ${String(index + 1).padStart(2, '0')}`,
-      framing: index === 0 ? '大全景' : index % 3 === 0 ? '特写' : '中景',
-      duration: Math.min(8, Math.max(3, Math.ceil(paragraph.length / 18))),
-      prompt: paragraph,
-      imageUrl: images[index % images.length] ?? null,
+    const shots: CreateShot[] = analysis.shots.map((shot) => ({
+      title: shot.title,
+      framing: shot.framing,
+      duration: shot.duration,
+      prompt: shot.prompt,
+      assetIds: shot.assetIds,
+      imageUrl: shot.imageUrl,
     }))
     const created = await this.repository.replaceShots(projectId, shots, principal)
-    if (!created) throw new AppError(404, 'PROJECT_NOT_FOUND', '椤圭洰涓嶅瓨鍦ㄦ垨鏃犳潈淇敼')
+    if (!created) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成分镜')
     return created
   }
 }

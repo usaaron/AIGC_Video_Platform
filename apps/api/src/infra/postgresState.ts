@@ -45,8 +45,9 @@ type AssetRow = QueryResultRow &
   }
 
 type ShotRow = QueryResultRow &
-  Omit<Shot, 'order' | 'createdAt' | 'updatedAt'> & {
+  Omit<Shot, 'order' | 'assetIds' | 'createdAt' | 'updatedAt'> & {
     order: number
+    assetIds: string[] | null
     createdAt: Date | string
     updatedAt: Date | string
   }
@@ -129,7 +130,8 @@ export async function loadPostgresState(
     `
       select id, project_id as "projectId", tenant_id as "tenantId",
         order_index as "order", title, framing, duration, prompt,
-        image_url as "imageUrl", created_at as "createdAt", updated_at as "updatedAt"
+        asset_ids as "assetIds", image_url as "imageUrl",
+        created_at as "createdAt", updated_at as "updatedAt"
       from shots
       order by project_id, order_index
       ${lockClause(options)}
@@ -186,6 +188,7 @@ export async function loadPostgresState(
     })),
     shots: shots.map((shot) => ({
       ...shot,
+      assetIds: shot.assetIds ?? [],
       createdAt: iso(shot.createdAt),
       updatedAt: iso(shot.updatedAt),
     })),

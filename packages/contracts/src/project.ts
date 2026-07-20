@@ -208,6 +208,11 @@ export const updateAssetSchema = assetInputSchema
   .extend({ status: z.enum(['draft', 'confirmed']).optional() })
   .refine((input) => Object.keys(input).length > 0, 'At least one field is required')
 
+const shotAssetIdsSchema = z
+  .array(z.string().min(1).max(128))
+  .max(12)
+  .default(() => [])
+
 export const shotSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
@@ -217,6 +222,7 @@ export const shotSchema = z.object({
   framing: z.string().min(1).max(80),
   duration: z.number().int().min(1).max(120),
   prompt: z.string().max(5_000),
+  assetIds: shotAssetIdsSchema,
   imageUrl: z.string().max(2_000).nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -227,6 +233,7 @@ export const createShotSchema = z.object({
   framing: z.string().trim().min(1).max(80).default('中景'),
   duration: z.number().int().min(1).max(120).default(4),
   prompt: z.string().max(5_000).default(''),
+  assetIds: shotAssetIdsSchema,
   imageUrl: z.string().max(2_000).nullable().default(null),
 })
 

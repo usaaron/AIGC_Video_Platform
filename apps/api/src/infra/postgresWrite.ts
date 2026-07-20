@@ -193,9 +193,9 @@ async function upsertShots(client: PoolClient, shots: Shot[]): Promise<void> {
       `
         insert into shots (
           id, project_id, tenant_id, order_index, title, framing, duration,
-          prompt, image_url, created_at, updated_at
+          prompt, asset_ids, image_url, created_at, updated_at
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         on conflict (id) do update set
           project_id = excluded.project_id,
           tenant_id = excluded.tenant_id,
@@ -204,6 +204,7 @@ async function upsertShots(client: PoolClient, shots: Shot[]): Promise<void> {
           framing = excluded.framing,
           duration = excluded.duration,
           prompt = excluded.prompt,
+          asset_ids = excluded.asset_ids,
           image_url = excluded.image_url,
           updated_at = excluded.updated_at
       `,
@@ -216,6 +217,7 @@ async function upsertShots(client: PoolClient, shots: Shot[]): Promise<void> {
         shot.framing,
         shot.duration,
         shot.prompt,
+        shot.assetIds,
         shot.imageUrl,
         shot.createdAt,
         shot.updatedAt,

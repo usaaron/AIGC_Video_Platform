@@ -63,6 +63,7 @@ export function WorkspaceRouter({
     script: (
       <ScriptPage
         project={project}
+        assets={workspace.assets}
         onSave={(script) => onUpdateProject({ script }, '剧本已保存')}
         onSplit={async () => {
           await api.generateShots(project.id)
@@ -107,6 +108,7 @@ export function WorkspaceRouter({
           return onCreateJob(`${asset.name} · ${labels[stage]}`, '图片', costs[stage], {
             prompt,
             negativePrompt: effectiveAssetNegativePrompt(asset),
+            rethrow: true,
             metadata: {
               assetId: asset.id,
               assetKind: asset.kind,
@@ -161,7 +163,9 @@ export function WorkspaceRouter({
     storyboard: (
       <StoryboardPage
         shots={workspace.shots}
+        assets={workspace.assets}
         tasks={tasks}
+        billing={billing}
         onRegenerate={async () => {
           await api.generateShots(project.id)
           await onRefreshWorkspace()
@@ -190,6 +194,13 @@ export function WorkspaceRouter({
           onSetToast('已清理完成任务')
         }}
         onRetry={onRetryJob}
+        onCancel={async (job) => {
+          await api.cancelTask(job.id)
+          await onRefreshTasks()
+          onSetBilling(await api.billing())
+          await onRefreshSession()
+          onSetToast('任务已取消')
+        }}
         onNext={() => onNavigate('film')}
         pollError={taskPollError}
       />
@@ -198,6 +209,7 @@ export function WorkspaceRouter({
       <FilmPage
         project={project}
         shots={workspace.shots}
+        assets={workspace.assets}
         tasks={tasks}
         playing={playing}
         setPlaying={setPlaying}

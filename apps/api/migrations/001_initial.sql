@@ -73,6 +73,7 @@ create table if not exists shots (
   framing text not null,
   duration integer not null check (duration > 0),
   prompt text not null default '',
+  asset_ids text[] not null default '{}',
   image_url text,
   created_at timestamptz not null,
   updated_at timestamptz not null,
