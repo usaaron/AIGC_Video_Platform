@@ -39,6 +39,7 @@ export class AideosSeedanceProvider implements VideoGenerationProvider {
     const payload = {
       model: this.resolveModel(request.model),
       prompt: request.prompt.trim(),
+      ...(request.negativePrompt.trim() ? { negative_prompt: request.negativePrompt.trim() } : {}),
       ...(request.images.length > 0 ? { images: request.images } : {}),
       seconds: String(request.seconds),
       metadata: {

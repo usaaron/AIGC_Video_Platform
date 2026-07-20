@@ -27,6 +27,7 @@ describe('AideosSeedanceProvider', () => {
       taskId: 'local-task-1',
       model: 'seedance-2.0',
       prompt: '雨夜车站，镜头缓慢推进',
+      negativePrompt: '不要闪烁、频闪、跳帧',
       seconds: 5,
       ratio: '9:16',
       resolution: '720p',
@@ -43,6 +44,7 @@ describe('AideosSeedanceProvider', () => {
     expect(JSON.parse(String(capturedInit?.body))).toEqual({
       model: 'doubao-seedance-2-0-260128',
       prompt: '雨夜车站，镜头缓慢推进',
+      negative_prompt: '不要闪烁、频闪、跳帧',
       images: ['https://assets.example/reference.jpg'],
       seconds: '5',
       metadata: {

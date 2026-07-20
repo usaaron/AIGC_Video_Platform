@@ -4,6 +4,7 @@ export type VideoGenerationRequest = {
   taskId: string
   model: string | null
   prompt: string
+  negativePrompt: string
   seconds: number
   ratio: string
   resolution: string

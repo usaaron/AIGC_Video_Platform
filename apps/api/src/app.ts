@@ -2,17 +2,16 @@ import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { resolve } from 'node:path'
 import type { AppConfig } from './config.js'
 import { installAuth } from './core/auth/installAuth.js'
 import { createAuthProvider } from './core/auth/provider.js'
 import { AppError } from './core/errors.js'
-import { AideosSeedanceProvider } from './core/generation/aideosSeedanceProvider.js'
+import type { AudioGenerationProvider } from './core/generation/audioProvider.js'
+import type { ImageGenerationProvider } from './core/generation/imageProvider.js'
 import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
-import { GenerationTaskRunner } from './core/jobs/taskDispatcher.js'
-import { createObjectStorage } from './infra/objectStorage.js'
-import { PostgresStateStore } from './infra/postgresStore.js'
-import { AppStore, type StateStore } from './infra/store.js'
+import { BullMqTaskDispatcher } from './core/jobs/bullmqQueue.js'
+import type { TaskDispatcher } from './core/jobs/taskDispatcher.js'
+import type { StateStore } from './infra/store.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
 import { registerAuthRoutes } from './modules/auth/routes.js'
 import { AuthService } from './modules/auth/service.js'
@@ -28,6 +27,14 @@ import { registerProjectRoutes } from './modules/projects/routes.js'
 import { ProjectRepository } from './modules/projects/repository.js'
 import { ProjectService } from './modules/projects/service.js'
 import { UserRepository } from './modules/users/repository.js'
+import {
+  createAudioProvider,
+  createImageProvider,
+  createRuntimeObjectStorage,
+  createStateStore,
+  createTaskRunner,
+  createVideoProvider,
+} from './runtime.js'
 
 type BuildAppOptions = {
   config: AppConfig
@@ -35,6 +42,9 @@ type BuildAppOptions = {
   store?: StateStore
   startWorker?: boolean
   videoProvider?: VideoGenerationProvider | null
+  imageProvider?: ImageGenerationProvider | null
+  audioProvider?: AudioGenerationProvider | null
+  taskDispatcher?: TaskDispatcher
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -51,16 +61,33 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const users = new UserRepository(store)
   const authService = new AuthService(users, options.config.AUTH_SECRET)
   const creditLedger = new StoreCreditLedger(store)
+  const objectStorage = createRuntimeObjectStorage(options.config)
   const videoProvider =
     options.videoProvider === undefined ? createVideoProvider(options.config) : options.videoProvider
-  const taskRunner = new GenerationTaskRunner(store, videoProvider, options.config.SEEDANCE_POLL_INTERVAL_MS)
+  const imageProvider =
+    options.imageProvider === undefined ? createImageProvider(options.config) : options.imageProvider
+  const audioProvider =
+    options.audioProvider === undefined ? createAudioProvider(options.config) : options.audioProvider
+  const taskRunner = createTaskRunner(
+    options.config,
+    store,
+    objectStorage,
+    videoProvider,
+    imageProvider,
+    audioProvider,
+  )
+  const taskDispatcher =
+    options.taskDispatcher ??
+    (options.config.TASK_QUEUE_DRIVER === 'bullmq'
+      ? new BullMqTaskDispatcher(options.config.REDIS_URL)
+      : taskRunner)
   const generationService = new GenerationService(
     new GenerationTaskRepository(store),
-    taskRunner,
+    taskDispatcher,
     videoProvider,
   )
   const projectService = new ProjectService(new ProjectRepository(store))
-  const mediaService = new MediaService(new MediaRepository(store), createObjectStorage(options.config))
+  const mediaService = new MediaService(new MediaRepository(store), objectStorage)
 
   installAuth(app, createAuthProvider(options.config, users))
 
@@ -78,7 +105,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.get('/api/v1/health', async () => ({
     status: 'ok',
     service: 'seqora-api',
-    providers: { seedance: videoProvider ? 'configured' : 'local-mock' },
+    dataStore: options.config.DATA_STORE,
+    taskQueue: options.config.TASK_QUEUE_DRIVER,
+    storage: options.config.STORAGE_DRIVER,
+    providers: {
+      seedance: videoProvider ? 'configured' : 'local-mock',
+      img2: imageProvider ? 'configured' : 'local-mock',
+      audio: audioProvider ? 'configured' : 'local-mock',
+    },
   }))
   await app.register(
     async (api) => {
@@ -97,25 +131,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     { prefix: '/api/v1' },
   )
 
-  if (options.startWorker !== false) taskRunner.start()
+  if (options.config.TASK_QUEUE_DRIVER === 'inline' && options.startWorker !== false) taskRunner.start()
   app.addHook('onClose', async () => {
     taskRunner.stop()
+    if ('close' in taskDispatcher && typeof taskDispatcher.close === 'function') {
+      await taskDispatcher.close()
+    }
     await store.close?.()
   })
   return app
-}
-
-function createStateStore(config: AppConfig): StateStore {
-  if (config.DATA_STORE === 'postgres') return new PostgresStateStore(config.DATABASE_URL)
-  return new AppStore(config.DATA_FILE === ':memory:' ? null : resolve(config.DATA_FILE))
-}
-
-function createVideoProvider(config: AppConfig): VideoGenerationProvider | null {
-  if (!config.SEEDANCE_API_KEY) return null
-  return new AideosSeedanceProvider({
-    baseUrl: config.SEEDANCE_API_BASE_URL,
-    apiKey: config.SEEDANCE_API_KEY,
-    defaultModel: config.SEEDANCE_MODEL,
-    requestTimeoutMs: config.SEEDANCE_REQUEST_TIMEOUT_MS,
-  })
 }

@@ -8,24 +8,49 @@ import { buildApp } from './app.js'
 import type { AppConfig } from './config.js'
 import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
 import { AppStore } from './infra/store.js'
+import { createSignedMediaUrl } from './modules/media/signedUrl.js'
 
 const testConfig: AppConfig = {
   NODE_ENV: 'test',
   API_HOST: '127.0.0.1',
   API_PORT: 8787,
+  API_PUBLIC_BASE_URL: 'http://localhost:8787',
   WEB_ORIGIN: 'http://localhost:5173',
   AUTH_MODE: 'demo',
   AUTH_SECRET: 'test-secret-with-at-least-32-characters',
+  DATA_STORE: 'json',
   DATA_FILE: ':memory:',
+  DATABASE_URL: '',
+  TASK_QUEUE_DRIVER: 'inline',
+  REDIS_URL: '',
+  TASK_WORKER_CONCURRENCY: 4,
+  TASK_QUEUE_TICK_INTERVAL_MS: 1_000,
   STORAGE_DRIVER: 'local',
   UPLOAD_DIR: resolve('./data/test-uploads'),
   GCS_BUCKET: '',
+  OSS_REGION: '',
+  OSS_BUCKET: '',
+  OSS_ACCESS_KEY_ID: '',
+  OSS_ACCESS_KEY_SECRET: '',
+  OSS_ENDPOINT: '',
+  OSS_INTERNAL: false,
+  OSS_SECURE: true,
   MAX_UPLOAD_BYTES: 10_485_760,
   SEEDANCE_API_BASE_URL: 'https://aideos.openrouter.icu',
   SEEDANCE_API_KEY: '',
   SEEDANCE_MODEL: 'doubao-seedance-2-0-260128',
   SEEDANCE_POLL_INTERVAL_MS: 5_000,
   SEEDANCE_REQUEST_TIMEOUT_MS: 30_000,
+  IMG2_API_BASE_URL: 'https://aideos.openrouter.icu',
+  IMG2_API_KEY: '',
+  IMG2_MODEL: 'img2-default',
+  IMG2_REQUEST_TIMEOUT_MS: 30_000,
+  AUDIO_API_BASE_URL: 'https://aideos.openrouter.icu',
+  AUDIO_API_KEY: '',
+  AUDIO_MODEL: 'audio-default',
+  AUDIO_REQUEST_TIMEOUT_MS: 30_000,
+  FILM_EXPORT_FFMPEG_PATH: 'ffmpeg',
+  FILM_EXPORT_TIMEOUT_MS: 300_000,
 }
 
 let app: FastifyInstance | undefined
@@ -58,6 +83,112 @@ describe('API authorization', () => {
 
     expect(response.statusCode).toBe(202)
     expect(response.json()).toMatchObject({ projectId: 'project-midnight-film', status: 'queued' })
+  })
+
+  it('retries failed generation tasks and clears stale provider state', async () => {
+    const store = new AppStore(null)
+    app = await buildApp({ config: testConfig, store, startWorker: false })
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'failed-video-task',
+      clientRequestId: 'failed-video-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-creator',
+      kind: 'video',
+      label: '失败镜头',
+      prompt: '雨夜车站',
+      negativePrompt: '',
+      provider: 'seedance',
+      model: 'doubao-seedance-2-0-260128',
+      metadata: {
+        shotId: 'shot-1',
+        providerName: 'aideos-seedance',
+        providerState: 'failed',
+        providerTaskId: 'remote-failed-task',
+        providerPolledAt: Date.now(),
+        providerPollErrors: 3,
+      },
+      status: 'failed',
+      progress: 100,
+      estimatedCredits: 18,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: '/api/v1/generation/tasks/failed-video-task/content',
+      outputs: [{ id: 'failed-video-task-video', url: '/stale.mp4', mediaType: 'video', view: 'single' }],
+      error: 'Seedance 请求失败',
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks/failed-video-task/retry',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+    })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.json()).toMatchObject({
+      id: 'failed-video-task',
+      status: 'queued',
+      progress: 0,
+      error: null,
+      resultUrl: null,
+      outputs: [],
+      metadata: { shotId: 'shot-1' },
+    })
+    const stored = await store.read((state) => state.tasks.find((item) => item.id === task.id))
+    expect(stored).toMatchObject({ status: 'running', metadata: { shotId: 'shot-1' } })
+    expect(stored?.progress).toBeGreaterThan(0)
+    expect(stored?.metadata.providerTaskId).toBeUndefined()
+  })
+
+  it('rejects retry for completed generation tasks', async () => {
+    const store = new AppStore(null)
+    app = await buildApp({ config: testConfig, store, startWorker: false })
+    const now = new Date().toISOString()
+    await store.mutate((state) =>
+      state.tasks.unshift({
+        id: 'completed-image-task',
+        clientRequestId: 'completed-image-client',
+        projectId: 'project-midnight-film',
+        tenantId: 'tenant-seqora-demo',
+        userId: 'user-creator',
+        kind: 'image',
+        label: '已完成图片',
+        prompt: '角色定妆',
+        negativePrompt: '',
+        provider: 'img2',
+        model: null,
+        metadata: {},
+        status: 'completed',
+        progress: 100,
+        estimatedCredits: 6,
+        createdAt: now,
+        updatedAt: now,
+        resultUrl: '/demo/lin.jpg',
+        outputs: [
+          { id: 'completed-image-task-single', url: '/demo/lin.jpg', mediaType: 'image', view: 'single' },
+        ],
+        error: null,
+      }),
+    )
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks/completed-image-task/retry',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json()).toMatchObject({ error: { code: 'TASK_NOT_RETRYABLE' } })
   })
 
   it('denies the admin dashboard to member accounts', async () => {
@@ -236,6 +367,21 @@ describe('local authentication', () => {
     })
     expect(task.statusCode).toBe(202)
 
+    const duplicateTask = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks',
+      headers,
+      payload: {
+        clientRequestId: 'billing-test',
+        projectId: 'project-midnight-film',
+        kind: 'audio',
+        label: '鐢熸垚椋庡０',
+        estimatedCredits: 6,
+      },
+    })
+    expect(duplicateTask.statusCode).toBe(202)
+    expect(duplicateTask.json().id).toBe(task.json().id)
+
     const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(billing.json()).toMatchObject({ credits: 280 })
   })
@@ -271,5 +417,13 @@ describe('local authentication', () => {
     expect(media.statusCode).toBe(200)
     expect(media.headers['content-type']).toContain('image/png')
     expect(media.body).toBe('demo-image-content')
+
+    const signedUrl = new URL(
+      createSignedMediaUrl(testConfig.API_PUBLIC_BASE_URL, upload.json().id, testConfig.AUTH_SECRET, 60),
+    )
+    const signed = await app.inject({ method: 'GET', url: `${signedUrl.pathname}${signedUrl.search}` })
+    expect(signed.statusCode).toBe(200)
+    expect(signed.headers['content-type']).toContain('image/png')
+    expect(signed.body).toBe('demo-image-content')
   })
 })
