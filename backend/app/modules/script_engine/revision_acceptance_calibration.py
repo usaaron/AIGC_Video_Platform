@@ -160,6 +160,7 @@ class RevisionAcceptanceCalibrationSampleResult(BaseModel):
     revision_effectiveness: float
     conflict_type: str
     reviewer_reason: str
+    known_blind_spots: list[str] = Field(default_factory=list)
 
 
 class RevisionAcceptanceCalibrationReport(BaseModel):
@@ -186,6 +187,7 @@ class RevisionAcceptanceCalibrationReport(BaseModel):
     acceptance_false_human_true: int
     go_no_go_checks: dict[str, bool]
     go_no_go_reasons: list[str]
+    known_blind_spots: list[str]
     sample_results: list[RevisionAcceptanceCalibrationSampleResult]
 
 
@@ -353,6 +355,13 @@ class RevisionAcceptanceCalibrationEvaluator:
             acceptance_false_human_true=false_rejection_count,
             go_no_go_checks=go_no_go_checks,
             go_no_go_reasons=go_no_go_reasons,
+            known_blind_spots=sorted(
+                {
+                    blind_spot
+                    for result in results
+                    for blind_spot in result.known_blind_spots
+                }
+            ),
             sample_results=results,
         )
 
@@ -398,7 +407,28 @@ class RevisionAcceptanceCalibrationEvaluator:
                 legacy_improved=sample.legacy_improved,
             ),
             reviewer_reason=sample.human_ground_truth.reviewer_reason,
+            known_blind_spots=self._known_blind_spots(
+                sample=sample,
+                machine_accepted=decision.accepted,
+            ),
         )
+
+    def _known_blind_spots(
+        self,
+        *,
+        sample: RevisionAcceptanceCalibrationSample,
+        machine_accepted: bool,
+    ) -> list[str]:
+        ground_truth = sample.human_ground_truth
+        if not machine_accepted or ground_truth.human_accept_revision:
+            return []
+
+        blind_spots: list[str] = []
+        if ground_truth.dialogue_naturalness_change == DialogueNaturalnessChange.degraded:
+            blind_spots.append("dialogue_naturalness_not_available_in_runtime_qc")
+        if not ground_truth.character_consistency_preserved:
+            blind_spots.append("character_voice_consistency_not_available_in_runtime_qc")
+        return blind_spots
 
     def _conflict_type(
         self,

@@ -126,7 +126,7 @@ AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧�
 1. Revision Acceptance / Policy Calibration
 2. Initial Generation Quality Improvement v1
 
-当前已完成 Story QC Explainability Upgrade v1、Prompt Evaluation Explainability Integration v1，以及 Revision Quality Improvement v1 的 Decision、Strategy、Planner、Executor 和 Acceptance shadow integration。Acceptance Calibration v1 首轮结果为 `review_required`：12 个样本可复现且 clear-negative safety 通过，但人工一致率为 `0.667`。当前不启用 Acceptance enforcement，也不自动调整 Policy。
+当前已完成 Story QC Explainability Upgrade v1、Prompt Evaluation Explainability Integration v1，以及 Revision Quality Improvement v1 的 Decision、Strategy、Planner、Executor 和 Acceptance shadow integration。Acceptance Calibration v1 完成一次性 false-acceptance 安全修正后，固定 12 样本人工一致率为 `0.750`，false acceptance 从 2 个降为 1 个；受保护 Hook 回退已阻止，对白自然度/角色声音仍是明确 QC blind spot。状态仍为 `review_required`，当前不启用 Acceptance enforcement，也不自动调整 Policy。
 
 未来 Script-to-Production 兼容边界已经在文档中预留：
 

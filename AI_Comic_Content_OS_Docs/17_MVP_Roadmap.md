@@ -121,18 +121,22 @@ Revision v1 能力范围：
 - Phase 3 已完成：RevisionPlan 意图保留、Executor abstraction、controlled rule execution 与 execution trace
 - Phase 4.1 已完成：Acceptance Evaluator 与 `ScriptRevisionRun` shadow lineage integration
 - Phase 4.2 已完成：12 个固定合成 Ground Truth 样本与离线 Acceptance 校准报告
+- Phase 4.3 已完成：一次性 protected-dimension false-acceptance 安全修正
 - 当前 API、Benchmark dataset 和 Finalization Gate 保持不变
 
 当前 checkpoint 结果：
 
 - 首轮校准状态为 `review_required`
 - 可复现性与 clear-negative safety 已通过
-- 人工一致率为 `0.667`，未达到 `0.80` go/no-go 目标
+- 一次性复校准人工一致率为 `0.750`，仍未达到 `0.80` go/no-go 目标
+- Hook protected-dimension false acceptance 已解决；对白自然度/角色声音 blind spot 仍存在
+- false rejection 保持 2 个，本轮未优化
 - 当前不启用 Acceptance enforcement，不自动调整 Policy
 
 后续仍待人工决策：
 
-- 评审对白自然度、角色声音、Hook 容差与 minimum threshold 暴露的四个冲突样本
+- 评审对白自然度和角色声音缺少 runtime 证据的剩余 false acceptance
+- 保留两个 minimum threshold false rejection，除非后续另行批准独立实验
 - 决定是否另行批准阈值实验；本轮不自动校准 `RevisionPolicy`
 - 增加跨样本 Revision effectiveness 汇总与回归报告
 - 达到可信证据标准后再决定 Acceptance 是否影响 Finalization

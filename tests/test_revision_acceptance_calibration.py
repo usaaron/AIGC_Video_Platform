@@ -39,19 +39,19 @@ def test_calibration_aggregates_expected_metrics_and_conflicts() -> None:
     report = RevisionAcceptanceCalibrationEvaluator().run_from_fixtures()
 
     assert report.total_samples == 12
-    assert report.agreement_count == 8
-    assert report.agreement_rate == 0.667
-    assert report.false_acceptance_count == 2
-    assert report.false_acceptance_rate == 0.286
+    assert report.agreement_count == 9
+    assert report.agreement_rate == 0.75
+    assert report.false_acceptance_count == 1
+    assert report.false_acceptance_rate == 0.143
     assert report.false_rejection_count == 2
     assert report.false_rejection_rate == 0.4
     assert report.successful_revision_rate == 0.417
     assert report.average_targeted_improvement == 0.12
-    assert report.regression_rate == 0.083
-    assert report.protected_dimension_stability_rate == 0.917
+    assert report.regression_rate == 0.167
+    assert report.protected_dimension_stability_rate == 0.833
     assert report.average_scene_alignment_rate == 0.833
-    assert report.average_revision_effectiveness == 0.77
-    assert report.acceptance_true_human_false == 2
+    assert report.average_revision_effectiveness == 0.753
+    assert report.acceptance_true_human_false == 1
     assert report.acceptance_false_human_true == 2
     assert report.improved_true_acceptance_false >= 1
     assert report.improved_false_acceptance_true >= 1
@@ -62,6 +62,10 @@ def test_calibration_aggregates_expected_metrics_and_conflicts() -> None:
         "agreement_target": False,
         "disagreement_explainability": True,
     }
+    assert report.known_blind_spots == [
+        "character_voice_consistency_not_available_in_runtime_qc",
+        "dialogue_naturalness_not_available_in_runtime_qc",
+    ]
 
 
 def test_per_sample_results_expose_required_evidence() -> None:
@@ -78,6 +82,20 @@ def test_per_sample_results_expose_required_evidence() -> None:
         "acceptance_false_human_true" in result.conflict_type
         for result in report.sample_results
     )
+    dialogue_case = next(
+        result
+        for result in report.sample_results
+        if result.sample_id == "calibration.ambiguous.dialogue_degrades"
+    )
+    hook_case = next(
+        result
+        for result in report.sample_results
+        if result.sample_id == "calibration.ambiguous.hook_soft_regression"
+    )
+    assert dialogue_case.machine_accepted is True
+    assert dialogue_case.known_blind_spots
+    assert hook_case.machine_accepted is False
+    assert hook_case.stop_reason == "protected_dimension_regression"
 
 
 def test_repeated_runs_are_identical_and_do_not_mutate_policy() -> None:

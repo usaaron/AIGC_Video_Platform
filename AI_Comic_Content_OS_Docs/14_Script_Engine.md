@@ -810,7 +810,11 @@ Revision 的长期目标是达到生产质量标准，而不是无限最大化�
 
 当前已使用 12 个固定、原创、合成样本完成一次离线 shadow Acceptance 校准。校准器复用现有 `RevisionAcceptanceEvaluator`，只比较机器 Decision 与冻结人工 Ground Truth，不进入 Script Generation runtime。
 
-首轮结果为 `review_required`：可复现性和 clear-negative safety 通过，但人工一致率为 `0.667`，低于 `0.80` 目标。分歧主要来自当前 QC/Acceptance 未表达的对白自然度、角色声音、人类对轻微 Hook 回退的敏感度，以及低于数值阈值但人工认为有用的细腻修改。
+首轮结果为 `review_required`：可复现性和 clear-negative safety 通过，但人工一致率为 `0.667`，低于 `0.80` 目标。
+
+一次性 false-acceptance 安全修正后，受保护维度的任何负向分数移动都会标记为不稳定，普通非目标维度仍保留原 tolerance。固定 12 样本复校准的一致率提升为 `0.750`，false acceptance 从 2 个降为 1 个；Hook 保护问题已解决。
+
+剩余 false acceptance 来自对白自然度和角色声音退化。当前 runtime 没有可靠的结构化证据，因此 Acceptance 不增加文本关键词或主观启发式判断，只在校准报告中把它标记为已知 QC blind spot。两个低于 improvement threshold 的 false rejection 本轮保持不变。
 
 该结论表示 Acceptance 仍应保持 shadow mode。校准不会自动调整 `RevisionPolicy`、60/20/20 公式或 Finalization Gate，也不代表 Revision 已达到专业生产可信度。
 

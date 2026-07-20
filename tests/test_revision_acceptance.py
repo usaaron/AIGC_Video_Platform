@@ -179,6 +179,34 @@ def test_rejects_and_records_protected_dimension_regression() -> None:
     assert decision.stop_reason == "protected_dimension_regression"
 
 
+def test_rejects_protected_regression_inside_ordinary_noise_tolerance() -> None:
+    original_scores = base_scores()
+    original_scores["character_agency"] = 3.0
+    revised_scores = base_scores()
+    revised_scores["hook_quality"] = 3.9
+
+    decision = evaluate(build_report(original_scores), build_report(revised_scores))
+
+    assert decision.accepted is False
+    assert decision.protected_dimension_stability is False
+    assert [item.value for item in decision.regressed_dimensions] == ["hook_quality"]
+    assert decision.revision_effectiveness == 0.8
+    assert decision.stop_reason == "protected_dimension_regression"
+
+
+def test_keeps_ordinary_non_target_regression_tolerance() -> None:
+    original_scores = base_scores()
+    original_scores["character_agency"] = 3.0
+    revised_scores = base_scores()
+    revised_scores["emotional_payoff"] = 3.99
+
+    decision = evaluate(build_report(original_scores), build_report(revised_scores))
+
+    assert decision.accepted is True
+    assert decision.regressed_dimensions == []
+    assert decision.revision_effectiveness == 1.0
+
+
 def test_rejects_when_qc_explainability_is_insufficient() -> None:
     report_without_dimensions = StoryQCReport.model_validate(
         {

@@ -59,16 +59,30 @@ class RevisionAcceptanceEvaluator:
             if explainability_available
             else {}
         )
-        regressed_dimensions = (
-            self._regressed_non_target_dimensions(
-                original_scores,
-                revised_scores,
-                set(selected_dimensions),
-                policy.dimension_regression_tolerance,
+        if explainability_available:
+            ordinary_regressions = set(
+                self._regressed_non_target_dimensions(
+                    original_scores,
+                    revised_scores,
+                    set(selected_dimensions),
+                    policy.dimension_regression_tolerance,
+                )
             )
-            if explainability_available
-            else []
-        )
+            protected_regressions = set(
+                self._regressed_protected_dimensions(
+                    original_scores,
+                    revised_scores,
+                    set(revision_decision.protected_dimensions),
+                )
+            )
+            all_regressions = ordinary_regressions | protected_regressions
+            regressed_dimensions = [
+                dimension
+                for dimension in original_scores
+                if dimension in all_regressions
+            ]
+        else:
+            regressed_dimensions = []
         protected_stable = explainability_available and not (
             set(regressed_dimensions) & set(revision_decision.protected_dimensions)
         )
@@ -170,6 +184,19 @@ class RevisionAcceptanceEvaluator:
                 / self._DIMENSION_SCORE_MAX
             )
             < -tolerance
+        ]
+
+    def _regressed_protected_dimensions(
+        self,
+        original_scores: dict[StoryQCDimension, float],
+        revised_scores: dict[StoryQCDimension, float],
+        protected_dimensions: set[StoryQCDimension],
+    ) -> list[StoryQCDimension]:
+        return [
+            dimension
+            for dimension in original_scores
+            if dimension in protected_dimensions
+            and revised_scores[dimension] < original_scores[dimension]
         ]
 
     def _scene_alignment_rate(

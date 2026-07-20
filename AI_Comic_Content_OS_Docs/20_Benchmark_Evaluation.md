@@ -456,6 +456,33 @@ Go/no-go 结果为 `review_required`：
 - 细腻但明确的 Conflict 改善可能低于 `minimum_improvement_threshold`
 - 有用的 Cliffhanger 改善可能在 effectiveness 较高时仍被 minimum threshold 提前拒绝
 
+#### One-Time False-Acceptance Safety Correction
+
+在不改变 12 个样本、人工标签、60/20/20 公式或 Policy 阈值的前提下，系统完成了一次有边界的 false-acceptance 安全修正：
+
+- 普通非目标维度继续使用 `dimension_regression_tolerance`
+- `RevisionDecision.protected_dimensions` 不再共享普通噪声 tolerance
+- 受保护维度只要出现负向分数移动，即标记 `protected_dimension_stability = false`
+- 规则适用于任意 protected dimension，不硬编码 Hook
+
+一次性复校准结果：
+
+- `agreement_rate = 0.750`，9/12
+- `false_acceptance_count = 1`
+- `false_acceptance_rate = 0.143`
+- `false_rejection_count = 2`
+- `false_rejection_rate = 0.400`
+- `regression_rate = 0.167`
+- `protected_dimension_stability_rate = 0.833`
+- `average_revision_effectiveness = 0.753`
+
+原 Hook false acceptance 已解决，stop reason 为 `protected_dimension_regression`。对白自然度与角色声音 false acceptance 未解决，因为当前 runtime `StoryQCReport` 和 `RevisionExecutionTrace` 没有可靠的结构化退化证据；校准报告将其显式标记为：
+
+- `dialogue_naturalness_not_available_in_runtime_qc`
+- `character_voice_consistency_not_available_in_runtime_qc`
+
+两个 false rejection 保持不变，本轮不降低 `minimum_improvement_threshold`。Go/no-go 状态仍为 `review_required`，不会自动触发后续调参或 enforcement。
+
 该结果只供人工评审。当前不自动修改 60/20/20 公式、`RevisionPolicy` 或阈值；校准失败不会改变 shadow runtime，也不会阻断 Finalization。
 
 运行方式：
