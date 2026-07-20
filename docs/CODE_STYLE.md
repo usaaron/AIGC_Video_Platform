@@ -47,4 +47,4 @@
 
 ## 自动化
 
-Prettier 是格式唯一来源，Oxlint 负责静态规则，Vitest 负责单元测试。不要手工争论可由工具确定的格式。提交前运行 `pnpm check`。
+Prettier 是格式唯一来源，Oxlint 负责静态规则，Vitest 负责单元测试。不要手工争论可由工具确定的格式。`pnpm check` 是提交前唯一完整标准，提交和 PR 前必须通过。

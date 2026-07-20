@@ -13,8 +13,11 @@ flowchart LR
   API -. schema .-> Contracts
   API --> Auth["AuthProvider"]
   API --> Ledger["CreditLedger"]
-  API --> Repo["TaskRepository"]
-  API --> Queue["TaskDispatcher"]
+  API --> Repo["AppStore / Repositories"]
+  API --> Queue["TaskDispatcher / BullMQ"]
+  Queue --> Worker["apps/api Worker"]
+  Worker --> Repo
+  Worker --> Providers["AIGC Providers"]
 ```
 
 ## 边界
@@ -49,12 +52,12 @@ apps/api/src/
 
 ## 可替换端口
 
-- `AuthProvider`：当前 Demo Header，未来替换为 OIDC/JWT 验证。
-- `GenerationTaskRepository`：当前内存，未来替换为 PostgreSQL。
-- `CreditLedger`：当前空实现，未来执行幂等、原子积分预占。
-- `TaskDispatcher`：当前空实现，未来接 Redis、SQS 或 RabbitMQ。
+- `AuthProvider`：当前本地账号、密码哈希和签名 Cookie，未来可替换为 OIDC/JWT 验证。
+- `AppStore / Repositories`：开发环境可使用本地 JSON，生产环境必须使用 PostgreSQL，迁移路径见 [PostgreSQL 迁移方案](POSTGRES_MIGRATION.md)。
+- `CreditLedger`：积分流水和余额变更通过仓储 mutation 执行；生产环境由 PostgreSQL 事务保证幂等和原子扣减。
+- `TaskDispatcher`：开发环境可使用进程内 inline runner；生产环境使用 Redis/BullMQ，把 API 任务创建和 Worker 执行拆开。
 
-业务服务只依赖这些接口，因此替换基础设施时不需要修改路由或前端。
+业务服务应只依赖这些端口；当前仍直接依赖 `AppStore` 的位置会在 PostgreSQL 迁移阶段收敛到仓储接口。替换基础设施时不改变路由或前端 API 契约。
 
 ## 暂不拆微服务
 

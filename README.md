@@ -23,6 +23,7 @@ pnpm dev
 | 管理员 | `admin@seqora.local`   | `Admin123!`   |
 
 认证使用经 `scrypt` 哈希的密码和签名 HttpOnly 会话 Cookie。开发数据持久化在 `apps/api/data/app.json`，该文件已被 Git 忽略；删除它并重启 API 即可恢复初始数据。
+本地 JSON 仅用于开发和演示，生产环境需要按 [PostgreSQL 迁移方案](docs/POSTGRES_MIGRATION.md) 落库。
 
 ## 仓库结构
 
@@ -38,20 +39,23 @@ docs/        架构、权限、规范和部署文档
 
 ## 常用命令
 
-| 命令           | 说明                           |
-| -------------- | ------------------------------ |
-| `pnpm dev`     | 同时启动 Web 和 API            |
-| `pnpm dev:web` | 只启动创作端                   |
-| `pnpm dev:api` | 只启动 API                     |
-| `pnpm test`    | 运行全部工作区测试             |
-| `pnpm build`   | 构建全部可部署应用             |
-| `pnpm check`   | 格式、Lint、测试和构建完整检查 |
+| 命令                    | 说明                                   |
+| ----------------------- | -------------------------------------- |
+| `pnpm dev`              | 同时启动 Web 和 API                    |
+| `pnpm dev:web`          | 只启动创作端                           |
+| `pnpm dev:api`          | 只启动 API                             |
+| `pnpm test`             | 运行全部工作区测试                     |
+| `pnpm build`            | 构建全部可部署应用                     |
+| `pnpm build:production` | 构建 Contracts、API 和 Web 生产产物    |
+| `pnpm check`            | 提交前标准：格式、Lint、生产构建和测试 |
 
 ## 架构入口
 
 - [总体架构](docs/ARCHITECTURE.md)
 - [认证与权限](docs/AUTHORIZATION.md)
 - [资产生成与 Provider 接入](docs/ASSET_GENERATION.md)
+- [PostgreSQL 迁移方案](docs/POSTGRES_MIGRATION.md)
+- [密钥管理](docs/SECRETS.md)
 - [代码规范](docs/CODE_STYLE.md)
 - [部署边界](docs/DEPLOYMENT.md)
 - [参与开发](CONTRIBUTING.md)
@@ -65,7 +69,7 @@ docs/        架构、权限、规范和部署文档
 - 服务端生成队列、免费用户单任务并发、会员三任务并发、积分扣减与流水
 - 管理概览、用户和任务统计，以及服务端管理员权限校验
 
-当前版本使用本地 JSON 仓储和进程内任务执行器，适合直接演示和三人团队并行开发。仓储、任务分发器和认证提供方均保留清晰接口，后续可分别替换为 PostgreSQL、Redis/消息队列和 OIDC，而不改变前端 API 契约。
+当前版本使用本地 JSON 仓储和进程内任务执行器，适合直接演示和三人团队并行开发。JSON 只作为本地数据源保留；多人真实项目和部署环境必须迁移到 PostgreSQL，具体表结构、步骤和验收标准见 [PostgreSQL 迁移方案](docs/POSTGRES_MIGRATION.md)。任务分发器和认证提供方后续可分别替换为 Redis/消息队列和 OIDC，而不改变前端 API 契约。
 
 ## API 范围
 
