@@ -11,6 +11,7 @@ import type { ImageGenerationProvider } from './core/generation/imageProvider.js
 import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
 import { BullMqTaskDispatcher } from './core/jobs/bullmqQueue.js'
 import type { TaskDispatcher } from './core/jobs/taskDispatcher.js'
+import { PostgresStateStore } from './infra/postgresStore.js'
 import type { StateStore } from './infra/store.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
 import { registerAuthRoutes } from './modules/auth/routes.js'
@@ -18,6 +19,7 @@ import { AuthService } from './modules/auth/service.js'
 import { registerBillingRoutes } from './modules/billing/routes.js'
 import { StoreCreditLedger } from './modules/billing/creditLedger.js'
 import { registerGenerationRoutes } from './modules/generation/routes.js'
+import { PostgresGenerationTaskRepository } from './modules/generation/postgresRepository.js'
 import { GenerationTaskRepository } from './modules/generation/repository.js'
 import { GenerationService } from './modules/generation/service.js'
 import { MediaRepository } from './modules/media/repository.js'
@@ -81,11 +83,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     (options.config.TASK_QUEUE_DRIVER === 'bullmq'
       ? new BullMqTaskDispatcher(options.config.REDIS_URL)
       : taskRunner)
-  const generationService = new GenerationService(
-    new GenerationTaskRepository(store),
-    taskDispatcher,
-    videoProvider,
-  )
+  const generationRepository =
+    store instanceof PostgresStateStore
+      ? new PostgresGenerationTaskRepository(store)
+      : new GenerationTaskRepository(store)
+  const generationService = new GenerationService(generationRepository, taskDispatcher, videoProvider)
   const projectService = new ProjectService(new ProjectRepository(store))
   const mediaService = new MediaService(new MediaRepository(store), objectStorage)
 

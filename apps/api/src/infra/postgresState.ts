@@ -51,7 +51,7 @@ type ShotRow = QueryResultRow &
     updatedAt: Date | string
   }
 
-type TaskRow = QueryResultRow &
+export type TaskRow = QueryResultRow &
   Omit<
     GenerationTask,
     | 'clientRequestId'
@@ -81,7 +81,14 @@ type MediaRow = QueryResultRow &
     createdAt: Date | string
   }
 
-export async function loadPostgresState(client: PoolClient): Promise<AppState> {
+type LoadPostgresStateOptions = {
+  lockRows?: boolean
+}
+
+export async function loadPostgresState(
+  client: PoolClient,
+  options: LoadPostgresStateOptions = {},
+): Promise<AppState> {
   const users = await rows<UserRow>(
     client,
     `
@@ -89,6 +96,7 @@ export async function loadPostgresState(client: PoolClient): Promise<AppState> {
         roles, plan, credits
       from users
       order by created_at, id
+      ${lockClause(options)}
     `,
   )
   const projects = await rows<ProjectRow>(
@@ -99,6 +107,7 @@ export async function loadPostgresState(client: PoolClient): Promise<AppState> {
         synopsis, script, version, created_at as "createdAt", updated_at as "updatedAt"
       from projects
       order by updated_at desc, id
+      ${lockClause(options)}
     `,
   )
   const assets = await rows<AssetRow>(
@@ -112,6 +121,7 @@ export async function loadPostgresState(client: PoolClient): Promise<AppState> {
         created_at as "createdAt", updated_at as "updatedAt"
       from assets
       order by updated_at desc, id
+      ${lockClause(options)}
     `,
   )
   const shots = await rows<ShotRow>(
@@ -122,6 +132,7 @@ export async function loadPostgresState(client: PoolClient): Promise<AppState> {
         image_url as "imageUrl", created_at as "createdAt", updated_at as "updatedAt"
       from shots
       order by project_id, order_index
+      ${lockClause(options)}
     `,
   )
   const tasks = await rows<TaskRow>(
@@ -134,6 +145,7 @@ export async function loadPostgresState(client: PoolClient): Promise<AppState> {
         outputs, error, created_at as "createdAt", updated_at as "updatedAt"
       from generation_tasks
       order by created_at desc, id
+      ${lockClause(options)}
     `,
   )
   const ledger = await rows<LedgerRow>(
@@ -143,6 +155,7 @@ export async function loadPostgresState(client: PoolClient): Promise<AppState> {
         type, description, created_at as "createdAt"
       from ledger_entries
       order by created_at desc, id
+      ${lockClause(options)}
     `,
   )
   const media = await rows<MediaRow>(
@@ -153,6 +166,7 @@ export async function loadPostgresState(client: PoolClient): Promise<AppState> {
         created_at as "createdAt"
       from media
       order by created_at desc, id
+      ${lockClause(options)}
     `,
   )
 
@@ -175,16 +189,20 @@ export async function loadPostgresState(client: PoolClient): Promise<AppState> {
       createdAt: iso(shot.createdAt),
       updatedAt: iso(shot.updatedAt),
     })),
-    tasks: tasks.map((task) => ({
-      ...task,
-      metadata: record(task.metadata),
-      outputs: array<GenerationTask['outputs'][number]>(task.outputs),
-      createdAt: iso(task.createdAt),
-      updatedAt: iso(task.updatedAt),
-    })),
+    tasks: tasks.map(taskFromRow),
     ledger: ledger.map((entry) => ({ ...entry, createdAt: iso(entry.createdAt) })),
     media: media.map((item) => ({ ...item, createdAt: iso(item.createdAt) })),
   })
+}
+
+export function taskFromRow(task: TaskRow): GenerationTask {
+  return {
+    ...task,
+    metadata: record(task.metadata),
+    outputs: array<GenerationTask['outputs'][number]>(task.outputs),
+    createdAt: iso(task.createdAt),
+    updatedAt: iso(task.updatedAt),
+  }
 }
 
 async function rows<T extends QueryResultRow>(client: PoolClient, sql: string): Promise<T[]> {
@@ -204,4 +222,8 @@ function record(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {}
+}
+
+function lockClause(options: LoadPostgresStateOptions): string {
+  return options.lockRows ? 'for update' : ''
 }
