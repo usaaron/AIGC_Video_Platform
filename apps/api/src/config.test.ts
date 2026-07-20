@@ -63,6 +63,7 @@ describe('loadConfig object storage settings', () => {
     expect(config.AUDIO_MODEL).toBe('audio-default')
     expect(config.FILM_EXPORT_FFMPEG_PATH).toBe('ffmpeg')
     expect(config.FILM_EXPORT_TIMEOUT_MS).toBe(300_000)
+    expect(config.GENERATED_ASSET_MAX_BYTES).toBe(104_857_600)
   })
 
   it('rejects local upload storage in production', () => {

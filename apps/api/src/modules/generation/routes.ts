@@ -45,6 +45,17 @@ export async function registerGenerationRoutes(
     },
   )
 
+  app.post(
+    '/generation/tasks/:taskId/cancel',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
+    async (request, reply) => {
+      const parsed = taskParamsSchema.safeParse(request.params)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      const task = await service.cancelTask(parsed.data.taskId, request.principal!)
+      return reply.code(202).send(task)
+    },
+  )
+
   app.get(
     '/generation/tasks/:taskId/content',
     { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ) },

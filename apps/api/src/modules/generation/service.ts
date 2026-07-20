@@ -2,9 +2,9 @@ import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/co
 import { AppError } from '../../core/errors.js'
 import type { VideoGenerationProvider } from '../../core/generation/videoProvider.js'
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
-import type { GenerationTaskStore } from './repository.js'
+import type { GenerationTaskStore, TaskMutationResult } from './repository.js'
 
-const RETRYABLE_STATUSES = new Set<GenerationTask['status']>(['failed', 'cancelled'])
+const RETRYABLE_STATUSES = new Set<GenerationTask['status']>(['failed', 'cancelled', 'queued', 'running'])
 
 export class GenerationService {
   constructor(
@@ -37,13 +37,16 @@ export class GenerationService {
     const task = await this.repository.findById(taskId, principal)
     if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权访问')
     if (!RETRYABLE_STATUSES.has(task.status)) {
-      throw new AppError(409, 'TASK_NOT_RETRYABLE', '只有失败或已取消的任务可以重试')
+      throw new AppError(409, 'TASK_NOT_RETRYABLE', '当前任务状态不能重试')
     }
 
-    const retried = await this.repository.retry(taskId, principal)
-    if (!retried) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权访问')
-    await this.dispatcher.dispatch(retried)
-    return retried
+    const result = await this.repository.retry(taskId, principal)
+    return this.sendMutationResult(result, 'retry')
+  }
+
+  async cancelTask(taskId: string, principal: Principal): Promise<GenerationTask> {
+    const result = await this.repository.cancel(taskId, principal)
+    return this.sendMutationResult(result, 'cancel')
   }
 
   clearCompleted(projectId: string, principal: Principal): Promise<number> {
@@ -70,4 +73,28 @@ export class GenerationService {
       throw new AppError(502, 'SEEDANCE_CONTENT_ERROR', message)
     }
   }
+
+  private async sendMutationResult(
+    result: TaskMutationResult,
+    action: 'cancel' | 'retry',
+  ): Promise<GenerationTask> {
+    if ('error' in result) throw taskMutationError(result.error, action)
+    await this.dispatcher.dispatch(result.task)
+    return result.task
+  }
+}
+
+function taskMutationError(error: string, action: 'cancel' | 'retry'): AppError {
+  if (error === 'task-not-found') {
+    return new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权访问')
+  }
+  if (error === 'account-not-found') {
+    return new AppError(401, 'ACCOUNT_NOT_FOUND', '账号不存在')
+  }
+  if (error === 'insufficient-credits') {
+    return new AppError(402, 'INSUFFICIENT_CREDITS', '积分不足')
+  }
+  const code = action === 'cancel' ? 'TASK_NOT_CANCELLABLE' : 'TASK_NOT_RETRYABLE'
+  const message = action === 'cancel' ? '当前任务状态不能取消' : '当前任务状态不能重试'
+  return new AppError(409, code, message)
 }

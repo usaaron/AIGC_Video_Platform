@@ -1,6 +1,6 @@
 import type { GenerationTask } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
-import { buffer } from 'node:stream/consumers'
+import type { Readable } from 'node:stream'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { StoredMedia } from '../../infra/store.js'
 import type { VideoContent } from '../generation/videoProvider.js'
@@ -16,6 +16,7 @@ export class GeneratedAssetWriter {
   constructor(
     private readonly storage: ObjectStorage,
     private readonly fetcher: Fetcher = fetch,
+    private readonly maxDownloadBytes = 104_857_600,
   ) {}
 
   async writeRemoteOutputs(
@@ -41,7 +42,7 @@ export class GeneratedAssetWriter {
       {
         output: { id: `${task.id}-video`, url: '', mediaType: 'video', view: 'single' },
         content: {
-          body: await buffer(content.stream),
+          body: await readNodeStreamWithLimit(content.stream, this.maxDownloadBytes, content.contentLength),
           contentType: content.contentType || 'video/mp4',
         },
       },
@@ -89,18 +90,22 @@ export class GeneratedAssetWriter {
     return { outputs, media }
   }
 
-  private async download(url: string, mediaType: GenerationTask['outputs'][number]['mediaType']) {
+  private async download(
+    url: string,
+    mediaType: GenerationTask['outputs'][number]['mediaType'],
+  ): Promise<DownloadedContent> {
     if (!/^https?:\/\//.test(url)) {
-      throw new Error('远程生成结果必须是 HTTP URL 才能资产化')
+      throw new Error('Remote generated asset must be an HTTP URL before it can be materialized')
     }
-    const response = await this.fetcher(url, { signal: AbortSignal.timeout(120_000) })
-    if (!response.ok) throw new Error(`远程生成结果下载失败 (${response.status})`)
 
-    const contentType =
-      normalizeContentType(response.headers.get('content-type')) ?? fallbackContentType(mediaType)
+    const response = await this.fetcher(url, { signal: AbortSignal.timeout(120_000) })
+    if (!response.ok) throw new Error(`Remote generated asset download failed (${response.status})`)
+    assertContentLengthWithinLimit(response.headers.get('content-length'), this.maxDownloadBytes)
+
     return {
-      body: Buffer.from(await response.arrayBuffer()),
-      contentType,
+      body: await readResponseBodyWithLimit(response, this.maxDownloadBytes),
+      contentType:
+        normalizeContentType(response.headers.get('content-type')) ?? fallbackContentType(mediaType),
     }
   }
 }
@@ -108,6 +113,55 @@ export class GeneratedAssetWriter {
 type DownloadedContent = {
   body: Buffer
   contentType: string
+}
+
+async function readResponseBodyWithLimit(response: Response, maxBytes: number): Promise<Buffer> {
+  if (!response.body) {
+    const body = Buffer.from(await response.arrayBuffer())
+    assertBufferWithinLimit(body, maxBytes)
+    return body
+  }
+
+  const reader = response.body.getReader()
+  const chunks: Buffer[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) throw new Error(`Remote generated asset exceeds ${maxBytes} bytes`)
+    chunks.push(Buffer.from(value))
+  }
+  return Buffer.concat(chunks)
+}
+
+async function readNodeStreamWithLimit(
+  stream: Readable,
+  maxBytes: number,
+  contentLength: string | number | null,
+): Promise<Buffer> {
+  assertContentLengthWithinLimit(contentLength, maxBytes)
+  const chunks: Buffer[] = []
+  let total = 0
+  for await (const chunk of stream) {
+    const body = Buffer.from(chunk)
+    total += body.length
+    if (total > maxBytes) throw new Error(`Remote generated asset exceeds ${maxBytes} bytes`)
+    chunks.push(body)
+  }
+  return Buffer.concat(chunks)
+}
+
+function assertBufferWithinLimit(body: Buffer, maxBytes: number): void {
+  if (body.length > maxBytes) throw new Error(`Remote generated asset exceeds ${maxBytes} bytes`)
+}
+
+function assertContentLengthWithinLimit(value: string | number | null, maxBytes: number): void {
+  if (value === null || value === '') return
+  const size = typeof value === 'number' ? value : Number.parseInt(value, 10)
+  if (Number.isFinite(size) && size > maxBytes) {
+    throw new Error(`Remote generated asset exceeds ${maxBytes} bytes`)
+  }
 }
 
 function storageKeyFor(task: GenerationTask, mediaId: string, contentType: string): string {

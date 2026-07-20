@@ -69,7 +69,7 @@ export function createTaskRunner(
     videoProvider,
     imageProvider,
     config.SEEDANCE_POLL_INTERVAL_MS,
-    new GeneratedAssetWriter(objectStorage),
+    new GeneratedAssetWriter(objectStorage, fetch, config.GENERATED_ASSET_MAX_BYTES),
     new MediaReferenceResolver(store, config.API_PUBLIC_BASE_URL, config.AUTH_SECRET),
     audioProvider,
     new FfmpegFilmExporter(

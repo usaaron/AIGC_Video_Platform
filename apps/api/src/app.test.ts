@@ -36,6 +36,7 @@ const testConfig: AppConfig = {
   OSS_INTERNAL: false,
   OSS_SECURE: true,
   MAX_UPLOAD_BYTES: 10_485_760,
+  GENERATED_ASSET_MAX_BYTES: 104_857_600,
   SEEDANCE_API_BASE_URL: 'https://aideos.openrouter.icu',
   SEEDANCE_API_KEY: '',
   SEEDANCE_MODEL: 'doubao-seedance-2-0-260128',
@@ -83,6 +84,54 @@ describe('API authorization', () => {
 
     expect(response.statusCode).toBe(202)
     expect(response.json()).toMatchObject({ projectId: 'project-midnight-film', status: 'queued' })
+  })
+
+  it('cancels queued tasks and refunds reserved credits once', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const task = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks',
+      headers,
+      payload: {
+        clientRequestId: 'cancel-test',
+        projectId: 'project-midnight-film',
+        kind: 'image',
+        label: '取消测试',
+        estimatedCredits: 6,
+      },
+    })
+    expect(task.statusCode).toBe(202)
+
+    const cancelled = await app.inject({
+      method: 'POST',
+      url: `/api/v1/generation/tasks/${task.json().id}/cancel`,
+      headers,
+    })
+    expect(cancelled.statusCode).toBe(202)
+    expect(cancelled.json()).toMatchObject({
+      status: 'cancelled',
+      progress: 100,
+      metadata: {
+        refundCredits: 6,
+        refundPolicy: 'full-before-provider-start',
+      },
+    })
+
+    const repeated = await app.inject({
+      method: 'POST',
+      url: `/api/v1/generation/tasks/${task.json().id}/cancel`,
+      headers,
+    })
+    expect(repeated.statusCode).toBe(202)
+    expect(repeated.json()).toMatchObject({ id: task.json().id, status: 'cancelled' })
+
+    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    expect(billing.json()).toMatchObject({ credits: 286 })
   })
 
   it('retries failed generation tasks and clears stale provider state', async () => {
@@ -141,8 +190,7 @@ describe('API authorization', () => {
       metadata: { shotId: 'shot-1' },
     })
     const stored = await store.read((state) => state.tasks.find((item) => item.id === task.id))
-    expect(stored).toMatchObject({ status: 'running', metadata: { shotId: 'shot-1' } })
-    expect(stored?.progress).toBeGreaterThan(0)
+    expect(stored).toMatchObject({ status: 'queued', progress: 0, metadata: { shotId: 'shot-1' } })
     expect(stored?.metadata.providerTaskId).toBeUndefined()
   })
 

@@ -445,6 +445,46 @@ describe('GenerationTaskRunner Seedance integration', () => {
       status: 'confirmed',
     })
   })
+
+  it('rejects remote generated assets that exceed the configured download limit', async () => {
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'oversized-image-task',
+      clientRequestId: 'oversized-image-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-creator',
+      kind: 'image',
+      label: 'oversized image',
+      prompt: 'image',
+      negativePrompt: '',
+      provider: 'img2',
+      model: null,
+      metadata: {},
+      status: 'running',
+      progress: 50,
+      estimatedCredits: 6,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+    const { storage, objects } = createMemoryStorage()
+    const fetcher = vi.fn(async () => {
+      return new Response(Buffer.from('too-large'), {
+        headers: { 'content-type': 'image/png', 'content-length': '9' },
+      })
+    }) as unknown as typeof fetch
+    const writer = new GeneratedAssetWriter(storage, fetcher, 4)
+
+    await expect(
+      writer.writeRemoteOutputs(task, [
+        { id: 'remote-output', url: 'https://assets.example/large.png', mediaType: 'image', view: 'single' },
+      ]),
+    ).rejects.toThrow('Remote generated asset exceeds 4 bytes')
+    expect(objects.size).toBe(0)
+  })
 })
 
 function createMemoryStorage() {

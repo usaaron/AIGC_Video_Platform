@@ -5,6 +5,7 @@ import type {
   AudioGenerationRequest,
   AudioGenerationSubmission,
 } from './audioProvider.js'
+import { fetchWithProviderTimeout } from './providerHttp.js'
 
 const providerOutputSchema = z
   .object({
@@ -134,15 +135,20 @@ export class AideosAudioProvider implements AudioGenerationProvider {
   }
 
   private async request(path: string, init: RequestInit): Promise<Response> {
-    const response = await this.fetcher(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.options.apiKey}`,
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-        ...init.headers,
+    const response = await fetchWithProviderTimeout(
+      'Aideos Audio',
+      this.fetcher,
+      `${this.baseUrl}${path}`,
+      {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.options.apiKey}`,
+          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+          ...init.headers,
+        },
       },
-      signal: AbortSignal.timeout(this.options.requestTimeoutMs),
-    })
+      this.options.requestTimeoutMs,
+    )
     if (response.ok) return response
 
     const body = await response.text().catch(() => '')

@@ -1,6 +1,7 @@
 import type { GenerationTask } from '@seqora/contracts'
 import { Queue, Worker } from 'bullmq'
 import { Redis } from 'ioredis'
+import { logError, logInfo } from '../logging.js'
 import type { TaskDispatcher } from './taskDispatcher.js'
 import type { GenerationTaskRunner } from './taskDispatcher.js'
 
@@ -31,11 +32,17 @@ export class BullMqTaskDispatcher implements TaskDispatcher {
       'generation-task',
       { reason: 'task-created', taskId: task.id },
       {
-        jobId: `generation-task-${task.id}-${Date.parse(task.updatedAt)}`,
+        jobId: `generation-task-${task.id}-${task.updatedAt}`,
         removeOnComplete: true,
         removeOnFail: 1_000,
       },
     )
+    logInfo('generation_task.enqueued', {
+      taskId: task.id,
+      status: task.status,
+      projectId: task.projectId,
+      tenantId: task.tenantId,
+    })
   }
 
   async close(): Promise<void> {
@@ -66,7 +73,12 @@ export class BullMqGenerationWorker {
 
     this.worker = new Worker<GenerationQueueJob>(
       GENERATION_QUEUE_NAME,
-      async () => {
+      async (job) => {
+        logInfo('generation_job.started', {
+          jobId: job.id,
+          reason: job.data.reason,
+          taskId: job.data.taskId,
+        })
         await this.runner.tick()
       },
       {
@@ -74,6 +86,25 @@ export class BullMqGenerationWorker {
         concurrency: this.options.concurrency,
       },
     )
+    this.worker.on('completed', (job) => {
+      logInfo('generation_job.completed', {
+        jobId: job.id,
+        reason: job.data.reason,
+        taskId: job.data.taskId,
+      })
+    })
+    this.worker.on('failed', (job, error) => {
+      logError('generation_job.failed', {
+        jobId: job?.id,
+        reason: job?.data.reason,
+        taskId: job?.data.taskId,
+        message: error.message,
+        stack: error.stack,
+      })
+    })
+    this.worker.on('error', (error) => {
+      logError('generation_worker.error', { message: error.message, stack: error.stack })
+    })
     this.timer = setInterval(() => void this.enqueueTick(), this.options.tickIntervalMs)
     await this.enqueueTick()
   }

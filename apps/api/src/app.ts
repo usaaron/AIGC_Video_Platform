@@ -10,6 +10,7 @@ import type { AudioGenerationProvider } from './core/generation/audioProvider.js
 import type { ImageGenerationProvider } from './core/generation/imageProvider.js'
 import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
 import { BullMqTaskDispatcher } from './core/jobs/bullmqQueue.js'
+import { NoopTaskDispatcher } from './core/jobs/taskDispatcher.js'
 import type { TaskDispatcher } from './core/jobs/taskDispatcher.js'
 import { PostgresStateStore } from './infra/postgresStore.js'
 import type { StateStore } from './infra/store.js'
@@ -82,7 +83,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     options.taskDispatcher ??
     (options.config.TASK_QUEUE_DRIVER === 'bullmq'
       ? new BullMqTaskDispatcher(options.config.REDIS_URL)
-      : taskRunner)
+      : new NoopTaskDispatcher())
   const generationRepository =
     store instanceof PostgresStateStore
       ? new PostgresGenerationTaskRepository(store)
@@ -133,7 +134,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     { prefix: '/api/v1' },
   )
 
-  if (options.config.TASK_QUEUE_DRIVER === 'inline' && options.startWorker !== false) taskRunner.start()
   app.addHook('onClose', async () => {
     taskRunner.stop()
     if ('close' in taskDispatcher && typeof taskDispatcher.close === 'function') {

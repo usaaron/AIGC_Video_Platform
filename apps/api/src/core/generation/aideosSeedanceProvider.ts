@@ -7,6 +7,7 @@ import type {
   VideoGenerationStatus,
   VideoGenerationSubmission,
 } from './videoProvider.js'
+import { fetchWithProviderTimeout } from './providerHttp.js'
 
 const taskResponseSchema = z.object({
   id: z.string().min(1),
@@ -105,15 +106,20 @@ export class AideosSeedanceProvider implements VideoGenerationProvider {
   }
 
   private async request(path: string, init: RequestInit): Promise<Response> {
-    const response = await this.fetcher(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.options.apiKey}`,
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-        ...init.headers,
+    const response = await fetchWithProviderTimeout(
+      'Aideos Seedance',
+      this.fetcher,
+      `${this.baseUrl}${path}`,
+      {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.options.apiKey}`,
+          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+          ...init.headers,
+        },
       },
-      signal: AbortSignal.timeout(this.options.requestTimeoutMs),
-    })
+      this.options.requestTimeoutMs,
+    )
     if (response.ok) return response
 
     const body = await response.text().catch(() => '')

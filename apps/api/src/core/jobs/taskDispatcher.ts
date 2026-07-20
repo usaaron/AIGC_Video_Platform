@@ -3,6 +3,7 @@ import type { AudioGenerationProvider } from '../generation/audioProvider.js'
 import type { FilmExporter } from '../generation/filmExporter.js'
 import type { ImageGenerationProvider } from '../generation/imageProvider.js'
 import type { VideoGenerationProvider } from '../generation/videoProvider.js'
+import { logError, logInfo } from '../logging.js'
 import type { StateStore } from '../../infra/store.js'
 import { GeneratedAssetWriter } from './generatedAssetWriter.js'
 import { MediaReferenceResolver } from './mediaReferenceResolver.js'
@@ -18,6 +19,12 @@ import { localOutputsFor, messageFor } from './taskRequestFactory.js'
 
 export interface TaskDispatcher {
   dispatch(task: GenerationTask): Promise<void>
+}
+
+export class NoopTaskDispatcher implements TaskDispatcher {
+  async dispatch(_task: GenerationTask): Promise<void> {
+    // Local API processes can create tasks without executing them.
+  }
 }
 
 const FILM_EXPORT_PROVIDER_NAME = 'film-export'
@@ -193,6 +200,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
 
   private async exportFilm(task: GenerationTask): Promise<void> {
     try {
+      if (!(await this.isTaskStillRunning(task.id))) return
       await this.store.mutate((state) => {
         const stored = state.tasks.find((item) => item.id === task.id)
         if (!stored || stored.status !== 'running') return
@@ -200,6 +208,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
         stored.updatedAt = new Date().toISOString()
       })
       const materialized = await this.filmExporter!.export(task)
+      logInfo('film_export.completed', { taskId: task.id, outputs: materialized.outputs.length })
       await this.store.mutate((state) => {
         const stored = state.tasks.find((item) => item.id === task.id)
         if (!stored || stored.status !== 'running') return
@@ -213,6 +222,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   }
 
   private async failTask(taskId: string, error: string): Promise<void> {
+    logError('generation_task.failed', { taskId, message: error })
     await this.store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task) return
@@ -221,6 +231,12 @@ export class GenerationTaskRunner implements TaskDispatcher {
       task.error = error.slice(0, 1_000)
       task.updatedAt = new Date().toISOString()
     })
+  }
+
+  private async isTaskStillRunning(taskId: string): Promise<boolean> {
+    return this.store.read((state) =>
+      state.tasks.some((task) => task.id === taskId && task.status === 'running'),
+    )
   }
 }
 

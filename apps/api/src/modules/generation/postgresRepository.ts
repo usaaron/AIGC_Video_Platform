@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
 import type { PostgresTransactionRunner } from '../../infra/postgresStore.js'
 import { taskFromRow, type TaskRow } from '../../infra/postgresState.js'
-import type { CreateReservedTaskResult, GenerationTaskStore } from './repository.js'
+import type { CreateReservedTaskResult, GenerationTaskStore, TaskMutationResult } from './repository.js'
 
 const PROVIDER_RETRY_METADATA_KEYS = new Set([
   'providerName',
@@ -132,14 +132,62 @@ export class PostgresGenerationTaskRepository implements GenerationTaskStore {
     return this.transactions.withTransaction(async (client) => findById(client, taskId, principal))
   }
 
-  async retry(taskId: string, principal: Principal): Promise<GenerationTask | null> {
+  async retry(taskId: string, principal: Principal): Promise<TaskMutationResult> {
     return this.transactions.withTransaction(async (client) => {
       const task = await findById(client, taskId, principal, { lock: true })
-      if (!task) return null
+      if (!task) return { error: 'task-not-found' }
+      if (task.status === 'queued' || task.status === 'running') return { task }
+      if (task.status === 'completed') return { error: 'task-not-cancellable' }
+
+      const retryAttempt = numberValue(task.metadata.retryAttempt, 0) + 1
+      const refundedCredits = numberValue(task.metadata.refundedCredits, 0)
+      if (task.status === 'cancelled' && refundedCredits > 0) {
+        const user = await client.query<{ id: string; tenantId: string; credits: number }>(
+          `
+            select id, tenant_id as "tenantId", credits
+            from users
+            where id = $1 and tenant_id = $2
+            for update
+          `,
+          [task.userId, task.tenantId],
+        )
+        const lockedUser = user.rows[0]
+        if (!lockedUser) return { error: 'account-not-found' }
+        if (lockedUser.credits < task.estimatedCredits) return { error: 'insufficient-credits' }
+
+        const nextCredits = lockedUser.credits - task.estimatedCredits
+        const now = new Date().toISOString()
+        await client.query(
+          `
+            update users
+            set credits = $1, updated_at = $2
+            where id = $3 and tenant_id = $4
+          `,
+          [nextCredits, now, lockedUser.id, lockedUser.tenantId],
+        )
+        await client.query(
+          `
+            insert into ledger_entries (
+              id, user_id, tenant_id, amount, balance, type, description, created_at
+            )
+            values ($1, $2, $3, $4, $5, 'generation', $6, $7)
+          `,
+          [
+            `retry-${task.id}-${retryAttempt}`,
+            lockedUser.id,
+            lockedUser.tenantId,
+            -task.estimatedCredits,
+            nextCredits,
+            `Retry generation task: ${task.label}`,
+            now,
+          ],
+        )
+      }
 
       const metadata = Object.fromEntries(
         Object.entries(task.metadata).filter(([key]) => !PROVIDER_RETRY_METADATA_KEYS.has(key)),
       )
+      metadata.retryAttempt = retryAttempt
       const now = new Date().toISOString()
       const result = await client.query<TaskRow>(
         `
@@ -156,7 +204,91 @@ export class PostgresGenerationTaskRepository implements GenerationTaskStore {
         `,
         [JSON.stringify(metadata), now, task.id],
       )
-      return result.rows[0] ? taskFromRow(result.rows[0]) : null
+      return result.rows[0] ? { task: taskFromRow(result.rows[0]) } : { error: 'task-not-found' }
+    })
+  }
+
+  async cancel(taskId: string, principal: Principal): Promise<TaskMutationResult> {
+    return this.transactions.withTransaction(async (client) => {
+      const task = await findById(client, taskId, principal, { lock: true })
+      if (!task) return { error: 'task-not-found' }
+      if (task.status === 'cancelled') return { task }
+      if (task.status !== 'queued' && task.status !== 'running') return { error: 'task-not-cancellable' }
+
+      const now = new Date().toISOString()
+      const refundCredits = refundableCreditsFor(task)
+      if (refundCredits > 0) {
+        const user = await client.query<{ id: string; tenantId: string; credits: number }>(
+          `
+            select id, tenant_id as "tenantId", credits
+            from users
+            where id = $1 and tenant_id = $2
+            for update
+          `,
+          [task.userId, task.tenantId],
+        )
+        const lockedUser = user.rows[0]
+        if (!lockedUser) return { error: 'account-not-found' }
+
+        const refund = await client.query<{ id: string }>(
+          `
+            select id
+            from ledger_entries
+            where id = $1
+            for update
+          `,
+          [`refund-${task.id}`],
+        )
+        if (!refund.rows[0]) {
+          const nextCredits = lockedUser.credits + refundCredits
+          await client.query(
+            `
+              update users
+              set credits = $1, updated_at = $2
+              where id = $3 and tenant_id = $4
+            `,
+            [nextCredits, now, lockedUser.id, lockedUser.tenantId],
+          )
+          await client.query(
+            `
+              insert into ledger_entries (
+                id, user_id, tenant_id, amount, balance, type, description, created_at
+              )
+              values ($1, $2, $3, $4, $5, 'adjustment', $6, $7)
+            `,
+            [
+              `refund-${task.id}`,
+              lockedUser.id,
+              lockedUser.tenantId,
+              refundCredits,
+              nextCredits,
+              `Refund cancelled task: ${task.label}`,
+              now,
+            ],
+          )
+        }
+      }
+
+      const metadata = {
+        ...task.metadata,
+        cancelledAt: now,
+        refundCredits,
+        refundPolicy: refundCredits > 0 ? 'full-before-provider-start' : 'no-refund-provider-started',
+      }
+      const result = await client.query<TaskRow>(
+        `
+          update generation_tasks
+          set metadata = $1::jsonb,
+            status = 'cancelled',
+            progress = 100,
+            error = 'Task cancelled by user',
+            updated_at = $2
+          where id = $3
+          returning ${TASK_COLUMNS}
+        `,
+        [JSON.stringify(metadata), now, task.id],
+      )
+      return result.rows[0] ? { task: taskFromRow(result.rows[0]) } : { error: 'task-not-found' }
     })
   }
 
@@ -280,4 +412,14 @@ function taskFor(input: CreateGenerationTask, principal: Principal, now: string)
     outputs: [],
     error: null,
   }
+}
+
+function refundableCreditsFor(task: GenerationTask): number {
+  if (task.status === 'queued') return task.estimatedCredits
+  if (task.status === 'running' && !task.metadata.providerTaskId) return task.estimatedCredits
+  return 0
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }

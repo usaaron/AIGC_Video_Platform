@@ -2,6 +2,7 @@ import type { GenerationTask } from '@seqora/contracts'
 import type { AudioGenerationProvider } from '../generation/audioProvider.js'
 import type { ImageGenerationProvider } from '../generation/imageProvider.js'
 import type { VideoGenerationProvider } from '../generation/videoProvider.js'
+import { logError, logInfo } from '../logging.js'
 import type { StateStore } from '../../infra/store.js'
 import { GeneratedAssetWriter, type MaterializedGenerationOutputs } from './generatedAssetWriter.js'
 import { MediaReferenceResolver } from './mediaReferenceResolver.js'
@@ -47,7 +48,13 @@ export class RemoteTaskRunner {
 
   async submitVideo(task: GenerationTask): Promise<void> {
     try {
+      if (!(await this.isTaskStillRunning(task.id))) return
       const submission = await this.videoProvider!.submit(await this.videoRequestForProvider(task))
+      logInfo('provider_task.submitted', {
+        taskId: task.id,
+        provider: SEEDANCE_PROVIDER_NAME,
+        providerTaskId: submission.providerTaskId,
+      })
       await this.store.mutate((state) => {
         const stored = state.tasks.find((item) => item.id === task.id)
         if (!stored || stored.status !== 'running') return
@@ -68,7 +75,13 @@ export class RemoteTaskRunner {
 
   async submitImage(task: GenerationTask): Promise<void> {
     try {
+      if (!(await this.isTaskStillRunning(task.id))) return
       const submission = await this.imageProvider!.submit(await this.imageRequestForProvider(task))
+      logInfo('provider_task.submitted', {
+        taskId: task.id,
+        provider: IMG2_PROVIDER_NAME,
+        providerTaskId: submission.providerTaskId,
+      })
       const materialized =
         submission.status === 'completed'
           ? await this.materializeRemoteOutputs(task, submission.outputs)
@@ -97,7 +110,13 @@ export class RemoteTaskRunner {
 
   async submitAudio(task: GenerationTask): Promise<void> {
     try {
+      if (!(await this.isTaskStillRunning(task.id))) return
       const submission = await this.audioProvider!.submit(this.audioRequestForProvider(task))
+      logInfo('provider_task.submitted', {
+        taskId: task.id,
+        provider: AUDIO_PROVIDER_NAME,
+        providerTaskId: submission.providerTaskId,
+      })
       const materialized =
         submission.status === 'completed'
           ? await this.materializeRemoteOutputs(task, submission.outputs)
@@ -245,6 +264,7 @@ export class RemoteTaskRunner {
   }
 
   private async failTask(taskId: string, error: string): Promise<void> {
+    logError('generation_task.failed', { taskId, message: error })
     await this.store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task) return
@@ -253,6 +273,12 @@ export class RemoteTaskRunner {
       task.error = error.slice(0, 1_000)
       task.updatedAt = new Date().toISOString()
     })
+  }
+
+  private async isTaskStillRunning(taskId: string): Promise<boolean> {
+    return this.store.read((state) =>
+      state.tasks.some((task) => task.id === taskId && task.status === 'running'),
+    )
   }
 
   private async materializeRemoteOutputs(
