@@ -1,0 +1,24 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.ambiguous.useful_below_threshold",
+  "case_type": "ambiguous",
+  "description": "A useful cliffhanger becomes more specific but remains below the current minimum improvement threshold.",
+  "original_story_qc_report": {
+    "overall_score": 0.7,
+    "dimension_scores": {"hook_quality": 3.6, "character_agency": 3.6, "conflict_escalation": 3.6, "emotional_payoff": 3.6, "cliffhanger_strength": 2.5},
+    "evidence": {"hook_quality": "The empty grave creates immediate curiosity.", "character_agency": "Amir breaks into the cemetery office.", "conflict_escalation": "The records reveal escalating institutional concealment.", "emotional_payoff": "Amir finds the note his father left.", "cliffhanger_strength": "The episode ends with a generic warning that someone is watching."}
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.74,
+    "dimension_scores": {"hook_quality": 3.6, "character_agency": 3.6, "conflict_escalation": 3.6, "emotional_payoff": 3.6, "cliffhanger_strength": 2.9},
+    "evidence": {"hook_quality": "The empty-grave opening remains unchanged.", "character_agency": "Amir still initiates the break-in.", "conflict_escalation": "The concealment progression remains unchanged.", "emotional_payoff": "The father's note remains intact.", "cliffhanger_strength": "The watcher now sends a photograph taken from inside Amir's locked apartment."}
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "The generic watcher warning needs a concrete personal threat.", "selected_dimensions": ["cliffhanger_strength"], "protected_dimensions": ["hook_quality", "emotional_payoff"], "primary_scene_refs": [3], "confidence": 0.84},
+  "revision_strategies": [{"target_dimension": "cliffhanger_strength", "problem_type": "generic_threat", "problem_reason": "The ending says someone is watching without changing Amir's situation.", "revision_goal": "Make the watcher threat immediate and personally invasive.", "revision_method": "Replace the generic warning with a photograph from Amir's locked apartment.", "expected_effect": "Increase continuation pressure without changing the grave mystery.", "priority": 1, "confidence": 0.84, "scene_refs": [3], "do_not_touch": ["empty grave hook", "father note payoff"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": ["revision.cliffhanger.apartment_photo"], "modified_scene_numbers": [3]},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": true,
+  "expected_machine_accepted": false,
+  "human_ground_truth": {"human_accept_revision": true, "target_issue_fixed": true, "major_regression_detected": false, "protected_dimensions_preserved": true, "scene_scope_aligned": true, "character_consistency_preserved": true, "dialogue_naturalness_change": "unchanged", "overall_human_preference": "revised", "reviewer_reason": "The apartment photograph turns a generic warning into a concrete invasion and is a useful production-ready improvement.", "reviewer_confidence": 0.84},
+  "evidence": {"intended_revision": "Replace the generic watcher warning with a specific threat in Scene 3.", "actual_change": "The watcher sends a photograph taken from inside Amir's locked apartment.", "human_judgment": "The revision clearly improves continuation pressure even though the frozen QC delta is only 0.4 points.", "expected_acceptance_behavior": "Current Acceptance is expected to reject because normalized improvement 0.08 is below the 0.10 threshold.", "original_excerpt": "A message appeared: I am watching you.", "revised_excerpt": "A photograph appeared: Amir asleep, taken from inside his locked apartment."}
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.ambiguous.human_preference",
+  "case_type": "ambiguous",
+  "description": "A subtle conflict rewrite is preferred by humans although the QC delta stays below threshold.",
+  "original_story_qc_report": {
+    "overall_score": 0.73,
+    "dimension_scores": {"hook_quality": 3.7, "character_agency": 3.7, "conflict_escalation": 3.0, "emotional_payoff": 3.7, "cliffhanger_strength": 3.7},
+    "evidence": {"hook_quality": "The missing child returns older than her mother.", "character_agency": "Tess hides the child from the authorities.", "conflict_escalation": "The officer repeats the same demand twice.", "emotional_payoff": "Tess admits why she stopped searching.", "cliffhanger_strength": "The child calls Tess by a future name."}
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.74,
+    "dimension_scores": {"hook_quality": 3.7, "character_agency": 3.7, "conflict_escalation": 3.3, "emotional_payoff": 3.7, "cliffhanger_strength": 3.7},
+    "evidence": {"hook_quality": "The impossible return remains unchanged.", "character_agency": "Tess still chooses to hide the child.", "conflict_escalation": "The officer quietly reveals a photograph proving he knows Tess is lying.", "emotional_payoff": "Tess's confession remains intact.", "cliffhanger_strength": "The future-name reveal remains intact."}
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "The officer's repeated demand needs a more specific escalation.", "selected_dimensions": ["conflict_escalation"], "protected_dimensions": ["hook_quality", "cliffhanger_strength"], "primary_scene_refs": [2], "confidence": 0.82},
+  "revision_strategies": [{"target_dimension": "conflict_escalation", "problem_type": "repeated_pressure", "problem_reason": "The officer repeats his demand without adding leverage.", "revision_goal": "Escalate through new evidence rather than louder repetition.", "revision_method": "Give the officer one photograph that proves Tess is lying.", "expected_effect": "Create more intelligent pressure while preserving tone.", "priority": 1, "confidence": 0.82, "scene_refs": [2], "do_not_touch": ["impossible return hook", "future-name ending"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": ["revision.conflict.photograph"], "modified_scene_numbers": [2]},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": true,
+  "expected_machine_accepted": false,
+  "human_ground_truth": {"human_accept_revision": true, "target_issue_fixed": true, "major_regression_detected": false, "protected_dimensions_preserved": true, "scene_scope_aligned": true, "character_consistency_preserved": true, "dialogue_naturalness_change": "improved", "overall_human_preference": "revised", "reviewer_reason": "The photograph creates specific leverage, improves subtext, and is clearly preferable despite a small rubric delta.", "reviewer_confidence": 0.8},
+  "evidence": {"intended_revision": "Replace repeated verbal pressure with concrete leverage in Scene 2.", "actual_change": "The officer silently reveals a photograph that disproves Tess's claim.", "human_judgment": "The quieter escalation is more natural and dramatically stronger even though QC changes only slightly.", "expected_acceptance_behavior": "Current Acceptance is expected to reject because normalized target improvement is below 0.10.", "original_excerpt": "'Give me the child,' the officer repeated.", "revised_excerpt": "The officer slid over a photograph of Tess opening the cellar door."}
+}

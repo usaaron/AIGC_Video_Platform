@@ -1,0 +1,24 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.clear_reject.protected_regression",
+  "case_type": "clear_rejected",
+  "description": "The emotional payoff improves, but the protected opening hook is substantially weakened.",
+  "original_story_qc_report": {
+    "overall_score": 0.75,
+    "dimension_scores": {"hook_quality": 4.0, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 3.0, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The bride burns the contract before the first line, creating immediate tension.", "character_agency": "June controls the public confrontation.", "conflict_escalation": "The family response raises the stakes.", "emotional_payoff": "June's grief is acknowledged but resolves quickly.", "cliffhanger_strength": "The hidden second contract creates continuation pressure."}
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.78,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 4.0, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The contract burning now occurs after a long explanation.", "character_agency": "June still controls the confrontation.", "conflict_escalation": "The family response remains strong.", "emotional_payoff": "June now names the cost of losing her sister before rejecting the family.", "cliffhanger_strength": "The second contract remains the ending question."}
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "June needs a stronger emotional release without weakening the opening.", "selected_dimensions": ["emotional_payoff"], "protected_dimensions": ["hook_quality"], "primary_scene_refs": [3], "confidence": 0.94},
+  "revision_strategies": [{"target_dimension": "emotional_payoff", "problem_type": "underplayed_grief", "problem_reason": "June rejects the family before naming her personal loss.", "revision_goal": "Give the final rejection a specific emotional cost.", "revision_method": "Add one concise grief beat in Scene 3.", "expected_effect": "Strengthen payoff while preserving the immediate opening.", "priority": 1, "confidence": 0.94, "scene_refs": [3], "do_not_touch": ["opening contract burn"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": ["revision.emotion.grief_beat"], "modified_scene_numbers": [3]},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": true,
+  "expected_machine_accepted": false,
+  "human_ground_truth": {"human_accept_revision": false, "target_issue_fixed": true, "major_regression_detected": true, "protected_dimensions_preserved": false, "scene_scope_aligned": true, "character_consistency_preserved": true, "dialogue_naturalness_change": "unchanged", "overall_human_preference": "original", "reviewer_reason": "The stronger payoff does not justify delaying the protected opening image that created the episode hook.", "reviewer_confidence": 0.97},
+  "evidence": {"intended_revision": "Add emotional specificity in Scene 3 while preserving the opening contract burn.", "actual_change": "The grief beat improved, but an added prologue delayed the protected hook.", "human_judgment": "A meaningful protected-dimension regression makes the revision unsafe.", "expected_acceptance_behavior": "Acceptance should reject with protected_dimension_regression.", "original_excerpt": "June struck the match. 'Your contract dies before my vows begin.'", "revised_excerpt": "After explaining the family history, June finally reached for the match."}
+}

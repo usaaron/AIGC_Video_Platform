@@ -116,6 +116,7 @@ AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧�
 - 当前支持 `Analysis`、`ContentSpec`、`Prompt`、`Script`、`Story QC` 评估
 - 当前支持 `Benchmark Runner` 与 Benchmark API
 - 当前 Benchmark 已接入 `RevisionPlan -> Script Revision -> Re-QC`
+- Revision Acceptance Calibration v1 提供 12 个固定合成 Ground Truth 样本和确定性离线报告
 - 当前已提供 `Prompt Evaluation` 最小闭环，可比较 Prompt 版本、`GenerationStrategy` 和重复运行稳定性
 - 当前已补充 Prompt Evaluation Explainability，强调解释“为什么变好 / 变差”，而不只输出差异摘要
 - 当前已在文档层预留 `Script Industry Knowledge` 与 `Bilingual Developer View` 边界，但它们尚未进入正式生产主链路实现
@@ -125,7 +126,15 @@ AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧�
 1. Revision Acceptance / Policy Calibration
 2. Initial Generation Quality Improvement v1
 
-当前已完成 Story QC Explainability Upgrade v1、Prompt Evaluation Explainability Integration v1，以及 Revision Quality Improvement v1 的 Decision、Strategy、Planner、Executor 和 Acceptance shadow integration。下一步先用固定、人工校准样本验证 Revision Policy 阈值和 effectiveness 信号；在完成校准前，不启用 Acceptance enforcement。
+当前已完成 Story QC Explainability Upgrade v1、Prompt Evaluation Explainability Integration v1，以及 Revision Quality Improvement v1 的 Decision、Strategy、Planner、Executor 和 Acceptance shadow integration。Acceptance Calibration v1 首轮结果为 `review_required`：12 个样本可复现且 clear-negative safety 通过，但人工一致率为 `0.667`。当前不启用 Acceptance enforcement，也不自动调整 Policy。
+
+未来 Script-to-Production 兼容边界已经在文档中预留：
+
+`FinalMasterScript -> Script-to-Production Adapter -> Model-Independent Production Package -> Seedance / Other Video Model Adapter`
+
+当前只记录兼容原则，不实现 Adapter、Production Package、Seedance 调用或生产 API。Final `MasterScript` 继续保存“发生什么、为什么发生”的稳定故事语义；镜头、灯光、音频、连续性展开和模型专用 Prompt 应由未来 Adapter 派生。
+
+未来 Knowledge-Guided Generation 同样只属于设计方向：专业知识应先成为可治理、可版本化资产，再通过受控任务框架、Prompt Builder 与 `LLMAdapter` 参与原创生成。当前不实现完整 Knowledge Registry、RAG、Creative Skill Registry 或知识自动注入，当前优化优先级保持不变。
 
 当前保留两类不同信号：
 
@@ -213,6 +222,14 @@ pytest tests/test_prompt_evaluation_runner.py tests/test_prompt_evaluation_api.p
 ```
 
 ## 运行 Benchmark
+
+运行固定 Revision Acceptance Calibration：
+
+```bash
+PYTHONPATH=backend python -m app.modules.script_engine.revision_acceptance_calibration
+```
+
+该命令只读取 `tests/fixtures/revision_acceptance_calibration/` 的 12 个固定合成样本，不调用 LLM。输出是一次离线结构化报告，不会修改 `RevisionPolicy` 或当前 runtime。
 
 运行固定 Benchmark API：
 

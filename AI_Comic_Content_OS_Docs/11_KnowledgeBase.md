@@ -232,6 +232,68 @@
 
 它当前仍不负责复杂多轮策略编排。
 
+## Future Knowledge-Guided Generation Compatibility
+
+未来 Script Generation 与 Script-to-Production 生成不应只依赖自由 LLM 即兴。长期概念流程为：
+
+`ContentSpec`
+→ Task Decomposition
+→ Professional Knowledge Retrieval
+→ Creative Constraints
+→ `GenerationStrategy`
+→ Prompt Builder
+→ `LLMAdapter`
+→ Structured Output
+
+当前只记录兼容原则，不实现完整 Knowledge Base、RAG、向量检索或 Creative Skill Registry。
+
+### Knowledge Responsibility Chain
+
+未来知识使用应保持以下分工：
+
+Source Material
+→ Structured Knowledge
+→ Creative Skill / Task Framework
+→ Prompt
+→ LLM
+
+- Source Material 提供可审查来源，包括专业书籍、公开行业标准、授权或公版剧本、人工复核作品分析、官方模型文档和内部实验
+- Structured Knowledge 回答“什么专业原则或生产规则适用”
+- Creative Skill / Task Framework 回答“如何把原则应用到一个有边界的具体任务”；它当前只是 Research 概念
+- Prompt 是版本化执行工件，负责向模型表达当前任务约束
+- LLM 在约束内生成原创内容，不拥有知识真相，也不替代知识治理
+
+### Expected Professional Knowledge Domains
+
+未来可研究的专业知识域包括：
+
+- Story and Screenwriting：结构、因果、角色目标、冲突、升级、反转、铺垫与回收、情绪回报、悬念和短叙事节奏
+- Character and Persona：原创角色身份、动机、恐惧、信念、矛盾、决策模式、压力行为、情绪边界、语言节奏、关系模式和反模式
+- Visual Storytelling：景别、角度、运动、构图、调度、空间关系、视觉强调、反应镜头、灯光、颜色、连续性和微表情
+- Dialogue and Performance：对白功能、潜台词、角色声音、打断、停顿、克制、语速和言外意图
+- Audio and Sound：环境声、音效、沉默、音乐进出、声音转场、节奏支持和对白清晰度
+- Generative Model Practice：模型支持的 Prompt 结构、角色一致性锚点、参考素材、动作可见性、时长、镜头限制、漂移防止和失败模式
+
+模型实践知识在必要时必须由 Adapter 限定适用范围。Seedance 专用经验不得进入核心 Script 数据模型。
+
+### Knowledge Source Boundary
+
+未来来源必须区分：
+
+- Professional Narrative Sources：用于抽象人物构造、因果、情绪推进、对白功能、场景结构和主题深度
+- Successful Market Content：只用于抽象 Hook 类型、情绪承诺、关系张力、冲突密度、反转机制、节奏、Cliffhanger 功能和受众幻想
+
+目标不是复制或改写具体作品，而是：
+
+```text
+Professional narrative foundation
++ abstracted market-proven mechanisms
++ new characters, settings, causality, and expression
+= original generated work
+```
+
+知识条目必须保留来源、适用范围、版本和引用 lineage。未经许可的全文、具体表达或人物模仿不得作为可直接生成资产。
+
 ## 当前阶段不实现
 
 当前 `Knowledge Base` 不实现：
@@ -243,5 +305,10 @@
 - 复杂版本管理
 - Prompt 自动优化闭环
 - Prompt A/B 自动路由
+- 完整 Script Knowledge Registry runtime
+- Creative Skill Registry
+- RAG execution
+- Script-to-Production 知识执行
+- Seedance 专用知识注入
 
 这些能力属于后续阶段。

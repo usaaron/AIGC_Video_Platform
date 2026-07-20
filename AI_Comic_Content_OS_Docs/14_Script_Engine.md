@@ -288,6 +288,16 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 - 不允许把“某个编剧经验”直接作为不可追踪的提示语散落在代码里
 - 不允许把国内流程经验直接当作海外内容默认标准
 
+未来知识引导生成应遵循：
+
+Source Material
+→ Structured Knowledge
+→ Creative Skill / Task Framework
+→ Prompt
+→ `LLMAdapter`
+
+其中 Creative Skill 当前只是 Research 概念，不代表已经批准新增 Skill Registry。专业知识负责提供质量底线和适用约束，`LLMAdapter` 负责在约束内生成原创内容；知识不能退化为散落在 Prompt 中的不可追踪规则。
+
 ## Production Artifact vs Developer Artifact
 
 当前必须区分两类工件：
@@ -376,6 +386,46 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 - 下游 mapper 负责生成各自模块的请求对象
 - Final `MasterScript` 保持面向剧本生产的稳定数据契约
 - Phase 2 功能当前只做结构预留，不实现真实视频链路
+
+### Future Script-to-Production Adapter Boundary
+
+未来推荐的生产交接链路为：
+
+Final `MasterScript`
+→ Script-to-Production Adapter
+→ Model-Independent Production Package
+→ Seedance Adapter / Other Video Model Adapter
+→ Provider-Specific Generation Prompts
+
+Model-Independent Production Package 可派生：
+
+- Character Bible、原创角色视觉一致性锚点、人格、决策模式、语言模式、情绪边界与关系动态
+- Scene Bible、环境、重要道具和连续状态
+- Shot List、可见动作、微动作、表情、构图意图、视觉风格、灯光与色彩建议
+- 对白表演、语速、声音、环境音和时长指导
+- 空间、服装、道具、对象状态和转场连续性约束
+- 模型无关 negative constraints
+
+Seedance Adapter 只负责把模型无关 Package 转换为 Seedance 支持的 Prompt 结构、参考素材要求、镜头限制和模型专用负面提示。Seedance 版本变化不应迫使 Final `MasterScript` 或 Script Generation 主链路修改。
+
+当前状态：deferred, not implemented。当前不创建 Production Package 模型、Adapter、API、工作流或测试。
+
+### FinalMasterScript Future Compatibility Review
+
+| 语义区域 | 当前支持 | 兼容性判断 |
+|---|---|---|
+| Scene、顺序、目的、Hook、Turning Point、Cliffhanger | 有明确结构字段 | sufficient，继续保留为稳定故事语义 |
+| Conflict、Scene Outcome、Escalation、Emotional Progression、Payoff | 可从 purpose、beat summary、emotional shift、turning point 部分推断 | partially sufficient；未来如质量验证证明必要，再评估正式语义字段 |
+| 角色身份、故事角色、基础动机 | `CharacterProfile` 已包含 name、role、description、motivation | partially sufficient，适合基础 Character Bible 派生 |
+| 角色外部目标、内部需要、缺陷、决策模式、情绪边界、关系、语言风格 | 当前没有独立稳定字段 | missing；属于未来候选故事语义，但本轮不改 schema |
+| Dialogue、Dialogue Intent、Character Actions | 当前有结构字段，但动作仍是自由文本 | partially sufficient，可作为表演与可见动作派生输入 |
+| Facial Expression、Subtext、Delivery Cue | 当前未显式表达 | should remain adapter-derived；只有影响因果的例外内容才值得未来进入故事语义 |
+| Location / Environment | 当前 `setting` 是简化字符串 | partially sufficient；Production Adapter 可继续扩展视觉环境 |
+| Important Props、Object State、故事必需的 Spatial State | 当前缺少 | missing；如果影响因果和连续性，未来应考虑稳定语义引用 |
+| Camera、Composition、Lighting、Color、Audio、Costume、Transition、分镜时长 | 当前核心模型未正式承载 | should remain adapter-derived |
+| Seedance Prompt、参考图语法、模型参数、模型负面提示 | 当前未承载 | should remain adapter-specific，不得进入 Final `MasterScript` |
+
+稳定边界是：Final `MasterScript` 描述 what happens and why；Production Adapter 描述 how it should be visually and audiovisually generated。
 
 ### Story QC
 
@@ -755,6 +805,14 @@ Revision 的长期目标是达到生产质量标准，而不是无限最大化�
 - Shadow：Acceptance 计算和记录已运行，但不改变现有业务结果
 - 实验性：Story QC 专业可信度、规则式 Revision 创意质量和 Acceptance 阈值
 - 生产强制：当前仅 Finalization Gate 继续执行 lineage、Re-QC 存在性与最低阈值校验
+
+### Acceptance Calibration v1
+
+当前已使用 12 个固定、原创、合成样本完成一次离线 shadow Acceptance 校准。校准器复用现有 `RevisionAcceptanceEvaluator`，只比较机器 Decision 与冻结人工 Ground Truth，不进入 Script Generation runtime。
+
+首轮结果为 `review_required`：可复现性和 clear-negative safety 通过，但人工一致率为 `0.667`，低于 `0.80` 目标。分歧主要来自当前 QC/Acceptance 未表达的对白自然度、角色声音、人类对轻微 Hook 回退的敏感度，以及低于数值阈值但人工认为有用的细腻修改。
+
+该结论表示 Acceptance 仍应保持 shadow mode。校准不会自动调整 `RevisionPolicy`、60/20/20 公式或 Finalization Gate，也不代表 Revision 已达到专业生产可信度。
 
 ### v1 明确边界
 

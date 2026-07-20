@@ -1,0 +1,24 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.clear_reject.target_regression",
+  "case_type": "clear_rejected",
+  "description": "A conflict revision removes the counterattack and makes escalation weaker.",
+  "original_story_qc_report": {
+    "overall_score": 0.7,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 3.5, "conflict_escalation": 3.0, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The stolen patent accusation opens clearly.", "character_agency": "Owen confronts the lab director.", "conflict_escalation": "The director initially threatens Owen with dismissal.", "emotional_payoff": "Owen exposes his mentor's sacrifice.", "cliffhanger_strength": "A second patent appears under Owen's name."}
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.65,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 3.5, "conflict_escalation": 2.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The patent accusation remains clear.", "character_agency": "Owen still initiates the confrontation.", "conflict_escalation": "The director apologizes immediately, removing the counterpressure.", "emotional_payoff": "The mentor reveal remains present.", "cliffhanger_strength": "The second patent remains the ending question."}
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "The laboratory confrontation needs stronger escalating opposition.", "selected_dimensions": ["conflict_escalation"], "protected_dimensions": ["hook_quality"], "primary_scene_refs": [2], "confidence": 0.9},
+  "revision_strategies": [{"target_dimension": "conflict_escalation", "problem_type": "flat_opposition", "problem_reason": "The director's resistance needs to intensify in Scene 2.", "revision_goal": "Increase counterpressure before Owen reveals his evidence.", "revision_method": "Add a credible institutional threat that forces Owen to risk more.", "expected_effect": "Create a stronger progression from accusation to danger.", "priority": 1, "confidence": 0.9, "scene_refs": [2], "do_not_touch": ["patent hook"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": ["revision.conflict.director_response"], "modified_scene_numbers": [2]},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": false,
+  "expected_machine_accepted": false,
+  "human_ground_truth": {"human_accept_revision": false, "target_issue_fixed": false, "major_regression_detected": true, "protected_dimensions_preserved": true, "scene_scope_aligned": true, "character_consistency_preserved": true, "dialogue_naturalness_change": "unchanged", "overall_human_preference": "original", "reviewer_reason": "The immediate apology removes the opposition that the revision was supposed to strengthen.", "reviewer_confidence": 0.99},
+  "evidence": {"intended_revision": "Escalate the director's resistance before Owen reveals evidence.", "actual_change": "The director now apologizes and yields before Owen must take a risk.", "human_judgment": "The targeted conflict dimension became weaker rather than stronger.", "expected_acceptance_behavior": "Acceptance should reject with target_dimension_regression.", "original_excerpt": "The director locked the lab. 'Leave, and I erase your career.'", "revised_excerpt": "The director lowered his eyes. 'You are right. I am sorry.'"}
+}

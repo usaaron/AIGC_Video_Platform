@@ -45,9 +45,13 @@ def test_prompt_evaluation_runner_supports_prompt_strategy_and_stability_compari
     assert "hook_quality" in prompt_v2.story_qc_scene_refs
     assert prompt_v2.explainability.dimension_deltas
     assert prompt_v2.explainability.confidence_note is not None
+    classified_metrics = (
+        prompt_v2.explainability.improved_metrics
+        + prompt_v2.explainability.regressed_metrics
+        + prompt_v2.explainability.unchanged_metrics
+    )
     assert any(
-        metric.startswith("average_latency_ms")
-        for metric in prompt_v2.explainability.improved_metrics
+        metric.startswith("average_latency_ms") for metric in classified_metrics
     )
     assert any(
         metric.startswith("repeat_validation_coverage")

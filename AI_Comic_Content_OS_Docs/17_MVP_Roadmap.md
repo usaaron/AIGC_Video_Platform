@@ -120,14 +120,22 @@ Revision v1 能力范围：
 - Planner 当前兼容旧 `StoryQCReport`
 - Phase 3 已完成：RevisionPlan 意图保留、Executor abstraction、controlled rule execution 与 execution trace
 - Phase 4.1 已完成：Acceptance Evaluator 与 `ScriptRevisionRun` shadow lineage integration
+- Phase 4.2 已完成：12 个固定合成 Ground Truth 样本与离线 Acceptance 校准报告
 - 当前 API、Benchmark dataset 和 Finalization Gate 保持不变
 
-当前 checkpoint 待验证：
+当前 checkpoint 结果：
 
-- 用人工/策划 Ground Truth 校准 Acceptance 判定
-- 在固定 Benchmark 上校准 `minimum_improvement_threshold`、`acceptance_threshold`、`regression_limit` 和 tolerance
+- 首轮校准状态为 `review_required`
+- 可复现性与 clear-negative safety 已通过
+- 人工一致率为 `0.667`，未达到 `0.80` go/no-go 目标
+- 当前不启用 Acceptance enforcement，不自动调整 Policy
+
+后续仍待人工决策：
+
+- 评审对白自然度、角色声音、Hook 容差与 minimum threshold 暴露的四个冲突样本
+- 决定是否另行批准阈值实验；本轮不自动校准 `RevisionPolicy`
 - 增加跨样本 Revision effectiveness 汇总与回归报告
-- 校准完成后再决定 Acceptance 是否影响 Finalization
+- 达到可信证据标准后再决定 Acceptance 是否影响 Finalization
 - 校准完成后再决定是否弃用旧 `ScriptRevisionRun.improved`
 
 ### Script Generation Quality Loop v1 Checkpoint
@@ -139,7 +147,7 @@ Revision v1 能力范围：
 - 生产强制：仍只有独立 Finalization Gate 的既有校验
 - 最近记录的全量测试基线：`166 passed, 1 skipped`
 
-当前先完成 Acceptance / RevisionPolicy 校准，因为后续 Initial Generation Quality 优化需要可信、可复现的质量判定信号。校准完成后，再进入 Initial Generation Quality Improvement v1。
+当前先人工评审 Acceptance Calibration v1 的 `review_required` 结果。未达到 go/no-go 标准前，不把 Acceptance 当作 Initial Generation Quality 优化的可信自动判定器，也不自动进入 Policy 调参。
 
 当前不启用：
 
@@ -165,6 +173,10 @@ Revision v1 能力范围：
 - `ScriptGenerationRequestMapper`
 - `ScriptGenerationWorkflowService` / Facade
 - Storyboard / Voice / Animation / Video Handoff Mapper Design
+- Script-to-Production Adapter Design
+- Model-Independent Production Package Design
+- Seedance / Other Video Model Adapter Compatibility
+- Knowledge-Guided Script Generation Research
 - Knowledge-aware Story QC
 - Knowledge-aware Prompt Builder
 - Knowledge-aware Prompt Evaluation
@@ -184,3 +196,18 @@ Revision v1 能力范围：
 - Video Pipeline
 - Seedance Integration
 - Video Composition
+
+未来兼容链路预留为：
+
+Final `MasterScript`
+→ Script-to-Production Adapter
+→ Model-Independent Production Package
+→ Seedance / Other Video Model Adapter
+→ Provider-Specific Generation Package
+
+该链路当前只记录设计边界，不代表 Media Production 已启动。当前优先级继续保持：
+
+1. Revision Acceptance / Policy Calibration
+2. Initial Generation Quality Improvement v1
+
+在 Script Generation 质量稳定之前，不实现 Production Adapter、Seedance Prompt、生产 API、Creative Skill Registry 或完整 Knowledge Base。

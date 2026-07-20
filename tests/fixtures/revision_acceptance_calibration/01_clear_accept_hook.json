@@ -1,0 +1,36 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.clear_accept.hook",
+  "case_type": "clear_accepted",
+  "description": "A vague opening is replaced by an immediate accusation while later beats remain stable.",
+  "original_story_qc_report": {
+    "overall_score": 0.68,
+    "dimension_scores": {"hook_quality": 2.5, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {
+      "hook_quality": "Scene 1 begins with neutral arrival information and no immediate question.",
+      "character_agency": "Mara chooses to enter the hearing with her evidence.",
+      "conflict_escalation": "The hearing moves from suspicion to a direct challenge.",
+      "emotional_payoff": "The evidence reveal pays off Mara's preparation.",
+      "cliffhanger_strength": "The witness denial creates a clear next question."
+    }
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.76,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {
+      "hook_quality": "Scene 1 now opens with Mara accusing the judge before security can remove her.",
+      "character_agency": "Mara still chooses to enter the hearing with her evidence.",
+      "conflict_escalation": "The hearing still moves from suspicion to a direct challenge.",
+      "emotional_payoff": "The evidence reveal remains intact.",
+      "cliffhanger_strength": "The witness denial remains the final unresolved question."
+    }
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "The opening lacks immediate conflict despite a strong later structure.", "selected_dimensions": ["hook_quality"], "protected_dimensions": ["cliffhanger_strength"], "primary_scene_refs": [1], "confidence": 0.95},
+  "revision_strategies": [{"target_dimension": "hook_quality", "problem_type": "delayed_conflict", "problem_reason": "The first line only announces Mara's arrival.", "revision_goal": "Open with a concrete accusation that creates an immediate question.", "revision_method": "Replace the neutral entrance line without changing later reveals.", "expected_effect": "Increase opening tension while preserving the ending mystery.", "priority": 1, "confidence": 0.95, "scene_refs": [1], "do_not_touch": ["final witness denial"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": ["revision.hook.accusation"], "modified_scene_numbers": [1]},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": true,
+  "expected_machine_accepted": true,
+  "human_ground_truth": {"human_accept_revision": true, "target_issue_fixed": true, "major_regression_detected": false, "protected_dimensions_preserved": true, "scene_scope_aligned": true, "character_consistency_preserved": true, "dialogue_naturalness_change": "improved", "overall_human_preference": "revised", "reviewer_reason": "The accusation establishes conflict immediately and leaves every protected later beat unchanged.", "reviewer_confidence": 0.98},
+  "evidence": {"intended_revision": "Create immediate conflict in Scene 1 without changing the final witness mystery.", "actual_change": "The neutral arrival line became a direct accusation against the judge.", "human_judgment": "The new line is specific, playable, and creates a clear viewing question.", "expected_acceptance_behavior": "Acceptance should pass because the target improves, scope aligns, and protection remains stable.", "original_excerpt": "Mara entered the hearing room and looked around.", "revised_excerpt": "Before you sentence me, ask the judge why he paid the witness."}
+}

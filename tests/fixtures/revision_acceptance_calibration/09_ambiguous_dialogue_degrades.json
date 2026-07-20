@@ -1,0 +1,24 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.ambiguous.dialogue_degrades",
+  "case_type": "ambiguous",
+  "description": "Character agency improves, but the inserted declaration sounds mechanical and breaks the character voice.",
+  "original_story_qc_report": {
+    "overall_score": 0.76,
+    "dimension_scores": {"hook_quality": 3.8, "character_agency": 2.5, "conflict_escalation": 3.8, "emotional_payoff": 3.8, "cliffhanger_strength": 3.8},
+    "evidence": {"hook_quality": "The anonymous inheritance opens a clear mystery.", "character_agency": "Mei lets her uncle decide whether to open the vault.", "conflict_escalation": "The inheritance dispute grows across the episode.", "emotional_payoff": "Mei learns why her mother hid the key.", "cliffhanger_strength": "The vault contains a recent photograph of Mei."}
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.75,
+    "dimension_scores": {"hook_quality": 3.8, "character_agency": 3.5, "conflict_escalation": 3.8, "emotional_payoff": 3.8, "cliffhanger_strength": 3.8},
+    "evidence": {"hook_quality": "The inheritance mystery remains unchanged.", "character_agency": "Mei now takes the key and opens the vault herself.", "conflict_escalation": "The inheritance dispute remains structurally stable.", "emotional_payoff": "The hidden-key reveal remains stable.", "cliffhanger_strength": "The recent photograph remains the ending question."}
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "Mei should make the vault decision herself.", "selected_dimensions": ["character_agency"], "protected_dimensions": ["hook_quality", "cliffhanger_strength"], "primary_scene_refs": [2], "confidence": 0.92},
+  "revision_strategies": [{"target_dimension": "character_agency", "problem_type": "delegated_choice", "problem_reason": "Mei gives the key to her uncle in Scene 2.", "revision_goal": "Make Mei claim the risk of opening the vault.", "revision_method": "Have Mei take the key and open the vault herself.", "expected_effect": "Increase agency without changing the mystery structure.", "priority": 1, "confidence": 0.92, "scene_refs": [2], "do_not_touch": ["Mei's restrained speech style"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": ["revision.agency.open_vault"], "modified_scene_numbers": [2]},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": false,
+  "expected_machine_accepted": true,
+  "human_ground_truth": {"human_accept_revision": false, "target_issue_fixed": true, "major_regression_detected": true, "protected_dimensions_preserved": true, "scene_scope_aligned": true, "character_consistency_preserved": false, "dialogue_naturalness_change": "degraded", "overall_human_preference": "original", "reviewer_reason": "The action is stronger, but the generic declaration contradicts Mei's established restrained voice and makes the scene feel generated.", "reviewer_confidence": 0.86},
+  "evidence": {"intended_revision": "Let Mei open the vault while preserving her quiet, precise voice.", "actual_change": "Mei takes the key, but announces her agency in mechanical explanatory dialogue.", "human_judgment": "The target improves structurally, yet character voice and dialogue naturalness regress beyond an acceptable level.", "expected_acceptance_behavior": "Current Acceptance is expected to pass because dialogue naturalness is not a measured dimension, exposing a blind spot.", "original_excerpt": "Mei held out the key. 'You decide.'", "revised_excerpt": "Mei seized the key. 'I am now making an active choice with consequences.'"}
+}

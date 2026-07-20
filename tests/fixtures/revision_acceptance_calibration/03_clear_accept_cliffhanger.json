@@ -1,0 +1,24 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.clear_accept.cliffhanger",
+  "case_type": "clear_accepted",
+  "description": "A closed ending becomes an unresolved threat tied to the protagonist's choice.",
+  "original_story_qc_report": {
+    "overall_score": 0.7,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 2.5},
+    "evidence": {"hook_quality": "The forbidden-room discovery creates a strong opening.", "character_agency": "Leo chooses to expose the family archive.", "conflict_escalation": "Each scene adds a more dangerous family secret.", "emotional_payoff": "Leo finally confronts the lie about his father.", "cliffhanger_strength": "The episode ends after the confession with no new uncertainty."}
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.78,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The forbidden-room discovery remains unchanged.", "character_agency": "Leo still chooses to expose the archive.", "conflict_escalation": "The family secrets retain their progression.", "emotional_payoff": "The confrontation still pays off the family lie.", "cliffhanger_strength": "A live message reveals that Leo exposed a decoy archive and the real file names his mother."}
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "The confession resolves the episode without creating continuation pressure.", "selected_dimensions": ["cliffhanger_strength"], "protected_dimensions": ["emotional_payoff"], "primary_scene_refs": [3], "confidence": 0.93},
+  "revision_strategies": [{"target_dimension": "cliffhanger_strength", "problem_type": "closed_ending", "problem_reason": "Scene 3 resolves the archive mystery completely.", "revision_goal": "Add a new consequence that recontextualizes the victory.", "revision_method": "Reveal that the exposed archive was a decoy after the confession lands.", "expected_effect": "Create continuation pressure without canceling the emotional payoff.", "priority": 1, "confidence": 0.93, "scene_refs": [3], "do_not_touch": ["father confession payoff"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": ["revision.cliffhanger.decoy_archive"], "modified_scene_numbers": [3]},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": true,
+  "expected_machine_accepted": true,
+  "human_ground_truth": {"human_accept_revision": true, "target_issue_fixed": true, "major_regression_detected": false, "protected_dimensions_preserved": true, "scene_scope_aligned": true, "character_consistency_preserved": true, "dialogue_naturalness_change": "unchanged", "overall_human_preference": "revised", "reviewer_reason": "The new threat extends the story while preserving the confession's emotional satisfaction.", "reviewer_confidence": 0.96},
+  "evidence": {"intended_revision": "Create continuation pressure after preserving the Scene 3 confession payoff.", "actual_change": "A message identifies the exposed archive as a decoy and implicates Leo's mother.", "human_judgment": "The ending opens a consequential question rather than merely withholding information.", "expected_acceptance_behavior": "Acceptance should pass because the cliffhanger improves and the protected payoff remains stable.", "original_excerpt": "Leo closed the file. The family finally knew the truth.", "revised_excerpt": "His phone lit up: DECOY OPENED. THE REAL FILE IS UNDER YOUR MOTHER'S NAME."}
+}

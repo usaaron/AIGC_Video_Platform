@@ -403,6 +403,67 @@ Revision 成功不能只依据 `overall_score` 上升。当前单次 runtime Acc
 
 Benchmark 校准应评估二者分歧；在证据形成前，不自动弃用任何一个兼容字段。
 
+### Fixed Revision Acceptance Calibration v1
+
+当前已增加一轮有边界的离线 Acceptance 校准。该校准与内容生成 Benchmark 分离，避免把人工修订判断强行塞入现有生成评估抽象。
+
+固定校准集位于：
+
+- `tests/fixtures/revision_acceptance_calibration/`
+
+数据边界：
+
+- 恰好 12 个原创合成样本
+- 3 个 clear accepted、5 个 clear rejected、4 个 ambiguous / conflict
+- 覆盖 `hook_quality`、`character_agency`、`conflict_escalation`、`emotional_payoff`、`cliffhanger_strength`
+- 每个样本冻结原始/Re-QC 分数、Decision、Strategy、Execution Trace、Policy、文本证据和人工判断
+- 不调用 LLM，不重新生成内容，不修改既有 Benchmark Dataset 或 Ground Truth
+
+`RevisionAcceptanceCalibrationEvaluator` 直接复用运行时 `RevisionAcceptanceEvaluator`，并输出：
+
+- agreement、false acceptance、false rejection
+- human-ground-truth successful revision rate
+- average targeted improvement
+- regression rate 与 protected-dimension stability rate
+- average scene alignment 与 revision effectiveness
+- `legacy_improved` / shadow Acceptance / human judgment 冲突
+- 每个样本的 stop reason、conflict type 和人工理由
+
+首轮固定结果：
+
+- `total_samples = 12`
+- `agreement_rate = 0.667`
+- `false_acceptance_rate = 0.286`，分母为人工拒绝样本
+- `false_rejection_rate = 0.400`，分母为人工接受样本
+- `successful_revision_rate = 0.417`，表示人工接受样本占比，不是机器通过率
+- `average_targeted_improvement = 0.120`
+- `regression_rate = 0.083`
+- `protected_dimension_stability_rate = 0.917`
+- `average_scene_alignment_rate = 0.833`
+- `average_revision_effectiveness = 0.770`
+
+Go/no-go 结果为 `review_required`：
+
+- reproducibility：通过
+- clear-negative safety：通过，5 个清晰负例均未被误接受
+- agreement target：未通过，`0.667 < 0.80`
+- disagreement explainability：通过
+
+当前四个分歧揭示的盲点为：
+
+- Character Agency 数值提升不能识别对白自然度和角色声音退化
+- 容差内的 Hook 小幅回退可能仍足以改变人工选择
+- 细腻但明确的 Conflict 改善可能低于 `minimum_improvement_threshold`
+- 有用的 Cliffhanger 改善可能在 effectiveness 较高时仍被 minimum threshold 提前拒绝
+
+该结果只供人工评审。当前不自动修改 60/20/20 公式、`RevisionPolicy` 或阈值；校准失败不会改变 shadow runtime，也不会阻断 Finalization。
+
+运行方式：
+
+```bash
+PYTHONPATH=backend python -m app.modules.script_engine.revision_acceptance_calibration
+```
+
 ### 与 Prompt Evaluation 的边界
 
 - Revision Evaluation 衡量一次受控修订是否有效

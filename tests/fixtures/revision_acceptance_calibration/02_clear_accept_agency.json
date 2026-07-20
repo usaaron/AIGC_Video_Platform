@@ -1,0 +1,24 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.clear_accept.agency",
+  "case_type": "clear_accepted",
+  "description": "A passive protagonist makes a costly public choice in the intended scene.",
+  "original_story_qc_report": {
+    "overall_score": 0.7,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 2.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The stolen identity reveal opens the episode clearly.", "character_agency": "Nia waits for the board to decide whether to believe her.", "conflict_escalation": "The board meeting steadily raises the personal stakes.", "emotional_payoff": "Nia's preparation is visible but not yet decisive.", "cliffhanger_strength": "The erased security file creates a next-episode question."}
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.78,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The stolen identity reveal remains unchanged.", "character_agency": "Nia publishes her own sealed record, risking prosecution to force a vote.", "conflict_escalation": "The board meeting retains its escalation.", "emotional_payoff": "Nia's preparation now produces a decisive action.", "cliffhanger_strength": "The erased security file remains the ending question."}
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "Nia reacts to the board instead of forcing a consequential choice.", "selected_dimensions": ["character_agency"], "protected_dimensions": ["hook_quality", "cliffhanger_strength"], "primary_scene_refs": [2], "confidence": 0.94},
+  "revision_strategies": [{"target_dimension": "character_agency", "problem_type": "passive_protagonist", "problem_reason": "Nia waits for permission in Scene 2.", "revision_goal": "Give Nia an irreversible choice with personal risk.", "revision_method": "Have Nia publish the sealed record before the board can silence her.", "expected_effect": "Increase agency without changing the opening or ending.", "priority": 1, "confidence": 0.94, "scene_refs": [2], "do_not_touch": ["opening identity reveal", "ending erased file"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": ["revision.agency.public_record"], "modified_scene_numbers": [2]},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": true,
+  "expected_machine_accepted": true,
+  "human_ground_truth": {"human_accept_revision": true, "target_issue_fixed": true, "major_regression_detected": false, "protected_dimensions_preserved": true, "scene_scope_aligned": true, "character_consistency_preserved": true, "dialogue_naturalness_change": "unchanged", "overall_human_preference": "revised", "reviewer_reason": "Nia now drives the board vote through a risky action that follows her established objective.", "reviewer_confidence": 0.97},
+  "evidence": {"intended_revision": "Turn Nia's passive wait into a consequential decision in Scene 2.", "actual_change": "Nia publishes a sealed record and knowingly risks prosecution.", "human_judgment": "The action is causal, character-consistent, and limited to the intended scene.", "expected_acceptance_behavior": "Acceptance should pass because agency improves with complete scope alignment and no regression.", "original_excerpt": "Nia waited while the board whispered behind the glass.", "revised_excerpt": "Nia hit publish. 'Vote now, or explain this cover-up to the city.'"}
+}

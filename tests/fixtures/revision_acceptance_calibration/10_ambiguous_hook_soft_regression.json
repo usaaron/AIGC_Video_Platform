@@ -1,0 +1,24 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.ambiguous.hook_soft_regression",
+  "case_type": "ambiguous",
+  "description": "Emotional payoff improves and overall QC rises, but a small hook loss changes human preference.",
+  "original_story_qc_report": {
+    "overall_score": 0.72,
+    "dimension_scores": {"hook_quality": 4.0, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 2.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "Rae opens by identifying her own voice on a ransom call.", "character_agency": "Rae traces the call herself.", "conflict_escalation": "Each trace reveals a closer family connection.", "emotional_payoff": "The reunion beat is rushed and emotionally abstract.", "cliffhanger_strength": "A second call arrives from inside Rae's apartment."}
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.78,
+    "dimension_scores": {"hook_quality": 3.8, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "A short family-memory setup now precedes Rae recognizing her voice.", "character_agency": "Rae still traces the call herself.", "conflict_escalation": "The family connection progression remains stable.", "emotional_payoff": "Rae now names the promise she failed to keep before the reunion.", "cliffhanger_strength": "The second call remains the final threat."}
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "The reunion needs a specific emotional promise while the opening must stay immediate.", "selected_dimensions": ["emotional_payoff"], "protected_dimensions": ["hook_quality"], "primary_scene_refs": [3], "confidence": 0.87},
+  "revision_strategies": [{"target_dimension": "emotional_payoff", "problem_type": "abstract_reunion", "problem_reason": "Rae's reunion lacks a specific emotional debt.", "revision_goal": "Pay off the broken promise established by the family mystery.", "revision_method": "Add a concise promise callback in Scene 3.", "expected_effect": "Strengthen emotional payoff without delaying the hook.", "priority": 1, "confidence": 0.87, "scene_refs": [3], "do_not_touch": ["first-line voice recognition"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": ["revision.emotion.promise_callback"], "modified_scene_numbers": [3]},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": true,
+  "expected_machine_accepted": true,
+  "human_ground_truth": {"human_accept_revision": false, "target_issue_fixed": true, "major_regression_detected": true, "protected_dimensions_preserved": false, "scene_scope_aligned": true, "character_consistency_preserved": true, "dialogue_naturalness_change": "improved", "overall_human_preference": "original", "reviewer_reason": "The payoff is better, but delaying the exceptional first-line hook weakens the episode's most commercially important beat.", "reviewer_confidence": 0.78},
+  "evidence": {"intended_revision": "Strengthen the Scene 3 reunion without changing the first-line voice recognition.", "actual_change": "The promise callback works, but a brief memory setup was also added before the hook.", "human_judgment": "A small numerical hook loss is meaningful enough for a human reviewer to reject this version.", "expected_acceptance_behavior": "Current Acceptance is expected to pass because the hook loss stays within numeric tolerance.", "original_excerpt": "The ransom call began with Rae's own voice.", "revised_excerpt": "Rae remembered her sister's last birthday. Then the ransom call began with Rae's own voice."}
+}

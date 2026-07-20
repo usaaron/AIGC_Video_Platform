@@ -1,0 +1,24 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.clear_reject.scope_leak",
+  "case_type": "clear_rejected",
+  "description": "A cliffhanger action is recorded outside its planned scene and inserts editorial wording.",
+  "original_story_qc_report": {
+    "overall_score": 0.68,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 2.5},
+    "evidence": {"hook_quality": "The hospital bill opens with immediate stakes.", "character_agency": "Sora steals her own medical file.", "conflict_escalation": "Security closes in as the file is decoded.", "emotional_payoff": "Sora learns why her records were altered.", "cliffhanger_strength": "The ending confirms the doctor lied but adds no new threat."}
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.75,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The hospital bill hook score remains stable in the rubric.", "character_agency": "Sora still steals her file.", "conflict_escalation": "Security pressure remains stable.", "emotional_payoff": "The altered-record reveal remains stable.", "cliffhanger_strength": "The QC score rises because a threat phrase was detected, although it appears in Scene 1."}
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "The ending needs a consequential unresolved threat.", "selected_dimensions": ["cliffhanger_strength"], "protected_dimensions": ["hook_quality"], "primary_scene_refs": [3], "confidence": 0.9},
+  "revision_strategies": [{"target_dimension": "cliffhanger_strength", "problem_type": "closed_ending", "problem_reason": "Scene 3 resolves the doctor's lie without a new consequence.", "revision_goal": "End with a new threat tied to Sora's stolen file.", "revision_method": "Add a concrete incoming threat after the reveal in Scene 3.", "expected_effect": "Create a specific next-episode question.", "priority": 1, "confidence": 0.9, "scene_refs": [3], "do_not_touch": ["Scene 1 hospital bill hook"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": ["revision.cliffhanger.generic_threat"], "modified_scene_numbers": [1]},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": true,
+  "expected_machine_accepted": false,
+  "human_ground_truth": {"human_accept_revision": false, "target_issue_fixed": false, "major_regression_detected": true, "protected_dimensions_preserved": false, "scene_scope_aligned": false, "character_consistency_preserved": true, "dialogue_naturalness_change": "degraded", "overall_human_preference": "original", "reviewer_reason": "The executor modified the wrong scene and inserted an editing instruction instead of a playable ending.", "reviewer_confidence": 1.0},
+  "evidence": {"intended_revision": "Add a concrete threat to the end of Scene 3.", "actual_change": "Scene 1 received the sentence 'Add a stronger threat here' while Scene 3 stayed unchanged.", "human_judgment": "The revision leaks scope and exposes rule-like wording rather than improving the story.", "expected_acceptance_behavior": "Acceptance should reject with scene_scope_not_aligned.", "original_excerpt": "Sora unfolded the hospital bill.", "revised_excerpt": "Sora unfolded the hospital bill. Add a stronger threat here."}
+}

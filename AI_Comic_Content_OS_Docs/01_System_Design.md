@@ -22,9 +22,12 @@ Data Intelligence
 → `LLMAdapter`
 → Draft `MasterScript`
 → Story QC
+→ `RevisionDecision`
+→ `RevisionStrategy`
 → `RevisionPlan`
-→ `Script Revision`
+→ `RevisionExecutor`
 → Re-QC
+→ `AcceptanceDecision`（shadow）
 → Final `MasterScript`
 
 当前 Data Intelligence 还增加了 `Scheduled Ingestion` 分支：
@@ -43,9 +46,13 @@ Data Intelligence
 → `LLMAdapter`
 → Draft `MasterScript`
 → Story QC
+→ `RevisionDecision`
+→ `RevisionStrategy`
 → `RevisionPlan`
-→ `Script Revision`
+→ `RevisionExecutor`
 → Re-QC
+→ `AcceptanceDecision`（shadow）
+→ `ScriptRevisionRun`
 → Final `MasterScript`
 
 当前最小联调能力补充：
@@ -60,7 +67,7 @@ Data Intelligence
   - `RevisionPlan`
   - `Script Revision`
 
-当前该能力仍停留在 `Draft` 级别，不代表已完成自动生成 Final `MasterScript`。
+当前已具备从 Draft、受控 Revision、Re-QC 到 Final `MasterScript` 的完整运行链；`AcceptanceDecision` 仍处于 shadow mode，不阻断 Finalization。
 
 当前阶段视频生成、动画生成、Storyboard、Seedance、配音、剪辑等全部属于 Phase 2，仅保留接口与扩展位置。
 
@@ -297,6 +304,16 @@ Learning Layer
 - `MasterScript`
 
 视频相关执行层能力当前不进入实际开发。
+
+未来 Media Production Phase 的兼容方向为：
+
+Final `MasterScript`
+→ Script-to-Production Adapter
+→ Model-Independent Production Package
+→ Video Model Adapter
+→ Provider-Specific Generation Package
+
+其中 Seedance 只允许作为 `Video Model Adapter` 的一种实现。角色视觉锚点、镜头、灯光、音频、连续性约束和模型 Prompt 应从 Final `MasterScript` 派生，不得以 Seedance 专用字段污染 Script Engine 核心契约。
 
 ---
 
@@ -855,22 +872,22 @@ Script Engine 负责生成结构化剧本。
 
 - Episode
 - Scene
-- Beat
-- Dialogue
-- Emotion
-- Action
-- Camera
-- Voice
-- Visual Prompt
-- Audio Prompt
+- Scene Purpose / Beat Summary
+- Dialogue / Dialogue Intent
+- Emotional Shift / Emotional Objective
+- Character Action
+- Turning Point
+- Hook / Cliffhanger
 
 剧本是动画生成控制层。
+
+Final `MasterScript` 负责描述“发生什么”以及“为什么发生”。Camera、Voice、Visual Prompt、Audio Prompt、Lighting、Negative Prompt 和模型专用语法不属于当前核心剧本字段，应由未来 Script-to-Production Adapter 根据稳定故事语义派生。
 
 后续如果需要微调动画，应优先修改剧本，再重新生成局部内容。
 
 ### 12.4 Animation Pipeline
 
-根据结构化剧本调用视频模型。
+未来应先通过 Script-to-Production Adapter 将结构化剧本转换为模型无关 Production Package，再通过视频模型 Adapter 生成供应商专用请求。
 
 V1 视频模型计划使用：
 
@@ -878,6 +895,8 @@ V1 视频模型计划使用：
 - Seedance 2.5（如可用）
 
 系统应通过 Video Model Adapter 接入视频模型，避免绑定某个具体模型版本。
+
+当前只记录该兼容边界，不实现 Production Package、Seedance Prompt、视频调用或生产工作流。
 
 ### 12.5 Audio Pipeline
 

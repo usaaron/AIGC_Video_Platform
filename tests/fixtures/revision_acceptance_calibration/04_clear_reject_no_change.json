@@ -1,0 +1,24 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.clear_reject.no_change",
+  "case_type": "clear_rejected",
+  "description": "The executor records no applied action and the weak opening remains identical.",
+  "original_story_qc_report": {
+    "overall_score": 0.65,
+    "dimension_scores": {"hook_quality": 2.5, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The opening only describes a train arriving.", "character_agency": "Iris actively follows the forged ticket.", "conflict_escalation": "The ticket trail raises the danger.", "emotional_payoff": "Iris confronts the conductor who framed her.", "cliffhanger_strength": "A second forged ticket points to her brother."}
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.65,
+    "dimension_scores": {"hook_quality": 2.5, "character_agency": 3.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The opening still only describes a train arriving.", "character_agency": "Iris still actively follows the forged ticket.", "conflict_escalation": "The ticket trail is unchanged.", "emotional_payoff": "The conductor confrontation is unchanged.", "cliffhanger_strength": "The second ticket reveal is unchanged."}
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "The opening needs an immediate contradiction or threat.", "selected_dimensions": ["hook_quality"], "protected_dimensions": ["cliffhanger_strength"], "primary_scene_refs": [1], "confidence": 0.9},
+  "revision_strategies": [{"target_dimension": "hook_quality", "problem_type": "neutral_opening", "problem_reason": "Scene 1 begins with non-conflict description.", "revision_goal": "Introduce the forged-ticket threat immediately.", "revision_method": "Replace the arrival description with the ticket contradiction.", "expected_effect": "Create a clear opening question.", "priority": 1, "confidence": 0.9, "scene_refs": [1], "do_not_touch": ["brother reveal"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": [], "modified_scene_numbers": []},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": false,
+  "expected_machine_accepted": false,
+  "human_ground_truth": {"human_accept_revision": false, "target_issue_fixed": false, "major_regression_detected": false, "protected_dimensions_preserved": true, "scene_scope_aligned": false, "character_consistency_preserved": true, "dialogue_naturalness_change": "unchanged", "overall_human_preference": "neutral", "reviewer_reason": "No content changed, so the intended opening problem remains unsolved.", "reviewer_confidence": 1.0},
+  "evidence": {"intended_revision": "Replace the train arrival description with an immediate ticket threat.", "actual_change": "No action was applied and no scene was modified.", "human_judgment": "A revision with no content change cannot be accepted.", "expected_acceptance_behavior": "Acceptance should reject with no_revision_actions_applied.", "original_excerpt": "The train arrived at six in the morning.", "revised_excerpt": "The train arrived at six in the morning."}
+}

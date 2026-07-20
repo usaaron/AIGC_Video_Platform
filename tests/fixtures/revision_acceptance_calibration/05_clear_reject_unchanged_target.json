@@ -1,0 +1,24 @@
+{
+  "schema_version": "revision_acceptance_calibration.v1",
+  "sample_id": "calibration.clear_reject.unchanged_target",
+  "case_type": "clear_rejected",
+  "description": "An action is recorded, but passive wording is replaced with equally passive wording.",
+  "original_story_qc_report": {
+    "overall_score": 0.66,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 2.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The eviction notice establishes immediate stakes.", "character_agency": "Dara waits for the landlord to make the next move.", "conflict_escalation": "The rent dispute escalates into fraud evidence.", "emotional_payoff": "Dara learns why her father lost the building.", "cliffhanger_strength": "The ownership signature points to Dara herself."}
+  },
+  "revised_story_qc_report": {
+    "overall_score": 0.66,
+    "dimension_scores": {"hook_quality": 3.5, "character_agency": 2.5, "conflict_escalation": 3.5, "emotional_payoff": 3.5, "cliffhanger_strength": 3.5},
+    "evidence": {"hook_quality": "The eviction notice remains effective.", "character_agency": "Dara continues waiting and makes no consequential choice.", "conflict_escalation": "The fraud escalation is unchanged.", "emotional_payoff": "The family reveal is unchanged.", "cliffhanger_strength": "The ownership signature remains the ending question."}
+  },
+  "revision_decision": {"revision_required": true, "decision_reason": "Dara lacks a choice that changes the rent confrontation.", "selected_dimensions": ["character_agency"], "protected_dimensions": ["hook_quality"], "primary_scene_refs": [2], "confidence": 0.91},
+  "revision_strategies": [{"target_dimension": "character_agency", "problem_type": "passive_waiting", "problem_reason": "Dara waits for the landlord in Scene 2.", "revision_goal": "Give Dara an action that changes the confrontation.", "revision_method": "Introduce a deliberate evidence release with consequences.", "expected_effect": "Make Dara causally responsible for the next beat.", "priority": 1, "confidence": 0.91, "scene_refs": [2], "do_not_touch": ["eviction hook"]}],
+  "revision_execution_trace": {"executor_version": "rule_based_revision_executor.v1", "execution_mode": "controlled", "applied_actions": ["revision.agency.wording"], "modified_scene_numbers": [2]},
+  "revision_policy": {"policy_version": "revision_acceptance_shadow_policy.v1", "max_revision_rounds": 1, "minimum_improvement_threshold": 0.1, "acceptance_threshold": 0.8, "regression_limit": 0, "dimension_regression_tolerance": 0.05},
+  "legacy_improved": true,
+  "expected_machine_accepted": false,
+  "human_ground_truth": {"human_accept_revision": false, "target_issue_fixed": false, "major_regression_detected": false, "protected_dimensions_preserved": true, "scene_scope_aligned": true, "character_consistency_preserved": true, "dialogue_naturalness_change": "unchanged", "overall_human_preference": "neutral", "reviewer_reason": "The sentence changed, but Dara still waits and does not alter the story outcome.", "reviewer_confidence": 0.99},
+  "evidence": {"intended_revision": "Give Dara a consequential action in Scene 2.", "actual_change": "The executor replaced one passive waiting phrase with another.", "human_judgment": "Surface wording does not fix the underlying agency problem.", "expected_acceptance_behavior": "Acceptance should reject because target improvement remains zero.", "original_excerpt": "Dara waited for the landlord to answer.", "revised_excerpt": "Dara stayed there until the landlord responded."}
+}
