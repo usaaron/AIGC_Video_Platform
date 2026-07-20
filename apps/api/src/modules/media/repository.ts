@@ -1,11 +1,26 @@
 import type { MediaKind, MediaObject, Principal } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
-import type { AppStore, StoredMedia } from '../../infra/store.js'
+import type { StateStore, StoredMedia } from '../../infra/store.js'
 
-export class MediaRepository {
-  constructor(private readonly store: AppStore) {}
+export interface MediaStore {
+  canWrite(projectId: string, principal: Principal): Promise<boolean>
+  create(
+    projectId: string,
+    kind: MediaKind,
+    name: string,
+    contentType: string,
+    size: number,
+    storageKey: string,
+    principal: Principal,
+  ): Promise<MediaObject>
+  find(id: string, principal: Principal): Promise<StoredMedia | null>
+  findById(id: string): Promise<StoredMedia | null>
+}
 
-  canWrite(projectId: string, principal: Principal): boolean {
+export class MediaRepository implements MediaStore {
+  constructor(private readonly store: StateStore) {}
+
+  async canWrite(projectId: string, principal: Principal): Promise<boolean> {
     return this.store.read((state) =>
       state.projects.some(
         (project) =>
@@ -40,7 +55,7 @@ export class MediaRepository {
     return this.toObject(media)
   }
 
-  find(id: string, principal: Principal): StoredMedia | null {
+  async find(id: string, principal: Principal): Promise<StoredMedia | null> {
     return this.store.read((state) => {
       const media = state.media.find((item) => item.id === id && item.tenantId === principal.tenantId)
       if (!media) return null
@@ -48,6 +63,10 @@ export class MediaRepository {
       const project = state.projects.find((item) => item.id === media.projectId)
       return canReadAll || project?.ownerId === principal.userId ? media : null
     })
+  }
+
+  async findById(id: string): Promise<StoredMedia | null> {
+    return this.store.read((state) => state.media.find((item) => item.id === id) ?? null)
   }
 
   private toObject(media: StoredMedia): MediaObject {

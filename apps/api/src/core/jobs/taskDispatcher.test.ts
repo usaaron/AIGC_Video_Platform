@@ -60,7 +60,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       }),
     )
     expect(provider.getStatus).toHaveBeenCalledWith('remote-task-1')
-    expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+    expect(await store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
       status: 'completed',
       progress: 100,
       resultUrl: '/api/v1/generation/tasks/local-video-task/content',

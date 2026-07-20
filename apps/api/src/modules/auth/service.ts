@@ -3,16 +3,16 @@ import { permissionsFor } from '../../core/auth/authorization.js'
 import { verifyPassword } from '../../core/auth/password.js'
 import { createSessionToken } from '../../core/auth/sessionToken.js'
 import { AppError } from '../../core/errors.js'
-import type { UserRepository } from '../users/repository.js'
+import type { UserReader } from '../users/repository.js'
 
 export class AuthService {
   constructor(
-    private readonly users: UserRepository,
+    private readonly users: UserReader,
     private readonly secret: string,
   ) {}
 
-  login(input: LoginInput): { session: Session; token: string } {
-    const user = this.users.findByEmail(input.email)
+  async login(input: LoginInput): Promise<{ session: Session; token: string }> {
+    const user = await this.users.findByEmail(input.email)
     if (!user || !verifyPassword(input.password, user.passwordHash)) {
       throw new AppError(401, 'INVALID_CREDENTIALS', '邮箱或密码错误')
     }
@@ -27,8 +27,8 @@ export class AuthService {
     }
   }
 
-  session(principal: Principal): Session {
-    const user = this.users.findById(principal.userId)
+  async session(principal: Principal): Promise<Session> {
+    const user = await this.users.findById(principal.userId)
     if (!user) throw new AppError(401, 'SESSION_INVALID', '登录状态已失效')
     return {
       account: this.users.toAccount(user),

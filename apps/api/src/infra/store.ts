@@ -45,7 +45,14 @@ export type AppState = {
   media: StoredMedia[]
 }
 
-export class AppStore {
+export interface StateStore {
+  initialize(): Promise<void>
+  read<T>(reader: (state: Readonly<AppState>) => T | Promise<T>): Promise<T>
+  mutate<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T>
+  close?(): Promise<void>
+}
+
+export class AppStore implements StateStore {
   private state!: AppState
   private writeQueue = Promise.resolve()
 
@@ -67,17 +74,23 @@ export class AppStore {
     await this.persist()
   }
 
-  read<T>(reader: (state: Readonly<AppState>) => T): T {
-    return structuredClone(reader(this.state))
+  async read<T>(reader: (state: Readonly<AppState>) => T | Promise<T>): Promise<T> {
+    return structuredClone(await reader(this.state))
   }
 
   async mutate<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
     let result!: T
-    this.writeQueue = this.writeQueue.then(async () => {
-      result = await mutator(this.state)
-      await this.persist()
-    })
-    await this.writeQueue
+    const operation = this.writeQueue
+      .catch(() => undefined)
+      .then(async () => {
+        result = await mutator(this.state)
+        await this.persist()
+      })
+    this.writeQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    )
+    await operation
     return structuredClone(result)
   }
 
@@ -234,7 +247,9 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
       faceReference: null,
       bodyReference: null,
       legStretch: false,
+      faceBrightening: false,
       turnaround: false,
+      turnaroundReferences: [],
       turnaroundLayout: 'sheet',
     }
   }
@@ -256,6 +271,7 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
   if (kind === 'prop') {
     return {
       type: 'prop',
+      usage: 'key',
       category: 'daily',
       material: 'mixed',
       condition: 'used',
@@ -312,7 +328,7 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
   }))
 }
 
-function normalizeState(input: Partial<AppState>): AppState {
+export function normalizeState(input: Partial<AppState>): AppState {
   const assets = (input.assets ?? []).map((stored) => {
     const legacy = stored as Omit<Partial<Asset>, 'kind'> & {
       id: string

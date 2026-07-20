@@ -1,14 +1,20 @@
 import type { Account } from '@seqora/contracts'
-import type { AppStore, StoredUser } from '../../infra/store.js'
+import type { StateStore, StoredUser } from '../../infra/store.js'
 
-export class UserRepository {
-  constructor(private readonly store: AppStore) {}
+export interface UserReader {
+  findByEmail(email: string): Promise<StoredUser | null>
+  findById(id: string): Promise<StoredUser | null>
+  toAccount(user: StoredUser): Account
+}
 
-  findByEmail(email: string): StoredUser | null {
+export class UserRepository implements UserReader {
+  constructor(private readonly store: StateStore) {}
+
+  async findByEmail(email: string): Promise<StoredUser | null> {
     return this.store.read((state) => state.users.find((user) => user.email === email.toLowerCase()) ?? null)
   }
 
-  findById(id: string): StoredUser | null {
+  async findById(id: string): Promise<StoredUser | null> {
     return this.store.read((state) => state.users.find((user) => user.id === id) ?? null)
   }
 

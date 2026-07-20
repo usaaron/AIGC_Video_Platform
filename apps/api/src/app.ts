@@ -10,8 +10,9 @@ import { AppError } from './core/errors.js'
 import { AideosSeedanceProvider } from './core/generation/aideosSeedanceProvider.js'
 import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
 import { GenerationTaskRunner } from './core/jobs/taskDispatcher.js'
-import { AppStore } from './infra/store.js'
 import { createObjectStorage } from './infra/objectStorage.js'
+import { PostgresStateStore } from './infra/postgresStore.js'
+import { AppStore, type StateStore } from './infra/store.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
 import { registerAuthRoutes } from './modules/auth/routes.js'
 import { AuthService } from './modules/auth/service.js'
@@ -31,16 +32,14 @@ import { UserRepository } from './modules/users/repository.js'
 type BuildAppOptions = {
   config: AppConfig
   logger?: boolean
-  store?: AppStore
+  store?: StateStore
   startWorker?: boolean
   videoProvider?: VideoGenerationProvider | null
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: options.logger ?? false })
-  const store =
-    options.store ??
-    new AppStore(options.config.DATA_FILE === ':memory:' ? null : resolve(options.config.DATA_FILE))
+  const store = options.store ?? createStateStore(options.config)
   await store.initialize()
 
   await app.register(cookie)
@@ -57,7 +56,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const taskRunner = new GenerationTaskRunner(store, videoProvider, options.config.SEEDANCE_POLL_INTERVAL_MS)
   const generationService = new GenerationService(
     new GenerationTaskRepository(store),
-    creditLedger,
     taskRunner,
     videoProvider,
   )
@@ -86,7 +84,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     async (api) => {
       await registerAuthRoutes(api, authService, options.config.NODE_ENV === 'production')
       await registerProjectRoutes(api, projectService)
-      await registerMediaRoutes(api, mediaService, options.config.MAX_UPLOAD_BYTES)
+      await registerMediaRoutes(
+        api,
+        mediaService,
+        options.config.MAX_UPLOAD_BYTES,
+        options.config.AUTH_SECRET,
+      )
       await registerGenerationRoutes(api, generationService)
       await registerBillingRoutes(api, creditLedger)
       await registerAdminRoutes(api, store)
@@ -95,8 +98,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   )
 
   if (options.startWorker !== false) taskRunner.start()
-  app.addHook('onClose', async () => taskRunner.stop())
+  app.addHook('onClose', async () => {
+    taskRunner.stop()
+    await store.close?.()
+  })
   return app
+}
+
+function createStateStore(config: AppConfig): StateStore {
+  if (config.DATA_STORE === 'postgres') return new PostgresStateStore(config.DATABASE_URL)
+  return new AppStore(config.DATA_FILE === ':memory:' ? null : resolve(config.DATA_FILE))
 }
 
 function createVideoProvider(config: AppConfig): VideoGenerationProvider | null {

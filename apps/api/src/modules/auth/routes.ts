@@ -13,7 +13,7 @@ export async function registerAuthRoutes(
   app.post('/auth/login', async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body)
     if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
-    const { session, token } = service.login(parsed.data)
+    const { session, token } = await service.login(parsed.data)
     reply.setCookie(SESSION_COOKIE, token, {
       path: '/',
       httpOnly: true,

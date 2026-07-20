@@ -27,8 +27,13 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
   app.get('/projects', { preHandler: requirePermission(PERMISSIONS.PROJECT_READ) }, (request) =>
     service.list(request.principal!),
   )
-  app.post('/projects', { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) }, (request, reply) =>
-    reply.code(201).send(service.create(parse(createProjectSchema, request.body), request.principal!)),
+  app.post(
+    '/projects',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
+    async (request, reply) =>
+      reply
+        .code(201)
+        .send(await service.create(parse(createProjectSchema, request.body), request.principal!)),
   )
   app.get('/projects/:projectId', { preHandler: requirePermission(PERMISSIONS.PROJECT_READ) }, (request) =>
     service.workspace(parse(projectParams, request.params).projectId, request.principal!),
@@ -85,11 +90,11 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
   app.post(
     '/projects/:projectId/shots',
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
-    (request, reply) => {
+    async (request, reply) => {
       const { projectId } = parse(projectParams, request.params)
       return reply
         .code(201)
-        .send(service.createShot(projectId, parse(createShotSchema, request.body), request.principal!))
+        .send(await service.createShot(projectId, parse(createShotSchema, request.body), request.principal!))
     },
   )
   app.patch(

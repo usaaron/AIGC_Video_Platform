@@ -4,14 +4,20 @@ import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
 import { AppError } from '../../core/errors.js'
 import type { MediaService } from './service.js'
+import { verifySignedMediaAccess } from './signedUrl.js'
 
 const projectParams = z.object({ projectId: z.string().min(1).max(128) })
 const mediaParams = z.object({ mediaId: z.string().uuid() })
+const signedMediaQuery = z.object({
+  expires: z.coerce.number().int().positive(),
+  signature: z.string().min(32).max(256),
+})
 
 export async function registerMediaRoutes(
   app: FastifyInstance,
   service: MediaService,
   maxUploadBytes: number,
+  authSecret: string,
 ): Promise<void> {
   app.post(
     '/projects/:projectId/media',
@@ -46,4 +52,17 @@ export async function registerMediaRoutes(
         .send(content)
     },
   )
+
+  app.get('/media/:mediaId/signed', async (request, reply) => {
+    const params = mediaParams.safeParse(request.params)
+    const query = signedMediaQuery.safeParse(request.query)
+    if (!params.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(params.error))
+    if (!query.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(query.error))
+    if (!verifySignedMediaAccess(params.data.mediaId, query.data.expires, query.data.signature, authSecret)) {
+      throw new AppError(403, 'SIGNED_MEDIA_URL_INVALID', '媒体签名已过期或无效')
+    }
+
+    const { media, content } = await service.readSigned(params.data.mediaId)
+    return reply.header('Cache-Control', 'private, no-store').type(media.contentType).send(content)
+  })
 }

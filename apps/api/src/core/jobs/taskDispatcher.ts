@@ -1,6 +1,6 @@
 import type { GenerationTask } from '@seqora/contracts'
 import type { VideoGenerationProvider, VideoGenerationRequest } from '../generation/videoProvider.js'
-import type { AppStore } from '../../infra/store.js'
+import type { StateStore } from '../../infra/store.js'
 
 export interface TaskDispatcher {
   dispatch(task: GenerationTask): Promise<void>
@@ -11,7 +11,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private tickPromise: Promise<void> | null = null
 
   constructor(
-    private readonly store: AppStore,
+    private readonly store: StateStore,
     private readonly videoProvider: VideoGenerationProvider | null = null,
     private readonly providerPollIntervalMs = 5_000,
   ) {}
@@ -45,7 +45,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   }
 
   private async runTick(): Promise<void> {
-    const hasActiveTasks = this.store.read((state) =>
+    const hasActiveTasks = await this.store.read((state) =>
       state.tasks.some((task) => task.status === 'queued' || task.status === 'running'),
     )
     if (!hasActiveTasks) return
@@ -142,7 +142,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private async pollRemoteVideos(): Promise<void> {
     if (!this.videoProvider) return
     const now = Date.now()
-    const tasks = this.store.read((state) =>
+    const tasks = await this.store.read((state) =>
       state.tasks.filter(
         (task) =>
           task.status === 'running' &&

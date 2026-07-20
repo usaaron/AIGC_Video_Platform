@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { generationOutputSchema } from './generation.js'
 
 export const projectStatusSchema = z.enum(['draft', 'producing', 'completed', 'archived'])
 export const assetKindSchema = z.enum(['character', 'scene', 'prop', 'costume', 'audio'])
@@ -37,7 +38,9 @@ export const characterAttributesSchema = z.object({
   faceReference: mediaReferenceSchema.nullable(),
   bodyReference: mediaReferenceSchema.nullable(),
   legStretch: z.boolean(),
+  faceBrightening: z.boolean().default(false),
   turnaround: z.boolean(),
+  turnaroundReferences: z.array(generationOutputSchema).max(3).default([]),
   turnaroundLayout: z.enum(['sheet', 'separate']),
 })
 
@@ -66,6 +69,7 @@ export const sceneAttributesSchema = z.object({
 
 export const propAttributesSchema = z.object({
   type: z.literal('prop'),
+  usage: z.enum(['key', 'recurring']).default('key'),
   category: z.enum(['weapon', 'vehicle', 'furniture', 'electronics', 'jewelry', 'food', 'daily', 'other']),
   material: z.enum(['wood', 'metal', 'glass', 'fabric', 'leather', 'ceramic', 'mixed']),
   condition: z.enum(['new', 'used', 'aged', 'damaged']),

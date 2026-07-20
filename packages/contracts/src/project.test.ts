@@ -18,6 +18,7 @@ const character = {
   faceReference: null,
   bodyReference: null,
   legStretch: false,
+  faceBrightening: false,
   turnaround: false,
   turnaroundLayout: 'sheet' as const,
 }
@@ -49,5 +50,26 @@ describe('asset contracts', () => {
         attributes: character,
       }).success,
     ).toBe(false)
+  })
+
+  it('defaults prop usage to key asset', () => {
+    const result = createAssetSchema.parse({
+      kind: 'prop',
+      sourceMode: 'generate',
+      name: '旧铁盒',
+      attributes: {
+        type: 'prop',
+        category: 'daily',
+        material: 'metal',
+        condition: 'aged',
+        view: 'front',
+        background: 'solid',
+        visualStyle: 'cinematic-cg',
+      },
+    })
+
+    expect(result.attributes.type).toBe('prop')
+    if (result.attributes.type !== 'prop') return
+    expect(result.attributes.usage).toBe('key')
   })
 })

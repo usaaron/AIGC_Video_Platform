@@ -1,16 +1,16 @@
 import type { BillingSummary, Plan, Principal } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import { AppError } from '../../core/errors.js'
-import type { AppStore } from '../../infra/store.js'
+import type { StateStore } from '../../infra/store.js'
 
 export interface CreditLedger {
   reserve(principal: Principal, credits: number, referenceId: string, description?: string): Promise<void>
-  summary(principal: Principal): BillingSummary
+  summary(principal: Principal): Promise<BillingSummary>
   updatePlan(principal: Principal, plan: Plan): Promise<BillingSummary>
 }
 
 export class StoreCreditLedger implements CreditLedger {
-  constructor(private readonly store: AppStore) {}
+  constructor(private readonly store: StateStore) {}
 
   async reserve(
     principal: Principal,
@@ -21,7 +21,9 @@ export class StoreCreditLedger implements CreditLedger {
     await this.store.mutate((state) => {
       const existing = state.ledger.some((entry) => entry.id === `generation-${referenceId}`)
       if (existing) return
-      const user = state.users.find((item) => item.id === principal.userId)
+      const user = state.users.find(
+        (item) => item.id === principal.userId && item.tenantId === principal.tenantId,
+      )
       if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', '账号不存在')
       if (user.credits < credits) throw new AppError(402, 'INSUFFICIENT_CREDITS', '积分不足')
       user.credits -= credits
@@ -38,9 +40,11 @@ export class StoreCreditLedger implements CreditLedger {
     })
   }
 
-  summary(principal: Principal): BillingSummary {
+  async summary(principal: Principal): Promise<BillingSummary> {
     return this.store.read((state) => {
-      const user = state.users.find((item) => item.id === principal.userId)
+      const user = state.users.find(
+        (item) => item.id === principal.userId && item.tenantId === principal.tenantId,
+      )
       if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', '账号不存在')
       return {
         plan: user.plan,
@@ -53,7 +57,9 @@ export class StoreCreditLedger implements CreditLedger {
 
   async updatePlan(principal: Principal, plan: Plan): Promise<BillingSummary> {
     await this.store.mutate((state) => {
-      const user = state.users.find((item) => item.id === principal.userId)
+      const user = state.users.find(
+        (item) => item.id === principal.userId && item.tenantId === principal.tenantId,
+      )
       if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', '账号不存在')
       if (user.plan === plan) return
       user.plan = plan

@@ -8,17 +8,17 @@ import type {
   UpdateShot,
 } from '@seqora/contracts'
 import { AppError } from '../../core/errors.js'
-import type { ProjectRepository } from './repository.js'
+import type { ProjectStore } from './repository.js'
 
 export class ProjectService {
-  constructor(private readonly repository: ProjectRepository) {}
+  constructor(private readonly repository: ProjectStore) {}
 
   list(principal: Principal) {
     return this.repository.list(principal)
   }
 
-  workspace(projectId: string, principal: Principal) {
-    const workspace = this.repository.workspace(projectId, principal)
+  async workspace(projectId: string, principal: Principal) {
+    const workspace = await this.repository.workspace(projectId, principal)
     if (!workspace) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权访问')
     return workspace
   }
@@ -70,7 +70,7 @@ export class ProjectService {
   }
 
   async generateShots(projectId: string, principal: Principal) {
-    const workspace = this.workspace(projectId, principal)
+    const workspace = await this.workspace(projectId, principal)
     const paragraphs = workspace.project.script
       .split(/\n+/)
       .map((item) => item.trim())
@@ -92,6 +92,8 @@ export class ProjectService {
       prompt: paragraph,
       imageUrl: images[index % images.length] ?? null,
     }))
-    return this.repository.replaceShots(projectId, shots, principal)
+    const created = await this.repository.replaceShots(projectId, shots, principal)
+    if (!created) throw new AppError(404, 'PROJECT_NOT_FOUND', '椤圭洰涓嶅瓨鍦ㄦ垨鏃犳潈淇敼')
+    return created
   }
 }

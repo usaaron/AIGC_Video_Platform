@@ -12,12 +12,31 @@ import type {
   UpdateShot,
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
-import type { AppStore } from '../../infra/store.js'
+import type { StateStore } from '../../infra/store.js'
 
-export class ProjectRepository {
-  constructor(private readonly store: AppStore) {}
+export interface ProjectStore {
+  list(principal: Principal): Promise<Project[]>
+  workspace(projectId: string, principal: Principal): Promise<ProjectWorkspace | null>
+  create(input: CreateProject, principal: Principal): Promise<Project>
+  update(projectId: string, input: UpdateProject, principal: Principal): Promise<Project | null>
+  saveVersion(projectId: string, principal: Principal): Promise<Project | null>
+  createAsset(projectId: string, input: CreateAsset, principal: Principal): Promise<Asset | null>
+  updateAsset(
+    projectId: string,
+    assetId: string,
+    input: UpdateAsset,
+    principal: Principal,
+  ): Promise<Asset | null>
+  deleteAsset(projectId: string, assetId: string, principal: Principal): Promise<boolean>
+  createShot(projectId: string, input: CreateShot, principal: Principal): Promise<Shot | null>
+  updateShot(projectId: string, shotId: string, input: UpdateShot, principal: Principal): Promise<Shot | null>
+  replaceShots(projectId: string, shots: CreateShot[], principal: Principal): Promise<Shot[] | null>
+}
 
-  list(principal: Principal): Project[] {
+export class ProjectRepository implements ProjectStore {
+  constructor(private readonly store: StateStore) {}
+
+  async list(principal: Principal): Promise<Project[]> {
     const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
     return this.store.read((state) =>
       state.projects
@@ -27,18 +46,26 @@ export class ProjectRepository {
     )
   }
 
-  workspace(projectId: string, principal: Principal): ProjectWorkspace | null {
-    const project = this.list(principal).find((item) => item.id === projectId)
-    if (!project) return null
-    return this.store.read((state) => ({
-      project,
-      assets: state.assets.filter(
-        (asset) => asset.projectId === projectId && asset.tenantId === principal.tenantId,
-      ),
-      shots: state.shots
-        .filter((shot) => shot.projectId === projectId && shot.tenantId === principal.tenantId)
-        .sort((left, right) => left.order - right.order),
-    }))
+  async workspace(projectId: string, principal: Principal): Promise<ProjectWorkspace | null> {
+    const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+    return this.store.read((state) => {
+      const project = state.projects.find(
+        (item) =>
+          item.id === projectId &&
+          item.tenantId === principal.tenantId &&
+          (canReadAll || item.ownerId === principal.userId),
+      )
+      if (!project) return null
+      return {
+        project,
+        assets: state.assets.filter(
+          (asset) => asset.projectId === projectId && asset.tenantId === principal.tenantId,
+        ),
+        shots: state.shots
+          .filter((shot) => shot.projectId === projectId && shot.tenantId === principal.tenantId)
+          .sort((left, right) => left.order - right.order),
+      }
+    })
   }
 
   async create(input: CreateProject, principal: Principal): Promise<Project> {

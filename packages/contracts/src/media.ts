@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const mediaKindSchema = z.enum(['image', 'audio'])
+export const mediaKindSchema = z.enum(['image', 'video', 'audio'])
 
 export const mediaObjectSchema = z.object({
   id: z.string().min(1),

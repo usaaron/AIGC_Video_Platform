@@ -11,13 +11,15 @@
     "dev": "pnpm --filter @seqora/contracts build && pnpm --parallel --filter @seqora/api --filter @seqora/web dev",
     "dev:web": "pnpm --filter @seqora/web dev",
     "dev:api": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/api dev",
+    "dev:worker": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/api dev:worker",
     "build": "pnpm -r build",
+    "build:production": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/api build && pnpm --filter @seqora/web build",
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
-    "test": "pnpm -r test",
+    "test": "pnpm --filter @seqora/contracts build && pnpm -r test",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "check": "pnpm format:check && pnpm lint && pnpm test && pnpm build"
+    "check": "pnpm format:check && pnpm lint && pnpm build:production && pnpm test"
   },
   "devDependencies": {
     "prettier": "3.9.5"

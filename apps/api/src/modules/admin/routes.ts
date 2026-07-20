@@ -1,9 +1,9 @@
 import { PERMISSIONS, type AdminOverview } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { requirePermission } from '../../core/auth/authorization.js'
-import type { AppStore } from '../../infra/store.js'
+import type { StateStore } from '../../infra/store.js'
 
-export async function registerAdminRoutes(app: FastifyInstance, store: AppStore): Promise<void> {
+export async function registerAdminRoutes(app: FastifyInstance, store: StateStore): Promise<void> {
   app.get('/admin/overview', { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) }, async () =>
     store.read((state) => {
       const today = new Date().toISOString().slice(0, 10)
