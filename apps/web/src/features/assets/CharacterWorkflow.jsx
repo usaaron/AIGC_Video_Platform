@@ -1,6 +1,17 @@
 import { CheckCircle2, Download, Images, LoaderCircle, Lock, ScanFace, UserRound } from 'lucide-react'
 import { useState } from 'react'
 
+import { CharacterStagePanel } from './CharacterStagePanel'
+import { TurnaroundPreview } from './TurnaroundPreview'
+import {
+  completedOutput,
+  downloadTurnaroundSheet,
+  isActive,
+  orderedTurnaroundOutputs,
+  toReference,
+} from './characterWorkflowUtils'
+import './characterWorkflow.css'
+
 const STAGES = [
   ['face', '面部定稿', ScanFace],
   ['body', '全身定稿', UserRound],
@@ -28,12 +39,17 @@ export function CharacterWorkflow({
   const turnaroundTask = taskFor('turnaround')
   const faceCandidate = completedOutput(faceTask) || references[0] || null
   const bodyCandidate = completedOutput(bodyTask)
+  const turnaroundOutputs = orderedTurnaroundOutputs(
+    turnaroundTask?.status === 'completed' && turnaroundTask.outputs.length
+      ? turnaroundTask.outputs
+      : attributes.turnaroundReferences,
+  )
 
-  const generate = async (targetStage) => {
+  const generate = async (targetStage, view = null) => {
     setError('')
-    setSubmittingStage(targetStage)
+    setSubmittingStage(view || targetStage)
     try {
-      await onGenerate(targetStage)
+      await onGenerate(targetStage, view)
     } catch (generationError) {
       setError(generationError.message)
     } finally {
@@ -61,6 +77,8 @@ export function CharacterWorkflow({
       faceReference: toReference(faceCandidate, `${assetName}-面部基准`),
       bodyStatus: 'pending',
       bodyReference: null,
+      turnaround: false,
+      turnaroundReferences: [],
     }
     if (await persist(next)) onStageChange('body')
   }
@@ -71,6 +89,8 @@ export function CharacterWorkflow({
       ...attributes,
       bodyStatus: 'approved',
       bodyReference: toReference(bodyCandidate, `${assetName}-全身基准`),
+      turnaround: false,
+      turnaroundReferences: [],
     }
     if (await persist(next)) onStageChange('turnaround')
   }
@@ -86,7 +106,7 @@ export function CharacterWorkflow({
           const completed =
             (id === 'face' && attributes.faceStatus === 'approved') ||
             (id === 'body' && attributes.bodyStatus === 'approved') ||
-            (id === 'turnaround' && turnaroundTask?.status === 'completed')
+            (id === 'turnaround' && turnaroundOutputs.length >= 3)
           return (
             <button
               type="button"
@@ -107,7 +127,7 @@ export function CharacterWorkflow({
       </div>
 
       {stage === 'face' && (
-        <StagePanel
+        <CharacterStagePanel
           eyebrow="身份锚点"
           title="先确定人物面部"
           description="大头照只处理脸型、五官、年龄、发型和画风。确认后全身与三视图都会固定使用它。"
@@ -141,11 +161,11 @@ export function CharacterWorkflow({
             <CheckCircle2 size={15} />
             设为面部基准
           </button>
-        </StagePanel>
+        </CharacterStagePanel>
       )}
 
       {stage === 'body' && (
-        <StagePanel
+        <CharacterStagePanel
           eyebrow="身体设定"
           title="基于确认面部制作全身"
           description="全身生成会自动携带面部基准；腿部优化仅影响身体比例，不改变已确认的脸。"
@@ -187,7 +207,7 @@ export function CharacterWorkflow({
             <CheckCircle2 size={15} />
             确认全身基准
           </button>
-        </StagePanel>
+        </CharacterStagePanel>
       )}
 
       {stage === 'turnaround' && (
@@ -195,8 +215,8 @@ export function CharacterWorkflow({
           <div className="turnaround-panel-head">
             <div>
               <span className="eyebrow">交付设定表</span>
-              <h3>生成一张三视图设定表</h3>
-              <p>系统保留正面、侧面、背面三张源图，默认合成一张 16:9 三栏图片。</p>
+              <h3>生成三张三视图源图</h3>
+              <p>系统保留正面、侧面、背面三张源图，前端按选择组合预览和下载设定表。</p>
             </div>
             <div className="turnaround-layout" role="group" aria-label="三视图输出方式">
               <button
@@ -217,7 +237,12 @@ export function CharacterWorkflow({
               </button>
             </div>
           </div>
-          <TurnaroundPreview task={turnaroundTask} />
+          <TurnaroundPreview
+            task={turnaroundTask}
+            outputs={turnaroundOutputs}
+            disabled={submittingStage !== null || isActive(turnaroundTask)}
+            onRegenerateView={(view) => void generate('turnaround', view)}
+          />
           <div className="character-stage-actions">
             <button
               className="button secondary"
@@ -232,12 +257,12 @@ export function CharacterWorkflow({
               )}
               {turnaroundTask ? '重新生成三视图' : '生成三视图'}
             </button>
-            {turnaroundTask?.status === 'completed' && turnaroundTask.outputs.length >= 3 && (
+            {turnaroundOutputs.length >= 3 && (
               <button
                 className="button primary"
                 type="button"
                 onClick={() =>
-                  void downloadSheet(turnaroundTask.outputs, assetName).catch((downloadError) =>
+                  void downloadTurnaroundSheet(turnaroundOutputs, assetName).catch((downloadError) =>
                     setError(downloadError.message),
                   )
                 }
@@ -256,122 +281,4 @@ export function CharacterWorkflow({
       )}
     </section>
   )
-}
-
-function StagePanel({ eyebrow, title, description, task, reference, emptyText, children }) {
-  return (
-    <div className="character-stage-panel">
-      <div className="character-stage-copy">
-        <span className="eyebrow">{eyebrow}</span>
-        <h3>{title}</h3>
-        <p>{description}</p>
-      </div>
-      <div className="character-stage-preview">
-        {reference?.url ? (
-          <img src={reference.url} alt={title} />
-        ) : (
-          <div>
-            <ScanFace size={25} />
-            <span>{emptyText}</span>
-          </div>
-        )}
-        {task && <TaskState task={task} />}
-      </div>
-      <div className="character-stage-actions">{children}</div>
-    </div>
-  )
-}
-
-function TaskState({ task }) {
-  const labels = {
-    queued: '排队中',
-    running: `生成中 ${task.progress}%`,
-    completed: '候选已生成',
-    failed: '生成失败',
-  }
-  return (
-    <span className={`character-task-state ${task.status}`} role="status" aria-live="polite">
-      {labels[task.status] || task.status}
-    </span>
-  )
-}
-
-function TurnaroundPreview({ task }) {
-  if (!task || task.status !== 'completed') {
-    return (
-      <div className="turnaround-empty">
-        <Images size={28} />
-        <span>{isActive(task) ? `正在生成源图 ${task.progress}%` : '完成面部和全身定稿后生成'}</span>
-      </div>
-    )
-  }
-  const outputs = task.outputs.slice(0, 3)
-  return (
-    <div className="turnaround-sheet-preview">
-      {outputs.map((output) => (
-        <div key={output.id}>
-          <img src={output.url} alt={viewLabel(output.view)} />
-          <span>{viewLabel(output.view)}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function completedOutput(task) {
-  return task?.status === 'completed' ? task.outputs[0] || null : null
-}
-
-function isActive(task) {
-  return task?.status === 'queued' || task?.status === 'running'
-}
-
-function toReference(candidate, name) {
-  return { id: candidate.id, url: candidate.url, name }
-}
-
-function viewLabel(view) {
-  return { front: '正面', side: '侧面', back: '背面' }[view] || '设定图'
-}
-
-async function downloadSheet(outputs, name) {
-  const selected = outputs.slice(0, 3)
-  if (selected.length < 3) throw new Error('三张源图尚未全部生成')
-  const images = await Promise.all(selected.map((output) => loadImage(output.url)))
-  const canvas = document.createElement('canvas')
-  canvas.width = 2400
-  canvas.height = 1350
-  const context = canvas.getContext('2d')
-  context.fillStyle = '#f4f5f1'
-  context.fillRect(0, 0, canvas.width, canvas.height)
-  images.forEach((image, index) => drawContained(context, image, index * 800 + 40, 70, 720, 1160))
-  context.fillStyle = '#20241f'
-  context.font = '600 34px sans-serif'
-  context.textAlign = 'center'
-  selected.forEach((output, index) => context.fillText(viewLabel(output.view), index * 800 + 400, 1285))
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) throw new Error('设定表合成失败')
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `${name || '人物'}-三视图设定表.png`
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
-
-function loadImage(url) {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('三视图源图读取失败'))
-    image.src = url
-  })
-}
-
-function drawContained(context, image, x, y, width, height) {
-  const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight)
-  const drawWidth = image.naturalWidth * scale
-  const drawHeight = image.naturalHeight * scale
-  context.drawImage(image, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight)
 }

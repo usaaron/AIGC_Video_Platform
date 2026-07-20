@@ -1,21 +1,15 @@
-import { useEffect, useState } from 'react'
-import { Check, LoaderCircle, X } from 'lucide-react'
+﻿import { useEffect, useRef, useState } from 'react'
+import { Check, LoaderCircle } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
-import { IconButton } from './components/ui'
+import { ProjectMenu } from './components/ProjectMenu'
 import { useAuth } from './components/AuthProvider'
 import { AdminPage } from './pages/AdminPage'
-import { AssetsPage } from './pages/AssetsPage'
-import { BillingPage } from './pages/BillingPage'
-import { FilmPage } from './pages/FilmPage'
-import { GenerationPage } from './pages/GenerationPage'
-import { OverviewPage } from './pages/OverviewPage'
-import { ScriptPage } from './pages/ScriptPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { StoryboardPage } from './pages/StoryboardPage'
+import { WorkspaceRouter } from './pages/WorkspaceRouter'
+import { hasNewCompletedAssetTasks } from './features/generation/completedTaskSync'
+import { hasCompletedVideoForShot } from './features/generation/taskResults'
+import { createWorkspaceActions } from './features/generation/workspaceActions'
 import { api } from './services/apiClient'
-
-const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
@@ -29,10 +23,14 @@ function App() {
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const [toast, setToast] = useState('')
+  const [taskPollError, setTaskPollError] = useState('')
   const [playing, setPlaying] = useState(false)
   const [currentShot, setCurrentShot] = useState(0)
+  const syncedAssetTaskKeys = useRef(new Set())
 
   const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
+  const currentShotId = workspace?.shots[currentShot]?.id
+  const currentShotHasVideo = Boolean(currentShotId && hasCompletedVideoForShot(tasks, currentShotId))
 
   useEffect(() => {
     if (adminOnly) return
@@ -48,14 +46,31 @@ function App() {
 
   useEffect(() => {
     if (!workspace?.project.id) return undefined
+    const projectId = workspace.project.id
+    let disposed = false
     const loadTasks = () =>
       api
-        .tasks(workspace.project.id)
-        .then(setTasks)
-        .catch(() => {})
+        .tasks(projectId)
+        .then(async (nextTasks) => {
+          if (disposed) return
+          setTasks(nextTasks)
+          setTaskPollError('')
+          if (hasNewCompletedAssetTasks(nextTasks, syncedAssetTaskKeys.current)) {
+            const [nextWorkspace, nextProjects] = await Promise.all([api.project(projectId), api.projects()])
+            if (disposed) return
+            setWorkspace(nextWorkspace)
+            setProjects(nextProjects)
+          }
+        })
+        .catch((error) => {
+          if (!disposed) setTaskPollError(error.message || '生成状态同步失败')
+        })
     void loadTasks()
     const timer = window.setInterval(loadTasks, 1_500)
-    return () => window.clearInterval(timer)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
   }, [workspace?.project.id])
 
   useEffect(() => {
@@ -70,12 +85,13 @@ function App() {
 
   useEffect(() => {
     if (!playing || !workspace?.shots.length) return undefined
+    if (currentShotHasVideo) return undefined
     const timer = window.setInterval(
       () => setCurrentShot((index) => (index + 1) % workspace.shots.length),
       2_400,
     )
     return () => window.clearInterval(timer)
-  }, [playing, workspace?.shots.length])
+  }, [currentShotHasVideo, playing, workspace?.shots.length])
 
   if (adminOnly) return <AdminPage />
   if (loading || !billing)
@@ -101,31 +117,11 @@ function App() {
     await refreshSession()
   }
 
-  const createJob = async (label, type = '图片', cost = 6, options = {}) => {
+  const refreshTasks = async () => {
     if (!project) return
-    try {
-      const kind = kindByType[type] || 'image'
-      const provider =
-        kind === 'image' ? 'img2' : kind === 'video' ? 'seedance' : kind === 'audio' ? 'audio' : 'local'
-      await api.createTask({
-        clientRequestId: crypto.randomUUID(),
-        projectId: project.id,
-        kind,
-        label,
-        prompt: options.prompt,
-        negativePrompt: options.negativePrompt,
-        provider,
-        model:
-          kind === 'video' ? 'doubao-seedance-2-0-260128' : kind === 'image' ? 'img2-default' : undefined,
-        estimatedCredits: cost,
-        metadata: options.metadata,
-      })
-      setTasks(await api.tasks(project.id))
-      await refreshBilling()
-      setToast(`${label} 已加入生成队列`)
-    } catch (error) {
-      setToast(error.message)
-    }
+    const nextTasks = await api.tasks(project.id)
+    setTasks(nextTasks)
+    setTaskPollError('')
   }
 
   const navigateTo = (id) => {
@@ -133,235 +129,56 @@ function App() {
     setMobileNav(false)
   }
 
-  const createProject = async (input) => {
-    try {
-      const created = await api.createProject(input)
-      await refreshWorkspace(created.id)
-      setNewProjectOpen(false)
-      navigateTo('script')
-      setToast('新项目已创建')
-    } catch (error) {
-      setToast(error.message)
-    }
-  }
+  const {
+    createJob,
+    retryJob,
+    createShotVideoJob,
+    retryShotVideoJob,
+    exportFilmMp4,
+    createProject,
+    updateProject,
+  } = createWorkspaceActions({
+    project,
+    workspace,
+    tasks,
+    setTasks,
+    setToast,
+    setNewProjectOpen,
+    refreshWorkspace,
+    refreshBilling,
+    refreshTasks,
+    navigateTo,
+  })
 
-  const updateProject = async (input, message = '项目已保存') => {
-    try {
-      await api.updateProject(project.id, input)
-      await refreshWorkspace()
-      setToast(message)
-    } catch (error) {
-      setToast(error.message)
-    }
-  }
-
-  const renderContent = () => {
-    if (!project) {
-      return (
-        <div className="page empty-workspace">
-          <h1>创建第一个项目</h1>
-          <p>从项目名称和画面比例开始。</p>
-          <button className="button primary" onClick={() => setNewProjectOpen(true)}>
-            新建项目
-          </button>
-        </div>
-      )
-    }
-
-    const pages = {
-      overview: (
-        <OverviewPage
-          project={project}
-          assets={workspace.assets}
-          shots={workspace.shots}
-          jobs={tasks}
-          billing={billing}
-          setActiveStep={navigateTo}
-          setNewProjectOpen={setNewProjectOpen}
-        />
-      ),
-      script: (
-        <ScriptPage
-          project={project}
-          onSave={(script) => updateProject({ script }, '剧本已保存')}
-          onGenerate={() => createJob('剧本 · AI 扩写', '文本', 3)}
-          onNext={() => navigateTo('assets')}
-        />
-      ),
-      assets: (
-        <AssetsPage
-          project={project}
-          assets={workspace.assets}
-          tasks={tasks}
-          billing={billing}
-          onCreate={async (input) => {
-            const created = await api.createAsset(project.id, input)
-            await refreshWorkspace()
-            setToast('资产已添加')
-            return created
-          }}
-          onUpdate={async (assetId, input) => {
-            await api.updateAsset(project.id, assetId, input)
-            await refreshWorkspace()
-            setToast('资产已更新')
-          }}
-          onDelete={async (assetId) => {
-            await api.deleteAsset(project.id, assetId)
-            await refreshWorkspace()
-            setToast('资产已删除')
-          }}
-          onUpload={(file) => api.uploadMedia(project.id, file)}
-          onGenerateStage={(asset, stage, prompt) => {
-            const references =
-              stage === 'face'
-                ? asset.references
-                : stage === 'body'
-                  ? [asset.attributes.faceReference].filter(Boolean)
-                  : [asset.attributes.faceReference, asset.attributes.bodyReference].filter(Boolean)
-            const labels = { face: '面部大头照', body: '全身设定', turnaround: '三视图设定表' }
-            const costs = { face: 4, body: 6, turnaround: 18 }
-            return createJob(`${asset.name} · ${labels[stage]}`, '图片', costs[stage], {
-              prompt,
-              negativePrompt: asset.negativePrompt,
-              metadata: {
-                assetId: asset.id,
-                assetKind: asset.kind,
-                generationStage: stage,
-                aspectRatio: stage === 'face' ? '1:1' : stage === 'turnaround' ? '16:9' : project.aspectRatio,
-                sourceMode: asset.sourceMode,
-                references,
-                attributes: asset.attributes,
-                turnaround: stage === 'turnaround',
-                composeSheet: stage === 'turnaround',
-                outputLayout: asset.attributes.turnaroundLayout,
-              },
-            })
-          }}
-          onGenerate={(asset) =>
-            createJob(`${asset.name} · 重新生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
-              prompt: asset.prompt,
-              negativePrompt: asset.negativePrompt,
-              metadata: {
-                assetId: asset.id,
-                assetKind: asset.kind,
-                aspectRatio: project.aspectRatio,
-                sourceMode: asset.sourceMode,
-                references: asset.references,
-                attributes: asset.attributes,
-                turnaround: asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
-              },
-            })
-          }
-          onGenerateAll={(selectedAssets) =>
-            selectedAssets.forEach(
-              (asset) =>
-                void createJob(`${asset.name} · 资产生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
-                  prompt: asset.prompt,
-                  negativePrompt: asset.negativePrompt,
-                  metadata: {
-                    assetId: asset.id,
-                    assetKind: asset.kind,
-                    aspectRatio: project.aspectRatio,
-                    sourceMode: asset.sourceMode,
-                    references: asset.references,
-                    attributes: asset.attributes,
-                    turnaround:
-                      asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
-                  },
-                }),
-            )
-          }
-          onNext={() => navigateTo('storyboard')}
-        />
-      ),
-      storyboard: (
-        <StoryboardPage
-          shots={workspace.shots}
-          onRegenerate={async () => {
-            await api.generateShots(project.id)
-            await refreshWorkspace()
-            setToast('已根据剧本重新拆分分镜')
-          }}
-          onCreate={async (input) => {
-            await api.createShot(project.id, input)
-            await refreshWorkspace()
-          }}
-          onUpdate={async (shotId, input) => {
-            await api.updateShot(project.id, shotId, input)
-            await refreshWorkspace()
-            setToast('分镜已更新')
-          }}
-          onGenerate={(shot) =>
-            createJob(`镜头 ${String(shot.order).padStart(2, '0')} · ${shot.title}`, '视频', 18, {
-              prompt: shot.prompt || `${shot.title}，${shot.framing}，电影感`,
-              metadata: {
-                shotId: shot.id,
-                duration: shot.duration,
-                aspectRatio: project.aspectRatio,
-                resolution: '720p',
-                generateAudio: false,
-                watermark: false,
-                images: shot.imageUrl ? [shot.imageUrl] : [],
-              },
-            })
-          }
-          onNext={() => navigateTo('generate')}
-        />
-      ),
-      generate: (
-        <GenerationPage
-          jobs={tasks}
-          concurrency={billing.concurrency}
-          member={billing.plan === 'member'}
-          onUpgrade={() => navigateTo('billing')}
-          onClear={async () => {
-            await api.clearTasks(project.id)
-            setTasks(await api.tasks(project.id))
-            setToast('已清理完成任务')
-          }}
-          onNext={() => navigateTo('film')}
-        />
-      ),
-      film: (
-        <FilmPage
-          project={project}
-          shots={workspace.shots}
-          playing={playing}
-          setPlaying={setPlaying}
-          currentShot={currentShot}
-          setCurrentShot={setCurrentShot}
-          onSave={async () => {
-            const saved = await api.saveVersion(project.id)
-            await refreshWorkspace()
-            setToast(`版本 v${saved.version} 已保存`)
-          }}
-          onEdit={() => navigateTo('storyboard')}
-          onExport={() => exportProject(workspace, tasks)}
-        />
-      ),
-      billing: (
-        <BillingPage
-          billing={billing}
-          onPlanChange={async (plan) => {
-            setBilling(await api.updatePlan(plan))
-            await refreshSession()
-            setToast(plan === 'member' ? '会员已开通，赠送 500 积分' : '已切换为免费版')
-          }}
-        />
-      ),
-      settings: (
-        <SettingsPage
-          key={project.id}
-          project={project}
-          account={session.account}
-          onSave={updateProject}
-          onLogout={logout}
-        />
-      ),
-    }
-    return pages[activeStep] || pages.overview
-  }
-
+  const renderedWorkspace = (
+    <WorkspaceRouter
+      activeStep={activeStep}
+      project={project}
+      workspace={workspace}
+      tasks={tasks}
+      billing={billing}
+      account={session.account}
+      playing={playing}
+      setPlaying={setPlaying}
+      currentShot={currentShot}
+      setCurrentShot={setCurrentShot}
+      taskPollError={taskPollError}
+      onNavigate={navigateTo}
+      onOpenNewProject={() => setNewProjectOpen(true)}
+      onRefreshWorkspace={refreshWorkspace}
+      onRefreshTasks={refreshTasks}
+      onRefreshSession={refreshSession}
+      onSetBilling={setBilling}
+      onSetToast={setToast}
+      onCreateJob={createJob}
+      onCreateShotVideoJob={createShotVideoJob}
+      onRetryJob={retryJob}
+      onRetryShotVideoJob={retryShotVideoJob}
+      onExportFilmMp4={exportFilmMp4}
+      onUpdateProject={updateProject}
+      onLogout={logout}
+    />
+  )
   const runningJobs = tasks.filter((task) => task.status === 'running')
 
   return (
@@ -380,15 +197,13 @@ function App() {
       <AppSidebar
         activeStep={activeStep}
         mobileNav={mobileNav}
-        billing={billing}
-        assetCount={workspace?.assets.length ?? 0}
         onNavigate={navigateTo}
         onClose={() => setMobileNav(false)}
       />
       {mobileNav && (
         <button className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />
       )}
-      <main className="workspace">{renderContent()}</main>
+      <main className="workspace">{renderedWorkspace}</main>
       {newProjectOpen && (
         <NewProjectModal onClose={() => setNewProjectOpen(false)} onCreate={createProject} />
       )}
@@ -415,55 +230,6 @@ function App() {
       )}
     </div>
   )
-}
-
-function ProjectMenu({ projects, currentId, onClose, onSelect, onCreate }) {
-  return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal project-menu" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="modal-head">
-          <div>
-            <span className="eyebrow">项目</span>
-            <h2>切换项目</h2>
-          </div>
-          <IconButton label="关闭" onClick={onClose}>
-            <X size={20} />
-          </IconButton>
-        </div>
-        <div className="project-menu-list">
-          {projects.map((item) => (
-            <button
-              key={item.id}
-              className={item.id === currentId ? 'active' : ''}
-              onClick={() => onSelect(item.id)}
-            >
-              <span>{item.name}</span>
-              <small>
-                {item.status === 'producing' ? '制作中' : '草稿'} · v{item.version}
-              </small>
-              {item.id === currentId && <Check size={16} />}
-            </button>
-          ))}
-        </div>
-        <button className="button primary full" onClick={onCreate}>
-          新建项目
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function exportProject(workspace, tasks) {
-  const url = URL.createObjectURL(
-    new Blob([JSON.stringify({ ...workspace, tasks, exportedAt: new Date().toISOString() }, null, 2)], {
-      type: 'application/json',
-    }),
-  )
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `${workspace.project.name}-项目包.json`
-  anchor.click()
-  URL.revokeObjectURL(url)
 }
 
 export default App

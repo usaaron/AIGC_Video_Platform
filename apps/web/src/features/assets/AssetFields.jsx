@@ -88,6 +88,14 @@ function CharacterFields({ value, stage, update }) {
         />
       )}
       <VisualStyle value={value.visualStyle} onChange={(next) => update('visualStyle', next)} />
+      {value.subjectType === 'human' && (
+        <ToggleField
+          label="虚拟人脸加白"
+          description="自然提亮面部肤色，保留皮肤纹理和五官层次"
+          checked={value.faceBrightening}
+          onChange={(next) => update('faceBrightening', next)}
+        />
+      )}
     </>
   )
 }
@@ -159,6 +167,12 @@ function SceneFields({ value, update }) {
 function PropFields({ value, update }) {
   return (
     <>
+      <ChoiceField
+        label="资产定位"
+        value={value.usage}
+        options={OPTIONS.propUsage}
+        onChange={(next) => update('usage', next)}
+      />
       <ChoiceField
         label="物品类型"
         value={value.category}

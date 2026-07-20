@@ -5,28 +5,26 @@ import {
   BookOpenText,
   Check,
   ChevronDown,
-  CircleDollarSign,
   Clapperboard,
   Crown,
   FolderKanban,
   Layers3,
   LayoutDashboard,
   Menu,
-  PackageOpen,
-  Settings,
   UsersRound,
   WandSparkles,
   X,
   Zap,
 } from 'lucide-react'
 import { IconButton, StatusDot } from './ui'
+import './appShell.css'
 
 const STEPS = [
-  { id: 'overview', label: '项目概览', icon: LayoutDashboard },
+  { id: 'overview', label: '总览', icon: LayoutDashboard },
   { id: 'script', label: '剧本', icon: BookOpenText },
-  { id: 'assets', label: '资产设计', icon: UsersRound },
+  { id: 'assets', label: '资产', icon: UsersRound },
   { id: 'storyboard', label: '分镜', icon: Layers3 },
-  { id: 'generate', label: '生成队列', icon: WandSparkles },
+  { id: 'generate', label: '生成', icon: WandSparkles },
   { id: 'film', label: '成片', icon: Clapperboard },
 ]
 
@@ -81,7 +79,7 @@ export function AppHeader({
   )
 }
 
-export function AppSidebar({ activeStep, mobileNav, billing, assetCount, onNavigate, onClose }) {
+export function AppSidebar({ activeStep, mobileNav, onNavigate, onClose }) {
   const activeIndex = STEPS.findIndex((item) => item.id === activeStep)
 
   return (
@@ -111,32 +109,6 @@ export function AppSidebar({ activeStep, mobileNav, billing, assetCount, onNavig
           )
         })}
       </nav>
-      <div className="sidebar-spacer" />
-      <button className="sidebar-link" onClick={() => onNavigate('assets')}>
-        <PackageOpen size={17} /> 资产库 <span>{assetCount}</span>
-      </button>
-      <button
-        className={`sidebar-link ${activeStep === 'billing' ? 'active' : ''}`}
-        onClick={() => onNavigate('billing')}
-      >
-        <CircleDollarSign size={17} /> 积分账单
-      </button>
-      <button
-        className={`sidebar-link ${activeStep === 'settings' ? 'active' : ''}`}
-        onClick={() => onNavigate('settings')}
-      >
-        <Settings size={17} /> 项目设置
-      </button>
-      <div className="usage-box">
-        <div>
-          <span>本月用量</span>
-          <strong>{billing?.credits ?? 0} 积分</strong>
-        </div>
-        <div className="usage-track">
-          <span />
-        </div>
-        <small>当前可并发 {billing?.concurrency ?? 1} 个任务</small>
-      </div>
     </aside>
   )
 }

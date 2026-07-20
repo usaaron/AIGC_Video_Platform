@@ -1,0 +1,122 @@
+.dimension-guide-stack {
+  display: grid;
+  gap: 10px;
+}
+.dimension-guide {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid rgba(236, 188, 84, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.dimension-guide-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.dimension-guide-head span {
+  color: #ffe39b;
+  font-size: 17px;
+  font-weight: 800;
+}
+.dimension-guide-head strong {
+  color: #d8be84;
+  font-size: 9px;
+}
+.dimension-guide-grid {
+  display: grid;
+  gap: 6px;
+}
+.style-guide .dimension-guide-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.composition-guide .dimension-guide-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.lighting-guide .dimension-guide-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.dimension-column {
+  min-width: 0;
+  padding: 8px 6px;
+  border: 1px solid rgba(236, 188, 84, 0.15);
+  border-radius: 8px;
+  background: rgba(12, 11, 9, 0.72);
+}
+.dimension-column-title {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 7px;
+  color: #f7e0a4;
+  font-size: 10px;
+  text-align: center;
+}
+.dimension-column-title small {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  border: 1px solid rgba(236, 188, 84, 0.32);
+  border-radius: 999px;
+  color: #f3d17b;
+  font-size: 9px;
+}
+.dimension-options {
+  display: grid;
+  gap: 5px;
+}
+.dimension-option {
+  min-height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 3px 4px;
+  border-radius: 6px;
+  color: #cdbd95;
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 8px;
+  line-height: 1.2;
+  text-align: center;
+}
+.dimension-option.active {
+  color: #281b08;
+  background: linear-gradient(180deg, #f4d37f, #dcad4e);
+  font-weight: 800;
+}
+.dimension-item-label {
+  display: block;
+}
+.dimension-option small {
+  color: #9f8a5d;
+  font-size: 7px;
+  line-height: 1.25;
+}
+.dimension-option.active small {
+  color: rgba(40, 27, 8, 0.78);
+}
+.composition-guide .dimension-option,
+.lighting-guide .dimension-option {
+  min-height: 34px;
+}
+.dimension-guide > p {
+  margin: 0;
+  color: #f2d58c;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .dimension-guide-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .style-guide .dimension-guide-grid,
+  .composition-guide .dimension-guide-grid,
+  .lighting-guide .dimension-guide-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

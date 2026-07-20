@@ -17,6 +17,7 @@ import { IconButton, PageHeader } from '../components/ui'
 import { AssetEditor } from '../features/assets/AssetEditor'
 import { ASSET_TABS } from '../features/assets/assetOptions'
 import { summarizeAsset } from '../features/assets/promptCompiler'
+import { PROP_ASSET_POLICY } from '../features/assets/propAssetPolicy'
 
 const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, audio: Music2 }
 
@@ -41,13 +42,16 @@ export function AssetsPage({
     (asset) => asset.kind === tab && asset.name.toLowerCase().includes(search.toLowerCase()),
   )
   const tabLabel = ASSET_TABS.find(([kind]) => kind === tab)?.[1]
+  const isPropTab = tab === 'prop'
 
   return (
     <div className="page assets-page">
       <PageHeader
         eyebrow="第 2 步 · 资产"
-        title="建立可复用的视觉资产"
-        description="人物、场景、物品、服装和音频分别管理，并保持同一项目风格一致。"
+        title="角色 / 场景 / 道具 / 服装 / 音频"
+        description={
+          isPropTab ? PROP_ASSET_POLICY.summary : '按类型管理素材。先把能复用的资产补齐，再进入分镜。'
+        }
       >
         <span className="inherited-ratio">
           项目比例 <strong>{project.aspectRatio}</strong>
@@ -83,6 +87,17 @@ export function AssetsPage({
           {billing.plan === 'member' ? '会员模式：最多同时生成 3 项' : '免费模式：任务按顺序逐个生成'}
         </div>
       </div>
+      {isPropTab && (
+        <div className="asset-rule-note">
+          <Boxes size={15} />
+          <div>
+            <strong>{PROP_ASSET_POLICY.title}</strong>
+            <span>
+              {PROP_ASSET_POLICY.include.join(' / ')} 才建资产；{PROP_ASSET_POLICY.exclude}
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="asset-grid">
         {filtered.map((asset) => (
@@ -98,7 +113,7 @@ export function AssetsPage({
             <Plus size={21} />
           </span>
           <strong>添加{tabLabel}</strong>
-          <small>本地导入或使用 AI 生成</small>
+          <small>{assetCreateHint(tab)}</small>
         </button>
       </div>
 
@@ -143,6 +158,11 @@ export function AssetsPage({
       )}
     </div>
   )
+}
+
+function assetCreateHint(kind) {
+  if (kind === 'prop') return '只为关键或多次出现的物件建资产'
+  return '本地导入或使用 AI 生成'
 }
 
 function AssetCard({ asset, onEdit, onGenerate }) {

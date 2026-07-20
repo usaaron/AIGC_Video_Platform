@@ -5,7 +5,8 @@ import { IconButton } from '../../components/ui'
 import { AssetFields } from './AssetFields'
 import { ASSET_TABS, createDefaultAttributes } from './assetOptions'
 import { CharacterWorkflow } from './CharacterWorkflow'
-import { compileAssetPrompt, compileCharacterStagePrompt } from './promptCompiler'
+import { buildPromptBlueprint } from './promptCompiler'
+import { PromptFrameworkPanel } from './PromptFrameworkPanel'
 import { ReferenceUploader } from './ReferenceUploader'
 
 export function AssetEditor({
@@ -38,26 +39,43 @@ export function AssetEditor({
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const generatedPrompt =
-    kind === 'character'
-      ? compileCharacterStagePrompt(draft, aspectRatio, characterStage)
-      : compileAssetPrompt(draft, aspectRatio)
+  const stageForPrompt = kind === 'character' ? characterStage : null
+  const promptBlueprint = buildPromptBlueprint(draft, aspectRatio, stageForPrompt)
+  const generatedPrompt = promptBlueprint.finalPrompt
   const kindLabel = ASSET_TABS.find(([id]) => id === kind)?.[1]
+  const providerFieldLabel = kind === 'audio' ? '音频生成字段' : '图片生成字段'
+  const promptBadge =
+    kind === 'audio'
+      ? '音频'
+      : kind === 'character'
+        ? characterStage === 'face'
+          ? '1:1'
+          : characterStage === 'turnaround'
+            ? '16:9'
+            : aspectRatio
+        : aspectRatio
 
-  const inputFor = (nextDraft = draft) => ({
-    ...(asset.id ? {} : { kind }),
-    ...nextDraft,
-    prompt: compileAssetPrompt(nextDraft, aspectRatio),
-    imageUrl:
-      kind === 'audio'
-        ? null
-        : nextDraft.attributes.bodyReference?.url ||
-          nextDraft.attributes.faceReference?.url ||
-          nextDraft.references[0]?.url ||
-          asset.imageUrl ||
-          null,
-    ...(asset.id ? { status: asset.status } : {}),
-  })
+  const assetInputFor = (nextDraft) => {
+    const blueprint = buildPromptBlueprint(nextDraft, aspectRatio, stageForPrompt)
+    return {
+      ...(asset.id ? {} : { kind }),
+      ...nextDraft,
+      prompt: blueprint.finalPrompt,
+      negativePrompt: nextDraft.negativePrompt.trim() || blueprint.suggestedNegativePrompt,
+      imageUrl:
+        kind === 'audio'
+          ? null
+          : nextDraft.attributes.turnaroundReferences?.find((output) => output.view === 'front')?.url ||
+            nextDraft.attributes.bodyReference?.url ||
+            nextDraft.attributes.faceReference?.url ||
+            nextDraft.references[0]?.url ||
+            asset.imageUrl ||
+            null,
+      ...(asset.id ? { status: asset.status } : {}),
+    }
+  }
+
+  const inputFor = (nextDraft = draft) => assetInputFor(nextDraft)
 
   const validateDraft = (nextDraft) => {
     if (!nextDraft.name.trim()) throw new Error('请先填写资产名称')
@@ -68,13 +86,14 @@ export function AssetEditor({
 
   const persistCharacterDraft = async (nextDraft) => {
     validateDraft(nextDraft)
+    const input = inputFor(nextDraft)
     if (asset.id) {
-      await onPersist?.(inputFor(nextDraft))
-      return { ...asset, ...nextDraft }
+      await onPersist?.(input)
+      return { ...asset, ...input }
     }
     if (!onCreateDraft) throw new Error('人物草稿创建功能不可用')
-    const created = await onCreateDraft(inputFor(nextDraft))
-    return { ...created, ...nextDraft }
+    const created = await onCreateDraft(input)
+    return { ...created, ...input }
   }
 
   const handleSubmit = async (event) => {
@@ -101,13 +120,18 @@ export function AssetEditor({
     await persistCharacterDraft(nextDraft)
   }
 
-  const generateCharacterStage = async (stage) => {
+  const generateCharacterStage = async (stage, view = null) => {
     if (!onGenerateStage) return
     const attributes = stage === 'turnaround' ? { ...draft.attributes, turnaround: true } : draft.attributes
     const nextDraft = { ...draft, attributes }
     setDraft(nextDraft)
     const persistedAsset = await persistCharacterDraft(nextDraft)
-    await onGenerateStage(persistedAsset, stage, compileCharacterStagePrompt(nextDraft, aspectRatio, stage))
+    await onGenerateStage(
+      persistedAsset,
+      stage,
+      buildPromptBlueprint(nextDraft, aspectRatio, stage).finalPrompt,
+      view,
+    )
   }
 
   return createPortal(
@@ -213,15 +237,7 @@ export function AssetEditor({
                 <Sparkles size={16} />
                 提示词工作台
               </span>
-              <strong>
-                {kind === 'character'
-                  ? characterStage === 'face'
-                    ? '1:1'
-                    : characterStage === 'turnaround'
-                      ? '16:9'
-                      : aspectRatio
-                  : '中文'}
-              </strong>
+              <strong>{promptBadge}</strong>
             </div>
             <div className="prompt-mode-switch">
               <button
@@ -239,8 +255,9 @@ export function AssetEditor({
                 高级模式
               </button>
             </div>
+            <PromptFrameworkPanel blueprint={promptBlueprint} />
             <label className="compiled-prompt">
-              <span>最终发送给 Provider</span>
+              <span>最终提示词</span>
               <textarea readOnly value={generatedPrompt} />
             </label>
             {draft.promptMode === 'advanced' && (
@@ -276,13 +293,13 @@ export function AssetEditor({
               <textarea
                 className="negative-prompt"
                 value={draft.negativePrompt}
-                placeholder="例如：畸形肢体、额外手指、模糊、文字水印"
+                placeholder={promptBlueprint.suggestedNegativePrompt}
                 onChange={(event) => setDraft({ ...draft, negativePrompt: event.target.value })}
               />
             </label>
             <div className="provider-payload-note">
-              <strong>Img2 请求已准备</strong>
-              <p>参考图、项目比例、属性、提示词和输出规格都会随生成任务提交。</p>
+              <strong>{providerFieldLabel}</strong>
+              <p>最终提示词、负面提示词、参考图、项目比例和结构化属性会随生成任务提交。</p>
             </div>
           </aside>
         </div>

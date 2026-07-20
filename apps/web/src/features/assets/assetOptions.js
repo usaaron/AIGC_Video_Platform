@@ -1,7 +1,7 @@
 export const ASSET_TABS = [
   ['character', '人物'],
   ['scene', '场景'],
-  ['prop', '物品'],
+  ['prop', '道具'],
   ['costume', '服装'],
   ['audio', '音频'],
 ]
@@ -33,7 +33,9 @@ export const DEFAULT_ATTRIBUTES = {
     faceReference: null,
     bodyReference: null,
     legStretch: false,
+    faceBrightening: false,
     turnaround: false,
+    turnaroundReferences: [],
     turnaroundLayout: 'sheet',
   },
   scene: {
@@ -51,6 +53,7 @@ export const DEFAULT_ATTRIBUTES = {
   },
   prop: {
     type: 'prop',
+    usage: 'key',
     category: 'daily',
     material: 'mixed',
     condition: 'used',
@@ -172,6 +175,10 @@ export const OPTIONS = {
     ['food', '食物'],
     ['daily', '日用品'],
     ['other', '其他'],
+  ],
+  propUsage: [
+    ['key', '关键道具'],
+    ['recurring', '多次出现'],
   ],
   material: [
     ['wood', '木材'],

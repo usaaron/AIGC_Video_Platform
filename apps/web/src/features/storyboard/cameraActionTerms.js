@@ -1,0 +1,98 @@
+export const CAMERA_ACTION_TERMS = [
+  {
+    id: 'arc-follow-in',
+    name: '弧线跟进',
+    prompt: '镜头沿弧形轨迹逼近主体，兼顾空间展开与情绪聚焦',
+    scene: '人物试探、关系升温',
+  },
+  {
+    id: 'reverse-wrap',
+    name: '反向包抄镜头',
+    prompt: '镜头由主体背后绕至正面，制造局势翻转感',
+    scene: '对峙升级、身份揭晓',
+  },
+  {
+    id: 'side-cut-in',
+    name: '侧向切入镜头',
+    prompt: '镜头自画面侧缘迅速切入主体，强化突发性',
+    scene: '突然现身、危机闯入',
+  },
+  {
+    id: 'pressing-close-in',
+    name: '压迫式逼近',
+    prompt: '长焦机位持续缩短人物呼吸空间，形成心理压强',
+    scene: '审讯时刻、心理博弈',
+  },
+  {
+    id: 'yielding-reveal',
+    name: '退让式让位镜头',
+    prompt: '镜头边退边让出前景空间，引出新信息主体',
+    scene: '线索出现、第二人物登场',
+  },
+  {
+    id: 'crossing-thread',
+    name: '交叉穿行镜头',
+    prompt: '镜头在多人或障碍间连续穿行，保持叙事推进',
+    scene: '群戏调度、追逐转场',
+  },
+  {
+    id: 'ground-skimming',
+    name: '贴地掠行镜头',
+    prompt: '超低机位近地高速掠过，突出速度与冲击',
+    scene: '车辆冲刺、战斗开场',
+  },
+  {
+    id: 'top-spin-drop',
+    name: '顶视旋落镜头',
+    prompt: '镜头从顶视角旋转下落至人物层面，建立戏剧压差',
+    scene: '命运转折、情绪崩塌',
+  },
+  {
+    id: 'side-rear-follow',
+    name: '侧背尾随镜头',
+    prompt: '镜头锁定人物侧后方同步移动，保留环境压迫感',
+    scene: '潜行跟踪、秘密行动',
+  },
+  {
+    id: 'sudden-stop-stare',
+    name: '突停凝视镜头',
+    prompt: '运动镜头中骤然刹停并定格主体，放大情绪停顿',
+    scene: '真相刺痛、内心震荡',
+  },
+  {
+    id: 'pullback-reveal',
+    name: '回撤揭示镜头',
+    prompt: '镜头从局部快速回撤，揭示完整局面或反转信息',
+    scene: '陷阱曝光、局势逆转',
+  },
+  {
+    id: 'dual-subject-shuttle',
+    name: '双主体摆渡镜头',
+    prompt: '镜头在两名角色之间往返移动，强调关系张力',
+    scene: '谈判拉扯、情感试探',
+  },
+  {
+    id: 'diagonal-dive',
+    name: '斜向俯冲镜头',
+    prompt: '镜头以斜线轨迹快速俯冲进入场景，制造攻击性视感',
+    scene: '突袭降临、灾难迫近',
+  },
+  {
+    id: 'depth-corridor-pass',
+    name: '纵深穿堂镜头',
+    prompt: '镜头沿空间纵深连续穿过门廊通道，强化未知牵引',
+    scene: '探秘进入、空间探索',
+  },
+  {
+    id: 'beat-burst',
+    name: '节奏点爆发镜头',
+    prompt: '镜头在音乐或动作节点瞬间加速冲刺，配合情绪爆点',
+    scene: '高燃出场、决战前奏',
+  },
+  {
+    id: 'hover-inspection',
+    name: '悬停审视镜头',
+    prompt: '镜头短暂停驻并微调角度观察主体，形成冷静审视感',
+    scene: '权力压制、危险评估',
+  },
+]

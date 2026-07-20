@@ -1,168 +1,182 @@
-import { ArrowRight, BadgeCheck, Check, Crown, Play, Plus } from 'lucide-react'
-import { JobRow, PageHeader, StatusDot } from '../components/ui'
+import {
+  ArrowRight,
+  BookOpenText,
+  Check,
+  Clapperboard,
+  Film,
+  Layers3,
+  PackageOpen,
+  Plus,
+  WandSparkles,
+} from 'lucide-react'
+import { PageHeader, StatusDot } from '../components/ui'
+import { resultUrlForTask } from '../features/generation/taskResults'
 
 export function OverviewPage({ project, assets, shots, jobs, billing, setActiveStep, setNewProjectOpen }) {
-  const completed = jobs.filter((job) => job.status === 'completed').length
-  const running = jobs.filter((job) => job.status === 'running')
-  const totalDuration = shots.reduce((sum, shot) => sum + shot.duration, 0)
-  const progress = Math.min(
-    100,
-    Math.round(
-      (Number(Boolean(project.script)) +
-        Number(assets.length > 0) +
-        Number(shots.length > 0) +
-        Number(completed > 0)) *
-        25,
-    ),
-  )
+  const steps = buildOverviewSteps({ project, assets, shots, jobs })
+  const completedSteps = steps.filter((step) => step.done).length
+  const progress = Math.round((completedSteps / steps.length) * 100)
+  const nextStep = steps.find((step) => !step.done) || steps.at(-1)
+  const recentResults = jobs
+    .filter((job) => job.status === 'completed' && resultUrlForTask(job))
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+    .slice(0, 4)
 
   return (
     <div className="page overview-page">
       <PageHeader
-        eyebrow="项目工作台"
-        title={`继续创作《${project.name}》`}
-        description="项目、素材和生成任务都已同步到你的账号。"
+        eyebrow="总览"
+        title={`《${project.name}》当前项目进度`}
+        description="只看当前做到哪一步、下一步做什么、最近生成了什么。"
       >
         <button className="button secondary" onClick={() => setNewProjectOpen(true)}>
           <Plus size={16} /> 新建项目
         </button>
-        <button className="button primary" onClick={() => setActiveStep('script')}>
-          继续创作 <ArrowRight size={16} />
+        <button className="button primary" onClick={() => setActiveStep(nextStep.id)}>
+          下一步：{nextStep.title} <ArrowRight size={16} />
         </button>
       </PageHeader>
-      <section className="project-hero">
-        <div className="hero-copy">
-          <div className="hero-meta">
+
+      <section className="overview-focus">
+        <div className="overview-progress-panel">
+          <div className="overview-meta">
             <span className="live-chip">
-              <StatusDot status="running" /> {project.status === 'producing' ? '制作中' : '草稿'}
+              <StatusDot status={jobs.some((job) => job.status === 'running') ? 'running' : 'completed'} />
+              {project.status === 'producing' ? '制作中' : '草稿'}
             </span>
-            <span>
-              {project.aspectRatio} · {project.contentType === 'short-drama' ? '短剧' : '视频项目'}
-            </span>
+            <span>{project.aspectRatio}</span>
+            <span>{billing.credits} 积分</span>
           </div>
-          <h2>{project.synopsis || '为这个项目写下一句清晰的故事简介。'}</h2>
-          <div className="progress-row">
+          <div className="overview-progress-title">
             <div>
-              <span>项目进度</span>
+              <span>整体进度</span>
               <strong>{progress}%</strong>
             </div>
             <div className="project-progress">
               <span style={{ width: `${progress}%` }} />
             </div>
           </div>
-          <div className="hero-stats">
-            <div>
-              <strong>{assets.filter((asset) => asset.kind === 'character').length}</strong>
-              <span>角色</span>
-            </div>
-            <div>
-              <strong>{shots.length}</strong>
-              <span>分镜</span>
-            </div>
-            <div>
-              <strong>{totalDuration}s</strong>
-              <span>预计时长</span>
-            </div>
-            <div>
-              <strong>{completed}</strong>
-              <span>已生成</span>
-            </div>
+          <div className="overview-progress-list">
+            {steps.map((step) => {
+              const Icon = step.icon
+              return (
+                <button
+                  key={step.id}
+                  className={step.id === nextStep.id && !step.done ? 'current' : step.done ? 'done' : ''}
+                  onClick={() => setActiveStep(step.id)}
+                >
+                  <span>{step.done ? <Check size={13} /> : step.number}</span>
+                  <Icon size={16} />
+                  <strong>{step.title}</strong>
+                  <small>{step.status}</small>
+                </button>
+              )
+            })}
           </div>
         </div>
-        <button className="hero-preview" onClick={() => setActiveStep('film')} aria-label="预览成片">
-          <img src={shots[0]?.imageUrl || '/demo/station.jpg'} alt="项目预览" />
-          <span className="preview-play">
-            <Play size={21} fill="currentColor" />
-          </span>
-          <span className="preview-caption">
-            预览当前成片 <ArrowRight size={14} />
-          </span>
-        </button>
-      </section>
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">制作流程</span>
-          <h2>接下来要做什么</h2>
-        </div>
-        <span className="autosave">
-          <BadgeCheck size={15} /> 数据已同步
-        </span>
-      </div>
-      <div className="workflow-grid">
-        {[
-          [
-            '01',
-            '剧本',
-            project.script ? '已保存' : '待填写',
-            '完成故事内容与对白',
-            'script',
-            project.script ? 'complete' : 'current',
-          ],
-          [
-            '02',
-            '项目资产',
-            `${assets.length} 项`,
-            '确认人物、场景、物品、服装与音频',
-            'assets',
-            assets.length ? 'complete' : 'pending',
-          ],
-          [
-            '03',
-            '分镜',
-            `${shots.length} 个`,
-            '检查镜头与提示词',
-            'storyboard',
-            shots.length ? 'complete' : 'pending',
-          ],
-          [
-            '04',
-            '视频生成',
-            running.length ? `${running.length} 项进行中` : `${completed} 项完成`,
-            `当前可并发 ${billing.concurrency} 项`,
-            'generate',
-            running.length ? 'current' : 'pending',
-          ],
-        ].map(([number, title, status, description, id, state]) => (
-          <button className={`workflow-card ${state}`} key={id} onClick={() => setActiveStep(id)}>
-            <div className="workflow-top">
-              <span>{number}</span>
-              {state === 'complete' ? <Check size={16} /> : <ArrowRight size={16} />}
-            </div>
-            <h3>{title}</h3>
-            <p>{description}</p>
-            <span className="workflow-status">{status}</span>
+
+        <aside className="overview-next-panel">
+          <span>下一步</span>
+          <h3>{nextStep.title}</h3>
+          <p>{nextStep.action}</p>
+          <button className="button primary" onClick={() => setActiveStep(nextStep.id)}>
+            继续处理 <ArrowRight size={16} />
           </button>
-        ))}
-      </div>
-      <div className="two-column">
-        <section className="activity-panel">
-          <div className="panel-head">
-            <h2>最近生成</h2>
-            <button onClick={() => setActiveStep('generate')}>查看全部</button>
-          </div>
-          <div className="activity-list">
-            {jobs.slice(0, 3).map((job) => (
-              <JobRow key={job.id} job={toDisplayJob(job)} compact />
-            ))}
-            {!jobs.length && <p className="panel-empty">还没有生成任务。</p>}
-          </div>
-        </section>
-        <section className="membership-panel">
-          <div className="membership-icon">
-            <Crown size={19} />
-          </div>
+        </aside>
+      </section>
+
+      <section className="recent-results-panel">
+        <div className="panel-head">
           <div>
-            <span className="eyebrow">{billing.plan === 'member' ? '创作会员' : '免费版'}</span>
-            <h2>{billing.concurrency} 路任务并发</h2>
-            <p>可用 {billing.credits} 积分，所有消耗都记录在积分账单。</p>
+            <h2>最近结果</h2>
+            <span>{recentResults.length ? '可直接查看生成结果' : '完成生成后会显示在这里'}</span>
           </div>
-        </section>
-      </div>
+        </div>
+        {recentResults.length ? (
+          <div className="recent-results-grid">
+            {recentResults.map((job) => (
+              <ResultCard job={job} key={job.id} />
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state compact">
+            <Film size={26} />
+            <h3>还没有生成结果</h3>
+            <p>从资产或分镜页提交任务后，这里会展示最近完成的结果。</p>
+          </div>
+        )}
+      </section>
     </div>
   )
 }
 
-function toDisplayJob(job) {
-  const type = { text: '文本', image: '图片', video: '视频', audio: '音频' }[job.kind]
-  return { ...job, type, cost: job.estimatedCredits }
+function ResultCard({ job }) {
+  const resultUrl = resultUrlForTask(job)
+  const isImageLike = job.kind === 'image' || !/\.(mp4|webm|mov|m4v)(\?|$)/i.test(resultUrl)
+
+  return (
+    <article className="recent-result-card">
+      <div>
+        {isImageLike ? <img src={resultUrl} alt={job.label} /> : <video src={resultUrl} muted playsInline />}
+      </div>
+      <span>{typeLabel(job.kind)}</span>
+      <h3>{job.label}</h3>
+      <a href={resultUrl}>查看结果</a>
+    </article>
+  )
+}
+
+function buildOverviewSteps({ project, assets, shots, jobs }) {
+  const completedJobs = jobs.filter((job) => job.status === 'completed').length
+  return [
+    {
+      id: 'script',
+      number: '01',
+      title: '剧本',
+      icon: BookOpenText,
+      done: Boolean(project.script?.trim()),
+      status: project.script ? '已输入' : '待输入',
+      action: '先输入剧本，保存后拆分成镜头。',
+    },
+    {
+      id: 'assets',
+      number: '02',
+      title: '资产',
+      icon: PackageOpen,
+      done: assets.length > 0,
+      status: `${assets.length} 项`,
+      action: '补齐角色、场景、服装和音频；道具只建关键或多次出现的。',
+    },
+    {
+      id: 'storyboard',
+      number: '03',
+      title: '分镜',
+      icon: Layers3,
+      done: shots.length > 0,
+      status: `${shots.length} 镜头`,
+      action: '确认镜头列表、时长和画面提示词。',
+    },
+    {
+      id: 'generate',
+      number: '04',
+      title: '生成',
+      icon: WandSparkles,
+      done: completedJobs > 0,
+      status: `${completedJobs} 完成`,
+      action: '查看任务状态，处理失败任务并进入结果。',
+    },
+    {
+      id: 'film',
+      number: '05',
+      title: '成片',
+      icon: Clapperboard,
+      done: project.status === 'completed',
+      status: shots.length ? '可预览' : '待分镜',
+      action: '预览当前成片并导出项目包。',
+    },
+  ]
+}
+
+function typeLabel(kind) {
+  return { image: '图片', video: '视频', audio: '音频', text: '文本' }[kind] || kind
 }

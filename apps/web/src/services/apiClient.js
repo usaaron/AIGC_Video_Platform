@@ -51,6 +51,7 @@ export const api = {
   generateShots: (projectId) => request(`/projects/${projectId}/shots/generate`, { method: 'POST' }),
   tasks: (projectId) => request(`/projects/${projectId}/generation/tasks`),
   createTask: (input) => request('/generation/tasks', json('POST', input)),
+  retryTask: (taskId) => request(`/generation/tasks/${taskId}/retry`, { method: 'POST' }),
   clearTasks: (projectId) =>
     request(`/projects/${projectId}/generation/tasks/completed`, { method: 'DELETE' }),
   billing: () => request('/billing/summary'),
