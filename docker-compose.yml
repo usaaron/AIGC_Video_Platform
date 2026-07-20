@@ -1,0 +1,129 @@
+name: seqora-platform
+
+x-api-image: &api-image
+  image: seqora-api:local
+  build:
+    context: .
+    dockerfile: apps/api/Dockerfile
+
+x-api-env: &api-env
+  NODE_ENV: production
+  API_HOST: 0.0.0.0
+  API_PORT: 8787
+  API_PUBLIC_BASE_URL: http://localhost:8787
+  WEB_ORIGIN: http://localhost:8080
+  AUTH_MODE: local
+  AUTH_SECRET: ${AUTH_SECRET:-seqora-compose-secret-with-at-least-32-characters}
+  SESSION_COOKIE_SECURE: 'false'
+  DATA_STORE: postgres
+  DATABASE_URL: postgres://seqora:seqora@postgres:5432/seqora
+  TASK_QUEUE_DRIVER: bullmq
+  REDIS_URL: redis://redis:6379
+  TASK_WORKER_CONCURRENCY: 4
+  TASK_QUEUE_TICK_INTERVAL_MS: 1000
+  STORAGE_DRIVER: mock
+  ALLOW_MOCK_STORAGE: 'true'
+  UPLOAD_DIR: /data/mock-storage
+  MAX_UPLOAD_BYTES: 10485760
+  GENERATED_ASSET_MAX_BYTES: 104857600
+  FILM_EXPORT_FFMPEG_PATH: ffmpeg
+  FILM_EXPORT_TIMEOUT_MS: 300000
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: seqora
+      POSTGRES_USER: seqora
+      POSTGRES_PASSWORD: seqora
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U seqora -d seqora']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    <<: *api-image
+    environment: *api-env
+    command: ['node', 'dist/scripts/migrate.js']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  seed:
+    <<: *api-image
+    environment: *api-env
+    command: ['node', 'dist/scripts/importJson.js', '--file', 'data/app.json']
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: 'no'
+
+  api:
+    <<: *api-image
+    environment: *api-env
+    ports:
+      - '8787:8787'
+    volumes:
+      - mock-storage:/data/mock-storage
+    depends_on:
+      redis:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(''http://127.0.0.1:8787/api/v1/health'').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  worker:
+    <<: *api-image
+    environment: *api-env
+    command: ['node', 'dist/worker.js']
+    volumes:
+      - mock-storage:/data/mock-storage
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    image: seqora-web:local
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:8787/api/v1
+    ports:
+      - '8080:80'
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  mock-storage:

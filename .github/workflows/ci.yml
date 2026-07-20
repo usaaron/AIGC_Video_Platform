@@ -40,3 +40,113 @@ jobs:
 
       - name: Run checks
         run: pnpm check
+
+  deployment-acceptance:
+    name: Deployment acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: check
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: seqora
+          POSTGRES_USER: seqora
+          POSTGRES_PASSWORD: seqora
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U seqora -d seqora"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      NODE_ENV: production
+      API_HOST: 127.0.0.1
+      API_PORT: 8787
+      API_PUBLIC_BASE_URL: http://127.0.0.1:8787
+      WEB_ORIGIN: http://127.0.0.1:5173
+      AUTH_MODE: local
+      AUTH_SECRET: production-ci-secret-with-at-least-32-characters
+      SESSION_COOKIE_SECURE: 'false'
+      DATA_STORE: postgres
+      DATABASE_URL: postgres://seqora:seqora@127.0.0.1:5432/seqora
+      TASK_QUEUE_DRIVER: bullmq
+      REDIS_URL: redis://127.0.0.1:6379
+      TASK_WORKER_CONCURRENCY: 2
+      TASK_QUEUE_TICK_INTERVAL_MS: 500
+      STORAGE_DRIVER: mock
+      ALLOW_MOCK_STORAGE: 'true'
+      UPLOAD_DIR: ${{ runner.temp }}/seqora-mock-storage
+      FILM_EXPORT_FFMPEG_PATH: ffmpeg
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version
+
+      - name: Validate Docker Compose file
+        run: docker compose config
+
+      - name: Build API runtime
+        run: pnpm --filter @seqora/contracts build && pnpm --filter @seqora/api build
+
+      - name: Run PostgreSQL migrations
+        run: pnpm --filter @seqora/api db:migrate
+
+      - name: Import seed data
+        run: pnpm --filter @seqora/api db:import-json -- --file apps/api/data/app.json
+
+      - name: Start API and Redis worker
+        run: |
+          pnpm --filter @seqora/api start > "${RUNNER_TEMP}/seqora-api.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/seqora-api.pid"
+          pnpm --filter @seqora/api start:worker > "${RUNNER_TEMP}/seqora-worker.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/seqora-worker.pid"
+
+      - name: Run minimal E2E smoke
+        run: pnpm deploy:smoke
+
+      - name: Print service logs
+        if: always()
+        run: |
+          echo "=== API log ==="
+          cat "${RUNNER_TEMP}/seqora-api.log" || true
+          echo "=== Worker log ==="
+          cat "${RUNNER_TEMP}/seqora-worker.log" || true
+
+      - name: Stop services
+        if: always()
+        run: |
+          if [ -f "${RUNNER_TEMP}/seqora-api.pid" ]; then kill "$(cat "${RUNNER_TEMP}/seqora-api.pid")" || true; fi
+          if [ -f "${RUNNER_TEMP}/seqora-worker.pid" ]; then kill "$(cat "${RUNNER_TEMP}/seqora-worker.pid")" || true; fi

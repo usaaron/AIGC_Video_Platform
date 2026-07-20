@@ -6,6 +6,11 @@ const booleanEnvSchema = (defaultValue: boolean) =>
     .default(defaultValue)
     .transform((value) => value === true || value === 'true')
 
+const secureCookieSchema = z
+  .union([z.literal('auto'), z.boolean(), z.enum(['true', 'false'])])
+  .default('auto')
+  .transform((value) => (value === 'auto' ? value : value === true || value === 'true'))
+
 const configSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -15,6 +20,7 @@ const configSchema = z
     WEB_ORIGIN: z.string().default('http://localhost:5173'),
     AUTH_MODE: z.enum(['local', 'demo', 'oidc']).default('local'),
     AUTH_SECRET: z.string().min(32).default('seqora-development-secret-change-me'),
+    SESSION_COOKIE_SECURE: secureCookieSchema,
     DATA_STORE: z.enum(['json', 'postgres']).default('json'),
     DATA_FILE: z.string().default('./data/app.json'),
     DATABASE_URL: z.string().default(''),
@@ -22,7 +28,8 @@ const configSchema = z
     REDIS_URL: z.string().default(''),
     TASK_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(4),
     TASK_QUEUE_TICK_INTERVAL_MS: z.coerce.number().int().min(500).max(60_000).default(1_000),
-    STORAGE_DRIVER: z.enum(['local', 'gcs', 'oss']).default('local'),
+    STORAGE_DRIVER: z.enum(['local', 'mock', 'gcs', 'oss']).default('local'),
+    ALLOW_MOCK_STORAGE: booleanEnvSchema(false),
     UPLOAD_DIR: z.string().default('./data/uploads'),
     GCS_BUCKET: z.string().default(''),
     OSS_REGION: z.string().default(''),
@@ -127,6 +134,13 @@ const configSchema = z
         code: 'custom',
         path: ['STORAGE_DRIVER'],
         message: 'Local upload storage is forbidden in production',
+      })
+    }
+    if (config.NODE_ENV === 'production' && config.STORAGE_DRIVER === 'mock' && !config.ALLOW_MOCK_STORAGE) {
+      context.addIssue({
+        code: 'custom',
+        path: ['ALLOW_MOCK_STORAGE'],
+        message: 'Mock object storage requires ALLOW_MOCK_STORAGE=true in production-like acceptance',
       })
     }
   })

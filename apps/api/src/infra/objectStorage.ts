@@ -43,6 +43,8 @@ export class LocalObjectStorage implements ObjectStorage {
   }
 }
 
+export class MockObjectStorage extends LocalObjectStorage {}
+
 export class GoogleCloudObjectStorage implements ObjectStorage {
   private readonly bucket
 
@@ -125,6 +127,7 @@ export class AliyunObjectStorage implements ObjectStorage {
 }
 
 export function createObjectStorage(config: AppConfig): ObjectStorage {
+  if (config.STORAGE_DRIVER === 'mock') return new MockObjectStorage(resolve(config.UPLOAD_DIR))
   if (config.STORAGE_DRIVER === 'gcs') return new GoogleCloudObjectStorage(config.GCS_BUCKET)
   if (config.STORAGE_DRIVER === 'oss') {
     return new AliyunObjectStorage({

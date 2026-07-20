@@ -117,9 +117,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       audio: audioProvider ? 'configured' : 'local-mock',
     },
   }))
+  const secureCookies =
+    options.config.SESSION_COOKIE_SECURE === 'auto'
+      ? options.config.NODE_ENV === 'production'
+      : options.config.SESSION_COOKIE_SECURE
+
   await app.register(
     async (api) => {
-      await registerAuthRoutes(api, authService, options.config.NODE_ENV === 'production')
+      await registerAuthRoutes(api, authService, secureCookies)
       await registerProjectRoutes(api, projectService)
       await registerMediaRoutes(
         api,

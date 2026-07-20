@@ -59,11 +59,18 @@ describe('loadConfig object storage settings', () => {
   it('keeps audio and film export settings optional for local development', () => {
     const config = loadConfig({})
 
+    expect(config.SESSION_COOKIE_SECURE).toBe('auto')
     expect(config.AUDIO_API_KEY).toBe('')
     expect(config.AUDIO_MODEL).toBe('audio-default')
     expect(config.FILM_EXPORT_FFMPEG_PATH).toBe('ffmpeg')
     expect(config.FILM_EXPORT_TIMEOUT_MS).toBe(300_000)
     expect(config.GENERATED_ASSET_MAX_BYTES).toBe(104_857_600)
+  })
+
+  it('allows deployment acceptance to disable secure cookies on localhost HTTP', () => {
+    const config = loadConfig({ SESSION_COOKIE_SECURE: 'false' })
+
+    expect(config.SESSION_COOKIE_SECURE).toBe(false)
   })
 
   it('rejects local upload storage in production', () => {
@@ -78,6 +85,21 @@ describe('loadConfig object storage settings', () => {
         STORAGE_DRIVER: 'local',
       }),
     ).toThrow(/Local upload storage is forbidden/)
+  })
+
+  it('requires explicit opt-in for mock object storage in production-like acceptance', () => {
+    const input = {
+      NODE_ENV: 'production',
+      AUTH_SECRET: productionSecret,
+      DATA_STORE: 'postgres',
+      DATABASE_URL: 'postgres://seqora:seqora@127.0.0.1:5432/seqora',
+      TASK_QUEUE_DRIVER: 'bullmq',
+      REDIS_URL: 'redis://127.0.0.1:6379',
+      STORAGE_DRIVER: 'mock',
+    }
+
+    expect(() => loadConfig(input)).toThrow(/Mock object storage/)
+    expect(loadConfig({ ...input, ALLOW_MOCK_STORAGE: 'true' }).STORAGE_DRIVER).toBe('mock')
   })
 
   it('rejects placeholder auth secrets in production', () => {

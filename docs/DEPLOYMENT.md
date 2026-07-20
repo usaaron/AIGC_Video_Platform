@@ -1,5 +1,7 @@
 # 部署边界
 
+本地生产近似环境与 CI 部署验收流程见 [DEPLOYMENT_ACCEPTANCE.md](DEPLOYMENT_ACCEPTANCE.md)。
+
 ## 独立部署单元
 
 - `apps/web`：静态站点，可部署到 Vercel、Cloudflare Pages 或对象存储/CDN。

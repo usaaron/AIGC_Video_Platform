@@ -30,7 +30,13 @@ ENV API_PORT=8787
 
 WORKDIR /app
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /prod/api ./
+COPY apps/api/migrations ./migrations
+COPY apps/api/data ./data
 
 EXPOSE 8787
 
