@@ -38,6 +38,9 @@ async def test_run_prompt_evaluation_api() -> None:
     assert len(data["variants"]) == 3
     assert data["decision_summary"]["best_variant_case_id"] == "strategy_v2_repeat"
     assert data["variants"][1]["explainability"]["compare_to_case_id"] == "prompt_v1"
+    assert data["variants"][1]["explainability"]["dimension_deltas"]
+    assert "hook_quality" in data["variants"][1]["story_qc_dimension_scores"]
+    assert data["variants"][1]["samples"][0]["story_qc_dimensions"]
     assert data["variants"][0]["samples"][0]["llm_model_info"]["provider"] == "mock"
     assert data["placeholder_notes"]
     assert list_response.status_code == 200

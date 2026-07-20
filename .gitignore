@@ -28,3 +28,6 @@ venv/
 build/
 dist/
 *.egg-info/
+
+# Read-only external research repositories
+external_research/

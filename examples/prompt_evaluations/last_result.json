@@ -1,14 +1,14 @@
 {
-  "id": "a9cb7d7d-dfc7-4f74-a5cc-2a321290ba4a",
+  "id": "b1b105a7-d9ed-477e-b750-f77a21447aa7",
   "evaluation_case_id": "prompt_eval_minimal_v1",
   "benchmark_dataset_id": "us_female_dark_romance",
   "dataset_type": "benchmark",
-  "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+  "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
   "variants": [
     {
       "case_id": "prompt_v1",
       "benchmark_dataset_id": "us_female_dark_romance",
-      "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+      "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
       "prompt_ids": [
         "prompt.story_planning.benchmark.v1"
       ],
@@ -19,10 +19,10 @@
       "generation_strategy_version": "v1",
       "samples": [
         {
-          "sample_id": "a811a549-4f0c-46ec-a1c5-5efca05170ae",
+          "sample_id": "fcd998a9-abc2-4be4-a016-a49356156840",
           "run_index": 1,
           "benchmark_dataset_id": "us_female_dark_romance",
-          "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+          "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
           "prompt_ids": [
             "prompt.story_planning.benchmark.v1"
           ],
@@ -56,7 +56,7 @@
               "check_name": "content_spec_requirement_applied",
               "passed": true,
               "expected": "Draft should preserve content_spec_id and target_duration_seconds from the controlled generation request",
-              "actual": "content_spec_id=3b7331b9-789e-4500-afe2-ffeef79c6fca; target_duration_seconds=45",
+              "actual": "content_spec_id=11efd202-0533-428b-9c17-e8beec0cb709; target_duration_seconds=45",
               "note": null
             },
             {
@@ -77,7 +77,7 @@
               "check_name": "hook_presence_and_type",
               "passed": false,
               "expected": "identity reveal",
-              "actual": "mock_hook_78398600",
+              "actual": "mock_hook_4afb0190",
               "note": null
             },
             {
@@ -401,34 +401,238 @@
                     ]
                   }
                 ],
-                "created_at": "2026-07-17T01:47:08.361518Z"
+                "report_version": "story_qc_report.v1",
+                "explainability_status": "partial",
+                "dimension_evaluations": [
+                  {
+                    "dimension": "hook_quality",
+                    "score": 2.5,
+                    "summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+                    "score_reason": "The current score is driven by whether the draft hook is specific and whether the opening scene establishes immediate pressure.",
+                    "deduction_reasons": [
+                      "Hook is too short or non-specific."
+                    ],
+                    "scene_refs": [
+                      1
+                    ],
+                    "evidence": [
+                      "Hook: mock_hook_4afb0190",
+                      "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+                    ],
+                    "revision_signals": [
+                      "strengthen_opening_conflict",
+                      "clarify_scroll_stopping_question"
+                    ]
+                  },
+                  {
+                    "dimension": "character_agency",
+                    "score": 2.5,
+                    "summary": "The protagonist is present, but their agency is not explicit enough yet.",
+                    "score_reason": "The current score reflects whether the protagonist initiates, refuses, exposes, or otherwise changes the scene outcome through visible action.",
+                    "deduction_reasons": [
+                      "Protagonist choices are not visible enough."
+                    ],
+                    "scene_refs": [
+                      1
+                    ],
+                    "evidence": [],
+                    "revision_signals": [
+                      "show_protagonist_choice",
+                      "increase_visible_action_risk"
+                    ]
+                  },
+                  {
+                    "dimension": "conflict_escalation",
+                    "score": 4.5,
+                    "summary": "The scenes build toward a stronger public or relational threat by the ending.",
+                    "score_reason": "The current score reflects whether later scenes meaningfully raise pressure over earlier scenes and whether the episode ends under stronger threat than it began.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      1,
+                      2,
+                      3
+                    ],
+                    "evidence": [
+                      "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                      "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+                      "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+                      "Final scene cliffhanger: True"
+                    ],
+                    "revision_signals": []
+                  },
+                  {
+                    "dimension": "emotional_payoff",
+                    "score": 4.5,
+                    "summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+                    "score_reason": "The current score reflects whether emotional shifts change across scenes and whether turning points deliver a satisfying escalation or reversal.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      1,
+                      2,
+                      3
+                    ],
+                    "evidence": [
+                      "Scene 1 emotional shift: revenge_to_hook",
+                      "Scene 2 emotional shift: revenge_to_conflict",
+                      "Scene 3 emotional shift: suspense_to_suspense"
+                    ],
+                    "revision_signals": []
+                  },
+                  {
+                    "dimension": "cliffhanger_strength",
+                    "score": 5.0,
+                    "summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+                    "score_reason": "The current score reflects whether the last scene ends with unresolved pressure, suspense, or a reversal strong enough to create immediate next-episode demand.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      3
+                    ],
+                    "evidence": [
+                      "Final emotional shift: suspense_to_suspense",
+                      "Next episode question: None"
+                    ],
+                    "revision_signals": []
+                  }
+                ],
+                "evidence_summary": [
+                  "hook_quality: Hook: mock_hook_4afb0190",
+                  "character_agency: Protagonist choices are not visible enough.",
+                  "conflict_escalation: Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                  "emotional_payoff: Scene 1 emotional shift: revenge_to_hook",
+                  "cliffhanger_strength: Final emotional shift: suspense_to_suspense"
+                ],
+                "knowledge_refs": [
+                  {
+                    "knowledge_id": "hook.core_conflict.fast_setup.v1",
+                    "dimension": "hook_quality",
+                    "reason": "Hook is too short or non-specific.",
+                    "evidence": "Hook: mock_hook_4afb0190"
+                  }
+                ],
+                "created_at": "2026-07-17T04:10:24.391140Z"
               }
             }
           },
           "story_qc_score": 0.893,
           "story_qc_status": "placeholder",
           "story_qc_is_placeholder": true,
-          "latency_ms": 4.054,
+          "latency_ms": 5.424,
           "estimated_cost_usd": null,
           "token_usage": null,
+          "story_qc_dimensions": [
+            {
+              "dimension": "hook_quality",
+              "score": 2.5,
+              "summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+              "deduction_reasons": [
+                "Hook is too short or non-specific."
+              ],
+              "scene_refs": [
+                1
+              ],
+              "evidence": [
+                "Hook: mock_hook_4afb0190",
+                "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+              ],
+              "revision_signals": [
+                "strengthen_opening_conflict",
+                "clarify_scroll_stopping_question"
+              ],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "character_agency",
+              "score": 2.5,
+              "summary": "The protagonist is present, but their agency is not explicit enough yet.",
+              "deduction_reasons": [
+                "Protagonist choices are not visible enough."
+              ],
+              "scene_refs": [
+                1
+              ],
+              "evidence": [],
+              "revision_signals": [
+                "show_protagonist_choice",
+                "increase_visible_action_risk"
+              ],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "conflict_escalation",
+              "score": 4.5,
+              "summary": "The scenes build toward a stronger public or relational threat by the ending.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                1,
+                2,
+                3
+              ],
+              "evidence": [
+                "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+                "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+                "Final scene cliffhanger: True"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "emotional_payoff",
+              "score": 4.5,
+              "summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                1,
+                2,
+                3
+              ],
+              "evidence": [
+                "Scene 1 emotional shift: revenge_to_hook",
+                "Scene 2 emotional shift: revenge_to_conflict",
+                "Scene 3 emotional shift: suspense_to_suspense"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "cliffhanger_strength",
+              "score": 5.0,
+              "summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                3
+              ],
+              "evidence": [
+                "Final emotional shift: suspense_to_suspense",
+                "Next episode question: None"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            }
+          ],
           "pass_fail": true,
           "failure_reasons": [],
           "artifact_ids": {
-            "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
-            "orchestration_plan_id": "2e0d5256-c794-4ab1-ace3-db826b2354b3",
-            "draft_master_script_id": "3df3341e-0d93-4f3e-add9-218ce866378b"
+            "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
+            "orchestration_plan_id": "1f95af18-7328-40b2-8fe2-7d2f51e38f6f",
+            "draft_master_script_id": "ae5cdff0-1d4c-455a-ba44-e82a68e038b0"
           },
           "draft_master_script": {
-            "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+            "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
             "generation_strategy_id": "strategy.tiktok.prompt_eval.prompt_v1",
-            "title": "mock_title_78398600",
+            "title": "mock_title_4afb0190",
             "logline": null,
             "language": "en",
             "target_audience": "Serve the audience segment described as: US female 18-34 viewers who binge dark romance betrayal twists.",
             "target_platform": "tiktok_benchmark_v1",
             "tone": "intense",
-            "hook": "mock_hook_78398600",
-            "synopsis": "mock_synopsis_78398600",
+            "hook": "mock_hook_4afb0190",
+            "synopsis": "mock_synopsis_4afb0190",
             "episode_goal": "Turn the strongest trend and preference signals into a short-form cliffhanger script.",
             "target_duration_seconds": 45,
             "characters": [],
@@ -512,23 +716,89 @@
               "provider": "mock",
               "model_name": "mock-script-generator",
               "strategy_id": "strategy.tiktok.prompt_eval.prompt_v1",
-              "prompt_fingerprint": "78398600",
+              "prompt_fingerprint": "4afb0190",
               "prompt_versions": [
                 "v1"
               ],
               "generation_strategy_version": "v1"
             },
-            "id": "3df3341e-0d93-4f3e-add9-218ce866378b",
-            "created_at": "2026-07-17T01:47:08.361421Z",
-            "updated_at": "2026-07-17T01:47:08.361422Z"
+            "id": "ae5cdff0-1d4c-455a-ba44-e82a68e038b0",
+            "created_at": "2026-07-17T04:10:24.390291Z",
+            "updated_at": "2026-07-17T04:10:24.390292Z"
           }
         }
       ],
+      "story_qc_dimension_scores": {
+        "hook_quality": 2.5,
+        "character_agency": 2.5,
+        "conflict_escalation": 4.5,
+        "emotional_payoff": 4.5,
+        "cliffhanger_strength": 5.0
+      },
+      "story_qc_dimension_summaries": {
+        "hook_quality": "Opening hook exists, but the conflict or viewer question is still soft.",
+        "character_agency": "The protagonist is present, but their agency is not explicit enough yet.",
+        "conflict_escalation": "The scenes build toward a stronger public or relational threat by the ending.",
+        "emotional_payoff": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+        "cliffhanger_strength": "The ending creates strong unresolved pressure that should pull viewers into the next episode."
+      },
+      "story_qc_evidence": {
+        "hook_quality": [
+          "Hook: mock_hook_4afb0190",
+          "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+        ],
+        "conflict_escalation": [
+          "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+          "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+          "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+          "Final scene cliffhanger: True"
+        ],
+        "emotional_payoff": [
+          "Scene 1 emotional shift: revenge_to_hook",
+          "Scene 2 emotional shift: revenge_to_conflict",
+          "Scene 3 emotional shift: suspense_to_suspense"
+        ],
+        "cliffhanger_strength": [
+          "Final emotional shift: suspense_to_suspense",
+          "Next episode question: None"
+        ]
+      },
+      "story_qc_revision_signals": {
+        "hook_quality": [
+          "strengthen_opening_conflict",
+          "clarify_scroll_stopping_question"
+        ],
+        "character_agency": [
+          "show_protagonist_choice",
+          "increase_visible_action_risk"
+        ]
+      },
+      "story_qc_scene_refs": {
+        "hook_quality": [
+          1
+        ],
+        "character_agency": [
+          1
+        ],
+        "conflict_escalation": [
+          1,
+          2,
+          3
+        ],
+        "emotional_payoff": [
+          1,
+          2,
+          3
+        ],
+        "cliffhanger_strength": [
+          3
+        ]
+      },
       "metrics_summary": {
         "average_script_score": 0.773,
         "average_story_qc_score": 0.893,
         "average_deterministic_pass_rate": 0.8,
-        "average_latency_ms": 4.054,
+        "average_latency_ms": 5.424,
         "average_estimated_cost_usd": null,
         "average_total_tokens": null
       },
@@ -537,10 +807,11 @@
         "title_exact_match_ratio": 1.0,
         "hook_exact_match_ratio": 1.0,
         "story_qc_score_range": 0.0,
-        "average_latency_ms": 4.054
+        "average_latency_ms": 5.424
       },
       "explainability": {
         "compare_to_case_id": null,
+        "dimension_deltas": [],
         "notable_output_changes": [
           "This is the baseline variant used as the reference for later comparisons."
         ],
@@ -549,14 +820,25 @@
         "unchanged_metrics": [
           "baseline_reference"
         ],
+        "improvements": [],
+        "regressions": [],
+        "unchanged_dimensions": [
+          "baseline_reference"
+        ],
+        "strongest_improvement": null,
+        "largest_regression": null,
         "side_effects": [
           "Story QC remains placeholder-driven, so baseline QC numbers are not final quality truth.",
           "Baseline still misses some content-semantic checks, which creates room for future prompt optimization."
         ],
         "why_better": [],
         "why_worse": [],
+        "comparison_summary": "Baseline variant retained as the comparison anchor for later prompt and strategy changes.",
         "decision_summary": "Baseline variant retained as the comparison anchor for later prompt and strategy changes.",
-        "recommended_action": "Keep as the control variant so future prompt or strategy changes remain measurable."
+        "recommended_action": "Keep as the control variant so future prompt or strategy changes remain measurable.",
+        "recommended_variant": false,
+        "recommendation_reason": "Baseline variant remains the control reference for later prompt and strategy comparisons.",
+        "confidence_note": "Baseline confidence is limited because Story QC still contains placeholder signals."
       },
       "pass_fail": true,
       "failure_reasons": []
@@ -564,7 +846,7 @@
     {
       "case_id": "prompt_v2",
       "benchmark_dataset_id": "us_female_dark_romance",
-      "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+      "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
       "prompt_ids": [
         "prompt.story_planning.benchmark.v2"
       ],
@@ -575,10 +857,10 @@
       "generation_strategy_version": "v1",
       "samples": [
         {
-          "sample_id": "0cc47311-6287-4c98-ba23-44501c49f6b6",
+          "sample_id": "ef4042ef-1d2d-4ee4-99b8-d86e7b4264e3",
           "run_index": 1,
           "benchmark_dataset_id": "us_female_dark_romance",
-          "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+          "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
           "prompt_ids": [
             "prompt.story_planning.benchmark.v2"
           ],
@@ -612,7 +894,7 @@
               "check_name": "content_spec_requirement_applied",
               "passed": true,
               "expected": "Draft should preserve content_spec_id and target_duration_seconds from the controlled generation request",
-              "actual": "content_spec_id=3b7331b9-789e-4500-afe2-ffeef79c6fca; target_duration_seconds=45",
+              "actual": "content_spec_id=11efd202-0533-428b-9c17-e8beec0cb709; target_duration_seconds=45",
               "note": null
             },
             {
@@ -633,7 +915,7 @@
               "check_name": "hook_presence_and_type",
               "passed": false,
               "expected": "identity reveal",
-              "actual": "mock_hook_b9830a41",
+              "actual": "mock_hook_dcbcef77",
               "note": null
             },
             {
@@ -957,34 +1239,238 @@
                     ]
                   }
                 ],
-                "created_at": "2026-07-17T01:47:08.365371Z"
+                "report_version": "story_qc_report.v1",
+                "explainability_status": "partial",
+                "dimension_evaluations": [
+                  {
+                    "dimension": "hook_quality",
+                    "score": 2.5,
+                    "summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+                    "score_reason": "The current score is driven by whether the draft hook is specific and whether the opening scene establishes immediate pressure.",
+                    "deduction_reasons": [
+                      "Hook is too short or non-specific."
+                    ],
+                    "scene_refs": [
+                      1
+                    ],
+                    "evidence": [
+                      "Hook: mock_hook_dcbcef77",
+                      "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+                    ],
+                    "revision_signals": [
+                      "strengthen_opening_conflict",
+                      "clarify_scroll_stopping_question"
+                    ]
+                  },
+                  {
+                    "dimension": "character_agency",
+                    "score": 2.5,
+                    "summary": "The protagonist is present, but their agency is not explicit enough yet.",
+                    "score_reason": "The current score reflects whether the protagonist initiates, refuses, exposes, or otherwise changes the scene outcome through visible action.",
+                    "deduction_reasons": [
+                      "Protagonist choices are not visible enough."
+                    ],
+                    "scene_refs": [
+                      1
+                    ],
+                    "evidence": [],
+                    "revision_signals": [
+                      "show_protagonist_choice",
+                      "increase_visible_action_risk"
+                    ]
+                  },
+                  {
+                    "dimension": "conflict_escalation",
+                    "score": 4.5,
+                    "summary": "The scenes build toward a stronger public or relational threat by the ending.",
+                    "score_reason": "The current score reflects whether later scenes meaningfully raise pressure over earlier scenes and whether the episode ends under stronger threat than it began.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      1,
+                      2,
+                      3
+                    ],
+                    "evidence": [
+                      "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                      "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+                      "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+                      "Final scene cliffhanger: True"
+                    ],
+                    "revision_signals": []
+                  },
+                  {
+                    "dimension": "emotional_payoff",
+                    "score": 4.5,
+                    "summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+                    "score_reason": "The current score reflects whether emotional shifts change across scenes and whether turning points deliver a satisfying escalation or reversal.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      1,
+                      2,
+                      3
+                    ],
+                    "evidence": [
+                      "Scene 1 emotional shift: revenge_to_hook",
+                      "Scene 2 emotional shift: revenge_to_conflict",
+                      "Scene 3 emotional shift: suspense_to_suspense"
+                    ],
+                    "revision_signals": []
+                  },
+                  {
+                    "dimension": "cliffhanger_strength",
+                    "score": 5.0,
+                    "summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+                    "score_reason": "The current score reflects whether the last scene ends with unresolved pressure, suspense, or a reversal strong enough to create immediate next-episode demand.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      3
+                    ],
+                    "evidence": [
+                      "Final emotional shift: suspense_to_suspense",
+                      "Next episode question: None"
+                    ],
+                    "revision_signals": []
+                  }
+                ],
+                "evidence_summary": [
+                  "hook_quality: Hook: mock_hook_dcbcef77",
+                  "character_agency: Protagonist choices are not visible enough.",
+                  "conflict_escalation: Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                  "emotional_payoff: Scene 1 emotional shift: revenge_to_hook",
+                  "cliffhanger_strength: Final emotional shift: suspense_to_suspense"
+                ],
+                "knowledge_refs": [
+                  {
+                    "knowledge_id": "hook.core_conflict.fast_setup.v1",
+                    "dimension": "hook_quality",
+                    "reason": "Hook is too short or non-specific.",
+                    "evidence": "Hook: mock_hook_dcbcef77"
+                  }
+                ],
+                "created_at": "2026-07-17T04:10:24.395770Z"
               }
             }
           },
           "story_qc_score": 0.893,
           "story_qc_status": "placeholder",
           "story_qc_is_placeholder": true,
-          "latency_ms": 2.724,
+          "latency_ms": 3.073,
           "estimated_cost_usd": null,
           "token_usage": null,
+          "story_qc_dimensions": [
+            {
+              "dimension": "hook_quality",
+              "score": 2.5,
+              "summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+              "deduction_reasons": [
+                "Hook is too short or non-specific."
+              ],
+              "scene_refs": [
+                1
+              ],
+              "evidence": [
+                "Hook: mock_hook_dcbcef77",
+                "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+              ],
+              "revision_signals": [
+                "strengthen_opening_conflict",
+                "clarify_scroll_stopping_question"
+              ],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "character_agency",
+              "score": 2.5,
+              "summary": "The protagonist is present, but their agency is not explicit enough yet.",
+              "deduction_reasons": [
+                "Protagonist choices are not visible enough."
+              ],
+              "scene_refs": [
+                1
+              ],
+              "evidence": [],
+              "revision_signals": [
+                "show_protagonist_choice",
+                "increase_visible_action_risk"
+              ],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "conflict_escalation",
+              "score": 4.5,
+              "summary": "The scenes build toward a stronger public or relational threat by the ending.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                1,
+                2,
+                3
+              ],
+              "evidence": [
+                "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+                "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+                "Final scene cliffhanger: True"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "emotional_payoff",
+              "score": 4.5,
+              "summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                1,
+                2,
+                3
+              ],
+              "evidence": [
+                "Scene 1 emotional shift: revenge_to_hook",
+                "Scene 2 emotional shift: revenge_to_conflict",
+                "Scene 3 emotional shift: suspense_to_suspense"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "cliffhanger_strength",
+              "score": 5.0,
+              "summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                3
+              ],
+              "evidence": [
+                "Final emotional shift: suspense_to_suspense",
+                "Next episode question: None"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            }
+          ],
           "pass_fail": true,
           "failure_reasons": [],
           "artifact_ids": {
-            "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
-            "orchestration_plan_id": "f56e8ca9-3e1f-4bce-b1c7-d6b818f6aa6a",
-            "draft_master_script_id": "fd7c9ad6-1881-4318-9cf8-4b363920fcf4"
+            "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
+            "orchestration_plan_id": "f472b3cc-42b8-4901-8297-a9f3ebf2863b",
+            "draft_master_script_id": "01d17df6-19e0-4281-8d88-b36e58bb78e9"
           },
           "draft_master_script": {
-            "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+            "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
             "generation_strategy_id": "strategy.tiktok.prompt_eval.prompt_v2",
-            "title": "mock_title_b9830a41",
+            "title": "mock_title_dcbcef77",
             "logline": null,
             "language": "en",
             "target_audience": "Serve the audience segment described as: US female 18-34 viewers who binge dark romance betrayal twists.",
             "target_platform": "tiktok_benchmark_v1",
             "tone": "intense",
-            "hook": "mock_hook_b9830a41",
-            "synopsis": "mock_synopsis_b9830a41",
+            "hook": "mock_hook_dcbcef77",
+            "synopsis": "mock_synopsis_dcbcef77",
             "episode_goal": "Turn the strongest trend and preference signals into a short-form cliffhanger script.",
             "target_duration_seconds": 45,
             "characters": [],
@@ -1068,23 +1554,89 @@
               "provider": "mock",
               "model_name": "mock-script-generator",
               "strategy_id": "strategy.tiktok.prompt_eval.prompt_v2",
-              "prompt_fingerprint": "b9830a41",
+              "prompt_fingerprint": "dcbcef77",
               "prompt_versions": [
                 "v2"
               ],
               "generation_strategy_version": "v1"
             },
-            "id": "fd7c9ad6-1881-4318-9cf8-4b363920fcf4",
-            "created_at": "2026-07-17T01:47:08.365281Z",
-            "updated_at": "2026-07-17T01:47:08.365282Z"
+            "id": "01d17df6-19e0-4281-8d88-b36e58bb78e9",
+            "created_at": "2026-07-17T04:10:24.395447Z",
+            "updated_at": "2026-07-17T04:10:24.395449Z"
           }
         }
       ],
+      "story_qc_dimension_scores": {
+        "hook_quality": 2.5,
+        "character_agency": 2.5,
+        "conflict_escalation": 4.5,
+        "emotional_payoff": 4.5,
+        "cliffhanger_strength": 5.0
+      },
+      "story_qc_dimension_summaries": {
+        "hook_quality": "Opening hook exists, but the conflict or viewer question is still soft.",
+        "character_agency": "The protagonist is present, but their agency is not explicit enough yet.",
+        "conflict_escalation": "The scenes build toward a stronger public or relational threat by the ending.",
+        "emotional_payoff": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+        "cliffhanger_strength": "The ending creates strong unresolved pressure that should pull viewers into the next episode."
+      },
+      "story_qc_evidence": {
+        "hook_quality": [
+          "Hook: mock_hook_dcbcef77",
+          "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+        ],
+        "conflict_escalation": [
+          "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+          "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+          "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+          "Final scene cliffhanger: True"
+        ],
+        "emotional_payoff": [
+          "Scene 1 emotional shift: revenge_to_hook",
+          "Scene 2 emotional shift: revenge_to_conflict",
+          "Scene 3 emotional shift: suspense_to_suspense"
+        ],
+        "cliffhanger_strength": [
+          "Final emotional shift: suspense_to_suspense",
+          "Next episode question: None"
+        ]
+      },
+      "story_qc_revision_signals": {
+        "hook_quality": [
+          "strengthen_opening_conflict",
+          "clarify_scroll_stopping_question"
+        ],
+        "character_agency": [
+          "show_protagonist_choice",
+          "increase_visible_action_risk"
+        ]
+      },
+      "story_qc_scene_refs": {
+        "hook_quality": [
+          1
+        ],
+        "character_agency": [
+          1
+        ],
+        "conflict_escalation": [
+          1,
+          2,
+          3
+        ],
+        "emotional_payoff": [
+          1,
+          2,
+          3
+        ],
+        "cliffhanger_strength": [
+          3
+        ]
+      },
       "metrics_summary": {
         "average_script_score": 0.773,
         "average_story_qc_score": 0.893,
         "average_deterministic_pass_rate": 0.8,
-        "average_latency_ms": 2.724,
+        "average_latency_ms": 3.073,
         "average_estimated_cost_usd": null,
         "average_total_tokens": null
       },
@@ -1093,17 +1645,119 @@
         "title_exact_match_ratio": 1.0,
         "hook_exact_match_ratio": 1.0,
         "story_qc_score_range": 0.0,
-        "average_latency_ms": 2.724
+        "average_latency_ms": 3.073
       },
       "explainability": {
         "compare_to_case_id": "prompt_v1",
+        "dimension_deltas": [
+          {
+            "dimension": "character_agency",
+            "baseline_score": 2.5,
+            "candidate_score": 2.5,
+            "delta": 0.0,
+            "direction": "unchanged",
+            "baseline_summary": "The protagonist is present, but their agency is not explicit enough yet.",
+            "candidate_summary": "The protagonist is present, but their agency is not explicit enough yet.",
+            "deduction_reasons": [],
+            "scene_refs": [
+              1
+            ],
+            "evidence": [],
+            "revision_signals": [
+              "show_protagonist_choice",
+              "increase_visible_action_risk"
+            ]
+          },
+          {
+            "dimension": "cliffhanger_strength",
+            "baseline_score": 5.0,
+            "candidate_score": 5.0,
+            "delta": 0.0,
+            "direction": "unchanged",
+            "baseline_summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+            "candidate_summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+            "deduction_reasons": [],
+            "scene_refs": [
+              3
+            ],
+            "evidence": [
+              "Final emotional shift: suspense_to_suspense",
+              "Next episode question: None"
+            ],
+            "revision_signals": []
+          },
+          {
+            "dimension": "conflict_escalation",
+            "baseline_score": 4.5,
+            "candidate_score": 4.5,
+            "delta": 0.0,
+            "direction": "unchanged",
+            "baseline_summary": "The scenes build toward a stronger public or relational threat by the ending.",
+            "candidate_summary": "The scenes build toward a stronger public or relational threat by the ending.",
+            "deduction_reasons": [],
+            "scene_refs": [
+              1,
+              2,
+              3
+            ],
+            "evidence": [
+              "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+              "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+              "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+              "Final scene cliffhanger: True"
+            ],
+            "revision_signals": []
+          },
+          {
+            "dimension": "emotional_payoff",
+            "baseline_score": 4.5,
+            "candidate_score": 4.5,
+            "delta": 0.0,
+            "direction": "unchanged",
+            "baseline_summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+            "candidate_summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+            "deduction_reasons": [],
+            "scene_refs": [
+              1,
+              2,
+              3
+            ],
+            "evidence": [
+              "Scene 1 emotional shift: revenge_to_hook",
+              "Scene 2 emotional shift: revenge_to_conflict",
+              "Scene 3 emotional shift: suspense_to_suspense"
+            ],
+            "revision_signals": []
+          },
+          {
+            "dimension": "hook_quality",
+            "baseline_score": 2.5,
+            "candidate_score": 2.5,
+            "delta": 0.0,
+            "direction": "unchanged",
+            "baseline_summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+            "candidate_summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+            "deduction_reasons": [],
+            "scene_refs": [
+              1
+            ],
+            "evidence": [
+              "Hook: mock_hook_dcbcef77",
+              "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+            ],
+            "revision_signals": [
+              "strengthen_opening_conflict",
+              "clarify_scroll_stopping_question"
+            ]
+          }
+        ],
         "notable_output_changes": [
           "Prompt version changed from v1 to v2.",
           "Draft title changed between variants, indicating output wording or planning changed.",
           "Hook text changed between variants, indicating the opening prompt behavior shifted."
         ],
         "improved_metrics": [
-          "average_latency_ms: 4.054 -> 2.724"
+          "average_latency_ms: 5.424 -> 3.073"
         ],
         "regressed_metrics": [],
         "unchanged_metrics": [
@@ -1115,6 +1769,17 @@
           "story_qc_score_range: 0.000 -> 0.000",
           "repeat_validation_coverage: 1.000 -> 1.000"
         ],
+        "improvements": [],
+        "regressions": [],
+        "unchanged_dimensions": [
+          "character_agency",
+          "cliffhanger_strength",
+          "conflict_escalation",
+          "emotional_payoff",
+          "hook_quality"
+        ],
+        "strongest_improvement": null,
+        "largest_regression": null,
         "side_effects": [
           "Story QC remains placeholder-driven, so Story QC gains cannot yet be treated as final quality proof.",
           "Some content-semantic checks still fail, so the variant is stable but not yet strong on all benchmark expectations."
@@ -1123,8 +1788,12 @@
           "Latency improved without changing the controlled pipeline shape, so the same chain now returns faster."
         ],
         "why_worse": [],
+        "comparison_summary": "Compared with baseline `prompt_v1`, this variant improves 1 measurable signals without introducing a hard regression.",
         "decision_summary": "Compared with baseline `prompt_v1`, this variant improves 1 measurable signals without introducing a hard regression.",
-        "recommended_action": "Keep this variant in the next optimization round and use it as a challenger or replacement candidate."
+        "recommended_action": "Keep this variant in the next optimization round and use it as a challenger or replacement candidate.",
+        "recommended_variant": false,
+        "recommendation_reason": "Compared with baseline `prompt_v1`, this variant improves 1 measurable signals without introducing a hard regression.",
+        "confidence_note": "Aggregate scores are very close, so keep this comparison as directional evidence rather than a decisive winner."
       },
       "pass_fail": true,
       "failure_reasons": []
@@ -1132,7 +1801,7 @@
     {
       "case_id": "strategy_v2_repeat",
       "benchmark_dataset_id": "us_female_dark_romance",
-      "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+      "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
       "prompt_ids": [
         "prompt.story_planning.benchmark.v2"
       ],
@@ -1143,10 +1812,10 @@
       "generation_strategy_version": "v2",
       "samples": [
         {
-          "sample_id": "6865d788-081f-4e3c-a106-dd6e76fec7b3",
+          "sample_id": "a1f643b9-6e3d-4c12-8bcd-837d070e14c8",
           "run_index": 1,
           "benchmark_dataset_id": "us_female_dark_romance",
-          "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+          "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
           "prompt_ids": [
             "prompt.story_planning.benchmark.v2"
           ],
@@ -1180,7 +1849,7 @@
               "check_name": "content_spec_requirement_applied",
               "passed": true,
               "expected": "Draft should preserve content_spec_id and target_duration_seconds from the controlled generation request",
-              "actual": "content_spec_id=3b7331b9-789e-4500-afe2-ffeef79c6fca; target_duration_seconds=45",
+              "actual": "content_spec_id=11efd202-0533-428b-9c17-e8beec0cb709; target_duration_seconds=45",
               "note": null
             },
             {
@@ -1201,7 +1870,7 @@
               "check_name": "hook_presence_and_type",
               "passed": false,
               "expected": "identity reveal",
-              "actual": "mock_hook_b11e1a8c",
+              "actual": "mock_hook_2a48806d",
               "note": null
             },
             {
@@ -1525,34 +2194,238 @@
                     ]
                   }
                 ],
-                "created_at": "2026-07-17T01:47:08.368251Z"
+                "report_version": "story_qc_report.v1",
+                "explainability_status": "partial",
+                "dimension_evaluations": [
+                  {
+                    "dimension": "hook_quality",
+                    "score": 2.5,
+                    "summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+                    "score_reason": "The current score is driven by whether the draft hook is specific and whether the opening scene establishes immediate pressure.",
+                    "deduction_reasons": [
+                      "Hook is too short or non-specific."
+                    ],
+                    "scene_refs": [
+                      1
+                    ],
+                    "evidence": [
+                      "Hook: mock_hook_2a48806d",
+                      "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+                    ],
+                    "revision_signals": [
+                      "strengthen_opening_conflict",
+                      "clarify_scroll_stopping_question"
+                    ]
+                  },
+                  {
+                    "dimension": "character_agency",
+                    "score": 2.5,
+                    "summary": "The protagonist is present, but their agency is not explicit enough yet.",
+                    "score_reason": "The current score reflects whether the protagonist initiates, refuses, exposes, or otherwise changes the scene outcome through visible action.",
+                    "deduction_reasons": [
+                      "Protagonist choices are not visible enough."
+                    ],
+                    "scene_refs": [
+                      1
+                    ],
+                    "evidence": [],
+                    "revision_signals": [
+                      "show_protagonist_choice",
+                      "increase_visible_action_risk"
+                    ]
+                  },
+                  {
+                    "dimension": "conflict_escalation",
+                    "score": 4.5,
+                    "summary": "The scenes build toward a stronger public or relational threat by the ending.",
+                    "score_reason": "The current score reflects whether later scenes meaningfully raise pressure over earlier scenes and whether the episode ends under stronger threat than it began.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      1,
+                      2,
+                      3
+                    ],
+                    "evidence": [
+                      "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                      "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+                      "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+                      "Final scene cliffhanger: True"
+                    ],
+                    "revision_signals": []
+                  },
+                  {
+                    "dimension": "emotional_payoff",
+                    "score": 4.5,
+                    "summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+                    "score_reason": "The current score reflects whether emotional shifts change across scenes and whether turning points deliver a satisfying escalation or reversal.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      1,
+                      2,
+                      3
+                    ],
+                    "evidence": [
+                      "Scene 1 emotional shift: revenge_to_hook",
+                      "Scene 2 emotional shift: revenge_to_conflict",
+                      "Scene 3 emotional shift: suspense_to_suspense"
+                    ],
+                    "revision_signals": []
+                  },
+                  {
+                    "dimension": "cliffhanger_strength",
+                    "score": 5.0,
+                    "summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+                    "score_reason": "The current score reflects whether the last scene ends with unresolved pressure, suspense, or a reversal strong enough to create immediate next-episode demand.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      3
+                    ],
+                    "evidence": [
+                      "Final emotional shift: suspense_to_suspense",
+                      "Next episode question: None"
+                    ],
+                    "revision_signals": []
+                  }
+                ],
+                "evidence_summary": [
+                  "hook_quality: Hook: mock_hook_2a48806d",
+                  "character_agency: Protagonist choices are not visible enough.",
+                  "conflict_escalation: Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                  "emotional_payoff: Scene 1 emotional shift: revenge_to_hook",
+                  "cliffhanger_strength: Final emotional shift: suspense_to_suspense"
+                ],
+                "knowledge_refs": [
+                  {
+                    "knowledge_id": "hook.core_conflict.fast_setup.v1",
+                    "dimension": "hook_quality",
+                    "reason": "Hook is too short or non-specific.",
+                    "evidence": "Hook: mock_hook_2a48806d"
+                  }
+                ],
+                "created_at": "2026-07-17T04:10:24.399137Z"
               }
             }
           },
           "story_qc_score": 0.893,
           "story_qc_status": "placeholder",
           "story_qc_is_placeholder": true,
-          "latency_ms": 2.638,
+          "latency_ms": 3.032,
           "estimated_cost_usd": null,
           "token_usage": null,
+          "story_qc_dimensions": [
+            {
+              "dimension": "hook_quality",
+              "score": 2.5,
+              "summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+              "deduction_reasons": [
+                "Hook is too short or non-specific."
+              ],
+              "scene_refs": [
+                1
+              ],
+              "evidence": [
+                "Hook: mock_hook_2a48806d",
+                "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+              ],
+              "revision_signals": [
+                "strengthen_opening_conflict",
+                "clarify_scroll_stopping_question"
+              ],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "character_agency",
+              "score": 2.5,
+              "summary": "The protagonist is present, but their agency is not explicit enough yet.",
+              "deduction_reasons": [
+                "Protagonist choices are not visible enough."
+              ],
+              "scene_refs": [
+                1
+              ],
+              "evidence": [],
+              "revision_signals": [
+                "show_protagonist_choice",
+                "increase_visible_action_risk"
+              ],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "conflict_escalation",
+              "score": 4.5,
+              "summary": "The scenes build toward a stronger public or relational threat by the ending.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                1,
+                2,
+                3
+              ],
+              "evidence": [
+                "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+                "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+                "Final scene cliffhanger: True"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "emotional_payoff",
+              "score": 4.5,
+              "summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                1,
+                2,
+                3
+              ],
+              "evidence": [
+                "Scene 1 emotional shift: revenge_to_hook",
+                "Scene 2 emotional shift: revenge_to_conflict",
+                "Scene 3 emotional shift: suspense_to_suspense"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "cliffhanger_strength",
+              "score": 5.0,
+              "summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                3
+              ],
+              "evidence": [
+                "Final emotional shift: suspense_to_suspense",
+                "Next episode question: None"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            }
+          ],
           "pass_fail": true,
           "failure_reasons": [],
           "artifact_ids": {
-            "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
-            "orchestration_plan_id": "51b3a4d8-2d4a-48a0-b0f8-642bb8bd71e8",
-            "draft_master_script_id": "6a3aa66a-9bac-4a55-b020-2e33b80f2826"
+            "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
+            "orchestration_plan_id": "d07ee87d-c431-4dbe-a9e3-bbfefff37c25",
+            "draft_master_script_id": "cec2c8d4-bb39-4771-b448-0d188816921c"
           },
           "draft_master_script": {
-            "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+            "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
             "generation_strategy_id": "strategy.tiktok.prompt_eval.strategy_v2",
-            "title": "mock_title_b11e1a8c",
+            "title": "mock_title_2a48806d",
             "logline": null,
             "language": "en",
             "target_audience": "Serve the audience segment described as: US female 18-34 viewers who binge dark romance betrayal twists.",
             "target_platform": "tiktok_benchmark_v1",
             "tone": "intense",
-            "hook": "mock_hook_b11e1a8c",
-            "synopsis": "mock_synopsis_b11e1a8c",
+            "hook": "mock_hook_2a48806d",
+            "synopsis": "mock_synopsis_2a48806d",
             "episode_goal": "Turn the strongest trend and preference signals into a short-form cliffhanger script.",
             "target_duration_seconds": 45,
             "characters": [],
@@ -1636,22 +2509,22 @@
               "provider": "mock",
               "model_name": "mock-script-generator",
               "strategy_id": "strategy.tiktok.prompt_eval.strategy_v2",
-              "prompt_fingerprint": "b11e1a8c",
+              "prompt_fingerprint": "2a48806d",
               "prompt_versions": [
                 "v2"
               ],
               "generation_strategy_version": "v2"
             },
-            "id": "6a3aa66a-9bac-4a55-b020-2e33b80f2826",
-            "created_at": "2026-07-17T01:47:08.368174Z",
-            "updated_at": "2026-07-17T01:47:08.368175Z"
+            "id": "cec2c8d4-bb39-4771-b448-0d188816921c",
+            "created_at": "2026-07-17T04:10:24.398945Z",
+            "updated_at": "2026-07-17T04:10:24.398947Z"
           }
         },
         {
-          "sample_id": "ba05aef8-de0b-405d-9de4-e5353734c67c",
+          "sample_id": "84b1dfd5-b6e5-478b-9576-9a811499ad1e",
           "run_index": 2,
           "benchmark_dataset_id": "us_female_dark_romance",
-          "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+          "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
           "prompt_ids": [
             "prompt.story_planning.benchmark.v2"
           ],
@@ -1685,7 +2558,7 @@
               "check_name": "content_spec_requirement_applied",
               "passed": true,
               "expected": "Draft should preserve content_spec_id and target_duration_seconds from the controlled generation request",
-              "actual": "content_spec_id=3b7331b9-789e-4500-afe2-ffeef79c6fca; target_duration_seconds=45",
+              "actual": "content_spec_id=11efd202-0533-428b-9c17-e8beec0cb709; target_duration_seconds=45",
               "note": null
             },
             {
@@ -1706,7 +2579,7 @@
               "check_name": "hook_presence_and_type",
               "passed": false,
               "expected": "identity reveal",
-              "actual": "mock_hook_b11e1a8c",
+              "actual": "mock_hook_2a48806d",
               "note": null
             },
             {
@@ -2030,34 +2903,238 @@
                     ]
                   }
                 ],
-                "created_at": "2026-07-17T01:47:08.370932Z"
+                "report_version": "story_qc_report.v1",
+                "explainability_status": "partial",
+                "dimension_evaluations": [
+                  {
+                    "dimension": "hook_quality",
+                    "score": 2.5,
+                    "summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+                    "score_reason": "The current score is driven by whether the draft hook is specific and whether the opening scene establishes immediate pressure.",
+                    "deduction_reasons": [
+                      "Hook is too short or non-specific."
+                    ],
+                    "scene_refs": [
+                      1
+                    ],
+                    "evidence": [
+                      "Hook: mock_hook_2a48806d",
+                      "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+                    ],
+                    "revision_signals": [
+                      "strengthen_opening_conflict",
+                      "clarify_scroll_stopping_question"
+                    ]
+                  },
+                  {
+                    "dimension": "character_agency",
+                    "score": 2.5,
+                    "summary": "The protagonist is present, but their agency is not explicit enough yet.",
+                    "score_reason": "The current score reflects whether the protagonist initiates, refuses, exposes, or otherwise changes the scene outcome through visible action.",
+                    "deduction_reasons": [
+                      "Protagonist choices are not visible enough."
+                    ],
+                    "scene_refs": [
+                      1
+                    ],
+                    "evidence": [],
+                    "revision_signals": [
+                      "show_protagonist_choice",
+                      "increase_visible_action_risk"
+                    ]
+                  },
+                  {
+                    "dimension": "conflict_escalation",
+                    "score": 4.5,
+                    "summary": "The scenes build toward a stronger public or relational threat by the ending.",
+                    "score_reason": "The current score reflects whether later scenes meaningfully raise pressure over earlier scenes and whether the episode ends under stronger threat than it began.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      1,
+                      2,
+                      3
+                    ],
+                    "evidence": [
+                      "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                      "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+                      "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+                      "Final scene cliffhanger: True"
+                    ],
+                    "revision_signals": []
+                  },
+                  {
+                    "dimension": "emotional_payoff",
+                    "score": 4.5,
+                    "summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+                    "score_reason": "The current score reflects whether emotional shifts change across scenes and whether turning points deliver a satisfying escalation or reversal.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      1,
+                      2,
+                      3
+                    ],
+                    "evidence": [
+                      "Scene 1 emotional shift: revenge_to_hook",
+                      "Scene 2 emotional shift: revenge_to_conflict",
+                      "Scene 3 emotional shift: suspense_to_suspense"
+                    ],
+                    "revision_signals": []
+                  },
+                  {
+                    "dimension": "cliffhanger_strength",
+                    "score": 5.0,
+                    "summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+                    "score_reason": "The current score reflects whether the last scene ends with unresolved pressure, suspense, or a reversal strong enough to create immediate next-episode demand.",
+                    "deduction_reasons": [],
+                    "scene_refs": [
+                      3
+                    ],
+                    "evidence": [
+                      "Final emotional shift: suspense_to_suspense",
+                      "Next episode question: None"
+                    ],
+                    "revision_signals": []
+                  }
+                ],
+                "evidence_summary": [
+                  "hook_quality: Hook: mock_hook_2a48806d",
+                  "character_agency: Protagonist choices are not visible enough.",
+                  "conflict_escalation: Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                  "emotional_payoff: Scene 1 emotional shift: revenge_to_hook",
+                  "cliffhanger_strength: Final emotional shift: suspense_to_suspense"
+                ],
+                "knowledge_refs": [
+                  {
+                    "knowledge_id": "hook.core_conflict.fast_setup.v1",
+                    "dimension": "hook_quality",
+                    "reason": "Hook is too short or non-specific.",
+                    "evidence": "Hook: mock_hook_2a48806d"
+                  }
+                ],
+                "created_at": "2026-07-17T04:10:24.402362Z"
               }
             }
           },
           "story_qc_score": 0.893,
           "story_qc_status": "placeholder",
           "story_qc_is_placeholder": true,
-          "latency_ms": 2.554,
+          "latency_ms": 2.94,
           "estimated_cost_usd": null,
           "token_usage": null,
+          "story_qc_dimensions": [
+            {
+              "dimension": "hook_quality",
+              "score": 2.5,
+              "summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+              "deduction_reasons": [
+                "Hook is too short or non-specific."
+              ],
+              "scene_refs": [
+                1
+              ],
+              "evidence": [
+                "Hook: mock_hook_2a48806d",
+                "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+              ],
+              "revision_signals": [
+                "strengthen_opening_conflict",
+                "clarify_scroll_stopping_question"
+              ],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "character_agency",
+              "score": 2.5,
+              "summary": "The protagonist is present, but their agency is not explicit enough yet.",
+              "deduction_reasons": [
+                "Protagonist choices are not visible enough."
+              ],
+              "scene_refs": [
+                1
+              ],
+              "evidence": [],
+              "revision_signals": [
+                "show_protagonist_choice",
+                "increase_visible_action_risk"
+              ],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "conflict_escalation",
+              "score": 4.5,
+              "summary": "The scenes build toward a stronger public or relational threat by the ending.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                1,
+                2,
+                3
+              ],
+              "evidence": [
+                "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+                "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+                "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+                "Final scene cliffhanger: True"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "emotional_payoff",
+              "score": 4.5,
+              "summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                1,
+                2,
+                3
+              ],
+              "evidence": [
+                "Scene 1 emotional shift: revenge_to_hook",
+                "Scene 2 emotional shift: revenge_to_conflict",
+                "Scene 3 emotional shift: suspense_to_suspense"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            },
+            {
+              "dimension": "cliffhanger_strength",
+              "score": 5.0,
+              "summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+              "deduction_reasons": [],
+              "scene_refs": [
+                3
+              ],
+              "evidence": [
+                "Final emotional shift: suspense_to_suspense",
+                "Next episode question: None"
+              ],
+              "revision_signals": [],
+              "available": true,
+              "note": null
+            }
+          ],
           "pass_fail": true,
           "failure_reasons": [],
           "artifact_ids": {
-            "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
-            "orchestration_plan_id": "75d114ae-77a8-488e-9b10-11d75ccd67bc",
-            "draft_master_script_id": "303f8910-72b6-49f2-9b4b-de3fffbd4a54"
+            "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
+            "orchestration_plan_id": "00eb0fb1-2b5b-49a4-b962-894b5f3c9d4f",
+            "draft_master_script_id": "4f9dd775-1527-45b5-a8ce-881e7d379573"
           },
           "draft_master_script": {
-            "content_spec_id": "3b7331b9-789e-4500-afe2-ffeef79c6fca",
+            "content_spec_id": "11efd202-0533-428b-9c17-e8beec0cb709",
             "generation_strategy_id": "strategy.tiktok.prompt_eval.strategy_v2",
-            "title": "mock_title_b11e1a8c",
+            "title": "mock_title_2a48806d",
             "logline": null,
             "language": "en",
             "target_audience": "Serve the audience segment described as: US female 18-34 viewers who binge dark romance betrayal twists.",
             "target_platform": "tiktok_benchmark_v1",
             "tone": "intense",
-            "hook": "mock_hook_b11e1a8c",
-            "synopsis": "mock_synopsis_b11e1a8c",
+            "hook": "mock_hook_2a48806d",
+            "synopsis": "mock_synopsis_2a48806d",
             "episode_goal": "Turn the strongest trend and preference signals into a short-form cliffhanger script.",
             "target_duration_seconds": 45,
             "characters": [],
@@ -2141,23 +3218,89 @@
               "provider": "mock",
               "model_name": "mock-script-generator",
               "strategy_id": "strategy.tiktok.prompt_eval.strategy_v2",
-              "prompt_fingerprint": "b11e1a8c",
+              "prompt_fingerprint": "2a48806d",
               "prompt_versions": [
                 "v2"
               ],
               "generation_strategy_version": "v2"
             },
-            "id": "303f8910-72b6-49f2-9b4b-de3fffbd4a54",
-            "created_at": "2026-07-17T01:47:08.370857Z",
-            "updated_at": "2026-07-17T01:47:08.370857Z"
+            "id": "4f9dd775-1527-45b5-a8ce-881e7d379573",
+            "created_at": "2026-07-17T04:10:24.402200Z",
+            "updated_at": "2026-07-17T04:10:24.402201Z"
           }
         }
       ],
+      "story_qc_dimension_scores": {
+        "hook_quality": 2.5,
+        "character_agency": 2.5,
+        "conflict_escalation": 4.5,
+        "emotional_payoff": 4.5,
+        "cliffhanger_strength": 5.0
+      },
+      "story_qc_dimension_summaries": {
+        "hook_quality": "Opening hook exists, but the conflict or viewer question is still soft.",
+        "character_agency": "The protagonist is present, but their agency is not explicit enough yet.",
+        "conflict_escalation": "The scenes build toward a stronger public or relational threat by the ending.",
+        "emotional_payoff": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+        "cliffhanger_strength": "The ending creates strong unresolved pressure that should pull viewers into the next episode."
+      },
+      "story_qc_evidence": {
+        "hook_quality": [
+          "Hook: mock_hook_2a48806d",
+          "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+        ],
+        "conflict_escalation": [
+          "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+          "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+          "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+          "Final scene cliffhanger: True"
+        ],
+        "emotional_payoff": [
+          "Scene 1 emotional shift: revenge_to_hook",
+          "Scene 2 emotional shift: revenge_to_conflict",
+          "Scene 3 emotional shift: suspense_to_suspense"
+        ],
+        "cliffhanger_strength": [
+          "Final emotional shift: suspense_to_suspense",
+          "Next episode question: None"
+        ]
+      },
+      "story_qc_revision_signals": {
+        "hook_quality": [
+          "strengthen_opening_conflict",
+          "clarify_scroll_stopping_question"
+        ],
+        "character_agency": [
+          "show_protagonist_choice",
+          "increase_visible_action_risk"
+        ]
+      },
+      "story_qc_scene_refs": {
+        "hook_quality": [
+          1
+        ],
+        "character_agency": [
+          1
+        ],
+        "conflict_escalation": [
+          1,
+          2,
+          3
+        ],
+        "emotional_payoff": [
+          1,
+          2,
+          3
+        ],
+        "cliffhanger_strength": [
+          3
+        ]
+      },
       "metrics_summary": {
         "average_script_score": 0.773,
         "average_story_qc_score": 0.893,
         "average_deterministic_pass_rate": 0.8,
-        "average_latency_ms": 2.596,
+        "average_latency_ms": 2.986,
         "average_estimated_cost_usd": null,
         "average_total_tokens": null
       },
@@ -2166,10 +3309,112 @@
         "title_exact_match_ratio": 1.0,
         "hook_exact_match_ratio": 1.0,
         "story_qc_score_range": 0.0,
-        "average_latency_ms": 2.596
+        "average_latency_ms": 2.986
       },
       "explainability": {
         "compare_to_case_id": "prompt_v1",
+        "dimension_deltas": [
+          {
+            "dimension": "character_agency",
+            "baseline_score": 2.5,
+            "candidate_score": 2.5,
+            "delta": 0.0,
+            "direction": "unchanged",
+            "baseline_summary": "The protagonist is present, but their agency is not explicit enough yet.",
+            "candidate_summary": "The protagonist is present, but their agency is not explicit enough yet.",
+            "deduction_reasons": [],
+            "scene_refs": [
+              1
+            ],
+            "evidence": [],
+            "revision_signals": [
+              "show_protagonist_choice",
+              "increase_visible_action_risk"
+            ]
+          },
+          {
+            "dimension": "cliffhanger_strength",
+            "baseline_score": 5.0,
+            "candidate_score": 5.0,
+            "delta": 0.0,
+            "direction": "unchanged",
+            "baseline_summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+            "candidate_summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+            "deduction_reasons": [],
+            "scene_refs": [
+              3
+            ],
+            "evidence": [
+              "Final emotional shift: suspense_to_suspense",
+              "Next episode question: None"
+            ],
+            "revision_signals": []
+          },
+          {
+            "dimension": "conflict_escalation",
+            "baseline_score": 4.5,
+            "candidate_score": 4.5,
+            "delta": 0.0,
+            "direction": "unchanged",
+            "baseline_summary": "The scenes build toward a stronger public or relational threat by the ending.",
+            "candidate_summary": "The scenes build toward a stronger public or relational threat by the ending.",
+            "deduction_reasons": [],
+            "scene_refs": [
+              1,
+              2,
+              3
+            ],
+            "evidence": [
+              "Scene 1 purpose: Establish the hook and the public-facing conflict immediately.",
+              "Scene 2 purpose: Increase pressure on the protagonist and sharpen the episode goal.",
+              "Scene 3 purpose: Escalate the conflict and land the cliffhanger ending.",
+              "Final scene cliffhanger: True"
+            ],
+            "revision_signals": []
+          },
+          {
+            "dimension": "emotional_payoff",
+            "baseline_score": 4.5,
+            "candidate_score": 4.5,
+            "delta": 0.0,
+            "direction": "unchanged",
+            "baseline_summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+            "candidate_summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+            "deduction_reasons": [],
+            "scene_refs": [
+              1,
+              2,
+              3
+            ],
+            "evidence": [
+              "Scene 1 emotional shift: revenge_to_hook",
+              "Scene 2 emotional shift: revenge_to_conflict",
+              "Scene 3 emotional shift: suspense_to_suspense"
+            ],
+            "revision_signals": []
+          },
+          {
+            "dimension": "hook_quality",
+            "baseline_score": 2.5,
+            "candidate_score": 2.5,
+            "delta": 0.0,
+            "direction": "unchanged",
+            "baseline_summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+            "candidate_summary": "Opening hook exists, but the conflict or viewer question is still soft.",
+            "deduction_reasons": [],
+            "scene_refs": [
+              1
+            ],
+            "evidence": [
+              "Hook: mock_hook_2a48806d",
+              "Scene 1 purpose: Establish the hook and the public-facing conflict immediately."
+            ],
+            "revision_signals": [
+              "strengthen_opening_conflict",
+              "clarify_scroll_stopping_question"
+            ]
+          }
+        ],
         "notable_output_changes": [
           "Prompt version changed from v1 to v2.",
           "GenerationStrategy version changed from v1 to v2.",
@@ -2177,7 +3422,7 @@
           "Hook text changed between variants, indicating the opening prompt behavior shifted."
         ],
         "improved_metrics": [
-          "average_latency_ms: 4.054 -> 2.596",
+          "average_latency_ms: 5.424 -> 2.986",
           "repeat_validation_coverage: 1.000 -> 2.000"
         ],
         "regressed_metrics": [],
@@ -2189,6 +3434,17 @@
           "hook_exact_match_ratio: 1.000 -> 1.000",
           "story_qc_score_range: 0.000 -> 0.000"
         ],
+        "improvements": [],
+        "regressions": [],
+        "unchanged_dimensions": [
+          "character_agency",
+          "cliffhanger_strength",
+          "conflict_escalation",
+          "emotional_payoff",
+          "hook_quality"
+        ],
+        "strongest_improvement": null,
+        "largest_regression": null,
         "side_effects": [
           "Story QC remains placeholder-driven, so Story QC gains cannot yet be treated as final quality proof.",
           "Some content-semantic checks still fail, so the variant is stable but not yet strong on all benchmark expectations."
@@ -2198,8 +3454,12 @@
           "This variant was validated across more repeated runs, so we have stronger stability evidence."
         ],
         "why_worse": [],
+        "comparison_summary": "Compared with baseline `prompt_v1`, this variant improves 2 measurable signals without introducing a hard regression.",
         "decision_summary": "Compared with baseline `prompt_v1`, this variant improves 2 measurable signals without introducing a hard regression.",
-        "recommended_action": "Keep this variant in the next optimization round and use it as a challenger or replacement candidate."
+        "recommended_action": "Keep this variant in the next optimization round and use it as a challenger or replacement candidate.",
+        "recommended_variant": true,
+        "recommendation_reason": "`strategy_v2_repeat` is the strongest keep candidate because it leads on measurable comparison signals: average_latency_ms: 5.424 -> 2.986; repeat_validation_coverage: 1.000 -> 2.000.",
+        "confidence_note": "Aggregate scores are very close, so keep this comparison as directional evidence rather than a decisive winner."
       },
       "pass_fail": true,
       "failure_reasons": []
@@ -2208,9 +3468,9 @@
   "overall_pass": true,
   "decision_summary": {
     "best_variant_case_id": "strategy_v2_repeat",
-    "best_variant_reason": "`strategy_v2_repeat` is the strongest keep candidate because it leads on measurable comparison signals: average_latency_ms: 4.054 -> 2.596; repeat_validation_coverage: 1.000 -> 2.000.",
+    "best_variant_reason": "`strategy_v2_repeat` is the strongest keep candidate because it leads on measurable comparison signals: average_latency_ms: 5.424 -> 2.986; repeat_validation_coverage: 1.000 -> 2.000.",
     "improvement_signals": [
-      "average_latency_ms: 4.054 -> 2.596",
+      "average_latency_ms: 5.424 -> 2.986",
       "repeat_validation_coverage: 1.000 -> 2.000"
     ],
     "regression_signals": [],
@@ -2235,5 +3495,5 @@
     "json_path": "examples/prompt_evaluations/reports/prompt_eval_minimal_v1.json",
     "markdown_path": "examples/prompt_evaluations/reports/prompt_eval_minimal_v1.md"
   },
-  "created_at": "2026-07-17T01:47:08.371932Z"
+  "created_at": "2026-07-17T04:10:24.403819Z"
 }

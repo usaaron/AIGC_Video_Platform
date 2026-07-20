@@ -262,6 +262,66 @@ class PromptEvaluationArtifactIds(BaseModel):
     draft_master_script_id: str = Field(min_length=3, max_length=120)
 
 
+class PromptEvaluationStoryQCDimensionInsight(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dimension: str = Field(min_length=3, max_length=80)
+    score: float | None = Field(default=None, ge=0.0, le=5.0)
+    summary: str | None = Field(default=None, min_length=3, max_length=240)
+    deduction_reasons: list[str] = Field(default_factory=list, max_length=10)
+    scene_refs: list[int] = Field(default_factory=list, max_length=20)
+    evidence: list[str] = Field(default_factory=list, max_length=10)
+    revision_signals: list[str] = Field(default_factory=list, max_length=10)
+    available: bool = True
+    note: str | None = Field(default=None, min_length=3, max_length=240)
+
+    @field_validator("deduction_reasons", "evidence", "revision_signals")
+    @classmethod
+    def ensure_unique_dimension_insight_strings(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().lower() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("List values must be unique.")
+        return values
+
+    @field_validator("scene_refs")
+    @classmethod
+    def ensure_unique_dimension_insight_scene_refs(cls, values: list[int]) -> list[int]:
+        if len(set(values)) != len(values):
+            raise ValueError("Scene refs must be unique.")
+        return values
+
+
+class PromptEvaluationDimensionDelta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dimension: str = Field(min_length=3, max_length=80)
+    baseline_score: float | None = Field(default=None, ge=0.0, le=5.0)
+    candidate_score: float | None = Field(default=None, ge=0.0, le=5.0)
+    delta: float | None = Field(default=None, ge=-5.0, le=5.0)
+    direction: str = Field(min_length=3, max_length=40)
+    baseline_summary: str | None = Field(default=None, min_length=3, max_length=240)
+    candidate_summary: str | None = Field(default=None, min_length=3, max_length=240)
+    deduction_reasons: list[str] = Field(default_factory=list, max_length=10)
+    scene_refs: list[int] = Field(default_factory=list, max_length=20)
+    evidence: list[str] = Field(default_factory=list, max_length=10)
+    revision_signals: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("deduction_reasons", "evidence", "revision_signals")
+    @classmethod
+    def ensure_unique_dimension_delta_strings(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().lower() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("List values must be unique.")
+        return values
+
+    @field_validator("scene_refs")
+    @classmethod
+    def ensure_unique_dimension_delta_scene_refs(cls, values: list[int]) -> list[int]:
+        if len(set(values)) != len(values):
+            raise ValueError("Scene refs must be unique.")
+        return values
+
+
 class PromptEvaluationSampleResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -286,6 +346,10 @@ class PromptEvaluationSampleResult(BaseModel):
     latency_ms: float = Field(ge=0.0, le=300000.0)
     estimated_cost_usd: float | None = Field(default=None, ge=0.0)
     token_usage: PromptEvaluationTokenUsage | None = None
+    story_qc_dimensions: list[PromptEvaluationStoryQCDimensionInsight] = Field(
+        default_factory=list,
+        max_length=10,
+    )
     pass_fail: bool
     failure_reasons: list[str] = Field(default_factory=list, max_length=20)
     artifact_ids: PromptEvaluationArtifactIds
@@ -325,21 +389,37 @@ class PromptEvaluationVariantExplainability(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     compare_to_case_id: str | None = Field(default=None, min_length=3, max_length=120)
+    dimension_deltas: list[PromptEvaluationDimensionDelta] = Field(
+        default_factory=list,
+        max_length=20,
+    )
     notable_output_changes: list[str] = Field(default_factory=list, max_length=20)
     improved_metrics: list[str] = Field(default_factory=list, max_length=20)
     regressed_metrics: list[str] = Field(default_factory=list, max_length=20)
     unchanged_metrics: list[str] = Field(default_factory=list, max_length=20)
+    improvements: list[str] = Field(default_factory=list, max_length=20)
+    regressions: list[str] = Field(default_factory=list, max_length=20)
+    unchanged_dimensions: list[str] = Field(default_factory=list, max_length=20)
+    strongest_improvement: str | None = Field(default=None, min_length=3, max_length=80)
+    largest_regression: str | None = Field(default=None, min_length=3, max_length=80)
     side_effects: list[str] = Field(default_factory=list, max_length=20)
     why_better: list[str] = Field(default_factory=list, max_length=20)
     why_worse: list[str] = Field(default_factory=list, max_length=20)
+    comparison_summary: str | None = Field(default=None, min_length=5, max_length=400)
     decision_summary: str = Field(min_length=5, max_length=400)
     recommended_action: str = Field(min_length=5, max_length=240)
+    recommended_variant: bool | None = None
+    recommendation_reason: str | None = Field(default=None, min_length=5, max_length=400)
+    confidence_note: str | None = Field(default=None, min_length=5, max_length=300)
 
     @field_validator(
         "notable_output_changes",
         "improved_metrics",
         "regressed_metrics",
         "unchanged_metrics",
+        "improvements",
+        "regressions",
+        "unchanged_dimensions",
         "side_effects",
         "why_better",
         "why_worse",
@@ -363,6 +443,12 @@ class PromptEvaluationVariantResult(BaseModel):
     generation_strategy_id: str = Field(min_length=3, max_length=120)
     generation_strategy_version: str = Field(min_length=1, max_length=40)
     samples: list[PromptEvaluationSampleResult] = Field(min_length=1, max_length=20)
+    story_qc_dimension_scores: dict[str, float] = Field(default_factory=dict)
+    story_qc_dimension_summaries: dict[str, str] = Field(default_factory=dict)
+    story_qc_deduction_reasons: dict[str, list[str]] = Field(default_factory=dict)
+    story_qc_evidence: dict[str, list[str]] = Field(default_factory=dict)
+    story_qc_revision_signals: dict[str, list[str]] = Field(default_factory=dict)
+    story_qc_scene_refs: dict[str, list[int]] = Field(default_factory=dict)
     metrics_summary: PromptEvaluationVariantMetrics
     stability_summary: PromptEvaluationStabilitySummary
     explainability: PromptEvaluationVariantExplainability

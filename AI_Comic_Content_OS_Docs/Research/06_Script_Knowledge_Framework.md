@@ -362,6 +362,61 @@
 
 本轮只建立知识体系与研究边界。
 
+## 5.1 Story QC Credibility Improvement v1 对 Research 的最小落点
+
+在不实现完整 Knowledge System 的前提下，当前研究可以先支持 `Story QC Credibility Improvement v1` 的最小设计。
+
+当前优先服务的 5 个维度：
+
+- `Hook Quality`
+- `Character Agency`
+- `Conflict Escalation`
+- `Emotional Payoff`
+- `Cliffhanger Strength`
+
+当前 Research 作用：
+
+- 为这 5 个维度提供后续可引用知识来源
+- 帮助定义“为什么扣分”而不是只给结论
+- 帮助把知识引用转换成可治理字段，而不是散落说明文本
+
+### 当前建议的知识引用占位
+
+未来 `StoryQCReport` 可逐步支持：
+
+- `knowledge_refs`
+
+推荐结构示意：
+
+```json
+{
+  "knowledge_id": "character.agency.active_choice.v1",
+  "dimension": "character_agency",
+  "reason": "Protagonist reacts to events instead of initiating action.",
+  "evidence": "Scene 2"
+}
+```
+
+当前说明：
+
+- 这不是要求本轮立即构建完整知识检索系统
+- 这只是为后续 `Story QC`、`Prompt Evaluation`、`Revision` 预留统一知识引用方式
+- `knowledge_id` 的存在意义是提高可追踪性、可复查性和知识治理能力
+- 当前代码已支持 `knowledge_refs` 兼容字段，但它仍不代表完整知识系统已落地
+
+### v1 不应过度承诺的内容
+
+即使补充了 `knowledge_refs` 占位，也不代表：
+
+- 当前 `Story QC` 已经具备完整专业评审能力
+- 当前知识体系已经可以自动决定所有扣分逻辑
+- 当前报告已经可以替代人工剧本打磨
+
+因此，v1 更准确的定位是：
+
+- `Explainability Upgrade`
+- 不是 `Professional Story Judge Completed`
+
 ## 6. 建议进入长期 Backlog 的能力
 
 - Knowledge-aware `Story QC`
@@ -375,9 +430,10 @@
 
 ### 下一阶段优先建议
 
-1. 建立最小 `Script Knowledge Registry` 文档/数据契约
-2. 让 `Story QC` 报告先支持“引用 knowledge_id”占位字段
-3. 让 `Prompt Evaluation` 报告先支持“使用了哪些知识”观察项
+1. 让 `Story QC` 报告先支持 5 个核心维度的 explainability 字段
+2. 让 `Story QC` 报告支持“引用 knowledge_id”占位字段
+3. 让 `Prompt Evaluation` 报告支持“使用了哪些 `Story QC` 维度解释”观察项
+4. 建立最小 `Script Knowledge Registry` 文档/数据契约
 
 ### 暂缓事项
 

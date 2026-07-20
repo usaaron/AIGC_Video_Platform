@@ -40,9 +40,13 @@ Raw Data
 → `LLMAdapter`
 → Draft `MasterScript`
 → Story QC
+→ `RevisionDecision`
+→ `RevisionStrategy`
 → `RevisionPlan`
-→ `Script Revision`
+→ `RevisionExecutor`
 → Re-QC
+→ `AcceptanceDecision`
+→ `ScriptRevisionRun`
 → Final `MasterScript`
 
 当前 Script Engine 的长期对外目标形态应逐步收口为：
@@ -148,6 +152,51 @@ Raw Data
   - API Design
   - Compatibility / Migration 说明
 
+## Version Baseline Management
+
+AI Comic Content OS 采用阶段性版本基线管理。
+
+当一个重要能力阶段完成后，应形成稳定版本基线：
+
+Capability Development
+→ Validation
+→ Documentation Sync
+→ Git Commit
+→ Version Tag
+→ Next Optimization Cycle
+
+阶段性版本基线用于：
+
+- 保留可复现系统状态
+- 支持问题定位
+- 支持能力提升前后对比
+- 支持回滚稳定版本
+- 记录架构与能力演进历史
+
+进入阶段性版本基线前，至少应满足：
+
+- 主链路验证通过
+- Benchmark 状态明确
+- 测试结果记录
+- 文档状态同步
+- Commit 信息清晰
+
+版本命名建议：
+
+- `generation-pipeline-v1.0.0`
+  - 表示第一版完整生成链路基线
+- 后续能力优化版本可按能力主题递增，例如：
+  - `v1.1 Story QC Improvement`
+  - `v1.2 Revision Quality Upgrade`
+  - `v1.3 Data Intelligence Improvement`
+
+当前阶段额外原则：
+
+- 不要在没有稳定基线的情况下进行大范围能力重构
+- 每次重大能力变化前，应确保当前稳定版本已经保存
+- Capability Optimization 应尽量基于可回溯、可比较的稳定版本推进
+- Benchmark、测试记录与文档状态应能对应到清晰的基线版本
+
 ## Current Development Focus
 
 当前 MVP 阶段唯一目标：
@@ -174,9 +223,13 @@ Data Intelligence
 → `LLMAdapter`
 → Draft `MasterScript`
 → Story QC
+→ `RevisionDecision`
+→ `RevisionStrategy`
 → `RevisionPlan`
-→ `Script Revision`
+→ `RevisionExecutor`
 → Re-QC
+→ `AcceptanceDecision`（shadow）
+→ `ScriptRevisionRun`
 → Final `MasterScript`
 
 当前默认开发策略：
@@ -210,17 +263,30 @@ Data Intelligence
 - 是否能够稳定输出 `Story QC Report`
 - 是否能够稳定输出结构化 `RevisionPlan`
 - 是否能够稳定输出 `Revised DraftMasterScript`
-- 是否能够验证 Re-QC 分数相对原 Draft 不下降
+- 是否能够验证目标修订维度改善、非目标维度回退和修改场景对齐
+- 是否能够将 shadow `AcceptanceDecision` 保存到 `ScriptRevisionRun` lineage
 - 是否能够稳定输出 Final `MasterScript`
 - Final `MasterScript` 的 Story QC 分数是否高于 `DraftMasterScript`
 
 当前优化优先级：
 
-1. Prompt Evaluation 第一轮已完成
-2. 当前进入 Story QC Credibility Improvement
-3. 下一步是 Data Intelligence Quality Improvement
+1. Revision Acceptance / Policy Calibration
+2. Initial Generation Quality Improvement v1
 
-当前阶段仅开发以下模块：
+当前已完成的能力优化基线：
+
+- Story QC Explainability Upgrade v1
+- Prompt Evaluation Explainability Integration v1
+- Revision Quality Improvement v1：Decision、Strategy、Planner、Executor 与 Acceptance shadow integration
+
+当前 Revision 成熟度边界：
+
+- 已实现：结构化决策、策略、受控规则执行、Re-QC、确定性 Acceptance 计算与 lineage 保存
+- Shadow：`AcceptanceDecision` 只用于观测，不阻断 Finalization
+- 待校准：Revision Policy 阈值、跨 Benchmark 的 effectiveness 指标和人工 Ground Truth
+- 生产强制：仍只有现有 Finalization Gate 的 lineage、Re-QC 存在性和最低分数校验
+
+当前 Script Generation Quality Loop checkpoint 只进行 Script Engine 能力优化。以下模块仍属于既有 MVP 范围，但本阶段不扩展其能力：
 
 - Data Collection
 - Data Intelligence
@@ -237,6 +303,13 @@ Data Intelligence
 - `CreativeBrief`
 - `MasterScript`
 - Script Engine
+
+当前明确冻结：
+
+- Data Intelligence Quality Improvement
+- Knowledge Base 实现扩展
+- Creative Skill Registry
+- Asset / Media / Video Production
 
 当前 `Trend Intelligence` 的最小实现要求：
 
@@ -356,10 +429,14 @@ Data Intelligence 不允许只是抽象模块，必须形成完整的数据分�
 → Prompt Builder
 → `LLMAdapter`
 → `DraftMasterScript`
-→ Story QC
+→ `StoryQCReport`
+→ `RevisionDecision`
+→ `RevisionStrategy`
 → `RevisionPlan`
-→ `Script Revision`
+→ `RevisionExecutor`
 → Re-QC
+→ `AcceptanceDecision`（shadow）
+→ `ScriptRevisionRun`
 → Final `MasterScript`
 
 当前最小实现要求：
@@ -377,7 +454,9 @@ Data Intelligence 不允许只是抽象模块，必须形成完整的数据分�
   - → `RevisionPlan`
   - → `RevisedDraftMasterScript`
   - → `ReQCReport`
+  - → `ScriptRevisionRun`
   - → Final `MasterScript`
+- shadow `AcceptanceDecision` 可以存在于 `ScriptRevisionRun`，但当前不是 Finalization 必填条件
 - 缺少 `StoryQCReport`、`RevisionPlan`、`RevisedDraftMasterScript` 或 `ReQCReport` 时禁止 Finalize
 - Re-QC 分数低于 Finalization Policy 阈值时禁止 Finalize
 - Final `MasterScript` 必须保存完整 lineage，包括：

@@ -2,10 +2,14 @@ import pytest
 from pydantic import ValidationError
 
 from app.modules.script_engine.models import (
+    AcceptanceDecision,
     GenerationStrategy,
     PromptLibraryItem,
     PromptRetrievalResult,
+    RevisionDecision,
     RevisionPlan,
+    RevisionPolicy,
+    RevisionStrategy,
     ScriptRevisionRun,
     StoryQCReport,
 )
@@ -142,9 +146,191 @@ def test_story_qc_report_accepts_rubric_categories() -> None:
                     "revision_suggestions": ["Replace generic lines with concrete, high-stakes phrasing."],
                 }
             ],
+            "report_version": "story_qc_report.v1",
+            "explainability_status": "partial",
+            "dimension_evaluations": [
+                {
+                    "dimension": "hook_quality",
+                    "score": 4.2,
+                    "summary": "Hook establishes a clear contradiction.",
+                    "score_reason": "The hook is specific and front-loads conflict.",
+                    "deduction_reasons": [],
+                    "scene_refs": [1],
+                    "evidence": ["Hook: She married him before she learned his real name."],
+                    "revision_signals": [],
+                }
+            ],
+            "evidence_summary": [
+                "hook_quality: Hook: She married him before she learned his real name."
+            ],
+            "knowledge_refs": [
+                {
+                    "knowledge_id": "hook.core_conflict.fast_setup.v1",
+                    "dimension": "hook_quality",
+                    "reason": "Hook establishes the core contradiction quickly.",
+                    "evidence": "Hook: She married him before she learned his real name.",
+                }
+            ],
         }
     )
     assert model.rubric_categories[0].category_name == "Dialogue Quality"
+    assert model.dimension_evaluations[0].scene_refs == [1]
+    assert model.knowledge_refs[0].dimension.value == "hook_quality"
+
+
+def test_revision_decision_creation_defaults_and_serialization() -> None:
+    model = RevisionDecision.model_validate(
+        {
+            "revision_required": True,
+            "decision_reason": "Character agency needs a targeted scene-level revision.",
+            "selected_dimensions": ["character_agency"],
+            "primary_scene_refs": [2],
+            "confidence": 0.86,
+        }
+    )
+
+    assert model.deferred_dimensions == []
+    assert model.protected_dimensions == []
+    assert model.model_dump(mode="json") == {
+        "revision_required": True,
+        "decision_reason": "Character agency needs a targeted scene-level revision.",
+        "selected_dimensions": ["character_agency"],
+        "deferred_dimensions": [],
+        "protected_dimensions": [],
+        "primary_scene_refs": [2],
+        "confidence": 0.86,
+    }
+
+
+def test_revision_strategy_creation_defaults_and_serialization() -> None:
+    model = RevisionStrategy.model_validate(
+        {
+            "target_dimension": "character_agency",
+            "problem_type": "reactive_protagonist",
+            "problem_reason": "The protagonist only reacts to the reveal in Scene 2.",
+            "revision_goal": "Give the protagonist an active choice with consequences.",
+            "revision_method": "Replace the passive response with an irreversible decision.",
+            "expected_effect": "Increase character agency without weakening the hook.",
+            "confidence": 0.82,
+            "scene_refs": [2],
+        }
+    )
+
+    serialized = model.model_dump(mode="json")
+    assert model.priority == 1
+    assert model.do_not_touch == []
+    assert model.knowledge_refs == []
+    assert serialized["target_dimension"] == "character_agency"
+    assert serialized["scene_refs"] == [2]
+
+
+def test_revision_policy_uses_single_round_default() -> None:
+    model = RevisionPolicy.model_validate(
+        {
+            "minimum_improvement_threshold": 0.05,
+            "acceptance_threshold": 0.65,
+            "regression_limit": 0,
+        }
+    )
+
+    assert model.max_revision_rounds == 1
+    assert model.model_dump() == {
+        "policy_version": "revision_acceptance_policy.v1",
+        "max_revision_rounds": 1,
+        "minimum_improvement_threshold": 0.05,
+        "acceptance_threshold": 0.65,
+        "regression_limit": 0,
+        "dimension_regression_tolerance": 0.0,
+    }
+
+
+def test_acceptance_decision_creation_defaults_and_serialization() -> None:
+    model = AcceptanceDecision.model_validate(
+        {
+            "accepted": True,
+            "acceptance_reason": "The targeted dimension improved without protected regressions.",
+            "targeted_dimension_improvement": {"character_agency": 0.14},
+            "regression_count": 0,
+            "protected_dimension_stability": True,
+        }
+    )
+
+    assert model.stop_reason is None
+    assert model.model_dump(mode="json") == {
+        "accepted": True,
+        "acceptance_reason": "The targeted dimension improved without protected regressions.",
+        "targeted_dimension_improvement": {"character_agency": 0.14},
+        "regression_count": 0,
+        "protected_dimension_stability": True,
+        "stop_reason": None,
+        "decision_version": "revision_acceptance_decision.v1",
+        "policy_version": "revision_acceptance_policy.v1",
+        "revision_round": 1,
+        "scene_alignment_rate": 0.0,
+        "revision_effectiveness": 0.0,
+        "regressed_dimensions": [],
+    }
+
+
+def test_revision_plan_old_payload_remains_backward_compatible() -> None:
+    model = RevisionPlan.model_validate(
+        {
+            "draft_master_script_id": "draft.master_script.compatibility",
+            "content_spec_id": "content_spec.compatibility",
+            "generation_strategy_id": "strategy.tiktok.master_script.v1",
+            "story_qc_status": "placeholder",
+            "overall_priority": "medium",
+            "focus_summary": "Keep the existing revision plan contract unchanged.",
+        }
+    )
+
+    serialized = model.model_dump(mode="json")
+    assert serialized["actions"] == []
+    assert serialized["revision_decision"] is None
+    assert serialized["revision_strategies"] == []
+
+
+def test_revision_plan_accepts_decision_and_strategies() -> None:
+    model = RevisionPlan.model_validate(
+        {
+            "draft_master_script_id": "draft.master_script.explainable",
+            "content_spec_id": "content_spec.explainable",
+            "generation_strategy_id": "strategy.tiktok.master_script.v1",
+            "story_qc_status": "placeholder",
+            "overall_priority": "high",
+            "focus_summary": "Strengthen hook while protecting emotional payoff.",
+            "revision_decision": {
+                "revision_required": True,
+                "decision_reason": "Hook quality is the highest-impact evidence-backed target.",
+                "selected_dimensions": ["hook_quality"],
+                "deferred_dimensions": ["conflict_escalation"],
+                "protected_dimensions": ["emotional_payoff"],
+                "primary_scene_refs": [1],
+                "confidence": 0.9,
+            },
+            "revision_strategies": [
+                {
+                    "target_dimension": "hook_quality",
+                    "problem_type": "late_opening_conflict",
+                    "problem_reason": "The central contradiction arrives after Scene 1.",
+                    "revision_goal": "Establish the contradiction in the opening scene.",
+                    "revision_method": "Move the existing reveal into Scene 1 without changing the ending.",
+                    "expected_effect": "Increase opening pressure while preserving emotional payoff.",
+                    "priority": 1,
+                    "confidence": 0.9,
+                    "scene_refs": [1],
+                    "do_not_touch": ["Preserve emotional_payoff."],
+                    "knowledge_refs": [],
+                }
+            ],
+        }
+    )
+
+    serialized = model.model_dump(mode="json")
+    assert model.revision_decision is not None
+    assert model.revision_decision.selected_dimensions[0].value == "hook_quality"
+    assert model.revision_strategies[0].scene_refs == [1]
+    assert serialized["revision_strategies"][0]["target_dimension"] == "hook_quality"
 
 
 def test_revision_plan_accepts_valid_payload() -> None:
@@ -306,3 +492,4 @@ def test_script_revision_run_accepts_valid_payload() -> None:
         }
     )
     assert model.improved is True
+    assert model.acceptance_decision is None

@@ -209,6 +209,12 @@
 - `llm_raw_output` 仅用于追踪和调试，不应视为最终业务对象
 - `prompt_build_result.prompt_text` 当前可直接用于追踪真实模型的最终输入 Prompt
 - `llm_model_info` 当前应反映 Mock / Real Adapter 的实际切换结果
+- `story_qc_report` 当前除基础分数外，已返回：
+  - `report_version`
+  - `explainability_status`
+  - `dimension_evaluations`
+  - `evidence_summary`
+  - `knowledge_refs`
 - 该接口当前更适合作为内部步骤 API，而不是未来长期稳定的唯一外部契约
 
 错误处理：
@@ -558,12 +564,31 @@
 - `variants[].generation_strategy_version`
 - `variants[].metrics_summary`
 - `variants[].explainability`
+- `variants[].story_qc_dimension_scores`
+- `variants[].story_qc_dimension_summaries`
+- `variants[].story_qc_evidence`
+- `variants[].story_qc_revision_signals`
+- `variants[].story_qc_scene_refs`
 - `variants[].samples[].deterministic_checks`
 - `variants[].samples[].story_qc_score`
+- `variants[].samples[].story_qc_dimensions`
 - `variants[].samples[].latency_ms`
 - `variants[].samples[].token_usage`
 - `variants[].samples[].artifact_ids`
 - `decision_summary`
+
+当前 `variants[].explainability` 在 v1 中已开始消费 `StoryQCReport.dimension_evaluations`，当前可返回：
+
+- `dimension_deltas`
+- `improvements`
+- `regressions`
+- `unchanged_dimensions`
+- `strongest_improvement`
+- `largest_regression`
+- `comparison_summary`
+- `recommended_variant`
+- `recommendation_reason`
+- `confidence_note`
 
 错误处理：
 

@@ -85,6 +85,24 @@
 - `draft_master_script_id`
 - Markdown / JSON 报告路径（如启用报告落盘）
 
+当前 `Prompt Evaluation Explainability Integration v1` 已补充：
+
+- `variants[].story_qc_dimension_scores`
+- `variants[].story_qc_dimension_summaries`
+- `variants[].story_qc_evidence`
+- `variants[].story_qc_revision_signals`
+- `variants[].story_qc_scene_refs`
+- `variants[].explainability.dimension_deltas`
+- `variants[].explainability.improvements`
+- `variants[].explainability.regressions`
+- `variants[].explainability.unchanged_dimensions`
+- `variants[].explainability.strongest_improvement`
+- `variants[].explainability.largest_regression`
+- `variants[].explainability.comparison_summary`
+- `variants[].explainability.recommended_variant`
+- `variants[].explainability.recommendation_reason`
+- `variants[].explainability.confidence_note`
+
 当前 `Prompt Evaluation` 解释性增强后，报告还应回答：
 
 - 为什么某个 Variant 变好了
@@ -94,6 +112,15 @@
 - 是否出现新的副作用
 - 当前最值得保留的 Variant 是什么
 - 下一步最值得优化什么
+
+当前 v1 实现边界：
+
+- 已开始消费 `StoryQCReport.dimension_evaluations`
+- 已能比较相同 dimension 的 score delta
+- 已能保留 scene refs、evidence 和 revision signals
+- 已能兼容旧 `StoryQCReport`
+- 仍然不是自动 Prompt 优化器
+- 仍然不代表系统已经开始自主学习或自动更新 Prompt
 
 当前推荐直接查看以下结构化摘要字段：
 
@@ -205,6 +232,183 @@
   - 哪些结构规则被执行
   - 哪些知识在当前平台 / 地区 / 类型下被认为适用
 - 在 `Script Knowledge Framework` 尚未固化前，这些信息应先作为 explainability 信号，而不是新的强门槛
+
+## Story QC Credibility Improvement v1 Validation
+
+当前 `Story QC Credibility Improvement v1` 的验证目标不是证明“分数更高”，而是证明“报告更可信、更可用、更可解释”。
+
+### Before / After 比较方式
+
+当前推荐比较：
+
+- Before：当前 placeholder `Story QC`
+- After：`Story QC Explainability v1`
+
+比较对象应尽量基于同一批固定 Benchmark 与同一批 Draft / Revised Draft 样本。
+
+### v1 优先验证指标
+
+第一轮优先回答以下问题：
+
+- 是否能解释主要扣分原因
+- 是否能定位到相关场景
+- 是否能输出可执行 `Revision` 信号
+- 是否能帮助 `Prompt Evaluation` 解释变好 / 变差原因
+- 是否保持现有主链路与 Benchmark 稳定
+
+当前建议至少记录以下验证项：
+
+- `has_dimension_level_explanations`
+- `has_deduction_reasons`
+- `has_scene_references`
+- `has_revision_signals`
+- `has_knowledge_ref_placeholders`
+- `supports_prompt_eval_analysis`
+
+### v1 成功标准
+
+`Story QC Credibility Improvement v1` 第一轮可视为有效，至少应满足：
+
+- 5 个核心维度可以独立给出结构化判断
+- 主要扣分项能说明原因
+- 至少部分问题可定位到 scene level
+- `RevisionPlan` 可从报告中提取更明确的修订方向
+- `Prompt Evaluation` 可利用 `Story QC` 的维度判断增强 explainability
+
+当前实现状态：
+
+- `StoryQCReport` 已支持 5 个维度级 `dimension_evaluations`
+- 已支持 `scene_refs`、`evidence`、`revision_signals`
+- 已支持 `report_version`、`explainability_status`
+- 已支持 `knowledge_refs` 兼容占位字段
+- Benchmark 当前可直接消费增强后的 `StoryQCReport`，无需改写主链路
+
+### 当前 5 个核心维度
+
+第一轮仅建议围绕：
+
+- `Hook Quality`
+- `Character Agency`
+- `Conflict Escalation`
+- `Emotional Payoff`
+- `Cliffhanger Strength`
+
+说明：
+
+- 这 5 个维度当前优先服务短剧留存、追更和剧本打磨
+- 这不意味着其余 rubric 维度失效
+- 其余维度当前仍保留在现有 rubric 中，后续再逐步提升可信度
+
+### 当前限制说明
+
+即使进入 v1，以下边界仍应明确：
+
+- 当前 `Story QC` 仍不应被宣称为完整专业 Script Expert
+- `knowledge_refs` 初期只能作为兼容字段或占位字段
+- 若没有更强知识引用和证据抽取能力，分数仍主要属于规则信号
+- Benchmark 第一轮重点验证“解释能力提升”，而不是宣称剧本质量结论已经专业化
+
+## Revision Quality Improvement v1 Evaluation
+
+`Revision Quality Improvement v1` 的验证目标，是证明修订能够针对已识别问题产生受控改善，同时避免损害原本表现良好的内容。
+
+当前 Benchmark 已能验证 Story QC explainability、Prompt variant comparison 和现有 Draft / Revised Draft 的基础分数变化。运行时 `RevisionAcceptanceEvaluator v1` 已能对单次受控修订计算 Revision effectiveness 指标，但这些指标尚未进入 Benchmark runner 的跨样本汇总或正式报告模型。
+
+后续校准不应为迎合当前结果修改固定 Benchmark 数据集或 Ground Truth。验证应使用同一份 Draft、同一份 `StoryQCReport` 和相同 Revision Policy，对比人工预期与 shadow Acceptance 结果。
+
+Revision 成功不能只依据 `overall_score` 上升。当前单次 runtime Acceptance 已记录：
+
+- `targeted_dimension_improvement`
+- `regression_count`
+- `protected_dimension_stability`
+- `scene_alignment_rate`
+- `revision_effectiveness`
+
+### 指标定义
+
+`targeted_dimension_improvement`
+
+- 衡量本轮选中维度在 Re-QC 后的分数变化
+- 应分别保留各目标维度 delta，不只保存平均值
+- 如果目标维度没有改善，不能仅凭 overall score 上升判定修订成功
+
+`regression_count`
+
+- 统计超过 `RevisionPolicy.regression_limit` 的非目标维度数量
+- 新增明显退化应进入失败原因或 Acceptance 风险说明
+- 单一目标维度提升不能抵消多个关键维度回退
+
+`protected_dimension_stability`
+
+- 衡量 `RevisionDecision.protected_dimensions` 在修订前后的稳定程度
+- 受保护维度超出允许回退范围时，shadow `AcceptanceDecision.accepted` 应为 false
+
+`scene_alignment_rate`
+
+- 衡量实际修改场景与 `RevisionStrategy.scene_refs` / `RevisionPlan` 目标场景的一致程度
+- 用于发现修改范围泄漏和无关场景被改写
+- v1 可以先基于场景引用和变更记录计算，不要求语义级 diff 系统
+
+`revision_effectiveness`
+
+- 用于汇总目标维度改善、回退控制、保护维度稳定和场景对齐情况
+- v1 当前公式为：`60% target improvement + 20% scene alignment + 20% regression safety`
+- 目标维度改善当前按五分制归一化：`(after - before) / 5`
+- 计算方式由 `decision_version` 与 `policy_version` 追踪，保持透明且可复现
+- 不应成为替代明细指标的单一黑盒分数
+
+### Acceptance 验证原则
+
+当前 shadow evaluator 按以下顺序判断：
+
+1. revision round 是否超过 `max_revision_rounds`
+2. Decision 是否要求修订、是否执行了动作、Strategy 是否存在
+3. 原始 QC 和 Re-QC 是否具备足够的维度 explainability
+4. 目标维度是否达到 `minimum_improvement_threshold`
+5. 回退数量和幅度是否处于 `regression_limit` / tolerance 内
+6. 受保护维度是否保持稳定
+7. 修改场景是否与 Strategy 范围对齐
+8. `revision_effectiveness` 是否达到 `acceptance_threshold`
+
+`max_revision_rounds = 1` 是当前 shadow policy 默认值。这里的 `acceptance_threshold` 当前表示最低 revision effectiveness，不是剧本专业质量认证。Benchmark 应验证单轮修订是否产生稳定、可解释的净收益；在该证据成立前，不扩展到多轮循环或 Finalization enforcement。
+
+### Before / After 验证输出
+
+未来评估报告应至少保留：
+
+- 原始 Draft 与 Revised Draft artifact IDs
+- 原始 QC 与 Re-QC report versions
+- selected / deferred / protected dimensions
+- 每个目标维度的 before、after 和 delta
+- 新增 regressions 及其 scene refs / evidence
+- 实际修改场景与计划场景的对齐结果
+- Acceptance Decision 及 stop reason
+- Revision Policy 版本和实际阈值
+
+当前实现状态：
+
+- `RevisionDecision` 与 `RevisionStrategy` 数据模型及 Planner 生成逻辑已完成
+- `RevisionPolicy` 与 `AcceptanceDecision` 数据模型已完成
+- `RevisionExecutor`、scene scope、protected dimension 检查与 execution trace 已完成
+- `targeted_dimension_improvement`、`regression_count`、`protected_dimension_stability`、`scene_alignment_rate`、`revision_effectiveness` 已在单次 runtime Acceptance 中实现
+- `AcceptanceDecision` 已保存到 `ScriptRevisionRun` runtime lineage，且只以 shadow mode 运行
+- 跨 Benchmark 的 effectiveness 汇总、人工 Ground Truth 校准和阈值校准尚未实现
+- 数据库级 Revision lineage 持久化尚未实现
+- 现有 Benchmark、Prompt Evaluation 和 Finalization 行为保持不变
+
+当前临时保留两个不等价信号：
+
+- `ScriptRevisionRun.improved`：Re-QC overall score 非下降
+- `ScriptRevisionRun.acceptance_decision`：目标维度改善、回退安全和场景对齐的 shadow 判断
+
+Benchmark 校准应评估二者分歧；在证据形成前，不自动弃用任何一个兼容字段。
+
+### 与 Prompt Evaluation 的边界
+
+- Revision Evaluation 衡量一次受控修订是否有效
+- Prompt Evaluation 比较 Prompt / Generation Strategy 对生成结果的影响
+- Prompt Evaluation 可以读取 Revision effectiveness 信号，但不负责制定或执行修订策略
+- Revision 的局部改善不能自动证明某个 Prompt Variant 整体更优
 
 ## Story Quality Rubric
 

@@ -43,11 +43,13 @@ from evaluation.models import (
     BenchmarkScenario,
     DeterministicCheckResult,
     PromptEvaluationArtifactIds,
+    PromptEvaluationDimensionDelta,
     PromptEvaluationDecisionSummary,
     PromptEvaluationReportPaths,
     PromptEvaluationRunRequest,
     PromptEvaluationRunResult,
     PromptEvaluationSampleResult,
+    PromptEvaluationStoryQCDimensionInsight,
     PromptEvaluationStabilitySummary,
     PromptEvaluationTokenUsage,
     PromptEvaluationVariantExplainability,
@@ -173,6 +175,9 @@ class PromptEvaluationRunner:
             story_qc_evaluation = self._story_qc_evaluator.evaluate(
                 draft_run.story_qc_report
             )
+            story_qc_dimensions = self._extract_story_qc_dimensions(
+                draft_run.story_qc_report
+            )
             is_mock_provider = draft_run.llm_model_info.provider == "mock"
             failure_reasons = [
                 check.check_name
@@ -215,6 +220,7 @@ class PromptEvaluationRunner:
                         draft_run.llm_raw_output
                     ),
                     token_usage=self._extract_token_usage(draft_run.llm_raw_output),
+                    story_qc_dimensions=story_qc_dimensions,
                     pass_fail=not failure_reasons,
                     failure_reasons=failure_reasons,
                     artifact_ids=PromptEvaluationArtifactIds(
@@ -228,6 +234,14 @@ class PromptEvaluationRunner:
 
         prompt_versions = sample_results[0].prompt_versions
         prompt_ids = sample_results[0].prompt_ids
+        (
+            story_qc_dimension_scores,
+            story_qc_dimension_summaries,
+            story_qc_deduction_reasons,
+            story_qc_evidence,
+            story_qc_revision_signals,
+            story_qc_scene_refs,
+        ) = self._aggregate_story_qc_dimensions(sample_results)
         variant_failure_reasons = sorted(
             {
                 reason
@@ -244,6 +258,12 @@ class PromptEvaluationRunner:
             generation_strategy_id=variant.generation_strategy.id,
             generation_strategy_version=variant.generation_strategy.version,
             samples=sample_results,
+            story_qc_dimension_scores=story_qc_dimension_scores,
+            story_qc_dimension_summaries=story_qc_dimension_summaries,
+            story_qc_deduction_reasons=story_qc_deduction_reasons,
+            story_qc_evidence=story_qc_evidence,
+            story_qc_revision_signals=story_qc_revision_signals,
+            story_qc_scene_refs=story_qc_scene_refs,
             metrics_summary=self._build_variant_metrics_summary(sample_results),
             stability_summary=self._build_stability_summary(sample_results),
             explainability=PromptEvaluationVariantExplainability(
@@ -409,6 +429,224 @@ class PromptEvaluationRunner:
             ),
         )
 
+    def _extract_story_qc_dimensions(
+        self,
+        report,
+    ) -> list[PromptEvaluationStoryQCDimensionInsight]:
+        dimensions = getattr(report, "dimension_evaluations", [])
+        if not dimensions:
+            return []
+        return [
+            PromptEvaluationStoryQCDimensionInsight(
+                dimension=item.dimension.value,
+                score=item.score,
+                summary=item.summary,
+                deduction_reasons=item.deduction_reasons,
+                scene_refs=item.scene_refs,
+                evidence=item.evidence,
+                revision_signals=item.revision_signals,
+                available=True,
+            )
+            for item in dimensions
+        ]
+
+    def _aggregate_story_qc_dimensions(
+        self,
+        samples: list[PromptEvaluationSampleResult],
+    ) -> tuple[
+        dict[str, float],
+        dict[str, str],
+        dict[str, list[str]],
+        dict[str, list[str]],
+        dict[str, list[str]],
+        dict[str, list[int]],
+    ]:
+        score_buckets: dict[str, list[float]] = {}
+        summaries: dict[str, str] = {}
+        deduction_reasons: dict[str, list[str]] = {}
+        evidence: dict[str, list[str]] = {}
+        revision_signals: dict[str, list[str]] = {}
+        scene_refs: dict[str, list[int]] = {}
+
+        for sample in samples:
+            for dimension in sample.story_qc_dimensions:
+                score_buckets.setdefault(dimension.dimension, [])
+                if dimension.score is not None:
+                    score_buckets[dimension.dimension].append(dimension.score)
+                if dimension.summary and dimension.dimension not in summaries:
+                    summaries[dimension.dimension] = dimension.summary
+                deduction_reasons.setdefault(dimension.dimension, [])
+                deduction_reasons[dimension.dimension].extend(
+                    dimension.deduction_reasons
+                )
+                evidence.setdefault(dimension.dimension, [])
+                evidence[dimension.dimension].extend(dimension.evidence)
+                revision_signals.setdefault(dimension.dimension, [])
+                revision_signals[dimension.dimension].extend(
+                    dimension.revision_signals
+                )
+                scene_refs.setdefault(dimension.dimension, [])
+                scene_refs[dimension.dimension].extend(dimension.scene_refs)
+
+        averaged_scores = {
+            dimension: round(mean(scores), 3)
+            for dimension, scores in score_buckets.items()
+            if scores
+        }
+        normalized_deduction_reasons = {
+            dimension: self._unique_strings(items)[:5]
+            for dimension, items in deduction_reasons.items()
+            if items
+        }
+        normalized_evidence = {
+            dimension: self._unique_strings(items)[:5]
+            for dimension, items in evidence.items()
+            if items
+        }
+        normalized_revision_signals = {
+            dimension: self._unique_strings(items)[:5]
+            for dimension, items in revision_signals.items()
+            if items
+        }
+        normalized_scene_refs = {
+            dimension: sorted(set(items))
+            for dimension, items in scene_refs.items()
+            if items
+        }
+        return (
+            averaged_scores,
+            summaries,
+            normalized_deduction_reasons,
+            normalized_evidence,
+            normalized_revision_signals,
+            normalized_scene_refs,
+        )
+
+    def _build_dimension_deltas(
+        self,
+        *,
+        baseline: PromptEvaluationVariantResult,
+        candidate: PromptEvaluationVariantResult,
+    ) -> list[PromptEvaluationDimensionDelta]:
+        dimensions = sorted(
+            set(baseline.story_qc_dimension_scores)
+            | set(candidate.story_qc_dimension_scores)
+            | set(baseline.story_qc_dimension_summaries)
+            | set(candidate.story_qc_dimension_summaries)
+        )
+        deltas: list[PromptEvaluationDimensionDelta] = []
+        for dimension in dimensions:
+            baseline_score = baseline.story_qc_dimension_scores.get(dimension)
+            candidate_score = candidate.story_qc_dimension_scores.get(dimension)
+            if baseline_score is None or candidate_score is None:
+                direction = "unavailable"
+                delta = None
+            else:
+                delta = round(candidate_score - baseline_score, 3)
+                if abs(delta) <= 0.01:
+                    direction = "unchanged"
+                elif delta > 0:
+                    direction = "improved"
+                else:
+                    direction = "regressed"
+            deltas.append(
+                PromptEvaluationDimensionDelta(
+                    dimension=dimension,
+                    baseline_score=baseline_score,
+                    candidate_score=candidate_score,
+                    delta=delta,
+                    direction=direction,
+                    baseline_summary=baseline.story_qc_dimension_summaries.get(dimension),
+                    candidate_summary=candidate.story_qc_dimension_summaries.get(dimension),
+                    deduction_reasons=self._unique_strings(
+                        candidate.story_qc_deduction_reasons.get(dimension, [])
+                        or baseline.story_qc_deduction_reasons.get(dimension, [])
+                    )[:5],
+                    scene_refs=sorted(
+                        set(candidate.story_qc_scene_refs.get(dimension, []))
+                        or set(baseline.story_qc_scene_refs.get(dimension, []))
+                    ),
+                    evidence=self._unique_strings(
+                        candidate.story_qc_evidence.get(dimension, [])
+                        or baseline.story_qc_evidence.get(dimension, [])
+                    )[:5],
+                    revision_signals=self._unique_strings(
+                        candidate.story_qc_revision_signals.get(dimension, [])
+                        or baseline.story_qc_revision_signals.get(dimension, [])
+                    )[:5],
+                )
+            )
+        return deltas
+
+    def _summarize_dimension_delta(
+        self,
+        delta: PromptEvaluationDimensionDelta,
+    ) -> str:
+        baseline_value = (
+            f"{delta.baseline_score:.3f}" if delta.baseline_score is not None else "n/a"
+        )
+        candidate_value = (
+            f"{delta.candidate_score:.3f}" if delta.candidate_score is not None else "n/a"
+        )
+        delta_value = f"{delta.delta:+.3f}" if delta.delta is not None else "n/a"
+        summary = delta.candidate_summary or delta.baseline_summary or "No dimension summary available."
+        scene_note = (
+            f" Scene refs: {', '.join(str(scene) for scene in delta.scene_refs)}."
+            if delta.scene_refs
+            else ""
+        )
+        return (
+            f"{delta.dimension}: {baseline_value} -> {candidate_value} "
+            f"({delta_value}). {summary}{scene_note}"
+        )
+
+    def _strongest_dimension_change(
+        self,
+        dimension_deltas: list[PromptEvaluationDimensionDelta],
+        *,
+        direction: str,
+    ) -> str | None:
+        eligible = [
+            delta
+            for delta in dimension_deltas
+            if delta.direction == direction and delta.delta is not None
+        ]
+        if not eligible:
+            return None
+        ranked = sorted(
+            eligible,
+            key=lambda item: item.delta if item.delta is not None else 0.0,
+            reverse=(direction == "improved"),
+        )
+        return ranked[0].dimension
+
+    def _build_variant_confidence_note(
+        self,
+        *,
+        variant: PromptEvaluationVariantResult,
+        baseline: PromptEvaluationVariantResult,
+        dimension_deltas: list[PromptEvaluationDimensionDelta],
+    ) -> str | None:
+        if not dimension_deltas:
+            return (
+                "Story QC dimension-level explainability is unavailable for this comparison, so the decision falls back to aggregate metrics."
+            )
+        if abs(
+            variant.metrics_summary.average_script_score
+            - baseline.metrics_summary.average_script_score
+        ) <= 0.01 and abs(
+            variant.metrics_summary.average_story_qc_score
+            - baseline.metrics_summary.average_story_qc_score
+        ) <= 0.01:
+            return (
+                "Aggregate scores are very close, so keep this comparison as directional evidence rather than a decisive winner."
+            )
+        if any(sample.story_qc_is_placeholder for sample in variant.samples):
+            return (
+                "Story QC still contains placeholder signals, so dimension-level gains are useful but not final proof of professional script quality."
+            )
+        return None
+
     def _apply_cross_variant_explainability(
         self,
         variants: list[PromptEvaluationVariantResult],
@@ -425,7 +663,7 @@ class PromptEvaluationRunner:
             explained.append(
                 variant.model_copy(update={"explainability": explainability})
             )
-        return explained
+        return self._annotate_recommended_variants(explained)
 
     def _build_variant_explainability(
         self,
@@ -437,18 +675,31 @@ class PromptEvaluationRunner:
             baseline_side_effects = self._build_placeholder_side_effects(variant)
             return PromptEvaluationVariantExplainability(
                 compare_to_case_id=None,
+                dimension_deltas=[],
                 notable_output_changes=[
                     "This is the baseline variant used as the reference for later comparisons."
                 ],
                 unchanged_metrics=[
                     "baseline_reference",
                 ],
+                improvements=[],
+                regressions=[],
+                unchanged_dimensions=["baseline_reference"],
                 side_effects=baseline_side_effects,
                 decision_summary=(
                     "Baseline variant retained as the comparison anchor for later prompt and strategy changes."
                 ),
+                comparison_summary=(
+                    "Baseline variant retained as the comparison anchor for later prompt and strategy changes."
+                ),
                 recommended_action=(
                     "Keep as the control variant so future prompt or strategy changes remain measurable."
+                ),
+                recommendation_reason=(
+                    "Baseline variant remains the control reference for later prompt and strategy comparisons."
+                ),
+                confidence_note=(
+                    "Baseline confidence is limited because Story QC still contains placeholder signals."
                 ),
             )
 
@@ -529,6 +780,31 @@ class PromptEvaluationRunner:
             higher_is_better=True,
         )
 
+        dimension_deltas = self._build_dimension_deltas(
+            baseline=baseline,
+            candidate=variant,
+        )
+        improvements = [
+            self._summarize_dimension_delta(delta)
+            for delta in dimension_deltas
+            if delta.direction == "improved"
+        ]
+        regressions = [
+            self._summarize_dimension_delta(delta)
+            for delta in dimension_deltas
+            if delta.direction == "regressed"
+        ]
+        unchanged_dimensions = [
+            delta.dimension for delta in dimension_deltas if delta.direction == "unchanged"
+        ]
+        strongest_improvement = self._strongest_dimension_change(
+            dimension_deltas,
+            direction="improved",
+        )
+        largest_regression = self._strongest_dimension_change(
+            dimension_deltas,
+            direction="regressed",
+        )
         notable_output_changes = self._build_notable_output_changes(
             variant=variant,
             baseline=baseline,
@@ -536,38 +812,61 @@ class PromptEvaluationRunner:
         side_effects = self._build_variant_side_effects(
             variant=variant,
             regressed_metrics=regressed_metrics,
+            regressions=regressions,
         )
         why_better = self._build_why_better(
             variant=variant,
             improved_metrics=improved_metrics,
+            improvements=improvements,
+            strongest_improvement=strongest_improvement,
         )
         why_worse = self._build_why_worse(
             variant=variant,
             regressed_metrics=regressed_metrics,
             side_effects=side_effects,
+            regressions=regressions,
+            largest_regression=largest_regression,
         )
-        decision_summary = self._build_variant_decision_summary(
+        comparison_summary = self._build_variant_decision_summary(
             variant=variant,
             baseline=baseline,
             improved_metrics=improved_metrics,
             regressed_metrics=regressed_metrics,
+            improvements=improvements,
+            regressions=regressions,
         )
+        decision_summary = comparison_summary
         recommended_action = self._build_variant_recommended_action(
             variant=variant,
             improved_metrics=improved_metrics,
             regressed_metrics=regressed_metrics,
+            improvements=improvements,
+            regressions=regressions,
         )
         return PromptEvaluationVariantExplainability(
             compare_to_case_id=baseline.case_id,
+            dimension_deltas=dimension_deltas,
             notable_output_changes=notable_output_changes,
             improved_metrics=improved_metrics,
             regressed_metrics=regressed_metrics,
             unchanged_metrics=unchanged_metrics,
+            improvements=improvements,
+            regressions=regressions,
+            unchanged_dimensions=unchanged_dimensions,
+            strongest_improvement=strongest_improvement,
+            largest_regression=largest_regression,
             side_effects=side_effects,
             why_better=why_better,
             why_worse=why_worse,
+            comparison_summary=comparison_summary,
             decision_summary=decision_summary,
             recommended_action=recommended_action,
+            recommendation_reason=decision_summary,
+            confidence_note=self._build_variant_confidence_note(
+                variant=variant,
+                baseline=baseline,
+                dimension_deltas=dimension_deltas,
+            ),
         )
 
     def _append_metric_delta(
@@ -632,11 +931,16 @@ class PromptEvaluationRunner:
         *,
         variant: PromptEvaluationVariantResult,
         regressed_metrics: list[str],
+        regressions: list[str],
     ) -> list[str]:
         side_effects: list[str] = []
         side_effects.extend(
             f"Regression detected in {metric.split(':', 1)[0]}."
             for metric in regressed_metrics
+        )
+        side_effects.extend(
+            f"Dimension regression: {item}"
+            for item in regressions
         )
         if (
             variant.metrics_summary.average_story_qc_score > 0.0
@@ -690,6 +994,8 @@ class PromptEvaluationRunner:
         *,
         variant: PromptEvaluationVariantResult,
         improved_metrics: list[str],
+        improvements: list[str],
+        strongest_improvement: str | None,
     ) -> list[str]:
         reasons: list[str] = []
         if any(metric.startswith("average_script_score") for metric in improved_metrics):
@@ -712,6 +1018,14 @@ class PromptEvaluationRunner:
             reasons.append(
                 "Story QC variance narrowed, which suggests more repeatable behavior across runs."
             )
+        if improvements:
+            reasons.append(
+                f"Story QC dimension comparison improved in {len(improvements)} areas, which adds more actionable quality evidence than a single overall score."
+            )
+        if strongest_improvement is not None:
+            reasons.append(
+                f"The strongest dimension-level gain is `{strongest_improvement}`, so this variant is not just scoring higher overall but improving a named story quality dimension."
+            )
         return reasons
 
     def _build_why_worse(
@@ -720,9 +1034,15 @@ class PromptEvaluationRunner:
         variant: PromptEvaluationVariantResult,
         regressed_metrics: list[str],
         side_effects: list[str],
+        regressions: list[str],
+        largest_regression: str | None,
     ) -> list[str]:
         reasons: list[str] = []
         if not regressed_metrics:
+            if regressions:
+                reasons.append(
+                    "Dimension-level Story QC comparison shows quality regression even when aggregate metrics do not fully capture it."
+                )
             return reasons
         if any(metric.startswith("average_script_score") for metric in regressed_metrics):
             reasons.append(
@@ -735,6 +1055,14 @@ class PromptEvaluationRunner:
         if any(metric.startswith("average_latency_ms") for metric in regressed_metrics):
             reasons.append(
                 "Latency increased, so the variant adds execution cost without clear evidence of better output."
+            )
+        if regressions:
+            reasons.append(
+                f"Story QC dimension comparison regressed in {len(regressions)} areas, so at least part of the candidate quality loss is visible at the scene-quality dimension level."
+            )
+        if largest_regression is not None:
+            reasons.append(
+                f"The largest named regression is `{largest_regression}`, so this is the first dimension to inspect before promoting the variant."
             )
         if not reasons and side_effects:
             reasons.append(
@@ -749,18 +1077,26 @@ class PromptEvaluationRunner:
         baseline: PromptEvaluationVariantResult,
         improved_metrics: list[str],
         regressed_metrics: list[str],
+        improvements: list[str],
+        regressions: list[str],
     ) -> str:
+        if improved_metrics and not regressed_metrics and improvements and not regressions:
+            return (
+                f"Compared with baseline `{baseline.case_id}`, this variant improves measurable metrics and also improves Story QC dimensions such as "
+                f"{', '.join(item.split(':', 1)[0] for item in improvements[:3])} without introducing a tracked dimension regression."
+            )
         if improved_metrics and not regressed_metrics:
             return (
                 f"Compared with baseline `{baseline.case_id}`, this variant improves "
                 f"{len(improved_metrics)} measurable signals without introducing a hard regression."
             )
-        if improved_metrics and regressed_metrics:
+        if (improved_metrics or improvements) and (regressed_metrics or regressions):
             return (
                 f"Compared with baseline `{baseline.case_id}`, this variant improves "
-                f"{len(improved_metrics)} signals but trades them for {len(regressed_metrics)} regressions."
+                f"{len(improved_metrics) + len(improvements)} signals but trades them for "
+                f"{len(regressed_metrics) + len(regressions)} regressions."
             )
-        if regressed_metrics:
+        if regressed_metrics or regressions:
             return (
                 f"Compared with baseline `{baseline.case_id}`, this variant does not show compensating gains and currently regresses measurable signals."
             )
@@ -774,12 +1110,15 @@ class PromptEvaluationRunner:
         variant: PromptEvaluationVariantResult,
         improved_metrics: list[str],
         regressed_metrics: list[str],
+        improvements: list[str],
+        regressions: list[str],
     ) -> str:
-        if improved_metrics and not regressed_metrics:
+        del variant
+        if (improved_metrics or improvements) and not (regressed_metrics or regressions):
             return "Keep this variant in the next optimization round and use it as a challenger or replacement candidate."
-        if improved_metrics and regressed_metrics:
+        if (improved_metrics or improvements) and (regressed_metrics or regressions):
             return "Keep this variant for targeted follow-up only if the regressions can be explained and corrected."
-        if regressed_metrics:
+        if regressed_metrics or regressions:
             return "Do not promote this variant yet; investigate the regressions before reusing it."
         return "Keep this variant as a neutral comparison point only if its prompt or strategy change is important to future experiments."
 
@@ -788,12 +1127,18 @@ class PromptEvaluationRunner:
         variants: list[PromptEvaluationVariantResult],
     ) -> PromptEvaluationDecisionSummary:
         best_variant = self._select_best_variant(variants)
-        improvement_signals = best_variant.explainability.improved_metrics[:]
+        improvement_signals = (
+            best_variant.explainability.improved_metrics[:]
+            + best_variant.explainability.improvements[:]
+        )
         regression_signals = sorted(
             {
                 signal
                 for variant in variants
-                for signal in variant.explainability.regressed_metrics
+                for signal in (
+                    variant.explainability.regressed_metrics
+                    + variant.explainability.regressions
+                )
             }
         )
         side_effects = sorted(
@@ -843,6 +1188,21 @@ class PromptEvaluationRunner:
         self,
         variant: PromptEvaluationVariantResult,
     ) -> str:
+        if variant.explainability.improvements:
+            strongest = (
+                f" Strongest quality gain: `{variant.explainability.strongest_improvement}`."
+                if variant.explainability.strongest_improvement
+                else ""
+            )
+            regression_note = (
+                f" Main regression to watch: `{variant.explainability.largest_regression}`."
+                if variant.explainability.largest_regression
+                else ""
+            )
+            return (
+                f"`{variant.case_id}` is the strongest keep candidate because it improves named Story QC dimensions: "
+                f"{'; '.join(variant.explainability.improvements[:3])}.{strongest}{regression_note}"
+            )
         if variant.explainability.improved_metrics:
             return (
                 f"`{variant.case_id}` is the strongest keep candidate because it leads on measurable comparison signals: "
@@ -857,6 +1217,8 @@ class PromptEvaluationRunner:
         best_variant: PromptEvaluationVariantResult,
     ) -> list[str]:
         targets: list[str] = []
+        if best_variant.explainability.regressions:
+            targets.extend(best_variant.explainability.regressions[:2])
         rubric = best_variant.samples[0].script_evaluation.artifacts.get("rubric", {})
         if isinstance(rubric, dict):
             categories = rubric.get("categories", [])
@@ -887,6 +1249,69 @@ class PromptEvaluationRunner:
             if target not in deduped:
                 deduped.append(target)
         return deduped[:5]
+
+    def _annotate_recommended_variants(
+        self,
+        variants: list[PromptEvaluationVariantResult],
+    ) -> list[PromptEvaluationVariantResult]:
+        if not variants:
+            return variants
+        best_variant = self._select_best_variant(variants)
+        annotated: list[PromptEvaluationVariantResult] = []
+        for variant in variants:
+            is_recommended = variant.case_id == best_variant.case_id
+            explainability = variant.explainability.model_copy(
+                update={
+                    "recommended_variant": is_recommended,
+                    "recommendation_reason": (
+                        self._build_best_variant_reason(variant)
+                        if is_recommended
+                        else variant.explainability.recommendation_reason
+                        or variant.explainability.decision_summary
+                    ),
+                    "confidence_note": (
+                        variant.explainability.confidence_note
+                        or self._build_recommendation_confidence_note(
+                            variant=variant,
+                            best_variant=best_variant,
+                        )
+                    ),
+                }
+            )
+            annotated.append(variant.model_copy(update={"explainability": explainability}))
+        return annotated
+
+    def _build_recommendation_confidence_note(
+        self,
+        *,
+        variant: PromptEvaluationVariantResult,
+        best_variant: PromptEvaluationVariantResult,
+    ) -> str | None:
+        if variant.case_id == best_variant.case_id:
+            return variant.explainability.confidence_note
+        score_gap = abs(
+            best_variant.metrics_summary.average_script_score
+            - variant.metrics_summary.average_script_score
+        )
+        if score_gap <= 0.01:
+            return (
+                "This variant is close to the current winner on aggregate score, so keep it as a meaningful challenger even if it is not the default recommendation."
+            )
+        return variant.explainability.confidence_note
+
+    def _unique_strings(self, values: list[str]) -> list[str]:
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            normalized = value.strip()
+            if not normalized:
+                continue
+            lowered = normalized.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            ordered.append(normalized)
+        return ordered
 
     def _map_failed_check_to_target(self, check_name: str) -> str | None:
         mapping = {
@@ -1479,6 +1904,7 @@ class PromptEvaluationRunner:
                     f"- Pass: `{variant.pass_fail}`",
                     f"- Decision: {variant.explainability.decision_summary}",
                     f"- Recommended Action: {variant.explainability.recommended_action}",
+                    f"- Recommended Variant: `{variant.explainability.recommended_variant}`",
                     f"- Metrics: script={variant.metrics_summary.average_script_score:.3f}, "
                     f"deterministic={variant.metrics_summary.average_deterministic_pass_rate:.3f}, "
                     f"story_qc={variant.metrics_summary.average_story_qc_score:.3f}, "
@@ -1492,12 +1918,43 @@ class PromptEvaluationRunner:
                 lines.append(f"- Failure Reasons: {', '.join(variant.failure_reasons)}")
             if variant.explainability.compare_to_case_id is not None:
                 lines.append(f"- Compared To: `{variant.explainability.compare_to_case_id}`")
+            if variant.explainability.recommendation_reason:
+                lines.append(f"- Recommendation Reason: {variant.explainability.recommendation_reason}")
+            if variant.explainability.confidence_note:
+                lines.append(f"- Confidence Note: {variant.explainability.confidence_note}")
             if variant.explainability.notable_output_changes:
                 lines.extend(["", "### Explainability", ""])
                 lines.append("#### Notable Output Changes")
                 lines.append("")
                 for item in variant.explainability.notable_output_changes:
                     lines.append(f"- {item}")
+            if variant.explainability.dimension_deltas:
+                lines.extend(["", "#### Story QC Dimension Deltas", ""])
+                for item in variant.explainability.dimension_deltas:
+                    delta_value = (
+                        f"{item.delta:+.3f}" if item.delta is not None else "n/a"
+                    )
+                    baseline_value = (
+                        f"{item.baseline_score:.3f}"
+                        if item.baseline_score is not None
+                        else "n/a"
+                    )
+                    candidate_value = (
+                        f"{item.candidate_score:.3f}"
+                        if item.candidate_score is not None
+                        else "n/a"
+                    )
+                    lines.append(
+                        f"- `{item.dimension}`: {baseline_value} -> {candidate_value} ({delta_value}, {item.direction})"
+                    )
+                    if item.candidate_summary:
+                        lines.append(f"  Summary: {item.candidate_summary}")
+                    if item.scene_refs:
+                        lines.append(
+                            f"  Scene Refs: {', '.join(str(scene) for scene in item.scene_refs)}"
+                        )
+                    if item.evidence:
+                        lines.append(f"  Evidence: {item.evidence[0]}")
             if variant.explainability.improved_metrics:
                 lines.extend(["", "#### Improved Metrics", ""])
                 for metric in variant.explainability.improved_metrics:
@@ -1506,6 +1963,18 @@ class PromptEvaluationRunner:
                 lines.extend(["", "#### Regressed Metrics", ""])
                 for metric in variant.explainability.regressed_metrics:
                     lines.append(f"- {metric}")
+            if variant.explainability.improvements:
+                lines.extend(["", "#### Improved Dimensions", ""])
+                for item in variant.explainability.improvements:
+                    lines.append(f"- {item}")
+            if variant.explainability.regressions:
+                lines.extend(["", "#### Regressed Dimensions", ""])
+                for item in variant.explainability.regressions:
+                    lines.append(f"- {item}")
+            if variant.explainability.unchanged_dimensions:
+                lines.extend(["", "#### Unchanged Dimensions", ""])
+                for item in variant.explainability.unchanged_dimensions:
+                    lines.append(f"- {item}")
             if variant.explainability.side_effects:
                 lines.extend(["", "#### Side Effects", ""])
                 for item in variant.explainability.side_effects:
@@ -1540,6 +2009,17 @@ class PromptEvaluationRunner:
                     lines.append(
                         f"- `{check.check_name}`: `{check.passed}` | expected: {check.expected} | actual: {check.actual}"
                     )
+                if sample.story_qc_dimensions:
+                    lines.extend(["", "#### Story QC Dimensions", ""])
+                    for dimension in sample.story_qc_dimensions:
+                        score_value = (
+                            f"{dimension.score:.3f}"
+                            if dimension.score is not None
+                            else "n/a"
+                        )
+                        lines.append(
+                            f"- `{dimension.dimension}`: score={score_value} | summary={dimension.summary or 'n/a'}"
+                        )
         lines.append("")
         return "\n".join(lines)
 

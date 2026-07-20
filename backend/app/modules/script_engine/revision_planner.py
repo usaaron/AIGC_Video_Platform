@@ -3,19 +3,189 @@ from __future__ import annotations
 from app.modules.master_script.models import DraftMasterScript
 from app.modules.script_engine.models import (
     RevisionAction,
+    RevisionDecision,
     RevisionPlan,
     RevisionPriority,
+    RevisionStrategy,
     RevisionTargetType,
     ScriptRevisionPlanRequest,
     StoryQCCheck,
+    StoryQCDimension,
+    StoryQCDimensionEvaluation,
+    StoryQCReport,
     StoryQCRubricCategory,
 )
 
 
 class RubricRevisionPlanner:
+    _DIMENSION_PRIORITY = {
+        StoryQCDimension.hook_quality: 1,
+        StoryQCDimension.character_agency: 2,
+        StoryQCDimension.cliffhanger_strength: 3,
+        StoryQCDimension.conflict_escalation: 4,
+        StoryQCDimension.emotional_payoff: 5,
+    }
+    _MAX_SELECTED_DIMENSIONS = 2
+
     def build_plan(self, payload: ScriptRevisionPlanRequest) -> RevisionPlan:
         draft = payload.draft_master_script
         report = payload.story_qc_report
+        decision = self.build_decision(report)
+        strategies = self.build_strategies(report, decision)
+
+        if report.dimension_evaluations:
+            actions = [
+                self._build_action_from_strategy(draft, strategy)
+                for strategy in strategies
+            ]
+        else:
+            actions = self._build_legacy_actions(draft, report)
+
+        top_titles = [action.title for action in actions[:2]]
+        focus_summary = (
+            "; ".join(top_titles)
+            if top_titles
+            else "Perform a light polish pass before re-running Story QC."
+        )
+        overall_priority = self._derive_overall_priority(actions, report.overall_score)
+
+        return RevisionPlan(
+            draft_master_script_id=draft.id,
+            content_spec_id=draft.content_spec_id,
+            generation_strategy_id=draft.generation_strategy_id,
+            story_qc_status=report.status,
+            overall_priority=overall_priority,
+            focus_summary=focus_summary,
+            revision_decision=decision,
+            revision_strategies=strategies,
+            actions=actions,
+            must_re_qc=True,
+            notes=self._build_plan_notes(report, decision, strategies),
+        )
+
+    def build_decision(self, report: StoryQCReport) -> RevisionDecision:
+        if not report.dimension_evaluations:
+            return RevisionDecision(
+                revision_required=self._legacy_revision_required(report),
+                decision_reason=(
+                    "Story QC dimension evidence is unavailable; preserve the legacy rubric planning path."
+                ),
+                confidence=0.4,
+            )
+
+        candidates = [
+            evaluation
+            for evaluation in report.dimension_evaluations
+            if self._requires_revision(evaluation)
+        ]
+        ranked_candidates = sorted(candidates, key=self._dimension_selection_key)
+        selected = ranked_candidates[: self._MAX_SELECTED_DIMENSIONS]
+        deferred = ranked_candidates[self._MAX_SELECTED_DIMENSIONS :]
+        selected_dimensions = [evaluation.dimension for evaluation in selected]
+        protected_dimensions = [
+            evaluation.dimension
+            for evaluation in report.dimension_evaluations
+            if evaluation.dimension not in selected_dimensions
+            and not self._requires_revision(evaluation)
+        ]
+        primary_scene_refs = self._unique_scene_refs(
+            [
+                scene_ref
+                for evaluation in selected
+                for scene_ref in evaluation.scene_refs
+            ]
+        )
+
+        return RevisionDecision(
+            revision_required=bool(selected),
+            decision_reason=self._build_decision_reason(selected, deferred),
+            selected_dimensions=selected_dimensions,
+            deferred_dimensions=[evaluation.dimension for evaluation in deferred],
+            protected_dimensions=protected_dimensions,
+            primary_scene_refs=primary_scene_refs,
+            confidence=self._decision_confidence(selected, report.dimension_evaluations),
+        )
+
+    def build_strategies(
+        self,
+        report: StoryQCReport,
+        decision: RevisionDecision,
+    ) -> list[RevisionStrategy]:
+        evaluations = {
+            evaluation.dimension: evaluation
+            for evaluation in report.dimension_evaluations
+        }
+        protected_targets = [
+            f"Preserve {dimension.value} while applying the targeted revision."
+            for dimension in decision.protected_dimensions
+        ]
+        strategies: list[RevisionStrategy] = []
+
+        for priority, dimension in enumerate(decision.selected_dimensions, start=1):
+            evaluation = evaluations.get(dimension)
+            if evaluation is None:
+                continue
+            strategies.append(
+                RevisionStrategy(
+                    target_dimension=dimension,
+                    problem_type=(
+                        evaluation.revision_signals[0]
+                        if evaluation.revision_signals
+                        else f"{dimension.value}_quality_gap"
+                    ),
+                    problem_reason=self._problem_reason(evaluation),
+                    revision_goal=self._revision_goal(dimension),
+                    revision_method=self._revision_method(dimension, evaluation.scene_refs),
+                    expected_effect=self._dimension_expected_effect(dimension),
+                    priority=priority,
+                    confidence=self._evaluation_confidence(evaluation),
+                    scene_refs=evaluation.scene_refs,
+                    do_not_touch=protected_targets,
+                    knowledge_refs=[
+                        knowledge_ref
+                        for knowledge_ref in report.knowledge_refs
+                        if knowledge_ref.dimension == dimension
+                    ],
+                )
+            )
+
+        return strategies
+
+    def _build_action_from_strategy(
+        self,
+        draft: DraftMasterScript,
+        strategy: RevisionStrategy,
+    ) -> RevisionAction:
+        target_type = self._dimension_target_type(strategy.target_dimension)
+        related_scene_numbers = strategy.scene_refs or self._related_scene_numbers(
+            draft,
+            target_type,
+        )
+        instructions = [strategy.revision_goal, strategy.revision_method]
+        if strategy.do_not_touch:
+            instructions.append(strategy.do_not_touch[0])
+
+        return RevisionAction(
+            action_id=f"revision.{draft.id}.{target_type.value}",
+            target_type=target_type,
+            priority=(
+                RevisionPriority.high
+                if strategy.priority == 1
+                else RevisionPriority.medium
+            ),
+            title=self._dimension_title(strategy.target_dimension),
+            rationale=self._truncate(strategy.problem_reason, 300),
+            based_on_checks=[f"dimension.{strategy.target_dimension.value}"],
+            related_scene_numbers=related_scene_numbers,
+            instructions=self._unique_strings(instructions),
+            expected_impact=self._truncate(strategy.expected_effect, 240),
+        )
+
+    def _build_legacy_actions(
+        self,
+        draft: DraftMasterScript,
+        report: StoryQCReport,
+    ) -> list[RevisionAction]:
         actions: list[RevisionAction] = []
         seen_targets: set[str] = set()
 
@@ -37,29 +207,160 @@ class RubricRevisionPlanner:
             fallback = self._build_fallback_action(draft, report.checks)
             if fallback is not None:
                 actions.append(fallback)
+        return actions
 
-        top_titles = [action.title for action in actions[:2]]
-        focus_summary = (
-            "; ".join(top_titles)
-            if top_titles
-            else "Perform a light polish pass before re-running Story QC."
+    def _requires_revision(self, evaluation: StoryQCDimensionEvaluation) -> bool:
+        return evaluation.score < 4.0 or bool(evaluation.deduction_reasons)
+
+    def _dimension_selection_key(
+        self,
+        evaluation: StoryQCDimensionEvaluation,
+    ) -> tuple[int, int, float]:
+        evidence_penalty = 0 if evaluation.scene_refs and evaluation.evidence else 1
+        return (
+            evidence_penalty,
+            self._DIMENSION_PRIORITY[evaluation.dimension],
+            evaluation.score,
         )
-        overall_priority = self._derive_overall_priority(actions, report.overall_score)
 
-        return RevisionPlan(
-            draft_master_script_id=draft.id,
-            content_spec_id=draft.content_spec_id,
-            generation_strategy_id=draft.generation_strategy_id,
-            story_qc_status=report.status,
-            overall_priority=overall_priority,
-            focus_summary=focus_summary,
-            actions=actions,
-            must_re_qc=True,
-            notes=[
+    def _build_decision_reason(
+        self,
+        selected: list[StoryQCDimensionEvaluation],
+        deferred: list[StoryQCDimensionEvaluation],
+    ) -> str:
+        if not selected:
+            return "No evidence-backed dimension falls below the revision threshold."
+        selected_names = ", ".join(item.dimension.value for item in selected)
+        reason = f"Selected {selected_names} as the highest-impact evidence-backed revision targets."
+        if deferred:
+            deferred_names = ", ".join(item.dimension.value for item in deferred)
+            reason += f" Deferred {deferred_names} to keep this revision round bounded."
+        return reason
+
+    def _decision_confidence(
+        self,
+        selected: list[StoryQCDimensionEvaluation],
+        evaluations: list[StoryQCDimensionEvaluation],
+    ) -> float:
+        if selected:
+            return round(
+                sum(self._evaluation_confidence(item) for item in selected) / len(selected),
+                3,
+            )
+        return 0.8 if evaluations else 0.4
+
+    def _evaluation_confidence(self, evaluation: StoryQCDimensionEvaluation) -> float:
+        confidence = 0.5
+        if evaluation.scene_refs:
+            confidence += 0.15
+        if evaluation.evidence:
+            confidence += 0.15
+        if evaluation.deduction_reasons:
+            confidence += 0.1
+        if evaluation.revision_signals:
+            confidence += 0.1
+        return round(min(confidence, 1.0), 3)
+
+    def _problem_reason(self, evaluation: StoryQCDimensionEvaluation) -> str:
+        if evaluation.deduction_reasons:
+            return evaluation.deduction_reasons[0]
+        return evaluation.summary
+
+    def _revision_goal(self, dimension: StoryQCDimension) -> str:
+        goals = {
+            StoryQCDimension.hook_quality: "Establish an immediate contradiction and a clear unresolved viewing question.",
+            StoryQCDimension.character_agency: "Give the protagonist an active choice with visible consequences.",
+            StoryQCDimension.cliffhanger_strength: "End on unresolved pressure that creates immediate next-episode demand.",
+            StoryQCDimension.conflict_escalation: "Make each targeted scene raise the stakes beyond the previous beat.",
+            StoryQCDimension.emotional_payoff: "Deliver a clear emotional turn that fulfills the scene setup.",
+        }
+        return goals[dimension]
+
+    def _revision_method(
+        self,
+        dimension: StoryQCDimension,
+        scene_refs: list[int],
+    ) -> str:
+        scene_scope = self._scene_scope(scene_refs)
+        methods = {
+            StoryQCDimension.hook_quality: f"Introduce concrete unresolved conflict in {scene_scope} while preserving the final twist.",
+            StoryQCDimension.character_agency: f"Replace a reactive beat in {scene_scope} with an irreversible protagonist decision.",
+            StoryQCDimension.cliffhanger_strength: f"End {scene_scope} on a consequential threat, reversal, or withheld answer.",
+            StoryQCDimension.conflict_escalation: f"Increase opposition and consequences across {scene_scope} without changing unrelated scenes.",
+            StoryQCDimension.emotional_payoff: f"Strengthen the setup-to-payoff emotional turn in {scene_scope} without adding a new subplot.",
+        }
+        return methods[dimension]
+
+    def _dimension_expected_effect(self, dimension: StoryQCDimension) -> str:
+        effects = {
+            StoryQCDimension.hook_quality: "Improves immediate conflict clarity and opening retention pressure.",
+            StoryQCDimension.character_agency: "Improves protagonist agency through a visible, consequential choice.",
+            StoryQCDimension.cliffhanger_strength: "Improves continuation intent through unresolved consequential pressure.",
+            StoryQCDimension.conflict_escalation: "Improves scene-to-scene escalation while preserving narrative continuity.",
+            StoryQCDimension.emotional_payoff: "Improves emotional satisfaction without expanding the story scope.",
+        }
+        return effects[dimension]
+
+    def _dimension_target_type(
+        self,
+        dimension: StoryQCDimension,
+    ) -> RevisionTargetType:
+        mapping = {
+            StoryQCDimension.hook_quality: RevisionTargetType.hook,
+            StoryQCDimension.character_agency: RevisionTargetType.character,
+            StoryQCDimension.cliffhanger_strength: RevisionTargetType.cliffhanger,
+            StoryQCDimension.conflict_escalation: RevisionTargetType.conflict,
+            StoryQCDimension.emotional_payoff: RevisionTargetType.emotion,
+        }
+        return mapping[dimension]
+
+    def _dimension_title(self, dimension: StoryQCDimension) -> str:
+        return f"Strengthen {dimension.value.replace('_', ' ')}"
+
+    def _scene_scope(self, scene_refs: list[int]) -> str:
+        if not scene_refs:
+            return "the evidence-backed scene"
+        if len(scene_refs) == 1:
+            return f"Scene {scene_refs[0]}"
+        return "Scenes " + ", ".join(str(scene_ref) for scene_ref in scene_refs)
+
+    def _legacy_revision_required(self, report: StoryQCReport) -> bool:
+        return any(
+            category.score < 4.0 or category.deduction_reasons
+            for category in report.rubric_categories
+        ) or any(not check.passed for check in report.checks)
+
+    def _build_plan_notes(
+        self,
+        report: StoryQCReport,
+        decision: RevisionDecision,
+        strategies: list[RevisionStrategy],
+    ) -> list[str]:
+        if not report.dimension_evaluations:
+            return [
                 "RevisionPlan is derived from Story QC checks and rubric deductions.",
                 "After revisions, run Story QC again before promoting to Final MasterScript.",
-            ],
-        )
+            ]
+
+        notes = [
+            f"RevisionDecision: {decision.decision_reason}",
+            f"Generated {len(strategies)} evidence-driven revision strategies.",
+            "After revisions, run Story QC again before promoting to Final MasterScript.",
+        ]
+        if decision.protected_dimensions:
+            protected = ", ".join(
+                dimension.value for dimension in decision.protected_dimensions
+            )
+            notes.append(f"Protected dimensions: {protected}.")
+        return notes
+
+    def _unique_scene_refs(self, values: list[int]) -> list[int]:
+        return list(dict.fromkeys(values))
+
+    def _truncate(self, value: str, limit: int) -> str:
+        if len(value) <= limit:
+            return value
+        return value[: limit - 3].rstrip() + "..."
 
     def _build_action_from_rubric(
         self,

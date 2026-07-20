@@ -238,6 +238,30 @@ AI 能力接入必须通过 Adapter 完成。
 
 上游变化应优先通过 request mapper 适配。
 
+---
+
+## 17. Stable Baselines Before Major Optimization
+
+项目进入 `Capability Optimization Phase` 后，能力优化应建立在稳定版本基线上，而不是漂浮状态上持续叠加修改。
+
+重要能力阶段完成后，应形成可追踪基线，用于：
+
+- 复现实验结果
+- 对比能力提升前后差异
+- 定位回归问题
+- 回滚到最后稳定状态
+- 记录能力演进历史
+
+在进行较大范围能力优化前，应尽量确保：
+
+- 主链路已验证
+- Benchmark 状态明确
+- 测试结果可追踪
+- 文档已同步
+- 版本标识清晰
+
+没有稳定基线时，不应贸然进行大范围能力重构。
+
 下游变化应优先通过 handoff mapper 适配。
 
 不应因为某个上游输入格式或某个下游消费需求的短期变化，直接污染 `Script Engine` 的核心域逻辑或 Final `MasterScript` 数据契约。

@@ -31,10 +31,14 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 → Prompt Builder
 → `LLMAdapter`
 → `DraftMasterScript`
-→ Story QC
+→ `StoryQCReport`
+→ `RevisionDecision`
+→ `RevisionStrategy`
 → `RevisionPlan`
-→ `Script Revision`
+→ `RevisionExecutor`
 → Re-QC
+→ `AcceptanceDecision`（shadow）
+→ `ScriptRevisionRun`
 → Final `MasterScript`
 
 ## Script Generation Box Contract
@@ -61,10 +65,17 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 - `LLMAdapter`
 - `DraftMasterScript`
 - `StoryQCReport`
+- `RevisionDecision`
+- `RevisionStrategy`
 - `RevisionPlan`
+- `RevisionExecutor`
 - `RevisedDraftMasterScript`
 - Re-QC Report
+- `AcceptanceDecision`
+- `ScriptRevisionRun`
 - Final `MasterScript`
+
+上述 Revision 对象已进入盒子内部 runtime，其中 `AcceptanceDecision` 仅以 shadow mode 运行。它们不改变 `ScriptGenerationRequest` / `ScriptGenerationResult` 的单入口、单出口目标，也不会成为上游或下游必须自行编排的新公共契约。
 
 ## 当前阶段设计规则
 
@@ -404,12 +415,130 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 - `GenerationStrategy`
 - 平台和文化适配约束
 
-当前未来理想输出除 `score` 外，还应逐步支持：
+当前 `Story QC Explainability Upgrade v1` 已经补充兼容字段，用于在不重构主链路的前提下增强报告解释力。
 
-- `Structural Evaluation`
-- `Explainability`
-- `knowledge_id` 引用
-- 适用范围说明
+当前除 `score` 外，`StoryQCReport` 已支持：
+
+- `report_version`
+- `explainability_status`
+- `dimension_evaluations`
+- `evidence_summary`
+- `knowledge_refs`
+
+其中：
+
+- `dimension_evaluations` 当前覆盖 5 个核心维度
+- `knowledge_refs` 当前仅作为兼容字段与占位引用，不代表完整知识系统已落地
+- 适用范围说明与更完整 `Structural Evaluation` 仍属于后续增强方向
+
+## Story QC Credibility Improvement v1
+
+当前阶段进入 `Story QC Credibility Improvement v1`。
+
+本轮目标不是立即把 `Story QC` 变成复杂评分模型，而是先提升 Explainability，让 `StoryQCReport` 能更清楚回答：
+
+- 为什么得分高或低
+- 为什么被扣分
+- 问题出在哪个维度
+- 问题与哪些场景或文本证据有关
+- 当前报告能否直接支持 `RevisionPlan` 与 `Prompt Evaluation`
+
+### v1 聚焦的 5 个维度
+
+第一轮只聚焦以下 5 个维度：
+
+- `Hook Quality`
+- `Character Agency`
+- `Conflict Escalation`
+- `Emotional Payoff`
+- `Cliffhanger Strength`
+
+当前设计原则：
+
+- 先覆盖最影响短剧留存与追更动力的维度
+- 先服务 `RevisionPlan`、`Prompt Evaluation` 与人工复查
+- 不在知识体系未稳定前一次性扩展全部评分维度
+
+### v1 Explainability 输出方向
+
+`StoryQCReport` 当前 v1 已支持以下说明能力：
+
+- `dimension`
+- `summary`
+- `score_reason`
+- `deduction_reason`
+- `evidence`
+- `scene_refs`
+- `revision_signal`
+- `confidence_note`
+
+其中：
+
+- `dimension` 表示当前评审维度
+- `summary` 表示该维度的简要判断
+- `score_reason` 表示当前为什么给出这个分数
+- `deduction_reason` 表示当前扣分的主要原因
+- `evidence` 表示引用的剧本文本、场景节拍或结构信号
+- `scene_refs` 表示问题关联到哪些场景
+- `revision_signal` 表示可直接传给 `RevisionPlan` 的动作线索
+- `confidence_note` 用于标明当前判断仍是规则信号、实验信号还是后续知识增强信号
+
+### v1 当前数据契约
+
+当前 `StoryQCReport` 已补充以下兼容字段：
+
+- `dimension_evaluations`
+- `evidence_summary`
+- `knowledge_refs`
+- `report_version`
+- `explainability_status`
+
+当前约束：
+
+- 新字段保持向后兼容
+- 当前已有 `checks`、`rubric_categories` 不移除
+- `dimension_evaluations` 当前优先服务 5 个核心维度
+- `knowledge_refs` 当前只提供占位级引用，不要求完整知识系统落地
+
+### v1 与 Revision 的关系
+
+`Story QC` v1 的核心价值之一，是让 `RevisionPlan` 不只知道“哪一项低分”，还知道：
+
+- 哪个维度需要修
+- 问题出现在哪个场景
+- 修改目标是什么
+- 建议强化哪种结构信号
+
+当前 `RevisionPlan` 后续优先消费：
+
+- 维度级扣分原因
+- 场景引用
+- 可执行修订信号
+
+而不是只消费笼统分数。
+
+### v1 当前明确不做
+
+本轮不做：
+
+- 新增大型 `Story QC` 子系统
+- 引入 Agent Framework
+- 改写主生成链路
+- 修改 Finalization Gate
+- 自动重写剧本
+- 引入复杂 ML 模型
+- 把行业知识直接写成大量不可治理规则
+
+### v1 当前定位
+
+`Story QC Credibility Improvement v1` 当前已完成第一步实现，但仍然只属于 explainability 增强，不等于专业化 `Script Expert` 已完成。
+
+当前状态应被描述为：
+
+- `StoryQCReport` 已具备结构化基础
+- `Story Quality Rubric` 已具备基础骨架
+- v1 已先提高报告可解释性与证据关联能力
+- 专业化 `Script Expert` 能力仍属于后续持续优化方向
 
 当前研究入口见：
 
@@ -446,17 +575,24 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 
 `DraftMasterScript`
 → `Story QC Report`
-→ `Revision Plan`
-→ `Script Revision`
+→ `RevisionDecision`
+→ `RevisionStrategy`
+→ `RevisionPlan`
+→ `RevisionExecutor`
 → Re-QC
+→ `AcceptanceDecision`
+→ `ScriptRevisionRun`
 → Final `MasterScript`
 
 当前阶段：
 
 - 已提供最小 `Revision Plan` 结构与生成入口
 - 当前 `Revision Plan` 基于 `Story QC` Rubric 扣分项与检查项自动整理修订动作
-- 当前已提供占位 `Script Revision Service`
-- 当前 `Script Revision Service` 采用规则化修订，不绑定真实 LLM
+- 当前 `ScriptRevisionService` 负责编排校验、执行、Re-QC 和 shadow Acceptance 生命周期
+- 当前 `RuleBasedRevisionExecutor` 采用规则化修订，不绑定真实 LLM
+- controlled mode 会消费 `RevisionDecision`、`RevisionStrategy`、scene refs 和 protected dimensions
+- 缺少 Decision / Strategy 的旧计划会进入 `legacy_fallback`，保持兼容
+- 每次执行生成 `RevisionExecutionTrace`
 - 规则化修订只能写回内容描述，不允许把控制指令、提示语或编辑说明泄露到 `DraftMasterScript` / Final `MasterScript`
 - 当前修订后会自动重新执行一次 `Story QC`
 - 先使用 Rubric 和 Benchmark 验证质量变化
@@ -467,6 +603,171 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
   - Re-QC 分数达到 Policy 阈值
   - Final `MasterScript` 保存完整 lineage 与版本信息
 - 旧的直接 `from-draft` Finalize 入口应视为弃用
+
+## Revision Quality Improvement v1
+
+`Revision Quality Improvement v1` 的目标，是将当前基于 Rubric 的规则化修补逐步演进为：
+
+- 有边界（bounded）
+- 可解释（explainable）
+- 证据驱动（evidence-driven）
+- 面向生产质量阈值的受控剧本打磨
+
+当前已完成数据模型、Planner、受控 `RevisionExecutor`、execution trace、Re-QC 和 Acceptance shadow integration。该闭环已具备运行时完整性，但 Story QC、规则式创意修改和 Policy 阈值尚未经过专业 Ground Truth 校准，因此仍不能描述为 production-quality Revision。现有 API 与 Finalization Gate 保持不变。
+
+### 当前与目标修订流程
+
+当前已实现的 Revision runtime 为：
+
+`DraftMasterScript`
+→ `StoryQCReport`
+→ `RevisionDecision`
+→ `RevisionStrategy`
+→ `RevisionPlan`
+→ `RevisionExecutor`
+→ Re-QC
+→ `AcceptanceDecision`
+→ `ScriptRevisionRun`
+
+`ScriptRevisionRun` 之后仍由独立 Finalization Gate 决定是否生成 Final `MasterScript`。
+
+职责边界：
+
+- `Story QC` 负责识别问题、给出维度判断、扣分原因、场景引用与证据
+- `RevisionDecision` 负责判断本轮是否需要修订，以及选择、延后和保护哪些维度
+- `RevisionStrategy` 负责把问题转换成有目标、有边界的修改策略
+- `RevisionPlan` 负责将策略整理为当前 `ScriptRevision` 可执行的动作
+- `RevisionExecutor` 负责应用受控修改并输出执行 trace，不重新承担质量判断职责
+- Re-QC 负责以相同评估契约检查目标维度提升与非目标维度回退
+- `AcceptanceDecision` 负责根据 `RevisionPolicy` 观测本次修订是否有效，不直接创建 Final `MasterScript`
+- Finalization Gate 继续负责现有 lineage、Re-QC 和最低阈值校验
+
+### Revision Decision Layer
+
+`RevisionDecision` 已由当前 Revision Planner 生成，用于阻止“发现问题就全部修改”。它当前回答：
+
+- 是否需要修订
+- 为什么需要或不需要修订
+- 本轮优先处理哪些高影响维度
+- 哪些问题延后处理
+- 哪些已表现良好的维度必须保护
+- 修改应聚焦哪些场景
+
+v1 当前每轮最多选择 1 至 2 个维度，优先从以下 5 个 explainability 维度中选择：
+
+- `hook_quality`
+- `character_agency`
+- `conflict_escalation`
+- `emotional_payoff`
+- `cliffhanger_strength`
+
+当前 Planner 按高影响维度优先级和 scene-level evidence 选择目标，并保留 selected、deferred、protected dimensions 与 primary scene refs。旧 `StoryQCReport` 缺少 explainability 字段时，继续使用原 Rubric 映射路径。
+
+### Revision Strategy
+
+`RevisionStrategy` 当前已由 Revision Planner 生成，用于表达“为什么改、改什么、如何改、哪些内容不能动”。每条策略关联：
+
+- Story QC dimension
+- problem reason
+- scene evidence
+- revision goal
+- expected effect
+
+例如，不应只输出“Improve character agency”，而应说明：主角在 Scene 2 只对事件作出反应；修订目标是在该场景加入一个会产生后果的主动选择；预期改善 `character_agency`，同时保护现有 Hook 和 Cliffhanger。
+
+Revision 应优先修改有限场景和有限维度，不应默认重写整份剧本，也不应为了提高所有指标引入无必要改动。
+
+当前 Planner 会把 Strategy 映射为兼容的 `RevisionPlan.actions`，同时把完整 Decision / Strategy 保留在 `RevisionPlan`。`RuleBasedRevisionExecutor` 已强制 scene-level 修改范围和 protected dimensions，并在无法执行时记录 skipped action；当前限制在于修改本身仍是确定性规则式 patch，而不是专业创意重写。
+
+### Bounded Revision Policy
+
+当前推荐默认策略：
+
+- `max_revision_rounds = 1`
+
+`RevisionPolicy` 模型已实现，当前 `revision_acceptance_shadow_policy.v1` 由 Acceptance Evaluator 消费，默认 `max_revision_rounds = 1`。该 Policy 目前只提供观测阈值，不驱动循环，也不阻断 Finalization。未来如需支持多轮修订或 enforcement，必须先通过固定 Benchmark 证明收益、稳定性和停止策略有效。
+
+Revision 的长期目标是达到生产质量标准，而不是无限最大化分数。当前 shadow `RevisionPolicy` 只判断一次修订是否有效，不认证剧本是否已达到专业生产质量。它至少定义：
+
+- `acceptance_threshold`：当前 shadow revision effectiveness 的最低标准
+- `minimum_improvement_threshold`：目标维度改善低于该值时视为边际收益不足
+- `regression_limit`：非目标或受保护维度允许的最大回退范围
+- `max_revision_rounds`：允许执行的最大修订轮数
+
+当前 evaluator 的停止条件包括：
+
+- 没有实际执行动作或缺少可解释 QC / Strategy
+- revision round 超过最大修订轮数
+- 目标维度改善低于 minimum improvement threshold
+- 受保护或非目标维度回退超过允许范围
+- 修改场景与计划范围不对齐
+- revision effectiveness 低于 acceptance threshold
+
+### Acceptance Decision
+
+`AcceptanceDecision` 不应只判断 `overall_score` 是否上涨。它应综合判断：
+
+- 目标维度是否得到有效改善
+- 是否引入新的退化维度
+- 受保护维度是否保持稳定
+- 实际修改是否与计划场景对齐
+- 本次修订是否达到 shadow revision effectiveness threshold
+- 是否已经触发停止条件
+
+`RevisionAcceptanceEvaluator v1` 已实现为确定性、无状态评估器。它在 Re-QC 后消费原始/修订 QC、Decision、Strategies、Execution Trace 和版本化 Policy，计算目标维度改善、回退、保护维度稳定性、场景对齐与 revision effectiveness，并把 `AcceptanceDecision` 保存到 `ScriptRevisionRun`。
+
+当前为 shadow mode：
+
+- `accepted = false` 只记录结果和 stop reason，不拒绝修订输出
+- `AcceptanceDecision` 不进入当前 Finalization Gate 条件
+- 旧 RevisionPlan 不具备 Decision / Strategy 时，`acceptance_decision` 保持为空
+- `ScriptRevisionRun.improved` 继续作为兼容的 overall-score 信号；它与 `acceptance_decision` 不等价
+
+### 当前完成与待完成
+
+已完成：
+
+- `RevisionDecision` / `RevisionStrategy` / `RevisionPolicy` / `AcceptanceDecision` 数据模型
+- Decision generation
+- Strategy generation
+- Planner integration
+- 最多两个目标维度、scene refs 和 protected dimensions 生成
+- 旧 Story QC 报告兼容路径
+- `RevisionPlan` 无损保留 Decision / Strategy
+- `RevisionExecutor` / `RuleBasedRevisionExecutor`
+- scene-level scope 与 protected dimension enforcement
+- `RevisionExecutionTrace` 与 legacy fallback
+- Re-QC 后确定性 Acceptance evaluation
+- `AcceptanceDecision` 保存到 `ScriptRevisionRun` runtime lineage
+
+待完成：
+
+- 人工/策划 Ground Truth 校准
+- 固定 Benchmark 上的 Revision Policy 阈值校准
+- 跨样本 Revision effectiveness 聚合与报告
+- 是否让 Acceptance 影响 Finalization 的独立决策
+- 是否弃用旧 `improved` 信号的兼容性决策
+- 数据库级 Revision lineage 持久化
+
+### Runtime 成熟度 Checkpoint
+
+- 已实现：QC → Decision → Strategy → Plan → Executor → Re-QC → Acceptance → `ScriptRevisionRun`
+- Shadow：Acceptance 计算和记录已运行，但不改变现有业务结果
+- 实验性：Story QC 专业可信度、规则式 Revision 创意质量和 Acceptance 阈值
+- 生产强制：当前仅 Finalization Gate 继续执行 lineage、Re-QC 存在性与最低阈值校验
+
+### v1 明确边界
+
+当前不包含：
+
+- 多轮或无限 Revision Loop
+- 全剧本重新生成
+- 多 Agent 或 LangGraph 编排
+- 自动知识推理系统
+- 修改 `MasterScript` 正式结构
+- 修改当前步骤 API
+- 修改 Finalization Gate
+- 自动追求最高 Story QC 分数
 
 ## 与 Orchestrator 的关系
 
@@ -542,6 +843,9 @@ Script Engine 消费的不是裸 Prompt，而是：
 
 - `Prompt Evaluation` 可以继续直接复用现有步骤 API / service
 - 未来即使新增统一 `ScriptGenerationResult` 契约，也不要求立刻删除当前步骤级评估入口
+- 当前 `Prompt Evaluation Explainability Integration v1` 已开始消费 `StoryQCReport.dimension_evaluations`
+- 当前它可以解释维度级提升、退化、证据和修订信号
+- 当前它仍然只属于评估层增强，不会自动改变 Script Engine 的生成决策
 
 ## Versioning & Compatibility
 

@@ -338,13 +338,66 @@ V0.1 已实现：
 - `recommended_actions`
 - `rubric_overall_score`
 - `rubric_categories`
+- `report_version`
+- `explainability_status`
+- `dimension_evaluations`
+- `evidence_summary`
+- `knowledge_refs`
 - `created_at`
 
 其中：
 
 - `checks` 保存当前轻量 QC 检查结果
 - `rubric_categories` 保存按 `Story Quality Rubric` 展开的扣分原因与修改建议
+- `report_version` 用于标记当前报告结构版本
+- `explainability_status` 用于标记当前解释能力所处阶段
+- `dimension_evaluations` 当前保存 5 个核心维度的 explainability 结果
+- `evidence_summary` 当前用于汇总主要证据线索
+- `knowledge_refs` 当前作为未来知识体系的兼容引用字段，可为空
 - `StoryQCReport` 是 `RevisionPlan` 的直接输入之一
+
+## PromptEvaluationVariantResult 当前补充字段
+
+`PromptEvaluationVariantResult` 当前额外包含：
+
+- `story_qc_dimension_scores`
+- `story_qc_dimension_summaries`
+- `story_qc_deduction_reasons`
+- `story_qc_evidence`
+- `story_qc_revision_signals`
+- `story_qc_scene_refs`
+
+其中：
+
+- `story_qc_dimension_scores` 当前保存按 dimension 聚合后的平均分
+- `story_qc_dimension_summaries` 当前保存每个 dimension 的简要判断
+- `story_qc_deduction_reasons` 当前保存每个 dimension 的主要扣分原因
+- `story_qc_evidence` 当前保存维度级证据摘要
+- `story_qc_revision_signals` 当前保存可供评估层复用的修订信号
+- `story_qc_scene_refs` 当前保存维度问题关联到的主要场景编号
+
+## PromptEvaluationVariantExplainability 当前补充字段
+
+`PromptEvaluationVariantExplainability` 当前额外包含：
+
+- `dimension_deltas`
+- `improvements`
+- `regressions`
+- `unchanged_dimensions`
+- `strongest_improvement`
+- `largest_regression`
+- `comparison_summary`
+- `recommended_variant`
+- `recommendation_reason`
+- `confidence_note`
+
+其中：
+
+- `dimension_deltas` 当前用于保存 baseline / candidate 的维度级差异
+- `improvements` 与 `regressions` 当前用于输出结构化质量变化解释
+- `comparison_summary` 当前用于汇总这次 variant comparison 的核心结论
+- `recommended_variant` 当前只表示评估层推荐，不影响业务主链路
+- `confidence_note` 当前用于标记接近分数、维度缺失或 placeholder 信号带来的解释边界
 
 ## RevisionPlan 当前字段
 
@@ -356,6 +409,8 @@ V0.1 已实现：
 - `story_qc_status`
 - `overall_priority`
 - `focus_summary`
+- `revision_decision`（optional，兼容旧 payload）
+- `revision_strategies`（默认空列表）
 - `actions`
 - `must_re_qc`
 - `notes`
@@ -365,7 +420,84 @@ V0.1 已实现：
 
 - `actions` 当前由结构化 `RevisionAction` 组成
 - 每个 `RevisionAction` 必须说明目标类型、优先级、影响场次、修改指令与预期收益
-- `RevisionPlan` 当前只负责给出修订建议，不直接改写剧本
+- `revision_decision` 与 `revision_strategies` 用于无损保留 Planner 的决策与策略意图
+- `RevisionPlan` 当前只负责表达修订计划，不直接改写剧本
+
+## Revision Quality Improvement v1 当前数据模型
+
+以下对象已经实现为兼容的 Python / Pydantic model。`RevisionDecision` 与 `RevisionStrategy` 已进入 Planner 和受控 Executor；`RevisionPolicy` 已由 Acceptance Evaluator 作为 shadow 阈值配置消费；`AcceptanceDecision` 已在 Re-QC 后生成并保存到 `ScriptRevisionRun`。现有 API 与 Finalization Gate 行为保持不变。
+
+### RevisionDecision 当前字段
+
+- `revision_required`
+- `decision_reason`
+- `selected_dimensions`
+- `deferred_dimensions`
+- `protected_dimensions`
+- `primary_scene_refs`
+- `confidence`
+
+职责：根据 `StoryQCReport` 决定是否修订、优先处理哪些维度、延后哪些问题，以及保护哪些已有优势。当前 Revision Planner 已生成该对象，并且每轮最多选择 1 至 2 个高影响、有场景证据的维度。
+
+### RevisionStrategy 当前字段
+
+- `target_dimension`
+- `problem_type`
+- `problem_reason`
+- `revision_goal`
+- `revision_method`
+- `expected_effect`
+- `priority`
+- `confidence`
+- `scene_refs`
+- `do_not_touch`
+- `knowledge_refs`
+
+职责：把维度级问题、场景证据和扣分原因转换为有目标、有范围、有预期效果的修订策略。当前 Revision Planner 已生成该对象并映射为兼容的 `RevisionPlan.actions`；`knowledge_refs` 仍只是兼容字段，不表示知识驱动修订已经实现。
+
+### RevisionPolicy 当前字段
+
+- `max_revision_rounds`
+- `minimum_improvement_threshold`
+- `acceptance_threshold`
+- `regression_limit`
+- `dimension_regression_tolerance`
+
+职责：集中声明修订轮数、最低有效改善、shadow 修订有效性阈值、允许回退数量和维度回退容差。当前 `revision_acceptance_shadow_policy.v1` 已由 `RevisionAcceptanceEvaluator` 消费；它不负责启动多轮循环，也不被 Finalization Gate 消费。未来增加轮数或启用 enforcement 必须先通过固定 Benchmark 校准。
+
+### AcceptanceDecision 当前字段
+
+- `accepted`
+- `acceptance_reason`
+- `targeted_dimension_improvement`
+- `regression_count`
+- `protected_dimension_stability`
+- `stop_reason`
+- `decision_version`
+- `policy_version`
+- `revision_round`
+- `scene_alignment_rate`
+- `revision_effectiveness`
+- `regressed_dimensions`
+
+职责：在 Re-QC 后判断本次修订是否解决了选中问题。当前由确定性、无状态的 `RevisionAcceptanceEvaluator` 生成，并以 shadow mode 保存；该对象不负责创建 Final `MasterScript`，不阻断当前流程，也不取代 Finalization Gate。
+
+### 当前实现状态
+
+- Phase 1 已完成：四个 Pydantic model 与兼容性测试
+- Phase 2 已完成：Revision Planner 生成 `RevisionDecision` 与 `RevisionStrategy`
+- Phase 3 已完成：`RevisionPlan` 保留 Decision / Strategy，`RuleBasedRevisionExecutor` 执行场景范围和保护维度控制，并输出 `RevisionExecutionTrace`
+- Phase 4.1 已完成：Re-QC 后生成 `AcceptanceDecision` 并保存到 `ScriptRevisionRun` runtime lineage
+- 当前尚未实现 `RevisionPolicy` 多轮 runtime enforcement
+- 当前尚未将 Acceptance 作为 Finalization 条件
+- 当前尚未实现数据库级 Revision lineage 持久化和跨 Benchmark 聚合报告
+
+### 兼容性原则
+
+- 现有 `RevisionPlan` 与 `ScriptRevisionRun` 保留，避免重构稳定主链路
+- `RevisionDecision` / `RevisionStrategy` 当前作为 `RevisionPlan` 上游的决策与策略信息，不复制 `RevisionPlan` 职责
+- `AcceptanceDecision` 是 Re-QC 后的 shadow 修订有效性判断，不得绕过或替代 Finalization Gate
+- 阈值必须来自可追踪、可版本化的 `RevisionPolicy`，不允许散落静默默认值
 
 ## ScriptRevisionRun 当前字段
 
@@ -377,6 +509,8 @@ V0.1 已实现：
 - `original_story_qc_report`
 - `revised_story_qc_report`
 - `applied_action_ids`
+- `execution_trace`（optional）
+- `acceptance_decision`（optional）
 - `improvement_summary`
 - `improved`
 - `generated_at`
@@ -385,7 +519,10 @@ V0.1 已实现：
 
 - `revised_draft_master_script` 仍然是 `DraftMasterScript`，不是 Final `MasterScript`
 - `original_story_qc_report` 与 `revised_story_qc_report` 用于直接比较修订前后质量变化
-- `improved` 当前用于标记占位修订执行后 Re-QC 是否至少不低于原始 Draft
+- `execution_trace` 保存 executor 版本、执行模式、应用/跳过动作、修改场景、保护范围检查和 Strategy 上下文
+- `improved` 是旧版兼容信号，仅表示 Re-QC `overall_score` 是否不低于原始 Draft
+- `acceptance_decision` 是新 shadow 信号，衡量目标维度改善、回退安全、场景对齐与修订有效性
+- 两个信号暂时并存但不等价；旧 RevisionPlan 仍允许 `execution_trace` / `acceptance_decision` 为空
 
 ## BenchmarkRunResult 当前补充摘要字段
 

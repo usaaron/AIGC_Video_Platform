@@ -6,7 +6,7 @@ AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧�
 
 当前主链路为：
 
-`Data Intelligence -> ContentSpec -> Knowledge Base -> Asset Retrieval -> Orchestrator -> Prompt Retrieval -> Prompt Builder -> LLMAdapter -> Draft MasterScript -> Story QC -> Revision Plan -> Script Revision -> Re-QC -> Final MasterScript`
+`Data Intelligence -> ContentSpec -> Knowledge Base -> Asset Retrieval -> Orchestrator -> Prompt Retrieval -> Prompt Builder -> LLMAdapter -> DraftMasterScript -> StoryQCReport -> RevisionDecision -> RevisionStrategy -> RevisionPlan -> RevisionExecutor -> Re-QC -> AcceptanceDecision -> ScriptRevisionRun -> FinalMasterScript`
 
 当前阶段已经从 `Build Foundation` 切换到 `Capability Optimization / System Validation`。
 
@@ -49,7 +49,8 @@ AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧�
 - 用结构化数据表达当前阶段的最终剧本产物
 - 当前支持通过 API 查询 `MasterScript`
 - 直接创建 Final `MasterScript` 的入口当前已弃用
-- 当前只允许通过 `Draft -> Story QC -> RevisionPlan -> Revised Draft -> Re-QC -> Finalize` 受控链路生成 Final `MasterScript`
+- 当前只允许从包含 Draft、RevisionPlan、Revised Draft 与 Re-QC 的 `ScriptRevisionRun` 进入受控 Finalization
+- `ScriptRevisionRun` 可携带 shadow `AcceptanceDecision`，但它当前不是 Finalization 必填条件
 - Final `MasterScript` 当前会保存完整 lineage 与 Finalization Policy 版本信息
 
 当前同时已提供 Script Generation Strategy 基础占位：
@@ -60,8 +61,9 @@ AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧�
 - `MockLLMAdapter` 作为模型无关接入占位
 - `RealLLMAdapter` 作为首次真实剧本生成验证入口，当前采用 OpenAI-compatible 结构化输出接入方式
 - `PlaceholderStoryQC` 作为草稿剧本质量检查占位
-- `RubricRevisionPlanner` 作为结构化修订计划生成占位
-- `ScriptRevisionService` 作为可解释的占位修订执行层
+- `RubricRevisionPlanner` 已支持 evidence-driven `RevisionDecision`、`RevisionStrategy` 与兼容 `RevisionPlan` 生成
+- `ScriptRevisionService` 通过 `RuleBasedRevisionExecutor` 执行受场景范围和保护维度约束的确定性修订
+- `RevisionAcceptanceEvaluator` 已在 Re-QC 后以 shadow mode 计算修订有效性，并将结果保存到 `ScriptRevisionRun`
 - 当前业务层只依赖 `LLMAdapter`
 
 当前说明：
@@ -69,7 +71,8 @@ AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧�
 - `RealLLMAdapter` 已支持一个 OpenAI-compatible 接入方式
 - 真实模型当前只用于能力验证和手动 integration
 - 当前不允许把业务层绑定到单一模型供应商
-- `Story QC` 和 `Script Revision` 当前仍属于占位到增强中的阶段，不应被描述为已经专业化完成
+- `Story QC`、规则式 Revision 和 Acceptance 阈值当前仍属于实验性能力，不应被描述为已经专业化或生产校准完成
+- `AcceptanceDecision` 当前只用于观测和 lineage，不阻断 Finalization，也不替代 Finalization Gate
 
 当前同时已提供 `Prompt Library Foundation`：
 
@@ -119,9 +122,17 @@ AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧�
 
 当前优化优先级：
 
-1. Prompt Evaluation 第一轮已完成
-2. Story QC Credibility Improvement
-3. Data Intelligence Quality Improvement
+1. Revision Acceptance / Policy Calibration
+2. Initial Generation Quality Improvement v1
+
+当前已完成 Story QC Explainability Upgrade v1、Prompt Evaluation Explainability Integration v1，以及 Revision Quality Improvement v1 的 Decision、Strategy、Planner、Executor 和 Acceptance shadow integration。下一步先用固定、人工校准样本验证 Revision Policy 阈值和 effectiveness 信号；在完成校准前，不启用 Acceptance enforcement。
+
+当前保留两类不同信号：
+
+- `ScriptRevisionRun.improved`：旧版基于 Re-QC `overall_score` 的非下降判断
+- `ScriptRevisionRun.acceptance_decision`：面向目标维度改善、回退安全和场景对齐的 shadow 修订有效性判断
+
+二者当前不等价，也不应互相替代。
 
 当前同时已提供 `Orchestrator` 基础模块：
 
