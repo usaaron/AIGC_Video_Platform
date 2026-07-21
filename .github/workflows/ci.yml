@@ -118,7 +118,7 @@ jobs:
       TASK_QUEUE_TICK_INTERVAL_MS: 500
       STORAGE_DRIVER: mock
       ALLOW_MOCK_STORAGE: 'true'
-      UPLOAD_DIR: ${{ runner.temp }}/seqora-mock-storage
+      UPLOAD_DIR: /tmp/seqora-mock-storage
       FILM_EXPORT_FFMPEG_PATH: ffmpeg
 
     steps:
