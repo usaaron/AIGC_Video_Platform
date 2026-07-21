@@ -11,8 +11,9 @@ if (!packageName) {
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..')
 const appConfig = appConfigFor(packageName)
+const command = devServerCommand(appConfig.args)
 
-const child = spawn(process.execPath, [appConfig.command, ...appConfig.args], {
+const child = spawn(command.file, command.args, {
   stdio: 'inherit',
   cwd: appConfig.cwd,
   env: process.env,
@@ -37,13 +38,11 @@ function onceExit(childProcess) {
 }
 
 function appConfigFor(name) {
-  const viteBin = path.join(repoRoot, 'node_modules', 'vite', 'bin', 'vite.js')
   const appsRoot = path.join(repoRoot, 'apps')
 
   if (name === '@seqora/web') {
     return {
       cwd: path.join(appsRoot, 'web'),
-      command: viteBin,
       args: ['--host', '127.0.0.1', '--port', '5173', '--strictPort'],
     }
   }
@@ -51,10 +50,19 @@ function appConfigFor(name) {
   if (name === '@seqora/admin') {
     return {
       cwd: path.join(appsRoot, 'admin'),
-      command: viteBin,
       args: ['--host', '127.0.0.1', '--port', '5174', '--strictPort'],
     }
   }
 
   throw new Error(`Unsupported APP_PACKAGE: ${name}`)
+}
+
+function devServerCommand(viteArgs) {
+  const args = ['exec', 'vite', ...viteArgs]
+
+  if (process.platform === 'win32') {
+    return { file: 'cmd.exe', args: ['/d', '/s', '/c', 'pnpm', ...args] }
+  }
+
+  return { file: 'pnpm', args }
 }

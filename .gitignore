@@ -16,7 +16,8 @@ apps/web/src/assets/hero.png
 
 # Logs and runtime files
 logs/
-apps/api/data/
+apps/api/data/*
+!apps/api/data/app.json
 *.log
 *.pid
 *.seed
