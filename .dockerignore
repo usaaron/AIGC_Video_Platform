@@ -12,8 +12,7 @@ playwright-report
 .env
 .env.*
 !.env.example
-apps/api/data/*
-!apps/api/data/app.json
+apps/api/data
 apps/web/dist
 packages/contracts/dist
 logs

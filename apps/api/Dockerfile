@@ -36,7 +36,7 @@ RUN apt-get update \
 
 COPY --from=build /prod/api ./
 COPY apps/api/migrations ./migrations
-COPY apps/api/data ./data
+COPY apps/api/seed ./seed
 
 EXPOSE 8787
 

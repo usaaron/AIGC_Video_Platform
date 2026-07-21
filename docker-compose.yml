@@ -68,7 +68,7 @@ services:
   seed:
     <<: *api-image
     environment: *api-env
-    command: ['node', 'dist/scripts/importJson.js', '--file', 'data/app.json']
+    command: ['node', 'dist/scripts/importJson.js', '--file', 'seed/app.json']
     depends_on:
       migrate:
         condition: service_completed_successfully

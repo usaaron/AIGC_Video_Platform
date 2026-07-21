@@ -24,7 +24,7 @@ pnpm deploy:local
 首次启动会执行：
 
 1. `migrations/*.sql`
-2. `apps/api/data/app.json` seed 导入
+2. `apps/api/seed/app.json` seed 导入
 3. API 服务
 4. Worker 服务
 5. Web 静态站点

@@ -155,7 +155,7 @@ jobs:
         run: pnpm --filter @seqora/api db:migrate
 
       - name: Import seed data
-        run: pnpm --filter @seqora/api db:import-json -- --file apps/api/data/app.json
+        run: pnpm --filter @seqora/api db:import-json -- --file apps/api/seed/app.json
 
       - name: Start API and Redis worker
         run: |

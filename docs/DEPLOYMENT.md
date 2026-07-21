@@ -55,7 +55,7 @@ SEEDANCE_API_KEY=
 DATA_STORE=postgres
 DATABASE_URL=postgres://seqora:seqora@127.0.0.1:5432/seqora
 pnpm --filter @seqora/api db:migrate
-pnpm --filter @seqora/api db:import-json -- --file apps/api/data/app.json
+pnpm --filter @seqora/api db:import-json -- --file apps/api/seed/app.json
 ```
 
 `db:migrate` 可以重复执行，只会应用未执行的 SQL migration。`db:import-json` 用于一次性把本地 JSON 状态导入 PostgreSQL，导入完成后生产环境不再依赖 `DATA_FILE`。

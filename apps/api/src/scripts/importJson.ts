@@ -8,7 +8,7 @@ const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error('DATABASE_URL is required')
 
 const file = argumentValue('--file')
-if (!file) throw new Error('Usage: pnpm --filter @seqora/api db:import-json -- --file apps/api/data/app.json')
+if (!file) throw new Error('Usage: pnpm --filter @seqora/api db:import-json -- --file apps/api/seed/app.json')
 
 const sourcePath = await existingPath(file)
 const state = normalizeState(JSON.parse(await readFile(sourcePath, 'utf8')) as Partial<AppState>)

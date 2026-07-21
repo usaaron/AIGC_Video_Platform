@@ -288,7 +288,7 @@ DATA_FILE=./data/app.json
 新增一次性导入命令：
 
 ```bash
-pnpm --filter @seqora/api migrate:json -- --file apps/api/data/app.json
+pnpm --filter @seqora/api migrate:json -- --file apps/api/seed/app.json
 ```
 
 导入规则：
@@ -309,7 +309,7 @@ pnpm --filter @seqora/api migrate:json -- --file apps/api/data/app.json
 ## 回滚方案
 
 - 切换前备份 PostgreSQL：`pg_dump --format=custom`。
-- 导入前保留原始 `apps/api/data/app.json`。
+- 导入前保留原始 `apps/api/seed/app.json`。
 - 一个版本周期内支持 `DATA_STORE=json|postgres` 双路径启动。
 - 如果 PostgreSQL 路径出现阻断问题，回滚环境变量到 `DATA_STORE=json`，并用导出脚本恢复最近一次 JSON 快照。
 

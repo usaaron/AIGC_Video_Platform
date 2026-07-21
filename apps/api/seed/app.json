@@ -6,9 +6,7 @@
       "name": "林夏",
       "passwordHash": "618e69e3b064917b711ebd0d76c772e4:46de0bf15b05a2f5c11b522b9e004180d0645ef0ac99fa7a609ddab52d8f0e2cb3bc108164bdcb4c3e6812bee0d218f02d284213306d7a058ed81c01f980106c",
       "tenantId": "tenant-seqora-demo",
-      "roles": [
-        "creator"
-      ],
+      "roles": ["creator"],
       "plan": "free",
       "credits": 286
     },
@@ -18,9 +16,7 @@
       "name": "平台管理员",
       "passwordHash": "c26aef618057772dfbf35a92765fa3e7:4d9e2be4132f45f895c44d8508a7615314ebc84103d3bcf86217d8590a8f902906a0bb07dbb3821a2c2e84a5b43216afb05df82a635f3bb92c956f6bcd3075d6",
       "tenantId": "tenant-seqora-demo",
-      "roles": [
-        "admin"
-      ],
+      "roles": ["admin"],
       "plan": "member",
       "credits": 1000
     }
