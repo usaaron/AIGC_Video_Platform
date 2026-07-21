@@ -1,0 +1,204 @@
+{
+  "evaluation_id": "scene_causality_real_ab_v1",
+  "decision_status": "validated_for_next_step",
+  "model": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000
+  },
+  "fixed_settings": {
+    "output_language": "en",
+    "desired_scene_count": 3,
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "generations_per_variant": 1
+  },
+  "comparison_note": "Both variants use the current structured output schema. The baseline removes the v0.2 SceneCausalityContract and uses the previous story-planning instruction; the improved variant uses Prompt Builder v0.2 and the Scene Causality prompt.",
+  "report_paths": {
+    "json": "examples/prompt_evaluations/scene_causality_real_ab_v1/comparison_report.json",
+    "markdown": "examples/prompt_evaluations/scene_causality_real_ab_v1/comparison_report.md"
+  },
+  "samples": [
+    {
+      "dataset_id": "us_female_dark_romance",
+      "content_spec_id": "4d8674b7-225b-429e-9832-c579c7300bf6",
+      "content_spec_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/us_female_dark_romance/content_spec.json",
+      "baseline": {
+        "draft_id": "fa681145-06d5-4f4b-9c02-ac3f1981174d",
+        "strategy_id": "strategy.scene_causality_ab.baseline.v1",
+        "strategy_version": "v1",
+        "prompt_ids": [
+          "prompt.story_planning.scene_causality_ab.baseline",
+          "prompt.platform_optimization.scene_causality_ab.shared"
+        ],
+        "prompt_versions": [
+          "v2-baseline",
+          "v1-shared"
+        ],
+        "prompt_builder_version": "v0.1-ab-baseline",
+        "draft_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/us_female_dark_romance/baseline_draft.json",
+        "prompt_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/us_female_dark_romance/baseline_prompt.txt"
+      },
+      "improved": {
+        "draft_id": "687c50ed-783a-494e-b1ff-2927e7062482",
+        "strategy_id": "strategy.scene_causality_ab.improved.v1",
+        "strategy_version": "v1",
+        "prompt_ids": [
+          "prompt.story_planning.scene_causality_ab.improved",
+          "prompt.platform_optimization.scene_causality_ab.shared"
+        ],
+        "prompt_versions": [
+          "v3-scene-causality",
+          "v1-shared"
+        ],
+        "prompt_builder_version": "v0.2",
+        "draft_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/us_female_dark_romance/improved_draft.json",
+        "prompt_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/us_female_dark_romance/improved_prompt.txt"
+      },
+      "human_review": {
+        "scores": {
+          "baseline": {
+            "causal_clarity": 5,
+            "protagonist_agency": 5,
+            "conflict_escalation": 5,
+            "filler_reduction": 5,
+            "earned_cliffhanger_or_payoff": 5,
+            "overall_human_preference": 5
+          },
+          "improved": {
+            "causal_clarity": 5,
+            "protagonist_agency": 5,
+            "conflict_escalation": 5,
+            "filler_reduction": 5,
+            "earned_cliffhanger_or_payoff": 4,
+            "overall_human_preference": 4
+          }
+        },
+        "comparison": "Both variants are strongly causal. Baseline has a more specific opening and makes Elena's publication directly endanger her mother; improved is structurally sound but its countdown ending is more mechanical and more verbose.",
+        "preferred_variant": "baseline",
+        "uncertainty_notes": "Single samples cannot separate prompt effect from model variance; this is an observational, non-professional review."
+      }
+    },
+    {
+      "dataset_id": "supernatural_romance",
+      "content_spec_id": "de74c89c-80fd-4a04-87df-4a0a8ff93364",
+      "content_spec_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/supernatural_romance/content_spec.json",
+      "baseline": {
+        "draft_id": "957d1e7b-9634-4bb0-aedc-2980c10d66be",
+        "strategy_id": "strategy.scene_causality_ab.baseline.v1",
+        "strategy_version": "v1",
+        "prompt_ids": [
+          "prompt.story_planning.scene_causality_ab.baseline",
+          "prompt.platform_optimization.scene_causality_ab.shared"
+        ],
+        "prompt_versions": [
+          "v2-baseline",
+          "v1-shared"
+        ],
+        "prompt_builder_version": "v0.1-ab-baseline",
+        "draft_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/supernatural_romance/baseline_draft.json",
+        "prompt_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/supernatural_romance/baseline_prompt.txt"
+      },
+      "improved": {
+        "draft_id": "21663586-bd96-49cc-920e-4367a536f411",
+        "strategy_id": "strategy.scene_causality_ab.improved.v1",
+        "strategy_version": "v1",
+        "prompt_ids": [
+          "prompt.story_planning.scene_causality_ab.improved",
+          "prompt.platform_optimization.scene_causality_ab.shared"
+        ],
+        "prompt_versions": [
+          "v3-scene-causality",
+          "v1-shared"
+        ],
+        "prompt_builder_version": "v0.2",
+        "draft_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/supernatural_romance/improved_draft.json",
+        "prompt_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/supernatural_romance/improved_prompt.txt"
+      },
+      "human_review": {
+        "scores": {
+          "baseline": {
+            "causal_clarity": 3,
+            "protagonist_agency": 4,
+            "conflict_escalation": 3,
+            "filler_reduction": 3,
+            "earned_cliffhanger_or_payoff": 5,
+            "overall_human_preference": 3
+          },
+          "improved": {
+            "causal_clarity": 5,
+            "protagonist_agency": 5,
+            "conflict_escalation": 5,
+            "filler_reduction": 5,
+            "earned_cliffhanger_or_payoff": 4,
+            "overall_human_preference": 4
+          }
+        },
+        "comparison": "Improved preserves chronological cause and effect from evidence control to altar choice to hunter retaliation. Baseline interrupts escalation with a backward-looking flashback, although its dead-sister reveal is the stronger surprise.",
+        "preferred_variant": "improved",
+        "uncertainty_notes": "Improved starts with setup rather than the altar confrontation, so hook immediacy regressed even though scene causality improved."
+      }
+    },
+    {
+      "dataset_id": "revenge_drama",
+      "content_spec_id": "9528ded5-6cdd-4d13-8bfa-ea04070b3642",
+      "content_spec_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/revenge_drama/content_spec.json",
+      "baseline": {
+        "draft_id": "7b7b8e8d-94b9-4f66-b5f1-61a0c21ee90a",
+        "strategy_id": "strategy.scene_causality_ab.baseline.v1",
+        "strategy_version": "v1",
+        "prompt_ids": [
+          "prompt.story_planning.scene_causality_ab.baseline",
+          "prompt.platform_optimization.scene_causality_ab.shared"
+        ],
+        "prompt_versions": [
+          "v2-baseline",
+          "v1-shared"
+        ],
+        "prompt_builder_version": "v0.1-ab-baseline",
+        "draft_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/revenge_drama/baseline_draft.json",
+        "prompt_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/revenge_drama/baseline_prompt.txt"
+      },
+      "improved": {
+        "draft_id": "862a9528-7c30-4dd0-a8f1-1e8611754762",
+        "strategy_id": "strategy.scene_causality_ab.improved.v1",
+        "strategy_version": "v1",
+        "prompt_ids": [
+          "prompt.story_planning.scene_causality_ab.improved",
+          "prompt.platform_optimization.scene_causality_ab.shared"
+        ],
+        "prompt_versions": [
+          "v3-scene-causality",
+          "v1-shared"
+        ],
+        "prompt_builder_version": "v0.2",
+        "draft_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/revenge_drama/improved_draft.json",
+        "prompt_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/revenge_drama/improved_prompt.txt"
+      },
+      "human_review": {
+        "scores": {
+          "baseline": {
+            "causal_clarity": 4,
+            "protagonist_agency": 5,
+            "conflict_escalation": 4,
+            "filler_reduction": 4,
+            "earned_cliffhanger_or_payoff": 4,
+            "overall_human_preference": 4
+          },
+          "improved": {
+            "causal_clarity": 5,
+            "protagonist_agency": 5,
+            "conflict_escalation": 5,
+            "filler_reduction": 5,
+            "earned_cliffhanger_or_payoff": 5,
+            "overall_human_preference": 5
+          }
+        },
+        "comparison": "Improved creates a clean evidence escalation: agreement, recording, then the hidden first page. Each counteraction forces the next scene, while baseline's mystery-husband reveal is compelling but less prepared by the prior evidence chain.",
+        "preferred_variant": "improved",
+        "uncertainty_notes": "Both versions use familiar wedding and corporate-revenge devices already present in the fixed ContentSpec and retrieved assets."
+      }
+    }
+  ]
+}

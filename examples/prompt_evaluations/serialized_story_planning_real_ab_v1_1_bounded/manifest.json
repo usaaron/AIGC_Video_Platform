@@ -1,0 +1,82 @@
+{
+  "evaluation_id": "serialized_story_planning_real_ab_v1_1_bounded",
+  "generation_status": "completed",
+  "decision_status": "revise_planning_concept",
+  "contract_version": "serialized_story_planning_contract.v1.1-candidate",
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-revalidation",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1-revalidation",
+  "model": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000,
+    "reasoning_effort": "low"
+  },
+  "fixed_settings": {
+    "output_language": "en",
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "episode_count_per_story": 4,
+    "scene_count_per_episode": 3,
+    "target_duration_seconds": 90,
+    "generation_order": [
+      "supernatural_romance/direct/episodes_01_to_04",
+      "supernatural_romance/planned_v1_1/episodes_01_to_04",
+      "revenge_drama/direct/episodes_01_to_04",
+      "revenge_drama/planned_v1_1/episodes_01_to_04"
+    ],
+    "generations_per_episode_variant": 1,
+    "total_expected_generations": 16,
+    "inter_request_delay_seconds": 30.0,
+    "rate_limit_retry_count": 3,
+    "rate_limit_cooldown_seconds": 300.0,
+    "schema_retry_count": 3,
+    "schema_retry_delay_seconds": 30.0
+  },
+  "stories": {
+    "supernatural_romance": {
+      "story_title": "Supernatural Romance",
+      "role": "primary_failure_case",
+      "direct": {
+        "episode_01": "completed",
+        "episode_02": "completed",
+        "episode_03": "completed",
+        "episode_04": "completed"
+      },
+      "planned_v1_1": {
+        "episode_01": "completed",
+        "episode_02": "completed",
+        "episode_03": "completed",
+        "episode_04": "completed"
+      }
+    },
+    "revenge_drama": {
+      "story_title": "Revenge Drama",
+      "role": "control_case",
+      "direct": {
+        "episode_01": "completed",
+        "episode_02": "completed",
+        "episode_03": "completed",
+        "episode_04": "completed"
+      },
+      "planned_v1_1": {
+        "episode_01": "completed",
+        "episode_02": "completed",
+        "episode_03": "completed",
+        "episode_04": "completed"
+      }
+    }
+  },
+  "technical_contract_correction": {
+    "status": "applied_symmetrically_to_episode_04_pair",
+    "prompt_version": "serialized_story_planning_offline_ab.v1.1-revalidation.final-scene-flag-patch1",
+    "reason": "Align final-scene boolean semantics with the unchanged output schema validator.",
+    "creative_prompt_tuning": false
+  },
+  "review_artifacts": {
+    "locked_blind_review": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/blind_review/blind_review_locked.json",
+    "comparison_report_json": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/comparison_report.json",
+    "comparison_report_markdown": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/comparison_report.md"
+  },
+  "reviewer_identity_type": "AI reviewer (Codex), not an independent human or project owner"
+}

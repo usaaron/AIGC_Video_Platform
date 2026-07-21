@@ -1,0 +1,140 @@
+{
+  "title": "The Override",
+  "logline": "Disgraced engineer Maya Chen risks arrest to prove developer Victor Hale concealed a deadly structural defect now spreading through an occupied tower.",
+  "synopsis": "After discovering that the defect blamed on her has appeared in an occupied Hale tower, structural engineer Maya Chen seeks admissible proof before causing a dangerous panic. She infiltrates Victor Hale's records floor and photographs his signed order overriding her rejected concrete mix. Trapped by Victor, Maya chooses to transmit the evidence and initiate a silent evacuation rather than escape cleanly, only to learn he has wired the archive to burn and intends to frame her again.",
+  "hook": "The engineer blamed for a fatal collapse discovers the same defect beneath hundreds of sleeping residents.",
+  "target_audience": "English-speaking viewers who enjoy strategic revenge, institutional conflict, and earned reversals",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "suspenseful",
+  "episode_goal": "Maya must secure proof of Hale's concealed defect before occupied buildings are endangered.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "description": "A meticulous structural engineer carrying the blame for a deadly parking-garage collapse.",
+      "motivation": "Clear her name while protecting residents from the same concealed defect."
+    },
+    {
+      "name": "Victor Hale",
+      "role": "Antagonist",
+      "description": "A polished developer who buried construction warnings to protect his empire.",
+      "motivation": "Keep the defect hidden and make Maya the permanent scapegoat."
+    },
+    {
+      "name": "Elias Grant",
+      "role": "Reluctant ally",
+      "description": "A wary city building inspector who once accepted Hale's assurances.",
+      "motivation": "Prevent another disaster without sacrificing his career on an unsupported claim."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. HALE TOWER PARKING LEVEL - NIGHT",
+      "purpose": "Establish the recurring defect and force Maya to seek proof before sounding an alarm.",
+      "setting": "Night, underground parking level of an occupied luxury tower",
+      "beat_summary": "Maya finds fresh shear cracks matching the fatal garage defect beneath an occupied Hale tower.",
+      "emotional_shift": "Maya moves from suspicion to certainty that residents face immediate danger.",
+      "emotional_objective": "Turn Maya's private dread into controlled urgency.",
+      "character_actions": [
+        "Maya measures a widening diagonal crack across a basement support column.",
+        "She compares it with a collapse photograph on her phone.",
+        "Concrete dust trickles onto her measuring tape."
+      ],
+      "turning_point": "Falling concrete dust proves the defect is actively worsening.",
+      "scene_causality": {
+        "goal": "Verify whether the tower shares the defect that caused the fatal collapse.",
+        "conflict": "Maya recognizes lethal danger but cannot trigger a safe evacuation with her discredited word alone.",
+        "outcome": "Maya confirms the same failure pattern and identifies a sealed materials archive as her best evidence.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Maya Chen",
+          "intent": "Confirm the danger without alarming residents prematurely.",
+          "text": "Same angle, same aggregate failure—he used the rejected mix again."
+        },
+        {
+          "character_name": "Elias Grant",
+          "intent": "Warn Maya that her accusation lacks admissible proof.",
+          "text": "A crack is a warning, Maya, not evidence Hale ordered the cover-up."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. HALE DEVELOPMENT RECORDS FLOOR - NIGHT",
+      "purpose": "Give Maya incriminating evidence while revealing Victor knows she has found it.",
+      "setting": "Night, restricted records floor inside Hale Development headquarters",
+      "beat_summary": "Maya enters Hale's records floor and finds proof that Victor overruled her concrete rejection.",
+      "emotional_shift": "Her controlled investigation becomes a direct confrontation with Victor.",
+      "emotional_objective": "Make Maya choose dangerous restraint over a satisfying but reckless public leak.",
+      "character_actions": [
+        "Maya uses her revoked employee badge to slip into the dark records floor.",
+        "She photographs Victor's signed override beside falsified concrete test results.",
+        "A security shutter slams over the only exit."
+      ],
+      "turning_point": "Victor's voice reveals he has been monitoring Maya's search.",
+      "scene_causality": {
+        "goal": "Obtain documentary proof linking Victor to the rejected concrete mix.",
+        "conflict": "Victor traps Maya and threatens arrest while residents remain unaware above them.",
+        "outcome": "Maya captures the signed override but becomes locked inside the records floor.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because the basement crack confirms a recurring defect, Maya infiltrates the archive to prove who authorized it."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Victor Hale",
+          "intent": "Pressure Maya through the ceiling speaker into surrendering the evidence.",
+          "text": "You were convicted in the headlines, Maya; one trespassing charge makes it official."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Show Victor she values resident safety over immediate revenge.",
+          "text": "Then charge me—after you explain why three occupied towers share your forged test numbers."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. HALE DEVELOPMENT RECORDS FLOOR - NIGHT",
+      "purpose": "Show Maya protecting residents through a consequential decision and launch the next crisis.",
+      "setting": "Night, sealed records floor and remote fire-control room",
+      "beat_summary": "Maya sacrifices her clean escape to send Elias the evidence and trigger a discreet safety response.",
+      "emotional_shift": "Maya gains institutional leverage but realizes Victor intends to make her the culprit again.",
+      "emotional_objective": "Deliver an earned victory that immediately exposes Maya to a worse trap.",
+      "character_actions": [
+        "Maya connects her phone to a fire-control data port and uploads the photographed files to Elias.",
+        "She remotely places the tower elevators into firefighter recall, moving residents away from the garage.",
+        "A monitor activates, showing Victor beside explosives wired to the archive servers."
+      ],
+      "turning_point": "Maya sends the files instead of preserving her escape, enabling evacuation but springing Victor's frame-up.",
+      "scene_causality": {
+        "goal": "Get the proof to Elias and reduce resident exposure before Victor erases the records.",
+        "conflict": "Sending the evidence can protect residents but exposes Maya's location and lets Victor frame her for destroying the archive.",
+        "outcome": "Elias receives the proof and begins a silent evacuation, but Victor prepares to burn the archive with Maya inside.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Victor traps her with the only proof, Maya must choose between escaping unseen and transmitting evidence immediately."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Elias Grant",
+          "intent": "Confirm he will act while warning Maya of the personal cost.",
+          "text": "I have the files and I'm calling a silent evacuation—but your signal gave Hale your exact location."
+        },
+        {
+          "character_name": "Victor Hale",
+          "intent": "Frame Maya and erase the evidence in one move.",
+          "text": "Perfect; when this floor burns, the cameras will show my disgraced engineer breaking in."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Maya evacuate the tower before Hale destroys the evidence and frames her for the sabotage?"
+}

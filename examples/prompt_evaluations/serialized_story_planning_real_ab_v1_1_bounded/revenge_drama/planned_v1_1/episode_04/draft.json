@@ -1,0 +1,146 @@
+{
+  "title": "Everyone Gets a Copy",
+  "logline": "While detained outside a failing tower, Tessa must stop Hale's evidence-burying concrete pour, save the remaining residents, and choose public verification over a deal restoring her career.",
+  "synopsis": "Still detained, Tessa compels Voss to free one hand and uses an official tablet to dump the concrete pump's pressure before the transfer slab fails. The delay lets Malik evacuate the final resident, while Tessa compares her unsigned calculation against the earlier and current altered load tests, proving both failures came from the same corrupted approval process. After Malik escapes with the originals, Hale offers to restore Tessa's license and reputation for silence, but she rejects him andpubl",
+  "hook": "Handcuffed beside the failing tower, Tessa watches wet concrete surge toward the exact column her old calculation warned would shear.",
+  "target_audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "intense",
+  "episode_goal": "Stop Hale's concrete pour, evacuate the remaining residents, and place independently verified evidence beyond institutional control.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "description": "A disgraced structural engineer whose precision now serves resident safety over personal vindication.",
+      "motivation": "Expose Hale's fraud, stop the lethal pour, and secure public accountability."
+    },
+    {
+      "name": "Malik Reyes",
+      "role": "Reluctant ally",
+      "description": "A building operations insider carrying the evacuation map and evidence through the occupied tower.",
+      "motivation": "Get every resident out while preserving proof beyond Hale's reach."
+    },
+    {
+      "name": "Gideon Hale",
+      "role": "Antagonist",
+      "description": "A powerful developer trying to bury structural fraud beneath fresh concrete and Tessa's ruined reputation.",
+      "motivation": "Complete the pour, destroy the evidence, and escape liability."
+    },
+    {
+      "name": "Deputy Commissioner Celia Voss",
+      "role": "Complicit official",
+      "description": "A compromised city official whose countersignature connects regulatory approval to Hale's falsified tests.",
+      "motivation": "Limit her criminal exposure as the cover-up collapses."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "EXT. TOWER PLAZA - NIGHT",
+      "purpose": "Stop the lethal pour without disrupting Malik's evacuation.",
+      "setting": "Tower plaza beside the concrete pump, night",
+      "beat_summary": "Tessa identifies the pour's remote control path and forces Voss to choose between stopping it or being recorded enabling a collapse.",
+      "emotional_shift": "Tessa moves from restrained alarm to decisive command.",
+      "emotional_objective": "Turn Tessa's helplessness into controlled leverage.",
+      "character_actions": [
+        "Tessa twists toward Voss's body camera and points at the concrete pump's wireless control box.",
+        "Voss unlocks one cuff and hands Tessa her department tablet.",
+        "Tessa remotely triggers the pump's emergency pressure dump, spraying concrete harmlessly into the containment trench."
+      ],
+      "turning_point": "Voss chooses recorded complicity in stopping Hale over silent complicity in the collapse.",
+      "scene_causality": {
+        "goal": "Use Voss's official access to halt the concrete pour immediately.",
+        "conflict": "Tessa is cuffed while the pump adds lethal weight and Voss fears self-incrimination.",
+        "outcome": "Tessa dumps the pump pressure safely, but Hale locks Malik inside the evidence room.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Force Voss to act under public record.",
+          "text": "Your camera is live, Celia, so either unlock me or explain why you let Hale load a failing slab."
+        },
+        {
+          "character_name": "Deputy Commissioner Celia Voss",
+          "intent": "Save herself by helping stop the immediate danger.",
+          "text": "One hand free, Ward; stop the pour, and this recording leaves with both of us."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT./EXT. TOWER SERVICE CORRIDOR / PLAZA - NIGHT",
+      "purpose": "Complete the evacuation and prove the earlier and current failures came from the same corrupted process.",
+      "setting": "Tower service corridor and plaza command post, intercut",
+      "beat_summary": "Malik evacuates the last resident as Tessa uses her unsigned calculation to expose Hale's identical defect and unlock the evidence room.",
+      "emotional_shift": "Personal vindication gives way to shared certainty and collective safety.",
+      "emotional_objective": "Convert Tessa's past shame into proof that saves Malik and links both crimes.",
+      "character_actions": [
+        "Malik lowers the last resident through the smoke-door threshold before the magnetic lock seals.",
+        "Tessa overlays her unsigned calculation with both altered load-test records on Voss's tablet.",
+        "Hale lunges for the tablet, but Voss blocks him as the evidence-room lock releases."
+      ],
+      "turning_point": "Tessa's once-dismissed calculation becomes the independent baseline proving two disasters were engineered by the same fraud.",
+      "scene_causality": {
+        "goal": "Free Malik and authenticate the repeated falsification before Hale can erase it.",
+        "conflict": "Hale seals Malik with the evidence and tries to seize the only device displaying the comparison.",
+        "outcome": "Malik exits with the originals, every resident is safe, and the matching alterations implicate Hale and Voss.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Tessa stopped the pour, Malik gains enough time to clear the final resident and preserve the originals."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Malik Reyes",
+          "intent": "Confirm safety while demanding a way out.",
+          "text": "Last resident is clear, Tessa, but Hale sealed me in with the originals."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Expose the repeated corruption and defeat Hale's lockout.",
+          "text": "My unsigned calculation is the control; both failures use the same altered factor, and your override copied its timestamp."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "EXT. TOWER PLAZA - DAWN",
+      "purpose": "Resolve the central case through independent verification and an irreversible public release.",
+      "setting": "Tower plaza command post at dawn",
+      "beat_summary": "Tessa rejects Hale's private settlement and transmits the verified case to residents, engineers, prosecutors, and the press simultaneously.",
+      "emotional_shift": "Tessa releases her need for private restoration and claims public leadership.",
+      "emotional_objective": "Deliver earned justice by making accountability larger than Tessa's reputation.",
+      "character_actions": [
+        "Hale holds out a signed reinstatement and settlement agreement while police approach.",
+        "Tessa tears off the signature page and taps the tablet's public verification release.",
+        "Residents' phones light up with the evacuation log, original records, and independent engineers' validation as Hale is arrested."
+      ],
+      "turning_point": "Tessa visibly rejects Hale's settlement and makes public accountability impossible to reverse.",
+      "scene_causality": {
+        "goal": "Make the verified evidence public without allowing Hale or Voss to contain it.",
+        "conflict": "Hale offers Tessa complete personal restoration in exchange for keeping the systemic evidence private.",
+        "outcome": "Tessa releases the authenticated record, Hale and Voss face prosecution, and the evacuated residents control copies while auditors flag wider approvals for review.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Malik recovered the originals and Tessa established the matching fraud, independent engineers can verify the evidence before release."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Gideon Hale",
+          "intent": "Buy Tessa's silence by restoring what he took from her.",
+          "text": "Your license, your name, every dollar you lost; sign, and this stays a construction dispute."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Choose durable public accountability over private revenge.",
+          "text": "You made my name the lock; I made the evidence the key, and everyone gets a copy."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "How far beyond Hale and Voss did the corrupted approval process reach?"
+}

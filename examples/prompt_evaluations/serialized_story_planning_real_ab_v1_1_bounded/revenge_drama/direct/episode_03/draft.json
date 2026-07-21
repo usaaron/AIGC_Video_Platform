@@ -1,0 +1,140 @@
+{
+  "title": "Eleven Below",
+  "logline": "With an occupied tower marked for covert demolition, Maya weaponizes its own safety systems to force an evacuation before Adrian's analog backup threatens people hidden off the official rolls.",
+  "synopsis": "Maya and Luis enter Vale Meridian and expose a forged containment order designed to keep residents inside during demolition. Adrian forces Maya to choose between downloading the controller log that could clear her name and activating the fire system, so she destroys the log to unlock the exits and summon emergency crews. Maya severs the digital detonator bus and saves the registered residents, while a partial blast ejects counterfeit structural components into public view. Their victory turns to",
+  "hook": "A demolition timer counts down behind Vale Meridian's occupied lobby while a forged safety notice orders residents to remain inside.",
+  "target_audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "suspenseful",
+  "episode_goal": "Maya must evacuate Vale Meridian and interrupt its demolition without destroying the evidence that can expose Adrian.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "description": "A disciplined structural engineer framed for Harbor Heights' defects, now racing to prevent the same fraud from killing more residents.",
+      "motivation": "Clear her name by proving developer fraud without putting residents at risk."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Antagonist",
+      "description": "The ruthless head of Vale Developments, willing to destroy an occupied tower to erase evidence of systemic fraud.",
+      "motivation": "Erase the sister tower's defects before they expose his company and exonerate Maya."
+    },
+    {
+      "name": "Luis Ortega",
+      "role": "Ally",
+      "description": "A Harbor Heights tenant organizer whose trust in Maya has made him her link to endangered residents.",
+      "motivation": "Keep both buildings' residents alive while securing proof of Adrian's crimes."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. VALE MERIDIAN LOBBY - PRE-DAWN",
+      "purpose": "Establish the demolition countdown and the false order keeping residents inside.",
+      "setting": "Vale Meridian lobby, pre-dawn",
+      "beat_summary": "Maya and Luis discover Adrian has disguised the demolition lockdown as a hazardous-material containment order.",
+      "emotional_shift": "Maya moves from horrified confirmation to controlled action.",
+      "emotional_objective": "Turn institutional helplessness into urgent defiance.",
+      "character_actions": [
+        "Maya compares the lobby notice with the demolition routing shown in the recovered inspection video.",
+        "Luis chains open the stairwell doors as security shutters descend.",
+        "Maya spots a concealed countdown reflected in the security desk glass."
+      ],
+      "turning_point": "Maya realizes the containment notice is designed to keep residents inside during demolition.",
+      "scene_causality": {
+        "goal": "Confirm the demolition threat and gain access to the occupied tower.",
+        "conflict": "A forged containment order and descending shutters prevent Maya from evacuating residents openly.",
+        "outcome": "Maya verifies live charges and enters the stairwell with Luis.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Luis Ortega",
+          "intent": "Warn Maya that official authority has neutralized resident cooperation.",
+          "text": "They were told opening a door spreads asbestos, so now fear is doing Vale's security work."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Identify Adrian's lethal deception and commit to intervention.",
+          "text": "There is no asbestos protocol; those wires lead to shaped charges, and we have twenty-eight minutes."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. VALE MERIDIAN FIRE-CONTROL ROOM - PRE-DAWN",
+      "purpose": "Force the evacuation through an observable sacrifice that destroys Maya's quickest proof.",
+      "setting": "Vale Meridian fire-control room",
+      "beat_summary": "Maya sacrifices the demolition controller's full data log to trigger a mandatory citywide fire response and mass evacuation.",
+      "emotional_shift": "Maya moves from agonized temptation to irreversible resolve.",
+      "emotional_objective": "Make Maya's protective values cost her decisive evidence.",
+      "character_actions": [
+        "Maya opens the fire-control cabinet and finds the demolition relay spliced into the alarm network.",
+        "Adrian's face appears on the cabinet monitor as the evidence-download bar climbs.",
+        "Maya yanks the suppression lever, flooding the controller and sounding every alarm."
+      ],
+      "turning_point": "Maya pulls the lever and visibly chooses hundreds of lives over immediate exoneration.",
+      "scene_causality": {
+        "goal": "Force every legal exit open before the countdown expires.",
+        "conflict": "The alarm lever will summon rescuers and unlock exits but destroy the controller log proving Adrian ordered the demolition.",
+        "outcome": "Maya destroys the controller log, activates the alarms, and releases residents into the stairwells.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because the forged order blocks a normal evacuation, Maya must override the tower through its fire-control system."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Tempt Maya to preserve exonerating evidence at the residents' expense.",
+          "text": "Keep downloading and you get your name back; pull that lever and the only complete log drowns."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Choose lives over her fastest path to vindication.",
+          "text": "My name can wait; they cannot."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "EXT. VALE MERIDIAN EVACUATION PLAZA - DAWN",
+      "purpose": "Preserve evidence of structural fraud while revealing hidden occupants and Adrian's analog demolition backup.",
+      "setting": "Vale Meridian evacuation plaza and sublevel service corridor",
+      "beat_summary": "After Maya severs the digital detonator bus, Luis discovers eleven unregistered workers remain below as Adrian activates an analog backup.",
+      "emotional_shift": "Relief collapses into personal, time-critical terror.",
+      "emotional_objective": "Convert apparent victory into dread without negating Maya's rescue.",
+      "character_actions": [
+        "Maya cuts the labeled detonator trunk while residents stream across the evacuation plaza.",
+        "A single charge blasts out the evidence floor's windows, scattering counterfeit steel couplers onto the street.",
+        "Luis checks a recovered basement payroll sheet as a red mechanical timer begins ticking beneath the tower."
+      ],
+      "turning_point": "Luis reveals the tower is not empty as Adrian's mechanical backup starts counting down.",
+      "scene_causality": {
+        "goal": "Disable the demolition and confirm every occupant has escaped.",
+        "conflict": "Adrian's first blast destroys the evidence floor while unregistered workers remain trapped above analog foundation charges.",
+        "outcome": "Maya stops the digital implosion and exposes counterfeit couplers, but eleven hidden workers remain over a ticking analog device.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Maya's alarm empties the registered floors, she can sever the main detonator line without trapping the known residents."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Luis Ortega",
+          "intent": "Reveal that the apparent evacuation is incomplete.",
+          "text": "The official count is clear, but this payroll lists eleven night workers housed in sublevel three."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Announce his final escalation and frame Maya's intervention as futile.",
+          "text": "Digital systems leave records, Maya; my foundation charges only leave rubble."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Maya rescue the eleven hidden workers and expose Adrian before his analog charges bring Vale Meridian down?"
+}

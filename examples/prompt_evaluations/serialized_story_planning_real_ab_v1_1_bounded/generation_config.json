@@ -1,0 +1,46 @@
+{
+  "evaluation_id": "serialized_story_planning_real_ab_v1_1_bounded",
+  "contract_version": "serialized_story_planning_contract.v1.1-candidate",
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-revalidation",
+  "final_episode_prompt_version": "serialized_story_planning_offline_ab.v1.1-revalidation.final-scene-flag-patch1",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1-revalidation",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "reasoning_effort": "low",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "output_language": "en",
+  "episode_count_per_story": 4,
+  "scene_count_per_episode": 3,
+  "target_duration_seconds": 90,
+  "generation_order": [
+    "supernatural_romance/direct/episodes_01_to_04",
+    "supernatural_romance/planned_v1_1/episodes_01_to_04",
+    "revenge_drama/direct/episodes_01_to_04",
+    "revenge_drama/planned_v1_1/episodes_01_to_04"
+  ],
+  "inter_request_delay_seconds": 30.0,
+  "rate_limit_retry_count": 3,
+  "rate_limit_cooldown_seconds": 300.0,
+  "schema_retry_count": 3,
+  "schema_retry_delay_seconds": 30.0,
+  "continuity_summary_fields": [
+    "completed_episode_number",
+    "title",
+    "episode_goal",
+    "synopsis",
+    "character_states",
+    "final_scene_outcome",
+    "final_turning_point",
+    "next_episode_question"
+  ],
+  "output_schema": "LLMGeneratedDraftMasterScript",
+  "technical_contract_correction": {
+    "scope": "episode_04_for_both_variants",
+    "reason": "The existing schema validator uses cliffhanger=true as the final-scene payoff-or-continuation marker.",
+    "creative_change": false,
+    "comparison_rule": "Regenerate both Direct and Planned episode 4 with the same correction."
+  }
+}

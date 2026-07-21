@@ -1,0 +1,233 @@
+{
+  "content_spec_id": "de74c89c-80fd-4a04-87df-4a0a8ff93364",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "title": "Betrayal at the Vampire Altar",
+  "logline": "At her wedding, a covert operative exposes her vampire groom—but turns the betrayal against the organization that sent her.",
+  "language": "en",
+  "target_audience": "US women ages 18-34 drawn to forbidden supernatural romance, betrayal reveals, and revenge cliffhangers.",
+  "target_platform": "TikTok 9:16 short video",
+  "tone": "intense",
+  "hook": "On-screen: She fell for the vampire she was sent to betray. Vale: \"Marry him. Expose him at the altar.\"",
+  "synopsis": "Mara is ordered to expose vampire Lucian at their wedding. She takes control of the evidence, publicly reveals his identity, and plays the command proving Vale engineered the betrayal. Mara chooses Lucian, making herself Vale's enemy. Hunters surround the wedding, and Lucian reveals he knew her mission all along—and married her to reach Vale.",
+  "episode_goal": "Force Mara to choose publicly between her mission and her vampire groom, then make that choice trigger immediate supernatural retaliation.",
+  "target_duration_seconds": 45,
+  "characters": [
+    {
+      "name": "Mara Voss",
+      "role": "Protagonist and conflicted bride",
+      "description": "A covert operative who falls for the supernatural target she was ordered to expose on their wedding day.",
+      "motivation": "Protect Lucian while taking revenge on the organization that weaponized her trust."
+    },
+    {
+      "name": "Lucian Cross",
+      "role": "Vampire groom and forbidden love",
+      "description": "A guarded vampire groom whose love for Mara is tested when she reveals his identity before their guests.",
+      "motivation": "Survive the exposure and discover whether Mara's love is genuine."
+    },
+    {
+      "name": "Director Vale",
+      "role": "Antagonist and mission handler",
+      "description": "The calculating leader who recruited Mara and demands that she complete the betrayal at the altar.",
+      "motivation": "Expose Lucian and punish Mara if she abandons the mission."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. BOARDROOM - NIGHT",
+      "purpose": "Deliver the premise instantly and arm Mara with the evidence that can destroy Lucian.",
+      "setting_hint": "Minimal modern boardroom set",
+      "beat_summary": "Vale orders Mara to marry Lucian and expose him before the wedding guests. Mara accepts the evidence phone, then secretly replaces fear with resolve.",
+      "emotional_shift": "Entrapment to dangerous resolve",
+      "emotional_objective": "Make Mara's apparent obedience conceal an active decision to reclaim control.",
+      "character_actions": [
+        "Vale slides an evidence-filled phone across the boardroom table.",
+        "Mara sees Lucian's vampire identity displayed on-screen.",
+        "Mara pockets the phone and removes her mission earpiece."
+      ],
+      "turning_point": "Instead of keeping Vale in her ear, Mara removes the earpiece and chooses to act alone.",
+      "scene_causality": {
+        "goal": "Take control of the evidence before Vale can use it.",
+        "conflict": "Vale threatens to expose Mara alongside Lucian if she refuses the mission.",
+        "outcome": "Mara leaves with the evidence phone and silently abandons Vale's instructions.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Marry him. Then expose the vampire at the altar.",
+        "And if I refuse?",
+        "Then we expose you with him.",
+        "Understood."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Director Vale",
+          "intent": "Issue the betrayal order",
+          "text": "Marry him. Then expose the vampire at the altar."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Hide her rebellion",
+          "text": "And if I refuse?"
+        },
+        {
+          "character_name": "Director Vale",
+          "intent": "Threaten consequences",
+          "text": "Then we expose you with him."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Commit to her own plan",
+          "text": "Understood."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. WEDDING HALL - ALTAR - NIGHT",
+      "purpose": "Pay off the altar exposure while giving Mara a visible, irreversible act of agency.",
+      "setting_hint": "Wedding altar with vertical close-ups",
+      "beat_summary": "At the vows, Mara interrupts the ceremony and names Lucian as a vampire. Before he can respond, she plays Vale's recorded order and reveals who engineered the betrayal.",
+      "emotional_shift": "Apparent betrayal to defiant devotion",
+      "emotional_objective": "Make Mara risk Lucian's trust to expose the people controlling both of them.",
+      "character_actions": [
+        "Mara stops Lucian before he completes his vow.",
+        "She raises the evidence phone where every guest can see it.",
+        "Lucian recoils when Mara publicly names what he is.",
+        "Mara plays Vale's order and steps beside Lucian."
+      ],
+      "turning_point": "Mara plays Vale's own order and stands beside Lucian instead of completing the assigned betrayal.",
+      "scene_causality": {
+        "goal": "Expose Vale's mission publicly while proving that she chooses Lucian.",
+        "conflict": "Naming Lucian may destroy his trust, but staying silent lets Vale control the truth and target them separately.",
+        "outcome": "Lucian's vampire identity and Vale's operation are both revealed, stopping the wedding and making Mara an open enemy of her handler.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Mara took Vale's evidence phone and rejected the earpiece in Scene 1, she can expose both Lucian and Vale on her own terms."
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Stop. Lucian is a vampire.",
+        "You promised you saw me—not the monster.",
+        "I do. That's why everyone will hear who sent me to destroy you.",
+        "Marry him. Then expose the vampire at the altar.",
+        "I was sent to betray him. Instead, I choose him."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Mara Voss",
+          "intent": "Make a public choice",
+          "text": "Stop. Lucian is a vampire."
+        },
+        {
+          "character_name": "Lucian Cross",
+          "intent": "Confront the apparent betrayal",
+          "text": "You promised you saw me—not the monster."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Turn the betrayal against Vale",
+          "text": "I do. That's why everyone will hear who sent me to destroy you."
+        },
+        {
+          "character_name": "Director Vale",
+          "intent": "Expose the mission through the recording",
+          "text": "Marry him. Then expose the vampire at the altar."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Declare her allegiance",
+          "text": "I was sent to betray him. Instead, I choose him."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. WEDDING HALL - CONTINUOUS",
+      "purpose": "Make Mara's public rebellion trigger Vale's revenge and reveal that Lucian has his own hidden agenda.",
+      "setting_hint": "Wedding altar and sealed hall entrances",
+      "beat_summary": "Vale calls the evidence phone and promises revenge. Mara rejects her publicly, but shadowed hunters seal every exit as Lucian admits he knew Mara's secret from the beginning.",
+      "emotional_shift": "Defiant unity to shocked uncertainty",
+      "emotional_objective": "Convert romantic relief into mistrust, danger, and urgent revenge.",
+      "character_actions": [
+        "The evidence phone rings in Mara's hand.",
+        "Mara answers on speaker and rejects Vale's command.",
+        "Figures appear behind the wedding hall doors.",
+        "Lucian bares his fangs and takes Mara's hand."
+      ],
+      "turning_point": "Lucian reveals that Mara was never the only person at the altar with a secret mission.",
+      "scene_causality": {
+        "goal": "Reject Vale's final command and escape with Lucian.",
+        "conflict": "Mara and Lucian are surrounded just as his confession makes her question whether their romance was also part of a revenge plan.",
+        "outcome": "Hunters surround the wedding hall, and Lucian reveals he married Mara because she can lead him to Vale.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Mara exposed Vale's operation and chose Lucian in Scene 2, Vale retaliates immediately and Lucian can no longer hide that he anticipated the betrayal."
+      },
+      "cliffhanger": true,
+      "dialogue_prompts": [
+        "You wanted him? Keep him. The hunters are already at every door.",
+        "Then tell them I chose my side.",
+        "Mara... I knew why you came before you ever kissed me.",
+        "Then why did you marry me?",
+        "Because you're the only one who can lead me to Vale."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Director Vale",
+          "intent": "Retaliate against Mara",
+          "text": "You wanted him? Keep him. The hunters are already at every door."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Refuse control publicly",
+          "text": "Then tell them I chose my side."
+        },
+        {
+          "character_name": "Lucian Cross",
+          "intent": "Reveal his hidden advantage",
+          "text": "Mara... I knew why you came before you ever kissed me."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Demand the truth",
+          "text": "Then why did you marry me?"
+        },
+        {
+          "character_name": "Lucian Cross",
+          "intent": "Force the next revelation",
+          "text": "Because you're the only one who can lead me to Vale."
+        }
+      ],
+      "supporting_asset_ids": []
+    }
+  ],
+  "next_episode_question": "Can Mara and Lucian trust each other long enough to escape the hunters now surrounding their wedding?",
+  "qa_notes": [
+    "Draft generated by RealLLMAdapter structured output.",
+    "Story QC and revision loop must still review platform fit and consistency."
+  ],
+  "llm_metadata": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "strategy_id": "strategy.scene_causality_ab.improved.v1",
+    "usage": {
+      "prompt_tokens": 5669,
+      "completion_tokens": 2688,
+      "total_tokens": 8357,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1009
+      }
+    },
+    "response_id": "resp_0e5b93a5dd02eac2016a5e303875b48191985676cffa9dab60",
+    "prompt_versions": [
+      "v3-scene-causality",
+      "v1-shared"
+    ],
+    "generation_strategy_version": "v1"
+  },
+  "id": "21663586-bd96-49cc-920e-4367a536f411",
+  "created_at": "2026-07-20T14:28:25.663839Z",
+  "updated_at": "2026-07-20T14:28:25.663944Z"
+}

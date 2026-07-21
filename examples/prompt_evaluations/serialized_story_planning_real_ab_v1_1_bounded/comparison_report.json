@@ -1,0 +1,194 @@
+{
+  "evaluation_id": "serialized_story_planning_real_ab_v1_1_bounded",
+  "decision": "revise_planning_concept",
+  "decision_reason": "Planned v1.1 fixed the primary rescue-to-memory-loss repetition failure, preserved Setup/Payoff, and remained preferred in the Revenge Drama control. It did not satisfy the strict commercial-beat gate because aggregate Hook and Cliffhanger scores remained 0.20 and 0.10 below Direct. Runtime contract design is therefore not approved, and no additional tuning is performed in this task.",
+  "experiment_setup": {
+    "model_provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000,
+    "reasoning_effort": "low",
+    "contract_version": "serialized_story_planning_contract.v1.1-candidate",
+    "prompt_version_episodes_1_to_3": "serialized_story_planning_offline_ab.v1.1-revalidation",
+    "prompt_version_episode_4": "serialized_story_planning_offline_ab.v1.1-revalidation.final-scene-flag-patch1",
+    "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1-revalidation",
+    "output_language": "en",
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "episode_count_per_story": 4,
+    "scene_count_per_episode": 3,
+    "target_duration_seconds": 90,
+    "successful_generation_count": 16,
+    "generation_order": [
+      "supernatural_romance/direct/episodes_01_to_04",
+      "supernatural_romance/planned_v1_1/episodes_01_to_04",
+      "revenge_drama/direct/episodes_01_to_04",
+      "revenge_drama/planned_v1_1/episodes_01_to_04"
+    ]
+  },
+  "technical_contract_correction": {
+    "reason": "The unchanged DraftMasterScript validator requires the final scene cliffhanger boolean to be true even when Episode 4 delivers a resolved payoff.",
+    "handling": "The offline Episode 4 instruction was clarified symmetrically for Direct and Planned, and both Episode 4 outputs were regenerated. Earlier outputs were preserved under technical_history.",
+    "creative_prompt_tuning": false,
+    "production_code_changed": false,
+    "schema_changed": false
+  },
+  "review": {
+    "method": "Blind pairwise AI review locked before blind_key.json was opened",
+    "reviewer_identity_type": "AI reviewer (Codex), not an independent human or project owner",
+    "reviewer_count": 1,
+    "professional_human_validation": false,
+    "score_scale": "1-5",
+    "locked_review_path": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/blind_review/blind_review_locked.json",
+    "limitations": [
+      "One AI reviewer does not establish professional or audience preference.",
+      "Each variant was generated once, so stability was not measured.",
+      "Both variants contain malformed or truncated synopsis endings in some episodes.",
+      "The four-episode synthetic fixtures do not establish commercial-length series quality."
+    ]
+  },
+  "story_results": [
+    {
+      "story_id": "supernatural_romance",
+      "direct_blind_candidate": "candidate_1",
+      "planned_blind_candidate": "candidate_2",
+      "direct_average_score": 4.3,
+      "planned_average_score": 4.706,
+      "score_delta": 0.406,
+      "preferred_variant": "planned_v1_1",
+      "dimension_changes": {
+        "setup_payoff_completion": {"direct": 4.2, "planned": 5.0, "delta": 0.8},
+        "repetition_control": {"direct": 3.5, "planned": 4.8, "delta": 1.3},
+        "hook_strength": {"direct": 4.7, "planned": 4.6, "delta": -0.1},
+        "cliffhanger_quality": {"direct": 4.5, "planned": 4.6, "delta": 0.1},
+        "character_decision_consistency": {"direct": 4.5, "planned": 4.8, "delta": 0.3},
+        "cross_episode_causality": {"direct": 4.3, "planned": 4.8, "delta": 0.5},
+        "exit_entry_continuity": {"direct": 4.5, "planned": 4.8, "delta": 0.3},
+        "conflict_variety": {"direct": 4.1, "planned": 4.8, "delta": 0.7},
+        "rigidity_freedom": {"direct": 4.7, "planned": 4.7, "delta": 0.0}
+      },
+      "repetition_finding": "The previous rescue-to-Rowan-memory-loss chain is removed. Planned Episode 1 establishes rescue cost; Episode 2 uses counterfeit relational evidence; Episode 3 uses a restoration temptation; Episode 4 attacks future identity and resolves through reciprocal consent.",
+      "setup_payoff_finding": "The silver tag, blank journal, and remember-me-forward phrase all change function across episodes and receive explicit payoff. The prior Planned setup/payoff score of 5.0 is preserved.",
+      "hook_cliffhanger_finding": "Hook is 0.1 below Direct while Cliffhanger is 0.1 above Direct, effectively near parity for the primary case.",
+      "major_single_episode_regression": false
+    },
+    {
+      "story_id": "revenge_drama",
+      "direct_blind_candidate": "candidate_1",
+      "planned_blind_candidate": "candidate_2",
+      "direct_average_score": 4.519,
+      "planned_average_score": 4.631,
+      "score_delta": 0.112,
+      "preferred_variant": "planned_v1_1",
+      "dimension_changes": {
+        "setup_payoff_completion": {"direct": 4.3, "planned": 4.8, "delta": 0.5},
+        "repetition_control": {"direct": 3.8, "planned": 4.3, "delta": 0.5},
+        "hook_strength": {"direct": 4.9, "planned": 4.6, "delta": -0.3},
+        "cliffhanger_quality": {"direct": 4.8, "planned": 4.5, "delta": -0.3},
+        "character_decision_consistency": {"direct": 4.7, "planned": 5.0, "delta": 0.3},
+        "cross_episode_causality": {"direct": 4.7, "planned": 4.9, "delta": 0.2},
+        "exit_entry_continuity": {"direct": 4.8, "planned": 4.9, "delta": 0.1},
+        "conflict_variety": {"direct": 4.4, "planned": 4.5, "delta": 0.1},
+        "rigidity_freedom": {"direct": 4.6, "planned": 4.4, "delta": -0.2}
+      },
+      "control_finding": "Planned remains preferred because the unsigned calculation, evacuation plan, institutional complicity, and public release form a tighter causal chain. Direct has stronger immediate action hooks and Episode 5 continuation pressure.",
+      "repetition_finding": "Planned progresses through discovery, verification, legal sacrifice, and public release. Direct repeats demolition and occupant-rescue pressure across Episodes 3 and 4.",
+      "major_single_episode_regression": false
+    }
+  ],
+  "aggregate_quality": {
+    "story_preferences": {"planned_v1_1": 2, "direct": 0},
+    "overall_average_score": {"direct": 4.409, "planned_v1_1": 4.669, "delta": 0.259},
+    "planning_benefit_average": {"direct": 4.356, "planned_v1_1": 4.788, "delta": 0.431},
+    "creative_quality_average": {"direct": 4.463, "planned_v1_1": 4.55, "delta": 0.088},
+    "key_dimension_deltas": {
+      "setup_payoff_completion": 0.65,
+      "repetition_control": 0.9,
+      "character_decision_consistency": 0.3,
+      "cross_episode_causality": 0.35,
+      "exit_entry_continuity": 0.2,
+      "unique_episode_responsibility": 0.4,
+      "conflict_variety": 0.4,
+      "hook_strength": -0.2,
+      "cliffhanger_quality": -0.1,
+      "creative_variety": -0.05,
+      "rigidity_freedom": -0.1
+    }
+  },
+  "engineering_cost": {
+    "direct": {
+      "episodes": 8,
+      "prompt_tokens": 25619,
+      "completion_tokens": 15899,
+      "total_tokens": 41518,
+      "prompt_characters": 33120,
+      "latency_seconds": 454.658,
+      "structured_output_failures_in_final_set": 0,
+      "generation_failures_in_final_set": 0
+    },
+    "planned_v1_1": {
+      "episodes": 8,
+      "prompt_tokens": 24789,
+      "completion_tokens": 15080,
+      "total_tokens": 39869,
+      "prompt_characters": 49428,
+      "planning_context_characters": 15572,
+      "latency_seconds_observed": 822.291,
+      "latency_seconds_excluding_429_cooldown": 522.291,
+      "rate_limit_failures_before_success": 1,
+      "structured_output_failures_in_final_set": 0
+    },
+    "planned_relative_to_direct_percent": {
+      "prompt_tokens": -3.24,
+      "completion_tokens": -5.151,
+      "total_tokens": -3.972,
+      "prompt_characters": 49.239,
+      "latency_observed": 80.859,
+      "latency_excluding_429_cooldown": 14.876
+    },
+    "comparison_with_prior_planned_same_two_cases": {
+      "planning_context_characters": {"prior": 17214, "current": 15572, "change_percent": -9.539},
+      "total_prompt_characters": {"prior": 44016, "current": 49428, "change_percent": 12.296},
+      "note": "Planning context itself became smaller. Total prompt text grew because shared creative-freedom and technical-contract instructions were made explicit. Provider-reported token counts vary materially across calls and should be treated as observational."
+    }
+  },
+  "decision_criteria": {
+    "supernatural_repetition_failure_corrected": true,
+    "setup_payoff_preserved_or_improved": true,
+    "hook_and_cliffhanger_at_least_parity": false,
+    "revenge_control_planned_remains_preferred": true,
+    "no_major_single_episode_regression": true,
+    "no_obvious_plotting_rigidity": true,
+    "planning_context_not_materially_expanded": true,
+    "all_runtime_entry_criteria_passed": false
+  },
+  "runtime_recommendation": "Do not implement runtime Story Planning yet. Preserve the v1.1 artifacts and contract evidence, stop tuning in this task, and require a separately approved decision on whether the small remaining Hook/Cliffhanger deficit justifies another experiment. Independent human review should precede production adoption.",
+  "generated_artifacts": [
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/supernatural_romance/direct/episode_01/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/supernatural_romance/direct/episode_02/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/supernatural_romance/direct/episode_03/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/supernatural_romance/direct/episode_04/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/supernatural_romance/planned_v1_1/episode_01/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/supernatural_romance/planned_v1_1/episode_02/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/supernatural_romance/planned_v1_1/episode_03/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/supernatural_romance/planned_v1_1/episode_04/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/revenge_drama/direct/episode_01/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/revenge_drama/direct/episode_02/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/revenge_drama/direct/episode_03/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/revenge_drama/direct/episode_04/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/revenge_drama/planned_v1_1/episode_01/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/revenge_drama/planned_v1_1/episode_02/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/revenge_drama/planned_v1_1/episode_03/draft.json",
+    "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_1_bounded/revenge_drama/planned_v1_1/episode_04/draft.json"
+  ],
+  "boundary_confirmation": {
+    "production_code_changed": false,
+    "schema_changed": false,
+    "api_changed": false,
+    "runtime_integration_added": false,
+    "story_qc_changed": false,
+    "revision_or_acceptance_changed": false,
+    "scene_causality_changed": false,
+    "extra_tuning_after_result": false
+  }
+}

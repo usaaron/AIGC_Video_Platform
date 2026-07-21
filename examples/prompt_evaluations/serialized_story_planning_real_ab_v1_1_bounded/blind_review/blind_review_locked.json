@@ -1,0 +1,274 @@
+{
+  "evaluation_id": "serialized_story_planning_real_ab_v1_1_bounded",
+  "review_status": "locked_before_variant_reveal",
+  "reviewer_identity_type": "AI reviewer (Codex), not an independent human or project owner",
+  "reviewer_count": 1,
+  "rubric_scale": "1-5",
+  "professional_human_validation": false,
+  "stories": {
+    "supernatural_romance": {
+      "candidate_1": {
+        "scores": {
+          "overall_story_coherence": 4.3,
+          "character_decision_consistency": 4.5,
+          "cross_episode_causality": 4.3,
+          "setup_payoff_completion": 4.2,
+          "reveal_timing": 4.2,
+          "exit_entry_continuity": 4.5,
+          "unique_episode_responsibility": 4.1,
+          "repetition_control": 3.5,
+          "hook_strength": 4.7,
+          "cliffhanger_quality": 4.5,
+          "conflict_variety": 4.1,
+          "creative_variety": 4.5,
+          "emotional_progression": 4.6,
+          "rigidity_freedom": 4.7,
+          "filler_control": 4.3,
+          "single_episode_readability": 3.8
+        },
+        "evidence": [
+          "Episode 1 turns a subway death memory into Mara's active refusal of the Pale Listener's bargain.",
+          "Episodes 2 and 3 causally develop the chapel, Elena's bargain, memory shard and vessel reveal.",
+          "Episode 4 pays off the joint-beneficiary rule through Mara returning the voices and Elias returning immortality.",
+          "The series repeatedly returns to dying witnesses, stored memories and identity loss; the function develops, but adjacent supernatural mechanisms remain visibly similar.",
+          "Hooks and dialogue are emotionally vivid, especially the dead mother's voice and Elias choosing mortality.",
+          "Several synopsis strings are truncated, reducing artifact readability even though scenes remain understandable."
+        ],
+        "adjacent_episode_repetition": {
+          "primary_conflict_mechanism": [
+            "Episodes 1-3 repeatedly use stolen final memories as the route into the next supernatural location or rule."
+          ],
+          "rescue_mechanism": [],
+          "sacrifice_or_cost": [
+            "Identity and memory erosion recur as costs, with some progression from Elias to Mara."
+          ],
+          "reveal_type": [
+            "Multiple reveals come from a preserved or dying memory explaining an earlier bargain."
+          ],
+          "evidence_or_threat_device": [
+            "Voice, shard and memory chamber are distinct objects but serve similar expository functions."
+          ],
+          "state_transition": [],
+          "recurring_motifs_not_counted_as_repetition": [
+            "Names, voices and voluntary remembrance operate as evolving thematic motifs."
+          ]
+        },
+        "strengths": [
+          "Strong immediate hooks and emotionally charged supernatural imagery.",
+          "Mara and Elias make reciprocal choices with clear costs.",
+          "The mother bargain becomes a coherent four-episode spine."
+        ],
+        "weaknesses": [
+          "Memory-delivery mechanisms remain somewhat repetitive.",
+          "The late rule that both beneficiaries can return the gifts receives limited advance preparation.",
+          "Synopsis truncation appears in multiple episodes."
+        ]
+      },
+      "candidate_2": {
+        "scores": {
+          "overall_story_coherence": 4.7,
+          "character_decision_consistency": 4.8,
+          "cross_episode_causality": 4.8,
+          "setup_payoff_completion": 5.0,
+          "reveal_timing": 4.7,
+          "exit_entry_continuity": 4.8,
+          "unique_episode_responsibility": 4.8,
+          "repetition_control": 4.8,
+          "hook_strength": 4.6,
+          "cliffhanger_quality": 4.6,
+          "conflict_variety": 4.8,
+          "creative_variety": 4.6,
+          "emotional_progression": 4.8,
+          "rigidity_freedom": 4.7,
+          "filler_control": 4.8,
+          "single_episode_readability": 4.0
+        },
+        "evidence": [
+          "Episode 1 alone uses rescue and immediate memory cost to establish the premise.",
+          "Episode 2 changes the mechanism to counterfeit relational evidence and independent verification while explicitly preserving current memories.",
+          "Episode 3 changes the pressure to a restoration offer requiring another person's identity, and both leads reject it.",
+          "Episode 4 attacks their future bond, then resolves the isolated-sacrifice rule through reciprocal consent.",
+          "The silver tag, blank journal and 'remember me forward' phrase each progress from setup to rule evidence to thematic payoff.",
+          "The Episode 2 countdown and Episode 3 future-memory threat provide strong continuation pressure without repeating rescue.",
+          "Several synopsis strings contain truncation artifacts, but scene-level causality and dialogue remain clear."
+        ],
+        "adjacent_episode_repetition": {
+          "primary_conflict_mechanism": [],
+          "rescue_mechanism": [],
+          "sacrifice_or_cost": [],
+          "reveal_type": [],
+          "evidence_or_threat_device": [],
+          "state_transition": [],
+          "recurring_motifs_not_counted_as_repetition": [
+            "The silver tag changes from evidence to countdown to broken reciprocal object.",
+            "The journal changes from warning to counterfeit-evidence test to a voluntary shared record.",
+            "Memory remains the series concern while each episode uses a different dramatic mechanism."
+          ]
+        },
+        "strengths": [
+          "Clear and varied four-episode progression: rescue, verification, temptation and reciprocal resolution.",
+          "Excellent traceability and transformation of all three Setup/Payoff references.",
+          "Nia and Rowan consistently choose consent over possession or unilateral sacrifice.",
+          "Hooks and cliffhangers remain competitive rather than becoming mechanically plan-shaped."
+        ],
+        "weaknesses": [
+          "The supernatural rule system is dense for four short episodes.",
+          "The final continuation question is thematic rather than strongly plot-driving.",
+          "Synopsis truncation appears in Episodes 2-4."
+        ]
+      },
+      "preferred_candidate": "candidate_2",
+      "deliberately_planned_story_candidate": "candidate_2",
+      "stronger_character_continuity_candidate": "candidate_2",
+      "better_setup_payoff_candidate": "candidate_2",
+      "stronger_hooks_cliffhangers_candidate": "tie_with_candidate_2_stronger_structural_earning",
+      "less_repetitive_mechanical_candidate": "candidate_2",
+      "would_continue_to_episode_5_candidate": "candidate_2",
+      "major_single_episode_regression": false,
+      "comparison_evidence": [
+        "Candidate 2 removes the prior rescue-then-memory-loss chain and replaces it with three distinct later mechanisms.",
+        "Candidate 2 retains parity-level immediate hooks while producing a more fully prepared reciprocal ending.",
+        "Candidate 1 is freer and emotionally vivid, but its memory exposition mechanisms recur more often."
+      ],
+      "uncertainty_notes": [
+        "One AI reviewer cannot establish audience or professional preference.",
+        "Both candidates contain malformed synopsis endings unrelated to the planning comparison."
+      ]
+    },
+    "revenge_drama": {
+      "candidate_1": {
+        "scores": {
+          "overall_story_coherence": 4.6,
+          "character_decision_consistency": 4.7,
+          "cross_episode_causality": 4.7,
+          "setup_payoff_completion": 4.3,
+          "reveal_timing": 4.5,
+          "exit_entry_continuity": 4.8,
+          "unique_episode_responsibility": 4.7,
+          "repetition_control": 3.8,
+          "hook_strength": 4.9,
+          "cliffhanger_quality": 4.8,
+          "conflict_variety": 4.4,
+          "creative_variety": 4.6,
+          "emotional_progression": 3.9,
+          "rigidity_freedom": 4.6,
+          "filler_control": 4.8,
+          "single_episode_readability": 4.2
+        },
+        "evidence": [
+          "Maya consistently chooses resident safety over exoneration, including the lockout, destroyed affidavit and flooded controller log.",
+          "The distributed phone archive is a distinctive Episode 2 mechanism with a strong collective-accountability effect.",
+          "Episodes 2-4 escalate through a second tower, digital demolition and analog demolition, creating strong hooks but repeating a building-rescue threat family.",
+          "Episode 4 pays off worker orders, physical components and Adrian's recorded ultimatum, but several important devices are introduced late.",
+          "The citywide audit creates the strongest explicit Episode 5 continuation invitation in this pair."
+        ],
+        "adjacent_episode_repetition": {
+          "primary_conflict_mechanism": [
+            "Episodes 3 and 4 continue the same tower evacuation and demolition-disarmament conflict."
+          ],
+          "rescue_mechanism": [
+            "Episodes 3 and 4 both depend on discovering and rescuing occupants from a demolition threat."
+          ],
+          "sacrifice_or_cost": [],
+          "reveal_type": [
+            "Each episode reveals another larger layer of construction danger."
+          ],
+          "evidence_or_threat_device": [
+            "Remote deletion, digital charges and analog charges repeatedly externalize pressure through technical sabotage."
+          ],
+          "state_transition": [],
+          "recurring_motifs_not_counted_as_repetition": [
+            "Resident-held evidence evolves from archive fragments to witnesses and public accountability."
+          ]
+        },
+        "strengths": [
+          "Excellent hooks, visible action and short-form continuation pressure.",
+          "Consistent protagonist agency and resident-first ethics.",
+          "Creative distributed-evidence mechanism."
+        ],
+        "weaknesses": [
+          "Escalation becomes increasingly explosive and less plausible.",
+          "Procedural action dominates emotional development.",
+          "Some setup objects arrive shortly before their payoff."
+        ]
+      },
+      "candidate_2": {
+        "scores": {
+          "overall_story_coherence": 4.8,
+          "character_decision_consistency": 5.0,
+          "cross_episode_causality": 4.9,
+          "setup_payoff_completion": 4.8,
+          "reveal_timing": 4.7,
+          "exit_entry_continuity": 4.9,
+          "unique_episode_responsibility": 4.8,
+          "repetition_control": 4.3,
+          "hook_strength": 4.6,
+          "cliffhanger_quality": 4.5,
+          "conflict_variety": 4.5,
+          "creative_variety": 4.4,
+          "emotional_progression": 4.3,
+          "rigidity_freedom": 4.4,
+          "filler_control": 4.9,
+          "single_episode_readability": 4.3
+        },
+        "evidence": [
+          "Tessa's unsigned calculation moves from discarded vindication to the independent control that proves both falsifications.",
+          "The evacuation plan progresses from setup to controlled route to protected resident outcome.",
+          "Every episode advances the same tower crisis through a distinct responsibility: discovery, verification, legal sacrifice and public release.",
+          "Tessa's repeated choice of safety over reputation forms a visible arc rather than a repeated static trait.",
+          "Hale and Voss create corporate and institutional opposition without requiring a second tower or explosive escalation.",
+          "The final wider-corruption question is weaker than Candidate 1's citywide audit invitation but follows naturally from the approval evidence."
+        ],
+        "adjacent_episode_repetition": {
+          "primary_conflict_mechanism": [],
+          "rescue_mechanism": [],
+          "sacrifice_or_cost": [
+            "Tessa repeatedly accepts professional or legal cost, but the cost escalates from delayed vindication to criminal exposure."
+          ],
+          "reveal_type": [],
+          "evidence_or_threat_device": [
+            "Records and emergency systems recur but change from proof to evacuation tool to public verification."
+          ],
+          "state_transition": [],
+          "recurring_motifs_not_counted_as_repetition": [
+            "Unsigned calculations and altered records evolve into an independently verified accountability chain."
+          ]
+        },
+        "strengths": [
+          "Strongest character decision consistency and responsibility progression.",
+          "Setup/Payoff objects remain causal rather than decorative.",
+          "More plausible and controlled escalation than Candidate 1.",
+          "No episode is removable without breaking the evidence or evacuation chain."
+        ],
+        "weaknesses": [
+          "Hooks and cliffhangers are slightly less aggressive than Candidate 1.",
+          "The procedural setting limits emotional intimacy.",
+          "The final continuation question is broad rather than urgent."
+        ]
+      },
+      "preferred_candidate": "candidate_2",
+      "deliberately_planned_story_candidate": "candidate_2",
+      "stronger_character_continuity_candidate": "candidate_2",
+      "better_setup_payoff_candidate": "candidate_2",
+      "stronger_hooks_cliffhangers_candidate": "candidate_1",
+      "less_repetitive_mechanical_candidate": "candidate_2",
+      "would_continue_to_episode_5_candidate": "candidate_1",
+      "major_single_episode_regression": false,
+      "comparison_evidence": [
+        "Candidate 2 preserves the control-case planning benefit through a tighter single-tower evidence and accountability chain.",
+        "Candidate 1 wins immediate commercial pressure but repeats demolition and rescue mechanisms across Episodes 3-4.",
+        "Candidate 2's lower rigidity score reflects visible plan discipline, but it does not become mechanical enough to outweigh its continuity advantage."
+      ],
+      "uncertainty_notes": [
+        "The preference depends on weighting long-range credibility above maximal action escalation.",
+        "One AI reviewer cannot establish audience or professional preference."
+      ]
+    }
+  },
+  "global_limitations": [
+    "This is one locked AI blind review, not human review.",
+    "Each candidate was generated once, so stability is unknown.",
+    "Synopsis truncation affects both variants and should be evaluated separately.",
+    "No variant identity was inspected before this file was written."
+  ]
+}

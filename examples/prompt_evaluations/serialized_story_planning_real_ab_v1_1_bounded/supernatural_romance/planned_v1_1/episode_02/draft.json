@@ -1,0 +1,140 @@
+{
+  "title": "The Past We Never Had",
+  "logline": "Nia follows Rowan's silver tag into a hidden archive, where forged proof of their shared past forces them to trust a present choice instead.",
+  "synopsis": "The marked journal lures Nia and Rowan to a hidden morgue archive with a forged accusation. Nia protects Rowan's consent and seals an offline verification path before using his silver emergency tag. Inside, photographs counterfeit centuries of intimacy between them, but their timestamp proves the images appeared only after they entered. Rowan rejects the comforting lie, and Nia chooses to trust his present decision. They recover his lost discovery that the Exchange schedules deaths rather than46",
+  "hook": "Rowan's blank journal writes a warning in Nia's handwriting while she is still holding the pen.",
+  "target_audience": "English-speaking viewers who enjoy supernatural mystery, restrained romance, and identity conflict",
+  "target_platform": "TikTok",
+  "language": "English",
+  "tone": "suspenseful",
+  "episode_goal": "Nia and Rowan test their trust against counterfeit evidence without sacrificing another memory.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Nia Calder",
+      "role": "Protagonist paramedic",
+      "description": "A disciplined paramedic marked by the Exchange and able to hear final memories.",
+      "motivation": "Save lives without surrendering her judgment or anyone else's consent."
+    },
+    {
+      "name": "Rowan Vale",
+      "role": "Reluctant ally",
+      "description": "An immortal archivist whose identity is being consumed one stolen connection at a time.",
+      "motivation": "Recover the truth while learning to trust evidence he cannot control."
+    },
+    {
+      "name": "The Exchange",
+      "role": "Supernatural antagonist",
+      "description": "An unseen entity that trades survival for defining memories and corrupts evidence between people.",
+      "motivation": "Isolate marked witnesses until they accept another bargain."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "EXT. HOSPITAL AMBULANCE BAY - NIGHT",
+      "purpose": "Reveal how the Exchange found Nia and launch an independently recorded investigation.",
+      "setting": "Night ambulance bay beneath flickering hospital lights",
+      "beat_summary": "The journal claims Rowan betrayed Nia and directs her to a sealed hospital archive.",
+      "emotional_shift": "Nia moves from alarm to deliberate resolve.",
+      "emotional_objective": "Turn mutual suspicion into a cautious test of trust.",
+      "character_actions": [
+        "Ink crawls across the blank page beneath Nia's motionless pen.",
+        "Nia seals her offline body camera inside a clear evidence pouch.",
+        "Rowan places the silver emergency tag in her palm."
+      ],
+      "turning_point": "Rowan voluntarily gives Nia the silver tag instead of demanding her belief.",
+      "scene_causality": {
+        "goal": "Determine whether the warning or Rowan can be trusted.",
+        "conflict": "The journal accuses Rowan using Nia's own handwriting.",
+        "outcome": "Nia chooses to follow the lead while preserving Rowan's limits and an offline record.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Nia Calder",
+          "intent": "Challenge the warning without blindly trusting Rowan.",
+          "text": "It says you traded my name for your memories."
+        },
+        {
+          "character_name": "Rowan Vale",
+          "intent": "Explain the mark and offer bounded trust.",
+          "text": "Your name in that book made you traceable, so take the tag—but open only the door it marks."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. HIDDEN MORGUE ARCHIVE - NIGHT",
+      "purpose": "Prove that the Exchange can counterfeit relational evidence while preserving both characters' memories.",
+      "setting": "A concealed archive behind the hospital morgue",
+      "beat_summary": "The tag opens Rowan's archive, where impossible photographs depict Nia beside him across two centuries.",
+      "emotional_shift": "Suspicion softens into provisional trust.",
+      "emotional_objective": "Build tenderness through mutual refusal to exploit a fabricated intimacy.",
+      "character_actions": [
+        "Nia presses the silver tag into a concealed slot behind a morgue cabinet.",
+        "Rowan recoils from a wall of photographs showing him and Nia together.",
+        "Nia checks the sealed body camera's live timestamp against the newly appearing images."
+      ],
+      "turning_point": "Rowan rejects comforting false memories and accepts Nia's present-day boundary.",
+      "scene_causality": {
+        "goal": "Verify whether the archive documents a real relationship.",
+        "conflict": "Convincing photographs offer Rowan belonging while falsely imposing a shared past on Nia.",
+        "outcome": "The timestamp shows the photographs materialized after their arrival, exposing the fabrication.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Rowan surrendered the tag and Nia created an independent record, they can test the archive's claims."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Rowan Vale",
+          "intent": "Reject seductive evidence that would define their relationship for them.",
+          "text": "I wanted proof I wasn't alone, but not a past manufactured without your consent."
+        },
+        {
+          "character_name": "Nia Calder",
+          "intent": "Choose present behavior over counterfeit history.",
+          "text": "Then we trust what we choose now, not what these pictures demand."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. HIDDEN ARCHIVE LEDGER CHAMBER - CONTINUOUS",
+      "purpose": "Recover Rowan's lost discovery, compromise the journal, and place Nia under a lethal deadline.",
+      "setting": "The archive's locked ledger chamber",
+      "beat_summary": "The archive reveals Rowan was tracking scheduled deaths before the journal corrupts itself and the tag names Nia as tomorrow's victim.",
+      "emotional_shift": "Verified trust becomes urgent dread.",
+      "emotional_objective": "Destabilize their new trust with an immediate threat that demands shared action.",
+      "character_actions": [
+        "Nia uncovers a ledger linking the silver tag to deaths recorded before they occurred.",
+        "The journal blackens every copied entry on its own.",
+        "Rowan turns the tag over, revealing Nia's name and a countdown ending tomorrow."
+      ],
+      "turning_point": "The silver tag changes from a key into a countdown bearing Nia's name.",
+      "scene_causality": {
+        "goal": "Recover the critical fact Rowan lost before the archive is corrupted.",
+        "conflict": "The Exchange destroys the copied record as Nia discovers its deaths are arranged in advance.",
+        "outcome": "They learn the Exchange schedules victims, but Nia's tag reveals she is next.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because they reject the counterfeit photographs, they search the physical archive for evidence untouched by relational claims."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Nia Calder",
+          "intent": "Identify the critical fact Rowan lost.",
+          "text": "You weren't tracking who the Exchange saved—you were tracking who it scheduled."
+        },
+        {
+          "character_name": "Rowan Vale",
+          "intent": "Warn Nia while affirming their alliance.",
+          "text": "And now it has scheduled you; this time, we face the price together."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Who scheduled Nia's death, and can she survive without making the Exchange another bargain?"
+}

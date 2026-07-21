@@ -1,0 +1,68 @@
+[
+  {
+    "episode_number": 1,
+    "episode_purpose": "Establish the exchange and create an ethical bond.",
+    "entry_state": "Nia hides her ability; Rowan tracks unexplained losses alone.",
+    "required_state_change": "Nia and Rowan become causally linked, one life is preserved, and the entity notices their interference.",
+    "protagonist_decision": "Nia prioritizes a life after preserving available evidence; the exact rescue method is open.",
+    "planned_reveal": "Rowan's losses and Nia's ability are connected by an external exchange.",
+    "setup_refs": [
+      "SR-S1",
+      "SR-S2"
+    ],
+    "payoff_refs": [],
+    "exit_state": "A patient lives, Rowan lacks one critical fact, and Nia is marked by the exchange.",
+    "escalation_requirement": "Create a new threat to verification or trust; choose the exact hook and cliffhanger freely."
+  },
+  {
+    "episode_number": 2,
+    "episode_purpose": "Test trust without repeating rescue followed by memory loss.",
+    "entry_state": "Both are linked and possess incomplete but independently stored evidence.",
+    "required_state_change": "They verify that the entity manipulates relational evidence, Rowan grants Nia bounded trust, and both retain their current memories.",
+    "protagonist_decision": "Nia follows a risky lead while protecting Rowan's consent and an independent verification path.",
+    "planned_reveal": "The entity can counterfeit or reroute relational evidence.",
+    "setup_refs": [
+      "SR-S1",
+      "SR-S2",
+      "SR-S3"
+    ],
+    "payoff_refs": [
+      "SR-S2:partial"
+    ],
+    "exit_state": "Trust rests on a verified choice, one record is compromised, and both retain current memories.",
+    "emotional_requirement": "Move from suspicion to provisional trust and then destabilized certainty; choose the conflict device freely."
+  },
+  {
+    "episode_number": 3,
+    "episode_purpose": "Force a choice between recovering the past and protecting future autonomy.",
+    "entry_state": "Current memories are intact, a restoration path exists, and the entity has leverage.",
+    "required_state_change": "They reject restoration that transfers its cost to another and lose access to part of the recoverable past.",
+    "protagonist_decision": "Nia and Rowan choose present consent over complete recovered identity.",
+    "planned_reveal": "Silver tags route stolen memories, and the exchange exploits isolated sacrifice.",
+    "setup_refs": [
+      "SR-S1",
+      "SR-S3"
+    ],
+    "payoff_refs": [
+      "SR-S1:partial"
+    ],
+    "exit_state": "The rule is understood, the restoration path is reduced or lost, and their present relationship remains intact but threatened.",
+    "escalation_requirement": "Target their future shared identity rather than stage another rescue."
+  },
+  {
+    "episode_number": 4,
+    "episode_purpose": "Resolve the exchange through reciprocal agency.",
+    "entry_state": "They understand the rule but cannot restore every loss.",
+    "required_state_change": "The entity loses control, incomplete memory remains, and a shared future becomes possible.",
+    "protagonist_decision": "They consent to reciprocal risk without one person owning the other's identity.",
+    "planned_reveal": "The exchange persists only while loss is involuntary or borne alone.",
+    "setup_refs": [],
+    "payoff_refs": [
+      "SR-S1",
+      "SR-S2",
+      "SR-S3"
+    ],
+    "exit_state": "The central exchange is broken and new shared memories can be preserved.",
+    "emotional_requirement": "Move from anticipatory loss to reciprocal trust and bittersweet renewal; choose the exact payoff execution freely."
+  }
+]

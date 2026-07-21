@@ -1,0 +1,16 @@
+{
+  "draft_id": "957d1e7b-9634-4bb0-aedc-2980c10d66be",
+  "strategy_id": "strategy.scene_causality_ab.baseline.v1",
+  "strategy_version": "v1",
+  "prompt_ids": [
+    "prompt.story_planning.scene_causality_ab.baseline",
+    "prompt.platform_optimization.scene_causality_ab.shared"
+  ],
+  "prompt_versions": [
+    "v2-baseline",
+    "v1-shared"
+  ],
+  "prompt_builder_version": "v0.1-ab-baseline",
+  "draft_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/supernatural_romance/baseline_draft.json",
+  "prompt_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/supernatural_romance/baseline_prompt.txt"
+}

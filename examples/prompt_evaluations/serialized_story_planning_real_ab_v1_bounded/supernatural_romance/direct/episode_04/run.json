@@ -1,0 +1,61 @@
+{
+  "story_id": "supernatural_romance",
+  "variant": "direct",
+  "episode_number": 4,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 48.641,
+  "prompt_characters": 3956,
+  "planning_context_characters": 55,
+  "usage": {
+    "prompt_tokens": 1585,
+    "completion_tokens": 1860,
+    "total_tokens": 3445,
+    "completion_tokens_details": {
+      "reasoning_tokens": 247
+    }
+  },
+  "response_id": "resp_07420023723e5e8e016a5e5c26a3888191bfeb37eeefb39a7c",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 3,
+    "title": "The Price of Remembering",
+    "episode_goal": "Reveal the origin of Mara's double and force Mara to choose Daniel's life over Ilyan's memory of her.",
+    "synopsis": "The Archivist lures Mara and Ilyan to Saint Brigid Platform by holding Daniel hostage and demanding the recovered memory vial. Mara absorbs the vial first, discovering that Ilyan revived her after a fatal ambulance crash years ago and forgot her as the cost, while his erased memory became the foundation of the double wearing her face. When the Archivist wounds Daniel with supernatural glass, Mara authorizes Ilyan to revive him despite knowing he will lose his present memories of her. Daniel awak",
+    "character_states": [
+      {
+        "name": "Mara Velez",
+        "role": "Protagonist",
+        "motivation": "Save Daniel without sacrificing Ilyan's identity or surrendering her own."
+      },
+      {
+        "name": "Ilyan Vale",
+        "role": "Immortal ally",
+        "motivation": "Protect Mara and Daniel while preserving enough of himself to stop the memory thief."
+      },
+      {
+        "name": "Daniel Cho",
+        "role": "Victim and messenger",
+        "motivation": "Escape his captor and expose why his memories were altered."
+      },
+      {
+        "name": "The Archivist",
+        "role": "Supernatural antagonist",
+        "motivation": "Force Ilyan to save again so she can harvest his remaining memories of Mara."
+      }
+    ],
+    "final_scene_outcome": "Daniel revives, Ilyan forgets Mara, and the Archivist claims her place in his mind.",
+    "final_turning_point": "Ilyan wakes from the revival believing the Archivist is Mara and the real Mara is the threat.",
+    "next_episode_question": "Can Mara defeat a double holding their shared past when Ilyan now believes the impostor is the real Mara?"
+  }
+}

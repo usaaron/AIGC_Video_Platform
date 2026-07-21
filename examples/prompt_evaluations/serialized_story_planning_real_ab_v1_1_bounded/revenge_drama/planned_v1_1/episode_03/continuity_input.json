@@ -1,0 +1,26 @@
+{
+  "completed_episode_number": 2,
+  "title": "The Certification Trap",
+  "episode_goal": "Verify that Gideon Hale transformed Tessa's unsigned calculations into a fraudulent certified report while preparing a controlled safety response.",
+  "synopsis": "Tessa and Malik recover metadata proving that Gideon Hale transformed Tessa's unsigned structural warning into a certified approval, definitively establishing how she was framed. Tessa refuses Hale's offer to restore her reputation in exchange for silence because an uncontrolled public release could trigger panic inside the occupied tower. Using the archived evacuation plan, she opens a controlled stairwell route and sends the altered records, metadata, and her original calculation to an outside",
+  "character_states": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "motivation": "Expose Gideon Hale's fraud while protecting vulnerable residents from the repeated defect."
+    },
+    {
+      "name": "Malik Reyes",
+      "role": "Reluctant ally",
+      "motivation": "Keep residents safe while preserving the access that allows him to act."
+    },
+    {
+      "name": "Gideon Hale",
+      "role": "Antagonist",
+      "motivation": "Erase the evidence, preserve the tower's occupancy, and prevent Tessa from reclaiming the truth."
+    }
+  ],
+  "final_scene_outcome": "The evidence leaves the tower and the first group escapes, but a load-shift alarm reveals the occupied upper floors are now in greater danger.",
+  "final_turning_point": "Tessa's proof reaches the outside world just as Hale's shutdown activates the very structural failure he falsified.",
+  "next_episode_question": "Can Tessa use the evacuation plan before Hale destroys the remaining records and turns the residents against her?"
+}

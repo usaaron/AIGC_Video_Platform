@@ -1,0 +1,56 @@
+{
+  "story_id": "revenge_drama",
+  "variant": "planned",
+  "episode_number": 3,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 51.893,
+  "prompt_characters": 5938,
+  "planning_context_characters": 2188,
+  "usage": {
+    "prompt_tokens": 1953,
+    "completion_tokens": 1725,
+    "total_tokens": 3678,
+    "completion_tokens_details": {
+      "reasoning_tokens": 236
+    }
+  },
+  "response_id": "resp_06f0706bcac6f1f6016a5e5e588bc8819194ff67987aed1574",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 2,
+    "title": "The Exit Through Twenty-Three",
+    "episode_goal": "Expose how Tessa was framed while she creates a safe path to protect the tower's residents.",
+    "synopsis": "Grant confirms that Tessa's former supervisor converted her unsigned calculation into the altered certified file used to blame her, then offers both records if she stays silent until the tower sale. Tessa covertly preserves the proof but refuses immediate publication, choosing to use an emergency drill to evacuate residents safely. When she and Mina inspect the plan, they discover its route was changed to funnel everyone through the tower's weakest floor just as security seals them inside.",
+    "character_states": [
+      {
+        "name": "Tessa Ward",
+        "role": "Protagonist",
+        "motivation": "Clear her name while protecting residents from the repeated structural failure."
+      },
+      {
+        "name": "Grant Hale",
+        "role": "Antagonist",
+        "motivation": "Protect his company and complete the tower sale before its defects become public."
+      },
+      {
+        "name": "Mina Cho",
+        "role": "Reluctant ally",
+        "motivation": "Keep her job while ensuring residents are not sacrificed to corporate silence."
+      }
+    ],
+    "final_scene_outcome": "Tessa discovers the drill is a lethal trap and records the altered map before being sealed inside.",
+    "final_turning_point": "Security shutters seal Tessa in as the altered evacuation drill begins its countdown.",
+    "next_episode_question": "Can Tessa stop Hale's altered drill before residents are routed into the tower's weakest section?"
+  }
+}

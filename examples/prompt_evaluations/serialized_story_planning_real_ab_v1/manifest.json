@@ -1,0 +1,43 @@
+{
+  "evaluation_id": "serialized_story_planning_real_ab_v1",
+  "generation_status": "aborted_technical_gateway_timeout",
+  "decision_status": "not_evaluated",
+  "aborted_reason": "The default reasoning profile reached 3994/4000 completion tokens on Episode 1 and Episode 2 received three consecutive provider gateway 524 responses. This partial run is preserved and excluded from the bounded A/B.",
+  "prompt_version": "serialized_story_planning_offline_ab.v1",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1",
+  "model": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000
+  },
+  "fixed_settings": {
+    "output_language": "en",
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "episode_count_per_story": 4,
+    "scene_count_per_episode": 3,
+    "target_duration_seconds": 90,
+    "generations_per_episode_variant": 1
+  },
+  "stories": {
+    "dark_romance": {
+      "story_title": "Dark Romance",
+      "direct": {
+        "episode_01": "completed",
+        "episode_02": "failed"
+      },
+      "planned": {}
+    },
+    "supernatural_romance": {
+      "story_title": "Supernatural Romance",
+      "direct": {},
+      "planned": {}
+    },
+    "revenge_drama": {
+      "story_title": "Revenge Drama",
+      "direct": {},
+      "planned": {}
+    }
+  }
+}

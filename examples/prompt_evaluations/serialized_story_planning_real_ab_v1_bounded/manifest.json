@@ -1,0 +1,76 @@
+{
+  "evaluation_id": "serialized_story_planning_real_ab_v1_bounded",
+  "generation_status": "completed",
+  "decision_status": "revise_planning_concept",
+  "review_artifacts": {
+    "locked_blind_review": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_bounded/blind_review/blind_review_locked.json",
+    "comparison_report_json": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_bounded/comparison_report.json",
+    "comparison_report_markdown": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_bounded/comparison_report.md"
+  },
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "model": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000,
+    "reasoning_effort": "low"
+  },
+  "fixed_settings": {
+    "output_language": "en",
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "episode_count_per_story": 4,
+    "scene_count_per_episode": 3,
+    "target_duration_seconds": 90,
+    "generations_per_episode_variant": 1,
+    "reasoning_effort": "low"
+  },
+  "stories": {
+    "dark_romance": {
+      "story_title": "Dark Romance",
+      "direct": {
+        "episode_01": "completed",
+        "episode_02": "completed",
+        "episode_03": "completed",
+        "episode_04": "completed"
+      },
+      "planned": {
+        "episode_01": "completed",
+        "episode_02": "completed",
+        "episode_03": "completed",
+        "episode_04": "completed"
+      }
+    },
+    "supernatural_romance": {
+      "story_title": "Supernatural Romance",
+      "direct": {
+        "episode_01": "completed",
+        "episode_02": "completed",
+        "episode_03": "completed",
+        "episode_04": "completed"
+      },
+      "planned": {
+        "episode_01": "completed",
+        "episode_02": "completed",
+        "episode_03": "completed",
+        "episode_04": "completed"
+      }
+    },
+    "revenge_drama": {
+      "story_title": "Revenge Drama",
+      "direct": {
+        "episode_01": "completed",
+        "episode_02": "completed",
+        "episode_03": "completed",
+        "episode_04": "completed"
+      },
+      "planned": {
+        "episode_01": "completed",
+        "episode_02": "completed",
+        "episode_03": "completed",
+        "episode_04": "completed"
+      }
+    }
+  }
+}

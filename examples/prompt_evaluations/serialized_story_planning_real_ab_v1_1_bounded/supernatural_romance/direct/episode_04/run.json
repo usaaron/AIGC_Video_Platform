@@ -1,0 +1,35 @@
+{
+  "story_id": "supernatural_romance",
+  "variant": "direct",
+  "episode_number": 4,
+  "contract_version": null,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-revalidation.final-scene-flag-patch1",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1-revalidation",
+  "generation_strategy_version": "v1.1-revalidation",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "reasoning_effort": "low",
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 62.844,
+  "prompt_characters": 5078,
+  "planning_context_characters": 4,
+  "usage": {
+    "prompt_tokens": 1769,
+    "completion_tokens": 2264,
+    "total_tokens": 4033,
+    "completion_tokens_details": {
+      "reasoning_tokens": 374
+    }
+  },
+  "response_id": "resp_037737387323f9ee016a5f039e2d908191a5ec3995618c4ea9",
+  "generation_failure_count_before_success": 0,
+  "rate_limit_failures_before_success": 0,
+  "schema_validation_failures_before_success": 0,
+  "total_technical_failures_before_success": 0
+}

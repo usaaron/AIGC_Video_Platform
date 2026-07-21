@@ -1,0 +1,56 @@
+{
+  "story_id": "revenge_drama",
+  "variant": "direct",
+  "episode_number": 4,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 47.719,
+  "prompt_characters": 3788,
+  "planning_context_characters": 55,
+  "usage": {
+    "prompt_tokens": 1515,
+    "completion_tokens": 1573,
+    "total_tokens": 3088,
+    "completion_tokens_details": {
+      "reasoning_tokens": 117
+    }
+  },
+  "response_id": "resp_0a0a90f5fe387267016a5e5dc9fe3c8191b616a1ca3b3937d9",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 3,
+    "title": "Dead Load",
+    "episode_goal": "Maya must evacuate Tower C, preserve proof of its failing slab, and survive Victor's attempt to erase both.",
+    "synopsis": "Maya and Elias reach Tower C with minutes to spare, but Victor has overridden its alarms and elevators. Maya cuts the concert power, then floods the rooftop to force a controlled evacuation while documenting deliberately severed shoring beneath the failing slab. She refuses Victor's bait and lets him escape so she can protect the remaining concertgoers. Once the tower is empty, Maya activates a live structural sensor that proves Victor concealed the defect, but Victor triggers the collapse and_N",
+    "character_states": [
+      {
+        "name": "Maya Chen",
+        "role": "Protagonist",
+        "motivation": "Clear her name while protecting residents from Hale's concealed defects."
+      },
+      {
+        "name": "Victor Hale",
+        "role": "Antagonist",
+        "motivation": "Destroy the evidence and keep Maya as his permanent scapegoat."
+      },
+      {
+        "name": "Elias Grant",
+        "role": "Reluctant ally",
+        "motivation": "Prevent another disaster and bring Victor down with admissible proof."
+      }
+    ],
+    "final_scene_outcome": "The sensor publicly confirms Victor's concealed defect, but the collapse traps Maya beneath Tower C.",
+    "final_turning_point": "Maya keeps the sensor transmitting instead of using her final seconds to flee.",
+    "next_episode_question": "Can Elias rescue Maya and broadcast her structural evidence before Victor brings the trapped tower down?"
+  }
+}

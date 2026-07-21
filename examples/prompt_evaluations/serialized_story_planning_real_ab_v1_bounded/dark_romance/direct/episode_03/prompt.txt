@@ -1,0 +1,68 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-bounded
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Use the planning context when it is present. When it is absent, infer the episode's responsibility from the ContentSpec summary, episode number, and previous state.
+Do not mention prompts, plans, schemas, evaluation variants, or these instructions.
+
+EpisodeNumber: 3
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve the same characters, established facts, relationships, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+ContentSpecSummary:
+{
+  "Audience": "US women 18-34 who prefer tense romance, moral conflict and consequential choices",
+  "Platform": "TikTok-oriented vertical serialized fiction",
+  "Language": "English",
+  "Episode duration": "90 seconds",
+  "Tone": "Intimate, dangerous, emotionally restrained",
+  "Story goal": "A crisis negotiator must decide whether the heir she suspects of coercion is her enemy, her shield or both",
+  "Constraints": "Protagonist retains agency; coercion is not presented as proof of love; no wedding, livestream or missing-relative plot"
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 2,
+  "title": "The Protection Order",
+  "episode_goal": "Make Mara independently test Adrian’s claim and choose a dangerous route that preserves Nina’s control of the evidence.",
+  "synopsis": "Mara discovers Adrian monitored her long before the crisis, but metadata shows his protection order was converted into a kill directive by his father. She permits a strictly controlled alliance, confiscates Adrian’s access badge, and ensures Nina retains the evidence. Rather than take the offered escape, Mara chooses to enter the offline vault and preserve the original records, only to find the conspiracy has forged her signature onto Adrian’s coercive operations as armed cleaners close in.",
+  "character_states": [
+    {
+      "name": "Mara Voss",
+      "role": "Protagonist and crisis negotiator",
+      "motivation": "Protect Nina and determine whether Adrian marked her for death or tried to shield her."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Suspected coercer and possible protector",
+      "motivation": "Keep Mara and Nina alive while preventing his father from erasing evidence of the covert program."
+    },
+    {
+      "name": "Nina Park",
+      "role": "Whistleblower in immediate danger",
+      "motivation": "Survive, expose the company, and avoid becoming dependent on another Vale."
+    }
+  ],
+  "final_scene_outcome": "Mara saves one file, but it identifies her as Adrian’s authorized partner in every coercive operation.",
+  "final_turning_point": "The rescued file displays Mara’s forged signature beside Adrian’s as the cleanup team breaches the outer door.",
+  "next_episode_question": "Will Mara expose Adrian’s father when the only surviving proof now identifies Mara as Adrian’s willing accomplice?"
+}
+
+PlanningContext:
+{
+  "story_blueprint": null,
+  "current_episode_plan": null
+}

@@ -1,0 +1,51 @@
+{
+  "story_id": "dark_romance",
+  "variant": "planned",
+  "episode_number": 3,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 38.884,
+  "prompt_characters": 5829,
+  "planning_context_characters": 2206,
+  "usage": {
+    "prompt_tokens": 1971,
+    "completion_tokens": 1483,
+    "total_tokens": 3454,
+    "completion_tokens_details": {
+      "reasoning_tokens": 62
+    }
+  },
+  "response_id": "resp_0f01b777fcea3ed6016a5e5b20a2148191879fcefb18a81738",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 2,
+    "title": "Four Nights at Rook House — Episode 2: The Third Option",
+    "episode_goal": "Turn Mara's suspicion into a controlled test and expose the dangerous cost of Elias's secrecy.",
+    "synopsis": "Mara confronts Elias over the fatal command in the archive recording, but refuses his offer of proof when his protocol would disable her private exit. Instead, she creates a dual-key evidence escrow that neither can control alone. Their analysis reveals Elias's words were stolen from a rescue operation three months after Mara's failed case, making him a likely target rather than the architect. As they secure the proof, Mara's private code activates the evidence vault from inside Rook House.",
+    "character_states": [
+      {
+        "name": "Mara Voss",
+        "role": "Protagonist and contracted security assessor",
+        "motivation": "Clear her record while preserving her freedom to walk away."
+      },
+      {
+        "name": "Elias Rook",
+        "role": "Client, suspect, and possible ally",
+        "motivation": "Identify the insider targeting him without surrendering control of his family's secrets."
+      }
+    ],
+    "final_scene_outcome": "Her code opens the evidence vault from inside the house, proving the insider is close and already ahead of them.",
+    "final_turning_point": "The vault opens with Mara's secret code even though both keyholders are standing outside it.",
+    "next_episode_question": "Who inside Rook House copied Mara's private code, and are they coming for the evidence or for her?"
+  }
+}

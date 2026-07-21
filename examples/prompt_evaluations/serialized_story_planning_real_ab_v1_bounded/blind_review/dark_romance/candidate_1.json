@@ -1,0 +1,552 @@
+{
+  "story_id": "dark_romance",
+  "candidate": "candidate_1",
+  "episodes": [
+    {
+      "title": "Four Nights at Rook House — Episode 1: The Voice in the Archive",
+      "logline": "During her first night protecting a secretive heir, Mara defies his lockdown and finds a recording that ties him to the fatal case that ruined her.",
+      "synopsis": "Mara Voss accepts a tightly limited security contract from reclusive heir Elias Rook, only to find his panic button sabotaged from inside his estate. When an alarm seals his private archive, Elias orders her to stay out, but Mara overrides the lockdown using her private exit code. Inside, she finds a redacted recording from the failed negotiation that destroyed her career—and hears Elias's voice issue the fatal command he swears he never gave.",
+      "hook": "A crisis negotiator discovers her new client's panic button was deliberately disabled before she arrived.",
+      "target_audience": "US women 18-34 who prefer tense romance, moral conflict, and consequential choices",
+      "target_platform": "TikTok",
+      "language": "en",
+      "tone": "suspenseful",
+      "episode_goal": "Establish mutual suspicion and prove the new threat knows Mara's past.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Mara Voss",
+          "role": "Protagonist and contracted security assessor",
+          "description": "A disciplined crisis negotiator whose reputation was damaged by a fatal first case.",
+          "motivation": "Clear her record while preserving her freedom to walk away."
+        },
+        {
+          "name": "Elias Rook",
+          "role": "Client, suspect, and possible ally",
+          "description": "A guarded heir living under credible threat inside his own estate.",
+          "motivation": "Identify the insider targeting him without surrendering control of his family's secrets."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. ROOK HOUSE - PRIVATE STUDY - NIGHT",
+          "purpose": "Establish Mara's agency, Elias's secrecy, and the insider threat.",
+          "setting": "Night, Elias's dim private study in Rook House",
+          "beat_summary": "Mara finds Elias's panic button disabled and realizes his threat comes from inside the estate.",
+          "emotional_shift": "Controlled detachment becomes wary engagement.",
+          "emotional_objective": "Create attraction through restraint while making mutual distrust explicit.",
+          "character_actions": [
+            "Mara tests the silent panic button, then photographs its severed wire.",
+            "Elias closes the study door but leaves Mara's path to the exit clear."
+          ],
+          "turning_point": "Mara recognizes that the disabled panic button makes Elias's danger credible.",
+          "scene_causality": {
+            "goal": "Mara wants to define the contract and assess whether Elias is manipulating her.",
+            "conflict": "Mara demands transparency while Elias refuses to explain why he hired her.",
+            "outcome": "She stays after confirming the panic system was sabotaged internally.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Mara Voss",
+              "intent": "Set a firm professional boundary.",
+              "text": "Four nights, full access, and I leave the second you lie to me."
+            },
+            {
+              "character_name": "Elias Rook",
+              "intent": "Warn her without revealing his secret.",
+              "text": "Then keep your coat on, because someone cut that wire from inside this house."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. ROOK HOUSE - ARCHIVE CORRIDOR - NIGHT",
+          "purpose": "Force Mara to make the consequential choice to override Elias's lockdown.",
+          "setting": "Night, the secured archive corridor beneath Rook House",
+          "beat_summary": "A locked archive alarm exposes a fresh breach, but Elias orders Mara to remain outside.",
+          "emotional_shift": "Wary engagement becomes defiant alarm.",
+          "emotional_objective": "Turn suspicion into personal pressure without weakening Mara's autonomy.",
+          "character_actions": [
+            "A red alarm pulses above the steel archive door as Mara studies the untouched keypad.",
+            "Elias blocks the scanner with his palm while Mara enters her private exit code into her phone.",
+            "Mara triggers a manual override and steps past him into the dark archive."
+          ],
+          "turning_point": "Mara visibly chooses evidence over Elias's command and breaches the archive.",
+          "scene_causality": {
+            "goal": "Mara wants to enter the compromised archive before the intruder's trail disappears.",
+            "conflict": "Elias insists the archive remain sealed while Mara believes delay will destroy evidence.",
+            "outcome": "Mara uses her private exit code as the override key and enters despite Elias's order.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because the sabotaged panic button proves an insider is active, the archive alarm demands immediate investigation."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Elias Rook",
+              "intent": "Keep Mara away from dangerous evidence.",
+              "text": "That room was sealed before you arrived—do not open it."
+            },
+            {
+              "character_name": "Mara Voss",
+              "intent": "Reject his control and pursue the breach.",
+              "text": "You hired my judgment, not my obedience."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "INT. ROOK HOUSE - DIGITAL ARCHIVE - NIGHT",
+          "purpose": "Reveal that the current breach targets Mara and ties Elias to her ruined first case.",
+          "setting": "Night, the compromised digital archive beneath Rook House",
+          "beat_summary": "Inside the archive, Mara finds her redacted first-case recording altered to include Elias giving the fatal order.",
+          "emotional_shift": "Personal alarm hardens into defiant focus.",
+          "emotional_objective": "Make Mara's old guilt immediate and render Elias both suspect and potential target.",
+          "character_actions": [
+            "Mara lifts a redacted audio file from the only illuminated console.",
+            "The speakers replay a hostage's final breaths, and Mara's hand tightens without stopping the file.",
+            "Elias steps into view as his recorded voice orders Mara to end negotiations."
+          ],
+          "turning_point": "Elias's voice on the recording transforms him from secretive client into the prime suspect in Mara's defining tragedy.",
+          "scene_causality": {
+            "goal": "Mara wants to identify what the intruder accessed and why she was chosen.",
+            "conflict": "The recording implicates Elias, but its deliberate placement suggests someone wants Mara to condemn him.",
+            "outcome": "She discovers her failed negotiation was planted with an order spoken in Elias's voice.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because Mara overrides the lockdown, she reaches the archive before the planted recording can be erased."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Recorded Elias Rook",
+              "intent": "Implicate Elias in Mara's fatal case.",
+              "text": "Voss, stop negotiating. Send them in now."
+            },
+            {
+              "character_name": "Elias Rook",
+              "intent": "Deny the recording while asking Mara not to act blindly.",
+              "text": "That is my voice, Mara—but I never gave that order."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Did Elias give the fatal order, or can someone inside his estate reproduce his voice?"
+    },
+    {
+      "title": "Four Nights at Rook House — Episode 2: The Third Option",
+      "logline": "Mara tests Elias's claim that his voice was forged by creating an evidence escrow neither can control, only to discover someone inside Rook House has stolen her private exit code.",
+      "synopsis": "Mara confronts Elias over the fatal command in the archive recording, but refuses his offer of proof when his protocol would disable her private exit. Instead, she creates a dual-key evidence escrow that neither can control alone. Their analysis reveals Elias's words were stolen from a rescue operation three months after Mara's failed case, making him a likely target rather than the architect. As they secure the proof, Mara's private code activates the evidence vault from inside Rook House.",
+      "hook": "Mara confronts Elias with the fatal order spoken in his voice, but his proof demands she surrender her only independent escape.",
+      "target_audience": "US women ages 18–34 who enjoy tense romance, moral conflict, and consequential choices",
+      "target_platform": "TikTok",
+      "language": "English",
+      "tone": "suspenseful",
+      "episode_goal": "Turn Mara's suspicion into a controlled test and expose the dangerous cost of Elias's secrecy.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Mara Voss",
+          "role": "Protagonist and contracted security assessor",
+          "description": "A disciplined former crisis negotiator who refuses to trade autonomy for answers.",
+          "motivation": "Clear her record while preserving her freedom to walk away."
+        },
+        {
+          "name": "Elias Rook",
+          "role": "Client, suspect, and possible ally",
+          "description": "A guarded heir whose instinct to control information makes him appear guilty even when he is protecting evidence.",
+          "motivation": "Identify the insider targeting him without surrendering control of his family's secrets."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "THE PRICE OF PROOF",
+          "purpose": "Establish Elias's test and the unacceptable price attached to his evidence.",
+          "setting": "INT. ROOK HOUSE ARCHIVE — NIGHT",
+          "beat_summary": "Mara accuses Elias using the recording, and he offers the original only under a protocol that would disable her private exit code.",
+          "emotional_shift": "Accusation hardens into a high-stakes negotiation.",
+          "emotional_objective": "Make Mara's need for truth collide with her refusal to be trapped.",
+          "character_actions": [
+            "Mara places the recorder between them and keeps one hand on the archive door.",
+            "Elias displays an encrypted source file, then activates a security protocol that turns Mara's exit indicator red."
+          ],
+          "turning_point": "Mara refuses both blind trust and withdrawal by demanding a third option.",
+          "scene_causality": {
+            "goal": "Mara wants to verify whether Elias gave the fatal order without losing her autonomy.",
+            "conflict": "Elias conditions access to the original recording on Mara surrendering her independent exit route.",
+            "outcome": "Mara rejects his protocol but proposes a mutually controlled evidence escrow.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Mara Voss",
+              "intent": "Force Elias to answer without letting him seize control.",
+              "text": "That voice ended six lives, Elias, so don't ask me to ignore whose mouth it came from."
+            },
+            {
+              "character_name": "Elias Rook",
+              "intent": "Offer proof while insisting on containment.",
+              "text": "I’m asking you to examine the original—but the archive seals completely, including your private exit."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "THE SPLICE",
+          "purpose": "Partially clear Elias while proving someone engineered Mara's defining failure.",
+          "setting": "INT. ROOK HOUSE ANALYSIS ROOM — NIGHT",
+          "beat_summary": "Mara builds a verifiable escrow, and waveform analysis proves Elias's fatal order was spliced from a later rescue operation.",
+          "emotional_shift": "Strategic cooperation gives way to unsettled sympathy.",
+          "emotional_objective": "Let evidence weaken Mara's certainty without erasing her caution.",
+          "character_actions": [
+            "Mara copies the source file to an encrypted drive and sets dual-key access on her tablet.",
+            "Elias opens a dated rescue recording while matching waveforms align across both files.",
+            "Mara pockets one escrow key and slides the other to Elias."
+          ],
+          "turning_point": "The verified timestamp shifts Elias from prime suspect to possible target.",
+          "scene_causality": {
+            "goal": "Mara wants independently verifiable proof of when Elias spoke the fatal words.",
+            "conflict": "Mara must determine whether Elias's exonerating source file is authentic while preventing either of them from controlling the result.",
+            "outcome": "The analysis confirms the order was spliced from a later rescue, leaving the editor unidentified.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because Mara rejects Elias's sealed protocol in Scene 1, she constructs an escrow that lets them test the recording under mutual controls."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Mara Voss",
+              "intent": "Define cooperation without surrendering control.",
+              "text": "One key each, automatic release if either of us deletes, disappears, or lies about the file."
+            },
+            {
+              "character_name": "Elias Rook",
+              "intent": "Reveal the manipulation and accept shared risk.",
+              "text": "The order is mine—but it was taken from a rescue three months after your case."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "HER CODE",
+          "purpose": "Show the insider knows their escrow location and has compromised Mara's private safeguard.",
+          "setting": "INT. ROOK HOUSE EVIDENCE CORRIDOR — NIGHT",
+          "beat_summary": "After depositing the escrow drive, Mara sees her private code unlock the vault from elsewhere inside Rook House.",
+          "emotional_shift": "Unsettled sympathy snaps into intimate danger.",
+          "emotional_objective": "Convert tentative trust into immediate fear that Mara's autonomy has already been breached.",
+          "character_actions": [
+            "Mara locks the encrypted drive inside a steel evidence vault while Elias deliberately steps outside the threshold.",
+            "Her phone flashes an internal access alert bearing her private exit code.",
+            "Across the corridor, the vault handle begins turning from the inside."
+          ],
+          "turning_point": "The vault opens with Mara's secret code even though both keyholders are standing outside it.",
+          "scene_causality": {
+            "goal": "Mara wants to secure the evidence while preserving her independent means of escape.",
+            "conflict": "Their new mutual safeguard is breached by someone with access to Mara's supposedly private code.",
+            "outcome": "Her code opens the evidence vault from inside the house, proving the insider is close and already ahead of them.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because Mara and Elias create the escrow in Scene 2, they deposit its evidence in a vault the insider can now target."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Elias Rook",
+              "intent": "Offer trust through restraint rather than control.",
+              "text": "You keep your exit, your key, and the choice to leave; I only want the truth to leave with you."
+            },
+            {
+              "character_name": "Mara Voss",
+              "intent": "Recognize the immediate breach and take command.",
+              "text": "Don't move—someone inside this house just used my code."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Who inside Rook House copied Mara's private code, and are they coming for the evidence or for her?"
+    },
+    {
+      "title": "Four Nights at Rook House — Episode 3: The Dead Button",
+      "logline": "When Elias treats her as the breach, Mara activates a buried panic diagnostic that can expose the insider—and her own career-ending mistake.",
+      "synopsis": "After Mara's private code opens the evidence vault, Elias seals Rook House and treats her as the likely breach. Mara refuses detention but earns ten minutes to investigate, tracing the copied code to her onboarding session and security chief Nolan Price. The only authenticated proof lies inside the panic system Nolan disabled, forcing Mara to publish a diagnostic that also exposes her own past procedural violation. The log names Nolan, but he immediately releases edited footage portraying Mara V",
+      "hook": "The vault opens with Mara's secret code, and Elias orders every exit sealed.",
+      "target_audience": "US women ages 18–34 who enjoy tense romance, moral conflict, and consequential choices",
+      "target_platform": "TikTok",
+      "language": "en",
+      "tone": "suspenseful",
+      "episode_goal": "Break Mara and Elias's fragile alliance, then force Mara to risk her own reputation to identify the insider.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Mara Voss",
+          "role": "Protagonist and contracted security assessor",
+          "description": "A disciplined crisis negotiator whose private code was used to breach the Rook evidence vault.",
+          "motivation": "Clear her record without surrendering her freedom or accepting detention."
+        },
+        {
+          "name": "Elias Rook",
+          "role": "Client, suspect, and possible ally",
+          "description": "A guarded heir caught between protecting Mara and defending his compromised family estate.",
+          "motivation": "Expose the insider while retaining control of his family's secrets."
+        },
+        {
+          "name": "Nolan Price",
+          "role": "Antagonist and security chief",
+          "description": "Rook House's trusted security chief and the hidden architect connecting both crises.",
+          "motivation": "Frame Mara and Elias before they can expose his manipulation."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. ROOK HOUSE – VAULT CORRIDOR – NIGHT",
+          "purpose": "Break the alliance by making Elias's security response resemble coercion.",
+          "setting": "Outside the open evidence vault in Rook House",
+          "beat_summary": "Elias seals the estate while Mara refuses to trade her autonomy for his trust.",
+          "emotional_shift": "Betrayal hardens into defiant anger.",
+          "emotional_objective": "Make their fragile trust feel one command away from collapse.",
+          "character_actions": [
+            "Steel shutters descend over the corridor exits.",
+            "Mara places her access badge on the floor but keeps her phone.",
+            "Elias blocks the vault doorway without touching her."
+          ],
+          "turning_point": "Mara notices the vault timestamp matches her security onboarding session.",
+          "scene_causality": {
+            "goal": "Mara must preserve her freedom while gaining time to trace the copied code.",
+            "conflict": "Elias needs containment, while Mara refuses to investigate under detention.",
+            "outcome": "Elias grants ten minutes but keeps the estate sealed.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Elias Rook",
+              "intent": "Contain the breach despite his doubt.",
+              "text": "Your code opened that door, Mara. No one leaves until I know how."
+            },
+            {
+              "character_name": "Mara Voss",
+              "intent": "Reject detention while offering a controlled path forward.",
+              "text": "Lock me in, and I'm your suspect; give me ten minutes, and I'll find yours."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. ROOK HOUSE – SECURITY CONTROL ROOM – NIGHT",
+          "purpose": "Identify Nolan as the likely insider and define the personal cost of proving it.",
+          "setting": "Rook House security control room",
+          "beat_summary": "Mara traces the copied code to Nolan but learns the clean proof is buried inside the disabled panic system.",
+          "emotional_shift": "Hostility gives way to wary alignment.",
+          "emotional_objective": "Turn anger into evidence-based trust while preserving Mara's right to refuse.",
+          "character_actions": [
+            "Mara overlays the vault timestamp with her onboarding access log.",
+            "Elias removes his master key from the console and slides it to Mara.",
+            "Nolan's name flashes beside a manual panic-system shutdown."
+          ],
+          "turning_point": "Elias gives Mara the only key capable of restoring the panic system.",
+          "scene_causality": {
+            "goal": "Mara and Elias must find evidence that distinguishes copied access from her direct involvement.",
+            "conflict": "The diagnostic can prove Nolan acted, but publishing it will expose Mara's prior procedural violation.",
+            "outcome": "They locate Nolan's shutdown record, but only a public panic diagnostic can authenticate it.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because the breach matches Mara's onboarding timestamp, she audits the security setup from that session."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Mara Voss",
+              "intent": "Name the betrayal without overstating the evidence.",
+              "text": "Nolan copied my code during onboarding, but this log only proves he had the chance."
+            },
+            {
+              "character_name": "Elias Rook",
+              "intent": "Offer trust without taking away her choice.",
+              "text": "Then use my key—or walk out when the shutters lift. Your call."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "INT. ROOK HOUSE – SECURITY CONTROL ROOM – CONTINUOUS",
+          "purpose": "Pay off the disabled panic button and launch the final confrontation through Nolan's counterattack.",
+          "setting": "Rook House security control room and wall monitors",
+          "beat_summary": "Mara publishes the diagnostic, exposing Nolan just as he releases footage framing her and Elias together.",
+          "emotional_shift": "Costly resolve becomes public peril.",
+          "emotional_objective": "Make Mara's costly agency feel courageous before Nolan weaponizes it against her.",
+          "character_actions": [
+            "Mara inserts Elias's key and presses the dead panic button.",
+            "A diagnostic uploads Nolan's shutdown command alongside Mara's old unauthorized negotiation recording.",
+            "Every monitor switches to edited footage of Mara and Elias entering the vault."
+          ],
+          "turning_point": "Mara chooses public evidence over protecting her own damaged record.",
+          "scene_causality": {
+            "goal": "Mara must authenticate Nolan's sabotage before he erases the evidence.",
+            "conflict": "Exposing Nolan also reveals Mara's earlier procedural violation and gives him material to discredit her.",
+            "outcome": "The log identifies Nolan, but his edited footage frames Mara and Elias as co-conspirators.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because the authenticated proof is trapped in the disabled panic system, Mara chooses to publish its complete diagnostic."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Mara Voss",
+              "intent": "Accept personal consequences to secure the truth.",
+              "text": "If my violation comes out, it comes out with his name attached."
+            },
+            {
+              "character_name": "Nolan Price",
+              "intent": "Seize the public narrative before they can act.",
+              "text": "By morning, everyone will know the disgraced negotiator and the Rook heir planned this together."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Can Mara and Elias expose Nolan before his edited footage turns the public and police against them?"
+    },
+    {
+      "title": "Four Nights at Rook House — Episode 4: The Exit Clause",
+      "logline": "Framed by Nolan, Mara and Elias must expose their own damaging secrets to prove he engineered both crises.",
+      "synopsis": "With police closing in, Mara rejects Nolan's offer to frame Elias and uses her stolen exit code to restore the redacted recording from her first case. Elias voluntarily contributes the Rook family archive, and Mara releases a complete escrow that includes both his family's crimes and her own procedural violation. The evidence proves Nolan engineered the original crisis and the current frame-up to create dependence on his security operation. After Nolan is taken into custody, Elias offers Mara a新",
+      "hook": "As police surround Rook House, Nolan offers Mara exoneration if she blames Elias.",
+      "target_audience": "US women 18-34 who prefer tense romance, moral conflict, and consequential choices",
+      "target_platform": "TikTok",
+      "language": "en",
+      "tone": "suspenseful",
+      "episode_goal": "Expose Nolan through reciprocal, voluntary sacrifice while preserving Mara's agency.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Mara Voss",
+          "role": "Protagonist and contracted security assessor",
+          "description": "A disciplined crisis negotiator whose first case left a fatal stain on her record.",
+          "motivation": "Expose Nolan while preserving her freedom and owning her past mistake."
+        },
+        {
+          "name": "Elias Rook",
+          "role": "Client, suspect, and conditional ally",
+          "description": "A reclusive heir whose secrecy protected both family crimes and their victims.",
+          "motivation": "Stop Nolan by surrendering the family archive and his institutional protection."
+        },
+        {
+          "name": "Nolan Price",
+          "role": "Antagonist and security chief",
+          "description": "A calculating security chief who engineered crises to make powerful clients dependent on him.",
+          "motivation": "Separate Mara and Elias before their combined evidence destroys his operation."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. ROOK HOUSE PANIC ROOM — NIGHT",
+          "purpose": "Force Mara and Elias to stake their futures on a shared record.",
+          "setting": "Rook House panic room, moments before the police breach",
+          "beat_summary": "Nolan tries to split Mara from Elias as police close on Rook House.",
+          "emotional_shift": "Mara moves from besieged isolation to deliberate mutual risk.",
+          "emotional_objective": "Show Mara choosing evidence over self-protection without surrendering control.",
+          "character_actions": [
+            "Mara plays Nolan's offer through the sealed panic console.",
+            "Elias places the unredacted family archive drive beside Mara, then steps back.",
+            "Mara enters her private exit code and unlocks the full negotiation recording."
+          ],
+          "turning_point": "Mara refuses Nolan's deal and unlocks the evidence with the code he stole.",
+          "scene_causality": {
+            "goal": "Recover the complete recording that connects Nolan to the original crisis.",
+            "conflict": "Nolan offers Mara safety only if she condemns Elias before police enter.",
+            "outcome": "Mara's exit code restores the redacted audio, and Elias voluntarily yields his archive.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Nolan Price",
+              "intent": "Tempt Mara into betraying Elias.",
+              "text": "Name Elias as your handler, Mara, and your record is clean by sunrise."
+            },
+            {
+              "character_name": "Mara Voss",
+              "intent": "Reject coerced exoneration.",
+              "text": "A clean lie is still a cage, Nolan."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. ROOK HOUSE EVIDENCE VAULT — NIGHT",
+          "purpose": "Resolve the mystery by publishing one complete record that neither lead controls.",
+          "setting": "Rook House evidence vault as the breach begins",
+          "beat_summary": "The restored recording reveals Nolan manufactured the first crisis to sell permanent dependence on his security network.",
+          "emotional_shift": "Mutual risk hardens into evidence-based trust.",
+          "emotional_objective": "Make trust credible through equal and irreversible exposure.",
+          "character_actions": [
+            "Mara merges the recording, panic logs, and her unedited case report into the public escrow.",
+            "Elias adds ledgers proving his family financed Nolan's operation.",
+            "Mara presses RELEASE as police pound on the door."
+          ],
+          "turning_point": "Mara publicly releases her own wrongdoing alongside Nolan's crimes.",
+          "scene_causality": {
+            "goal": "Release authenticated evidence before Nolan can seize or discredit it.",
+            "conflict": "Clearing Mara requires admitting her violation, while exposing Nolan requires Elias to destroy his family's protection.",
+            "outcome": "The escrow proves Nolan engineered the original crisis and the current frame-up.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because Scene 1 restores the recording and gives Mara the archive, she can publish the full chain of evidence."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Elias Rook",
+              "intent": "Offer transparency without controlling Mara's choice.",
+              "text": "My family falls with that archive; release it only if you choose it."
+            },
+            {
+              "character_name": "Mara Voss",
+              "intent": "Accept accountability and force the complete truth public.",
+              "text": "My violation stays in too—no edits, no shield, no owner."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "INT. ROOK HOUSE FRONT HALL — DAWN",
+          "purpose": "Confirm Nolan's defeat and establish a voluntary continuation for Mara and Elias.",
+          "setting": "Rook House front hall at dawn",
+          "beat_summary": "Nolan loses control, while Mara receives Elias's offer of a partnership she can freely leave.",
+          "emotional_shift": "Exposure and loss settle into cautious possibility.",
+          "emotional_objective": "Deliver justice while ending on guarded, autonomous intimacy.",
+          "character_actions": [
+            "Officers remove Nolan after an analyst verifies the escrow timestamps.",
+            "Elias slides Mara a one-page contract with a bold termination clause.",
+            "Mara circles the exit clause and keeps the pen."
+          ],
+          "turning_point": "Mara keeps the contract only after marking the clause that preserves her right to leave.",
+          "scene_causality": {
+            "goal": "Secure Nolan's accountability and define any future alliance through explicit consent.",
+            "conflict": "With their institutional protection gone, Mara must decide whether Elias's partnership is another form of control.",
+            "outcome": "Nolan is exposed, and Mara chooses to evaluate Elias's exit-guaranteed offer rather than reject it or surrender.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because Scene 2 releases authenticated evidence, authorities can verify Nolan's scheme despite his edited footage."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Nolan Price",
+              "intent": "Deny defeat as his system collapses.",
+              "text": "They needed me; I only taught them what fear costs."
+            },
+            {
+              "character_name": "Mara Voss",
+              "intent": "Set the terms of any future bond with Elias.",
+              "text": "I’ll read it—but if the exit isn’t real, neither are we."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Will Mara accept Elias's partnership once she verifies that its promised exit is real?"
+    }
+  ]
+}

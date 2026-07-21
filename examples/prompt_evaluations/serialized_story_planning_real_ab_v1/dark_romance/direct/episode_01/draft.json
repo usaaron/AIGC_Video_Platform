@@ -1,0 +1,233 @@
+{
+  "title": "The Heir Who Chose Me",
+  "logline": "Inside a locked corporate skybridge, crisis negotiator Mara Voss defies a sniper order and frees the coercive heir she distrusts—only to discover his family has authorized her death.",
+  "synopsis": "Crisis negotiator Mara Voss enters a Vale Tower standoff after corporate heir Adrian Vale threatens to expose her sealed Pier Seven record unless she responds. Armed whistleblower Celia Ward claims Vale security will kill her to bury Halcyon, but a sniper's laser soon reveals a more complicated target. Mara destroys what she believes is Adrian's attack signal, only to learn it was an abort device; Adrian then shields her from the incoming shot. As security prepares to breach, Mara chooses to cut",
+  "hook": "The heir who blackmailed Mara into a hostage room may be the only person trying to keep her alive.",
+  "target_audience": "US women ages 18-34 who enjoy tense romance, moral conflict, and consequential choices",
+  "target_platform": "TikTok vertical serialized fiction",
+  "language": "English",
+  "tone": "suspenseful",
+  "episode_goal": "Force Mara to choose whether to trust Adrian long enough to survive, while revealing that she—not the armed whistleblower—may be the operation's true target.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Mara Voss",
+      "role": "Protagonist and crisis negotiator",
+      "description": "A composed crisis negotiator in her early thirties whose controlled manner conceals guilt from a sealed operation called Pier Seven.",
+      "motivation": "Keep everyone alive, uncover why she was specifically summoned, and refuse to surrender her judgment to powerful men."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Corporate heir, hostage, and ambiguous romantic threat",
+      "description": "The restrained, calculating heir to Vale Industries. He coerced Mara into attending the standoff but appears to be resisting his own family's security apparatus.",
+      "motivation": "Get Mara and Celia out alive while hiding how much he knows about Mara's past and his father's plans."
+    },
+    {
+      "name": "Celia Ward",
+      "role": "Whistleblower and armed captor",
+      "description": "Vale Industries' former compliance chief, now armed and cornered after uncovering a covert program called Halcyon.",
+      "motivation": "Expose Halcyon before Vale security silences her, even if she must hold Adrian at gunpoint to do it."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. VALE TOWER SKYBRIDGE - NIGHT",
+      "purpose": "Introduce the central triangle, Halcyon, Adrian's coercion, and the imminent tactical threat.",
+      "setting": "A glass-walled skybridge high inside Vale Tower during a rainstorm.",
+      "beat_summary": "Mara enters a sealed skybridge where whistleblower Celia holds Adrian at gunpoint and immediately learns Adrian used her buried past to force her attendance.",
+      "emotional_shift": "Mara moves from professional detachment to personal anger when Adrian confirms he weaponized her sealed past.",
+      "emotional_objective": "Establish charged distrust between Mara and Adrian while making Celia's fear credible.",
+      "character_actions": [
+        "Mara enters alone and deliberately sets her phone and sidearm on the floor.",
+        "Celia keeps a pistol trained on Adrian while gripping an encrypted drive in her other hand.",
+        "Adrian sits restrained to a chair, watching Mara rather than the weapon.",
+        "Mara removes her police earpiece, cutting off the tactical team's attempt to direct her."
+      ],
+      "turning_point": "Adrian admits he forced Mara to come by threatening her sealed Pier Seven record.",
+      "scene_causality": {
+        "goal": "Assess the hostage situation and prevent an immediate shooting.",
+        "conflict": "Mara must negotiate with Celia while the supposed hostage, Adrian, holds damaging leverage over her.",
+        "outcome": "Mara cuts off tactical command and takes personal control of the negotiation, but learns a breach is imminent.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Celia Ward",
+          "intent": "Establish control and expose the surrounding danger.",
+          "text": "Shut the door. His security team is already choosing where to put the bullet."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Slow the crisis and identify the real source of pressure.",
+          "text": "Then don't give them a clean ending. Tell me what you need."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Reveal that Mara was specifically selected.",
+          "text": "She needs Halcyon opened. I need you to keep her alive."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Confront Adrian's coercion without losing control of the room.",
+          "text": "You threatened to release my Pier Seven file if I refused this call."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Defend his choice while maintaining emotional restraint.",
+          "text": "I gave you a reason to come."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Set a firm moral boundary.",
+          "text": "Coercion isn't consent, Adrian. Don't mistake my presence for trust."
+        },
+        {
+          "character_name": "Celia Ward",
+          "intent": "Redirect them toward the immediate threat.",
+          "text": "Save the reckoning. His people breach in three minutes."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. VALE TOWER SKYBRIDGE - CONTINUOUS",
+      "purpose": "Escalate the physical threat, complicate Adrian's role, and reveal that Mara may be the intended target.",
+      "setting": "The same skybridge, seconds before the security breach.",
+      "beat_summary": "A sniper laser appears on Celia, and Mara mistakes Adrian's cufflink transmitter for an attack signal. Her intervention prevents him from aborting the shot, forcing him to shield her when the laser shifts.",
+      "emotional_shift": "Mara's certainty that Adrian controls the attack fractures when he risks his body to save her.",
+      "emotional_objective": "Turn suspicion into dangerous intimacy by making Adrian's protective action undeniable without excusing his manipulation.",
+      "character_actions": [
+        "A red laser dot crawls across Celia's chest as rain streaks the glass behind her.",
+        "Adrian presses his thumb toward a black cufflink concealed against the chair.",
+        "Mara lunges forward and crushes the cufflink beneath her heel.",
+        "The laser snaps from Celia to Mara.",
+        "Adrian throws himself into Mara, taking her to the floor as a suppressed round tears through the glass above them.",
+        "Celia recoils but keeps hold of both the gun and encrypted drive."
+      ],
+      "turning_point": "The sniper's laser shifts onto Mara, and Adrian shields her from the shot.",
+      "scene_causality": {
+        "goal": "Prevent Celia from being killed and preserve a path to negotiation.",
+        "conflict": "Mara believes Adrian is signaling the sniper, while Adrian is secretly trying to abort a shot controlled by his father.",
+        "outcome": "Celia survives, but Mara destroys the abort device and becomes the sniper's target; Adrian saves her from the shot.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Mara cut off tactical command and remained in the room, she must interpret Adrian's secret movement without outside context as the sniper prepares to fire."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Mara Voss",
+          "intent": "Stop what she believes is Adrian's kill command.",
+          "text": "Take your hand off the signal."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Warn her before she acts.",
+          "text": "Mara, don't—"
+        },
+        {
+          "character_name": "Celia Ward",
+          "intent": "React to the sniper's change of target.",
+          "text": "The laser moved!"
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Protect Mara physically.",
+          "text": "Down!"
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Demand the truth after surviving the shot.",
+          "text": "You signaled that shooter."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Reveal that her assumption worsened the danger.",
+          "text": "That cufflink was the abort."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Challenge his secrecy and control.",
+          "text": "Then why wasn't I briefed?"
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Identify the larger antagonist.",
+          "text": "Because my father owns the briefing. And that bullet was for you."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. SKYBRIDGE / EXECUTIVE ELEVATOR - CONTINUOUS",
+      "purpose": "Deliver Mara's consequential decision, launch the uneasy alliance, and end on the revelation that the Vale family has targeted her.",
+      "setting": "The damaged skybridge and a concealed executive elevator descending through Vale Tower.",
+      "beat_summary": "With security charges being placed outside, Mara makes the consequential choice to free Adrian while keeping him at gunpoint. His biometric opens an escape elevator, where Celia's drive identifies Mara as a Halcyon asset marked for termination.",
+      "emotional_shift": "Mara moves from reluctant tactical trust to the shock of realizing her own history is embedded in Halcyon.",
+      "emotional_objective": "Make Mara actively choose a conditional alliance with Adrian, then punish that choice with a deeply personal revelation.",
+      "character_actions": [
+        "White sparks spit from the sealed door as Vale security plants a breach charge outside.",
+        "Mara takes Celia's pistol, checks the safety, and points it steadily at Adrian.",
+        "Without lowering the weapon, Mara cuts Adrian's restraints with a shard of broken glass.",
+        "Adrian presses his bleeding palm to a hidden elevator reader.",
+        "Mara guides Celia into the opening elevator before following Adrian inside.",
+        "Celia plugs her encrypted drive into the control panel, flooding the screen with Halcyon records.",
+        "The display locks onto Mara's photograph beside the words TERMINATION AUTHORIZED."
+      ],
+      "turning_point": "Mara chooses to free Adrian, only to discover that he was ordered to identify her for termination.",
+      "scene_causality": {
+        "goal": "Escape the skybridge with Celia, Adrian, and the Halcyon evidence alive.",
+        "conflict": "The only escape requires Mara to free the manipulative heir she distrusts before Vale security breaches the room.",
+        "outcome": "Mara frees Adrian under armed conditions and reaches the elevator, where the evidence reveals she is a Halcyon asset marked for termination.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because the sniper targeted Mara and Adrian's abort device was destroyed, the approaching Vale security team can no longer be treated as rescuers, forcing the three into an immediate escape."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Celia Ward",
+          "intent": "Prevent Mara from trusting the heir who coerced her.",
+          "text": "You free him, he owns the only exit and both of us."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Make an autonomous, calculated choice.",
+          "text": "No. He opens the exit. I keep the gun."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Press the urgency without demanding trust.",
+          "text": "You can hate me downstairs. Decide now."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Set conditions while freeing him.",
+          "text": "One lie, one wrong turn, and I stop protecting you."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Acknowledge the unstable alliance.",
+          "text": "Fair."
+        },
+        {
+          "character_name": "Celia Ward",
+          "intent": "Reveal the horrifying contents of the drive.",
+          "text": "Mara... Halcyon isn't a project list. It's an asset list."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Confront evidence tying her to the conspiracy.",
+          "text": "Why is my name on it?"
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Reveal the true stakes as the elevator descends.",
+          "text": "Because my father didn't send me to recruit you. He sent me to identify you."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Why has the Vale family marked Mara for termination, and what does Adrian know about her connection to Halcyon?"
+}

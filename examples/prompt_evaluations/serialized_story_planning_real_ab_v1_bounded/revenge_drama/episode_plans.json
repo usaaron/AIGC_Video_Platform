@@ -1,0 +1,63 @@
+[
+  {
+    "episode_number": "1",
+    "episode_goal": "Establish Tessa's controlled infiltration and reveal immediate public risk.",
+    "entry_state": "Tessa is professionally discredited and enters Hale Developments as a temporary compliance contractor.",
+    "central_conflict": "She can copy evidence of her framing or investigate a new structural anomaly before her access expires.",
+    "protagonist_decision": "Tessa abandons the reputation file and tests the anomaly first.",
+    "reveal": "The occupied tower shows the same hidden load pattern as the earlier failure.",
+    "emotional_movement": "Cold resolve → recognition → urgent responsibility.",
+    "setup_refs": "Introduce `RV-S1` and `RV-S3`.",
+    "payoff_refs": "None.",
+    "exit_state": "Tessa has partial safety evidence but not enough for evacuation; Hale detects an unauthorized test.",
+    "cliffhanger": "Hale sends Tessa her own original calculation and asks why it was never signed."
+  },
+  {
+    "episode_number": "2",
+    "episode_goal": "Expose how Tessa was framed while making immediate revenge ethically dangerous.",
+    "entry_state": "Hale knows Tessa is investigating; residents remain unaware of the risk.",
+    "central_conflict": "Hale offers the signed falsification record in exchange for silence until the tower's profitable sale closes.",
+    "protagonist_decision": "Tessa refuses the deal but delays public release long enough to design a safe evacuation trigger.",
+    "reveal": "Her supervisor used Tessa's unsigned calculation as the base for an altered certified file.",
+    "emotional_movement": "Vindication → temptation → disciplined anger.",
+    "setup_refs": "Develop `RV-S1` and `RV-S3`; introduce `RV-S2`.",
+    "payoff_refs": "Partial payoff of `RV-S3`: the unsigned original proves substitution, not yet who ordered it.",
+    "exit_state": "Tessa has evidence of falsification and a narrow window to protect residents before Hale retaliates.",
+    "cliffhanger": "The emergency drill map has been changed to route residents through the most vulnerable section."
+  },
+  {
+    "episode_number": "3",
+    "episode_goal": "Force Tessa to choose public safety over the fastest route to personal vindication.",
+    "entry_state": "The official evacuation plan is compromised; Hale prepares to erase internal records.",
+    "central_conflict": "Releasing the falsification evidence now would clear Tessa but trigger an unsafe uncontrolled evacuation.",
+    "protagonist_decision": "Tessa submits herself for arrest as a deliberate distraction while sending a corrected drill map to resident leaders.",
+    "reveal": "Hale ordered the altered file, but the city inspector accepted payment to suppress the risk.",
+    "emotional_movement": "Urgency → apparent defeat → strategic sacrifice.",
+    "setup_refs": "Advance `RV-S1` and `RV-S2`.",
+    "payoff_refs": "Partial payoff of `RV-S1`; establish who authorized the alteration.",
+    "exit_state": "Residents begin an orderly evacuation; Tessa is detained; Hale believes the evidence is contained.",
+    "cliffhanger": "The inspector locks the final occupied floor remotely and blames Tessa for the alarm."
+  },
+  {
+    "episode_number": "4",
+    "episode_goal": "Complete the safe exposure and redefine Tessa's revenge as accountable justice.",
+    "entry_state": "Most residents are safe, one floor remains locked, and Tessa is publicly blamed.",
+    "central_conflict": "Tessa can release evidence immediately or use it as leverage to unlock the floor first.",
+    "protagonist_decision": "She gives independent journalists a timed release, then trades the final encryption key only after the doors open.",
+    "reveal": "Hale preserved the payment ledger as insurance against the inspector, proving both conspirators' roles.",
+    "emotional_movement": "Public humiliation → controlled leverage → earned vindication.",
+    "setup_refs": "None.",
+    "payoff_refs": "Complete `RV-S1`, `RV-S2` and `RV-S3`.",
+    "exit_state": "Residents are safe, the evidence is independently preserved, and Tessa's name is cleared through public accountability.",
+    "cliffhanger": "Tessa receives a list of three other projects certified through the same falsified process.",
+    "Risk": "Evidence to inspect",
+    "---": "---",
+    "Over-planning": "Episodes feel predetermined or lack discovery",
+    "Rigidity": "Model follows fields mechanically at the cost of emotion",
+    "Token growth": "Prompt and latency increase materially",
+    "Plan/script divergence": "Script contradicts entry/exit state or omits obligations",
+    "Planning error propagation": "A weak early assumption harms every episode",
+    "False confidence": "Schema-compliant plans are mistaken for good stories",
+    "Boundary expansion": "Blueprint turns into a Series Engine or production bible"
+  }
+]

@@ -1,0 +1,71 @@
+{
+  "title": "Revenge planning draft for TikTok",
+  "audience_goal": {
+    "summary": "Serve the audience segment described as: US female 18-34 viewers who stay for revenge drama escalations.",
+    "priority": "primary",
+    "success_metric": "Engagement quality on manually imported trend samples."
+  },
+  "commercial_goal": {
+    "summary": "Support the commercial objective: Validate revenge drama retention and sequel demand.",
+    "priority": "primary",
+    "success_metric": "Commercial signal score across imported content."
+  },
+  "platform_goal": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "objective": "Maximize retention and replay value for short_video output.",
+    "target_duration_seconds": 45,
+    "target_aspect_ratio": "9:16"
+  },
+  "story_goal": "Turn the strongest trend and preference signals into a short-form cliffhanger script.",
+  "quality_level": "high",
+  "budget_level": "medium",
+  "tags": [
+    {
+      "ontology_node_id": "emotion.revenge",
+      "label": "Revenge",
+      "category": "Emotion",
+      "confidence": 0.7583333333333333
+    },
+    {
+      "ontology_node_id": "hook.fake_marriage",
+      "label": "Fake Marriage",
+      "category": "Hook",
+      "confidence": 0.7583333333333333
+    },
+    {
+      "ontology_node_id": "genre.drama",
+      "label": "Drama",
+      "category": "Genre",
+      "confidence": 0.7583333333333333
+    }
+  ],
+  "creative_brief": {
+    "hook": "he betrayed her on the wedding stage a revenge drama explodes when betrayal and fake marriage secrets are revealed in public",
+    "tone": "intense",
+    "pacing": "fast",
+    "target_emotion": "revenge",
+    "asset_constraints": [
+      "Prefer reusable assets with strong hook compatibility."
+    ],
+    "generation_notes": [
+      "Draft derived from manual import trend signals."
+    ]
+  },
+  "metadata": {
+    "generated_by": "data_intelligence_pipeline",
+    "draft_id": "7ca533cf-874e-4cf4-878a-279dbcbab0ff",
+    "rationale": [
+      "Selected 3 controlled tags from rule-based mapping.",
+      "Top preference score observed: 0.63.",
+      "Primary imported language: en.",
+      "Primary imported region: US."
+    ],
+    "source_language": "en",
+    "source_region": "US",
+    "source_platform": "tiktok"
+  },
+  "id": "9528ded5-6cdd-4d13-8bfa-ea04070b3642",
+  "status": "draft",
+  "created_at": "2026-07-20T14:28:25.708179Z",
+  "updated_at": "2026-07-20T14:28:25.708182Z"
+}

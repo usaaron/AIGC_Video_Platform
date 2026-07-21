@@ -1,0 +1,30 @@
+{
+  "story_id": "dark_romance",
+  "variant": "direct",
+  "episode_number": 1,
+  "prompt_version": "serialized_story_planning_offline_ab.v1",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 121.187,
+  "prompt_characters": 1830,
+  "planning_context_characters": 55,
+  "usage": {
+    "prompt_tokens": 1104,
+    "completion_tokens": 3994,
+    "total_tokens": 5098,
+    "completion_tokens_details": {
+      "reasoning_tokens": 1606
+    }
+  },
+  "response_id": "resp_01708dd6158742a9016a5e56c4b07881919509632f9121b8bb",
+  "previous_episode_state": null
+}

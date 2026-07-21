@@ -1,0 +1,56 @@
+{
+  "story_id": "supernatural_romance",
+  "variant": "direct",
+  "episode_number": 3,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 74.199,
+  "prompt_characters": 3652,
+  "planning_context_characters": 55,
+  "usage": {
+    "prompt_tokens": 1515,
+    "completion_tokens": 2393,
+    "total_tokens": 3908,
+    "completion_tokens_details": {
+      "reasoning_tokens": 800
+    }
+  },
+  "response_id": "resp_0a4281062dbd5f1d016a5e5bdc5c5c81919afebdc26578fb17",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 2,
+    "title": "The Woman Wearing Tomorrow",
+    "episode_goal": "Expose how Daniel received a future memory and bind Mara and Ilyan together through a costly choice.",
+    "synopsis": "Daniel reveals that an unknown woman planted his future memory, then collapses as the murder video begins changing in real time. Ilyan offers to revive him again, but Mara refuses to let him lose another piece of himself and saves Daniel conventionally, hearing the phrase “Saint Brigid Platform” in the process. Beneath the abandoned station, Mara and Ilyan discover an archive of stolen memories and a vial proving Ilyan once knew her, while Daniel calls to report that another Mara has locked him ",
+    "character_states": [
+      {
+        "name": "Mara Velez",
+        "role": "Protagonist",
+        "motivation": "Save lives without letting the dead consume her identity."
+      },
+      {
+        "name": "Ilyan Vale",
+        "role": "Immortal ally",
+        "motivation": "Stop the supernatural killer while preserving enough of himself to trust Mara."
+      },
+      {
+        "name": "Daniel Cho",
+        "role": "Victim and messenger",
+        "motivation": "Understand why his stolen memory shows Mara murdering Ilyan."
+      }
+    ],
+    "final_scene_outcome": "They discover a vial labeled “Ilyan Vale—Mara Velez” as Mara's double traps Daniel.",
+    "final_turning_point": "A vial proves Ilyan knew Mara before their supposed first meeting, just as her double reaches Daniel.",
+    "next_episode_question": "Who is wearing Mara's face, and what memory did they steal from Ilyan before he met her?"
+  }
+}

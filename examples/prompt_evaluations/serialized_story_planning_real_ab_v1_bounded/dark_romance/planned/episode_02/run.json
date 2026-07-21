@@ -1,0 +1,51 @@
+{
+  "story_id": "dark_romance",
+  "variant": "planned",
+  "episode_number": 2,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 48.781,
+  "prompt_characters": 5800,
+  "planning_context_characters": 2253,
+  "usage": {
+    "prompt_tokens": 1959,
+    "completion_tokens": 1608,
+    "total_tokens": 3567,
+    "completion_tokens_details": {
+      "reasoning_tokens": 148
+    }
+  },
+  "response_id": "resp_09b23e67025e6e1f016a5e5aefea788191b4bd9ffa8ee1a999",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 1,
+    "title": "Four Nights at Rook House — Episode 1: The Voice in the Archive",
+    "episode_goal": "Establish mutual suspicion and prove the new threat knows Mara's past.",
+    "synopsis": "Mara Voss accepts a tightly limited security contract from reclusive heir Elias Rook, only to find his panic button sabotaged from inside his estate. When an alarm seals his private archive, Elias orders her to stay out, but Mara overrides the lockdown using her private exit code. Inside, she finds a redacted recording from the failed negotiation that destroyed her career—and hears Elias's voice issue the fatal command he swears he never gave.",
+    "character_states": [
+      {
+        "name": "Mara Voss",
+        "role": "Protagonist and contracted security assessor",
+        "motivation": "Clear her record while preserving her freedom to walk away."
+      },
+      {
+        "name": "Elias Rook",
+        "role": "Client, suspect, and possible ally",
+        "motivation": "Identify the insider targeting him without surrendering control of his family's secrets."
+      }
+    ],
+    "final_scene_outcome": "She discovers her failed negotiation was planted with an order spoken in Elias's voice.",
+    "final_turning_point": "Elias's voice on the recording transforms him from secretive client into the prime suspect in Mara's defining tragedy.",
+    "next_episode_question": "Did Elias give the fatal order, or can someone inside his estate reproduce his voice?"
+  }
+}

@@ -1,0 +1,63 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-bounded
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Use the planning context when it is present. When it is absent, infer the episode's responsibility from the ContentSpec summary, episode number, and previous state.
+Do not mention prompts, plans, schemas, evaluation variants, or these instructions.
+
+EpisodeNumber: 1
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve the same characters, established facts, relationships, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+ContentSpecSummary:
+{
+  "Audience": "English-speaking viewers who prefer supernatural mystery, restrained romance and identity conflict",
+  "Platform": "TikTok-oriented vertical serialized fiction",
+  "Language": "English",
+  "Episode duration": "90 seconds",
+  "Tone": "Eerie, tender, urgent",
+  "Story goal": "A paramedic who hears final memories must work with an immortal stranger whose memories disappear whenever she saves someone",
+  "Constraints": "Romance grows through decisions and shared cost; supernatural rules remain consistent; no destiny-mate shortcut"
+}
+
+PreviousEpisodeState:
+null
+
+PlanningContext:
+{
+  "story_blueprint": {
+    "core_premise": "Paramedic Nia Calder hears a dying patient's final memory and finds immortal archivist Rowan inside it, but every life Nia saves erases one of Rowan's memories.",
+    "series_goal": "Discover why their abilities are linked and stop the entity trading human survival for stolen memory.",
+    "theme": "Love is not perfect remembrance; it is the choice to know someone again.",
+    "central_conflict": "Nia will not stop saving patients, while Rowan fears each rescue will erase the evidence and identity needed to defeat the entity.",
+    "ending_direction": "Nia and Rowan redirect the exchange into a voluntary shared archive, defeating the entity while accepting that some memories cannot be restored.",
+    "character_arc_targets": "Nia learns that responsibility does not require solitary sacrifice. Rowan chooses present trust over controlling what remains of the past.",
+    "major_setup_payoff_refs": "`SR-S1`: the silver emergency tag; `SR-S2`: Rowan's blank journal page; `SR-S3`: the phrase “remember me forward.”"
+  },
+  "current_episode_plan": {
+    "episode_number": "1",
+    "episode_goal": "Establish the memory exchange rule and force Nia to choose rescue over certainty.",
+    "entry_state": "Nia hides her ability to hear final memories; Rowan tracks supernatural memory losses alone.",
+    "central_conflict": "A patient can be revived, but Rowan warns that the attempt will erase his only memory of the entity's face.",
+    "protagonist_decision": "Nia performs the rescue despite the warning and records everything Rowan can describe first.",
+    "reveal": "The revived patient carries the same silver emergency tag Rowan remembers from a century earlier.",
+    "emotional_movement": "Professional focus → impossible fear → morally certain action.",
+    "setup_refs": "Introduce `SR-S1` and `SR-S2`.",
+    "payoff_refs": "None.",
+    "exit_state": "The patient lives; Rowan loses the entity's face but gains Nia's recorded description.",
+    "cliffhanger": "Rowan's journal develops a blank page bearing Nia's name."
+  }
+}

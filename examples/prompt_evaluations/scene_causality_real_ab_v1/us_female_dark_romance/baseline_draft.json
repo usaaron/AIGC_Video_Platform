@@ -1,0 +1,223 @@
+{
+  "content_spec_id": "4d8674b7-225b-429e-9832-c579c7300bf6",
+  "generation_strategy_id": "strategy.scene_causality_ab.baseline.v1",
+  "title": "I Married My Enemy—Then My Dead Sister Walked In",
+  "logline": "A revenge bride completes her fake marriage and publicly attacks her enemy's empire, only to discover her presumed-dead sister is alive and allied with her groom.",
+  "language": "en",
+  "target_audience": "US women ages 18–34 who binge dark romance, fake-marriage drama, revenge stories, and betrayal twists.",
+  "target_platform": "TikTok vertical short video (9:16)",
+  "tone": "intense",
+  "hook": "I married the enemy to destroy his family. At the altar, he whispered, “Your sister helped me destroy yours.”",
+  "synopsis": "Elena Cross marries Adrian Vale to gain access to the empire she plans to destroy. When Adrian reveals that her missing sister betrayed her, Elena completes the vows anyway and steals his keycard. She storms the boardroom and publishes the Vale family's secret records, but her victory collapses when Mara appears alive and reveals that Elena's move exposed their mother's location.",
+  "episode_goal": "Show Elena choosing revenge over retreat, executing a public attack on the Vale empire, and discovering that her trusted sister may be the true architect of her pain.",
+  "target_duration_seconds": 45,
+  "characters": [
+    {
+      "name": "Elena Cross",
+      "role": "Protagonist and revenge bride",
+      "description": "A poised financial analyst in a white wedding dress who hides grief and rage behind perfect control.",
+      "motivation": "Marry into the Vale dynasty, secure corporate access, and expose the family she blames for her mother's death."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Enemy groom and dark romantic lead",
+      "description": "The dangerously composed heir to Vale Industries, drawn to Elena even while anticipating her revenge scheme.",
+      "motivation": "Protect a secret tied to Elena's missing sister while keeping Elena close enough to control the fallout."
+    },
+    {
+      "name": "Mara Cross",
+      "role": "Missing sister and secret conspirator",
+      "description": "Elena's presumed-dead older sister, whose hidden alliance with Adrian transforms revenge into personal betrayal.",
+      "motivation": "Stop Elena from exposing a truth that could destroy both sisters."
+    },
+    {
+      "name": "Victor Vale",
+      "role": "Antagonist and corporate patriarch",
+      "description": "The ruthless patriarch of Vale Industries, confident that wealth can bury every crime and silence every accuser.",
+      "motivation": "Preserve his family empire and identify whoever stole his private financial records."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. VALE WEDDING – DAY",
+      "purpose": "Stop the scroll with the fake-marriage premise, reveal the betrayal, and establish Elena's visible choice to proceed.",
+      "setting_hint": "Vale wedding altar, vertical close-ups",
+      "beat_summary": "At the altar, Adrian reveals that Elena's presumed-dead sister betrayed her. Elena refuses to flee, says her vows, and secretly takes his executive keycard during their kiss.",
+      "emotional_shift": "Confident revenge to wounded defiance",
+      "emotional_objective": "Make viewers admire Elena's nerve while questioning Adrian's warning.",
+      "character_actions": [
+        "Elena faces the camera before turning toward the altar.",
+        "Adrian leans close enough to whisper without breaking his smile.",
+        "Elena visibly chooses to continue the ceremony.",
+        "Elena kisses Adrian and slips his executive keycard from his jacket."
+      ],
+      "turning_point": "Instead of fleeing after Adrian's revelation, Elena says “I do” and steals his keycard.",
+      "scene_causality": {
+        "goal": "Complete the marriage and obtain access to the Vale family's protected corporate records.",
+        "conflict": "Adrian knows Elena's revenge plan and claims her missing sister secretly betrayed her.",
+        "outcome": "Elena completes the marriage and steals Adrian's executive keycard.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "I married the enemy to destroy his family.",
+        "Before you say yes—your sister is alive. She helped me destroy yours.",
+        "Then I guess I'm marrying both my enemies. I do."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Elena Cross",
+          "intent": "Deliver the immediate revenge hook",
+          "text": "I married the enemy to destroy his family."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Destabilize Elena with a personal betrayal",
+          "text": "Before you say yes—your sister is alive. She helped me destroy yours."
+        },
+        {
+          "character_name": "Elena Cross",
+          "intent": "Refuse to abandon her plan",
+          "text": "Then I guess I'm marrying both my enemies. I do."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. VALE BOARDROOM – DAY",
+      "purpose": "Give Elena an active, visible revenge move and escalate the private wedding conflict into a public corporate attack.",
+      "setting_hint": "Vale Industries boardroom, moments after the wedding",
+      "beat_summary": "Still wearing her wedding dress, Elena enters the Vale boardroom, hijacks the presentation, and publicly releases evidence of Victor's hidden accounts despite Adrian's warning.",
+      "emotional_shift": "Wounded defiance to public triumph",
+      "emotional_objective": "Deliver the revenge payoff while creating dread that Elena has acted on incomplete information.",
+      "character_actions": [
+        "Elena swipes Adrian's keycard at the boardroom door.",
+        "She replaces the corporate presentation with financial records.",
+        "Victor rises and demands security.",
+        "Elena taps SEND on her phone in full view of the board."
+      ],
+      "turning_point": "Elena ignores Adrian's warning and sends the evidence to the public herself.",
+      "scene_causality": {
+        "goal": "Expose the Vale family's hidden finances before Adrian can revoke her access.",
+        "conflict": "Victor threatens Elena while Adrian insists the records contain a truth she is not prepared to see.",
+        "outcome": "Elena publishes the records and freezes the Vale family's accounts.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Elena stole Adrian's keycard at the wedding, she can breach the boardroom and release Victor's records."
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "You entered this family ten minutes ago.",
+        "Long enough to find every account you buried. They're public now.",
+        "Elena, stop. You don't know who signed those transfers.",
+        "Then let the whole world read the signature."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Victor Vale",
+          "intent": "Intimidate Elena into silence",
+          "text": "You entered this family ten minutes ago."
+        },
+        {
+          "character_name": "Elena Cross",
+          "intent": "Publicly claim power and execute revenge",
+          "text": "Long enough to find every account you buried. They're public now."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Warn Elena that her evidence conceals a trap",
+          "text": "Elena, stop. You don't know who signed those transfers."
+        },
+        {
+          "character_name": "Elena Cross",
+          "intent": "Reject Adrian's control",
+          "text": "Then let the whole world read the signature."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. VALE BOARDROOM – CONTINUOUS",
+      "purpose": "Confirm Adrian's warning, reveal Mara alive, and create an urgent threat that forces the next episode.",
+      "setting_hint": "Vale Industries boardroom doorway",
+      "beat_summary": "The boardroom screens identify Mara as the transfer signatory. The doors open, revealing her alive. Mara claims Elena's release has activated a fatal trap for their mother.",
+      "emotional_shift": "Public triumph to horrified betrayal",
+      "emotional_objective": "Shatter Elena's revenge victory with intimate betrayal and immediate danger.",
+      "character_actions": [
+        "The presentation zooms in on Mara Cross's digital signature.",
+        "Elena's victorious expression collapses.",
+        "The boardroom doors open behind Adrian.",
+        "Mara steps into frame holding Elena's childhood necklace.",
+        "Elena turns toward Adrian, realizing he told the truth."
+      ],
+      "turning_point": "Mara reveals that Elena's public revenge has endangered the mother Elena believed was dead.",
+      "scene_causality": {
+        "goal": "Identify the unknown signer and prove Adrian's warning was manipulation.",
+        "conflict": "Elena must confront that her sister is alive, allied with Adrian, and connected to the supposedly criminal transfers.",
+        "outcome": "Mara appears alive and reveals that Elena's revenge move exposed their mother's location to Victor.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Elena's public release exposes Mara's signature and broadcasts the hidden data Mara had used to protect their mother."
+      },
+      "cliffhanger": true,
+      "dialogue_prompts": [
+        "No. Mara died three years ago.",
+        "I didn't die. I disappeared because of what you just released.",
+        "You chose him over me?",
+        "I chose to keep Mom alive. And you just gave her location to Victor."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Elena Cross",
+          "intent": "Reject the impossible evidence",
+          "text": "No. Mara died three years ago."
+        },
+        {
+          "character_name": "Mara Cross",
+          "intent": "Reveal herself and reverse Elena's victory",
+          "text": "I didn't die. I disappeared because of what you just released."
+        },
+        {
+          "character_name": "Elena Cross",
+          "intent": "Demand the truth from her sister",
+          "text": "You chose him over me?"
+        },
+        {
+          "character_name": "Mara Cross",
+          "intent": "End on an urgent threat",
+          "text": "I chose to keep Mom alive. And you just gave her location to Victor."
+        }
+      ],
+      "supporting_asset_ids": []
+    }
+  ],
+  "next_episode_question": "Why did Mara betray Elena—and what devastating truth is hidden in the evidence Elena just released?",
+  "qa_notes": [
+    "Draft generated by RealLLMAdapter structured output.",
+    "Story QC and revision loop must still review platform fit and consistency."
+  ],
+  "llm_metadata": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "strategy_id": "strategy.scene_causality_ab.baseline.v1",
+    "usage": {
+      "prompt_tokens": 5492,
+      "completion_tokens": 2216,
+      "total_tokens": 7708,
+      "completion_tokens_details": {
+        "reasoning_tokens": 508
+      }
+    },
+    "response_id": "resp_02bdae9e08cd69d1016a5e2f3108c08191adab2b8f17d6ee31",
+    "prompt_versions": [
+      "v2-baseline",
+      "v1-shared"
+    ],
+    "generation_strategy_version": "v1"
+  },
+  "id": "fa681145-06d5-4f4b-9c02-ac3f1981174d",
+  "created_at": "2026-07-20T14:23:48.988250Z",
+  "updated_at": "2026-07-20T14:23:48.988300Z"
+}

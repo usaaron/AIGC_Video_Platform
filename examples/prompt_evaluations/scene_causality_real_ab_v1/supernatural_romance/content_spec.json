@@ -1,0 +1,71 @@
+{
+  "title": "Romance planning draft for TikTok",
+  "audience_goal": {
+    "summary": "Serve the audience segment described as: US female 18-34 viewers who respond to forbidden supernatural romance reveals.",
+    "priority": "primary",
+    "success_metric": "Engagement quality on manually imported trend samples."
+  },
+  "commercial_goal": {
+    "summary": "Support the commercial objective: Validate supernatural romance retention and cliffhanger demand.",
+    "priority": "primary",
+    "success_metric": "Commercial signal score across imported content."
+  },
+  "platform_goal": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "objective": "Maximize retention and replay value for short_video output.",
+    "target_duration_seconds": 45,
+    "target_aspect_ratio": "9:16"
+  },
+  "story_goal": "Turn the strongest trend and preference signals into a short-form cliffhanger script.",
+  "quality_level": "high",
+  "budget_level": "medium",
+  "tags": [
+    {
+      "ontology_node_id": "genre.romance",
+      "label": "Romance",
+      "category": "Genre",
+      "confidence": 0.698
+    },
+    {
+      "ontology_node_id": "emotion.revenge",
+      "label": "Revenge",
+      "category": "Emotion",
+      "confidence": 0.698
+    },
+    {
+      "ontology_node_id": "genre.supernatural",
+      "label": "Supernatural",
+      "category": "Genre",
+      "confidence": 0.698
+    }
+  ],
+  "creative_brief": {
+    "hook": "she fell for the vampire she was sent to betray a supernatural romance becomes revenge when betrayal exposes the vampire groom at the altar",
+    "tone": "intense",
+    "pacing": "fast",
+    "target_emotion": "revenge",
+    "asset_constraints": [
+      "Prefer reusable assets with strong hook compatibility."
+    ],
+    "generation_notes": [
+      "Draft derived from manual import trend signals."
+    ]
+  },
+  "metadata": {
+    "generated_by": "data_intelligence_pipeline",
+    "draft_id": "a0b3baf4-b3a1-4226-aabb-afbf50a03a59",
+    "rationale": [
+      "Selected 3 controlled tags from rule-based mapping.",
+      "Top preference score observed: 0.62.",
+      "Primary imported language: en.",
+      "Primary imported region: US."
+    ],
+    "source_language": "en",
+    "source_region": "US",
+    "source_platform": "tiktok"
+  },
+  "id": "de74c89c-80fd-4a04-87df-4a0a8ff93364",
+  "status": "draft",
+  "created_at": "2026-07-20T14:25:50.536247Z",
+  "updated_at": "2026-07-20T14:25:50.536248Z"
+}

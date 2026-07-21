@@ -1,0 +1,140 @@
+{
+  "title": "The Same Crack",
+  "logline": "While secretly auditing the developer who framed her, a disgraced engineer finds his occupied tower repeating the fatal defect and chooses resident safety over clearing her name.",
+  "synopsis": "Disgraced engineer Tessa Ward uses temporary access to inspect Gideon Hale's occupied tower and discovers concrete cracking tied to the same material pattern behind the failure that destroyed her career. In Hale's archive, she finds an altered load-test record that could clear her name, but a dangerous live strain spike forces her to spend her limited access preserving current safety data instead. Tessa initiates a discreet inspection to protect residents and sends Malik for physical evidence,ag",
+  "hook": "A tower column groans with the same sound Tessa heard seconds before the failure that ruined her career.",
+  "target_audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "suspenseful",
+  "episode_goal": "Tessa discovers a credible danger in Hale's occupied tower and sacrifices easy vindication to investigate it safely.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "description": "A disgraced structural engineer with temporary access to the company that destroyed her career.",
+      "motivation": "Expose the truth while protecting residents from the defect she failed to stop before."
+    },
+    {
+      "name": "Gideon Hale",
+      "role": "Antagonist",
+      "description": "A polished developer who controls the records behind Tessa's professional ruin.",
+      "motivation": "Protect his tower, company, and authority at any human cost."
+    },
+    {
+      "name": "Malik Reyes",
+      "role": "Reluctant ally",
+      "description": "A maintenance supervisor who knows the occupied tower better than its executives do.",
+      "motivation": "Keep residents safe without losing the access and livelihood that let him help them."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. HALE TOWER BASEMENT - NIGHT",
+      "purpose": "Establish that the new tower may reproduce the defect tied to Tessa's disgrace.",
+      "setting": "Occupied Hale Tower basement, late evening",
+      "beat_summary": "Tessa recognizes a familiar structural warning inside Hale's occupied tower and finds a suspicious material match.",
+      "emotional_shift": "Tessa shifts from controlled suspicion to alarmed certainty.",
+      "emotional_objective": "Turn Tessa's private resentment into urgent fear for the residents.",
+      "character_actions": [
+        "Tessa presses her palm to a vibrating basement column as dust trickles from a fresh diagonal crack.",
+        "Malik unlocks the materials cabinet, and Tessa compares a concrete core label with a photograph from the failure that ended her career.",
+        "Tessa slips the matching batch code into her sleeve as footsteps approach."
+      ],
+      "turning_point": "The batch code links the current crack to the material pattern from Tessa's career-ending failure.",
+      "scene_causality": {
+        "goal": "Determine whether the basement damage resembles the earlier structural failure.",
+        "conflict": "Tessa must verify the warning without alarming residents or exposing her unauthorized scrutiny.",
+        "outcome": "Tessa finds a matching material batch code that makes the repeat risk credible.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Malik Reyes",
+          "intent": "Warn Tessa that the building is occupied and time is limited.",
+          "text": "Two hundred families sleep above us, and your audit badge dies at midnight."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Confirm that the old failure may be repeating.",
+          "text": "Same supplier, same batch sequence, same crack direction. Hale built it again."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. MAINTENANCE CONTROL ROOM - NIGHT",
+      "purpose": "Force Tessa to prioritize current safety evidence over the easiest proof of her framing.",
+      "setting": "Hale Tower maintenance control room, minutes later",
+      "beat_summary": "Tessa finds proof that Hale altered her old load-test record, but abandons copying it when current sensor data signals worsening danger.",
+      "emotional_shift": "Temptation hardens into protective resolve.",
+      "emotional_objective": "Make Tessa choose between personal vindication and immediate responsibility.",
+      "character_actions": [
+        "Tessa opens an archived load-test file and reveals Hale's approval stamp layered over a changed value.",
+        "A live strain alert flashes red beside the archive window as the ceiling lights tremble.",
+        "Tessa cancels the archive download and exports the tower's sensor history to Malik's maintenance tablet."
+      ],
+      "turning_point": "Tessa cancels the download that would clear her name and chooses the residents' sensor data instead.",
+      "scene_causality": {
+        "goal": "Secure evidence that explains both her framing and the tower's present condition.",
+        "conflict": "The altered record can clear Tessa immediately, while the live strain spike demands her limited access and attention.",
+        "outcome": "Tessa leaves the vindication file behind and preserves the live sensor history needed to assess resident danger.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because the material match makes the danger credible, Tessa searches Hale's internal archive for both historical and live evidence."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Acknowledge that the altered record could restore her reputation.",
+          "text": "This edit proves he changed my numbers. One download, and I get my name back."
+        },
+        {
+          "character_name": "Malik Reyes",
+          "intent": "Force Tessa to confront the immediate human stakes.",
+          "text": "Then take it, but that red line says somebody upstairs may not have a morning."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. HALE TOWER SERVICE CORRIDOR - NIGHT",
+      "purpose": "Launch Tessa's covert evacuation work while revealing that Hale knows she is investigating.",
+      "setting": "Hale Tower service corridor and evidence room",
+      "beat_summary": "Tessa begins a covert safety response, but Hale detects her scrutiny and remotely seals the evidence room with Malik inside.",
+      "emotional_shift": "Protective determination becomes trapped defiance.",
+      "emotional_objective": "Reward Tessa's moral choice with agency, then punish it with direct exposure and danger.",
+      "character_actions": [
+        "Tessa marks three vulnerable floors on a fire map and photographs her unsigned calculation hidden behind an old inspection sheet.",
+        "Malik enters the evidence room to retrieve the original concrete core while Tessa quietly triggers a routine plumbing inspection for the marked floors.",
+        "The steel door slams shut behind Malik as Tessa's badge turns red and Hale appears on the corridor monitor."
+      ],
+      "turning_point": "Hale admits framing Tessa as he locks her ally inside the room containing the proof.",
+      "scene_causality": {
+        "goal": "Begin moving vulnerable residents safely while securing physical proof of the defective material.",
+        "conflict": "Tessa must protect residents and recover original evidence before Hale detects and blocks their operation.",
+        "outcome": "Tessa starts a discreet safety response, but Hale revokes her access and traps Malik beside the evidence.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Tessa preserved the sensor history instead of her vindication file, she can identify the most endangered floors and initiate a controlled inspection."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Commit to a controlled resident-protection strategy.",
+          "text": "No panic, no rumors. We move the high-risk floors first, then we prove why."
+        },
+        {
+          "character_name": "Gideon Hale",
+          "intent": "Reveal that he has detected Tessa and seized control of her access.",
+          "text": "Still choosing buildings over yourself, Tessa? That is why framing you was so easy."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Tessa secure proof and prepare the residents before Hale erases the records and revokes her access?"
+}

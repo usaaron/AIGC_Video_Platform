@@ -1,0 +1,140 @@
+{
+  "title": "The Stranger I Trusted",
+  "logline": "When an emergency starts erasing Rowan's trust in her, Nia preserves the truth on tape and enters the rescue without his approval.",
+  "synopsis": "Nia and Rowan link Eli's silver tag to the blank journal page and discover it predicts Rowan forgetting Nia. When a stairwell collapse triggers another rescue, Rowan's trust in Nia begins disappearing before the life is even saved. Nia makes him hear his recorded testimony, leaves the evidence in his hand, and enters without his approval. After she saves the victim, Rowan no longer remembers meeting her, yet he chooses to trust the proof they preserved. Their renewed alliance turns ominous when—",
+  "hook": "Rowan's journal predicts that his next lost memory will be Nia.",
+  "target_audience": "English-speaking viewers who enjoy supernatural mystery, restrained romance, and identity conflict",
+  "target_platform": "TikTok",
+  "language": "English",
+  "tone": "suspenseful",
+  "episode_goal": "Prove that the entity can erase trust itself while Nia and Rowan choose cooperation anyway.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Nia Calder",
+      "role": "Protagonist",
+      "description": "A determined paramedic who hears final memories and refuses to abandon patients despite the supernatural cost.",
+      "motivation": "Save every life she can without letting her supernatural burden endanger others."
+    },
+    {
+      "name": "Rowan Vale",
+      "role": "Mysterious ally",
+      "description": "An immortal archivist whose memories vanish whenever Nia saves a life.",
+      "motivation": "Preserve enough evidence of the memory-trading entity to stop it before his identity disappears."
+    },
+    {
+      "name": "Eli Mercer",
+      "role": "Patient and supernatural clue",
+      "description": "A surviving patient linked to the entity through an antique silver emergency tag.",
+      "motivation": "Survive long enough to deliver an impossible warning."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. AMBULANCE - NIGHT",
+      "purpose": "Connect the silver tag to the blank page and trigger the episode's emergency.",
+      "setting": "Inside the parked ambulance beneath flickering hospital lights",
+      "beat_summary": "Nia and Rowan discover that Eli's tag matches the journal's blank page just as a rescue alarm begins.",
+      "emotional_shift": "Uneasy intimacy becomes shared dread.",
+      "emotional_objective": "Turn their fragile trust into urgent preparation for an expected loss.",
+      "character_actions": [
+        "Nia presses Eli's silver tag against the blank page bearing her name.",
+        "Rowan watches matching symbols rise through the paper like bruises.",
+        "Nia's emergency radio flashes an alert for a victim trapped in a collapsing stairwell."
+      ],
+      "turning_point": "The hidden symbols identify Nia as the subject of Rowan's next erased memory.",
+      "scene_causality": {
+        "goal": "Determine why the journal placed Nia's name on a blank page.",
+        "conflict": "Rowan wants to avoid the predicted erasure while Nia must answer the emergency.",
+        "outcome": "They learn the page predicts Rowan forgetting Nia as the rescue call arrives.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Rowan Vale",
+          "intent": "Warn Nia what the journal predicts.",
+          "text": "This page isn't missing a memory—it marks the person I'll forget."
+        },
+        {
+          "character_name": "Nia Calder",
+          "intent": "Refuse to let fear delay a rescue.",
+          "text": "Then we leave proof for the man you'll be afterward."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "EXT. COLLAPSING APARTMENT - NIGHT",
+      "purpose": "Show the entity erasing relational trust and force Nia's consequential rescue decision.",
+      "setting": "Outside a condemned apartment stairwell shaking with aftershocks",
+      "beat_summary": "As Rowan's trust collapses, Nia makes him hear his recorded testimony before entering the dangerous rescue alone.",
+      "emotional_shift": "Shared dread fractures into painful estrangement.",
+      "emotional_objective": "Make Nia accept that doing right may cost Rowan's personal trust in her.",
+      "character_actions": [
+        "Rowan recoils from Nia and grips his journal like a weapon.",
+        "Nia plays the recording of Rowan explaining their pact and the cost of saving lives.",
+        "Nia locks her phone in his hand, then runs into the unstable stairwell without his approval."
+      ],
+      "turning_point": "Nia enters the collapse without Rowan's approval, knowingly sacrificing his memory of their bond.",
+      "scene_causality": {
+        "goal": "Preserve enough evidence for Rowan to trust Nia after the next memory loss.",
+        "conflict": "Rowan increasingly sees Nia as dangerous while the trapped victim is running out of time.",
+        "outcome": "Rowan hears his own testimony, but Nia enters the rescue before he can accept it.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because the journal predicts Rowan will forget Nia, they preserve his testimony before the rescue."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Rowan Vale",
+          "intent": "Challenge the stranger he now perceives as a threat.",
+          "text": "Why is my handwriting full of warnings about you?"
+        },
+        {
+          "character_name": "Nia Calder",
+          "intent": "Choose the rescue while giving Rowan evidence he can judge later.",
+          "text": "Listen to your own voice, then decide who I am—I have a life to save."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "EXT. AMBULANCE - NIGHT",
+      "purpose": "Confirm relational erasure, preserve the alliance, and reveal an impossible shared phrase.",
+      "setting": "Beside the ambulance as rescue lights pulse through settling dust",
+      "beat_summary": "After Nia saves the victim, Rowan accepts the evidence despite forgetting her and speaks her secret family phrase.",
+      "emotional_shift": "Estrangement becomes chosen cooperation and stunned fear.",
+      "emotional_objective": "Replace lost familiarity with deliberate trust while exposing a deeper intrusion.",
+      "character_actions": [
+        "Nia emerges carrying the breathing victim as dust pours from the doorway.",
+        "Rowan compares the recording waveform with his journal and slowly lowers his guard.",
+        "Nia offers him the silver tag, and he chooses to take it from her hand."
+      ],
+      "turning_point": "Rowan speaks a phrase only Nia and her late mother should know.",
+      "scene_causality": {
+        "goal": "Convince Rowan to continue investigating despite his missing relationship with Nia.",
+        "conflict": "Rowan's erased bond tells him Nia is a stranger, but his preserved evidence asks him to trust her.",
+        "outcome": "Rowan chooses to believe the record and unknowingly repeats Nia's private family phrase.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Nia entered the stairwell and saved the victim, Rowan loses every memory of meeting her."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Rowan Vale",
+          "intent": "Choose cooperation without relying on remembered affection.",
+          "text": "I don't remember meeting you, but I believe the evidence—remember me forward."
+        },
+        {
+          "character_name": "Nia Calder",
+          "intent": "Reveal the impossible intimacy of the phrase.",
+          "text": "That was my mother's phrase; I never told you."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "How does Rowan know Nia's private phrase, and what has the entity hidden inside their missing connection?"
+}

@@ -1,0 +1,68 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-bounded
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Use the planning context when it is present. When it is absent, infer the episode's responsibility from the ContentSpec summary, episode number, and previous state.
+Do not mention prompts, plans, schemas, evaluation variants, or these instructions.
+
+EpisodeNumber: 3
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve the same characters, established facts, relationships, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+ContentSpecSummary:
+{
+  "Audience": "English-speaking viewers who prefer strategic revenge, institutional conflict and earned reversals",
+  "Platform": "TikTok-oriented vertical serialized fiction",
+  "Language": "English",
+  "Episode duration": "90 seconds",
+  "Tone": "Sharp, controlled, escalating",
+  "Story goal": "A structural engineer must expose the developer who blamed her for a deadly defect without endangering residents still inside his buildings",
+  "Constraints": "Revenge relies on evidence and consequential choices; protagonist protects vulnerable people; no public-wedding or secret-heir device"
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 2,
+  "title": "Twelve Minutes",
+  "episode_goal": "Maya must survive Victor's fire, preserve admissible proof, and complete the tower's evacuation without triggering deadly panic.",
+  "synopsis": "Maya stops Victor's archive fire by flooding the records floor, sacrificing the paper originals while preserving the digital audit server. In the lobby, Victor accuses her of arson, but Maya strategically surrenders and gives Elias the access needed to verify the surviving logs. The records expose Victor's remote ignition command and clear Maya, then reveal a muted structural warning at Tower C, where a rooftop concert will overload a failing transfer slab in twelve minutes.",
+  "character_states": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "motivation": "Clear her name while protecting residents from Hale's concealed defects."
+    },
+    {
+      "name": "Victor Hale",
+      "role": "Antagonist",
+      "motivation": "Destroy the evidence and keep Maya as his permanent scapegoat."
+    },
+    {
+      "name": "Elias Grant",
+      "role": "Reluctant ally",
+      "motivation": "Prevent another disaster without staking his career on an unsupported accusation."
+    }
+  ],
+  "final_scene_outcome": "Maya is released, but she learns hundreds of concertgoers are minutes from loading a failing slab.",
+  "final_turning_point": "Maya sees Tower C's countdown and chooses immediate intervention over celebrating her vindication.",
+  "next_episode_question": "Can Maya stop the overloaded transfer slab before hundreds of concertgoers enter Tower C?"
+}
+
+PlanningContext:
+{
+  "story_blueprint": null,
+  "current_episode_plan": null
+}

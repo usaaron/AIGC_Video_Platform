@@ -1,0 +1,26 @@
+{
+  "completed_episode_number": 2,
+  "title": "The Past We Never Had",
+  "episode_goal": "Nia and Rowan test their trust against counterfeit evidence without sacrificing another memory.",
+  "synopsis": "The marked journal lures Nia and Rowan to a hidden morgue archive with a forged accusation. Nia protects Rowan's consent and seals an offline verification path before using his silver emergency tag. Inside, photographs counterfeit centuries of intimacy between them, but their timestamp proves the images appeared only after they entered. Rowan rejects the comforting lie, and Nia chooses to trust his present decision. They recover his lost discovery that the Exchange schedules deaths rather than46",
+  "character_states": [
+    {
+      "name": "Nia Calder",
+      "role": "Protagonist paramedic",
+      "motivation": "Save lives without surrendering her judgment or anyone else's consent."
+    },
+    {
+      "name": "Rowan Vale",
+      "role": "Reluctant ally",
+      "motivation": "Recover the truth while learning to trust evidence he cannot control."
+    },
+    {
+      "name": "The Exchange",
+      "role": "Supernatural antagonist",
+      "motivation": "Isolate marked witnesses until they accept another bargain."
+    }
+  ],
+  "final_scene_outcome": "They learn the Exchange schedules victims, but Nia's tag reveals she is next.",
+  "final_turning_point": "The silver tag changes from a key into a countdown bearing Nia's name.",
+  "next_episode_question": "Who scheduled Nia's death, and can she survive without making the Exchange another bargain?"
+}

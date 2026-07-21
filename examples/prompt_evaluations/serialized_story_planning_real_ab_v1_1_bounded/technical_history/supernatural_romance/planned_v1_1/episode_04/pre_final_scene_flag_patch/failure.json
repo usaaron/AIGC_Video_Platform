@@ -1,0 +1,9 @@
+{
+  "error_type": "ValidationError",
+  "error": "1 validation error for LLMGeneratedDraftMasterScript\n  Value error, The final generated scene must deliver the cliffhanger or payoff. [type=value_error, input_value={'characters': [{'descrip...n', 'tone': 'emotional'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+  "story_id": "supernatural_romance",
+  "variant": "planned_v1_1",
+  "episode_number": 4,
+  "attempt_count": 6,
+  "schema_validation_retries": 3
+}

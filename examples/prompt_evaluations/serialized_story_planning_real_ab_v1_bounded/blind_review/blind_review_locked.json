@@ -1,0 +1,253 @@
+{
+  "review_status": "locked_before_unblinding",
+  "review_method": "Single AI reviewer using blinded candidate labels and a fixed 1-5 rubric. This is an engineering validation signal, not professional industry validation.",
+  "reviewed_dimensions": [
+    "overall_direction_consistency",
+    "ending_direction_clarity",
+    "conflict_escalation",
+    "motivation_consistency",
+    "decision_consistency",
+    "personality_stability",
+    "character_growth",
+    "cross_episode_causality",
+    "consequence_persistence",
+    "setup_payoff_completion",
+    "reveal_timing",
+    "episode_purpose_clarity",
+    "emotional_progression",
+    "hook_strength",
+    "cliffhanger_quality",
+    "repetition_control",
+    "filler_control",
+    "long_term_retention_potential"
+  ],
+  "stories": {
+    "dark_romance": {
+      "candidate_1": {
+        "scores": {
+          "overall_direction_consistency": 5,
+          "ending_direction_clarity": 5,
+          "conflict_escalation": 5,
+          "motivation_consistency": 5,
+          "decision_consistency": 5,
+          "personality_stability": 5,
+          "character_growth": 5,
+          "cross_episode_causality": 5,
+          "consequence_persistence": 5,
+          "setup_payoff_completion": 5,
+          "reveal_timing": 5,
+          "episode_purpose_clarity": 5,
+          "emotional_progression": 5,
+          "hook_strength": 4,
+          "cliffhanger_quality": 4,
+          "repetition_control": 5,
+          "filler_control": 5,
+          "long_term_retention_potential": 5
+        },
+        "strengths": [
+          "The disabled panic button, manipulated recording, private exit code and evidence escrow form a visible four-episode setup/payoff chain.",
+          "Mara repeatedly preserves her ability to refuse while moving from suspicion to evidence-based trust.",
+          "Every episode changes the evidence state and relationship state rather than repeating the same confrontation."
+        ],
+        "weaknesses": [
+          "The Episode 4 continuation question is lower stakes than the preceding public exposure.",
+          "Two synopsis strings contain truncated or malformed ending characters even though the scene content remains complete."
+        ]
+      },
+      "candidate_2": {
+        "scores": {
+          "overall_direction_consistency": 4,
+          "ending_direction_clarity": 4,
+          "conflict_escalation": 5,
+          "motivation_consistency": 5,
+          "decision_consistency": 5,
+          "personality_stability": 5,
+          "character_growth": 4,
+          "cross_episode_causality": 5,
+          "consequence_persistence": 5,
+          "setup_payoff_completion": 4,
+          "reveal_timing": 5,
+          "episode_purpose_clarity": 4,
+          "emotional_progression": 4,
+          "hook_strength": 5,
+          "cliffhanger_quality": 5,
+          "repetition_control": 4,
+          "filler_control": 4,
+          "long_term_retention_potential": 5
+        },
+        "strengths": [
+          "Each episode ends with a commercially strong escalation involving surveillance, forged evidence or coercive responsibility.",
+          "Mara consistently protects Nina's agency and refuses to treat Adrian's protection as absolution.",
+          "Episode-to-episode consequences are explicit and easy to follow."
+        ],
+        "weaknesses": [
+          "The serial progression relies repeatedly on another hidden file, authorization layer or cleanup threat.",
+          "The relationship arc is less gradual because plot evidence carries more weight than changing interpersonal behavior."
+        ]
+      },
+      "preferred_candidate": "candidate_1",
+      "preference_reason": "Candidate 1 has the clearer long-range setup/payoff design and more gradual reciprocal character change; Candidate 2 has stronger immediate hooks but a more repetitive evidence-escalation pattern.",
+      "would_continue_to_episode_5": {
+        "candidate_1": true,
+        "candidate_2": true
+      },
+      "uncertainty_notes": [
+        "Candidate 2 may outperform Candidate 1 for immediate click-through even though Candidate 1 is stronger as a planned four-episode arc."
+      ]
+    },
+    "supernatural_romance": {
+      "candidate_1": {
+        "scores": {
+          "overall_direction_consistency": 5,
+          "ending_direction_clarity": 5,
+          "conflict_escalation": 5,
+          "motivation_consistency": 5,
+          "decision_consistency": 5,
+          "personality_stability": 5,
+          "character_growth": 5,
+          "cross_episode_causality": 5,
+          "consequence_persistence": 5,
+          "setup_payoff_completion": 4,
+          "reveal_timing": 5,
+          "episode_purpose_clarity": 5,
+          "emotional_progression": 5,
+          "hook_strength": 5,
+          "cliffhanger_quality": 5,
+          "repetition_control": 4,
+          "filler_control": 5,
+          "long_term_retention_potential": 5
+        },
+        "strengths": [
+          "The future murder, memory vial, identity double and voluntary memory release create an escalating causal mystery.",
+          "Mara and Ilyan repeatedly choose present actions over possession of memory, producing an earned thematic ending.",
+          "The Archivist turns the supernatural rule into active opposition rather than leaving it as passive worldbuilding."
+        ],
+        "weaknesses": [
+          "Several synopsis strings end with truncated or malformed characters.",
+          "The memory rules are dramatically effective but require careful review to ensure every transfer remains fully consistent."
+        ]
+      },
+      "candidate_2": {
+        "scores": {
+          "overall_direction_consistency": 4,
+          "ending_direction_clarity": 4,
+          "conflict_escalation": 4,
+          "motivation_consistency": 5,
+          "decision_consistency": 5,
+          "personality_stability": 5,
+          "character_growth": 4,
+          "cross_episode_causality": 5,
+          "consequence_persistence": 5,
+          "setup_payoff_completion": 5,
+          "reveal_timing": 4,
+          "episode_purpose_clarity": 4,
+          "emotional_progression": 4,
+          "hook_strength": 4,
+          "cliffhanger_quality": 4,
+          "repetition_control": 3,
+          "filler_control": 4,
+          "long_term_retention_potential": 4
+        },
+        "strengths": [
+          "The silver tag, blank journal and remember-me-forward phrase are traceable across all four episodes.",
+          "Nia and Rowan maintain clear ethical motivations and repeatedly preserve voluntary choice.",
+          "The final shared archive resolves the solitary-loss theme."
+        ],
+        "weaknesses": [
+          "Episodes 1-3 repeatedly use rescue followed by Rowan's memory loss, making the middle progression feel mechanically planned.",
+          "The two-hand shared archive solution arrives with limited prior causal preparation.",
+          "Multiple synopsis strings are truncated at their ending."
+        ]
+      },
+      "preferred_candidate": "candidate_1",
+      "preference_reason": "Candidate 1 converts the memory premise into a more varied antagonist-driven escalation; Candidate 2 tracks its planned motifs well but repeats the same rescue-and-erasure mechanism too often.",
+      "would_continue_to_episode_5": {
+        "candidate_1": true,
+        "candidate_2": true
+      },
+      "uncertainty_notes": [
+        "Candidate 2 is easier to audit for setup/payoff, while Candidate 1 is more dramatically compelling but carries denser supernatural-rule complexity."
+      ]
+    },
+    "revenge_drama": {
+      "candidate_1": {
+        "scores": {
+          "overall_direction_consistency": 5,
+          "ending_direction_clarity": 5,
+          "conflict_escalation": 5,
+          "motivation_consistency": 5,
+          "decision_consistency": 5,
+          "personality_stability": 5,
+          "character_growth": 5,
+          "cross_episode_causality": 5,
+          "consequence_persistence": 5,
+          "setup_payoff_completion": 5,
+          "reveal_timing": 5,
+          "episode_purpose_clarity": 5,
+          "emotional_progression": 4,
+          "hook_strength": 4,
+          "cliffhanger_quality": 4,
+          "repetition_control": 5,
+          "filler_control": 5,
+          "long_term_retention_potential": 5
+        },
+        "strengths": [
+          "The unsigned calculation, drill map and altered load file have clear introduction, development and payoff roles.",
+          "Tessa's choices consistently prioritize resident safety, producing a visible arc from personal vindication to public accountability.",
+          "Each episode has a distinct responsibility: discovery, safe-plan design, sacrifice and accountable release."
+        ],
+        "weaknesses": [
+          "The story is more procedural than emotionally intimate.",
+          "The final continuation hook is useful but less intense than the resolved evacuation crisis.",
+          "Two synopsis strings contain truncated or malformed ending characters."
+        ]
+      },
+      "candidate_2": {
+        "scores": {
+          "overall_direction_consistency": 4,
+          "ending_direction_clarity": 4,
+          "conflict_escalation": 5,
+          "motivation_consistency": 5,
+          "decision_consistency": 5,
+          "personality_stability": 4,
+          "character_growth": 4,
+          "cross_episode_causality": 5,
+          "consequence_persistence": 5,
+          "setup_payoff_completion": 4,
+          "reveal_timing": 4,
+          "episode_purpose_clarity": 4,
+          "emotional_progression": 4,
+          "hook_strength": 5,
+          "cliffhanger_quality": 5,
+          "repetition_control": 3,
+          "filler_control": 4,
+          "long_term_retention_potential": 5
+        },
+        "strengths": [
+          "The collapse, evacuation and demolition countdown create strong immediate visual stakes.",
+          "Maya repeatedly sacrifices personal vindication to protect residents.",
+          "The episode endings create strong continuation pressure."
+        ],
+        "weaknesses": [
+          "The sequence repeatedly introduces another defective tower or remote sabotage escalation.",
+          "Some engineering solutions, including flooding the rooftop and using sensor audio as decisive evidence, feel convenience-driven.",
+          "The character arc is less explicit because external emergency escalation dominates the emotional progression."
+        ]
+      },
+      "preferred_candidate": "candidate_1",
+      "preference_reason": "Candidate 1 is the stronger serialized design because every episode advances a different accountability obligation and pays off previously established evidence; Candidate 2 is more immediately spectacular but repeats infrastructure emergencies.",
+      "would_continue_to_episode_5": {
+        "candidate_1": true,
+        "candidate_2": true
+      },
+      "uncertainty_notes": [
+        "Candidate 2 may perform better as action-forward short-form content despite weaker long-range differentiation."
+      ]
+    }
+  },
+  "global_observations_before_unblinding": [
+    "Candidate 1 was preferred in all three blinded comparisons for serialized coherence and episode differentiation.",
+    "Candidate 2 often produced stronger immediate hooks but relied more heavily on repeated evidence, rescue or infrastructure escalation patterns.",
+    "Both candidates in all stories produced malformed or truncated synopsis endings, indicating a shared bounded-output quality issue rather than a planning-specific result."
+  ]
+}

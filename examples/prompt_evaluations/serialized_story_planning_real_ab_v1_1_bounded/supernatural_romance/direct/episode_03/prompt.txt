@@ -1,0 +1,78 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-revalidation
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Do not mention prompts, plans, schemas, variants, evaluation, or these instructions.
+When planning context is present, satisfy its required effects but invent the dramatic execution.
+When planning context is absent, infer this episode's responsibility from the ContentSpec, episode number, and previous state.
+The actual previous episode state is authoritative if it differs in minor execution detail from a planned entry state.
+
+EpisodeNumber: 3
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve established characters, facts, relationships, rules, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+CreativeFreedomBoundary:
+- Invent the exact opening hook, conflict mechanism, physical incident, reversal device, dialogue, scene choreography, emotional expression, and cliffhanger execution.
+- Treat planned reveals as information obligations, not required staging.
+- Do not repeat an adjacent episode's primary conflict, rescue, sacrifice, reveal, threat device, or state transition unless the new function clearly escalates it.
+- A recurring motif is allowed; a repeated dramatic mechanism is not.
+
+ContentSpecSummary:
+{
+  "audience": "English-speaking viewers who prefer supernatural mystery, restrained romance, and identity conflict",
+  "platform": "TikTok-oriented vertical serialized fiction",
+  "language": "English",
+  "episode_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "tone": "Eerie, tender, urgent",
+  "story_goal": "A paramedic who hears final memories works with an immortal stranger whose identity is being consumed by a supernatural exchange.",
+  "constraints": [
+    "Romance grows through decisions and shared cost.",
+    "Supernatural rules remain consistent.",
+    "Do not use a destiny-mate shortcut."
+  ]
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 2,
+  "title": "The Last Memory: Episode 2 — The Memory Beneath the Chapel",
+  "episode_goal": "Mara and Elias must trace the source of the stolen memories before the Pale Listener uses Mara's mother's voice to complete its exchange.",
+  "synopsis": "Mara discovers that the Pale Listener is planting Elias's stolen memories inside the dying, turning her gift into a delivery system. Following one memory leads her and Elias to a hidden chapel where she sacrifices blood to enter the exchange site. There she learns her dead mother made the first bargain that preserved Elias's life, and the Listener begins erasing Elias's memory of Mara. Mara rejects the bargain, steals an intact memory shard, and vows to restore Elias even as they are trapped in]",
+  "character_states": [
+    {
+      "name": "Mara Vale",
+      "role": "Protagonist and paramedic",
+      "motivation": "To save lives without surrendering her identity or abandoning Elias."
+    },
+    {
+      "name": "Elias Voss",
+      "role": "Immortal stranger and reluctant ally",
+      "motivation": "To learn why Mara can hear memories that were stolen from him before he becomes nobody."
+    },
+    {
+      "name": "The Pale Listener",
+      "role": "Antagonistic supernatural force",
+      "motivation": "To erase Elias completely by turning Mara's memories and compassion into payment."
+    }
+  ],
+  "final_scene_outcome": "Mara steals one intact memory shard, but Elias forgets her name as the chapel seals them inside with the Listener's voice.",
+  "final_turning_point": "Elias forgets Mara while the stolen shard reveals her mother once loved—and betrayed—the immortal stranger.",
+  "next_episode_question": "Who was Mara's mother to the Pale Listener, and why did she once make an exchange with Elias?"
+}
+
+PlanningContext:
+null

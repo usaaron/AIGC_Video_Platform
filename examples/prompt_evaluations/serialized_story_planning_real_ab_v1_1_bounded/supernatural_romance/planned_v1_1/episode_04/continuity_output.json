@@ -1,0 +1,26 @@
+{
+  "completed_episode_number": 4,
+  "title": "Remember What Happens Next",
+  "episode_goal": "Break the Exchange through reciprocal consent while accepting that Rowan's lost past cannot be restored.",
+  "synopsis": "When the Exchange erases Nia's memory of Rowan, it offers to restore his identity in return for their shared future. Nia refuses to bear the price alone and uses the blank journal, the silver emergency tag, and Rowan's phrase “remember me forward” to create a reciprocal choice. By consenting to the same risk without assigning ownership of the loss, they deprive the Exchange of the isolated sacrifice that sustains it. The entity collapses, but Rowan's past and Nia's first memories of him remain,7",
+  "character_states": [
+    {
+      "name": "Nia Calder",
+      "role": "Protagonist paramedic",
+      "motivation": "Save lives without surrendering her judgment or anyone else's consent."
+    },
+    {
+      "name": "Rowan Vale",
+      "role": "Reluctant ally",
+      "motivation": "Choose present trust over recovering his identity at another person's expense."
+    },
+    {
+      "name": "The Exchange",
+      "role": "Supernatural antagonist",
+      "motivation": "Preserve its power by forcing one person to bear every cost alone."
+    }
+  ],
+  "final_scene_outcome": "They reintroduce themselves, keep the journal together, and answer the next emergency side by side.",
+  "final_turning_point": "Nia offers her hand without remembered obligation, and Rowan accepts without asking her to restore what was lost.",
+  "next_episode_question": "With the Exchange broken and their past incomplete, what will Nia and Rowan choose to remember forward?"
+}

@@ -1,0 +1,83 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-bounded
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Use the planning context when it is present. When it is absent, infer the episode's responsibility from the ContentSpec summary, episode number, and previous state.
+Do not mention prompts, plans, schemas, evaluation variants, or these instructions.
+
+EpisodeNumber: 2
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve the same characters, established facts, relationships, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+ContentSpecSummary:
+{
+  "Audience": "US women 18-34 who prefer tense romance, moral conflict and consequential choices",
+  "Platform": "TikTok-oriented vertical serialized fiction",
+  "Language": "English",
+  "Episode duration": "90 seconds",
+  "Tone": "Intimate, dangerous, emotionally restrained",
+  "Story goal": "A crisis negotiator must decide whether the heir she suspects of coercion is her enemy, her shield or both",
+  "Constraints": "Protagonist retains agency; coercion is not presented as proof of love; no wedding, livestream or missing-relative plot"
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 1,
+  "title": "Four Nights at Rook House — Episode 1: The Voice in the Archive",
+  "episode_goal": "Establish mutual suspicion and prove the new threat knows Mara's past.",
+  "synopsis": "Mara Voss accepts a tightly limited security contract from reclusive heir Elias Rook, only to find his panic button sabotaged from inside his estate. When an alarm seals his private archive, Elias orders her to stay out, but Mara overrides the lockdown using her private exit code. Inside, she finds a redacted recording from the failed negotiation that destroyed her career—and hears Elias's voice issue the fatal command he swears he never gave.",
+  "character_states": [
+    {
+      "name": "Mara Voss",
+      "role": "Protagonist and contracted security assessor",
+      "motivation": "Clear her record while preserving her freedom to walk away."
+    },
+    {
+      "name": "Elias Rook",
+      "role": "Client, suspect, and possible ally",
+      "motivation": "Identify the insider targeting him without surrendering control of his family's secrets."
+    }
+  ],
+  "final_scene_outcome": "She discovers her failed negotiation was planted with an order spoken in Elias's voice.",
+  "final_turning_point": "Elias's voice on the recording transforms him from secretive client into the prime suspect in Mara's defining tragedy.",
+  "next_episode_question": "Did Elias give the fatal order, or can someone inside his estate reproduce his voice?"
+}
+
+PlanningContext:
+{
+  "story_blueprint": {
+    "core_premise": "Crisis negotiator Mara Voss accepts a four-night security contract from reclusive heir Elias Rook, then discovers the threats against him are connected to a fatal decision from her first case.",
+    "series_goal": "Force Mara to uncover who engineered the original crisis and choose whether exposing Elias or trusting his evidence best serves justice.",
+    "theme": "Trust is meaningful only when both people retain the power to refuse.",
+    "central_conflict": "Mara needs Elias's private archive to clear her record; Elias needs Mara to identify an insider, but each believes the other may be manipulating the investigation.",
+    "ending_direction": "Mara exposes the security chief as the architect of both crises; Elias releases evidence that damages his own family, and Mara chooses a conditional alliance rather than romantic surrender.",
+    "character_arc_targets": "Mara moves from total self-reliance to evidence-based trust without giving up control. Elias moves from protective secrecy to costly transparency.",
+    "major_setup_payoff_refs": "`DR-S1`: Elias's disabled panic button; `DR-S2`: a redacted negotiation recording; `DR-S3`: Mara's private exit code."
+  },
+  "current_episode_plan": {
+    "episode_number": "2",
+    "episode_goal": "Turn suspicion into a testable conflict and expose the cost of Elias's secrecy.",
+    "entry_state": "Mara suspects Elias influenced her first case; the archive remains compromised.",
+    "central_conflict": "Elias offers the unredacted recording only if Mara follows his security protocol, which would surrender her independent exit route.",
+    "protagonist_decision": "Mara creates and shares a verifiable evidence escrow instead of accepting either blind trust or withdrawal.",
+    "reveal": "Elias's recorded order was spliced from a later rescue operation.",
+    "emotional_movement": "Accusation → strategic cooperation → unsettled sympathy.",
+    "setup_refs": "Develop `DR-S2`; introduce `DR-S3`.",
+    "payoff_refs": "Partial payoff of `DR-S2`: the recording is manipulated, but the editor remains unknown.",
+    "exit_state": "Mara and Elias share evidence under mutual controls; the insider learns their escrow location.",
+    "cliffhanger": "Mara's private exit code opens the evidence vault from inside the house."
+  }
+}

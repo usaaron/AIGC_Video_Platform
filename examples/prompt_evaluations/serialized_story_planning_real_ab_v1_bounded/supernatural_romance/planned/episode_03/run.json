@@ -1,0 +1,56 @@
+{
+  "story_id": "supernatural_romance",
+  "variant": "planned",
+  "episode_number": 3,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 42.959,
+  "prompt_characters": 5676,
+  "planning_context_characters": 1983,
+  "usage": {
+    "prompt_tokens": 1946,
+    "completion_tokens": 1588,
+    "total_tokens": 3534,
+    "completion_tokens_details": {
+      "reasoning_tokens": 83
+    }
+  },
+  "response_id": "resp_07c935a169c6798a016a5e5cb790d881918cdca88aec61210a",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 2,
+    "title": "The Stranger I Trusted",
+    "episode_goal": "Prove that the entity can erase trust itself while Nia and Rowan choose cooperation anyway.",
+    "synopsis": "Nia and Rowan link Eli's silver tag to the blank journal page and discover it predicts Rowan forgetting Nia. When a stairwell collapse triggers another rescue, Rowan's trust in Nia begins disappearing before the life is even saved. Nia makes him hear his recorded testimony, leaves the evidence in his hand, and enters without his approval. After she saves the victim, Rowan no longer remembers meeting her, yet he chooses to trust the proof they preserved. Their renewed alliance turns ominous when—",
+    "character_states": [
+      {
+        "name": "Nia Calder",
+        "role": "Protagonist",
+        "motivation": "Save every life she can without letting her supernatural burden endanger others."
+      },
+      {
+        "name": "Rowan Vale",
+        "role": "Mysterious ally",
+        "motivation": "Preserve enough evidence of the memory-trading entity to stop it before his identity disappears."
+      },
+      {
+        "name": "Eli Mercer",
+        "role": "Patient and supernatural clue",
+        "motivation": "Survive long enough to deliver an impossible warning."
+      }
+    ],
+    "final_scene_outcome": "Rowan chooses to believe the record and unknowingly repeats Nia's private family phrase.",
+    "final_turning_point": "Rowan speaks a phrase only Nia and her late mother should know.",
+    "next_episode_question": "How does Rowan know Nia's private phrase, and what has the entity hidden inside their missing connection?"
+  }
+}

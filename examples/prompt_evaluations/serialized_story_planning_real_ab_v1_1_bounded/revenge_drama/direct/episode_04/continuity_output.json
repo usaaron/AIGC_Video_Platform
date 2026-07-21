@@ -1,0 +1,36 @@
+{
+  "completed_episode_number": 4,
+  "title": "The Last Plunger",
+  "episode_goal": "Maya must rescue the eleven hidden workers, stop Adrian's analog demolition, and secure enough evidence to clear her name.",
+  "synopsis": "Maya frees eleven concealed workers and secures their duplicate orders before Adrian traps them with his analog demolition plunger; she severs the trunk line, records his coercion, and delivers the witnesses and physical evidence that clear her name, charge Adrian, and trigger inspections of every Vale tower.",
+  "character_states": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "motivation": "Clear her name by proving developer fraud without putting residents or workers at risk."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Antagonist",
+      "motivation": "Destroy Vale Meridian and the records linking him to its counterfeit components."
+    },
+    {
+      "name": "Luis Ortega",
+      "role": "Ally",
+      "motivation": "Evacuate everyone safely while preserving admissible evidence against Adrian."
+    },
+    {
+      "name": "Elena Ruiz",
+      "role": "Witness",
+      "motivation": "Save her crew and reveal the work orders Adrian forced her to follow."
+    },
+    {
+      "name": "Inspector Shaw",
+      "role": "Authority",
+      "motivation": "Establish the truth through physical records, testimony, and forensic evidence."
+    }
+  ],
+  "final_scene_outcome": "Maya is cleared, Adrian is charged, Meridian's residents are protected, and his remaining towers face inspection.",
+  "final_turning_point": "Maya uses her restored authority to demand protection for residents before beginning the wider audit.",
+  "next_episode_question": "How many other Vale towers will Maya's citywide audit expose?"
+}

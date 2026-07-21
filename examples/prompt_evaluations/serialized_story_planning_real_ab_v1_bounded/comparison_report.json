@@ -1,0 +1,233 @@
+{
+  "evaluation_id": "serialized_story_planning_real_ab_v1_bounded",
+  "decision": "revise_planning_concept",
+  "decision_reason": "Planned generation was preferred in two of three stories and improved setup/payoff, episode purpose, character growth and repetition control. It also reduced average hook and cliffhanger scores, produced a planning-induced repetition failure in Supernatural Romance, expanded prompt context materially, and has only one AI blind review rather than independent professional human review.",
+  "experiment_setup": {
+    "model_provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000,
+    "reasoning_effort": "low",
+    "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+    "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+    "output_language": "en",
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "episode_count_per_story": 4,
+    "scene_count_per_episode": 3,
+    "target_duration_seconds": 90,
+    "generations_per_episode_variant": 1,
+    "total_generations": 24
+  },
+  "review": {
+    "method": "Blind pairwise AI review locked before variant identity was revealed",
+    "reviewer_count": 1,
+    "professional_human_validation": false,
+    "score_scale": "1-5",
+    "limitations": [
+      "A single AI review is an engineering signal and cannot represent audience or professional screenwriter consensus.",
+      "Each episode/variant was generated only once, so output stability was not measured.",
+      "Both variants contain malformed or truncated synopsis endings in some episodes, indicating a shared bounded-output issue.",
+      "The fixtures are synthetic four-episode stories and do not establish performance for a commercial-length series."
+    ]
+  },
+  "story_results": [
+    {
+      "story_id": "dark_romance",
+      "direct_blind_candidate": "candidate_2",
+      "planned_blind_candidate": "candidate_1",
+      "direct_average_score": 4.556,
+      "planned_average_score": 4.889,
+      "score_delta": 0.333,
+      "preferred_variant": "planned",
+      "planned_strengths": [
+        "Clear four-episode chain connecting the panic button, manipulated recording, exit code and evidence escrow",
+        "Gradual movement from suspicion to evidence-based trust while preserving Mara's agency",
+        "Distinct narrative responsibility and state change in every episode"
+      ],
+      "planned_weaknesses": [
+        "Episode 4 continuation pressure is lower than the preceding exposure climax",
+        "Some synopsis text is malformed or truncated"
+      ],
+      "direct_strengths": [
+        "Stronger immediate hooks and high-pressure episode endings",
+        "Consistent protection of Nina's agency and refusal to excuse Adrian's coercion"
+      ],
+      "direct_weaknesses": [
+        "Repeated reliance on another hidden file, authorization layer or cleanup threat",
+        "Relationship development is less gradual than the evidence escalation"
+      ],
+      "major_single_episode_regression": false
+    },
+    {
+      "story_id": "supernatural_romance",
+      "direct_blind_candidate": "candidate_1",
+      "planned_blind_candidate": "candidate_2",
+      "direct_average_score": 4.889,
+      "planned_average_score": 4.278,
+      "score_delta": -0.611,
+      "preferred_variant": "direct",
+      "planned_strengths": [
+        "Highly traceable silver-tag, blank-journal and remember-me-forward setup/payoff chain",
+        "Stable ethical motivations and voluntary-choice theme"
+      ],
+      "planned_weaknesses": [
+        "Episodes 1-3 repeat the rescue followed by Rowan memory loss mechanism",
+        "The shared archive solution receives limited causal preparation",
+        "Plan adherence becomes mechanically visible and weakens escalation variety"
+      ],
+      "direct_strengths": [
+        "More varied antagonist-driven escalation through future murder, memory vial and identity double",
+        "Stronger emotional sacrifice and earned thematic ending",
+        "Higher long-term retention potential"
+      ],
+      "direct_weaknesses": [
+        "Denser supernatural rules require additional consistency review",
+        "Several synopsis strings are malformed or truncated"
+      ],
+      "major_single_episode_regression": false,
+      "material_story_level_regression": true
+    },
+    {
+      "story_id": "revenge_drama",
+      "direct_blind_candidate": "candidate_2",
+      "planned_blind_candidate": "candidate_1",
+      "direct_average_score": 4.389,
+      "planned_average_score": 4.833,
+      "score_delta": 0.444,
+      "preferred_variant": "planned",
+      "planned_strengths": [
+        "Clear setup/payoff roles for the unsigned calculation, drill map and altered load file",
+        "Visible protagonist arc from personal vindication to public accountability",
+        "Distinct discovery, planning, sacrifice and release responsibility across episodes"
+      ],
+      "planned_weaknesses": [
+        "More procedural than emotionally intimate",
+        "Final continuation hook is weaker than the resolved evacuation crisis",
+        "Some synopsis text is malformed or truncated"
+      ],
+      "direct_strengths": [
+        "Strong immediate visual stakes and cliffhangers",
+        "Consistent choice to protect residents over personal vindication"
+      ],
+      "direct_weaknesses": [
+        "Repeated introduction of another defective tower or remote sabotage event",
+        "Some engineering solutions appear convenience-driven",
+        "External emergency escalation dominates character development"
+      ],
+      "major_single_episode_regression": false
+    }
+  ],
+  "aggregate_quality": {
+    "story_preferences": {
+      "planned": 2,
+      "direct": 1
+    },
+    "overall_average_score": {
+      "direct": 4.611,
+      "planned": 4.667,
+      "delta": 0.056
+    },
+    "category_averages": {
+      "story_coherence": {
+        "direct": 4.556,
+        "planned": 4.667,
+        "delta": 0.111
+      },
+      "character_consistency_and_growth": {
+        "direct": 4.75,
+        "planned": 4.917,
+        "delta": 0.167
+      },
+      "serialization_quality": {
+        "direct": 4.6,
+        "planned": 4.867,
+        "delta": 0.267
+      },
+      "commercial_quality": {
+        "direct": 4.6,
+        "planned": 4.333,
+        "delta": -0.267
+      }
+    },
+    "strongest_improvements": [
+      {
+        "dimension": "setup_payoff_completion",
+        "delta": 1.0
+      },
+      {
+        "dimension": "repetition_control",
+        "delta": 0.667
+      }
+    ],
+    "largest_regressions": [
+      {
+        "dimension": "hook_strength",
+        "delta": -1.0
+      },
+      {
+        "dimension": "cliffhanger_quality",
+        "delta": -1.0
+      },
+      {
+        "dimension": "conflict_escalation",
+        "delta": -0.333
+      }
+    ]
+  },
+  "engineering_cost": {
+    "direct": {
+      "episodes": 12,
+      "total_tokens": 39259,
+      "prompt_tokens": 17156,
+      "completion_tokens": 22103,
+      "latency_seconds": 702.92,
+      "prompt_characters": 40267,
+      "generation_failures": 0
+    },
+    "planned": {
+      "episodes": 12,
+      "total_tokens": 41943,
+      "prompt_tokens": 22609,
+      "completion_tokens": 19334,
+      "latency_seconds": 552.826,
+      "prompt_characters": 65905,
+      "generation_failures": 0
+    },
+    "relative_change_percent": {
+      "total_tokens": 6.837,
+      "prompt_tokens": 31.785,
+      "completion_tokens": -12.528,
+      "latency": -21.353,
+      "prompt_characters": 63.67
+    },
+    "cost_assessment": "Total token growth is modest for this sample, but planning context is not yet compact. Lower planned latency is observational and must not be assumed to generalize."
+  },
+  "success_criteria": {
+    "at_least_two_of_three_improve": true,
+    "no_major_single_episode_regression": true,
+    "character_consistency_improves": true,
+    "setup_payoff_improves": true,
+    "planned_preferred_overall": true,
+    "additional_total_token_cost_observationally_acceptable": true,
+    "commercial_quality_preserved": false,
+    "independent_human_review_completed": false
+  },
+  "required_concept_revisions_before_runtime": [
+    "Keep Story Blueprint direction and setup/payoff references, which produced the clearest gains.",
+    "Make Episode Plans responsibility-focused rather than prescribing the same conflict mechanism repeatedly.",
+    "Explicitly preserve creative freedom for hook, cliffhanger and escalation realization.",
+    "Add an offline check for repeated dramatic mechanisms across adjacent Episode Plans without adding a runtime Engine.",
+    "Compress Blueprint and Episode Plan context before runtime design.",
+    "Obtain at least one independent human review of the existing blinded artifacts before approving runtime integration.",
+    "Resolve the shared synopsis truncation issue separately; do not attribute it to Story Planning."
+  ],
+  "generated_artifact_roots": {
+    "dark_romance_direct": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_bounded/dark_romance/direct",
+    "dark_romance_planned": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_bounded/dark_romance/planned",
+    "supernatural_romance_direct": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_bounded/supernatural_romance/direct",
+    "supernatural_romance_planned": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_bounded/supernatural_romance/planned",
+    "revenge_drama_direct": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_bounded/revenge_drama/direct",
+    "revenge_drama_planned": "examples/prompt_evaluations/serialized_story_planning_real_ab_v1_bounded/revenge_drama/planned"
+  }
+}

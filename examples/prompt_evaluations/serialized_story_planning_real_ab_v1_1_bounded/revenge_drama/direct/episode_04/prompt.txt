@@ -1,0 +1,78 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-revalidation.final-scene-flag-patch1
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Do not mention prompts, plans, schemas, variants, evaluation, or these instructions.
+When planning context is present, satisfy its required effects but invent the dramatic execution.
+When planning context is absent, infer this episode's responsibility from the ContentSpec, episode number, and previous state.
+The actual previous episode state is authoritative if it differs in minor execution detail from a planned entry state.
+
+EpisodeNumber: 4
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve established characters, facts, relationships, rules, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Resolve the bounded four-episode story's central question. End with an earned payoff and only a limited continuation possibility. For schema compatibility, set the final scene's cliffhanger field to true; in this final episode the flag means the scene delivers the required final payoff or continuation beat and does not require adding an unrelated threat.
+
+CreativeFreedomBoundary:
+- Invent the exact opening hook, conflict mechanism, physical incident, reversal device, dialogue, scene choreography, emotional expression, and cliffhanger execution.
+- Treat planned reveals as information obligations, not required staging.
+- Do not repeat an adjacent episode's primary conflict, rescue, sacrifice, reveal, threat device, or state transition unless the new function clearly escalates it.
+- A recurring motif is allowed; a repeated dramatic mechanism is not.
+
+ContentSpecSummary:
+{
+  "audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+  "platform": "TikTok-oriented vertical serialized fiction",
+  "language": "English",
+  "episode_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "tone": "Sharp, controlled, escalating",
+  "story_goal": "A structural engineer must expose the developer who framed her without endangering residents.",
+  "constraints": [
+    "Revenge depends on evidence and consequential choices.",
+    "The protagonist protects vulnerable people.",
+    "Do not use a public-wedding or secret-heir device."
+  ]
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 3,
+  "title": "Eleven Below",
+  "episode_goal": "Maya must evacuate Vale Meridian and interrupt its demolition without destroying the evidence that can expose Adrian.",
+  "synopsis": "Maya and Luis enter Vale Meridian and expose a forged containment order designed to keep residents inside during demolition. Adrian forces Maya to choose between downloading the controller log that could clear her name and activating the fire system, so she destroys the log to unlock the exits and summon emergency crews. Maya severs the digital detonator bus and saves the registered residents, while a partial blast ejects counterfeit structural components into public view. Their victory turns to",
+  "character_states": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "motivation": "Clear her name by proving developer fraud without putting residents at risk."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Antagonist",
+      "motivation": "Erase the sister tower's defects before they expose his company and exonerate Maya."
+    },
+    {
+      "name": "Luis Ortega",
+      "role": "Ally",
+      "motivation": "Keep both buildings' residents alive while securing proof of Adrian's crimes."
+    }
+  ],
+  "final_scene_outcome": "Maya stops the digital implosion and exposes counterfeit couplers, but eleven hidden workers remain over a ticking analog device.",
+  "final_turning_point": "Luis reveals the tower is not empty as Adrian's mechanical backup starts counting down.",
+  "next_episode_question": "Can Maya rescue the eleven hidden workers and expose Adrian before his analog charges bring Vale Meridian down?"
+}
+
+PlanningContext:
+null

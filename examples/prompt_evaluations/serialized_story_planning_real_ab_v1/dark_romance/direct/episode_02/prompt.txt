@@ -1,0 +1,66 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Use the planning context when it is present. When it is absent, infer the episode's responsibility from the ContentSpec summary, episode number, and previous state.
+Do not mention prompts, plans, schemas, evaluation variants, or these instructions.
+
+EpisodeNumber: 2
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Preserve the same characters, established facts, relationships, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+ContentSpecSummary:
+{
+  "Audience": "US women 18-34 who prefer tense romance, moral conflict and consequential choices",
+  "Platform": "TikTok-oriented vertical serialized fiction",
+  "Language": "English",
+  "Episode duration": "90 seconds",
+  "Tone": "Intimate, dangerous, emotionally restrained",
+  "Story goal": "A crisis negotiator must decide whether the heir she suspects of coercion is her enemy, her shield or both",
+  "Constraints": "Protagonist retains agency; coercion is not presented as proof of love; no wedding, livestream or missing-relative plot"
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 1,
+  "title": "The Heir Who Chose Me",
+  "episode_goal": "Force Mara to choose whether to trust Adrian long enough to survive, while revealing that she—not the armed whistleblower—may be the operation's true target.",
+  "synopsis": "Crisis negotiator Mara Voss enters a Vale Tower standoff after corporate heir Adrian Vale threatens to expose her sealed Pier Seven record unless she responds. Armed whistleblower Celia Ward claims Vale security will kill her to bury Halcyon, but a sniper's laser soon reveals a more complicated target. Mara destroys what she believes is Adrian's attack signal, only to learn it was an abort device; Adrian then shields her from the incoming shot. As security prepares to breach, Mara chooses to cut",
+  "character_states": [
+    {
+      "name": "Mara Voss",
+      "role": "Protagonist and crisis negotiator",
+      "motivation": "Keep everyone alive, uncover why she was specifically summoned, and refuse to surrender her judgment to powerful men."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Corporate heir, hostage, and ambiguous romantic threat",
+      "motivation": "Get Mara and Celia out alive while hiding how much he knows about Mara's past and his father's plans."
+    },
+    {
+      "name": "Celia Ward",
+      "role": "Whistleblower and armed captor",
+      "motivation": "Expose Halcyon before Vale security silences her, even if she must hold Adrian at gunpoint to do it."
+    }
+  ],
+  "final_scene_outcome": "Mara frees Adrian under armed conditions and reaches the elevator, where the evidence reveals she is a Halcyon asset marked for termination.",
+  "final_turning_point": "Mara chooses to free Adrian, only to discover that he was ordered to identify her for termination.",
+  "next_episode_question": "Why has the Vale family marked Mara for termination, and what does Adrian know about her connection to Halcyon?"
+}
+
+PlanningContext:
+{
+  "story_blueprint": null,
+  "current_episode_plan": null
+}

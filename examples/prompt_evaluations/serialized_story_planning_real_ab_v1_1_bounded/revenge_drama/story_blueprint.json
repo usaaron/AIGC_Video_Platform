@@ -1,0 +1,13 @@
+{
+  "core_premise": "Disgraced engineer Tessa Ward audits the developer who framed her and discovers his newest tower repeats the defect that ended her career.",
+  "series_dramatic_promise": "Tessa transforms personal revenge into public accountability while defeating a system that treats resident safety as negotiable.",
+  "central_conflict": "Tessa needs internal proof, but immediate exposure could cause panic and leave residents inside an unsafe tower.",
+  "theme": "Justice without responsibility can reproduce the harm it condemns.",
+  "ending_direction": "Tessa enables a safe evacuation, releases independently verified evidence, and rejects a settlement that repairs only her reputation.",
+  "character_arc_targets": "Tessa moves from reputation-focused revenge to public-accountability leadership. Hale moves from certainty to sacrificing allies and exposing his fear.",
+  "major_setup_payoff_refs": {
+    "RV-S1": "altered load-test record",
+    "RV-S2": "evacuation plan",
+    "RV-S3": "Tessa's unsigned calculation"
+  }
+}

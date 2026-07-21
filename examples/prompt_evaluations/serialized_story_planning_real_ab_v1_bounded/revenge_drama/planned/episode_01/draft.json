@@ -1,0 +1,140 @@
+{
+  "title": "The Load That Doesn't Exist",
+  "logline": "While infiltrating the company that framed her, a disgraced engineer sacrifices her best chance at vindication to investigate a deadly defect threatening hundreds of residents.",
+  "synopsis": "Disgraced engineer Tessa Ward infiltrates Hale Developments and locates an altered load-test file that could prove she was framed. When live data from an occupied tower echoes the defect that ended her career, she cancels the download and runs an unauthorized comparison instead. The test confirms hidden stress across six occupied floors, but Grant Hale revokes her access and sends her the unsigned original calculation he should not possess.",
+  "hook": "The file that can clear Tessa's name appears beside a live warning from an occupied tower.",
+  "target_audience": "English-speaking viewers who enjoy strategic revenge, institutional conflict and earned reversals",
+  "target_platform": "TikTok",
+  "language": "English",
+  "tone": "suspenseful",
+  "episode_goal": "Establish Tessa's infiltration and force her to choose resident safety over immediate revenge.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "description": "A disgraced structural engineer working undercover as a temporary compliance contractor.",
+      "motivation": "Clear her name without putting residents at risk."
+    },
+    {
+      "name": "Grant Hale",
+      "role": "Antagonist",
+      "description": "The polished developer who blamed Tessa for a deadly structural defect.",
+      "motivation": "Protect his company and keep falsified safety procedures hidden."
+    },
+    {
+      "name": "Mina Cho",
+      "role": "Reluctant ally",
+      "description": "A cautious operations analyst overseeing Hale Developments' building data.",
+      "motivation": "Keep her job while ensuring suspicious readings are not ignored."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. HALE DEVELOPMENTS – NIGHT",
+      "purpose": "Introduce the altered evidence and the competing threat to residents.",
+      "setting": "Hale Developments compliance floor, after hours",
+      "beat_summary": "Tessa finds an altered load-test file proving her work was changed, but a live anomaly appears in Hale's occupied tower.",
+      "emotional_shift": "Cold resolve becomes shaken recognition.",
+      "emotional_objective": "Turn Tessa's controlled hunger for vindication into alarm.",
+      "character_actions": [
+        "Tessa inserts an encrypted drive into her compliance workstation.",
+        "She highlights a changed load value beside her employee ID.",
+        "A red strain alert flashes on the adjacent tower dashboard."
+      ],
+      "turning_point": "Tessa realizes the new tower may repeat the defect that destroyed her career.",
+      "scene_causality": {
+        "goal": "Secure evidence that Hale's company altered the test tied to her disgrace.",
+        "conflict": "Tessa can copy proof of her framing or spend her expiring access investigating the anomaly.",
+        "outcome": "She finds the altered file but recognizes a familiar danger in the live tower data.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Mina Cho",
+          "intent": "Warn Tessa that her temporary access is almost over.",
+          "text": "Your credentials expire in twenty minutes, so download whatever audit forms you need."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Mask her shock while recognizing the anomaly.",
+          "text": "That tower reading isn't an audit form—it's a warning."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. COMPLIANCE OFFICE – CONTINUOUS",
+      "purpose": "Make Tessa's consequential decision and deepen Mina's involvement.",
+      "setting": "Locked compliance office beside the tower monitoring wall",
+      "beat_summary": "Tessa abandons the reputation file and uses her remaining access to run an unauthorized structural comparison.",
+      "emotional_shift": "Recognition hardens into moral commitment.",
+      "emotional_objective": "Show Tessa choosing responsibility over personal vindication.",
+      "character_actions": [
+        "Tessa cancels the evidence download at ninety-two percent.",
+        "She overlays live strain readings onto an unsigned calculation from her private archive.",
+        "Mina locks the office door as the system flags the test."
+      ],
+      "turning_point": "Tessa cancels the download that could clear her and commits her access to the tower test.",
+      "scene_causality": {
+        "goal": "Determine whether the occupied tower contains the same concealed load pattern.",
+        "conflict": "The unauthorized test risks exposing Tessa before she can obtain evidence strong enough to protect residents.",
+        "outcome": "Tessa completes the comparison, but the system automatically reports her unauthorized test.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because the anomaly matches the earlier failure pattern, Tessa redirects her expiring access from revenge evidence to a safety test."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Mina Cho",
+          "intent": "Challenge Tessa's risky use of company systems.",
+          "text": "You just traded proof that could save you for a test that could get us both fired."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Commit visibly to protecting residents first.",
+          "text": "My name can wait; the people sleeping above that load path can't."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. COMPLIANCE OFFICE – NIGHT",
+      "purpose": "Confirm the immediate danger and end with Grant taking control of the evidence battle.",
+      "setting": "Compliance office overlooking Hale's illuminated residential tower",
+      "beat_summary": "The test confirms a hidden load pattern across occupied floors, then Grant reveals that he has detected Tessa and possesses her original calculation.",
+      "emotional_shift": "Moral commitment becomes urgent responsibility under exposure.",
+      "emotional_objective": "Convert Tessa's urgency into dread as the public threat and Grant's awareness collide.",
+      "character_actions": [
+        "The monitor marks six occupied floors with spreading red stress lines.",
+        "Tessa photographs the partial results before her credentials are revoked.",
+        "Her phone lights up with Grant's image of her unsigned original calculation."
+      ],
+      "turning_point": "Grant proves he has both detected Tessa's test and retained evidence that should never have been in his possession.",
+      "scene_causality": {
+        "goal": "Preserve the test results and identify how many residents face immediate risk.",
+        "conflict": "Tessa has evidence of danger but not enough verification to justify an evacuation before Grant can erase or weaponize it.",
+        "outcome": "Tessa saves partial evidence, loses system access and learns Grant holds her unsigned original calculation.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Tessa runs the unauthorized comparison, she confirms the defect while alerting Grant to her presence."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Mina Cho",
+          "intent": "Confront the scale of the danger.",
+          "text": "Six floors are carrying loads the approved model says don't exist."
+        },
+        {
+          "character_name": "Grant Hale",
+          "intent": "Signal that he knows Tessa is inside and unsettle her with hidden evidence.",
+          "text": "Tessa, I found your original calculation—why was it never signed?"
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Why does Grant possess Tessa's unsigned calculation, and what will he do now that he knows she found the defect?"
+}

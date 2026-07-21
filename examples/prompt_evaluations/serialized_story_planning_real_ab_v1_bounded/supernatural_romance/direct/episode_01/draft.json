@@ -1,0 +1,140 @@
+{
+  "title": "The Memory of Tomorrow",
+  "logline": "After hearing herself named as a killer in a dying passenger's final memory, a paramedic accepts help from an immortal who must sacrifice his own past to save the victim.",
+  "synopsis": "Paramedic Mara Velez hears a dying passenger's final memory and sees herself murder an unknown man tomorrow. The man, Ilyan Vale, arrives and reveals that he can save the passenger only by surrendering an unpredictable personal memory. Mara chooses the victim's life over her need for answers, and Ilyan succeeds—but forgets meeting her. The revived passenger then produces a future-dated video of Mara stabbing Ilyan, proving someone has already begun engineering the murder.",
+  "hook": "A dying man's final memory shows Mara committing a murder that has not happened yet.",
+  "target_audience": "English-speaking viewers who enjoy supernatural mystery, restrained romance, and identity conflict.",
+  "target_platform": "TikTok",
+  "language": "English",
+  "tone": "suspenseful",
+  "episode_goal": "Force Mara to trust Ilyan after their supernatural costs collide during an impossible rescue.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Mara Velez",
+      "role": "Protagonist",
+      "description": "A guarded paramedic who involuntarily hears a dying person's final memory through skin contact.",
+      "motivation": "Save lives without letting the dead consume her identity."
+    },
+    {
+      "name": "Ilyan Vale",
+      "role": "Immortal ally",
+      "description": "An ageless stranger whose personal memories vanish whenever she saves another person.",
+      "motivation": "Stop a supernatural killer before she forgets why she began hunting him."
+    },
+    {
+      "name": "Daniel Cho",
+      "role": "Victim and messenger",
+      "description": "A critically injured subway passenger carrying an impossible memory of Mara.",
+      "motivation": "Use his last breath to warn Mara about the approaching killer."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. WRECKED SUBWAY CAR - NIGHT",
+      "purpose": "Introduce Mara's gift and the impossible warning that drives the episode.",
+      "setting": "A derailed subway car lit by pulsing emergency lamps.",
+      "beat_summary": "Mara touches Daniel and experiences his final memory of her stabbing Ilyan beneath a station clock dated tomorrow.",
+      "emotional_shift": "Mara shifts from controlled urgency to fear of her future self.",
+      "emotional_objective": "Turn Mara's clinical focus into intimate dread.",
+      "character_actions": [
+        "Mara kneels beside Daniel in the wrecked subway car and removes one glove to find his pulse.",
+        "Daniel grips her bare wrist as the lights flicker.",
+        "Mara recoils from a vision of her own bloodied hand holding a knife over Ilyan."
+      ],
+      "turning_point": "The stranger from Daniel's memory steps into the car alive.",
+      "scene_causality": {
+        "goal": "Stabilize Daniel and understand his warning.",
+        "conflict": "Mara must treat Daniel while his final memory implicates her in a future murder.",
+        "outcome": "Mara sees herself apparently killing an unknown man tomorrow.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Daniel Cho",
+          "intent": "Warn Mara before he loses consciousness.",
+          "text": "Tomorrow, under the clock—don't believe your own face."
+        },
+        {
+          "character_name": "Mara Velez",
+          "intent": "Reject the vision while keeping Daniel alive.",
+          "text": "You're not dying, and I'm not your murderer."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. WRECKED SUBWAY CAR - CONTINUOUS",
+      "purpose": "Establish Ilyan's rule and make Mara take a consequential moral decision.",
+      "setting": "The same subway car as Daniel's heartbeat fades.",
+      "beat_summary": "Ilyan reveals that saving Daniel will erase one of his memories and asks Mara to choose whether the cost is worth paying.",
+      "emotional_shift": "Suspicion becomes fragile solidarity when Mara chooses Daniel over certainty.",
+      "emotional_objective": "Build trust through a rescue neither character can make without harming the other.",
+      "character_actions": [
+        "Ilyan presses two fingers to Daniel's chest, and black veins crawl up his hand.",
+        "Mara blocks Ilyan's wrist when Daniel's monitor briefly flatlines.",
+        "Ilyan opens a weathered notebook filled with facts about himself written in his own hand."
+      ],
+      "turning_point": "Mara deliberately releases Ilyan's wrist and lets him pay the memory cost.",
+      "scene_causality": {
+        "goal": "Decide whether to let Ilyan use his costly power.",
+        "conflict": "Saving Daniel may destroy a crucial part of Ilyan's identity, yet delaying will kill Daniel.",
+        "outcome": "Mara authorizes the rescue and accepts shared responsibility for Ilyan's loss.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Daniel's memory shows Ilyan dying tomorrow, Mara demands proof before allowing him near the patient."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Ilyan Vale",
+          "intent": "Make Mara understand the price of his intervention.",
+          "text": "If I pull him back, I lose a piece of myself—and I never choose which piece."
+        },
+        {
+          "character_name": "Mara Velez",
+          "intent": "Accept responsibility for a costly rescue.",
+          "text": "Then forget me if you have to, but save him."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. WRECKED SUBWAY CAR - MOMENTS LATER",
+      "purpose": "Pay off the rescue while proving an unseen enemy can manipulate memory and future evidence.",
+      "setting": "The wrecked subway car as distant rescue crews approach.",
+      "beat_summary": "Ilyan revives Daniel but forgets Mara's earlier introduction, while Daniel wakes with evidence that the future murder is already being staged.",
+      "emotional_shift": "Relief collapses into isolation and urgent paranoia.",
+      "emotional_objective": "Make the successful rescue feel like both a tender sacrifice and a worsening trap.",
+      "character_actions": [
+        "Ilyan exhales silver vapor into Daniel's mouth, restarting the monitor as a blank page appears in his notebook.",
+        "Mara catches Ilyan when he staggers, but he pulls away from her touch in confusion.",
+        "Daniel opens his eyes and raises a phone displaying tomorrow's timestamped video of Mara stabbing Ilyan."
+      ],
+      "turning_point": "The video reveals Mara killing Ilyan at the exact moment Ilyan fails to recognize her.",
+      "scene_causality": {
+        "goal": "Revive Daniel and learn whether his vision can be prevented.",
+        "conflict": "The rescue succeeds, but Ilyan's memory loss fractures their newborn trust as Daniel reveals stronger evidence against Mara.",
+        "outcome": "Daniel survives with a future-dated murder video, while Ilyan no longer remembers meeting Mara.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Mara permits Ilyan to use his power, Daniel survives and Ilyan pays with a memory of her."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Ilyan Vale",
+          "intent": "Hide his terror after losing a fresh memory.",
+          "text": "You know my name, but I don't know yours."
+        },
+        {
+          "character_name": "Daniel Cho",
+          "intent": "Prove the warning is more than a dying hallucination.",
+          "text": "Someone sent me the video ten minutes before the crash."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Why does Daniel remember Mara killing Ilyan tomorrow, and who has already erased part of Ilyan's past?"
+}

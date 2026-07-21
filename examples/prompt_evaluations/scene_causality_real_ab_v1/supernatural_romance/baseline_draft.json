@@ -1,0 +1,210 @@
+{
+  "content_spec_id": "de74c89c-80fd-4a04-87df-4a0a8ff93364",
+  "generation_strategy_id": "strategy.scene_causality_ab.baseline.v1",
+  "title": "I Betrayed My Vampire Groom",
+  "logline": "A hunter exposes her vampire groom at their wedding to avenge her sister, only to learn the dead woman may be alive—and transformed.",
+  "language": "en",
+  "target_audience": "US women ages 18-34 drawn to forbidden supernatural romance, betrayal reveals, revenge, and high-stakes cliffhangers.",
+  "target_platform": "TikTok vertical short video",
+  "tone": "intense",
+  "hook": "At her wedding altar, Mara drops Lucien's ring and announces, \"My groom is a vampire—and I brought hunters.\"",
+  "synopsis": "Undercover hunter Mara interrupts her own vows to expose Lucien, the vampire groom she genuinely loves. A flashback shows that Voss sent her to avenge her murdered sister. But once Lucien is captured, he claims Voss forged the evidence—and Mara's supposedly dead sister enters the chapel as a vampire, forcing Mara to defy her commander and demand the truth.",
+  "episode_goal": "Have Mara publicly expose and betray her vampire groom, then overturn her revenge narrative with proof that her hunter commander lied.",
+  "target_duration_seconds": 45,
+  "characters": [
+    {
+      "name": "Mara Vale",
+      "role": "Protagonist and undercover bride",
+      "description": "A fearless human bride and undercover hunter who fell for her vampire target but still chooses revenge for her sister.",
+      "motivation": "Expose Lucien and avenge her sister, even if it destroys the man she loves."
+    },
+    {
+      "name": "Lucien Cross",
+      "role": "Vampire groom",
+      "description": "An ancient vampire groom whose guarded tenderness hides dangerous knowledge about Mara's family.",
+      "motivation": "Protect Mara from the hunters and reveal who truly betrayed her sister."
+    },
+    {
+      "name": "Director Voss",
+      "role": "Hunter commander",
+      "description": "The calculating commander who recruited Mara and weaponized her grief against Lucien.",
+      "motivation": "Capture Lucien and keep the truth about Mara's sister buried."
+    },
+    {
+      "name": "Elena Vale",
+      "role": "Cliffhanger reveal",
+      "description": "Mara's presumed-dead sister, now transformed and aligned with a hidden supernatural power.",
+      "motivation": "Reach Mara before Voss can control them both."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. WEDDING CHAPEL - NIGHT",
+      "purpose": "Deliver the immediate hook and show Mara making a visible, irreversible choice.",
+      "setting_hint": "Candlelit wedding chapel, framed for vertical close-ups",
+      "beat_summary": "Mid-vow, Mara publicly identifies Lucien as a vampire. She drops his ring, opens the chapel doors for armed hunters, and admits their romance began as a mission.",
+      "emotional_shift": "Romantic anticipation to devastating exposure",
+      "emotional_objective": "Shock viewers with forbidden love colliding with a deliberate public betrayal.",
+      "character_actions": [
+        "Mara drops Lucien's ring before answering her vows.",
+        "Mara turns toward the guests and publicly exposes Lucien.",
+        "Voss and the hunters enter through the opened chapel doors.",
+        "Lucien remains at the altar and meets Mara's gaze."
+      ],
+      "turning_point": "Mara admits her love was real but chooses revenge anyway.",
+      "scene_causality": {
+        "goal": "Expose Lucien at the altar and hand him to the hunters.",
+        "conflict": "Mara loves Lucien, but she believes exposing him is the only way to avenge her murdered sister.",
+        "outcome": "Mara publicly betrays Lucien, allowing Voss to seize control of the wedding.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "My groom is a vampire—and I brought hunters.",
+        "Was any of it real?",
+        "I fell in love with you. I still choose my sister."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Mara Vale",
+          "intent": "Stop the scroll with a public betrayal",
+          "text": "My groom is a vampire—and I brought hunters."
+        },
+        {
+          "character_name": "Lucien Cross",
+          "intent": "Force Mara to own her choice",
+          "text": "Was any of it real?"
+        },
+        {
+          "character_name": "Mara Vale",
+          "intent": "Choose revenge despite her feelings",
+          "text": "I fell in love with you. I still choose my sister."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. HUNTER BOARDROOM - FLASHBACK",
+      "purpose": "Clarify why Mara targeted Lucien and establish that she chose the plan rather than passively obeying.",
+      "setting_hint": "Hunter command boardroom, flashback",
+      "beat_summary": "A rapid flashback reveals Voss recruited Mara using a bloodstained photo and claimed Lucien killed Elena. Mara accepted the ring and volunteered to become Lucien's bride.",
+      "emotional_shift": "Heartbreak to controlled vengeance",
+      "emotional_objective": "Make Mara's betrayal understandable while planting suspicion around Voss's evidence.",
+      "character_actions": [
+        "Voss slides Elena's bloodstained photo across the boardroom table.",
+        "Mara studies the evidence and closes her hand around the engagement ring.",
+        "Mara pushes away her doubts and accepts the mission."
+      ],
+      "turning_point": "Mara accepts the engagement ring and claims authority over Lucien's downfall.",
+      "scene_causality": {
+        "goal": "Accept the undercover marriage plan while retaining control over Lucien's capture.",
+        "conflict": "Mara must exploit intimacy with Lucien while fearing her feelings will compromise the mission.",
+        "outcome": "Mara commits to infiltrating Lucien's life and personally choosing the moment of exposure.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Mara's altar betrayal was the final step of the revenge mission Voss built around Elena's alleged murder."
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Lucien killed Elena. Marry him, expose him, and you'll get your revenge.",
+        "Then I decide when he falls."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Director Voss",
+          "intent": "Weaponize Mara's grief",
+          "text": "Lucien killed Elena. Marry him, expose him, and you'll get your revenge."
+        },
+        {
+          "character_name": "Mara Vale",
+          "intent": "Take control of the mission",
+          "text": "Then I decide when he falls."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. WEDDING CHAPEL - CONTINUOUS",
+      "purpose": "Expose Voss's possible deception, restore Lucien's ambiguity, and end on Elena's supernatural return.",
+      "setting_hint": "Wedding chapel altar and entrance",
+      "beat_summary": "Back at the altar, Voss restrains Lucien. Lucien reveals Voss forged the murder evidence. Before Mara can act, Elena enters with glowing vampire eyes and calls Voss her maker.",
+      "emotional_shift": "Vengeful certainty to horrified defiance",
+      "emotional_objective": "Flip betrayal into fury and force Mara to reconsider who deserves her revenge.",
+      "character_actions": [
+        "Voss locks a silver restraint around Lucien's wrists.",
+        "Lucien reveals a hidden photograph of Elena alive.",
+        "Mara snatches the photograph and confronts Voss.",
+        "The chapel doors slam shut behind Elena.",
+        "Mara steps between Elena and Voss."
+      ],
+      "turning_point": "Elena returns as a vampire and identifies Voss as her maker.",
+      "scene_causality": {
+        "goal": "Confirm Lucien's guilt before allowing Voss to take him away.",
+        "conflict": "Mara must decide whether Lucien's claim is manipulation as Voss pressures her to complete the capture.",
+        "outcome": "Elena appears as a vampire, Mara openly defies Voss, and the original revenge target becomes uncertain.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Mara delivered Lucien to Voss, Lucien is forced to reveal that Elena survived and Voss transformed her."
+      },
+      "cliffhanger": true,
+      "dialogue_prompts": [
+        "I didn't kill Elena. Voss turned her.",
+        "Finish the mission, Mara.",
+        "Don't listen to my maker, sister.",
+        "Nobody moves until I get the truth."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Lucien Cross",
+          "intent": "Shatter Mara's revenge narrative",
+          "text": "I didn't kill Elena. Voss turned her."
+        },
+        {
+          "character_name": "Director Voss",
+          "intent": "Keep Mara obedient",
+          "text": "Finish the mission, Mara."
+        },
+        {
+          "character_name": "Elena Vale",
+          "intent": "Reveal herself and redirect Mara's revenge",
+          "text": "Don't listen to my maker, sister."
+        },
+        {
+          "character_name": "Mara Vale",
+          "intent": "Defy Voss and protect her sister",
+          "text": "Nobody moves until I get the truth."
+        }
+      ],
+      "supporting_asset_ids": []
+    }
+  ],
+  "next_episode_question": "Will Mara free the vampire she betrayed and trust her transformed sister, or finish the revenge mission Voss built on a lie?",
+  "qa_notes": [
+    "Draft generated by RealLLMAdapter structured output.",
+    "Story QC and revision loop must still review platform fit and consistency."
+  ],
+  "llm_metadata": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "strategy_id": "strategy.scene_causality_ab.baseline.v1",
+    "usage": {
+      "prompt_tokens": 5498,
+      "completion_tokens": 2119,
+      "total_tokens": 7617,
+      "completion_tokens_details": {
+        "reasoning_tokens": 508
+      }
+    },
+    "response_id": "resp_0ff3eb1a787b10ca016a5e2feff708819190857fb5bc4820f9",
+    "prompt_versions": [
+      "v2-baseline",
+      "v1-shared"
+    ],
+    "generation_strategy_version": "v1"
+  },
+  "id": "957d1e7b-9634-4bb0-aedc-2980c10d66be",
+  "created_at": "2026-07-20T14:27:03.050095Z",
+  "updated_at": "2026-07-20T14:27:03.050115Z"
+}

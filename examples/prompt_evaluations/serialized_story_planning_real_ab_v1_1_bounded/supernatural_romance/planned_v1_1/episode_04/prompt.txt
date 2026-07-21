@@ -1,0 +1,109 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-revalidation.final-scene-flag-patch1
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Do not mention prompts, plans, schemas, variants, evaluation, or these instructions.
+When planning context is present, satisfy its required effects but invent the dramatic execution.
+When planning context is absent, infer this episode's responsibility from the ContentSpec, episode number, and previous state.
+The actual previous episode state is authoritative if it differs in minor execution detail from a planned entry state.
+
+EpisodeNumber: 4
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve established characters, facts, relationships, rules, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Resolve the bounded four-episode story's central question. End with an earned payoff and only a limited continuation possibility. For schema compatibility, set the final scene's cliffhanger field to true; in this final episode the flag means the scene delivers the required final payoff or continuation beat and does not require adding an unrelated threat.
+
+CreativeFreedomBoundary:
+- Invent the exact opening hook, conflict mechanism, physical incident, reversal device, dialogue, scene choreography, emotional expression, and cliffhanger execution.
+- Treat planned reveals as information obligations, not required staging.
+- Do not repeat an adjacent episode's primary conflict, rescue, sacrifice, reveal, threat device, or state transition unless the new function clearly escalates it.
+- A recurring motif is allowed; a repeated dramatic mechanism is not.
+
+ContentSpecSummary:
+{
+  "audience": "English-speaking viewers who prefer supernatural mystery, restrained romance, and identity conflict",
+  "platform": "TikTok-oriented vertical serialized fiction",
+  "language": "English",
+  "episode_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "tone": "Eerie, tender, urgent",
+  "story_goal": "A paramedic who hears final memories works with an immortal stranger whose identity is being consumed by a supernatural exchange.",
+  "constraints": [
+    "Romance grows through decisions and shared cost.",
+    "Supernatural rules remain consistent.",
+    "Do not use a destiny-mate shortcut."
+  ]
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 3,
+  "title": "Remember Me Forward",
+  "episode_goal": "Force Nia and Rowan to choose present consent over complete restoration of Rowan's past.",
+  "synopsis": "Nia and Rowan follow the silver tag and blank journal into an underground Exchange archive offering Rowan complete restoration. The cost is an unconscious stranger's identity, forcing Nia to sever the transfer and Rowan to remove his own hand rather than accept an isolated sacrifice. The archive loses the recoverable past, but Rowan writes “remember me forward” before Nia breaks the tag. Their escape reveals the Exchange has marked a future memory they share, turning their growing relationship,7",
+  "character_states": [
+    {
+      "name": "Nia Calder",
+      "role": "Protagonist paramedic",
+      "motivation": "Save lives without surrendering her judgment or anyone else's consent."
+    },
+    {
+      "name": "Rowan Vale",
+      "role": "Reluctant ally",
+      "motivation": "Recover the truth without controlling the choices of others."
+    },
+    {
+      "name": "The Exchange",
+      "role": "Supernatural antagonist",
+      "motivation": "Turn sacrifice into consent and consume identities through exchange."
+    }
+  ],
+  "final_scene_outcome": "They escape together, but the countdown names the moment Nia first forgets Rowan—and Rowan cannot remember why he stayed.",
+  "final_turning_point": "The countdown reveals that the Exchange will attack their shared future, not merely erase Rowan's past.",
+  "next_episode_question": "What will the Exchange erase from Nia and Rowan's future to make them forget choosing each other?"
+}
+
+PlanningContext:
+{
+  "contract_version": "serialized_story_planning_contract.v1.1-candidate",
+  "story_blueprint": {
+    "core_premise": "Paramedic Nia Calder hears a dying patient's final memory and finds immortal archivist Rowan inside it, while an entity exchanges human survival for stolen memory.",
+    "series_dramatic_promise": "Nia and Rowan reconstruct trust while uncovering a supernatural economy that makes memory, rescue, and consent inseparable.",
+    "central_conflict": "Nia refuses to abandon people in danger; Rowan fears that opposing the exchange will erase the evidence and identity needed to defeat it.",
+    "theme": "Love is not perfect remembrance; it is the choice to know someone again.",
+    "ending_direction": "They break the entity's isolated-sacrifice rule through reciprocal consent while accepting that some memories cannot be restored.",
+    "character_arc_targets": "Nia learns responsibility does not require solitary sacrifice. Rowan chooses present trust over control of the past.",
+    "major_setup_payoff_refs": {
+      "SR-S1": "silver emergency tag",
+      "SR-S2": "blank journal page",
+      "SR-S3": "the phrase 'remember me forward'"
+    }
+  },
+  "current_episode_plan": {
+    "episode_number": 4,
+    "episode_purpose": "Resolve the exchange through reciprocal agency.",
+    "entry_state": "They understand the rule but cannot restore every loss.",
+    "required_state_change": "The entity loses control, incomplete memory remains, and a shared future becomes possible.",
+    "protagonist_decision": "They consent to reciprocal risk without one person owning the other's identity.",
+    "planned_reveal": "The exchange persists only while loss is involuntary or borne alone.",
+    "setup_refs": [],
+    "payoff_refs": [
+      "SR-S1",
+      "SR-S2",
+      "SR-S3"
+    ],
+    "exit_state": "The central exchange is broken and new shared memories can be preserved.",
+    "emotional_requirement": "Move from anticipatory loss to reciprocal trust and bittersweet renewal; choose the exact payoff execution freely."
+  }
+}

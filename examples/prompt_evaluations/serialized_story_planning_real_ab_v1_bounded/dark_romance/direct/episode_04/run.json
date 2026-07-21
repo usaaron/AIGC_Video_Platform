@@ -1,0 +1,56 @@
+{
+  "story_id": "dark_romance",
+  "variant": "direct",
+  "episode_number": 4,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 56.819,
+  "prompt_characters": 3915,
+  "planning_context_characters": 55,
+  "usage": {
+    "prompt_tokens": 1549,
+    "completion_tokens": 2014,
+    "total_tokens": 3563,
+    "completion_tokens_details": {
+      "reasoning_tokens": 178
+    }
+  },
+  "response_id": "resp_06ef32e73efccc9c016a5e5a9183508191b2be1b21ba578660",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 3,
+    "title": "The Missing Six Minutes",
+    "episode_goal": "Mara must use the forged evidence to escape the cleaners, expose Adrian’s father, and confront Adrian’s own role in targeting Nina.",
+    "synopsis": "Trapped by armed cleaners, Mara uses her forged signature to unlock the conspiracy’s sealed audit trail. The records prove Adrian’s father transformed protection orders into kill directives, and Mara ensures Nina retains the original evidence. Restored footage then reveals Adrian personally ordered Nina taken as leverage against Mara. Refusing to confuse coercion with devotion, Mara sends Nina to safety and seals Adrian inside with the cleaners, only for his confiscated badge to activate a new,謎",
+    "character_states": [
+      {
+        "name": "Mara Voss",
+        "role": "Protagonist and crisis negotiator",
+        "motivation": "Protect Nina, preserve the evidence, and determine Adrian’s true culpability."
+      },
+      {
+        "name": "Adrian Vale",
+        "role": "Suspected coercer and possible protector",
+        "motivation": "Keep Mara and Nina alive while exposing his father without escaping responsibility for his own choices."
+      },
+      {
+        "name": "Nina Park",
+        "role": "Whistleblower in immediate danger",
+        "motivation": "Expose the covert program without surrendering control to Mara or Adrian."
+      }
+    ],
+    "final_scene_outcome": "Mara escapes with Nina and seals Adrian inside to face the armed cleanup team alone.",
+    "final_turning_point": "After Mara seals the door, Adrian’s confiscated badge activates a second transmission labeled with Nina’s name.",
+    "next_episode_question": "Can Mara save Adrian without betraying Nina after learning he ordered the coercion that started everything?"
+  }
+}

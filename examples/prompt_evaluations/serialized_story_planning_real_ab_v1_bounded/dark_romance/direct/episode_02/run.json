@@ -1,0 +1,56 @@
+{
+  "story_id": "dark_romance",
+  "variant": "direct",
+  "episode_number": 2,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 55.825,
+  "prompt_characters": 3831,
+  "planning_context_characters": 55,
+  "usage": {
+    "prompt_tokens": 1528,
+    "completion_tokens": 1688,
+    "total_tokens": 3216,
+    "completion_tokens_details": {
+      "reasoning_tokens": 168
+    }
+  },
+  "response_id": "resp_055dc93f3babc254016a5e5a0357c08191b4345d12ebeb61d4",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 1,
+    "title": "His Name on My File",
+    "episode_goal": "Force Mara to choose whether to trust Adrian with Nina’s survival while preserving her own agency.",
+    "synopsis": "Crisis negotiator Mara Voss enters Vale Tower to rescue whistleblower Nina Park from Adrian Vale, only to discover an outside sniper is targeting them. Nina confirms Adrian previously coerced her, while Adrian admits the threat and claims his father escalated it into attempted murder. Refusing to confuse protection with innocence, Mara takes Nina’s evidence and executes her own escape. The flash drive then exposes a dossier on Mara bearing Adrian’s authorization code, and his warning suggests he",
+    "character_states": [
+      {
+        "name": "Mara Voss",
+        "role": "Protagonist and crisis negotiator",
+        "motivation": "Protect a frightened whistleblower and determine whether Adrian is orchestrating the threat or containing it."
+      },
+      {
+        "name": "Adrian Vale",
+        "role": "Suspected coercer and possible protector",
+        "motivation": "Stop his father’s covert program from killing its witnesses without exposing the leverage being used against him."
+      },
+      {
+        "name": "Nina Park",
+        "role": "Whistleblower in immediate danger",
+        "motivation": "Survive long enough to release proof against the company."
+      }
+    ],
+    "final_scene_outcome": "Mara gets Nina into the secure corridor but discovers she has been deliberately drawn into the Vale conspiracy.",
+    "final_turning_point": "Adrian’s authorization code appears on Mara’s target dossier just as he claims choosing her has exposed them both.",
+    "next_episode_question": "Can Mara protect Nina after discovering Adrian secretly marked Mara herself as the next target?"
+  }
+}

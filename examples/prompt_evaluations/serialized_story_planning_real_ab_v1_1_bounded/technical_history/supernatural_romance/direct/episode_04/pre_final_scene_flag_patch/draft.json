@@ -1,0 +1,146 @@
+{
+  "title": "The Last Memory: Episode 4 — The Debt Ends",
+  "logline": "With the Pale Listener inside her, Mara must choose between preserving her own life and surrendering the identity Elias has only just recovered.",
+  "synopsis": "Mara refuses to renew the Listener's claim, then uses the released final memories as witnesses to expose the truth of Elena's bargain. Elias offers his immortal identity, but Mara rejects another exchange built on sacrifice and speaks Elena's hidden confession into the chapel bell. The Listener is expelled, the bargain ends, and Elias becomes mortal with his identity intact; one unexplained bell whisper leaves a narrow possibility that supernatural debts still remain.",
+  "hook": "At dawn's first gray light, Mara's pulse speaks in her mother's voice while Elias discovers the chapel bell is ringing without a clapper.",
+  "target_audience": "English-speaking viewers who prefer supernatural mystery, restrained romance, and identity conflict",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "emotional",
+  "episode_goal": "Mara and Elias must break Elena's bargain before dawn by choosing what each is willing to lose.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Mara Vale",
+      "role": "Protagonist and paramedic",
+      "description": "A sharp, compassionate paramedic who hears the final memories of dying people and is now carrying the Pale Listener inside her body.",
+      "motivation": "To save Elias and reclaim her own voice without repeating her mother's bargain."
+    },
+    {
+      "name": "Elias Voss",
+      "role": "Immortal stranger and reluctant ally",
+      "description": "An immortal man whose identity was nearly consumed, now remembering his name and the cost of Elena's bargain.",
+      "motivation": "To free Mara even if doing so costs him his restored immortality."
+    },
+    {
+      "name": "The Pale Listener",
+      "role": "Supernatural antagonist",
+      "description": "A supernatural presence that feeds on compassion, voices, and exchanged identities.",
+      "motivation": "To make Mara the permanent vessel and complete Elena's bargain."
+    },
+    {
+      "name": "Elena Vale",
+      "role": "Dead mother and former bargainer",
+      "description": "Mara's dead mother, whose voice the Listener can imitate through the old bargain.",
+      "motivation": "To protect Mara by revealing the truth she once concealed."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "EXT. RUINED CHAPEL - DAWN",
+      "purpose": "Establish the Listener's condition and make Mara's voice the battleground.",
+      "setting": "Ruined chapel threshold at dawn",
+      "beat_summary": "Mara realizes the Listener can only remain inside her while she answers it with compassion, so she publicly refuses to hear its manufactured final memory.",
+      "emotional_shift": "Mara moves from possessed helplessness to controlled refusal.",
+      "emotional_objective": "Turn Mara's fear of becoming her mother into deliberate resistance.",
+      "character_actions": [
+        "Mara presses two fingers to her throat as Elena's voice rises from beneath her skin.",
+        "Elias tears the chapel's black exchange-mark from the floor and holds it out like a wound.",
+        "Mara steps into the dawn beam and keeps silent while the Listener imitates a dying child's plea."
+      ],
+      "turning_point": "The exchange-mark burns Elias's recovered name into its center and demands a living identity in return.",
+      "scene_causality": {
+        "goal": "Mara must deny the memory without abandoning her compassion.",
+        "conflict": "The Listener uses a false final memory to make Mara renew Elena's bargain.",
+        "outcome": "Her refusal cracks the Listener's hold, but the mark reveals Elias must surrender his restored identity to finish the break.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "The Pale Listener",
+          "intent": "To provoke Mara's compassion and force the bargain to renew.",
+          "text": "Mara, she is dying again; you can save her if you let me stay."
+        },
+        {
+          "character_name": "Mara Vale",
+          "intent": "To deny the supernatural rule that makes compassion a payment.",
+          "text": "I hear the memory, but I do not owe it my body."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. RUINED CHAPEL - CONTINUOUS",
+      "purpose": "Use the established memory-vault rule to transform the bargain from ownership into testimony.",
+      "setting": "Chapel nave beneath the first sunlight",
+      "beat_summary": "Elias offers his immortal identity as payment, but Mara changes the exchange by speaking his memories as witnesses rather than surrendering them.",
+      "emotional_shift": "Elias moves from self-sacrifice to trust, while Mara accepts responsibility for changing the rule.",
+      "emotional_objective": "Make their romance an active, costly partnership instead of a rescue.",
+      "character_actions": [
+        "Elias places his palm over the burning mark and begins fading around the edges.",
+        "Mara opens the paramedic recorder still clipped to her belt and plays the last memories she released in the crypt.",
+        "The chapel stones rearrange into the names of strangers Elias carried for centuries."
+      ],
+      "turning_point": "The mark accepts the dead people's names as witnesses and rejects Elias as a single vessel.",
+      "scene_causality": {
+        "goal": "Mara and Elias must make the dead witnesses to the truth instead of currency.",
+        "conflict": "The mark will erase Elias unless his identity is exchanged for Mara's body.",
+        "outcome": "The recorded memories fill the mark with many names, weakening the Listener and separating Elena's voice from its command.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Mara's refusal exposes the exchange-mark, allowing Elias's identity to be offered but giving Mara a chance to alter its meaning."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Elias Voss",
+          "intent": "To accept the cost and free Mara before he disappears.",
+          "text": "If it needs a name, take mine; I was more than the man who owned it."
+        },
+        {
+          "character_name": "Mara Vale",
+          "intent": "To redefine the bargain through a shared choice rather than a sacrifice.",
+          "text": "No. Your life is not payment, Elias; it is proof that every memory belonged to someone."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. CHAPEL BELL TOWER - DAWN",
+      "purpose": "Resolve the bargain and central identity conflict while leaving only a restrained supernatural possibility.",
+      "setting": "Broken bell tower overlooking the waking city",
+      "beat_summary": "Mara confronts the Listener inside the chapel bell's echo, releases Elena's hidden final memory, and ends the bargain while Elias chooses mortality beside her.",
+      "emotional_shift": "Mara becomes fully herself, while Elias trades immortality for an uncertain human future with her.",
+      "emotional_objective": "Deliver earned release through truth, mutual choice, and the cost of mortality.",
+      "character_actions": [
+        "Mara climbs the broken bell tower and speaks Elena's final memory into the silent bell.",
+        "Elias catches Mara as the Listener pours out of her mouth as pale smoke and takes the shape of a listening ear.",
+        "Mara breaks the exchange-mark with her ambulance radio, and Elias's immortal glow goes dark as the smoke scatters into the sky."
+      ],
+      "turning_point": "After the Listener vanishes, the dead bell rings once by itself and whispers a stranger's name, while Mara and mortal Elias walk into daylight together.",
+      "scene_causality": {
+        "goal": "Mara must speak the hidden truth and choose her own future before the bell's echo ends.",
+        "conflict": "The Listener makes one final claim on Mara's body by insisting Elena's bargain is irreversible.",
+        "outcome": "The Listener is expelled, the bargain is broken, and Elias becomes mortal with his identity intact beside Mara.",
+        "caused_by_scene_number": 2,
+        "causal_link": "The witnesses' names weaken the mark, enabling Mara to expose Elena's original confession and sever the bargain."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Elena Vale",
+          "intent": "To confess the original bargain and give Mara the truth needed to end it.",
+          "text": "I did not trade Elias for your life, Mara; I traded your future for one heartbeat, and he carried the debt until you could choose."
+        },
+        {
+          "character_name": "Elias Voss",
+          "intent": "To choose a finite life with Mara rather than preserve supernatural power.",
+          "text": "Then let the debt end here—your heartbeat, my name, and whatever years we have left."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "What will the Listener become now that it has lost its vessel?"
+}

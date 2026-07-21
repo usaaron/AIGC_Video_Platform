@@ -1,0 +1,78 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-revalidation
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Do not mention prompts, plans, schemas, variants, evaluation, or these instructions.
+When planning context is present, satisfy its required effects but invent the dramatic execution.
+When planning context is absent, infer this episode's responsibility from the ContentSpec, episode number, and previous state.
+The actual previous episode state is authoritative if it differs in minor execution detail from a planned entry state.
+
+EpisodeNumber: 2
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve established characters, facts, relationships, rules, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+CreativeFreedomBoundary:
+- Invent the exact opening hook, conflict mechanism, physical incident, reversal device, dialogue, scene choreography, emotional expression, and cliffhanger execution.
+- Treat planned reveals as information obligations, not required staging.
+- Do not repeat an adjacent episode's primary conflict, rescue, sacrifice, reveal, threat device, or state transition unless the new function clearly escalates it.
+- A recurring motif is allowed; a repeated dramatic mechanism is not.
+
+ContentSpecSummary:
+{
+  "audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+  "platform": "TikTok-oriented vertical serialized fiction",
+  "language": "English",
+  "episode_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "tone": "Sharp, controlled, escalating",
+  "story_goal": "A structural engineer must expose the developer who framed her without endangering residents.",
+  "constraints": [
+    "Revenge depends on evidence and consequential choices.",
+    "The protagonist protects vulnerable people.",
+    "Do not use a public-wedding or secret-heir device."
+  ]
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 1,
+  "title": "The Load-Bearing Lie",
+  "episode_goal": "Maya must preserve evidence of structural fraud while preventing residents from entering a dangerous tower.",
+  "synopsis": "Structural engineer Maya Chen is blamed at a televised hearing for approving the unsafe Harbor Heights tower, but she catches a revision code proving her calculations were replaced after her dismissal. She races to the occupied site, uncovers a failing transfer plate, and chooses to halt move-in despite the residents' financial risk and Adrian Vale's threatened retaliation. Her decision earns organizer Luis Ortega's trust, and he gives her a hidden maintenance backup proving City Hall opened her",
+  "character_states": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "motivation": "Clear her name by proving developer fraud without putting occupied buildings at risk."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Antagonist",
+      "motivation": "Open Harbor Heights on schedule and make Maya absorb the blame for its structural defects."
+    },
+    {
+      "name": "Luis Ortega",
+      "role": "Ally",
+      "motivation": "Keep his neighbors housed and alive while discovering who concealed the danger."
+    }
+  ],
+  "final_scene_outcome": "She confirms City Hall's complicity but has sixty seconds to stop the evidence from being erased.",
+  "final_turning_point": "The tablet reveals an official cover-up just as a remote deletion countdown begins.",
+  "next_episode_question": "Can Maya retrieve the original inspection archive before Adrian erases it and turns the residents against her?"
+}
+
+PlanningContext:
+null

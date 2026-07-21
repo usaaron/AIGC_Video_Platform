@@ -1,0 +1,26 @@
+{
+  "completed_episode_number": 1,
+  "title": "The Same Crack",
+  "episode_goal": "Tessa discovers a credible danger in Hale's occupied tower and sacrifices easy vindication to investigate it safely.",
+  "synopsis": "Disgraced engineer Tessa Ward uses temporary access to inspect Gideon Hale's occupied tower and discovers concrete cracking tied to the same material pattern behind the failure that destroyed her career. In Hale's archive, she finds an altered load-test record that could clear her name, but a dangerous live strain spike forces her to spend her limited access preserving current safety data instead. Tessa initiates a discreet inspection to protect residents and sends Malik for physical evidence,ag",
+  "character_states": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "motivation": "Expose the truth while protecting residents from the defect she failed to stop before."
+    },
+    {
+      "name": "Gideon Hale",
+      "role": "Antagonist",
+      "motivation": "Protect his tower, company, and authority at any human cost."
+    },
+    {
+      "name": "Malik Reyes",
+      "role": "Reluctant ally",
+      "motivation": "Keep residents safe without losing the access and livelihood that let him help them."
+    }
+  ],
+  "final_scene_outcome": "Tessa starts a discreet safety response, but Hale revokes her access and traps Malik beside the evidence.",
+  "final_turning_point": "Hale admits framing Tessa as he locks her ally inside the room containing the proof.",
+  "next_episode_question": "Can Tessa secure proof and prepare the residents before Hale erases the records and revokes her access?"
+}

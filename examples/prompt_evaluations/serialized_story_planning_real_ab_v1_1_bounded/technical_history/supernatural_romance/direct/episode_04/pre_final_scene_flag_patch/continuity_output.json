@@ -1,0 +1,31 @@
+{
+  "completed_episode_number": 4,
+  "title": "The Last Memory: Episode 4 — The Debt Ends",
+  "episode_goal": "Mara and Elias must break Elena's bargain before dawn by choosing what each is willing to lose.",
+  "synopsis": "Mara refuses to renew the Listener's claim, then uses the released final memories as witnesses to expose the truth of Elena's bargain. Elias offers his immortal identity, but Mara rejects another exchange built on sacrifice and speaks Elena's hidden confession into the chapel bell. The Listener is expelled, the bargain ends, and Elias becomes mortal with his identity intact; one unexplained bell whisper leaves a narrow possibility that supernatural debts still remain.",
+  "character_states": [
+    {
+      "name": "Mara Vale",
+      "role": "Protagonist and paramedic",
+      "motivation": "To save Elias and reclaim her own voice without repeating her mother's bargain."
+    },
+    {
+      "name": "Elias Voss",
+      "role": "Immortal stranger and reluctant ally",
+      "motivation": "To free Mara even if doing so costs him his restored immortality."
+    },
+    {
+      "name": "The Pale Listener",
+      "role": "Supernatural antagonist",
+      "motivation": "To make Mara the permanent vessel and complete Elena's bargain."
+    },
+    {
+      "name": "Elena Vale",
+      "role": "Dead mother and former bargainer",
+      "motivation": "To protect Mara by revealing the truth she once concealed."
+    }
+  ],
+  "final_scene_outcome": "The Listener is expelled, the bargain is broken, and Elias becomes mortal with his identity intact beside Mara.",
+  "final_turning_point": "After the Listener vanishes, the dead bell rings once by itself and whispers a stranger's name, while Mara and mortal Elias walk into daylight together.",
+  "next_episode_question": "What will the Listener become now that it has lost its vessel?"
+}

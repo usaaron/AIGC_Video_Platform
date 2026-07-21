@@ -1,0 +1,140 @@
+{
+  "title": "Four Nights at Rook House — Episode 4: The Exit Clause",
+  "logline": "Framed by Nolan, Mara and Elias must expose their own damaging secrets to prove he engineered both crises.",
+  "synopsis": "With police closing in, Mara rejects Nolan's offer to frame Elias and uses her stolen exit code to restore the redacted recording from her first case. Elias voluntarily contributes the Rook family archive, and Mara releases a complete escrow that includes both his family's crimes and her own procedural violation. The evidence proves Nolan engineered the original crisis and the current frame-up to create dependence on his security operation. After Nolan is taken into custody, Elias offers Mara a新",
+  "hook": "As police surround Rook House, Nolan offers Mara exoneration if she blames Elias.",
+  "target_audience": "US women 18-34 who prefer tense romance, moral conflict, and consequential choices",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "suspenseful",
+  "episode_goal": "Expose Nolan through reciprocal, voluntary sacrifice while preserving Mara's agency.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Mara Voss",
+      "role": "Protagonist and contracted security assessor",
+      "description": "A disciplined crisis negotiator whose first case left a fatal stain on her record.",
+      "motivation": "Expose Nolan while preserving her freedom and owning her past mistake."
+    },
+    {
+      "name": "Elias Rook",
+      "role": "Client, suspect, and conditional ally",
+      "description": "A reclusive heir whose secrecy protected both family crimes and their victims.",
+      "motivation": "Stop Nolan by surrendering the family archive and his institutional protection."
+    },
+    {
+      "name": "Nolan Price",
+      "role": "Antagonist and security chief",
+      "description": "A calculating security chief who engineered crises to make powerful clients dependent on him.",
+      "motivation": "Separate Mara and Elias before their combined evidence destroys his operation."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. ROOK HOUSE PANIC ROOM — NIGHT",
+      "purpose": "Force Mara and Elias to stake their futures on a shared record.",
+      "setting": "Rook House panic room, moments before the police breach",
+      "beat_summary": "Nolan tries to split Mara from Elias as police close on Rook House.",
+      "emotional_shift": "Mara moves from besieged isolation to deliberate mutual risk.",
+      "emotional_objective": "Show Mara choosing evidence over self-protection without surrendering control.",
+      "character_actions": [
+        "Mara plays Nolan's offer through the sealed panic console.",
+        "Elias places the unredacted family archive drive beside Mara, then steps back.",
+        "Mara enters her private exit code and unlocks the full negotiation recording."
+      ],
+      "turning_point": "Mara refuses Nolan's deal and unlocks the evidence with the code he stole.",
+      "scene_causality": {
+        "goal": "Recover the complete recording that connects Nolan to the original crisis.",
+        "conflict": "Nolan offers Mara safety only if she condemns Elias before police enter.",
+        "outcome": "Mara's exit code restores the redacted audio, and Elias voluntarily yields his archive.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Nolan Price",
+          "intent": "Tempt Mara into betraying Elias.",
+          "text": "Name Elias as your handler, Mara, and your record is clean by sunrise."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Reject coerced exoneration.",
+          "text": "A clean lie is still a cage, Nolan."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. ROOK HOUSE EVIDENCE VAULT — NIGHT",
+      "purpose": "Resolve the mystery by publishing one complete record that neither lead controls.",
+      "setting": "Rook House evidence vault as the breach begins",
+      "beat_summary": "The restored recording reveals Nolan manufactured the first crisis to sell permanent dependence on his security network.",
+      "emotional_shift": "Mutual risk hardens into evidence-based trust.",
+      "emotional_objective": "Make trust credible through equal and irreversible exposure.",
+      "character_actions": [
+        "Mara merges the recording, panic logs, and her unedited case report into the public escrow.",
+        "Elias adds ledgers proving his family financed Nolan's operation.",
+        "Mara presses RELEASE as police pound on the door."
+      ],
+      "turning_point": "Mara publicly releases her own wrongdoing alongside Nolan's crimes.",
+      "scene_causality": {
+        "goal": "Release authenticated evidence before Nolan can seize or discredit it.",
+        "conflict": "Clearing Mara requires admitting her violation, while exposing Nolan requires Elias to destroy his family's protection.",
+        "outcome": "The escrow proves Nolan engineered the original crisis and the current frame-up.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Scene 1 restores the recording and gives Mara the archive, she can publish the full chain of evidence."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Elias Rook",
+          "intent": "Offer transparency without controlling Mara's choice.",
+          "text": "My family falls with that archive; release it only if you choose it."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Accept accountability and force the complete truth public.",
+          "text": "My violation stays in too—no edits, no shield, no owner."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. ROOK HOUSE FRONT HALL — DAWN",
+      "purpose": "Confirm Nolan's defeat and establish a voluntary continuation for Mara and Elias.",
+      "setting": "Rook House front hall at dawn",
+      "beat_summary": "Nolan loses control, while Mara receives Elias's offer of a partnership she can freely leave.",
+      "emotional_shift": "Exposure and loss settle into cautious possibility.",
+      "emotional_objective": "Deliver justice while ending on guarded, autonomous intimacy.",
+      "character_actions": [
+        "Officers remove Nolan after an analyst verifies the escrow timestamps.",
+        "Elias slides Mara a one-page contract with a bold termination clause.",
+        "Mara circles the exit clause and keeps the pen."
+      ],
+      "turning_point": "Mara keeps the contract only after marking the clause that preserves her right to leave.",
+      "scene_causality": {
+        "goal": "Secure Nolan's accountability and define any future alliance through explicit consent.",
+        "conflict": "With their institutional protection gone, Mara must decide whether Elias's partnership is another form of control.",
+        "outcome": "Nolan is exposed, and Mara chooses to evaluate Elias's exit-guaranteed offer rather than reject it or surrender.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Scene 2 releases authenticated evidence, authorities can verify Nolan's scheme despite his edited footage."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Nolan Price",
+          "intent": "Deny defeat as his system collapses.",
+          "text": "They needed me; I only taught them what fear costs."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Set the terms of any future bond with Elias.",
+          "text": "I’ll read it—but if the exit isn’t real, neither are we."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Will Mara accept Elias's partnership once she verifies that its promised exit is real?"
+}

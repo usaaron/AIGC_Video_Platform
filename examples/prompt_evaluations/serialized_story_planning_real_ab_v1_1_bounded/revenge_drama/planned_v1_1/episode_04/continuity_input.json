@@ -1,0 +1,31 @@
+{
+  "completed_episode_number": 3,
+  "title": "The Price of the Exit",
+  "episode_goal": "Tessa must secure a safe evacuation route while exposing official complicity at severe legal cost.",
+  "synopsis": "Tessa responds to the tower's load shift by breaking a city-sealed fire panel and opening a controlled evacuation route, knowingly exposing herself to prosecution. Deputy Commissioner Voss arrives to stop her, but Tessa displays the authorization token proving Voss countersigned Hale's altered load-test record. To keep police from closing the stairwell, Tessa surrenders and entrusts Malik with the evacuation map and evidence, only to discover Hale is pumping concrete over the failing transfer-sl",
+  "character_states": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "motivation": "Expose Hale's fraud while getting every resident out safely."
+    },
+    {
+      "name": "Malik Reyes",
+      "role": "Reluctant ally",
+      "motivation": "Protect residents without losing the access needed to finish the evacuation."
+    },
+    {
+      "name": "Gideon Hale",
+      "role": "Antagonist",
+      "motivation": "Contain the evidence, preserve occupancy, and make Tessa appear responsible for the crisis."
+    },
+    {
+      "name": "Deputy Commissioner Celia Voss",
+      "role": "Complicit official",
+      "motivation": "Protect the oversight department from exposure and personal prosecution."
+    }
+  ],
+  "final_scene_outcome": "Tessa is detained and Malik continues the evacuation, but Hale starts a concrete pour that could bury evidence and collapse the slab.",
+  "final_turning_point": "Tessa realizes Hale's cover-up will add lethal weight before the remaining residents can escape.",
+  "next_episode_question": "Can Tessa stop Hale's concrete pour before it collapses the transfer slab with Malik and the remaining residents still inside?"
+}

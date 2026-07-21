@@ -1,0 +1,61 @@
+{
+  "story_id": "revenge_drama",
+  "variant": "planned",
+  "episode_number": 4,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 46.324,
+  "prompt_characters": 6750,
+  "planning_context_characters": 2720,
+  "usage": {
+    "prompt_tokens": 2128,
+    "completion_tokens": 1556,
+    "total_tokens": 3684,
+    "completion_tokens_details": {
+      "reasoning_tokens": 70
+    }
+  },
+  "response_id": "resp_0d0788113bbf3d2d016a5e5e8c504c8191b785df31c81f682d",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 3,
+    "title": "The Name on the Alarm",
+    "episode_goal": "Force Tessa to sacrifice immediate vindication so residents can evacuate safely.",
+    "synopsis": "Tessa escapes the sealed corridor long enough to replace Hale's lethal drill route with a corrected map for resident leaders. She discovers that Hale ordered the altered load-test file and bribed Inspector Owen Pike, but refuses to publish the proof while an uncontrolled evacuation could cause mass casualties. Instead, she makes herself the focus of security and deliberately submits to arrest as Mina guides residents out safely. Hale believes he has seized the only evidence, until Pike remotely—",
+    "character_states": [
+      {
+        "name": "Tessa Ward",
+        "role": "Protagonist",
+        "motivation": "Clear her name without putting the tower's residents at further risk."
+      },
+      {
+        "name": "Grant Hale",
+        "role": "Antagonist",
+        "motivation": "Protect his company and complete the tower sale before the defects become public."
+      },
+      {
+        "name": "Mina Cho",
+        "role": "Reluctant ally",
+        "motivation": "Help residents escape safely despite risking her career and freedom."
+      },
+      {
+        "name": "Inspector Owen Pike",
+        "role": "Corrupt city inspector",
+        "motivation": "Protect himself by helping Hale contain the evidence and blame Tessa."
+      }
+    ],
+    "final_scene_outcome": "Most residents escape, but floor thirty-one is locked with families inside and Tessa blamed.",
+    "final_turning_point": "Pike seals the final occupied floor, proving the corruption reaches the city's safety authority.",
+    "next_episode_question": "Can Tessa expose Pike and unlock the final floor while detained for the emergency he engineered?"
+  }
+}

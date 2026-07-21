@@ -1,0 +1,56 @@
+{
+  "story_id": "dark_romance",
+  "variant": "direct",
+  "episode_number": 3,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 85.616,
+  "prompt_characters": 3832,
+  "planning_context_characters": 55,
+  "usage": {
+    "prompt_tokens": 1529,
+    "completion_tokens": 2155,
+    "total_tokens": 3684,
+    "completion_tokens_details": {
+      "reasoning_tokens": 709
+    }
+  },
+  "response_id": "resp_0c4bba3d94b73661016a5e5a3b129c8191a1aa2155fc57013f",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 2,
+    "title": "The Protection Order",
+    "episode_goal": "Make Mara independently test Adrian’s claim and choose a dangerous route that preserves Nina’s control of the evidence.",
+    "synopsis": "Mara discovers Adrian monitored her long before the crisis, but metadata shows his protection order was converted into a kill directive by his father. She permits a strictly controlled alliance, confiscates Adrian’s access badge, and ensures Nina retains the evidence. Rather than take the offered escape, Mara chooses to enter the offline vault and preserve the original records, only to find the conspiracy has forged her signature onto Adrian’s coercive operations as armed cleaners close in.",
+    "character_states": [
+      {
+        "name": "Mara Voss",
+        "role": "Protagonist and crisis negotiator",
+        "motivation": "Protect Nina and determine whether Adrian marked her for death or tried to shield her."
+      },
+      {
+        "name": "Adrian Vale",
+        "role": "Suspected coercer and possible protector",
+        "motivation": "Keep Mara and Nina alive while preventing his father from erasing evidence of the covert program."
+      },
+      {
+        "name": "Nina Park",
+        "role": "Whistleblower in immediate danger",
+        "motivation": "Survive, expose the company, and avoid becoming dependent on another Vale."
+      }
+    ],
+    "final_scene_outcome": "Mara saves one file, but it identifies her as Adrian’s authorized partner in every coercive operation.",
+    "final_turning_point": "The rescued file displays Mara’s forged signature beside Adrian’s as the cleanup team breaches the outer door.",
+    "next_episode_question": "Will Mara expose Adrian’s father when the only surviving proof now identifies Mara as Adrian’s willing accomplice?"
+  }
+}

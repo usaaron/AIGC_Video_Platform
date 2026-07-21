@@ -1,0 +1,183 @@
+{
+  "review_status": "pending_human_review",
+  "rubric_scale": "1-5",
+  "stories": {
+    "dark_romance": {
+      "candidate_1": {
+        "scores": {
+          "overall_direction_consistency": null,
+          "ending_direction_clarity": null,
+          "conflict_escalation": null,
+          "motivation_consistency": null,
+          "decision_consistency": null,
+          "personality_stability": null,
+          "character_growth": null,
+          "cross_episode_causality": null,
+          "consequence_persistence": null,
+          "setup_payoff_completion": null,
+          "reveal_timing": null,
+          "episode_purpose_clarity": null,
+          "emotional_progression": null,
+          "hook_strength": null,
+          "cliffhanger_quality": null,
+          "repetition_control": null,
+          "filler_control": null,
+          "long_term_retention_potential": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "candidate_2": {
+        "scores": {
+          "overall_direction_consistency": null,
+          "ending_direction_clarity": null,
+          "conflict_escalation": null,
+          "motivation_consistency": null,
+          "decision_consistency": null,
+          "personality_stability": null,
+          "character_growth": null,
+          "cross_episode_causality": null,
+          "consequence_persistence": null,
+          "setup_payoff_completion": null,
+          "reveal_timing": null,
+          "episode_purpose_clarity": null,
+          "emotional_progression": null,
+          "hook_strength": null,
+          "cliffhanger_quality": null,
+          "repetition_control": null,
+          "filler_control": null,
+          "long_term_retention_potential": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "preferred_candidate": null,
+      "comparison_evidence": [],
+      "would_continue_to_episode_5": {
+        "candidate_1": null,
+        "candidate_2": null
+      },
+      "uncertainty_notes": []
+    },
+    "supernatural_romance": {
+      "candidate_1": {
+        "scores": {
+          "overall_direction_consistency": null,
+          "ending_direction_clarity": null,
+          "conflict_escalation": null,
+          "motivation_consistency": null,
+          "decision_consistency": null,
+          "personality_stability": null,
+          "character_growth": null,
+          "cross_episode_causality": null,
+          "consequence_persistence": null,
+          "setup_payoff_completion": null,
+          "reveal_timing": null,
+          "episode_purpose_clarity": null,
+          "emotional_progression": null,
+          "hook_strength": null,
+          "cliffhanger_quality": null,
+          "repetition_control": null,
+          "filler_control": null,
+          "long_term_retention_potential": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "candidate_2": {
+        "scores": {
+          "overall_direction_consistency": null,
+          "ending_direction_clarity": null,
+          "conflict_escalation": null,
+          "motivation_consistency": null,
+          "decision_consistency": null,
+          "personality_stability": null,
+          "character_growth": null,
+          "cross_episode_causality": null,
+          "consequence_persistence": null,
+          "setup_payoff_completion": null,
+          "reveal_timing": null,
+          "episode_purpose_clarity": null,
+          "emotional_progression": null,
+          "hook_strength": null,
+          "cliffhanger_quality": null,
+          "repetition_control": null,
+          "filler_control": null,
+          "long_term_retention_potential": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "preferred_candidate": null,
+      "comparison_evidence": [],
+      "would_continue_to_episode_5": {
+        "candidate_1": null,
+        "candidate_2": null
+      },
+      "uncertainty_notes": []
+    },
+    "revenge_drama": {
+      "candidate_1": {
+        "scores": {
+          "overall_direction_consistency": null,
+          "ending_direction_clarity": null,
+          "conflict_escalation": null,
+          "motivation_consistency": null,
+          "decision_consistency": null,
+          "personality_stability": null,
+          "character_growth": null,
+          "cross_episode_causality": null,
+          "consequence_persistence": null,
+          "setup_payoff_completion": null,
+          "reveal_timing": null,
+          "episode_purpose_clarity": null,
+          "emotional_progression": null,
+          "hook_strength": null,
+          "cliffhanger_quality": null,
+          "repetition_control": null,
+          "filler_control": null,
+          "long_term_retention_potential": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "candidate_2": {
+        "scores": {
+          "overall_direction_consistency": null,
+          "ending_direction_clarity": null,
+          "conflict_escalation": null,
+          "motivation_consistency": null,
+          "decision_consistency": null,
+          "personality_stability": null,
+          "character_growth": null,
+          "cross_episode_causality": null,
+          "consequence_persistence": null,
+          "setup_payoff_completion": null,
+          "reveal_timing": null,
+          "episode_purpose_clarity": null,
+          "emotional_progression": null,
+          "hook_strength": null,
+          "cliffhanger_quality": null,
+          "repetition_control": null,
+          "filler_control": null,
+          "long_term_retention_potential": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "preferred_candidate": null,
+      "comparison_evidence": [],
+      "would_continue_to_episode_5": {
+        "candidate_1": null,
+        "candidate_2": null
+      },
+      "uncertainty_notes": []
+    }
+  }
+}

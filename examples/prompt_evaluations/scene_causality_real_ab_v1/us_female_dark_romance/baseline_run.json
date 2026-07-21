@@ -1,0 +1,16 @@
+{
+  "draft_id": "fa681145-06d5-4f4b-9c02-ac3f1981174d",
+  "strategy_id": "strategy.scene_causality_ab.baseline.v1",
+  "strategy_version": "v1",
+  "prompt_ids": [
+    "prompt.story_planning.scene_causality_ab.baseline",
+    "prompt.platform_optimization.scene_causality_ab.shared"
+  ],
+  "prompt_versions": [
+    "v2-baseline",
+    "v1-shared"
+  ],
+  "prompt_builder_version": "v0.1-ab-baseline",
+  "draft_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/us_female_dark_romance/baseline_draft.json",
+  "prompt_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/us_female_dark_romance/baseline_prompt.txt"
+}

@@ -1,0 +1,56 @@
+{
+  "story_id": "supernatural_romance",
+  "variant": "planned",
+  "episode_number": 2,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 46.717,
+  "prompt_characters": 5607,
+  "planning_context_characters": 2005,
+  "usage": {
+    "prompt_tokens": 1942,
+    "completion_tokens": 1887,
+    "total_tokens": 3829,
+    "completion_tokens_details": {
+      "reasoning_tokens": 436
+    }
+  },
+  "response_id": "resp_09eafe80bcee87a0016a5e5c88f70c819198739b7896836e0d",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 1,
+    "title": "The Memory Price",
+    "episode_goal": "Establish the memory exchange and force Nia to choose a patient's life over certainty about the entity.",
+    "synopsis": "Paramedic Nia Calder hears a dying commuter's final memory and discovers immortal archivist Rowan Vale within a century-old scene. Rowan warns that reviving the patient will erase his only memory of a faceless entity, so Nia records his testimony before choosing the rescue. The patient survives wearing an antique tag Rowan recognizes, but Rowan's memory vanishes and his journal creates a blank page bearing Nia's name.",
+    "character_states": [
+      {
+        "name": "Nia Calder",
+        "role": "Protagonist",
+        "motivation": "Save every life she can without letting her supernatural burden endanger others."
+      },
+      {
+        "name": "Rowan Vale",
+        "role": "Mysterious ally",
+        "motivation": "Preserve enough evidence of the memory-trading entity to stop it before his identity disappears."
+      },
+      {
+        "name": "Eli Mercer",
+        "role": "Patient and supernatural clue",
+        "motivation": "Survive long enough to deliver an impossible warning."
+      }
+    ],
+    "final_scene_outcome": "Eli survives, Rowan retains only Nia's recording, and the journal marks Nia on a blank page.",
+    "final_turning_point": "The self-turning journal reveals Nia's name where a memory should be.",
+    "next_episode_question": "Why has Rowan's supernatural journal created a blank page bearing Nia's name?"
+  }
+}

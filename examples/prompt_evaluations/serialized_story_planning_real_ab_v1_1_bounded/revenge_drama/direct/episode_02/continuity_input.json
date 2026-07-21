@@ -1,0 +1,26 @@
+{
+  "completed_episode_number": 1,
+  "title": "The Load-Bearing Lie",
+  "episode_goal": "Maya must preserve evidence of structural fraud while preventing residents from entering a dangerous tower.",
+  "synopsis": "Structural engineer Maya Chen is blamed at a televised hearing for approving the unsafe Harbor Heights tower, but she catches a revision code proving her calculations were replaced after her dismissal. She races to the occupied site, uncovers a failing transfer plate, and chooses to halt move-in despite the residents' financial risk and Adrian Vale's threatened retaliation. Her decision earns organizer Luis Ortega's trust, and he gives her a hidden maintenance backup proving City Hall opened her",
+  "character_states": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "motivation": "Clear her name by proving developer fraud without putting occupied buildings at risk."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Antagonist",
+      "motivation": "Open Harbor Heights on schedule and make Maya absorb the blame for its structural defects."
+    },
+    {
+      "name": "Luis Ortega",
+      "role": "Ally",
+      "motivation": "Keep his neighbors housed and alive while discovering who concealed the danger."
+    }
+  ],
+  "final_scene_outcome": "She confirms City Hall's complicity but has sixty seconds to stop the evidence from being erased.",
+  "final_turning_point": "The tablet reveals an official cover-up just as a remote deletion countdown begins.",
+  "next_episode_question": "Can Maya retrieve the original inspection archive before Adrian erases it and turns the residents against her?"
+}

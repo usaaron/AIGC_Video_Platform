@@ -1,0 +1,140 @@
+{
+  "title": "The Woman Wearing Tomorrow",
+  "logline": "When Daniel crashes before revealing who planted his future memory, Mara rejects Ilyan's costly rescue and follows the stolen vision to a trap built around her own face.",
+  "synopsis": "Daniel reveals that an unknown woman planted his future memory, then collapses as the murder video begins changing in real time. Ilyan offers to revive him again, but Mara refuses to let him lose another piece of himself and saves Daniel conventionally, hearing the phrase “Saint Brigid Platform” in the process. Beneath the abandoned station, Mara and Ilyan discover an archive of stolen memories and a vial proving Ilyan once knew her, while Daniel calls to report that another Mara has locked him ",
+  "hook": "Daniel's future-dated video updates itself while he watches, showing Mara entering his hospital room.",
+  "target_audience": "English-speaking viewers who enjoy supernatural mystery, restrained romance, and identity conflict",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "suspenseful",
+  "episode_goal": "Expose how Daniel received a future memory and bind Mara and Ilyan together through a costly choice.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Mara Velez",
+      "role": "Protagonist",
+      "description": "A guarded paramedic who hears the final memories of people near death.",
+      "motivation": "Save lives without letting the dead consume her identity."
+    },
+    {
+      "name": "Ilyan Vale",
+      "role": "Immortal ally",
+      "description": "An immortal stranger who can revive others by losing an unpredictable personal memory.",
+      "motivation": "Stop the supernatural killer while preserving enough of himself to trust Mara."
+    },
+    {
+      "name": "Daniel Cho",
+      "role": "Victim and messenger",
+      "description": "A revived passenger carrying evidence of a murder that has not happened yet.",
+      "motivation": "Understand why his stolen memory shows Mara murdering Ilyan."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. HOSPITAL OBSERVATION ROOM - NIGHT",
+      "purpose": "Reveal that Daniel's future memory was deliberately planted and remains active.",
+      "setting": "Hospital observation room at night",
+      "beat_summary": "Daniel reveals that a woman touched him before the crash, but his changing video shows Mara approaching his room now.",
+      "emotional_shift": "Mara moves from defensive confusion to alarm as Daniel collapses.",
+      "emotional_objective": "Turn suspicion of Mara into urgent fear of an impostor.",
+      "character_actions": [
+        "Daniel scrubs through the future-dated video as its timestamp advances by itself.",
+        "Mara compares the woman on-screen with her own untouched paramedic uniform.",
+        "Daniel convulses and knocks the phone beneath his hospital bed."
+      ],
+      "turning_point": "The live video displays a second Mara walking toward Daniel's room.",
+      "scene_causality": {
+        "goal": "Learn who placed the future murder in Daniel's mind.",
+        "conflict": "Daniel's evidence implicates Mara while his body begins rejecting Ilyan's resurrection.",
+        "outcome": "Daniel identifies an unknown woman before suffering cardiac arrest.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Daniel Cho",
+          "intent": "Identify the source of his impossible memory.",
+          "text": "Before the crash, a woman touched my forehead and said, “Tomorrow needs a witness.”"
+        },
+        {
+          "character_name": "Ilyan Vale",
+          "intent": "Warn Mara despite not remembering their first meeting.",
+          "text": "That video shows you outside this room—but you're standing beside me."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. HOSPITAL OBSERVATION ROOM - CONTINUOUS",
+      "purpose": "Establish Mara's refusal to exploit Ilyan and uncover the killer's hidden location.",
+      "setting": "Hospital observation room during a resuscitation alarm",
+      "beat_summary": "As Daniel dies again, Mara refuses to sacrifice another piece of Ilyan and saves Daniel through ordinary medicine while hearing the planted memory's location.",
+      "emotional_shift": "Ilyan's wary detachment softens into earned loyalty toward Mara.",
+      "emotional_objective": "Make Mara's trust tangible through a decision that protects Ilyan's identity.",
+      "character_actions": [
+        "Ilyan reaches toward Daniel as pale light gathers beneath his palm.",
+        "Mara seizes Ilyan's wrist, pulls him back, and shocks Daniel with the defibrillator herself.",
+        "Daniel's pulse returns as Mara writes “Saint Brigid Platform” on her glove."
+      ],
+      "turning_point": "Mara stops Ilyan from paying the supernatural cost and takes responsibility for Daniel's survival.",
+      "scene_causality": {
+        "goal": "Save Daniel without triggering another unpredictable memory loss.",
+        "conflict": "Daniel is dying while Ilyan's faster cure could erase the fragile trust forming between them.",
+        "outcome": "Mara revives Daniel herself and hears Saint Brigid Platform inside his planted death-memory.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Daniel's collapse forces Mara to choose between Ilyan's memory and a dangerous conventional rescue."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Ilyan Vale",
+          "intent": "Offer another rescue despite the personal cost.",
+          "text": "I can bring him back, but I may forget the one thing that makes me trust you."
+        },
+        {
+          "character_name": "Mara Velez",
+          "intent": "Choose shared risk over using Ilyan as a supernatural resource.",
+          "text": "Then keep it—I won't save a life by hollowing you out."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. SAINT BRIGID PLATFORM ARCHIVE - NIGHT",
+      "purpose": "Prove Ilyan's past was tampered with and unleash the impostor as an immediate threat.",
+      "setting": "Abandoned memory archive beneath Saint Brigid subway platform",
+      "beat_summary": "Mara and Ilyan find a cache of stolen memories beneath Saint Brigid, including proof that someone erased Ilyan's memory of Mara before they met.",
+      "emotional_shift": "Tender solidarity snaps into terror when Mara's double corners Daniel.",
+      "emotional_objective": "Reward their growing trust before weaponizing Mara's identity against them.",
+      "character_actions": [
+        "Ilyan knots red thread around his wrist and writes Mara's name across it.",
+        "Mara opens a cabinet filled with glowing vials labeled with names and dates.",
+        "Daniel video-calls as Mara's double silently appears behind his hospital bed."
+      ],
+      "turning_point": "A vial proves Ilyan knew Mara before their supposed first meeting, just as her double reaches Daniel.",
+      "scene_causality": {
+        "goal": "Find evidence identifying who engineered the future murder.",
+        "conflict": "The archive proves their enemy can steal memories and impersonate Mara while Daniel remains exposed.",
+        "outcome": "They discover a vial labeled “Ilyan Vale—Mara Velez” as Mara's double traps Daniel.",
+        "caused_by_scene_number": 2,
+        "causal_link": "The location hidden in Daniel's planted memory leads Mara and Ilyan to the killer's archive."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Ilyan Vale",
+          "intent": "Choose to trust Mara even if his memory fails again.",
+          "text": "If I forget you, show me this thread—and let me decide again."
+        },
+        {
+          "character_name": "Daniel Cho",
+          "intent": "Warn them before the impostor reaches him.",
+          "text": "Mara... if you're with Ilyan, then who just locked my door?"
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Who is wearing Mara's face, and what memory did they steal from Ilyan before he met her?"
+}

@@ -1,0 +1,31 @@
+{
+  "completed_episode_number": 4,
+  "title": "Everyone Gets a Copy",
+  "episode_goal": "Stop Hale's concrete pour, evacuate the remaining residents, and place independently verified evidence beyond institutional control.",
+  "synopsis": "Still detained, Tessa compels Voss to free one hand and uses an official tablet to dump the concrete pump's pressure before the transfer slab fails. The delay lets Malik evacuate the final resident, while Tessa compares her unsigned calculation against the earlier and current altered load tests, proving both failures came from the same corrupted approval process. After Malik escapes with the originals, Hale offers to restore Tessa's license and reputation for silence, but she rejects him andpubl",
+  "character_states": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "motivation": "Expose Hale's fraud, stop the lethal pour, and secure public accountability."
+    },
+    {
+      "name": "Malik Reyes",
+      "role": "Reluctant ally",
+      "motivation": "Get every resident out while preserving proof beyond Hale's reach."
+    },
+    {
+      "name": "Gideon Hale",
+      "role": "Antagonist",
+      "motivation": "Complete the pour, destroy the evidence, and escape liability."
+    },
+    {
+      "name": "Deputy Commissioner Celia Voss",
+      "role": "Complicit official",
+      "motivation": "Limit her criminal exposure as the cover-up collapses."
+    }
+  ],
+  "final_scene_outcome": "Tessa releases the authenticated record, Hale and Voss face prosecution, and the evacuated residents control copies while auditors flag wider approvals for review.",
+  "final_turning_point": "Tessa visibly rejects Hale's settlement and makes public accountability impossible to reverse.",
+  "next_episode_question": "How far beyond Hale and Voss did the corrupted approval process reach?"
+}

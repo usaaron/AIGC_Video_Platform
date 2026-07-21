@@ -1,0 +1,227 @@
+{
+  "content_spec_id": "4d8674b7-225b-429e-9832-c579c7300bf6",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "title": "I Married My Enemy—Then My Sister Sold Me Out",
+  "logline": "A revenge bride publicly refuses to abandon her fake marriage, then learns the evidence she released against her enemy may actually frame her.",
+  "language": "en",
+  "target_audience": "US women ages 18-34 who binge dark-romance dramas, fake-marriage plots, revenge stories, and betrayal twists.",
+  "target_platform": "TikTok vertical short video",
+  "tone": "intense",
+  "hook": "She married the enemy to destroy his family. Their marriage was fake—but a shocking betrayal made her revenge dangerously real.",
+  "synopsis": "Mara marries Adrian Vale to infiltrate and destroy his family, but he reveals that her sister sold him the plan. Rather than accept an annulment, Mara publicly claims her place and launches a timed evidence release. With seconds left, her sister admits the files will frame Mara—and says Adrian controls the only way to stop them.",
+  "episode_goal": "Have Mara choose to remain inside the enemy family and launch her revenge, only to discover that her sister and new husband may have turned the plan against her.",
+  "target_duration_seconds": 45,
+  "characters": [
+    {
+      "name": "Mara Quinn",
+      "role": "Protagonist and revenge bride",
+      "description": "A controlled, sharp strategist in a bridal gown, hiding grief and a revenge plan behind perfect composure.",
+      "motivation": "Use her fake marriage to expose the family she believes destroyed her own."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Enemy groom and dark-romance lead",
+      "description": "The magnetic heir to the Vale family, dangerous because he knows more about Mara's plan than he reveals.",
+      "motivation": "Keep Mara close and force her to question who truly betrayed her."
+    },
+    {
+      "name": "Lena Quinn",
+      "role": "Betraying sister",
+      "description": "Mara's trusted sister, heard by phone, whose secret deal turns the revenge plot against Mara.",
+      "motivation": "Conceal her role in manipulating Mara's evidence and marriage."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. VALE WEDDING ALTAR - DAY",
+      "purpose": "Open on the fake-marriage revenge hook and reveal that Mara's trusted sister betrayed her plan.",
+      "setting_hint": "Vale wedding altar, vertical close-ups",
+      "beat_summary": "At the altar, Mara completes the marriage that will place her inside the Vale family. Adrian immediately reveals that her secret plan has already been sold to him.",
+      "emotional_shift": "Cold confidence to exposed fury",
+      "emotional_objective": "Turn bridal triumph into intimate danger within seconds.",
+      "character_actions": [
+        "Mara faces the camera while concealing a phone beneath her bouquet.",
+        "Mara says her vow and signs the marriage document.",
+        "Adrian closes his hand over hers and displays a message from Lena."
+      ],
+      "turning_point": "Adrian shows Mara a message proving Lena gave him the plan.",
+      "scene_causality": {
+        "goal": "Complete the wedding and gain access to the Vale family.",
+        "conflict": "Adrian knows Mara married him to infiltrate his family and reveals that Lena sold him the plan.",
+        "outcome": "Mara becomes Adrian's wife, but her secret revenge plan is exposed and Lena is identified as the leak.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "I married the enemy to destroy his family. The marriage is fake. My revenge isn't.",
+        "Then your sister should've charged me more for it.",
+        "You knew?",
+        "Before you ever said yes."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Mara Quinn",
+          "intent": "Deliver the immediate hook and reveal her revenge plan.",
+          "text": "I married the enemy to destroy his family. The marriage is fake. My revenge isn't."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Signal that Mara's plan is compromised.",
+          "text": "Then your sister should've charged me more for it."
+        },
+        {
+          "character_name": "Mara Quinn",
+          "intent": "Refuse to show fear.",
+          "text": "You knew?"
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Reveal the personal betrayal.",
+          "text": "Before you ever said yes."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. VALE BOARDROOM - MOMENTS LATER",
+      "purpose": "Show Mara's agency by having her reject escape, claim her place, and publicly launch her revenge.",
+      "setting_hint": "Vale boardroom and presentation screen",
+      "beat_summary": "Knowing her cover is gone, Mara moves immediately. In front of the Vale board, she refuses Adrian's annulment offer and activates a timed release of her evidence.",
+      "emotional_shift": "Exposed fury to public defiance",
+      "emotional_objective": "Make Mara's refusal feel bold, satisfying, and dangerously irreversible.",
+      "character_actions": [
+        "Adrian places annulment papers on the boardroom table.",
+        "Mara pushes the papers back without signing.",
+        "Mara connects her phone to the boardroom screen.",
+        "A sixty-second upload countdown fills the vertical frame."
+      ],
+      "turning_point": "Mara refuses the annulment and starts the public upload despite Adrian's warning.",
+      "scene_causality": {
+        "goal": "Preserve her access to the family and launch her revenge before Adrian can stop her.",
+        "conflict": "Adrian offers an annulment and warns that Lena corrupted the evidence, while the Vale board watches Mara's choice.",
+        "outcome": "Mara publicly remains Adrian's wife and starts a sixty-second evidence release that only she intends to cancel.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Adrian exposed her plan and Lena's betrayal in Scene 1, Mara abandons secrecy and accelerates the attack before they can remove her."
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Sign the annulment. Walk away with your name intact.",
+        "No. Your wife is taking a seat.",
+        "And your family has sixty seconds before every secret goes public.",
+        "Mara, Lena forged those files."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Offer Mara an exit before she escalates.",
+          "text": "Sign the annulment. Walk away with your name intact."
+        },
+        {
+          "character_name": "Mara Quinn",
+          "intent": "Make a visible public choice to continue her revenge.",
+          "text": "No. Your wife is taking a seat."
+        },
+        {
+          "character_name": "Mara Quinn",
+          "intent": "Launch the attack before Adrian can stop her.",
+          "text": "And your family has sixty seconds before every secret goes public."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Warn that her weapon may be compromised.",
+          "text": "Mara, Lena forged those files."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. VALE BOARDROOM - CONTINUOUS",
+      "purpose": "Confirm Lena's betrayal, implicate Adrian, and end on a one-second choice that requires the next episode.",
+      "setting_hint": "Vale boardroom, speaker call and countdown screen",
+      "beat_summary": "With seconds remaining, Mara calls Lena for the truth. Lena admits the files will frame Mara and claims Adrian paid her, leaving Mara dependent on the enemy she married.",
+      "emotional_shift": "Public defiance to trapped uncertainty",
+      "emotional_objective": "Replace revenge satisfaction with betrayal, forced intimacy, and an urgent trust dilemma.",
+      "character_actions": [
+        "Mara calls Lena on speaker while the countdown drops.",
+        "Lena's face appears on the boardroom screen.",
+        "Mara reaches for the cancel control.",
+        "Adrian covers the control as the timer hits one."
+      ],
+      "turning_point": "Lena reveals that Adrian paid for the betrayal just as he blocks Mara from the cancel control.",
+      "scene_causality": {
+        "goal": "Determine whether the evidence is genuine and stop the upload if Lena corrupted it.",
+        "conflict": "Lena admits the evidence frames Mara, refuses to provide the cancel code, and claims Adrian controls it as the timer expires.",
+        "outcome": "Mara learns the release will frame her, Lena implicates Adrian, and the countdown reaches one with Adrian controlling her only chance to stop it.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Mara activated the timed release in Scene 2, she must verify Adrian's warning and obtain the cancel code before the upload completes."
+      },
+      "cliffhanger": true,
+      "dialogue_prompts": [
+        "Lena, tell me he is lying.",
+        "I switched the files. Release them, and they frame you—not the Vales.",
+        "Give me the cancel code.",
+        "Ask your husband. He paid for it.",
+        "One second, wife. Do you trust your betrayer—or your enemy?"
+      ],
+      "dialogues": [
+        {
+          "character_name": "Mara Quinn",
+          "intent": "Force Lena to confirm whether the evidence is real.",
+          "text": "Lena, tell me he is lying."
+        },
+        {
+          "character_name": "Lena Quinn",
+          "intent": "Confess enough to destabilize Mara.",
+          "text": "I switched the files. Release them, and they frame you—not the Vales."
+        },
+        {
+          "character_name": "Mara Quinn",
+          "intent": "Demand a way to stop the disaster.",
+          "text": "Give me the cancel code."
+        },
+        {
+          "character_name": "Lena Quinn",
+          "intent": "Redirect Mara's trust toward Adrian before disconnecting.",
+          "text": "Ask your husband. He paid for it."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Force Mara into an impossible act of trust.",
+          "text": "One second, wife. Do you trust your betrayer—or your enemy?"
+        }
+      ],
+      "supporting_asset_ids": []
+    }
+  ],
+  "next_episode_question": "Will Mara trust the sister who betrayed her or give Adrian control before the revenge upload reaches zero?",
+  "qa_notes": [
+    "Draft generated by RealLLMAdapter structured output.",
+    "Story QC and revision loop must still review platform fit and consistency."
+  ],
+  "llm_metadata": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "strategy_id": "strategy.scene_causality_ab.improved.v1",
+    "usage": {
+      "prompt_tokens": 5663,
+      "completion_tokens": 3617,
+      "total_tokens": 9280,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1891
+      }
+    },
+    "response_id": "resp_04e68873427341f7016a5e2f778c9c8191b59908cb764a9f0c",
+    "prompt_versions": [
+      "v3-scene-causality",
+      "v1-shared"
+    ],
+    "generation_strategy_version": "v1"
+  },
+  "id": "687c50ed-783a-494e-b1ff-2927e7062482",
+  "created_at": "2026-07-20T14:25:50.512360Z",
+  "updated_at": "2026-07-20T14:25:50.512405Z"
+}

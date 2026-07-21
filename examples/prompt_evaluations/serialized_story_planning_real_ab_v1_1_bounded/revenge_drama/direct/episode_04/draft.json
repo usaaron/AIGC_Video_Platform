@@ -1,0 +1,152 @@
+{
+  "title": "The Last Plunger",
+  "logline": "Maya risks Vale Meridian's last surviving evidence to free eleven hidden workers, then turns Adrian's final demolition attempt into the proof that destroys him.",
+  "synopsis": "Maya frees eleven concealed workers and secures their duplicate orders before Adrian traps them with his analog demolition plunger; she severs the trunk line, records his coercion, and delivers the witnesses and physical evidence that clear her name, charge Adrian, and trigger inspections of every Vale tower.",
+  "hook": "With seventy-eight seconds remaining, Maya discovers eleven workers locked beside the demolition trunk line.",
+  "target_audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+  "target_platform": "TikTok",
+  "language": "English",
+  "tone": "intense",
+  "episode_goal": "Maya must rescue the eleven hidden workers, stop Adrian's analog demolition, and secure enough evidence to clear her name.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "description": "A disciplined structural engineer framed for defects in Adrian Vale's buildings.",
+      "motivation": "Clear her name by proving developer fraud without putting residents or workers at risk."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Antagonist",
+      "description": "A ruthless developer attempting to erase evidence of systemic construction fraud.",
+      "motivation": "Destroy Vale Meridian and the records linking him to its counterfeit components."
+    },
+    {
+      "name": "Luis Ortega",
+      "role": "Ally",
+      "description": "Maya's steadfast ally and an experienced building safety coordinator.",
+      "motivation": "Evacuate everyone safely while preserving admissible evidence against Adrian."
+    },
+    {
+      "name": "Elena Ruiz",
+      "role": "Witness",
+      "description": "The forewoman of the eleven undocumented workers hidden inside Vale Meridian.",
+      "motivation": "Save her crew and reveal the work orders Adrian forced her to follow."
+    },
+    {
+      "name": "Inspector Shaw",
+      "role": "Authority",
+      "description": "A municipal structural safety investigator overseeing the Vale Meridian case.",
+      "motivation": "Establish the truth through physical records, testimony, and forensic evidence."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. VALE MERIDIAN SERVICE BAY - NIGHT",
+      "purpose": "Rescue the hidden workers and introduce evidence capable of replacing the destroyed controller log.",
+      "setting": "Vale Meridian's dust-filled basement service bay beside the demolition conduits.",
+      "beat_summary": "Maya frees the hidden workers and discovers that their forewoman preserved carbon copies bearing Adrian's initials.",
+      "emotional_shift": "Maya moves from desperate uncertainty to focused resolve.",
+      "emotional_objective": "Turn the terror of the countdown into hope grounded in living witnesses and physical proof.",
+      "character_actions": [
+        "Maya wedges a steel brace into the locked service gate as the mechanical timer drops below seventy-eight seconds.",
+        "Elena pulls eleven workers through the opening and produces carbon-copy orders from inside her jacket.",
+        "Maya hands the papers to Luis and follows the orange detonating cord deeper into the loading level."
+      ],
+      "turning_point": "Elena reveals signed duplicate orders and identifies Adrian's handheld trigger.",
+      "scene_causality": {
+        "goal": "Free all eleven workers and locate the analog trigger path.",
+        "conflict": "The locked workers, dwindling timer, and distant blasting line force Maya to divide rescue from disarmament.",
+        "outcome": "The workers escape with Luis while Maya stays behind to sever the demolition trunk.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Elena Ruiz",
+          "intent": "Reveal evidence while warning Maya about the demolition system.",
+          "text": "Vale made us install the fake couplers, but I kept every order—and that orange cord runs to a hand plunger."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Prioritize the workers and protect the evidence.",
+          "text": "Luis, take the eleven and those copies upstairs; I'm cutting the line before Vale reaches the plunger."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. VALE MERIDIAN LOADING RAMP - NIGHT",
+      "purpose": "Stop the analog demolition while capturing Adrian's direct attempt to suppress evidence.",
+      "setting": "Vale Meridian's fractured underground loading ramp moments before detonation.",
+      "beat_summary": "Adrian corners the evacuees and demands the records, but Maya records his ultimatum and severs the demolition trunk.",
+      "emotional_shift": "Controlled dread erupts into decisive triumph.",
+      "emotional_objective": "Deliver the catharsis of Maya defeating Adrian through preparation rather than vengeance.",
+      "character_actions": [
+        "Adrian lowers a security shutter across the exit ramp and locks a magneto blasting plunger onto the orange trunk line.",
+        "Maya clips a safety lanyard to a column, swings across an open utility trench, and cuts the trunk with insulated shears.",
+        "Adrian slams the plunger, but its charge dies as police lights flood the ramp behind the escaping workers."
+      ],
+      "turning_point": "Maya chooses the dangerous route to the trunk line instead of bargaining away the evidence.",
+      "scene_causality": {
+        "goal": "Keep the workers moving, preserve the records, and disconnect every charge from Adrian's plunger.",
+        "conflict": "Adrian blocks the evacuation and threatens to detonate unless Maya surrenders the documents that can convict him.",
+        "outcome": "Maya severs the trunk, the workers escape, and Adrian's recorded ultimatum gives arriving police probable cause.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Maya sent the workers and signed orders toward the exit, Adrian intercepts them with the only remaining trigger."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Coerce Maya into surrendering the evidence by threatening the workers.",
+          "text": "Give me Ruiz's copies, Maya, and I let the eleven walk before this building folds."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Expose Adrian's coercion while committing to save the workers.",
+          "text": "You just traded eleven lives for your signature—Luis, keep recording."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "EXT. VALE MERIDIAN EVIDENCE STATION - DAWN",
+      "purpose": "Resolve Maya's framing, punish Adrian, and establish a limited path toward repairing his wider damage.",
+      "setting": "A floodlit municipal evidence station outside the sealed Vale Meridian tower at dawn.",
+      "beat_summary": "Physical evidence, worker testimony, and Adrian's recorded threat exonerate Maya and place his entire building network under investigation.",
+      "emotional_shift": "Personal triumph matures into public responsibility.",
+      "emotional_objective": "Provide earned vindication while extending Maya's protective mission without undoing the victory.",
+      "character_actions": [
+        "Inspector Shaw stamps Maya's suspension order VOID beside the recovered work orders and counterfeit couplers.",
+        "Police escort Adrian past the eleven workers as Elena identifies his initials for the official record.",
+        "Maya accepts a sealed list of every Vale tower and turns toward the waiting residents."
+      ],
+      "turning_point": "Maya uses her restored authority to demand protection for residents before beginning the wider audit.",
+      "scene_causality": {
+        "goal": "Convert the night's rescue and evidence into formal exoneration and resident protection.",
+        "conflict": "The authorities must determine whether the surviving evidence establishes Adrian's guilt and Maya's innocence.",
+        "outcome": "Maya is cleared, Adrian is charged, Meridian's residents are protected, and his remaining towers face inspection.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Maya saved the witnesses, preserved their records, and recorded Adrian's threat, investigators can prove both the fraud and the frame-up."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Inspector Shaw",
+          "intent": "Officially clear Maya and confirm Adrian's institutional defeat.",
+          "text": "The orders, components, witnesses, and recording all match—you're cleared, and Vale is charged."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Ensure the victory protects residents beyond this single case.",
+          "text": "Then house Meridian's families first—and let me inspect every tower he touched."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "How many other Vale towers will Maya's citywide audit expose?"
+}

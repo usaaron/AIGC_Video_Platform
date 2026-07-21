@@ -1,0 +1,71 @@
+{
+  "title": "Revenge planning draft for TikTok",
+  "audience_goal": {
+    "summary": "Serve the audience segment described as: US female 18-34 viewers who binge dark romance betrayal twists.",
+    "priority": "primary",
+    "success_metric": "Engagement quality on manually imported trend samples."
+  },
+  "commercial_goal": {
+    "summary": "Support the commercial objective: Validate dark romance sequel demand and rewatch potential.",
+    "priority": "primary",
+    "success_metric": "Commercial signal score across imported content."
+  },
+  "platform_goal": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "objective": "Maximize retention and replay value for short_video output.",
+    "target_duration_seconds": 45,
+    "target_aspect_ratio": "9:16"
+  },
+  "story_goal": "Turn the strongest trend and preference signals into a short-form cliffhanger script.",
+  "quality_level": "high",
+  "budget_level": "medium",
+  "tags": [
+    {
+      "ontology_node_id": "emotion.revenge",
+      "label": "Revenge",
+      "category": "Emotion",
+      "confidence": 0.7559999999999999
+    },
+    {
+      "ontology_node_id": "hook.fake_marriage",
+      "label": "Fake Marriage",
+      "category": "Hook",
+      "confidence": 0.7559999999999999
+    },
+    {
+      "ontology_node_id": "genre.drama",
+      "label": "Drama",
+      "category": "Genre",
+      "confidence": 0.7559999999999999
+    }
+  ],
+  "creative_brief": {
+    "hook": "she married the enemy to destroy his family a fake marriage wedding drama becomes revenge after a shocking betrayal",
+    "tone": "intense",
+    "pacing": "fast",
+    "target_emotion": "revenge",
+    "asset_constraints": [
+      "Prefer reusable assets with strong hook compatibility."
+    ],
+    "generation_notes": [
+      "Draft derived from manual import trend signals."
+    ]
+  },
+  "metadata": {
+    "generated_by": "data_intelligence_pipeline",
+    "draft_id": "8fea0a52-cddd-43fc-b072-cb200e0a394f",
+    "rationale": [
+      "Selected 3 controlled tags from rule-based mapping.",
+      "Top preference score observed: 0.63.",
+      "Primary imported language: en.",
+      "Primary imported region: US."
+    ],
+    "source_language": "en",
+    "source_region": "US",
+    "source_platform": "tiktok"
+  },
+  "id": "4d8674b7-225b-429e-9832-c579c7300bf6",
+  "status": "draft",
+  "created_at": "2026-07-20T14:12:11.229384Z",
+  "updated_at": "2026-07-20T14:12:11.229385Z"
+}

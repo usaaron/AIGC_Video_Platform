@@ -1,0 +1,140 @@
+{
+  "title": "The Distributed Truth",
+  "logline": "Maya saves fragments of a corrupted inspection archive through the residents' phones, then risks their trust to expose Adrian's relocation trap and discovers another occupied tower may be hours from failure.",
+  "synopsis": "Maya defeats the remote wipe by distributing encrypted archive fragments across the Harbor Heights residents' phones. Adrian retaliates by conditioning emergency shelter on deleting those fragments and signing statements that blame Maya, but she sacrifices her quickest legal path to exoneration and gives Luis proof of the revision trail. His recording of Adrian's coercion preserves the residents' trust, allowing them to reconstruct a hidden inspection video that links the same structural fraud W",
+  "hook": "With forty seconds left before the maintenance backup erases itself, Maya discovers the archive is too large to copy normally.",
+  "target_audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "suspenseful",
+  "episode_goal": "Maya must preserve the original inspection archive and keep Adrian from using displaced residents to destroy her credibility.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "description": "A disciplined structural engineer framed for approving dangerous construction changes.",
+      "motivation": "Clear her name by proving developer fraud without putting residents at risk."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Antagonist",
+      "description": "A polished developer who weaponizes contracts, public fear, and City Hall connections.",
+      "motivation": "Open Harbor Heights on schedule and make Maya absorb the blame for its defects."
+    },
+    {
+      "name": "Luis Ortega",
+      "role": "Ally",
+      "description": "A Harbor Heights resident organizer balancing his neighbors' safety against their need for housing.",
+      "motivation": "Keep his neighbors housed and alive while exposing whoever concealed the danger."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. HARBOR HEIGHTS LOADING BAY - NIGHT",
+      "purpose": "Preserve the inspection archive through a consequential decentralized backup.",
+      "setting": "Harbor Heights loading bay, night, beneath flashing evacuation lights",
+      "beat_summary": "Maya turns the residents' phones into a distributed backup before the remote deletion finishes.",
+      "emotional_shift": "Maya moves from racing alone to entrusting the residents with her only evidence.",
+      "emotional_objective": "Convert panic into fragile collective resolve.",
+      "character_actions": [
+        "Maya disconnects the tablet from the building network, but the deletion countdown keeps falling.",
+        "She splits the archive into encrypted fragments and sends them to the residents gathered outside.",
+        "Luis raises his phone as the final fragment arrives one second before the tablet wipes clean."
+      ],
+      "turning_point": "Maya chooses to place the evidence in the residents' hands instead of keeping sole control.",
+      "scene_causality": {
+        "goal": "Save the original inspection archive before the countdown expires.",
+        "conflict": "The remote wipe continues offline while the archive is too large for a conventional copy.",
+        "outcome": "The tablet is erased, but the archive survives in encrypted fragments across resident phones.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Luis Ortega",
+          "intent": "Challenge Maya to explain the risk she is imposing on residents.",
+          "text": "You want Adrian's evidence on our personal phones?"
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Commit to a strategy that makes the residents essential witnesses.",
+          "text": "No single phone holds enough to expose anyone, but together you hold the truth."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "EXT. HARBOR HEIGHTS EVACUATION CURB - NIGHT",
+      "purpose": "Expose Adrian's attempt to weaponize emergency housing against Maya and the evidence.",
+      "setting": "Harbor Heights evacuation curb beside a city relocation bus",
+      "beat_summary": "Adrian offers immediate housing only to residents who surrender their archive fragments and blame Maya for the evacuation.",
+      "emotional_shift": "The residents' doubt hardens into anger at Adrian after Maya gives up her quickest legal defense.",
+      "emotional_objective": "Make Maya earn trust by choosing residents' welfare over immediate vindication.",
+      "character_actions": [
+        "Adrian steps from a city relocation bus and displays prepaid hotel vouchers beside a stack of waivers.",
+        "Exhausted residents begin deleting Maya's encrypted fragments to qualify for shelter.",
+        "Maya tears her own clearance affidavit in half and gives Luis the recovered revision ledger."
+      ],
+      "turning_point": "Maya destroys her own affidavit to prove she values the residents' safety more than clearing her name.",
+      "scene_causality": {
+        "goal": "Prevent frightened residents from surrendering the archive without leaving their families exposed.",
+        "conflict": "Adrian ties emergency shelter to waivers accusing Maya and deletion of the evidence fragments.",
+        "outcome": "Maya forfeits her clearance affidavit, and Luis records Adrian conditioning shelter on false testimony.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because the archive now exists across resident phones, Adrian must coerce its holders into deleting it."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Force the residents to trade evidence and loyalty for immediate shelter.",
+          "text": "Delete her file, sign that she caused tonight's panic, and your families sleep indoors."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Sacrifice her fastest path to exoneration to expose Adrian's coercion.",
+          "text": "Keep the fragments; I can survive another night blamed, but your families cannot survive his next building."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. CITY RELOCATION BUS - NIGHT",
+      "purpose": "Reveal the fraud's larger scope and launch an immediate race to save an occupied tower.",
+      "setting": "Inside the dark relocation bus as resident phones rebuild the archive",
+      "beat_summary": "The reconstructed archive reveals Harbor Heights was only the test case for the same concealed defect in an occupied sister tower.",
+      "emotional_shift": "Relief at recovering proof collapses into terror for hundreds of unsuspecting residents.",
+      "emotional_objective": "Turn a partial victory into urgent dread and a broader moral obligation.",
+      "character_actions": [
+        "Luis connects the remaining phones, reconstructing a damaged video from the inspection archive.",
+        "The screen shows Adrian ordering inspectors to approve the same altered transfer plate at occupied Vale Meridian.",
+        "Maya circles a demolition permit scheduled for dawn and runs toward Luis's motorcycle."
+      ],
+      "turning_point": "Maya realizes Adrian's cover-up threatens an occupied sister tower scheduled for demolition at dawn.",
+      "scene_causality": {
+        "goal": "Identify what Adrian was desperate to remove from the archive.",
+        "conflict": "The reconstructed file proves another tower is endangered, but Adrian has secured a dawn demolition permit that can erase the evidence.",
+        "outcome": "Maya discovers Vale Meridian carries the same defect and may be destroyed at dawn while occupied.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Luis preserved Adrian's coercion and enough residents retained their fragments, Maya can reconstruct the archive's hidden video."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Adrian Vale",
+          "intent": "In the recovered recording, reveal that the fraud extends beyond Harbor Heights.",
+          "text": "Once Harbor passes, Meridian inherits the same revision; nobody reopens a signed tower."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Recognize the immediate threat and commit to protecting the occupied building.",
+          "text": "He is not demolishing Meridian to rebuild it; he is burying the defect with everyone still inside."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Maya evacuate Vale's occupied sister tower before Adrian destroys the structure and the evidence inside it?"
+}

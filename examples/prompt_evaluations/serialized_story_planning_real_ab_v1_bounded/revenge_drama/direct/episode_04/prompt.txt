@@ -1,0 +1,68 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-bounded
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Use the planning context when it is present. When it is absent, infer the episode's responsibility from the ContentSpec summary, episode number, and previous state.
+Do not mention prompts, plans, schemas, evaluation variants, or these instructions.
+
+EpisodeNumber: 4
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve the same characters, established facts, relationships, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- This is Episode 4 of 4 for the bounded story sample. Resolve the central story question while ending on a limited continuation hook compatible with the schema.
+
+ContentSpecSummary:
+{
+  "Audience": "English-speaking viewers who prefer strategic revenge, institutional conflict and earned reversals",
+  "Platform": "TikTok-oriented vertical serialized fiction",
+  "Language": "English",
+  "Episode duration": "90 seconds",
+  "Tone": "Sharp, controlled, escalating",
+  "Story goal": "A structural engineer must expose the developer who blamed her for a deadly defect without endangering residents still inside his buildings",
+  "Constraints": "Revenge relies on evidence and consequential choices; protagonist protects vulnerable people; no public-wedding or secret-heir device"
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 3,
+  "title": "Dead Load",
+  "episode_goal": "Maya must evacuate Tower C, preserve proof of its failing slab, and survive Victor's attempt to erase both.",
+  "synopsis": "Maya and Elias reach Tower C with minutes to spare, but Victor has overridden its alarms and elevators. Maya cuts the concert power, then floods the rooftop to force a controlled evacuation while documenting deliberately severed shoring beneath the failing slab. She refuses Victor's bait and lets him escape so she can protect the remaining concertgoers. Once the tower is empty, Maya activates a live structural sensor that proves Victor concealed the defect, but Victor triggers the collapse and_N",
+  "character_states": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "motivation": "Clear her name while protecting residents from Hale's concealed defects."
+    },
+    {
+      "name": "Victor Hale",
+      "role": "Antagonist",
+      "motivation": "Destroy the evidence and keep Maya as his permanent scapegoat."
+    },
+    {
+      "name": "Elias Grant",
+      "role": "Reluctant ally",
+      "motivation": "Prevent another disaster and bring Victor down with admissible proof."
+    }
+  ],
+  "final_scene_outcome": "The sensor publicly confirms Victor's concealed defect, but the collapse traps Maya beneath Tower C.",
+  "final_turning_point": "Maya keeps the sensor transmitting instead of using her final seconds to flee.",
+  "next_episode_question": "Can Elias rescue Maya and broadcast her structural evidence before Victor brings the trapped tower down?"
+}
+
+PlanningContext:
+{
+  "story_blueprint": null,
+  "current_episode_plan": null
+}

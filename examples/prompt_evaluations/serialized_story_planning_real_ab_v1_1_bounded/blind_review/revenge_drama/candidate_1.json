@@ -1,0 +1,578 @@
+{
+  "story_id": "revenge_drama",
+  "candidate": "candidate_1",
+  "episodes": [
+    {
+      "title": "The Load-Bearing Lie",
+      "logline": "A framed engineer defies a developer's cover-up, stops residents from entering an unsafe tower, and discovers the sabotage reaches inside city government.",
+      "synopsis": "Structural engineer Maya Chen is blamed at a televised hearing for approving the unsafe Harbor Heights tower, but she catches a revision code proving her calculations were replaced after her dismissal. She races to the occupied site, uncovers a failing transfer plate, and chooses to halt move-in despite the residents' financial risk and Adrian Vale's threatened retaliation. Her decision earns organizer Luis Ortega's trust, and he gives her a hidden maintenance backup proving City Hall opened her",
+      "hook": "As Maya is publicly blamed for a tower's failing supports, she spots proof that her sealed calculations were replaced.",
+      "target_audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+      "target_platform": "TikTok",
+      "language": "en",
+      "tone": "suspenseful",
+      "episode_goal": "Maya must preserve evidence of structural fraud while preventing residents from entering a dangerous tower.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Maya Chen",
+          "role": "Protagonist",
+          "description": "A meticulous structural engineer framed for approving unsafe materials, calm under pressure and fiercely protective of residents.",
+          "motivation": "Clear her name by proving developer fraud without putting occupied buildings at risk."
+        },
+        {
+          "name": "Adrian Vale",
+          "role": "Antagonist",
+          "description": "A polished property developer who controls the redevelopment authority through favors, intimidation, and falsified records.",
+          "motivation": "Open Harbor Heights on schedule and make Maya absorb the blame for its structural defects."
+        },
+        {
+          "name": "Luis Ortega",
+          "role": "Ally",
+          "description": "A Harbor Heights tenant organizer and single father who distrusts institutions but recognizes genuine courage.",
+          "motivation": "Keep his neighbors housed and alive while discovering who concealed the danger."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. REDEVELOPMENT HEARING ROOM - MORNING",
+          "purpose": "Establish the frame-up and give Maya her first piece of actionable evidence.",
+          "setting": "City redevelopment hearing room, morning",
+          "beat_summary": "During a televised inspection hearing, Maya notices her approval stamp on calculations she never authored.",
+          "emotional_shift": "Maya moves from cornered to certain she was deliberately framed.",
+          "emotional_objective": "Turn Maya's public humiliation into focused suspicion.",
+          "character_actions": [
+            "Maya aligns the projected calculation sheet with a dated photo on her phone and spots a mismatched revision code.",
+            "Adrian signals security while cameras turn toward Maya.",
+            "Maya photographs the forged page before the projector goes dark."
+          ],
+          "turning_point": "Maya proves to herself that the approval record was altered.",
+          "scene_causality": {
+            "goal": "Maya wants to identify a concrete defect in the evidence against her.",
+            "conflict": "Adrian uses falsified calculations and institutional authority to pin the unsafe tower on Maya.",
+            "outcome": "She captures the forged revision code before security removes her.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Adrian Vale",
+              "intent": "Publicly isolate Maya as the sole culprit.",
+              "text": "Your signature cleared every beam in that tower, Maya."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Expose the first verifiable flaw in his accusation.",
+              "text": "Then explain why my signature appears on a revision created three days after you fired me."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. HARBOR HEIGHTS LOBBY - AFTERNOON",
+          "purpose": "Give Maya a consequential decision that protects residents while escalating Adrian's leverage.",
+          "setting": "Harbor Heights lobby, afternoon",
+          "beat_summary": "At Harbor Heights, Maya chooses to trigger a costly emergency lockout after finding a live structural warning beneath cosmetic panels.",
+          "emotional_shift": "Luis's distrust shifts into wary respect as Maya risks arrest and ruin.",
+          "emotional_objective": "Show that Maya values lives over clearing her name quickly.",
+          "character_actions": [
+            "Maya tears away a lobby wall panel and reveals a buckled transfer plate shedding metal flakes.",
+            "Luis blocks impatient residents while Maya scans the fracture with her phone.",
+            "Maya pulls the fire-control lever, sealing the elevators and halting move-in."
+          ],
+          "turning_point": "Maya sacrifices her legal position by ordering an unauthorized emergency lockout.",
+          "scene_causality": {
+            "goal": "Maya wants to verify the danger and keep residents out of the tower.",
+            "conflict": "Residents face financial loss if Maya halts move-in, but entering could expose them to structural failure.",
+            "outcome": "She locks down the building and preserves visible proof of a failing structural connection.",
+            "caused_by_scene_number": 1,
+            "causal_link": "The forged revision code convinces Maya that the tower may contain concealed defects requiring immediate inspection."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Luis Ortega",
+              "intent": "Force Maya to choose between evidence and the residents' immediate welfare.",
+              "text": "If you stop move-in, Vale says every family loses its deposit."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Accept personal consequences to protect the residents.",
+              "text": "Let him sue me in a building that stays empty."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "EXT. HARBOR HEIGHTS SERVICE ENTRANCE - DUSK",
+          "purpose": "Reveal official complicity and launch the race to recover the original archive.",
+          "setting": "Harbor Heights service entrance, dusk",
+          "beat_summary": "While police surround the locked tower, Luis delivers a hidden backup showing that City Hall received Maya's real warning months ago.",
+          "emotional_shift": "Vindication becomes alarm when Maya realizes the cover-up is institutional and the proof is vanishing.",
+          "emotional_objective": "Expand Maya's fight from personal vindication into a conspiracy threatening every resident.",
+          "character_actions": [
+            "Luis slips Maya a maintenance tablet recovered from a sealed electrical cabinet.",
+            "Maya opens a timestamped transmission receipt bearing the deputy commissioner's credentials.",
+            "Across the street, Adrian remotely wipes files until Maya's tablet displays an active deletion countdown."
+          ],
+          "turning_point": "The tablet reveals an official cover-up just as a remote deletion countdown begins.",
+          "scene_causality": {
+            "goal": "Maya wants to preserve the transmission receipt and identify who authorized the cover-up.",
+            "conflict": "Police close in as Adrian remotely deletes the only record proving officials received Maya's authentic warning.",
+            "outcome": "She confirms City Hall's complicity but has sixty seconds to stop the evidence from being erased.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Maya's emergency lockout prompts Luis to trust her with the tower's concealed maintenance backup."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Luis Ortega",
+              "intent": "Reveal that Maya's warning survived inside the building's maintenance system.",
+              "text": "This says City Hall opened your original report four months ago."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Commit to saving the evidence despite imminent arrest and deletion.",
+              "text": "Then they didn't overlook the danger; they buried it."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Can Maya retrieve the original inspection archive before Adrian erases it and turns the residents against her?"
+    },
+    {
+      "title": "The Distributed Truth",
+      "logline": "Maya saves fragments of a corrupted inspection archive through the residents' phones, then risks their trust to expose Adrian's relocation trap and discovers another occupied tower may be hours from failure.",
+      "synopsis": "Maya defeats the remote wipe by distributing encrypted archive fragments across the Harbor Heights residents' phones. Adrian retaliates by conditioning emergency shelter on deleting those fragments and signing statements that blame Maya, but she sacrifices her quickest legal path to exoneration and gives Luis proof of the revision trail. His recording of Adrian's coercion preserves the residents' trust, allowing them to reconstruct a hidden inspection video that links the same structural fraud W",
+      "hook": "With forty seconds left before the maintenance backup erases itself, Maya discovers the archive is too large to copy normally.",
+      "target_audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+      "target_platform": "TikTok",
+      "language": "en",
+      "tone": "suspenseful",
+      "episode_goal": "Maya must preserve the original inspection archive and keep Adrian from using displaced residents to destroy her credibility.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Maya Chen",
+          "role": "Protagonist",
+          "description": "A disciplined structural engineer framed for approving dangerous construction changes.",
+          "motivation": "Clear her name by proving developer fraud without putting residents at risk."
+        },
+        {
+          "name": "Adrian Vale",
+          "role": "Antagonist",
+          "description": "A polished developer who weaponizes contracts, public fear, and City Hall connections.",
+          "motivation": "Open Harbor Heights on schedule and make Maya absorb the blame for its defects."
+        },
+        {
+          "name": "Luis Ortega",
+          "role": "Ally",
+          "description": "A Harbor Heights resident organizer balancing his neighbors' safety against their need for housing.",
+          "motivation": "Keep his neighbors housed and alive while exposing whoever concealed the danger."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. HARBOR HEIGHTS LOADING BAY - NIGHT",
+          "purpose": "Preserve the inspection archive through a consequential decentralized backup.",
+          "setting": "Harbor Heights loading bay, night, beneath flashing evacuation lights",
+          "beat_summary": "Maya turns the residents' phones into a distributed backup before the remote deletion finishes.",
+          "emotional_shift": "Maya moves from racing alone to entrusting the residents with her only evidence.",
+          "emotional_objective": "Convert panic into fragile collective resolve.",
+          "character_actions": [
+            "Maya disconnects the tablet from the building network, but the deletion countdown keeps falling.",
+            "She splits the archive into encrypted fragments and sends them to the residents gathered outside.",
+            "Luis raises his phone as the final fragment arrives one second before the tablet wipes clean."
+          ],
+          "turning_point": "Maya chooses to place the evidence in the residents' hands instead of keeping sole control.",
+          "scene_causality": {
+            "goal": "Save the original inspection archive before the countdown expires.",
+            "conflict": "The remote wipe continues offline while the archive is too large for a conventional copy.",
+            "outcome": "The tablet is erased, but the archive survives in encrypted fragments across resident phones.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Luis Ortega",
+              "intent": "Challenge Maya to explain the risk she is imposing on residents.",
+              "text": "You want Adrian's evidence on our personal phones?"
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Commit to a strategy that makes the residents essential witnesses.",
+              "text": "No single phone holds enough to expose anyone, but together you hold the truth."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "EXT. HARBOR HEIGHTS EVACUATION CURB - NIGHT",
+          "purpose": "Expose Adrian's attempt to weaponize emergency housing against Maya and the evidence.",
+          "setting": "Harbor Heights evacuation curb beside a city relocation bus",
+          "beat_summary": "Adrian offers immediate housing only to residents who surrender their archive fragments and blame Maya for the evacuation.",
+          "emotional_shift": "The residents' doubt hardens into anger at Adrian after Maya gives up her quickest legal defense.",
+          "emotional_objective": "Make Maya earn trust by choosing residents' welfare over immediate vindication.",
+          "character_actions": [
+            "Adrian steps from a city relocation bus and displays prepaid hotel vouchers beside a stack of waivers.",
+            "Exhausted residents begin deleting Maya's encrypted fragments to qualify for shelter.",
+            "Maya tears her own clearance affidavit in half and gives Luis the recovered revision ledger."
+          ],
+          "turning_point": "Maya destroys her own affidavit to prove she values the residents' safety more than clearing her name.",
+          "scene_causality": {
+            "goal": "Prevent frightened residents from surrendering the archive without leaving their families exposed.",
+            "conflict": "Adrian ties emergency shelter to waivers accusing Maya and deletion of the evidence fragments.",
+            "outcome": "Maya forfeits her clearance affidavit, and Luis records Adrian conditioning shelter on false testimony.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because the archive now exists across resident phones, Adrian must coerce its holders into deleting it."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Adrian Vale",
+              "intent": "Force the residents to trade evidence and loyalty for immediate shelter.",
+              "text": "Delete her file, sign that she caused tonight's panic, and your families sleep indoors."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Sacrifice her fastest path to exoneration to expose Adrian's coercion.",
+              "text": "Keep the fragments; I can survive another night blamed, but your families cannot survive his next building."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "INT. CITY RELOCATION BUS - NIGHT",
+          "purpose": "Reveal the fraud's larger scope and launch an immediate race to save an occupied tower.",
+          "setting": "Inside the dark relocation bus as resident phones rebuild the archive",
+          "beat_summary": "The reconstructed archive reveals Harbor Heights was only the test case for the same concealed defect in an occupied sister tower.",
+          "emotional_shift": "Relief at recovering proof collapses into terror for hundreds of unsuspecting residents.",
+          "emotional_objective": "Turn a partial victory into urgent dread and a broader moral obligation.",
+          "character_actions": [
+            "Luis connects the remaining phones, reconstructing a damaged video from the inspection archive.",
+            "The screen shows Adrian ordering inspectors to approve the same altered transfer plate at occupied Vale Meridian.",
+            "Maya circles a demolition permit scheduled for dawn and runs toward Luis's motorcycle."
+          ],
+          "turning_point": "Maya realizes Adrian's cover-up threatens an occupied sister tower scheduled for demolition at dawn.",
+          "scene_causality": {
+            "goal": "Identify what Adrian was desperate to remove from the archive.",
+            "conflict": "The reconstructed file proves another tower is endangered, but Adrian has secured a dawn demolition permit that can erase the evidence.",
+            "outcome": "Maya discovers Vale Meridian carries the same defect and may be destroyed at dawn while occupied.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because Luis preserved Adrian's coercion and enough residents retained their fragments, Maya can reconstruct the archive's hidden video."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Adrian Vale",
+              "intent": "In the recovered recording, reveal that the fraud extends beyond Harbor Heights.",
+              "text": "Once Harbor passes, Meridian inherits the same revision; nobody reopens a signed tower."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Recognize the immediate threat and commit to protecting the occupied building.",
+              "text": "He is not demolishing Meridian to rebuild it; he is burying the defect with everyone still inside."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Can Maya evacuate Vale's occupied sister tower before Adrian destroys the structure and the evidence inside it?"
+    },
+    {
+      "title": "Eleven Below",
+      "logline": "With an occupied tower marked for covert demolition, Maya weaponizes its own safety systems to force an evacuation before Adrian's analog backup threatens people hidden off the official rolls.",
+      "synopsis": "Maya and Luis enter Vale Meridian and expose a forged containment order designed to keep residents inside during demolition. Adrian forces Maya to choose between downloading the controller log that could clear her name and activating the fire system, so she destroys the log to unlock the exits and summon emergency crews. Maya severs the digital detonator bus and saves the registered residents, while a partial blast ejects counterfeit structural components into public view. Their victory turns to",
+      "hook": "A demolition timer counts down behind Vale Meridian's occupied lobby while a forged safety notice orders residents to remain inside.",
+      "target_audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+      "target_platform": "TikTok",
+      "language": "en",
+      "tone": "suspenseful",
+      "episode_goal": "Maya must evacuate Vale Meridian and interrupt its demolition without destroying the evidence that can expose Adrian.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Maya Chen",
+          "role": "Protagonist",
+          "description": "A disciplined structural engineer framed for Harbor Heights' defects, now racing to prevent the same fraud from killing more residents.",
+          "motivation": "Clear her name by proving developer fraud without putting residents at risk."
+        },
+        {
+          "name": "Adrian Vale",
+          "role": "Antagonist",
+          "description": "The ruthless head of Vale Developments, willing to destroy an occupied tower to erase evidence of systemic fraud.",
+          "motivation": "Erase the sister tower's defects before they expose his company and exonerate Maya."
+        },
+        {
+          "name": "Luis Ortega",
+          "role": "Ally",
+          "description": "A Harbor Heights tenant organizer whose trust in Maya has made him her link to endangered residents.",
+          "motivation": "Keep both buildings' residents alive while securing proof of Adrian's crimes."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. VALE MERIDIAN LOBBY - PRE-DAWN",
+          "purpose": "Establish the demolition countdown and the false order keeping residents inside.",
+          "setting": "Vale Meridian lobby, pre-dawn",
+          "beat_summary": "Maya and Luis discover Adrian has disguised the demolition lockdown as a hazardous-material containment order.",
+          "emotional_shift": "Maya moves from horrified confirmation to controlled action.",
+          "emotional_objective": "Turn institutional helplessness into urgent defiance.",
+          "character_actions": [
+            "Maya compares the lobby notice with the demolition routing shown in the recovered inspection video.",
+            "Luis chains open the stairwell doors as security shutters descend.",
+            "Maya spots a concealed countdown reflected in the security desk glass."
+          ],
+          "turning_point": "Maya realizes the containment notice is designed to keep residents inside during demolition.",
+          "scene_causality": {
+            "goal": "Confirm the demolition threat and gain access to the occupied tower.",
+            "conflict": "A forged containment order and descending shutters prevent Maya from evacuating residents openly.",
+            "outcome": "Maya verifies live charges and enters the stairwell with Luis.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Luis Ortega",
+              "intent": "Warn Maya that official authority has neutralized resident cooperation.",
+              "text": "They were told opening a door spreads asbestos, so now fear is doing Vale's security work."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Identify Adrian's lethal deception and commit to intervention.",
+              "text": "There is no asbestos protocol; those wires lead to shaped charges, and we have twenty-eight minutes."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. VALE MERIDIAN FIRE-CONTROL ROOM - PRE-DAWN",
+          "purpose": "Force the evacuation through an observable sacrifice that destroys Maya's quickest proof.",
+          "setting": "Vale Meridian fire-control room",
+          "beat_summary": "Maya sacrifices the demolition controller's full data log to trigger a mandatory citywide fire response and mass evacuation.",
+          "emotional_shift": "Maya moves from agonized temptation to irreversible resolve.",
+          "emotional_objective": "Make Maya's protective values cost her decisive evidence.",
+          "character_actions": [
+            "Maya opens the fire-control cabinet and finds the demolition relay spliced into the alarm network.",
+            "Adrian's face appears on the cabinet monitor as the evidence-download bar climbs.",
+            "Maya yanks the suppression lever, flooding the controller and sounding every alarm."
+          ],
+          "turning_point": "Maya pulls the lever and visibly chooses hundreds of lives over immediate exoneration.",
+          "scene_causality": {
+            "goal": "Force every legal exit open before the countdown expires.",
+            "conflict": "The alarm lever will summon rescuers and unlock exits but destroy the controller log proving Adrian ordered the demolition.",
+            "outcome": "Maya destroys the controller log, activates the alarms, and releases residents into the stairwells.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because the forged order blocks a normal evacuation, Maya must override the tower through its fire-control system."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Adrian Vale",
+              "intent": "Tempt Maya to preserve exonerating evidence at the residents' expense.",
+              "text": "Keep downloading and you get your name back; pull that lever and the only complete log drowns."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Choose lives over her fastest path to vindication.",
+              "text": "My name can wait; they cannot."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "EXT. VALE MERIDIAN EVACUATION PLAZA - DAWN",
+          "purpose": "Preserve evidence of structural fraud while revealing hidden occupants and Adrian's analog demolition backup.",
+          "setting": "Vale Meridian evacuation plaza and sublevel service corridor",
+          "beat_summary": "After Maya severs the digital detonator bus, Luis discovers eleven unregistered workers remain below as Adrian activates an analog backup.",
+          "emotional_shift": "Relief collapses into personal, time-critical terror.",
+          "emotional_objective": "Convert apparent victory into dread without negating Maya's rescue.",
+          "character_actions": [
+            "Maya cuts the labeled detonator trunk while residents stream across the evacuation plaza.",
+            "A single charge blasts out the evidence floor's windows, scattering counterfeit steel couplers onto the street.",
+            "Luis checks a recovered basement payroll sheet as a red mechanical timer begins ticking beneath the tower."
+          ],
+          "turning_point": "Luis reveals the tower is not empty as Adrian's mechanical backup starts counting down.",
+          "scene_causality": {
+            "goal": "Disable the demolition and confirm every occupant has escaped.",
+            "conflict": "Adrian's first blast destroys the evidence floor while unregistered workers remain trapped above analog foundation charges.",
+            "outcome": "Maya stops the digital implosion and exposes counterfeit couplers, but eleven hidden workers remain over a ticking analog device.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because Maya's alarm empties the registered floors, she can sever the main detonator line without trapping the known residents."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Luis Ortega",
+              "intent": "Reveal that the apparent evacuation is incomplete.",
+              "text": "The official count is clear, but this payroll lists eleven night workers housed in sublevel three."
+            },
+            {
+              "character_name": "Adrian Vale",
+              "intent": "Announce his final escalation and frame Maya's intervention as futile.",
+              "text": "Digital systems leave records, Maya; my foundation charges only leave rubble."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Can Maya rescue the eleven hidden workers and expose Adrian before his analog charges bring Vale Meridian down?"
+    },
+    {
+      "title": "The Last Plunger",
+      "logline": "Maya risks Vale Meridian's last surviving evidence to free eleven hidden workers, then turns Adrian's final demolition attempt into the proof that destroys him.",
+      "synopsis": "Maya frees eleven concealed workers and secures their duplicate orders before Adrian traps them with his analog demolition plunger; she severs the trunk line, records his coercion, and delivers the witnesses and physical evidence that clear her name, charge Adrian, and trigger inspections of every Vale tower.",
+      "hook": "With seventy-eight seconds remaining, Maya discovers eleven workers locked beside the demolition trunk line.",
+      "target_audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+      "target_platform": "TikTok",
+      "language": "English",
+      "tone": "intense",
+      "episode_goal": "Maya must rescue the eleven hidden workers, stop Adrian's analog demolition, and secure enough evidence to clear her name.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Maya Chen",
+          "role": "Protagonist",
+          "description": "A disciplined structural engineer framed for defects in Adrian Vale's buildings.",
+          "motivation": "Clear her name by proving developer fraud without putting residents or workers at risk."
+        },
+        {
+          "name": "Adrian Vale",
+          "role": "Antagonist",
+          "description": "A ruthless developer attempting to erase evidence of systemic construction fraud.",
+          "motivation": "Destroy Vale Meridian and the records linking him to its counterfeit components."
+        },
+        {
+          "name": "Luis Ortega",
+          "role": "Ally",
+          "description": "Maya's steadfast ally and an experienced building safety coordinator.",
+          "motivation": "Evacuate everyone safely while preserving admissible evidence against Adrian."
+        },
+        {
+          "name": "Elena Ruiz",
+          "role": "Witness",
+          "description": "The forewoman of the eleven undocumented workers hidden inside Vale Meridian.",
+          "motivation": "Save her crew and reveal the work orders Adrian forced her to follow."
+        },
+        {
+          "name": "Inspector Shaw",
+          "role": "Authority",
+          "description": "A municipal structural safety investigator overseeing the Vale Meridian case.",
+          "motivation": "Establish the truth through physical records, testimony, and forensic evidence."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. VALE MERIDIAN SERVICE BAY - NIGHT",
+          "purpose": "Rescue the hidden workers and introduce evidence capable of replacing the destroyed controller log.",
+          "setting": "Vale Meridian's dust-filled basement service bay beside the demolition conduits.",
+          "beat_summary": "Maya frees the hidden workers and discovers that their forewoman preserved carbon copies bearing Adrian's initials.",
+          "emotional_shift": "Maya moves from desperate uncertainty to focused resolve.",
+          "emotional_objective": "Turn the terror of the countdown into hope grounded in living witnesses and physical proof.",
+          "character_actions": [
+            "Maya wedges a steel brace into the locked service gate as the mechanical timer drops below seventy-eight seconds.",
+            "Elena pulls eleven workers through the opening and produces carbon-copy orders from inside her jacket.",
+            "Maya hands the papers to Luis and follows the orange detonating cord deeper into the loading level."
+          ],
+          "turning_point": "Elena reveals signed duplicate orders and identifies Adrian's handheld trigger.",
+          "scene_causality": {
+            "goal": "Free all eleven workers and locate the analog trigger path.",
+            "conflict": "The locked workers, dwindling timer, and distant blasting line force Maya to divide rescue from disarmament.",
+            "outcome": "The workers escape with Luis while Maya stays behind to sever the demolition trunk.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Elena Ruiz",
+              "intent": "Reveal evidence while warning Maya about the demolition system.",
+              "text": "Vale made us install the fake couplers, but I kept every order—and that orange cord runs to a hand plunger."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Prioritize the workers and protect the evidence.",
+              "text": "Luis, take the eleven and those copies upstairs; I'm cutting the line before Vale reaches the plunger."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. VALE MERIDIAN LOADING RAMP - NIGHT",
+          "purpose": "Stop the analog demolition while capturing Adrian's direct attempt to suppress evidence.",
+          "setting": "Vale Meridian's fractured underground loading ramp moments before detonation.",
+          "beat_summary": "Adrian corners the evacuees and demands the records, but Maya records his ultimatum and severs the demolition trunk.",
+          "emotional_shift": "Controlled dread erupts into decisive triumph.",
+          "emotional_objective": "Deliver the catharsis of Maya defeating Adrian through preparation rather than vengeance.",
+          "character_actions": [
+            "Adrian lowers a security shutter across the exit ramp and locks a magneto blasting plunger onto the orange trunk line.",
+            "Maya clips a safety lanyard to a column, swings across an open utility trench, and cuts the trunk with insulated shears.",
+            "Adrian slams the plunger, but its charge dies as police lights flood the ramp behind the escaping workers."
+          ],
+          "turning_point": "Maya chooses the dangerous route to the trunk line instead of bargaining away the evidence.",
+          "scene_causality": {
+            "goal": "Keep the workers moving, preserve the records, and disconnect every charge from Adrian's plunger.",
+            "conflict": "Adrian blocks the evacuation and threatens to detonate unless Maya surrenders the documents that can convict him.",
+            "outcome": "Maya severs the trunk, the workers escape, and Adrian's recorded ultimatum gives arriving police probable cause.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because Maya sent the workers and signed orders toward the exit, Adrian intercepts them with the only remaining trigger."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Adrian Vale",
+              "intent": "Coerce Maya into surrendering the evidence by threatening the workers.",
+              "text": "Give me Ruiz's copies, Maya, and I let the eleven walk before this building folds."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Expose Adrian's coercion while committing to save the workers.",
+              "text": "You just traded eleven lives for your signature—Luis, keep recording."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "EXT. VALE MERIDIAN EVIDENCE STATION - DAWN",
+          "purpose": "Resolve Maya's framing, punish Adrian, and establish a limited path toward repairing his wider damage.",
+          "setting": "A floodlit municipal evidence station outside the sealed Vale Meridian tower at dawn.",
+          "beat_summary": "Physical evidence, worker testimony, and Adrian's recorded threat exonerate Maya and place his entire building network under investigation.",
+          "emotional_shift": "Personal triumph matures into public responsibility.",
+          "emotional_objective": "Provide earned vindication while extending Maya's protective mission without undoing the victory.",
+          "character_actions": [
+            "Inspector Shaw stamps Maya's suspension order VOID beside the recovered work orders and counterfeit couplers.",
+            "Police escort Adrian past the eleven workers as Elena identifies his initials for the official record.",
+            "Maya accepts a sealed list of every Vale tower and turns toward the waiting residents."
+          ],
+          "turning_point": "Maya uses her restored authority to demand protection for residents before beginning the wider audit.",
+          "scene_causality": {
+            "goal": "Convert the night's rescue and evidence into formal exoneration and resident protection.",
+            "conflict": "The authorities must determine whether the surviving evidence establishes Adrian's guilt and Maya's innocence.",
+            "outcome": "Maya is cleared, Adrian is charged, Meridian's residents are protected, and his remaining towers face inspection.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because Maya saved the witnesses, preserved their records, and recorded Adrian's threat, investigators can prove both the fraud and the frame-up."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Inspector Shaw",
+              "intent": "Officially clear Maya and confirm Adrian's institutional defeat.",
+              "text": "The orders, components, witnesses, and recording all match—you're cleared, and Vale is charged."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Ensure the victory protects residents beyond this single case.",
+              "text": "Then house Meridian's families first—and let me inspect every tower he touched."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "How many other Vale towers will Maya's citywide audit expose?"
+    }
+  ]
+}

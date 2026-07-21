@@ -1,0 +1,197 @@
+{
+  "content_spec_id": "9528ded5-6cdd-4d13-8bfa-ea04070b3642",
+  "generation_strategy_id": "strategy.scene_causality_ab.baseline.v1",
+  "title": "The Bride Read the Last Page",
+  "logline": "When her groom exposes their fake marriage and his affair at the altar, a prepared bride livestreams proof of his corporate fraud—but his final reveal threatens her entire revenge plan.",
+  "language": "en",
+  "target_audience": "US women ages 18-34 who enjoy fast revenge escalations, betrayal reveals, and romantic power reversals.",
+  "target_platform": "TikTok vertical short video (9:16)",
+  "tone": "intense",
+  "hook": "At the altar, Ethan kisses Maya's best friend—then announces that his marriage to Maya was always fake.",
+  "synopsis": "Ethan betrays Maya at their wedding by kissing her best friend, Sloane, and exposing their marriage as a scheme to steal Maya's company. Maya refuses to break. She broadcasts proof of their corporate fraud to the board and rejects the contract publicly. Cornered, Ethan reveals a legal certificate showing Maya is already married to a stranger waiting in her boardroom.",
+  "episode_goal": "Let Maya turn a humiliating wedding betrayal into a calculated public revenge, then reveal that her counterattack has triggered an even more dangerous secret.",
+  "target_duration_seconds": 45,
+  "characters": [
+    {
+      "name": "Maya Reed",
+      "role": "Betrayed bride and protagonist",
+      "description": "A poised startup cofounder in a wedding dress who anticipated her fiancé's betrayal and prepared a public counterattack.",
+      "motivation": "Protect her company, expose the conspiracy, and reclaim control of her life."
+    },
+    {
+      "name": "Ethan Cole",
+      "role": "Scheming groom",
+      "description": "Maya's ambitious fiancé, who treats their wedding as the final step in stealing her company.",
+      "motivation": "Seize Maya's voting shares and become CEO beside his secret partner."
+    },
+    {
+      "name": "Sloane Hart",
+      "role": "Secret lover and corporate rival",
+      "description": "Maya's glamorous chief operating officer and supposed best friend, secretly involved with Ethan.",
+      "motivation": "Replace Maya in both the company and Ethan's life."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. WEDDING VENUE - DAY",
+      "purpose": "Deliver the betrayal and fake-marriage hook within the opening seconds.",
+      "setting_hint": "Wedding stage, vertical close-ups on the couple and stunned guests",
+      "beat_summary": "Before Maya can say her vows, Ethan pulls Sloane onto the wedding stage, kisses her, and declares his marriage to Maya was a fake contract designed to obtain her shares.",
+      "emotional_shift": "Public humiliation to controlled defiance",
+      "emotional_objective": "Create instant outrage, then signal that Maya has anticipated the betrayal.",
+      "character_actions": [
+        "Ethan interrupts the officiant and kisses Sloane.",
+        "Maya removes her veil but refuses to leave the stage.",
+        "Guests raise their phones as the confrontation erupts."
+      ],
+      "turning_point": "Instead of fleeing, Maya faces the guests and activates her planned response.",
+      "scene_causality": {
+        "goal": "Maya must stop Ethan from controlling the narrative and taking her shares.",
+        "conflict": "Ethan expects Maya to collapse while he publicly claims her company and chooses Sloane.",
+        "outcome": "Maya stays onstage and hints that Ethan has walked into her trap.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Stop the wedding. Sloane is the woman I love. Maya, our marriage contract was fake—and your company is mine.",
+        "You really should've read the last page."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Ethan Cole",
+          "intent": "Humiliate Maya and claim victory",
+          "text": "Stop the wedding. Sloane is the woman I love. Maya, our marriage contract was fake—and your company is mine."
+        },
+        {
+          "character_name": "Maya Reed",
+          "intent": "Refuse victimhood and hold the room",
+          "text": "You really should've read the last page."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. WEDDING VENUE - CONTINUOUS",
+      "purpose": "Show Maya's agency as she weaponizes Ethan's public betrayal against him.",
+      "setting_hint": "Wedding stage with boardroom security footage projected behind Maya",
+      "beat_summary": "Maya taps the wedding screen, replacing the couple's photos with Ethan and Sloane's recorded boardroom conspiracy. She reveals the ceremony is livestreaming to employees and investors.",
+      "emotional_shift": "Controlled defiance to triumphant exposure",
+      "emotional_objective": "Deliver satisfying revenge through a decisive, visible public move.",
+      "character_actions": [
+        "Maya taps a remote hidden in her bouquet.",
+        "The wedding screen plays security footage from the boardroom.",
+        "Sloane lunges for the remote, but Maya steps out of reach.",
+        "Maya faces the livestream camera and publicly rejects the contract."
+      ],
+      "turning_point": "The guests realize Maya did not come to marry Ethan; she came to expose him.",
+      "scene_causality": {
+        "goal": "Maya must expose Ethan and Sloane before they can enforce the fraudulent transfer.",
+        "conflict": "Sloane tries to stop the broadcast while Ethan insists the fake contract still gives him control.",
+        "outcome": "The conspiracy is broadcast, and Maya publicly rejects the contract in front of the board.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Ethan publicly claimed Maya's company, she releases the evidence she prepared for that exact move."
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Turn that off!",
+        "No. The board is watching. I reject your fraudulent contract—and release the audit proving you both stole from my company.",
+        "You think that makes you safe?"
+      ],
+      "dialogues": [
+        {
+          "character_name": "Sloane Hart",
+          "intent": "Stop the evidence from spreading",
+          "text": "Turn that off!"
+        },
+        {
+          "character_name": "Maya Reed",
+          "intent": "Expose the conspiracy and reclaim power",
+          "text": "No. The board is watching. I reject your fraudulent contract—and release the audit proving you both stole from my company."
+        },
+        {
+          "character_name": "Ethan Cole",
+          "intent": "Undermine Maya's confidence",
+          "text": "You think that makes you safe?"
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. WEDDING VENUE - MOMENTS LATER",
+      "purpose": "Convert the revenge payoff into a larger mystery that forces the next episode.",
+      "setting_hint": "Wedding stage, tight close-up on a sealed marriage certificate",
+      "beat_summary": "As security approaches Ethan, he produces a sealed marriage certificate bearing Maya's signature and another man's name. Maya's triumph cracks when she recognizes the date.",
+      "emotional_shift": "Public triumph to destabilizing shock",
+      "emotional_objective": "Rip away Maya's certainty at the peak of her revenge and create urgent sequel demand.",
+      "character_actions": [
+        "Security closes in on Ethan and Sloane.",
+        "Ethan pulls a sealed document from his jacket.",
+        "Maya reads the certificate on camera.",
+        "Her expression shifts when she sees the unknown spouse's name."
+      ],
+      "turning_point": "The certificate reveals Maya has another husband already waiting at company headquarters.",
+      "scene_causality": {
+        "goal": "Ethan must escape total defeat by revealing leverage Maya never anticipated.",
+        "conflict": "Maya cannot immediately disprove a certificate carrying her genuine signature, while an unknown husband is positioned inside her company.",
+        "outcome": "Maya's victory is threatened, and she must confront Adrian Vale in the boardroom.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Maya's evidence defeats Ethan's fake contract, he reveals a hidden legal marriage that could invalidate her corporate actions."
+      },
+      "cliffhanger": true,
+      "dialogue_prompts": [
+        "My contract may be fake. But your first marriage is very real.",
+        "That's my signature... Who is Adrian Vale?",
+        "Your husband. And he's waiting in your boardroom."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Ethan Cole",
+          "intent": "Detonate a secret that can reverse Maya's victory",
+          "text": "My contract may be fake. But your first marriage is very real."
+        },
+        {
+          "character_name": "Maya Reed",
+          "intent": "Confront the impossible evidence",
+          "text": "That's my signature... Who is Adrian Vale?"
+        },
+        {
+          "character_name": "Ethan Cole",
+          "intent": "Force the next confrontation",
+          "text": "Your husband. And he's waiting in your boardroom."
+        }
+      ],
+      "supporting_asset_ids": []
+    }
+  ],
+  "next_episode_question": "Who legally married Maya before Ethan did—and was that mystery spouse protecting her or planning an even bigger betrayal?",
+  "qa_notes": [
+    "Draft generated by RealLLMAdapter structured output.",
+    "Story QC and revision loop must still review platform fit and consistency."
+  ],
+  "llm_metadata": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "strategy_id": "strategy.scene_causality_ab.baseline.v1",
+    "usage": {
+      "prompt_tokens": 5503,
+      "completion_tokens": 1638,
+      "total_tokens": 7141,
+      "completion_tokens_details": {
+        "reasoning_tokens": 92
+      }
+    },
+    "response_id": "resp_079fa1e5040ce6c8016a5e308b1250819187e17e8efed45ea3",
+    "prompt_versions": [
+      "v2-baseline",
+      "v1-shared"
+    ],
+    "generation_strategy_version": "v1"
+  },
+  "id": "7b7b8e8d-94b9-4f66-b5f1-61a0c21ee90a",
+  "created_at": "2026-07-20T14:29:24.278988Z",
+  "updated_at": "2026-07-20T14:29:24.279020Z"
+}

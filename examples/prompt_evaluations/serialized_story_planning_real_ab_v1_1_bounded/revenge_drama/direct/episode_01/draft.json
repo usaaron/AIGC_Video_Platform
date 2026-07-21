@@ -1,0 +1,140 @@
+{
+  "title": "The Load-Bearing Lie",
+  "logline": "A framed engineer defies a developer's cover-up, stops residents from entering an unsafe tower, and discovers the sabotage reaches inside city government.",
+  "synopsis": "Structural engineer Maya Chen is blamed at a televised hearing for approving the unsafe Harbor Heights tower, but she catches a revision code proving her calculations were replaced after her dismissal. She races to the occupied site, uncovers a failing transfer plate, and chooses to halt move-in despite the residents' financial risk and Adrian Vale's threatened retaliation. Her decision earns organizer Luis Ortega's trust, and he gives her a hidden maintenance backup proving City Hall opened her",
+  "hook": "As Maya is publicly blamed for a tower's failing supports, she spots proof that her sealed calculations were replaced.",
+  "target_audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "suspenseful",
+  "episode_goal": "Maya must preserve evidence of structural fraud while preventing residents from entering a dangerous tower.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "description": "A meticulous structural engineer framed for approving unsafe materials, calm under pressure and fiercely protective of residents.",
+      "motivation": "Clear her name by proving developer fraud without putting occupied buildings at risk."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Antagonist",
+      "description": "A polished property developer who controls the redevelopment authority through favors, intimidation, and falsified records.",
+      "motivation": "Open Harbor Heights on schedule and make Maya absorb the blame for its structural defects."
+    },
+    {
+      "name": "Luis Ortega",
+      "role": "Ally",
+      "description": "A Harbor Heights tenant organizer and single father who distrusts institutions but recognizes genuine courage.",
+      "motivation": "Keep his neighbors housed and alive while discovering who concealed the danger."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. REDEVELOPMENT HEARING ROOM - MORNING",
+      "purpose": "Establish the frame-up and give Maya her first piece of actionable evidence.",
+      "setting": "City redevelopment hearing room, morning",
+      "beat_summary": "During a televised inspection hearing, Maya notices her approval stamp on calculations she never authored.",
+      "emotional_shift": "Maya moves from cornered to certain she was deliberately framed.",
+      "emotional_objective": "Turn Maya's public humiliation into focused suspicion.",
+      "character_actions": [
+        "Maya aligns the projected calculation sheet with a dated photo on her phone and spots a mismatched revision code.",
+        "Adrian signals security while cameras turn toward Maya.",
+        "Maya photographs the forged page before the projector goes dark."
+      ],
+      "turning_point": "Maya proves to herself that the approval record was altered.",
+      "scene_causality": {
+        "goal": "Maya wants to identify a concrete defect in the evidence against her.",
+        "conflict": "Adrian uses falsified calculations and institutional authority to pin the unsafe tower on Maya.",
+        "outcome": "She captures the forged revision code before security removes her.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Publicly isolate Maya as the sole culprit.",
+          "text": "Your signature cleared every beam in that tower, Maya."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Expose the first verifiable flaw in his accusation.",
+          "text": "Then explain why my signature appears on a revision created three days after you fired me."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. HARBOR HEIGHTS LOBBY - AFTERNOON",
+      "purpose": "Give Maya a consequential decision that protects residents while escalating Adrian's leverage.",
+      "setting": "Harbor Heights lobby, afternoon",
+      "beat_summary": "At Harbor Heights, Maya chooses to trigger a costly emergency lockout after finding a live structural warning beneath cosmetic panels.",
+      "emotional_shift": "Luis's distrust shifts into wary respect as Maya risks arrest and ruin.",
+      "emotional_objective": "Show that Maya values lives over clearing her name quickly.",
+      "character_actions": [
+        "Maya tears away a lobby wall panel and reveals a buckled transfer plate shedding metal flakes.",
+        "Luis blocks impatient residents while Maya scans the fracture with her phone.",
+        "Maya pulls the fire-control lever, sealing the elevators and halting move-in."
+      ],
+      "turning_point": "Maya sacrifices her legal position by ordering an unauthorized emergency lockout.",
+      "scene_causality": {
+        "goal": "Maya wants to verify the danger and keep residents out of the tower.",
+        "conflict": "Residents face financial loss if Maya halts move-in, but entering could expose them to structural failure.",
+        "outcome": "She locks down the building and preserves visible proof of a failing structural connection.",
+        "caused_by_scene_number": 1,
+        "causal_link": "The forged revision code convinces Maya that the tower may contain concealed defects requiring immediate inspection."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Luis Ortega",
+          "intent": "Force Maya to choose between evidence and the residents' immediate welfare.",
+          "text": "If you stop move-in, Vale says every family loses its deposit."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Accept personal consequences to protect the residents.",
+          "text": "Let him sue me in a building that stays empty."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "EXT. HARBOR HEIGHTS SERVICE ENTRANCE - DUSK",
+      "purpose": "Reveal official complicity and launch the race to recover the original archive.",
+      "setting": "Harbor Heights service entrance, dusk",
+      "beat_summary": "While police surround the locked tower, Luis delivers a hidden backup showing that City Hall received Maya's real warning months ago.",
+      "emotional_shift": "Vindication becomes alarm when Maya realizes the cover-up is institutional and the proof is vanishing.",
+      "emotional_objective": "Expand Maya's fight from personal vindication into a conspiracy threatening every resident.",
+      "character_actions": [
+        "Luis slips Maya a maintenance tablet recovered from a sealed electrical cabinet.",
+        "Maya opens a timestamped transmission receipt bearing the deputy commissioner's credentials.",
+        "Across the street, Adrian remotely wipes files until Maya's tablet displays an active deletion countdown."
+      ],
+      "turning_point": "The tablet reveals an official cover-up just as a remote deletion countdown begins.",
+      "scene_causality": {
+        "goal": "Maya wants to preserve the transmission receipt and identify who authorized the cover-up.",
+        "conflict": "Police close in as Adrian remotely deletes the only record proving officials received Maya's authentic warning.",
+        "outcome": "She confirms City Hall's complicity but has sixty seconds to stop the evidence from being erased.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Maya's emergency lockout prompts Luis to trust her with the tower's concealed maintenance backup."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Luis Ortega",
+          "intent": "Reveal that Maya's warning survived inside the building's maintenance system.",
+          "text": "This says City Hall opened your original report four months ago."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Commit to saving the evidence despite imminent arrest and deletion.",
+          "text": "Then they didn't overlook the danger; they buried it."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Maya retrieve the original inspection archive before Adrian erases it and turns the residents against her?"
+}

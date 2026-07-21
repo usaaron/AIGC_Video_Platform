@@ -1,0 +1,16 @@
+{
+  "draft_id": "7b7b8e8d-94b9-4f66-b5f1-61a0c21ee90a",
+  "strategy_id": "strategy.scene_causality_ab.baseline.v1",
+  "strategy_version": "v1",
+  "prompt_ids": [
+    "prompt.story_planning.scene_causality_ab.baseline",
+    "prompt.platform_optimization.scene_causality_ab.shared"
+  ],
+  "prompt_versions": [
+    "v2-baseline",
+    "v1-shared"
+  ],
+  "prompt_builder_version": "v0.1-ab-baseline",
+  "draft_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/revenge_drama/baseline_draft.json",
+  "prompt_path": "examples/prompt_evaluations/scene_causality_real_ab_v1/revenge_drama/baseline_prompt.txt"
+}

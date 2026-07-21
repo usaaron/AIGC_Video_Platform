@@ -1,0 +1,26 @@
+{
+  "completed_episode_number": 1,
+  "title": "Remember Me Forward",
+  "episode_goal": "Nia and Rowan discover that saving one patient can cost a memory and bind them to the entity behind the exchange.",
+  "synopsis": "Paramedic Nia Calder hears a crash victim's final memory and sees an unfamiliar immortal named Rowan inside it. Rowan reveals that the supernatural Exchange preserves lives by stealing the memories that define them. Nia records the only surviving clue, then destroys that evidence to revive the patient, choosing a life over certainty. The patient survives but forgets Rowan, while the Exchange marks Nia and writes her name into Rowan's blank journal.",
+  "character_states": [
+    {
+      "name": "Nia Calder",
+      "role": "Protagonist paramedic",
+      "motivation": "Save lives without letting her frightening ability control her."
+    },
+    {
+      "name": "Rowan Vale",
+      "role": "Immortal stranger and reluctant ally",
+      "motivation": "Recover the truth before the exchange consumes the person he is."
+    },
+    {
+      "name": "The Exchange",
+      "role": "Supernatural antagonist",
+      "motivation": "Expand through isolated bargains and erase anyone who exposes its rules."
+    }
+  ],
+  "final_scene_outcome": "The patient lives, Rowan loses the critical fact he was tracking, and Nia's marked journal summons the Exchange's attention.",
+  "final_turning_point": "Nia chooses partnership after learning the entity can erase Rowan from everyone else's reality.",
+  "next_episode_question": "What critical fact did Rowan lose, and why can the Exchange now find Nia?"
+}

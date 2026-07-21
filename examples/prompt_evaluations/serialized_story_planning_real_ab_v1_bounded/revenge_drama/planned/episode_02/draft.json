@@ -1,0 +1,140 @@
+{
+  "title": "The Exit Through Twenty-Three",
+  "logline": "Tessa rejects Grant's bargain for her vindication, secures proof of falsification and discovers his emergency plan could turn an evacuation into a catastrophe.",
+  "synopsis": "Grant confirms that Tessa's former supervisor converted her unsigned calculation into the altered certified file used to blame her, then offers both records if she stays silent until the tower sale. Tessa covertly preserves the proof but refuses immediate publication, choosing to use an emergency drill to evacuate residents safely. When she and Mina inspect the plan, they discover its route was changed to funnel everyone through the tower's weakest floor just as security seals them inside.",
+  "hook": "Grant offers Tessa the document that can clear her name—if she lets an unsafe tower remain occupied.",
+  "target_audience": "English-speaking viewers who enjoy strategic revenge, institutional conflict and earned reversals.",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "suspenseful",
+  "episode_goal": "Expose how Tessa was framed while she creates a safe path to protect the tower's residents.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "description": "A disgraced structural engineer secretly auditing Hale Developments after being blamed for a deadly defect.",
+      "motivation": "Clear her name while protecting residents from the repeated structural failure."
+    },
+    {
+      "name": "Grant Hale",
+      "role": "Antagonist",
+      "description": "The calculating head of Hale Developments who controls evidence linking the company to falsified safety records.",
+      "motivation": "Protect his company and complete the tower sale before its defects become public."
+    },
+    {
+      "name": "Mina Cho",
+      "role": "Reluctant ally",
+      "description": "A Hale employee torn between professional survival and the dangerous readings she helped uncover.",
+      "motivation": "Keep her job while ensuring residents are not sacrificed to corporate silence."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. HALE CONFERENCE ROOM - NIGHT",
+      "purpose": "Reveal the substitution scheme and force Tessa to choose residents over instant exoneration.",
+      "setting": "Grant's glass conference room above the occupied tower",
+      "beat_summary": "Grant reveals that Tessa's unsigned work was converted into the certified calculation used to frame her.",
+      "emotional_shift": "Tessa moves from shocked vindication to controlled refusal.",
+      "emotional_objective": "Turn Tessa's long-awaited vindication into an immediate moral test.",
+      "character_actions": [
+        "Grant slides Tessa's unsigned calculation beside a certified version bearing altered loads.",
+        "Tessa aligns the pages and circles matching formatting errors.",
+        "Grant places a tower-sale countdown on the table."
+      ],
+      "turning_point": "Grant admits Tessa's former supervisor signed an altered version built from her unsigned calculation.",
+      "scene_causality": {
+        "goal": "Tessa must learn why Grant possesses her unsigned calculation and secure proof of its misuse.",
+        "conflict": "Grant conditions decisive evidence on Tessa's silence until the tower sale closes.",
+        "outcome": "Tessa refuses the deal after confirming her original was altered into the certified file.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Grant Hale",
+          "intent": "Tempt Tessa with vindication while binding her to silence.",
+          "text": "Your supervisor changed the loads, signed the file, and left your name in the chain; stay quiet until Friday, and both versions are yours."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Reject the bargain without revealing her next move.",
+          "text": "You are not selling my innocence with six occupied floors attached."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. HALE SERVICE CORRIDOR - NIGHT",
+      "purpose": "Give Tessa actionable evidence and make her delay public revenge for resident safety.",
+      "setting": "A dim service corridor outside Hale's security office",
+      "beat_summary": "Tessa covertly captures the substitution proof but postpones publication to prepare a controlled evacuation.",
+      "emotional_shift": "Temptation hardens into disciplined anger.",
+      "emotional_objective": "Show Tessa mastering her desire for immediate revenge under mounting time pressure.",
+      "character_actions": [
+        "Tessa photographs the aligned calculations through her darkened phone screen.",
+        "Mina opens the emergency drill schedule on a maintenance tablet.",
+        "Tessa sets an encrypted release timer, then pauses it."
+      ],
+      "turning_point": "Tessa deliberately delays clearing her name and commits to evacuating residents first.",
+      "scene_causality": {
+        "goal": "Tessa must preserve the evidence and create a safe evacuation trigger before Grant retaliates.",
+        "conflict": "Mina urges immediate publication while Tessa fears panic inside a structurally vulnerable tower.",
+        "outcome": "Tessa saves the comparison, pauses its release and chooses to use the scheduled drill for evacuation.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Grant exposed the document chain while demanding silence, Tessa copies the proof and seeks an evacuation method."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Mina Cho",
+          "intent": "Press Tessa to expose Hale before he destroys the evidence.",
+          "text": "If you have both pages, post them now—he can erase everything by morning."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Commit to a safer strategy despite the personal cost.",
+          "text": "Then we get everyone out before morning; proof is useless if the release starts a stampede."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. TOWER EMERGENCY-CONTROL ROOM - NIGHT",
+      "purpose": "Escalate Hale's retaliation and reveal that the official evacuation route endangers the residents.",
+      "setting": "Tower emergency-control room beside level twenty-three",
+      "beat_summary": "The drill map reveals that Hale has redirected residents through the floors showing the highest structural stress.",
+      "emotional_shift": "Disciplined anger becomes alarmed determination.",
+      "emotional_objective": "Convert Tessa's careful rescue plan into urgent dread and defiant resolve.",
+      "character_actions": [
+        "Mina overlays the new drill map onto Tessa's stress readings.",
+        "Red evacuation arrows converge on the tower's most vulnerable transfer corridor.",
+        "Tessa photographs the map as security shutters begin closing around them."
+      ],
+      "turning_point": "Security shutters seal Tessa in as the altered evacuation drill begins its countdown.",
+      "scene_causality": {
+        "goal": "Tessa must verify the drill route and preserve a safe way to move residents.",
+        "conflict": "Hale's revised map funnels residents through the tower's most stressed section as security closes in.",
+        "outcome": "Tessa discovers the drill is a lethal trap and records the altered map before being sealed inside.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Tessa chose the scheduled drill as a safe evacuation trigger, she and Mina inspect its route before activating it."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Mina Cho",
+          "intent": "Warn Tessa that the supposed safety plan has been weaponized.",
+          "text": "The route changed tonight—every stairwell now feeds through level twenty-three."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Recognize the trap and commit to stopping it.",
+          "text": "That is the weakest transfer floor; if the drill starts, Hale turns evacuation into the failure."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Tessa stop Hale's altered drill before residents are routed into the tower's weakest section?"
+}

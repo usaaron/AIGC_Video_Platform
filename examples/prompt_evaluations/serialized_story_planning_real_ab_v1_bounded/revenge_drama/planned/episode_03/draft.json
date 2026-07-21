@@ -1,0 +1,146 @@
+{
+  "title": "The Name on the Alarm",
+  "logline": "Tessa delays exposing the evidence that would clear her, submits to arrest, and uses the distraction to launch a safe evacuation before a corrupt inspector traps the final residents.",
+  "synopsis": "Tessa escapes the sealed corridor long enough to replace Hale's lethal drill route with a corrected map for resident leaders. She discovers that Hale ordered the altered load-test file and bribed Inspector Owen Pike, but refuses to publish the proof while an uncontrolled evacuation could cause mass casualties. Instead, she makes herself the focus of security and deliberately submits to arrest as Mina guides residents out safely. Hale believes he has seized the only evidence, until Pike remotely—",
+  "hook": "Locked behind a security shutter, Tessa has seconds to replace an evacuation route designed to send residents through a failing floor.",
+  "target_audience": "English-speaking viewers who enjoy strategic revenge, institutional conflict, and earned reversals.",
+  "target_platform": "TikTok",
+  "language": "English",
+  "tone": "suspenseful",
+  "episode_goal": "Force Tessa to sacrifice immediate vindication so residents can evacuate safely.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "description": "A disgraced structural engineer carrying proof that Hale's company falsified a critical load-test file.",
+      "motivation": "Clear her name without putting the tower's residents at further risk."
+    },
+    {
+      "name": "Grant Hale",
+      "role": "Antagonist",
+      "description": "A calculating developer rushing to sell the unsafe tower and erase the records that implicate him.",
+      "motivation": "Protect his company and complete the tower sale before the defects become public."
+    },
+    {
+      "name": "Mina Cho",
+      "role": "Reluctant ally",
+      "description": "A company employee who has become Tessa's covert operational ally.",
+      "motivation": "Help residents escape safely despite risking her career and freedom."
+    },
+    {
+      "name": "Inspector Owen Pike",
+      "role": "Corrupt city inspector",
+      "description": "A compromised city inspector who buried the tower's structural risk for payment.",
+      "motivation": "Protect himself by helping Hale contain the evidence and blame Tessa."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. TOWER SECURITY CORRIDOR - NIGHT",
+      "purpose": "Protect residents while preserving proof of who authorized the falsification.",
+      "setting": "Tower security control corridor during the evacuation countdown",
+      "beat_summary": "Tessa and Mina override the altered drill map and uncover Hale's order plus Pike's payoff before the records are erased.",
+      "emotional_shift": "Urgency hardens into controlled resolve.",
+      "emotional_objective": "Turn trapped urgency into disciplined action.",
+      "character_actions": [
+        "Tessa wedges Mina's steel badge into the descending shutter and crawls beneath it.",
+        "Mina patches Tessa's corrected route into the resident-leader alert system.",
+        "Tessa photographs a deletion log linking Hale's authorization to a payment for Inspector Pike."
+      ],
+      "turning_point": "Tessa withholds the public evidence and sends only the corrected evacuation map.",
+      "scene_causality": {
+        "goal": "Replace the lethal drill route before residents enter the weakest floor.",
+        "conflict": "Tessa can clear herself immediately, but public exposure would trigger an unsafe evacuation.",
+        "outcome": "Resident leaders receive the safe route, and Tessa captures evidence implicating Hale and Pike.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Mina Cho",
+          "intent": "Warn Tessa that publishing everything will provoke a dangerous panic.",
+          "text": "Post that file now and every elevator, stairwell, and exit becomes a stampede."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Choose resident safety over immediate vindication.",
+          "text": "Then my name waits—send the corrected map only."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. TOWER LOBBY - NIGHT",
+      "purpose": "Use Tessa's arrest as a distraction for an orderly resident evacuation.",
+      "setting": "Tower lobby crowded with residents and security officers",
+      "beat_summary": "Tessa confronts Hale in the lobby, then deliberately surrenders so Mina can guide residents out unnoticed.",
+      "emotional_shift": "Controlled resolve becomes strategic sacrifice.",
+      "emotional_objective": "Make apparent defeat feel like Tessa's most powerful choice.",
+      "character_actions": [
+        "Tessa steps into the lobby holding her phone above her head as security surrounds her.",
+        "Mina slips into the moving resident line and signals leaders toward the corrected stairwell.",
+        "Tessa unlocks her phone and places it on the floor before offering her wrists."
+      ],
+      "turning_point": "Tessa voluntarily submits to arrest instead of taking the fastest path to vindication.",
+      "scene_causality": {
+        "goal": "Hold Hale's attention long enough for Mina to redirect the residents.",
+        "conflict": "Hale tries to provoke a reckless upload while security closes around Tessa.",
+        "outcome": "Tessa is detained while residents begin leaving through the safe stairwell.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Tessa sent the corrected map without releasing the evidence, she must keep Hale and security focused on her."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Grant Hale",
+          "intent": "Pressure Tessa to trade resident safety for personal exoneration.",
+          "text": "Upload it, Tessa—clear your name and own whatever happens in this tower."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Make her strategic sacrifice explicit.",
+          "text": "You taught me signatures matter, Grant; arrest me in front of every camera."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. TOWER LOBBY COMMAND POST - NIGHT",
+      "purpose": "Reveal Pike as Hale's active accomplice and endanger the last residents despite Tessa's plan.",
+      "setting": "Tower lobby command post beside live floor monitors",
+      "beat_summary": "As Hale celebrates containing Tessa, Pike locks the final occupied floor and publicly assigns the emergency to her.",
+      "emotional_shift": "Apparent defeat becomes urgent horror.",
+      "emotional_objective": "Convert Tessa's sacrifice into a new institutional betrayal with lives at stake.",
+      "character_actions": [
+        "Pike handcuffs Tessa beside a wall of live evacuation monitors.",
+        "Hale watches the resident count fall and quietly pockets Tessa's surrendered phone.",
+        "On the monitor, fire doors slam shut around families on the final occupied floor."
+      ],
+      "turning_point": "Pike seals the final occupied floor, proving the corruption reaches the city's safety authority.",
+      "scene_causality": {
+        "goal": "Confirm the evacuation is complete before Hale and Pike can interfere.",
+        "conflict": "Tessa is restrained while Pike remotely traps the last occupied floor and frames her for the alarm.",
+        "outcome": "Most residents escape, but floor thirty-one is locked with families inside and Tessa blamed.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Tessa surrendered and Hale believes her evidence is contained, Pike openly activates the final stage of their cover-up."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Grant Hale",
+          "intent": "Celebrate what he believes is total containment.",
+          "text": "Your evidence is in my pocket, and your evacuation ends with you in cuffs."
+        },
+        {
+          "character_name": "Inspector Owen Pike",
+          "intent": "Frame Tessa while trapping the remaining residents.",
+          "text": "Floor thirty-one is sealed; dispatch, log the false alarm under Tessa Ward."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Tessa expose Pike and unlock the final floor while detained for the emergency he engineered?"
+}

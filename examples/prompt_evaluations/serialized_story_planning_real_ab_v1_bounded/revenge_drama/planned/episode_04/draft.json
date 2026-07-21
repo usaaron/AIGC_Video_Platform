@@ -1,0 +1,146 @@
+{
+  "title": "The Price of the Key",
+  "logline": "While detained for a sabotaged evacuation, Tessa uses a timed evidence release to force Hale and Pike to free trapped families before exposing their entire conspiracy.",
+  "synopsis": "Still detained and publicly blamed, Tessa places the evidence with independent journalists under a timed release, using the encryption key to force Pike and Hale to unlock floor thirty-one. Hale exposes his own bribery ledger to sacrifice Pike, but Tessa rejects a private settlement and keeps the release active until every resident is safe. The archive verifies her original calculation, the altered load test, and the false drill map, clearing her name and triggering independent oversight before揭",
+  "hook": "Handcuffed and blamed on live television, Tessa watches the oxygen warning flash for the families Pike locked upstairs.",
+  "target_audience": "English-speaking viewers who enjoy strategic revenge, institutional conflict, and earned reversals.",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "intense",
+  "episode_goal": "Rescue the final residents, expose the conspiracy, and redefine Tessa's revenge as accountable justice.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "description": "A disgraced structural engineer detained after protecting residents during a sabotaged evacuation.",
+      "motivation": "Clear her name through public accountability without risking trapped residents."
+    },
+    {
+      "name": "Grant Hale",
+      "role": "Antagonist",
+      "description": "A ruthless developer trying to close a tower sale before his falsified safety process is exposed.",
+      "motivation": "Protect his company by controlling the evidence and sacrificing his accomplice."
+    },
+    {
+      "name": "Mina Cho",
+      "role": "Reluctant ally",
+      "description": "A company insider coordinating the evacuation despite personal risk.",
+      "motivation": "Get every resident out and ensure the evidence survives."
+    },
+    {
+      "name": "Inspector Owen Pike",
+      "role": "Corrupt city inspector",
+      "description": "A corrupt city inspector who sealed an occupied floor to contain the scandal.",
+      "motivation": "Escape prosecution by keeping Hale's records buried."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. TOWER SECURITY LOBBY - NIGHT",
+      "purpose": "Establish Tessa's consequential choice to delay exposure until the trapped families are safe.",
+      "setting": "Tower security lobby beneath live news cameras",
+      "beat_summary": "Tessa turns her hidden archive into leverage while Pike tries to force an immediate surrender.",
+      "emotional_shift": "Tessa moves from apparent powerlessness to disciplined leverage.",
+      "emotional_objective": "Transform Tessa's public humiliation into controlled moral authority.",
+      "character_actions": [
+        "Tessa raises her cuffed hands and activates a timed upload on her smartwatch.",
+        "Pike displays the locked floor's falling oxygen level on his phone.",
+        "Mina silently confirms that independent journalists have received the archive."
+      ],
+      "turning_point": "Tessa reveals that journalists already hold the encrypted evidence.",
+      "scene_causality": {
+        "goal": "Force Pike to unlock floor thirty-one without losing the evidence.",
+        "conflict": "Pike uses trapped families as hostages while Tessa refuses to trade their safety for instant vindication.",
+        "outcome": "Pike calls Hale as the upload timer continues.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Inspector Owen Pike",
+          "intent": "Coerce Tessa into surrendering the encryption key.",
+          "text": "Give me the key, or floor thirty-one stays sealed."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Make resident safety the nonnegotiable price of her cooperation.",
+          "text": "The archive publishes in six minutes; open those doors, and you get the key before it does."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. SECURITY CONTROL ROOM - NIGHT",
+      "purpose": "Rescue the remaining residents and reveal that Hale preserved proof against Pike.",
+      "setting": "Tower security control room and monitored stairwell",
+      "beat_summary": "Hale sacrifices Pike and exposes his private ledger, but Tessa refuses to stop the release until every door opens.",
+      "emotional_shift": "Controlled leverage hardens into uncompromising leadership.",
+      "emotional_objective": "Show Tessa choosing public safety and accountability over a private victory.",
+      "character_actions": [
+        "Hale opens a hidden payment ledger on the security console to prove Pike took his bribes.",
+        "Pike lunges for the console as Mina remotely triggers the corrected emergency route.",
+        "On the monitor, floor thirty-one's locks release and families stream toward the stairs."
+      ],
+      "turning_point": "Tessa rejects Hale's settlement after the doors open and lets the evidence release proceed.",
+      "scene_causality": {
+        "goal": "Open the final floor and preserve proof implicating both Hale and Pike.",
+        "conflict": "Hale offers Tessa personal vindication if she buries his role while Pike tries to stop the evacuation.",
+        "outcome": "The families escape, and Mina copies Hale's ledger into the encrypted archive.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Tessa's timed release corners both conspirators, Hale produces his payment ledger to redirect blame."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Grant Hale",
+          "intent": "Save himself by offering Pike as the sole culprit.",
+          "text": "The ledger proves Pike altered the inspections; unlock the floor, and I will restore your name privately."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Reject private restoration and demand systemic accountability.",
+          "text": "My name was never the only life in this building—keep every door open, or the release continues."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "EXT. HALE TOWER - DAWN",
+      "purpose": "Pay off the falsified file, drill map, and original calculation while leaving a limited continuation hook.",
+      "setting": "Outside the evacuated tower at dawn",
+      "beat_summary": "The verified archive clears Tessa publicly, triggers independent oversight, and reveals three more endangered projects.",
+      "emotional_shift": "Vindication becomes sober resolve rather than celebration.",
+      "emotional_objective": "Deliver earned vindication while expanding Tessa's duty beyond revenge.",
+      "character_actions": [
+        "News screens display Tessa's unsigned original calculation beside Hale's altered load test and Pike's false drill map.",
+        "Investigators escort Hale and Pike away as evacuated residents gather behind Tessa.",
+        "Mina hands Tessa a printed list of three towers bearing the same certification code."
+      ],
+      "turning_point": "Hale's ledger reveals three other towers certified through the same falsified process.",
+      "scene_causality": {
+        "goal": "Secure public accountability and determine whether the conspiracy ends with this tower.",
+        "conflict": "Hale's exposed records clear Tessa but reveal that the same corrupt process may endanger more residents.",
+        "outcome": "Hale and Pike face investigation, Tessa is cleared, and three additional projects demand urgent review.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Tessa allowed the archive to publish after the rescue, independent reporters verify every linked record and authorities intervene."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Grant Hale",
+          "intent": "Warn Tessa that exposing him will widen the crisis.",
+          "text": "You wanted your life back; now you have three more buildings to evacuate."
+        },
+        {
+          "character_name": "Tessa Ward",
+          "intent": "Accept responsibility for confronting the wider scheme.",
+          "text": "Then we start before anyone else gets locked inside."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Who certified the three other towers built through Hale's falsified safety process?"
+}

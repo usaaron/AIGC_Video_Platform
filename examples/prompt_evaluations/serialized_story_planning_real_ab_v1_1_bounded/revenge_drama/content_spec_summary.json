@@ -1,0 +1,14 @@
+{
+  "audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+  "platform": "TikTok-oriented vertical serialized fiction",
+  "language": "English",
+  "episode_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "tone": "Sharp, controlled, escalating",
+  "story_goal": "A structural engineer must expose the developer who framed her without endangering residents.",
+  "constraints": [
+    "Revenge depends on evidence and consequential choices.",
+    "The protagonist protects vulnerable people.",
+    "Do not use a public-wedding or secret-heir device."
+  ]
+}

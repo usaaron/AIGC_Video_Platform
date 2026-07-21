@@ -1,0 +1,140 @@
+{
+  "title": "Dead Load",
+  "logline": "Maya races to empty an overloaded tower and document its fatal defect as Victor turns the building itself into a weapon against her.",
+  "synopsis": "Maya and Elias reach Tower C with minutes to spare, but Victor has overridden its alarms and elevators. Maya cuts the concert power, then floods the rooftop to force a controlled evacuation while documenting deliberately severed shoring beneath the failing slab. She refuses Victor's bait and lets him escape so she can protect the remaining concertgoers. Once the tower is empty, Maya activates a live structural sensor that proves Victor concealed the defect, but Victor triggers the collapse and_N",
+  "hook": "Seven minutes before a rooftop concert, Maya discovers Victor has overridden Tower C's evacuation controls.",
+  "target_audience": "English-speaking viewers who enjoy strategic revenge, institutional conflict, and earned reversals.",
+  "target_platform": "TikTok",
+  "language": "English",
+  "tone": "intense",
+  "episode_goal": "Maya must evacuate Tower C, preserve proof of its failing slab, and survive Victor's attempt to erase both.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "description": "A disciplined structural engineer framed for a deadly construction defect.",
+      "motivation": "Clear her name while protecting residents from Hale's concealed defects."
+    },
+    {
+      "name": "Victor Hale",
+      "role": "Antagonist",
+      "description": "A ruthless developer who buried structural warnings and blamed Maya.",
+      "motivation": "Destroy the evidence and keep Maya as his permanent scapegoat."
+    },
+    {
+      "name": "Elias Grant",
+      "role": "Reluctant ally",
+      "description": "A cautious investigator whose trust in Maya is now backed by digital evidence.",
+      "motivation": "Prevent another disaster and bring Victor down with admissible proof."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. TOWER C LOBBY - NIGHT",
+      "purpose": "Begin the evacuation while revealing that Victor has weaponized Tower C's controls.",
+      "setting": "Tower C lobby and elevator bank, minutes before the concert",
+      "beat_summary": "Maya reaches Tower C as concertgoers flood toward a rooftop slab already cracking under their weight.",
+      "emotional_shift": "Maya moves from racing the clock to fighting Victor's active interference.",
+      "emotional_objective": "Turn looming mass panic into focused urgency.",
+      "character_actions": [
+        "Maya studies fresh diagonal cracks spreading above the lobby columns.",
+        "She pulls the concert's main breaker, stopping the elevators and music.",
+        "Elias opens the service stairs and redirects the crowd toward the exits."
+      ],
+      "turning_point": "Maya cuts the concert power despite knowing Victor can frame the blackout as sabotage.",
+      "scene_causality": {
+        "goal": "Stop more guests from reaching the failing slab and begin a controlled evacuation.",
+        "conflict": "Victor's override blocks alarms and elevators while the rooftop load keeps rising.",
+        "outcome": "The incoming crowd is diverted, but hundreds remain above Maya.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Maya Chen",
+          "intent": "Force immediate action without causing panic.",
+          "text": "Kill the show, not the lights downstairs—move everyone out like it's a technical delay."
+        },
+        {
+          "character_name": "Elias Grant",
+          "intent": "Warn Maya that Victor still controls the building.",
+          "text": "Hale just overrode the fire panel; he knows we're here."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. TOWER C TRANSFER FLOOR - NIGHT",
+      "purpose": "Evacuate the rooftop and secure visible evidence that the failure was intentional.",
+      "setting": "Tower C transfer floor beneath the rooftop venue",
+      "beat_summary": "Inside the transfer floor, Maya finds deliberately removed shoring and chooses rescue over immediately pursuing Victor.",
+      "emotional_shift": "Her need for vindication yields to a decisive commitment to protect the trapped crowd.",
+      "emotional_objective": "Show Maya reclaiming moral control through sacrifice.",
+      "character_actions": [
+        "Maya crawls beneath the groaning slab and photographs rows of freshly severed braces.",
+        "She opens a fire-main bypass, sending water across the rooftop and forcing security to clear it.",
+        "Elias uploads her photographs and guides the last concertgoers into the stairs."
+      ],
+      "turning_point": "Maya deliberately lets Victor escape rather than abandon the final evacuation.",
+      "scene_causality": {
+        "goal": "Clear the rooftop and document the sabotaged shoring before collapse.",
+        "conflict": "Victor offers Maya a narrowing chance to catch him while the weakened slab approaches failure.",
+        "outcome": "The concertgoers escape and the sabotage photographs upload, but Maya remains beneath the slab.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Victor disabled the official evacuation systems in Scene 1, Maya must create a physical reason to clear the rooftop."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Victor Hale",
+          "intent": "Tempt Maya into abandoning the residents to chase him.",
+          "text": "Come find me, Maya, or I erase every contract that proves those braces were mine."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Reject Victor's trap and prioritize lives.",
+          "text": "Run with your contracts, Victor—I'm staying with the people you buried under them."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT./EXT. TOWER C - NIGHT",
+      "purpose": "Prove the defect, save the civilians, and trap Maya in Victor's engineered collapse.",
+      "setting": "Tower C transfer floor and exterior emergency command post",
+      "beat_summary": "With the tower emptied, Victor remotely drops the slab while Maya's live sensors expose his concealed defect.",
+      "emotional_shift": "Relief at saving the crowd snaps into terror as Maya is entombed with the evidence.",
+      "emotional_objective": "Deliver a costly victory that immediately becomes a survival crisis.",
+      "character_actions": [
+        "Maya bolts a wireless load sensor onto the fractured transfer beam.",
+        "Elias reaches the exterior command post and streams its readings to investigators.",
+        "The empty rooftop slab collapses onto the transfer floor, sealing Maya behind a wall of concrete."
+      ],
+      "turning_point": "Maya keeps the sensor transmitting instead of using her final seconds to flee.",
+      "scene_causality": {
+        "goal": "Capture admissible proof of the slab failure and escape the transfer floor.",
+        "conflict": "Maya needs a live structural reading while Victor remotely initiates the collapse with her still inside.",
+        "outcome": "The sensor publicly confirms Victor's concealed defect, but the collapse traps Maya beneath Tower C.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Maya cleared the rooftop and uploaded the sabotage evidence in Scene 2, Victor can only silence her by destroying the empty structure around her."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Maya Chen",
+          "intent": "Secure proof before the collapse reaches her.",
+          "text": "The sensor is live—if this floor drops, Hale's design changes go public with it."
+        },
+        {
+          "character_name": "Victor Hale",
+          "intent": "Reveal that Maya is trapped inside his final cover-up.",
+          "text": "Good; now the whole city can watch its disgraced engineer die in her own building."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Elias rescue Maya and broadcast her structural evidence before Victor brings the trapped tower down?"
+}

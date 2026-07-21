@@ -1,0 +1,111 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-revalidation
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Do not mention prompts, plans, schemas, variants, evaluation, or these instructions.
+When planning context is present, satisfy its required effects but invent the dramatic execution.
+When planning context is absent, infer this episode's responsibility from the ContentSpec, episode number, and previous state.
+The actual previous episode state is authoritative if it differs in minor execution detail from a planned entry state.
+
+EpisodeNumber: 2
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve established characters, facts, relationships, rules, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+CreativeFreedomBoundary:
+- Invent the exact opening hook, conflict mechanism, physical incident, reversal device, dialogue, scene choreography, emotional expression, and cliffhanger execution.
+- Treat planned reveals as information obligations, not required staging.
+- Do not repeat an adjacent episode's primary conflict, rescue, sacrifice, reveal, threat device, or state transition unless the new function clearly escalates it.
+- A recurring motif is allowed; a repeated dramatic mechanism is not.
+
+ContentSpecSummary:
+{
+  "audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+  "platform": "TikTok-oriented vertical serialized fiction",
+  "language": "English",
+  "episode_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "tone": "Sharp, controlled, escalating",
+  "story_goal": "A structural engineer must expose the developer who framed her without endangering residents.",
+  "constraints": [
+    "Revenge depends on evidence and consequential choices.",
+    "The protagonist protects vulnerable people.",
+    "Do not use a public-wedding or secret-heir device."
+  ]
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 1,
+  "title": "The Same Crack",
+  "episode_goal": "Tessa discovers a credible danger in Hale's occupied tower and sacrifices easy vindication to investigate it safely.",
+  "synopsis": "Disgraced engineer Tessa Ward uses temporary access to inspect Gideon Hale's occupied tower and discovers concrete cracking tied to the same material pattern behind the failure that destroyed her career. In Hale's archive, she finds an altered load-test record that could clear her name, but a dangerous live strain spike forces her to spend her limited access preserving current safety data instead. Tessa initiates a discreet inspection to protect residents and sends Malik for physical evidence,ag",
+  "character_states": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "motivation": "Expose the truth while protecting residents from the defect she failed to stop before."
+    },
+    {
+      "name": "Gideon Hale",
+      "role": "Antagonist",
+      "motivation": "Protect his tower, company, and authority at any human cost."
+    },
+    {
+      "name": "Malik Reyes",
+      "role": "Reluctant ally",
+      "motivation": "Keep residents safe without losing the access and livelihood that let him help them."
+    }
+  ],
+  "final_scene_outcome": "Tessa starts a discreet safety response, but Hale revokes her access and traps Malik beside the evidence.",
+  "final_turning_point": "Hale admits framing Tessa as he locks her ally inside the room containing the proof.",
+  "next_episode_question": "Can Tessa secure proof and prepare the residents before Hale erases the records and revokes her access?"
+}
+
+PlanningContext:
+{
+  "contract_version": "serialized_story_planning_contract.v1.1-candidate",
+  "story_blueprint": {
+    "core_premise": "Disgraced engineer Tessa Ward audits the developer who framed her and discovers his newest tower repeats the defect that ended her career.",
+    "series_dramatic_promise": "Tessa transforms personal revenge into public accountability while defeating a system that treats resident safety as negotiable.",
+    "central_conflict": "Tessa needs internal proof, but immediate exposure could cause panic and leave residents inside an unsafe tower.",
+    "theme": "Justice without responsibility can reproduce the harm it condemns.",
+    "ending_direction": "Tessa enables a safe evacuation, releases independently verified evidence, and rejects a settlement that repairs only her reputation.",
+    "character_arc_targets": "Tessa moves from reputation-focused revenge to public-accountability leadership. Hale moves from certainty to sacrificing allies and exposing his fear.",
+    "major_setup_payoff_refs": {
+      "RV-S1": "altered load-test record",
+      "RV-S2": "evacuation plan",
+      "RV-S3": "Tessa's unsigned calculation"
+    }
+  },
+  "current_episode_plan": {
+    "episode_number": 2,
+    "episode_purpose": "Verify the framing while making premature exposure dangerous.",
+    "entry_state": "Tessa has partial proof, and residents do not know the risk.",
+    "required_state_change": "The substitution behind her framing is established, and a safe response becomes necessary before release.",
+    "protagonist_decision": "Tessa rejects silence without triggering an uncontrolled response.",
+    "planned_reveal": "Her unsigned work was transformed into a certified falsification.",
+    "setup_refs": [
+      "RV-S1",
+      "RV-S2",
+      "RV-S3"
+    ],
+    "payoff_refs": [
+      "RV-S3:partial"
+    ],
+    "exit_state": "Tessa has framing evidence and a narrow protection window.",
+    "emotional_requirement": "Move from vindication to disciplined responsibility; choose the exact bargain or threat freely."
+  }
+}

@@ -1,0 +1,228 @@
+{
+  "content_spec_id": "9528ded5-6cdd-4d13-8bfa-ea04070b3642",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "title": "The Bride Had Receipts",
+  "logline": "After her groom exposes their fake marriage at the altar, a humiliated bride publicly retaliates—only for his hidden evidence to turn the scandal back on her.",
+  "language": "en",
+  "target_audience": "US women ages 18–34 who engage with fast revenge dramas, public betrayals, fake relationships, and escalating cliffhangers.",
+  "target_platform": "TikTok 9:16 short video",
+  "tone": "intense",
+  "hook": "At the altar, Ethan drops Ava's hand and announces, “I never loved her. This marriage was fake.” She grabs the microphone before he can leave.",
+  "synopsis": "Ethan exposes his relationship with Ava as a fake marriage on their wedding stage, expecting her to disappear in shame. Ava takes the microphone, displays their agreement, and releases a recording proving he planned to discard her. Her evidence forces an emergency board review, but Ethan produces a hidden page showing Ava proposed the arrangement first—and she warns that revealing why could cost him everything.",
+  "episode_goal": "Have Ava seize control after Ethan's public betrayal, expose his fake-marriage scheme, and trigger a counter-reveal that threatens her revenge.",
+  "target_duration_seconds": 45,
+  "characters": [
+    {
+      "name": "Ava Cole",
+      "role": "Betrayed bride and revenge-driven protagonist",
+      "description": "A poised bride who turns public humiliation into a calculated counterattack instead of leaving the stage.",
+      "motivation": "Expose Ethan's betrayal and reclaim control of her story."
+    },
+    {
+      "name": "Ethan Vale",
+      "role": "Betraying groom and antagonist",
+      "description": "A calculating groom who publicly weaponizes their fake marriage but keeps a second piece of evidence in reserve.",
+      "motivation": "Protect his power by making Ava look like the true architect of the deception."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. WEDDING STAGE - DAY",
+      "purpose": "Deliver the betrayal instantly and establish Ava's agency through a public countermove.",
+      "setting_hint": "Wedding stage, framed tightly for vertical video",
+      "beat_summary": "Ethan humiliates Ava at the altar by exposing their fake marriage. Instead of fleeing, Ava refuses to surrender the stage and activates the wedding screen.",
+      "emotional_shift": "Public humiliation to controlled defiance",
+      "emotional_objective": "Turn shock into fierce anticipation as Ava visibly chooses revenge.",
+      "character_actions": [
+        "Ethan drops Ava's hand and faces the guests.",
+        "Ava removes her veil, takes the microphone, and blocks his exit.",
+        "Ava presses a remote; a signed agreement fills the screen."
+      ],
+      "turning_point": "Ava does not leave; she turns the wedding screen into evidence against Ethan.",
+      "scene_causality": {
+        "goal": "Ava must stop Ethan from controlling the public story.",
+        "conflict": "Ethan exposes the fake marriage first, framing Ava as disposable and expecting her to leave in shame.",
+        "outcome": "Ava takes the microphone and publicly displays their signed fake-marriage agreement.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Stop the ceremony. I never loved her. This marriage was fake.",
+        "You're right about one thing—it was fake. But your betrayal is about to be very real.",
+        "Put the remote down, Ava.",
+        "No. Everyone deserves to see what you made me sign."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Ethan Vale",
+          "intent": "Publicly discard Ava and control the scandal",
+          "text": "Stop the ceremony. I never loved her. This marriage was fake."
+        },
+        {
+          "character_name": "Ava Cole",
+          "intent": "Refuse humiliation and begin her counterattack",
+          "text": "You're right about one thing—it was fake. But your betrayal is about to be very real."
+        },
+        {
+          "character_name": "Ethan Vale",
+          "intent": "Intimidate Ava into silence",
+          "text": "Put the remote down, Ava."
+        },
+        {
+          "character_name": "Ava Cole",
+          "intent": "Expose the agreement before Ethan can escape",
+          "text": "No. Everyone deserves to see what you made me sign."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. WEDDING STAGE - CONTINUOUS",
+      "purpose": "Prove Ethan's betrayal and force the scandal into a formal board confrontation.",
+      "setting_hint": "Wedding stage with contract and audio waveform on the screen",
+      "beat_summary": "The displayed agreement draws attention to Ethan, but he claims Ava joined willingly. Ava answers by playing his recorded promise, exposing his plan to discard her.",
+      "emotional_shift": "Defiance to apparent victory, then unease",
+      "emotional_objective": "Deliver the revenge payoff while planting immediate dread about Ethan's backup plan.",
+      "character_actions": [
+        "Ethan points to Ava's signature on the screen.",
+        "Ava scrolls from the agreement to an audio file.",
+        "Ava plays Ethan's recorded words for the room.",
+        "Ava sends the evidence to the waiting board review."
+      ],
+      "turning_point": "Ava sends the evidence beyond the wedding, preventing Ethan from burying it.",
+      "scene_causality": {
+        "goal": "Ava must prove Ethan intended to betray her after using the fake marriage.",
+        "conflict": "Ethan uses Ava's signature to claim she was an equal participant, raising the cost of her exposure.",
+        "outcome": "Ava releases Ethan's recorded admission and sends the evidence to the board, forcing an immediate review.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Ava displayed the agreement in Scene 1, Ethan attacks her signature, forcing her to release stronger evidence publicly."
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Zoom in. That's her signature. She knew exactly what this was.",
+        "I knew it was an arrangement. I didn't know you planned to erase me afterward.",
+        "You can't prove that.",
+        "Your voice can. And I just sent it to the board.",
+        "Then you just sent them everything."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Ethan Vale",
+          "intent": "Shift equal blame onto Ava",
+          "text": "Zoom in. That's her signature. She knew exactly what this was."
+        },
+        {
+          "character_name": "Ava Cole",
+          "intent": "Reveal that Ethan planned to betray her",
+          "text": "I knew it was an arrangement. I didn't know you planned to erase me afterward."
+        },
+        {
+          "character_name": "Ethan Vale",
+          "intent": "Dismiss Ava's accusation",
+          "text": "You can't prove that."
+        },
+        {
+          "character_name": "Ava Cole",
+          "intent": "Publicly release decisive evidence",
+          "text": "Your voice can. And I just sent it to the board."
+        },
+        {
+          "character_name": "Ethan Vale",
+          "intent": "Reveal that Ava has triggered his counterattack",
+          "text": "Then you just sent them everything."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. BOARDROOM - MOMENTS LATER",
+      "purpose": "Escalate the public revenge into a reversal that demands the next episode.",
+      "setting_hint": "Modern boardroom, using the reusable boardroom set",
+      "beat_summary": "At the emergency board review, Ava demands action against Ethan. He reveals a hidden first page showing that Ava proposed the fake marriage before he did.",
+      "emotional_shift": "Apparent triumph to dangerous exposure",
+      "emotional_objective": "Make Ava's revenge feel one revelation from triumph and one revelation from collapse.",
+      "character_actions": [
+        "Ava enters the boardroom still wearing her wedding dress.",
+        "Ava places the public agreement on the table.",
+        "Ethan slides a second document beside it.",
+        "The display zooms in on Ava's earlier signature and date.",
+        "Ava's confident expression breaks for the first time."
+      ],
+      "turning_point": "Ethan reveals Ava's earlier signature, transforming her revenge victory into a threat against her credibility.",
+      "scene_causality": {
+        "goal": "Ava must persuade the board to act on Ethan's recorded betrayal.",
+        "conflict": "Ethan produces an earlier page bearing Ava's signature, suggesting she initiated the fake marriage and concealed her own agenda.",
+        "outcome": "The review stalls when Ethan reveals Ava proposed the fake marriage first, forcing her to disclose the dangerous reason in the next episode.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Ava sent the recording to the board in Scene 2, an emergency review begins, giving Ethan the opening to submit his hidden document."
+      },
+      "cliffhanger": true,
+      "dialogue_prompts": [
+        "You heard his plan. Remove him before he lies again.",
+        "Gladly—after they read the first page you hid.",
+        "There is no first page.",
+        "Then why does it show you proposed our fake marriage three days before I did?",
+        "Because if I tell them why, you lose more than this board."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Ava Cole",
+          "intent": "Convert her exposure into consequences",
+          "text": "You heard his plan. Remove him before he lies again."
+        },
+        {
+          "character_name": "Ethan Vale",
+          "intent": "Undermine Ava with withheld evidence",
+          "text": "Gladly—after they read the first page you hid."
+        },
+        {
+          "character_name": "Ava Cole",
+          "intent": "Challenge Ethan's last defense",
+          "text": "There is no first page."
+        },
+        {
+          "character_name": "Ethan Vale",
+          "intent": "Reverse the accusation and end on a public threat",
+          "text": "Then why does it show you proposed our fake marriage three days before I did?"
+        },
+        {
+          "character_name": "Ava Cole",
+          "intent": "Signal that the hidden truth is dangerous",
+          "text": "Because if I tell them why, you lose more than this board."
+        }
+      ],
+      "supporting_asset_ids": []
+    }
+  ],
+  "next_episode_question": "Why did Ava propose the fake marriage before Ethan did, and can she expose her real reason before he destroys her credibility?",
+  "qa_notes": [
+    "Draft generated by RealLLMAdapter structured output.",
+    "Story QC and revision loop must still review platform fit and consistency."
+  ],
+  "llm_metadata": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "strategy_id": "strategy.scene_causality_ab.improved.v1",
+    "usage": {
+      "prompt_tokens": 5674,
+      "completion_tokens": 2750,
+      "total_tokens": 8424,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1034
+      }
+    },
+    "response_id": "resp_0e6351e29fc921ea016a5e30c5d1f0819bb4f3096d8db7e1d5",
+    "prompt_versions": [
+      "v3-scene-causality",
+      "v1-shared"
+    ],
+    "generation_strategy_version": "v1"
+  },
+  "id": "862a9528-7c30-4dd0-a8f1-1e8611754762",
+  "created_at": "2026-07-20T14:30:50.781272Z",
+  "updated_at": "2026-07-20T14:30:50.781326Z"
+}

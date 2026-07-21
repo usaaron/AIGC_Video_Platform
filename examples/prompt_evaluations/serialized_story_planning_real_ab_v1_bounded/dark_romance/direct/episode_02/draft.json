@@ -1,0 +1,140 @@
+{
+  "title": "The Protection Order",
+  "logline": "While trapped inside Vale Tower, Mara discovers Adrian secretly monitored her for months and must decide whether his access offers an escape or completes the trap.",
+  "synopsis": "Mara discovers Adrian monitored her long before the crisis, but metadata shows his protection order was converted into a kill directive by his father. She permits a strictly controlled alliance, confiscates Adrian’s access badge, and ensures Nina retains the evidence. Rather than take the offered escape, Mara chooses to enter the offline vault and preserve the original records, only to find the conspiracy has forged her signature onto Adrian’s coercive operations as armed cleaners close in.",
+  "hook": "Adrian’s authorization code marks Mara as a target, but the file contains a photograph taken before they ever met.",
+  "target_audience": "US women 18-34 who prefer tense romance, moral conflict, and consequential choices",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "suspenseful",
+  "episode_goal": "Make Mara independently test Adrian’s claim and choose a dangerous route that preserves Nina’s control of the evidence.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Mara Voss",
+      "role": "Protagonist and crisis negotiator",
+      "description": "A controlled, incisive crisis negotiator who refuses to surrender her judgment under pressure.",
+      "motivation": "Protect Nina and determine whether Adrian marked her for death or tried to shield her."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Suspected coercer and possible protector",
+      "description": "The guarded Vale heir whose coercive choices make even his protection dangerous to accept.",
+      "motivation": "Keep Mara and Nina alive while preventing his father from erasing evidence of the covert program."
+    },
+    {
+      "name": "Nina Park",
+      "role": "Whistleblower in immediate danger",
+      "description": "A frightened but determined whistleblower carrying evidence against Vale Industries.",
+      "motivation": "Survive, expose the company, and avoid becoming dependent on another Vale."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. VALE TOWER – SECURE CORRIDOR – NIGHT",
+      "purpose": "Reveal that Adrian’s interest in Mara predates the hostage crisis.",
+      "setting": "Secure corridor outside Vale Tower’s executive archive",
+      "beat_summary": "Mara finds months of surveillance in her dossier while Nina demands they abandon Adrian.",
+      "emotional_shift": "Mara moves from shock to disciplined scrutiny.",
+      "emotional_objective": "Turn Mara’s suspicion into personal violation without letting fear dictate her response.",
+      "character_actions": [
+        "Mara scrolls through dated photographs of herself entering past negotiations.",
+        "Nina pulls the emergency door shut and keeps the flash drive in her own hand.",
+        "Adrian appears behind the wired-glass window with blood spreading across his sleeve."
+      ],
+      "turning_point": "Mara keeps the barrier between them and makes Adrian prove his usefulness from the other side.",
+      "scene_causality": {
+        "goal": "Determine why Adrian authorized surveillance on Mara.",
+        "conflict": "Nina sees the dossier as proof Adrian engineered everything, while Adrian claims an armed team is approaching.",
+        "outcome": "Mara refuses Adrian entry but orders him to guide them through the sealed floor.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Nina Park",
+          "intent": "Reject Adrian’s control and challenge Mara’s judgment.",
+          "text": "He studied you before tonight, Mara. That isn’t protection—it’s selection."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Warn them that the corridor is being sealed.",
+          "text": "Argue later. My father just locked this floor and sent a cleanup team."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. VALE TOWER – SECURITY VESTIBULE – NIGHT",
+      "purpose": "Prove Adrian’s code was altered while holding him accountable for secretly monitoring Mara.",
+      "setting": "Security vestibule adjoining the executive archive",
+      "beat_summary": "Adrian guides them toward a hidden exit as Mara discovers his code originally labeled her as a protected asset.",
+      "emotional_shift": "Mara shifts from guarded interrogation to conditional cooperation.",
+      "emotional_objective": "Create dangerous intimacy through a limited alliance that does not excuse Adrian’s surveillance.",
+      "character_actions": [
+        "Mara compares the dossier metadata with Adrian’s access badge through the glass.",
+        "Nina photographs the original protection order before deleting its location history.",
+        "Mara unlocks the barrier, takes Adrian’s badge, and leaves him unarmed."
+      ],
+      "turning_point": "Mara opens the barrier but confiscates Adrian’s badge, visibly taking command of the alliance.",
+      "scene_causality": {
+        "goal": "Verify whether Adrian’s authorization created or prevented the kill order.",
+        "conflict": "Adrian’s evidence may clear him of ordering Mara’s death, but it confirms he violated her privacy for months.",
+        "outcome": "Mara confirms the alteration and chooses to use Adrian’s access under her rules.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Adrian reports a cleanup team and the metadata can verify his claim, Mara tests his badge before moving."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Confess his interference without asking forgiveness.",
+          "text": "I flagged you after you saved a witness my father wanted silent; he changed 'protect' to 'terminate.'"
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Set strict terms for temporary cooperation.",
+          "text": "You don’t get trust. You get one door, no weapon, and Nina keeps the evidence."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. VALE TOWER – EVIDENCE VAULT – NIGHT",
+      "purpose": "Make Mara choose evidence over immediate safety and reveal the conspiracy’s counterattack.",
+      "setting": "Offline evidence vault beneath Vale Tower’s executive floor",
+      "beat_summary": "Mara leads them into the evidence vault, where a purge reveals her identity has been forged onto Adrian’s crimes.",
+      "emotional_shift": "Mara moves from controlled caution to irreversible resolve.",
+      "emotional_objective": "Transform conditional trust into a costly act of defiance led by Mara.",
+      "character_actions": [
+        "Mara uses Adrian’s badge to open the offline evidence vault instead of taking the promised exit.",
+        "Nina connects the flash drive as red deletion bars race across the terminal.",
+        "Adrian turns toward heavy impacts shaking the vault door while Mara copies the final surviving file."
+      ],
+      "turning_point": "The rescued file displays Mara’s forged signature beside Adrian’s as the cleanup team breaches the outer door.",
+      "scene_causality": {
+        "goal": "Copy the original program records before they are remotely purged.",
+        "conflict": "Saving the unaltered evidence exposes Mara to both the cleanup team and a fabricated criminal identity.",
+        "outcome": "Mara saves one file, but it identifies her as Adrian’s authorized partner in every coercive operation.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Adrian’s badge works and proves his access can reach the source records, Mara rejects the easy escape and enters the vault."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Warn Mara that exposing the archive will make her the primary suspect.",
+          "text": "If you take that file, my father won’t just hunt you—he’ll make the world believe you ran the program."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Choose public accountability despite the personal cost.",
+          "text": "Then he’d better pray I don’t survive long enough to negotiate."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Will Mara expose Adrian’s father when the only surviving proof now identifies Mara as Adrian’s willing accomplice?"
+}

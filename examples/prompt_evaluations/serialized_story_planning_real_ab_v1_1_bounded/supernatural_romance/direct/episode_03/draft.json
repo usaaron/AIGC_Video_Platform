@@ -1,0 +1,143 @@
+{
+  "title": "The Last Memory: Episode 3 — The Vessel",
+  "logline": "Trapped with Elias inside the memory chapel, Mara discovers her mother was the woman who traded Elias's immortality for her own daughter's life, forcing Mara to choose between restoring his identity and losing the last memory of her mother.",
+  "synopsis": "Trapped beneath the chapel, Mara uses the intact shard to uncover her mother's original bargain: Elena traded Elias's immortality to save Mara as a dying child. In the flooded crypt, Mara learns Elias has been carrying the final memories of the dead as a supernatural vault, and that her compassion is the payment sustaining the exchange. She chooses to release those memories rather than sacrifice Elias, speaking their final thoughts aloud while Elias helps her resist the Listener. Elias regains a",
+  "hook": "Elias looks at Mara in the sealed chapel and asks why her heartbeat sounds like someone he once loved.",
+  "target_audience": "English-speaking viewers who enjoy supernatural mystery, restrained romance, and identity conflict",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "emotional",
+  "episode_goal": "Mara must escape the sealed chapel, learn her mother's true connection to Elias, and keep Elias from becoming an empty vessel.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Mara Vale",
+      "role": "Protagonist and paramedic",
+      "description": "A sharp, compassionate paramedic who hears the final memories of the dying and can enter supernatural memory exchanges through blood.",
+      "motivation": "To save lives without surrendering her identity or abandoning Elias."
+    },
+    {
+      "name": "Elias Voss",
+      "role": "Immortal stranger and reluctant ally",
+      "description": "An immortal man whose stolen memories are being consumed, leaving him unable to remember Mara or his own history.",
+      "motivation": "To recover his identity before the Pale Listener turns him into an empty vessel."
+    },
+    {
+      "name": "The Pale Listener",
+      "role": "Supernatural antagonist",
+      "description": "A faceless supernatural force that harvests memories through exchanges and speaks in the voices of the dead.",
+      "motivation": "To erase Elias completely and collect Mara's compassion as payment."
+    },
+    {
+      "name": "Elena Vale",
+      "role": "Mara's mother and former bargainer",
+      "description": "Mara's deceased mother, preserved as a voice and memory within the exchange.",
+      "motivation": "To protect Mara from the bargain she once made, even after betraying Elias."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. SEALED CHAPEL - NIGHT",
+      "purpose": "Reveal the personal cost of Elena's original exchange and give Mara a concrete way forward.",
+      "setting": "Sealed underground chapel, moments after the previous episode",
+      "beat_summary": "Mara uses the intact memory shard to open a hidden exit, but it shows that Elena once exchanged Elias's immortality for Mara's life.",
+      "emotional_shift": "Mara moves from desperate escape to furious certainty about the bargain.",
+      "emotional_objective": "Turn Elias's forgotten attachment into fragile trust while forcing Mara to face her mother's betrayal.",
+      "character_actions": [
+        "Mara presses the blood-wet memory shard into the chapel door and watches her mother's face appear in the stone.",
+        "Elias grips the doorframe as silver veins spread through his skin and the Listener's voice fills the room."
+      ],
+      "turning_point": "Elena appears in the stone and calls Elias the price of Mara's first breath.",
+      "scene_causality": {
+        "goal": "Use the shard to reveal the bargain and unlock an exit.",
+        "conflict": "The sealed chapel is consuming Elias's remaining identity while the memory shard demands Mara's blood.",
+        "outcome": "The door opens, but the shard brands Mara with Elena's exchange mark and exposes a second memory chamber below.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Elias Voss",
+          "intent": "Seek an emotional anchor despite his memory loss.",
+          "text": "Your heartbeat... I know it. Why does it sound like someone I failed?"
+        },
+        {
+          "character_name": "Mara Vale",
+          "intent": "Confront the memory and demand the truth.",
+          "text": "Because my mother used your life to save mine—and I am not letting her bargain finish."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. MEMORY CRYPT - NIGHT",
+      "purpose": "Explain the supernatural rule and reveal why the Listener needs Mara's compassion to complete Elias's erasure.",
+      "setting": "Flooded memory crypt beneath the chapel",
+      "beat_summary": "In the memory chamber, Mara witnesses Elena taking Elias's immortality and learns the Listener has been using Elias as a vault for the deaths she could not accept.",
+      "emotional_shift": "Elias shifts from suspicion of Mara to solidarity, while Mara shifts from blaming her mother to accepting responsibility",
+      "emotional_objective": "Replace romantic mystery with painful accountability while deepening Mara and Elias's shared cost.",
+      "character_actions": [
+        "Mara descends into the flooded crypt and touches a black basin that projects Elena's final bargain.",
+        "Elias steps between Mara and the basin as his reflection loses its face and the crypt water rises around them."
+      ],
+      "turning_point": "Mara learns compassion is not merely her gift; it is the payment mechanism that keeps Elias alive.",
+      "scene_causality": {
+        "goal": "Separate Elias's identity from the memories stored inside him.",
+        "conflict": "The Listener floods the crypt with borrowed final memories, forcing Elias to relive deaths that are not his.",
+        "outcome": "Mara realizes the memories can only be released if someone willingly remembers the dead aloud, giving the Listener a final payment target.",
+        "caused_by_scene_number": 1,
+        "causal_link": "The shard opened the hidden chamber and activated Elena's preserved confession."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Elena Vale",
+          "intent": "Confess the original bargain through preserved memory.",
+          "text": "I asked it to spare my dying child; it took your endless years and poured them into her instead."
+        },
+        {
+          "character_name": "Mara Vale",
+          "intent": "Reject inherited guilt and identify the real mechanism.",
+          "text": "You didn't save me—you made him carry every death you couldn't bear."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. COLLAPSING MEMORY CRYPT - PRE-DAWN",
+      "purpose": "Free Elias from the stored deaths and transfer the Listener's access to Mara for the final confrontation.",
+      "setting": "Collapsing crypt and chapel threshold before dawn",
+      "beat_summary": "Mara chooses to remember the dead instead of surrendering Elias, freeing the stolen memories but allowing the Listener to take Elena's voice into her.",
+      "emotional_shift": "Mara becomes an agent of the exchange, while Elias regains enough of himself to choose her freely.",
+      "emotional_objective": "Make love an active shared risk without making it a destiny, and end with Mara inheriting the threat.",
+      "character_actions": [
+        "Mara cuts her palm and speaks each stranger's final memory while Elias holds her upright against the rising water.",
+        "Elias tears the exchange mark from Mara's wrist, but the black mark leaps into her throat and speaks with Elena's voice."
+      ],
+      "turning_point": "Elias remembers Mara's name, but Mara's voice answers in Elena's voice as the Listener claims her as its new vessel.",
+      "scene_causality": {
+        "goal": "Return the stolen memories and keep Elias's selfhood intact.",
+        "conflict": "Mara must release hundreds of final memories while the Listener tries to make her sacrifice Elias's identity.",
+        "outcome": "Elias recovers his name and the chapel breaks open, but the Listener enters Mara through Elena's voice and whispers that the final exchange will happen inside her body at dawn.",
+        "caused_by_scene_number": 2,
+        "causal_link": "The crypt reveals that spoken remembrance can release the stolen memories, but it also exposes the speaker to the Listener."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Elias Voss",
+          "intent": "Stop Mara from sacrificing herself and affirm his choice to stay with her.",
+          "text": "Don't pay for my life with yours. I would rather vanish knowing your name than survive inside your silence."
+        },
+        {
+          "character_name": "Mara Vale",
+          "intent": "Make a consequential choice and protect Elias without accepting the bargain.",
+          "text": "Then remember this choice: I am giving the dead back—not giving you away."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Mara restore Elias's stolen identity before the Pale Listener makes her mother's bargain permanent?"
+}

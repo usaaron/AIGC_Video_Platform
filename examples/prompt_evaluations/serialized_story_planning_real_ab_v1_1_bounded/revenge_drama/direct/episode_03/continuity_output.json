@@ -1,0 +1,26 @@
+{
+  "completed_episode_number": 3,
+  "title": "Eleven Below",
+  "episode_goal": "Maya must evacuate Vale Meridian and interrupt its demolition without destroying the evidence that can expose Adrian.",
+  "synopsis": "Maya and Luis enter Vale Meridian and expose a forged containment order designed to keep residents inside during demolition. Adrian forces Maya to choose between downloading the controller log that could clear her name and activating the fire system, so she destroys the log to unlock the exits and summon emergency crews. Maya severs the digital detonator bus and saves the registered residents, while a partial blast ejects counterfeit structural components into public view. Their victory turns to",
+  "character_states": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "motivation": "Clear her name by proving developer fraud without putting residents at risk."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Antagonist",
+      "motivation": "Erase the sister tower's defects before they expose his company and exonerate Maya."
+    },
+    {
+      "name": "Luis Ortega",
+      "role": "Ally",
+      "motivation": "Keep both buildings' residents alive while securing proof of Adrian's crimes."
+    }
+  ],
+  "final_scene_outcome": "Maya stops the digital implosion and exposes counterfeit couplers, but eleven hidden workers remain over a ticking analog device.",
+  "final_turning_point": "Luis reveals the tower is not empty as Adrian's mechanical backup starts counting down.",
+  "next_episode_question": "Can Maya rescue the eleven hidden workers and expose Adrian before his analog charges bring Vale Meridian down?"
+}

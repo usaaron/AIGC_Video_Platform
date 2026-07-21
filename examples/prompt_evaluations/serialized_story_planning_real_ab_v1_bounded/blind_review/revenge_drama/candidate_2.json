@@ -1,0 +1,566 @@
+{
+  "story_id": "revenge_drama",
+  "candidate": "candidate_2",
+  "episodes": [
+    {
+      "title": "The Override",
+      "logline": "Disgraced engineer Maya Chen risks arrest to prove developer Victor Hale concealed a deadly structural defect now spreading through an occupied tower.",
+      "synopsis": "After discovering that the defect blamed on her has appeared in an occupied Hale tower, structural engineer Maya Chen seeks admissible proof before causing a dangerous panic. She infiltrates Victor Hale's records floor and photographs his signed order overriding her rejected concrete mix. Trapped by Victor, Maya chooses to transmit the evidence and initiate a silent evacuation rather than escape cleanly, only to learn he has wired the archive to burn and intends to frame her again.",
+      "hook": "The engineer blamed for a fatal collapse discovers the same defect beneath hundreds of sleeping residents.",
+      "target_audience": "English-speaking viewers who enjoy strategic revenge, institutional conflict, and earned reversals",
+      "target_platform": "TikTok",
+      "language": "en",
+      "tone": "suspenseful",
+      "episode_goal": "Maya must secure proof of Hale's concealed defect before occupied buildings are endangered.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Maya Chen",
+          "role": "Protagonist",
+          "description": "A meticulous structural engineer carrying the blame for a deadly parking-garage collapse.",
+          "motivation": "Clear her name while protecting residents from the same concealed defect."
+        },
+        {
+          "name": "Victor Hale",
+          "role": "Antagonist",
+          "description": "A polished developer who buried construction warnings to protect his empire.",
+          "motivation": "Keep the defect hidden and make Maya the permanent scapegoat."
+        },
+        {
+          "name": "Elias Grant",
+          "role": "Reluctant ally",
+          "description": "A wary city building inspector who once accepted Hale's assurances.",
+          "motivation": "Prevent another disaster without sacrificing his career on an unsupported claim."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. HALE TOWER PARKING LEVEL - NIGHT",
+          "purpose": "Establish the recurring defect and force Maya to seek proof before sounding an alarm.",
+          "setting": "Night, underground parking level of an occupied luxury tower",
+          "beat_summary": "Maya finds fresh shear cracks matching the fatal garage defect beneath an occupied Hale tower.",
+          "emotional_shift": "Maya moves from suspicion to certainty that residents face immediate danger.",
+          "emotional_objective": "Turn Maya's private dread into controlled urgency.",
+          "character_actions": [
+            "Maya measures a widening diagonal crack across a basement support column.",
+            "She compares it with a collapse photograph on her phone.",
+            "Concrete dust trickles onto her measuring tape."
+          ],
+          "turning_point": "Falling concrete dust proves the defect is actively worsening.",
+          "scene_causality": {
+            "goal": "Verify whether the tower shares the defect that caused the fatal collapse.",
+            "conflict": "Maya recognizes lethal danger but cannot trigger a safe evacuation with her discredited word alone.",
+            "outcome": "Maya confirms the same failure pattern and identifies a sealed materials archive as her best evidence.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Maya Chen",
+              "intent": "Confirm the danger without alarming residents prematurely.",
+              "text": "Same angle, same aggregate failure—he used the rejected mix again."
+            },
+            {
+              "character_name": "Elias Grant",
+              "intent": "Warn Maya that her accusation lacks admissible proof.",
+              "text": "A crack is a warning, Maya, not evidence Hale ordered the cover-up."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. HALE DEVELOPMENT RECORDS FLOOR - NIGHT",
+          "purpose": "Give Maya incriminating evidence while revealing Victor knows she has found it.",
+          "setting": "Night, restricted records floor inside Hale Development headquarters",
+          "beat_summary": "Maya enters Hale's records floor and finds proof that Victor overruled her concrete rejection.",
+          "emotional_shift": "Her controlled investigation becomes a direct confrontation with Victor.",
+          "emotional_objective": "Make Maya choose dangerous restraint over a satisfying but reckless public leak.",
+          "character_actions": [
+            "Maya uses her revoked employee badge to slip into the dark records floor.",
+            "She photographs Victor's signed override beside falsified concrete test results.",
+            "A security shutter slams over the only exit."
+          ],
+          "turning_point": "Victor's voice reveals he has been monitoring Maya's search.",
+          "scene_causality": {
+            "goal": "Obtain documentary proof linking Victor to the rejected concrete mix.",
+            "conflict": "Victor traps Maya and threatens arrest while residents remain unaware above them.",
+            "outcome": "Maya captures the signed override but becomes locked inside the records floor.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because the basement crack confirms a recurring defect, Maya infiltrates the archive to prove who authorized it."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Victor Hale",
+              "intent": "Pressure Maya through the ceiling speaker into surrendering the evidence.",
+              "text": "You were convicted in the headlines, Maya; one trespassing charge makes it official."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Show Victor she values resident safety over immediate revenge.",
+              "text": "Then charge me—after you explain why three occupied towers share your forged test numbers."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "INT. HALE DEVELOPMENT RECORDS FLOOR - NIGHT",
+          "purpose": "Show Maya protecting residents through a consequential decision and launch the next crisis.",
+          "setting": "Night, sealed records floor and remote fire-control room",
+          "beat_summary": "Maya sacrifices her clean escape to send Elias the evidence and trigger a discreet safety response.",
+          "emotional_shift": "Maya gains institutional leverage but realizes Victor intends to make her the culprit again.",
+          "emotional_objective": "Deliver an earned victory that immediately exposes Maya to a worse trap.",
+          "character_actions": [
+            "Maya connects her phone to a fire-control data port and uploads the photographed files to Elias.",
+            "She remotely places the tower elevators into firefighter recall, moving residents away from the garage.",
+            "A monitor activates, showing Victor beside explosives wired to the archive servers."
+          ],
+          "turning_point": "Maya sends the files instead of preserving her escape, enabling evacuation but springing Victor's frame-up.",
+          "scene_causality": {
+            "goal": "Get the proof to Elias and reduce resident exposure before Victor erases the records.",
+            "conflict": "Sending the evidence can protect residents but exposes Maya's location and lets Victor frame her for destroying the archive.",
+            "outcome": "Elias receives the proof and begins a silent evacuation, but Victor prepares to burn the archive with Maya inside.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because Victor traps her with the only proof, Maya must choose between escaping unseen and transmitting evidence immediately."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Elias Grant",
+              "intent": "Confirm he will act while warning Maya of the personal cost.",
+              "text": "I have the files and I'm calling a silent evacuation—but your signal gave Hale your exact location."
+            },
+            {
+              "character_name": "Victor Hale",
+              "intent": "Frame Maya and erase the evidence in one move.",
+              "text": "Perfect; when this floor burns, the cameras will show my disgraced engineer breaking in."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Can Maya evacuate the tower before Hale destroys the evidence and frames her for the sabotage?"
+    },
+    {
+      "title": "Twelve Minutes",
+      "logline": "Trapped in a burning archive, Maya sacrifices the original records to save the tower, only to uncover Victor's next occupied death trap.",
+      "synopsis": "Maya stops Victor's archive fire by flooding the records floor, sacrificing the paper originals while preserving the digital audit server. In the lobby, Victor accuses her of arson, but Maya strategically surrenders and gives Elias the access needed to verify the surviving logs. The records expose Victor's remote ignition command and clear Maya, then reveal a muted structural warning at Tower C, where a rooftop concert will overload a failing transfer slab in twelve minutes.",
+      "hook": "Flames race toward the only server that can prove Victor Hale framed Maya.",
+      "target_audience": "English-speaking viewers who enjoy strategic revenge, institutional conflict, and earned reversals.",
+      "target_platform": "TikTok",
+      "language": "English",
+      "tone": "suspenseful",
+      "episode_goal": "Maya must survive Victor's fire, preserve admissible proof, and complete the tower's evacuation without triggering deadly panic.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Maya Chen",
+          "role": "Protagonist",
+          "description": "A disciplined structural engineer framed for a fatal construction defect.",
+          "motivation": "Clear her name while protecting residents from Hale's concealed defects."
+        },
+        {
+          "name": "Victor Hale",
+          "role": "Antagonist",
+          "description": "A ruthless developer who hides dangerous shortcuts behind influence and manufactured evidence.",
+          "motivation": "Destroy the evidence and keep Maya as his permanent scapegoat."
+        },
+        {
+          "name": "Elias Grant",
+          "role": "Reluctant ally",
+          "description": "A cautious building official whose faith in procedure is being tested by mounting proof.",
+          "motivation": "Prevent another disaster without staking his career on an unsupported accusation."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. HALE TOWER – BURNING ARCHIVE – NIGHT",
+          "purpose": "Maya stops the fire from spreading while preserving the server that logged Victor's actions.",
+          "setting": "Hale Tower archive floor, behind a locked fire door",
+          "beat_summary": "As Victor's timed fire spreads, Maya chooses suppression over saving the paper originals.",
+          "emotional_shift": "Maya moves from hunted desperation to decisive control.",
+          "emotional_objective": "Show Maya converting entrapment into a controlled sacrifice.",
+          "character_actions": [
+            "Maya smashes the sprinkler control glass and pulls the manual deluge lever.",
+            "Victor watches through the locked fire door as water destroys the signed paper files.",
+            "Maya shields the archive server beneath a fire blanket while smoke fills the room."
+          ],
+          "turning_point": "Maya knowingly floods the archive, sacrificing pristine evidence to keep the tower safe.",
+          "scene_causality": {
+            "goal": "Stop the fire without losing the proof or endangering evacuating residents.",
+            "conflict": "Victor has locked Maya beside a fire advancing toward the archive server.",
+            "outcome": "The originals are ruined, but the fire is contained and the server survives.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Victor Hale",
+              "intent": "Force Maya to protect the evidence at the cost of her life.",
+              "text": "Pull that lever and your precious originals become pulp."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Declare that lives and recoverable data matter more than perfect evidence.",
+              "text": "Paper burns once; your audit trail remembers forever."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. HALE TOWER – LOBBY – NIGHT",
+          "purpose": "Maya accepts detention so Elias can authenticate the evidence and finish the evacuation.",
+          "setting": "Hale Tower lobby during the controlled evacuation",
+          "beat_summary": "Victor publicly frames Maya for the blaze while Elias must choose whether to trust her evidence.",
+          "emotional_shift": "Public humiliation hardens into mutual trust between Maya and Elias.",
+          "emotional_objective": "Make Maya's surrender feel strategic rather than defeated.",
+          "character_actions": [
+            "Maya emerges soaked into the lobby and places her phone in Elias's hand.",
+            "Victor points security officers toward Maya as residents file calmly through side exits.",
+            "Maya raises her empty hands and allows security to restrain her."
+          ],
+          "turning_point": "Maya surrenders instead of fleeing, making Victor's obstruction visible and protecting Elias's investigation.",
+          "scene_causality": {
+            "goal": "Give Elias enough time and authority to authenticate Victor's remote ignition command.",
+            "conflict": "Victor weaponizes the fire and security footage to frame Maya before the proof is verified.",
+            "outcome": "Maya is detained, but Elias accesses the surviving server while the last residents exit safely.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because Maya contained the archive fire, she reaches the lobby with the server evidence still recoverable."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Victor Hale",
+              "intent": "Have Maya arrested before Elias can authenticate her files.",
+              "text": "She broke in, started a fire, and forged whatever is on that phone."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Buy Elias time by surrendering and directing him to independent proof.",
+              "text": "Check the server's ignition log, Elias—I’ll stay where they can see me."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "INT. HALE TOWER – SECURITY STATION – NIGHT",
+          "purpose": "The surviving server proves Victor's sabotage and exposes his next endangered building.",
+          "setting": "Hale Tower security station beside the evacuated lobby",
+          "beat_summary": "The recovered audit trail clears Maya of the fire but reveals an imminent structural crisis at another occupied Hale tower.",
+          "emotional_shift": "Relief at clearing Maya's name snaps into dread and resolve.",
+          "emotional_objective": "Deliver vindication that instantly becomes a more urgent moral burden.",
+          "character_actions": [
+            "Elias projects the server log, revealing Victor's credentials beside the ignition command.",
+            "Security releases Maya as Victor slips through an emergency exit.",
+            "Maya zooms in on a muted sensor alert for Tower C and freezes at its live occupancy count."
+          ],
+          "turning_point": "Maya sees Tower C's countdown and chooses immediate intervention over celebrating her vindication.",
+          "scene_causality": {
+            "goal": "Use the recovered audit trail to clear Maya and identify Victor's remaining concealed hazards.",
+            "conflict": "Victor escapes while a muted structural alert shows another occupied tower approaching overload.",
+            "outcome": "Maya is released, but she learns hundreds of concertgoers are minutes from loading a failing slab.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because Maya preserved the server and surrendered her phone, Elias can independently authenticate Victor's commands."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Elias Grant",
+              "intent": "Confirm Victor's guilt while warning that the recovered log contains a larger threat.",
+              "text": "The fire command is Hale's—but this alert says Tower C's transfer slab is already failing."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Identify the immediate danger and commit to stopping it.",
+              "text": "Tonight's rooftop concert loads that slab in twelve minutes."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Can Maya stop the overloaded transfer slab before hundreds of concertgoers enter Tower C?"
+    },
+    {
+      "title": "Dead Load",
+      "logline": "Maya races to empty an overloaded tower and document its fatal defect as Victor turns the building itself into a weapon against her.",
+      "synopsis": "Maya and Elias reach Tower C with minutes to spare, but Victor has overridden its alarms and elevators. Maya cuts the concert power, then floods the rooftop to force a controlled evacuation while documenting deliberately severed shoring beneath the failing slab. She refuses Victor's bait and lets him escape so she can protect the remaining concertgoers. Once the tower is empty, Maya activates a live structural sensor that proves Victor concealed the defect, but Victor triggers the collapse and_N",
+      "hook": "Seven minutes before a rooftop concert, Maya discovers Victor has overridden Tower C's evacuation controls.",
+      "target_audience": "English-speaking viewers who enjoy strategic revenge, institutional conflict, and earned reversals.",
+      "target_platform": "TikTok",
+      "language": "English",
+      "tone": "intense",
+      "episode_goal": "Maya must evacuate Tower C, preserve proof of its failing slab, and survive Victor's attempt to erase both.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Maya Chen",
+          "role": "Protagonist",
+          "description": "A disciplined structural engineer framed for a deadly construction defect.",
+          "motivation": "Clear her name while protecting residents from Hale's concealed defects."
+        },
+        {
+          "name": "Victor Hale",
+          "role": "Antagonist",
+          "description": "A ruthless developer who buried structural warnings and blamed Maya.",
+          "motivation": "Destroy the evidence and keep Maya as his permanent scapegoat."
+        },
+        {
+          "name": "Elias Grant",
+          "role": "Reluctant ally",
+          "description": "A cautious investigator whose trust in Maya is now backed by digital evidence.",
+          "motivation": "Prevent another disaster and bring Victor down with admissible proof."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. TOWER C LOBBY - NIGHT",
+          "purpose": "Begin the evacuation while revealing that Victor has weaponized Tower C's controls.",
+          "setting": "Tower C lobby and elevator bank, minutes before the concert",
+          "beat_summary": "Maya reaches Tower C as concertgoers flood toward a rooftop slab already cracking under their weight.",
+          "emotional_shift": "Maya moves from racing the clock to fighting Victor's active interference.",
+          "emotional_objective": "Turn looming mass panic into focused urgency.",
+          "character_actions": [
+            "Maya studies fresh diagonal cracks spreading above the lobby columns.",
+            "She pulls the concert's main breaker, stopping the elevators and music.",
+            "Elias opens the service stairs and redirects the crowd toward the exits."
+          ],
+          "turning_point": "Maya cuts the concert power despite knowing Victor can frame the blackout as sabotage.",
+          "scene_causality": {
+            "goal": "Stop more guests from reaching the failing slab and begin a controlled evacuation.",
+            "conflict": "Victor's override blocks alarms and elevators while the rooftop load keeps rising.",
+            "outcome": "The incoming crowd is diverted, but hundreds remain above Maya.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Maya Chen",
+              "intent": "Force immediate action without causing panic.",
+              "text": "Kill the show, not the lights downstairs—move everyone out like it's a technical delay."
+            },
+            {
+              "character_name": "Elias Grant",
+              "intent": "Warn Maya that Victor still controls the building.",
+              "text": "Hale just overrode the fire panel; he knows we're here."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. TOWER C TRANSFER FLOOR - NIGHT",
+          "purpose": "Evacuate the rooftop and secure visible evidence that the failure was intentional.",
+          "setting": "Tower C transfer floor beneath the rooftop venue",
+          "beat_summary": "Inside the transfer floor, Maya finds deliberately removed shoring and chooses rescue over immediately pursuing Victor.",
+          "emotional_shift": "Her need for vindication yields to a decisive commitment to protect the trapped crowd.",
+          "emotional_objective": "Show Maya reclaiming moral control through sacrifice.",
+          "character_actions": [
+            "Maya crawls beneath the groaning slab and photographs rows of freshly severed braces.",
+            "She opens a fire-main bypass, sending water across the rooftop and forcing security to clear it.",
+            "Elias uploads her photographs and guides the last concertgoers into the stairs."
+          ],
+          "turning_point": "Maya deliberately lets Victor escape rather than abandon the final evacuation.",
+          "scene_causality": {
+            "goal": "Clear the rooftop and document the sabotaged shoring before collapse.",
+            "conflict": "Victor offers Maya a narrowing chance to catch him while the weakened slab approaches failure.",
+            "outcome": "The concertgoers escape and the sabotage photographs upload, but Maya remains beneath the slab.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because Victor disabled the official evacuation systems in Scene 1, Maya must create a physical reason to clear the rooftop."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Victor Hale",
+              "intent": "Tempt Maya into abandoning the residents to chase him.",
+              "text": "Come find me, Maya, or I erase every contract that proves those braces were mine."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Reject Victor's trap and prioritize lives.",
+              "text": "Run with your contracts, Victor—I'm staying with the people you buried under them."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "INT./EXT. TOWER C - NIGHT",
+          "purpose": "Prove the defect, save the civilians, and trap Maya in Victor's engineered collapse.",
+          "setting": "Tower C transfer floor and exterior emergency command post",
+          "beat_summary": "With the tower emptied, Victor remotely drops the slab while Maya's live sensors expose his concealed defect.",
+          "emotional_shift": "Relief at saving the crowd snaps into terror as Maya is entombed with the evidence.",
+          "emotional_objective": "Deliver a costly victory that immediately becomes a survival crisis.",
+          "character_actions": [
+            "Maya bolts a wireless load sensor onto the fractured transfer beam.",
+            "Elias reaches the exterior command post and streams its readings to investigators.",
+            "The empty rooftop slab collapses onto the transfer floor, sealing Maya behind a wall of concrete."
+          ],
+          "turning_point": "Maya keeps the sensor transmitting instead of using her final seconds to flee.",
+          "scene_causality": {
+            "goal": "Capture admissible proof of the slab failure and escape the transfer floor.",
+            "conflict": "Maya needs a live structural reading while Victor remotely initiates the collapse with her still inside.",
+            "outcome": "The sensor publicly confirms Victor's concealed defect, but the collapse traps Maya beneath Tower C.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because Maya cleared the rooftop and uploaded the sabotage evidence in Scene 2, Victor can only silence her by destroying the empty structure around her."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Maya Chen",
+              "intent": "Secure proof before the collapse reaches her.",
+              "text": "The sensor is live—if this floor drops, Hale's design changes go public with it."
+            },
+            {
+              "character_name": "Victor Hale",
+              "intent": "Reveal that Maya is trapped inside his final cover-up.",
+              "text": "Good; now the whole city can watch its disgraced engineer die in her own building."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Can Elias rescue Maya and broadcast her structural evidence before Victor brings the trapped tower down?"
+    },
+    {
+      "title": "Proof Load",
+      "logline": "As Victor prepares to bury her beneath Tower C, Maya sacrifices her last escape route to transmit proof that clears her name and exposes his deadly scheme.",
+      "synopsis": "With Victor's demolition countdown running, Maya gives Elias the sensor containing the full map of Hale's defective occupied buildings instead of taking his hand. Elias broadcasts the authenticated files, and Victor's attempt to force him offline becomes a live confession when Maya reveals the sensor is recording. Maya disables the firing circuit, rescuers pull her free, and police arrest Victor as authorities evacuate and secure every mapped property. Maya is publicly exonerated, but an unexpl%",
+      "hook": "Pinned beneath Tower C, Maya hears Victor order the unstable ruins demolished in sixty seconds.",
+      "target_audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals.",
+      "target_platform": "TikTok",
+      "language": "English",
+      "tone": "intense",
+      "episode_goal": "Rescue Maya, expose Victor with admissible evidence, and secure every building he endangered.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Maya Chen",
+          "role": "Protagonist",
+          "description": "A disciplined structural engineer trapped beneath Tower C after preserving proof of its engineered collapse.",
+          "motivation": "Clear her name while protecting residents from Hale's concealed defects."
+        },
+        {
+          "name": "Victor Hale",
+          "role": "Antagonist",
+          "description": "A ruthless developer trying to bury evidence that he knowingly endangered occupied buildings.",
+          "motivation": "Destroy the evidence and keep Maya as his permanent scapegoat."
+        },
+        {
+          "name": "Elias Grant",
+          "role": "Reluctant ally",
+          "description": "A former company insider racing to rescue Maya and secure admissible proof against Victor.",
+          "motivation": "Prevent another disaster and bring Victor down with evidence that will survive scrutiny."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. TOWER C COLLAPSE VOID - NIGHT",
+          "purpose": "Force Maya to make the final consequential choice between immediate rescue and protecting thousands.",
+          "setting": "A crushed service void beneath Tower C, moments before controlled demolition.",
+          "beat_summary": "Elias reaches the collapse void while Victor starts a remote demolition countdown to erase Maya and her transmitting sensor.",
+          "emotional_shift": "Urgent hope hardens into sacrificial resolve.",
+          "emotional_objective": "Make Maya's refusal to abandon vulnerable residents feel costly but inevitable.",
+          "character_actions": [
+            "Maya braces a cracked beam with a bent steel strut while her sensor flashes red.",
+            "Elias crawls through the debris and reaches toward Maya across a widening fissure.",
+            "Victor watches the demolition countdown on his tablet from outside the barricade."
+          ],
+          "turning_point": "Maya gives Elias the sensor instead of taking his hand.",
+          "scene_causality": {
+            "goal": "Get Maya and the transmitting evidence out before Victor detonates the ruins.",
+            "conflict": "Maya cannot be pulled free while holding the only device containing Victor's complete defect map.",
+            "outcome": "Maya sends the sensor to Elias, leaving herself trapped as the countdown continues.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Elias Grant",
+              "intent": "Urge Maya to abandon the evidence and take his hand.",
+              "text": "Drop the transmitter, Maya—if that beam shifts, I lose you."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Choose public safety and proof over immediate escape.",
+              "text": "Then take the sensor first; it names every occupied Hale building at risk."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT./EXT. TOWER C - LIVE BROADCAST - NIGHT",
+          "purpose": "Make the evidence public, authenticated, and impossible for Victor to suppress.",
+          "setting": "Inside the Tower C rubble and at the emergency perimeter outside.",
+          "beat_summary": "Elias broadcasts the authenticated defect map while Maya uses Victor's own severed shoring to jam the demolition circuit.",
+          "emotional_shift": "Terror turns into controlled defiance.",
+          "emotional_objective": "Transform Victor's apparent leverage into the instrument of his defeat.",
+          "character_actions": [
+            "Elias plugs the sensor into an emergency news van as its files populate live screens.",
+            "Maya follows exposed blasting wire through the rubble and clamps it against the severed shoring bolt.",
+            "Victor raises his detonator as police and cameras converge on him."
+          ],
+          "turning_point": "Maya reveals that Victor's threat has become a recorded confession.",
+          "scene_causality": {
+            "goal": "Authenticate Victor's defect map publicly while preventing the demolition.",
+            "conflict": "Victor threatens to detonate Tower C unless Elias stops the live transmission.",
+            "outcome": "Victor incriminates himself live, and Maya grounds the firing circuit before he can trigger it.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because Maya surrendered the sensor in Scene 1, Elias can broadcast its files beyond Victor's control."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Victor Hale",
+              "intent": "Coerce Elias into killing the broadcast.",
+              "text": "Cut that feed, or she dies under the first charge."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Turn Victor's threat into a recorded confession.",
+              "text": "Keep talking, Victor—the sensor records audio with the load data."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "EXT. TOWER C EMERGENCY PERIMETER - DAWN",
+          "purpose": "Resolve Maya's framing and Victor's immediate threat while opening a narrow continuation hook.",
+          "setting": "The Tower C emergency perimeter at dawn.",
+          "beat_summary": "Rescuers free Maya as Victor is arrested, but the recovered network reports an unauthorized sensor in another sealed Hale tower.",
+          "emotional_shift": "Hard-won relief settles into vigilant determination.",
+          "emotional_objective": "Deliver vindication and safety while preserving one contained mystery.",
+          "character_actions": [
+            "Firefighters lift the cracked beam and pull Maya into Elias's arms.",
+            "Police handcuff Victor beneath screens showing Maya exonerated and Hale properties evacuated.",
+            "Maya's recovered sensor flashes with a new signal labeled WATERFRONT TOWER: OCCUPANCY UNKNOWN."
+          ],
+          "turning_point": "The sensor confirms the known buildings are safe but detects an unexplained signal in a sealed tower.",
+          "scene_causality": {
+            "goal": "Rescue Maya, arrest Victor, and evacuate every identified at-risk property.",
+            "conflict": "Victor claims his wider portfolio still conceals dangers beyond the exposed defect map.",
+            "outcome": "Maya is rescued and publicly cleared, Victor is arrested, and all mapped buildings are secured before a new unauthorized sensor appears.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because the broadcast captures Victor's confession and the demolition fails in Scene 2, rescuers can enter and police can arrest him."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Victor Hale",
+              "intent": "Deny Maya the satisfaction of believing the danger is over.",
+              "text": "You cleared your name, Chen—not my skyline."
+            },
+            {
+              "character_name": "Maya Chen",
+              "intent": "Close the central fight while accepting the next limited threat.",
+              "text": "Your buildings are empty, your files are public, and this time we inspect before anyone goes inside."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Who activated the newly detected unauthorized sensor inside Hale's sealed waterfront tower?"
+    }
+  ]
+}

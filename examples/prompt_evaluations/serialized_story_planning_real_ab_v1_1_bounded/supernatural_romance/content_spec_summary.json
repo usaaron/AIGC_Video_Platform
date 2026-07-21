@@ -1,0 +1,14 @@
+{
+  "audience": "English-speaking viewers who prefer supernatural mystery, restrained romance, and identity conflict",
+  "platform": "TikTok-oriented vertical serialized fiction",
+  "language": "English",
+  "episode_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "tone": "Eerie, tender, urgent",
+  "story_goal": "A paramedic who hears final memories works with an immortal stranger whose identity is being consumed by a supernatural exchange.",
+  "constraints": [
+    "Romance grows through decisions and shared cost.",
+    "Supernatural rules remain consistent.",
+    "Do not use a destiny-mate shortcut."
+  ]
+}

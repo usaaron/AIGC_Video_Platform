@@ -1,0 +1,56 @@
+{
+  "story_id": "revenge_drama",
+  "variant": "direct",
+  "episode_number": 3,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 61.409,
+  "prompt_characters": 3717,
+  "planning_context_characters": 55,
+  "usage": {
+    "prompt_tokens": 1499,
+    "completion_tokens": 1873,
+    "total_tokens": 3372,
+    "completion_tokens_details": {
+      "reasoning_tokens": 432
+    }
+  },
+  "response_id": "resp_07bca6accd66dae4016a5e5d8c97d08191a158f8eb4c358943",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 2,
+    "title": "Twelve Minutes",
+    "episode_goal": "Maya must survive Victor's fire, preserve admissible proof, and complete the tower's evacuation without triggering deadly panic.",
+    "synopsis": "Maya stops Victor's archive fire by flooding the records floor, sacrificing the paper originals while preserving the digital audit server. In the lobby, Victor accuses her of arson, but Maya strategically surrenders and gives Elias the access needed to verify the surviving logs. The records expose Victor's remote ignition command and clear Maya, then reveal a muted structural warning at Tower C, where a rooftop concert will overload a failing transfer slab in twelve minutes.",
+    "character_states": [
+      {
+        "name": "Maya Chen",
+        "role": "Protagonist",
+        "motivation": "Clear her name while protecting residents from Hale's concealed defects."
+      },
+      {
+        "name": "Victor Hale",
+        "role": "Antagonist",
+        "motivation": "Destroy the evidence and keep Maya as his permanent scapegoat."
+      },
+      {
+        "name": "Elias Grant",
+        "role": "Reluctant ally",
+        "motivation": "Prevent another disaster without staking his career on an unsupported accusation."
+      }
+    ],
+    "final_scene_outcome": "Maya is released, but she learns hundreds of concertgoers are minutes from loading a failing slab.",
+    "final_turning_point": "Maya sees Tower C's countdown and chooses immediate intervention over celebrating her vindication.",
+    "next_episode_question": "Can Maya stop the overloaded transfer slab before hundreds of concertgoers enter Tower C?"
+  }
+}

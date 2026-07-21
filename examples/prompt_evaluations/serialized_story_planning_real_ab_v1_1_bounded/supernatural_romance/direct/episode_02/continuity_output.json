@@ -1,0 +1,26 @@
+{
+  "completed_episode_number": 2,
+  "title": "The Last Memory: Episode 2 — The Memory Beneath the Chapel",
+  "episode_goal": "Mara and Elias must trace the source of the stolen memories before the Pale Listener uses Mara's mother's voice to complete its exchange.",
+  "synopsis": "Mara discovers that the Pale Listener is planting Elias's stolen memories inside the dying, turning her gift into a delivery system. Following one memory leads her and Elias to a hidden chapel where she sacrifices blood to enter the exchange site. There she learns her dead mother made the first bargain that preserved Elias's life, and the Listener begins erasing Elias's memory of Mara. Mara rejects the bargain, steals an intact memory shard, and vows to restore Elias even as they are trapped in]",
+  "character_states": [
+    {
+      "name": "Mara Vale",
+      "role": "Protagonist and paramedic",
+      "motivation": "To save lives without surrendering her identity or abandoning Elias."
+    },
+    {
+      "name": "Elias Voss",
+      "role": "Immortal stranger and reluctant ally",
+      "motivation": "To learn why Mara can hear memories that were stolen from him before he becomes nobody."
+    },
+    {
+      "name": "The Pale Listener",
+      "role": "Antagonistic supernatural force",
+      "motivation": "To erase Elias completely by turning Mara's memories and compassion into payment."
+    }
+  ],
+  "final_scene_outcome": "Mara steals one intact memory shard, but Elias forgets her name as the chapel seals them inside with the Listener's voice.",
+  "final_turning_point": "Elias forgets Mara while the stolen shard reveals her mother once loved—and betrayed—the immortal stranger.",
+  "next_episode_question": "Who was Mara's mother to the Pale Listener, and why did she once make an exchange with Elias?"
+}

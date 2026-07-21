@@ -1,0 +1,35 @@
+{
+  "story_id": "revenge_drama",
+  "variant": "direct",
+  "episode_number": 2,
+  "contract_version": null,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-revalidation",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1-revalidation",
+  "generation_strategy_version": "v1.1-revalidation",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "reasoning_effort": "low",
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 63.069,
+  "prompt_characters": 4406,
+  "planning_context_characters": 4,
+  "usage": {
+    "prompt_tokens": 5988,
+    "completion_tokens": 1674,
+    "total_tokens": 7662,
+    "completion_tokens_details": {
+      "reasoning_tokens": 155
+    }
+  },
+  "response_id": "resp_08616d15170000b9016a5f04ad8160819a962d1a5ac70a978d",
+  "generation_failure_count_before_success": 0,
+  "rate_limit_failures_before_success": 0,
+  "schema_validation_failures_before_success": 0,
+  "total_technical_failures_before_success": 0
+}

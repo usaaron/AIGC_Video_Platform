@@ -1,0 +1,54 @@
+[
+  {
+    "episode_number": "1",
+    "episode_goal": "Establish the memory exchange rule and force Nia to choose rescue over certainty.",
+    "entry_state": "Nia hides her ability to hear final memories; Rowan tracks supernatural memory losses alone.",
+    "central_conflict": "A patient can be revived, but Rowan warns that the attempt will erase his only memory of the entity's face.",
+    "protagonist_decision": "Nia performs the rescue despite the warning and records everything Rowan can describe first.",
+    "reveal": "The revived patient carries the same silver emergency tag Rowan remembers from a century earlier.",
+    "emotional_movement": "Professional focus → impossible fear → morally certain action.",
+    "setup_refs": "Introduce `SR-S1` and `SR-S2`.",
+    "payoff_refs": "None.",
+    "exit_state": "The patient lives; Rowan loses the entity's face but gains Nia's recorded description.",
+    "cliffhanger": "Rowan's journal develops a blank page bearing Nia's name."
+  },
+  {
+    "episode_number": "2",
+    "episode_goal": "Prove that memory loss can alter trust, not just information.",
+    "entry_state": "Nia and Rowan investigate the tag; Rowan knows his journal predicts a loss involving Nia.",
+    "central_conflict": "Another emergency begins while Rowan forgets why Nia is safe to approach.",
+    "protagonist_decision": "Nia lets Rowan hear her own recorded account before acting, then enters the rescue without his approval.",
+    "reveal": "The entity can target relational memories when the pair resists it.",
+    "emotional_movement": "Fragile connection → estrangement → chosen cooperation.",
+    "setup_refs": "Develop `SR-S1` and `SR-S2`; introduce `SR-S3`.",
+    "payoff_refs": "Partial payoff of `SR-S2`: the blank page predicts relational erasure.",
+    "exit_state": "Rowan no longer remembers meeting Nia, but believes the evidence she preserved.",
+    "cliffhanger": "He repeats “remember me forward,” a phrase Nia has never told him."
+  },
+  {
+    "episode_number": "3",
+    "episode_goal": "Reveal the entity's offer and make Rowan reject preservation at another person's cost.",
+    "entry_state": "Trust depends on records and renewed choices rather than shared memory.",
+    "central_conflict": "The entity offers to restore Rowan if Nia allows one marked patient to die.",
+    "protagonist_decision": "Nia prepares the rescue while Rowan destroys his private archive so it cannot be used as leverage.",
+    "reveal": "The silver tags are anchors that route memories to the entity.",
+    "emotional_movement": "Temptation → grief → mutual defiance.",
+    "setup_refs": "Advance `SR-S1` and `SR-S3`.",
+    "payoff_refs": "Partial payoff of `SR-S1`: the tag's function is exposed.",
+    "exit_state": "The patient survives; Rowan loses most autobiographical memory; Nia keeps only their jointly verified facts.",
+    "cliffhanger": "Nia discovers her own earliest memory now inside the patient's tag."
+  },
+  {
+    "episode_number": "4",
+    "episode_goal": "Resolve the exchange through shared agency rather than restoring the old status quo.",
+    "entry_state": "The entity holds Nia's earliest memory and Rowan's archive; both understand the tag mechanism.",
+    "central_conflict": "Breaking every tag would free the memories but erase Rowan completely.",
+    "protagonist_decision": "Nia proposes a shared living archive, and Rowan knowingly accepts a future identity not guaranteed by his past.",
+    "reveal": "The exchange persists only while one person bears the loss alone.",
+    "emotional_movement": "Anticipatory loss → reciprocal trust → bittersweet renewal.",
+    "setup_refs": "None.",
+    "payoff_refs": "Complete `SR-S1`, `SR-S2` and `SR-S3`.",
+    "exit_state": "The entity loses control; not all memories return, but Nia and Rowan can create and preserve new shared memories.",
+    "cliffhanger": "Rowan opens a fresh journal and asks Nia to tell him the first thing he chose, not the first thing he forgot."
+  }
+]

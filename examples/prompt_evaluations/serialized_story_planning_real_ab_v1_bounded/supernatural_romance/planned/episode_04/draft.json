@@ -1,0 +1,140 @@
+{
+  "title": "Remember Us Forward",
+  "logline": "Nia and Rowan risk their remaining memories to transform a predatory exchange into a shared archive no entity can control.",
+  "synopsis": "Nia, Rowan, and Eli discover that destroying the silver tags would release their stolen memories but erase Rowan completely. When the blank journal responds to two willing hands, Nia proposes a living archive that divides the cost instead of isolating it. Rowan consents to become someone shaped by present choices rather than recovered history, and Nia relinquishes her mother's memory to keep the transfer mutual. The entity's exchange collapses, the tags crumble, and Rowan opens a fresh journal,1",
+  "hook": "Nia's stolen childhood memory speaks from Eli's shattered tag as Rowan realizes freeing it could erase him completely.",
+  "target_audience": "English-speaking viewers who enjoy supernatural mystery, restrained romance, and identity conflict",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "emotional",
+  "episode_goal": "End the entity's exchange through a voluntary shared archive rather than sacrificing a life or Rowan's identity.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Nia Calder",
+      "role": "Protagonist",
+      "description": "A paramedic who hears final memories and refuses to make another person bear her supernatural cost.",
+      "motivation": "Save lives while ending the entity's memory exchange through shared responsibility."
+    },
+    {
+      "name": "Rowan Vale",
+      "role": "Mysterious ally",
+      "description": "An immortal archivist whose memories vanish whenever Nia saves someone.",
+      "motivation": "Choose present trust and help destroy the exchange even if his former identity cannot be restored."
+    },
+    {
+      "name": "Eli Mercer",
+      "role": "Patient and supernatural clue",
+      "description": "A recovering patient whose broken silver emergency tag contains stolen memories.",
+      "motivation": "Help Nia and Rowan expose the entity that used him as an anchor."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. AMBULANCE BAY TREATMENT ROOM - NIGHT",
+      "purpose": "Reveal the exchange's dependency on solitary sacrifice and force Nia to invent another option.",
+      "setting": "Ambulance bay treatment room, night",
+      "beat_summary": "Eli's tag reveals that the entity survives by forcing one person to carry every loss alone.",
+      "emotional_shift": "Anticipatory grief hardens into defiant resolve.",
+      "emotional_objective": "Turn dread of Rowan's erasure into a search for shared agency.",
+      "character_actions": [
+        "Nia grips the pulsing tag as her mother's voice leaks from it.",
+        "Rowan compares its silver fractures with the blank page in his journal.",
+        "Eli tears away his monitoring leads and reaches for the tag."
+      ],
+      "turning_point": "The blank journal page fills with two handprints, proving the exchange can accept shared consent.",
+      "scene_causality": {
+        "goal": "Decode the tag before the entity reclaims Nia's childhood memory.",
+        "conflict": "Freeing the stolen memories would completely erase Rowan.",
+        "outcome": "Nia realizes the exchange can be altered if its cost is carried voluntarily by more than one person.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Eli Mercer",
+          "intent": "Warn them of the final trap.",
+          "text": "Break every tag and your memories go free—but Rowan becomes nobody."
+        },
+        {
+          "character_name": "Nia Calder",
+          "intent": "Reject the entity's forced choice.",
+          "text": "Then we don't break the exchange. We change who carries it."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. AMBULANCE BAY TREATMENT ROOM - MEMORY STORM - NIGHT",
+      "purpose": "Resolve Nia and Rowan's conflict by making them jointly bear and preserve future memories.",
+      "setting": "Ambulance bay treatment room inside a storm of silver memory fragments",
+      "beat_summary": "Nia creates a living archive, and Rowan knowingly chooses a future that cannot restore his vanished past.",
+      "emotional_shift": "Fear of unequal sacrifice becomes reciprocal trust.",
+      "emotional_objective": "Make their bond credible through mutual consent and shared cost.",
+      "character_actions": [
+        "Nia presses her palm to the blank page and records a new voice note.",
+        "Rowan places his hand over hers as silver light climbs both their wrists.",
+        "Eli snaps the broken tag shut between their joined hands."
+      ],
+      "turning_point": "Nia lets her mother's recovered memory pass away rather than abandon Rowan inside the transfer.",
+      "scene_causality": {
+        "goal": "Redirect the exchange before Rowan's remaining identity disappears.",
+        "conflict": "The entity tempts Nia with her mother's memory while the transfer begins erasing Rowan's name.",
+        "outcome": "Nia and Rowan divide the cost, stripping the entity of exclusive control over their memories.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because the handprints prove shared consent can rewrite the exchange, Nia activates a voluntary living archive."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Nia Calder",
+          "intent": "Make a consequential shared choice.",
+          "text": "Take half from me, half from him—and give neither of us ownership of the other."
+        },
+        {
+          "character_name": "Rowan Vale",
+          "intent": "Consent to an uncertain identity.",
+          "text": "I may not remember loving you, Nia, but I choose to know you again."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. AMBULANCE BAY - DAWN",
+      "purpose": "Pay off the tag, blank page, and shared phrase while closing the entity's predatory exchange.",
+      "setting": "Quiet ambulance bay at dawn",
+      "beat_summary": "The entity collapses, leaving Nia and Rowan with incomplete pasts but the power to preserve what they create together.",
+      "emotional_shift": "Painful release settles into tender hope.",
+      "emotional_objective": "Deliver bittersweet renewal without undoing the cost they accepted.",
+      "character_actions": [
+        "The silver tag crumbles as stolen memories return to unseen owners across the city.",
+        "Nia writes “remember me forward” on the journal's first fresh page.",
+        "Rowan opens the journal, then offers Nia the pen."
+      ],
+      "turning_point": "Rowan asks to be defined by his first present choice, opening a future beyond the memories he lost.",
+      "scene_causality": {
+        "goal": "Complete the transfer without surrendering their shared agency.",
+        "conflict": "The entity offers one last restoration if Nia withdraws and leaves Rowan to vanish.",
+        "outcome": "The entity loses control, some memories remain gone, and Nia and Rowan begin preserving new ones together.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Nia refuses the entity's final bargain and Rowan sustains the shared archive, its solitary-loss mechanism collapses."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Nia Calder",
+          "intent": "Name what survived their loss.",
+          "text": "I couldn't bring everything back, but nothing gets to make either of us disappear alone again."
+        },
+        {
+          "character_name": "Rowan Vale",
+          "intent": "Begin his chosen identity with her.",
+          "text": "Then tell me the first thing I chose—not the first thing I forgot."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "What new identity will Rowan build with Nia, and what else might answer from the fresh journal?"
+}

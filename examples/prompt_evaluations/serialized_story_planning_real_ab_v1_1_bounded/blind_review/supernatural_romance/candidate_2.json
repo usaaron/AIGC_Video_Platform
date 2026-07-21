@@ -1,0 +1,565 @@
+{
+  "story_id": "supernatural_romance",
+  "candidate": "candidate_2",
+  "episodes": [
+    {
+      "title": "Remember Me Forward",
+      "logline": "When a paramedic hears an impossible final memory, she saves a patient's life with help from an immortal archivist—but the supernatural bargain marks her as its next witness.",
+      "synopsis": "Paramedic Nia Calder hears a crash victim's final memory and sees an unfamiliar immortal named Rowan inside it. Rowan reveals that the supernatural Exchange preserves lives by stealing the memories that define them. Nia records the only surviving clue, then destroys that evidence to revive the patient, choosing a life over certainty. The patient survives but forgets Rowan, while the Exchange marks Nia and writes her name into Rowan's blank journal.",
+      "hook": "A dying man's last memory shows Nia a stranger standing inside the ambulance before she has ever met him.",
+      "target_audience": "English-speaking viewers who enjoy supernatural mystery, restrained romance, and identity conflict",
+      "target_platform": "TikTok",
+      "language": "en",
+      "tone": "suspenseful",
+      "episode_goal": "Nia and Rowan discover that saving one patient can cost a memory and bind them to the entity behind the exchange.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Nia Calder",
+          "role": "Protagonist paramedic",
+          "description": "A sharp, compassionate paramedic who secretly hears a dying person's final memory when she touches them.",
+          "motivation": "Save lives without letting her frightening ability control her."
+        },
+        {
+          "name": "Rowan Vale",
+          "role": "Immortal stranger and reluctant ally",
+          "description": "An ageless archivist who has spent centuries tracking memories stolen from the dying, though each investigation erases part of his own identity.",
+          "motivation": "Recover the truth before the exchange consumes the person he is."
+        },
+        {
+          "name": "The Exchange",
+          "role": "Supernatural antagonist",
+          "description": "A supernatural exchange that preserves bodies by taking memories, evidence, and eventually identity.",
+          "motivation": "Expand through isolated bargains and erase anyone who exposes its rules."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "EXT. CRASH SITE — NIGHT",
+          "purpose": "Introduce Nia's ability, Rowan's impossible presence, and the silver tag as evidence of a hidden exchange.",
+          "setting": "Rain-lashed roadside beside a wrecked car and emergency ambulance",
+          "beat_summary": "Nia touches an unconscious crash victim and hears a final memory that belongs to a stranger watching her from inside the ambulance.",
+          "emotional_shift": "Professional control fractures into private alarm.",
+          "emotional_objective": "Turn Nia's practiced compassion into frightened curiosity.",
+          "character_actions": [
+            "Nia presses two fingers to the patient's wrist and freezes as rain turns into the sound of a distant bell.",
+            "She glimpses Rowan reflected in the ambulance window, holding a silver emergency tag, then tears her hand away."
+          ],
+          "turning_point": "The patient's final memory names Rowan as someone who has already been forgotten.",
+          "scene_causality": {
+            "goal": "Keep the patient alive long enough to learn what the memory is warning her about.",
+            "conflict": "Nia must treat a dying patient while concealing the memory intrusion and identifying the stranger inside it.",
+            "outcome": "The patient briefly stabilizes, but Rowan appears outside the ambulance and confirms the memory was stolen rather than imagined.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Patient",
+              "intent": "Reveal the impossible memory through a fading consciousness.",
+              "text": "Don't let him open the door... he already forgot my name."
+            },
+            {
+              "character_name": "Nia",
+              "intent": "Hide her ability while demanding an explanation from the apparent stranger.",
+              "text": "You were in his memory. Who are you?"
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. AMBULANCE — CONTINUOUS",
+          "purpose": "Establish the supernatural rule and force Nia into a consequential decision that links her to Rowan.",
+          "setting": "Inside the ambulance as rain and emergency lights distort the night",
+          "beat_summary": "Rowan explains that the Exchange trades survival for memory, and Nia must choose between preserving proof and attempting an unapproved intervention.",
+          "emotional_shift": "Suspicion becomes reluctant partnership when Nia accepts shared risk.",
+          "emotional_objective": "Make trust possible through a costly disagreement.",
+          "character_actions": [
+            "Rowan opens a blank journal to a page covered in indentations but no ink, then places the silver tag beside it.",
+            "Nia records the patient's pulse and repeats the remembered bell pattern into her phone before the monitor flatlines.",
+            "Rowan catches her wrist when the ambulance lights flicker, revealing a dark mark forming beneath her skin."
+          ],
+          "turning_point": "Nia deliberately destroys the clearest evidence to revive the patient.",
+          "scene_causality": {
+            "goal": "Preserve enough evidence to expose the Exchange while giving the patient a chance to live.",
+            "conflict": "Nia must choose between preserving the only evidence and using an untested memory-triggered treatment to save the patient.",
+            "outcome": "Nia records the bell pattern and sacrifices the remaining memory imprint to restart the patient's heart, binding a dark mark to herself.",
+            "caused_by_scene_number": 1,
+            "causal_link": "The memory heard at the crash site leads Rowan to reveal the Exchange and the silver tag's role."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Rowan",
+              "intent": "Warn Nia about the cost while admitting his own losses.",
+              "text": "It keeps the body breathing by taking the story that makes the body yours."
+            },
+            {
+              "character_name": "Nia",
+              "intent": "Reject his demand for caution and choose a life over perfect evidence.",
+              "text": "Then I save him first, and we rebuild the truth from whatever survives."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "INT. AMBULANCE BAY — DAWN",
+          "purpose": "Deliver the episode's ethical payoff and reveal that the Exchange has marked Nia as an active witness.",
+          "setting": "Ambulance bay under harsh fluorescent lights, moments before dawn",
+          "beat_summary": "The patient survives but cannot identify Rowan, while the Exchange alters Nia's recording and sends a message through her own voice.",
+          "emotional_shift": "Relief at survival becomes terror when reality itself starts deleting proof.",
+          "emotional_objective": "End tenderness with urgent dread and a promise of mutual responsibility.",
+          "character_actions": [
+            "The patient wakes gasping and grips Nia's sleeve, recognizing only the silver tag before forgetting why it matters.",
+            "Nia plays her recording; the bell pattern has become her own voice whispering, 'Remember me forward.'",
+            "Rowan turns the blank journal toward Nia as fresh ink appears, spelling her full name beneath a single black handprint."
+          ],
+          "turning_point": "Nia chooses partnership after learning the entity can erase Rowan from everyone else's reality.",
+          "scene_causality": {
+            "goal": "Determine what the Exchange took before it can erase their remaining connection.",
+            "conflict": "Nia and Rowan face proof that the patient's survival erased Rowan from public memory and gave the Exchange access to Nia.",
+            "outcome": "The patient lives, Rowan loses the critical fact he was tracking, and Nia's marked journal summons the Exchange's attention.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Nia's sacrifice of the memory imprint allowed the Exchange to alter her recording and target her directly."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Patient",
+              "intent": "Show the human cost of survival and trigger Rowan's missing fact.",
+              "text": "I know you saved me... but the man beside you was never there."
+            },
+            {
+              "character_name": "Nia",
+              "intent": "Commit to Rowan despite the mark and the entity's warning.",
+              "text": "It knows my name now. Good—because I know yours, and I won't let it take either of us alone."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "What critical fact did Rowan lose, and why can the Exchange now find Nia?"
+    },
+    {
+      "title": "The Past We Never Had",
+      "logline": "Nia follows Rowan's silver tag into a hidden archive, where forged proof of their shared past forces them to trust a present choice instead.",
+      "synopsis": "The marked journal lures Nia and Rowan to a hidden morgue archive with a forged accusation. Nia protects Rowan's consent and seals an offline verification path before using his silver emergency tag. Inside, photographs counterfeit centuries of intimacy between them, but their timestamp proves the images appeared only after they entered. Rowan rejects the comforting lie, and Nia chooses to trust his present decision. They recover his lost discovery that the Exchange schedules deaths rather than46",
+      "hook": "Rowan's blank journal writes a warning in Nia's handwriting while she is still holding the pen.",
+      "target_audience": "English-speaking viewers who enjoy supernatural mystery, restrained romance, and identity conflict",
+      "target_platform": "TikTok",
+      "language": "English",
+      "tone": "suspenseful",
+      "episode_goal": "Nia and Rowan test their trust against counterfeit evidence without sacrificing another memory.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Nia Calder",
+          "role": "Protagonist paramedic",
+          "description": "A disciplined paramedic marked by the Exchange and able to hear final memories.",
+          "motivation": "Save lives without surrendering her judgment or anyone else's consent."
+        },
+        {
+          "name": "Rowan Vale",
+          "role": "Reluctant ally",
+          "description": "An immortal archivist whose identity is being consumed one stolen connection at a time.",
+          "motivation": "Recover the truth while learning to trust evidence he cannot control."
+        },
+        {
+          "name": "The Exchange",
+          "role": "Supernatural antagonist",
+          "description": "An unseen entity that trades survival for defining memories and corrupts evidence between people.",
+          "motivation": "Isolate marked witnesses until they accept another bargain."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "EXT. HOSPITAL AMBULANCE BAY - NIGHT",
+          "purpose": "Reveal how the Exchange found Nia and launch an independently recorded investigation.",
+          "setting": "Night ambulance bay beneath flickering hospital lights",
+          "beat_summary": "The journal claims Rowan betrayed Nia and directs her to a sealed hospital archive.",
+          "emotional_shift": "Nia moves from alarm to deliberate resolve.",
+          "emotional_objective": "Turn mutual suspicion into a cautious test of trust.",
+          "character_actions": [
+            "Ink crawls across the blank page beneath Nia's motionless pen.",
+            "Nia seals her offline body camera inside a clear evidence pouch.",
+            "Rowan places the silver emergency tag in her palm."
+          ],
+          "turning_point": "Rowan voluntarily gives Nia the silver tag instead of demanding her belief.",
+          "scene_causality": {
+            "goal": "Determine whether the warning or Rowan can be trusted.",
+            "conflict": "The journal accuses Rowan using Nia's own handwriting.",
+            "outcome": "Nia chooses to follow the lead while preserving Rowan's limits and an offline record.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Nia Calder",
+              "intent": "Challenge the warning without blindly trusting Rowan.",
+              "text": "It says you traded my name for your memories."
+            },
+            {
+              "character_name": "Rowan Vale",
+              "intent": "Explain the mark and offer bounded trust.",
+              "text": "Your name in that book made you traceable, so take the tag—but open only the door it marks."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. HIDDEN MORGUE ARCHIVE - NIGHT",
+          "purpose": "Prove that the Exchange can counterfeit relational evidence while preserving both characters' memories.",
+          "setting": "A concealed archive behind the hospital morgue",
+          "beat_summary": "The tag opens Rowan's archive, where impossible photographs depict Nia beside him across two centuries.",
+          "emotional_shift": "Suspicion softens into provisional trust.",
+          "emotional_objective": "Build tenderness through mutual refusal to exploit a fabricated intimacy.",
+          "character_actions": [
+            "Nia presses the silver tag into a concealed slot behind a morgue cabinet.",
+            "Rowan recoils from a wall of photographs showing him and Nia together.",
+            "Nia checks the sealed body camera's live timestamp against the newly appearing images."
+          ],
+          "turning_point": "Rowan rejects comforting false memories and accepts Nia's present-day boundary.",
+          "scene_causality": {
+            "goal": "Verify whether the archive documents a real relationship.",
+            "conflict": "Convincing photographs offer Rowan belonging while falsely imposing a shared past on Nia.",
+            "outcome": "The timestamp shows the photographs materialized after their arrival, exposing the fabrication.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because Rowan surrendered the tag and Nia created an independent record, they can test the archive's claims."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Rowan Vale",
+              "intent": "Reject seductive evidence that would define their relationship for them.",
+              "text": "I wanted proof I wasn't alone, but not a past manufactured without your consent."
+            },
+            {
+              "character_name": "Nia Calder",
+              "intent": "Choose present behavior over counterfeit history.",
+              "text": "Then we trust what we choose now, not what these pictures demand."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "INT. HIDDEN ARCHIVE LEDGER CHAMBER - CONTINUOUS",
+          "purpose": "Recover Rowan's lost discovery, compromise the journal, and place Nia under a lethal deadline.",
+          "setting": "The archive's locked ledger chamber",
+          "beat_summary": "The archive reveals Rowan was tracking scheduled deaths before the journal corrupts itself and the tag names Nia as tomorrow's victim.",
+          "emotional_shift": "Verified trust becomes urgent dread.",
+          "emotional_objective": "Destabilize their new trust with an immediate threat that demands shared action.",
+          "character_actions": [
+            "Nia uncovers a ledger linking the silver tag to deaths recorded before they occurred.",
+            "The journal blackens every copied entry on its own.",
+            "Rowan turns the tag over, revealing Nia's name and a countdown ending tomorrow."
+          ],
+          "turning_point": "The silver tag changes from a key into a countdown bearing Nia's name.",
+          "scene_causality": {
+            "goal": "Recover the critical fact Rowan lost before the archive is corrupted.",
+            "conflict": "The Exchange destroys the copied record as Nia discovers its deaths are arranged in advance.",
+            "outcome": "They learn the Exchange schedules victims, but Nia's tag reveals she is next.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because they reject the counterfeit photographs, they search the physical archive for evidence untouched by relational claims."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Nia Calder",
+              "intent": "Identify the critical fact Rowan lost.",
+              "text": "You weren't tracking who the Exchange saved—you were tracking who it scheduled."
+            },
+            {
+              "character_name": "Rowan Vale",
+              "intent": "Warn Nia while affirming their alliance.",
+              "text": "And now it has scheduled you; this time, we face the price together."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "Who scheduled Nia's death, and can she survive without making the Exchange another bargain?"
+    },
+    {
+      "title": "Remember Me Forward",
+      "logline": "When the Exchange offers Rowan his lost identity at the cost of an unknown stranger's future, Nia must stop him from accepting—and expose why their shared future is the real target.",
+      "synopsis": "Nia and Rowan follow the silver tag and blank journal into an underground Exchange archive offering Rowan complete restoration. The cost is an unconscious stranger's identity, forcing Nia to sever the transfer and Rowan to remove his own hand rather than accept an isolated sacrifice. The archive loses the recoverable past, but Rowan writes “remember me forward” before Nia breaks the tag. Their escape reveals the Exchange has marked a future memory they share, turning their growing relationship,7",
+      "hook": "Nia's silver emergency tag begins speaking in Rowan's voice—then offers her a way to remember the life the Exchange stole from him.",
+      "target_audience": "English-speaking viewers who prefer supernatural mystery, restrained romance, and identity conflict",
+      "target_platform": "TikTok",
+      "language": "en",
+      "tone": "suspenseful",
+      "episode_goal": "Force Nia and Rowan to choose present consent over complete restoration of Rowan's past.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Nia Calder",
+          "role": "Protagonist paramedic",
+          "description": "A sharp, compassionate paramedic who hears the final memories of the dying and refuses to make decisions for others without consent.",
+          "motivation": "Save lives without surrendering her judgment or anyone else's consent."
+        },
+        {
+          "name": "Rowan Vale",
+          "role": "Reluctant ally",
+          "description": "An immortal archivist whose identity is being consumed by the supernatural Exchange, forcing him to trust the present over his lost history.",
+          "motivation": "Recover the truth without controlling the choices of others."
+        },
+        {
+          "name": "The Exchange",
+          "role": "Supernatural antagonist",
+          "description": "A supernatural entity that trades survival and memory, isolating witnesses until they accept a bargain.",
+          "motivation": "Turn sacrifice into consent and consume identities through exchange."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. ABANDONED AMBULANCE BAY - NIGHT",
+          "purpose": "Introduce the restoration offer and establish that its cost is another person's identity.",
+          "setting": "Abandoned ambulance bay beneath a closed city hospital",
+          "beat_summary": "The silver tag leads Nia and Rowan into an abandoned ambulance bay where a blank journal page reveals a restoration route encoded in dying voices.",
+          "emotional_shift": "Curiosity hardens into dread when the restoration path appears.",
+          "emotional_objective": "Turn fragile trust into alert cooperation.",
+          "character_actions": [
+            "Nia presses the silver tag against the blank journal page as frost spreads across the paper.",
+            "Rowan hears his own voice from the tag and backs away while Nia keeps hold of his wrist.",
+            "A row of unused ambulance radios flickers on, each broadcasting a different final memory."
+          ],
+          "turning_point": "The blank page fills with a route and a single instruction: TAKE THE MEMORY, LEAVE THE WITNESS.",
+          "scene_causality": {
+            "goal": "Decode the journal page without surrendering control to the Exchange.",
+            "conflict": "The tag offers Rowan a complete restoration while concealing who must pay for it.",
+            "outcome": "Nia opens the route, but the radios reveal that a living person has already been selected as payment.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Nia Calder",
+              "intent": "Reject the tag's manipulation while insisting on a deliberate choice.",
+              "text": "It can sound like you and still not be you. We decide what happens next."
+            },
+            {
+              "character_name": "Rowan Vale",
+              "intent": "Recognize the restoration route and warn Nia about its hidden cost.",
+              "text": "That frequency opens the archive beneath the Exchange. It restores one life by hollowing out another."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. MEMORY ARCHIVE - CONTINUOUS",
+          "purpose": "Force the central ethical choice and reveal that the Exchange depends on isolated sacrifice.",
+          "setting": "The Exchange's underground memory archive",
+          "beat_summary": "At the underground archive, Rowan can reclaim centuries of identity by transferring the missing memories into an isolated patient's mind, but Nia refuses to let proximity become consent.",
+          "emotional_shift": "Rowan's hope becomes grief, while Nia's fear becomes resolve.",
+          "emotional_objective": "Make love costly without turning it into possession.",
+          "character_actions": [
+            "Rowan places his palm on a glass memory vessel and briefly remembers a childhood home that never appears in his current mind.",
+            "Nia finds a sedated survivor connected to the vessel and cuts the transfer cable before it reaches the patient's monitor.",
+            "The archive doors seal, and silver tags around the room turn toward Nia like compass needles."
+          ],
+          "turning_point": "Rowan voluntarily removes his hand, choosing an incomplete self before the archive can choose a victim for him.",
+          "scene_causality": {
+            "goal": "Recover Rowan's identity without violating the stranger's autonomy.",
+            "conflict": "Rowan's restoration requires transferring his stolen memories into an unconscious stranger.",
+            "outcome": "Nia severs the transfer, and the recoverable memories begin collapsing out of reach.",
+            "caused_by_scene_number": 1,
+            "causal_link": "The route from the blank journal page led them to the archive and its payment vessel."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Rowan Vale",
+              "intent": "Admit his temptation and ask Nia not to decide his sacrifice for him.",
+              "text": "I can feel myself coming back. If you stop this, you are choosing my emptiness."
+            },
+            {
+              "character_name": "Nia Calder",
+              "intent": "Draw a boundary against a bargain that harms an unconsenting person.",
+              "text": "No. I am choosing that a stranger does not disappear just because we love what you might become."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "INT. SERVICE TUNNEL - NIGHT",
+          "purpose": "Pay off the silver tag and phrase while shifting the threat from recovered history to their shared future.",
+          "setting": "Service tunnel outside the collapsing underground archive",
+          "beat_summary": "The archive erases the remaining restoration path, but Nia and Rowan discover the tags are mapping their future choices rather than their past.",
+          "emotional_shift": "Loss becomes commitment, then turns into immediate future terror.",
+          "emotional_objective": "End with tenderness sharpened into mutual resistance.",
+          "character_actions": [
+            "Rowan lets the glass vessels go dark and writes 'remember me forward' on the journal's only remaining line.",
+            "Nia snaps her silver tag in half, and a burst of white light burns their linked route from the archive wall.",
+            "A new mark appears on Nia's wrist, shaped like two joined emergency tags with a countdown between them."
+          ],
+          "turning_point": "The countdown reveals that the Exchange will attack their shared future, not merely erase Rowan's past.",
+          "scene_causality": {
+            "goal": "Leave the archive with their choices and present identities intact.",
+            "conflict": "Breaking the tag saves their autonomy but exposes the future memory the Exchange intends to consume.",
+            "outcome": "They escape together, but the countdown names the moment Nia first forgets Rowan—and Rowan cannot remember why he stayed.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Their refusal interrupted the transfer, causing the archive to erase its restoration records and redirect its tracking system."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Rowan Vale",
+              "intent": "Choose their present bond and accept the loss of his recoverable past.",
+              "text": "I will not become whole by making someone else vanish. Know me as I am—and let me meet you again tomorrow."
+            },
+            {
+              "character_name": "Nia Calder",
+              "intent": "Commit to shared responsibility while confronting the Exchange's next threat.",
+              "text": "Tomorrow, then. But it has marked tomorrow as the thing it wants to take."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "What will the Exchange erase from Nia and Rowan's future to make them forget choosing each other?"
+    },
+    {
+      "title": "Remember What Happens Next",
+      "logline": "As the Exchange begins erasing their shared future, Nia and Rowan turn its own rules against it by choosing to risk remembrance together.",
+      "synopsis": "When the Exchange erases Nia's memory of Rowan, it offers to restore his identity in return for their shared future. Nia refuses to bear the price alone and uses the blank journal, the silver emergency tag, and Rowan's phrase “remember me forward” to create a reciprocal choice. By consenting to the same risk without assigning ownership of the loss, they deprive the Exchange of the isolated sacrifice that sustains it. The entity collapses, but Rowan's past and Nia's first memories of him remain,7",
+      "hook": "The countdown reaches zero, and Nia looks straight at Rowan without knowing his name.",
+      "target_audience": "English-speaking viewers who enjoy supernatural mystery, restrained romance, and identity conflict",
+      "target_platform": "TikTok",
+      "language": "English",
+      "tone": "emotional",
+      "episode_goal": "Break the Exchange through reciprocal consent while accepting that Rowan's lost past cannot be restored.",
+      "target_duration_seconds": 90,
+      "characters": [
+        {
+          "name": "Nia Calder",
+          "role": "Protagonist paramedic",
+          "description": "A resolute paramedic who can hear final memories and refuses to treat sacrifice as consent.",
+          "motivation": "Save lives without surrendering her judgment or anyone else's consent."
+        },
+        {
+          "name": "Rowan Vale",
+          "role": "Reluctant ally",
+          "description": "An immortal archivist whose stolen past and unstable identity are bound to the Exchange.",
+          "motivation": "Choose present trust over recovering his identity at another person's expense."
+        },
+        {
+          "name": "The Exchange",
+          "role": "Supernatural antagonist",
+          "description": "A supernatural economy that trades survival and identity through involuntary, isolated loss.",
+          "motivation": "Preserve its power by forcing one person to bear every cost alone."
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. AMBULANCE - NIGHT",
+          "purpose": "Begin the final erasure and force Nia to choose without relying on memory.",
+          "setting": "A stalled ambulance beneath flickering tunnel lights",
+          "beat_summary": "Nia forgets Rowan as the silver tag offers to restore him if she surrenders their future alone.",
+          "emotional_shift": "Nia moves from defensive confusion to instinctive trust in Rowan's restraint.",
+          "emotional_objective": "Turn anticipatory loss into the terror of becoming strangers.",
+          "character_actions": [
+            "Nia recoils from Rowan inside the stalled ambulance and reaches for her trauma shears.",
+            "The silver emergency tag rises from Rowan's chest, projecting their unwritten future as images that burn blank.",
+            "Rowan lowers his hands and slides the blank journal toward Nia instead of defending himself."
+          ],
+          "turning_point": "Nia trusts Rowan's refusal to claim her memories even though she no longer remembers him.",
+          "scene_causality": {
+            "goal": "Nia must determine whether Rowan deserves trust before their remaining connection disappears.",
+            "conflict": "The Exchange weaponizes Nia's missing memories and demands that she bear the cost alone.",
+            "outcome": "She refuses the restoration offer and opens the blank journal.",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Nia Calder",
+              "intent": "Demand the truth while resisting the supernatural offer.",
+              "text": "I don't know you—so why does forgetting you hurt?"
+            },
+            {
+              "character_name": "Rowan Vale",
+              "intent": "Protect Nia's agency despite the risk of losing himself.",
+              "text": "Because you chose me once, but you don't owe me the same choice twice."
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. AMBULANCE - CONTINUOUS",
+          "purpose": "Reveal and break the Exchange's dependence on involuntary or isolated loss.",
+          "setting": "The ambulance as erased memories flood its windows like silver static",
+          "beat_summary": "Nia discovers that shared voluntary risk leaves the Exchange with no isolated sacrifice to consume.",
+          "emotional_shift": "Their fear of mutual erasure becomes courage grounded in shared consent.",
+          "emotional_objective": "Transform solitary sacrifice into reciprocal trust.",
+          "character_actions": [
+            "Nia writes “remember me forward” on the blank page and cuts the silver tag into two linked halves.",
+            "She closes one half in her own palm and presses the other into Rowan's hand.",
+            "Their joined blood stains both names onto the page as the projected memories reverse and shatter the tag."
+          ],
+          "turning_point": "The Exchange collapses when Nia and Rowan freely accept the same risk without assigning sacrifice to either person.",
+          "scene_causality": {
+            "goal": "Nia and Rowan must deny the Exchange a solitary victim without surrendering each other.",
+            "conflict": "The Exchange intensifies the erasure while insisting that one identity must own the loss.",
+            "outcome": "Their reciprocal consent makes the transaction ownerless, destroying the silver tag and the Exchange's control.",
+            "caused_by_scene_number": 1,
+            "causal_link": "Because Nia refuses to purchase Rowan's restoration alone, she tests whether the cost can be shared voluntarily."
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Nia Calder",
+              "intent": "Make a consequential choice that divides the risk equally.",
+              "text": "No owner, no offering—we forget together, or neither of us pays."
+            },
+            {
+              "character_name": "Rowan Vale",
+              "intent": "Consent to an uncertain future without controlling Nia's choice.",
+              "text": "Then I choose to know you again, however many times it takes."
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "EXT. TUNNEL MOUTH - DAWN",
+          "purpose": "Confirm the Exchange's defeat and pay off the journal, tag, and promise to remember forward.",
+          "setting": "The quiet tunnel mouth at sunrise",
+          "beat_summary": "With the Exchange gone, Nia and Rowan accept the missing past and begin recording a future neither owns alone.",
+          "emotional_shift": "Grief for the unrecoverable past settles into tender hope for a shared future.",
+          "emotional_objective": "Deliver bittersweet renewal through an ordinary, freely chosen beginning.",
+          "character_actions": [
+            "Morning light enters the ambulance as Rowan tests the inert tag halves and finds no pulse.",
+            "Nia tears out the restored offer, then writes the date beneath “remember me forward.”",
+            "When a dispatch call sounds, Nia offers Rowan her hand and he steps out beside her."
+          ],
+          "turning_point": "Nia offers her hand without remembered obligation, and Rowan accepts without asking her to restore what was lost.",
+          "scene_causality": {
+            "goal": "They must decide whether an incomplete history is enough to build a future.",
+            "conflict": "Rowan's past and Nia's first memories of him remain permanently absent despite their victory.",
+            "outcome": "They reintroduce themselves, keep the journal together, and answer the next emergency side by side.",
+            "caused_by_scene_number": 2,
+            "causal_link": "Because their reciprocal consent destroyed the Exchange, they can preserve new memories without restoring or stealing old ones."
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Nia Calder",
+              "intent": "Acknowledge the permanent loss while inviting a new relationship.",
+              "text": "I still don't remember our first meeting, so—I'm Nia."
+            },
+            {
+              "character_name": "Rowan Vale",
+              "intent": "Choose renewal over mourning his unrecoverable identity.",
+              "text": "Rowan—and I'd like to remember what happens next."
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "With the Exchange broken and their past incomplete, what will Nia and Rowan choose to remember forward?"
+    }
+  ]
+}

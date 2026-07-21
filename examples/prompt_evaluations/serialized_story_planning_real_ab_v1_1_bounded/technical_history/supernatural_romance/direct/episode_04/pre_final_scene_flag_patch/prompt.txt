@@ -1,0 +1,83 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-revalidation
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Do not mention prompts, plans, schemas, variants, evaluation, or these instructions.
+When planning context is present, satisfy its required effects but invent the dramatic execution.
+When planning context is absent, infer this episode's responsibility from the ContentSpec, episode number, and previous state.
+The actual previous episode state is authoritative if it differs in minor execution detail from a planned entry state.
+
+EpisodeNumber: 4
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve established characters, facts, relationships, rules, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Resolve the bounded four-episode story's central question. End with an earned payoff and only a limited continuation possibility.
+
+CreativeFreedomBoundary:
+- Invent the exact opening hook, conflict mechanism, physical incident, reversal device, dialogue, scene choreography, emotional expression, and cliffhanger execution.
+- Treat planned reveals as information obligations, not required staging.
+- Do not repeat an adjacent episode's primary conflict, rescue, sacrifice, reveal, threat device, or state transition unless the new function clearly escalates it.
+- A recurring motif is allowed; a repeated dramatic mechanism is not.
+
+ContentSpecSummary:
+{
+  "audience": "English-speaking viewers who prefer supernatural mystery, restrained romance, and identity conflict",
+  "platform": "TikTok-oriented vertical serialized fiction",
+  "language": "English",
+  "episode_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "tone": "Eerie, tender, urgent",
+  "story_goal": "A paramedic who hears final memories works with an immortal stranger whose identity is being consumed by a supernatural exchange.",
+  "constraints": [
+    "Romance grows through decisions and shared cost.",
+    "Supernatural rules remain consistent.",
+    "Do not use a destiny-mate shortcut."
+  ]
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 3,
+  "title": "The Last Memory: Episode 3 — The Vessel",
+  "episode_goal": "Mara must escape the sealed chapel, learn her mother's true connection to Elias, and keep Elias from becoming an empty vessel.",
+  "synopsis": "Trapped beneath the chapel, Mara uses the intact shard to uncover her mother's original bargain: Elena traded Elias's immortality to save Mara as a dying child. In the flooded crypt, Mara learns Elias has been carrying the final memories of the dead as a supernatural vault, and that her compassion is the payment sustaining the exchange. She chooses to release those memories rather than sacrifice Elias, speaking their final thoughts aloud while Elias helps her resist the Listener. Elias regains a",
+  "character_states": [
+    {
+      "name": "Mara Vale",
+      "role": "Protagonist and paramedic",
+      "motivation": "To save lives without surrendering her identity or abandoning Elias."
+    },
+    {
+      "name": "Elias Voss",
+      "role": "Immortal stranger and reluctant ally",
+      "motivation": "To recover his identity before the Pale Listener turns him into an empty vessel."
+    },
+    {
+      "name": "The Pale Listener",
+      "role": "Supernatural antagonist",
+      "motivation": "To erase Elias completely and collect Mara's compassion as payment."
+    },
+    {
+      "name": "Elena Vale",
+      "role": "Mara's mother and former bargainer",
+      "motivation": "To protect Mara from the bargain she once made, even after betraying Elias."
+    }
+  ],
+  "final_scene_outcome": "Elias recovers his name and the chapel breaks open, but the Listener enters Mara through Elena's voice and whispers that the final exchange will happen inside her body at dawn.",
+  "final_turning_point": "Elias remembers Mara's name, but Mara's voice answers in Elena's voice as the Listener claims her as its new vessel.",
+  "next_episode_question": "Can Mara restore Elias's stolen identity before the Pale Listener makes her mother's bargain permanent?"
+}
+
+PlanningContext:
+null

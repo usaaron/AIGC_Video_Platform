@@ -1,0 +1,54 @@
+[
+  {
+    "episode_number": "1",
+    "episode_goal": "Establish mutual suspicion and prove the new threat knows Mara's past.",
+    "entry_state": "Mara's professional reputation remains damaged; she accepts one tightly limited security assessment.",
+    "central_conflict": "Elias refuses to reveal why she was selected while a locked-room alarm indicates an insider breach.",
+    "protagonist_decision": "Mara overrides Elias's lockdown and enters the compromised archive herself.",
+    "reveal": "The intruder left audio from Mara's failed first negotiation.",
+    "emotional_movement": "Controlled detachment → personal alarm → defiant focus.",
+    "setup_refs": "Introduce `DR-S1` and `DR-S2`.",
+    "payoff_refs": "None.",
+    "exit_state": "Mara knows the contract targets her as well as Elias; Elias knows she will disobey him to pursue evidence.",
+    "cliffhanger": "The recording includes Elias's voice giving an order he claims he never made."
+  },
+  {
+    "episode_number": "2",
+    "episode_goal": "Turn suspicion into a testable conflict and expose the cost of Elias's secrecy.",
+    "entry_state": "Mara suspects Elias influenced her first case; the archive remains compromised.",
+    "central_conflict": "Elias offers the unredacted recording only if Mara follows his security protocol, which would surrender her independent exit route.",
+    "protagonist_decision": "Mara creates and shares a verifiable evidence escrow instead of accepting either blind trust or withdrawal.",
+    "reveal": "Elias's recorded order was spliced from a later rescue operation.",
+    "emotional_movement": "Accusation → strategic cooperation → unsettled sympathy.",
+    "setup_refs": "Develop `DR-S2`; introduce `DR-S3`.",
+    "payoff_refs": "Partial payoff of `DR-S2`: the recording is manipulated, but the editor remains unknown.",
+    "exit_state": "Mara and Elias share evidence under mutual controls; the insider learns their escrow location.",
+    "cliffhanger": "Mara's private exit code opens the evidence vault from inside the house."
+  },
+  {
+    "episode_number": "3",
+    "episode_goal": "Break the fragile alliance, then make Mara choose an action with personal risk.",
+    "entry_state": "Evidence has been accessed using Mara's code; Elias has reason to suspect her.",
+    "central_conflict": "Elias confines access to the estate while Mara must prove the code was copied without accepting detention.",
+    "protagonist_decision": "Mara triggers the disabled panic system to publish its hidden diagnostic log, risking exposure of her own earlier procedural violation.",
+    "reveal": "Security chief Nolan disabled the panic button and copied Mara's code during onboarding.",
+    "emotional_movement": "Betrayal → anger → costly resolve.",
+    "setup_refs": "Advance `DR-S1` and `DR-S3`.",
+    "payoff_refs": "Pay off `DR-S1`; partial payoff of `DR-S3`.",
+    "exit_state": "Nolan is identified but controls the public narrative; Mara's old violation is now discoverable.",
+    "cliffhanger": "Nolan releases edited footage framing Mara and Elias as co-conspirators."
+  },
+  {
+    "episode_number": "4",
+    "episode_goal": "Resolve the framed-crisis mystery through reciprocal, voluntary sacrifice.",
+    "entry_state": "Mara and Elias face public accusation; Nolan expects them to protect themselves separately.",
+    "central_conflict": "Clearing Mara requires Elias to expose family crimes; stopping Nolan requires Mara to disclose her own mistake.",
+    "protagonist_decision": "Mara releases the full escrow with her violation included, forcing all evidence into the same public record.",
+    "reveal": "Nolan created the original crisis to manufacture dependence on his security operation.",
+    "emotional_movement": "Isolation → mutual risk → guarded trust.",
+    "setup_refs": "None.",
+    "payoff_refs": "Complete `DR-S2` and `DR-S3`.",
+    "exit_state": "Nolan is exposed; both leads lose institutional protection but retain agency and verified trust.",
+    "cliffhanger": "Elias offers a new partnership with explicit exit terms, and Mara chooses to read them rather than walk away."
+  }
+]

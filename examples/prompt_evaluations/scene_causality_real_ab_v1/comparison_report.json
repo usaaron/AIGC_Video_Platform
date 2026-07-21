@@ -1,0 +1,182 @@
+{
+  "evaluation_id": "scene_causality_real_ab_v1",
+  "review_type": "bounded_human_readability_review",
+  "professional_validation": false,
+  "rubric_scale": {
+    "minimum": 1,
+    "maximum": 5,
+    "dimensions": [
+      "causal_clarity",
+      "protagonist_agency",
+      "conflict_escalation",
+      "filler_reduction",
+      "earned_cliffhanger_or_payoff",
+      "overall_human_preference"
+    ]
+  },
+  "model_settings": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000,
+    "output_language": "en",
+    "desired_scene_count": 3,
+    "platform_profile_id": "tiktok_benchmark_v1"
+  },
+  "variants": {
+    "baseline": {
+      "prompt_version": "v2-baseline",
+      "prompt_builder_version": "v0.1-ab-baseline"
+    },
+    "improved": {
+      "prompt_version": "v3-scene-causality",
+      "prompt_builder_version": "v0.2"
+    }
+  },
+  "comparisons": [
+    {
+      "dataset_id": "us_female_dark_romance",
+      "content_spec_id": "4d8674b7-225b-429e-9832-c579c7300bf6",
+      "scores": {
+        "baseline": {
+          "causal_clarity": 5,
+          "protagonist_agency": 5,
+          "conflict_escalation": 5,
+          "filler_reduction": 5,
+          "earned_cliffhanger_or_payoff": 5,
+          "overall_human_preference": 5
+        },
+        "improved": {
+          "causal_clarity": 5,
+          "protagonist_agency": 5,
+          "conflict_escalation": 5,
+          "filler_reduction": 5,
+          "earned_cliffhanger_or_payoff": 4,
+          "overall_human_preference": 4
+        }
+      },
+      "preferred_variant": "baseline",
+      "major_structural_regression": false,
+      "evidence": [
+        "Baseline Scene 1 gives Elena the keycard that directly enables the Scene 2 boardroom breach.",
+        "Baseline Scene 2 publication directly exposes the protected location revealed in Scene 3.",
+        "Improved also has a complete chain, but the countdown-and-cancel-code ending feels more mechanical than the baseline's consequence to Elena's mother."
+      ],
+      "uncertainty_notes": "The candidate remains structurally strong; preference is driven by specificity and emotional consequence, not a causality failure."
+    },
+    {
+      "dataset_id": "supernatural_romance",
+      "content_spec_id": "de74c89c-80fd-4a04-87df-4a0a8ff93364",
+      "scores": {
+        "baseline": {
+          "causal_clarity": 3,
+          "protagonist_agency": 4,
+          "conflict_escalation": 3,
+          "filler_reduction": 3,
+          "earned_cliffhanger_or_payoff": 5,
+          "overall_human_preference": 3
+        },
+        "improved": {
+          "causal_clarity": 5,
+          "protagonist_agency": 5,
+          "conflict_escalation": 5,
+          "filler_reduction": 5,
+          "earned_cliffhanger_or_payoff": 4,
+          "overall_human_preference": 4
+        }
+      },
+      "preferred_variant": "improved",
+      "major_structural_regression": false,
+      "evidence": [
+        "Baseline Scene 2 is a flashback that explains Scene 1 rather than arising from Scene 1's outcome, interrupting forward pressure.",
+        "Improved Scene 1 transfers control of the evidence phone, enabling Mara's Scene 2 public choice.",
+        "Improved Scene 2 exposure directly triggers the hunters and Lucian's confession in Scene 3."
+      ],
+      "uncertainty_notes": "The candidate's boardroom opening is less immediate than the baseline altar hook, and its final reveal is less surprising than the transformed-sister reveal."
+    },
+    {
+      "dataset_id": "revenge_drama",
+      "content_spec_id": "9528ded5-6cdd-4d13-8bfa-ea04070b3642",
+      "scores": {
+        "baseline": {
+          "causal_clarity": 4,
+          "protagonist_agency": 5,
+          "conflict_escalation": 4,
+          "filler_reduction": 4,
+          "earned_cliffhanger_or_payoff": 4,
+          "overall_human_preference": 4
+        },
+        "improved": {
+          "causal_clarity": 5,
+          "protagonist_agency": 5,
+          "conflict_escalation": 5,
+          "filler_reduction": 5,
+          "earned_cliffhanger_or_payoff": 5,
+          "overall_human_preference": 5
+        }
+      },
+      "preferred_variant": "improved",
+      "major_structural_regression": false,
+      "evidence": [
+        "Improved Scene 1 agreement lets Ethan attack Ava's signature, forcing the stronger recording in Scene 2.",
+        "Sending that recording forces the Scene 3 board review, where Ethan's hidden first page becomes an earned counterattack.",
+        "Baseline remains coherent, but its unknown-husband certificate is less prepared by the preceding fraud evidence."
+      ],
+      "uncertainty_notes": "The result demonstrates stronger local causality, not professional validation of the legal or corporate story details."
+    }
+  ],
+  "aggregate": {
+    "preferred_variant_counts": {
+      "baseline": 1,
+      "improved": 2
+    },
+    "average_scores": {
+      "baseline": {
+        "causal_clarity": 4.0,
+        "protagonist_agency": 4.667,
+        "conflict_escalation": 4.0,
+        "filler_reduction": 4.0,
+        "earned_cliffhanger_or_payoff": 4.667,
+        "overall_human_preference": 4.0
+      },
+      "improved": {
+        "causal_clarity": 5.0,
+        "protagonist_agency": 5.0,
+        "conflict_escalation": 5.0,
+        "filler_reduction": 5.0,
+        "earned_cliffhanger_or_payoff": 4.333,
+        "overall_human_preference": 4.333
+      }
+    },
+    "average_token_usage": {
+      "baseline": {
+        "prompt_tokens": 5497.667,
+        "completion_tokens": 1991.0,
+        "total_tokens": 7488.667
+      },
+      "improved": {
+        "prompt_tokens": 5668.667,
+        "completion_tokens": 3018.333,
+        "total_tokens": 8687.0
+      },
+      "improved_total_token_increase_percent": 16.0
+    },
+    "major_structural_regressions": 0
+  },
+  "overall_decision": "validated_for_next_step",
+  "decision_reason": "Two of three improved drafts are clearly preferred, and the remaining candidate has no major structural regression. The clearest gains are forward causality, conflict escalation, and filler reduction.",
+  "observed_risks": [
+    "The improved variant used about 16% more total tokens on average and about 52% more completion tokens.",
+    "Explicit causality can produce more mechanical countdown or evidence-chain plotting.",
+    "Cliffhanger surprise did not improve consistently; its average human score decreased slightly.",
+    "Both variants were constrained by the same current schema, so baseline drafts also contained SceneCausality fields."
+  ],
+  "uncertainty_notes": [
+    "Each variant was generated once per ContentSpec, so stochastic model variance remains material.",
+    "The review is an evidence-based development assessment, not professional screenwriter validation.",
+    "The provider is recorded as openai_compatible and the configured model name as gpt-5.6-sol; provider internals were not independently verified.",
+    "No second A/B round or prompt tuning was performed."
+  ],
+  "recommendation": "Keep Scene Causality v1 unchanged for the next checkpoint. Preserve the observed token-cost and cliffhanger-quality risks for later bounded validation rather than tuning them in this task."
+}

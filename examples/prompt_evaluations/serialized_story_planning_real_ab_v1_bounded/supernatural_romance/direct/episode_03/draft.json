@@ -1,0 +1,146 @@
+{
+  "title": "The Price of Remembering",
+  "logline": "Mara learns her double was built from Ilyan's erased memories, then must let him forget her to save Daniel.",
+  "synopsis": "The Archivist lures Mara and Ilyan to Saint Brigid Platform by holding Daniel hostage and demanding the recovered memory vial. Mara absorbs the vial first, discovering that Ilyan revived her after a fatal ambulance crash years ago and forgot her as the cost, while his erased memory became the foundation of the double wearing her face. When the Archivist wounds Daniel with supernatural glass, Mara authorizes Ilyan to revive him despite knowing he will lose his present memories of her. Daniel awak",
+  "hook": "Daniel's captor answers his phone with Mara's voice and demands the vial containing Ilyan's lost memory.",
+  "target_audience": "English-speaking viewers who enjoy supernatural mystery, restrained romance, and identity conflict",
+  "target_platform": "TikTok",
+  "language": "English",
+  "tone": "emotional",
+  "episode_goal": "Reveal the origin of Mara's double and force Mara to choose Daniel's life over Ilyan's memory of her.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Mara Velez",
+      "role": "Protagonist",
+      "description": "A paramedic haunted by the final memories of people she cannot save.",
+      "motivation": "Save Daniel without sacrificing Ilyan's identity or surrendering her own."
+    },
+    {
+      "name": "Ilyan Vale",
+      "role": "Immortal ally",
+      "description": "An immortal whose revivals erase his memories, including a forgotten history with Mara.",
+      "motivation": "Protect Mara and Daniel while preserving enough of himself to stop the memory thief."
+    },
+    {
+      "name": "Daniel Cho",
+      "role": "Victim and messenger",
+      "description": "A survivor carrying an implanted vision of Mara murdering Ilyan.",
+      "motivation": "Escape his captor and expose why his memories were altered."
+    },
+    {
+      "name": "The Archivist",
+      "role": "Supernatural antagonist",
+      "description": "A thief wearing Mara's face, assembled from memories erased by Ilyan's miracles.",
+      "motivation": "Force Ilyan to save again so she can harvest his remaining memories of Mara."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. MEMORY ARCHIVE - NIGHT",
+      "purpose": "Launch the hostage exchange and make the memory vial the price of Daniel's survival.",
+      "setting": "The underground memory archive beneath Saint Brigid Station",
+      "beat_summary": "The Archivist uses Daniel as leverage and demands the recovered vial at Saint Brigid Platform.",
+      "emotional_shift": "Mara moves from shocked recognition to controlled resolve.",
+      "emotional_objective": "Turn discovery into an urgent rescue shaped by Mara's fear of losing Ilyan.",
+      "character_actions": [
+        "Mara answers Daniel's ringing phone beside the open memory archive.",
+        "On-screen video shows Daniel bound beneath the platform as Mara's double circles him.",
+        "Ilyan quietly pockets a rescue blade while Mara takes the vial."
+      ],
+      "turning_point": "Mara chooses to carry the vial into the trap rather than abandon Daniel.",
+      "scene_causality": {
+        "goal": "Reach Daniel before the Archivist carries out her threat.",
+        "conflict": "The Archivist can kill Daniel while Mara risks delivering a dangerous lost memory.",
+        "outcome": "Mara and Ilyan take the vial to Saint Brigid Platform.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "The Archivist",
+          "intent": "Force Mara to bring the stolen memory.",
+          "text": "Bring me the vial, Mara, or Daniel dies remembering you held the knife."
+        },
+        {
+          "character_name": "Mara Velez",
+          "intent": "Accept the risk while setting a boundary with Ilyan.",
+          "text": "We go together, but you do not save anyone without asking me first."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. SAINT BRIGID PLATFORM - NIGHT",
+      "purpose": "Explain the double's origin and reveal why Ilyan had forgotten meeting Mara.",
+      "setting": "The abandoned Saint Brigid Platform beneath flickering departure boards",
+      "beat_summary": "Mara absorbs the vial and witnesses Ilyan reviving her years ago as the Archivist reveals she is made from what he lost.",
+      "emotional_shift": "Mara's identity panic becomes tender certainty in Ilyan's present choice.",
+      "emotional_objective": "Make the supernatural revelation deepen trust rather than substitute for earned intimacy.",
+      "character_actions": [
+        "Mara presses the vial injector into her wrist before the Archivist can seize it.",
+        "A memory flashes across broken screens: Ilyan revives a bloodied Mara beside a wrecked ambulance.",
+        "The Archivist's borrowed face flickers through younger versions of Mara."
+      ],
+      "turning_point": "Ilyan chooses the Mara before him over the perfect memory of the woman he once knew.",
+      "scene_causality": {
+        "goal": "Learn what Ilyan lost and deny the Archivist control of the vial.",
+        "conflict": "The Archivist tries to reclaim the memory while Mara risks being overwhelmed by her own forgotten death.",
+        "outcome": "Mara absorbs the memory and learns that Ilyan once revived her, creating the memory-copy now wearing her face.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Mara brings the demanded vial, the Archivist exposes its contents during the exchange."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "The Archivist",
+          "intent": "Claim ownership of Ilyan's erased past.",
+          "text": "Every time he drags someone back, I inherit what the miracle takes—and you were his greatest loss."
+        },
+        {
+          "character_name": "Ilyan Vale",
+          "intent": "Affirm present trust despite the stolen history.",
+          "text": "I don't remember loving you then, Mara, but I know why I would choose you now."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. SAINT BRIGID PLATFORM - CONTINUOUS",
+      "purpose": "Deliver Mara's consequential choice and hand the Archivist control of Ilyan's trust.",
+      "setting": "The platform edge as an empty train roars through without stopping",
+      "beat_summary": "The Archivist mortally wounds Daniel, forcing Mara to authorize a revival that erases Ilyan's present memories of her.",
+      "emotional_shift": "Shared devotion collapses into devastating estrangement.",
+      "emotional_objective": "Make Mara's compassion cost her the relationship she and Ilyan have consciously built.",
+      "character_actions": [
+        "The Archivist drives a glass memory shard into Daniel's chest and releases him.",
+        "Mara's defibrillator sparks uselessly as black veins spread from Daniel's wound.",
+        "At Mara's nod, Ilyan grips Daniel's hand, revives him, then rises and shields the Archivist from Mara."
+      ],
+      "turning_point": "Ilyan wakes from the revival believing the Archivist is Mara and the real Mara is the threat.",
+      "scene_causality": {
+        "goal": "Keep Daniel alive without allowing the Archivist to destroy their alliance.",
+        "conflict": "Daniel will die unless Ilyan revives him, but the miracle will erase Ilyan's remaining memories of Mara.",
+        "outcome": "Daniel revives, Ilyan forgets Mara, and the Archivist claims her place in his mind.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Mara denied the Archivist the vial, the Archivist creates a fatal crisis that only Ilyan's power can reverse."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Mara Velez",
+          "intent": "Choose Daniel's life despite the personal cost.",
+          "text": "Save him, Ilyan—even if I'm the price."
+        },
+        {
+          "character_name": "Ilyan Vale",
+          "intent": "Protect the woman he now mistakes for Mara.",
+          "text": "Step away from Mara, whoever you are."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Mara defeat a double holding their shared past when Ilyan now believes the impostor is the real Mara?"
+}

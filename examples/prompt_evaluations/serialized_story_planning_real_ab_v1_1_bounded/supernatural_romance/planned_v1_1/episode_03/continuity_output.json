@@ -1,0 +1,26 @@
+{
+  "completed_episode_number": 3,
+  "title": "Remember Me Forward",
+  "episode_goal": "Force Nia and Rowan to choose present consent over complete restoration of Rowan's past.",
+  "synopsis": "Nia and Rowan follow the silver tag and blank journal into an underground Exchange archive offering Rowan complete restoration. The cost is an unconscious stranger's identity, forcing Nia to sever the transfer and Rowan to remove his own hand rather than accept an isolated sacrifice. The archive loses the recoverable past, but Rowan writes “remember me forward” before Nia breaks the tag. Their escape reveals the Exchange has marked a future memory they share, turning their growing relationship,7",
+  "character_states": [
+    {
+      "name": "Nia Calder",
+      "role": "Protagonist paramedic",
+      "motivation": "Save lives without surrendering her judgment or anyone else's consent."
+    },
+    {
+      "name": "Rowan Vale",
+      "role": "Reluctant ally",
+      "motivation": "Recover the truth without controlling the choices of others."
+    },
+    {
+      "name": "The Exchange",
+      "role": "Supernatural antagonist",
+      "motivation": "Turn sacrifice into consent and consume identities through exchange."
+    }
+  ],
+  "final_scene_outcome": "They escape together, but the countdown names the moment Nia first forgets Rowan—and Rowan cannot remember why he stayed.",
+  "final_turning_point": "The countdown reveals that the Exchange will attack their shared future, not merely erase Rowan's past.",
+  "next_episode_question": "What will the Exchange erase from Nia and Rowan's future to make them forget choosing each other?"
+}

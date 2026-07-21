@@ -1,0 +1,88 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-bounded
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Use the planning context when it is present. When it is absent, infer the episode's responsibility from the ContentSpec summary, episode number, and previous state.
+Do not mention prompts, plans, schemas, evaluation variants, or these instructions.
+
+EpisodeNumber: 2
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve the same characters, established facts, relationships, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+ContentSpecSummary:
+{
+  "Audience": "English-speaking viewers who prefer strategic revenge, institutional conflict and earned reversals",
+  "Platform": "TikTok-oriented vertical serialized fiction",
+  "Language": "English",
+  "Episode duration": "90 seconds",
+  "Tone": "Sharp, controlled, escalating",
+  "Story goal": "A structural engineer must expose the developer who blamed her for a deadly defect without endangering residents still inside his buildings",
+  "Constraints": "Revenge relies on evidence and consequential choices; protagonist protects vulnerable people; no public-wedding or secret-heir device"
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 1,
+  "title": "The Load That Doesn't Exist",
+  "episode_goal": "Establish Tessa's infiltration and force her to choose resident safety over immediate revenge.",
+  "synopsis": "Disgraced engineer Tessa Ward infiltrates Hale Developments and locates an altered load-test file that could prove she was framed. When live data from an occupied tower echoes the defect that ended her career, she cancels the download and runs an unauthorized comparison instead. The test confirms hidden stress across six occupied floors, but Grant Hale revokes her access and sends her the unsigned original calculation he should not possess.",
+  "character_states": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "motivation": "Clear her name without putting residents at risk."
+    },
+    {
+      "name": "Grant Hale",
+      "role": "Antagonist",
+      "motivation": "Protect his company and keep falsified safety procedures hidden."
+    },
+    {
+      "name": "Mina Cho",
+      "role": "Reluctant ally",
+      "motivation": "Keep her job while ensuring suspicious readings are not ignored."
+    }
+  ],
+  "final_scene_outcome": "Tessa saves partial evidence, loses system access and learns Grant holds her unsigned original calculation.",
+  "final_turning_point": "Grant proves he has both detected Tessa's test and retained evidence that should never have been in his possession.",
+  "next_episode_question": "Why does Grant possess Tessa's unsigned calculation, and what will he do now that he knows she found the defect?"
+}
+
+PlanningContext:
+{
+  "story_blueprint": {
+    "core_premise": "Disgraced engineer Tessa Ward secretly audits the developer who framed her, then discovers his newest tower repeats the defect that ended her career.",
+    "series_goal": "Let Tessa clear her name by exposing the falsified safety process while preventing revenge from becoming another danger to residents.",
+    "theme": "Justice without responsibility can reproduce the harm it condemns.",
+    "central_conflict": "Tessa needs proof from inside the company, but immediate exposure could trigger panic and leave residents trapped in an unsafe tower.",
+    "ending_direction": "Tessa coordinates a safe evacuation, releases verified evidence and forces independent oversight; she rejects a private settlement that would restore only her reputation.",
+    "character_arc_targets": "Tessa moves from reputation-focused revenge to public-accountability leadership. Executive Grant Hale moves from untouchable certainty to sacrificing allies and revealing his own fear.",
+    "major_setup_payoff_refs": "`RV-S1`: altered load-test file; `RV-S2`: emergency drill map; `RV-S3`: Tessa's unsigned original calculation."
+  },
+  "current_episode_plan": {
+    "episode_number": "2",
+    "episode_goal": "Expose how Tessa was framed while making immediate revenge ethically dangerous.",
+    "entry_state": "Hale knows Tessa is investigating; residents remain unaware of the risk.",
+    "central_conflict": "Hale offers the signed falsification record in exchange for silence until the tower's profitable sale closes.",
+    "protagonist_decision": "Tessa refuses the deal but delays public release long enough to design a safe evacuation trigger.",
+    "reveal": "Her supervisor used Tessa's unsigned calculation as the base for an altered certified file.",
+    "emotional_movement": "Vindication → temptation → disciplined anger.",
+    "setup_refs": "Develop `RV-S1` and `RV-S3`; introduce `RV-S2`.",
+    "payoff_refs": "Partial payoff of `RV-S3`: the unsigned original proves substitution, not yet who ordered it.",
+    "exit_state": "Tessa has evidence of falsification and a narrow window to protect residents before Hale retaliates.",
+    "cliffhanger": "The emergency drill map has been changed to route residents through the most vulnerable section."
+  }
+}

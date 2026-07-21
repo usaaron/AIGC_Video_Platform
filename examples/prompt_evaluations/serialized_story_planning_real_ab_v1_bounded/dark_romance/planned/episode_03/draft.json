@@ -1,0 +1,140 @@
+{
+  "title": "Four Nights at Rook House — Episode 3: The Dead Button",
+  "logline": "When Elias treats her as the breach, Mara activates a buried panic diagnostic that can expose the insider—and her own career-ending mistake.",
+  "synopsis": "After Mara's private code opens the evidence vault, Elias seals Rook House and treats her as the likely breach. Mara refuses detention but earns ten minutes to investigate, tracing the copied code to her onboarding session and security chief Nolan Price. The only authenticated proof lies inside the panic system Nolan disabled, forcing Mara to publish a diagnostic that also exposes her own past procedural violation. The log names Nolan, but he immediately releases edited footage portraying Mara V",
+  "hook": "The vault opens with Mara's secret code, and Elias orders every exit sealed.",
+  "target_audience": "US women ages 18–34 who enjoy tense romance, moral conflict, and consequential choices",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "suspenseful",
+  "episode_goal": "Break Mara and Elias's fragile alliance, then force Mara to risk her own reputation to identify the insider.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Mara Voss",
+      "role": "Protagonist and contracted security assessor",
+      "description": "A disciplined crisis negotiator whose private code was used to breach the Rook evidence vault.",
+      "motivation": "Clear her record without surrendering her freedom or accepting detention."
+    },
+    {
+      "name": "Elias Rook",
+      "role": "Client, suspect, and possible ally",
+      "description": "A guarded heir caught between protecting Mara and defending his compromised family estate.",
+      "motivation": "Expose the insider while retaining control of his family's secrets."
+    },
+    {
+      "name": "Nolan Price",
+      "role": "Antagonist and security chief",
+      "description": "Rook House's trusted security chief and the hidden architect connecting both crises.",
+      "motivation": "Frame Mara and Elias before they can expose his manipulation."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. ROOK HOUSE – VAULT CORRIDOR – NIGHT",
+      "purpose": "Break the alliance by making Elias's security response resemble coercion.",
+      "setting": "Outside the open evidence vault in Rook House",
+      "beat_summary": "Elias seals the estate while Mara refuses to trade her autonomy for his trust.",
+      "emotional_shift": "Betrayal hardens into defiant anger.",
+      "emotional_objective": "Make their fragile trust feel one command away from collapse.",
+      "character_actions": [
+        "Steel shutters descend over the corridor exits.",
+        "Mara places her access badge on the floor but keeps her phone.",
+        "Elias blocks the vault doorway without touching her."
+      ],
+      "turning_point": "Mara notices the vault timestamp matches her security onboarding session.",
+      "scene_causality": {
+        "goal": "Mara must preserve her freedom while gaining time to trace the copied code.",
+        "conflict": "Elias needs containment, while Mara refuses to investigate under detention.",
+        "outcome": "Elias grants ten minutes but keeps the estate sealed.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Elias Rook",
+          "intent": "Contain the breach despite his doubt.",
+          "text": "Your code opened that door, Mara. No one leaves until I know how."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Reject detention while offering a controlled path forward.",
+          "text": "Lock me in, and I'm your suspect; give me ten minutes, and I'll find yours."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. ROOK HOUSE – SECURITY CONTROL ROOM – NIGHT",
+      "purpose": "Identify Nolan as the likely insider and define the personal cost of proving it.",
+      "setting": "Rook House security control room",
+      "beat_summary": "Mara traces the copied code to Nolan but learns the clean proof is buried inside the disabled panic system.",
+      "emotional_shift": "Hostility gives way to wary alignment.",
+      "emotional_objective": "Turn anger into evidence-based trust while preserving Mara's right to refuse.",
+      "character_actions": [
+        "Mara overlays the vault timestamp with her onboarding access log.",
+        "Elias removes his master key from the console and slides it to Mara.",
+        "Nolan's name flashes beside a manual panic-system shutdown."
+      ],
+      "turning_point": "Elias gives Mara the only key capable of restoring the panic system.",
+      "scene_causality": {
+        "goal": "Mara and Elias must find evidence that distinguishes copied access from her direct involvement.",
+        "conflict": "The diagnostic can prove Nolan acted, but publishing it will expose Mara's prior procedural violation.",
+        "outcome": "They locate Nolan's shutdown record, but only a public panic diagnostic can authenticate it.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because the breach matches Mara's onboarding timestamp, she audits the security setup from that session."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Mara Voss",
+          "intent": "Name the betrayal without overstating the evidence.",
+          "text": "Nolan copied my code during onboarding, but this log only proves he had the chance."
+        },
+        {
+          "character_name": "Elias Rook",
+          "intent": "Offer trust without taking away her choice.",
+          "text": "Then use my key—or walk out when the shutters lift. Your call."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. ROOK HOUSE – SECURITY CONTROL ROOM – CONTINUOUS",
+      "purpose": "Pay off the disabled panic button and launch the final confrontation through Nolan's counterattack.",
+      "setting": "Rook House security control room and wall monitors",
+      "beat_summary": "Mara publishes the diagnostic, exposing Nolan just as he releases footage framing her and Elias together.",
+      "emotional_shift": "Costly resolve becomes public peril.",
+      "emotional_objective": "Make Mara's costly agency feel courageous before Nolan weaponizes it against her.",
+      "character_actions": [
+        "Mara inserts Elias's key and presses the dead panic button.",
+        "A diagnostic uploads Nolan's shutdown command alongside Mara's old unauthorized negotiation recording.",
+        "Every monitor switches to edited footage of Mara and Elias entering the vault."
+      ],
+      "turning_point": "Mara chooses public evidence over protecting her own damaged record.",
+      "scene_causality": {
+        "goal": "Mara must authenticate Nolan's sabotage before he erases the evidence.",
+        "conflict": "Exposing Nolan also reveals Mara's earlier procedural violation and gives him material to discredit her.",
+        "outcome": "The log identifies Nolan, but his edited footage frames Mara and Elias as co-conspirators.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because the authenticated proof is trapped in the disabled panic system, Mara chooses to publish its complete diagnostic."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Mara Voss",
+          "intent": "Accept personal consequences to secure the truth.",
+          "text": "If my violation comes out, it comes out with his name attached."
+        },
+        {
+          "character_name": "Nolan Price",
+          "intent": "Seize the public narrative before they can act.",
+          "text": "By morning, everyone will know the disgraced negotiator and the Rook heir planned this together."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Mara and Elias expose Nolan before his edited footage turns the public and police against them?"
+}

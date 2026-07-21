@@ -1,0 +1,56 @@
+{
+  "story_id": "revenge_drama",
+  "variant": "planned",
+  "episode_number": 2,
+  "prompt_version": "serialized_story_planning_offline_ab.v1.1-bounded",
+  "generation_strategy_id": "strategy.serialized_story_planning.offline_ab.v1.1",
+  "generation_strategy_version": "v1",
+  "model_provider": "openai_compatible",
+  "model_name": "gpt-5.6-sol",
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "max_tokens": 4000,
+  "output_language": "en",
+  "platform_profile_id": "tiktok_benchmark_v1",
+  "target_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "latency_seconds": 45.017,
+  "prompt_characters": 5903,
+  "planning_context_characters": 2209,
+  "usage": {
+    "prompt_tokens": 1955,
+    "completion_tokens": 1541,
+    "total_tokens": 3496,
+    "completion_tokens_details": {
+      "reasoning_tokens": 75
+    }
+  },
+  "response_id": "resp_04461815695265c7016a5e5e2b6a2c8191a99bcc79f281269c",
+  "generation_failure_count_before_success": 0,
+  "previous_episode_state": {
+    "completed_episode_number": 1,
+    "title": "The Load That Doesn't Exist",
+    "episode_goal": "Establish Tessa's infiltration and force her to choose resident safety over immediate revenge.",
+    "synopsis": "Disgraced engineer Tessa Ward infiltrates Hale Developments and locates an altered load-test file that could prove she was framed. When live data from an occupied tower echoes the defect that ended her career, she cancels the download and runs an unauthorized comparison instead. The test confirms hidden stress across six occupied floors, but Grant Hale revokes her access and sends her the unsigned original calculation he should not possess.",
+    "character_states": [
+      {
+        "name": "Tessa Ward",
+        "role": "Protagonist",
+        "motivation": "Clear her name without putting residents at risk."
+      },
+      {
+        "name": "Grant Hale",
+        "role": "Antagonist",
+        "motivation": "Protect his company and keep falsified safety procedures hidden."
+      },
+      {
+        "name": "Mina Cho",
+        "role": "Reluctant ally",
+        "motivation": "Keep her job while ensuring suspicious readings are not ignored."
+      }
+    ],
+    "final_scene_outcome": "Tessa saves partial evidence, loses system access and learns Grant holds her unsigned original calculation.",
+    "final_turning_point": "Grant proves he has both detected Tessa's test and retained evidence that should never have been in his possession.",
+    "next_episode_question": "Why does Grant possess Tessa's unsigned calculation, and what will he do now that he knows she found the defect?"
+  }
+}

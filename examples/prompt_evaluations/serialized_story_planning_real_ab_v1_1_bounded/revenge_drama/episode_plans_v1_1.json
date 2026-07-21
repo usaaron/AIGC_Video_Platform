@@ -1,0 +1,68 @@
+[
+  {
+    "episode_number": 1,
+    "episode_purpose": "Shift Tessa's objective from clearing her name to preventing current harm.",
+    "entry_state": "Tessa is discredited and has temporary internal access.",
+    "required_state_change": "A repeat safety risk becomes credible, and Tessa delays personal vindication to investigate it.",
+    "protagonist_decision": "Tessa prioritizes resident safety over the easiest reputation evidence.",
+    "planned_reveal": "The current tower reproduces a material pattern from the earlier failure.",
+    "setup_refs": [
+      "RV-S1",
+      "RV-S3"
+    ],
+    "payoff_refs": [],
+    "exit_state": "Tessa has partial safety evidence, and the company detects scrutiny.",
+    "escalation_requirement": "Create immediate pressure on access or evidence; choose the exact device freely."
+  },
+  {
+    "episode_number": 2,
+    "episode_purpose": "Verify the framing while making premature exposure dangerous.",
+    "entry_state": "Tessa has partial proof, and residents do not know the risk.",
+    "required_state_change": "The substitution behind her framing is established, and a safe response becomes necessary before release.",
+    "protagonist_decision": "Tessa rejects silence without triggering an uncontrolled response.",
+    "planned_reveal": "Her unsigned work was transformed into a certified falsification.",
+    "setup_refs": [
+      "RV-S1",
+      "RV-S2",
+      "RV-S3"
+    ],
+    "payoff_refs": [
+      "RV-S3:partial"
+    ],
+    "exit_state": "Tessa has framing evidence and a narrow protection window.",
+    "emotional_requirement": "Move from vindication to disciplined responsibility; choose the exact bargain or threat freely."
+  },
+  {
+    "episode_number": 3,
+    "episode_purpose": "Make public safety visibly cost Tessa her fastest revenge.",
+    "entry_state": "The official response path is compromised, and records are at risk.",
+    "required_state_change": "Residents gain a credible route toward safety, Tessa accepts a personal or legal cost, and institutional complicity becomes visible.",
+    "protagonist_decision": "Tessa chooses a bounded sacrifice that protects residents and preserves evidence.",
+    "planned_reveal": "The falsification depended on both corporate and oversight participation.",
+    "setup_refs": [
+      "RV-S1",
+      "RV-S2"
+    ],
+    "payoff_refs": [
+      "RV-S1:partial"
+    ],
+    "exit_state": "Most residents can act safely, Tessa is under direct pressure, and the antagonists believe they can contain the record.",
+    "escalation_requirement": "Make pressure public or institutional; choose the exact arrest or sabotage mechanism freely."
+  },
+  {
+    "episode_number": 4,
+    "episode_purpose": "Complete safe exposure and accountable justice.",
+    "entry_state": "Remaining residents and evidence are both vulnerable.",
+    "required_state_change": "Residents are safe, evidence is independently preserved, and accountability no longer depends on Tessa alone.",
+    "protagonist_decision": "Tessa chooses public verification over a private restoration of status.",
+    "planned_reveal": "The earlier and current failures are part of the same corrupted process.",
+    "setup_refs": [],
+    "payoff_refs": [
+      "RV-S1",
+      "RV-S2",
+      "RV-S3"
+    ],
+    "exit_state": "The central case resolves through public accountability, while broader consequences may remain.",
+    "escalation_requirement": "Continuation may expose wider scope but must not repeat another building emergency."
+  }
+]

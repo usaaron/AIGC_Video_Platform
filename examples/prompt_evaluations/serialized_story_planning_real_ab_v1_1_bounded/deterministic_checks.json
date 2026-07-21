@@ -1,0 +1,246 @@
+{
+  "evaluation_id": "serialized_story_planning_real_ab_v1_1_bounded",
+  "check_count": 18,
+  "all_passed": true,
+  "checks": [
+    {
+      "story_id": "supernatural_romance",
+      "check": "episode_plan_v1_1_boundary",
+      "passed": true
+    },
+    {
+      "story_id": "supernatural_romance",
+      "variant": "direct",
+      "episode_number": 1,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "supernatural_romance",
+      "variant": "direct",
+      "episode_number": 2,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "supernatural_romance",
+      "variant": "direct",
+      "episode_number": 3,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "supernatural_romance",
+      "variant": "direct",
+      "episode_number": 4,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "supernatural_romance",
+      "variant": "planned_v1_1",
+      "episode_number": 1,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "supernatural_romance",
+      "variant": "planned_v1_1",
+      "episode_number": 2,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "supernatural_romance",
+      "variant": "planned_v1_1",
+      "episode_number": 3,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "supernatural_romance",
+      "variant": "planned_v1_1",
+      "episode_number": 4,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "revenge_drama",
+      "check": "episode_plan_v1_1_boundary",
+      "passed": true
+    },
+    {
+      "story_id": "revenge_drama",
+      "variant": "direct",
+      "episode_number": 1,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "revenge_drama",
+      "variant": "direct",
+      "episode_number": 2,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "revenge_drama",
+      "variant": "direct",
+      "episode_number": 3,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "revenge_drama",
+      "variant": "direct",
+      "episode_number": 4,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "revenge_drama",
+      "variant": "planned_v1_1",
+      "episode_number": 1,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "revenge_drama",
+      "variant": "planned_v1_1",
+      "episode_number": 2,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "revenge_drama",
+      "variant": "planned_v1_1",
+      "episode_number": 3,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    },
+    {
+      "story_id": "revenge_drama",
+      "variant": "planned_v1_1",
+      "episode_number": 4,
+      "check": "structured_episode_contract",
+      "passed": true,
+      "details": {
+        "scene_count": 3,
+        "gco_complete": true,
+        "causal_refs_valid": true,
+        "continuity_input_available": true,
+        "final_scene_cliffhanger": true
+      }
+    }
+  ],
+  "limitations": [
+    "Dramatic-mechanism repetition requires blind semantic review.",
+    "Setup/payoff quality requires evidence-based review, not reference presence alone.",
+    "A structured contract pass does not establish readable story quality."
+  ]
+}

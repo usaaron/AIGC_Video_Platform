@@ -1,0 +1,114 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-revalidation.final-scene-flag-patch1
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Do not mention prompts, plans, schemas, variants, evaluation, or these instructions.
+When planning context is present, satisfy its required effects but invent the dramatic execution.
+When planning context is absent, infer this episode's responsibility from the ContentSpec, episode number, and previous state.
+The actual previous episode state is authoritative if it differs in minor execution detail from a planned entry state.
+
+EpisodeNumber: 4
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve established characters, facts, relationships, rules, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Resolve the bounded four-episode story's central question. End with an earned payoff and only a limited continuation possibility. For schema compatibility, set the final scene's cliffhanger field to true; in this final episode the flag means the scene delivers the required final payoff or continuation beat and does not require adding an unrelated threat.
+
+CreativeFreedomBoundary:
+- Invent the exact opening hook, conflict mechanism, physical incident, reversal device, dialogue, scene choreography, emotional expression, and cliffhanger execution.
+- Treat planned reveals as information obligations, not required staging.
+- Do not repeat an adjacent episode's primary conflict, rescue, sacrifice, reveal, threat device, or state transition unless the new function clearly escalates it.
+- A recurring motif is allowed; a repeated dramatic mechanism is not.
+
+ContentSpecSummary:
+{
+  "audience": "English-speaking viewers who prefer strategic revenge, institutional conflict, and earned reversals",
+  "platform": "TikTok-oriented vertical serialized fiction",
+  "language": "English",
+  "episode_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "tone": "Sharp, controlled, escalating",
+  "story_goal": "A structural engineer must expose the developer who framed her without endangering residents.",
+  "constraints": [
+    "Revenge depends on evidence and consequential choices.",
+    "The protagonist protects vulnerable people.",
+    "Do not use a public-wedding or secret-heir device."
+  ]
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 3,
+  "title": "The Price of the Exit",
+  "episode_goal": "Tessa must secure a safe evacuation route while exposing official complicity at severe legal cost.",
+  "synopsis": "Tessa responds to the tower's load shift by breaking a city-sealed fire panel and opening a controlled evacuation route, knowingly exposing herself to prosecution. Deputy Commissioner Voss arrives to stop her, but Tessa displays the authorization token proving Voss countersigned Hale's altered load-test record. To keep police from closing the stairwell, Tessa surrenders and entrusts Malik with the evacuation map and evidence, only to discover Hale is pumping concrete over the failing transfer-sl",
+  "character_states": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "motivation": "Expose Hale's fraud while getting every resident out safely."
+    },
+    {
+      "name": "Malik Reyes",
+      "role": "Reluctant ally",
+      "motivation": "Protect residents without losing the access needed to finish the evacuation."
+    },
+    {
+      "name": "Gideon Hale",
+      "role": "Antagonist",
+      "motivation": "Contain the evidence, preserve occupancy, and make Tessa appear responsible for the crisis."
+    },
+    {
+      "name": "Deputy Commissioner Celia Voss",
+      "role": "Complicit official",
+      "motivation": "Protect the oversight department from exposure and personal prosecution."
+    }
+  ],
+  "final_scene_outcome": "Tessa is detained and Malik continues the evacuation, but Hale starts a concrete pour that could bury evidence and collapse the slab.",
+  "final_turning_point": "Tessa realizes Hale's cover-up will add lethal weight before the remaining residents can escape.",
+  "next_episode_question": "Can Tessa stop Hale's concrete pour before it collapses the transfer slab with Malik and the remaining residents still inside?"
+}
+
+PlanningContext:
+{
+  "contract_version": "serialized_story_planning_contract.v1.1-candidate",
+  "story_blueprint": {
+    "core_premise": "Disgraced engineer Tessa Ward audits the developer who framed her and discovers his newest tower repeats the defect that ended her career.",
+    "series_dramatic_promise": "Tessa transforms personal revenge into public accountability while defeating a system that treats resident safety as negotiable.",
+    "central_conflict": "Tessa needs internal proof, but immediate exposure could cause panic and leave residents inside an unsafe tower.",
+    "theme": "Justice without responsibility can reproduce the harm it condemns.",
+    "ending_direction": "Tessa enables a safe evacuation, releases independently verified evidence, and rejects a settlement that repairs only her reputation.",
+    "character_arc_targets": "Tessa moves from reputation-focused revenge to public-accountability leadership. Hale moves from certainty to sacrificing allies and exposing his fear.",
+    "major_setup_payoff_refs": {
+      "RV-S1": "altered load-test record",
+      "RV-S2": "evacuation plan",
+      "RV-S3": "Tessa's unsigned calculation"
+    }
+  },
+  "current_episode_plan": {
+    "episode_number": 4,
+    "episode_purpose": "Complete safe exposure and accountable justice.",
+    "entry_state": "Remaining residents and evidence are both vulnerable.",
+    "required_state_change": "Residents are safe, evidence is independently preserved, and accountability no longer depends on Tessa alone.",
+    "protagonist_decision": "Tessa chooses public verification over a private restoration of status.",
+    "planned_reveal": "The earlier and current failures are part of the same corrupted process.",
+    "setup_refs": [],
+    "payoff_refs": [
+      "RV-S1",
+      "RV-S2",
+      "RV-S3"
+    ],
+    "exit_state": "The central case resolves through public accountability, while broader consequences may remain.",
+    "escalation_requirement": "Continuation may expose wider scope but must not repeat another building emergency."
+  }
+}

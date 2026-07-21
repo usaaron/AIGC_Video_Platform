@@ -1,0 +1,31 @@
+{
+  "completed_episode_number": 4,
+  "title": "The Last Memory: Episode 4 — Our Own Names",
+  "episode_goal": "Mara and Elias must end Elena's bargain before dawn makes Mara the Listener's permanent vessel.",
+  "synopsis": "At dawn, the Pale Listener begins taking permanent control of Mara and offers Elias continued immortality if he abandons her. Elias refuses, and Elena's intact shard leads them to a hidden escape clause beneath the chapel: because Mara and Elias both benefited from the original bargain, they can end it only by willingly returning its gifts together. Mara surrenders her ability to hear final memories, while Elias relinquishes immortality. When the Listener attempts to erase Mara before the return",
+  "character_states": [
+    {
+      "name": "Mara Vale",
+      "role": "Protagonist and paramedic",
+      "motivation": "To end her mother's bargain without surrendering herself or sacrificing Elias."
+    },
+    {
+      "name": "Elias Voss",
+      "role": "Immortal stranger and Mara's ally",
+      "motivation": "To save Mara and reclaim a finite life of his own choosing."
+    },
+    {
+      "name": "The Pale Listener",
+      "role": "Supernatural antagonist",
+      "motivation": "To make Mara its permanent vessel at dawn."
+    },
+    {
+      "name": "Elena Vale",
+      "role": "Mara's mother and former bargainer",
+      "motivation": "To reveal the hidden escape from the bargain she created."
+    }
+  ],
+  "final_scene_outcome": "The Listener dissolves, Mara loses the dead's final memories, and Elias becomes mortal without losing himself.",
+  "final_turning_point": "Mara names herself before the Listener can erase her, completing the bargain's destruction.",
+  "next_episode_question": "Can Mara and the now-mortal Elias build an ordinary life after surviving the final exchange?"
+}

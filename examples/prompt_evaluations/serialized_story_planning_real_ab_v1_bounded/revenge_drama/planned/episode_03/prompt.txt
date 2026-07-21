@@ -1,0 +1,88 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-bounded
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Use the planning context when it is present. When it is absent, infer the episode's responsibility from the ContentSpec summary, episode number, and previous state.
+Do not mention prompts, plans, schemas, evaluation variants, or these instructions.
+
+EpisodeNumber: 3
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve the same characters, established facts, relationships, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+ContentSpecSummary:
+{
+  "Audience": "English-speaking viewers who prefer strategic revenge, institutional conflict and earned reversals",
+  "Platform": "TikTok-oriented vertical serialized fiction",
+  "Language": "English",
+  "Episode duration": "90 seconds",
+  "Tone": "Sharp, controlled, escalating",
+  "Story goal": "A structural engineer must expose the developer who blamed her for a deadly defect without endangering residents still inside his buildings",
+  "Constraints": "Revenge relies on evidence and consequential choices; protagonist protects vulnerable people; no public-wedding or secret-heir device"
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 2,
+  "title": "The Exit Through Twenty-Three",
+  "episode_goal": "Expose how Tessa was framed while she creates a safe path to protect the tower's residents.",
+  "synopsis": "Grant confirms that Tessa's former supervisor converted her unsigned calculation into the altered certified file used to blame her, then offers both records if she stays silent until the tower sale. Tessa covertly preserves the proof but refuses immediate publication, choosing to use an emergency drill to evacuate residents safely. When she and Mina inspect the plan, they discover its route was changed to funnel everyone through the tower's weakest floor just as security seals them inside.",
+  "character_states": [
+    {
+      "name": "Tessa Ward",
+      "role": "Protagonist",
+      "motivation": "Clear her name while protecting residents from the repeated structural failure."
+    },
+    {
+      "name": "Grant Hale",
+      "role": "Antagonist",
+      "motivation": "Protect his company and complete the tower sale before its defects become public."
+    },
+    {
+      "name": "Mina Cho",
+      "role": "Reluctant ally",
+      "motivation": "Keep her job while ensuring residents are not sacrificed to corporate silence."
+    }
+  ],
+  "final_scene_outcome": "Tessa discovers the drill is a lethal trap and records the altered map before being sealed inside.",
+  "final_turning_point": "Security shutters seal Tessa in as the altered evacuation drill begins its countdown.",
+  "next_episode_question": "Can Tessa stop Hale's altered drill before residents are routed into the tower's weakest section?"
+}
+
+PlanningContext:
+{
+  "story_blueprint": {
+    "core_premise": "Disgraced engineer Tessa Ward secretly audits the developer who framed her, then discovers his newest tower repeats the defect that ended her career.",
+    "series_goal": "Let Tessa clear her name by exposing the falsified safety process while preventing revenge from becoming another danger to residents.",
+    "theme": "Justice without responsibility can reproduce the harm it condemns.",
+    "central_conflict": "Tessa needs proof from inside the company, but immediate exposure could trigger panic and leave residents trapped in an unsafe tower.",
+    "ending_direction": "Tessa coordinates a safe evacuation, releases verified evidence and forces independent oversight; she rejects a private settlement that would restore only her reputation.",
+    "character_arc_targets": "Tessa moves from reputation-focused revenge to public-accountability leadership. Executive Grant Hale moves from untouchable certainty to sacrificing allies and revealing his own fear.",
+    "major_setup_payoff_refs": "`RV-S1`: altered load-test file; `RV-S2`: emergency drill map; `RV-S3`: Tessa's unsigned original calculation."
+  },
+  "current_episode_plan": {
+    "episode_number": "3",
+    "episode_goal": "Force Tessa to choose public safety over the fastest route to personal vindication.",
+    "entry_state": "The official evacuation plan is compromised; Hale prepares to erase internal records.",
+    "central_conflict": "Releasing the falsification evidence now would clear Tessa but trigger an unsafe uncontrolled evacuation.",
+    "protagonist_decision": "Tessa submits herself for arrest as a deliberate distraction while sending a corrected drill map to resident leaders.",
+    "reveal": "Hale ordered the altered file, but the city inspector accepted payment to suppress the risk.",
+    "emotional_movement": "Urgency → apparent defeat → strategic sacrifice.",
+    "setup_refs": "Advance `RV-S1` and `RV-S2`.",
+    "payoff_refs": "Partial payoff of `RV-S1`; establish who authorized the alteration.",
+    "exit_state": "Residents begin an orderly evacuation; Tessa is detained; Hale believes the evidence is contained.",
+    "cliffhanger": "The inspector locks the final occupied floor remotely and blames Tessa for the alarm."
+  }
+}

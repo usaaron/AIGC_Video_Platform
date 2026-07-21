@@ -1,0 +1,161 @@
+{
+  "evaluation_id": "serialized_story_planning_real_ab_v1_1_bounded",
+  "review_status": "pending_blind_review",
+  "reviewer_identity_type": null,
+  "reviewer_count": null,
+  "rubric_scale": "1-5",
+  "stories": {
+    "supernatural_romance": {
+      "candidate_1": {
+        "scores": {
+          "overall_story_coherence": null,
+          "character_decision_consistency": null,
+          "cross_episode_causality": null,
+          "setup_payoff_completion": null,
+          "reveal_timing": null,
+          "exit_entry_continuity": null,
+          "unique_episode_responsibility": null,
+          "repetition_control": null,
+          "hook_strength": null,
+          "cliffhanger_quality": null,
+          "conflict_variety": null,
+          "creative_variety": null,
+          "emotional_progression": null,
+          "rigidity_freedom": null,
+          "filler_control": null,
+          "single_episode_readability": null
+        },
+        "evidence": [],
+        "adjacent_episode_repetition": {
+          "primary_conflict_mechanism": [],
+          "rescue_mechanism": [],
+          "sacrifice_or_cost": [],
+          "reveal_type": [],
+          "evidence_or_threat_device": [],
+          "state_transition": [],
+          "recurring_motifs_not_counted_as_repetition": []
+        },
+        "strengths": [],
+        "weaknesses": []
+      },
+      "candidate_2": {
+        "scores": {
+          "overall_story_coherence": null,
+          "character_decision_consistency": null,
+          "cross_episode_causality": null,
+          "setup_payoff_completion": null,
+          "reveal_timing": null,
+          "exit_entry_continuity": null,
+          "unique_episode_responsibility": null,
+          "repetition_control": null,
+          "hook_strength": null,
+          "cliffhanger_quality": null,
+          "conflict_variety": null,
+          "creative_variety": null,
+          "emotional_progression": null,
+          "rigidity_freedom": null,
+          "filler_control": null,
+          "single_episode_readability": null
+        },
+        "evidence": [],
+        "adjacent_episode_repetition": {
+          "primary_conflict_mechanism": [],
+          "rescue_mechanism": [],
+          "sacrifice_or_cost": [],
+          "reveal_type": [],
+          "evidence_or_threat_device": [],
+          "state_transition": [],
+          "recurring_motifs_not_counted_as_repetition": []
+        },
+        "strengths": [],
+        "weaknesses": []
+      },
+      "preferred_candidate": null,
+      "deliberately_planned_story_candidate": null,
+      "stronger_character_continuity_candidate": null,
+      "better_setup_payoff_candidate": null,
+      "stronger_hooks_cliffhangers_candidate": null,
+      "less_repetitive_mechanical_candidate": null,
+      "would_continue_to_episode_5_candidate": null,
+      "major_single_episode_regression": null,
+      "comparison_evidence": [],
+      "uncertainty_notes": []
+    },
+    "revenge_drama": {
+      "candidate_1": {
+        "scores": {
+          "overall_story_coherence": null,
+          "character_decision_consistency": null,
+          "cross_episode_causality": null,
+          "setup_payoff_completion": null,
+          "reveal_timing": null,
+          "exit_entry_continuity": null,
+          "unique_episode_responsibility": null,
+          "repetition_control": null,
+          "hook_strength": null,
+          "cliffhanger_quality": null,
+          "conflict_variety": null,
+          "creative_variety": null,
+          "emotional_progression": null,
+          "rigidity_freedom": null,
+          "filler_control": null,
+          "single_episode_readability": null
+        },
+        "evidence": [],
+        "adjacent_episode_repetition": {
+          "primary_conflict_mechanism": [],
+          "rescue_mechanism": [],
+          "sacrifice_or_cost": [],
+          "reveal_type": [],
+          "evidence_or_threat_device": [],
+          "state_transition": [],
+          "recurring_motifs_not_counted_as_repetition": []
+        },
+        "strengths": [],
+        "weaknesses": []
+      },
+      "candidate_2": {
+        "scores": {
+          "overall_story_coherence": null,
+          "character_decision_consistency": null,
+          "cross_episode_causality": null,
+          "setup_payoff_completion": null,
+          "reveal_timing": null,
+          "exit_entry_continuity": null,
+          "unique_episode_responsibility": null,
+          "repetition_control": null,
+          "hook_strength": null,
+          "cliffhanger_quality": null,
+          "conflict_variety": null,
+          "creative_variety": null,
+          "emotional_progression": null,
+          "rigidity_freedom": null,
+          "filler_control": null,
+          "single_episode_readability": null
+        },
+        "evidence": [],
+        "adjacent_episode_repetition": {
+          "primary_conflict_mechanism": [],
+          "rescue_mechanism": [],
+          "sacrifice_or_cost": [],
+          "reveal_type": [],
+          "evidence_or_threat_device": [],
+          "state_transition": [],
+          "recurring_motifs_not_counted_as_repetition": []
+        },
+        "strengths": [],
+        "weaknesses": []
+      },
+      "preferred_candidate": null,
+      "deliberately_planned_story_candidate": null,
+      "stronger_character_continuity_candidate": null,
+      "better_setup_payoff_candidate": null,
+      "stronger_hooks_cliffhangers_candidate": null,
+      "less_repetitive_mechanical_candidate": null,
+      "would_continue_to_episode_5_candidate": null,
+      "major_single_episode_regression": null,
+      "comparison_evidence": [],
+      "uncertainty_notes": []
+    }
+  }
+}

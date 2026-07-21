@@ -1,0 +1,26 @@
+{
+  "completed_episode_number": 2,
+  "title": "The Distributed Truth",
+  "episode_goal": "Maya must preserve the original inspection archive and keep Adrian from using displaced residents to destroy her credibility.",
+  "synopsis": "Maya defeats the remote wipe by distributing encrypted archive fragments across the Harbor Heights residents' phones. Adrian retaliates by conditioning emergency shelter on deleting those fragments and signing statements that blame Maya, but she sacrifices her quickest legal path to exoneration and gives Luis proof of the revision trail. His recording of Adrian's coercion preserves the residents' trust, allowing them to reconstruct a hidden inspection video that links the same structural fraud W",
+  "character_states": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "motivation": "Clear her name by proving developer fraud without putting residents at risk."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Antagonist",
+      "motivation": "Open Harbor Heights on schedule and make Maya absorb the blame for its defects."
+    },
+    {
+      "name": "Luis Ortega",
+      "role": "Ally",
+      "motivation": "Keep his neighbors housed and alive while exposing whoever concealed the danger."
+    }
+  ],
+  "final_scene_outcome": "Maya discovers Vale Meridian carries the same defect and may be destroyed at dawn while occupied.",
+  "final_turning_point": "Maya realizes Adrian's cover-up threatens an occupied sister tower scheduled for demolition at dawn.",
+  "next_episode_question": "Can Maya evacuate Vale's occupied sister tower before Adrian destroys the structure and the evidence inside it?"
+}

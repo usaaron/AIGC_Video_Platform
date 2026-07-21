@@ -1,0 +1,140 @@
+{
+  "title": "The Last Memory: Episode 2 — The Memory Beneath the Chapel",
+  "logline": "After the Pale Listener steals Mara's badge and speaks with her dead mother's voice, Mara discovers that Elias's stolen memories are being planted in the dying so she will carry them back to him.",
+  "synopsis": "Mara discovers that the Pale Listener is planting Elias's stolen memories inside the dying, turning her gift into a delivery system. Following one memory leads her and Elias to a hidden chapel where she sacrifices blood to enter the exchange site. There she learns her dead mother made the first bargain that preserved Elias's life, and the Listener begins erasing Elias's memory of Mara. Mara rejects the bargain, steals an intact memory shard, and vows to restore Elias even as they are trapped in]",
+  "hook": "A dying stranger whispers Elias's childhood secret, then Mara hears her own voice answer from inside his body.",
+  "target_audience": "English-speaking viewers who enjoy supernatural mystery, restrained romance, and identity conflict",
+  "target_platform": "TikTok",
+  "language": "en",
+  "tone": "suspenseful",
+  "episode_goal": "Mara and Elias must trace the source of the stolen memories before the Pale Listener uses Mara's mother's voice to complete its exchange.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Mara Vale",
+      "role": "Protagonist and paramedic",
+      "description": "A compassionate paramedic who hears the final memories of the dying and is now missing her badge after the Pale Listener claimed it.",
+      "motivation": "To save lives without surrendering her identity or abandoning Elias."
+    },
+    {
+      "name": "Elias Voss",
+      "role": "Immortal stranger and reluctant ally",
+      "description": "An immortal man whose identity is being consumed piece by piece by the Pale Listener.",
+      "motivation": "To learn why Mara can hear memories that were stolen from him before he becomes nobody."
+    },
+    {
+      "name": "The Pale Listener",
+      "role": "Antagonistic supernatural force",
+      "description": "A supernatural force that completes exchanges by consuming identity and speaking through borrowed voices.",
+      "motivation": "To erase Elias completely by turning Mara's memories and compassion into payment."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. ABANDONED AMBULANCE BAY - NIGHT",
+      "purpose": "Establish that the Pale Listener is weaponizing Mara's ability instead of merely stealing memories.",
+      "setting": "An abandoned ambulance bay beneath a failing hospital sign",
+      "beat_summary": "At an abandoned ambulance bay, Mara tests whether the voices of the dying now carry Elias's stolen memories.",
+      "emotional_shift": "Mara shifts from protecting Elias instinctively to fearing that her gift is helping erase him.",
+      "emotional_objective": "Turn Mara's grief and confusion into active suspicion of the curse's new mechanism.",
+      "character_actions": [
+        "Mara grips the stolen badge, which is cold enough to frost her palm.",
+        "Elias places a bloodied emergency blanket between them and refuses to cross its silver seam.",
+        "A dying trespasser opens his eyes and repeats a childhood phrase Elias has never told Mara."
+      ],
+      "turning_point": "The dying witness speaks in Elias's childhood voice, proving the curse has changed its method.",
+      "scene_causality": {
+        "goal": "Identify how Elias's memories are reaching Mara through the dying.",
+        "conflict": "Mara cannot tell whether the borrowed memory is evidence or a trap designed to make her trust Elias.",
+        "outcome": "They learn the Listener is planting memories in terminal minds and decide to follow the newest voice.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Mara Vale",
+          "intent": "Demand proof that the memory is connected to Elias rather than her own trauma.",
+          "text": "That phrase came from your childhood, Elias; why did I hear it from a stranger who was already dead?"
+        },
+        {
+          "character_name": "Elias Voss",
+          "intent": "Reveal the curse's altered rule and warn Mara of the cost.",
+          "text": "Because the Listener is no longer taking my memories—it is hiding them in the dying, where your gift will carry them home."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. CONDEMNED CHAPEL - NIGHT",
+      "purpose": "Escalate the romance through shared cost and bring the protagonists to the curse's physical source.",
+      "setting": "A condemned chapel hidden beneath the hospital foundations",
+      "beat_summary": "Mara follows the memory to a condemned chapel and chooses to enter a supernatural exchange site despite Elias's warning.",
+      "emotional_shift": "Elias moves from guarded control to frightened vulnerability when Mara willingly shares his risk.",
+      "emotional_objective": "Make Mara's growing attachment visible through a dangerous, deliberate choice rather than a declaration.",
+      "character_actions": [
+        "Mara uses the dead witness's final image to locate a sealed chapel beneath the hospital.",
+        "Elias burns his palm against the chapel door, revealing names scratched beneath layers of paint.",
+        "Mara cuts her hand and presses her blood to the lock, opening it before Elias can stop her."
+      ],
+      "turning_point": "Mara's blood opens the door and binds her temporarily to Elias's vanishing identity.",
+      "scene_causality": {
+        "goal": "Enter the exchange site and find what the Listener is using to store Elias's memories.",
+        "conflict": "The chapel requires Mara's blood and may bind her identity to Elias's unfinished exchange.",
+        "outcome": "Mara opens the chapel, but the lock brands both their wrists with the same disappearing name.",
+        "caused_by_scene_number": 1,
+        "causal_link": "The planted childhood memory leads Mara to the chapel named in its final image."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Elias Voss",
+          "intent": "Stop Mara from paying a personal cost to access the Listener.",
+          "text": "That door opens only for something the Listener already owns; if you bleed for it, it will count you as part of the exchange."
+        },
+        {
+          "character_name": "Mara Vale",
+          "intent": "Choose shared risk over leaving Elias to face the curse alone.",
+          "text": "Then it can count me—but it does not get to count you alone."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. MEMORY CRYPT - CONTINUOUS",
+      "purpose": "Reveal the first link between Mara's mother and Elias and end with a costly identity collapse that demands the next episode.",
+      "setting": "The chapel's submerged memory crypt",
+      "beat_summary": "Inside the chapel, Mara finds a wall of memory fragments and hears her mother's voice confess that she once saved Elias.",
+      "emotional_shift": "Mara's fear becomes defiance, while Elias's dependence becomes immediate and terrifying as he forgets her.",
+      "emotional_objective": "Convert the mystery into intimate betrayal while forcing Mara to claim responsibility for Elias's survival.",
+      "character_actions": [
+        "The chapel walls ripple with scenes of Elias's life, each one losing his face as Mara touches it.",
+        "Mara tears a glass memory shard from the wall, cutting her fingers but preserving the image.",
+        "The Pale Listener speaks through Mara's mother's voice while Elias begins forgetting Mara's name."
+      ],
+      "turning_point": "Elias forgets Mara while the stolen shard reveals her mother once loved—and betrayed—the immortal stranger.",
+      "scene_causality": {
+        "goal": "Preserve Elias's identity and learn what Mara's mother concealed.",
+        "conflict": "The Listener can erase Elias's recognition of Mara unless she accepts the original exchange.",
+        "outcome": "Mara steals one intact memory shard, but Elias forgets her name as the chapel seals them inside with the Listener's voice.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Mara's blood opens the chapel and exposes the memory wall connected to her mother's bargain."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "The Pale Listener",
+          "intent": "Offer Mara a cruel explanation and tempt her to complete the exchange.",
+          "text": "Your mother made the first bargain, little heartbeat; Elias lived because she gave me the memory of loving him."
+        },
+        {
+          "character_name": "Mara Vale",
+          "intent": "Reject the bargain while making a consequential plan to restore Elias's identity.",
+          "text": "Then I will give him a memory you cannot take—I will remember him for both of us, and I will find what my mother hid."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Who was Mara's mother to the Pale Listener, and why did she once make an exchange with Elias?"
+}

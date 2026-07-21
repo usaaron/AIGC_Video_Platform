@@ -1,0 +1,140 @@
+{
+  "title": "Twelve Minutes",
+  "logline": "Trapped in a burning archive, Maya sacrifices the original records to save the tower, only to uncover Victor's next occupied death trap.",
+  "synopsis": "Maya stops Victor's archive fire by flooding the records floor, sacrificing the paper originals while preserving the digital audit server. In the lobby, Victor accuses her of arson, but Maya strategically surrenders and gives Elias the access needed to verify the surviving logs. The records expose Victor's remote ignition command and clear Maya, then reveal a muted structural warning at Tower C, where a rooftop concert will overload a failing transfer slab in twelve minutes.",
+  "hook": "Flames race toward the only server that can prove Victor Hale framed Maya.",
+  "target_audience": "English-speaking viewers who enjoy strategic revenge, institutional conflict, and earned reversals.",
+  "target_platform": "TikTok",
+  "language": "English",
+  "tone": "suspenseful",
+  "episode_goal": "Maya must survive Victor's fire, preserve admissible proof, and complete the tower's evacuation without triggering deadly panic.",
+  "target_duration_seconds": 90,
+  "characters": [
+    {
+      "name": "Maya Chen",
+      "role": "Protagonist",
+      "description": "A disciplined structural engineer framed for a fatal construction defect.",
+      "motivation": "Clear her name while protecting residents from Hale's concealed defects."
+    },
+    {
+      "name": "Victor Hale",
+      "role": "Antagonist",
+      "description": "A ruthless developer who hides dangerous shortcuts behind influence and manufactured evidence.",
+      "motivation": "Destroy the evidence and keep Maya as his permanent scapegoat."
+    },
+    {
+      "name": "Elias Grant",
+      "role": "Reluctant ally",
+      "description": "A cautious building official whose faith in procedure is being tested by mounting proof.",
+      "motivation": "Prevent another disaster without staking his career on an unsupported accusation."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. HALE TOWER – BURNING ARCHIVE – NIGHT",
+      "purpose": "Maya stops the fire from spreading while preserving the server that logged Victor's actions.",
+      "setting": "Hale Tower archive floor, behind a locked fire door",
+      "beat_summary": "As Victor's timed fire spreads, Maya chooses suppression over saving the paper originals.",
+      "emotional_shift": "Maya moves from hunted desperation to decisive control.",
+      "emotional_objective": "Show Maya converting entrapment into a controlled sacrifice.",
+      "character_actions": [
+        "Maya smashes the sprinkler control glass and pulls the manual deluge lever.",
+        "Victor watches through the locked fire door as water destroys the signed paper files.",
+        "Maya shields the archive server beneath a fire blanket while smoke fills the room."
+      ],
+      "turning_point": "Maya knowingly floods the archive, sacrificing pristine evidence to keep the tower safe.",
+      "scene_causality": {
+        "goal": "Stop the fire without losing the proof or endangering evacuating residents.",
+        "conflict": "Victor has locked Maya beside a fire advancing toward the archive server.",
+        "outcome": "The originals are ruined, but the fire is contained and the server survives.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Victor Hale",
+          "intent": "Force Maya to protect the evidence at the cost of her life.",
+          "text": "Pull that lever and your precious originals become pulp."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Declare that lives and recoverable data matter more than perfect evidence.",
+          "text": "Paper burns once; your audit trail remembers forever."
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. HALE TOWER – LOBBY – NIGHT",
+      "purpose": "Maya accepts detention so Elias can authenticate the evidence and finish the evacuation.",
+      "setting": "Hale Tower lobby during the controlled evacuation",
+      "beat_summary": "Victor publicly frames Maya for the blaze while Elias must choose whether to trust her evidence.",
+      "emotional_shift": "Public humiliation hardens into mutual trust between Maya and Elias.",
+      "emotional_objective": "Make Maya's surrender feel strategic rather than defeated.",
+      "character_actions": [
+        "Maya emerges soaked into the lobby and places her phone in Elias's hand.",
+        "Victor points security officers toward Maya as residents file calmly through side exits.",
+        "Maya raises her empty hands and allows security to restrain her."
+      ],
+      "turning_point": "Maya surrenders instead of fleeing, making Victor's obstruction visible and protecting Elias's investigation.",
+      "scene_causality": {
+        "goal": "Give Elias enough time and authority to authenticate Victor's remote ignition command.",
+        "conflict": "Victor weaponizes the fire and security footage to frame Maya before the proof is verified.",
+        "outcome": "Maya is detained, but Elias accesses the surviving server while the last residents exit safely.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Maya contained the archive fire, she reaches the lobby with the server evidence still recoverable."
+      },
+      "cliffhanger": false,
+      "dialogues": [
+        {
+          "character_name": "Victor Hale",
+          "intent": "Have Maya arrested before Elias can authenticate her files.",
+          "text": "She broke in, started a fire, and forged whatever is on that phone."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Buy Elias time by surrendering and directing him to independent proof.",
+          "text": "Check the server's ignition log, Elias—I’ll stay where they can see me."
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. HALE TOWER – SECURITY STATION – NIGHT",
+      "purpose": "The surviving server proves Victor's sabotage and exposes his next endangered building.",
+      "setting": "Hale Tower security station beside the evacuated lobby",
+      "beat_summary": "The recovered audit trail clears Maya of the fire but reveals an imminent structural crisis at another occupied Hale tower.",
+      "emotional_shift": "Relief at clearing Maya's name snaps into dread and resolve.",
+      "emotional_objective": "Deliver vindication that instantly becomes a more urgent moral burden.",
+      "character_actions": [
+        "Elias projects the server log, revealing Victor's credentials beside the ignition command.",
+        "Security releases Maya as Victor slips through an emergency exit.",
+        "Maya zooms in on a muted sensor alert for Tower C and freezes at its live occupancy count."
+      ],
+      "turning_point": "Maya sees Tower C's countdown and chooses immediate intervention over celebrating her vindication.",
+      "scene_causality": {
+        "goal": "Use the recovered audit trail to clear Maya and identify Victor's remaining concealed hazards.",
+        "conflict": "Victor escapes while a muted structural alert shows another occupied tower approaching overload.",
+        "outcome": "Maya is released, but she learns hundreds of concertgoers are minutes from loading a failing slab.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Maya preserved the server and surrendered her phone, Elias can independently authenticate Victor's commands."
+      },
+      "cliffhanger": true,
+      "dialogues": [
+        {
+          "character_name": "Elias Grant",
+          "intent": "Confirm Victor's guilt while warning that the recovered log contains a larger threat.",
+          "text": "The fire command is Hale's—but this alert says Tower C's transfer slab is already failing."
+        },
+        {
+          "character_name": "Maya Chen",
+          "intent": "Identify the immediate danger and commit to stopping it.",
+          "text": "Tonight's rooftop concert loads that slab in twelve minutes."
+        }
+      ]
+    }
+  ],
+  "next_episode_question": "Can Maya stop the overloaded transfer slab before hundreds of concertgoers enter Tower C?"
+}

@@ -1,0 +1,88 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-bounded
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Use the planning context when it is present. When it is absent, infer the episode's responsibility from the ContentSpec summary, episode number, and previous state.
+Do not mention prompts, plans, schemas, evaluation variants, or these instructions.
+
+EpisodeNumber: 2
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve the same characters, established facts, relationships, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+ContentSpecSummary:
+{
+  "Audience": "English-speaking viewers who prefer supernatural mystery, restrained romance and identity conflict",
+  "Platform": "TikTok-oriented vertical serialized fiction",
+  "Language": "English",
+  "Episode duration": "90 seconds",
+  "Tone": "Eerie, tender, urgent",
+  "Story goal": "A paramedic who hears final memories must work with an immortal stranger whose memories disappear whenever she saves someone",
+  "Constraints": "Romance grows through decisions and shared cost; supernatural rules remain consistent; no destiny-mate shortcut"
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 1,
+  "title": "The Memory Price",
+  "episode_goal": "Establish the memory exchange and force Nia to choose a patient's life over certainty about the entity.",
+  "synopsis": "Paramedic Nia Calder hears a dying commuter's final memory and discovers immortal archivist Rowan Vale within a century-old scene. Rowan warns that reviving the patient will erase his only memory of a faceless entity, so Nia records his testimony before choosing the rescue. The patient survives wearing an antique tag Rowan recognizes, but Rowan's memory vanishes and his journal creates a blank page bearing Nia's name.",
+  "character_states": [
+    {
+      "name": "Nia Calder",
+      "role": "Protagonist",
+      "motivation": "Save every life she can without letting her supernatural burden endanger others."
+    },
+    {
+      "name": "Rowan Vale",
+      "role": "Mysterious ally",
+      "motivation": "Preserve enough evidence of the memory-trading entity to stop it before his identity disappears."
+    },
+    {
+      "name": "Eli Mercer",
+      "role": "Patient and supernatural clue",
+      "motivation": "Survive long enough to deliver an impossible warning."
+    }
+  ],
+  "final_scene_outcome": "Eli survives, Rowan retains only Nia's recording, and the journal marks Nia on a blank page.",
+  "final_turning_point": "The self-turning journal reveals Nia's name where a memory should be.",
+  "next_episode_question": "Why has Rowan's supernatural journal created a blank page bearing Nia's name?"
+}
+
+PlanningContext:
+{
+  "story_blueprint": {
+    "core_premise": "Paramedic Nia Calder hears a dying patient's final memory and finds immortal archivist Rowan inside it, but every life Nia saves erases one of Rowan's memories.",
+    "series_goal": "Discover why their abilities are linked and stop the entity trading human survival for stolen memory.",
+    "theme": "Love is not perfect remembrance; it is the choice to know someone again.",
+    "central_conflict": "Nia will not stop saving patients, while Rowan fears each rescue will erase the evidence and identity needed to defeat the entity.",
+    "ending_direction": "Nia and Rowan redirect the exchange into a voluntary shared archive, defeating the entity while accepting that some memories cannot be restored.",
+    "character_arc_targets": "Nia learns that responsibility does not require solitary sacrifice. Rowan chooses present trust over controlling what remains of the past.",
+    "major_setup_payoff_refs": "`SR-S1`: the silver emergency tag; `SR-S2`: Rowan's blank journal page; `SR-S3`: the phrase “remember me forward.”"
+  },
+  "current_episode_plan": {
+    "episode_number": "2",
+    "episode_goal": "Prove that memory loss can alter trust, not just information.",
+    "entry_state": "Nia and Rowan investigate the tag; Rowan knows his journal predicts a loss involving Nia.",
+    "central_conflict": "Another emergency begins while Rowan forgets why Nia is safe to approach.",
+    "protagonist_decision": "Nia lets Rowan hear her own recorded account before acting, then enters the rescue without his approval.",
+    "reveal": "The entity can target relational memories when the pair resists it.",
+    "emotional_movement": "Fragile connection → estrangement → chosen cooperation.",
+    "setup_refs": "Develop `SR-S1` and `SR-S2`; introduce `SR-S3`.",
+    "payoff_refs": "Partial payoff of `SR-S2`: the blank page predicts relational erasure.",
+    "exit_state": "Rowan no longer remembers meeting Nia, but believes the evidence she preserved.",
+    "cliffhanger": "He repeats “remember me forward,” a phrase Nia has never told him."
+  }
+}

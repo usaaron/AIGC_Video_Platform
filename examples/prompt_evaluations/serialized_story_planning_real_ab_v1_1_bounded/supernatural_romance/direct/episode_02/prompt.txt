@@ -1,0 +1,78 @@
+EvaluationPromptVersion: serialized_story_planning_offline_ab.v1.1-revalidation
+Task: Generate one complete episode of a connected four-episode AI comic story.
+Do not mention prompts, plans, schemas, variants, evaluation, or these instructions.
+When planning context is present, satisfy its required effects but invent the dramatic execution.
+When planning context is absent, infer this episode's responsibility from the ContentSpec, episode number, and previous state.
+The actual previous episode state is authoritative if it differs in minor execution detail from a planned entry state.
+
+EpisodeNumber: 2
+EpisodeCount: 4
+OutputLanguage: en
+PlatformProfile: tiktok_benchmark_v1
+TargetDurationSeconds: 90
+DesiredSceneCount: 3
+
+SharedGenerationRequirements:
+- Return exactly three scenes and comply with the supplied structured output schema.
+- Keep the JSON concise: use exactly two dialogue lines and two or three visible character actions per scene.
+- Keep purpose, beat summary, emotional fields, causal fields, and turning point to one concise sentence each.
+- Preserve established characters, facts, relationships, rules, and consequences.
+- Give the protagonist at least one consequential observable decision.
+- Every scene must have Goal, Conflict, Outcome, and a causal link after Scene 1.
+- Conflict and emotional pressure must escalate rather than repeat.
+- Include natural, character-specific dialogue and visible actions.
+- The final scene must deliver an earned cliffhanger or payoff.
+- Advance the story and earn a consequential next-episode cliffhanger.
+
+CreativeFreedomBoundary:
+- Invent the exact opening hook, conflict mechanism, physical incident, reversal device, dialogue, scene choreography, emotional expression, and cliffhanger execution.
+- Treat planned reveals as information obligations, not required staging.
+- Do not repeat an adjacent episode's primary conflict, rescue, sacrifice, reveal, threat device, or state transition unless the new function clearly escalates it.
+- A recurring motif is allowed; a repeated dramatic mechanism is not.
+
+ContentSpecSummary:
+{
+  "audience": "English-speaking viewers who prefer supernatural mystery, restrained romance, and identity conflict",
+  "platform": "TikTok-oriented vertical serialized fiction",
+  "language": "English",
+  "episode_duration_seconds": 90,
+  "desired_scene_count": 3,
+  "tone": "Eerie, tender, urgent",
+  "story_goal": "A paramedic who hears final memories works with an immortal stranger whose identity is being consumed by a supernatural exchange.",
+  "constraints": [
+    "Romance grows through decisions and shared cost.",
+    "Supernatural rules remain consistent.",
+    "Do not use a destiny-mate shortcut."
+  ]
+}
+
+PreviousEpisodeState:
+{
+  "completed_episode_number": 1,
+  "title": "The Last Memory: Episode 1 — The Man Death Forgot",
+  "episode_goal": "Mara learns the rules of Elias's curse and chooses to protect him, despite hearing a memory that could expose him as dangerous.",
+  "synopsis": "Paramedic Mara Vale hears a dying passenger's final memory and sees it belong to Elias Voss, an immortal stranger present at the disaster. Elias reveals that a supernatural exchange keeps him alive by consuming pieces of his identity. When Mara discovers the force has begun stealing memories connected to her, she chooses to stand with him anyway, only to hear the entity speak through her dead mother's voice.",
+  "character_states": [
+    {
+      "name": "Mara Vale",
+      "role": "Protagonist and paramedic",
+      "motivation": "To save lives without being consumed by the memories she carries."
+    },
+    {
+      "name": "Elias Voss",
+      "role": "Immortal stranger and reluctant ally",
+      "motivation": "To discover what is taking his identity before he becomes nobody."
+    },
+    {
+      "name": "The Pale Listener",
+      "role": "Antagonistic supernatural force",
+      "motivation": "To complete its exchange and erase Elias completely."
+    }
+  ],
+  "final_scene_outcome": "Mara rejects the bargain, but the entity takes her badge and begins speaking in her dead mother's voice.",
+  "final_turning_point": "The entity answers Mara's refusal by using her mother's voice, revealing that it has already reached a memory Elias never possessed.",
+  "next_episode_question": "Why does Mara now hear Elias's stolen memories inside the voices of the dying?"
+}
+
+PlanningContext:
+null
