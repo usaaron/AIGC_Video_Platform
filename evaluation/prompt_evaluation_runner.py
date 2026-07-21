@@ -364,6 +364,32 @@ class PromptEvaluationRunner:
                 note="Mock adapter runs may have weaker agency evidence because they do not produce full character-level reasoning.",
             ),
             DeterministicCheckResult(
+                check_name="scene_goal_conflict_outcome_complete",
+                passed=self._has_complete_scene_causality(draft),
+                expected="Every scene should define a distinct goal, conflict and outcome",
+                actual=self._summarize_scene_causality(draft),
+            ),
+            DeterministicCheckResult(
+                check_name="scene_causal_chain_complete",
+                passed=self._has_valid_scene_causal_chain(draft),
+                expected="Every scene after the first should reference an earlier scene outcome",
+                actual=self._summarize_scene_causal_chain(draft),
+            ),
+            DeterministicCheckResult(
+                check_name="final_scene_delivers_causal_cliffhanger",
+                passed=(
+                    draft.scenes[-1].cliffhanger
+                    and draft.scenes[-1].scene_causality is not None
+                    and bool(draft.scenes[-1].scene_causality.outcome.strip())
+                ),
+                expected="Final scene outcome should deliver the requested cliffhanger or payoff",
+                actual=(
+                    draft.scenes[-1].scene_causality.outcome
+                    if draft.scenes[-1].scene_causality is not None
+                    else "scene_causality unavailable"
+                ),
+            ),
+            DeterministicCheckResult(
                 check_name="scene_count_matches_request",
                 passed=len(draft.scenes) == requested_scene_count,
                 expected=str(requested_scene_count),
@@ -377,6 +403,53 @@ class PromptEvaluationRunner:
             ),
         ]
         return checks
+
+    def _has_complete_scene_causality(self, draft: DraftMasterScript) -> bool:
+        return all(
+            scene.scene_causality is not None
+            and bool(scene.scene_causality.goal.strip())
+            and bool(scene.scene_causality.conflict.strip())
+            and bool(scene.scene_causality.outcome.strip())
+            and scene.scene_causality.goal.casefold()
+            != scene.scene_causality.outcome.casefold()
+            for scene in draft.scenes
+        )
+
+    def _has_valid_scene_causal_chain(self, draft: DraftMasterScript) -> bool:
+        seen_scene_numbers: set[int] = set()
+        for index, scene in enumerate(draft.scenes):
+            causality = scene.scene_causality
+            if causality is None:
+                return False
+            if index == 0:
+                if causality.caused_by_scene_number is not None:
+                    return False
+            elif causality.caused_by_scene_number not in seen_scene_numbers:
+                return False
+            seen_scene_numbers.add(scene.scene_number)
+        return True
+
+    def _summarize_scene_causality(self, draft: DraftMasterScript) -> str:
+        complete_count = sum(
+            1
+            for scene in draft.scenes
+            if scene.scene_causality is not None
+            and bool(scene.scene_causality.goal.strip())
+            and bool(scene.scene_causality.conflict.strip())
+            and bool(scene.scene_causality.outcome.strip())
+        )
+        return f"complete_scenes={complete_count}/{len(draft.scenes)}"
+
+    def _summarize_scene_causal_chain(self, draft: DraftMasterScript) -> str:
+        references = [
+            (
+                f"scene_{scene.scene_number}->"
+                f"{scene.scene_causality.caused_by_scene_number}"
+            )
+            for scene in draft.scenes
+            if scene.scene_causality is not None
+        ]
+        return ", ".join(references) or "scene_causality unavailable"
 
     def _build_stability_summary(
         self,

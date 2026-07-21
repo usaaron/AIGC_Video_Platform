@@ -14,7 +14,7 @@
       "step_order": 1,
       "name": "story_planning",
       "description": "Generate a strong story plan with a retention-first hook.",
-      "prompt_id": "prompt.story_planning.v1",
+      "prompt_id": "prompt.story_planning.scene_causality.v1",
       "multi_turn_enabled": false,
       "structured_output_required": true
     },
@@ -28,7 +28,7 @@
     }
   ],
   "prompt_ids": [
-    "prompt.story_planning.v1",
+    "prompt.story_planning.scene_causality.v1",
     "prompt.tiktok_optimization.v1"
   ],
   "qc_enabled": true,

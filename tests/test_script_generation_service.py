@@ -303,7 +303,19 @@ def test_script_generation_service_generates_draft_run() -> None:
     assert result.draft_master_script.language == "en"
     assert result.draft_master_script.scenes[0].setting_hint == "Wedding Set"
     assert len(result.draft_master_script.scenes) == 3
+    assert all(
+        scene.scene_causality is not None
+        for scene in result.draft_master_script.scenes
+    )
+    assert result.draft_master_script.scenes[0].scene_causality.caused_by_scene_number is None
+    assert result.draft_master_script.scenes[1].scene_causality.caused_by_scene_number == 1
+    assert result.draft_master_script.scenes[1].scene_causality.causal_link is not None
+    assert (
+        result.draft_master_script.scenes[0].scene_causality.goal
+        != result.draft_master_script.scenes[0].scene_causality.outcome
+    )
     assert result.draft_master_script.scenes[-1].cliffhanger is True
+    assert result.draft_master_script.scenes[-1].scene_causality.outcome
     assert result.llm_raw_output["title"]
     assert result.story_qc_report.status.value == "placeholder"
     assert result.revision_plan.content_spec_id == content_spec_id
@@ -361,6 +373,13 @@ class StubRealScriptAdapter(LLMAdapter):
                         "Damian leans close and steals the first move before she can retreat.",
                     ],
                     "turning_point": "Damian whispers that if she walks away, he will play the old video for every guest.",
+                    "scene_causality": {
+                        "goal": "Elena must identify the person controlling the ceremony.",
+                        "conflict": "Damian threatens to expose the evidence if Elena withdraws.",
+                        "outcome": "Elena stays and turns the ceremony into a counter-move.",
+                        "caused_by_scene_number": None,
+                        "causal_link": None,
+                    },
                     "cliffhanger": False,
                     "dialogues": [
                         {
@@ -388,6 +407,13 @@ class StubRealScriptAdapter(LLMAdapter):
                         "Damian stops smiling when he realizes she is rewriting the ceremony live.",
                     ],
                     "turning_point": "Elena publicly toasts false friends who sleep in stolen rings, and her best friend goes pale in the front row.",
+                    "scene_causality": {
+                        "goal": "Elena must regain control before Damian exposes her.",
+                        "conflict": "Damian can release the evidence while the guests watch.",
+                        "outcome": "Elena's accusation forces a hidden participant to react.",
+                        "caused_by_scene_number": 1,
+                        "causal_link": "Elena's choice to remain gives her a public chance to counter Damian.",
+                    },
                     "cliffhanger": False,
                     "dialogues": [
                         {
@@ -415,6 +441,13 @@ class StubRealScriptAdapter(LLMAdapter):
                         "Damian catches Elena's wrist before she can lunge at the traitor.",
                     ],
                     "turning_point": "Damian reveals he never came to ruin Elena; he came because the betrayal was bigger than she knew.",
+                    "scene_causality": {
+                        "goal": "Elena must identify who engineered the threat against her.",
+                        "conflict": "New evidence makes both Damian and her ally appear unreliable.",
+                        "outcome": "Elena learns that someone closer to her initiated the entire trap.",
+                        "caused_by_scene_number": 2,
+                        "causal_link": "The participant's reaction exposes evidence that changes Elena's target.",
+                    },
                     "cliffhanger": True,
                     "dialogues": [
                         {
@@ -470,5 +503,6 @@ def test_script_generation_service_uses_real_adapter_output_without_placeholder_
     assert result.draft_master_script.logline is not None
     assert result.draft_master_script.characters[0].name == "Elena"
     assert result.draft_master_script.scenes[0].dialogues[0].text.startswith("Smile, bride.")
+    assert result.draft_master_script.scenes[1].scene_causality.caused_by_scene_number == 1
     assert "mock_" not in result.draft_master_script.title
     assert result.draft_master_script.next_episode_question is not None

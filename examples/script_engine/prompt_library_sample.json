@@ -28,6 +28,34 @@
     ]
   },
   {
+    "id": "prompt.story_planning.scene_causality.v1",
+    "name": "Scene Causality Story Planning Prompt",
+    "prompt_type": "story_planning",
+    "target_module": "script_engine",
+    "applicable_tags": ["genre.romance", "theme.revenge"],
+    "target_platform": "tiktok",
+    "target_audience": "women 18-34",
+    "version": "v1",
+    "prompt_template": "Use {content_spec_title} and {creative_brief_summary} to generate a short-form dramatic episode. Build every scene around a focal-character goal, a concrete conflict, and an outcome that changes the story state. Make each later scene result from an earlier outcome, and make the final outcome deliver the requested cliffhanger or payoff.",
+    "input_variables": [
+      "content_spec_title",
+      "creative_brief_summary",
+      "platform_profile_id"
+    ],
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "title": {"type": "string"},
+        "hook": {"type": "string"},
+        "scenes": {"type": "array"}
+      }
+    },
+    "evaluation_notes": [
+      "Each scene must have a distinct goal, conflict, and outcome.",
+      "Later scenes must identify the earlier outcome that caused them."
+    ]
+  },
+  {
     "id": "prompt.tiktok_optimization.v1",
     "name": "TikTok Optimization Prompt",
     "prompt_type": "tiktok_optimization",

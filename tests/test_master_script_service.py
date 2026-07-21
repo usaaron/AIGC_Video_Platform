@@ -60,6 +60,7 @@ def test_master_script_service_creates_final_script_from_controlled_chain() -> N
     )
     assert result.master_script.content_spec_id == request.script_generation_draft_run.content_spec_id
     assert result.master_script.scenes[-1].cliffhanger is True
+    assert result.master_script.scenes[1].scene_causality.caused_by_scene_number == 1
     assert len(result.master_script.scenes[0].dialogues) == 2
     assert result.master_script.lineage.generation_strategy_version == "v1"
     assert result.master_script.lineage.selected_prompt_versions == ["v1"]

@@ -353,6 +353,35 @@ class ScriptGenerationService:
                         if is_final_scene
                         else f"{blueprint.target_emotion}_to_{blueprint.recommended_focus}"
                     ),
+                    turning_point=(
+                        "The focal character's response changes the immediate situation "
+                        "and creates the next scene's pressure."
+                        if not is_final_scene
+                        else "The final choice creates an unresolved consequence."
+                    ),
+                    scene_causality={
+                        "goal": blueprint.purpose,
+                        "conflict": (
+                            "A concrete obstacle increases the cost of the focal "
+                            "character's objective."
+                        ),
+                        "outcome": (
+                            "The focal character's response changes the situation and "
+                            "triggers the next scene."
+                            if not is_final_scene
+                            else "The final choice creates an unresolved consequence "
+                            "that drives continuation."
+                        ),
+                        "caused_by_scene_number": (
+                            None if blueprint.scene_number == 1 else blueprint.scene_number - 1
+                        ),
+                        "causal_link": (
+                            None
+                            if blueprint.scene_number == 1
+                            else "The previous scene outcome directly creates this "
+                            "scene's new objective and pressure."
+                        ),
+                    },
                     cliffhanger=is_final_scene,
                     dialogue_prompts=dialogue_prompts,
                     supporting_asset_ids=self._merge_asset_ids(
@@ -433,6 +462,7 @@ class ScriptGenerationService:
                     emotional_objective=scene.emotional_objective,
                     character_actions=scene.character_actions,
                     turning_point=scene.turning_point,
+                    scene_causality=scene.scene_causality,
                     cliffhanger=scene.cliffhanger,
                     dialogue_prompts=[line.text for line in scene.dialogues[:6]],
                     dialogues=scene.dialogues,

@@ -187,6 +187,7 @@ class MasterScriptService:
             emotional_objective=scene.emotional_objective,
             character_actions=scene.character_actions,
             turning_point=scene.turning_point,
+            scene_causality=scene.scene_causality,
             cliffhanger=scene.cliffhanger,
             dialogues=self._build_dialogues(
                 scene=scene,

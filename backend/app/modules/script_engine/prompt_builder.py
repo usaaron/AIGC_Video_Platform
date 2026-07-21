@@ -30,7 +30,7 @@ class PromptBuilder(ABC):
 
 
 class TemplatePromptBuilder(PromptBuilder):
-    def __init__(self, *, builder_version: str = "v0.1") -> None:
+    def __init__(self, *, builder_version: str = "v0.2") -> None:
         self._builder_version = builder_version
 
     def build_master_prompt(
@@ -94,6 +94,7 @@ class TemplatePromptBuilder(PromptBuilder):
             ),
             ("CulturalFitRequirement", rendered_variables.get("cultural_fit_requirement", "")),
             ("PlatformConstraints", rendered_variables.get("platform_constraints", "{}")),
+            ("SceneCausalityContract", self._build_scene_causality_contract()),
             ("OutputJsonSchema", rendered_variables.get("output_json_schema", "{}")),
         ]
         lines = [
@@ -104,6 +105,20 @@ class TemplatePromptBuilder(PromptBuilder):
             normalized = self._normalize_context_value(value)
             lines.append(f"{key}: {normalized}")
         return "\n".join(lines)
+
+    def _build_scene_causality_contract(self) -> str:
+        return (
+            "Use one embedded scene plan before drafting. For every scene, populate "
+            "scene_causality.goal with the focal character's immediate objective, "
+            "scene_causality.conflict with the obstacle or increased cost, and "
+            "scene_causality.outcome with the concrete state change at scene end. "
+            "The outcome must not restate the goal. The first scene uses null for "
+            "caused_by_scene_number and causal_link. Every later scene must reference "
+            "an earlier scene number and explain in causal_link how that earlier outcome "
+            "forces or enables the current scene. The final outcome must create the "
+            "requested cliffhanger or payoff. Do not introduce plot details that are not "
+            "supported by the supplied context."
+        )
 
     def _normalize_context_value(self, value: str) -> str:
         value = value.strip()

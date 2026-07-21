@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -9,6 +10,31 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 if TYPE_CHECKING:
     from app.modules.script_engine.models import ScriptGenerationDraftRun, ScriptRevisionRun
+
+
+def _validate_scene_causal_chain(
+    scenes: list[Any],
+    *,
+    require_contract: bool,
+) -> None:
+    causalities = [scene.scene_causality for scene in scenes]
+    if not require_contract and all(causality is None for causality in causalities):
+        return
+    if any(causality is None for causality in causalities):
+        raise ValueError("Scene causality must be present for every scene or omitted for legacy payloads.")
+
+    seen_scene_numbers: set[int] = set()
+    for index, scene in enumerate(scenes):
+        causality = scene.scene_causality
+        if causality is None:
+            continue
+        predecessor = causality.caused_by_scene_number
+        if index == 0:
+            if predecessor is not None or causality.causal_link is not None:
+                raise ValueError("The first scene cannot depend on a scene in the same draft.")
+        elif predecessor is None or predecessor not in seen_scene_numbers:
+            raise ValueError("Each scene after the first must reference an earlier scene outcome.")
+        seen_scene_numbers.add(scene.scene_number)
 
 
 class ScriptTone(str, Enum):
@@ -35,6 +61,27 @@ class CharacterProfile(BaseModel):
     motivation: str = Field(min_length=5, max_length=200)
 
 
+class SceneCausality(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    goal: str = Field(min_length=5, max_length=240)
+    conflict: str = Field(min_length=5, max_length=300)
+    outcome: str = Field(min_length=5, max_length=240)
+    caused_by_scene_number: int | None = Field(default=None, ge=1, le=50)
+    causal_link: str | None = Field(default=None, min_length=5, max_length=240)
+
+    @model_validator(mode="after")
+    def ensure_outcome_changes_the_scene_state(self) -> "SceneCausality":
+        normalized_goal = " ".join(self.goal.casefold().split())
+        normalized_outcome = " ".join(self.outcome.casefold().split())
+        similarity = SequenceMatcher(None, normalized_goal, normalized_outcome).ratio()
+        if normalized_goal == normalized_outcome or similarity >= 0.92:
+            raise ValueError("Scene outcome must meaningfully differ from scene goal.")
+        if self.caused_by_scene_number is not None and self.causal_link is None:
+            raise ValueError("A causal_link is required when caused_by_scene_number is set.")
+        return self
+
+
 class SceneCard(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -47,6 +94,7 @@ class SceneCard(BaseModel):
     emotional_objective: str | None = Field(default=None, min_length=3, max_length=160)
     character_actions: list[str] = Field(default_factory=list, max_length=10)
     turning_point: str | None = Field(default=None, min_length=3, max_length=240)
+    scene_causality: SceneCausality | None = None
     cliffhanger: bool = False
     dialogues: list[DialogueLine] = Field(min_length=1, max_length=20)
 
@@ -63,6 +111,7 @@ class DraftSceneCard(BaseModel):
     emotional_objective: str | None = Field(default=None, min_length=3, max_length=160)
     character_actions: list[str] = Field(default_factory=list, max_length=10)
     turning_point: str | None = Field(default=None, min_length=3, max_length=240)
+    scene_causality: SceneCausality | None = None
     cliffhanger: bool = False
     dialogue_prompts: list[str] = Field(default_factory=list, max_length=10)
     dialogues: list[DialogueLine] = Field(default_factory=list, max_length=20)
@@ -116,6 +165,7 @@ class MasterScriptBase(BaseModel):
     def ensure_final_scene_has_cliffhanger(self) -> "MasterScriptBase":
         if not self.scenes[-1].cliffhanger:
             raise ValueError("The final scene must end with a cliffhanger in MVP mode.")
+        _validate_scene_causal_chain(self.scenes, require_contract=False)
         return self
 
 
@@ -162,6 +212,7 @@ class DraftMasterScriptBase(BaseModel):
     def ensure_final_draft_scene_has_cliffhanger(self) -> "DraftMasterScriptBase":
         if not self.scenes[-1].cliffhanger:
             raise ValueError("The final draft scene must end with a cliffhanger in MVP mode.")
+        _validate_scene_causal_chain(self.scenes, require_contract=False)
         return self
 
 
@@ -250,6 +301,7 @@ class LLMGeneratedSceneCard(BaseModel):
     emotional_objective: str = Field(min_length=3, max_length=160)
     character_actions: list[str] = Field(min_length=1, max_length=10)
     turning_point: str = Field(min_length=3, max_length=240)
+    scene_causality: SceneCausality
     cliffhanger: bool = False
     dialogues: list[DialogueLine] = Field(min_length=1, max_length=20)
 
@@ -270,6 +322,13 @@ class LLMGeneratedDraftMasterScript(BaseModel):
     characters: list[CharacterProfile] = Field(min_length=1, max_length=20)
     scenes: list[LLMGeneratedSceneCard] = Field(min_length=1, max_length=20)
     next_episode_question: str = Field(min_length=5, max_length=240)
+
+    @model_validator(mode="after")
+    def ensure_scene_causal_chain(self) -> "LLMGeneratedDraftMasterScript":
+        _validate_scene_causal_chain(self.scenes, require_contract=True)
+        if not self.scenes[-1].cliffhanger:
+            raise ValueError("The final generated scene must deliver the cliffhanger or payoff.")
+        return self
 
 
 class MasterScriptFinalizeRequest(BaseModel):

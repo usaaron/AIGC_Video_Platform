@@ -75,5 +75,21 @@ def test_template_prompt_builder_builds_traceable_prompt() -> None:
     assert "Fake Marriage Revenge Arc" in result.prompt_text
     assert "[structured_context]" in result.prompt_text
     assert "OutputJsonSchema:" in result.prompt_text
+    assert "SceneCausalityContract:" in result.prompt_text
+    assert "scene_causality.goal" in result.prompt_text
+    assert "scene_causality.conflict" in result.prompt_text
+    assert "scene_causality.outcome" in result.prompt_text
+    assert "Every later scene must reference an earlier scene number" in result.prompt_text
+    forbidden_plot_terms = [
+        "wedding",
+        "groom",
+        "betrayal",
+        "livestream",
+        "missing relative",
+        "missing-relative",
+        "missing sister",
+    ]
+    contract = result.prompt_text.split("SceneCausalityContract:", maxsplit=1)[1]
+    assert all(term not in contract.casefold() for term in forbidden_plot_terms)
     assert result.trace.builder_version == "v0.test"
     assert result.trace.prompt_ids == ["prompt.story_planning.v1"]

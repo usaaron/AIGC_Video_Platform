@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from typing import Any, Sequence
 
 import httpx
@@ -176,15 +177,36 @@ class RealLLMAdapter(LLMAdapter):
             ],
         }
         if output_schema:
+            strict_schema = self._normalize_strict_json_schema(output_schema)
             payload["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
                     "name": "draft_master_script",
                     "strict": True,
-                    "schema": output_schema,
+                    "schema": strict_schema,
                 },
             }
         return payload
+
+    @classmethod
+    def _normalize_strict_json_schema(cls, schema: dict[str, Any]) -> dict[str, Any]:
+        """Make Pydantic schemas compatible with strict structured-output APIs."""
+        normalized = deepcopy(schema)
+
+        def visit(value: Any) -> None:
+            if isinstance(value, dict):
+                properties = value.get("properties")
+                if isinstance(properties, dict):
+                    value["required"] = list(properties)
+                    value["additionalProperties"] = False
+                for child in value.values():
+                    visit(child)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child)
+
+        visit(normalized)
+        return normalized
 
     def _post_with_retries(self, payload: dict[str, Any]) -> dict[str, Any]:
         last_error: Exception | None = None
@@ -204,14 +226,17 @@ class RealLLMAdapter(LLMAdapter):
                     ) from exc
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
+                response_detail = self._extract_error_detail(exc.response)
                 if 400 <= status_code < 500:
                     raise LLMRequestError(
-                        f"LLM request failed with non-retryable status {status_code}."
+                        "LLM request failed with non-retryable status "
+                        f"{status_code}: {response_detail}"
                     ) from exc
                 last_error = exc
                 if attempt >= self._max_retries:
                     raise LLMRequestError(
-                        f"LLM request failed with status {status_code} after retries."
+                        "LLM request failed with status "
+                        f"{status_code} after retries: {response_detail}"
                     ) from exc
             except httpx.HTTPError as exc:
                 last_error = exc
@@ -221,6 +246,25 @@ class RealLLMAdapter(LLMAdapter):
                     ) from exc
 
         raise LLMRequestError("LLM request failed unexpectedly.") from last_error
+
+    @staticmethod
+    def _extract_error_detail(response: httpx.Response) -> str:
+        """Return a bounded provider error message without exposing request headers."""
+        try:
+            payload = response.json()
+        except (json.JSONDecodeError, ValueError):
+            text = response.text.strip()
+            return text[:500] if text else "provider returned no error detail"
+
+        if isinstance(payload, dict):
+            error = payload.get("error")
+            if isinstance(error, dict) and isinstance(error.get("message"), str):
+                return error["message"].strip()[:500]
+            for key in ("detail", "message"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()[:500]
+        return "provider returned an unrecognized error payload"
 
     def _extract_text_content(self, response_payload: dict[str, Any]) -> str:
         message = self._extract_message(response_payload)

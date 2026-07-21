@@ -69,6 +69,18 @@ def test_prompt_evaluation_runner_supports_prompt_strategy_and_stability_compari
         check.check_name == "generation_strategy_version_recorded" and check.passed
         for check in repeat_variant.samples[0].deterministic_checks
     )
+    assert any(
+        check.check_name == "scene_goal_conflict_outcome_complete" and check.passed
+        for check in prompt_v2.samples[0].deterministic_checks
+    )
+    assert any(
+        check.check_name == "scene_causal_chain_complete" and check.passed
+        for check in prompt_v2.samples[0].deterministic_checks
+    )
+    assert any(
+        check.check_name == "final_scene_delivers_causal_cliffhanger" and check.passed
+        for check in prompt_v2.samples[0].deterministic_checks
+    )
     assert all(
         sample.story_qc_is_placeholder is True
         for variant in result.variants

@@ -3,8 +3,10 @@ from pydantic import ValidationError
 
 from app.modules.master_script.models import (
     DraftMasterScript,
+    LLMGeneratedDraftMasterScript,
     MasterScriptCreate,
     MasterScriptFinalizeRequest,
+    SceneCausality,
 )
 from tests.test_master_script_service import build_finalize_request
 
@@ -129,6 +131,115 @@ def test_draft_master_script_accepts_valid_payload() -> None:
     model = DraftMasterScript.model_validate(build_draft_payload())
     assert model.generation_strategy_id == "strategy.tiktok.master_script.v1"
     assert model.scenes[-1].cliffhanger is True
+
+
+def test_scene_causality_rejects_outcome_that_restates_goal() -> None:
+    with pytest.raises(ValidationError, match="outcome must meaningfully differ"):
+        SceneCausality.model_validate(
+            {
+                "goal": "The lead obtains access to the sealed archive.",
+                "conflict": "A guard blocks the only entrance.",
+                "outcome": "The lead obtains access to the sealed archive.",
+            }
+        )
+
+
+def test_draft_master_script_accepts_complete_causal_chain() -> None:
+    payload = build_draft_payload()
+    payload["scenes"][0]["scene_causality"] = {
+        "goal": "The lead must enter the restricted hearing.",
+        "conflict": "Security rejects the lead's credentials.",
+        "outcome": "The lead exposes a procedural error and gains conditional entry.",
+    }
+    payload["scenes"][1]["scene_causality"] = {
+        "goal": "The lead must present evidence before access is revoked.",
+        "conflict": "The chair challenges the evidence and starts removing the lead.",
+        "outcome": "A witness confirms the evidence but names an unexpected sponsor.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Conditional entry gives the lead one chance to present the evidence.",
+    }
+
+    model = DraftMasterScript.model_validate(payload)
+
+    assert model.scenes[0].scene_causality.goal.startswith("The lead must enter")
+    assert model.scenes[1].scene_causality.caused_by_scene_number == 1
+
+
+def test_llm_generated_script_requires_later_scene_to_reference_earlier_outcome() -> None:
+    payload = {
+        "title": "The Sealed Hearing",
+        "logline": "An investigator risks her career to expose a hidden sponsor.",
+        "synopsis": "A denied investigator forces her way into a hearing and uncovers a larger scheme.",
+        "hook": "They erased her name from the witness list while she was standing outside.",
+        "target_audience": "Short-form mystery viewers",
+        "target_platform": "short_video_test",
+        "language": "en",
+        "tone": "suspenseful",
+        "episode_goal": "Expose the first layer of the scheme and create a consequential question.",
+        "target_duration_seconds": 45,
+        "characters": [
+            {
+                "name": "Iris Vale",
+                "role": "investigator",
+                "description": "A methodical investigator whose career is already under review.",
+                "motivation": "Prove that evidence was removed before the public hearing.",
+            }
+        ],
+        "scenes": [
+            {
+                "scene_number": 1,
+                "slug": "SCENE 1 - LOCKED DOOR",
+                "purpose": "Get inside the hearing before evidence is sealed.",
+                "setting": "Administrative corridor",
+                "beat_summary": "Security rejects Iris until she identifies a filing violation.",
+                "emotional_shift": "pressure_to_resolve",
+                "emotional_objective": "Turn exclusion into a narrow opportunity.",
+                "character_actions": ["Iris records the rejection and cites the public-access rule."],
+                "turning_point": "The clerk grants Iris one minute inside the hearing.",
+                "scene_causality": {
+                    "goal": "Iris must enter the hearing before the evidence is sealed.",
+                    "conflict": "Security rejects her credentials and begins closing the doors.",
+                    "outcome": "Iris wins one minute to present the evidence in public.",
+                },
+                "cliffhanger": False,
+                "dialogues": [
+                    {
+                        "character_name": "Iris Vale",
+                        "intent": "force procedural access",
+                        "text": "Record that refusal. The hearing is still public for one more minute.",
+                    }
+                ],
+            },
+            {
+                "scene_number": 2,
+                "slug": "SCENE 2 - THE SPONSOR",
+                "purpose": "Present the evidence before the minute expires.",
+                "setting": "Public hearing room",
+                "beat_summary": "A witness confirms the deletion but identifies Iris's mentor as sponsor.",
+                "emotional_shift": "resolve_to_shock",
+                "emotional_objective": "Make the victory reveal a more personal threat.",
+                "character_actions": ["Iris places the timestamped record on the public display."],
+                "turning_point": "The witness names Iris's mentor as the person who ordered the deletion.",
+                "scene_causality": {
+                    "goal": "Iris must authenticate the evidence before her minute ends.",
+                    "conflict": "The chair disputes the timestamp and orders security forward.",
+                    "outcome": "The evidence is confirmed, but it implicates Iris's trusted mentor.",
+                },
+                "cliffhanger": True,
+                "dialogues": [
+                    {
+                        "character_name": "Witness",
+                        "intent": "name the hidden sponsor",
+                        "text": "The deletion order came from the person who trained you.",
+                    }
+                ],
+            },
+        ],
+        "next_episode_question": "Why did Iris's mentor erase the evidence before the hearing?",
+    }
+
+    with pytest.raises(ValidationError, match="must reference an earlier scene outcome"):
+        LLMGeneratedDraftMasterScript.model_validate(payload)
 
 
 def test_draft_master_script_requires_final_cliffhanger() -> None:

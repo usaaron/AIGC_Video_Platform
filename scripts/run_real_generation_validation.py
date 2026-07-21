@@ -130,11 +130,13 @@ def build_prompt_library_payload(suffix: str) -> list[dict[str, Any]]:
             "applicable_tags": ["genre.romance"],
             "target_platform": "tiktok",
             "target_audience": "US women 18-34",
-            "version": "v2",
+            "version": "v3",
             "prompt_template": (
                 "Generate a high-retention short-form dramatic episode from the supplied structured context. "
                 "The opening hook must stop the scroll immediately, the protagonist must show agency, "
-                "and the ending must force the next episode."
+                "and the ending must force the next episode. Build every scene around an immediate goal, "
+                "a concrete conflict, and an outcome that changes the story state. Each later scene must "
+                "be caused by an earlier outcome rather than merely following it."
             ),
             "input_variables": [
                 "content_spec_json",
@@ -151,6 +153,7 @@ def build_prompt_library_payload(suffix: str) -> list[dict[str, Any]]:
             "evaluation_notes": [
                 "Prefer natural dialogue over slogans.",
                 "Keep every scene causally connected.",
+                "Make every scene outcome different from its opening goal.",
             ],
         },
         {

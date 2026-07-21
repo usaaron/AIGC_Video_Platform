@@ -117,6 +117,54 @@ def test_real_llm_adapter_returns_structured_output_from_mock_http() -> None:
     assert result["_meta"]["usage"]["total_tokens"] == 360
 
 
+def test_real_llm_adapter_normalizes_nested_schema_for_strict_output() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8"))
+        schema = payload["response_format"]["json_schema"]["schema"]
+        assert schema["required"] == ["scene"]
+        assert schema["additionalProperties"] is False
+        assert schema["$defs"]["Scene"]["required"] == ["title", "cliffhanger"]
+        assert schema["$defs"]["Scene"]["additionalProperties"] is False
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response('{"scene":{"title":"Reveal"}}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    source_schema = {
+        "$defs": {
+            "Scene": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "cliffhanger": {"type": "boolean", "default": False},
+                },
+                "required": ["title"],
+            }
+        },
+        "type": "object",
+        "properties": {"scene": {"$ref": "#/$defs/Scene"}},
+        "required": [],
+    }
+
+    adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema=source_schema,
+    )
+
+    assert source_schema["required"] == []
+    assert source_schema["$defs"]["Scene"]["required"] == ["title"]
+
+
 def test_real_llm_adapter_retries_invalid_json_output() -> None:
     strategy = GenerationStrategy.model_validate(build_strategy())
     responses = iter(
@@ -232,6 +280,31 @@ def test_real_llm_adapter_raises_after_timeout_retries_are_exhausted() -> None:
             "Return a structured draft.",
             strategy=strategy,
             output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        )
+
+
+def test_real_llm_adapter_exposes_safe_provider_error_detail() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": {"message": "Unsupported request parameter: temperature"}},
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMRequestError, match="Unsupported request parameter: temperature"):
+        adapter.generate_structured_output(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={"type": "object"},
         )
 
 
