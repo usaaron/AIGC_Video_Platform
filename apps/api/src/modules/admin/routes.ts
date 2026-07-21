@@ -1,24 +1,27 @@
-import { PERMISSIONS, type AdminOverview } from '@seqora/contracts'
+import { PERMISSIONS } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { requirePermission } from '../../core/auth/authorization.js'
-import type { StateStore } from '../../infra/store.js'
+import { z } from 'zod'
+import type { AuditLogReader } from '../../core/audit.js'
+import type { AdminOverviewStore } from './repository.js'
 
-export async function registerAdminRoutes(app: FastifyInstance, store: StateStore): Promise<void> {
+export async function registerAdminRoutes(
+  app: FastifyInstance,
+  repository: AdminOverviewStore,
+  auditLogs: AuditLogReader,
+): Promise<void> {
   app.get('/admin/overview', { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) }, async () =>
-    store.read((state) => {
-      const today = new Date().toISOString().slice(0, 10)
-      const overview: AdminOverview = {
-        users: state.users.length,
-        activeTasks: state.tasks.filter((task) => task.status === 'queued' || task.status === 'running')
-          .length,
-        creditsConsumedToday: Math.abs(
-          state.ledger
-            .filter((entry) => entry.type === 'generation' && entry.createdAt.startsWith(today))
-            .reduce((total, entry) => total + entry.amount, 0),
-        ),
-        generatedAt: new Date().toISOString(),
-      }
-      return overview
-    }),
+    repository.overview(),
+  )
+  app.get(
+    '/admin/audit-logs',
+    { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
+    async (request) => {
+      const query = z
+        .object({ limit: z.coerce.number().int().min(1).max(200).default(50) })
+        .safeParse(request.query)
+      const limit = query.success ? query.data.limit : 50
+      return { logs: await auditLogs.list(request.principal!.tenantId, limit) }
+    },
   )
 }

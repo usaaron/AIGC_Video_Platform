@@ -3,6 +3,7 @@ import type { FastifyRequest } from 'fastify'
 import type { AppConfig } from '../../config.js'
 import type { UserReader } from '../../modules/users/repository.js'
 import { verifySessionToken } from './sessionToken.js'
+import { OidcAuthProvider } from './oidcProvider.js'
 
 export const SESSION_COOKIE = 'seqora_session'
 
@@ -47,6 +48,7 @@ function getHeader(request: FastifyRequest, name: string): string | undefined {
 export function createAuthProvider(config: AppConfig, users: UserReader): AuthProvider {
   if (config.AUTH_MODE === 'local') return new LocalAuthProvider(users, config.AUTH_SECRET)
   if (config.AUTH_MODE === 'demo') return new DemoAuthProvider()
+  if (config.AUTH_MODE === 'oidc') return new OidcAuthProvider(config, users)
 
   throw new Error('OIDC auth provider is not configured. See docs/AUTHORIZATION.md.')
 }

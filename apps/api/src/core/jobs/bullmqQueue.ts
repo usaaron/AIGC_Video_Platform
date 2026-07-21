@@ -45,6 +45,10 @@ export class BullMqTaskDispatcher implements TaskDispatcher {
     })
   }
 
+  async ping(): Promise<void> {
+    await this.connection.ping()
+  }
+
   async close(): Promise<void> {
     await this.queue.close()
     await this.connection.quit()

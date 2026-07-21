@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { withSecretFileOverrides } from './infra/env.js'
 
 const booleanEnvSchema = (defaultValue: boolean) =>
   z
@@ -20,6 +21,15 @@ const configSchema = z
     WEB_ORIGIN: z.string().default('http://localhost:5173'),
     AUTH_MODE: z.enum(['local', 'demo', 'oidc']).default('local'),
     AUTH_SECRET: z.string().min(32).default('seqora-development-secret-change-me'),
+    OIDC_ISSUER_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    OIDC_JWKS_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    OIDC_AUDIENCE: z.string().default(''),
+    OIDC_EMAIL_CLAIM: z.string().min(1).default('email'),
+    OIDC_SUBJECT_CLAIM: z.string().min(1).default('sub'),
+    OIDC_CLOCK_TOLERANCE_SECONDS: z.coerce.number().int().min(0).max(300).default(30),
+    AUTH_LOGIN_RATE_LIMIT: z.coerce.number().int().min(1).max(1_000).default(10),
+    TASK_CREATE_RATE_LIMIT: z.coerce.number().int().min(1).max(1_000).default(30),
+    MEDIA_UPLOAD_RATE_LIMIT: z.coerce.number().int().min(1).max(1_000).default(15),
     SESSION_COOKIE_SECURE: secureCookieSchema,
     DATA_STORE: z.enum(['json', 'postgres']).default('json'),
     DATA_FILE: z.string().default('./data/app.json'),
@@ -71,6 +81,22 @@ const configSchema = z
         path: ['AUTH_SECRET'],
         message: 'A unique AUTH_SECRET is required in production',
       })
+    }
+    if (config.AUTH_MODE === 'oidc') {
+      if (!config.OIDC_ISSUER_URL) {
+        context.addIssue({
+          code: 'custom',
+          path: ['OIDC_ISSUER_URL'],
+          message: 'OIDC_ISSUER_URL is required when AUTH_MODE=oidc',
+        })
+      }
+      if (!config.OIDC_AUDIENCE) {
+        context.addIssue({
+          code: 'custom',
+          path: ['OIDC_AUDIENCE'],
+          message: 'OIDC_AUDIENCE is required when AUTH_MODE=oidc',
+        })
+      }
     }
     if (config.DATA_STORE === 'postgres' && !config.DATABASE_URL) {
       context.addIssue({
@@ -148,7 +174,7 @@ const configSchema = z
 export type AppConfig = z.infer<typeof configSchema>
 
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
-  return configSchema.parse(environment)
+  return configSchema.parse(withSecretFileOverrides(environment))
 }
 
 function isPlaceholderSecret(secret: string): boolean {

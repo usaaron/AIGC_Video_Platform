@@ -1,7 +1,7 @@
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
-import Fastify, { type FastifyInstance } from 'fastify'
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import type { AppConfig } from './config.js'
 import { installAuth } from './core/auth/installAuth.js'
 import { createAuthProvider } from './core/auth/provider.js'
@@ -12,23 +12,36 @@ import type { VideoGenerationProvider } from './core/generation/videoProvider.js
 import { BullMqTaskDispatcher } from './core/jobs/bullmqQueue.js'
 import { NoopTaskDispatcher } from './core/jobs/taskDispatcher.js'
 import type { TaskDispatcher } from './core/jobs/taskDispatcher.js'
+import {
+  createRateLimiter,
+  rateLimitKeyFromIp,
+  rateLimitKeyFromRequest,
+  type RateLimiter,
+} from './core/rateLimit.js'
+import { installObservability, ObservabilityMetrics } from './core/observability.js'
 import { PostgresStateStore } from './infra/postgresStore.js'
 import type { StateStore } from './infra/store.js'
+import { PostgresAuditLogRepository, StoreAuditLogRepository } from './modules/admin/auditRepository.js'
+import { PostgresAdminRepository, StoreAdminRepository } from './modules/admin/repository.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
 import { registerAuthRoutes } from './modules/auth/routes.js'
 import { AuthService } from './modules/auth/service.js'
 import { registerBillingRoutes } from './modules/billing/routes.js'
 import { StoreCreditLedger } from './modules/billing/creditLedger.js'
+import { PostgresCreditLedger } from './modules/billing/postgresCreditLedger.js'
 import { registerGenerationRoutes } from './modules/generation/routes.js'
 import { PostgresGenerationTaskRepository } from './modules/generation/postgresRepository.js'
 import { GenerationTaskRepository } from './modules/generation/repository.js'
 import { GenerationService } from './modules/generation/service.js'
 import { MediaRepository } from './modules/media/repository.js'
+import { PostgresMediaRepository } from './modules/media/postgresRepository.js'
 import { registerMediaRoutes } from './modules/media/routes.js'
 import { MediaService } from './modules/media/service.js'
+import { PostgresProjectRepository } from './modules/projects/postgresRepository.js'
 import { registerProjectRoutes } from './modules/projects/routes.js'
 import { ProjectRepository } from './modules/projects/repository.js'
 import { ProjectService } from './modules/projects/service.js'
+import { PostgresUserRepository } from './modules/users/postgresRepository.js'
 import { UserRepository } from './modules/users/repository.js'
 import {
   createAudioProvider,
@@ -54,6 +67,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const app = Fastify({ logger: options.logger ?? false })
   const store = options.store ?? createStateStore(options.config)
   await store.initialize()
+  const isPostgres = store instanceof PostgresStateStore
+  const metrics = new ObservabilityMetrics()
+  const rateLimiter = createRateLimiter(options.config.REDIS_URL || undefined)
 
   await app.register(cookie)
   await app.register(cors, { origin: options.config.WEB_ORIGIN, credentials: true })
@@ -61,9 +77,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     limits: { files: 1, fileSize: options.config.MAX_UPLOAD_BYTES, parts: 2 },
   })
 
-  const users = new UserRepository(store)
+  const users = isPostgres ? new PostgresUserRepository(store) : new UserRepository(store)
   const authService = new AuthService(users, options.config.AUTH_SECRET)
-  const creditLedger = new StoreCreditLedger(store)
+  const creditLedger = isPostgres ? new PostgresCreditLedger(store) : new StoreCreditLedger(store)
   const objectStorage = createRuntimeObjectStorage(options.config)
   const videoProvider =
     options.videoProvider === undefined ? createVideoProvider(options.config) : options.videoProvider
@@ -79,20 +95,27 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     imageProvider,
     audioProvider,
   )
-  const taskDispatcher =
+  const taskDispatcher: TaskDispatcher =
     options.taskDispatcher ??
     (options.config.TASK_QUEUE_DRIVER === 'bullmq'
       ? new BullMqTaskDispatcher(options.config.REDIS_URL)
       : new NoopTaskDispatcher())
-  const generationRepository =
-    store instanceof PostgresStateStore
-      ? new PostgresGenerationTaskRepository(store)
-      : new GenerationTaskRepository(store)
+  const generationRepository = isPostgres
+    ? new PostgresGenerationTaskRepository(store)
+    : new GenerationTaskRepository(store)
   const generationService = new GenerationService(generationRepository, taskDispatcher, videoProvider)
-  const projectService = new ProjectService(new ProjectRepository(store))
-  const mediaService = new MediaService(new MediaRepository(store), objectStorage)
+  const projectRepository = isPostgres ? new PostgresProjectRepository(store) : new ProjectRepository(store)
+  const mediaRepository = isPostgres ? new PostgresMediaRepository(store) : new MediaRepository(store)
+  const adminRepository = isPostgres ? new PostgresAdminRepository(store) : new StoreAdminRepository(store)
+  const auditLogs = isPostgres ? new PostgresAuditLogRepository(store) : new StoreAuditLogRepository(store)
+  const projectService = new ProjectService(projectRepository)
+  const mediaService = new MediaService(mediaRepository, objectStorage)
 
   installAuth(app, createAuthProvider(options.config, users))
+  installObservability(app, { auditLogWriter: auditLogs, metrics })
+  app.addHook('preHandler', async (request, reply) => {
+    await enforceRouteRateLimit(request, reply, rateLimiter, options.config, metrics)
+  })
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {
@@ -117,6 +140,32 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       audio: audioProvider ? 'configured' : 'local-mock',
     },
   }))
+  app.get('/api/v1/health/ready', async () => {
+    const checks: Record<string, string> = {
+      database: isPostgres ? 'ok' : 'memory',
+      queue: typeof taskDispatcher.ping === 'function' ? 'ok' : 'skipped',
+    }
+
+    if (store instanceof PostgresStateStore) {
+      await store.withTransaction(async (client) => {
+        await client.query('select 1')
+      })
+    }
+    if (typeof taskDispatcher.ping === 'function') {
+      await taskDispatcher.ping()
+    }
+
+    return {
+      status: 'ok',
+      checks,
+      dataStore: options.config.DATA_STORE,
+      taskQueue: options.config.TASK_QUEUE_DRIVER,
+    }
+  })
+  app.get('/api/v1/metrics', async (_request, reply) => {
+    reply.type('text/plain; version=0.0.4')
+    return metrics.render()
+  })
   const secureCookies =
     options.config.SESSION_COOKIE_SECURE === 'auto'
       ? options.config.NODE_ENV === 'production'
@@ -124,7 +173,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(
     async (api) => {
-      await registerAuthRoutes(api, authService, secureCookies)
+      await registerAuthRoutes(api, authService, secureCookies, options.config.AUTH_MODE)
       await registerProjectRoutes(api, projectService)
       await registerMediaRoutes(
         api,
@@ -134,7 +183,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       )
       await registerGenerationRoutes(api, generationService)
       await registerBillingRoutes(api, creditLedger)
-      await registerAdminRoutes(api, store)
+      await registerAdminRoutes(api, adminRepository, auditLogs)
     },
     { prefix: '/api/v1' },
   )
@@ -144,7 +193,87 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     if ('close' in taskDispatcher && typeof taskDispatcher.close === 'function') {
       await taskDispatcher.close()
     }
+    const closableRateLimiter = rateLimiter as RateLimiter & { close?: () => Promise<void> }
+    if (typeof closableRateLimiter.close === 'function') {
+      await closableRateLimiter.close()
+    }
     await store.close?.()
   })
   return app
+}
+
+async function enforceRouteRateLimit(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  limiter: RateLimiter,
+  config: AppConfig,
+  metrics: ObservabilityMetrics,
+): Promise<void> {
+  const route = request.routeOptions.url
+  if (!route) return
+
+  if (request.method === 'POST' && routeMatches(route, '/api/v1/auth/login', '/auth/login')) {
+    await consumeRateLimit(
+      limiter,
+      reply,
+      metrics,
+      'auth.login',
+      rateLimitKeyFromIp(request),
+      config.AUTH_LOGIN_RATE_LIMIT,
+    )
+    return
+  }
+
+  if (
+    request.method === 'POST' &&
+    (route.startsWith('/api/v1/generation/tasks') || route.startsWith('/generation/tasks'))
+  ) {
+    await consumeRateLimit(
+      limiter,
+      reply,
+      metrics,
+      'generation.tasks',
+      rateLimitKeyFromRequest(request),
+      config.TASK_CREATE_RATE_LIMIT,
+    )
+    return
+  }
+
+  if (
+    request.method === 'POST' &&
+    routeMatches(route, '/api/v1/projects/:projectId/media', '/projects/:projectId/media')
+  ) {
+    await consumeRateLimit(
+      limiter,
+      reply,
+      metrics,
+      'media.upload',
+      rateLimitKeyFromRequest(request),
+      config.MEDIA_UPLOAD_RATE_LIMIT,
+    )
+  }
+}
+
+function routeMatches(route: string, ...candidates: string[]): boolean {
+  return candidates.includes(route)
+}
+
+async function consumeRateLimit(
+  limiter: RateLimiter,
+  reply: FastifyReply,
+  metrics: ObservabilityMetrics,
+  scope: string,
+  key: string,
+  limit: number,
+): Promise<void> {
+  const decision = await limiter.consume(`${scope}:${key}`, limit)
+  reply.header('x-rate-limit-limit', String(limit))
+  reply.header('x-rate-limit-remaining', String(decision.remaining))
+  reply.header('x-rate-limit-reset', String(Math.ceil(decision.resetAt / 1000)))
+
+  if (decision.allowed) return
+
+  metrics.recordRateLimit(scope)
+  reply.header('Retry-After', String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))))
+  throw new AppError(429, 'RATE_LIMITED', `Rate limit exceeded for ${scope}`)
 }

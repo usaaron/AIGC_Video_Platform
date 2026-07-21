@@ -3,21 +3,15 @@ import type { AudioGenerationProvider } from '../generation/audioProvider.js'
 import type { ImageGenerationProvider } from '../generation/imageProvider.js'
 import type { VideoGenerationProvider } from '../generation/videoProvider.js'
 import { logError, logInfo } from '../logging.js'
-import type { StateStore } from '../../infra/store.js'
 import { GeneratedAssetWriter, type MaterializedGenerationOutputs } from './generatedAssetWriter.js'
 import { MediaReferenceResolver } from './mediaReferenceResolver.js'
-import {
-  AUDIO_PROVIDER_NAME,
-  IMG2_PROVIDER_NAME,
-  numberValue,
-  SEEDANCE_PROVIDER_NAME,
-} from './providerMetadata.js'
-import { addGeneratedMedia, completeTaskWithOutputs } from './taskCompletionWriter.js'
+import { AUDIO_PROVIDER_NAME, IMG2_PROVIDER_NAME, SEEDANCE_PROVIDER_NAME } from './providerMetadata.js'
 import { audioRequestFor, imageRequestFor, messageFor, videoRequestFor } from './taskRequestFactory.js'
+import type { TaskRuntimeStore } from './taskRuntimeStore.js'
 
 export class RemoteTaskRunner {
   constructor(
-    private readonly store: StateStore,
+    private readonly taskRuntimeStore: TaskRuntimeStore,
     private readonly videoProvider: VideoGenerationProvider | null,
     private readonly imageProvider: ImageGenerationProvider | null,
     private readonly providerPollIntervalMs: number,
@@ -55,19 +49,7 @@ export class RemoteTaskRunner {
         provider: SEEDANCE_PROVIDER_NAME,
         providerTaskId: submission.providerTaskId,
       })
-      await this.store.mutate((state) => {
-        const stored = state.tasks.find((item) => item.id === task.id)
-        if (!stored || stored.status !== 'running') return
-        stored.progress = Math.max(1, submission.progress)
-        stored.metadata = {
-          ...stored.metadata,
-          providerState: submission.status,
-          providerTaskId: submission.providerTaskId,
-          providerPolledAt: Date.now(),
-          providerPollErrors: 0,
-        }
-        stored.updatedAt = new Date().toISOString()
-      })
+      await this.taskRuntimeStore.applyProviderSubmission(task.id, submission, null)
     } catch (error) {
       await this.failTask(task.id, messageFor(error))
     }
@@ -86,23 +68,7 @@ export class RemoteTaskRunner {
         submission.status === 'completed'
           ? await this.materializeRemoteOutputs(task, submission.outputs)
           : null
-      await this.store.mutate((state) => {
-        const stored = state.tasks.find((item) => item.id === task.id)
-        if (!stored || stored.status !== 'running') return
-        stored.progress = Math.max(1, submission.progress)
-        stored.metadata = {
-          ...stored.metadata,
-          providerState: submission.status,
-          providerTaskId: submission.providerTaskId,
-          providerPolledAt: Date.now(),
-          providerPollErrors: 0,
-        }
-        stored.updatedAt = new Date().toISOString()
-        if (submission.status === 'completed' && materialized) {
-          addGeneratedMedia(state, materialized.media)
-          completeTaskWithOutputs(state, stored, materialized.outputs, stored.updatedAt)
-        }
-      })
+      await this.taskRuntimeStore.applyProviderSubmission(task.id, submission, materialized)
     } catch (error) {
       await this.failTask(task.id, messageFor(error))
     }
@@ -121,23 +87,7 @@ export class RemoteTaskRunner {
         submission.status === 'completed'
           ? await this.materializeRemoteOutputs(task, submission.outputs)
           : null
-      await this.store.mutate((state) => {
-        const stored = state.tasks.find((item) => item.id === task.id)
-        if (!stored || stored.status !== 'running') return
-        stored.progress = Math.max(1, submission.progress)
-        stored.metadata = {
-          ...stored.metadata,
-          providerState: submission.status,
-          providerTaskId: submission.providerTaskId,
-          providerPolledAt: Date.now(),
-          providerPollErrors: 0,
-        }
-        stored.updatedAt = new Date().toISOString()
-        if (submission.status === 'completed' && materialized) {
-          addGeneratedMedia(state, materialized.media)
-          completeTaskWithOutputs(state, stored, materialized.outputs, stored.updatedAt)
-        }
-      })
+      await this.taskRuntimeStore.applyProviderSubmission(task.id, submission, materialized)
     } catch (error) {
       await this.failTask(task.id, messageFor(error))
     }
@@ -146,28 +96,20 @@ export class RemoteTaskRunner {
   async pollVideos(): Promise<void> {
     if (!this.videoProvider) return
     const now = Date.now()
-    const tasks = await this.providerTasksDueForPoll(SEEDANCE_PROVIDER_NAME, now)
+    const tasks = await this.taskRuntimeStore.providerTasksDueForPoll(
+      SEEDANCE_PROVIDER_NAME,
+      now,
+      this.providerPollIntervalMs,
+    )
 
     for (const task of tasks) {
       const providerTaskId = String(task.metadata.providerTaskId)
-      await this.markPolled(task.id, now)
+      await this.taskRuntimeStore.markPolled(task.id, now)
       try {
         const status = await this.videoProvider.getStatus(providerTaskId)
         const materialized =
           status.status === 'completed' ? await this.materializeRemoteVideo(task, providerTaskId) : null
-        await this.store.mutate((state) => {
-          const stored = state.tasks.find((item) => item.id === task.id)
-          if (!stored || stored.status !== 'running') return
-          stored.status = status.status
-          stored.progress = status.progress
-          stored.error = status.error
-          stored.metadata = { ...stored.metadata, providerState: status.status, providerPollErrors: 0 }
-          stored.updatedAt = new Date().toISOString()
-          if (status.status === 'completed' && materialized) {
-            addGeneratedMedia(state, materialized.media)
-            completeTaskWithOutputs(state, stored, materialized.outputs, stored.updatedAt)
-          }
-        })
+        await this.taskRuntimeStore.applyProviderStatus(task.id, status, materialized)
       } catch (error) {
         await this.recordPollFailure(task, error)
       }
@@ -177,16 +119,20 @@ export class RemoteTaskRunner {
   async pollImages(): Promise<void> {
     if (!this.imageProvider) return
     const now = Date.now()
-    const tasks = await this.providerTasksDueForPoll(IMG2_PROVIDER_NAME, now)
+    const tasks = await this.taskRuntimeStore.providerTasksDueForPoll(
+      IMG2_PROVIDER_NAME,
+      now,
+      this.providerPollIntervalMs,
+    )
 
     for (const task of tasks) {
       const providerTaskId = String(task.metadata.providerTaskId)
-      await this.markPolled(task.id, now)
+      await this.taskRuntimeStore.markPolled(task.id, now)
       try {
         const status = await this.imageProvider.getStatus(providerTaskId)
         const materialized =
           status.status === 'completed' ? await this.materializeRemoteOutputs(task, status.outputs) : null
-        await this.completePolledTask(task, status, materialized)
+        await this.taskRuntimeStore.applyProviderStatus(task.id, status, materialized)
       } catch (error) {
         await this.recordPollFailure(task, error)
       }
@@ -196,89 +142,37 @@ export class RemoteTaskRunner {
   async pollAudios(): Promise<void> {
     if (!this.audioProvider) return
     const now = Date.now()
-    const tasks = await this.providerTasksDueForPoll(AUDIO_PROVIDER_NAME, now)
+    const tasks = await this.taskRuntimeStore.providerTasksDueForPoll(
+      AUDIO_PROVIDER_NAME,
+      now,
+      this.providerPollIntervalMs,
+    )
 
     for (const task of tasks) {
       const providerTaskId = String(task.metadata.providerTaskId)
-      await this.markPolled(task.id, now)
+      await this.taskRuntimeStore.markPolled(task.id, now)
       try {
         const status = await this.audioProvider.getStatus(providerTaskId)
         const materialized =
           status.status === 'completed' ? await this.materializeRemoteOutputs(task, status.outputs) : null
-        await this.completePolledTask(task, status, materialized)
+        await this.taskRuntimeStore.applyProviderStatus(task.id, status, materialized)
       } catch (error) {
         await this.recordPollFailure(task, error)
       }
     }
   }
 
-  private providerTasksDueForPoll(providerName: string, now: number): Promise<GenerationTask[]> {
-    return this.store.read((state) =>
-      state.tasks.filter(
-        (task) =>
-          task.status === 'running' &&
-          task.metadata.providerName === providerName &&
-          typeof task.metadata.providerTaskId === 'string' &&
-          now - numberValue(task.metadata.providerPolledAt, 0) >= this.providerPollIntervalMs,
-      ),
-    )
-  }
-
-  private async markPolled(taskId: string, now: number): Promise<void> {
-    await this.store.mutate((state) => {
-      const stored = state.tasks.find((item) => item.id === taskId)
-      if (stored) stored.metadata = { ...stored.metadata, providerPolledAt: now }
-    })
-  }
-
-  private async completePolledTask(
-    task: GenerationTask,
-    status: { status: GenerationTask['status']; progress: number; error: string | null },
-    materialized: MaterializedGenerationOutputs | null,
-  ): Promise<void> {
-    await this.store.mutate((state) => {
-      const stored = state.tasks.find((item) => item.id === task.id)
-      if (!stored || stored.status !== 'running') return
-      stored.status = status.status
-      stored.progress = status.progress
-      stored.error = status.error
-      stored.metadata = { ...stored.metadata, providerState: status.status, providerPollErrors: 0 }
-      stored.updatedAt = new Date().toISOString()
-      if (status.status === 'completed' && materialized) {
-        addGeneratedMedia(state, materialized.media)
-        completeTaskWithOutputs(state, stored, materialized.outputs, stored.updatedAt)
-      }
-    })
-  }
-
   private async recordPollFailure(task: GenerationTask, error: unknown): Promise<void> {
-    const attempts = numberValue(task.metadata.providerPollErrors, 0) + 1
-    if (attempts >= 3) {
-      await this.failTask(task.id, messageFor(error))
-      return
-    }
-    await this.store.mutate((state) => {
-      const stored = state.tasks.find((item) => item.id === task.id)
-      if (stored) stored.metadata = { ...stored.metadata, providerPollErrors: attempts }
-    })
+    await this.taskRuntimeStore.recordPollFailure(task.id, messageFor(error))
   }
 
   private async failTask(taskId: string, error: string): Promise<void> {
     logError('generation_task.failed', { taskId, message: error })
-    await this.store.mutate((state) => {
-      const task = state.tasks.find((item) => item.id === taskId)
-      if (!task) return
-      task.status = 'failed'
-      task.progress = 100
-      task.error = error.slice(0, 1_000)
-      task.updatedAt = new Date().toISOString()
-    })
+    await this.taskRuntimeStore.failTask(taskId, error)
   }
 
   private async isTaskStillRunning(taskId: string): Promise<boolean> {
-    return this.store.read((state) =>
-      state.tasks.some((task) => task.id === taskId && task.status === 'running'),
-    )
+    return this.taskRuntimeStore.isTaskRunning(taskId)
   }
 
   private async materializeRemoteOutputs(

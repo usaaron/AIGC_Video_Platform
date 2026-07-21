@@ -34,6 +34,62 @@ export async function registerGenerationRoutes(
     },
   )
 
+  app.get(
+    '/projects/:projectId/generation/tasks/events',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ) },
+    async (request, reply) => {
+      const parsed = projectParamsSchema.safeParse(request.params)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+
+      const { projectId } = parsed.data
+      const principal = request.principal!
+      let lastPayload = ''
+      let closed = false
+      let timer: NodeJS.Timeout | null = null
+
+      const close = () => {
+        if (closed) return
+        closed = true
+        if (timer) clearInterval(timer)
+      }
+
+      const writeEvent = (event: string, data: unknown) => {
+        if (closed || reply.raw.destroyed || reply.raw.writableEnded) return
+        reply.raw.write(`event: ${event}\n`)
+        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`)
+      }
+
+      const sendTasks = async () => {
+        try {
+          const tasks = await service.listProjectTasks(projectId, principal)
+          const payload = JSON.stringify({ tasks })
+          if (payload === lastPayload) {
+            if (!closed) reply.raw.write(`: heartbeat ${Date.now()}\n\n`)
+            return
+          }
+          lastPayload = payload
+          writeEvent('tasks', { tasks, emittedAt: new Date().toISOString() })
+        } catch (error) {
+          writeEvent('error', {
+            message: error instanceof Error ? error.message : '任务推送失败',
+          })
+          close()
+        }
+      }
+
+      reply.hijack()
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      })
+      request.raw.on('close', close)
+      timer = setInterval(() => void sendTasks(), 1_500)
+      void sendTasks()
+    },
+  )
+
   app.post(
     '/generation/tasks/:taskId/retry',
     { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },

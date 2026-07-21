@@ -10,6 +10,7 @@ import type {
 } from '@seqora/contracts'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import type { AuditLogEntry } from '../core/audit.js'
 import { hashPassword } from '../core/auth/password.js'
 
 export type StoredUser = {
@@ -43,6 +44,7 @@ export type AppState = {
   tasks: GenerationTask[]
   ledger: LedgerEntry[]
   media: StoredMedia[]
+  auditLogs: AuditLogEntry[]
 }
 
 export interface StateStore {
@@ -152,6 +154,7 @@ function createSeedState(): AppState {
     shots: seedShots(projectId, tenantId, now),
     tasks: [],
     media: [],
+    auditLogs: [],
     ledger: [
       {
         id: 'ledger-initial',
@@ -380,6 +383,7 @@ export function normalizeState(input: Partial<AppState>): AppState {
     tasks,
     ledger: input.ledger ?? [],
     media: input.media ?? [],
+    auditLogs: input.auditLogs ?? [],
   }
 }
 

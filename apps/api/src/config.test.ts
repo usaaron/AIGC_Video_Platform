@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from './config.js'
 
@@ -60,6 +63,9 @@ describe('loadConfig object storage settings', () => {
     const config = loadConfig({})
 
     expect(config.SESSION_COOKIE_SECURE).toBe('auto')
+    expect(config.AUTH_LOGIN_RATE_LIMIT).toBe(10)
+    expect(config.TASK_CREATE_RATE_LIMIT).toBe(30)
+    expect(config.MEDIA_UPLOAD_RATE_LIMIT).toBe(15)
     expect(config.AUDIO_API_KEY).toBe('')
     expect(config.AUDIO_MODEL).toBe('audio-default')
     expect(config.FILM_EXPORT_FFMPEG_PATH).toBe('ffmpeg')
@@ -115,6 +121,44 @@ describe('loadConfig object storage settings', () => {
         GCS_BUCKET: 'seqora-media',
       }),
     ).toThrow(/unique AUTH_SECRET/)
+  })
+
+  it('loads secret values from *_FILE variables before validation', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'seqora-env-'))
+    const authSecretPath = join(directory, 'auth_secret')
+
+    try {
+      await writeFile(authSecretPath, 'production-file-auth-token-with-at-least-32-characters\n', 'utf8')
+
+      const config = loadConfig({
+        NODE_ENV: 'production',
+        AUTH_SECRET_FILE: authSecretPath,
+        DATA_STORE: 'postgres',
+        DATABASE_URL: 'postgres://seqora:seqora@127.0.0.1:5432/seqora',
+        TASK_QUEUE_DRIVER: 'bullmq',
+        REDIS_URL: 'redis://127.0.0.1:6379',
+        STORAGE_DRIVER: 'gcs',
+        GCS_BUCKET: 'seqora-media',
+      })
+
+      expect(config.AUTH_SECRET).toBe('production-file-auth-token-with-at-least-32-characters')
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('requires OIDC issuer and audience when OIDC auth is enabled', () => {
+    expect(() => loadConfig({ AUTH_MODE: 'oidc' })).toThrow(/OIDC_ISSUER_URL/)
+
+    const config = loadConfig({
+      AUTH_MODE: 'oidc',
+      OIDC_ISSUER_URL: 'https://issuer.example.com',
+      OIDC_AUDIENCE: 'seqora-api',
+    })
+
+    expect(config.AUTH_MODE).toBe('oidc')
+    expect(config.OIDC_EMAIL_CLAIM).toBe('email')
+    expect(config.OIDC_SUBJECT_CLAIM).toBe('sub')
   })
 
   it('requires OSS credentials when OSS storage is selected', () => {

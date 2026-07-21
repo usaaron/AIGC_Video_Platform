@@ -1,6 +1,7 @@
 import type { GenerationTask } from '@seqora/contracts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
+import { createSign, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { Readable } from 'node:stream'
@@ -18,6 +19,15 @@ const testConfig: AppConfig = {
   WEB_ORIGIN: 'http://localhost:5173',
   AUTH_MODE: 'demo',
   AUTH_SECRET: 'test-secret-with-at-least-32-characters',
+  OIDC_ISSUER_URL: '',
+  OIDC_JWKS_URL: '',
+  OIDC_AUDIENCE: '',
+  OIDC_EMAIL_CLAIM: 'email',
+  OIDC_SUBJECT_CLAIM: 'sub',
+  OIDC_CLOCK_TOLERANCE_SECONDS: 30,
+  AUTH_LOGIN_RATE_LIMIT: 10,
+  TASK_CREATE_RATE_LIMIT: 30,
+  MEDIA_UPLOAD_RATE_LIMIT: 15,
   DATA_STORE: 'json',
   DATA_FILE: ':memory:',
   DATABASE_URL: '',
@@ -59,6 +69,7 @@ let app: FastifyInstance | undefined
 afterEach(async () => {
   await app?.close()
   app = undefined
+  vi.unstubAllGlobals()
   await rm(testConfig.UPLOAD_DIR, { recursive: true, force: true })
 })
 
@@ -475,3 +486,321 @@ describe('local authentication', () => {
     expect(signed.body).toBe('demo-image-content')
   })
 })
+
+describe('production security controls', () => {
+  it('authenticates OIDC bearer JWTs through local user records and disables password login', async () => {
+    const { fetchMock, token } = createOidcToken({ email: 'creator@seqora.local' })
+    vi.stubGlobal('fetch', fetchMock)
+
+    app = await buildApp({ config: oidcConfig(), startWorker: false })
+
+    const disabledLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+    })
+    expect(disabledLogin.statusCode).toBe(501)
+    expect(disabledLogin.json()).toMatchObject({ error: { code: 'OIDC_LOGIN_DISABLED' } })
+
+    const me = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(me.statusCode).toBe(200)
+    expect(me.json()).toMatchObject({
+      account: { email: 'creator@seqora.local', tenantId: 'tenant-seqora-demo' },
+    })
+    expect(fetchMock).toHaveBeenCalled()
+  })
+
+  it('denies cross-tenant project and task access', async () => {
+    const store = new AppStore(null)
+    app = await buildApp({ config: testConfig, store, startWorker: false })
+    const now = new Date().toISOString()
+    await store.mutate((state) => {
+      state.users.push({
+        id: 'user-other',
+        email: 'other@seqora.local',
+        name: 'Other User',
+        passwordHash: 'hash',
+        tenantId: 'tenant-other',
+        roles: ['creator'],
+        plan: 'free',
+        credits: 100,
+      })
+      state.projects.push({
+        id: 'project-other',
+        tenantId: 'tenant-other',
+        ownerId: 'user-other',
+        name: 'Other Project',
+        contentType: 'short-drama',
+        aspectRatio: '9:16',
+        status: 'draft',
+        synopsis: '',
+        script: '',
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      })
+      state.tasks.unshift({
+        id: 'task-other',
+        clientRequestId: 'foreign-client',
+        projectId: 'project-other',
+        tenantId: 'tenant-other',
+        userId: 'user-other',
+        kind: 'image',
+        label: 'Foreign task',
+        prompt: '',
+        negativePrompt: '',
+        provider: 'img2',
+        model: null,
+        metadata: {},
+        status: 'queued',
+        progress: 0,
+        estimatedCredits: 6,
+        createdAt: now,
+        updatedAt: now,
+        resultUrl: null,
+        outputs: [],
+        error: null,
+      })
+    })
+
+    const project = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-other',
+      headers: demoCreatorHeaders(),
+    })
+    expect(project.statusCode).toBe(404)
+
+    const cancel = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks/task-other/cancel',
+      headers: demoCreatorHeaders(),
+    })
+    expect(cancel.statusCode).toBe(404)
+    expect(cancel.json()).toMatchObject({ error: { code: 'TASK_NOT_FOUND' } })
+  })
+
+  it('adds tracing headers, records audit logs and exposes readiness and metrics', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const traceId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const projectList = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects',
+      headers: {
+        ...demoCreatorHeaders(),
+        traceparent: `00-${traceId}-bbbbbbbbbbbbbbbb-01`,
+      },
+    })
+
+    expect(projectList.statusCode).toBe(200)
+    expect(projectList.headers['x-request-id']).toBe(traceId)
+    expect(projectList.headers.traceparent).toEqual(expect.stringContaining(traceId))
+
+    const audit = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/audit-logs',
+      headers: demoAdminHeaders(),
+    })
+    expect(audit.statusCode).toBe(200)
+    expect(audit.json().logs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tenantId: 'tenant-seqora-demo',
+          userId: 'user-creator',
+          path: '/api/v1/projects',
+          outcome: 'success',
+        }),
+      ]),
+    )
+
+    const ready = await app.inject({ method: 'GET', url: '/api/v1/health/ready' })
+    expect(ready.statusCode).toBe(200)
+    expect(ready.json()).toMatchObject({ status: 'ok', checks: { database: 'memory' } })
+
+    const metrics = await app.inject({ method: 'GET', url: '/api/v1/metrics' })
+    expect(metrics.statusCode).toBe(200)
+    expect(metrics.body).toContain('seqora_http_requests_total')
+    expect(metrics.body).toContain('/api/v1/projects')
+  })
+
+  it('rate limits local password login attempts by IP', async () => {
+    app = await buildApp({
+      config: { ...testConfig, AUTH_MODE: 'local', AUTH_LOGIN_RATE_LIMIT: 1 },
+      startWorker: false,
+    })
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+    })
+    expect(first.statusCode).toBe(200)
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+    })
+    expect(second.statusCode).toBe(429)
+    expect(second.headers['retry-after']).toBeDefined()
+    expect(second.json()).toMatchObject({ error: { code: 'RATE_LIMITED' } })
+  })
+
+  it('rate limits generation task mutations by authenticated user', async () => {
+    app = await buildApp({
+      config: { ...testConfig, TASK_CREATE_RATE_LIMIT: 1 },
+      startWorker: false,
+    })
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks',
+      headers: demoCreatorHeaders(),
+      payload: {
+        clientRequestId: 'rate-limit-task-1',
+        projectId: 'project-midnight-film',
+        kind: 'image',
+        label: 'Rate limit task 1',
+        estimatedCredits: 6,
+      },
+    })
+    expect(first.statusCode).toBe(202)
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks',
+      headers: demoCreatorHeaders(),
+      payload: {
+        clientRequestId: 'rate-limit-task-2',
+        projectId: 'project-midnight-film',
+        kind: 'image',
+        label: 'Rate limit task 2',
+        estimatedCredits: 6,
+      },
+    })
+    expect(second.statusCode).toBe(429)
+    expect(second.json()).toMatchObject({ error: { code: 'RATE_LIMITED' } })
+  })
+
+  it('rate limits media uploads by authenticated user', async () => {
+    app = await buildApp({
+      config: { ...testConfig, MEDIA_UPLOAD_RATE_LIMIT: 1 },
+      startWorker: false,
+    })
+
+    const firstBoundary = 'seqora-rate-limit-upload-1'
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/media',
+      headers: {
+        ...demoCreatorHeaders(),
+        'content-type': `multipart/form-data; boundary=${firstBoundary}`,
+      },
+      payload: multipartPayload(firstBoundary),
+    })
+    expect(first.statusCode).toBe(201)
+
+    const secondBoundary = 'seqora-rate-limit-upload-2'
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/media',
+      headers: {
+        ...demoCreatorHeaders(),
+        'content-type': `multipart/form-data; boundary=${secondBoundary}`,
+      },
+      payload: multipartPayload(secondBoundary),
+    })
+    expect(second.statusCode).toBe(429)
+    expect(second.json()).toMatchObject({ error: { code: 'RATE_LIMITED' } })
+  })
+})
+
+function oidcConfig(): AppConfig {
+  return {
+    ...testConfig,
+    AUTH_MODE: 'oidc',
+    OIDC_ISSUER_URL: 'https://issuer.example.com',
+    OIDC_JWKS_URL: 'https://issuer.example.com/jwks',
+    OIDC_AUDIENCE: 'seqora-api',
+  }
+}
+
+function createOidcToken(overrides: Record<string, unknown> = {}): {
+  fetchMock: ReturnType<typeof vi.fn>
+  token: string
+} {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const kid = 'seqora-test-key'
+  const publicJwk = publicKey.export({ format: 'jwk' }) as JsonWebKey & {
+    alg: string
+    kid: string
+    use: string
+  }
+  publicJwk.alg = 'RS256'
+  publicJwk.kid = kid
+  publicJwk.use = 'sig'
+  const now = Math.floor(Date.now() / 1_000)
+  const token = signJwt(
+    {
+      iss: 'https://issuer.example.com',
+      aud: 'seqora-api',
+      sub: 'oidc-subject-1',
+      email: 'creator@seqora.local',
+      iat: now,
+      exp: now + 300,
+      ...overrides,
+    },
+    privateKey,
+    kid,
+  )
+
+  return {
+    fetchMock: vi.fn(async () => new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 })),
+    token,
+  }
+}
+
+function signJwt(payload: Record<string, unknown>, privateKey: KeyObject, kid: string): string {
+  const encodedHeader = encodeJwtPart({ alg: 'RS256', kid, typ: 'JWT' })
+  const encodedPayload = encodeJwtPart(payload)
+  const input = `${encodedHeader}.${encodedPayload}`
+  const signer = createSign('RSA-SHA256')
+  signer.update(input)
+  signer.end()
+  const signature = signer.sign(privateKey).toString('base64url')
+  return `${input}.${signature}`
+}
+
+function encodeJwtPart(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url')
+}
+
+function demoCreatorHeaders(): Record<string, string> {
+  return {
+    'x-demo-role': 'creator',
+    'x-demo-user-id': 'user-creator',
+    'x-demo-tenant-id': 'tenant-seqora-demo',
+  }
+}
+
+function demoAdminHeaders(): Record<string, string> {
+  return {
+    'x-demo-role': 'admin',
+    'x-demo-user-id': 'user-admin',
+    'x-demo-tenant-id': 'tenant-seqora-demo',
+  }
+}
+
+function multipartPayload(boundary: string): Buffer {
+  return Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="reference.png"\r\nContent-Type: image/png\r\n\r\n`,
+    ),
+    Buffer.from('demo-image-content'),
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ])
+}

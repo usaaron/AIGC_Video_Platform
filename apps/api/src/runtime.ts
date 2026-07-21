@@ -10,6 +10,7 @@ import type { VideoGenerationProvider } from './core/generation/videoProvider.js
 import { GeneratedAssetWriter } from './core/jobs/generatedAssetWriter.js'
 import { MediaReferenceResolver } from './core/jobs/mediaReferenceResolver.js'
 import { GenerationTaskRunner } from './core/jobs/taskDispatcher.js'
+import { PostgresTaskRuntimeStore, StoreTaskRuntimeStore } from './core/jobs/taskRuntimeStore.js'
 import type { ObjectStorage } from './infra/objectStorage.js'
 import { createObjectStorage } from './infra/objectStorage.js'
 import { PostgresStateStore } from './infra/postgresStore.js'
@@ -78,5 +79,8 @@ export function createTaskRunner(
       config.FILM_EXPORT_FFMPEG_PATH,
       config.FILM_EXPORT_TIMEOUT_MS,
     ),
+    store instanceof PostgresStateStore
+      ? new PostgresTaskRuntimeStore(store)
+      : new StoreTaskRuntimeStore(store),
   )
 }

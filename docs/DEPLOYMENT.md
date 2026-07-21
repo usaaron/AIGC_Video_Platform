@@ -71,7 +71,7 @@ pnpm --filter @seqora/api start
 pnpm --filter @seqora/api start:worker
 ```
 
-API 进程只创建任务和写入 BullMQ 队列；Worker 进程消费队列并定时触发生成任务 tick。免费版单路、会员三路并发限制在任务状态 mutation 中执行，PostgreSQL 使用事务和 advisory lock 串行化任务选择；BullMQ 负责进程间分发、重试和任务锁。
+API 进程只创建任务和写入 BullMQ 队列；Worker 进程消费队列并定时触发生成任务 tick。免费版单路、会员三路并发限制在任务 claim 事务中执行，PostgreSQL 使用用户行锁和任务 `FOR UPDATE SKIP LOCKED` 串行化选择；BullMQ 负责进程间分发、重试和任务锁。
 
 成片 MP4 导出在 Worker 中调用 `ffmpeg` 拼接已完成的单镜头视频，并把结果写回 OSS/GCS。部署镜像或主机必须安装 ffmpeg，或通过 `FILM_EXPORT_FFMPEG_PATH` 指向可执行文件；音频 Provider 可用 `AUDIO_API_KEY` 单独配置，也可留空复用 `SEEDANCE_API_KEY`。
 
