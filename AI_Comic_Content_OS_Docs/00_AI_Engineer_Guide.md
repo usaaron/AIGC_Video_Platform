@@ -270,8 +270,15 @@ Data Intelligence
 
 当前优化优先级：
 
-1. Revision Acceptance / Policy Calibration
-2. Initial Generation Quality Improvement v1
+1. Initial Generation Quality Improvement v1
+
+当前状态说明：
+
+- `Revision Acceptance / Policy Calibration` 已完成本轮固定合成样本 shadow 校准并关闭，不继续自动调参
+- `Initial Generation Quality Improvement v1 Step 1 - Scene Causality` 已完成最小实现与三样本真实模型 A/B
+- `Serialized Story Planning v1` 首轮真实模型离线 A/B 已完成：Planned 在 2/3 故事中被偏好并改善 Setup/Payoff，但 Hook、Cliffhanger 与超自然样本的机制重复发生退化，结论为 `revise_planning_concept`
+- `Serialized Story Planning Contract v1.1 Candidate` 有界真实模型复验已完成：Planned 在保留的 2/2 故事中被偏好并修复主要重复机制，但 Hook 与 Cliffhanger 仍低于 Direct；当前冻结为正向 Research Evidence，不进入 runtime、Schema、Prompt Builder 或主链路
+- `Character Decision Logic v1` 当前是新的剧本质量 Research 调查，只进行角色决策契约评审与一次性离线 A/B 设计，未进入实现
 
 当前已完成的能力优化基线：
 
@@ -283,7 +290,7 @@ Data Intelligence
 
 - 已实现：结构化决策、策略、受控规则执行、Re-QC、确定性 Acceptance 计算与 lineage 保存
 - Shadow：`AcceptanceDecision` 只用于观测，不阻断 Finalization
-- 待校准：Revision Policy 阈值、跨 Benchmark 的 effectiveness 指标和人工 Ground Truth
+- 已完成一次有边界的合成 Ground Truth shadow 校准；专业 Ground Truth、跨 Benchmark effectiveness 汇总和 enforcement 决策仍未完成
 - 生产强制：仍只有现有 Finalization Gate 的 lineage、Re-QC 存在性和最低分数校验
 
 当前 Script Generation Quality Loop checkpoint 只进行 Script Engine 能力优化。以下模块仍属于既有 MVP 范围，但本阶段不扩展其能力：

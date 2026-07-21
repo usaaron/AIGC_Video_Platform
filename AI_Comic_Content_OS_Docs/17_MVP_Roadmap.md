@@ -48,8 +48,71 @@
 
 当前优化优先级：
 
-1. Revision Acceptance / Policy Calibration
-2. Initial Generation Quality Improvement v1
+1. Initial Generation Quality Improvement v1
+
+`Revision Acceptance / Policy Calibration` 已完成当前 shadow 校准并关闭，不在本阶段继续调参。
+
+`Initial Generation Quality Improvement v1 Step 1 - Scene Causality` 已完成最小实现：
+
+- 新生成场景包含结构化 Goal / Conflict / Outcome
+- 后续场景引用更早场景结果并保存 causal link
+- Prompt Builder 使用平台无关的内嵌 Scene Plan 契约
+- 旧 Draft / Final payload 保持兼容
+- Prompt Evaluation 增加 GCO 完整度、跨场因果链和终场因果悬念检查
+- 三个固定 Mock Benchmark 的 GCO 覆盖由 `0/3` 提升为 `3/3`，后续场景引用为 `2/2`
+- 真实模型固定三样本 A/B 已完成，Improved 在 2/3 样本中被偏好且无重大结构回退，状态为 `validated_for_next_step`
+- 当前同时记录候选平均 total token 增加约 16%、部分结尾惊喜度下降和因果表达可能机械化的风险；不基于单轮实验继续调 Prompt
+
+`Serialized Story Planning v1` 首轮真实模型离线 A/B 已完成：
+
+- 三组原创四集 fixture 共完成 24 次 Direct / Planned 生成；Planned 在 Dark Romance 与 Revenge Drama 中被偏好
+- Setup/Payoff、Repetition Control 与 Serialization Quality 改善，但 Hook、Cliffhanger 与 Conflict Escalation 退化
+- Supernatural Romance 暴露相邻 Episode Plan 重复指定 `rescue -> memory loss` 的过度约束问题
+- 当前决策为 `revise_planning_concept`，不进入 Schema、Prompt Builder、Generation Service 或 runtime
+
+`Serialized Story Planning Contract v1.1 Candidate` 有界真实模型复验已完成：
+
+- Story Blueprint 保留稳定系列方向和 Setup/Payoff 义务
+- Episode Plan 只定义叙事责任、必要状态变化和信息义务，不指定具体冲突、Hook 或 Cliffhanger 装置
+- Supernatural Romance 主案例与 Revenge Drama 对照案例共完成 16 次受控生成；Planned 在 2/2 故事中被偏好
+- 主要重复机制已修复，Setup/Payoff、Repetition Control、Cross-Episode Causality 与 Character Decision Consistency 改善
+- Aggregate Hook 与 Cliffhanger 仍分别低于 Direct `0.20` 与 `0.10`，未通过严格 runtime-entry gate
+- 当前冻结为正向 Research Evidence，不继续调优，也不进入 Schema、Prompt Builder、Generation Service 或 runtime
+
+`Character Decision Logic v1` 当前进入架构评审与离线验证设计：
+
+- 只研究角色目标、恐惧、信念、矛盾、压力决策模式与行为边界是否能提升首稿角色可信度
+- 复用固定单集 ContentSpec 与现有 Scene Causality，计划最多执行一次 3 组、6 次真实模型 A/B
+- 当前不修改 CharacterProfile、Prompt Builder、Story QC、Revision 或主链路
+
+### Creative Brief Input Control Requirement（Design Only）
+
+已完成文档级输入控制设计：
+
+```text
+Data Intelligence Recommended Tags
+→ User Selection / Addition / Exclusion + Creative Prompt
+→ Platform Hard Constraints
+→ Creative Brief Resolution
+→ Final ContentSpec
+→ Existing Script Generation
+```
+
+当前状态：
+
+- `CreativeBriefInput` 与 Resolution Result 仅为文档级建议契约
+- 继续复用统一 Ontology 与 `TagRef`，不创建第二套标签系统
+- `ContentSpec` 继续作为标准化运行时 Single Source of Truth
+- 当前未实现 Resolver、API、前端、持久化或 Knowledge Retrieval
+- 该需求用于未来提升输入可控性，不替代当前 Initial Generation Quality Improvement 优先级
+
+未来实现缺口：
+
+- Creative Brief Resolution 的确定性 mapper / resolver
+- Ontology alias 解析和 unresolved tag 人工确认
+- 冲突 warning 与 `requires_user_resolution` 流程
+- authoring lineage 持久化
+- 固定输入样本上的 controllability Benchmark
 
 当前 checkpoint 只聚焦 Script Generation；Data Intelligence Quality Improvement 暂不启动。
 
@@ -60,13 +123,10 @@
 
 当前重点：
 
-- Explainability
-- Benchmark Stability
-- Quality Comparison
-- Regression Detection
-- Revision effectiveness
-- 受控修订的目标维度改善与回退检测
-- `ContentSpec` 质量提升
+- Initial Generation Quality Improvement 的固定样本验证
+- Character Decision Logic v1 的有界离线验证准备
+- Benchmark Stability、Quality Comparison 与 Regression Detection
+- 保留既有 Revision effectiveness 观测，不继续 Acceptance 自动调参
 
 已完成的 `Story QC Credibility Improvement` 第一轮只聚焦：
 
@@ -149,7 +209,7 @@ Revision v1 能力范围：
 - Shadow：Acceptance 只记录，不改变 Revision 或 Finalization 行为
 - 实验性：Story QC 专业可信度、规则式创意修改质量与 Acceptance 阈值
 - 生产强制：仍只有独立 Finalization Gate 的既有校验
-- 最近记录的全量测试基线：`166 passed, 1 skipped`
+- 最近记录的全量测试基线：`177 passed, 1 skipped`
 
 当前先人工评审 Acceptance Calibration v1 的 `review_required` 结果。未达到 go/no-go 标准前，不把 Acceptance 当作 Initial Generation Quality 优化的可信自动判定器，也不自动进入 Policy 调参。
 
@@ -209,9 +269,6 @@ Final `MasterScript`
 → Seedance / Other Video Model Adapter
 → Provider-Specific Generation Package
 
-该链路当前只记录设计边界，不代表 Media Production 已启动。当前优先级继续保持：
-
-1. Revision Acceptance / Policy Calibration
-2. Initial Generation Quality Improvement v1
+该链路当前只记录设计边界，不代表 Media Production 已启动，也不改变上文定义的 `Initial Generation Quality Improvement v1` 优先级。
 
 在 Script Generation 质量稳定之前，不实现 Production Adapter、Seedance Prompt、生产 API、Creative Skill Registry 或完整 Knowledge Base。

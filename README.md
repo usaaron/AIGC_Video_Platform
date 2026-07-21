@@ -58,6 +58,7 @@ AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧�
 - `Prompt Library` 作为 `Knowledge Base` 的一部分沉淀可复用 Prompt 资产
 - `GenerationStrategy` 用于声明一次剧本生成任务采用的完整生成方案
 - `PromptBuilder` 用于根据结构化上下文组装可追踪的最终 Prompt
+- `PromptBuilder v0.2` 已加入平台无关的 Scene Goal / Conflict / Outcome 因果契约
 - `MockLLMAdapter` 作为模型无关接入占位
 - `RealLLMAdapter` 作为首次真实剧本生成验证入口，当前采用 OpenAI-compatible 结构化输出接入方式
 - `PlaceholderStoryQC` 作为草稿剧本质量检查占位
@@ -98,6 +99,7 @@ AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧�
 - 当前支持通过 API 运行一次最小 Draft 联调流程
 - 当前流程会串起 `Orchestrator -> Retrieval -> Prompt Retrieval -> Prompt Builder -> LLMAdapter -> StoryQC -> RevisionPlan`
 - 当前输出包含标准化的 `DraftMasterScript`
+- 当前新生成的 `DraftMasterScript.scenes` 包含结构化 `scene_causality`，后续场景必须引用更早场景结果
 - 当前输出同时包含结构化 `RevisionPlan`
 - 当前支持单独运行 `RevisionPlan -> Script Revision -> Re-QC`
 - 当前输出仍然不是自动生成的 Final `MasterScript`
@@ -123,10 +125,26 @@ AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧�
 
 当前优化优先级：
 
-1. Revision Acceptance / Policy Calibration
-2. Initial Generation Quality Improvement v1
+1. Initial Generation Quality Improvement v1
 
-当前已完成 Story QC Explainability Upgrade v1、Prompt Evaluation Explainability Integration v1，以及 Revision Quality Improvement v1 的 Decision、Strategy、Planner、Executor 和 Acceptance shadow integration。Acceptance Calibration v1 完成一次性 false-acceptance 安全修正后，固定 12 样本人工一致率为 `0.750`，false acceptance 从 2 个降为 1 个；受保护 Hook 回退已阻止，对白自然度/角色声音仍是明确 QC blind spot。状态仍为 `review_required`，当前不启用 Acceptance enforcement，也不自动调整 Policy。
+当前已完成 `Initial Generation Quality Improvement v1 Step 1 - Scene Causality`：新生成场景显式保存 Goal / Conflict / Outcome、前置场景编号与 causal link；Prompt Evaluation 可检查 GCO 完整度、跨场因果链和终场因果悬念。实现保持单次结构化 LLM 调用，不新增工作流或 Agent。旧 payload 可以整体省略新字段，Revision、Acceptance 与 Finalization Gate 行为不变。
+
+Acceptance Calibration 当前保持 `review_required` shadow 状态并结束本轮工作，不启用 Acceptance enforcement，也不继续自动调参。Scene Causality 固定三样本真实模型 A/B 已完成：Improved 在 2/3 样本中被偏好且无重大结构回退，状态为 `validated_for_next_step`；同时记录 total token 平均增加约 16% 和结尾惊喜度未稳定提升的风险，因此不基于单轮结果继续调 Prompt。
+
+Serialized Story Planning v1.1 有界复验显示长程因果、Setup/Payoff 和重复控制得到改善，但 aggregate Hook 与 Cliffhanger 仍低于 Direct，因此当前只保留为正向 Research Evidence：runtime 未批准，调优已冻结。`Character Decision Logic v1` 目前仅完成架构评审和一次性离线 A/B 设计，Character A/B 尚未启动，也没有 Character runtime、Schema 或 Prompt Builder 集成。
+
+当前新增 `Creative Brief Input Control` 文档级设计要求：
+
+`Recommended Tags + User Selected/Added/Excluded Tags + User Creative Prompt + Platform Hard Constraints -> Creative Brief Resolution -> Final ContentSpec -> Existing Script Generation`
+
+当前边界：
+
+- Data Intelligence 推荐标签只是建议，用户可以接受、移除、补充或排除
+- 用户新增标签仍必须解析到现有 `OntologyNode`，不会创建自由标签系统
+- 自由 Creative Prompt 必须先解析为结构化创作意图，不直接替代 Master Prompt
+- `ContentSpec` 继续作为标准化运行时契约
+- 当前未实现 Resolver、API、前端、持久化或 Knowledge Retrieval
+- 该设计不改变当前 `Initial Generation Quality Improvement v1` 优先级
 
 未来 Script-to-Production 兼容边界已经在文档中预留：
 
@@ -296,7 +314,7 @@ curl -X POST http://127.0.0.1:8000/benchmarks/prompt-evaluations/run \
 
 - `Prompt Evaluation` 复用现有 `Data Intelligence` 和 `ScriptGenerationService`
 - `promptfoo` 当前只作为外部评估工具边界，不进入核心业务主链路
-- 当前 `Story QC` 仍然是 placeholder，因此其分数只能作为实验信号
+- 当前 `StoryQCReport` 结构与 Explainability v1 已实现，但专业评分可信度仍然是 placeholder，因此其分数只能作为实验信号
 - 当前如果使用 `MockLLMAdapter`，内容语义类检查会保留在报告中，但主要作为观察信号
 
 ## 首次真实剧本生成验证

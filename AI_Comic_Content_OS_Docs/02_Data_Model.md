@@ -16,6 +16,8 @@
 - TrendSnapshot
 - PlatformProfile（平台画像）
 - CreativeBrief
+- CreativeBriefInput（文档级上游创作输入）
+- CreativeBriefResolutionResult（文档级解析结果）
 - PromptLibraryItem
 - ScriptIndustryKnowledge
 - GenerationStrategy
@@ -89,6 +91,8 @@ V0.1 已实现：
 
 - `ScriptIndustryKnowledge`
 - `BilingualScriptView`
+- `CreativeBriefInput`
+- `CreativeBriefResolutionResult`
 - `ScriptGenerationRequest`
 - `ScriptGenerationResult`
 - `ScriptGenerationRequestMapper`
@@ -99,6 +103,128 @@ V0.1 已实现：
 - `VideoGenerationHandoffMapper`
 
 它们当前先作为文档级数据契约和后续实现边界，不进入本轮主链路改造。
+
+## CreativeBriefInput 文档级建议契约
+
+`CreativeBriefInput` 是 `ContentSpec` 上游的 authoring contract，不是 Script Engine 的新运行时输入，也不替代当前内嵌 `CreativeBrief`。
+
+建议字段：
+
+- `schema_version`
+- `recommendation_context`
+- `recommendation_policy`
+- `recommended_tags`
+- `selected_tag_ids`
+- `added_tag_ids`
+- `excluded_tag_ids`
+- `excluded_patterns`
+- `user_creative_prompt`
+- `generation_constraints`
+- `request_metadata`
+
+### RecommendedTag 建议字段
+
+- `tag_id`：必须引用现有 `OntologyNode.id`
+- `category`：必须与 Ontology 节点分类一致
+- `confidence`：Data Intelligence 建议置信度
+- `source_refs`：`AnalysisResult`、Raw Record 或聚合证据引用
+- `recommendation_reason`：面向用户的简短推荐原因
+
+Recommended Tag 只代表数据建议。未被用户接受的推荐不得自动成为最终生成指令。
+
+`recommendation_policy` 建议默认使用 `suggest_only`。未来如需无人值守 batch fallback，必须由请求显式开启并进入 mapping trace，不允许通过静默默认自动采用推荐标签。
+
+### Selected / Added / Excluded Tag 语义
+
+- `selected_tag_ids`：用户从推荐结果或受控标签列表中明确接受的节点
+- `added_tag_ids`：用户主动补充、但仍必须存在于统一 Ontology 中的节点
+- `excluded_tag_ids`：用户明确禁止进入最终创作规范的节点
+- `excluded_patterns`：无法由单一标签充分表达的禁用 trope、关系模式、表达方式或内容模式
+
+用户输入自由标签文本时，未来 resolver 只能：
+
+- 解析为现有节点或 alias
+- 标记为 unresolved 并请求确认
+
+不得自动创建新的 `OntologyNode`，也不得把自由文本伪装成 `TagRef`。
+
+### GenerationConstraints 建议字段
+
+- `output_language`
+- `target_duration_seconds`
+- `desired_scene_count`
+- `platform_profile_id`
+- `content_rating`
+
+其中平台与安全限制必须由 `PlatformProfile` 校验。用户输入可以收紧硬约束，但不能绕过或放宽平台与安全要求。
+
+### CreativeBriefResolutionResult 建议字段
+
+- `schema_version`
+- `input_snapshot`
+- `resolved_tag_refs`
+- `resolved_creative_brief`
+- `resolved_story_goal`
+- `resolved_generation_constraints`
+- `unresolved_tag_inputs`
+- `deferred_recommendations`
+- `conflict_warnings`
+- `requires_user_resolution`
+- `mapping_trace`
+- `content_spec_draft_id`
+- `content_spec_id`
+
+当前建议的确定性优先级：
+
+1. Platform / Safety Hard Constraints
+2. User Excluded Tags / Patterns
+3. Explicit User Prompt Constraints
+4. User Selected / Added Tags
+5. Data Intelligence Recommended Tags
+6. Traceable System Defaults
+
+重大冲突不得静默解决。硬约束冲突应阻止解析；用户 Prompt 自相矛盾或与排除项冲突时应设置 `requires_user_resolution=true`。结构化 `generation_constraints` 与自由 Prompt 对同一字段冲突时，以结构化字段为准并产生 warning。
+
+第 5 级只适用于显式允许 recommendation fallback 的请求。默认 `suggest_only` 下，只有进入 `selected_tag_ids` 的推荐节点才会成为 resolved tag。
+
+### Active Tag Boundary
+
+- v1 建议 `max_active_tags=12`，作为未来集中配置，不写死在 Script Engine
+- 当前 `ContentSpec.tags` 仍保持最多 20 个的既有技术契约
+- 用户明确选择优先于 Data Intelligence 推荐
+- 超出解析上限时应返回 deferred tags 与原因，不得只按置信度静默截断
+
+### 现有 Ontology 分类映射建议
+
+| 创作维度 | 现有 Ontology 分类 / 处理方式 |
+|---|---|
+| genre | `Genre` |
+| audience | `Audience` |
+| tone | 当前优先映射到 `CreativeBrief.tone`；不擅自新增 Tone 分类 |
+| emotional promise | `Emotion` |
+| protagonist archetype | `Character` |
+| relationship dynamic | `Relationship` |
+| conflict mechanism | `Conflict` |
+| hook type | `Hook` |
+| pacing | `Pace` |
+| ending function | `Cliffhanger` 或 `Twist` |
+| avoid pattern | 已知节点使用 `excluded_tag_ids`；自由模式使用 `excluded_patterns` |
+| content rating | `GenerationConstraints` / `PlatformProfile`，不作为创作标签 |
+
+该设计复用当前 Ontology，不创建第二套 Tag System。若未来确需新增一级分类，仍必须先经过 Ontology 变更评审。
+
+### 到 ContentSpec 的映射边界
+
+- resolved tag IDs → `ContentSpec.tags`
+- audience / commercial / platform 结果 → 对应 Goal 结构
+- hook / tone / pacing / target emotion → `ContentSpec.creative_brief`
+- 其余明确创作意图 → `story_goal` 或受控 `generation_notes`
+- generation constraints → `platform_goal` 与未来 Script Generation output requirements
+- excluded patterns 当前可映射为受控 negative generation notes；如果长期稳定，应再提议正式可版本化字段，不能永久堆入任意 metadata
+
+原始 `user_creative_prompt` 不应原样成为 Master Prompt。解析后的 `ContentSpec` 才能进入现有 Script Generation pipeline。
+
+`input_snapshot` 或其稳定引用必须保留 recommended、selected、added、excluded、原始 Prompt 和 generation constraints，以支持后续从生成结果回溯到创作选择。
 
 ## PromptRetrievalResult 当前字段
 
@@ -220,8 +346,27 @@ V0.1 已实现：
 其中：
 
 - `DraftMasterScript` 是当前 Script Engine 在进入 Final `MasterScript` 前的标准结构化中间产物
-- `scenes` 当前使用 `DraftSceneCard`，保存 `setting_hint`、`dialogue_prompts`、`dialogues`、`character_actions`、`turning_point`、`supporting_asset_ids` 等草稿级字段
+- `scenes` 当前使用 `DraftSceneCard`，保存 `setting_hint`、`dialogue_prompts`、`dialogues`、`character_actions`、`turning_point`、`scene_causality`、`supporting_asset_ids` 等草稿级字段
 - `llm_metadata` 当前用于记录 `llm_provider`、`llm_model_name`、Prompt 版本、策略版本与修订信号等可追踪元信息，不直接替代正式剧本内容
+
+## SceneCausality 当前字段
+
+`Initial Generation Quality Improvement v1 Step 1` 为 `DraftSceneCard` 与 `SceneCard` 增加兼容式 `scene_causality`：
+
+- `goal`：本场焦点角色试图达成的即时目标
+- `conflict`：阻止目标或提高行动代价的具体阻力
+- `outcome`：本场结束时发生的状态变化，不得只是复述 `goal`
+- `caused_by_scene_number`：当前场景由哪一个更早场景的结果触发
+- `causal_link`：说明更早结果如何迫使或允许当前场景发生
+
+兼容规则：
+
+- 旧 `DraftMasterScript` / `MasterScript` payload 可以完全省略 `scene_causality`
+- 新的真实 LLM 结构化输出必须为每个场景提供 `scene_causality`
+- 第一场的 `caused_by_scene_number` 与 `causal_link` 必须为空
+- 后续场景必须引用已经出现的场景编号
+- 如果任一场景提供 `scene_causality`，同一剧本的所有场景都必须提供，避免部分链路
+- `Finalization Mapper` 只透传该字段，不改变 Finalization Gate
 
 ## ScriptGenerationResult 当前建议字段
 
@@ -1001,6 +1146,7 @@ V0.1 已实现：
 - `scene_number` 不可重复
 - 每个场景至少包含 1 条对话
 - 最终场景必须以 cliffhanger 结束
+- 新生成剧本的每个场景必须包含 Goal / Conflict / Outcome 因果语义；旧 payload 可整体省略
 - `qa_notes` 不可重复
 - Final `MasterScript` 不允许绕过受控 Finalization Gate 直接创建
 - 所有子结构默认 `extra=forbid`

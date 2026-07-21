@@ -34,6 +34,18 @@ Data Intelligence
 
 `Scheduled Ingestion` → `DataSourceAdapter` → `RawContentRecord` → 标准分析流程
 
+当前新增一条文档级输入控制边界。Data Intelligence 不再被视为最终创作规范的唯一决定者：
+
+Data Intelligence → Recommended Tags
+
+User → Selected Tags / Added Tags / Excluded Tags / Creative Prompt
+
+`PlatformProfile` → Hard Constraints
+
+以上输入 → Creative Brief Resolution → Final `ContentSpec` → 现有 Script Generation
+
+其中 Creative Brief Resolution 当前只是设计要求，尚未实现 Resolver、API 或持久化。Script Engine 的正式运行时输入仍然是标准化 `ContentSpec`。
+
 当前最小实现中，`Asset Retrieval` 的直接输入暂由 `OrchestrationPlan.asset_requests` 承载，用于保证资产检索请求结构化、可控、可测试。
 
 当前 Script Engine 的内部推荐流程为：
@@ -235,10 +247,14 @@ V1 阶段仅围绕 TikTok 构建。
 
 ### 4.5 Tag + Creative Brief 双驱动
 
-数据分析模块不只输出标签，也输出 Creative Brief。
+Data Intelligence 应输出可解释的推荐标签与推荐理由，但不直接决定最终 Creative Brief。最终创作输入由数据建议、用户选择、用户自由创意和平台硬约束共同解析。
 
-- Tag 用于匹配资产库
-- Creative Brief 用于约束生成逻辑
+- Recommended Tag 用于提供可接受或拒绝的数据建议
+- Selected / Added Tag 表示用户明确采用的受控 Ontology 节点
+- Excluded Tag / Pattern 表示用户明确不希望出现的内容
+- User Creative Prompt 表达标签无法充分承载的创作意图
+- `PlatformProfile` 提供不可被用户覆盖的平台与安全硬约束
+- 解析结果映射为 `ContentSpec.tags`、`ContentSpec.creative_brief`、目标字段和可追踪 warning
 
 标签回答：
 
@@ -247,6 +263,8 @@ V1 阶段仅围绕 TikTok 构建。
 Creative Brief 回答：
 
 > 如何生成内容？
+
+当前新增边界：原始标签和自由 Prompt 属于上游 authoring input，不允许绕过标准化解析直接替代 `ContentSpec`。
 
 ### 4.6 Script as Control Layer
 
@@ -747,11 +765,94 @@ Content Spec 包括：
 
 ---
 
-## 11. Creative Brief 生成机制
+## 11. Creative Brief 输入与解析机制
 
-数据分析模块除了输出标签，还应输出 Creative Brief。
+Data Intelligence 负责提供推荐信号，用户负责确认创作意图，`PlatformProfile` 负责提供硬约束。它们应通过确定性的 Creative Brief Resolution 映射到最终 `ContentSpec`。
 
-Creative Brief 用于指导生成。
+当前文档级流程为：
+
+Recommended Tags
+→ User Selection / Addition / Exclusion
+→ User Creative Prompt
+→ Platform and Safety Constraints
+→ Creative Brief Resolution
+→ Final `ContentSpec`
+
+Creative Brief Resolution 当前不作为新 Engine 实现，也不改变 Script Engine 主链路。未来最小实现可作为上游 mapper / resolver 存在。
+
+### 11.0 CreativeBriefInput 最小契约
+
+建议的 authoring input 至少包含：
+
+- `schema_version`
+- `recommendation_context`
+- `recommendation_policy`
+- `recommended_tags`
+- `selected_tag_ids`
+- `added_tag_ids`
+- `excluded_tag_ids`
+- `excluded_patterns`
+- `user_creative_prompt`
+- `generation_constraints`
+- `request_metadata`
+
+约束：
+
+- `recommendation_policy` 默认建议为 `suggest_only`
+- `recommended_tags` 只是建议，不自动进入最终 `ContentSpec`
+- `selected_tag_ids` 与 `added_tag_ids` 都必须解析到现有 `OntologyNode`
+- 用户输入的未知标签不得自动创建自由节点；应进入 unresolved 状态等待确认
+- `excluded_patterns` 用于表达不能由单个 Ontology 节点完整表示的负向约束
+- `user_creative_prompt` 不直接作为最终 Master Prompt，而应先映射为结构化创作目标
+- `generation_constraints.platform_profile_id` 必须引用现有 `PlatformProfile`
+
+### 11.0.1 确定性优先级
+
+解析优先级固定为：
+
+1. Platform / Safety Hard Constraints
+2. User Excluded Tags / Patterns
+3. Explicit User Prompt Constraints
+4. User Selected / Added Tags
+5. Data Intelligence Recommended Tags
+6. Traceable System Defaults
+
+其中第 5 级只在请求显式允许 recommendation fallback 时生效；默认 `suggest_only` 模式下，未被用户选择的推荐标签不会进入 resolved tags。
+
+冲突处理规则：
+
+- 硬约束与用户输入冲突时，阻止解析并返回明确原因
+- 同一标签同时被选择和排除时，排除优先，并产生 conflict warning
+- 用户 Prompt 与排除项发生重大语义冲突时，标记 `requires_user_resolution`，禁止静默猜测
+- 结构化 `generation_constraints` 与自由 Prompt 对同一字段表述不一致时，以结构化字段为准并产生 warning
+- 用户明确选择与推荐标签冲突时，以用户选择为准，并记录被舍弃建议及原因
+- 未知 added tag 不得进入最终 `ContentSpec.tags`
+- 默认值只能来自集中、版本化配置，并进入 mapping trace
+
+### 11.0.2 标签数量边界
+
+- Creative Brief Resolution v1 建议默认最多激活 12 个标签
+- 现有 `ContentSpec.tags` 的技术上限仍为 20，不在本轮修改
+- 每个核心创作维度建议只保留 1 至 2 个高意图标签，避免相互冲突和 Prompt 稀释
+- 超出上限时不得只按置信度静默截断；应优先保留用户明确选择，并返回被延后标签列表
+
+### 11.0.3 解析输出与追踪
+
+未来 Resolution Result 至少应保留：
+
+- 推荐、选择、新增和排除标签
+- 原始用户 Prompt
+- 完整 `CreativeBriefInput` snapshot 或稳定引用
+- 最终 resolved tags
+- 映射后的 `CreativeBrief` 字段
+- 生成约束映射
+- 未解析标签
+- 冲突 warning 与用户确认状态
+- 最终 `ContentSpec` 或 `ContentSpecDraft` 引用
+
+这些记录用于后续分析哪些创作选择影响了生成结果，但本轮不实现持久化。
+
+Creative Brief 用于指导生成，当前运行时仍使用 `ContentSpec.creative_brief`。
 
 包括：
 

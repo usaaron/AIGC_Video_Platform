@@ -83,7 +83,7 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 - 不允许把 Prompt 散落在业务代码中
 - Prompt 必须来自 `Prompt Library` 或 `Prompt Builder`
 - `MasterScript` 必须是结构化输出，而不是不可控长文本
-- Story QC 当前允许仅保留接口或轻量占位
+- Story QC 的结构化报告与 Explainability v1 已实现，但专业评分可信度仍属于实验性占位能力
 - 当前所有设计优先服务于剧本质量，而不是视频生成便利性
 
 ## 关键组件
@@ -118,12 +118,65 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 - 当前标准草稿对象为 `DraftMasterScript`
 - `Story QC` 当前消费 `DraftMasterScript` 而不是松散原始字典
 
+### Initial Generation Quality Improvement v1 Step 1
+
+当前首次生成已加入 Scene Causality 结构约束：
+
+`ContentSpec`
+→ 内嵌 Scene Plan
+→ Scene Goal / Conflict / Outcome
+→ `DraftMasterScript`
+
+当前采用一次结构化 LLM 调用，而不是立即增加第二次 Scene Plan 调用。原因是当前单调用 Schema 已能可靠承载 `scene_causality`，真正的双调用会扩大 workflow、失败恢复、成本与 lineage 改动范围，不符合本轮最小收口边界。
+
+当前每个新生成场景必须说明：
+
+- `goal`：焦点角色当前要取得什么
+- `conflict`：什么阻止目标或提高代价
+- `outcome`：场景结束时发生了什么不可忽略的变化
+- `caused_by_scene_number` / `causal_link`：后续场景如何由更早结果触发
+
+当前约束还要求：
+
+- `outcome` 不得复述 `goal`
+- 后续场景必须引用更早场景的结果
+- 最终场景结果必须落到既有 cliffhanger / payoff 约束
+- Prompt Builder 的因果契约保持平台与类型无关，不包含婚礼、背叛或其他固定剧情
+- 旧 Draft / Final payload 可以整体省略该兼容字段
+- Revision、Acceptance 与 Finalization Gate 行为不变
+
 当前边界：
 
 - 仅验证主链路 Draft 阶段可联调
 - Final `MasterScript` 当前通过独立 Finalization Mapper 从 `DraftMasterScript` 生成
 - `MockLLMAdapter` 当前继续保留给测试与无外部模型环境
 - `RealLLMAdapter` 当前仅用于首次真实剧本生成验证
+
+## Upstream Creative Brief Authoring Boundary
+
+新的输入控制需求位于 Script Generation Box 上游：
+
+```text
+Data Intelligence Recommended Tags
++ User Selected / Added / Excluded Tags
++ User Creative Prompt
++ PlatformProfile Hard Constraints
+→ Creative Brief Resolution
+→ Final ContentSpec
+→ Script Generation Box
+```
+
+当前边界：
+
+- `CreativeBriefInput` 是文档级 authoring contract，不是当前 Script Engine API 模型
+- 当前 `CreativeBrief` 仍指 `ContentSpec.creative_brief` 的标准化运行时子结构
+- Script Engine 只消费解析完成的 `ContentSpec`，不自行决定采用哪些推荐标签
+- Prompt Builder 不应直接接收 unresolved tag、原始推荐列表或未经解析的自由 Prompt
+- 用户新增标签必须解析为现有 `OntologyNode`；未知标签不得在 Script Engine 中临时创建
+- 用户排除项和平台硬约束必须在进入 Script Engine 前得到明确解析
+- 重大语义冲突应要求用户确认，不能由 Script Engine 静默猜测
+
+未来可用轻量 mapper / resolver 完成该上游解析，但本轮不实现 `CreativeBriefResolver`、新 API、前端或持久化。
 
 ## Unified Input Contract
 
@@ -173,6 +226,8 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 
 - 上游数据格式变化应优先通过 mapper 适配
 - 不应直接扩散到 `Script Engine` 核心逻辑
+- `ScriptGenerationRequestMapper` 接收标准化 `ContentSpec`；它不替代上游 Creative Brief Resolution
+- 原始 authoring input 的 lineage 可以由未来 resolution artifact 引用，但不应把任意自由字段永久塞入 `ScriptGenerationRequest.extensions`
 
 ### Finalization Mapper
 
@@ -219,6 +274,7 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
   - `desired_scene_count`
   - `target_duration_seconds`
   - Hook / Cliffhanger / Character Agency / Cultural Fit 约束
+  - Scene Goal / Conflict / Outcome 与跨场因果链约束
   - 输出 JSON Schema
 
 当前补充要求：
@@ -443,7 +499,7 @@ Seedance Adapter 只负责把模型无关 Package 转换为 Seedance 支持的 P
 - 文化适配
 - 风险内容
 
-当前阶段可仅保留接口和轻量 placeholder。
+当前已经实现结构化 `StoryQCReport`、Rubric Foundation 与 Explainability v1；尚未完成的 placeholder 是专业评分可信度、知识支撑和行业 Ground Truth 校准，而不是报告接口本身。
 
 当前额外要求：
 
@@ -899,7 +955,7 @@ Script Engine 消费的不是裸 Prompt，而是：
 - 不允许复制新的 Prompt Retrieval / Prompt Builder / `LLMAdapter` / `Story QC` 实现
 - 不允许把评估工具插入核心业务主链路
 - `promptfoo` 当前只能作为外部测试或对比工具，不进入核心业务运行时
-- 当前 `Story QC` 仍为 placeholder，因此评估报告中的 `Story QC` 分数只能作为实验信号
+- 当前 `StoryQCReport` 结构与 Explainability v1 已实现，但专业评分可信度仍为 placeholder，因此相关分数只能作为实验信号
 
 当前额外边界：
 

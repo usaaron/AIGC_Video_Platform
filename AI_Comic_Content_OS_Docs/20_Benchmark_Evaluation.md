@@ -218,7 +218,7 @@
 
 当前限制说明：
 
-- 当前 `Story QC` 仍然是 placeholder
+- 当前 `StoryQCReport` 结构与 Explainability v1 已实现，但专业评分可信度仍然是 placeholder
 - 因此 `Story QC` 分数与分类结果当前只能作为实验信号
 - 不应将其直接视为最终剧本质量结论
 - 当前如果使用 `MockLLMAdapter`，Hook / Cliffhanger / Agency 一类内容语义检查仍会展示，但默认作为观察信号而不是硬失败门槛

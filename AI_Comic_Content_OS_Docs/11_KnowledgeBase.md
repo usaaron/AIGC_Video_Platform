@@ -247,6 +247,36 @@
 
 当前只记录兼容原则，不实现完整 Knowledge Base、RAG、向量检索或 Creative Skill Registry。
 
+### Creative Brief Input Compatibility
+
+未来 Knowledge Retrieval 可以利用以下已解析输入：
+
+- Final selected `TagRef`
+- 解析后的用户创作意图
+- 标准化 `ContentSpec`
+- `PlatformProfile`
+- Excluded tags / patterns 形成的负向过滤条件
+
+检索用途可以包括：
+
+- Story Structure
+- Character Design
+- Dialogue
+- Genre Conventions
+- Scene Goal / Conflict / Outcome
+- Hook / Payoff / Cliffhanger
+
+边界规则：
+
+- Data Intelligence 的原始 Recommended Tags 不应未经用户确认直接驱动知识检索
+- 原始用户 Creative Prompt 可作为经过清洗、带 lineage 的辅助检索上下文，但 resolved intent 与 `ContentSpec` 必须是主要查询约束
+- 用户自由 Prompt 不应原样拼接进 Master Prompt，也不能绕过排除项和平台约束
+- Excluded tags / patterns 必须作为检索过滤或适用性约束，不能在后续步骤中被重新引入
+- 检索结果应记录使用的 resolved tags、Prompt 意图摘要、平台版本和 `knowledge_id`
+- Knowledge Retrieval 只能辅助生成，不得覆盖 `PlatformProfile` 硬约束或用户明确排除项
+
+当前不实现上述检索，只保证未来 `CreativeBriefInput → ContentSpec` 的解析结果可以成为受治理检索输入。
+
 ### Knowledge Responsibility Chain
 
 未来知识使用应保持以下分工：
