@@ -855,7 +855,7 @@ async function updateAssetCompletion(client: PoolClient, asset: Asset): Promise<
   await client.query(
     `
       update assets
-      set references = $4::jsonb,
+      set "references" = $4::jsonb,
         attributes = $5::jsonb,
         image_url = $6,
         status = $7,

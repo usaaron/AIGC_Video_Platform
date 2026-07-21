@@ -139,7 +139,7 @@ async function upsertAssets(client: PoolClient, assets: Asset[]): Promise<void> 
         insert into assets (
           id, project_id, tenant_id, kind, source_mode, name, description, prompt,
           prompt_mode, custom_prompt_mode, custom_prompt, negative_prompt,
-          references, attributes, image_url, status, created_at, updated_at
+          "references", attributes, image_url, status, created_at, updated_at
         )
         values (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
@@ -157,7 +157,7 @@ async function upsertAssets(client: PoolClient, assets: Asset[]): Promise<void> 
           custom_prompt_mode = excluded.custom_prompt_mode,
           custom_prompt = excluded.custom_prompt,
           negative_prompt = excluded.negative_prompt,
-          references = excluded.references,
+          "references" = excluded."references",
           attributes = excluded.attributes,
           image_url = excluded.image_url,
           status = excluded.status,

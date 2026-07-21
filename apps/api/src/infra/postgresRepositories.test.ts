@@ -75,7 +75,7 @@ describe('Postgres SQL repositories', () => {
     expect(sql).toContain('from assets')
     expect(sql).toContain('for update')
     expect(sql).toContain('update assets')
-    expect(sql).toContain('references = $13::jsonb')
+    expect(sql).toContain('"references" = $13::jsonb')
     expect(sql).toContain('attributes = $14::jsonb')
   })
 

@@ -98,7 +98,7 @@ export const ASSET_COLUMNS = `
   source_mode as "sourceMode", name, description, prompt,
   prompt_mode as "promptMode", custom_prompt_mode as "customPromptMode",
   custom_prompt as "customPrompt", negative_prompt as "negativePrompt",
-  references, attributes, image_url as "imageUrl", status,
+  "references", attributes, image_url as "imageUrl", status,
   created_at as "createdAt", updated_at as "updatedAt"
 `
 

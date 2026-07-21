@@ -402,7 +402,7 @@ async function insertAsset(client: PoolClient, asset: Asset): Promise<Asset> {
       insert into assets (
         id, project_id, tenant_id, kind, source_mode, name, description,
         prompt, prompt_mode, custom_prompt_mode, custom_prompt,
-        negative_prompt, references, attributes, image_url, status,
+        negative_prompt, "references", attributes, image_url, status,
         created_at, updated_at
       )
       values (
@@ -428,7 +428,7 @@ async function updateAssetRow(client: PoolClient, asset: Asset): Promise<Asset> 
         custom_prompt_mode = $10,
         custom_prompt = $11,
         negative_prompt = $12,
-        references = $13::jsonb,
+        "references" = $13::jsonb,
         attributes = $14::jsonb,
         image_url = $15,
         status = $16,

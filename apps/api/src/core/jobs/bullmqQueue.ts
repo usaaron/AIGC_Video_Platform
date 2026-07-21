@@ -5,7 +5,8 @@ import { logError, logInfo } from '../logging.js'
 import type { TaskDispatcher } from './taskDispatcher.js'
 import type { GenerationTaskRunner } from './taskDispatcher.js'
 
-const GENERATION_QUEUE_NAME = 'seqora:generation'
+const BULLMQ_KEY_PREFIX = 'seqora'
+const GENERATION_QUEUE_NAME = 'generation'
 const TICK_JOB_ID = 'generation-tick'
 
 type GenerationQueueJob = {
@@ -88,6 +89,7 @@ export class BullMqGenerationWorker {
       {
         connection: this.workerConnection,
         concurrency: this.options.concurrency,
+        prefix: BULLMQ_KEY_PREFIX,
       },
     )
     this.worker.on('completed', (job) => {
@@ -139,6 +141,7 @@ function createRedisConnection(redisUrl: string): Redis {
 function createGenerationQueue(connection: Redis): Queue<GenerationQueueJob> {
   return new Queue<GenerationQueueJob>(GENERATION_QUEUE_NAME, {
     connection,
+    prefix: BULLMQ_KEY_PREFIX,
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: 'exponential', delay: 1_000 },

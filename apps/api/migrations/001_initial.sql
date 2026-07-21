@@ -52,7 +52,7 @@ create table if not exists assets (
   custom_prompt_mode text not null check (custom_prompt_mode in ('append', 'replace')),
   custom_prompt text not null default '',
   negative_prompt text not null default '',
-  references jsonb not null default '[]'::jsonb,
+  "references" jsonb not null default '[]'::jsonb,
   attributes jsonb not null,
   image_url text,
   status text not null check (status in ('draft', 'confirmed')),
