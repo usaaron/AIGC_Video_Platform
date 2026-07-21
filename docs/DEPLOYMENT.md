@@ -16,7 +16,7 @@ Web 使用 `VITE_API_BASE_URL` 指向 API。API 使用 `WEB_ORIGIN` 限制跨域
 
 ## 生产构建
 
-本地或 CI 中使用固定 Node.js 22.12+ 和 pnpm 11+：
+本地或 CI 中使用固定 Node.js 22.13+ 和 pnpm 11+：
 
 ```bash
 corepack enable
@@ -115,7 +115,7 @@ docker run --rm -p 8080:80 seqora-web:local
 
 GitHub Actions 配置在 `.github/workflows/ci.yml`，对 `main`、`feat/seedance-image-providers` 的 push 和所有 PR 执行：
 
-1. 安装 Node.js 22.12.0 和 pnpm 11.7.0。
+1. 安装 Node.js 22.13.0 和 pnpm 11.7.0。
 2. `pnpm install --frozen-lockfile`。
 3. `pnpm check`，与本地提交前标准一致，覆盖格式检查、Lint、生产构建、单元测试。
 

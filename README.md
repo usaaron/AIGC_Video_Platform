@@ -4,7 +4,7 @@
 
 ## 快速开始
 
-要求 Node.js 22.12+、pnpm 11+。
+要求 Node.js 22.13+、pnpm 11+。
 
 ```bash
 corepack enable
