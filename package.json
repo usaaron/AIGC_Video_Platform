@@ -11,20 +11,23 @@
     "dev": "pnpm --filter @seqora/contracts build && pnpm --parallel --filter @seqora/api --filter @seqora/web dev",
     "dev:web": "pnpm --filter @seqora/web dev",
     "dev:api": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/api dev",
+    "dev:admin": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/admin dev",
     "dev:worker": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/api dev:worker",
     "build": "pnpm -r build",
-    "build:production": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/api build && pnpm --filter @seqora/web build",
+    "build:production": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/api build && pnpm --filter @seqora/web build && pnpm --filter @seqora/admin build",
     "deploy:local": "docker compose up --build",
     "deploy:local:down": "docker compose down",
     "deploy:smoke": "node scripts/deployment-smoke.mjs",
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
     "test": "pnpm --filter @seqora/contracts build && pnpm -r test",
+    "test:e2e": "pnpm --filter @seqora/contracts build && playwright test",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "check": "pnpm format:check && pnpm lint && pnpm build:production && pnpm test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "prettier": "3.9.5"
   }
 }
