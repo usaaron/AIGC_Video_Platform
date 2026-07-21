@@ -22,9 +22,10 @@ const statusLabels = {
   cancelled: '已取消',
 }
 
-export function GenerationPage({ jobs, onClear, onRetry, onCancel, onNext, pollError }) {
+export function GenerationPage({ jobs, onClear, onRetry, onRerun, onCancel, onNext, pollError, syncMode }) {
   const [previewJob, setPreviewJob] = useState(null)
   const [retryingId, setRetryingId] = useState('')
+  const [rerunningId, setRerunningId] = useState('')
   const [cancellingId, setCancellingId] = useState('')
   const [actionError, setActionError] = useState('')
   const runningCount = jobs.filter((job) => job.status === 'running').length
@@ -58,6 +59,19 @@ export function GenerationPage({ jobs, onClear, onRetry, onCancel, onNext, pollE
       setActionError(error.message || '取消失败，请稍后再试')
     } finally {
       setCancellingId('')
+    }
+  }
+
+  const handleRerun = async (job) => {
+    if (!onRerun) return
+    setRerunningId(job.id)
+    setActionError('')
+    try {
+      await onRerun(job)
+    } catch (error) {
+      setActionError(error.message || '重生失败，请稍后再试')
+    } finally {
+      setRerunningId('')
     }
   }
 
@@ -96,7 +110,9 @@ export function GenerationPage({ jobs, onClear, onRetry, onCancel, onNext, pollE
           </div>
           <div className="queue-panel-tools">
             <span className={`queue-sync ${pollError ? 'failed' : ''}`}>
-              {pollError ? '状态同步失败' : `自动轮询 · 最近同步 ${formatTime(lastUpdatedAt)}`}
+              {pollError
+                ? '状态同步失败'
+                : `${syncMode || '自动轮询'} · 最近同步 ${formatTime(lastUpdatedAt)}`}
             </span>
           </div>
         </div>
@@ -107,9 +123,11 @@ export function GenerationPage({ jobs, onClear, onRetry, onCancel, onNext, pollE
                 job={job}
                 key={job.id}
                 isRetrying={retryingId === job.id}
+                isRerunning={rerunningId === job.id}
                 isCancelling={cancellingId === job.id}
                 onPreview={setPreviewJob}
                 onRetry={handleRetry}
+                onRerun={handleRerun}
                 onCancel={handleCancel}
               />
             ))
@@ -127,11 +145,21 @@ export function GenerationPage({ jobs, onClear, onRetry, onCancel, onNext, pollE
   )
 }
 
-function GenerationJobRow({ job, isRetrying, isCancelling, onPreview, onRetry, onCancel }) {
+function GenerationJobRow({
+  job,
+  isRetrying,
+  isRerunning,
+  isCancelling,
+  onPreview,
+  onRetry,
+  onRerun,
+  onCancel,
+}) {
   const resultUrl = resultUrlForTask(job)
   const canPreview = job.status === 'completed' && Boolean(resultUrl)
   const canDownload = job.status === 'completed' && Boolean(resultUrl)
   const canRetry = job.status === 'failed' || job.status === 'cancelled'
+  const canRerun = job.status === 'completed' && canRerunTask(job) && Boolean(onRerun)
   const canCancel = job.status === 'queued' || job.status === 'running'
   const progress = Math.min(100, Math.max(0, job.progress ?? 0))
 
@@ -142,7 +170,7 @@ function GenerationJobRow({ job, isRetrying, isCancelling, onPreview, onRetry, o
         <div className="job-title-line">
           <strong>{job.label}</strong>
           <span>
-            {typeLabel(job.kind)} · {job.estimatedCredits} 积分
+            {jobTypeLabel(job)} · {job.estimatedCredits} 积分
           </span>
         </div>
         {job.status === 'running' && (
@@ -166,7 +194,7 @@ function GenerationJobRow({ job, isRetrying, isCancelling, onPreview, onRetry, o
         <span className={`job-state ${job.status}`}>
           {job.status === 'running' ? `${progress}%` : statusLabels[job.status] || job.status}
         </span>
-        {(canRetry || canCancel || canPreview || canDownload) && (
+        {(canRetry || canCancel || canPreview || canDownload || canRerun) && (
           <div className="job-actions">
             {canCancel && (
               <button
@@ -181,6 +209,16 @@ function GenerationJobRow({ job, isRetrying, isCancelling, onPreview, onRetry, o
             {canRetry && (
               <button className="job-action" type="button" onClick={() => onRetry(job)} disabled={isRetrying}>
                 <RotateCcw size={13} /> {isRetrying ? '重试中' : '重试'}
+              </button>
+            )}
+            {canRerun && (
+              <button
+                className="job-action"
+                type="button"
+                onClick={() => onRerun(job)}
+                disabled={isRerunning}
+              >
+                <RotateCcw size={13} /> {isRerunning ? '重生中' : '重生'}
               </button>
             )}
             {canPreview && (
@@ -248,6 +286,19 @@ function queueSummary(activeCount, failedCount, cancelledCount) {
 
 function typeLabel(kind) {
   return { text: '文本', image: '图片', video: '视频', audio: '音频' }[kind] || kind
+}
+
+function jobTypeLabel(job) {
+  if (job.kind === 'audio') return '音频'
+  if (job.kind === 'video' && job.provider === 'film-export') return '成片'
+  if (job.kind === 'image' && job.metadata?.generationStage === 'turnaround') return '三视图'
+  if (job.kind === 'image' && job.metadata?.generationStage === 'face') return '面部'
+  if (job.kind === 'image' && job.metadata?.generationStage === 'body') return '全身'
+  return typeLabel(job.kind)
+}
+
+function canRerunTask(job) {
+  return job.kind === 'audio' || (job.kind === 'image' && job.metadata?.generationStage === 'turnaround')
 }
 
 function statusIcon(status) {

@@ -21,6 +21,7 @@ export function WorkspaceRouter({
   currentShot,
   setCurrentShot,
   taskPollError,
+  taskSyncMode,
   onNavigate,
   onOpenNewProject,
   onRefreshWorkspace,
@@ -32,6 +33,7 @@ export function WorkspaceRouter({
   onCreateJob,
   onCreateShotVideoJob,
   onRetryJob,
+  onRerunJob,
   onRetryShotVideoJob,
   onExportFilmMp4,
   onUpdateProject,
@@ -194,6 +196,7 @@ export function WorkspaceRouter({
           onSetToast('已清理完成任务')
         }}
         onRetry={onRetryJob}
+        onRerun={onRerunJob}
         onCancel={async (job) => {
           await api.cancelTask(job.id)
           await onRefreshTasks()
@@ -203,6 +206,7 @@ export function WorkspaceRouter({
         }}
         onNext={() => onNavigate('film')}
         pollError={taskPollError}
+        syncMode={taskSyncMode}
       />
     ),
     film: (

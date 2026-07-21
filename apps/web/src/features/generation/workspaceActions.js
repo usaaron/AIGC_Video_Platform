@@ -4,6 +4,16 @@ import { negativePromptForVideoProject } from '../prompts/negativePromptPresets'
 
 const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const assetKindLabels = { character: '角色', scene: '场景', prop: '道具', costume: '服装', audio: '音频' }
+const transientTaskMetadataKeys = new Set([
+  'providerName',
+  'providerState',
+  'providerTaskId',
+  'providerPolledAt',
+  'providerPollErrors',
+  'cancelledAt',
+  'refundCredits',
+  'refundPolicy',
+])
 
 export function createWorkspaceActions({
   project,
@@ -52,6 +62,23 @@ export function createWorkspaceActions({
       await api.retryTask(job.id)
       await refreshTasks()
       setToast(`${job.label} 已重新加入队列`)
+    } catch (error) {
+      setToast(error.message)
+      throw error
+    }
+  }
+
+  const rerunJob = async (job) => {
+    try {
+      await createJob(job.label, typeLabelForKind(job.kind), job.estimatedCredits, {
+        provider: job.provider,
+        model: job.model ?? undefined,
+        prompt: job.prompt,
+        negativePrompt: job.negativePrompt,
+        metadata: cleanTaskMetadata(job.metadata),
+        rethrow: true,
+      })
+      setToast(`${job.label} 已重新创建`)
     } catch (error) {
       setToast(error.message)
       throw error
@@ -137,6 +164,7 @@ export function createWorkspaceActions({
   return {
     createJob,
     retryJob,
+    rerunJob,
     createShotVideoJob,
     retryShotVideoJob,
     exportFilmMp4,
@@ -180,4 +208,14 @@ function assetSummary(asset) {
     description: asset.description,
     imageUrl: asset.imageUrl,
   }
+}
+
+function typeLabelForKind(kind) {
+  return { text: '文本', image: '图片', video: '视频', audio: '音频' }[kind] || '图片'
+}
+
+function cleanTaskMetadata(metadata) {
+  return Object.fromEntries(
+    Object.entries(metadata || {}).filter(([key]) => !transientTaskMetadataKeys.has(key)),
+  )
 }

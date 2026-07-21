@@ -30,6 +30,27 @@ const upload = (file) => {
   return { method: 'POST', body }
 }
 
+function subscribeTaskEvents(projectId, onTasks, onError) {
+  if (typeof EventSource === 'undefined') return null
+
+  const source = new EventSource(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/generation/tasks/events`,
+    { withCredentials: true },
+  )
+  source.addEventListener('tasks', (event) => {
+    try {
+      const payload = JSON.parse(event.data)
+      onTasks(payload.tasks || [])
+    } catch (error) {
+      onError?.(error)
+    }
+  })
+  source.addEventListener('error', () => {
+    onError?.(new Error('任务推送暂时不可用，正在使用轮询同步'))
+  })
+  return () => source.close()
+}
+
 export const api = {
   login: (input) => request('/auth/login', json('POST', input)),
   logout: () => request('/auth/logout', { method: 'POST' }),
@@ -50,6 +71,7 @@ export const api = {
     request(`/projects/${projectId}/shots/${shotId}`, json('PATCH', input)),
   generateShots: (projectId) => request(`/projects/${projectId}/shots/generate`, { method: 'POST' }),
   tasks: (projectId) => request(`/projects/${projectId}/generation/tasks`),
+  subscribeTasks: subscribeTaskEvents,
   createTask: (input) => request('/generation/tasks', json('POST', input)),
   retryTask: (taskId) => request(`/generation/tasks/${taskId}/retry`, { method: 'POST' }),
   cancelTask: (taskId) => request(`/generation/tasks/${taskId}/cancel`, { method: 'POST' }),
@@ -58,4 +80,6 @@ export const api = {
   billing: () => request('/billing/summary'),
   updatePlan: (plan) => request('/billing/plan', json('PUT', { plan })),
   adminOverview: () => request('/admin/overview'),
+  adminAuditLogs: (limit = 50) => request(`/admin/audit-logs?limit=${encodeURIComponent(limit)}`),
+  healthReady: () => request('/health/ready'),
 }

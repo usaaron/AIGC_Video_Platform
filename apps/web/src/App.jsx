@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Check, LoaderCircle } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
@@ -6,92 +6,38 @@ import { ProjectMenu } from './components/ProjectMenu'
 import { useAuth } from './components/AuthProvider'
 import { AdminPage } from './pages/AdminPage'
 import { WorkspaceRouter } from './pages/WorkspaceRouter'
-import { hasNewCompletedAssetTasks } from './features/generation/completedTaskSync'
-import { hasCompletedVideoForShot } from './features/generation/taskResults'
 import { createWorkspaceActions } from './features/generation/workspaceActions'
-import { api } from './services/apiClient'
+import { useProjectTasks } from './features/workspace/useProjectTasks'
+import { useShotPlayback } from './features/workspace/useShotPlayback'
+import { useWorkspaceData } from './features/workspace/useWorkspaceData'
+import { useWorkspaceNavigation } from './features/workspace/useWorkspaceNavigation'
 
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
-  const [activeStep, setActiveStep] = useState('overview')
-  const [projects, setProjects] = useState([])
-  const [workspace, setWorkspace] = useState(null)
-  const [tasks, setTasks] = useState([])
-  const [billing, setBilling] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [mobileNav, setMobileNav] = useState(false)
+  const { activeStep, mobileNav, setMobileNav, navigateTo } = useWorkspaceNavigation()
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const [toast, setToast] = useState('')
-  const [taskPollError, setTaskPollError] = useState('')
-  const [playing, setPlaying] = useState(false)
-  const [currentShot, setCurrentShot] = useState(0)
-  const syncedAssetTaskKeys = useRef(new Set())
 
   const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
-  const currentShotId = workspace?.shots[currentShot]?.id
-  const currentShotHasVideo = Boolean(currentShotId && hasCompletedVideoForShot(tasks, currentShotId))
-
-  useEffect(() => {
-    if (adminOnly) return
-    Promise.all([api.projects(), api.billing()])
-      .then(async ([projectList, billingSummary]) => {
-        setProjects(projectList)
-        setBilling(billingSummary)
-        if (projectList[0]) setWorkspace(await api.project(projectList[0].id))
-      })
-      .catch((error) => setToast(error.message))
-      .finally(() => setLoading(false))
-  }, [adminOnly])
-
-  useEffect(() => {
-    if (!workspace?.project.id) return undefined
-    const projectId = workspace.project.id
-    let disposed = false
-    const loadTasks = () =>
-      api
-        .tasks(projectId)
-        .then(async (nextTasks) => {
-          if (disposed) return
-          setTasks(nextTasks)
-          setTaskPollError('')
-          if (hasNewCompletedAssetTasks(nextTasks, syncedAssetTaskKeys.current)) {
-            const [nextWorkspace, nextProjects] = await Promise.all([api.project(projectId), api.projects()])
-            if (disposed) return
-            setWorkspace(nextWorkspace)
-            setProjects(nextProjects)
-          }
-        })
-        .catch((error) => {
-          if (!disposed) setTaskPollError(error.message || '生成状态同步失败')
-        })
-    void loadTasks()
-    const timer = window.setInterval(loadTasks, 1_500)
-    return () => {
-      disposed = true
-      window.clearInterval(timer)
-    }
-  }, [workspace?.project.id])
+  const { projects, workspace, project, billing, setBilling, loading, refreshWorkspace, refreshBilling } =
+    useWorkspaceData({ adminOnly, refreshSession, setToast })
+  const handleCompletedAssetTasks = useCallback(
+    async (projectId) => {
+      await refreshWorkspace(projectId)
+    },
+    [refreshWorkspace],
+  )
+  const { tasks, setTasks, taskPollError, taskSyncMode, refreshTasks } = useProjectTasks(project?.id, {
+    onCompletedAssetTasks: handleCompletedAssetTasks,
+  })
+  const { playing, setPlaying, currentShot, setCurrentShot } = useShotPlayback({ workspace, tasks })
 
   useEffect(() => {
     if (!toast) return undefined
     const timer = window.setTimeout(() => setToast(''), 2_800)
     return () => window.clearTimeout(timer)
   }, [toast])
-
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'instant' })
-  }, [activeStep])
-
-  useEffect(() => {
-    if (!playing || !workspace?.shots.length) return undefined
-    if (currentShotHasVideo) return undefined
-    const timer = window.setInterval(
-      () => setCurrentShot((index) => (index + 1) % workspace.shots.length),
-      2_400,
-    )
-    return () => window.clearInterval(timer)
-  }, [currentShotHasVideo, playing, workspace?.shots.length])
 
   if (adminOnly) return <AdminPage />
   if (loading || !billing)
@@ -102,36 +48,10 @@ function App() {
       </div>
     )
 
-  const project = workspace?.project
-
-  const refreshWorkspace = async (projectId = project?.id) => {
-    if (!projectId) return
-    const next = await api.project(projectId)
-    setWorkspace(next)
-    setProjects(await api.projects())
-  }
-
-  const refreshBilling = async () => {
-    const next = await api.billing()
-    setBilling(next)
-    await refreshSession()
-  }
-
-  const refreshTasks = async () => {
-    if (!project) return
-    const nextTasks = await api.tasks(project.id)
-    setTasks(nextTasks)
-    setTaskPollError('')
-  }
-
-  const navigateTo = (id) => {
-    setActiveStep(id)
-    setMobileNav(false)
-  }
-
   const {
     createJob,
     retryJob,
+    rerunJob,
     createShotVideoJob,
     retryShotVideoJob,
     exportFilmMp4,
@@ -149,36 +69,6 @@ function App() {
     refreshTasks,
     navigateTo,
   })
-
-  const renderedWorkspace = (
-    <WorkspaceRouter
-      activeStep={activeStep}
-      project={project}
-      workspace={workspace}
-      tasks={tasks}
-      billing={billing}
-      account={session.account}
-      playing={playing}
-      setPlaying={setPlaying}
-      currentShot={currentShot}
-      setCurrentShot={setCurrentShot}
-      taskPollError={taskPollError}
-      onNavigate={navigateTo}
-      onOpenNewProject={() => setNewProjectOpen(true)}
-      onRefreshWorkspace={refreshWorkspace}
-      onRefreshTasks={refreshTasks}
-      onRefreshSession={refreshSession}
-      onSetBilling={setBilling}
-      onSetToast={setToast}
-      onCreateJob={createJob}
-      onCreateShotVideoJob={createShotVideoJob}
-      onRetryJob={retryJob}
-      onRetryShotVideoJob={retryShotVideoJob}
-      onExportFilmMp4={exportFilmMp4}
-      onUpdateProject={updateProject}
-      onLogout={logout}
-    />
-  )
   const runningJobs = tasks.filter((task) => task.status === 'running')
 
   return (
@@ -203,7 +93,37 @@ function App() {
       {mobileNav && (
         <button className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />
       )}
-      <main className="workspace">{renderedWorkspace}</main>
+      <main className="workspace">
+        <WorkspaceRouter
+          activeStep={activeStep}
+          project={project}
+          workspace={workspace}
+          tasks={tasks}
+          billing={billing}
+          account={session.account}
+          playing={playing}
+          setPlaying={setPlaying}
+          currentShot={currentShot}
+          setCurrentShot={setCurrentShot}
+          taskPollError={taskPollError}
+          onNavigate={navigateTo}
+          onOpenNewProject={() => setNewProjectOpen(true)}
+          onRefreshWorkspace={refreshWorkspace}
+          onRefreshTasks={refreshTasks}
+          onRefreshSession={refreshSession}
+          onSetBilling={setBilling}
+          onSetToast={setToast}
+          onCreateJob={createJob}
+          onCreateShotVideoJob={createShotVideoJob}
+          onRetryJob={retryJob}
+          onRerunJob={rerunJob}
+          onRetryShotVideoJob={retryShotVideoJob}
+          onExportFilmMp4={exportFilmMp4}
+          onUpdateProject={updateProject}
+          onLogout={logout}
+          taskSyncMode={taskSyncMode}
+        />
+      </main>
       {newProjectOpen && (
         <NewProjectModal onClose={() => setNewProjectOpen(false)} onCreate={createProject} />
       )}

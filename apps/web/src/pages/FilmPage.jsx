@@ -47,10 +47,8 @@ export function FilmPage({
   const hasAllShotVideos = shots.length > 0 && completedShotCount === shots.length
   const audioAssets = assets.filter((asset) => asset.kind === 'audio')
   const audioTasks = tasks.filter((task) => task.kind === 'audio')
-  const completedAudioTasks = audioTasks.filter(
-    (task) => task.status === 'completed' && resultUrlForTask(task),
-  )
-  const audioAccepted = audioAssets.length === 0 || completedAudioTasks.length > 0
+  const audioAcceptance = audioAcceptanceFor(audioAssets, audioTasks)
+  const audioAccepted = audioAssets.length === 0 || audioAcceptance.acceptedCount === audioAssets.length
   const isExporting = exportTask?.status === 'queued' || exportTask?.status === 'running'
   const canExport = hasAllShotVideos && audioAccepted && !isExporting
   const resultUrl = resultTask ? resultUrlForTask(resultTask) : ''
@@ -110,7 +108,7 @@ export function FilmPage({
         completedShotCount={completedShotCount}
         totalShots={shots.length}
         audioAssets={audioAssets}
-        completedAudioTasks={completedAudioTasks}
+        acceptedAudioCount={audioAcceptance.acceptedCount}
         exportTask={exportTask}
         completedExportTask={completedExportTask}
       />
@@ -228,12 +226,12 @@ function AcceptanceChecklist({
   completedShotCount,
   totalShots,
   audioAssets,
-  completedAudioTasks,
+  acceptedAudioCount,
   exportTask,
   completedExportTask,
 }) {
   const shotOk = totalShots > 0 && completedShotCount === totalShots
-  const audioOk = audioAssets.length === 0 || completedAudioTasks.length > 0
+  const audioOk = audioAssets.length === 0 || acceptedAudioCount === audioAssets.length
   const exportOk = Boolean(completedExportTask)
   return (
     <section className="film-acceptance">
@@ -247,7 +245,7 @@ function AcceptanceChecklist({
         title="音频"
         detail={
           audioAssets.length
-            ? `${completedAudioTasks.length}/${audioAssets.length} 个音频结果可用于导出`
+            ? `${acceptedAudioCount}/${audioAssets.length} 个音频资产可用于导出`
             : '未配置音频资产，可直接导出无音轨版本'
         }
       />
@@ -317,4 +315,17 @@ function shotItemClass(isActive, task, resultTask) {
   return [isActive ? 'active' : '', resultTask ? 'has-video' : '', task?.status === 'failed' ? 'failed' : '']
     .filter(Boolean)
     .join(' ')
+}
+
+function audioAcceptanceFor(audioAssets, audioTasks) {
+  const completedTaskByAsset = new Map(
+    audioTasks
+      .filter((task) => task.status === 'completed' && resultUrlForTask(task) && task.metadata?.assetId)
+      .map((task) => [task.metadata.assetId, task]),
+  )
+  const acceptedCount = audioAssets.filter(
+    (asset) => asset.references?.length || completedTaskByAsset.has(asset.id),
+  ).length
+
+  return { acceptedCount }
 }
