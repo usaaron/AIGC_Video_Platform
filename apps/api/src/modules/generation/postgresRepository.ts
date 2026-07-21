@@ -2,7 +2,7 @@ import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/co
 import { randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
 import type { PostgresTransactionRunner } from '../../infra/postgresStore.js'
-import { taskFromRow, type TaskRow } from '../../infra/postgresState.js'
+import { TASK_COLUMNS, taskFromRow, type TaskRow } from '../../infra/postgresRows.js'
 import type { CreateReservedTaskResult, GenerationTaskStore, TaskMutationResult } from './repository.js'
 
 const PROVIDER_RETRY_METADATA_KEYS = new Set([
@@ -12,14 +12,6 @@ const PROVIDER_RETRY_METADATA_KEYS = new Set([
   'providerPolledAt',
   'providerPollErrors',
 ])
-
-const TASK_COLUMNS = `
-  id, client_request_id as "clientRequestId", project_id as "projectId",
-  tenant_id as "tenantId", user_id as "userId", kind, label, prompt,
-  negative_prompt as "negativePrompt", provider, model, metadata, status,
-  progress, estimated_credits as "estimatedCredits", result_url as "resultUrl",
-  outputs, error, created_at as "createdAt", updated_at as "updatedAt"
-`
 
 export class PostgresGenerationTaskRepository implements GenerationTaskStore {
   constructor(private readonly transactions: PostgresTransactionRunner) {}
