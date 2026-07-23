@@ -14,10 +14,93 @@ export const visualStyleSchema = z.enum([
   'storybook',
 ])
 
+export const DEFAULT_SCRIPT_DIRECTION = {
+  style: 'auto',
+  composition: 'auto',
+  lighting: 'auto',
+  camera: 'auto',
+  focus: 'balanced',
+} as const
+
+export const scriptCreativeDirectionSchema = z.object({
+  style: z
+    .enum(['auto', 'photorealistic', 'cinematic-cg', 'chinese-3d', 'chinese-2d', 'anime', 'storybook'])
+    .default('auto'),
+  composition: z
+    .enum(['auto', 'rule-of-thirds', 'centered', 'symmetry', 'negative-space', 'dynamic'])
+    .default('auto'),
+  lighting: z.enum(['auto', 'natural-soft', 'high-contrast', 'low-key', 'backlight', 'neon']).default('auto'),
+  camera: z.enum(['auto', 'restrained', 'immersive', 'dynamic', 'documentary', 'suspense']).default('auto'),
+  focus: z.enum(['balanced', 'scene', 'character', 'dialogue']).default('balanced'),
+})
+
+export const generateScriptRequestSchema = z.object({
+  clientRequestId: z.string().min(1).max(128).optional(),
+  draft: z.string().max(100_000).default(''),
+  direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+})
+
+export const enrichScriptRequestSchema = z.object({
+  clientRequestId: z.string().min(1).max(128).optional(),
+  script: z.string().max(100_000).default(''),
+  direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+})
+
+export const reviewScriptRequestSchema = z.object({
+  clientRequestId: z.string().min(1).max(128).optional(),
+  script: z.string().max(100_000).default(''),
+  direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+})
+
+export const scriptReviewDimensionKeySchema = z.enum([
+  'plot',
+  'character',
+  'dialogue',
+  'style',
+  'composition',
+  'lighting',
+  'camera',
+])
+
+export const scriptReviewDimensionSchema = z.object({
+  key: scriptReviewDimensionKeySchema,
+  score: z.number().int().min(0).max(100),
+  finding: z.string().min(1).max(600),
+  suggestion: z.string().min(1).max(800),
+})
+
+export const scriptReviewContentSchema = z.object({
+  score: z.number().int().min(0).max(100),
+  verdict: z.string().min(1).max(1_000),
+  dimensions: z.array(scriptReviewDimensionSchema).min(5).max(7),
+  priorityActions: z.array(z.string().min(1).max(500)).min(1).max(5),
+})
+
+export const scriptReviewResultSchema = scriptReviewContentSchema.extend({
+  generatedAt: z.string().datetime(),
+})
+
+export const generateShotsRequestSchema = z.object({
+  maxShots: z.number().int().min(3).max(48).default(8),
+  mode: z.enum(['scene', 'beat']).default('scene'),
+})
+
 export const mediaReferenceSchema = z.object({
   id: z.string().min(1).max(128),
   url: z.string().min(1).max(2_000),
   name: z.string().min(1).max(255),
+})
+
+export const trustedPortraitSchema = z.object({
+  assetId: z.string().min(1).max(128),
+  groupId: z.string().min(1).max(128),
+  groupType: z.enum(['AIGC', 'LivenessFace']),
+  status: z.enum(['processing', 'active', 'failed']),
+  name: z.string().max(255),
+  previewUrl: z.string().max(2_000).nullable(),
+  errorCode: z.string().max(255).nullable(),
+  errorMessage: z.string().max(1_000).nullable(),
+  checkedAt: z.string().datetime(),
 })
 
 export const characterAttributesSchema = z.object({
@@ -36,6 +119,8 @@ export const characterAttributesSchema = z.object({
   bodyStatus: z.enum(['pending', 'approved']),
   faceReference: mediaReferenceSchema.nullable(),
   bodyReference: mediaReferenceSchema.nullable(),
+  portraitSource: z.enum(['ai-virtual', 'authorized-real']).default('ai-virtual'),
+  trustedPortrait: trustedPortraitSchema.nullable().default(null),
   legStretch: z.boolean(),
   turnaround: z.boolean(),
   turnaroundLayout: z.enum(['sheet', 'separate']),
@@ -166,19 +251,33 @@ export const assetSchema = z.object({
   updatedAt: z.string().datetime(),
 })
 
-const assetInputSchema = z.object({
-  kind: assetKindSchema,
+const assetInputFields = {
   sourceMode: assetSourceSchema,
   name: z.string().trim().min(1).max(120),
-  description: z.string().max(500).default(''),
-  prompt: z.string().max(5_000).default(''),
-  promptMode: promptModeSchema.default('standard'),
-  customPromptMode: customPromptModeSchema.default('append'),
-  customPrompt: z.string().max(5_000).default(''),
-  negativePrompt: z.string().max(2_000).default(''),
-  references: z.array(mediaReferenceSchema).max(3).default([]),
+  description: z.string().max(500),
+  prompt: z.string().max(5_000),
+  promptMode: promptModeSchema,
+  customPromptMode: customPromptModeSchema,
+  customPrompt: z.string().max(5_000),
+  negativePrompt: z.string().max(2_000),
+  references: z.array(mediaReferenceSchema).max(3),
   attributes: assetAttributesSchema,
-  imageUrl: z.string().max(2_000).nullable().default(null),
+  imageUrl: z.string().max(2_000).nullable(),
+} as const
+
+const assetInputSchema = z.object({
+  kind: assetKindSchema,
+  sourceMode: assetInputFields.sourceMode,
+  name: assetInputFields.name,
+  description: assetInputFields.description.default(''),
+  prompt: assetInputFields.prompt.default(''),
+  promptMode: assetInputFields.promptMode.default('standard'),
+  customPromptMode: assetInputFields.customPromptMode.default('append'),
+  customPrompt: assetInputFields.customPrompt.default(''),
+  negativePrompt: assetInputFields.negativePrompt.default(''),
+  references: assetInputFields.references.default([]),
+  attributes: assetInputFields.attributes,
+  imageUrl: assetInputFields.imageUrl.default(null),
 })
 
 export const createAssetSchema = assetInputSchema.superRefine((input, context) => {
@@ -198,10 +297,21 @@ export const createAssetSchema = assetInputSchema.superRefine((input, context) =
   }
 })
 
-export const updateAssetSchema = assetInputSchema
-  .omit({ kind: true })
-  .partial()
-  .extend({ status: z.enum(['draft', 'confirmed']).optional() })
+export const updateAssetSchema = z
+  .object({
+    sourceMode: assetInputFields.sourceMode.optional(),
+    name: assetInputFields.name.optional(),
+    description: assetInputFields.description.optional(),
+    prompt: assetInputFields.prompt.optional(),
+    promptMode: assetInputFields.promptMode.optional(),
+    customPromptMode: assetInputFields.customPromptMode.optional(),
+    customPrompt: assetInputFields.customPrompt.optional(),
+    negativePrompt: assetInputFields.negativePrompt.optional(),
+    references: assetInputFields.references.optional(),
+    attributes: assetInputFields.attributes.optional(),
+    imageUrl: assetInputFields.imageUrl.optional(),
+    status: z.enum(['draft', 'confirmed']).optional(),
+  })
   .refine((input) => Object.keys(input).length > 0, 'At least one field is required')
 
 export const shotSchema = z.object({
@@ -211,24 +321,50 @@ export const shotSchema = z.object({
   order: z.number().int().positive(),
   title: z.string().min(1).max(120),
   framing: z.string().min(1).max(80),
-  duration: z.number().int().min(1).max(120),
+  duration: z.number().int().min(4).max(15),
   prompt: z.string().max(5_000),
+  negativePrompt: z.string().max(2_000).default(''),
   imageUrl: z.string().max(2_000).nullable(),
+  continuityMode: z.enum(['independent', 'continue']).default('independent'),
+  continuityNote: z.string().max(2_000).default(''),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
 
-export const createShotSchema = z.object({
+const shotInputFields = {
   title: z.string().trim().min(1).max(120),
-  framing: z.string().trim().min(1).max(80).default('中景'),
-  duration: z.number().int().min(1).max(120).default(4),
-  prompt: z.string().max(5_000).default(''),
-  imageUrl: z.string().max(2_000).nullable().default(null),
+  framing: z.string().trim().min(1).max(80),
+  duration: z.number().int().min(4).max(15),
+  prompt: z.string().max(5_000),
+  negativePrompt: z.string().max(2_000),
+  imageUrl: z.string().max(2_000).nullable(),
+  continuityMode: z.enum(['independent', 'continue']),
+  continuityNote: z.string().max(2_000),
+} as const
+
+export const createShotSchema = z.object({
+  title: shotInputFields.title,
+  framing: shotInputFields.framing.default('中景'),
+  duration: shotInputFields.duration.default(4),
+  prompt: shotInputFields.prompt.default(''),
+  negativePrompt: shotInputFields.negativePrompt.default(''),
+  imageUrl: shotInputFields.imageUrl.default(null),
+  continuityMode: shotInputFields.continuityMode.default('independent'),
+  continuityNote: shotInputFields.continuityNote.default(''),
 })
 
-export const updateShotSchema = createShotSchema
-  .partial()
-  .extend({ order: z.number().int().positive().optional() })
+export const updateShotSchema = z
+  .object({
+    title: shotInputFields.title.optional(),
+    framing: shotInputFields.framing.optional(),
+    duration: shotInputFields.duration.optional(),
+    prompt: shotInputFields.prompt.optional(),
+    negativePrompt: shotInputFields.negativePrompt.optional(),
+    imageUrl: shotInputFields.imageUrl.optional(),
+    continuityMode: shotInputFields.continuityMode.optional(),
+    continuityNote: shotInputFields.continuityNote.optional(),
+    order: z.number().int().positive().optional(),
+  })
   .refine((input) => Object.keys(input).length > 0, 'At least one field is required')
 
 export const projectWorkspaceSchema = z.object({
@@ -241,9 +377,16 @@ export type Project = z.infer<typeof projectSchema>
 export type CreateProject = z.infer<typeof createProjectSchema>
 export type UpdateProject = z.infer<typeof updateProjectSchema>
 export type Asset = z.infer<typeof assetSchema>
+export type TrustedPortrait = z.infer<typeof trustedPortraitSchema>
 export type CreateAsset = z.infer<typeof createAssetSchema>
 export type UpdateAsset = z.infer<typeof updateAssetSchema>
 export type Shot = z.infer<typeof shotSchema>
 export type CreateShot = z.infer<typeof createShotSchema>
 export type UpdateShot = z.infer<typeof updateShotSchema>
 export type ProjectWorkspace = z.infer<typeof projectWorkspaceSchema>
+export type ScriptCreativeDirection = z.infer<typeof scriptCreativeDirectionSchema>
+export type GenerateScriptRequest = z.infer<typeof generateScriptRequestSchema>
+export type ReviewScriptRequest = z.infer<typeof reviewScriptRequestSchema>
+export type ScriptReviewContent = z.infer<typeof scriptReviewContentSchema>
+export type ScriptReviewResult = z.infer<typeof scriptReviewResultSchema>
+export type GenerateShotsRequest = z.infer<typeof generateShotsRequestSchema>

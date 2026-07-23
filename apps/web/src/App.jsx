@@ -1,21 +1,46 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Check, LoaderCircle, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
 import { IconButton } from './components/ui'
 import { useAuth } from './components/AuthProvider'
-import { AdminPage } from './pages/AdminPage'
-import { AssetsPage } from './pages/AssetsPage'
-import { BillingPage } from './pages/BillingPage'
-import { FilmPage } from './pages/FilmPage'
-import { GenerationPage } from './pages/GenerationPage'
-import { OverviewPage } from './pages/OverviewPage'
-import { ScriptPage } from './pages/ScriptPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { StoryboardPage } from './pages/StoryboardPage'
-import { api } from './services/apiClient'
+import { api, waitForProjectScriptUpdate } from './services/apiClient'
+import {
+  selectShotAssetReferences,
+  selectVideoReferenceImages,
+  taskUsesAssetReferences,
+} from './features/storyboard/referenceSelector'
+import {
+  activeVideoTasksForShots,
+  isCompatibleCompletedVideoTask,
+  planVideoBatch,
+} from './features/storyboard/videoBatchPlanner'
+import {
+  compileStoryboardVideoPrompt,
+  normalizedVideoDuration,
+  VIDEO_PROMPT_VERSION,
+} from '@seqora/prompting'
 
 const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
+const videoResolutions = new Set(['480p', '720p', '1080p', '4k'])
+const activeTaskStatuses = new Set(['queued', 'paused', 'running'])
+const ACTIVE_TASK_POLL_MS = 2_500
+const IDLE_TASK_POLL_MS = 12_000
+const BACKGROUND_TASK_POLL_MS = 30_000
+
+function isRecoverableScriptConnectionError(error) {
+  return !error?.status || error.status === 504 || (error.code === 'REQUEST_FAILED' && error.status >= 500)
+}
+
+const AdminPage = lazyNamed(() => import('./pages/AdminPage'), 'AdminPage')
+const AssetsPage = lazyNamed(() => import('./pages/AssetsPage'), 'AssetsPage')
+const BillingPage = lazyNamed(() => import('./pages/BillingPage'), 'BillingPage')
+const FilmPage = lazyNamed(() => import('./pages/FilmPage'), 'FilmPage')
+const GenerationPage = lazyNamed(() => import('./pages/GenerationPage'), 'GenerationPage')
+const OverviewPage = lazyNamed(() => import('./pages/OverviewPage'), 'OverviewPage')
+const ScriptPage = lazyNamed(() => import('./pages/ScriptPage'), 'ScriptPage')
+const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage')
+const StoryboardPage = lazyNamed(() => import('./pages/StoryboardPage'), 'StoryboardPage')
 
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
@@ -29,7 +54,6 @@ function App() {
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const [toast, setToast] = useState('')
-  const [playing, setPlaying] = useState(false)
   const [currentShot, setCurrentShot] = useState(0)
 
   const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
@@ -48,14 +72,50 @@ function App() {
 
   useEffect(() => {
     if (!workspace?.project.id) return undefined
-    const loadTasks = () =>
-      api
-        .tasks(workspace.project.id)
-        .then(setTasks)
-        .catch(() => {})
+    let cancelled = false
+    let requestInFlight = false
+    let timer = null
+    const schedule = (delay) => {
+      if (cancelled) return
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => void loadTasks(), delay)
+    }
+    const loadTasks = async () => {
+      if (requestInFlight || cancelled) return
+      requestInFlight = true
+      let nextDelay = IDLE_TASK_POLL_MS
+      try {
+        const [nextTasks, nextWorkspace, nextBilling] = await Promise.all([
+          api.tasks(workspace.project.id),
+          api.project(workspace.project.id),
+          api.billing(),
+        ])
+        if (cancelled) return
+        setTasks(nextTasks)
+        setWorkspace(nextWorkspace)
+        setBilling(nextBilling)
+        nextDelay = nextTasks.some((task) => activeTaskStatuses.has(task.status))
+          ? ACTIVE_TASK_POLL_MS
+          : IDLE_TASK_POLL_MS
+      } catch {
+        nextDelay = IDLE_TASK_POLL_MS
+      } finally {
+        requestInFlight = false
+        schedule(document.hidden ? BACKGROUND_TASK_POLL_MS : nextDelay)
+      }
+    }
+    const handleVisibilityChange = () => {
+      window.clearTimeout(timer)
+      if (document.hidden) schedule(BACKGROUND_TASK_POLL_MS)
+      else void loadTasks()
+    }
     void loadTasks()
-    const timer = window.setInterval(loadTasks, 1_500)
-    return () => window.clearInterval(timer)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [workspace?.project.id])
 
   useEffect(() => {
@@ -68,16 +128,12 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [activeStep])
 
-  useEffect(() => {
-    if (!playing || !workspace?.shots.length) return undefined
-    const timer = window.setInterval(
-      () => setCurrentShot((index) => (index + 1) % workspace.shots.length),
-      2_400,
+  if (adminOnly)
+    return (
+      <Suspense fallback={<WorkspaceLoading fullPage />}>
+        <AdminPage />
+      </Suspense>
     )
-    return () => window.clearInterval(timer)
-  }, [playing, workspace?.shots.length])
-
-  if (adminOnly) return <AdminPage />
   if (loading || !billing)
     return (
       <div className="app-loading">
@@ -107,7 +163,7 @@ function App() {
       const kind = kindByType[type] || 'image'
       const provider =
         kind === 'image' ? 'img2' : kind === 'video' ? 'seedance' : kind === 'audio' ? 'audio' : 'local'
-      await api.createTask({
+      const created = await api.createTask({
         clientRequestId: crypto.randomUUID(),
         projectId: project.id,
         kind,
@@ -123,8 +179,10 @@ function App() {
       setTasks(await api.tasks(project.id))
       await refreshBilling()
       setToast(`${label} 已加入生成队列`)
+      return created
     } catch (error) {
       setToast(error.message)
+      return null
     }
   }
 
@@ -155,6 +213,138 @@ function App() {
     }
   }
 
+  const createStoryboardImage = (shot) => {
+    const references = selectShotAssetReferences(workspace.assets, shot)
+    const referencePrompt = references.length
+      ? `参考项目资产：${references.map((reference) => reference.assetName).join('、')}，严格保持人物身份、服装、场景和关键物品一致`
+      : ''
+    return createJob(`分镜图 ${String(shot.order).padStart(2, '0')} · ${shot.title}`, '图片', 6, {
+      prompt: [
+        shot.prompt,
+        shot.continuityNote ? `场景衔接：${shot.continuityNote}` : '',
+        shot.framing,
+        referencePrompt,
+        '电影分镜静帧，构图清晰，保持项目视觉风格一致',
+      ]
+        .filter(Boolean)
+        .join('，'),
+      negativePrompt: shot.negativePrompt,
+      metadata: {
+        shotId: shot.id,
+        generationStage: 'storyboard',
+        aspectRatio: project.aspectRatio,
+        references,
+        referenceAssetIds: references.map((reference) => reference.id),
+      },
+    })
+  }
+
+  const createStoryboardVideo = async (
+    shot,
+    {
+      resolution = '720p',
+      continuitySourceTask = null,
+      chain = [],
+      continuityMode = shot.continuityMode || 'independent',
+      batchId = null,
+      batchMode = null,
+    } = {},
+  ) => {
+    const references = selectShotAssetReferences(workspace.assets, shot)
+    const orderedShots = [...workspace.shots].sort((left, right) => left.order - right.order)
+    const shotIndex = orderedShots.findIndex((item) => item.id === shot.id)
+    const previousShot = shotIndex > 0 ? orderedShots[shotIndex - 1] : null
+    let sourceTask = continuitySourceTask
+    if (continuityMode === 'continue' && previousShot && !sourceTask) {
+      sourceTask = latestVideoTaskFor(tasks, previousShot.id, true)
+      if (!sourceTask && !chain.includes(previousShot.id)) {
+        sourceTask = await createStoryboardVideo(previousShot, {
+          resolution,
+          chain: [...chain, shot.id],
+          batchId,
+          batchMode,
+        })
+      }
+      if (!sourceTask) {
+        setToast('请先完成上一镜头并生成尾帧，再生成连续镜头')
+        return null
+      }
+    }
+    if (sourceTask?.status === 'completed' && !hasLastFrame(sourceTask)) {
+      setToast('上一镜头虽已完成，但尾帧提取失败；请重新生成上一镜头后再继续')
+      return null
+    }
+    const existingImageTask = tasks.find(
+      (task) =>
+        task.kind === 'image' &&
+        task.metadata?.shotId === shot.id &&
+        task.status !== 'failed' &&
+        task.status !== 'cancelled',
+    )
+    const manualImageUrl =
+      shot.imageUrl && !shot.imageUrl.startsWith('/api/v1/generation/tasks/') ? shot.imageUrl : null
+    const currentImageTask = taskUsesAssetReferences(existingImageTask, references) ? existingImageTask : null
+    const imageTask = currentImageTask
+    const completedImageUrl =
+      manualImageUrl ||
+      (currentImageTask?.status === 'completed' ? currentImageTask.resultUrl || shot.imageUrl : null)
+    const storyboardImageUrl =
+      completedImageUrl || (imageTask ? `/api/v1/generation/tasks/${imageTask.id}/outputs/single` : null)
+    const images = selectVideoReferenceImages(storyboardImageUrl, references)
+    const selectedResolution = videoResolutions.has(resolution) ? resolution : '720p'
+    const videoPrompt = compileStoryboardVideoPrompt({
+      project,
+      shot,
+      shots: workspace.shots,
+      assets: workspace.assets,
+      references,
+      continuityMode,
+    })
+    const dependencyIds = [
+      imageTask && imageTask.status !== 'completed' ? imageTask.id : null,
+      sourceTask && sourceTask.status !== 'completed' ? sourceTask.id : null,
+    ].filter(Boolean)
+    return createJob(`镜头 ${String(shot.order).padStart(2, '0')} · ${shot.title}`, '视频', 18, {
+      prompt: videoPrompt,
+      negativePrompt: shot.negativePrompt,
+      metadata: {
+        shotId: shot.id,
+        duration: normalizedVideoDuration(shot.duration),
+        requestedDuration: shot.duration,
+        aspectRatio: project.aspectRatio,
+        resolution: selectedResolution,
+        generateAudio: false,
+        watermark: false,
+        returnLastFrame: true,
+        continuityMode,
+        ...(sourceTask ? { continuitySourceTaskId: sourceTask.id } : {}),
+        ...(storyboardImageUrl ? { storyboardImageUrl } : {}),
+        images,
+        videoInputMode: sourceTask
+          ? 'continuity-first-frame'
+          : storyboardImageUrl
+            ? 'storyboard-and-assets'
+            : references.length
+              ? 'assets'
+              : 'text',
+        referenceAssetIds: references.map((reference) => reference.id),
+        compiledPrompt: videoPrompt,
+        videoPromptVersion: VIDEO_PROMPT_VERSION,
+        sourceProjectVersion: project.version,
+        ...(batchId
+          ? {
+              batchId,
+              batchMode,
+              batchPlanVersion: 'v2',
+            }
+          : {}),
+        ...(dependencyIds.length
+          ? { dependsOnTaskId: dependencyIds[0], dependsOnTaskIds: dependencyIds }
+          : {}),
+      },
+    })
+  }
+
   const renderContent = () => {
     if (!project) {
       return (
@@ -178,13 +368,106 @@ function App() {
           billing={billing}
           setActiveStep={navigateTo}
           setNewProjectOpen={setNewProjectOpen}
+          onUpdateSynopsis={async (synopsis) => {
+            await api.updateProject(project.id, { synopsis })
+            await refreshWorkspace()
+            setToast('故事简介已保存')
+          }}
         />
       ),
       script: (
         <ScriptPage
           project={project}
-          onSave={(script) => updateProject({ script }, '剧本已保存')}
-          onGenerate={() => createJob('剧本 · AI 扩写', '文本', 3)}
+          billing={billing}
+          onSave={async (script) => {
+            await api.updateProject(project.id, { script })
+            await refreshWorkspace()
+            setToast('剧本已保存')
+          }}
+          onGenerate={async (draft, direction, onPhaseChange) => {
+            try {
+              const generated = await api.generateScript(project.id, draft, direction)
+              setWorkspace((current) =>
+                current?.project.id === project.id
+                  ? {
+                      ...current,
+                      project: { ...current.project, script: generated.script },
+                    }
+                  : current,
+              )
+              setToast('剧本已生成并保存')
+              void refreshWorkspace().catch(() => {})
+              return generated
+            } catch (error) {
+              if (!isRecoverableScriptConnectionError(error)) throw error
+              onPhaseChange?.('syncing')
+              const recovered = await waitForProjectScriptUpdate(project.id, project.script)
+              if (!recovered) throw error
+              setWorkspace(recovered)
+              setToast('已自动同步生成完成的剧本')
+              void api
+                .projects()
+                .then(setProjects)
+                .catch(() => {})
+              return { script: recovered.project.script, mode: 'quick', warnings: [] }
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
+          onEnrich={async (script, direction) => {
+            try {
+              const enriched = await api.enrichScript(project.id, script, direction)
+              setWorkspace((current) =>
+                current?.project.id === project.id
+                  ? {
+                      ...current,
+                      project: { ...current.project, script: enriched.script },
+                    }
+                  : current,
+              )
+              setToast('专业视觉细节已补齐并保存')
+              void refreshWorkspace().catch(() => {})
+              return enriched
+            } catch (error) {
+              if (!isRecoverableScriptConnectionError(error)) throw error
+              const recovered = await waitForProjectScriptUpdate(project.id, script)
+              if (!recovered) throw error
+              setWorkspace(recovered)
+              setToast('已自动同步补齐完成的专业视觉细节')
+              void api
+                .projects()
+                .then(setProjects)
+                .catch(() => {})
+              return { script: recovered.project.script, mode: 'detailed', warnings: [] }
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
+          onReview={async (script, direction) => {
+            try {
+              return await api.reviewScript(project.id, script, direction)
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
+          onPlanQuickStart={() => api.planQuickStart(project.id)}
+          onExecuteQuickStart={async (input) => {
+            const result = await api.executeQuickStart(project.id, input)
+            const [nextWorkspace, nextTasks, nextBilling, nextProjects] = await Promise.all([
+              api.project(project.id),
+              api.tasks(project.id),
+              api.billing(),
+              api.projects(),
+            ])
+            setWorkspace(nextWorkspace)
+            setTasks(nextTasks)
+            setBilling(nextBilling)
+            setProjects(nextProjects)
+            await refreshSession()
+            setToast(`已创建 ${result.createdAssets.length} 项尝鲜资产`)
+            return result
+          }}
+          onUpgrade={() => navigateTo('billing')}
           onNext={() => navigateTo('assets')}
         />
       ),
@@ -193,6 +476,7 @@ function App() {
           project={project}
           assets={workspace.assets}
           tasks={tasks}
+          concurrency={billing.concurrency}
           billing={billing}
           onCreate={async (input) => {
             const created = await api.createAsset(project.id, input)
@@ -201,9 +485,10 @@ function App() {
             return created
           }}
           onUpdate={async (assetId, input) => {
-            await api.updateAsset(project.id, assetId, input)
+            const updated = await api.updateAsset(project.id, assetId, input)
             await refreshWorkspace()
             setToast('资产已更新')
+            return updated
           }}
           onDelete={async (assetId) => {
             await api.deleteAsset(project.id, assetId)
@@ -211,6 +496,23 @@ function App() {
             setToast('资产已删除')
           }}
           onUpload={(file) => api.uploadMedia(project.id, file)}
+          onGetTrustedConfiguration={() => api.trustedAssetConfiguration()}
+          onListTrustedPortraits={(groupType) => api.trustedPortraits(groupType)}
+          onRegisterVirtualPortrait={async (assetId) => {
+            const updated = await api.registerVirtualPortrait(project.id, assetId)
+            await refreshWorkspace()
+            return updated
+          }}
+          onBindTrustedPortrait={async (assetId, providerAssetId) => {
+            const updated = await api.bindTrustedPortrait(project.id, assetId, providerAssetId)
+            await refreshWorkspace()
+            return updated
+          }}
+          onRefreshTrustedPortrait={async (assetId) => {
+            const updated = await api.refreshTrustedPortrait(project.id, assetId)
+            await refreshWorkspace()
+            return updated
+          }}
           onGenerateStage={(asset, stage, prompt) => {
             const references =
               stage === 'face'
@@ -237,8 +539,12 @@ function App() {
               },
             })
           }}
-          onGenerate={(asset) =>
-            createJob(`${asset.name} · 重新生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
+          onGenerate={(asset) => {
+            if (asset.sourceMode === 'import') {
+              setToast('直接导入资产已使用原图，不会创建 Img2 任务')
+              return null
+            }
+            return createJob(`${asset.name} · 重新生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
               prompt: asset.prompt,
               negativePrompt: asset.negativePrompt,
               metadata: {
@@ -251,24 +557,27 @@ function App() {
                 turnaround: asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
               },
             })
-          }
+          }}
           onGenerateAll={(selectedAssets) =>
-            selectedAssets.forEach(
-              (asset) =>
-                void createJob(`${asset.name} · 资产生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
-                  prompt: asset.prompt,
-                  negativePrompt: asset.negativePrompt,
-                  metadata: {
-                    assetId: asset.id,
-                    assetKind: asset.kind,
-                    aspectRatio: project.aspectRatio,
-                    sourceMode: asset.sourceMode,
-                    references: asset.references,
-                    attributes: asset.attributes,
-                    turnaround:
-                      asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
-                  },
-                }),
+            Promise.all(
+              selectedAssets
+                .filter((asset) => asset.sourceMode === 'generate')
+                .map((asset) =>
+                  createJob(`${asset.name} · 资产生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
+                    prompt: asset.prompt,
+                    negativePrompt: asset.negativePrompt,
+                    metadata: {
+                      assetId: asset.id,
+                      assetKind: asset.kind,
+                      aspectRatio: project.aspectRatio,
+                      sourceMode: asset.sourceMode,
+                      references: asset.references,
+                      attributes: asset.attributes,
+                      turnaround:
+                        asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
+                    },
+                  }),
+                ),
             )
           }
           onNext={() => navigateTo('storyboard')}
@@ -277,10 +586,16 @@ function App() {
       storyboard: (
         <StoryboardPage
           shots={workspace.shots}
-          onRegenerate={async () => {
-            await api.generateShots(project.id)
+          assets={workspace.assets}
+          tasks={tasks}
+          concurrency={billing.concurrency}
+          onRegenerate={async (mode = 'scene') => {
+            await api.generateShots(project.id, {
+              maxShots: mode === 'beat' ? 36 : 8,
+              mode,
+            })
             await refreshWorkspace()
-            setToast('已根据剧本重新拆分分镜')
+            setToast(mode === 'beat' ? '已按动作节拍细拆分镜' : '已按场次重新拆分分镜')
           }}
           onCreate={async (input) => {
             await api.createShot(project.id, input)
@@ -291,20 +606,75 @@ function App() {
             await refreshWorkspace()
             setToast('分镜已更新')
           }}
-          onGenerate={(shot) =>
-            createJob(`镜头 ${String(shot.order).padStart(2, '0')} · ${shot.title}`, '视频', 18, {
-              prompt: shot.prompt || `${shot.title}，${shot.framing}，电影感`,
-              metadata: {
-                shotId: shot.id,
-                duration: shot.duration,
-                aspectRatio: project.aspectRatio,
-                resolution: '720p',
-                generateAudio: false,
-                watermark: false,
-                images: shot.imageUrl ? [shot.imageUrl] : [],
-              },
-            })
-          }
+          onGenerateImage={createStoryboardImage}
+          onGenerateVideo={createStoryboardVideo}
+          onGenerateAllVideos={async (shotsToGenerate, resolution, mode = 'parallel') => {
+            const activeTasks = activeVideoTasksForShots(tasks, shotsToGenerate)
+            if (activeTasks.length) {
+              const shotCount = new Set(activeTasks.map((task) => task.metadata?.shotId)).size
+              throw new Error(
+                `当前有 ${shotCount} 个分镜视频任务仍在队列中，请先在生成队列暂停或删除后再切换策略。`,
+              )
+            }
+
+            const batchId = crypto.randomUUID()
+            const plan = planVideoBatch(shotsToGenerate, mode, billing.concurrency)
+            if (plan.continuityUpdates.length) {
+              await Promise.all(
+                plan.continuityUpdates.map((update) =>
+                  api.updateShot(project.id, update.shotId, { continuityMode: update.continuityMode }),
+                ),
+              )
+            }
+
+            const laneResults = await Promise.all(
+              plan.lanes.map(async (lane) => {
+                let created = 0
+                let previousVideoTask = null
+                for (const [shotIndex, shot] of lane.entries()) {
+                  const references = selectShotAssetReferences(workspace.assets, shot)
+                  const mustProvideLastFrame = lane[shotIndex + 1]?.continuityMode === 'continue'
+                  const existingVideo = tasks.find(
+                    (task) =>
+                      isCompatibleCompletedVideoTask(task, {
+                        shotId: shot.id,
+                        referenceAssetIds: references.map((reference) => reference.id),
+                        resolution,
+                        continuityMode: shot.continuityMode,
+                        previousTaskId: previousVideoTask?.id ?? null,
+                      }) &&
+                      (!mustProvideLastFrame || hasLastFrame(task)),
+                  )
+                  if (existingVideo) {
+                    previousVideoTask = existingVideo
+                    continue
+                  }
+                  const createdTask = await createStoryboardVideo(shot, {
+                    resolution,
+                    continuityMode: shot.continuityMode,
+                    continuitySourceTask: shot.continuityMode === 'continue' ? previousVideoTask : null,
+                    batchId,
+                    batchMode: mode,
+                  })
+                  if (!createdTask) break
+                  previousVideoTask = createdTask
+                  created += 1
+                }
+                return created
+              }),
+            )
+            const created = laneResults.reduce((total, count) => total + count, 0)
+            await refreshWorkspace()
+            setTasks(await api.tasks(project.id))
+            if (created) {
+              const laneCount = Math.min(plan.immediateLaneCount, created)
+              setToast(
+                mode === 'parallel'
+                  ? `已创建 ${created} 个视频任务，${laneCount} 路并发执行`
+                  : `已按原衔接关系创建 ${created} 个视频任务`,
+              )
+            }
+          }}
           onNext={() => navigateTo('generate')}
         />
       ),
@@ -314,10 +684,38 @@ function App() {
           concurrency={billing.concurrency}
           member={billing.plan === 'member'}
           onUpgrade={() => navigateTo('billing')}
+          onPause={async (taskId) => {
+            try {
+              await api.pauseTask(taskId)
+              setTasks(await api.tasks(project.id))
+              setToast('任务已暂停')
+            } catch (error) {
+              setToast(error.message)
+            }
+          }}
+          onResume={async (taskId) => {
+            try {
+              await api.resumeTask(taskId)
+              setTasks(await api.tasks(project.id))
+              setToast('任务已继续')
+            } catch (error) {
+              setToast(error.message)
+            }
+          }}
+          onDelete={async (taskId) => {
+            try {
+              await api.deleteTask(taskId)
+              setTasks(await api.tasks(project.id))
+              await refreshBilling()
+              setToast('任务已移出队列')
+            } catch (error) {
+              setToast(error.message)
+            }
+          }}
           onClear={async () => {
             await api.clearTasks(project.id)
             setTasks(await api.tasks(project.id))
-            setToast('已清理完成任务')
+            setToast('已归档结束任务，生成结果仍然保留')
           }}
           onNext={() => navigateTo('film')}
         />
@@ -326,8 +724,7 @@ function App() {
         <FilmPage
           project={project}
           shots={workspace.shots}
-          playing={playing}
-          setPlaying={setPlaying}
+          tasks={tasks}
           currentShot={currentShot}
           setCurrentShot={setCurrentShot}
           onSave={async () => {
@@ -336,6 +733,18 @@ function App() {
             setToast(`版本 v${saved.version} 已保存`)
           }}
           onEdit={() => navigateTo('storyboard')}
+          onComposePreview={async (mode = 'full') => {
+            try {
+              const task = await api.createFilmPreview(project.id, mode)
+              setTasks(await api.tasks(project.id))
+              const target = mode === 'partial' ? '已完成片段' : '完整预览'
+              setToast(task.status === 'completed' ? `${target}已是最新版本` : `${target}正在后台合成`)
+              return task
+            } catch (error) {
+              setToast(error.message)
+              return null
+            }
+          }}
           onExport={() => exportProject(workspace, tasks)}
         />
       ),
@@ -355,6 +764,7 @@ function App() {
           project={project}
           account={session.account}
           onSave={updateProject}
+          onChangePassword={(input) => api.changePassword(input)}
           onLogout={logout}
         />
       ),
@@ -388,7 +798,9 @@ function App() {
       {mobileNav && (
         <button className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />
       )}
-      <main className="workspace">{renderContent()}</main>
+      <main className="workspace">
+        <Suspense fallback={<WorkspaceLoading />}>{renderContent()}</Suspense>
+      </main>
       {newProjectOpen && (
         <NewProjectModal onClose={() => setNewProjectOpen(false)} onCreate={createProject} />
       )}
@@ -415,6 +827,43 @@ function App() {
       )}
     </div>
   )
+}
+
+function lazyNamed(loader, exportName) {
+  return lazy(() => loader().then((module) => ({ default: module[exportName] })))
+}
+
+function WorkspaceLoading({ fullPage = false }) {
+  return (
+    <div className={fullPage ? 'app-loading' : 'workspace-loading'}>
+      <LoaderCircle size={22} className="spin" />
+      <p>正在加载页面…</p>
+    </div>
+  )
+}
+
+function latestVideoTaskFor(tasks, shotId, needsLastFrame = false) {
+  return (
+    tasks.find(
+      (task) =>
+        task.kind === 'video' &&
+        task.metadata?.shotId === shotId &&
+        task.status !== 'cancelled' &&
+        (task.status === 'queued' || task.status === 'paused' || task.status === 'running'),
+    ) ||
+    tasks.find(
+      (task) =>
+        task.kind === 'video' &&
+        task.metadata?.shotId === shotId &&
+        task.status === 'completed' &&
+        (!needsLastFrame || hasLastFrame(task)),
+    ) ||
+    null
+  )
+}
+
+function hasLastFrame(task) {
+  return task?.outputs?.some((output) => output.view === 'last-frame') ?? false
 }
 
 function ProjectMenu({ projects, currentId, onClose, onSelect, onCreate }) {

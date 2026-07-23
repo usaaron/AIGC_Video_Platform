@@ -3,6 +3,7 @@ import {
   BadgeCheck,
   Boxes,
   Gauge,
+  LoaderCircle,
   Music2,
   Pencil,
   Plus,
@@ -13,9 +14,12 @@ import {
   UsersRound,
 } from 'lucide-react'
 import { useState } from 'react'
+import { ImagePreviewModal } from '../components/ImagePreviewModal'
 import { IconButton, PageHeader } from '../components/ui'
 import { AssetEditor } from '../features/assets/AssetEditor'
 import { ASSET_TABS } from '../features/assets/assetOptions'
+import { GenerationProgress } from '../features/assets/GenerationProgress'
+import { getAssetPreviewUrl } from '../features/assets/assetPreview'
 import { summarizeAsset } from '../features/assets/promptCompiler'
 
 const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, audio: Music2 }
@@ -32,14 +36,23 @@ export function AssetsPage({
   onGenerate,
   onGenerateStage,
   onGenerateAll,
+  onGetTrustedConfiguration,
+  onListTrustedPortraits,
+  onRegisterVirtualPortrait,
+  onBindTrustedPortrait,
+  onRefreshTrustedPortrait,
   onNext,
 }) {
   const [tab, setTab] = useState('character')
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [busyAssetId, setBusyAssetId] = useState(null)
+  const [batchGenerating, setBatchGenerating] = useState(false)
   const filtered = assets.filter(
     (asset) => asset.kind === tab && asset.name.toLowerCase().includes(search.toLowerCase()),
   )
+  const generatable = filtered.filter((asset) => asset.sourceMode === 'generate' && asset.kind !== 'audio')
   const tabLabel = ASSET_TABS.find(([kind]) => kind === tab)?.[1]
 
   return (
@@ -55,9 +68,21 @@ export function AssetsPage({
         <button className="button secondary" onClick={() => setEditing({ kind: tab })}>
           <Plus size={16} /> 添加{tabLabel}
         </button>
-        {billing.plan === 'member' && filtered.length > 0 && (
-          <button className="button primary" onClick={() => onGenerateAll(filtered)}>
-            <Sparkles size={16} /> 当前分类并发生成
+        {billing.plan === 'member' && generatable.length > 0 && (
+          <button
+            className="button primary"
+            disabled={batchGenerating}
+            onClick={async () => {
+              setBatchGenerating(true)
+              try {
+                await onGenerateAll(generatable)
+              } finally {
+                setBatchGenerating(false)
+              }
+            }}
+          >
+            {batchGenerating ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />}
+            {batchGenerating ? '正在加入队列' : '当前分类并发生成'}
           </button>
         )}
       </PageHeader>
@@ -90,7 +115,20 @@ export function AssetsPage({
             asset={asset}
             key={asset.id}
             onEdit={() => setEditing(asset)}
-            onGenerate={() => onGenerate(asset)}
+            task={tasks.find(
+              (task) =>
+                task.metadata?.assetId === asset.id && ['queued', 'paused', 'running'].includes(task.status),
+            )}
+            onGenerate={async () => {
+              setBusyAssetId(asset.id)
+              try {
+                await onGenerate(asset)
+              } finally {
+                setBusyAssetId(null)
+              }
+            }}
+            onPreview={setPreview}
+            busy={busyAssetId === asset.id}
           />
         ))}
         <button className="add-asset" onClick={() => setEditing({ kind: tab })}>
@@ -114,6 +152,7 @@ export function AssetsPage({
 
       {editing && (
         <AssetEditor
+          key={editing.id || `new-${editing.kind}`}
           asset={editing}
           aspectRatio={project.aspectRatio}
           tasks={tasks}
@@ -129,8 +168,30 @@ export function AssetsPage({
             else await onCreate(input)
             setEditing(null)
           }}
-          onPersist={async (input) => onUpdate(editing.id, input)}
+          onPersist={async (input) => {
+            const updated = await onUpdate(editing.id, input)
+            if (updated) setEditing(updated)
+            return updated
+          }}
           onGenerateStage={onGenerateStage}
+          onGenerateAsset={onGenerate}
+          onGetTrustedConfiguration={onGetTrustedConfiguration}
+          onListTrustedPortraits={onListTrustedPortraits}
+          onRegisterVirtualPortrait={async (assetId) => {
+            const updated = await onRegisterVirtualPortrait(assetId)
+            if (updated) setEditing(updated)
+            return updated
+          }}
+          onBindTrustedPortrait={async (assetId, providerAssetId) => {
+            const updated = await onBindTrustedPortrait(assetId, providerAssetId)
+            if (updated) setEditing(updated)
+            return updated
+          }}
+          onRefreshTrustedPortrait={async (assetId) => {
+            const updated = await onRefreshTrustedPortrait(assetId)
+            if (updated) setEditing(updated)
+            return updated
+          }}
           onDelete={
             editing.id
               ? async () => {
@@ -141,22 +202,42 @@ export function AssetsPage({
           }
         />
       )}
+      {preview && <ImagePreviewModal image={preview} onClose={() => setPreview(null)} />}
     </div>
   )
 }
 
-function AssetCard({ asset, onEdit, onGenerate }) {
+function AssetCard({ asset, task, onEdit, onGenerate, onPreview, busy }) {
   const EmptyIcon = emptyIcons[asset.kind] || Sparkles
   const tags = summarizeAsset(asset)
+  const previewUrl = getAssetPreviewUrl(asset)
   return (
     <article className="asset-card">
       <div className={`asset-image ${asset.kind === 'audio' ? 'sound-asset' : ''}`}>
-        {asset.imageUrl ? <img src={asset.imageUrl} alt={asset.name} /> : <EmptyIcon size={42} />}
+        {previewUrl ? (
+          <button
+            className="asset-image-preview"
+            type="button"
+            aria-label={`放大查看 ${asset.name}`}
+            onClick={() =>
+              onPreview({ url: previewUrl, alt: asset.name, fileName: `${asset.name}-资产预览` })
+            }
+          >
+            <img src={previewUrl} alt={asset.name} />
+          </button>
+        ) : (
+          <EmptyIcon size={42} />
+        )}
+        {(busy || task) && (
+          <div className="asset-generation-overlay" role="status" aria-live="polite">
+            <GenerationProgress task={task} busy={busy} />
+          </div>
+        )}
         <span>
           {asset.kind === 'character'
             ? characterStatus(asset)
             : asset.sourceMode === 'import'
-              ? '本地导入'
+              ? '直接使用'
               : asset.status === 'confirmed'
                 ? '已确认'
                 : 'AI 资产'}
@@ -177,12 +258,24 @@ function AssetCard({ asset, onEdit, onGenerate }) {
             <span key={tag}>{tag}</span>
           ))}
         </div>
-        <label>最终提示词</label>
-        <p className="prompt-text">{asset.prompt || '编辑资产后自动生成中文提示词'}</p>
+        <label>{asset.sourceMode === 'import' ? '素材使用方式' : '最终提示词'}</label>
+        <p className="prompt-text">
+          {asset.sourceMode === 'import'
+            ? '直接使用本地原图，不调用 Img2；描述和标签只用于资产检索与镜头匹配。'
+            : asset.prompt || '编辑资产后自动生成中文提示词'}
+        </p>
         <div className="asset-actions">
-          <button onClick={asset.kind === 'character' ? onEdit : onGenerate}>
-            <RefreshCw size={14} />
-            {asset.kind === 'character' ? '继续人物设定' : '生成新版本'}
+          <button onClick={asset.kind === 'character' || asset.sourceMode === 'import' ? onEdit : onGenerate}>
+            {asset.kind === 'character' || asset.sourceMode === 'import' ? (
+              <Pencil size={14} />
+            ) : (
+              <RefreshCw size={14} />
+            )}
+            {asset.kind === 'character'
+              ? '继续人物设定'
+              : asset.sourceMode === 'import'
+                ? '管理原图'
+                : '生成新版本'}
           </button>
           <button onClick={onEdit}>编辑</button>
         </div>
@@ -192,7 +285,7 @@ function AssetCard({ asset, onEdit, onGenerate }) {
 }
 
 function characterStatus(asset) {
-  if (asset.attributes.faceStatus !== 'approved') return '待确认面部'
-  if (asset.attributes.bodyStatus !== 'approved') return '面部已确认'
+  if (asset.attributes?.faceStatus !== 'approved') return '待确认面部'
+  if (asset.attributes?.bodyStatus !== 'approved') return '面部已确认'
   return '全身已确认'
 }

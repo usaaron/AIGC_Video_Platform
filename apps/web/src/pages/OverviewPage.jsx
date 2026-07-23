@@ -1,10 +1,26 @@
-import { ArrowRight, BadgeCheck, Check, Crown, Play, Plus } from 'lucide-react'
-import { JobRow, PageHeader, StatusDot } from '../components/ui'
+import { ArrowRight, BadgeCheck, Check, Crown, LoaderCircle, Pencil, Play, Plus, X } from 'lucide-react'
+import { useState } from 'react'
+import { normalizedVideoDuration } from '@seqora/prompting'
+import { IconButton, JobRow, PageHeader, StatusDot } from '../components/ui'
+import { projectRatioMode } from '../features/film/projectRatio'
 
-export function OverviewPage({ project, assets, shots, jobs, billing, setActiveStep, setNewProjectOpen }) {
+export function OverviewPage({
+  project,
+  assets,
+  shots,
+  jobs,
+  billing,
+  setActiveStep,
+  setNewProjectOpen,
+  onUpdateSynopsis,
+}) {
+  const [editingSynopsis, setEditingSynopsis] = useState(false)
+  const visibleJobs = jobs.filter((job) => typeof job.metadata?.queueHiddenAt !== 'string')
   const completed = jobs.filter((job) => job.status === 'completed').length
+  const completedVideos = jobs.filter((job) => job.kind === 'video' && job.status === 'completed').length
   const running = jobs.filter((job) => job.status === 'running')
-  const totalDuration = shots.reduce((sum, shot) => sum + shot.duration, 0)
+  const totalDuration = shots.reduce((sum, shot) => sum + normalizedVideoDuration(shot.duration), 0)
+  const ratioMode = projectRatioMode(project.aspectRatio)
   const progress = Math.min(
     100,
     Math.round(
@@ -40,7 +56,12 @@ export function OverviewPage({ project, assets, shots, jobs, billing, setActiveS
               {project.aspectRatio} · {project.contentType === 'short-drama' ? '短剧' : '视频项目'}
             </span>
           </div>
-          <h2>{project.synopsis || '为这个项目写下一句清晰的故事简介。'}</h2>
+          <div className="synopsis-display">
+            <h2>{project.synopsis || '为这个项目写下一句清晰的故事简介。'}</h2>
+            <button className="synopsis-edit-button" onClick={() => setEditingSynopsis(true)}>
+              <Pencil size={14} /> 编辑故事简介
+            </button>
+          </div>
           <div className="progress-row">
             <div>
               <span>项目进度</span>
@@ -69,7 +90,12 @@ export function OverviewPage({ project, assets, shots, jobs, billing, setActiveS
             </div>
           </div>
         </div>
-        <button className="hero-preview" onClick={() => setActiveStep('film')} aria-label="预览成片">
+        <button
+          className="hero-preview"
+          data-ratio={ratioMode}
+          onClick={() => setActiveStep('film')}
+          aria-label="预览成片"
+        >
           <img src={shots[0]?.imageUrl || '/demo/station.jpg'} alt="项目预览" />
           <span className="preview-play">
             <Play size={21} fill="currentColor" />
@@ -117,7 +143,7 @@ export function OverviewPage({ project, assets, shots, jobs, billing, setActiveS
           [
             '04',
             '视频生成',
-            running.length ? `${running.length} 项进行中` : `${completed} 项完成`,
+            running.length ? `${running.length} 项进行中` : `${completedVideos} 项完成`,
             `当前可并发 ${billing.concurrency} 项`,
             'generate',
             running.length ? 'current' : 'pending',
@@ -141,10 +167,10 @@ export function OverviewPage({ project, assets, shots, jobs, billing, setActiveS
             <button onClick={() => setActiveStep('generate')}>查看全部</button>
           </div>
           <div className="activity-list">
-            {jobs.slice(0, 3).map((job) => (
+            {visibleJobs.slice(0, 3).map((job) => (
               <JobRow key={job.id} job={toDisplayJob(job)} compact />
             ))}
-            {!jobs.length && <p className="panel-empty">还没有生成任务。</p>}
+            {!visibleJobs.length && <p className="panel-empty">还没有生成任务。</p>}
           </div>
         </section>
         <section className="membership-panel">
@@ -158,6 +184,79 @@ export function OverviewPage({ project, assets, shots, jobs, billing, setActiveS
           </div>
         </section>
       </div>
+      {editingSynopsis && (
+        <SynopsisEditor
+          value={project.synopsis}
+          onClose={() => setEditingSynopsis(false)}
+          onSave={async (synopsis) => {
+            await onUpdateSynopsis(synopsis)
+            setEditingSynopsis(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function SynopsisEditor({ value, onClose, onSave }) {
+  const [synopsis, setSynopsis] = useState(value || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const save = async (event) => {
+    event.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      await onSave(synopsis.trim())
+    } catch (saveError) {
+      setError(saveError.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <form
+        className="modal synopsis-editor"
+        onSubmit={save}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="modal-head">
+          <div>
+            <span className="eyebrow">项目概览</span>
+            <h2>编辑故事简介</h2>
+          </div>
+          <IconButton label="关闭" type="button" onClick={onClose}>
+            <X size={19} />
+          </IconButton>
+        </div>
+        <p className="modal-description">一句话说明主角、目标、冲突和故事钩子，后续剧本扩写会使用它。</p>
+        <textarea
+          className="synopsis-textarea"
+          value={synopsis}
+          maxLength={1_000}
+          placeholder="例如：雨夜里，一名导演发现父亲留下的胶片能预见明天。"
+          onChange={(event) => setSynopsis(event.target.value)}
+          autoFocus
+        />
+        <div className="synopsis-counter">{synopsis.length}/1000</div>
+        {error && (
+          <p className="asset-save-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="button secondary" onClick={onClose}>
+            取消
+          </button>
+          <button className="button primary" disabled={saving || !synopsis.trim()}>
+            {saving ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}
+            {saving ? '保存中' : '保存简介'}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }

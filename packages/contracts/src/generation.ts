@@ -1,13 +1,20 @@
 import { z } from 'zod'
 
 export const generationKindSchema = z.enum(['text', 'image', 'video', 'audio'])
-export const generationTaskStatusSchema = z.enum(['queued', 'running', 'completed', 'failed', 'cancelled'])
+export const generationTaskStatusSchema = z.enum([
+  'queued',
+  'paused',
+  'running',
+  'completed',
+  'failed',
+  'cancelled',
+])
 
 export const generationOutputSchema = z.object({
   id: z.string().min(1),
   url: z.string().max(2_000),
   mediaType: z.enum(['image', 'video', 'audio']),
-  view: z.enum(['single', 'front', 'side', 'back', 'detail']).default('single'),
+  view: z.enum(['single', 'front', 'side', 'back', 'detail', 'last-frame']).default('single'),
 })
 
 export const createGenerationTaskSchema = z.object({

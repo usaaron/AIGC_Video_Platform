@@ -83,6 +83,11 @@ export function AppHeader({
 
 export function AppSidebar({ activeStep, mobileNav, billing, assetCount, onNavigate, onClose }) {
   const activeIndex = STEPS.findIndex((item) => item.id === activeStep)
+  const usage = billing?.monthlyUsage
+  const usageBudget = usage?.includedCredits || (usage?.netCredits ?? 0) + (billing?.credits ?? 0)
+  const usagePercent = usageBudget
+    ? Math.min(100, Math.round(((usage?.netCredits ?? 0) / usageBudget) * 100))
+    : 0
 
   return (
     <aside className={`sidebar ${mobileNav ? 'mobile-open' : ''}`}>
@@ -127,16 +132,25 @@ export function AppSidebar({ activeStep, mobileNav, billing, assetCount, onNavig
       >
         <Settings size={17} /> 项目设置
       </button>
-      <div className="usage-box">
+      <button
+        type="button"
+        className="usage-box"
+        onClick={() => onNavigate('billing')}
+        style={{ '--usage-progress': `${usagePercent}%` }}
+      >
         <div>
-          <span>本月用量</span>
+          <span>可用积分</span>
           <strong>{billing?.credits ?? 0} 积分</strong>
         </div>
         <div className="usage-track">
           <span />
         </div>
-        <small>当前可并发 {billing?.concurrency ?? 1} 个任务</small>
-      </div>
+        <small>
+          本月已用 {usage?.netCredits ?? 0} · {usage?.generationCount ?? 0} 次计费
+          {usage?.refundedCredits ? ` · 已退 ${usage.refundedCredits} 积分` : ''}
+          {usage?.includedCredits ? ` · 月度 ${usage.includedCredits}` : ' · 按量使用'}
+        </small>
+      </button>
     </aside>
   )
 }

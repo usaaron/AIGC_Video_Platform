@@ -37,12 +37,14 @@ export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
       '严格保持已确认面部的五官、脸型、发型和年龄特征',
       optionLabel('bodyType', attributes.bodyType),
       '全身完整入镜',
-      attributes.legStretch ? '自然适度拉长腿部比例，保持身体结构正确' : '',
+      attributes.legStretch
+        ? '腿部比例优化：自然适度拉长双腿，腿部约占身高55%到58%，保持头身比例、骨骼、关节和衣服结构正确，不拉伸躯干和手臂'
+        : '',
       `${optionLabel('background', attributes.background)}背景`,
       `画面比例${aspectRatio}`,
     ]
   }
-  if (asset.sourceMode === 'import' && asset.references?.length) {
+  if (asset.references?.length) {
     stageParts.push('严格保持导入参考图中的身份和关键外观特征')
   }
   return applyCustomPrompt(asset, [...identity, ...stageParts].filter(Boolean).join('，'))
@@ -66,7 +68,9 @@ function compileAutomatic(asset, aspectRatio) {
       attributes.subjectType === 'animal' && attributes.anthropomorphic ? '拟人化表现' : '',
       optionLabel('bodyType', attributes.bodyType),
       optionLabel('framing', attributes.framing),
-      attributes.legStretch ? '自然适度拉长腿部比例，保持身体结构正确' : '',
+      attributes.legStretch
+        ? '腿部比例优化：自然适度拉长双腿，腿部约占身高55%到58%，保持头身比例、骨骼、关节和衣服结构正确，不拉伸躯干和手臂'
+        : '',
       attributes.turnaround ? '分别生成正面、侧面、背面三张独立设定图，角色外观和服装严格一致' : '',
     )
   }
@@ -122,7 +126,7 @@ function compileAutomatic(asset, aspectRatio) {
   }
 
   if ('background' in attributes) parts.push(`${optionLabel('background', attributes.background)}背景`)
-  if (asset.sourceMode === 'import' && asset.references?.length) {
+  if (asset.references?.length) {
     parts.push('严格保持参考图主体身份、结构、颜色和关键细节一致')
   }
   return parts.filter(Boolean).join('，')

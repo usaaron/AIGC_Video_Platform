@@ -1,4 +1,4 @@
-import { Check, Crown, Gauge, ReceiptText, Zap } from 'lucide-react'
+import { CalendarClock, Check, Crown, Gauge, ReceiptText, Zap } from 'lucide-react'
 import { PageHeader } from '../components/ui'
 
 export function BillingPage({ billing, onPlanChange }) {
@@ -27,6 +27,14 @@ export function BillingPage({ billing, onPlanChange }) {
             任务并发<strong>{billing.concurrency}</strong>
           </p>
         </div>
+        <div>
+          <span className="stat-icon blue">
+            <CalendarClock size={19} />
+          </span>
+          <p>
+            本月净消耗<strong>{billing.monthlyUsage.netCredits}</strong>
+          </p>
+        </div>
         <div className="plan-summary">
           <span className="membership-icon">
             <Crown size={19} />
@@ -34,11 +42,24 @@ export function BillingPage({ billing, onPlanChange }) {
           <div>
             <span className="eyebrow">当前套餐</span>
             <h2>{member ? '创作会员' : '免费版'}</h2>
-            <p>{member ? '每月 500 积分，最多 3 路并发。' : '逐个生成任务，按实际生成扣积分。'}</p>
+            <p>
+              {member ? '每月 500 积分，最多 3 路并发。' : '逐个生成任务，按实际生成扣积分。'}
+              本月 {billing.monthlyUsage.generationCount} 个任务
+              {billing.monthlyUsage.refundedCredits
+                ? `，已退 ${billing.monthlyUsage.refundedCredits} 积分`
+                : ''}
+              。
+            </p>
           </div>
-          <button className="button primary" onClick={() => onPlanChange(member ? 'free' : 'member')}>
-            {member ? '切换免费版' : '升级会员'}
-          </button>
+          {billing.planSelfServiceEnabled ? (
+            <button className="button primary" onClick={() => onPlanChange(member ? 'free' : 'member')}>
+              {member ? '测试切换免费版' : '测试开通会员'}
+            </button>
+          ) : (
+            <button className="button primary" disabled>
+              {member ? '会员已开通' : '联系管理员开通'}
+            </button>
+          )}
         </div>
       </section>
       <section className="ledger-panel">

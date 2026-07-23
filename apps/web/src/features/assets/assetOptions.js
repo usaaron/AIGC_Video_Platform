@@ -32,6 +32,8 @@ export const DEFAULT_ATTRIBUTES = {
     bodyStatus: 'pending',
     faceReference: null,
     bodyReference: null,
+    portraitSource: 'ai-virtual',
+    trustedPortrait: null,
     legStretch: false,
     turnaround: false,
     turnaroundLayout: 'sheet',

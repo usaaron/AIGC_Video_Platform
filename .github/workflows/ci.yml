@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -41,3 +43,45 @@ jobs:
 
       - name: Build production bundle
         run: pnpm build
+
+      - name: Create release plan
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          api=false
+          web=false
+
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]] || ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            api=true
+            web=true
+          else
+            while IFS= read -r path; do
+              case "$path" in
+                packages/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.npmrc|.dockerignore|compose.demo.yml|deploy/update-release.sh|.github/workflows/deploy.yml)
+                  api=true
+                  web=true
+                  ;;
+                apps/api/*|deploy/api.Dockerfile)
+                  api=true
+                  ;;
+                apps/web/*|deploy/web.Dockerfile|deploy/Caddyfile)
+                  web=true
+                  ;;
+              esac
+            done < <(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")
+          fi
+
+          mkdir -p .release
+          printf 'api=%s\nweb=%s\nsha=%s\n' "$api" "$web" "$GITHUB_SHA" > .release/release-plan.env
+
+      - name: Upload release plan
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-plan
+          path: .release/release-plan.env
+          retention-days: 1
+          if-no-files-found: error

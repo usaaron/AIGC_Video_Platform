@@ -1,0 +1,68 @@
+name: seqora-demo
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+services:
+  api:
+    image: ${API_IMAGE:-seqora-api:local}
+    build:
+      context: .
+      dockerfile: deploy/api.Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./deploy/demo.env
+    environment:
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      API_PORT: 8787
+      DATA_FILE: /var/lib/seqora/app.json
+      UPLOAD_DIR: /var/lib/seqora/uploads
+      FFMPEG_PATH: /usr/bin/ffmpeg
+      NODE_OPTIONS: --max-old-space-size=${API_NODE_HEAP_MB:-768}
+    expose:
+      - '8787'
+    cpus: ${API_CPUS:-1.5}
+    mem_limit: ${API_MEMORY_LIMIT:-1536m}
+    pids_limit: 256
+    stop_grace_period: 45s
+    logging: *default-logging
+    volumes:
+      - seqora_data:/var/lib/seqora
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    image: ${WEB_IMAGE:-seqora-web:local}
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ADDRESS: ${APP_ADDRESS:?Set APP_ADDRESS in deploy/demo.env}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '${HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
+      - '${HTTPS_PORT:-443}:443/udp'
+    cpus: ${WEB_CPUS:-0.5}
+    mem_limit: ${WEB_MEMORY_LIMIT:-192m}
+    pids_limit: 128
+    stop_grace_period: 20s
+    logging: *default-logging
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  seqora_data:
+  caddy_data:
+  caddy_config:

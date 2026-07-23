@@ -1,11 +1,33 @@
-import { LogOut, Save, UserRound } from 'lucide-react'
+import { KeyRound, LoaderCircle, LogOut, Save, UserRound } from 'lucide-react'
 import { useState } from 'react'
 import { PageHeader } from '../components/ui'
 
-export function SettingsPage({ project, account, onSave, onLogout }) {
+export function SettingsPage({ project, account, onSave, onChangePassword, onLogout }) {
   const [name, setName] = useState(project.name)
   const [synopsis, setSynopsis] = useState(project.synopsis)
   const [status, setStatus] = useState(project.status)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordState, setPasswordState] = useState({ status: 'idle', message: '' })
+
+  const changePassword = async (event) => {
+    event.preventDefault()
+    if (newPassword !== confirmPassword) {
+      setPasswordState({ status: 'error', message: '两次输入的新密码不一致' })
+      return
+    }
+    setPasswordState({ status: 'saving', message: '' })
+    try {
+      await onChangePassword({ currentPassword, newPassword })
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordState({ status: 'success', message: '密码已更新，下次登录请使用新密码' })
+    } catch (error) {
+      setPasswordState({ status: 'error', message: error.message })
+    }
+  }
 
   return (
     <div className="page settings-page">
@@ -51,6 +73,60 @@ export function SettingsPage({ project, account, onSave, onLogout }) {
               <dd>{account.id}</dd>
             </div>
           </dl>
+          <form className="password-form" onSubmit={changePassword}>
+            <div className="password-form-heading">
+              <KeyRound size={16} />
+              <strong>账号安全</strong>
+            </div>
+            <label>
+              <span>当前密码</span>
+              <input
+                className="text-input"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                required
+              />
+            </label>
+            <label>
+              <span>新密码</span>
+              <input
+                className="text-input"
+                type="password"
+                autoComplete="new-password"
+                minLength={12}
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                required
+              />
+            </label>
+            <label>
+              <span>确认新密码</span>
+              <input
+                className="text-input"
+                type="password"
+                autoComplete="new-password"
+                minLength={12}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+              />
+            </label>
+            {passwordState.message && (
+              <p className={`password-message ${passwordState.status}`} role="status">
+                {passwordState.message}
+              </p>
+            )}
+            <button className="button secondary full" disabled={passwordState.status === 'saving'}>
+              {passwordState.status === 'saving' ? (
+                <LoaderCircle size={16} className="spin" />
+              ) : (
+                <KeyRound size={16} />
+              )}
+              {passwordState.status === 'saving' ? '正在更新' : '更新密码'}
+            </button>
+          </form>
           <button className="button secondary full" onClick={onLogout}>
             <LogOut size={16} /> 退出登录
           </button>

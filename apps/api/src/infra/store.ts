@@ -8,7 +8,8 @@ import type {
   Role,
   Shot,
 } from '@seqora/contracts'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { hashPassword } from '../core/auth/password.js'
 
@@ -45,17 +46,40 @@ export type AppState = {
   media: StoredMedia[]
 }
 
+export type BootstrapUsers = {
+  creatorName?: string
+  creatorEmail: string
+  creatorPassword: string
+  adminName?: string
+  adminEmail: string
+  adminPassword: string
+}
+
+const developmentBootstrapUsers: BootstrapUsers = {
+  creatorName: '林夏',
+  creatorEmail: 'creator@seqora.local',
+  creatorPassword: 'Creator123!',
+  adminName: '平台管理员',
+  adminEmail: 'admin@seqora.local',
+  adminPassword: 'Admin123!',
+}
+
 export class AppStore {
   private state!: AppState
   private writeQueue = Promise.resolve()
 
-  constructor(private readonly filePath: string | null) {}
+  constructor(
+    private readonly filePath: string | null,
+    private readonly bootstrapUsers: BootstrapUsers = developmentBootstrapUsers,
+    private readonly bootstrapDemoWorkspace = true,
+  ) {}
 
   async initialize(): Promise<void> {
     if (this.filePath) {
       try {
-        this.state = normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>)
-        await this.persist()
+        this.state = removeLegacyDemoCharacters(
+          normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>),
+        )
         return
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code
@@ -63,7 +87,7 @@ export class AppStore {
       }
     }
 
-    this.state = createSeedState()
+    this.state = removeLegacyDemoCharacters(createSeedState(this.bootstrapUsers, this.bootstrapDemoWorkspace))
     await this.persist()
   }
 
@@ -73,24 +97,45 @@ export class AppStore {
 
   async mutate<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
     let result!: T
-    this.writeQueue = this.writeQueue.then(async () => {
+    const operation = this.writeQueue.then(async () => {
       result = await mutator(this.state)
       await this.persist()
     })
-    await this.writeQueue
+    this.writeQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    )
+    await operation
     return structuredClone(result)
   }
 
   private async persist(): Promise<void> {
     if (!this.filePath) return
     await mkdir(dirname(this.filePath), { recursive: true })
-    const temporary = `${this.filePath}.tmp`
-    await writeFile(temporary, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8')
-    await rename(temporary, this.filePath)
+    const temporary = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`
+    try {
+      await writeFile(temporary, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8')
+      await renameWithRetry(temporary, this.filePath)
+    } finally {
+      await rm(temporary, { force: true }).catch(() => {})
+    }
   }
 }
 
-function createSeedState(): AppState {
+async function renameWithRetry(source: string, destination: string): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(source, destination)
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if ((code !== 'EPERM' && code !== 'EBUSY') || attempt >= 4) throw error
+      await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)))
+    }
+  }
+}
+
+function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean): AppState {
   const now = new Date().toISOString()
   const tenantId = 'tenant-seqora-demo'
   const creatorId = 'user-creator'
@@ -100,9 +145,9 @@ function createSeedState(): AppState {
     users: [
       {
         id: creatorId,
-        email: 'creator@seqora.local',
-        name: '林夏',
-        passwordHash: hashPassword('Creator123!'),
+        email: bootstrapUsers.creatorEmail.toLowerCase(),
+        name: bootstrapUsers.creatorName ?? '创作者',
+        passwordHash: hashPassword(bootstrapUsers.creatorPassword),
         tenantId,
         roles: ['creator'],
         plan: 'free',
@@ -110,33 +155,35 @@ function createSeedState(): AppState {
       },
       {
         id: 'user-admin',
-        email: 'admin@seqora.local',
-        name: '平台管理员',
-        passwordHash: hashPassword('Admin123!'),
+        email: bootstrapUsers.adminEmail.toLowerCase(),
+        name: bootstrapUsers.adminName ?? '平台管理员',
+        passwordHash: hashPassword(bootstrapUsers.adminPassword),
         tenantId,
         roles: ['admin'],
         plan: 'member',
         credits: 1_000,
       },
     ],
-    projects: [
-      {
-        id: projectId,
-        tenantId,
-        ownerId: creatorId,
-        name: '午夜胶片',
-        contentType: 'short-drama',
-        aspectRatio: '9:16',
-        status: 'producing',
-        synopsis: '雨夜，一卷能预见明天的胶片，正等待被打开。',
-        script: DEFAULT_SCRIPT,
-        version: 1,
-        createdAt: now,
-        updatedAt: now,
-      },
-    ],
-    assets: seedAssets(projectId, tenantId, now),
-    shots: seedShots(projectId, tenantId, now),
+    projects: demoWorkspace
+      ? [
+          {
+            id: projectId,
+            tenantId,
+            ownerId: creatorId,
+            name: '午夜胶片',
+            contentType: 'short-drama',
+            aspectRatio: '9:16',
+            status: 'producing',
+            synopsis: '雨夜，一卷能预见明天的胶片，正等待被打开。',
+            script: DEFAULT_SCRIPT,
+            version: 1,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ]
+      : [],
+    assets: demoWorkspace ? seedAssets(projectId, tenantId, now) : [],
+    shots: demoWorkspace ? seedShots(projectId, tenantId, now) : [],
     tasks: [],
     media: [],
     ledger: [
@@ -156,22 +203,6 @@ function createSeedState(): AppState {
 
 function seedAssets(projectId: string, tenantId: string, now: string): Asset[] {
   return [
-    [
-      'asset-lin',
-      'character',
-      '林夏',
-      '纪录片导演 · 28岁',
-      '东亚女性，短发，深色风衣，透明雨伞，克制而敏锐，电影感全身照',
-      '/demo/lin.jpg',
-    ],
-    [
-      'asset-zhou',
-      'character',
-      '周野',
-      '神秘信使 · 32岁',
-      '东亚男性，黑色旧夹克，雨夜逆光，疲惫但坚定，电影人物定妆照',
-      '/demo/zhou.jpg',
-    ],
     [
       'asset-station',
       'scene',
@@ -215,6 +246,14 @@ function seedAssets(projectId: string, tenantId: string, now: string): Asset[] {
   })
 }
 
+function removeLegacyDemoCharacters(state: AppState): AppState {
+  const legacyIds = new Set(['asset-lin', 'asset-zhou'])
+  return {
+    ...state,
+    assets: state.assets.filter((asset) => !legacyIds.has(asset.id)),
+  }
+}
+
 export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes'] {
   if (kind === 'character') {
     return {
@@ -233,6 +272,8 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
       bodyStatus: 'pending',
       faceReference: null,
       bodyReference: null,
+      portraitSource: 'ai-virtual',
+      trustedPortrait: null,
       legStretch: false,
       turnaround: false,
       turnaroundLayout: 'sheet',
@@ -293,9 +334,9 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
 function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
   return [
     ['shot-1', 1, '雨夜空镜', '大全景', 4, '临港市雨夜，镜头缓慢推向废弃火车站，冷色调', '/demo/rain.jpg'],
-    ['shot-2', 2, '林夏抵达', '中近景', 5, '林夏撑透明雨伞走入站台，侧逆光，雨滴清晰', '/demo/lin.jpg'],
+    ['shot-2', 2, '林夏抵达', '中近景', 5, '林夏撑透明雨伞走入站台，侧逆光，雨滴清晰', null],
     ['shot-3', 3, '等待', '广角', 4, '空旷站台，人物位于画面右侧，信号灯闪烁', '/demo/station.jpg'],
-    ['shot-4', 4, '周野出现', '特写', 4, '周野从阴影走出，把旧铁盒放在长椅上', '/demo/zhou.jpg'],
+    ['shot-4', 4, '周野出现', '特写', 4, '周野从阴影走出，把旧铁盒放在长椅上', null],
     ['shot-5', 5, '打开铁盒', '俯拍', 5, '双手打开生锈铁盒，里面是一卷旧胶片，暖光', '/demo/room.jpg'],
   ].map(([id, order, title, framing, duration, prompt, imageUrl]) => ({
     id: id as string,
@@ -306,7 +347,10 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
     framing: framing as string,
     duration: duration as number,
     prompt: prompt as string,
-    imageUrl: imageUrl as string,
+    negativePrompt: '',
+    imageUrl: imageUrl as string | null,
+    continuityMode: 'independent' as const,
+    continuityNote: '',
     createdAt: now,
     updatedAt: now,
   }))
@@ -356,7 +400,12 @@ function normalizeState(input: Partial<AppState>): AppState {
     users: input.users ?? [],
     projects: input.projects ?? [],
     assets,
-    shots: input.shots ?? [],
+    shots: (input.shots ?? []).map((shot) => ({
+      ...shot,
+      negativePrompt: shot.negativePrompt ?? '',
+      continuityMode: shot.continuityMode ?? 'independent',
+      continuityNote: shot.continuityNote ?? '',
+    })),
     tasks,
     ledger: input.ledger ?? [],
     media: input.media ?? [],

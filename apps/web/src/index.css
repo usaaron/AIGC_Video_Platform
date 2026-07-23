@@ -1,7 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
-
 :root {
-  font-family: 'DM Sans', 'Noto Sans SC', sans-serif;
+  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
   color: #20231f;
   background: #f5f6f2;
   font-synthesis: none;
@@ -16,6 +14,12 @@
   --lime: #d9f36a;
   --lime-dark: #a9ca2e;
   --green: #1f7a52;
+  --accent-strong: var(--green);
+  --accent-soft: #edf5df;
+  --surface: var(--paper);
+  --surface-muted: #f0f2ed;
+  --line-strong: #cbd0c6;
+  --danger: #a3453c;
   --coral: #f07458;
   --amber: #f0b83d;
   --blue: #4f7edb;
@@ -76,4 +80,30 @@ button {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.app-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  background: var(--canvas);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.app-loading p {
+  margin: 0;
+}
+
+.bootstrap-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--lime);
+  color: var(--ink);
+  font-weight: 700;
 }

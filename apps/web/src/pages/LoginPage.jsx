@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Aperture, ArrowRight, Check, Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from 'lucide-react'
+import { Aperture, ArrowRight, Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from 'lucide-react'
 import { useAuth } from '../components/AuthProvider'
+import './LoginPage.css'
 
 export function LoginPage() {
   const { login } = useAuth()
-  const [email, setEmail] = useState('creator@seqora.local')
-  const [password, setPassword] = useState('Creator123!')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [visible, setVisible] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -56,6 +57,8 @@ export function LoginPage() {
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 autoComplete="email"
+                placeholder="请输入账号邮箱"
+                autoFocus
                 required
               />
             </div>
@@ -69,6 +72,7 @@ export function LoginPage() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete="current-password"
+                placeholder="请输入密码"
                 required
               />
               <button
@@ -90,22 +94,9 @@ export function LoginPage() {
               </>
             )}
           </button>
-          <div className="demo-accounts">
-            <div>
-              <Check size={14} />
-              <span>创作者</span>
-              <code>creator@seqora.local / Creator123!</code>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setEmail('admin@seqora.local')
-                setPassword('Admin123!')
-              }}
-            >
-              切换管理员
-            </button>
-          </div>
+          <p className="login-access-note">
+            <LockKeyhole size={14} /> 仅限已开通的测试账号
+          </p>
         </form>
       </section>
     </main>

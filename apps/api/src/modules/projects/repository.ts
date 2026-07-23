@@ -4,6 +4,7 @@ import type {
   CreateProject,
   CreateShot,
   Principal,
+  Plan,
   Project,
   ProjectWorkspace,
   Shot,
@@ -16,6 +17,14 @@ import type { AppStore } from '../../infra/store.js'
 
 export class ProjectRepository {
   constructor(private readonly store: AppStore) {}
+
+  planFor(principal: Principal): Plan | null {
+    return this.store.read(
+      (state) =>
+        state.users.find((user) => user.id === principal.userId && user.tenantId === principal.tenantId)
+          ?.plan ?? null,
+    )
+  }
 
   list(principal: Principal): Project[] {
     const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
@@ -101,7 +110,7 @@ export class ProjectRepository {
         projectId,
         tenantId: principal.tenantId,
         ...input,
-        status: 'draft',
+        status: input.sourceMode === 'import' ? 'confirmed' : 'draft',
         createdAt: now,
         updatedAt: now,
       }

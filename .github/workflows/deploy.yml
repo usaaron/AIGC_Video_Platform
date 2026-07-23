@@ -1,0 +1,194 @@
+name: Deploy Production
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      component:
+        description: Component to publish
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - api
+          - web
+          - all
+      ref:
+        description: Git ref to release
+        required: true
+        default: main
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+concurrency:
+  group: seqora-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: production
+    steps:
+      - name: Checkout verified revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Download verified release plan
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: release-plan
+          path: .release
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Detect release components
+        id: changes
+        shell: bash
+        env:
+          REQUESTED_COMPONENT: ${{ github.event_name == 'workflow_dispatch' && inputs.component || 'auto' }}
+        run: |
+          set -euo pipefail
+          api=false
+          web=false
+          sha="$(git rev-parse HEAD)"
+
+          if [[ "$GITHUB_EVENT_NAME" == 'workflow_run' ]]; then
+            source .release/release-plan.env
+            [[ "$api" == 'true' || "$api" == 'false' ]] || exit 65
+            [[ "$web" == 'true' || "$web" == 'false' ]] || exit 65
+            [[ "$sha" == "$(git rev-parse HEAD)" ]] || {
+              echo 'Release plan revision does not match the checked-out revision.'
+              exit 65
+            }
+          else
+            case "$REQUESTED_COMPONENT" in
+              api) api=true ;;
+              web) web=true ;;
+              all | auto) api=true; web=true ;;
+              *) echo "Unsupported component: $REQUESTED_COMPONENT"; exit 64 ;;
+            esac
+          fi
+
+          echo "api=$api" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud
+        if: steps.changes.outputs.api == 'true' || steps.changes.outputs.web == 'true'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud SDK
+        if: steps.changes.outputs.api == 'true' || steps.changes.outputs.web == 'true'
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Artifact Registry
+        if: steps.changes.outputs.api == 'true' || steps.changes.outputs.web == 'true'
+        shell: bash
+        run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Set up Docker Buildx
+        if: steps.changes.outputs.api == 'true' || steps.changes.outputs.web == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Publish API image
+        if: steps.changes.outputs.api == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/api.Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/seqora-api:${{ steps.changes.outputs.sha }}
+            ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/seqora-api:main
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Publish Web image
+        if: steps.changes.outputs.web == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/web.Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/seqora-web:${{ steps.changes.outputs.sha }}
+            ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/seqora-web:main
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Install release manifest and updater
+        if: steps.changes.outputs.api == 'true' || steps.changes.outputs.web == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="${{ vars.GCE_INSTANCE }}:/tmp/"
+          gcloud compute scp compose.demo.yml deploy/update-release.sh "$target" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --zone "${{ vars.GCE_ZONE }}" \
+            --tunnel-through-iap \
+            --quiet
+          gcloud compute ssh "${{ vars.GCE_INSTANCE }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --zone "${{ vars.GCE_ZONE }}" \
+            --tunnel-through-iap \
+            --quiet \
+            --command "sudo install -m 0644 /tmp/compose.demo.yml /opt/seqora/compose.demo.yml && sudo install -m 0755 /tmp/update-release.sh /opt/seqora/deploy/update-release.sh"
+
+      - name: Deploy verified images
+        if: steps.changes.outputs.api == 'true' || steps.changes.outputs.web == 'true'
+        shell: bash
+        env:
+          API_CHANGED: ${{ steps.changes.outputs.api }}
+          WEB_CHANGED: ${{ steps.changes.outputs.web }}
+          RELEASE_SHA: ${{ steps.changes.outputs.sha }}
+        run: |
+          set -euo pipefail
+          registry="${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}"
+          api_image="${registry}/seqora-api:${RELEASE_SHA}"
+          web_image="${registry}/seqora-web:${RELEASE_SHA}"
+          if [[ "$API_CHANGED" == 'true' && "$WEB_CHANGED" == 'true' ]]; then
+            release_command="sudo /opt/seqora/deploy/update-release.sh all '$api_image' '$web_image'"
+          elif [[ "$API_CHANGED" == 'true' ]]; then
+            release_command="sudo /opt/seqora/deploy/update-release.sh api '$api_image'"
+          else
+            release_command="sudo /opt/seqora/deploy/update-release.sh web '$web_image'"
+          fi
+          gcloud compute ssh "${{ vars.GCE_INSTANCE }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --zone "${{ vars.GCE_ZONE }}" \
+            --tunnel-through-iap \
+            --quiet \
+            --command "$release_command"
+
+      - name: Release summary
+        shell: bash
+        run: |
+          {
+            echo '### Seqora release'
+            echo "- API changed: ${{ steps.changes.outputs.api }}"
+            echo "- Web changed: ${{ steps.changes.outputs.web }}"
+            echo "- Revision: ${{ steps.changes.outputs.sha }}"
+          } >> "$GITHUB_STEP_SUMMARY"

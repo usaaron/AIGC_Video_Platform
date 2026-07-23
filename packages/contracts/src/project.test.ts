@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { createAssetSchema } from './project.js'
+import {
+  createAssetSchema,
+  createShotSchema,
+  enrichScriptRequestSchema,
+  generateScriptRequestSchema,
+  generateShotsRequestSchema,
+  scriptReviewResultSchema,
+  updateAssetSchema,
+  updateShotSchema,
+} from './project.js'
 
 const character = {
   type: 'character' as const,
@@ -34,7 +43,11 @@ describe('asset contracts', () => {
       references: [reference(1), reference(2), reference(3)],
     }
 
-    expect(createAssetSchema.safeParse(input).success).toBe(true)
+    const parsed = createAssetSchema.parse(input)
+    expect(parsed.attributes).toMatchObject({
+      portraitSource: 'ai-virtual',
+      trustedPortrait: null,
+    })
     expect(
       createAssetSchema.safeParse({ ...input, references: [...input.references, reference(4)] }).success,
     ).toBe(false)
@@ -49,5 +62,63 @@ describe('asset contracts', () => {
         attributes: character,
       }).success,
     ).toBe(false)
+  })
+
+  it('does not inject create defaults into partial asset updates', () => {
+    expect(updateAssetSchema.parse({ status: 'confirmed' })).toEqual({ status: 'confirmed' })
+    expect(updateAssetSchema.safeParse({}).success).toBe(false)
+  })
+})
+
+describe('shot contracts', () => {
+  it('stores a bounded continuity context and defaults it for older clients', () => {
+    expect(createShotSchema.parse({ title: '镜头 01' }).continuityNote).toBe('')
+    expect(updateShotSchema.parse({ continuityNote: '上一场人物停在门口，本场从推门动作继续。' })).toEqual({
+      continuityNote: '上一场人物停在门口，本场从推门动作继续。',
+    })
+  })
+
+  it('does not inject create defaults into partial shot updates', () => {
+    expect(updateShotSchema.parse({ prompt: '更稳定的运镜' })).toEqual({ prompt: '更稳定的运镜' })
+    expect(updateShotSchema.safeParse({}).success).toBe(false)
+  })
+})
+
+describe('script workflow contracts', () => {
+  it('applies safe defaults to script generation and shot splitting requests', () => {
+    expect(generateScriptRequestSchema.parse({ draft: '雨夜车站' }).direction).toMatchObject({
+      style: 'auto',
+      composition: 'auto',
+      lighting: 'auto',
+      camera: 'auto',
+      focus: 'balanced',
+    })
+    expect(enrichScriptRequestSchema.parse({ script: '场次：1｜剧情：找到胶片' }).direction).toMatchObject({
+      style: 'auto',
+      composition: 'auto',
+      lighting: 'auto',
+      camera: 'auto',
+      focus: 'balanced',
+    })
+    expect(generateShotsRequestSchema.parse({})).toMatchObject({ maxShots: 8, mode: 'scene' })
+    expect(generateShotsRequestSchema.parse({ mode: 'beat', maxShots: 36 })).toMatchObject({
+      maxShots: 36,
+      mode: 'beat',
+    })
+  })
+
+  it('validates structured professional review results', () => {
+    const dimensions = ['plot', 'character', 'dialogue', 'style', 'composition', 'lighting', 'camera'].map(
+      (key) => ({ key, score: 80, finding: '问题明确', suggestion: '给出可执行修改' }),
+    )
+    expect(
+      scriptReviewResultSchema.safeParse({
+        score: 80,
+        verdict: '具备制作基础',
+        dimensions,
+        priorityActions: ['补足角色目标'],
+        generatedAt: new Date().toISOString(),
+      }).success,
+    ).toBe(true)
   })
 })

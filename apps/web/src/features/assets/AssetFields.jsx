@@ -40,18 +40,21 @@ function CharacterFields({ value, stage, update }) {
   return (
     <>
       <ChoiceField
+        className="character-subject-field"
         label="角色类型"
         value={value.subjectType}
         options={OPTIONS.subjectType}
         onChange={(next) => update('subjectType', next)}
       />
       <ChoiceField
+        className="character-gender-field"
         label="性别"
         value={value.gender}
         options={OPTIONS.gender}
         onChange={(next) => update('gender', next)}
       />
       <ChoiceField
+        className="character-age-field"
         label="年龄段"
         value={value.ageGroup}
         options={OPTIONS.ageGroup}
@@ -310,12 +313,20 @@ function AudioFields({ value, update }) {
 }
 
 function VisualStyle({ value, onChange }) {
-  return <ChoiceField label="视觉风格" value={value} options={VISUAL_STYLES} onChange={onChange} />
+  return (
+    <ChoiceField
+      className="visual-style-field"
+      label="视觉风格"
+      value={value}
+      options={VISUAL_STYLES}
+      onChange={onChange}
+    />
+  )
 }
 
-function ChoiceField({ label, value, options, onChange }) {
+function ChoiceField({ className = '', label, value, options, onChange }) {
   return (
-    <fieldset className="asset-choice-field">
+    <fieldset className={`asset-choice-field ${className}`}>
       <legend>{label}</legend>
       <div>
         {options.map(([id, text]) => (

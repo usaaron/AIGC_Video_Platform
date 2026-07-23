@@ -1,23 +1,66 @@
 import { z } from 'zod'
 
+const developmentAuthSecret = 'seqora-development-secret-change-me'
+const developmentCreatorPassword = 'Creator123!'
+const developmentAdminPassword = 'Admin123!'
+const booleanFromEnvironment = z.preprocess((value) => {
+  if (typeof value === 'boolean') return value
+  if (value === 'true') return true
+  if (value === 'false') return false
+  return value
+}, z.boolean())
+
 const configSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     API_HOST: z.string().default('127.0.0.1'),
     API_PORT: z.coerce.number().int().min(1).max(65_535).default(8787),
     WEB_ORIGIN: z.string().default('http://localhost:5173'),
+    PUBLIC_API_BASE_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    TRUST_PROXY: booleanFromEnvironment.default(false),
+    RATE_LIMIT_MAX: z.coerce.number().int().min(30).max(10_000).default(300),
     AUTH_MODE: z.enum(['local', 'demo', 'oidc']).default('local'),
-    AUTH_SECRET: z.string().min(32).default('seqora-development-secret-change-me'),
+    AUTH_SECRET: z.string().min(32).default(developmentAuthSecret),
+    BOOTSTRAP_CREATOR_NAME: z.string().min(1).max(80).default('林夏'),
+    BOOTSTRAP_CREATOR_EMAIL: z.string().email().default('creator@seqora.local'),
+    BOOTSTRAP_CREATOR_PASSWORD: z.string().min(12).max(128).default(developmentCreatorPassword),
+    BOOTSTRAP_ADMIN_NAME: z.string().min(1).max(80).default('平台管理员'),
+    BOOTSTRAP_ADMIN_EMAIL: z.string().email().default('admin@seqora.local'),
+    BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).max(128).default(developmentAdminPassword),
+    BOOTSTRAP_DEMO_WORKSPACE: booleanFromEnvironment.default(true),
     DATA_FILE: z.string().default('./data/app.json'),
     STORAGE_DRIVER: z.enum(['local', 'gcs']).default('local'),
     UPLOAD_DIR: z.string().default('./data/uploads'),
     GCS_BUCKET: z.string().default(''),
     MAX_UPLOAD_BYTES: z.coerce.number().int().min(1_048_576).max(52_428_800).default(10_485_760),
-    SEEDANCE_API_BASE_URL: z.string().url().default('https://aideos.openrouter.icu'),
-    SEEDANCE_API_KEY: z.string().default(''),
-    SEEDANCE_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
-    SEEDANCE_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).max(60_000).default(5_000),
-    SEEDANCE_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(30_000),
+    VIDEO_PROVIDER: z.enum(['stringx', 'aideos', 'volc-ark']).default('stringx'),
+    STRINGX_BASE_URL: z.string().url().default('https://maas.stringx.top/api/v3'),
+    STRINGX_API_KEY: z.string().default(''),
+    STRINGX_VIDEO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
+    STRINGX_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
+    AIDEOS_BASE_URL: z.string().url().default('https://aideos.openrouter.icu'),
+    AIDEOS_API_KEY: z.string().default(''),
+    AIDEOS_VIDEO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
+    AIDEOS_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
+    VIDEO_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).max(60_000).default(5_000),
+    ARK_API_BASE_URL: z.string().url().default('https://ark.cn-beijing.volces.com/api/v3'),
+    ARK_API_KEY: z.string().default(''),
+    ARK_VIDEO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
+    ARK_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(120_000),
+    VOLC_ASSET_BASE_URL: z.string().url().default('https://maas-ark.stringx.top'),
+    VOLC_ACCESS_KEY: z.string().default(''),
+    VOLC_SECRET_KEY: z.string().default(''),
+    VOLC_ARK_PROJECT_NAME: z.string().min(1).max(128).default('default'),
+    ASSET_LIBRARY_CONSOLE_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    VOLC_ASSET_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(30_000),
+    FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
+    FILM_PREVIEW_TIMEOUT_MS: z.coerce.number().int().min(30_000).max(1_800_000).default(600_000),
+    TOKENADVENT_BASE_URL: z.string().url().default('https://tokenadvent.com'),
+    TOKENADVENT_API_KEY: z.string().default(''),
+    IMG2_MODEL: z.string().min(1).default('gpt-image-2'),
+    IMG2_QUALITY: z.enum(['low', 'medium', 'high']).default('low'),
+    TEXT_MODEL: z.string().min(1).default('gpt-5.6'),
+    TOKENADVENT_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
   })
   .superRefine((config, context) => {
     if (config.NODE_ENV === 'production' && config.AUTH_MODE === 'demo') {
@@ -27,20 +70,92 @@ const configSchema = z
         message: 'Demo authentication is forbidden in production',
       })
     }
-    if (config.NODE_ENV === 'production' && config.AUTH_SECRET.includes('development')) {
+    if (config.NODE_ENV === 'production' && config.AUTH_SECRET === developmentAuthSecret) {
       context.addIssue({
         code: 'custom',
         path: ['AUTH_SECRET'],
         message: 'A unique AUTH_SECRET is required in production',
       })
     }
+    if (config.NODE_ENV === 'production' && !config.WEB_ORIGIN.startsWith('https://')) {
+      context.addIssue({
+        code: 'custom',
+        path: ['WEB_ORIGIN'],
+        message: 'HTTPS WEB_ORIGIN is required in production',
+      })
+    }
+    if (
+      config.NODE_ENV === 'production' &&
+      (config.BOOTSTRAP_CREATOR_PASSWORD === developmentCreatorPassword ||
+        config.BOOTSTRAP_ADMIN_PASSWORD === developmentAdminPassword)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['BOOTSTRAP_ADMIN_PASSWORD'],
+        message: 'Unique bootstrap passwords are required in production',
+      })
+    }
+    if (config.BOOTSTRAP_CREATOR_EMAIL === config.BOOTSTRAP_ADMIN_EMAIL) {
+      context.addIssue({
+        code: 'custom',
+        path: ['BOOTSTRAP_ADMIN_EMAIL'],
+        message: 'Bootstrap accounts must use different email addresses',
+      })
+    }
     if (config.STORAGE_DRIVER === 'gcs' && !config.GCS_BUCKET) {
       context.addIssue({ code: 'custom', path: ['GCS_BUCKET'], message: 'GCS_BUCKET is required' })
+    }
+    if (config.NODE_ENV === 'production' && config.VIDEO_PROVIDER === 'aideos' && !config.AIDEOS_API_KEY) {
+      context.addIssue({
+        code: 'custom',
+        path: ['AIDEOS_API_KEY'],
+        message: 'AIDEOS_API_KEY is required for the selected production video provider',
+      })
+    }
+    if (config.NODE_ENV === 'production' && config.VIDEO_PROVIDER === 'stringx' && !config.STRINGX_API_KEY) {
+      context.addIssue({
+        code: 'custom',
+        path: ['STRINGX_API_KEY'],
+        message: 'STRINGX_API_KEY is required for the selected production video provider',
+      })
+    }
+    if (config.NODE_ENV === 'production' && config.VIDEO_PROVIDER === 'volc-ark' && !config.ARK_API_KEY) {
+      context.addIssue({
+        code: 'custom',
+        path: ['ARK_API_KEY'],
+        message: 'ARK_API_KEY is required for the selected production video provider',
+      })
+    }
+    if (config.NODE_ENV === 'production' && !config.TOKENADVENT_API_KEY) {
+      context.addIssue({
+        code: 'custom',
+        path: ['TOKENADVENT_API_KEY'],
+        message: 'TOKENADVENT_API_KEY is required for production text and image generation',
+      })
+    }
+    if (Boolean(config.VOLC_ACCESS_KEY) !== Boolean(config.VOLC_SECRET_KEY)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['VOLC_SECRET_KEY'],
+        message: 'VOLC_ACCESS_KEY and VOLC_SECRET_KEY must be configured together',
+      })
     }
   })
 
 export type AppConfig = z.infer<typeof configSchema>
 
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
-  return configSchema.parse(environment)
+  return configSchema.parse({
+    ...environment,
+    BOOTSTRAP_CREATOR_NAME:
+      environment.BOOTSTRAP_CREATOR_NAME ?? (environment.NODE_ENV === 'production' ? '创作者' : '林夏'),
+    BOOTSTRAP_DEMO_WORKSPACE:
+      environment.BOOTSTRAP_DEMO_WORKSPACE ?? (environment.NODE_ENV === 'production' ? 'false' : 'true'),
+    AIDEOS_BASE_URL: environment.AIDEOS_BASE_URL || environment.SEEDANCE_API_BASE_URL,
+    AIDEOS_API_KEY: environment.AIDEOS_API_KEY || environment.SEEDANCE_API_KEY,
+    AIDEOS_VIDEO_MODEL: environment.AIDEOS_VIDEO_MODEL || environment.SEEDANCE_MODEL,
+    AIDEOS_REQUEST_TIMEOUT_MS:
+      environment.AIDEOS_REQUEST_TIMEOUT_MS || environment.SEEDANCE_REQUEST_TIMEOUT_MS,
+    VIDEO_POLL_INTERVAL_MS: environment.VIDEO_POLL_INTERVAL_MS || environment.ARK_POLL_INTERVAL_MS,
+  })
 }

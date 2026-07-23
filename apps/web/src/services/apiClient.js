@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
+export const AUTH_EXPIRED_EVENT = 'seqora:auth-expired'
 
 async function request(path, options = {}) {
   const hasJsonBody = options.body && !(options.body instanceof FormData)
@@ -14,6 +15,10 @@ async function request(path, options = {}) {
   if (response.status === 204) return null
   const data = await response.json().catch(() => null)
   if (!response.ok) {
+    const sessionExpired = ['AUTHENTICATION_REQUIRED', 'SESSION_INVALID'].includes(data?.error?.code)
+    if (response.status === 401 && sessionExpired && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+    }
     const error = new Error(data?.error?.message || '请求失败，请稍后重试')
     error.code = data?.error?.code || 'REQUEST_FAILED'
     error.status = response.status
@@ -30,27 +35,76 @@ const upload = (file) => {
   return { method: 'POST', body }
 }
 
+export async function waitForProjectScriptUpdate(
+  projectId,
+  previousScript,
+  { timeoutMs = 30_000, pollIntervalMs = 2_500 } = {},
+) {
+  const startedAt = Date.now()
+  let elapsed = 0
+  while (elapsed <= timeoutMs) {
+    try {
+      const workspace = await request(`/projects/${projectId}`)
+      if (workspace?.project?.script && workspace.project.script !== previousScript) return workspace
+    } catch (error) {
+      if (error?.status === 401) throw error
+    }
+    elapsed = Date.now() - startedAt
+    if (elapsed >= timeoutMs) return null
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
+    elapsed = Date.now() - startedAt
+  }
+  return null
+}
+
 export const api = {
   login: (input) => request('/auth/login', json('POST', input)),
   logout: () => request('/auth/logout', { method: 'POST' }),
   session: () => request('/auth/me'),
+  changePassword: (input) => request('/auth/password', json('PUT', input)),
   projects: () => request('/projects'),
   project: (id) => request(`/projects/${id}`),
   createProject: (input) => request('/projects', json('POST', input)),
   updateProject: (id, input) => request(`/projects/${id}`, json('PATCH', input)),
+  generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID()) =>
+    request(`/projects/${id}/script/generate`, json('POST', { clientRequestId, draft, direction })),
+  enrichScript: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
+    request(`/projects/${id}/script/enrich`, json('POST', { clientRequestId, script, direction })),
+  reviewScript: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
+    request(`/projects/${id}/script/review`, json('POST', { clientRequestId, script, direction })),
+  planQuickStart: (id) => request(`/projects/${id}/quick-start/plan`, { method: 'POST' }),
+  executeQuickStart: (id, input) => request(`/projects/${id}/quick-start/execute`, json('POST', input)),
   saveVersion: (id) => request(`/projects/${id}/versions`, { method: 'POST' }),
   createAsset: (projectId, input) => request(`/projects/${projectId}/assets`, json('POST', input)),
   updateAsset: (projectId, assetId, input) =>
     request(`/projects/${projectId}/assets/${assetId}`, json('PATCH', input)),
   deleteAsset: (projectId, assetId) =>
     request(`/projects/${projectId}/assets/${assetId}`, { method: 'DELETE' }),
+  trustedAssetConfiguration: () => request('/trusted-assets/configuration'),
+  trustedPortraits: (groupType) =>
+    request(`/trusted-assets/portraits?groupType=${encodeURIComponent(groupType)}`),
+  registerVirtualPortrait: (projectId, assetId) =>
+    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/register`, { method: 'POST' }),
+  bindTrustedPortrait: (projectId, assetId, providerAssetId) =>
+    request(
+      `/projects/${projectId}/assets/${assetId}/trusted-portrait/bind`,
+      json('POST', { providerAssetId }),
+    ),
+  refreshTrustedPortrait: (projectId, assetId) =>
+    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/refresh`, { method: 'POST' }),
   uploadMedia: (projectId, file) => request(`/projects/${projectId}/media`, upload(file)),
   createShot: (projectId, input) => request(`/projects/${projectId}/shots`, json('POST', input)),
   updateShot: (projectId, shotId, input) =>
     request(`/projects/${projectId}/shots/${shotId}`, json('PATCH', input)),
-  generateShots: (projectId) => request(`/projects/${projectId}/shots/generate`, { method: 'POST' }),
+  generateShots: (projectId, input = {}) =>
+    request(`/projects/${projectId}/shots/generate`, json('POST', input)),
   tasks: (projectId) => request(`/projects/${projectId}/generation/tasks`),
   createTask: (input) => request('/generation/tasks', json('POST', input)),
+  createFilmPreview: (projectId, mode = 'full', force = false) =>
+    request(`/projects/${projectId}/film-preview`, json('POST', { mode, force })),
+  pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, { method: 'POST' }),
+  resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, { method: 'POST' }),
+  deleteTask: (taskId) => request(`/generation/tasks/${taskId}`, { method: 'DELETE' }),
   clearTasks: (projectId) =>
     request(`/projects/${projectId}/generation/tasks/completed`, { method: 'DELETE' }),
   billing: () => request('/billing/summary'),

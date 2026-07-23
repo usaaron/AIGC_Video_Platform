@@ -8,13 +8,14 @@
     "pnpm": ">=11.0.0"
   },
   "scripts": {
-    "dev": "pnpm --filter @seqora/contracts build && pnpm --parallel --filter @seqora/api --filter @seqora/web dev",
+    "build:shared": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/prompting build",
+    "dev": "pnpm build:shared && pnpm --parallel --filter @seqora/api --filter @seqora/web dev",
     "dev:web": "pnpm --filter @seqora/web dev",
-    "dev:api": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/api dev",
+    "dev:api": "pnpm build:shared && pnpm --filter @seqora/api dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
-    "test": "pnpm -r test",
+    "test": "pnpm build:shared && pnpm -r test",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "check": "pnpm format:check && pnpm lint && pnpm test && pnpm build"

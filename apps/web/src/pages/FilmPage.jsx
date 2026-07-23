@@ -1,21 +1,136 @@
-import { Check, Download, Pause, Play, RefreshCw, Save, Zap } from 'lucide-react'
+import {
+  Check,
+  Download,
+  ExternalLink,
+  Film,
+  LoaderCircle,
+  RefreshCw,
+  Save,
+  TriangleAlert,
+  Video,
+  Zap,
+} from 'lucide-react'
+import { useState } from 'react'
 import { PageHeader } from '../components/ui'
+import {
+  completedShotVideoTask,
+  contiguousSourceVideoTaskIds,
+  filmPreviewTaskFor,
+  isCurrentFilmPreview,
+  latestCompletedFilmPreviewTask,
+  sourceVideoTaskIds,
+} from '../features/film/filmPreview'
+import { projectRatioMode } from '../features/film/projectRatio'
+import { normalizedVideoDuration } from '@seqora/prompting'
 
 export function FilmPage({
   project,
   shots,
-  playing,
-  setPlaying,
+  tasks,
   currentShot,
   setCurrentShot,
   onSave,
   onEdit,
+  onComposePreview,
   onExport,
 }) {
+  const [viewMode, setViewMode] = useState('full')
+  const [composeSubmitting, setComposeSubmitting] = useState(null)
+  const [loadedVideoUrl, setLoadedVideoUrl] = useState(null)
+  const [failedVideoUrl, setFailedVideoUrl] = useState(null)
   const safeIndex = Math.min(currentShot, Math.max(0, shots.length - 1))
   const shot = shots[safeIndex]
-  const totalDuration = shots.reduce((sum, item) => sum + item.duration, 0)
-  const elapsed = shots.slice(0, safeIndex).reduce((sum, item) => sum + item.duration, 0)
+  const totalDuration = shots.reduce((sum, item) => sum + normalizedVideoDuration(item.duration), 0)
+  const videoTask = videoTaskFor(tasks, shot?.id)
+  const videoUrl = videoUrlFor(videoTask)
+  const videoState = stateFor(videoTask)
+  const ratioMode = projectRatioMode(project.aspectRatio)
+  const completedSources = shots.map((item) => completedShotVideoTask(tasks, item.id))
+  const readyShotCount = completedSources.filter(Boolean).length
+  const partialSourceTaskIds = contiguousSourceVideoTaskIds(tasks, shots)
+  const partialDuration = shots
+    .slice(0, partialSourceTaskIds.length)
+    .reduce((sum, item) => sum + normalizedVideoDuration(item.duration), 0)
+  const sourceTaskIds = sourceVideoTaskIds(tasks, shots)
+  const allShotsReady = shots.length > 0 && sourceTaskIds.length === shots.length
+  const fullPreviewTask = filmPreviewTaskFor(tasks, sourceTaskIds, 'full')
+  const fullPreviewIsCurrent = isCurrentFilmPreview(fullPreviewTask, sourceTaskIds, 'full')
+  const partialPreviewTask = filmPreviewTaskFor(tasks, partialSourceTaskIds, 'partial')
+  const partialPreviewIsCurrent = isCurrentFilmPreview(partialPreviewTask, partialSourceTaskIds, 'partial')
+  const retainedFullPreviewTask = latestCompletedFilmPreviewTask(tasks, 'full')
+  const retainedPartialPreviewTask = latestCompletedFilmPreviewTask(tasks, 'partial')
+  const previewMode = fullPreviewIsCurrent
+    ? 'full'
+    : partialPreviewIsCurrent
+      ? 'partial'
+      : retainedFullPreviewTask
+        ? 'full'
+        : retainedPartialPreviewTask
+          ? 'partial'
+          : 'full'
+  const previewTask = fullPreviewIsCurrent
+    ? fullPreviewTask
+    : partialPreviewIsCurrent
+      ? partialPreviewTask
+      : previewMode === 'full'
+        ? retainedFullPreviewTask || fullPreviewTask
+        : retainedPartialPreviewTask || partialPreviewTask
+  const previewIsCurrent = previewMode === 'full' ? fullPreviewIsCurrent : partialPreviewIsCurrent
+  const previewUrl = videoUrlFor(previewTask)
+  const retainedPreviewVisible = Boolean(previewUrl && !previewIsCurrent)
+  const previewShotCount = retainedPreviewVisible
+    ? numericMetadata(previewTask, 'sourceShotCount', 0)
+    : previewMode === 'partial'
+      ? partialSourceTaskIds.length
+      : readyShotCount
+  const previewDuration = retainedPreviewVisible
+    ? numericMetadata(previewTask, 'duration', 0)
+    : previewMode === 'partial'
+      ? partialDuration
+      : totalDuration
+  const previewState = stateForFilmPreview(
+    previewTask,
+    previewIsCurrent,
+    readyShotCount,
+    shots.length,
+    previewMode,
+    partialSourceTaskIds.length,
+  )
+  const previewActive =
+    previewIsCurrent &&
+    (previewTask?.status === 'queued' ||
+      previewTask?.status === 'running' ||
+      previewTask?.status === 'paused')
+  const displayUrl = viewMode === 'full' ? previewUrl : videoUrl
+  const displayState = viewMode === 'full' ? previewState : videoState
+  const displayVideoLoaded = Boolean(displayUrl && loadedVideoUrl === displayUrl)
+  const displayVideoFailed = Boolean(displayUrl && failedVideoUrl === displayUrl)
+  const previewDownloadName = `${safeFileName(project.name)}-${
+    retainedPreviewVisible
+      ? previewMode === 'partial'
+        ? `上一版前${previewShotCount}镜片段`
+        : '上一版完整成片'
+      : previewMode === 'partial'
+        ? `前${partialSourceTaskIds.length}镜片段`
+        : '完整成片'
+  }.mp4`
+
+  const composePreview = async (mode) => {
+    setComposeSubmitting(mode)
+    try {
+      await onComposePreview(mode)
+      setViewMode('full')
+    } finally {
+      setComposeSubmitting(null)
+    }
+  }
+
+  const playNextCompletedVideo = () => {
+    const nextIndex = shots.findIndex(
+      (item, index) => index > safeIndex && Boolean(videoUrlFor(videoTaskFor(tasks, item.id))),
+    )
+    if (nextIndex >= 0) setCurrentShot(nextIndex)
+  }
 
   if (!shot)
     return (
@@ -35,62 +150,207 @@ export function FilmPage({
         title={`《${project.name}》预览`}
         description="检查镜头顺序与节奏，保存版本后可以继续修改。"
       >
+        <span className="inherited-ratio">
+          成片比例 <strong>{project.aspectRatio}</strong>
+        </span>
         <button className="button secondary" onClick={onSave}>
           <Save size={16} /> 保存版本
         </button>
         <button className="button primary" onClick={onExport}>
-          <Download size={16} /> 导出项目包
+          <Download size={16} /> 导出项目数据
         </button>
       </PageHeader>
+      <div className="film-preview-toolbar">
+        <div className="film-view-switch" role="group" aria-label="成片观看模式">
+          <button
+            type="button"
+            className={viewMode === 'full' ? 'active' : ''}
+            aria-pressed={viewMode === 'full'}
+            onClick={() => setViewMode('full')}
+          >
+            <Film size={15} /> 成片预览
+          </button>
+          <button
+            type="button"
+            className={viewMode === 'shot' ? 'active' : ''}
+            aria-pressed={viewMode === 'shot'}
+            onClick={() => setViewMode('shot')}
+          >
+            <Video size={15} /> 单镜头
+          </button>
+        </div>
+        <div className="film-compose-control">
+          <span className={previewUrl ? (retainedPreviewVisible ? 'retained' : 'ready') : ''}>
+            {previewActive ? (
+              <LoaderCircle size={15} className="spin" />
+            ) : previewUrl ? (
+              <Check size={15} />
+            ) : (
+              <Video size={15} />
+            )}
+            {previewActive
+              ? `正在合成${previewMode === 'partial' ? '片段' : '完整成片'} ${previewTask.progress}%`
+              : previewUrl
+                ? retainedPreviewVisible
+                  ? `上一版${previewMode === 'partial' ? '片段' : '完整成片'}已保留，当前分镜需重新生成`
+                  : previewMode === 'partial'
+                    ? `前 ${partialSourceTaskIds.length} 镜连续预览已就绪`
+                    : '完整成片已就绪'
+                : `视频生成进度 ${readyShotCount}/${shots.length}`}
+          </span>
+          {previewUrl && (
+            <>
+              <a className="button secondary" href={previewUrl} target="_blank" rel="noreferrer">
+                <ExternalLink size={15} /> 打开播放
+              </a>
+              <a className="button primary" href={previewUrl} download={previewDownloadName}>
+                <Download size={15} />
+                {previewMode === 'partial' ? '下载片段' : '下载完整视频'}
+              </a>
+            </>
+          )}
+          {(!previewUrl || !previewIsCurrent) && (
+            <>
+              <button
+                className="button secondary"
+                type="button"
+                disabled={
+                  partialSourceTaskIds.length < 2 ||
+                  allShotsReady ||
+                  partialPreviewIsCurrent ||
+                  composeSubmitting !== null
+                }
+                onClick={() => void composePreview('partial')}
+              >
+                {composeSubmitting === 'partial' ? (
+                  <LoaderCircle size={15} className="spin" />
+                ) : (
+                  <Video size={15} />
+                )}
+                合成已完成片段
+              </button>
+              <button
+                className="button secondary"
+                type="button"
+                disabled={!allShotsReady || fullPreviewIsCurrent || composeSubmitting !== null}
+                onClick={() => void composePreview('full')}
+              >
+                {composeSubmitting === 'full' ? (
+                  <LoaderCircle size={15} className="spin" />
+                ) : (
+                  <Film size={15} />
+                )}
+                {allShotsReady ? '合成完整成片' : `完整成片待完成 ${readyShotCount}/${shots.length}`}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
       <div className="film-layout">
         <section className="player-panel">
-          <div className="film-player">
-            <img
-              key={shot.id}
-              src={shot.imageUrl || '/demo/station.jpg'}
-              alt={shot.title}
-              className="film-frame"
-            />
-            <div className="film-grade" />
-            <div className="film-subtitle">{shot.prompt}</div>
-            <button
-              className="big-play"
-              onClick={() => setPlaying((value) => !value)}
-              aria-label={playing ? '暂停' : '播放'}
-            >
-              {playing ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
-            </button>
-          </div>
-          <div className="player-controls">
-            <button onClick={() => setPlaying((value) => !value)} aria-label={playing ? '暂停' : '播放'}>
-              {playing ? <Pause size={17} /> : <Play size={17} fill="currentColor" />}
-            </button>
-            <span>00:{String(elapsed).padStart(2, '0')}</span>
-            <div className="play-track">
-              <span style={{ width: `${((safeIndex + 1) / shots.length) * 100}%` }} />
-            </div>
-            <span>00:{totalDuration}</span>
+          <div className="film-player" data-ratio={ratioMode}>
+            {displayUrl ? (
+              <div className="film-media-shell">
+                <video
+                  key={displayUrl}
+                  src={displayUrl}
+                  className="film-frame"
+                  controls
+                  preload="auto"
+                  playsInline
+                  onCanPlay={() => {
+                    setLoadedVideoUrl(displayUrl)
+                    setFailedVideoUrl(null)
+                  }}
+                  onLoadedMetadata={() => {
+                    setLoadedVideoUrl(displayUrl)
+                    setFailedVideoUrl(null)
+                  }}
+                  onError={() => setFailedVideoUrl(displayUrl)}
+                  onEnded={viewMode === 'shot' ? playNextCompletedVideo : undefined}
+                />
+                {!displayVideoLoaded && (
+                  <div className={`film-video-status ${displayVideoFailed ? 'failed' : ''}`}>
+                    {displayVideoFailed ? (
+                      <TriangleAlert size={24} />
+                    ) : (
+                      <LoaderCircle size={24} className="spin" />
+                    )}
+                    <strong>{displayVideoFailed ? '应用内播放加载失败' : '正在读取视频'}</strong>
+                    <span>
+                      {displayVideoFailed
+                        ? '可以使用上方“打开播放”或下载到本地观看。'
+                        : '正在读取 MP4 元数据…'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="film-pending">
+                <img
+                  key={shot.id}
+                  src={shot.imageUrl || '/demo/station.jpg'}
+                  alt={`${shot.title}分镜参考图`}
+                  className="film-frame"
+                />
+                <div className="film-pending-shade" />
+                <div className={`film-pending-state ${displayState.tone}`}>
+                  {displayState.icon}
+                  <strong>{displayState.title}</strong>
+                  <span>{displayState.detail}</span>
+                </div>
+              </div>
+            )}
           </div>
         </section>
         <aside className="film-info">
-          <span className="eyebrow">当前镜头</span>
+          <span className="eyebrow">
+            {viewMode === 'full'
+              ? retainedPreviewVisible
+                ? previewMode === 'partial'
+                  ? '上一版片段'
+                  : '上一版完整成片'
+                : previewMode === 'partial'
+                  ? '已完成片段'
+                  : '完整成片'
+              : '当前镜头'}
+          </span>
           <h2>
-            {String(shot.order).padStart(2, '0')} · {shot.title}
+            {viewMode === 'full'
+              ? retainedPreviewVisible
+                ? `《${project.name}》上一版成片快照`
+                : previewMode === 'partial'
+                  ? `《${project.name}》前 ${partialSourceTaskIds.length} 镜预览`
+                  : `《${project.name}》全片预览`
+              : `${String(shot.order).padStart(2, '0')} · ${shot.title}`}
           </h2>
-          <img src={shot.imageUrl || '/demo/station.jpg'} alt="当前镜头缩略图" />
+          <img className="film-info-thumb" src={shot.imageUrl || '/demo/station.jpg'} alt="当前镜头缩略图" />
           <dl>
             <div>
-              <dt>景别</dt>
-              <dd>{shot.framing}</dd>
+              <dt>{viewMode === 'full' ? '镜头数量' : '景别'}</dt>
+              <dd>
+                {viewMode === 'full'
+                  ? retainedPreviewVisible
+                    ? `${previewShotCount}（上一版）`
+                    : previewMode === 'partial'
+                      ? `${partialSourceTaskIds.length}/${shots.length}`
+                      : `${readyShotCount}/${shots.length}`
+                  : shot.framing}
+              </dd>
             </div>
             <div>
-              <dt>时长</dt>
-              <dd>{shot.duration} 秒</dd>
+              <dt>{viewMode === 'full' ? '全片时长' : '输出时长'}</dt>
+              <dd>
+                {viewMode === 'full'
+                  ? previewDuration
+                  : normalizedVideoDuration(videoTask?.metadata?.duration ?? shot.duration)}{' '}
+                秒
+              </dd>
             </div>
             <div>
               <dt>状态</dt>
-              <dd className="good">
-                <Check size={13} /> 可预览
+              <dd className={displayUrl ? 'good' : displayState.tone}>
+                {displayUrl && <Check size={13} />} {displayUrl ? '视频已就绪' : displayState.title}
               </dd>
             </div>
           </dl>
@@ -116,9 +376,12 @@ export function FilmPage({
           {shots.map((item, index) => (
             <button
               key={item.id}
-              className={safeIndex === index ? 'active' : ''}
-              style={{ flex: item.duration }}
-              onClick={() => setCurrentShot(index)}
+              className={viewMode === 'shot' && safeIndex === index ? 'active' : ''}
+              style={{ flex: normalizedVideoDuration(item.duration) }}
+              onClick={() => {
+                setCurrentShot(index)
+                setViewMode('shot')
+              }}
             >
               <img src={item.imageUrl || '/demo/station.jpg'} alt="" />
               <span>{String(item.order).padStart(2, '0')}</span>
@@ -134,4 +397,113 @@ export function FilmPage({
       </section>
     </div>
   )
+}
+
+function videoTaskFor(tasks, shotId) {
+  const shotTasks = tasks.filter(
+    (task) => task.kind === 'video' && task.metadata?.shotId === shotId && task.status !== 'cancelled',
+  )
+  return (
+    shotTasks.find(
+      (task) => task.status === 'running' || task.status === 'queued' || task.status === 'paused',
+    ) ||
+    shotTasks.find((task) => task.status === 'completed') ||
+    shotTasks[0]
+  )
+}
+
+function videoUrlFor(task) {
+  if (task?.status !== 'completed') return null
+  return task.resultUrl || task.outputs?.[0]?.url || null
+}
+
+function stateFor(task) {
+  if (!task) {
+    return {
+      tone: 'idle',
+      icon: <Video size={24} />,
+      title: '视频未生成',
+      detail: '请先在分镜页创建 Seedance 视频任务',
+    }
+  }
+  if (task.status === 'failed') {
+    return {
+      tone: 'failed',
+      icon: <TriangleAlert size={24} />,
+      title: '视频生成失败',
+      detail: task.error || '请返回分镜页重新生成',
+    }
+  }
+  return {
+    tone: 'active',
+    icon: <LoaderCircle size={24} className="spin" />,
+    title:
+      task.status === 'running'
+        ? `Seedance 生成中 ${task.progress}%`
+        : task.status === 'paused'
+          ? '视频已暂停'
+          : '视频排队中',
+    detail: '真实视频完成后才会在这里显示播放控件',
+  }
+}
+
+function stateForFilmPreview(task, isCurrent, readyCount, shotCount, previewMode, contiguousCount) {
+  const targetName = previewMode === 'partial' ? '片段预览' : '完整成片'
+  if (task && isCurrent && task.status === 'failed') {
+    return {
+      tone: 'failed',
+      icon: <TriangleAlert size={24} />,
+      title: `${targetName}合成失败`,
+      detail: task.error || `请重新合成${targetName}`,
+    }
+  }
+  if (task && isCurrent && task.status !== 'completed') {
+    return {
+      tone: 'active',
+      icon: <LoaderCircle size={24} className="spin" />,
+      title: task.status === 'paused' ? `${targetName}已暂停` : `正在合成${targetName} ${task.progress}%`,
+      detail: '本地合成只处理已生成视频，不会再次调用 Seedance 或扣除积分。',
+    }
+  }
+  if (readyCount < shotCount) {
+    return {
+      tone: 'idle',
+      icon: <Film size={24} />,
+      title: contiguousCount >= 2 ? `可先合成前 ${contiguousCount} 镜` : '等待连续镜头完成',
+      detail: `当前 ${readyCount}/${shotCount} 镜已完成；连续承接模式会按顺序生成，全部完成后自动合成完整 MP4。`,
+    }
+  }
+  if (!task || !isCurrent) {
+    return {
+      tone: 'idle',
+      icon: <Film size={24} />,
+      title: task ? '镜头已更新，需要重新合成' : '完整预览尚未合成',
+      detail: '点击“合成完整预览”，系统会按分镜顺序生成一个连续 MP4。',
+    }
+  }
+  if (task.status === 'failed') {
+    return {
+      tone: 'failed',
+      icon: <TriangleAlert size={24} />,
+      title: '完整预览合成失败',
+      detail: task.error || '请重新合成完整预览',
+    }
+  }
+  return {
+    tone: 'active',
+    icon: <LoaderCircle size={24} className="spin" />,
+    title: task.status === 'paused' ? '完整预览已暂停' : `正在合成完整预览 ${task.progress}%`,
+    detail: '合成只处理已生成视频，不会再次调用 Seedance 或扣除积分。',
+  }
+}
+
+function safeFileName(value) {
+  return String(value || 'seqora-video')
+    .replace(/[<>:"/\\|?*]/g, '-')
+    .slice(0, 80)
+}
+
+function numericMetadata(task, key, fallback) {
+  const value = task?.metadata?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }

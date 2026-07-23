@@ -2,12 +2,17 @@ import {
   createAssetSchema,
   createProjectSchema,
   createShotSchema,
+  enrichScriptRequestSchema,
+  generateScriptRequestSchema,
+  generateShotsRequestSchema,
   PERMISSIONS,
+  reviewScriptRequestSchema,
   updateAssetSchema,
   updateProjectSchema,
   updateShotSchema,
 } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
 import { AppError } from '../../core/errors.js'
@@ -16,7 +21,6 @@ import type { ProjectService } from './service.js'
 const projectParams = z.object({ projectId: z.string().min(1) })
 const assetParams = projectParams.extend({ assetId: z.string().min(1) })
 const shotParams = projectParams.extend({ shotId: z.string().min(1) })
-
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value)
   if (!result.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(result.error))
@@ -27,8 +31,13 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
   app.get('/projects', { preHandler: requirePermission(PERMISSIONS.PROJECT_READ) }, (request) =>
     service.list(request.principal!),
   )
-  app.post('/projects', { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) }, (request, reply) =>
-    reply.code(201).send(service.create(parse(createProjectSchema, request.body), request.principal!)),
+  app.post(
+    '/projects',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
+    async (request, reply) =>
+      reply
+        .code(201)
+        .send(await service.create(parse(createProjectSchema, request.body), request.principal!)),
   )
   app.get('/projects/:projectId', { preHandler: requirePermission(PERMISSIONS.PROJECT_READ) }, (request) =>
     service.workspace(parse(projectParams, request.params).projectId, request.principal!),
@@ -44,6 +53,49 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
     '/projects/:projectId/versions',
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
     (request) => service.saveVersion(parse(projectParams, request.params).projectId, request.principal!),
+  )
+  app.post(
+    '/projects/:projectId/script/generate',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
+    (request) => {
+      const input = parse(generateScriptRequestSchema, request.body ?? {})
+      return service.generateScript(
+        parse(projectParams, request.params).projectId,
+        input.draft,
+        input.direction,
+        input.clientRequestId ?? randomUUID(),
+        request.principal!,
+      )
+    },
+  )
+  app.post(
+    '/projects/:projectId/script/review',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_READ) },
+    (request) => {
+      const input = parse(reviewScriptRequestSchema, request.body ?? {})
+      return service.reviewScript(
+        parse(projectParams, request.params).projectId,
+        input.script,
+        input.direction,
+        input.clientRequestId ?? randomUUID(),
+        request.principal!,
+      )
+    },
+  )
+
+  app.post(
+    '/projects/:projectId/script/enrich',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
+    (request) => {
+      const input = parse(enrichScriptRequestSchema, request.body ?? {})
+      return service.enrichScript(
+        parse(projectParams, request.params).projectId,
+        input.script,
+        input.direction,
+        input.clientRequestId ?? randomUUID(),
+        request.principal!,
+      )
+    },
   )
 
   app.post(
@@ -85,11 +137,11 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
   app.post(
     '/projects/:projectId/shots',
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
-    (request, reply) => {
+    async (request, reply) => {
       const { projectId } = parse(projectParams, request.params)
       return reply
         .code(201)
-        .send(service.createShot(projectId, parse(createShotSchema, request.body), request.principal!))
+        .send(await service.createShot(projectId, parse(createShotSchema, request.body), request.principal!))
     },
   )
   app.patch(
@@ -103,6 +155,11 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
   app.post(
     '/projects/:projectId/shots/generate',
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
-    (request) => service.generateShots(parse(projectParams, request.params).projectId, request.principal!),
+    (request) =>
+      service.generateShots(
+        parse(projectParams, request.params).projectId,
+        parse(generateShotsRequestSchema, request.body ?? {}),
+        request.principal!,
+      ),
   )
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, Check, Clapperboard, Clock3, Crown, LoaderCircle, Play, Zap } from 'lucide-react'
+import { ArrowRight, Check, Clapperboard, Clock3, Crown, Info, LoaderCircle, Play, Zap } from 'lucide-react'
 import { JobRow, PageHeader } from '../components/ui'
 
 const filters = [
@@ -9,10 +9,34 @@ const filters = [
   ['audio', '音频'],
 ]
 
-export function GenerationPage({ jobs, concurrency, member, onUpgrade, onClear, onNext }) {
+export function GenerationPage({
+  jobs,
+  concurrency,
+  member,
+  onUpgrade,
+  onPause,
+  onResume,
+  onDelete,
+  onClear,
+  onNext,
+}) {
   const [filter, setFilter] = useState('all')
-  const visibleJobs = filter === 'all' ? jobs : jobs.filter((job) => job.kind === filter)
-  const active = jobs.filter((job) => job.status !== 'completed')
+  const [busyTaskId, setBusyTaskId] = useState(null)
+  const queueJobs = jobs.filter((job) => typeof job.metadata?.queueHiddenAt !== 'string')
+  const visibleJobs = filter === 'all' ? queueJobs : queueJobs.filter((job) => job.kind === filter)
+  const active = queueJobs.filter((job) => ['queued', 'paused', 'running'].includes(job.status))
+  const running = queueJobs.filter((job) => job.status === 'running' && job.provider !== 'local-compose')
+  const hasTerminalJobs = queueJobs.some((job) => ['completed', 'failed', 'cancelled'].includes(job.status))
+
+  const runTaskAction = async (taskId, action) => {
+    if (busyTaskId) return
+    setBusyTaskId(taskId)
+    try {
+      await action(taskId)
+    } finally {
+      setBusyTaskId(null)
+    }
+  }
 
   return (
     <div className="page queue-page">
@@ -21,8 +45,8 @@ export function GenerationPage({ jobs, concurrency, member, onUpgrade, onClear, 
         title="创作正在发生"
         description="任务由后端持续处理，刷新页面不会中断。"
       >
-        <button className="button secondary" onClick={onClear}>
-          清理已完成
+        <button className="button secondary" onClick={onClear} disabled={!hasTerminalJobs}>
+          归档已结束
         </button>
         <button className="button primary" onClick={onNext}>
           预览成片 <Play size={15} fill="currentColor" />
@@ -34,7 +58,7 @@ export function GenerationPage({ jobs, concurrency, member, onUpgrade, onClear, 
             <LoaderCircle size={19} />
           </span>
           <p>
-            生成中<strong>{jobs.filter((job) => job.status === 'running').length}</strong>
+            生成中<strong>{running.length}</strong>
           </p>
         </div>
         <div>
@@ -42,7 +66,11 @@ export function GenerationPage({ jobs, concurrency, member, onUpgrade, onClear, 
             <Clock3 size={19} />
           </span>
           <p>
-            等待中<strong>{jobs.filter((job) => job.status === 'queued').length}</strong>
+            等待 / 暂停
+            <strong>
+              {queueJobs.filter((job) => job.status === 'queued').length} /{' '}
+              {queueJobs.filter((job) => job.status === 'paused').length}
+            </strong>
           </p>
         </div>
         <div>
@@ -50,7 +78,7 @@ export function GenerationPage({ jobs, concurrency, member, onUpgrade, onClear, 
             <Check size={19} />
           </span>
           <p>
-            已完成<strong>{jobs.filter((job) => job.status === 'completed').length}</strong>
+            已完成<strong>{queueJobs.filter((job) => job.status === 'completed').length}</strong>
           </p>
         </div>
         <div>
@@ -58,10 +86,22 @@ export function GenerationPage({ jobs, concurrency, member, onUpgrade, onClear, 
             <Zap size={19} />
           </span>
           <p>
-            当前并发<strong>{concurrency}</strong>
+            并发占用
+            <strong>
+              {running.length} / {concurrency}
+            </strong>
           </p>
         </div>
       </div>
+      <section className="queue-policy" aria-label="队列处理规则">
+        <Info size={17} />
+        <div>
+          <strong>队列处理规则</strong>
+          <span>
+            等待中的任务可以暂停、继续或删除并自动退款；弦序视频生成中可真实取消，其他第三方运行中不可伪暂停，失败会自动退款。
+          </span>
+        </div>
+      </section>
       {!member && (
         <section className="upgrade-banner">
           <div className="upgrade-visual">
@@ -93,7 +133,16 @@ export function GenerationPage({ jobs, concurrency, member, onUpgrade, onClear, 
         </div>
         <div className="jobs-list">
           {visibleJobs.length ? (
-            visibleJobs.map((job) => <JobRow job={toDisplayJob(job)} key={job.id} />)
+            visibleJobs.map((job) => (
+              <JobRow
+                job={toDisplayJob(job)}
+                key={job.id}
+                busy={busyTaskId === job.id}
+                onPause={() => runTaskAction(job.id, onPause)}
+                onResume={() => runTaskAction(job.id, onResume)}
+                onDelete={() => runTaskAction(job.id, onDelete)}
+              />
+            ))
           ) : (
             <div className="empty-state">
               <Clapperboard size={28} />
