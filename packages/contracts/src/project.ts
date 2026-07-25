@@ -34,10 +34,24 @@ export const scriptCreativeDirectionSchema = z.object({
   focus: z.enum(['balanced', 'scene', 'character', 'dialogue']).default('balanced'),
 })
 
+export const generateScriptOutlinesRequestSchema = z.object({
+  clientRequestId: z.string().min(1).max(128).optional(),
+  idea: z.string().trim().min(4).max(2_000),
+  direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+  count: z.number().int().min(3).max(5).default(4),
+})
+
+export const scriptGenerationSegmentSchema = z.object({
+  goal: z.string().trim().max(500).default(''),
+  targetMinutes: z.number().int().min(1).max(15).default(5),
+})
+
 export const generateScriptRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   draft: z.string().max(100_000).default(''),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+  mode: z.enum(['quick', 'segment']).default('quick'),
+  segment: scriptGenerationSegmentSchema.default({ goal: '', targetMinutes: 5 }),
 })
 
 export const enrichScriptRequestSchema = z.object({
@@ -50,6 +64,112 @@ export const reviewScriptRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().max(100_000).default(''),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+})
+
+export const scriptOutlineOptionSchema = z.object({
+  id: z.string().min(1).max(80),
+  title: z.string().min(1).max(80),
+  logline: z.string().min(1).max(200),
+  protagonist: z.string().min(1).max(220),
+  conflict: z.string().min(1).max(260),
+  tone: z.string().min(1).max(120),
+  ending: z.string().min(1).max(220),
+  summary: z.string().min(120).max(700),
+  estimatedDuration: z.string().min(1).max(80),
+})
+
+export const scriptOutlineOptionsContentSchema = z.object({
+  outlines: z.array(scriptOutlineOptionSchema).min(3).max(5),
+})
+
+export const scriptOutlineOptionsResultSchema = scriptOutlineOptionsContentSchema.extend({
+  generatedAt: z.string().datetime(),
+})
+
+export const generateScriptStructureRequestSchema = z.object({
+  clientRequestId: z.string().min(1).max(128).optional(),
+  idea: z.string().trim().max(2_000).default(''),
+  outline: scriptOutlineOptionSchema,
+  direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+})
+
+export const scriptPlotActSchema = z.object({
+  id: z.string().min(1).max(80),
+  title: z.string().min(1).max(100),
+  purpose: z.string().min(1).max(300),
+  summary: z.string().min(1).max(900),
+  keyBeats: z.array(z.string().min(1).max(300)).min(3).max(6),
+  turningPoint: z.string().min(1).max(300),
+  estimatedMinutes: z.number().int().min(1).max(180),
+})
+
+export const scriptSubplotSchema = z.object({
+  id: z.string().min(1).max(80),
+  title: z.string().min(1).max(100),
+  characters: z.array(z.string().min(1).max(80)).min(1).max(5),
+  arc: z.string().min(1).max(500),
+  payoff: z.string().min(1).max(400),
+})
+
+export const scriptCharacterArcSchema = z.object({
+  character: z.string().min(1).max(100),
+  desire: z.string().min(1).max(300),
+  obstacle: z.string().min(1).max(300),
+  change: z.string().min(1).max(400),
+})
+
+export const scriptStructureContentSchema = z.object({
+  title: z.string().min(1).max(100),
+  premise: z.string().min(1).max(500),
+  mainPlot: z.string().min(1).max(1_200),
+  acts: z.array(scriptPlotActSchema).min(3).max(5),
+  subplots: z.array(scriptSubplotSchema).min(1).max(4),
+  characterArcs: z.array(scriptCharacterArcSchema).min(1).max(6),
+  visualDirection: z.string().min(1).max(800),
+  nextStep: z.string().min(1).max(500),
+})
+
+export const scriptStructureResultSchema = scriptStructureContentSchema.extend({
+  generatedAt: z.string().datetime(),
+})
+
+export const generateScriptScenesRequestSchema = z.object({
+  clientRequestId: z.string().min(1).max(128).optional(),
+  idea: z.string().trim().max(2_000).default(''),
+  outline: scriptOutlineOptionSchema,
+  structure: scriptStructureContentSchema,
+  direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+  sceneCount: z.number().int().min(6).max(24).default(12),
+})
+
+export const scriptSceneSchema = z.object({
+  id: z.string().min(1).max(80),
+  order: z.number().int().min(1).max(200),
+  actId: z.string().min(1).max(80),
+  title: z.string().min(1).max(120),
+  location: z.string().min(1).max(160),
+  timeOfDay: z.string().min(1).max(80),
+  characters: z.array(z.string().min(1).max(80)).min(1).max(8),
+  purpose: z.string().min(1).max(400),
+  conflict: z.string().min(1).max(400),
+  plot: z.string().min(1).max(1_200),
+  action: z.string().min(1).max(1_000),
+  dialogue: z.array(z.string().min(1).max(300)).max(8),
+  visualNotes: z.string().min(1).max(700),
+  transition: z.string().min(1).max(300),
+  estimatedMinutes: z.number().int().min(1).max(30),
+})
+
+export const scriptScenesContentSchema = z.object({
+  title: z.string().min(1).max(120),
+  sourceStructureTitle: z.string().min(1).max(120),
+  scenes: z.array(scriptSceneSchema).min(6).max(24),
+  continuityNotes: z.string().min(1).max(1_000),
+  nextStep: z.string().min(1).max(500),
+})
+
+export const scriptScenesResultSchema = scriptScenesContentSchema.extend({
+  generatedAt: z.string().datetime(),
 })
 
 export const scriptReviewDimensionKeySchema = z.enum([
@@ -207,9 +327,20 @@ export const scriptAssetSuggestionSchema = z.discriminatedUnion('kind', [
   }),
 ])
 
+export const generateScriptAssetSuggestionsRequestSchema = z.object({
+  clientRequestId: z.string().min(1).max(128).optional(),
+  script: z.string().trim().min(1).max(100_000),
+  direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+})
+
 export const scriptAssetSuggestionsContentSchema = z.object({
   summary: z.string().min(1).max(700),
   assets: z.array(scriptAssetSuggestionSchema).max(16),
+})
+
+export const scriptAssetSuggestionsResultSchema = scriptAssetSuggestionsContentSchema.extend({
+  generatedAt: z.string().datetime(),
+  warnings: z.array(z.string().min(1).max(500)).default([]),
 })
 
 export const audioAttributesSchema = z.object({
@@ -418,7 +549,19 @@ export type CreateShot = z.infer<typeof createShotSchema>
 export type UpdateShot = z.infer<typeof updateShotSchema>
 export type ProjectWorkspace = z.infer<typeof projectWorkspaceSchema>
 export type ScriptCreativeDirection = z.infer<typeof scriptCreativeDirectionSchema>
+export type GenerateScriptOutlinesRequest = z.infer<typeof generateScriptOutlinesRequestSchema>
+export type ScriptOutlineOption = z.infer<typeof scriptOutlineOptionSchema>
+export type ScriptOutlineOptionsResult = z.infer<typeof scriptOutlineOptionsResultSchema>
+export type GenerateScriptStructureRequest = z.infer<typeof generateScriptStructureRequestSchema>
+export type ScriptStructureContent = z.infer<typeof scriptStructureContentSchema>
+export type ScriptStructureResult = z.infer<typeof scriptStructureResultSchema>
+export type GenerateScriptScenesRequest = z.infer<typeof generateScriptScenesRequestSchema>
+export type ScriptScenesResult = z.infer<typeof scriptScenesResultSchema>
+export type GenerateScriptAssetSuggestionsRequest = z.infer<
+  typeof generateScriptAssetSuggestionsRequestSchema
+>
 export type ScriptAssetSuggestion = z.infer<typeof scriptAssetSuggestionSchema>
+export type ScriptAssetSuggestionsResult = z.infer<typeof scriptAssetSuggestionsResultSchema>
 export type GenerateScriptRequest = z.infer<typeof generateScriptRequestSchema>
 export type ReviewScriptRequest = z.infer<typeof reviewScriptRequestSchema>
 export type ScriptReviewContent = z.infer<typeof scriptReviewContentSchema>

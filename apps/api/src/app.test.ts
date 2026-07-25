@@ -1,9 +1,10 @@
-import type { GenerationTask } from '@seqora/contracts'
+import { NOVEL_IMPORT_MAX_FILE_BYTES, type GenerationTask } from '@seqora/contracts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { rm } from 'node:fs/promises'
+import { readFile, rm, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { Readable } from 'node:stream'
+import { TextDecoder } from 'node:util'
 import { buildApp } from './app.js'
 import type { AppConfig } from './config.js'
 import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
@@ -11,6 +12,7 @@ import type { ImageGenerationProvider } from './core/generation/imageProvider.js
 import { TextGenerationProviderError, type TextGenerationProvider } from './core/generation/textProvider.js'
 import type { AssetLibraryProvider, ProviderPortrait } from './core/generation/volcArkAssetLibraryProvider.js'
 import type { FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
+import { createPublicMediaToken } from './core/media/publicMediaToken.js'
 import { AppStore, defaultAssetAttributes } from './infra/store.js'
 import { LocalObjectStorage } from './infra/objectStorage.js'
 
@@ -67,6 +69,12 @@ const testConfig: AppConfig = {
 }
 
 let app: FastifyInstance | undefined
+const runLocalNovelRegression = process.env.RUN_NOVEL_FIXTURE_REGRESSION === '1'
+const localNovelRegression = runLocalNovelRegression ? describe : describe.skip
+const localNovelFixturePaths = {
+  biancheng: process.env.NOVEL_REGRESSION_BIANCHENG_PATH ?? 'E:\\Firefox下载\\边城.txt',
+  tower: process.env.NOVEL_REGRESSION_TOWER_PATH ?? 'C:\\Users\\Admin\\Downloads\\倾覆之塔.txt',
+}
 
 afterEach(async () => {
   await app?.close()
@@ -806,6 +814,1452 @@ describe('API authorization', () => {
     expect(contentAfterArchive.body).toBe('video-content')
   })
 
+  it('generates selectable outline options without overwriting the saved script', async () => {
+    const generate = vi.fn(async () => outlineOptionsJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const before = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/outlines',
+      headers,
+      payload: {
+        clientRequestId: 'outline-options',
+        idea: '我想生成一个100分钟带有浪漫和悲情色彩的中国风武侠剧',
+        count: 3,
+        direction: {
+          style: 'photorealistic',
+          composition: 'rule-of-thirds',
+          lighting: 'low-key',
+          camera: 'restrained',
+          focus: 'character',
+        },
+      },
+    })
+    const after = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      outlines: [
+        expect.objectContaining({ id: 'outline-1', title: '雪夜归剑' }),
+        expect.objectContaining({ id: 'outline-2' }),
+        expect.objectContaining({ id: 'outline-3' }),
+      ],
+      generatedAt: expect.any(String),
+    })
+    expect(after.json().project.script).toBe(before.json().project.script)
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining('大纲方向'),
+        userPrompt: expect.stringContaining('浪漫和悲情色彩'),
+        maxOutputTokens: 5_000,
+      }),
+    )
+    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    expect(billing.json().entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'generation-script-outline-outline-options', amount: -2 }),
+      ]),
+    )
+  })
+
+  it('generates a plot structure from the selected outline without overwriting the saved script', async () => {
+    const generate = vi.fn(async () => scriptStructureJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const before = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+    const outline = JSON.parse(outlineOptionsJson()).outlines[0]
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/structure',
+      headers,
+      payload: {
+        clientRequestId: 'plot-structure',
+        idea: '浪漫悲情武侠长片',
+        outline,
+      },
+    })
+    const after = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      title: '雪夜归剑',
+      acts: [
+        expect.objectContaining({ id: 'act-1' }),
+        expect.objectContaining({ id: 'act-2' }),
+        expect.objectContaining({ id: 'act-3' }),
+      ],
+      subplots: [expect.objectContaining({ id: 'subplot-1' })],
+      generatedAt: expect.any(String),
+    })
+    expect(after.json().project.script).toBe(before.json().project.script)
+    expect(generate).toHaveBeenCalledOnce()
+    expect(generate.mock.calls[0][0].systemPrompt).toContain('剧情统筹')
+    expect(generate.mock.calls[0][0].userPrompt).toContain('已选大纲')
+    expect(generate.mock.calls[0][0].maxOutputTokens).toBe(6_000)
+    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    expect(billing.json().entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'generation-script-structure-plot-structure', amount: -3 }),
+      ]),
+    )
+  })
+
+  it('generates a scene-by-scene script from the plot structure without overwriting the saved script', async () => {
+    const generate = vi.fn(async () => scriptScenesJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const before = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+    const outline = JSON.parse(outlineOptionsJson()).outlines[0]
+    const structure = JSON.parse(scriptStructureJson())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/scenes',
+      headers,
+      payload: {
+        clientRequestId: 'scene-script',
+        idea: '浪漫悲情武侠长片',
+        outline,
+        structure,
+        sceneCount: 6,
+      },
+    })
+    const after = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      title: '雪夜归剑分场剧本',
+      sourceStructureTitle: '雪夜归剑',
+      generatedAt: expect.any(String),
+    })
+    expect(response.json().scenes).toHaveLength(6)
+    expect(response.json().scenes[0]).toMatchObject({
+      id: 'scene-1',
+      order: 1,
+      actId: 'act-1',
+      title: '雪夜婚约',
+    })
+    expect(after.json().project.script).toBe(before.json().project.script)
+    expect(generate).toHaveBeenCalledOnce()
+    expect(generate.mock.calls[0][0].systemPrompt).toContain('分场编剧')
+    expect(generate.mock.calls[0][0].userPrompt).toContain('剧情结构')
+    expect(generate.mock.calls[0][0].userPrompt).toContain('请基于剧情结构生成 6 场分场剧本')
+    expect(generate.mock.calls[0][0].maxOutputTokens).toBe(6_000)
+    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    expect(billing.json().entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'generation-script-scenes-scene-script', amount: -5 }),
+      ]),
+    )
+  })
+
+  it('normalizes provider scene duration numbers before validating scene scripts', async () => {
+    const generate = vi.fn(async () => scriptScenesFractionalMinutesJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const outline = JSON.parse(outlineOptionsJson()).outlines[0]
+    const structure = JSON.parse(scriptStructureJson())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/scenes',
+      headers,
+      payload: {
+        clientRequestId: 'scene-script-fractional-minutes',
+        idea: '浪漫悲情武侠长片',
+        outline,
+        structure,
+        sceneCount: 6,
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().scenes[2].estimatedMinutes).toBe(3)
+    expect(response.json().scenes[3].estimatedMinutes).toBe(1)
+    expect(response.json().scenes[4].estimatedMinutes).toBe(30)
+    expect(response.json().scenes[5].estimatedMinutes).toBe(4)
+  })
+
+  it('suggests reusable assets from the current script without creating them', async () => {
+    const generate = vi.fn(async () => scriptAssetSuggestionsJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const before = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers,
+      payload: {
+        script: '场次：1｜场景：边城药铺｜角色：女剑客、药师｜关键物件：旧长剑｜服装：女剑客雪夜衣装',
+        direction: {
+          style: 'cinematic-cg',
+          composition: 'rule-of-thirds',
+          lighting: 'low-key',
+          camera: 'restrained',
+          focus: 'character',
+        },
+      },
+    })
+    const after = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      summary: expect.stringContaining('主角'),
+      generatedAt: expect.any(String),
+      warnings: [],
+    })
+    expect(response.json().assets.map((asset: { kind: string }) => asset.kind)).toEqual([
+      'character',
+      'prop',
+      'scene',
+      'costume',
+    ])
+    expect(after.json().assets).toHaveLength(before.json().assets.length)
+    expect(after.json().project.script).toBe(before.json().project.script)
+    expect(generate).toHaveBeenCalledOnce()
+    expect(generate.mock.calls[0][0]).toMatchObject({
+      systemPrompt: expect.stringContaining('资产制片'),
+      userPrompt: expect.stringContaining('已有资产'),
+      maxOutputTokens: 6_000,
+    })
+  })
+
+  it('imports a novel and splits explicit chapter headings without changing the script', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const before = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers,
+      payload: {
+        clientRequestId: 'novel-import-1',
+        name: '雨夜旧站',
+        content: [
+          '第一章 雨夜来信',
+          '林夏收到一封没有署名的信，信里写着午夜旧站的名字。',
+          '',
+          '第二章 旧车站',
+          '她抵达废弃站台，在长椅下发现一只生锈铁盒。',
+        ].join('\n'),
+      },
+    })
+    const after = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+    expect(response.json()).toMatchObject({
+      document: {
+        id: expect.any(String),
+        projectId: 'project-midnight-film',
+        tenantId: 'tenant-seqora-demo',
+        name: '雨夜旧站',
+        format: 'txt',
+        chapterCount: 2,
+      },
+      chapters: [
+        expect.objectContaining({ order: 1, title: '第一章 雨夜来信' }),
+        expect.objectContaining({ order: 2, title: '第二章 旧车站' }),
+      ],
+    })
+    expect(response.json().chapters[0].preview).toContain('林夏收到')
+    expect(response.json().chapters[0]).toMatchObject({
+      splitMode: 'heading',
+      sourceStartOffset: 0,
+      sourceChapterTitle: '第一章 雨夜来信',
+      overlapBeforeChars: 0,
+      overlapAfterChars: 0,
+      crossesChapterBoundary: false,
+    })
+    expect(after.json().project.script).toBe(before.json().project.script)
+
+    const documents = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film/novels',
+      headers,
+    })
+    expect(documents.json()).toEqual([expect.objectContaining({ name: '雨夜旧站', chapterCount: 2 })])
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${response.json().document.id}`,
+      headers,
+    })
+    expect(detail.json().chapters).toHaveLength(2)
+    expect(detail.body).not.toContain('content')
+  })
+
+  it('previews novel splitting without importing a document', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const payload = {
+      name: '预览切分',
+      format: 'txt',
+      splitOptions: {
+        mode: 'auto',
+        targetChars: 3_000,
+        overlapChars: 300,
+      },
+      content: [
+        '第一章 雨夜来信',
+        '林夏收到一封没有署名的信，信里写着午夜旧站的名字。',
+        '',
+        '第二章 旧车站',
+        '她抵达废弃站台，在长椅下发现一只生锈铁盒。',
+      ].join('\n'),
+    }
+
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/preview-split',
+      headers,
+      payload,
+    })
+    const documentsAfterPreview = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film/novels',
+      headers,
+    })
+    const imported = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers,
+      payload: { ...payload, clientRequestId: 'preview-then-import' },
+    })
+
+    expect(preview.statusCode, preview.body).toBe(200)
+    expect(preview.json()).toMatchObject({
+      previewId: expect.any(String),
+      name: '预览切分',
+      characterCount: expect.any(Number),
+      chapterCount: 2,
+      splitMode: 'heading',
+      splitOptions: {
+        mode: 'auto',
+        targetChars: 3_000,
+        overlapChars: 300,
+      },
+      coveragePassed: true,
+      warnings: [],
+      chapters: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'preview-chapter-1',
+          order: 1,
+          title: '第一章 雨夜来信',
+          splitMode: 'heading',
+          sourceChapterTitle: '第一章 雨夜来信',
+        }),
+      ]),
+    })
+    expect(preview.body).not.toContain('"content"')
+    expect(documentsAfterPreview.json()).toHaveLength(0)
+    expect(imported.statusCode, imported.body).toBe(201)
+    expect(imported.json().document.chapterCount).toBe(preview.json().chapterCount)
+  })
+
+  it('keeps repeated novel imports idempotent by client request id', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const payload = {
+      clientRequestId: 'same-novel-import',
+      name: '重复导入',
+      content: '第一章 开端\n主角发现线索。\n\n第二章 追踪\n主角确认线索。',
+    }
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers,
+      payload,
+    })
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers,
+      payload,
+    })
+    const documents = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film/novels',
+      headers,
+    })
+
+    expect(second.statusCode, second.body).toBe(201)
+    expect(second.json().document.id).toBe(first.json().document.id)
+    expect(documents.json()).toHaveLength(1)
+  })
+
+  it('auto-splits a chapterless novel into bounded segments', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const longContent = '没有章节标题的一段连续剧情。'.repeat(800)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        name: '无标题长文',
+        splitOptions: {
+          mode: 'auto',
+          targetChars: 3_000,
+          overlapChars: 300,
+        },
+        content: longContent,
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+    expect(response.json().document.chapterCount).toBeGreaterThan(1)
+    expect(response.json().chapters[0]).toMatchObject({
+      title: '自动分段 01',
+      order: 1,
+      splitMode: 'fixed',
+      sourceStartOffset: 0,
+      overlapBeforeChars: 0,
+      overlapAfterChars: 300,
+      crossesChapterBoundary: false,
+    })
+    expect(response.json().document.characterCount).toBe(longContent.length)
+  })
+
+  it('splits oversized detected chapters into ordered source-covered chunks', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const longChapter = '甲'.repeat(2_500)
+    const shortChapter = '乙'.repeat(80)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        name: '长章节',
+        splitOptions: {
+          mode: 'heading',
+          targetChars: 1_000,
+          overlapChars: 300,
+        },
+        content: ['第一章 长章', longChapter, '', '第二章 短章', shortChapter].join('\n'),
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+    expect(response.json().document.chapterCount).toBeGreaterThan(2)
+    expect(response.json().document.characterCount).toBe(
+      response
+        .json()
+        .chapters.reduce(
+          (total: number, chapter: { characterCount: number }) => total + chapter.characterCount,
+          0,
+        ),
+    )
+    expect(response.json().chapters[0]).toMatchObject({
+      order: 1,
+      title: '第一章 长章 · 分段 1',
+      splitMode: 'heading',
+      sourceChapterTitle: '第一章 长章',
+      sourceStartOffset: 0,
+      overlapBeforeChars: 0,
+      overlapAfterChars: 300,
+    })
+    expect(response.json().chapters[1]).toMatchObject({
+      order: 2,
+      sourceChapterTitle: '第一章 长章',
+      overlapBeforeChars: 300,
+    })
+    expect(response.json().chapters.at(-1)).toMatchObject({
+      sourceChapterTitle: '第二章 短章',
+      crossesChapterBoundary: false,
+    })
+  })
+
+  it('strips common txt download boilerplate before chapter splitting', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        name: '边城',
+        content: [
+          '声明：本书为八零电子书(txt02.com)的用户自网络收集整理制作,仅供预览交流学习使用。',
+          '---------------------------用户上传之内容开始--------------------------------',
+          '',
+          '边城',
+          '作者：沈从文',
+          '内容简介',
+          '《边城》展示湘西世界和谐的生命形态。',
+          '',
+          '第一章 一',
+          '由四川过湖南去，靠东有一条官路。',
+          '(   重要提示：如果书友们打不开t x t 8 0. c o m 老域名，可以访问本站。   )',
+          '',
+          '第二章 二',
+          '茶峒地方凭水依山筑城。',
+        ].join('\n'),
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+    expect(response.json().chapters[0]).toMatchObject({ title: '开篇' })
+    expect(response.json().chapters[0].preview).toContain('边城\n作者：沈从文')
+    expect(response.body).not.toContain('声明：本书为')
+    expect(response.body).not.toContain('重要提示')
+  })
+
+  it('accepts large novel imports beyond the old client-only limit', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const largeContent = 'A'.repeat(1_250_000)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        name: '大体量导入',
+        content: largeContent,
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+    expect(response.json().document.characterCount).toBe(1_250_000)
+    expect(response.json().document.chapterCount).toBeGreaterThan(100)
+  })
+
+  it('detects suspicious novel chunk boundaries without changing chapter content', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers,
+      payload: {
+        name: '边界检测样本',
+        splitOptions: {
+          mode: 'fixed',
+          targetChars: 1_000,
+          overlapChars: 300,
+        },
+        content: '她推开门看见一个陌生人站在雨里'.repeat(180),
+      },
+    })
+    const detected = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}/boundaries/detect`,
+      headers,
+      payload: { maxBoundaries: 10 },
+    })
+    const readback = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}/boundaries`,
+      headers,
+    })
+    const repeated = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}/boundaries/detect`,
+      headers,
+      payload: { maxBoundaries: 10 },
+    })
+
+    expect(imported.statusCode, imported.body).toBe(201)
+    expect(imported.json().document.chapterCount).toBeGreaterThan(1)
+    expect(detected.statusCode, detected.body).toBe(200)
+    expect(detected.json().boundaries.length).toBeGreaterThan(0)
+    expect(detected.json().boundaries[0]).toMatchObject({
+      previousOrder: 1,
+      nextOrder: 2,
+      status: 'pending',
+      severity: 'medium',
+      issues: ['sentence-fragment'],
+      note: null,
+    })
+    expect(detected.json().boundaries[0].previousTail).toContain('她推开门')
+    expect(readback.json().boundaries).toHaveLength(detected.json().boundaries.length)
+    expect(repeated.json().boundaries[0].id).toBe(detected.json().boundaries[0].id)
+  })
+
+  it('generates boundary reconciliation notes without changing original chunks', async () => {
+    const generate = vi.fn(async () =>
+      JSON.stringify({
+        notes: [
+          {
+            boundaryId: 'provider-can-return-stale-id',
+            note: {
+              finding: '上一段停在她推开门看见，下一段继续补足看见的对象。',
+              caution: '后续摘要时保持同一动作，不要把边界当成新场景。',
+            },
+          },
+        ],
+        batchNotes: { sourceType: '边界衔接', cautions: ['对象字段需要被规范化'] },
+      }),
+    )
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers,
+      payload: {
+        name: '边界说明样本',
+        splitOptions: {
+          mode: 'fixed',
+          targetChars: 1_000,
+          overlapChars: 300,
+        },
+        content: '她推开门看见一个陌生人站在雨里'.repeat(180),
+      },
+    })
+    const detailBefore = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}`,
+      headers,
+    })
+    const detected = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}/boundaries/detect`,
+      headers,
+      payload: { maxBoundaries: 1 },
+    })
+    const boundaryId = detected.json().boundaries[0].id
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}/boundaries/notes/generate`,
+      headers,
+      payload: {
+        clientRequestId: 'boundary-note-1',
+        batchSize: 1,
+      },
+    })
+    const repeated = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}/boundaries/notes/generate`,
+      headers,
+      payload: {
+        clientRequestId: 'boundary-note-1-repeat',
+        batchSize: 1,
+      },
+    })
+    const detailAfter = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}`,
+      headers,
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      generatedBoundaryIds: [boundaryId],
+      missingNoteCount: Math.max(0, detected.json().boundaries.length - 1),
+      boundaries: expect.arrayContaining([
+        expect.objectContaining({
+          id: boundaryId,
+          status: 'resolved',
+          note: expect.stringContaining('上一段停在她推开门看见'),
+        }),
+      ]),
+      warnings: [expect.stringContaining('来源：边界衔接')],
+    })
+    expect(repeated.json()).toMatchObject({ generatedBoundaryIds: [] })
+    expect(detailAfter.json().chapters).toEqual(detailBefore.json().chapters)
+    expect(generate).toHaveBeenCalledOnce()
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining('长篇小说切分边界校对员'),
+        userPrompt: expect.stringContaining(`boundaryId：${boundaryId}`),
+      }),
+    )
+    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    expect(billing.json().entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ amount: -2, description: '生成小说边界衔接说明' })]),
+    )
+  })
+
+  it('rejects obviously unreadable mojibake novel content', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        name: '乱码小说',
+        content: '����������Ϊ���������(txt02.com)������������'.repeat(40),
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ error: { code: 'NOVEL_CONTENT_UNREADABLE' } })
+  })
+
+  it('blocks novel imports across tenants', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-other',
+        'x-demo-tenant-id': 'tenant-other',
+      },
+      payload: {
+        name: '越权小说',
+        content: '第一章 开端\n这份小说不应导入。',
+      },
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('creates a durable novel summary queue without calling the text provider', async () => {
+    const generate = vi.fn(async () => novelChapterSummariesJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue`,
+      headers,
+      payload: {
+        clientRequestId: 'summary-queue-1',
+        batchSize: 2,
+        maxAttempts: 2,
+      },
+    })
+    const repeated = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue`,
+      headers,
+      payload: {
+        clientRequestId: 'summary-queue-1',
+        batchSize: 2,
+        maxAttempts: 2,
+      },
+    })
+    const readback = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue`,
+      headers,
+    })
+    const summaries = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries`,
+      headers,
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      document: { id: imported.document.id, chapterCount: 2 },
+      queue: {
+        id: expect.any(String),
+        documentId: imported.document.id,
+        status: 'queued',
+        batchSize: 2,
+        force: false,
+        totalItems: 2,
+        pendingCount: 2,
+        runningCount: 0,
+        completedCount: 0,
+        failedCount: 0,
+        skippedCount: 0,
+      },
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          chapterId: imported.chapters[0].id,
+          order: 1,
+          status: 'pending',
+          attempts: 0,
+          maxAttempts: 2,
+          sourceChapterTitle: '第一章 雨夜来信',
+        }),
+      ]),
+      summaryCount: 0,
+      missingSummaryCount: 2,
+    })
+    expect(response.body).not.toContain('clientRequestId')
+    expect(repeated.json().queue.id).toBe(response.json().queue.id)
+    expect(readback.json().queue.id).toBe(response.json().queue.id)
+    expect(summaries.json().summaries).toHaveLength(0)
+    expect(generate).not.toHaveBeenCalled()
+  })
+
+  it('runs novel summary queue batches and supports pause, retry and skip', async () => {
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce(novelChapterSummariesJson())
+      .mockRejectedValueOnce(new Error('provider down'))
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue`,
+      headers,
+      payload: {
+        clientRequestId: 'summary-queue-run',
+        batchSize: 2,
+        maxAttempts: 2,
+      },
+    })
+    const queueId = created.json().queue.id
+    const firstItemId = created.json().items[0].id
+    const secondItemId = created.json().items[1].id
+
+    const paused = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/pause`,
+      headers,
+    })
+    const pausedRun = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/run-batch`,
+      headers,
+      payload: { clientRequestId: 'summary-queue-paused-run' },
+    })
+    const resumed = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/resume`,
+      headers,
+    })
+    const run = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/run-batch`,
+      headers,
+      payload: { clientRequestId: 'summary-queue-run-batch', batchSize: 2 },
+    })
+    const summariesAfterRun = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries`,
+      headers,
+    })
+    const retried = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/items/${secondItemId}/retry`,
+      headers,
+    })
+    const skipped = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/items/${secondItemId}/skip`,
+      headers,
+    })
+
+    expect(paused.statusCode, paused.body).toBe(200)
+    expect(paused.json().queue.status).toBe('paused')
+    expect(pausedRun.statusCode).toBe(409)
+    expect(pausedRun.json()).toMatchObject({ error: { code: 'NOVEL_SUMMARY_QUEUE_PAUSED' } })
+    expect(resumed.json().queue.status).toBe('queued')
+    expect(run.statusCode, run.body).toBe(200)
+    expect(run.json()).toMatchObject({
+      processedItemIds: [firstItemId],
+      failedItemIds: [secondItemId],
+      queue: {
+        status: 'failed',
+        completedCount: 1,
+        failedCount: 1,
+      },
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: firstItemId,
+          status: 'completed',
+          attempts: 1,
+          result: expect.objectContaining({
+            summary: expect.stringContaining('林夏收到匿名来信'),
+          }),
+        }),
+        expect.objectContaining({
+          id: secondItemId,
+          status: 'failed',
+          attempts: 1,
+          errorMessage: 'provider down',
+        }),
+      ]),
+    })
+    expect(summariesAfterRun.json().summaries).toHaveLength(0)
+    expect(retried.json()).toMatchObject({
+      queue: { status: 'queued', pendingCount: 1 },
+      items: expect.arrayContaining([
+        expect.objectContaining({ id: secondItemId, status: 'pending', attempts: 1 }),
+      ]),
+    })
+    expect(skipped.json()).toMatchObject({
+      queue: { status: 'completed', completedCount: 1, skippedCount: 1 },
+      items: expect.arrayContaining([expect.objectContaining({ id: secondItemId, status: 'skipped' })]),
+    })
+    expect(generate).toHaveBeenCalledTimes(2)
+  })
+
+  it('commits completed summary queue results into the chapter summary fact store', async () => {
+    const generate = vi.fn(async () => novelChapterSummariesJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue`,
+      headers,
+      payload: {
+        clientRequestId: 'summary-queue-commit',
+        batchSize: 2,
+      },
+    })
+    const queueId = created.json().queue.id
+    const run = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/run-batch`,
+      headers,
+      payload: { clientRequestId: 'summary-queue-commit-run', batchSize: 2 },
+    })
+    const committed = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/commit-results`,
+      headers,
+      payload: {},
+    })
+    const repeated = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/commit-results`,
+      headers,
+      payload: {},
+    })
+    const summaries = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries`,
+      headers,
+    })
+    const storyBibleReadiness = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/story-bible`,
+      headers,
+    })
+
+    expect(run.statusCode, run.body).toBe(200)
+    expect(run.json().queue.completedCount).toBe(2)
+    expect(committed.statusCode, committed.body).toBe(200)
+    expect(committed.json()).toMatchObject({
+      committedItemIds: run.json().processedItemIds,
+      skippedItemIds: [],
+      summaryCount: 2,
+      missingSummaryCount: 0,
+      summaries: expect.arrayContaining([
+        expect.objectContaining({
+          chapterId: imported.chapters[0].id,
+          summary: expect.stringContaining('林夏收到匿名来信'),
+        }),
+      ]),
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: run.json().processedItemIds[0],
+          summaryId: expect.any(String),
+        }),
+      ]),
+    })
+    expect(repeated.json().summaries).toHaveLength(2)
+    expect(summaries.json().summaries).toHaveLength(2)
+    expect(storyBibleReadiness.json()).toMatchObject({
+      summaryCount: 2,
+      chapterCount: 2,
+      missingSummaryCount: 0,
+    })
+  })
+
+  it('generates chapter summaries in batches without exposing chapter content', async () => {
+    const generate = vi.fn(async () => novelChapterSummariesJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+    const before = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries/generate`,
+      headers,
+      payload: {
+        clientRequestId: 'chapter-summary-batch',
+        batchSize: 2,
+      },
+    })
+    const after = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      completed: true,
+      generatedSummaries: [
+        expect.objectContaining({ order: 1, title: '第一章 雨夜来信' }),
+        expect.objectContaining({ order: 2, title: '第二章 旧车站' }),
+      ],
+      warnings: ['两章都可作为悬疑开场事实源。'],
+    })
+    expect(response.json().summaries).toHaveLength(2)
+    expect(response.body).not.toContain('content')
+    expect(after.json().project.script).toBe(before.json().project.script)
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining('长篇小说改编统筹'),
+        userPrompt: expect.stringContaining('章节序号：1'),
+        maxOutputTokens: 3_000,
+      }),
+    )
+
+    const summaries = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries`,
+      headers,
+    })
+    expect(summaries.json()).toMatchObject({
+      completed: true,
+      missingSummaryCount: 0,
+      summaries: expect.arrayContaining([
+        expect.objectContaining({ characters: [expect.stringContaining('林夏：年轻导演')] }),
+      ]),
+    })
+    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    expect(billing.json().entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ amount: -4, description: '生成小说章节摘要' })]),
+    )
+  })
+
+  it('normalizes richer provider chapter summary JSON into stable string arrays', async () => {
+    const generate = vi.fn(async () => novelChapterSummariesRichJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries/generate`,
+      headers,
+      payload: {
+        clientRequestId: 'chapter-summary-rich-json',
+        batchSize: 1,
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().generatedSummaries[0]).toMatchObject({
+      title: '第一章 雨夜来信',
+      characters: [expect.stringContaining('林夏')],
+      locations: [expect.stringContaining('废弃旧车站')],
+      keyProps: [expect.stringContaining('匿名来信')],
+      adaptationNotes: expect.stringContaining('改编重点'),
+    })
+  })
+
+  it('generates a story overview only after all chapter summaries are ready', async () => {
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce(novelChapterSummariesJson())
+      .mockResolvedValueOnce(novelStoryBibleJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+
+    const blocked = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/story-bible/generate`,
+      headers,
+      payload: { clientRequestId: 'story-bible-before-summaries' },
+    })
+    expect(blocked.statusCode).toBe(409)
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries/generate`,
+      headers,
+      payload: { clientRequestId: 'chapter-summary-for-bible', batchSize: 2 },
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/story-bible/generate`,
+      headers,
+      payload: { clientRequestId: 'story-bible' },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      storyBible: {
+        title: '雨夜旧站',
+        sourceSummaryCount: 2,
+        chapterCount: 2,
+        characters: expect.arrayContaining([expect.objectContaining({ name: '林夏' })]),
+        locations: expect.arrayContaining([expect.objectContaining({ name: '旧车站' })]),
+        keyProps: expect.arrayContaining([expect.objectContaining({ name: '匿名来信' })]),
+        worldRules: [expect.stringContaining('胶片')],
+      },
+      missingSummaryCount: 0,
+    })
+    const read = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/story-bible`,
+      headers,
+    })
+    expect(read.json()).toMatchObject({
+      summaryCount: 2,
+      missingSummaryCount: 0,
+      storyBible: expect.objectContaining({ title: '雨夜旧站' }),
+    })
+    expect(generate.mock.calls[1][0]).toMatchObject({
+      systemPrompt: expect.stringContaining('故事概要编辑'),
+      userPrompt: expect.stringContaining('已完成章节摘要数量：2'),
+      maxOutputTokens: 6_000,
+    })
+    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    expect(billing.json().entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ amount: -6, description: '生成小说故事概要' })]),
+    )
+  })
+
+  it('normalizes richer provider story overview JSON into stable content', async () => {
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce(novelChapterSummariesJson())
+      .mockResolvedValueOnce(novelStoryBibleRichJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries/generate`,
+      headers,
+      payload: { clientRequestId: 'chapter-summary-for-rich-bible', batchSize: 2 },
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/story-bible/generate`,
+      headers,
+      payload: { clientRequestId: 'story-bible-rich-json' },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    const storyBible = response.json().storyBible
+    expect(storyBible.characters[0]).toMatchObject({
+      name: 'Cuicui',
+      role: 'lead',
+      description: expect.stringContaining('innocent'),
+      storyFunction: expect.stringContaining('grandfather'),
+      motivation: expect.stringContaining('waiting'),
+      arc: expect.stringContaining('learns'),
+    })
+    expect(storyBible.locations[0]).toMatchObject({
+      name: 'Chadong',
+      description: expect.stringContaining('ferry'),
+      storyFunction: expect.stringContaining('community'),
+    })
+    expect(storyBible.keyProps[0]).toMatchObject({
+      name: 'Ferry boat',
+      description: expect.stringContaining('public boat'),
+      storyFunction: expect.stringContaining('connects'),
+    })
+    expect(storyBible.foreshadowing[0]).toMatchObject({ status: 'ambiguous' })
+    expect(storyBible.worldRules[0]).toContain('Ferry is public')
+    expect(storyBible.adaptationStrategy).toContain('lyrical')
+    expect(storyBible.risks).toHaveLength(10)
+  })
+
+  it('suggests reusable assets from novel facts and infers old ferryman attributes', async () => {
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce(bianchengChapterSummariesJson())
+      .mockResolvedValueOnce('不是 JSON')
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries/generate`,
+      headers,
+      payload: { clientRequestId: 'biancheng-summary-for-assets', batchSize: 2 },
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/asset-suggestions`,
+      headers,
+      payload: { clientRequestId: 'biancheng-novel-assets', maxAssets: 12 },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      summary: expect.stringContaining('资产建议'),
+      generatedAt: expect.any(String),
+      warnings: [expect.stringContaining('格式异常')],
+    })
+    const oldFerryman = response
+      .json()
+      .assets.find(
+        (asset: { kind: string; name: string }) => asset.kind === 'character' && asset.name === '老船夫',
+      )
+    expect(oldFerryman).toMatchObject({
+      kind: 'character',
+      description: expect.stringContaining('男性'),
+      prompt: expect.stringContaining('船夫/摆渡人'),
+      attributes: {
+        gender: 'male',
+        ageGroup: 'senior',
+        subjectType: 'human',
+        framing: 'full',
+      },
+    })
+    expect(
+      response.json().assets.some((asset: { kind: string; name: string }) => asset.name === '茶峒渡口'),
+    ).toBe(true)
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(generate.mock.calls[1][0]).toMatchObject({
+      systemPrompt: expect.stringContaining('资产制片'),
+      userPrompt: expect.stringContaining('老船夫/祖父/摆渡老人'),
+      maxOutputTokens: 6_000,
+    })
+  })
+
+  it('adapts selected novel chapters into a video script without returning private source content', async () => {
+    const adaptedScript =
+      '场次：1｜剧情：林夏收到匿名来信并决定赴约。｜场景：雨夜室内｜角色：林夏｜动作：她拆开信纸，抬头看向窗外雨线。｜对白：林夏：旧车站？你到底是谁？｜风格：写实悬疑｜构图：近景手部转中景人物｜光影：冷色低调光｜运镜：缓慢推进｜衔接：雨声压入旧站台远景'
+    const generate = vi.fn(async () => adaptedScript)
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+    const chapterId = imported.chapters[0].id
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/adapt-script`,
+      headers,
+      payload: {
+        clientRequestId: 'adapt-selected-chapter',
+        chapterIds: [chapterId],
+        targetSeconds: 60,
+        mode: 'scene',
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      document: { id: imported.document.id },
+      script: adaptedScript,
+      targetSeconds: 60,
+      mode: 'scene',
+      warnings: [expect.stringContaining('尚无摘要'), expect.stringContaining('故事概要')],
+    })
+    expect(response.json().chapters).toHaveLength(1)
+    expect(response.json().chapters[0]).not.toHaveProperty('content')
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining('AI 视频改编编剧'),
+        userPrompt: expect.stringContaining('林夏收到匿名来信'),
+        maxOutputTokens: 6_000,
+      }),
+    )
+  })
+
   it('generates a quick script once and returns warnings instead of retrying', async () => {
     const quickScript = Array.from(
       { length: 4 },
@@ -852,7 +2306,7 @@ describe('API authorization', () => {
     )
   })
 
-  it('preserves a long source script when the quick output is unexpectedly short', async () => {
+  it('preserves a long source script without sending an oversized provider request', async () => {
     const longSource = Array.from(
       { length: 80 },
       (_, index) =>
@@ -879,15 +2333,81 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({
       script: longSource,
-      warnings: [expect.stringContaining('保留原稿')],
+      warnings: [expect.stringContaining('按段继续')],
+    })
+    expect(generate).not.toHaveBeenCalled()
+    const billing = await app.inject({
+      method: 'GET',
+      url: '/api/v1/billing/summary',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+    })
+    expect(billing.json().entries).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'generation-script-generate-long-script-preserve' }),
+      ]),
+    )
+  })
+
+  it('generates and appends only the next long-form segment', async () => {
+    const nextSegment = [
+      '场次：3｜剧情：林夏带着旧铁盒进入地下档案室，发现父亲留下的编号被人抹去。｜场景：地下档案室。｜角色：林夏。｜动作：她用手电扫过文件架，在空缺编号前停住。｜对白：林夏：“有人比我先来过。”',
+      '场次：4｜剧情：门外脚步逼近，林夏必须藏起铁盒并决定是否继续追查。｜场景：地下档案室门口。｜角色：林夏、陌生看守。｜动作：她关掉手电躲进文件架阴影，铁盒被压在怀里。｜对白：陌生看守：“编号七的档案不能留。”',
+    ].join('\n')
+    const generate = vi.fn(async () => nextSegment)
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const existing =
+      '场次：1｜剧情：林夏找到旧铁盒。｜场景：雨夜车站。｜角色：林夏。｜动作：她打开铁盒。｜对白：无台词。'
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/generate',
+      headers,
+      payload: {
+        draft: existing,
+        clientRequestId: 'long-script-segment',
+        mode: 'segment',
+        segment: { goal: '让林夏进入地下档案室并遇到新阻力', targetMinutes: 5 },
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      mode: 'segment',
+      segment: nextSegment,
+      script: `${existing}\n\n${nextSegment}`,
     })
     expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({
-        systemPrompt: expect.stringContaining('保留原稿'),
-        maxOutputTokens: expect.any(Number),
+        systemPrompt: expect.stringContaining('分段编剧'),
+        userPrompt: expect.stringContaining('不要重写已有内容'),
+        maxOutputTokens: 3250,
       }),
     )
-    expect(generate.mock.calls[0][0].maxOutputTokens).toBeGreaterThanOrEqual(6_000)
+    const project = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+    expect(project.json().project.script).toBe(`${existing}\n\n${nextSegment}`)
+    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    expect(billing.json().entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'generation-script-generate-long-script-segment', amount: -3 }),
+      ]),
+    )
   })
 
   it('enriches the saved quick script only after an explicit request', async () => {
@@ -2066,7 +3586,742 @@ describe('local authentication', () => {
     expect(media.headers['content-type']).toContain('image/png')
     expect(media.body).toBe('demo-image-content')
   })
+
+  it('serves long public source tokens for trusted asset registration', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const storageKey =
+      'tenant-seqora-demo/project-midnight-film/generated/4b1916b0-6676-4950-a2da-ba053ba5ebd1-single.png'
+    await new LocalObjectStorage(testConfig.UPLOAD_DIR).put(
+      storageKey,
+      Buffer.from('public-source'),
+      'image/png',
+    )
+    const token = createPublicMediaToken(
+      { storageKey, contentType: 'image/png' },
+      testConfig.AUTH_SECRET,
+      Date.now() + 60_000,
+    )
+
+    expect(token.length).toBeGreaterThan(100)
+    const source = await app.inject({ method: 'GET', url: `/api/v1/trusted-assets/source/${token}` })
+
+    expect(source.statusCode).toBe(200)
+    expect(source.headers['content-type']).toContain('image/png')
+    expect(source.body).toBe('public-source')
+  })
 })
+
+localNovelRegression('local novel fixture regression', () => {
+  const headers = {
+    'x-demo-role': 'creator',
+    'x-demo-user-id': 'user-creator',
+    'x-demo-tenant-id': 'tenant-seqora-demo',
+  }
+
+  it('imports 边城 as the medium quality sample and keeps content private', async () => {
+    const content = await readLocalNovelFixture('biancheng')
+    app = await buildApp({ config: testConfig, startWorker: false })
+
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/preview-split',
+      headers,
+      payload: {
+        name: '边城',
+        content,
+        splitOptions: { mode: 'auto', targetChars: 6_000, overlapChars: 300 },
+      },
+    })
+    expect(preview.statusCode, preview.body).toBe(200)
+    expect(preview.json()).toMatchObject({ coveragePassed: true })
+    expect(preview.json().characterCount).toBeGreaterThan(40_000)
+    expect(preview.json().chapterCount).toBeGreaterThan(5)
+    expect(preview.body).not.toContain('声明：本书')
+
+    const imported = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers,
+      payload: {
+        clientRequestId: 'local-biancheng-import',
+        name: '边城',
+        content,
+        splitOptions: { mode: 'auto', targetChars: 6_000, overlapChars: 300 },
+      },
+    })
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}`,
+      headers,
+    })
+    const queue = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}/summary-queue`,
+      headers,
+      payload: {
+        clientRequestId: 'local-biancheng-summary-queue',
+        batchSize: 4,
+      },
+    })
+
+    expect(imported.statusCode, imported.body).toBe(201)
+    expect(imported.json().document.chapterCount).toBe(preview.json().chapterCount)
+    expect(detail.body).not.toContain('"content"')
+    expect(queue.json()).toMatchObject({
+      queue: {
+        status: 'queued',
+        totalItems: imported.json().document.chapterCount,
+        pendingCount: imported.json().document.chapterCount,
+      },
+      summaryCount: 0,
+    })
+  })
+
+  it('accepts 倾覆之塔 as the current long novel size ceiling and creates resumable work', async () => {
+    const content = await readLocalNovelFixture('tower')
+    const size = (await stat(localNovelFixturePaths.tower)).size
+    app = await buildApp({ config: testConfig, startWorker: false })
+
+    const imported = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers,
+      payload: {
+        clientRequestId: 'local-tower-import',
+        name: '倾覆之塔',
+        content,
+        splitOptions: { mode: 'fixed', targetChars: 6_000, overlapChars: 300 },
+      },
+    })
+
+    expect(size).toBeLessThanOrEqual(NOVEL_IMPORT_MAX_FILE_BYTES)
+    expect(size).toBeGreaterThan(5_500_000)
+    expect(imported.statusCode, imported.body).toBe(201)
+    expect(imported.json().document.characterCount).toBeLessThanOrEqual(NOVEL_IMPORT_MAX_FILE_BYTES)
+    expect(imported.json().document.chapterCount).toBeGreaterThan(100)
+    expect(
+      imported
+        .json()
+        .chapters.reduce(
+          (total: number, chapter: { characterCount: number }) => total + chapter.characterCount,
+          0,
+        ),
+    ).toBe(imported.json().document.characterCount)
+    expect(
+      imported
+        .json()
+        .chapters.some((chapter: { overlapAfterChars: number }) => chapter.overlapAfterChars > 0),
+    ).toBe(true)
+
+    const boundaries = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}/boundaries/detect`,
+      headers,
+      payload: { maxBoundaries: 10 },
+    })
+    const queue = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}/summary-queue`,
+      headers,
+      payload: {
+        clientRequestId: 'local-tower-summary-queue',
+        batchSize: 24,
+      },
+    })
+
+    expect(boundaries.statusCode, boundaries.body).toBe(200)
+    expect(boundaries.json().boundaries.length).toBeLessThanOrEqual(10)
+    expect(queue.json()).toMatchObject({
+      queue: {
+        status: 'queued',
+        batchSize: 24,
+        totalItems: imported.json().document.chapterCount,
+      },
+      summaryCount: 0,
+      missingSummaryCount: imported.json().document.chapterCount,
+    })
+  })
+})
+
+async function readLocalNovelFixture(name: keyof typeof localNovelFixturePaths): Promise<string> {
+  const path = localNovelFixturePaths[name]
+  const buffer = await readFile(path)
+  const text = decodeLocalNovelBuffer(buffer).replace(/^\uFEFF/u, '')
+  if (!text.trim()) throw new Error(`Local novel fixture is empty: ${path}`)
+  return text
+}
+
+function decodeLocalNovelBuffer(buffer: Buffer): string {
+  for (const encoding of ['utf-8', 'gb18030', 'gbk']) {
+    try {
+      return new TextDecoder(encoding, { fatal: true }).decode(buffer)
+    } catch {
+      // Try the next common Chinese plain-text encoding.
+    }
+  }
+  return buffer.toString('utf8')
+}
+
+function outlineOptionsJson(): string {
+  const summary =
+    '女剑客隐居边城，只想与药师完成婚约，却在雪夜发现旧门派屠城令。她被迫重拾长剑，一边护送百姓撤离，一边追查师门背叛。药师逐渐发现她的复仇会吞噬两人的未来，于是选择陪她进入最后一战。高潮中女剑客放弃杀死仇人，转而救下城中孩子，最终与药师天各一方，留下守护江湖的新传说。'
+  return JSON.stringify({
+    outlines: [
+      {
+        id: 'outline-1',
+        title: '雪夜归剑',
+        logline: '退隐女剑客在婚约与复仇之间选择守护故土。',
+        protagonist: '退隐女剑客，想摆脱江湖旧债并保护爱人。',
+        conflict: '外部是门派追杀和朝廷围捕，内部是她对复仇的执念。',
+        tone: '浪漫、悲情、中国风武侠',
+        ending: '牺牲式圆满，保留余韵。',
+        summary,
+        estimatedDuration: '约100分钟',
+      },
+      {
+        id: 'outline-2',
+        title: '长风不渡',
+        logline: '落魄少侠为救白衣琴师，被迫揭开两族旧仇。',
+        protagonist: '落魄少侠，想证明自己不是师门弃子。',
+        conflict: '外部是两族血债和追兵，内部是他对身份的羞耻。',
+        tone: '清冷、克制、宿命感',
+        ending: '开放式离别，留下重逢可能。',
+        summary,
+        estimatedDuration: '约100分钟',
+      },
+      {
+        id: 'outline-3',
+        title: '玉门春迟',
+        logline: '亡国公主与敌国刺客在复国任务中相爱相杀。',
+        protagonist: '亡国公主，想夺回玉门关并保住最后的族人。',
+        conflict: '外部是敌国布局和江湖背叛，内部是她对刺客的信任动摇。',
+        tone: '浓烈、悲壮、古典爱情',
+        ending: '悲剧式胜利，主角完成使命但失去爱情。',
+        summary,
+        estimatedDuration: '约100分钟',
+      },
+    ],
+  })
+}
+
+function scriptStructureJson(): string {
+  return JSON.stringify({
+    title: '雪夜归剑',
+    premise: '退隐女剑客在婚约与复仇之间选择守护故土。',
+    mainPlot:
+      '雪夜屠城令打破隐居生活，女剑客从护送百姓开始追查师门背叛，逐步发现复仇会吞噬她与药师的未来，最终在杀死仇人与救下孩子之间选择守护。',
+    acts: [
+      {
+        id: 'act-1',
+        title: '第一幕：雪夜旧债',
+        purpose: '建立主角隐居愿望、婚约关系和旧门派威胁。',
+        summary: '女剑客准备婚约，旧门派屠城令迫近，她被迫暴露身份并重新握剑。',
+        keyBeats: ['婚约建立', '屠城令出现', '旧敌逼近'],
+        turningPoint: '她决定护送百姓离城。',
+        estimatedMinutes: 25,
+      },
+      {
+        id: 'act-2',
+        title: '第二幕：同行裂痕',
+        purpose: '推进追查、爱情压力和复仇执念。',
+        summary: '女剑客与药师同行，发现师门背叛与亲近之人有关，两人的未来开始分裂。',
+        keyBeats: ['护送受阻', '线索指向师门', '药师质疑复仇'],
+        turningPoint: '她确认真正仇人仍在城内。',
+        estimatedMinutes: 45,
+      },
+      {
+        id: 'act-3',
+        title: '第三幕：归剑成全',
+        purpose: '完成最终选择和情绪落点。',
+        summary: '女剑客在杀仇人和救孩子之间选择后者，完成守护主题。',
+        keyBeats: ['重返城门', '仇人现身', '放弃复仇救人'],
+        turningPoint: '她与药师天各一方。',
+        estimatedMinutes: 30,
+      },
+    ],
+    subplots: [
+      {
+        id: 'subplot-1',
+        title: '爱情副线',
+        characters: ['女剑客', '药师'],
+        arc: '从隐居婚约到价值分歧，再到互相成全。',
+        payoff: '最终离别保留余韵。',
+      },
+    ],
+    characterArcs: [
+      {
+        character: '女剑客',
+        desire: '摆脱江湖旧债。',
+        obstacle: '复仇执念和门派追杀。',
+        change: '从复仇者变成守护者。',
+      },
+    ],
+    visualDirection: '雪夜、边城、旧门派符号和克制武侠动作贯穿全片。',
+    nextStep: '继续细化人物关系、三处关键战斗和离别段落。',
+  })
+}
+
+function scriptScenesJson(): string {
+  const scenes = [
+    {
+      id: 'scene-1',
+      order: 1,
+      actId: 'act-1',
+      title: '雪夜婚约',
+      location: '边城药铺',
+      timeOfDay: '夜',
+      characters: ['女剑客', '药师'],
+      purpose: '建立主角想退出江湖并守住婚约的愿望。',
+      conflict: '女剑客想收起旧身份，门外的追兵却逼近药铺。',
+      plot: '女剑客把长剑藏进柜底，与药师确认明日婚约；窗外突然响起马蹄，药铺灯火被雪风压暗，她意识到旧门派已经找到这里。',
+      action: '她合上剑匣，药师把门闩扣紧，两人同时望向窗纸上掠过的人影。',
+      dialogue: ['女剑客：明日之后，我不再握剑。', '药师：那就先活过今夜。'],
+      visualNotes: '室内暖灯与窗外冷雪形成对比，长剑只露出一角，重点保留药铺空间关系。',
+      transition: '窗外马蹄声和门环震动引出旧敌抵达。',
+      estimatedMinutes: 5,
+    },
+    {
+      id: 'scene-2',
+      order: 2,
+      actId: 'act-1',
+      title: '屠城令现身',
+      location: '边城主街',
+      timeOfDay: '深夜',
+      characters: ['女剑客', '药师', '门派信使'],
+      purpose: '把外部威胁从传闻落成可见行动。',
+      conflict: '信使逼她交出百姓名册，她必须在隐藏身份和救人之间选择。',
+      plot: '门派信使在主街展示屠城令，百姓被迫跪在雪中；女剑客原想绕开，却看到孩童被推倒，最终拔出藏在药箱里的短剑。',
+      action: '她从药箱底层抽剑，挡在孩童前方，药师把受伤老人拖进街边檐下。',
+      dialogue: ['门派信使：归剑人，出来领命。', '女剑客：这座城不归你们。'],
+      visualNotes: '长街留出逃离路线，雪地脚印要连续，信物屠城令成为关键物件。',
+      transition: '短剑出鞘后的停顿，接到她带百姓撤离。',
+      estimatedMinutes: 8,
+    },
+    {
+      id: 'scene-3',
+      order: 3,
+      actId: 'act-2',
+      title: '雪桥护送',
+      location: '城外木桥',
+      timeOfDay: '黎明',
+      characters: ['女剑客', '药师', '百姓'],
+      purpose: '推进护送任务并暴露两人的价值分歧。',
+      conflict: '桥面被追兵截断，药师要求撤离，女剑客坚持回头找背叛线索。',
+      plot: '百姓队伍抵达木桥时发现桥尾被焚断，女剑客击退追兵却在尸体上看见师门暗记，复仇线索让她停下脚步。',
+      action: '她踏上摇晃木桥护住队伍，药师把药包抛给受伤者，随后拉住她的衣袖。',
+      dialogue: ['药师：人已经救出来了。', '女剑客：真正下令的人还在城里。'],
+      visualNotes: '桥、河谷和回城方向必须清晰，药师站位始终靠近伤者。',
+      transition: '她回望城门的视线引出重返调查。',
+      estimatedMinutes: 12,
+    },
+    {
+      id: 'scene-4',
+      order: 4,
+      actId: 'act-2',
+      title: '暗记裂痕',
+      location: '废弃驿站',
+      timeOfDay: '傍晚',
+      characters: ['女剑客', '药师'],
+      purpose: '让爱情副线与复仇主线正面冲突。',
+      conflict: '药师发现暗记指向女剑客旧师兄，她拒绝相信背叛来自亲近之人。',
+      plot: '两人在驿站整理线索，药师拼出药材账册和师门暗记的关系；女剑客失控拔剑劈开桌面，第一次让药师感到害怕。',
+      action: '药师把账册推到灯下，她的剑锋停在纸面一寸处，烛火被剑风压低。',
+      dialogue: ['药师：你要找的不是答案，是一个能被你杀掉的人。', '女剑客：别替他开脱。'],
+      visualNotes: '驿站桌面线索要可读但不要出现真实文字，剑痕作为情绪裂痕的视觉符号。',
+      transition: '被劈开的账册露出城门暗号，引向最终回城。',
+      estimatedMinutes: 14,
+    },
+    {
+      id: 'scene-5',
+      order: 5,
+      actId: 'act-3',
+      title: '城门仇人',
+      location: '边城城门',
+      timeOfDay: '夜',
+      characters: ['女剑客', '药师', '旧师兄', '孩童'],
+      purpose: '把最终选择压缩到复仇和守护之间。',
+      conflict: '旧师兄现身承认背叛，同时孩童被困在即将坍塌的城门下。',
+      plot: '女剑客终于逼出旧师兄，剑尖已经抵住仇人咽喉；城门上方梁木断裂，白天救过的孩童被困，她必须立刻放弃刺杀才能救人。',
+      action: '她的剑锋停住，转身冲向城门，药师从另一侧撑住断梁。',
+      dialogue: ['旧师兄：你等这一剑等了十年。', '女剑客：所以我知道不能把它浪费在你身上。'],
+      visualNotes: '城门、断梁、孩童位置和旧师兄站位要建立清楚，动作以克制写实为主。',
+      transition: '她弃剑托起梁木，引出结局的归剑成全。',
+      estimatedMinutes: 16,
+    },
+    {
+      id: 'scene-6',
+      order: 6,
+      actId: 'act-3',
+      title: '归剑离别',
+      location: '城外雪坡',
+      timeOfDay: '清晨',
+      characters: ['女剑客', '药师'],
+      purpose: '完成主题落点和人物关系余韵。',
+      conflict: '城已得救，但女剑客必须留下处理旧门派余波，药师无法继续陪她逃避。',
+      plot: '天亮后百姓离城，女剑客把长剑埋在雪坡下，药师替她包扎伤口；两人确认彼此仍相爱，却选择不同方向守护余生。',
+      action: '她用剑鞘挖开雪地，药师系紧布带后松手，两人在晨光里背向而行。',
+      dialogue: ['药师：这次你还会回来吗？', '女剑客：等这把剑真的不再需要我。'],
+      visualNotes: '清晨冷光转为柔和，长剑埋入雪地作为收束物件，人物距离逐步拉开。',
+      transition: '远景定格在雪坡脚印分叉，为后续分镜提供结尾画面。',
+      estimatedMinutes: 10,
+    },
+  ]
+  return JSON.stringify({
+    title: '雪夜归剑分场剧本',
+    sourceStructureTitle: '雪夜归剑',
+    scenes,
+    continuityNotes: '长剑、屠城令、药铺灯光、雪地脚印和女剑客伤口状态需要跨场连续。',
+    nextStep: '继续把每场扩写成完整对白、动作节拍和镜头级提示词。',
+  })
+}
+
+function scriptScenesFractionalMinutesJson(): string {
+  const scenes = JSON.parse(scriptScenesJson())
+  scenes.scenes[2].estimatedMinutes = 2.6
+  scenes.scenes[3].estimatedMinutes = 0.2
+  scenes.scenes[4].estimatedMinutes = 31.6
+  scenes.scenes[5].estimatedMinutes = '4.4'
+  return JSON.stringify(scenes)
+}
+
+function scriptAssetSuggestionsJson(): string {
+  return JSON.stringify({
+    summary: '建议先建立主角、关键道具、核心场景和主服装，保障后续分镜一致性。',
+    assets: [
+      {
+        kind: 'character',
+        name: '女剑客',
+        description: '贯穿主线的退隐女剑客，从复仇者转向守护者。',
+        prompt: '退隐女剑客，清晰五官，克制神情，古风武侠角色，全身造型统一。',
+        negativePrompt: '',
+        reason: '主角贯穿所有关键场次，需要优先建立角色一致性。',
+        priority: 5,
+        attributes: {
+          type: 'character',
+          subjectType: 'human',
+          gender: 'female',
+          ageGroup: 'young',
+          exactAge: null,
+          species: '',
+          anthropomorphic: false,
+          visualStyle: 'cinematic-cg',
+          framing: 'full',
+          bodyType: 'balanced',
+          background: 'solid',
+          faceStatus: 'pending',
+          bodyStatus: 'pending',
+          faceReference: null,
+          bodyReference: null,
+          portraitSource: 'ai-virtual',
+          trustedPortrait: null,
+          legStretch: false,
+          turnaround: false,
+          turnaroundLayout: 'sheet',
+        },
+      },
+      {
+        kind: 'scene',
+        name: '边城药铺',
+        description: '婚约与旧敌逼近的核心室内场景。',
+        prompt: '古风边城药铺空场景，木柜、药屉、暖色油灯，窗外雪夜，预留人物表演空间。',
+        negativePrompt: '',
+        reason: '开场和人物关系建立会重复使用。',
+        priority: 4,
+        attributes: {
+          type: 'scene',
+          space: 'interior',
+          sceneType: 'ancient',
+          era: 'ancient',
+          time: 'night',
+          weather: 'snow',
+          mood: 'romantic',
+          camera: 'wide',
+          visualStyle: 'cinematic-cg',
+          emptyScene: true,
+          activitySpace: true,
+        },
+      },
+      {
+        kind: 'prop',
+        name: '旧长剑',
+        description: '女剑客身份和选择的核心物件。',
+        prompt: '古风旧长剑道具，金属剑身有使用痕迹，朴素剑柄，正面展示，纯色背景。',
+        negativePrompt: '',
+        reason: '长剑作为关键物件跨场出现，影响动作和连续性。',
+        priority: 5,
+        attributes: {
+          type: 'prop',
+          category: 'weapon',
+          material: 'metal',
+          condition: 'aged',
+          view: 'front',
+          background: 'solid',
+          visualStyle: 'cinematic-cg',
+        },
+      },
+      {
+        kind: 'costume',
+        name: '女剑客雪夜衣装',
+        description: '主角在雪夜行动段落使用的核心服装。',
+        prompt: '古风女剑客深色冬季衣装，布料与皮革混合，轻便护腕，完整平铺展示。',
+        negativePrompt: '',
+        reason: '主角服装需要跨场统一，避免生成时造型漂移。',
+        priority: 4,
+        attributes: {
+          type: 'costume',
+          audience: 'female',
+          category: 'ancient',
+          season: 'autumn-winter',
+          design: 'chinese',
+          presentation: 'flat',
+          visualStyle: 'cinematic-cg',
+          turnaround: false,
+        },
+      },
+    ],
+  })
+}
+
+async function importShortNovel(app: FastifyInstance, headers: Record<string, string>) {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/projects/project-midnight-film/novels/import',
+    headers,
+    payload: {
+      clientRequestId: crypto.randomUUID(),
+      name: '雨夜旧站',
+      content: [
+        '第一章 雨夜来信',
+        '林夏收到匿名来信，信中要求她午夜前往废弃旧车站寻找父亲留下的胶片。',
+        '',
+        '第二章 旧车站',
+        '她在旧站台长椅下找到铁盒，里面的胶片第一格竟然是此刻的自己。',
+      ].join('\n'),
+    },
+  })
+  expect(response.statusCode, response.body).toBe(201)
+  return response.json()
+}
+
+function novelChapterSummariesJson(): string {
+  return JSON.stringify({
+    summaries: [
+      {
+        order: 1,
+        title: '第一章 雨夜来信',
+        summary: '林夏收到匿名来信，被引向废弃旧车站，开始追查父亲留下的胶片线索。',
+        keyEvents: ['匿名来信出现', '林夏决定前往旧车站'],
+        characters: ['林夏：年轻导演，被父亲留下的线索牵引'],
+        locations: ['废弃旧车站'],
+        timeline: ['雨夜，故事开端'],
+        keyProps: ['匿名来信', '父亲留下的胶片线索'],
+        foreshadowing: ['来信没有署名，说明背后有人操控相见地点'],
+        worldRules: ['胶片与父亲失踪存在关联，但机制尚未揭示'],
+        adaptationNotes: '适合作为短视频开场钩子，突出雨夜赴约和匿名来信。',
+      },
+      {
+        order: 2,
+        title: '第二章 旧车站',
+        summary: '林夏抵达旧站台并找到铁盒，胶片第一格显示此刻的自己，建立未来影像疑点。',
+        keyEvents: ['林夏找到铁盒', '胶片显示此刻的林夏'],
+        characters: ['林夏：从被动赴约转为主动调查'],
+        locations: ['旧站台', '长椅下方'],
+        timeline: ['午夜前后，线索被正式打开'],
+        keyProps: ['铁盒', '旧胶片'],
+        foreshadowing: ['胶片第一格显示当下，暗示影像不只记录过去'],
+        worldRules: ['旧胶片可能记录现在或未来影像'],
+        adaptationNotes: '应重点资产化旧站台、铁盒和胶片，形成稳定悬疑视觉符号。',
+      },
+    ],
+    batchNotes: '两章都可作为悬疑开场事实源。',
+  })
+}
+
+function bianchengChapterSummariesJson(): string {
+  return JSON.stringify({
+    summaries: [
+      {
+        order: 1,
+        title: '第一章 茶峒渡口',
+        summary: '翠翠和老船夫守着茶峒溪边渡口，渡船、白塔和河岸生活构成故事的核心环境。',
+        keyEvents: ['翠翠随祖父在渡口生活', '老船夫负责摆渡往来行人'],
+        characters: ['老船夫：男性，老年，翠翠的祖父，茶峒渡口船夫/摆渡人', '翠翠：少女，老船夫的外孙女'],
+        locations: ['茶峒渡口：溪边渡船停靠处，连接两岸日常往来', '白塔：渡口附近的重要地标'],
+        timeline: ['近代湘西边城日常生活开端'],
+        keyProps: ['渡船：老船夫日常摆渡的核心工具', '白塔：反复出现的地标'],
+        foreshadowing: ['渡船和白塔会承载人物等待与离别'],
+        worldRules: ['渡船服务往来行人，是边城日常秩序的一部分'],
+        adaptationNotes: '应优先资产化老船夫、翠翠、茶峒渡口、渡船和白塔。',
+      },
+      {
+        order: 2,
+        title: '第二章 端午相遇',
+        summary: '端午节热闹人群中，翠翠与青年相遇，河边风俗和地方节庆推动人物关系。',
+        keyEvents: ['端午节人群聚集', '翠翠在河边与青年相遇'],
+        characters: ['翠翠：少女，纯净羞涩，依恋祖父', '老船夫：男性，老年，关心翠翠未来的摆渡老人'],
+        locations: ['茶峒河岸：节庆人群和船只聚集处'],
+        timeline: ['端午节，人物关系开始发生变化'],
+        keyProps: ['渡船：连接节庆动线和日常摆渡'],
+        foreshadowing: ['节庆相遇会引出后续情感等待'],
+        worldRules: ['地方节庆、唱歌和水上交通共同塑造边城人情关系'],
+        adaptationNotes: '人物资产要保持年龄、身份和乡土气质一致，场景以渡口和河岸为中心。',
+      },
+    ],
+    batchNotes: '边城前两章事实源强调渡口、老船夫、翠翠和地方风俗。',
+  })
+}
+
+function novelChapterSummariesRichJson(): string {
+  return JSON.stringify({
+    summaries: [
+      {
+        order: 1,
+        title: '第一章 雨夜来信：开端',
+        summary: '林夏收到匿名来信，被引向废弃旧车站，开始追查父亲留下的胶片线索。',
+        keyEvents: [{ event: '匿名来信出现' }, { event: '林夏决定前往旧车站' }],
+        characters: [
+          {
+            name: '林夏',
+            role: '年轻导演',
+            traits: ['警觉', '执着'],
+            relationships: ['与父亲失踪线索相关'],
+          },
+        ],
+        locations: [{ name: '废弃旧车站', description: '雨夜中的核心悬疑场景' }],
+        timeline: [{ stage: '故事开端', event: '雨夜收到匿名来信' }],
+        keyProps: [{ name: '匿名来信', significance: '把主角引向旧车站' }],
+        foreshadowing: [{ event: '来信没有署名', significance: '暗示背后有人操控' }],
+        worldRules: [{ description: '胶片与父亲失踪有关，但机制尚未揭示' }],
+        adaptationNotes: {
+          adaptationFocus: ['突出雨夜赴约', '建立旧车站悬疑氛围'],
+          cautions: ['不要提前补完胶片机制'],
+        },
+      },
+    ],
+    batchNotes: { sourceType: '章节摘要', cautions: ['对象字段应被平台规范化'] },
+  })
+}
+
+function novelStoryBibleJson(): string {
+  return JSON.stringify({
+    title: '雨夜旧站',
+    logline: '年轻导演在雨夜旧站追查父亲胶片，发现影像可能记录未来。',
+    premise: '匿名来信把林夏带回废弃车站，迫使她面对父亲失踪和异常胶片的秘密。',
+    synopsis:
+      '林夏收到没有署名的来信，被要求在午夜前往废弃旧车站寻找父亲留下的胶片。她在雨夜抵达旧站台，在长椅下发现铁盒和旧胶片。胶片第一格显示的不是过去，而是此刻的自己，这让她意识到父亲留下的线索涉及异常影像。故事由被动赴约转为主动调查，后续应围绕寄信人、胶片机制和父亲失踪真相继续推进。',
+    themes: ['记忆与未来', '亲情悬疑', '被操控的真相'],
+    characters: [
+      {
+        name: '林夏',
+        role: '主角',
+        description: '年轻导演，被匿名来信引向父亲留下的胶片线索。',
+        storyFunction: '承担调查主线，推动胶片秘密被逐步揭开。',
+        visualNotes: '雨夜风衣、克制但警觉的表情。',
+        motivation: '弄清父亲留下胶片和失踪真相。',
+        arc: '从被动赴约转为主动追查异常影像的秘密。',
+      },
+    ],
+    locations: [
+      {
+        name: '旧车站',
+        description: '废弃多年、雨夜空旷的核心悬疑场景。',
+        storyFunction: '承载匿名来信、铁盒和胶片发现。',
+        visualNotes: '潮湿站台、冷色灯光、空长椅。',
+      },
+    ],
+    timeline: [
+      { order: 1, label: '雨夜来信', event: '林夏收到匿名来信并决定前往旧车站。' },
+      { order: 2, label: '旧站发现', event: '林夏在长椅下找到铁盒和旧胶片。' },
+    ],
+    keyProps: [
+      {
+        name: '匿名来信',
+        description: '引导林夏前往旧车站的触发物。',
+        storyFunction: '启动调查并隐藏幕后操控者。',
+        visualNotes: '无署名纸信，雨水边缘。',
+      },
+      {
+        name: '旧胶片',
+        description: '父亲留下的关键异常物件。',
+        storyFunction: '揭示影像可能记录当下或未来的核心设定。',
+        visualNotes: '老式胶片卷，银盐质感。',
+      },
+    ],
+    foreshadowing: [
+      { setup: '匿名来信没有署名', payoff: '寄信人与父亲秘密有关', status: 'open' },
+      { setup: '胶片第一格显示此刻林夏', payoff: '胶片机制需要后续解释', status: 'open' },
+    ],
+    worldRules: ['旧胶片可能记录现在或未来影像，但触发方式和代价尚未揭示。'],
+    adaptationStrategy:
+      '先保留雨夜旧站、匿名来信、铁盒和旧胶片四个核心视觉符号，再围绕胶片异常机制设计多套短剧改编方向。',
+    risks: ['现有章节只覆盖开场，不能提前确定父亲失踪真相。'],
+    nextStep: '生成 3 到 5 个改编方向。',
+  })
+}
+
+function novelStoryBibleRichJson(): string {
+  return JSON.stringify({
+    title: 'Biancheng',
+    logline: 'A ferry girl waits at the edge of a river town while love, custom, and loss reshape her life.',
+    premise:
+      'The story follows a young ferry girl and her grandfather in a river town where courtship routes, songs, and boat work decide how people express love and duty.',
+    synopsis:
+      'Cuicui grows up with her grandfather beside a public ferry in the river town of Chadong. The old ferryman serves travelers without asking for payment and hopes to arrange a stable future for the girl before age overtakes him. During festival seasons, Cuicui meets two brothers from the boatman family. Their affection is carried through formal proposal customs, night songs, family obligations, and misunderstandings. The elder brother steps away and later dies on the water, while the younger brother leaves after grief and resentment complicate the marriage question. A storm takes the grandfather and destroys the old ferry setting, leaving Cuicui to keep the ferry and wait for a return that may or may not happen.',
+    themes: ['waiting', 'duty', 'custom'],
+    characters: [
+      {
+        name: 'Cuicui',
+        role: 'lead',
+        traits: ['innocent', 'shy', 'attached to grandfather'],
+        arc: 'She learns to live with waiting after family loss and unresolved love.',
+        relations: 'Raised by her grandfather; loved by two brothers.',
+      },
+    ],
+    locations: [
+      {
+        name: 'Chadong',
+        type: 'river town',
+        features: ['ferry crossing', 'wharf', 'festival streets'],
+        storyFunction: 'A community space where news, courtship, and water work intersect.',
+      },
+    ],
+    timeline: [{ stage: 'festival meeting', event: 'Cuicui first meets the younger brother by the river.' }],
+    keyProps: [
+      {
+        name: 'Ferry boat',
+        visualFeatures: ['public boat', 'rope crossing', 'bamboo pole'],
+        use: 'It connects daily duty with Cuicui and her grandfather.',
+      },
+    ],
+    foreshadowing: [
+      {
+        setup: 'Night songs carry the courtship.',
+        payoff: 'The chosen love remains unresolved.',
+        status: 'partial payoff',
+      },
+    ],
+    worldRules: [{ description: 'Ferry is public and travelers are not charged by default.' }],
+    adaptationStrategy: {
+      tone: 'lyrical',
+      adaptationFocus: ['keep the ferry as the core visual symbol', 'keep the ending unresolved'],
+      cautions: ['do not invent a final reunion'],
+    },
+    risks: [
+      'Some ages are inconsistent in summaries.',
+      'The ending must remain unresolved.',
+      'Local customs need clear visual explanation.',
+      'Water accident scenes need restraint.',
+      'Do not over-modernize the town.',
+      'Keep dialogue sparse.',
+      'Avoid adding unrelated villains.',
+      'Keep family relationships clear.',
+      'Avoid turning the story into pure romance.',
+      'Preserve the ferry duty.',
+      'This extra risk should be trimmed.',
+    ],
+    nextStep: 'Generate several adaptation outline options from this fact source.',
+  })
+}
 
 function quickStartAnalysis(): string {
   return JSON.stringify({

@@ -3,14 +3,25 @@ import type {
   CreateAsset,
   CreateProject,
   CreateShot,
+  GenerateScriptRequest,
   GenerateShotsRequest,
   Principal,
   ScriptCreativeDirection,
+  ScriptAssetSuggestion,
+  ScriptOutlineOption,
+  ScriptStructureContent,
   UpdateAsset,
   UpdateProject,
   UpdateShot,
 } from '@seqora/contracts'
-import { SCRIPT_OPERATION_CREDITS, scriptReviewContentSchema } from '@seqora/contracts'
+import {
+  SCRIPT_OPERATION_CREDITS,
+  scriptOutlineOptionsContentSchema,
+  scriptAssetSuggestionsContentSchema,
+  scriptReviewContentSchema,
+  scriptScenesContentSchema,
+  scriptStructureContentSchema,
+} from '@seqora/contracts'
 import { z } from 'zod'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
@@ -50,10 +61,191 @@ export class ProjectService {
     return project
   }
 
+  async generateScriptOutlines(
+    projectId: string,
+    idea: string,
+    direction: ScriptCreativeDirection,
+    count: number,
+    clientRequestId: string,
+    principal: Principal,
+  ) {
+    const workspace = this.workspace(projectId, principal)
+    if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
+    const source = idea.trim()
+    if (!source) throw new AppError(400, 'SCRIPT_IDEA_REQUIRED', '请先填写故事想法')
+
+    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n画面比例：${workspace.project.aspectRatio}\n已有故事简介：${workspace.project.synopsis || '暂无'}\n已有剧本摘要：${headExcerpt(workspace.project.script, 700) || '暂无'}\n创作方向（必须落地）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}`
+    return this.runBillableScriptOperation(
+      principal,
+      `script-outline-${clientRequestId}`,
+      SCRIPT_OPERATION_CREDITS.outline,
+      '生成剧本大纲候选',
+      async () => {
+        const response = await this.textProvider!.generate({
+          systemPrompt: SCRIPT_OUTLINE_SYSTEM_PROMPT,
+          userPrompt: `${projectContext}\n\n用户一句话想法：\n${source}\n\n请生成 ${count} 个差异明显的大纲候选。每个 summary 控制在 200 到 500 个中文字符，适合用户先比较方向，再进入详细剧情拆分。`,
+          maxOutputTokens: SCRIPT_OUTLINE_MAX_TOKENS,
+        })
+        const result = parseProviderJson(response, scriptOutlineOptionsContentSchema, '大纲候选结果格式错误')
+        return {
+          outlines: result.outlines.slice(0, count),
+          generatedAt: new Date().toISOString(),
+        }
+      },
+    )
+  }
+
+  async generateScriptStructure(
+    projectId: string,
+    idea: string,
+    outline: ScriptOutlineOption,
+    direction: ScriptCreativeDirection,
+    clientRequestId: string,
+    principal: Principal,
+  ) {
+    const workspace = this.workspace(projectId, principal)
+    if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
+
+    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n画面比例：${workspace.project.aspectRatio}\n一句话想法：${idea.trim() || workspace.project.synopsis || '暂无'}\n创作方向（必须落地）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}`
+    const outlineContext = [
+      `标题：${outline.title}`,
+      `一句话卖点：${outline.logline}`,
+      `主角：${outline.protagonist}`,
+      `核心冲突：${outline.conflict}`,
+      `情绪基调：${outline.tone}`,
+      `结局方向：${outline.ending}`,
+      `预计时长：${outline.estimatedDuration}`,
+      `故事大纲：${outline.summary}`,
+    ].join('\n')
+
+    return this.runBillableScriptOperation(
+      principal,
+      `script-structure-${clientRequestId}`,
+      SCRIPT_OPERATION_CREDITS.structure,
+      '生成剧情结构',
+      async () => {
+        const response = await this.textProvider!.generate({
+          systemPrompt: SCRIPT_STRUCTURE_SYSTEM_PROMPT,
+          userPrompt: `${projectContext}\n\n已选大纲：\n${outlineContext}\n\n请把已选大纲扩展成可继续生成详细剧情和剧本的剧情结构。`,
+          maxOutputTokens: SCRIPT_STRUCTURE_MAX_TOKENS,
+        })
+        const structure = parseProviderJson(response, scriptStructureContentSchema, '剧情结构结果格式错误')
+        return { ...structure, generatedAt: new Date().toISOString() }
+      },
+    )
+  }
+
+  async generateScriptScenes(
+    projectId: string,
+    idea: string,
+    outline: ScriptOutlineOption,
+    structure: ScriptStructureContent,
+    direction: ScriptCreativeDirection,
+    sceneCount: number,
+    clientRequestId: string,
+    principal: Principal,
+  ) {
+    const workspace = this.workspace(projectId, principal)
+    if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
+
+    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n画面比例：${workspace.project.aspectRatio}\n一句话想法：${idea.trim() || workspace.project.synopsis || '暂无'}\n创作方向（必须落地）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}`
+    const outlineContext = [
+      `标题：${outline.title}`,
+      `一句话卖点：${outline.logline}`,
+      `主角：${outline.protagonist}`,
+      `核心冲突：${outline.conflict}`,
+      `情绪基调：${outline.tone}`,
+      `结局方向：${outline.ending}`,
+      `故事大纲：${outline.summary}`,
+    ].join('\n')
+    const structureContext = [
+      `结构标题：${structure.title}`,
+      `故事前提：${structure.premise}`,
+      `主线剧情：${structure.mainPlot}`,
+      `剧情阶段：${structure.acts
+        .map(
+          (act) =>
+            `${act.id}｜${act.title}｜${act.estimatedMinutes}分钟｜${act.summary}｜转折：${act.turningPoint}`,
+        )
+        .join('\n')}`,
+      `副线：${structure.subplots.map((subplot) => `${subplot.title}：${subplot.arc}`).join('\n')}`,
+      `角色弧光：${structure.characterArcs
+        .map((arc) => `${arc.character}：${arc.desire} / ${arc.obstacle} / ${arc.change}`)
+        .join('\n')}`,
+      `视觉方向：${structure.visualDirection}`,
+    ].join('\n')
+
+    return this.runBillableScriptOperation(
+      principal,
+      `script-scenes-${clientRequestId}`,
+      SCRIPT_OPERATION_CREDITS.scenes,
+      '生成分场剧本',
+      async () => {
+        const response = await this.textProvider!.generate({
+          systemPrompt: SCRIPT_SCENES_SYSTEM_PROMPT,
+          userPrompt: `${projectContext}\n\n已选大纲：\n${outlineContext}\n\n剧情结构：\n${structureContext}\n\n请基于剧情结构生成 ${sceneCount} 场分场剧本。`,
+          maxOutputTokens: SCRIPT_SCENES_MAX_TOKENS,
+        })
+        const scenes = parseProviderJson(
+          response,
+          scriptScenesContentSchema,
+          '分场剧本结果格式错误',
+          normalizeScriptScenesProviderContent,
+        )
+        return {
+          ...scenes,
+          scenes: scenes.scenes.slice(0, sceneCount),
+          generatedAt: new Date().toISOString(),
+        }
+      },
+    )
+  }
+
+  async suggestScriptAssets(
+    projectId: string,
+    script: string,
+    direction: ScriptCreativeDirection,
+    principal: Principal,
+  ) {
+    const workspace = this.workspace(projectId, principal)
+    const source = script.trim()
+    if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本内容')
+
+    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n画面比例：${workspace.project.aspectRatio}\n创作方向（必须落地）：${directionSummary(direction)}\n已有资产：${assetSummary(workspace.assets)}`
+    let warnings: string[] = []
+    let result: { summary: string; assets: ScriptAssetSuggestion[] }
+
+    if (!this.textProvider) {
+      warnings = ['文本服务未配置，已根据剧本文本做基础资产建议']
+      result = fallbackAssetSuggestions(source, direction)
+    } else {
+      try {
+        const response = await this.textProvider.generate({
+          systemPrompt: SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
+          userPrompt: `${projectContext}\n\n剧本：\n${headExcerpt(source, 30_000)}`,
+          maxOutputTokens: SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS,
+        })
+        result = parseProviderJson(response, scriptAssetSuggestionsContentSchema, '资产建议结果格式错误')
+      } catch {
+        warnings = ['文本服务返回格式异常，已根据剧本文本做基础资产建议']
+        result = fallbackAssetSuggestions(source, direction)
+      }
+    }
+
+    return {
+      summary: result.summary,
+      assets: deduplicateAssetSuggestions(result.assets, workspace.assets).slice(0, 16),
+      generatedAt: new Date().toISOString(),
+      warnings,
+    }
+  }
+
   async generateScript(
     projectId: string,
     draft: string,
     direction: ScriptCreativeDirection,
+    mode: GenerateScriptRequest['mode'],
+    segment: GenerateScriptRequest['segment'],
     clientRequestId: string,
     principal: Principal,
   ) {
@@ -63,27 +255,49 @@ export class ProjectService {
     if (!source) throw new AppError(400, 'SCRIPT_SOURCE_REQUIRED', '请先填写故事梗概或剧本草稿')
 
     const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n画面比例：${workspace.project.aspectRatio}\n创作方向（必须落实）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}`
+    if (mode === 'quick' && isLongScript(source)) {
+      const updated = await this.repository.update(projectId, { script: source }, principal)
+      if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
+      return {
+        script: updated.script,
+        mode: 'quick' as const,
+        warnings: ['检测到长篇内容，已保存原稿；请使用“生成下一段”按段继续，不再一次性请求超长文本。'],
+      }
+    }
     return this.runBillableScriptOperation(
       principal,
       `script-generate-${clientRequestId}`,
       SCRIPT_OPERATION_CREDITS.generate,
-      '快速生成剧本',
+      mode === 'segment' ? '生成长剧分段' : '快速生成剧本',
       async () => {
-        const preserveLongSource = isLongScript(source)
+        if (mode === 'segment') {
+          const segmentText = normalizeExpandedScript(
+            await this.textProvider!.generate({
+              systemPrompt: SCRIPT_SEGMENT_SYSTEM_PROMPT,
+              userPrompt: `${projectContext}\n\n已有剧本或故事上下文：\n${scriptSegmentContext(source)}\n\n本段目标：${segment.goal || '顺着现有剧情自然推进下一段'}\n本段预计时长：约 ${segment.targetMinutes} 分钟\n\n请只生成下一段剧本正文，不要重写已有内容。`,
+              maxOutputTokens: segmentMaxOutputTokens(segment.targetMinutes),
+            }),
+          )
+          if (!segmentText) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', '分段剧本为空')
+          const script = appendScriptSegment(draft.trim() || workspace.project.script.trim(), segmentText)
+          const updated = await this.repository.update(projectId, { script }, principal)
+          if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
+          return {
+            script: updated.script,
+            segment: segmentText,
+            mode: 'segment' as const,
+            warnings: segmentScriptIssues(segmentText),
+          }
+        }
         const candidate = normalizeExpandedScript(
           await this.textProvider!.generate({
-            systemPrompt: preserveLongSource ? LONG_SCRIPT_SYSTEM_PROMPT : QUICK_SCRIPT_SYSTEM_PROMPT,
-            userPrompt: preserveLongSource
-              ? `${projectContext}\n\n这是长篇原稿。请在不删减、不合并、不改写剧情事实的前提下，逐场保留全部内容，只补齐缺失的视觉字段；原稿有多少场就保留多少场，不要压缩成 4 到 6 场，也不要为了适配短视频而删掉段落。\n\n原稿：\n${source}`
-              : `${projectContext}\n\n请把以下素材改编成 15 到 30 秒视频可以直接使用的快速剧本骨架：\n${source}`,
-            maxOutputTokens: preserveLongSource ? longScriptMaxOutputTokens(source) : QUICK_SCRIPT_MAX_TOKENS,
+            systemPrompt: QUICK_SCRIPT_SYSTEM_PROMPT,
+            userPrompt: `${projectContext}\n\n请把以下素材改编成 15 到 30 秒视频可以直接使用的快速剧本骨架：\n${source}`,
+            maxOutputTokens: QUICK_SCRIPT_MAX_TOKENS,
           }),
         )
-        const preserved = preserveLongSource && candidateIsTooShort(source, candidate)
-        const script = preserved ? source : candidate
-        const warnings = preserved
-          ? ['检测到长篇原稿，AI 输出过短，系统已自动保留原稿，避免剧情被压缩。']
-          : quickScriptIssues(script)
+        const script = candidate
+        const warnings = quickScriptIssues(script)
         const updated = await this.repository.update(projectId, { script }, principal)
         if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
         return { script: updated.script, mode: 'quick' as const, warnings }
@@ -231,6 +445,75 @@ export class ProjectService {
   }
 }
 
+const SCRIPT_OUTLINE_SYSTEM_PROMPT = `你是中文影视项目的前期策划，负责把一句话想法扩展成多个可选择的大纲方向。
+硬性规格：
+1. 只返回严格 JSON，不要 Markdown，不要代码块，不要解释。
+2. 顶层对象只包含 outlines 数组。
+3. outlines 必须有 3 到 5 个候选，每个候选必须包含 id、title、logline、protagonist、conflict、tone、ending、summary、estimatedDuration。
+4. id 使用 outline-1、outline-2 这样的稳定编号。
+5. title 要短，logline 是一句话卖点，protagonist 写主角身份和核心欲望，conflict 写主要外部阻力和内心阻力，tone 写情绪基调，ending 写结局方向。
+6. summary 必须是 200 到 500 个中文字符，写清开端、推进、转折、高潮和结局倾向；不要写成分镜、不要写台词、不要列要点。
+7. 每个候选必须有明确差异：主角目标、冲突类型、情绪走向、结局气质至少有两项不同。
+8. 不要出现真实影视作品名、真实明星名、水印、平台名或版权受限角色。
+返回示例：
+{"outlines":[{"id":"outline-1","title":"雨夜归人","logline":"一句话卖点","protagonist":"主角设定","conflict":"核心冲突","tone":"浪漫、悲怆","ending":"开放式悲剧","summary":"200 到 500 字大纲","estimatedDuration":"约100分钟"}]}`
+
+const SCRIPT_OUTLINE_MAX_TOKENS = 5_000
+
+const SCRIPT_STRUCTURE_SYSTEM_PROMPT = `你是中文影视项目的剧情统筹，负责把用户选定的大纲拆成可继续写详细剧情和剧本的结构。
+硬性规格：
+1. 只返回严格 JSON，不要 Markdown，不要代码块，不要解释。
+2. 顶层对象必须包含 title、premise、mainPlot、acts、subplots、characterArcs、visualDirection、nextStep。
+3. acts 必须有 3 到 5 段，每段包含 id、title、purpose、summary、keyBeats、turningPoint、estimatedMinutes；keyBeats 必须有 3 到 6 条。
+4. subplots 必须有 1 到 4 条，每条包含 id、title、characters、arc、payoff。
+5. characterArcs 必须覆盖主要人物，每条包含 character、desire、obstacle、change。
+6. mainPlot 写清主线因果链：触发事件、阶段目标、主要阻力、中点转折、低谷、高潮选择和结局结果。
+7. acts 不要写成镜头，不要写台词；要写剧情段落功能、关键事件和转折。
+8. visualDirection 只写对后续资产、分镜和视频生成有用的风格方向，不要泛泛说“电影感”。
+9. nextStep 写清下一阶段应如何扩展详细剧情：先补哪些人物关系、哪些关键场景、哪些情绪递进。
+10. 不要加入真实影视作品名、真实明星名、水印、平台名或版权受限角色。
+返回示例：
+{"title":"雪夜归剑","premise":"一句话前提","mainPlot":"主线因果链","acts":[{"id":"act-1","title":"第一幕","purpose":"建立人物和目标","summary":"剧情段落摘要","keyBeats":["节拍1","节拍2","节拍3"],"turningPoint":"幕末转折","estimatedMinutes":25}],"subplots":[{"id":"subplot-1","title":"情感副线","characters":["主角","药师"],"arc":"副线推进","payoff":"回收方式"}],"characterArcs":[{"character":"主角","desire":"外在欲望","obstacle":"阻力","change":"变化"}],"visualDirection":"视觉方向","nextStep":"下一步写作建议"}`
+
+const SCRIPT_STRUCTURE_MAX_TOKENS = 6_000
+
+const SCRIPT_SCENES_SYSTEM_PROMPT = `你是中文影视项目的分场编剧，负责把剧情结构拆成可继续扩写成完整剧本和分镜的分场剧本。
+硬性规格：
+1. 只返回严格 JSON，不要 Markdown，不要代码块，不要解释。
+2. 顶层对象必须包含 title、sourceStructureTitle、scenes、continuityNotes、nextStep。
+3. scenes 必须有 6 到 24 场，每场必须包含 id、order、actId、title、location、timeOfDay、characters、purpose、conflict、plot、action、dialogue、visualNotes、transition、estimatedMinutes。
+4. order 从 1 开始递增；actId 必须对应剧情结构里的 act id，例如 act-1。
+5. 每场 plot 写清本场开端、推进、转折和结果；action 只写能被镜头看到的动作和空间调度；dialogue 写 0 到 8 条短对白，格式建议“人物：台词”。
+6. 每场都要服务主线或副线，不要空泛氛围场；相邻场之间必须有明确因果、时间、地点、物件或情绪衔接。
+7. visualNotes 要写对资产、分镜、光影和运镜有用的提示，但不要写成最终视频提示词。
+8. transition 写本场如何承接上一场或引出下一场。
+9. continuityNotes 写全片连续性注意事项：人物状态、关键物件、地点关系、时间推进、情绪递进。
+10. 不要加入真实影视作品名、真实明星名、水印、平台名或版权受限角色。
+返回示例：
+{"title":"雪夜归剑分场剧本","sourceStructureTitle":"雪夜归剑","scenes":[{"id":"scene-1","order":1,"actId":"act-1","title":"雪夜婚约","location":"边城药铺","timeOfDay":"夜","characters":["女剑客","药师"],"purpose":"建立隐居愿望","conflict":"旧身份与新生活冲突","plot":"本场剧情","action":"可见动作","dialogue":["女剑客：明日之后，我不再握剑。"],"visualNotes":"室内暖灯与窗外雪夜形成对比","transition":"窗外马蹄声引出下一场","estimatedMinutes":5}],"continuityNotes":"连续性注意事项","nextStep":"下一步扩写建议"}`
+
+const SCRIPT_SCENES_MAX_TOKENS = 6_000
+
+const SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT = `你是中文 AI 视频项目的资产制片和美术统筹，负责从剧本中提取后续生成必须保持一致的核心资产。
+硬性规格：
+1. 只返回严格 JSON，不要 Markdown，不要代码块，不要解释。
+2. 顶层对象必须包含 summary、assets。
+3. assets 只允许包含 character、scene、prop、costume 四类，不要包含 audio。
+4. 每个资产必须包含 kind、name、description、prompt、negativePrompt、reason、priority、attributes。
+5. priority 是 1 到 5 的整数，5 表示最高优先级。
+6. 角色只保留推动主线或多次出现的人物，建议 1 到 4 个；场景只保留复用率高或制作成本高的地点，建议 1 到 4 个；道具只保留重要且会多次出现或承载剧情转折的物件，建议 1 到 5 个；服装只保留角色一致性需要的核心服装，建议 1 到 4 个。
+7. 不要把一次性群众、背景摆件、普通环境装饰列成资产；不要重复已有资产。
+8. prompt 必须是可直接进入资产生成的中文视觉描述；场景 prompt 必须是空场景并预留表演空间；服装 prompt 只描述服装本身，不写脸；道具 prompt 只描述物件本身。
+9. 所有 attributes 必须严格使用下列枚举：
+character.subjectType human/animal；gender male/female/unspecified；ageGroup child/teen/young/middle/senior；visualStyle photorealistic/cinematic-cg/chinese-3d/chinese-2d/anime/storybook；framing portrait/half/full；bodyType slim/balanced/athletic/full；background solid/transparent/environment；faceStatus pending；bodyStatus pending；portraitSource ai-virtual；turnaroundLayout sheet/separate。
+scene.space interior/exterior；sceneType city/street/residential/commercial/nature/ancient/industrial/fantasy；era ancient/recent/modern/future；time dawn/day/sunset/night；weather clear/cloudy/rain/snow/fog；mood warm/tense/mystery/romantic/epic/desolate；camera eye-level/overhead/low-angle/aerial/wide。
+prop.category weapon/vehicle/furniture/electronics/jewelry/food/daily/other；material wood/metal/glass/fabric/leather/ceramic/mixed；condition new/used/aged/damaged；view front/side/turnaround；background solid/transparent/environment。
+costume.audience male/female/unisex；category daily/formal/professional/uniform/ancient/ceremonial/fantasy/armor；season spring-summer/autumn-winter/all-season；design minimal/luxury/retro/future/chinese；presentation flat/model/worn。
+返回示例：
+{"summary":"建议先建立主角、核心场景、关键道具和主服装，保障后续分镜一致性。","assets":[{"kind":"character","name":"女剑客","description":"贯穿主线的退隐女剑客。","prompt":"退隐女剑客，清晰五官，古风武侠，全身造型统一。","negativePrompt":"","reason":"主角多次出现，需要保持身份和面部一致。","priority":5,"attributes":{"type":"character","subjectType":"human","gender":"female","ageGroup":"young","exactAge":null,"species":"","anthropomorphic":false,"visualStyle":"cinematic-cg","framing":"full","bodyType":"balanced","background":"solid","faceStatus":"pending","bodyStatus":"pending","faceReference":null,"bodyReference":null,"portraitSource":"ai-virtual","trustedPortrait":null,"legStretch":false,"turnaround":false,"turnaroundLayout":"sheet"}}]}`
+
+const SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS = 6_000
+
 const QUICK_SCRIPT_SYSTEM_PROMPT = `你是中文漫剧的快速编剧。你的任务不是写长篇小说，而是把用户素材整理成 15 到 30 秒视频可以直接进入分镜的故事骨架。
 
 硬性规格：
@@ -264,13 +547,15 @@ const SCRIPT_DETAIL_MAX_TOKENS = 4_000
 const LONG_SCRIPT_PRESERVE_THRESHOLD = 2_000
 const LONG_SCRIPT_MAX_TOKENS = 16_000
 
-const LONG_SCRIPT_SYSTEM_PROMPT = `你是中文漫剧的长篇剧本整理编辑和视觉导演。你的首要规则是保留原稿，不得为了追求短小而删减内容。
-
+const SCRIPT_SEGMENT_SYSTEM_PROMPT = `你是中文长剧和漫剧的分段编剧。你的任务是基于已有剧本继续写下一段，而不是一次性生成整部长篇。
 硬性规则：
-1. 保留原稿的全部场景、人物、对白、动作、剧情因果、时间顺序和结局，不合并场景，不概括段落，不把长稿改成 4 到 6 场。
-2. 可以在每个原有场景内部补齐风格、构图、光影、运镜和衔接字段，但这些字段必须服务原剧情，不能替换原文。
-3. 如果输出长度受到限制，优先原样输出原稿，不要只输出摘要或前后片段。
-4. 只输出剧本文本，不要标题、解释、Markdown 或分析。`
+1. 只输出“下一段剧本正文”，不要标题解释、Markdown、JSON 或分析。
+2. 不要重写、总结、改写已有剧本；只顺着已有内容继续推进。
+3. 输出 2 到 6 个连续场次，每个场次单独一行。
+4. 每行使用字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：。
+5. 剧情必须承接上一段的时间、地点、人物状态和关键物件；本段结尾留下清晰的下一步动作或悬念。
+6. 不要为了拉长篇幅写空泛氛围；每个场次都要有目标、阻力、变化和结果。
+7. 不要在本段一次性解决全剧大结局，除非本段目标明确要求收尾。`
 
 const QUICK_SCRIPT_FIELDS = ['场次', '剧情', '场景', '角色', '动作', '对白']
 const SCRIPT_SCENE_FIELDS = [
@@ -307,8 +592,291 @@ function longScriptMaxOutputTokens(source: string): number {
   return Math.min(LONG_SCRIPT_MAX_TOKENS, Math.max(6_000, Math.ceil(contentLength(source) * 1.6)))
 }
 
+function segmentMaxOutputTokens(targetMinutes: number): number {
+  return Math.min(5_500, Math.max(2_400, targetMinutes * 650))
+}
+
 function contentLength(value: string): number {
   return value.replace(/\s/g, '').length
+}
+
+function scriptSegmentContext(source: string): string {
+  if (source.length <= 8_000) return source
+  return [
+    source.slice(0, 2_500),
+    '',
+    '[中间已有剧本已省略，生成下一段时不得改写前文]',
+    '',
+    source.slice(-5_500),
+  ].join('\n')
+}
+
+function appendScriptSegment(currentScript: string, segment: string): string {
+  if (!currentScript.trim()) return segment.trim()
+  return `${currentScript.trim()}\n\n${segment.trim()}`
+}
+
+function segmentScriptIssues(segment: string): string[] {
+  const issues: string[] = []
+  const scenes = scriptScenes(segment)
+  if (scenes.length < 2 || scenes.length > 6)
+    issues.push(`本段生成 ${scenes.length} 个场次，建议保持 2 到 6 个`)
+  for (const field of QUICK_SCRIPT_FIELDS) {
+    const missing = scenes.filter((scene) => !new RegExp(`${field}[：:]`).test(scene)).length
+    if (missing) issues.push(`${missing} 个场次缺少“${field}”字段`)
+  }
+  if (contentLength(segment) < 500) issues.push('本段内容偏短，可继续生成下一段或补充段落目标')
+  return issues
+}
+
+function fallbackAssetSuggestions(
+  script: string,
+  direction: ScriptCreativeDirection,
+): { summary: string; assets: ScriptAssetSuggestion[] } {
+  const visualStyle = suggestionVisualStyle(direction)
+  const characters = extractAssetNames(script, ['角色', '人物', '主角'], ['主角'], 4)
+  const scenes = extractAssetNames(script, ['场景', '地点'], ['核心场景'], 4)
+  const props = extractAssetNames(script, ['关键物件', '关键道具', '物件', '道具'], [], 5)
+  const costumes = extractAssetNames(script, ['服装', '衣装', '外观'], [], 4)
+  const assets: ScriptAssetSuggestion[] = [
+    ...characters.map((name): ScriptAssetSuggestion => ({
+      kind: 'character',
+      name,
+      description: `从剧本中提取的主要角色：${name}`,
+      prompt: `${name}，中文 AI 视频角色设定，面部清晰，造型统一，符合剧本风格，适合后续保持角色一致性。`,
+      negativePrompt: '',
+      reason: '角色在剧本中出现，需要先建立可复用的人物资产。',
+      priority: 5,
+      attributes: {
+        type: 'character',
+        subjectType: 'human',
+        gender: 'unspecified',
+        ageGroup: 'young',
+        exactAge: null,
+        species: '',
+        anthropomorphic: false,
+        visualStyle,
+        framing: 'full',
+        bodyType: 'balanced',
+        background: 'solid',
+        faceStatus: 'pending',
+        bodyStatus: 'pending',
+        faceReference: null,
+        bodyReference: null,
+        portraitSource: 'ai-virtual',
+        trustedPortrait: null,
+        legStretch: false,
+        turnaround: false,
+        turnaroundLayout: 'sheet',
+      },
+    })),
+    ...scenes.map((name): ScriptAssetSuggestion => ({
+      kind: 'scene',
+      name,
+      description: `从剧本中提取的核心场景：${name}`,
+      prompt: `${name}，空场景，中文 AI 视频美术设定，空间层次清晰，预留人物表演和运镜空间，不出现人物。`,
+      negativePrompt: '',
+      reason: '场景会承载多个镜头，需要先统一空间和美术设定。',
+      priority: 4,
+      attributes: {
+        type: 'scene',
+        space: inferSceneSpace(name),
+        sceneType: inferSceneType(name),
+        era: inferEra(name),
+        time: inferSceneTime(name),
+        weather: inferWeather(script),
+        mood: 'mystery',
+        camera: 'wide',
+        visualStyle,
+        emptyScene: true,
+        activitySpace: true,
+      },
+    })),
+    ...props.map((name): ScriptAssetSuggestion => ({
+      kind: 'prop',
+      name,
+      description: `从剧本中提取的关键道具：${name}`,
+      prompt: `${name}，关键道具单品展示，材质细节清晰，形状稳定，纯色背景，适合后续多镜头复用。`,
+      negativePrompt: '',
+      reason: '该物件承载剧情信息或多次出现，需要保持外观连续。',
+      priority: 4,
+      attributes: {
+        type: 'prop',
+        category: inferPropCategory(name),
+        material: inferPropMaterial(name),
+        condition: 'used',
+        view: 'front',
+        background: 'solid',
+        visualStyle,
+      },
+    })),
+    ...costumes.map((name): ScriptAssetSuggestion => ({
+      kind: 'costume',
+      name,
+      description: `从剧本中提取的核心服装：${name}`,
+      prompt: `${name}，服装平铺展示，完整轮廓，材质和配色清晰，不出现人物脸部，适合保持角色造型一致。`,
+      negativePrompt: '',
+      reason: '服装影响角色跨镜头一致性，需要作为独立资产确认。',
+      priority: 4,
+      attributes: {
+        type: 'costume',
+        audience: 'unisex',
+        category: inferCostumeCategory(name),
+        season: inferCostumeSeason(name),
+        design: inferCostumeDesign(name),
+        presentation: 'flat',
+        visualStyle,
+        turnaround: false,
+      },
+    })),
+  ]
+  return {
+    summary: '已根据剧本文本提取角色、场景、关键道具和核心服装建议，建议先确认高优先级资产。',
+    assets,
+  }
+}
+
+function extractAssetNames(script: string, fields: string[], fallback: string[], limit: number): string[] {
+  const values: string[] = []
+  for (const field of fields) {
+    const pattern = new RegExp(`${field}[：:]([^\\n|]+)`, 'g')
+    for (const match of script.matchAll(pattern)) {
+      values.push(...splitAssetNameList(match[1] || ''))
+    }
+  }
+  const uniqueValues = [...new Set(values.map(cleanAssetName).filter(Boolean))]
+  return (uniqueValues.length ? uniqueValues : fallback).slice(0, limit)
+}
+
+function splitAssetNameList(value: string): string[] {
+  return value
+    .split(/[、，,；;和与]/u)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function cleanAssetName(value: string): string {
+  const cleaned = value
+    .replace(/^[\s·\-—]+/u, '')
+    .split(/[（(。.!！?？]/u)[0]!
+    .split(/——|--|：|:/u)[0]!
+    .trim()
+  if (cleaned.length < 2) return ''
+  return cleaned.length > 24 ? cleaned.slice(0, 24) : cleaned
+}
+
+function suggestionVisualStyle(
+  direction: ScriptCreativeDirection,
+): Exclude<ScriptCreativeDirection['style'], 'auto'> {
+  return direction.style === 'auto' ? 'cinematic-cg' : direction.style
+}
+
+function inferSceneSpace(name: string): 'interior' | 'exterior' {
+  return /室内|屋|房|店|铺|工厂|车厢|房间|大厅|暗房|药铺/u.test(name) ? 'interior' : 'exterior'
+}
+
+function inferSceneType(
+  name: string,
+): 'city' | 'street' | 'residential' | 'commercial' | 'nature' | 'ancient' | 'industrial' | 'fantasy' {
+  if (/古|宫|城门|边城|药铺|江湖|门派/u.test(name)) return 'ancient'
+  if (/工厂|车间|管线|工业|暗房/u.test(name)) return 'industrial'
+  if (/森林|山|河|雪坡|荒野/u.test(name)) return 'nature'
+  if (/商店|市场|餐厅|药铺/u.test(name)) return 'commercial'
+  if (/街|路|站台|车站/u.test(name)) return 'street'
+  if (/住宅|家|卧室/u.test(name)) return 'residential'
+  if (/浮空|魔法|神殿/u.test(name)) return 'fantasy'
+  return 'city'
+}
+
+function inferEra(name: string): 'ancient' | 'recent' | 'modern' | 'future' {
+  if (/古|剑|宫|江湖|门派|药铺/u.test(name)) return 'ancient'
+  if (/未来|赛博|浮空|企业霓虹|机器人/u.test(name)) return 'future'
+  if (/民国|旧式|老式/u.test(name)) return 'recent'
+  return 'modern'
+}
+
+function inferSceneTime(name: string): 'dawn' | 'day' | 'sunset' | 'night' {
+  if (/黎明|清晨|晨/u.test(name)) return 'dawn'
+  if (/黄昏|傍晚|日落/u.test(name)) return 'sunset'
+  if (/夜|午夜|暗/u.test(name)) return 'night'
+  return 'day'
+}
+
+function inferWeather(script: string): 'clear' | 'cloudy' | 'rain' | 'snow' | 'fog' {
+  if (/雪/u.test(script)) return 'snow'
+  if (/雨/u.test(script)) return 'rain'
+  if (/雾|霾/u.test(script)) return 'fog'
+  if (/阴|云/u.test(script)) return 'cloudy'
+  return 'clear'
+}
+
+function inferPropCategory(
+  name: string,
+): 'weapon' | 'vehicle' | 'furniture' | 'electronics' | 'jewelry' | 'food' | 'daily' | 'other' {
+  if (/刀|剑|枪|弓|矛|武器/u.test(name)) return 'weapon'
+  if (/车|船|机/u.test(name)) return 'vehicle'
+  if (/桌|椅|柜|床/u.test(name)) return 'furniture'
+  if (/手机|电脑|芯片|相机|胶片|屏/u.test(name)) return 'electronics'
+  if (/戒指|项链|玉|首饰/u.test(name)) return 'jewelry'
+  if (/饭|茶|酒|食物/u.test(name)) return 'food'
+  return 'daily'
+}
+
+function inferPropMaterial(
+  name: string,
+): 'wood' | 'metal' | 'glass' | 'fabric' | 'leather' | 'ceramic' | 'mixed' {
+  if (/刀|剑|枪|金属|铁|铜|银/u.test(name)) return 'metal'
+  if (/木|桌|椅|柜/u.test(name)) return 'wood'
+  if (/玻璃|镜/u.test(name)) return 'glass'
+  if (/布|帕|衣/u.test(name)) return 'fabric'
+  if (/皮|革/u.test(name)) return 'leather'
+  if (/瓷|碗|杯/u.test(name)) return 'ceramic'
+  return 'mixed'
+}
+
+function inferCostumeCategory(
+  name: string,
+): 'daily' | 'formal' | 'professional' | 'uniform' | 'ancient' | 'ceremonial' | 'fantasy' | 'armor' {
+  if (/战甲|盔甲|护甲/u.test(name)) return 'armor'
+  if (/古|剑客|侠|汉服|衣装/u.test(name)) return 'ancient'
+  if (/制服|校服|军装/u.test(name)) return 'uniform'
+  if (/礼服|婚服/u.test(name)) return 'ceremonial'
+  if (/职业|工装/u.test(name)) return 'professional'
+  if (/魔法|奇幻/u.test(name)) return 'fantasy'
+  return 'daily'
+}
+
+function inferCostumeSeason(name: string): 'spring-summer' | 'autumn-winter' | 'all-season' {
+  if (/雪|冬|厚|披风|风衣/u.test(name)) return 'autumn-winter'
+  if (/夏|薄|短袖/u.test(name)) return 'spring-summer'
+  return 'all-season'
+}
+
+function inferCostumeDesign(name: string): 'minimal' | 'luxury' | 'retro' | 'future' | 'chinese' {
+  if (/古|国风|汉服|剑客|侠/u.test(name)) return 'chinese'
+  if (/未来|赛博|机能/u.test(name)) return 'future'
+  if (/旧|复古|民国/u.test(name)) return 'retro'
+  if (/华丽|礼服|宫廷/u.test(name)) return 'luxury'
+  return 'minimal'
+}
+
+function deduplicateAssetSuggestions(
+  suggestions: ScriptAssetSuggestion[],
+  existingAssets: readonly Pick<Asset, 'kind' | 'name'>[],
+): ScriptAssetSuggestion[] {
+  const seen = new Set(existingAssets.map(assetSuggestionKey))
+  const result: ScriptAssetSuggestion[] = []
+  for (const suggestion of [...suggestions].sort((left, right) => right.priority - left.priority)) {
+    const key = assetSuggestionKey(suggestion)
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(suggestion)
+  }
+  return result
+}
+
+function assetSuggestionKey(asset: Pick<Asset, 'kind' | 'name'>): string {
+  return `${asset.kind}:${asset.name.trim().toLocaleLowerCase('zh-CN')}`
 }
 
 function scriptScenes(script: string): string[] {
@@ -548,7 +1116,113 @@ function directionSummary(direction: ScriptCreativeDirection): string {
   ].join('；')
 }
 
-function parseProviderJson<T>(raw: string, schema: z.ZodType<T>, errorMessage: string): T {
+function normalizeScriptScenesProviderContent(value: unknown): unknown {
+  if (!isRecord(value)) return value
+  return {
+    ...value,
+    title: normalizeProviderText(value.title, 120) || '分场剧本',
+    sourceStructureTitle: normalizeProviderText(value.sourceStructureTitle, 120) || '剧情结构',
+    scenes: Array.isArray(value.scenes)
+      ? value.scenes.map((scene, index) => normalizeScriptSceneProviderItem(scene, index))
+      : value.scenes,
+    continuityNotes: normalizeProviderText(value.continuityNotes, 1_000) || '连续性待后续确认',
+    nextStep: normalizeProviderText(value.nextStep, 500) || '继续扩写镜头和资产引用',
+  }
+}
+
+function normalizeScriptSceneProviderItem(value: unknown, index: number): unknown {
+  if (!isRecord(value)) {
+    const text = normalizeProviderText(value, 1_200)
+    return {
+      id: `scene-${index + 1}`,
+      order: index + 1,
+      actId: 'act-1',
+      title: `场次 ${index + 1}`,
+      location: '待定地点',
+      timeOfDay: '待定时间',
+      characters: ['待定人物'],
+      purpose: text || '场景目标待后续确认',
+      conflict: '场景冲突待后续确认',
+      plot: text || '剧情待后续确认',
+      action: text || '动作待后续确认',
+      dialogue: [],
+      visualNotes: '视觉提示待后续确认',
+      transition: '衔接待后续确认',
+      estimatedMinutes: 1,
+    }
+  }
+
+  return {
+    ...value,
+    id: normalizeProviderText(value.id, 80) || `scene-${index + 1}`,
+    order: normalizeProviderInteger(value.order, index + 1, 1, 200),
+    actId: normalizeProviderText(value.actId, 80) || 'act-1',
+    title: normalizeProviderText(value.title, 120) || `场次 ${index + 1}`,
+    location: normalizeProviderText(value.location, 160) || '待定地点',
+    timeOfDay: normalizeProviderText(value.timeOfDay, 80) || '待定时间',
+    characters: normalizeProviderTextList(value.characters, 8, 80, ['待定人物']),
+    purpose: normalizeProviderText(value.purpose, 400) || '场景目标待后续确认',
+    conflict: normalizeProviderText(value.conflict, 400) || '场景冲突待后续确认',
+    plot: normalizeProviderText(value.plot, 1_200) || '剧情待后续确认',
+    action: normalizeProviderText(value.action, 1_000) || '动作待后续确认',
+    dialogue: normalizeProviderTextList(value.dialogue, 8, 300, []),
+    visualNotes: normalizeProviderText(value.visualNotes, 700) || '视觉提示待后续确认',
+    transition: normalizeProviderText(value.transition, 300) || '衔接待后续确认',
+    estimatedMinutes: normalizeProviderInteger(value.estimatedMinutes, 1, 1, 30),
+  }
+}
+
+function normalizeProviderTextList(
+  value: unknown,
+  maxItems: number,
+  maxLength: number,
+  fallback: string[],
+): string[] {
+  const items = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value]
+  const normalized = items
+    .map((item) => normalizeProviderText(item, maxLength))
+    .filter(Boolean)
+    .slice(0, maxItems)
+  return normalized.length ? normalized : fallback
+}
+
+function normalizeProviderText(value: unknown, maxLength: number): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return cleanProviderText(value, maxLength)
+  if (typeof value === 'number' || typeof value === 'boolean')
+    return cleanProviderText(String(value), maxLength)
+  if (Array.isArray(value)) {
+    return cleanProviderText(
+      value
+        .map((item) => normalizeProviderText(item, maxLength))
+        .filter(Boolean)
+        .join('、'),
+      maxLength,
+    )
+  }
+  return ''
+}
+
+function normalizeProviderInteger(value: unknown, fallback: number, min: number, max: number): number {
+  const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN
+  const rounded = Number.isFinite(numeric) ? Math.round(numeric) : fallback
+  return Math.min(max, Math.max(min, rounded))
+}
+
+function cleanProviderText(value: string, maxLength: number): string {
+  return value.replace(/\s+/g, ' ').trim().slice(0, maxLength)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parseProviderJson<T>(
+  raw: string,
+  schema: z.ZodType<T>,
+  errorMessage: string,
+  normalize: (value: unknown) => unknown = (value) => value,
+): T {
   const text = raw
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
@@ -558,7 +1232,7 @@ function parseProviderJson<T>(raw: string, schema: z.ZodType<T>, errorMessage: s
   const end = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'))
   if (start < 0 || end < start) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', errorMessage)
   try {
-    return schema.parse(JSON.parse(text.slice(start, end + 1)))
+    return schema.parse(normalize(JSON.parse(text.slice(start, end + 1))))
   } catch {
     throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', errorMessage)
   }
