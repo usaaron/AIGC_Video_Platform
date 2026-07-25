@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ArrowRight, Check, Clapperboard, Clock3, Crown, Info, LoaderCircle, Play, Zap } from 'lucide-react'
+import { ImagePreviewModal } from '../components/ImagePreviewModal'
 import { JobRow, PageHeader } from '../components/ui'
 
 const filters = [
@@ -22,6 +23,7 @@ export function GenerationPage({
 }) {
   const [filter, setFilter] = useState('all')
   const [busyTaskId, setBusyTaskId] = useState(null)
+  const [preview, setPreview] = useState(null)
   const queueJobs = jobs.filter((job) => typeof job.metadata?.queueHiddenAt !== 'string')
   const visibleJobs = filter === 'all' ? queueJobs : queueJobs.filter((job) => job.kind === filter)
   const active = queueJobs.filter((job) => ['queued', 'paused', 'running'].includes(job.status))
@@ -141,6 +143,13 @@ export function GenerationPage({
                 onPause={() => runTaskAction(job.id, onPause)}
                 onResume={() => runTaskAction(job.id, onResume)}
                 onDelete={() => runTaskAction(job.id, onDelete)}
+                onPreviewResult={(targetJob) =>
+                  setPreview({
+                    url: targetJob.resultUrl,
+                    alt: targetJob.label || '生成结果',
+                    fileName: targetJob.label || '生成结果',
+                  })
+                }
               />
             ))
           ) : (
@@ -152,6 +161,7 @@ export function GenerationPage({
           )}
         </div>
       </section>
+      {preview && <ImagePreviewModal image={preview} onClose={() => setPreview(null)} />}
     </div>
   )
 }

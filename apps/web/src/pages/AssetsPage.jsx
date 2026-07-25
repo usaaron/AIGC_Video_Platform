@@ -212,7 +212,7 @@ function AssetCard({ asset, task, onEdit, onGenerate, onPreview, busy }) {
   const tags = summarizeAsset(asset)
   const previewUrl = getAssetPreviewUrl(asset)
   return (
-    <article className="asset-card">
+    <article className={`asset-card asset-${asset.kind}`}>
       <div className={`asset-image ${asset.kind === 'audio' ? 'sound-asset' : ''}`}>
         {previewUrl ? (
           <button

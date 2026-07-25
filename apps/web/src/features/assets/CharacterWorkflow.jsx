@@ -1,4 +1,5 @@
 import {
+  AlertCircle,
   CheckCircle2,
   CloudUpload,
   Download,
@@ -16,7 +17,6 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { ImagePreviewModal } from '../../components/ImagePreviewModal'
 import { confirmCharacterFace } from './assetDraft'
-import { GenerationProgress } from './GenerationProgress'
 
 const STAGES = [
   ['face', '面部定稿', ScanFace],
@@ -236,6 +236,7 @@ export function CharacterWorkflow({
           description="全身生成会自动携带面部基准；腿部优化仅影响身体比例，不改变已确认的脸。"
           task={bodyTask}
           reference={bodyCandidate || attributes.bodyReference || attributes.faceReference}
+          previewMode="contain"
           onPreview={(reference) =>
             setPreview({
               url: reference.url,
@@ -715,6 +716,7 @@ function StagePanel({
   description,
   task,
   reference,
+  previewMode = 'cover',
   emptyText,
   onPreview,
   showTaskState = true,
@@ -727,13 +729,13 @@ function StagePanel({
         <h3>{title}</h3>
         <p>{description}</p>
       </div>
-      <div className="character-stage-preview">
+      <div className={`character-stage-preview ${previewMode === 'contain' ? 'contain' : ''}`}>
         {reference?.url ? (
           <button type="button" aria-label={`放大查看${title}`} onClick={() => onPreview(reference)}>
             <img src={reference.url} alt={title} />
           </button>
         ) : (
-          <div>
+          <div className="character-stage-empty">
             <ScanFace size={25} />
             <span>{emptyText}</span>
           </div>
@@ -746,7 +748,36 @@ function StagePanel({
 }
 
 function TaskState({ task }) {
-  return <GenerationProgress task={task} compact />
+  const failed = task.status === 'failed' || task.status === 'cancelled'
+  const completed = task.status === 'completed'
+  const running = task.status === 'running'
+  const label = completed
+    ? '资产已生成'
+    : failed
+      ? task.status === 'cancelled'
+        ? '已取消'
+        : '生成失败'
+      : task.status === 'queued' || task.status === 'paused'
+        ? '等待生成'
+        : '生成中'
+
+  return (
+    <div
+      className={`character-task-state ${completed ? 'completed' : ''} ${failed ? 'failed' : ''}`}
+      role="status"
+      aria-live="polite"
+    >
+      {failed ? (
+        <AlertCircle size={12} />
+      ) : completed ? (
+        <CheckCircle2 size={12} />
+      ) : (
+        <LoaderCircle size={12} className={running ? 'spin' : ''} />
+      )}
+      <span>{label}</span>
+      {running && typeof task.progress === 'number' && <b>{task.progress}%</b>}
+    </div>
+  )
 }
 
 function TurnaroundPreview({ task, onPreview }) {

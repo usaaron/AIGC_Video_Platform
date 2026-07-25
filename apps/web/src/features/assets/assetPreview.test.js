@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { getAssetPreviewUrl } from './assetPreview'
 
 describe('asset preview selection', () => {
-  it('keeps the confirmed face as a character card cover', () => {
+  it('uses the full-body image as a character card cover once it exists', () => {
     expect(
       getAssetPreviewUrl({
         kind: 'character',
@@ -10,7 +10,21 @@ describe('asset preview selection', () => {
         references: [{ url: '/imported.png' }],
         attributes: { faceReference: { url: '/approved-face.png' } },
       }),
-    ).toBe('/approved-face.png')
+    ).toBe('/full-body.png')
+  })
+
+  it('prefers an approved body reference over the older face reference', () => {
+    expect(
+      getAssetPreviewUrl({
+        kind: 'character',
+        imageUrl: '/old-cover.png',
+        references: [],
+        attributes: {
+          faceReference: { url: '/approved-face.png' },
+          bodyReference: { url: '/approved-body.png' },
+        },
+      }),
+    ).toBe('/approved-body.png')
   })
 
   it('falls back to the current image and imported reference', () => {

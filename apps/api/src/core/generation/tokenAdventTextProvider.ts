@@ -68,7 +68,7 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
     if (!response.ok) throw await textProviderError(response)
 
     if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
-      return readCompletionStream(response.body)
+      return readCompletionStream(response.body, this.options.requestTimeoutMs)
     }
     const parsed = completionSchema.safeParse(await response.json())
     if (!parsed.success) throw new InvalidTextResponseError()
@@ -93,9 +93,10 @@ class InvalidTextResponseError extends Error {
   }
 }
 
-async function readCompletionStream(body: ReadableStream<Uint8Array>): Promise<string> {
+async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs: number): Promise<string> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
+  const startedAt = Date.now()
   let buffered = ''
   let content = ''
 
@@ -114,19 +115,46 @@ async function readCompletionStream(body: ReadableStream<Uint8Array>): Promise<s
     for (const choice of parsed.data.choices) content += choice.delta.content ?? ''
   }
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffered += decoder.decode(value, { stream: true })
-    const lines = buffered.split(/\r?\n/)
-    buffered = lines.pop() ?? ''
-    for (const line of lines) consume(line)
+  const readWithTimeout = async () => {
+    const remainingMs = timeoutMs - (Date.now() - startedAt)
+    if (remainingMs <= 0) throw timeoutError()
+    let timer: NodeJS.Timeout | undefined
+    try {
+      return await Promise.race([
+        reader.read(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(timeoutError()), remainingMs)
+        }),
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await readWithTimeout()
+      if (done) break
+      buffered += decoder.decode(value, { stream: true })
+      const lines = buffered.split(/\r?\n/)
+      buffered = lines.pop() ?? ''
+      for (const line of lines) consume(line)
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {})
+    throw error
+  } finally {
+    reader.releaseLock()
   }
   buffered += decoder.decode()
   if (buffered) consume(buffered)
   const result = content.trim()
   if (!result) throw new InvalidTextResponseError()
   return result
+}
+
+function timeoutError(): DOMException {
+  return new DOMException('TokenAdvent text stream timed out', 'TimeoutError')
 }
 
 async function textProviderError(response: Response): Promise<TokenAdventHttpError> {

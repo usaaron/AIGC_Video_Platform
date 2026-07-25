@@ -84,6 +84,25 @@ describe('asset creation modes', () => {
     expect(input.imageUrl).toBe(reference.url)
   })
 
+  it('keeps the approved full-body reference as the character cover image', () => {
+    const attributes = {
+      ...createDefaultAttributes('character'),
+      faceStatus: 'approved',
+      bodyStatus: 'approved',
+      faceReference: { id: 'face-1', url: '/media/face-1', name: 'face.png' },
+      bodyReference: { id: 'body-1', url: '/media/body-1', name: 'body.png' },
+    }
+    const input = buildAssetInput({
+      asset: { id: 'character-1', kind: 'character', sourceMode: 'generate', status: 'draft' },
+      draft: draft({ attributes, imageUrl: '/media/face-1' }),
+      kind: 'character',
+      aspectRatio: '9:16',
+      creationMode: ASSET_CREATION_MODES.TEXT,
+    })
+
+    expect(input.imageUrl).toBe('/media/body-1')
+  })
+
   it('clears an old trusted portrait only when the approved face changes', () => {
     const attributes = {
       ...createDefaultAttributes('character'),

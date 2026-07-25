@@ -73,10 +73,10 @@ export function buildAssetInput({ asset, draft, kind, aspectRatio, creationMode 
         ? null
         : direct
           ? references[0]?.url || null
-          : normalized.attributes.faceReference?.url ||
-            normalized.attributes.bodyReference?.url ||
-            references[0]?.url ||
+          : normalized.attributes.bodyReference?.url ||
             normalized.imageUrl ||
+            normalized.attributes.faceReference?.url ||
+            references[0]?.url ||
             null,
   }
   if (asset.id) {

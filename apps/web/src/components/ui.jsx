@@ -1,4 +1,4 @@
-import { Check, Clock3, ExternalLink, LoaderCircle, Pause, Play, Trash2, XCircle } from 'lucide-react'
+import { Check, Clock3, ExternalLink, Images, LoaderCircle, Pause, Play, Trash2, XCircle } from 'lucide-react'
 
 export function StatusDot({ status }) {
   return <span className={`status-dot ${status}`} aria-hidden="true" />
@@ -25,8 +25,9 @@ export function PageHeader({ eyebrow, title, description, children }) {
   )
 }
 
-export function JobRow({ job, compact = false, busy = false, onPause, onResume, onDelete }) {
+export function JobRow({ job, compact = false, busy = false, onPause, onResume, onDelete, onPreviewResult }) {
   const canCancelRunning = job.status === 'running' && job.metadata?.providerName === 'stringx-seedance'
+  const canPreviewInApp = job.kind === 'image' && typeof onPreviewResult === 'function'
   const icon =
     job.status === 'failed' ? (
       <XCircle size={15} />
@@ -66,11 +67,17 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
         {job.status === 'failed' && <p className="job-error">{job.error || '生成失败，请重新提交'}</p>}
       </div>
       <div className="job-actions">
-        {job.status === 'completed' && job.resultUrl && (
-          <a className="job-result" href={job.resultUrl} target="_blank" rel="noreferrer">
-            <ExternalLink size={13} /> 查看结果
-          </a>
-        )}
+        {job.status === 'completed' &&
+          job.resultUrl &&
+          (canPreviewInApp ? (
+            <button className="job-result" type="button" onClick={() => onPreviewResult(job)}>
+              <Images size={13} /> 查看结果
+            </button>
+          ) : (
+            <a className="job-result" href={job.resultUrl} target="_blank" rel="noreferrer">
+              <ExternalLink size={13} /> 查看结果
+            </a>
+          ))}
         {!compact && onDelete && (
           <div className="job-controls">
             {job.status === 'paused' ? (

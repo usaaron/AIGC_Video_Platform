@@ -54,6 +54,33 @@ describe('TokenAdventTextProvider', () => {
     )
   })
 
+  it('times out an unfinished streamed completion', async () => {
+    let calls = 0
+    const encoder = new TextEncoder()
+    const provider = new TokenAdventTextProvider({
+      baseUrl: 'https://tokenadvent.example',
+      apiKey: 'test-key',
+      model: 'gpt-5.4',
+      requestTimeoutMs: 20,
+      fetcher: (async () => {
+        calls += 1
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'))
+          },
+        })
+        return new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } })
+      }) as typeof fetch,
+    })
+
+    await expect(
+      provider.generate({ systemPrompt: 'test', userPrompt: 'stream timeout' }),
+    ).rejects.toMatchObject({
+      name: 'TextGenerationProviderError',
+    })
+    expect(calls).toBe(2)
+  })
+
   it('retries a transient connection failure once', async () => {
     let calls = 0
     const provider = createProvider(async () => {
