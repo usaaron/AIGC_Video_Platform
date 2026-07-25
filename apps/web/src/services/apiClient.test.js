@@ -173,6 +173,468 @@ describe('api client', () => {
     )
   })
 
+  it('calls novel import, chapter summary and story bible endpoints', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ previewId: 'preview-1', chapters: [] }))
+      .mockResolvedValueOnce(Response.json({ document: { id: 'novel-1' }, chapters: [] }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json([{ id: 'novel-1', name: '雨夜旧站' }]))
+      .mockResolvedValueOnce(Response.json({ document: { id: 'novel-1' }, chapters: [] }))
+      .mockResolvedValueOnce(Response.json({ summaries: [], missingSummaryCount: 2 }))
+      .mockResolvedValueOnce(Response.json({ queue: null, items: [] }))
+      .mockResolvedValueOnce(Response.json({ queue: { id: 'queue-1' }, items: [] }))
+      .mockResolvedValueOnce(Response.json({ summaries: [], generatedSummaries: [] }))
+      .mockResolvedValueOnce(Response.json({ storyBible: null, missingSummaryCount: 0 }))
+      .mockResolvedValueOnce(Response.json({ storyBible: { title: '雨夜旧站' } }))
+      .mockResolvedValueOnce(Response.json({ script: '场次：1｜剧情：渡口等待。', chapters: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const input = {
+      clientRequestId: 'novel-import-1',
+      name: '雨夜旧站',
+      format: 'txt',
+      content: '第一章 雨夜来信\n林夏收到一封信。',
+    }
+
+    await api.previewNovelSplit('project-1', input)
+    await api.importNovel('project-1', input)
+    await api.novels('project-1')
+    await api.novel('project-1', 'novel-1')
+    await api.novelSummaries('project-1', 'novel-1')
+    await api.novelSummaryQueue('project-1', 'novel-1')
+    await api.createNovelSummaryQueue('project-1', 'novel-1', {
+      clientRequestId: 'queue-1',
+      batchSize: 4,
+    })
+    await api.generateNovelSummaries('project-1', 'novel-1', {
+      clientRequestId: 'summary-1',
+      batchSize: 4,
+    })
+    await api.novelStoryBible('project-1', 'novel-1')
+    await api.generateNovelStoryBible('project-1', 'novel-1', {
+      clientRequestId: 'bible-1',
+      force: true,
+    })
+    await api.generateNovelChapterAdaptation('project-1', 'novel-1', {
+      clientRequestId: 'adapt-1',
+      chapterIds: ['chapter-1'],
+      targetSeconds: 60,
+      mode: 'scene',
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/projects/project-1/novels/preview-split',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify(input),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/projects/project-1/novels/import',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify(input),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/v1/projects/project-1/novels',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      '/api/v1/projects/project-1/novels/novel-1',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      '/api/v1/projects/project-1/novels/novel-1/summaries',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      '/api/v1/projects/project-1/novels/novel-1/summary-queue',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      7,
+      '/api/v1/projects/project-1/novels/novel-1/summary-queue',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ clientRequestId: 'queue-1', batchSize: 4 }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      8,
+      '/api/v1/projects/project-1/novels/novel-1/summaries/generate',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ clientRequestId: 'summary-1', batchSize: 4 }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      9,
+      '/api/v1/projects/project-1/novels/novel-1/story-bible',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      10,
+      '/api/v1/projects/project-1/novels/novel-1/story-bible/generate',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ clientRequestId: 'bible-1', force: true }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      11,
+      '/api/v1/projects/project-1/novels/novel-1/adapt-script',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          clientRequestId: 'adapt-1',
+          chapterIds: ['chapter-1'],
+          targetSeconds: 60,
+          mode: 'scene',
+        }),
+      }),
+    )
+  })
+
+  it('calls novel summary queue control endpoints', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ queue: { id: 'queue-1' }, items: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.runNovelSummaryQueueBatch('project-1', 'novel-1', 'queue-1', {
+      clientRequestId: 'run-1',
+      batchSize: 2,
+    })
+    await api.pauseNovelSummaryQueue('project-1', 'novel-1', 'queue-1')
+    await api.resumeNovelSummaryQueue('project-1', 'novel-1', 'queue-1')
+    await api.retryNovelSummaryQueueItem('project-1', 'novel-1', 'queue-1', 'item-1')
+    await api.skipNovelSummaryQueueItem('project-1', 'novel-1', 'queue-1', 'item-1')
+    await api.commitNovelSummaryQueueResults('project-1', 'novel-1', 'queue-1', { force: true })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/projects/project-1/novels/novel-1/summary-queue/queue-1/run-batch',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ clientRequestId: 'run-1', batchSize: 2 }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/projects/project-1/novels/novel-1/summary-queue/queue-1/pause',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/v1/projects/project-1/novels/novel-1/summary-queue/queue-1/resume',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      '/api/v1/projects/project-1/novels/novel-1/summary-queue/queue-1/items/item-1/retry',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      '/api/v1/projects/project-1/novels/novel-1/summary-queue/queue-1/items/item-1/skip',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      '/api/v1/projects/project-1/novels/novel-1/summary-queue/queue-1/commit-results',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ force: true }),
+      }),
+    )
+  })
+
+  it('calls novel boundary detection endpoints', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ boundaries: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.novelBoundaries('project-1', 'novel-1')
+    await api.detectNovelBoundaries('project-1', 'novel-1', { force: true, maxBoundaries: 10 })
+    await api.generateNovelBoundaryNotes('project-1', 'novel-1', {
+      clientRequestId: 'boundary-notes-1',
+      batchSize: 2,
+      boundaryIds: ['boundary-1'],
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/projects/project-1/novels/novel-1/boundaries',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/projects/project-1/novels/novel-1/boundaries/detect',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ force: true, maxBoundaries: 10 }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/v1/projects/project-1/novels/novel-1/boundaries/notes/generate',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          clientRequestId: 'boundary-notes-1',
+          batchSize: 2,
+          boundaryIds: ['boundary-1'],
+        }),
+      }),
+    )
+  })
+
+  it('sends the story idea to the script outline endpoint', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(Response.json({ outlines: [], generatedAt: new Date().toISOString() }))
+    vi.stubGlobal('fetch', fetchMock)
+    const direction = {
+      style: 'photorealistic',
+      composition: 'rule-of-thirds',
+      lighting: 'low-key',
+      camera: 'restrained',
+      focus: 'character',
+    }
+
+    await api.generateScriptOutlines('project-1', '浪漫悲情武侠长片', direction, 5, 'script-outline-1')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/projects/project-1/script/outlines',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          clientRequestId: 'script-outline-1',
+          idea: '浪漫悲情武侠长片',
+          direction,
+          count: 5,
+        }),
+      }),
+    )
+  })
+
+  it('sends the selected outline to the script structure endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ title: '雪夜归剑' }))
+    vi.stubGlobal('fetch', fetchMock)
+    const direction = {
+      style: 'photorealistic',
+      composition: 'rule-of-thirds',
+      lighting: 'low-key',
+      camera: 'restrained',
+      focus: 'character',
+    }
+    const outline = {
+      id: 'outline-1',
+      title: '雪夜归剑',
+      logline: '退隐剑客守护故土。',
+      protagonist: '退隐女剑客',
+      conflict: '门派追杀',
+      tone: '浪漫悲情',
+      ending: '牺牲式圆满',
+      summary:
+        '女剑客隐居边城，只想与药师完成婚约，却在雪夜发现旧门派屠城令。她被迫重拾长剑，一边护送百姓撤离，一边追查师门背叛。药师逐渐发现她的复仇会吞噬两人的未来，于是选择陪她进入最后一战。',
+      estimatedDuration: '约100分钟',
+    }
+
+    await api.generateScriptStructure(
+      'project-1',
+      '浪漫悲情武侠长片',
+      outline,
+      direction,
+      'script-structure-1',
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/projects/project-1/script/structure',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          clientRequestId: 'script-structure-1',
+          idea: '浪漫悲情武侠长片',
+          outline,
+          direction,
+        }),
+      }),
+    )
+  })
+
+  it('sends the generated plot structure to the scene script endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ title: '雪夜归剑分场剧本' }))
+    vi.stubGlobal('fetch', fetchMock)
+    const direction = {
+      style: 'photorealistic',
+      composition: 'rule-of-thirds',
+      lighting: 'low-key',
+      camera: 'restrained',
+      focus: 'character',
+    }
+    const outline = {
+      id: 'outline-1',
+      title: '雪夜归剑',
+      logline: '退隐剑客守护故土。',
+      protagonist: '退隐女剑客',
+      conflict: '门派追杀',
+      tone: '浪漫悲情',
+      ending: '牺牲式圆满',
+      summary:
+        '女剑客隐居边城，只想与药师完成婚约，却在雪夜发现旧门派屠城令。她被迫重拾长剑，一边护送百姓撤离，一边追查师门背叛。药师逐渐发现她的复仇会吞噬两人的未来，于是选择陪她进入最后一战。',
+      estimatedDuration: '约100分钟',
+    }
+    const structure = {
+      title: '雪夜归剑',
+      premise: '退隐女剑客在婚约与复仇之间选择守护故土。',
+      mainPlot: '屠城令打破隐居生活，主角从护送百姓走向最终守护。',
+      acts: [
+        {
+          id: 'act-1',
+          title: '第一幕',
+          purpose: '建立人物目标。',
+          summary: '旧债打破婚约。',
+          keyBeats: ['婚约', '屠城令', '护送'],
+          turningPoint: '决定重拾长剑。',
+          estimatedMinutes: 25,
+        },
+        {
+          id: 'act-2',
+          title: '第二幕',
+          purpose: '推进追查和情感矛盾。',
+          summary: '女剑客与药师同行，发现背叛线索。',
+          keyBeats: ['护送受阻', '线索浮现', '价值分歧'],
+          turningPoint: '确认仇人仍在城内。',
+          estimatedMinutes: 45,
+        },
+        {
+          id: 'act-3',
+          title: '第三幕',
+          purpose: '完成最终选择。',
+          summary: '女剑客放弃复仇并救下孩子。',
+          keyBeats: ['重返城门', '仇人现身', '放弃复仇'],
+          turningPoint: '与药师离别。',
+          estimatedMinutes: 30,
+        },
+      ],
+      subplots: [
+        {
+          id: 'subplot-1',
+          title: '爱情副线',
+          characters: ['女剑客', '药师'],
+          arc: '从婚约到分歧再到互相成全。',
+          payoff: '最终离别保留余韵。',
+        },
+      ],
+      characterArcs: [
+        {
+          character: '女剑客',
+          desire: '摆脱江湖旧债。',
+          obstacle: '复仇执念和门派追杀。',
+          change: '从复仇者变成守护者。',
+        },
+      ],
+      visualDirection: '雪夜边城贯穿。',
+      nextStep: '继续细化关键场景。',
+    }
+
+    await api.generateScriptScenes(
+      'project-1',
+      '浪漫悲情武侠长片',
+      outline,
+      structure,
+      direction,
+      12,
+      'script-scenes-1',
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/projects/project-1/script/scenes',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          clientRequestId: 'script-scenes-1',
+          idea: '浪漫悲情武侠长片',
+          outline,
+          structure,
+          direction,
+          sceneCount: 12,
+        }),
+      }),
+    )
+  })
+
+  it('requests script asset suggestions from the current draft', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ summary: '核心资产建议', assets: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const direction = {
+      style: 'cinematic-cg',
+      composition: 'rule-of-thirds',
+      lighting: 'low-key',
+      camera: 'restrained',
+      focus: 'character',
+    }
+
+    await api.suggestScriptAssets(
+      'project-1',
+      '场次：1｜场景：边城药铺｜角色：女剑客｜关键物件：旧长剑',
+      direction,
+      'asset-suggestions-1',
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/projects/project-1/script/asset-suggestions',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          clientRequestId: 'asset-suggestions-1',
+          script: '场次：1｜场景：边城药铺｜角色：女剑客｜关键物件：旧长剑',
+          direction,
+        }),
+      }),
+    )
+  })
+
+  it('requests novel asset suggestions from the selected document', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ summary: '小说资产建议', assets: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.suggestNovelAssets('project-1', 'novel-1', {
+      clientRequestId: 'novel-assets-1',
+      maxAssets: 12,
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/projects/project-1/novels/novel-1/asset-suggestions',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          clientRequestId: 'novel-assets-1',
+          maxAssets: 12,
+        }),
+      }),
+    )
+  })
+
   it('sends creative direction to script generation and review plus the shot split limit', async () => {
     const fetchMock = vi
       .fn()
@@ -203,6 +665,43 @@ describe('api client', () => {
       direction,
     })
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ maxShots: 8 })
+  })
+
+  it('sends long-form segment generation requests without changing the quick endpoint', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(Response.json({ script: '已有剧本\n\n下一段', mode: 'segment' }))
+    vi.stubGlobal('fetch', fetchMock)
+    const direction = {
+      style: 'cinematic-cg',
+      composition: 'rule-of-thirds',
+      lighting: 'low-key',
+      camera: 'restrained',
+      focus: 'character',
+    }
+
+    await api.generateScriptSegment(
+      'project-1',
+      '已有剧本',
+      direction,
+      { goal: '进入第二个冲突', targetMinutes: 5 },
+      'segment-1',
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/projects/project-1/script/generate',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          clientRequestId: 'segment-1',
+          draft: '已有剧本',
+          direction,
+          mode: 'segment',
+          segment: { goal: '进入第二个冲突', targetMinutes: 5 },
+        }),
+      }),
+    )
   })
 
   it('sends the quick script to the explicit visual detail enrichment endpoint', async () => {

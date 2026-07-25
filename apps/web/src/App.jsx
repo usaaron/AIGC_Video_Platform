@@ -384,6 +384,40 @@ function App() {
             await refreshWorkspace()
             setToast('剧本已保存')
           }}
+          onGenerateOutlines={async (idea, direction, count) => {
+            try {
+              const result = await api.generateScriptOutlines(project.id, idea, direction, count)
+              setToast('大纲候选已生成')
+              return result
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
+          onGenerateStructure={async (idea, outline, direction) => {
+            try {
+              const result = await api.generateScriptStructure(project.id, idea, outline, direction)
+              setToast('剧情结构已生成')
+              return result
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
+          onGenerateScenes={async (idea, outline, structure, direction, sceneCount) => {
+            try {
+              const result = await api.generateScriptScenes(
+                project.id,
+                idea,
+                outline,
+                structure,
+                direction,
+                sceneCount,
+              )
+              setToast('分场剧本已生成')
+              return result
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
           onGenerate={async (draft, direction, onPhaseChange) => {
             try {
               const generated = await api.generateScript(project.id, draft, direction)
@@ -410,6 +444,36 @@ function App() {
                 .then(setProjects)
                 .catch(() => {})
               return { script: recovered.project.script, mode: 'quick', warnings: [] }
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
+          onGenerateSegment={async (draft, direction, segment, onPhaseChange) => {
+            try {
+              const generated = await api.generateScriptSegment(project.id, draft, direction, segment)
+              setWorkspace((current) =>
+                current?.project.id === project.id
+                  ? {
+                      ...current,
+                      project: { ...current.project, script: generated.script },
+                    }
+                  : current,
+              )
+              setToast('下一段剧本已生成并保存')
+              void refreshWorkspace().catch(() => {})
+              return generated
+            } catch (error) {
+              if (!isRecoverableScriptConnectionError(error)) throw error
+              onPhaseChange?.('syncing')
+              const recovered = await waitForProjectScriptUpdate(project.id, draft)
+              if (!recovered) throw error
+              setWorkspace(recovered)
+              setToast('已自动同步分段生成结果')
+              void api
+                .projects()
+                .then(setProjects)
+                .catch(() => {})
+              return { script: recovered.project.script, mode: 'segment', warnings: [] }
             } finally {
               await refreshBilling().catch(() => {})
             }
@@ -449,6 +513,58 @@ function App() {
             } finally {
               await refreshBilling().catch(() => {})
             }
+          }}
+          onImportNovel={async (input) => {
+            const result = await api.importNovel(project.id, input)
+            setProjects(await api.projects())
+            setToast(`小说已切分为 ${result.document.chapterCount} 章/段`)
+            return result
+          }}
+          onPreviewNovelSplit={(input) => api.previewNovelSplit(project.id, input)}
+          onListNovels={() => api.novels(project.id)}
+          onGetNovel={(documentId) => api.novel(project.id, documentId)}
+          onGetNovelSummaries={(documentId) => api.novelSummaries(project.id, documentId)}
+          onGenerateNovelSummaries={async (documentId, input) => {
+            try {
+              const result = await api.generateNovelSummaries(project.id, documentId, input)
+              setToast(
+                result.completed ? '章节摘要已全部完成' : `已生成 ${result.generatedSummaries.length} 章摘要`,
+              )
+              return result
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
+          onGetNovelStoryBible={(documentId) => api.novelStoryBible(project.id, documentId)}
+          onGenerateNovelStoryBible={async (documentId, input) => {
+            try {
+              const result = await api.generateNovelStoryBible(project.id, documentId, input)
+              setToast('全书故事概要已生成')
+              return result
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
+          onSuggestNovelAssets={async (documentId, input) => {
+            const result = await api.suggestNovelAssets(project.id, documentId, input)
+            setToast('小说资产建议已生成')
+            return result
+          }}
+          onGenerateNovelChapterAdaptation={async (documentId, input) => {
+            try {
+              const result = await api.generateNovelChapterAdaptation(project.id, documentId, input)
+              setToast('章节视频改编剧本已生成')
+              return result
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
+          onSuggestAssets={(script, direction) => api.suggestScriptAssets(project.id, script, direction)}
+          onCreateAsset={async (input) => {
+            const created = await api.createAsset(project.id, input)
+            await refreshWorkspace()
+            setToast(`已加入资产：${created.name}`)
+            return created
           }}
           onPlanQuickStart={() => api.planQuickStart(project.id)}
           onExecuteQuickStart={async (input) => {
