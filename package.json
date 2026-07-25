@@ -16,6 +16,8 @@
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
     "test": "pnpm build:shared && pnpm -r test",
+    "regression:novel:biancheng": "pnpm --filter @seqora/api regression:novel:biancheng",
+    "regression:novel:biancheng:live": "pnpm --filter @seqora/api regression:novel:biancheng:live",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "check": "pnpm format:check && pnpm lint && pnpm test && pnpm build"

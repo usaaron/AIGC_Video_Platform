@@ -15,6 +15,7 @@ apps/web/src/assets/hero.png
 # Logs and runtime files
 logs/
 apps/api/data/
+local-fixtures/
 /deploy/demo.env
 /deploy/release.env
 /backups/

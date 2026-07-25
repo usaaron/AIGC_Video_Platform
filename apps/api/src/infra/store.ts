@@ -3,6 +3,13 @@ import type {
   GenerationTask,
   LedgerEntry,
   MediaKind,
+  NovelBoundary,
+  NovelChapter,
+  NovelChapterSummary,
+  NovelDocument,
+  NovelSummaryQueue,
+  NovelSummaryQueueItem,
+  NovelStoryBible,
   Plan,
   Project,
   Role,
@@ -36,6 +43,22 @@ export type StoredMedia = {
   createdAt: string
 }
 
+export type StoredNovelDocument = NovelDocument & {
+  clientRequestId?: string
+}
+
+export type StoredNovelChapter = NovelChapter & {
+  content: string
+}
+
+export type StoredNovelChapterSummary = NovelChapterSummary
+export type StoredNovelSummaryQueue = NovelSummaryQueue & {
+  clientRequestId?: string
+}
+export type StoredNovelSummaryQueueItem = NovelSummaryQueueItem
+export type StoredNovelBoundary = NovelBoundary
+export type StoredNovelStoryBible = NovelStoryBible
+
 export type AppState = {
   users: StoredUser[]
   projects: Project[]
@@ -44,6 +67,13 @@ export type AppState = {
   tasks: GenerationTask[]
   ledger: LedgerEntry[]
   media: StoredMedia[]
+  novelDocuments: StoredNovelDocument[]
+  novelChapters: StoredNovelChapter[]
+  novelChapterSummaries: StoredNovelChapterSummary[]
+  novelSummaryQueues: StoredNovelSummaryQueue[]
+  novelSummaryQueueItems: StoredNovelSummaryQueueItem[]
+  novelBoundaries: StoredNovelBoundary[]
+  novelStoryBibles: StoredNovelStoryBible[]
 }
 
 export type BootstrapUsers = {
@@ -186,6 +216,13 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
     shots: demoWorkspace ? seedShots(projectId, tenantId, now) : [],
     tasks: [],
     media: [],
+    novelDocuments: [],
+    novelChapters: [],
+    novelChapterSummaries: [],
+    novelSummaryQueues: [],
+    novelSummaryQueueItems: [],
+    novelBoundaries: [],
+    novelStoryBibles: [],
     ledger: [
       {
         id: 'ledger-initial',
@@ -409,6 +446,13 @@ function normalizeState(input: Partial<AppState>): AppState {
     tasks,
     ledger: input.ledger ?? [],
     media: input.media ?? [],
+    novelDocuments: input.novelDocuments ?? [],
+    novelChapters: input.novelChapters ?? [],
+    novelChapterSummaries: input.novelChapterSummaries ?? [],
+    novelSummaryQueues: input.novelSummaryQueues ?? [],
+    novelSummaryQueueItems: input.novelSummaryQueueItems ?? [],
+    novelBoundaries: input.novelBoundaries ?? [],
+    novelStoryBibles: input.novelStoryBibles ?? [],
   }
 }
 

@@ -179,6 +179,39 @@ export const costumeAttributesSchema = z.object({
   turnaround: z.boolean(),
 })
 
+const scriptAssetSuggestionBaseSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().min(1).max(500),
+  prompt: z.string().trim().min(1).max(5_000),
+  negativePrompt: z.string().max(2_000).default(''),
+  reason: z.string().trim().min(1).max(500),
+  priority: z.number().int().min(1).max(5).default(3),
+})
+
+export const scriptAssetSuggestionSchema = z.discriminatedUnion('kind', [
+  scriptAssetSuggestionBaseSchema.extend({
+    kind: z.literal('character'),
+    attributes: characterAttributesSchema,
+  }),
+  scriptAssetSuggestionBaseSchema.extend({
+    kind: z.literal('scene'),
+    attributes: sceneAttributesSchema,
+  }),
+  scriptAssetSuggestionBaseSchema.extend({
+    kind: z.literal('prop'),
+    attributes: propAttributesSchema,
+  }),
+  scriptAssetSuggestionBaseSchema.extend({
+    kind: z.literal('costume'),
+    attributes: costumeAttributesSchema,
+  }),
+])
+
+export const scriptAssetSuggestionsContentSchema = z.object({
+  summary: z.string().min(1).max(700),
+  assets: z.array(scriptAssetSuggestionSchema).max(16),
+})
+
 export const audioAttributesSchema = z.object({
   type: z.literal('audio'),
   audioType: z.enum(['voice', 'ambience', 'sfx', 'music']),
@@ -385,6 +418,7 @@ export type CreateShot = z.infer<typeof createShotSchema>
 export type UpdateShot = z.infer<typeof updateShotSchema>
 export type ProjectWorkspace = z.infer<typeof projectWorkspaceSchema>
 export type ScriptCreativeDirection = z.infer<typeof scriptCreativeDirectionSchema>
+export type ScriptAssetSuggestion = z.infer<typeof scriptAssetSuggestionSchema>
 export type GenerateScriptRequest = z.infer<typeof generateScriptRequestSchema>
 export type ReviewScriptRequest = z.infer<typeof reviewScriptRequestSchema>
 export type ScriptReviewContent = z.infer<typeof scriptReviewContentSchema>

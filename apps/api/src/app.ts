@@ -36,6 +36,9 @@ import { GenerationService } from './modules/generation/service.js'
 import { MediaRepository } from './modules/media/repository.js'
 import { registerMediaRoutes } from './modules/media/routes.js'
 import { MediaService } from './modules/media/service.js'
+import { NovelRepository } from './modules/novels/repository.js'
+import { registerNovelRoutes } from './modules/novels/routes.js'
+import { NovelService } from './modules/novels/service.js'
 import { registerProjectRoutes } from './modules/projects/routes.js'
 import { ProjectRepository } from './modules/projects/repository.js'
 import { ProjectService } from './modules/projects/service.js'
@@ -58,7 +61,14 @@ type BuildAppOptions = {
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
-  const app = Fastify({ logger: options.logger ?? false, trustProxy: options.config.TRUST_PROXY })
+  const app = Fastify({
+    logger: options.logger ?? false,
+    trustProxy: options.config.TRUST_PROXY,
+    bodyLimit: options.config.MAX_UPLOAD_BYTES,
+    routerOptions: {
+      maxParamLength: 4_096,
+    },
+  })
   const store =
     options.store ??
     new AppStore(
@@ -160,6 +170,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     filmPreviewComposer,
   )
   const projectService = new ProjectService(new ProjectRepository(store), textProvider, creditLedger)
+  const novelService = new NovelService(new NovelRepository(store), textProvider, creditLedger)
   const quickStartService = new QuickStartService(store, textProvider, taskRunner, Boolean(imageProvider))
   const mediaService = new MediaService(new MediaRepository(store), objectStorage)
   const trustedAssetService = new TrustedAssetService(
@@ -210,6 +221,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     async (api) => {
       await registerAuthRoutes(api, authService, options.config.NODE_ENV === 'production')
       await registerProjectRoutes(api, projectService)
+      await registerNovelRoutes(api, novelService)
       await registerQuickStartRoutes(api, quickStartService)
       await registerMediaRoutes(api, mediaService, options.config.MAX_UPLOAD_BYTES)
       await registerTrustedAssetRoutes(api, trustedAssetService)

@@ -9,7 +9,9 @@
     "build": "tsc -p tsconfig.build.json",
     "lint": "oxlint src",
     "lint:fix": "oxlint src --fix",
-    "test": "vitest run"
+    "test": "vitest run",
+    "regression:novel:biancheng": "tsx src/scripts/novelBianchengRegression.ts",
+    "regression:novel:biancheng:live": "tsx src/scripts/novelBianchengRegression.ts --live"
   },
   "dependencies": {
     "@fastify/cookie": "11.1.2",
