@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { scriptAssetSuggestionsContentSchema } from './project.js'
+import { scriptAssetSuggestionsContentSchema, textModelSchema } from './project.js'
 
 export const novelSourceFormatSchema = z.enum(['txt', 'markdown'])
 export const novelSplitModeSchema = z.enum(['auto', 'heading', 'fixed'])
@@ -110,6 +110,7 @@ export const generateNovelChapterSummariesRequestSchema = z.object({
   batchSize: z.number().int().min(1).max(24).default(4),
   chapterIds: z.array(z.string().min(1).max(128)).min(1).max(24).optional(),
   force: z.boolean().default(false),
+  model: textModelSchema.default('deepseekV3'),
 })
 
 export const novelSummaryQueueStatusSchema = z.enum([
@@ -296,6 +297,7 @@ export const generateNovelBoundaryNotesRequestSchema = z.object({
   batchSize: z.number().int().min(1).max(24).default(8),
   boundaryIds: z.array(z.string().min(1).max(128)).min(1).max(24).optional(),
   force: z.boolean().default(false),
+  model: textModelSchema.default('deepseekV3'),
 })
 
 export const novelBoundaryNoteContentItemSchema = z.object({
@@ -390,11 +392,13 @@ export const generateNovelChapterSummariesResultSchema = z.object({
 export const generateNovelStoryBibleRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   force: z.boolean().default(false),
+  model: textModelSchema.default('deepseekV3'),
 })
 
 export const generateNovelAssetSuggestionsRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   maxAssets: z.number().int().min(4).max(16).default(12),
+  model: textModelSchema.default('deepseekV3'),
 })
 
 export const novelChapterAdaptationModeSchema = z.enum(['scene', 'opening', 'summary'])
@@ -404,6 +408,7 @@ export const generateNovelChapterAdaptationRequestSchema = z.object({
   chapterIds: z.array(z.string().min(1).max(128)).min(1).max(6),
   targetSeconds: z.number().int().min(15).max(180).default(60),
   mode: novelChapterAdaptationModeSchema.default('scene'),
+  model: textModelSchema.default('deepseekV3'),
 })
 
 export const novelStoryBibleReadResultSchema = z.object({

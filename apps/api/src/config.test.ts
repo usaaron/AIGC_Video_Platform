@@ -13,14 +13,14 @@ describe('production configuration', () => {
       BOOTSTRAP_ADMIN_EMAIL: 'admin@example.com',
       BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
       STRINGX_API_KEY: 'production-video-token',
-      TOKENADVENT_API_KEY: 'production-text-image-token',
+      TOKENADVENT_API_KEY: 'production-image-token',
     })
 
     expect(config.TRUST_PROXY).toBe(true)
     expect(config.WEB_ORIGIN).toBe('https://studio.example.com')
     expect(config.BOOTSTRAP_CREATOR_NAME).toBe('创作者')
     expect(config.BOOTSTRAP_DEMO_WORKSPACE).toBe(false)
-    expect(config.TEXT_MODEL).toBe('gpt-5.6')
+    expect(config.TEXT_MODEL).toBe('deepseekV3')
   })
 
   it('rejects development credentials in production', () => {

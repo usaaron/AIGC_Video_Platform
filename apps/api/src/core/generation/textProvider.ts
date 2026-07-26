@@ -2,6 +2,7 @@ export type TextGenerationRequest = {
   systemPrompt: string
   userPrompt: string
   maxOutputTokens?: number
+  model?: string | undefined
 }
 
 export class TextGenerationProviderError extends Error {

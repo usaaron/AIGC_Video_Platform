@@ -5,6 +5,7 @@ import {
   characterAttributesSchema,
   costumeAttributesSchema,
   sceneAttributesSchema,
+  textModelSchema,
 } from './project.js'
 
 const proposalBaseSchema = z.object({
@@ -47,6 +48,10 @@ export const quickStartPlanSchema = z.object({
   estimate: quickStartEstimateSchema,
 })
 
+export const quickStartPlanRequestSchema = z.object({
+  model: textModelSchema.default('deepseekV3'),
+})
+
 export const executeQuickStartRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128),
   sourceScriptHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -65,5 +70,6 @@ export const quickStartExecutionResultSchema = z.object({
 export type QuickStartAssetProposal = z.infer<typeof quickStartAssetProposalSchema>
 export type QuickStartEstimate = z.infer<typeof quickStartEstimateSchema>
 export type QuickStartPlan = z.infer<typeof quickStartPlanSchema>
+export type QuickStartPlanRequest = z.infer<typeof quickStartPlanRequestSchema>
 export type ExecuteQuickStartRequest = z.infer<typeof executeQuickStartRequestSchema>
 export type QuickStartExecutionResult = z.infer<typeof quickStartExecutionResultSchema>

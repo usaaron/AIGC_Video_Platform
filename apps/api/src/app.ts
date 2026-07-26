@@ -46,6 +46,7 @@ import {
   createImageProvider,
   createTextProvider,
   createVideoProvider,
+  textProviderName,
   videoProviderName,
 } from './runtime/providers.js'
 
@@ -188,6 +189,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     },
     providerNames: {
       seedance: videoProvider ? videoProviderName(options.config) : 'local-mock',
+      text: textProvider ? textProviderName(options.config) : 'unavailable',
       assetLibrary: assetLibraryProvider ? 'stringx-maas' : 'unavailable',
     },
   }))

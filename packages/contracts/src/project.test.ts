@@ -6,6 +6,7 @@ import {
   generateScriptAssetSuggestionsRequestSchema,
   generateScriptRequestSchema,
   generateShotsRequestSchema,
+  reviewScriptRequestSchema,
   scriptAssetSuggestionsResultSchema,
   scriptReviewResultSchema,
   updateAssetSchema,
@@ -92,6 +93,7 @@ describe('script workflow contracts', () => {
       draft: 'story draft',
       mode: 'quick',
       segment: { goal: '', targetMinutes: 5 },
+      model: 'deepseekV3',
       direction: {
         style: 'auto',
         composition: 'auto',
@@ -104,14 +106,28 @@ describe('script workflow contracts', () => {
       generateScriptAssetSuggestionsRequestSchema.parse({ script: 'scene: river crossing' }),
     ).toMatchObject({
       script: 'scene: river crossing',
+      model: 'deepseekV3',
       direction: expect.objectContaining({ style: 'auto' }),
     })
-    expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' }).direction).toMatchObject({
-      style: 'auto',
-      composition: 'auto',
-      lighting: 'auto',
-      camera: 'auto',
-      focus: 'balanced',
+    expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
+      model: 'deepseekV3',
+      direction: {
+        style: 'auto',
+        composition: 'auto',
+        lighting: 'auto',
+        camera: 'auto',
+        focus: 'balanced',
+      },
+    })
+    expect(reviewScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
+      model: 'deepseekV3',
+      direction: {
+        style: 'auto',
+        composition: 'auto',
+        lighting: 'auto',
+        camera: 'auto',
+        focus: 'balanced',
+      },
     })
     expect(generateShotsRequestSchema.parse({})).toMatchObject({ maxShots: 8, mode: 'scene' })
     expect(generateShotsRequestSchema.parse({ mode: 'beat', maxShots: 36 })).toMatchObject({

@@ -22,6 +22,8 @@ export const DEFAULT_SCRIPT_DIRECTION = {
   focus: 'balanced',
 } as const
 
+export const textModelSchema = z.enum(['deepseekV3', 'gpt-5.4', 'gpt-5.5', 'gpt-5.6'])
+
 export const scriptCreativeDirectionSchema = z.object({
   style: z
     .enum(['auto', 'photorealistic', 'cinematic-cg', 'chinese-3d', 'chinese-2d', 'anime', 'storybook'])
@@ -45,18 +47,21 @@ export const generateScriptRequestSchema = z.object({
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
   mode: z.enum(['quick', 'segment']).default('quick'),
   segment: scriptGenerationSegmentSchema.default({ goal: '', targetMinutes: 5 }),
+  model: textModelSchema.default('deepseekV3'),
 })
 
 export const enrichScriptRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().max(100_000).default(''),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+  model: textModelSchema.default('deepseekV3'),
 })
 
 export const reviewScriptRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().max(100_000).default(''),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+  model: textModelSchema.default('deepseekV3'),
 })
 
 export const scriptReviewDimensionKeySchema = z.enum([
@@ -218,6 +223,7 @@ export const generateScriptAssetSuggestionsRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().trim().min(1).max(100_000),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+  model: textModelSchema.default('deepseekV3'),
 })
 
 export const scriptAssetSuggestionsContentSchema = z.object({
@@ -436,6 +442,7 @@ export type CreateShot = z.infer<typeof createShotSchema>
 export type UpdateShot = z.infer<typeof updateShotSchema>
 export type ProjectWorkspace = z.infer<typeof projectWorkspaceSchema>
 export type ScriptCreativeDirection = z.infer<typeof scriptCreativeDirectionSchema>
+export type TextModel = z.infer<typeof textModelSchema>
 export type GenerateScriptAssetSuggestionsRequest = z.infer<
   typeof generateScriptAssetSuggestionsRequestSchema
 >

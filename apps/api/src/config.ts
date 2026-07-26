@@ -37,6 +37,10 @@ const configSchema = z
     STRINGX_BASE_URL: z.string().url().default('https://maas.stringx.top/api/v3'),
     STRINGX_API_KEY: z.string().default(''),
     STRINGX_VIDEO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
+    STRINGX_SEEDANCE_DEFAULT_TIER: z.enum(['mini', 'fast', 'pro']).default('fast'),
+    STRINGX_SEEDANCE_MINI_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
+    STRINGX_SEEDANCE_FAST_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
+    STRINGX_SEEDANCE_PRO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
     STRINGX_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
     AIDEOS_BASE_URL: z.string().url().default('https://aideos.openrouter.icu'),
     AIDEOS_API_KEY: z.string().default(''),
@@ -55,11 +59,16 @@ const configSchema = z
     VOLC_ASSET_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(30_000),
     FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
     FILM_PREVIEW_TIMEOUT_MS: z.coerce.number().int().min(30_000).max(1_800_000).default(600_000),
+    DEEPSEEK_BASE_URL: z.string().url().default('https://maas.stringx.top'),
+    DEEPSEEK_API_KEY: z.string().default(''),
+    DEEPSEEK_MODEL: z.string().min(1).default('deepseekV3'),
+    DEEPSEEK_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/api/v1/chat/completions'),
+    DEEPSEEK_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
     TOKENADVENT_BASE_URL: z.string().url().default('https://tokenadvent.com'),
     TOKENADVENT_API_KEY: z.string().default(''),
     IMG2_MODEL: z.string().min(1).default('gpt-image-2'),
     IMG2_QUALITY: z.enum(['low', 'medium', 'high']).default('low'),
-    TEXT_MODEL: z.string().min(1).default('gpt-5.6'),
+    TEXT_MODEL: z.string().min(1).default('deepseekV3'),
     TOKENADVENT_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
   })
   .superRefine((config, context) => {
@@ -126,11 +135,18 @@ const configSchema = z
         message: 'ARK_API_KEY is required for the selected production video provider',
       })
     }
+    if (config.NODE_ENV === 'production' && !config.DEEPSEEK_API_KEY) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DEEPSEEK_API_KEY'],
+        message: 'DEEPSEEK_API_KEY or STRINGX_API_KEY is required for production text generation',
+      })
+    }
     if (config.NODE_ENV === 'production' && !config.TOKENADVENT_API_KEY) {
       context.addIssue({
         code: 'custom',
         path: ['TOKENADVENT_API_KEY'],
-        message: 'TOKENADVENT_API_KEY is required for production text and image generation',
+        message: 'TOKENADVENT_API_KEY is required for production GPT Image 2 generation',
       })
     }
     if (Boolean(config.VOLC_ACCESS_KEY) !== Boolean(config.VOLC_SECRET_KEY)) {
@@ -157,5 +173,9 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     AIDEOS_REQUEST_TIMEOUT_MS:
       environment.AIDEOS_REQUEST_TIMEOUT_MS || environment.SEEDANCE_REQUEST_TIMEOUT_MS,
     VIDEO_POLL_INTERVAL_MS: environment.VIDEO_POLL_INTERVAL_MS || environment.ARK_POLL_INTERVAL_MS,
+    DEEPSEEK_API_KEY: environment.DEEPSEEK_API_KEY || environment.STRINGX_API_KEY,
+    STRINGX_SEEDANCE_MINI_MODEL: environment.STRINGX_SEEDANCE_MINI_MODEL || environment.STRINGX_VIDEO_MODEL,
+    STRINGX_SEEDANCE_FAST_MODEL: environment.STRINGX_SEEDANCE_FAST_MODEL || environment.STRINGX_VIDEO_MODEL,
+    STRINGX_SEEDANCE_PRO_MODEL: environment.STRINGX_SEEDANCE_PRO_MODEL || environment.STRINGX_VIDEO_MODEL,
   })
 }
