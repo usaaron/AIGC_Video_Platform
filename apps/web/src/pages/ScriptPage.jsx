@@ -2,12 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ArrowRight,
   BadgeCheck,
-  Camera,
   Clapperboard,
   Clock3,
   Crown,
   Image,
-  Lightbulb,
   LoaderCircle,
   MessageSquare,
   PanelRightClose,
@@ -23,80 +21,7 @@ import { AssetEditor } from '../features/assets/AssetEditor'
 import { NovelImportPanel } from '../features/novel/NovelImportPanel'
 import { QuickStartModal } from '../features/quickStart/QuickStartModal'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../features/script/AssetSuggestionsPanel'
-import { formatOutlineDraft, formatScenesDraft, formatStructureDraft } from '../features/script/outlineDraft'
-import { OutlineOptionsPanel } from '../features/script/OutlineOptionsPanel'
-import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
-
-const DEFAULT_DIRECTION = {
-  style: 'auto',
-  composition: 'auto',
-  lighting: 'auto',
-  camera: 'auto',
-  focus: 'balanced',
-}
-
-const DIRECTION_FIELDS = [
-  {
-    key: 'style',
-    label: '视觉风格',
-    icon: Sparkles,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['photorealistic', '仿真人电影感'],
-      ['cinematic-cg', '电影级 CG'],
-      ['chinese-3d', '国漫三维'],
-      ['chinese-2d', '国漫二维'],
-      ['anime', '日系动画'],
-      ['storybook', '绘本风格'],
-    ],
-  },
-  {
-    key: 'composition',
-    label: '构图',
-    icon: Image,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['rule-of-thirds', '三分法'],
-      ['centered', '中心构图'],
-      ['symmetry', '对称构图'],
-      ['negative-space', '留白构图'],
-      ['dynamic', '动态斜线'],
-    ],
-  },
-  {
-    key: 'lighting',
-    label: '光影',
-    icon: Lightbulb,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['natural-soft', '自然柔光'],
-      ['high-contrast', '高反差硬光'],
-      ['low-key', '低调暗光'],
-      ['backlight', '逆光轮廓光'],
-      ['neon', '霓虹彩光'],
-    ],
-  },
-  {
-    key: 'camera',
-    label: '运镜',
-    icon: Camera,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['restrained', '克制稳定'],
-      ['immersive', '沉浸跟随'],
-      ['dynamic', '动态动作'],
-      ['documentary', '纪录片手持'],
-      ['suspense', '悬疑压迫'],
-    ],
-  },
-]
-
-const FOCUS_OPTIONS = [
-  ['balanced', '均衡'],
-  ['scene', '场景'],
-  ['character', '角色'],
-  ['dialogue', '对白'],
-]
+import { DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
 const INSERT_BLOCKS = [
   {
@@ -123,20 +48,14 @@ const SCRIPT_SECTIONS = [
   {
     id: 'writing',
     label: '剧本编写',
-    description: '输入、分段生成、保存和检查',
+    description: '输入、保存和检查',
     icon: Clapperboard,
   },
   {
     id: 'novel',
     label: '小说上传与章节',
-    description: '导入长篇文本，切分章节并生成概要',
+    description: '导入长文本，切分章节并生成概要',
     icon: Upload,
-  },
-  {
-    id: 'outline',
-    label: '大纲多方案',
-    description: '生成候选大纲、剧情结构和分场剧本',
-    icon: Sparkles,
   },
 ]
 
@@ -150,28 +69,10 @@ const REVIEW_LABELS = {
   camera: '运镜节奏',
 }
 
-function hasProfessionalVisualFields(value) {
-  const scenes = value
-    .split(/\n+/)
-    .map((scene) => scene.trim())
-    .filter(Boolean)
-  const fields = ['风格', '构图', '光影', '运镜', '衔接']
-  return (
-    scenes.length > 0 &&
-    scenes.every((scene) => fields.every((field) => new RegExp(`${field}[：:]`).test(scene)))
-  )
-}
-
 export function ScriptPage({
   project,
   billing,
   onSave,
-  onGenerateOutlines,
-  onGenerateStructure,
-  onGenerateScenes,
-  onGenerate,
-  onGenerateSegment,
-  onEnrich,
   onReview,
   onImportNovel,
   onPreviewNovelSplit,
@@ -192,18 +93,7 @@ export function ScriptPage({
   onNext,
 }) {
   const [script, setScript] = useState(project.script)
-  const [direction, setDirection] = useState(DEFAULT_DIRECTION)
-  const [segmentGoal, setSegmentGoal] = useState('')
-  const [segmentMinutes, setSegmentMinutes] = useState(5)
   const [saved, setSaved] = useState(true)
-  const [generating, setGenerating] = useState(false)
-  const [enriching, setEnriching] = useState(false)
-  const [generationPhase, setGenerationPhase] = useState('idle')
-  const [generationSeconds, setGenerationSeconds] = useState(0)
-  const [needsVisualDetail, setNeedsVisualDetail] = useState(
-    () => Boolean(project.script.trim()) && !hasProfessionalVisualFields(project.script),
-  )
-  const [generationWarnings, setGenerationWarnings] = useState([])
   const [saving, setSaving] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [review, setReview] = useState(null)
@@ -229,14 +119,13 @@ export function ScriptPage({
   const suggestedShots = script.trim() ? Math.min(12, Math.max(1, paragraphCount)) : 0
   const estimatedMinutes = script.trim() ? Math.max(1, Math.ceil(count / 120)) : 0
   const isMember = billing?.plan === 'member'
-  const busy = generating || enriching || saving || reviewing || quickStartState === 'starting'
+  const busy = saving || reviewing || quickStartState === 'starting'
 
   useEffect(() => {
     setScript(project.script)
     setSaved(true)
     setReview(null)
     setError('')
-    setNeedsVisualDetail(Boolean(project.script.trim()) && !hasProfessionalVisualFields(project.script))
   }, [project.id, project.script])
 
   useEffect(() => {
@@ -255,20 +144,6 @@ export function ScriptPage({
     setQuickStartError('')
   }, [project.id])
 
-  useEffect(() => {
-    setGenerationWarnings([])
-  }, [project.id])
-
-  useEffect(() => {
-    if (!generating) return undefined
-    const startedAt = Date.now()
-    setGenerationSeconds(0)
-    const timer = window.setInterval(() => {
-      setGenerationSeconds(Math.floor((Date.now() - startedAt) / 1_000))
-    }, 1_000)
-    return () => window.clearInterval(timer)
-  }, [generating, enriching])
-
   const update = (value) => {
     setScript(value)
     setSaved(false)
@@ -283,7 +158,7 @@ export function ScriptPage({
     setAssetSuggestionStatus('suggesting')
     setAssetSuggestionError('')
     try {
-      setAssetSuggestionResult(await onSuggestAssets(source, direction))
+      setAssetSuggestionResult(await onSuggestAssets(source, DEFAULT_SCRIPT_DIRECTION))
       setCreatedAssetKeys(new Set())
     } catch (suggestError) {
       setAssetSuggestionError(suggestError.message)
@@ -303,39 +178,6 @@ export function ScriptPage({
     })
   }
 
-  const useOutline = (outline) => {
-    const nextScript = formatOutlineDraft(outline)
-    update(nextScript)
-    setActiveScriptSection('writing')
-    setNeedsVisualDetail(false)
-    setGenerationWarnings([])
-    setError('')
-    void suggestAssetsForScript(nextScript)
-    requestAnimationFrame(() => textArea.current?.focus())
-  }
-
-  const useStructure = (structure) => {
-    const nextScript = formatStructureDraft(structure)
-    update(nextScript)
-    setActiveScriptSection('writing')
-    setNeedsVisualDetail(false)
-    setGenerationWarnings([])
-    setError('')
-    void suggestAssetsForScript(nextScript)
-    requestAnimationFrame(() => textArea.current?.focus())
-  }
-
-  const useScenes = (sceneScript) => {
-    const nextScript = formatScenesDraft(sceneScript)
-    update(nextScript)
-    setActiveScriptSection('writing')
-    setNeedsVisualDetail(false)
-    setGenerationWarnings([])
-    setError('')
-    void suggestAssetsForScript(nextScript)
-    requestAnimationFrame(() => textArea.current?.focus())
-  }
-
   const useAdaptedNovelScript = async (adaptedScript) => {
     const nextScript = adaptedScript.trim()
     if (!nextScript) {
@@ -345,10 +187,8 @@ export function ScriptPage({
     setSaving(true)
     setError('')
     setReview(null)
-    setGenerationWarnings([])
     try {
       setScript(nextScript)
-      setNeedsVisualDetail(false)
       await onSave(nextScript)
       setSaved(true)
       setActiveScriptSection('writing')
@@ -390,96 +230,6 @@ export function ScriptPage({
     event.target.value = ''
   }
 
-  const expand = async () => {
-    if (billing.credits < SCRIPT_OPERATION_CREDITS.generate) {
-      setError(`快速生成剧本需要 ${SCRIPT_OPERATION_CREDITS.generate} 积分，当前剩余 ${billing.credits} 积分`)
-      return
-    }
-    setGenerating(true)
-    setGenerationPhase('quick')
-    setError('')
-    setGenerationWarnings([])
-    try {
-      const result = await onGenerate(script, direction, setGenerationPhase)
-      const generatedScript = typeof result === 'string' ? result : result.script
-      setScript(generatedScript)
-      setNeedsVisualDetail(true)
-      setGenerationWarnings(typeof result === 'string' ? [] : result.warnings || [])
-      setSaved(true)
-      void suggestAssetsForScript(generatedScript)
-    } catch (generationError) {
-      setError(generationError.message)
-    } finally {
-      setGenerating(false)
-      setGenerationPhase('idle')
-    }
-  }
-
-  const generateSegment = async () => {
-    if (!script.trim() && !project.synopsis.trim()) {
-      setError('请先填写故事简介或已有剧本段落')
-      return
-    }
-    if (billing.credits < SCRIPT_OPERATION_CREDITS.generate) {
-      setError(`生成下一段需要 ${SCRIPT_OPERATION_CREDITS.generate} 积分，当前剩余 ${billing.credits} 积分`)
-      return
-    }
-    setGenerating(true)
-    setGenerationPhase('segment')
-    setError('')
-    setGenerationWarnings([])
-    try {
-      const result = await onGenerateSegment(
-        script,
-        direction,
-        { goal: segmentGoal, targetMinutes: segmentMinutes },
-        setGenerationPhase,
-      )
-      const generatedScript = typeof result === 'string' ? result : result.script
-      setScript(generatedScript)
-      setNeedsVisualDetail(true)
-      setGenerationWarnings(typeof result === 'string' ? [] : result.warnings || [])
-      setSaved(true)
-      setSegmentGoal('')
-      void suggestAssetsForScript(generatedScript)
-    } catch (generationError) {
-      setError(generationError.message)
-    } finally {
-      setGenerating(false)
-      setGenerationPhase('idle')
-    }
-  }
-
-  const enrich = async () => {
-    if (!script.trim()) {
-      setError('请先生成或填写快速剧本')
-      return
-    }
-    if (billing.credits < SCRIPT_OPERATION_CREDITS.enrich) {
-      setError(
-        `补齐专业视觉细节需要 ${SCRIPT_OPERATION_CREDITS.enrich} 积分，当前剩余 ${billing.credits} 积分`,
-      )
-      return
-    }
-    setEnriching(true)
-    setGenerationPhase('enriching')
-    setError('')
-    try {
-      const result = await onEnrich(script, direction)
-      const enrichedScript = typeof result === 'string' ? result : result.script
-      setScript(enrichedScript)
-      setNeedsVisualDetail(false)
-      setGenerationWarnings(typeof result === 'string' ? [] : result.warnings || [])
-      setSaved(true)
-      void suggestAssetsForScript(enrichedScript)
-    } catch (enrichError) {
-      setError(enrichError.message)
-    } finally {
-      setEnriching(false)
-      setGenerationPhase('idle')
-    }
-  }
-
   const save = async () => {
     if (!script.trim()) {
       setError('请先填写剧本内容')
@@ -515,7 +265,7 @@ export function ScriptPage({
     setReviewing(true)
     setError('')
     try {
-      setReview(await onReview(script, direction))
+      setReview(await onReview(script, DEFAULT_SCRIPT_DIRECTION))
     } catch (reviewError) {
       setError(reviewError.message)
     } finally {
@@ -553,7 +303,7 @@ export function ScriptPage({
       <PageHeader
         eyebrow="剧本工作台"
         title={`《${project.name}》剧本`}
-        description="写作、视觉方向和制作审核集中在同一个工作区。"
+        description="写作和制作审核集中在同一个工作区。"
       >
         <input ref={fileInput} className="hidden-input" type="file" accept=".txt,.md" onChange={upload} />
         <button className="button secondary" disabled={busy} onClick={() => fileInput.current?.click()}>
@@ -617,200 +367,10 @@ export function ScriptPage({
         </section>
       )}
 
-      {activeScriptSection === 'outline' && (
-        <>
-          <section className="script-outline-direction" aria-label="大纲生成方向">
-            <div>
-              <span className="eyebrow">生成方向</span>
-              <strong>先选创作倾向，再生成候选大纲、剧情结构和分场剧本</strong>
-            </div>
-            <div className="script-outline-controls">
-              {DIRECTION_FIELDS.map(({ key, label, icon: Icon, options }) => (
-                <label key={key}>
-                  <span>
-                    <Icon size={13} /> {label}
-                  </span>
-                  <select
-                    value={direction[key]}
-                    onChange={(event) => {
-                      setDirection((current) => ({ ...current, [key]: event.target.value }))
-                      setReview(null)
-                    }}
-                  >
-                    {options.map(([value, optionLabel]) => (
-                      <option key={value} value={value}>
-                        {optionLabel}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
-            </div>
-            <div className="direction-focus" role="group" aria-label="大纲生成重点">
-              <span>生成重点</span>
-              {FOCUS_OPTIONS.map(([value, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  className={direction.focus === value ? 'active' : ''}
-                  aria-pressed={direction.focus === value}
-                  onClick={() => {
-                    setDirection((current) => ({ ...current, focus: value }))
-                    setReview(null)
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </section>
-          <OutlineOptionsPanel
-            projectId={project.id}
-            ideaSeed={project.synopsis || ''}
-            billing={billing}
-            busy={busy}
-            direction={direction}
-            onGenerate={onGenerateOutlines}
-            onGenerateStructure={onGenerateStructure}
-            onGenerateScenes={onGenerateScenes}
-            onUseOutline={useOutline}
-            onUseStructure={useStructure}
-            onUseScenes={useScenes}
-          />
-        </>
-      )}
-
       {activeScriptSection === 'writing' && (
         <>
-          <section className="script-direction-bar" aria-label="视觉制作方向">
-            <div className="script-direction-title">
-              <span className="direction-symbol">
-                <Sparkles size={17} />
-              </span>
-              <div>
-                <span className="eyebrow">视觉制作方向</span>
-                <strong>先快速成稿，再按需补齐画面语言</strong>
-              </div>
-            </div>
-            <div className="script-direction-controls">
-              {DIRECTION_FIELDS.map(({ key, label, icon: Icon, options }) => (
-                <label key={key}>
-                  <span>
-                    <Icon size={13} /> {label}
-                  </span>
-                  <select
-                    value={direction[key]}
-                    onChange={(event) => {
-                      setDirection((current) => ({ ...current, [key]: event.target.value }))
-                      setReview(null)
-                    }}
-                  >
-                    {options.map(([value, optionLabel]) => (
-                      <option key={value} value={value}>
-                        {optionLabel}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
-            </div>
-            <div className="script-direction-footer">
-              <div className="direction-focus" role="group" aria-label="扩写重点">
-                <span>扩写重点</span>
-                {FOCUS_OPTIONS.map(([value, label]) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={direction.focus === value ? 'active' : ''}
-                    aria-pressed={direction.focus === value}
-                    onClick={() => {
-                      setDirection((current) => ({ ...current, focus: value }))
-                      setReview(null)
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <button
-                className="button direction-generate-button"
-                disabled={busy}
-                onClick={() => void expand()}
-              >
-                {generating ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />}
-                {generationPhase === 'syncing'
-                  ? '正在同步结果'
-                  : generationPhase === 'segment'
-                    ? '正在生成下一段'
-                    : generating
-                      ? '正在快速生成'
-                      : `快速生成剧本 · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
-              </button>
-              {needsVisualDetail && (
-                <button
-                  className="button direction-detail-button"
-                  disabled={busy}
-                  onClick={() => void enrich()}
-                >
-                  {enriching ? <LoaderCircle size={16} className="spin" /> : <Clapperboard size={16} />}
-                  {enriching
-                    ? '正在补齐视觉细节'
-                    : `补齐专业视觉细节 · ${SCRIPT_OPERATION_CREDITS.enrich} 积分`}
-                </button>
-              )}
-            </div>
-            <div className="script-segment-generator">
-              <div className="script-segment-title">
-                <span className="eyebrow">长剧分段</span>
-                <strong>只生成下一段，不一次性生成超长文本</strong>
-              </div>
-              <label>
-                <span>本段目标</span>
-                <textarea
-                  value={segmentGoal}
-                  rows={2}
-                  placeholder="例如：承接上一段，写主角进入新地点并遇到第一个阻力"
-                  onChange={(event) => setSegmentGoal(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>预计时长</span>
-                <select
-                  value={segmentMinutes}
-                  onChange={(event) => setSegmentMinutes(Number(event.target.value))}
-                >
-                  {[3, 5, 8, 10, 15].map((minutes) => (
-                    <option key={minutes} value={minutes}>
-                      {minutes} 分钟
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button className="button primary" disabled={busy} onClick={() => void generateSegment()}>
-                {generationPhase === 'segment' ? (
-                  <LoaderCircle size={16} className="spin" />
-                ) : (
-                  <ArrowRight size={16} />
-                )}
-                {generationPhase === 'segment'
-                  ? '正在生成下一段'
-                  : `生成下一段 · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
-              </button>
-            </div>
-          </section>
-
-          {generationWarnings.length > 0 && (
-            <div className="script-generation-note" role="status">
-              <Sparkles size={15} />
-              <span>
-                快速剧本已生成，但还有可优化项：{generationWarnings.slice(0, 2).join('；')}
-                。可继续编辑，或点击“补齐专业视觉细节”。
-              </span>
-            </div>
-          )}
-
           <div className={`script-workspace ${inspectorOpen ? 'with-inspector' : 'without-inspector'}`}>
-            <section className="script-document" aria-busy={generating || enriching}>
+            <section className="script-document" aria-busy={reviewing}>
               <div className="script-document-toolbar">
                 <div className="script-block-actions" role="group" aria-label="插入剧本结构">
                   {INSERT_BLOCKS.map(({ key, label, icon: Icon, value }) => (
@@ -839,29 +399,6 @@ export function ScriptPage({
                   onChange={(event) => update(event.target.value)}
                   placeholder="写下故事内容，或插入场景、角色和对白结构……"
                 />
-                {(generating || enriching) && (
-                  <div className="script-processing-overlay" role="status" aria-live="polite">
-                    <LoaderCircle size={25} className="spin" />
-                    <strong>
-                      {generationPhase === 'syncing'
-                        ? '连接已结束，正在确认保存结果'
-                        : enriching
-                          ? '正在补齐专业视觉细节'
-                          : generationPhase === 'segment'
-                            ? '正在生成下一段剧本'
-                            : '正在快速整理故事骨架'}
-                    </strong>
-                    <span>
-                      {generationPhase === 'syncing'
-                        ? '无需手动刷新，系统正在自动取回剧本'
-                        : enriching
-                          ? `已等待 ${generationSeconds} 秒 · 保留原有剧情，只补齐视觉字段`
-                          : generationPhase === 'segment'
-                            ? `已等待 ${generationSeconds} 秒 · 只追加下一段，不重写已有内容`
-                            : `已等待 ${generationSeconds} 秒 · 只生成 4 到 6 个场景和基础对白`}
-                    </span>
-                  </div>
-                )}
               </div>
               <div className="script-document-footer">
                 <span>{count} 字</span>
@@ -908,7 +445,7 @@ export function ScriptPage({
                 <button
                   className={`button analysis-review-button ${isMember ? 'primary member' : 'locked'}`}
                   onClick={() => void analyze()}
-                  disabled={reviewing || generating || !script.trim()}
+                  disabled={reviewing || !script.trim()}
                 >
                   {reviewing ? (
                     <LoaderCircle size={16} className="spin" />

@@ -4,7 +4,7 @@ import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
 import { IconButton } from './components/ui'
 import { useAuth } from './components/AuthProvider'
-import { api, waitForProjectScriptUpdate } from './services/apiClient'
+import { api } from './services/apiClient'
 import {
   selectShotAssetReferences,
   selectVideoReferenceImages,
@@ -27,10 +27,6 @@ const activeTaskStatuses = new Set(['queued', 'paused', 'running'])
 const ACTIVE_TASK_POLL_MS = 2_500
 const IDLE_TASK_POLL_MS = 12_000
 const BACKGROUND_TASK_POLL_MS = 30_000
-
-function isRecoverableScriptConnectionError(error) {
-  return !error?.status || error.status === 504 || (error.code === 'REQUEST_FAILED' && error.status >= 500)
-}
 
 const AdminPage = lazyNamed(() => import('./pages/AdminPage'), 'AdminPage')
 const AssetsPage = lazyNamed(() => import('./pages/AssetsPage'), 'AssetsPage')
@@ -383,129 +379,6 @@ function App() {
             await api.updateProject(project.id, { script })
             await refreshWorkspace()
             setToast('剧本已保存')
-          }}
-          onGenerateOutlines={async (idea, direction, count) => {
-            try {
-              const result = await api.generateScriptOutlines(project.id, idea, direction, count)
-              setToast('大纲候选已生成')
-              return result
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
-          }}
-          onGenerateStructure={async (idea, outline, direction) => {
-            try {
-              const result = await api.generateScriptStructure(project.id, idea, outline, direction)
-              setToast('剧情结构已生成')
-              return result
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
-          }}
-          onGenerateScenes={async (idea, outline, structure, direction, sceneCount) => {
-            try {
-              const result = await api.generateScriptScenes(
-                project.id,
-                idea,
-                outline,
-                structure,
-                direction,
-                sceneCount,
-              )
-              setToast('分场剧本已生成')
-              return result
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
-          }}
-          onGenerate={async (draft, direction, onPhaseChange) => {
-            try {
-              const generated = await api.generateScript(project.id, draft, direction)
-              setWorkspace((current) =>
-                current?.project.id === project.id
-                  ? {
-                      ...current,
-                      project: { ...current.project, script: generated.script },
-                    }
-                  : current,
-              )
-              setToast('剧本已生成并保存')
-              void refreshWorkspace().catch(() => {})
-              return generated
-            } catch (error) {
-              if (!isRecoverableScriptConnectionError(error)) throw error
-              onPhaseChange?.('syncing')
-              const recovered = await waitForProjectScriptUpdate(project.id, project.script)
-              if (!recovered) throw error
-              setWorkspace(recovered)
-              setToast('已自动同步生成完成的剧本')
-              void api
-                .projects()
-                .then(setProjects)
-                .catch(() => {})
-              return { script: recovered.project.script, mode: 'quick', warnings: [] }
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
-          }}
-          onGenerateSegment={async (draft, direction, segment, onPhaseChange) => {
-            try {
-              const generated = await api.generateScriptSegment(project.id, draft, direction, segment)
-              setWorkspace((current) =>
-                current?.project.id === project.id
-                  ? {
-                      ...current,
-                      project: { ...current.project, script: generated.script },
-                    }
-                  : current,
-              )
-              setToast('下一段剧本已生成并保存')
-              void refreshWorkspace().catch(() => {})
-              return generated
-            } catch (error) {
-              if (!isRecoverableScriptConnectionError(error)) throw error
-              onPhaseChange?.('syncing')
-              const recovered = await waitForProjectScriptUpdate(project.id, draft)
-              if (!recovered) throw error
-              setWorkspace(recovered)
-              setToast('已自动同步分段生成结果')
-              void api
-                .projects()
-                .then(setProjects)
-                .catch(() => {})
-              return { script: recovered.project.script, mode: 'segment', warnings: [] }
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
-          }}
-          onEnrich={async (script, direction) => {
-            try {
-              const enriched = await api.enrichScript(project.id, script, direction)
-              setWorkspace((current) =>
-                current?.project.id === project.id
-                  ? {
-                      ...current,
-                      project: { ...current.project, script: enriched.script },
-                    }
-                  : current,
-              )
-              setToast('专业视觉细节已补齐并保存')
-              void refreshWorkspace().catch(() => {})
-              return enriched
-            } catch (error) {
-              if (!isRecoverableScriptConnectionError(error)) throw error
-              const recovered = await waitForProjectScriptUpdate(project.id, script)
-              if (!recovered) throw error
-              setWorkspace(recovered)
-              setToast('已自动同步补齐完成的专业视觉细节')
-              void api
-                .projects()
-                .then(setProjects)
-                .catch(() => {})
-              return { script: recovered.project.script, mode: 'detailed', warnings: [] }
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
           }}
           onReview={async (script, direction) => {
             try {

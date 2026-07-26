@@ -2,9 +2,6 @@ import { z } from 'zod'
 import { planSchema } from './account.js'
 
 export const SCRIPT_OPERATION_CREDITS = {
-  outline: 2,
-  structure: 3,
-  scenes: 5,
   generate: 3,
   enrich: 5,
   review: 3,

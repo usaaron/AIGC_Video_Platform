@@ -4,10 +4,7 @@ import {
   createShotSchema,
   enrichScriptRequestSchema,
   generateScriptAssetSuggestionsRequestSchema,
-  generateScriptOutlinesRequestSchema,
   generateScriptRequestSchema,
-  generateScriptScenesRequestSchema,
-  generateScriptStructureRequestSchema,
   generateShotsRequestSchema,
   PERMISSIONS,
   reviewScriptRequestSchema,
@@ -57,53 +54,6 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
     '/projects/:projectId/versions',
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
     (request) => service.saveVersion(parse(projectParams, request.params).projectId, request.principal!),
-  )
-  app.post(
-    '/projects/:projectId/script/outlines',
-    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
-    (request) => {
-      const input = parse(generateScriptOutlinesRequestSchema, request.body ?? {})
-      return service.generateScriptOutlines(
-        parse(projectParams, request.params).projectId,
-        input.idea,
-        input.direction,
-        input.count,
-        input.clientRequestId ?? randomUUID(),
-        request.principal!,
-      )
-    },
-  )
-  app.post(
-    '/projects/:projectId/script/structure',
-    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
-    (request) => {
-      const input = parse(generateScriptStructureRequestSchema, request.body ?? {})
-      return service.generateScriptStructure(
-        parse(projectParams, request.params).projectId,
-        input.idea,
-        input.outline,
-        input.direction,
-        input.clientRequestId ?? randomUUID(),
-        request.principal!,
-      )
-    },
-  )
-  app.post(
-    '/projects/:projectId/script/scenes',
-    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
-    (request) => {
-      const input = parse(generateScriptScenesRequestSchema, request.body ?? {})
-      return service.generateScriptScenes(
-        parse(projectParams, request.params).projectId,
-        input.idea,
-        input.outline,
-        input.structure,
-        input.direction,
-        input.sceneCount,
-        input.clientRequestId ?? randomUUID(),
-        request.principal!,
-      )
-    },
   )
   app.post(
     '/projects/:projectId/script/asset-suggestions',

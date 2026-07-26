@@ -107,23 +107,6 @@ export const api = {
     request(`/projects/${id}/novels/${documentId}/asset-suggestions`, json('POST', input)),
   generateNovelChapterAdaptation: (id, documentId, input = {}) =>
     request(`/projects/${id}/novels/${documentId}/adapt-script`, json('POST', input)),
-  generateScriptOutlines: (id, idea, direction, count = 4, clientRequestId = crypto.randomUUID()) =>
-    request(`/projects/${id}/script/outlines`, json('POST', { clientRequestId, idea, direction, count })),
-  generateScriptStructure: (id, idea, outline, direction, clientRequestId = crypto.randomUUID()) =>
-    request(`/projects/${id}/script/structure`, json('POST', { clientRequestId, idea, outline, direction })),
-  generateScriptScenes: (
-    id,
-    idea,
-    outline,
-    structure,
-    direction,
-    sceneCount = 12,
-    clientRequestId = crypto.randomUUID(),
-  ) =>
-    request(
-      `/projects/${id}/script/scenes`,
-      json('POST', { clientRequestId, idea, outline, structure, direction, sceneCount }),
-    ),
   suggestScriptAssets: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
     request(`/projects/${id}/script/asset-suggestions`, json('POST', { clientRequestId, script, direction })),
   generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID()) =>

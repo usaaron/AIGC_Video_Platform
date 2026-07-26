@@ -12,6 +12,7 @@ import type { ImageGenerationProvider } from './core/generation/imageProvider.js
 import { TextGenerationProviderError, type TextGenerationProvider } from './core/generation/textProvider.js'
 import type { AssetLibraryProvider, ProviderPortrait } from './core/generation/volcArkAssetLibraryProvider.js'
 import type { FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
+import { GenerationTaskRunner } from './core/jobs/taskDispatcher.js'
 import { createPublicMediaToken } from './core/media/publicMediaToken.js'
 import { AppStore, defaultAssetAttributes } from './infra/store.js'
 import { LocalObjectStorage } from './infra/objectStorage.js'
@@ -517,6 +518,15 @@ describe('API authorization', () => {
       },
     })
     const taskId = created.json().id as string
+    const staleLeaseTime = new Date().toISOString()
+    await store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === taskId)!
+      task.leaseOwnerId = 'old-runner'
+      task.leaseToken = 'old-token'
+      task.leaseAcquiredAt = staleLeaseTime
+      task.leaseHeartbeatAt = staleLeaseTime
+      task.leaseExpiresAt = staleLeaseTime
+    })
 
     const paused = await app.inject({
       method: 'POST',
@@ -524,7 +534,15 @@ describe('API authorization', () => {
       headers,
     })
     expect(paused.statusCode).toBe(200)
-    expect(paused.json()).toMatchObject({ status: 'paused', metadata: { pausedAt: expect.any(String) } })
+    expect(paused.json()).toMatchObject({
+      status: 'paused',
+      leaseOwnerId: null,
+      leaseToken: null,
+      leaseAcquiredAt: null,
+      leaseHeartbeatAt: null,
+      leaseExpiresAt: null,
+      metadata: { pausedAt: expect.any(String) },
+    })
     const reserved = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(reserved.json().credits).toBe(startingCredits - 7)
     expect(reserved.json().monthlyUsage).toMatchObject({
@@ -540,7 +558,15 @@ describe('API authorization', () => {
       headers,
     })
     expect(resumed.statusCode).toBe(200)
-    expect(resumed.json()).toMatchObject({ status: 'queued', metadata: { resumedAt: expect.any(String) } })
+    expect(resumed.json()).toMatchObject({
+      status: 'queued',
+      leaseOwnerId: null,
+      leaseToken: null,
+      leaseAcquiredAt: null,
+      leaseHeartbeatAt: null,
+      leaseExpiresAt: null,
+      metadata: { resumedAt: expect.any(String) },
+    })
 
     const deleted = await app.inject({
       method: 'DELETE',
@@ -551,12 +577,23 @@ describe('API authorization', () => {
     const stored = store.read((state) => state.tasks.find((task) => task.id === taskId))
     expect(stored).toMatchObject({
       status: 'paused',
+      leaseOwnerId: null,
+      leaseToken: null,
+      leaseAcquiredAt: null,
+      leaseHeartbeatAt: null,
+      leaseExpiresAt: null,
       metadata: {
         pausedAt: expect.any(String),
         deletedAt: expect.any(String),
         queueHiddenAt: expect.any(String),
-        creditsRefundedAt: expect.any(String),
       },
+    })
+    const pendingRefund = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    expect(pendingRefund.json().credits).toBe(startingCredits - 7)
+
+    await new GenerationTaskRunner(store).tick()
+    expect(store.read((state) => state.tasks.find((task) => task.id === taskId))).toMatchObject({
+      metadata: { creditsRefundedAt: expect.any(String) },
     })
     const refunded = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(refunded.json().credits).toBe(startingCredits - 1)
@@ -582,7 +619,7 @@ describe('API authorization', () => {
     ).toHaveLength(1)
   })
 
-  it('rejects pause and delete while a third-party task is running', async () => {
+  it('rejects pause and requests cancellation while a third-party task is running', async () => {
     const store = new AppStore(null)
     app = await buildApp({ config: testConfig, store, startWorker: false })
     const headers = {
@@ -621,11 +658,18 @@ describe('API authorization', () => {
       url: `/api/v1/generation/tasks/${taskId}`,
       headers,
     })
-    expect(deleted.statusCode).toBe(409)
-    expect(deleted.json()).toMatchObject({ error: { code: 'TASK_NOT_DELETABLE' } })
+    expect(deleted.statusCode).toBe(204)
+    expect(store.read((state) => state.tasks.find((item) => item.id === taskId))).toMatchObject({
+      status: 'cancelled',
+      metadata: {
+        providerCancelRequestedAt: expect.any(String),
+        cancelledAt: expect.any(String),
+        queueHiddenAt: expect.any(String),
+      },
+    })
   })
 
-  it('cancels a running StringX task before deleting and refunding it', async () => {
+  it('marks a running StringX task for cancellation without calling the Provider directly', async () => {
     const cancel = vi.fn(async () => {})
     const videoProvider: VideoGenerationProvider = {
       submit: vi.fn(async () => ({ providerTaskId: 'unused', status: 'queued', progress: 0 })),
@@ -657,7 +701,13 @@ describe('API authorization', () => {
     const taskId = created.json().id as string
     await store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)!
+      const now = new Date().toISOString()
       task.status = 'running'
+      task.leaseOwnerId = 'old-runner'
+      task.leaseToken = 'old-token'
+      task.leaseAcquiredAt = now
+      task.leaseHeartbeatAt = now
+      task.leaseExpiresAt = now
       task.metadata = {
         providerName: 'stringx-seedance',
         providerTaskId: 'remote-stringx-running',
@@ -671,18 +721,22 @@ describe('API authorization', () => {
     })
 
     expect(deleted.statusCode).toBe(204)
-    expect(cancel).toHaveBeenCalledWith('remote-stringx-running')
+    expect(cancel).not.toHaveBeenCalled()
     expect(store.read((state) => state.tasks.find((task) => task.id === taskId))).toMatchObject({
       status: 'cancelled',
+      leaseOwnerId: null,
+      leaseToken: null,
+      leaseAcquiredAt: null,
+      leaseHeartbeatAt: null,
+      leaseExpiresAt: null,
       metadata: {
-        providerState: 'cancelled',
+        providerCancelRequestedAt: expect.any(String),
         cancelledAt: expect.any(String),
         queueHiddenAt: expect.any(String),
-        creditsRefundedAt: expect.any(String),
       },
     })
     const after = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
-    expect(after.json().credits).toBe(before.json().credits)
+    expect(after.json().credits).toBe(before.json().credits - 18)
   })
 
   it('denies the admin dashboard to member accounts', async () => {
@@ -812,231 +866,6 @@ describe('API authorization', () => {
     })
     expect(contentAfterArchive.statusCode).toBe(206)
     expect(contentAfterArchive.body).toBe('video-content')
-  })
-
-  it('generates selectable outline options without overwriting the saved script', async () => {
-    const generate = vi.fn(async () => outlineOptionsJson())
-    app = await buildApp({
-      config: testConfig,
-      textProvider: { generate },
-      startWorker: false,
-    })
-    const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
-      'x-demo-tenant-id': 'tenant-seqora-demo',
-    }
-    const before = await app.inject({
-      method: 'GET',
-      url: '/api/v1/projects/project-midnight-film',
-      headers,
-    })
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/outlines',
-      headers,
-      payload: {
-        clientRequestId: 'outline-options',
-        idea: '我想生成一个100分钟带有浪漫和悲情色彩的中国风武侠剧',
-        count: 3,
-        direction: {
-          style: 'photorealistic',
-          composition: 'rule-of-thirds',
-          lighting: 'low-key',
-          camera: 'restrained',
-          focus: 'character',
-        },
-      },
-    })
-    const after = await app.inject({
-      method: 'GET',
-      url: '/api/v1/projects/project-midnight-film',
-      headers,
-    })
-
-    expect(response.statusCode, response.body).toBe(200)
-    expect(response.json()).toMatchObject({
-      outlines: [
-        expect.objectContaining({ id: 'outline-1', title: '雪夜归剑' }),
-        expect.objectContaining({ id: 'outline-2' }),
-        expect.objectContaining({ id: 'outline-3' }),
-      ],
-      generatedAt: expect.any(String),
-    })
-    expect(after.json().project.script).toBe(before.json().project.script)
-    expect(generate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        systemPrompt: expect.stringContaining('大纲方向'),
-        userPrompt: expect.stringContaining('浪漫和悲情色彩'),
-        maxOutputTokens: 5_000,
-      }),
-    )
-    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
-    expect(billing.json().entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'generation-script-outline-outline-options', amount: -2 }),
-      ]),
-    )
-  })
-
-  it('generates a plot structure from the selected outline without overwriting the saved script', async () => {
-    const generate = vi.fn(async () => scriptStructureJson())
-    app = await buildApp({
-      config: testConfig,
-      textProvider: { generate },
-      startWorker: false,
-    })
-    const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
-      'x-demo-tenant-id': 'tenant-seqora-demo',
-    }
-    const before = await app.inject({
-      method: 'GET',
-      url: '/api/v1/projects/project-midnight-film',
-      headers,
-    })
-    const outline = JSON.parse(outlineOptionsJson()).outlines[0]
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/structure',
-      headers,
-      payload: {
-        clientRequestId: 'plot-structure',
-        idea: '浪漫悲情武侠长片',
-        outline,
-      },
-    })
-    const after = await app.inject({
-      method: 'GET',
-      url: '/api/v1/projects/project-midnight-film',
-      headers,
-    })
-
-    expect(response.statusCode, response.body).toBe(200)
-    expect(response.json()).toMatchObject({
-      title: '雪夜归剑',
-      acts: [
-        expect.objectContaining({ id: 'act-1' }),
-        expect.objectContaining({ id: 'act-2' }),
-        expect.objectContaining({ id: 'act-3' }),
-      ],
-      subplots: [expect.objectContaining({ id: 'subplot-1' })],
-      generatedAt: expect.any(String),
-    })
-    expect(after.json().project.script).toBe(before.json().project.script)
-    expect(generate).toHaveBeenCalledOnce()
-    expect(generate.mock.calls[0][0].systemPrompt).toContain('剧情统筹')
-    expect(generate.mock.calls[0][0].userPrompt).toContain('已选大纲')
-    expect(generate.mock.calls[0][0].maxOutputTokens).toBe(6_000)
-    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
-    expect(billing.json().entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'generation-script-structure-plot-structure', amount: -3 }),
-      ]),
-    )
-  })
-
-  it('generates a scene-by-scene script from the plot structure without overwriting the saved script', async () => {
-    const generate = vi.fn(async () => scriptScenesJson())
-    app = await buildApp({
-      config: testConfig,
-      textProvider: { generate },
-      startWorker: false,
-    })
-    const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
-      'x-demo-tenant-id': 'tenant-seqora-demo',
-    }
-    const before = await app.inject({
-      method: 'GET',
-      url: '/api/v1/projects/project-midnight-film',
-      headers,
-    })
-    const outline = JSON.parse(outlineOptionsJson()).outlines[0]
-    const structure = JSON.parse(scriptStructureJson())
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/scenes',
-      headers,
-      payload: {
-        clientRequestId: 'scene-script',
-        idea: '浪漫悲情武侠长片',
-        outline,
-        structure,
-        sceneCount: 6,
-      },
-    })
-    const after = await app.inject({
-      method: 'GET',
-      url: '/api/v1/projects/project-midnight-film',
-      headers,
-    })
-
-    expect(response.statusCode, response.body).toBe(200)
-    expect(response.json()).toMatchObject({
-      title: '雪夜归剑分场剧本',
-      sourceStructureTitle: '雪夜归剑',
-      generatedAt: expect.any(String),
-    })
-    expect(response.json().scenes).toHaveLength(6)
-    expect(response.json().scenes[0]).toMatchObject({
-      id: 'scene-1',
-      order: 1,
-      actId: 'act-1',
-      title: '雪夜婚约',
-    })
-    expect(after.json().project.script).toBe(before.json().project.script)
-    expect(generate).toHaveBeenCalledOnce()
-    expect(generate.mock.calls[0][0].systemPrompt).toContain('分场编剧')
-    expect(generate.mock.calls[0][0].userPrompt).toContain('剧情结构')
-    expect(generate.mock.calls[0][0].userPrompt).toContain('请基于剧情结构生成 6 场分场剧本')
-    expect(generate.mock.calls[0][0].maxOutputTokens).toBe(6_000)
-    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
-    expect(billing.json().entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'generation-script-scenes-scene-script', amount: -5 }),
-      ]),
-    )
-  })
-
-  it('normalizes provider scene duration numbers before validating scene scripts', async () => {
-    const generate = vi.fn(async () => scriptScenesFractionalMinutesJson())
-    app = await buildApp({
-      config: testConfig,
-      textProvider: { generate },
-      startWorker: false,
-    })
-    const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
-      'x-demo-tenant-id': 'tenant-seqora-demo',
-    }
-    const outline = JSON.parse(outlineOptionsJson()).outlines[0]
-    const structure = JSON.parse(scriptStructureJson())
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/scenes',
-      headers,
-      payload: {
-        clientRequestId: 'scene-script-fractional-minutes',
-        idea: '浪漫悲情武侠长片',
-        outline,
-        structure,
-        sceneCount: 6,
-      },
-    })
-
-    expect(response.statusCode, response.body).toBe(200)
-    expect(response.json().scenes[2].estimatedMinutes).toBe(3)
-    expect(response.json().scenes[3].estimatedMinutes).toBe(1)
-    expect(response.json().scenes[4].estimatedMinutes).toBe(30)
-    expect(response.json().scenes[5].estimatedMinutes).toBe(4)
   })
 
   it('suggests reusable assets from the current script without creating them', async () => {
@@ -3826,228 +3655,6 @@ function decodeLocalNovelBuffer(buffer: Buffer): string {
     }
   }
   return buffer.toString('utf8')
-}
-
-function outlineOptionsJson(): string {
-  const summary =
-    '女剑客隐居边城，只想与药师完成婚约，却在雪夜发现旧门派屠城令。她被迫重拾长剑，一边护送百姓撤离，一边追查师门背叛。药师逐渐发现她的复仇会吞噬两人的未来，于是选择陪她进入最后一战。高潮中女剑客放弃杀死仇人，转而救下城中孩子，最终与药师天各一方，留下守护江湖的新传说。'
-  return JSON.stringify({
-    outlines: [
-      {
-        id: 'outline-1',
-        title: '雪夜归剑',
-        logline: '退隐女剑客在婚约与复仇之间选择守护故土。',
-        protagonist: '退隐女剑客，想摆脱江湖旧债并保护爱人。',
-        conflict: '外部是门派追杀和朝廷围捕，内部是她对复仇的执念。',
-        tone: '浪漫、悲情、中国风武侠',
-        ending: '牺牲式圆满，保留余韵。',
-        summary,
-        estimatedDuration: '约100分钟',
-      },
-      {
-        id: 'outline-2',
-        title: '长风不渡',
-        logline: '落魄少侠为救白衣琴师，被迫揭开两族旧仇。',
-        protagonist: '落魄少侠，想证明自己不是师门弃子。',
-        conflict: '外部是两族血债和追兵，内部是他对身份的羞耻。',
-        tone: '清冷、克制、宿命感',
-        ending: '开放式离别，留下重逢可能。',
-        summary,
-        estimatedDuration: '约100分钟',
-      },
-      {
-        id: 'outline-3',
-        title: '玉门春迟',
-        logline: '亡国公主与敌国刺客在复国任务中相爱相杀。',
-        protagonist: '亡国公主，想夺回玉门关并保住最后的族人。',
-        conflict: '外部是敌国布局和江湖背叛，内部是她对刺客的信任动摇。',
-        tone: '浓烈、悲壮、古典爱情',
-        ending: '悲剧式胜利，主角完成使命但失去爱情。',
-        summary,
-        estimatedDuration: '约100分钟',
-      },
-    ],
-  })
-}
-
-function scriptStructureJson(): string {
-  return JSON.stringify({
-    title: '雪夜归剑',
-    premise: '退隐女剑客在婚约与复仇之间选择守护故土。',
-    mainPlot:
-      '雪夜屠城令打破隐居生活，女剑客从护送百姓开始追查师门背叛，逐步发现复仇会吞噬她与药师的未来，最终在杀死仇人与救下孩子之间选择守护。',
-    acts: [
-      {
-        id: 'act-1',
-        title: '第一幕：雪夜旧债',
-        purpose: '建立主角隐居愿望、婚约关系和旧门派威胁。',
-        summary: '女剑客准备婚约，旧门派屠城令迫近，她被迫暴露身份并重新握剑。',
-        keyBeats: ['婚约建立', '屠城令出现', '旧敌逼近'],
-        turningPoint: '她决定护送百姓离城。',
-        estimatedMinutes: 25,
-      },
-      {
-        id: 'act-2',
-        title: '第二幕：同行裂痕',
-        purpose: '推进追查、爱情压力和复仇执念。',
-        summary: '女剑客与药师同行，发现师门背叛与亲近之人有关，两人的未来开始分裂。',
-        keyBeats: ['护送受阻', '线索指向师门', '药师质疑复仇'],
-        turningPoint: '她确认真正仇人仍在城内。',
-        estimatedMinutes: 45,
-      },
-      {
-        id: 'act-3',
-        title: '第三幕：归剑成全',
-        purpose: '完成最终选择和情绪落点。',
-        summary: '女剑客在杀仇人和救孩子之间选择后者，完成守护主题。',
-        keyBeats: ['重返城门', '仇人现身', '放弃复仇救人'],
-        turningPoint: '她与药师天各一方。',
-        estimatedMinutes: 30,
-      },
-    ],
-    subplots: [
-      {
-        id: 'subplot-1',
-        title: '爱情副线',
-        characters: ['女剑客', '药师'],
-        arc: '从隐居婚约到价值分歧，再到互相成全。',
-        payoff: '最终离别保留余韵。',
-      },
-    ],
-    characterArcs: [
-      {
-        character: '女剑客',
-        desire: '摆脱江湖旧债。',
-        obstacle: '复仇执念和门派追杀。',
-        change: '从复仇者变成守护者。',
-      },
-    ],
-    visualDirection: '雪夜、边城、旧门派符号和克制武侠动作贯穿全片。',
-    nextStep: '继续细化人物关系、三处关键战斗和离别段落。',
-  })
-}
-
-function scriptScenesJson(): string {
-  const scenes = [
-    {
-      id: 'scene-1',
-      order: 1,
-      actId: 'act-1',
-      title: '雪夜婚约',
-      location: '边城药铺',
-      timeOfDay: '夜',
-      characters: ['女剑客', '药师'],
-      purpose: '建立主角想退出江湖并守住婚约的愿望。',
-      conflict: '女剑客想收起旧身份，门外的追兵却逼近药铺。',
-      plot: '女剑客把长剑藏进柜底，与药师确认明日婚约；窗外突然响起马蹄，药铺灯火被雪风压暗，她意识到旧门派已经找到这里。',
-      action: '她合上剑匣，药师把门闩扣紧，两人同时望向窗纸上掠过的人影。',
-      dialogue: ['女剑客：明日之后，我不再握剑。', '药师：那就先活过今夜。'],
-      visualNotes: '室内暖灯与窗外冷雪形成对比，长剑只露出一角，重点保留药铺空间关系。',
-      transition: '窗外马蹄声和门环震动引出旧敌抵达。',
-      estimatedMinutes: 5,
-    },
-    {
-      id: 'scene-2',
-      order: 2,
-      actId: 'act-1',
-      title: '屠城令现身',
-      location: '边城主街',
-      timeOfDay: '深夜',
-      characters: ['女剑客', '药师', '门派信使'],
-      purpose: '把外部威胁从传闻落成可见行动。',
-      conflict: '信使逼她交出百姓名册，她必须在隐藏身份和救人之间选择。',
-      plot: '门派信使在主街展示屠城令，百姓被迫跪在雪中；女剑客原想绕开，却看到孩童被推倒，最终拔出藏在药箱里的短剑。',
-      action: '她从药箱底层抽剑，挡在孩童前方，药师把受伤老人拖进街边檐下。',
-      dialogue: ['门派信使：归剑人，出来领命。', '女剑客：这座城不归你们。'],
-      visualNotes: '长街留出逃离路线，雪地脚印要连续，信物屠城令成为关键物件。',
-      transition: '短剑出鞘后的停顿，接到她带百姓撤离。',
-      estimatedMinutes: 8,
-    },
-    {
-      id: 'scene-3',
-      order: 3,
-      actId: 'act-2',
-      title: '雪桥护送',
-      location: '城外木桥',
-      timeOfDay: '黎明',
-      characters: ['女剑客', '药师', '百姓'],
-      purpose: '推进护送任务并暴露两人的价值分歧。',
-      conflict: '桥面被追兵截断，药师要求撤离，女剑客坚持回头找背叛线索。',
-      plot: '百姓队伍抵达木桥时发现桥尾被焚断，女剑客击退追兵却在尸体上看见师门暗记，复仇线索让她停下脚步。',
-      action: '她踏上摇晃木桥护住队伍，药师把药包抛给受伤者，随后拉住她的衣袖。',
-      dialogue: ['药师：人已经救出来了。', '女剑客：真正下令的人还在城里。'],
-      visualNotes: '桥、河谷和回城方向必须清晰，药师站位始终靠近伤者。',
-      transition: '她回望城门的视线引出重返调查。',
-      estimatedMinutes: 12,
-    },
-    {
-      id: 'scene-4',
-      order: 4,
-      actId: 'act-2',
-      title: '暗记裂痕',
-      location: '废弃驿站',
-      timeOfDay: '傍晚',
-      characters: ['女剑客', '药师'],
-      purpose: '让爱情副线与复仇主线正面冲突。',
-      conflict: '药师发现暗记指向女剑客旧师兄，她拒绝相信背叛来自亲近之人。',
-      plot: '两人在驿站整理线索，药师拼出药材账册和师门暗记的关系；女剑客失控拔剑劈开桌面，第一次让药师感到害怕。',
-      action: '药师把账册推到灯下，她的剑锋停在纸面一寸处，烛火被剑风压低。',
-      dialogue: ['药师：你要找的不是答案，是一个能被你杀掉的人。', '女剑客：别替他开脱。'],
-      visualNotes: '驿站桌面线索要可读但不要出现真实文字，剑痕作为情绪裂痕的视觉符号。',
-      transition: '被劈开的账册露出城门暗号，引向最终回城。',
-      estimatedMinutes: 14,
-    },
-    {
-      id: 'scene-5',
-      order: 5,
-      actId: 'act-3',
-      title: '城门仇人',
-      location: '边城城门',
-      timeOfDay: '夜',
-      characters: ['女剑客', '药师', '旧师兄', '孩童'],
-      purpose: '把最终选择压缩到复仇和守护之间。',
-      conflict: '旧师兄现身承认背叛，同时孩童被困在即将坍塌的城门下。',
-      plot: '女剑客终于逼出旧师兄，剑尖已经抵住仇人咽喉；城门上方梁木断裂，白天救过的孩童被困，她必须立刻放弃刺杀才能救人。',
-      action: '她的剑锋停住，转身冲向城门，药师从另一侧撑住断梁。',
-      dialogue: ['旧师兄：你等这一剑等了十年。', '女剑客：所以我知道不能把它浪费在你身上。'],
-      visualNotes: '城门、断梁、孩童位置和旧师兄站位要建立清楚，动作以克制写实为主。',
-      transition: '她弃剑托起梁木，引出结局的归剑成全。',
-      estimatedMinutes: 16,
-    },
-    {
-      id: 'scene-6',
-      order: 6,
-      actId: 'act-3',
-      title: '归剑离别',
-      location: '城外雪坡',
-      timeOfDay: '清晨',
-      characters: ['女剑客', '药师'],
-      purpose: '完成主题落点和人物关系余韵。',
-      conflict: '城已得救，但女剑客必须留下处理旧门派余波，药师无法继续陪她逃避。',
-      plot: '天亮后百姓离城，女剑客把长剑埋在雪坡下，药师替她包扎伤口；两人确认彼此仍相爱，却选择不同方向守护余生。',
-      action: '她用剑鞘挖开雪地，药师系紧布带后松手，两人在晨光里背向而行。',
-      dialogue: ['药师：这次你还会回来吗？', '女剑客：等这把剑真的不再需要我。'],
-      visualNotes: '清晨冷光转为柔和，长剑埋入雪地作为收束物件，人物距离逐步拉开。',
-      transition: '远景定格在雪坡脚印分叉，为后续分镜提供结尾画面。',
-      estimatedMinutes: 10,
-    },
-  ]
-  return JSON.stringify({
-    title: '雪夜归剑分场剧本',
-    sourceStructureTitle: '雪夜归剑',
-    scenes,
-    continuityNotes: '长剑、屠城令、药铺灯光、雪地脚印和女剑客伤口状态需要跨场连续。',
-    nextStep: '继续把每场扩写成完整对白、动作节拍和镜头级提示词。',
-  })
-}
-
-function scriptScenesFractionalMinutesJson(): string {
-  const scenes = JSON.parse(scriptScenesJson())
-  scenes.scenes[2].estimatedMinutes = 2.6
-  scenes.scenes[3].estimatedMinutes = 0.2
-  scenes.scenes[4].estimatedMinutes = 31.6
-  scenes.scenes[5].estimatedMinutes = '4.4'
-  return JSON.stringify(scenes)
 }
 
 function scriptAssetSuggestionsJson(): string {
