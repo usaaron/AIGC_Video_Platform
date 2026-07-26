@@ -23,6 +23,14 @@ import { QuickStartModal } from '../features/quickStart/QuickStartModal'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../features/script/AssetSuggestionsPanel'
 import { DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
+const DEFAULT_TEXT_MODEL = 'deepseekV3'
+const TEXT_MODEL_OPTIONS = [
+  { value: 'deepseekV3', label: 'DeepSeek V3' },
+  { value: 'gpt-5.4', label: 'GPT 5.4' },
+  { value: 'gpt-5.5', label: 'GPT 5.5' },
+  { value: 'gpt-5.6', label: 'GPT 5.6' },
+]
+
 const INSERT_BLOCKS = [
   {
     key: 'scene',
@@ -97,6 +105,7 @@ export function ScriptPage({
   const [saving, setSaving] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [review, setReview] = useState(null)
+  const [textModel, setTextModel] = useState(DEFAULT_TEXT_MODEL)
   const [inspectorOpen, setInspectorOpen] = useState(true)
   const [activeScriptSection, setActiveScriptSection] = useState('writing')
   const [error, setError] = useState('')
@@ -129,6 +138,10 @@ export function ScriptPage({
   }, [project.id, project.script])
 
   useEffect(() => {
+    setTextModel(DEFAULT_TEXT_MODEL)
+  }, [project.id])
+
+  useEffect(() => {
     setAssetSuggestionStatus('idle')
     setAssetSuggestionResult(null)
     setAssetSuggestionError('')
@@ -158,7 +171,7 @@ export function ScriptPage({
     setAssetSuggestionStatus('suggesting')
     setAssetSuggestionError('')
     try {
-      setAssetSuggestionResult(await onSuggestAssets(source, DEFAULT_SCRIPT_DIRECTION))
+      setAssetSuggestionResult(await onSuggestAssets(source, DEFAULT_SCRIPT_DIRECTION, textModel))
       setCreatedAssetKeys(new Set())
     } catch (suggestError) {
       setAssetSuggestionError(suggestError.message)
@@ -265,7 +278,7 @@ export function ScriptPage({
     setReviewing(true)
     setError('')
     try {
-      setReview(await onReview(script, DEFAULT_SCRIPT_DIRECTION))
+      setReview(await onReview(script, DEFAULT_SCRIPT_DIRECTION, textModel))
     } catch (reviewError) {
       setError(reviewError.message)
     } finally {
@@ -285,7 +298,7 @@ export function ScriptPage({
     setQuickStartError('')
     try {
       if (!saved && !(await save())) throw new Error('剧本保存失败')
-      setQuickStartPlan(await onPlanQuickStart())
+      setQuickStartPlan(await onPlanQuickStart(textModel))
       setQuickStartState('ready')
     } catch (quickError) {
       setQuickStartError(quickError.message)
@@ -344,10 +357,24 @@ export function ScriptPage({
         ))}
       </section>
 
+      <div className="script-model-bar">
+        <label className="script-model-field">
+          <span>文本模型</span>
+          <select value={textModel} disabled={busy} onChange={(event) => setTextModel(event.target.value)}>
+            {TEXT_MODEL_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       {activeScriptSection === 'novel' && (
         <section className="script-section-panel script-novel-section" aria-label="小说上传与章节">
           <NovelImportPanel
             project={project}
+            textModel={textModel}
             disabled={busy}
             onImportNovel={onImportNovel}
             onPreviewNovelSplit={onPreviewNovelSplit}

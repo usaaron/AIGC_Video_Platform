@@ -9,6 +9,7 @@ const SUMMARY_BATCH_OPTIONS = [1, 4, 8, 12, 16, 24]
 
 export function NovelDevelopmentPanel({
   document,
+  textModel = 'deepseekV3',
   disabled,
   onGetSummaries,
   onGenerateSummaries,
@@ -74,6 +75,7 @@ export function NovelDevelopmentPanel({
       const result = await onGenerateSummaries(document.id, {
         clientRequestId: crypto.randomUUID(),
         batchSize: summaryBatchSize,
+        model: textModel,
       })
       setSummariesResult(result)
       setStoryBibleResult((current) =>
@@ -100,6 +102,7 @@ export function NovelDevelopmentPanel({
       const result = await onGenerateStoryBible(document.id, {
         clientRequestId: crypto.randomUUID(),
         force,
+        model: textModel,
       })
       setStoryBibleResult({
         storyBible: result.storyBible,
@@ -123,6 +126,7 @@ export function NovelDevelopmentPanel({
       const result = await onSuggestAssets(document.id, {
         clientRequestId: crypto.randomUUID(),
         maxAssets: 12,
+        model: textModel,
       })
       setAssetSuggestionResult(result)
       setCreatedAssetKeys(new Set())

@@ -107,20 +107,40 @@ export const api = {
     request(`/projects/${id}/novels/${documentId}/asset-suggestions`, json('POST', input)),
   generateNovelChapterAdaptation: (id, documentId, input = {}) =>
     request(`/projects/${id}/novels/${documentId}/adapt-script`, json('POST', input)),
-  suggestScriptAssets: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
-    request(`/projects/${id}/script/asset-suggestions`, json('POST', { clientRequestId, script, direction })),
-  generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID()) =>
-    request(`/projects/${id}/script/generate`, json('POST', { clientRequestId, draft, direction })),
-  generateScriptSegment: (id, draft, direction, segment, clientRequestId = crypto.randomUUID()) =>
+  suggestScriptAssets: (id, script, direction, clientRequestId = crypto.randomUUID(), model) =>
+    request(
+      `/projects/${id}/script/asset-suggestions`,
+      json('POST', { clientRequestId, script, direction, ...(model ? { model } : {}) }),
+    ),
+  generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID(), model) =>
     request(
       `/projects/${id}/script/generate`,
-      json('POST', { clientRequestId, draft, direction, mode: 'segment', segment }),
+      json('POST', { clientRequestId, draft, direction, ...(model ? { model } : {}) }),
     ),
-  enrichScript: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
-    request(`/projects/${id}/script/enrich`, json('POST', { clientRequestId, script, direction })),
-  reviewScript: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
-    request(`/projects/${id}/script/review`, json('POST', { clientRequestId, script, direction })),
-  planQuickStart: (id) => request(`/projects/${id}/quick-start/plan`, { method: 'POST' }),
+  generateScriptSegment: (id, draft, direction, segment, clientRequestId = crypto.randomUUID(), model) =>
+    request(
+      `/projects/${id}/script/generate`,
+      json('POST', {
+        clientRequestId,
+        draft,
+        direction,
+        mode: 'segment',
+        segment,
+        ...(model ? { model } : {}),
+      }),
+    ),
+  enrichScript: (id, script, direction, clientRequestId = crypto.randomUUID(), model) =>
+    request(
+      `/projects/${id}/script/enrich`,
+      json('POST', { clientRequestId, script, direction, ...(model ? { model } : {}) }),
+    ),
+  reviewScript: (id, script, direction, clientRequestId = crypto.randomUUID(), model) =>
+    request(
+      `/projects/${id}/script/review`,
+      json('POST', { clientRequestId, script, direction, ...(model ? { model } : {}) }),
+    ),
+  planQuickStart: (id, model) =>
+    request(`/projects/${id}/quick-start/plan`, json('POST', model ? { model } : {})),
   executeQuickStart: (id, input) => request(`/projects/${id}/quick-start/execute`, json('POST', input)),
   saveVersion: (id) => request(`/projects/${id}/versions`, { method: 'POST' }),
   createAsset: (projectId, input) => request(`/projects/${projectId}/assets`, json('POST', input)),

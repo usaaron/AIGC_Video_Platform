@@ -167,8 +167,8 @@ function App() {
         prompt: options.prompt,
         negativePrompt: options.negativePrompt,
         provider,
-        model:
-          kind === 'video' ? 'doubao-seedance-2-0-260128' : kind === 'image' ? 'img2-default' : undefined,
+        model: kind === 'video' ? undefined : kind === 'image' ? 'img2-default' : undefined,
+        tier: options.tier ?? (kind === 'video' ? 'fast' : undefined),
         estimatedCredits: cost,
         metadata: options.metadata,
       })
@@ -380,9 +380,9 @@ function App() {
             await refreshWorkspace()
             setToast('剧本已保存')
           }}
-          onReview={async (script, direction) => {
+          onReview={async (script, direction, model) => {
             try {
-              return await api.reviewScript(project.id, script, direction)
+              return await api.reviewScript(project.id, script, direction, undefined, model)
             } finally {
               await refreshBilling().catch(() => {})
             }
@@ -432,14 +432,16 @@ function App() {
               await refreshBilling().catch(() => {})
             }
           }}
-          onSuggestAssets={(script, direction) => api.suggestScriptAssets(project.id, script, direction)}
+          onSuggestAssets={(script, direction, model) =>
+            api.suggestScriptAssets(project.id, script, direction, undefined, model)
+          }
           onCreateAsset={async (input) => {
             const created = await api.createAsset(project.id, input)
             await refreshWorkspace()
             setToast(`已加入资产：${created.name}`)
             return created
           }}
-          onPlanQuickStart={() => api.planQuickStart(project.id)}
+          onPlanQuickStart={(model) => api.planQuickStart(project.id, model)}
           onExecuteQuickStart={async (input) => {
             const result = await api.executeQuickStart(project.id, input)
             const [nextWorkspace, nextTasks, nextBilling, nextProjects] = await Promise.all([

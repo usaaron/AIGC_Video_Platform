@@ -40,6 +40,7 @@ const SPLIT_MODE_LABELS = {
 export function NovelImportPanel({
   project,
   aspectRatio,
+  textModel = 'deepseekV3',
   disabled,
   onImportNovel,
   onPreviewNovelSplit,
@@ -326,6 +327,7 @@ export function NovelImportPanel({
         chapterIds: selectedChapters.map((chapter) => chapter.id),
         targetSeconds: adaptationTargetSeconds,
         mode: adaptationMode,
+        model: textModel,
       })
       setAdaptationResult(adaptation)
     } catch (adaptError) {
@@ -772,6 +774,7 @@ export function NovelImportPanel({
       {result && (
         <NovelDevelopmentPanel
           document={result.document}
+          textModel={textModel}
           disabled={disabled}
           onGetSummaries={onGetNovelSummaries}
           onGenerateSummaries={onGenerateNovelSummaries}
