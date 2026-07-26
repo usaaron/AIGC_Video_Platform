@@ -50,7 +50,7 @@ describe('FilmPreviewComposer', () => {
       storage,
       'ffmpeg',
       60_000,
-      'aideos-seedance',
+      'stringx-seedance',
       async (inputPaths, outputPath, nextTarget) => {
         expect(inputPaths).toHaveLength(2)
         target = nextTarget

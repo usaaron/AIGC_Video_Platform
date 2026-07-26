@@ -2,16 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ArrowRight,
   BadgeCheck,
+  Camera,
   Clapperboard,
   Clock3,
-  Crown,
   Image,
+  Lightbulb,
   LoaderCircle,
   MessageSquare,
   PanelRightClose,
   PanelRightOpen,
   Save,
-  ShieldCheck,
   Sparkles,
   Upload,
   UserRound,
@@ -21,14 +21,81 @@ import { AssetEditor } from '../features/assets/AssetEditor'
 import { NovelImportPanel } from '../features/novel/NovelImportPanel'
 import { QuickStartModal } from '../features/quickStart/QuickStartModal'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../features/script/AssetSuggestionsPanel'
+import {
+  restoreScriptAssetSuggestionsCache,
+  saveScriptAssetSuggestionsCache,
+} from '../features/script/assetSuggestionCache'
 import { DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
-const DEFAULT_TEXT_MODEL = 'deepseekV3'
+const DEFAULT_TEXT_MODEL = 'gpt-5.6'
 const TEXT_MODEL_OPTIONS = [
+  { value: 'gpt-5.6', label: '序幕-SEQORA 5.6' },
+  { value: 'gpt-5.5', label: '序幕-SEQORA 5.5' },
+  { value: 'gpt-5.4', label: '序幕-SEQORA 5.4' },
   { value: 'deepseekV3', label: 'DeepSeek V3' },
-  { value: 'gpt-5.4', label: 'GPT 5.4' },
-  { value: 'gpt-5.5', label: 'GPT 5.5' },
-  { value: 'gpt-5.6', label: 'GPT 5.6' },
+]
+
+const DIRECTION_FIELDS = [
+  {
+    key: 'style',
+    label: '视觉风格',
+    icon: Sparkles,
+    options: [
+      ['auto', 'AI 自动匹配'],
+      ['photorealistic', '仿真人电影感'],
+      ['cinematic-cg', '电影级 CG'],
+      ['chinese-3d', '国漫三维'],
+      ['chinese-2d', '国漫二维'],
+      ['anime', '日系动画'],
+      ['storybook', '绘本风格'],
+    ],
+  },
+  {
+    key: 'composition',
+    label: '构图',
+    icon: Image,
+    options: [
+      ['auto', 'AI 自动匹配'],
+      ['rule-of-thirds', '三分法'],
+      ['centered', '中心构图'],
+      ['symmetry', '对称构图'],
+      ['negative-space', '留白构图'],
+      ['dynamic', '动态斜线'],
+    ],
+  },
+  {
+    key: 'lighting',
+    label: '光影',
+    icon: Lightbulb,
+    options: [
+      ['auto', 'AI 自动匹配'],
+      ['natural-soft', '自然柔光'],
+      ['high-contrast', '高反差硬光'],
+      ['low-key', '低调暗光'],
+      ['backlight', '逆光轮廓光'],
+      ['neon', '霓虹彩光'],
+    ],
+  },
+  {
+    key: 'camera',
+    label: '运镜',
+    icon: Camera,
+    options: [
+      ['auto', 'AI 自动匹配'],
+      ['restrained', '克制稳定'],
+      ['immersive', '沉浸跟随'],
+      ['dynamic', '动态动作'],
+      ['documentary', '纪录片手持'],
+      ['suspense', '悬疑压迫'],
+    ],
+  },
+]
+
+const FOCUS_OPTIONS = [
+  ['balanced', '均衡'],
+  ['scene', '场景'],
+  ['character', '角色'],
+  ['dialogue', '对白'],
 ]
 
 const INSERT_BLOCKS = [
@@ -67,21 +134,10 @@ const SCRIPT_SECTIONS = [
   },
 ]
 
-const REVIEW_LABELS = {
-  plot: '剧情结构',
-  character: '角色动机',
-  dialogue: '对白表演',
-  style: '风格统一',
-  composition: '构图执行',
-  lighting: '光影设计',
-  camera: '运镜节奏',
-}
-
 export function ScriptPage({
   project,
   billing,
   onSave,
-  onReview,
   onImportNovel,
   onPreviewNovelSplit,
   onListNovels,
@@ -90,22 +146,23 @@ export function ScriptPage({
   onGenerateNovelSummaries,
   onGetNovelStoryBible,
   onGenerateNovelStoryBible,
-  onSuggestNovelAssets,
   onGenerateNovelChapterAdaptation,
+  onSuggestNovelAssets,
   onSuggestAssets,
+  onEnrich,
   onCreateAsset,
   onUpload,
   onPlanQuickStart,
   onExecuteQuickStart,
-  onUpgrade,
   onNext,
 }) {
   const [script, setScript] = useState(project.script)
   const [saved, setSaved] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [reviewing, setReviewing] = useState(false)
-  const [review, setReview] = useState(null)
+  const [enriching, setEnriching] = useState(false)
+  const [enrichWarnings, setEnrichWarnings] = useState([])
   const [textModel, setTextModel] = useState(DEFAULT_TEXT_MODEL)
+  const [direction, setDirection] = useState(DEFAULT_SCRIPT_DIRECTION)
   const [inspectorOpen, setInspectorOpen] = useState(true)
   const [activeScriptSection, setActiveScriptSection] = useState('writing')
   const [error, setError] = useState('')
@@ -127,27 +184,23 @@ export function ScriptPage({
   const characterCount = script.trim() ? Math.max(1, new Set(script.match(/角色：[^，。]+/g) || []).size) : 0
   const suggestedShots = script.trim() ? Math.min(12, Math.max(1, paragraphCount)) : 0
   const estimatedMinutes = script.trim() ? Math.max(1, Math.ceil(count / 120)) : 0
-  const isMember = billing?.plan === 'member'
-  const busy = saving || reviewing || quickStartState === 'starting'
+  const busy = saving || enriching || quickStartState === 'starting'
 
   useEffect(() => {
-    setScript(project.script)
-    setSaved(true)
-    setReview(null)
+    const cachedAssetSuggestions = restoreScriptAssetSuggestionsCache(project.id, project.script)
+    const nextScript = cachedAssetSuggestions?.sourceScript ?? project.script
+    setScript(nextScript)
+    setSaved(nextScript === project.script)
+    setEnrichWarnings([])
     setError('')
-  }, [project.id, project.script])
-
-  useEffect(() => {
-    setTextModel(DEFAULT_TEXT_MODEL)
-  }, [project.id])
-
-  useEffect(() => {
-    setAssetSuggestionStatus('idle')
-    setAssetSuggestionResult(null)
+    setTextModel(cachedAssetSuggestions?.model || DEFAULT_TEXT_MODEL)
+    setDirection(cachedAssetSuggestions?.direction || DEFAULT_SCRIPT_DIRECTION)
+    setAssetSuggestionStatus(cachedAssetSuggestions?.result ? 'ready' : 'idle')
+    setAssetSuggestionResult(cachedAssetSuggestions?.result || null)
     setAssetSuggestionError('')
     setCreatingAssetKeys(new Set())
-    setCreatedAssetKeys(new Set())
-  }, [project.id])
+    setCreatedAssetKeys(cachedAssetSuggestions?.createdKeys || new Set())
+  }, [project.id, project.script])
 
   useEffect(() => {
     setQuickStartOpen(false)
@@ -160,7 +213,7 @@ export function ScriptPage({
   const update = (value) => {
     setScript(value)
     setSaved(false)
-    setReview(null)
+    setEnrichWarnings([])
     setAssetSuggestionStatus('idle')
     setAssetSuggestionError('')
   }
@@ -171,8 +224,10 @@ export function ScriptPage({
     setAssetSuggestionStatus('suggesting')
     setAssetSuggestionError('')
     try {
-      setAssetSuggestionResult(await onSuggestAssets(source, DEFAULT_SCRIPT_DIRECTION, textModel))
+      const result = await onSuggestAssets(source, direction, textModel)
+      setAssetSuggestionResult(result)
       setCreatedAssetKeys(new Set())
+      saveScriptAssetSuggestionsCache(project.id, source, direction, textModel, result, [])
     } catch (suggestError) {
       setAssetSuggestionError(suggestError.message)
     } finally {
@@ -199,7 +254,6 @@ export function ScriptPage({
     }
     setSaving(true)
     setError('')
-    setReview(null)
     try {
       setScript(nextScript)
       await onSave(nextScript)
@@ -262,27 +316,31 @@ export function ScriptPage({
     }
   }
 
-  const analyze = async () => {
-    if (!isMember) {
-      onUpgrade()
-      return
-    }
-    if (billing.credits < SCRIPT_OPERATION_CREDITS.review) {
-      setError(`专业审核需要 ${SCRIPT_OPERATION_CREDITS.review} 积分，当前剩余 ${billing.credits} 积分`)
-      return
-    }
+  const enrich = async () => {
     if (!script.trim()) {
       setError('请先填写剧本内容')
       return
     }
-    setReviewing(true)
+    if (billing.credits < SCRIPT_OPERATION_CREDITS.enrich) {
+      setError(`AI 扩写需要 ${SCRIPT_OPERATION_CREDITS.enrich} 积分，当前剩余 ${billing.credits} 积分`)
+      return
+    }
+    setEnriching(true)
     setError('')
+    setEnrichWarnings([])
     try {
-      setReview(await onReview(script, DEFAULT_SCRIPT_DIRECTION, textModel))
-    } catch (reviewError) {
-      setError(reviewError.message)
+      const result = await onEnrich(script, direction, textModel)
+      const nextScript = result.script?.trim()
+      if (!nextScript) throw new Error('AI 扩写结果为空')
+      setScript(nextScript)
+      setSaved(true)
+      setEnrichWarnings(result.warnings || [])
+      void suggestAssetsForScript(nextScript)
+      requestAnimationFrame(() => textArea.current?.focus())
+    } catch (enrichError) {
+      setError(enrichError.message)
     } finally {
-      setReviewing(false)
+      setEnriching(false)
     }
   }
 
@@ -316,7 +374,7 @@ export function ScriptPage({
       <PageHeader
         eyebrow="剧本工作台"
         title={`《${project.name}》剧本`}
-        description="写作和制作审核集中在同一个工作区。"
+        description="写作和制作准备集中在同一个工作区。"
       >
         <input ref={fileInput} className="hidden-input" type="file" accept=".txt,.md" onChange={upload} />
         <button className="button secondary" disabled={busy} onClick={() => fileInput.current?.click()}>
@@ -324,7 +382,7 @@ export function ScriptPage({
         </button>
         <button
           className="button primary"
-          disabled={saving || saved || !script.trim()}
+          disabled={busy || saved || !script.trim()}
           onClick={() => void save()}
         >
           {saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
@@ -339,35 +397,37 @@ export function ScriptPage({
         </button>
       </PageHeader>
 
-      <section className="script-section-nav" aria-label="剧本工作区小项">
-        {SCRIPT_SECTIONS.map(({ id, label, description, icon: Icon }) => (
-          <button
-            type="button"
-            key={id}
-            className={activeScriptSection === id ? 'active' : ''}
-            aria-pressed={activeScriptSection === id}
-            onClick={() => setActiveScriptSection(id)}
-          >
-            <Icon size={18} />
-            <span>
-              <strong>{label}</strong>
-              <small>{description}</small>
-            </span>
-          </button>
-        ))}
-      </section>
+      <div className="script-setup-row">
+        <section className="script-section-nav" aria-label="剧本工作区小项">
+          {SCRIPT_SECTIONS.map(({ id, label, description, icon: Icon }) => (
+            <button
+              type="button"
+              key={id}
+              className={activeScriptSection === id ? 'active' : ''}
+              aria-pressed={activeScriptSection === id}
+              onClick={() => setActiveScriptSection(id)}
+            >
+              <Icon size={18} />
+              <span>
+                <strong>{label}</strong>
+                <small>{description}</small>
+              </span>
+            </button>
+          ))}
+        </section>
 
-      <div className="script-model-bar">
-        <label className="script-model-field">
-          <span>文本模型</span>
-          <select value={textModel} disabled={busy} onChange={(event) => setTextModel(event.target.value)}>
-            {TEXT_MODEL_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="script-model-bar">
+          <label className="script-model-field">
+            <span>文本模型</span>
+            <select value={textModel} disabled={busy} onChange={(event) => setTextModel(event.target.value)}>
+              {TEXT_MODEL_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       {activeScriptSection === 'novel' && (
@@ -385,10 +445,10 @@ export function ScriptPage({
             onGetNovelStoryBible={onGetNovelStoryBible}
             onGenerateNovelStoryBible={onGenerateNovelStoryBible}
             onSuggestNovelAssets={onSuggestNovelAssets}
+            aspectRatio={project.aspectRatio}
             onGenerateChapterAdaptation={onGenerateNovelChapterAdaptation}
             onCreateAsset={onCreateAsset}
             onUpload={onUpload}
-            aspectRatio={project.aspectRatio}
             onUseAdaptedScript={useAdaptedNovelScript}
           />
         </section>
@@ -396,12 +456,73 @@ export function ScriptPage({
 
       {activeScriptSection === 'writing' && (
         <>
+          <section className="script-direction-bar" aria-label="AI 扩写方向">
+            <div className="script-direction-title">
+              <span className="direction-symbol">
+                <Sparkles size={17} />
+              </span>
+              <div>
+                <span className="eyebrow">AI 扩写方向</span>
+                <strong>选择扩写重点，再补齐画面语言和剧情衔接</strong>
+              </div>
+            </div>
+            <div className="script-direction-controls">
+              {DIRECTION_FIELDS.map(({ key, label, icon: Icon, options }) => (
+                <label key={key}>
+                  <span>
+                    <Icon size={13} /> {label}
+                  </span>
+                  <select
+                    value={direction[key]}
+                    disabled={busy}
+                    onChange={(event) => {
+                      setDirection((current) => ({ ...current, [key]: event.target.value }))
+                    }}
+                  >
+                    {options.map(([value, optionLabel]) => (
+                      <option key={value} value={value}>
+                        {optionLabel}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+            <div className="script-direction-footer">
+              <div className="direction-focus" role="group" aria-label="扩写重点">
+                <span>扩写重点</span>
+                {FOCUS_OPTIONS.map(([value, label]) => (
+                  <button
+                    type="button"
+                    key={value}
+                    className={direction.focus === value ? 'active' : ''}
+                    aria-pressed={direction.focus === value}
+                    disabled={busy}
+                    onClick={() => {
+                      setDirection((current) => ({ ...current, focus: value }))
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="button direction-detail-button"
+                disabled={busy || !script.trim()}
+                onClick={() => void enrich()}
+              >
+                {enriching ? <LoaderCircle size={16} className="spin" /> : <Clapperboard size={16} />}
+                {enriching ? '正在扩写' : `AI 扩写 · ${SCRIPT_OPERATION_CREDITS.enrich} 积分`}
+              </button>
+            </div>
+          </section>
+
           <div className={`script-workspace ${inspectorOpen ? 'with-inspector' : 'without-inspector'}`}>
-            <section className="script-document" aria-busy={reviewing}>
+            <section className="script-document" aria-busy={enriching}>
               <div className="script-document-toolbar">
                 <div className="script-block-actions" role="group" aria-label="插入剧本结构">
                   {INSERT_BLOCKS.map(({ key, label, icon: Icon, value }) => (
-                    <button className="format-button" key={key} onClick={() => insert(value)}>
+                    <button className="format-button" key={key} disabled={busy} onClick={() => insert(value)}>
                       <Icon size={14} /> {label}
                     </button>
                   ))}
@@ -426,12 +547,19 @@ export function ScriptPage({
                   onChange={(event) => update(event.target.value)}
                   placeholder="写下故事内容，或插入场景、角色和对白结构……"
                 />
+                {enriching && (
+                  <div className="script-processing-overlay" role="status">
+                    <LoaderCircle size={22} className="spin" />
+                    <strong>AI 正在扩写剧本</strong>
+                    <span>会补齐风格、构图、光影、运镜和衔接，并写回当前剧本。</span>
+                  </div>
+                )}
               </div>
               <div className="script-document-footer">
                 <span>{count} 字</span>
                 <span>{paragraphCount} 段</span>
                 <span>约 {estimatedMinutes} 分钟</span>
-                <button disabled={saving || saved || !script.trim()} onClick={() => void save()}>
+                <button disabled={busy || saved || !script.trim()} onClick={() => void save()}>
                   {saving ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />}
                   {saving ? '保存中' : saved ? '已保存' : '保存'}
                 </button>
@@ -439,13 +567,12 @@ export function ScriptPage({
             </section>
 
             {inspectorOpen && (
-              <aside className={`script-inspector ${reviewing ? 'is-reviewing' : ''}`} aria-busy={reviewing}>
+              <aside className="script-inspector">
                 <div className="script-inspector-head">
                   <div>
-                    <span className="eyebrow">制作检查</span>
-                    <h2>{review ? `${review.score} 分` : '剧本概况'}</h2>
+                    <span className="eyebrow">制作概况</span>
+                    <h2>剧本概况</h2>
                   </div>
-                  {reviewing && <LoaderCircle size={18} className="spin" />}
                 </div>
                 <div className="script-metrics">
                   <div>
@@ -469,53 +596,6 @@ export function ScriptPage({
                     <strong>{estimatedMinutes}m</strong>
                   </div>
                 </div>
-                <button
-                  className={`button analysis-review-button ${isMember ? 'primary member' : 'locked'}`}
-                  onClick={() => void analyze()}
-                  disabled={reviewing || !script.trim()}
-                >
-                  {reviewing ? (
-                    <LoaderCircle size={16} className="spin" />
-                  ) : isMember ? (
-                    <ShieldCheck size={16} />
-                  ) : (
-                    <Crown size={16} />
-                  )}
-                  {reviewing
-                    ? '正在审核'
-                    : isMember
-                      ? `专业审核剧本 · ${SCRIPT_OPERATION_CREDITS.review} 积分`
-                      : '会员专业审核'}
-                </button>
-                {review ? (
-                  <div className="review-result">
-                    <p className="review-verdict">{review.verdict}</p>
-                    <div className="review-priorities">
-                      <strong>优先修改</strong>
-                      {review.priorityActions.map((item) => (
-                        <span key={item}>{item}</span>
-                      ))}
-                    </div>
-                    <div className="review-dimensions">
-                      {review.dimensions.map((dimension) => (
-                        <article key={dimension.key}>
-                          <div>
-                            <strong>{REVIEW_LABELS[dimension.key] || dimension.key}</strong>
-                            <b>{dimension.score}</b>
-                          </div>
-                          <p>{dimension.finding}</p>
-                          <small>{dimension.suggestion}</small>
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="script-review-empty">
-                    {Object.values(REVIEW_LABELS).map((label) => (
-                      <span key={label}>{label}</span>
-                    ))}
-                  </div>
-                )}
               </aside>
             )}
           </div>
@@ -529,6 +609,14 @@ export function ScriptPage({
             onRefresh={() => void suggestAssetsForScript(script)}
             onInspect={openSuggestedAssetEditor}
           />
+
+          {enrichWarnings.length > 0 && (
+            <div className="script-enrich-warnings" role="status">
+              {enrichWarnings.slice(0, 3).map((warning) => (
+                <span key={warning}>{warning}</span>
+              ))}
+            </div>
+          )}
 
           {error && (
             <p className="operation-error" role="alert">
@@ -565,7 +653,18 @@ export function ScriptPage({
           onClose={() => setSuggestedAssetEditor(null)}
           onSave={async (input) => {
             const created = await onCreateAsset(input)
-            setCreatedAssetKeys((current) => new Set(current).add(suggestedAssetEditor.suggestionKey))
+            setCreatedAssetKeys((current) => {
+              const next = new Set(current).add(suggestedAssetEditor.suggestionKey)
+              saveScriptAssetSuggestionsCache(
+                project.id,
+                script,
+                direction,
+                textModel,
+                assetSuggestionResult,
+                next,
+              )
+              return next
+            })
             setSuggestedAssetEditor(null)
             return created
           }}

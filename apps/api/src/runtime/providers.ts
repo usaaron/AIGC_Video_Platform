@@ -1,5 +1,4 @@
 import type { AppConfig } from '../config.js'
-import { AideosSeedanceProvider } from '../core/generation/aideosSeedanceProvider.js'
 import type { AssetLibraryProvider } from '../core/generation/volcArkAssetLibraryProvider.js'
 import { VolcArkAssetLibraryProvider } from '../core/generation/volcArkAssetLibraryProvider.js'
 import { DeepSeekTextProvider } from '../core/generation/deepSeekTextProvider.js'
@@ -28,17 +27,6 @@ export function createVideoProvider(config: AppConfig): VideoGenerationProvider 
       requestTimeoutMs: config.STRINGX_REQUEST_TIMEOUT_MS,
     })
   }
-  if (config.VIDEO_PROVIDER === 'aideos') {
-    if (!config.AIDEOS_API_KEY) return null
-    return new AideosSeedanceProvider({
-      baseUrl: config.AIDEOS_BASE_URL,
-      apiKey: config.AIDEOS_API_KEY,
-      defaultModel: config.AIDEOS_VIDEO_MODEL,
-      requestTimeoutMs: config.AIDEOS_REQUEST_TIMEOUT_MS,
-      ffmpegPath: config.FFMPEG_PATH,
-      lastFrameTimeoutMs: config.FILM_PREVIEW_TIMEOUT_MS,
-    })
-  }
   if (!config.ARK_API_KEY) return null
   return new VolcArkSeedanceProvider({
     baseUrl: config.ARK_API_BASE_URL,
@@ -50,7 +38,7 @@ export function createVideoProvider(config: AppConfig): VideoGenerationProvider 
 
 export function videoProviderName(config: AppConfig): VideoProviderName {
   if (config.VIDEO_PROVIDER === 'stringx') return 'stringx-seedance'
-  return config.VIDEO_PROVIDER === 'aideos' ? 'aideos-seedance' : 'volc-ark-seedance'
+  return 'volc-ark-seedance'
 }
 
 export function createImageProvider(config: AppConfig): ImageGenerationProvider | null {

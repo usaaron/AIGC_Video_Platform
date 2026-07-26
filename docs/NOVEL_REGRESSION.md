@@ -64,7 +64,7 @@ pnpm.cmd regression:novel:biancheng:live -- --chunks=4
 
 说明：
 
-- 真实模式会读取 `apps/api/.env` 中的 `DEEPSEEK_API_KEY`（或复用 `STRINGX_API_KEY`）、`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL` 和 `TEXT_MODEL`；默认 `TEXT_MODEL=deepseekV3`。
+- 真实模式会读取 `apps/api/.env` 中的 `TEXT_MODEL` 并按模型选择对应 Provider；默认 `TEXT_MODEL=gpt-5.6`。GPT 模型需要 `TOKENADVENT_API_KEY`，DeepSeek V3 需要 `DEEPSEEK_API_KEY`（或复用 `STRINGX_API_KEY`）、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL`。
 - `--chunks` 限制为 2-4，默认 4，只摘要前几个分块。
 - 真实模式不生成全书故事概要，只检查前 2-4 个摘要是否足够支撑“局部/第一篇章的大纲多方案生成”。
 - 可用 `--path=...`、`--target=3000`、`--overlap=300` 覆盖样本路径和切分参数。

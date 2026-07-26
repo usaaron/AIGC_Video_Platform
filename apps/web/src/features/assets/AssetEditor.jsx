@@ -596,7 +596,11 @@ function SourceSuggestionPanel({
 
 function mergeSuggestionIntoDraft(draft, suggestion, kind, mode) {
   const promptPatch = suggestion.prompt
-    ? { promptMode: 'advanced', customPromptMode: 'replace', customPrompt: suggestion.prompt }
+    ? {
+        promptMode: 'advanced',
+        customPromptMode: kind === 'character' ? 'append' : 'replace',
+        customPrompt: suggestion.prompt,
+      }
     : {}
   if (mode === 'prompt') {
     return {
@@ -623,13 +627,18 @@ function mergeSuggestionIntoDraft(draft, suggestion, kind, mode) {
 function buildEditorSuggestionFacts(suggestion) {
   const attributes = suggestion.attributes || {}
   if (suggestion.kind === 'character') {
+    if (attributes.subjectType === 'animal') {
+      return [
+        { label: '类型', value: '动物角色' },
+        { label: '物种', value: attributes.species || suggestion.name || '未指定' },
+        { label: '形态', value: attributes.anthropomorphic ? '拟人化' : '自然动物' },
+        { label: '身份', value: suggestion.description || suggestion.reason || '未补充' },
+      ]
+    }
     return [
       {
         label: '性别',
-        value:
-          attributes.subjectType === 'animal'
-            ? '动物'
-            : optionLabel('gender', attributes.gender || 'unspecified'),
+        value: optionLabel('gender', attributes.gender || 'unspecified'),
       },
       { label: '年龄段', value: optionLabel('ageGroup', attributes.ageGroup || 'young') },
       { label: '精确年龄', value: attributes.exactAge ? String(attributes.exactAge) : '未指定' },

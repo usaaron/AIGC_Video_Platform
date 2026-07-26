@@ -9,9 +9,10 @@
   },
   "scripts": {
     "build:shared": "pnpm --filter @seqora/contracts build && pnpm --filter @seqora/prompting build",
-    "dev": "pnpm build:shared && pnpm --parallel --filter @seqora/api --filter @seqora/web dev",
+    "dev": "node scripts/dev.mjs",
     "dev:web": "pnpm --filter @seqora/web dev",
     "dev:api": "pnpm build:shared && pnpm --filter @seqora/api dev",
+    "dev:worker": "pnpm build:shared && pnpm --filter @seqora/api dev:worker",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",

@@ -48,10 +48,6 @@ const testConfig: AppConfig = {
   STRINGX_SEEDANCE_FAST_MODEL: 'doubao-seedance-2-0-260128',
   STRINGX_SEEDANCE_PRO_MODEL: 'doubao-seedance-2-0-260128',
   STRINGX_REQUEST_TIMEOUT_MS: 30_000,
-  AIDEOS_BASE_URL: 'https://aideos.openrouter.icu',
-  AIDEOS_API_KEY: '',
-  AIDEOS_VIDEO_MODEL: 'doubao-seedance-2-0-260128',
-  AIDEOS_REQUEST_TIMEOUT_MS: 30_000,
   VIDEO_POLL_INTERVAL_MS: 5_000,
   ARK_API_BASE_URL: 'https://ark.cn-beijing.volces.com/api/v3',
   ARK_API_KEY: '',
@@ -74,7 +70,7 @@ const testConfig: AppConfig = {
   TOKENADVENT_API_KEY: '',
   IMG2_MODEL: 'gpt-image-2',
   IMG2_QUALITY: 'low',
-  TEXT_MODEL: 'deepseekV3',
+  TEXT_MODEL: 'gpt-5.6',
   TOKENADVENT_REQUEST_TIMEOUT_MS: 180_000,
 }
 
@@ -147,21 +143,6 @@ describe('API authorization', () => {
     })
   })
 
-  it('keeps Aideos available as an explicit fallback provider', async () => {
-    app = await buildApp({
-      config: { ...testConfig, VIDEO_PROVIDER: 'aideos', AIDEOS_API_KEY: 'test-aideos-token' },
-      startWorker: false,
-    })
-
-    const response = await app.inject({ method: 'GET', url: '/api/v1/health' })
-
-    expect(response.statusCode).toBe(200)
-    expect(response.json()).toMatchObject({
-      providers: { seedance: 'configured' },
-      providerNames: { seedance: 'aideos-seedance' },
-    })
-  })
-
   it('configures StringX as the default Seedance provider', async () => {
     app = await buildApp({
       config: { ...testConfig, STRINGX_API_KEY: 'test-stringx-token' },
@@ -173,7 +154,7 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({
       providers: { seedance: 'configured' },
-      providerNames: { seedance: 'stringx-seedance' },
+      providerNames: { seedance: 'stringx-seedance', img2: 'local-mock' },
     })
   })
 
@@ -284,7 +265,7 @@ describe('API authorization', () => {
     expect(accepted.statusCode).toBe(202)
   })
 
-  it('rejects StringX MaaS portraits on Aideos before charging', async () => {
+  it('rejects StringX MaaS portraits on VolcArk before charging', async () => {
     const assetLibraryProvider: AssetLibraryProvider = {
       createVirtualGroup: async () => 'group-aigc-1',
       createVirtualAsset: async () => portrait('AIGC'),
@@ -293,7 +274,7 @@ describe('API authorization', () => {
       listAuthorizedPortraits: async () => [portrait('LivenessFace')],
     }
     app = await buildApp({
-      config: { ...testConfig, VIDEO_PROVIDER: 'aideos', AIDEOS_API_KEY: 'third-party-token' },
+      config: { ...testConfig, VIDEO_PROVIDER: 'volc-ark', ARK_API_KEY: 'official-ark-token' },
       assetLibraryProvider,
       startWorker: false,
     })
@@ -936,6 +917,147 @@ describe('API authorization', () => {
       userPrompt: expect.stringContaining('已有资产'),
       maxOutputTokens: 6_000,
     })
+  })
+
+  it('normalizes usable script asset JSON instead of falling back when optional provider fields are missing', async () => {
+    const generate = vi.fn(async () =>
+      JSON.stringify({
+        summary: '建议围绕翠翠、渡口和渡船建立核心资产。',
+        assets: [
+          {
+            kind: 'character',
+            name: '十三岁的翠翠',
+            priority: '5',
+            attributes: {
+              gender: 'female',
+              ageGroup: 'teen',
+              visualStyle: 'cinematic-cg',
+            },
+          },
+          {
+            kind: 'scene',
+            name: '茶峒渡口',
+            description: '翠翠与老船夫生活的核心外景。',
+            prompt: '湘西茶峒渡口空场景，溪水、白塔、渡船和岸边木屋。',
+            reason: '渡口会在多个镜头复用。',
+            priority: 4,
+            attributes: {
+              space: 'exterior',
+              sceneType: 'nature',
+              era: 'recent',
+              visualStyle: 'cinematic-cg',
+            },
+          },
+          {
+            kind: 'prop',
+            name: '渡船',
+            description: '老船夫摆渡使用的小船。',
+            prompt: '旧木渡船道具，木纹清晰，正面展示。',
+            reason: '渡船是场景行动核心物件。',
+            attributes: {
+              category: 'vehicle',
+              material: 'wood',
+            },
+          },
+          {
+            kind: 'costume',
+            name: '翠翠日常衣装',
+            description: '翠翠在渡口生活的朴素日常服装。',
+            prompt: '十三岁湘西少女朴素日常衣装，布料自然，完整平铺展示。',
+            reason: '角色造型需要跨镜头保持一致。',
+            attributes: {
+              audience: 'female',
+              category: 'daily',
+              design: 'chinese',
+            },
+          },
+        ],
+      }),
+    )
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers,
+      payload: {
+        script:
+          '场次：1｜剧情：茶峒渡口的日常生活。｜场景：茶峒渡口｜角色：十三岁的翠翠、老船夫｜动作：翠翠坐在渡船旁望向溪水。｜关键道具：渡船｜服装：翠翠日常衣装',
+        direction: {
+          style: 'cinematic-cg',
+          composition: 'rule-of-thirds',
+          lighting: 'natural-soft',
+          camera: 'restrained',
+          focus: 'character',
+        },
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      summary: expect.stringContaining('翠翠'),
+      warnings: [],
+    })
+    expect(response.json().assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'character',
+          name: '十三岁的翠翠',
+          prompt: expect.stringContaining('十三岁的翠翠'),
+          priority: 5,
+          attributes: expect.objectContaining({
+            type: 'character',
+            subjectType: 'human',
+            gender: 'female',
+            ageGroup: 'teen',
+            exactAge: 13,
+            faceReference: null,
+            trustedPortrait: null,
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'scene',
+          name: '茶峒渡口',
+          attributes: expect.objectContaining({
+            type: 'scene',
+            space: 'exterior',
+            sceneType: 'nature',
+            emptyScene: true,
+            activitySpace: true,
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'prop',
+          name: '渡船',
+          attributes: expect.objectContaining({
+            type: 'prop',
+            category: 'vehicle',
+            material: 'wood',
+            condition: 'used',
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'costume',
+          name: '翠翠日常衣装',
+          attributes: expect.objectContaining({
+            type: 'costume',
+            audience: 'female',
+            season: 'all-season',
+            turnaround: false,
+          }),
+        }),
+      ]),
+    )
+    expect(generate).toHaveBeenCalledOnce()
   })
 
   it('falls back to readable character suggestions when the script asset provider returns invalid JSON', async () => {
@@ -2101,8 +2223,42 @@ describe('API authorization', () => {
       attributes: {
         gender: 'male',
         ageGroup: 'senior',
+        exactAge: 70,
         subjectType: 'human',
         framing: 'full',
+      },
+    })
+    const cuicui = response
+      .json()
+      .assets.find(
+        (asset: { kind: string; name: string }) => asset.kind === 'character' && asset.name === '翠翠',
+      )
+    expect(cuicui).toMatchObject({
+      kind: 'character',
+      description: expect.stringContaining('女性'),
+      prompt: expect.stringContaining('湘西少女'),
+      attributes: {
+        gender: 'female',
+        ageGroup: 'teen',
+        exactAge: 13,
+        subjectType: 'human',
+      },
+    })
+    const yellowDog = response
+      .json()
+      .assets.find(
+        (asset: { kind: string; name: string }) => asset.kind === 'character' && asset.name === '黄狗',
+      )
+    expect(yellowDog).toMatchObject({
+      kind: 'character',
+      description: expect.stringContaining('动物角色'),
+      prompt: expect.stringContaining('黄狗/家犬'),
+      attributes: {
+        gender: 'unspecified',
+        ageGroup: 'young',
+        exactAge: null,
+        subjectType: 'animal',
+        species: '黄狗',
       },
     })
     expect(
@@ -2415,19 +2571,10 @@ describe('API authorization', () => {
     const quickScript =
       '场次：1｜剧情：主角找到线索。｜场景：雨夜车站。｜角色：林夏。｜动作：打开铁盒。｜对白：找到了。'
     const detailedScript = `${quickScript}｜风格：电影 CG｜构图：三分法｜光影：低调光｜运镜：缓慢推进｜衔接：动作匹配`
-    const review = JSON.stringify({
-      score: 84,
-      verdict: '故事目标清楚，镜头衔接仍可加强。',
-      dimensions: ['plot', 'character', 'dialogue', 'style', 'composition', 'lighting', 'camera'].map(
-        (key) => ({ key, score: 84, finding: `${key} 检查结果`, suggestion: `${key} 修改建议` }),
-      ),
-      priorityActions: ['强化动作衔接'],
-    })
     const generate = vi
       .fn()
       .mockResolvedValueOnce(quickScript)
       .mockResolvedValueOnce(detailedScript)
-      .mockResolvedValueOnce(review)
       .mockRejectedValueOnce(new TextGenerationProviderError('上游暂时不可用'))
     app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
     const headers = {
@@ -2461,22 +2608,6 @@ describe('API authorization', () => {
     })
     expect(enriched.statusCode, enriched.body).toBe(200)
 
-    const upgraded = await app.inject({
-      method: 'PUT',
-      url: '/api/v1/billing/plan',
-      headers,
-      payload: { plan: 'member' },
-    })
-    expect(upgraded.statusCode, upgraded.body).toBe(200)
-
-    const reviewed = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/review',
-      headers,
-      payload: { clientRequestId: 'script-credit-review', script: detailedScript },
-    })
-    expect(reviewed.statusCode, reviewed.body).toBe(200)
-
     const failed = await app.inject({
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/script/generate',
@@ -2488,27 +2619,26 @@ describe('API authorization', () => {
     const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(billing.statusCode).toBe(200)
     expect(billing.json()).toMatchObject({
-      plan: 'member',
-      credits: 775,
-      concurrency: 3,
+      plan: 'free',
+      credits: 278,
+      concurrency: 1,
       planSelfServiceEnabled: true,
       monthlyUsage: {
-        consumedCredits: 14,
+        consumedCredits: 11,
         refundedCredits: 3,
-        netCredits: 11,
-        generationCount: 4,
-        includedCredits: 500,
+        netCredits: 8,
+        generationCount: 3,
+        includedCredits: 0,
       },
     })
     expect(billing.json().entries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'generation-script-generate-script-credit-generate', amount: -3 }),
         expect.objectContaining({ id: 'generation-script-enrich-script-credit-enrich', amount: -5 }),
-        expect.objectContaining({ id: 'generation-script-review-script-credit-review', amount: -3 }),
         expect.objectContaining({ id: 'refund-script-generate-script-credit-refund', amount: 3 }),
       ]),
     )
-    expect(generate).toHaveBeenCalledTimes(4)
+    expect(generate).toHaveBeenCalledTimes(3)
   })
 
   it('does not call the text provider when script credits are insufficient', async () => {
@@ -2569,55 +2699,6 @@ describe('API authorization', () => {
     expect(blocked.json()).toMatchObject({ error: { code: 'PLAN_CHANGE_REQUIRES_ADMIN' } })
     const productionSummary = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(productionSummary.json()).toMatchObject({ planSelfServiceEnabled: false })
-  })
-
-  it('requires membership for a structured professional script review', async () => {
-    const generate = vi.fn(async () =>
-      JSON.stringify({
-        score: 82,
-        verdict: '剧情目标清楚，但中段视觉转折不足。',
-        dimensions: ['plot', 'character', 'dialogue', 'style', 'composition', 'lighting', 'camera'].map(
-          (key) => ({ key, score: 82, finding: `${key}检查结果`, suggestion: `${key}修改建议` }),
-        ),
-        priorityActions: ['强化中段反转', '明确主角动作目标'],
-      }),
-    )
-    app = await buildApp({
-      config: testConfig,
-      textProvider: { generate },
-      startWorker: false,
-    })
-    const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
-      'x-demo-tenant-id': 'tenant-seqora-demo',
-    }
-    const payload = { script: '场景：雨夜车站\n角色：林夏\n动作：她走入站台。' }
-
-    const freeReview = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/review',
-      headers,
-      payload,
-    })
-    expect(freeReview.statusCode).toBe(403)
-    expect(freeReview.json()).toMatchObject({ error: { code: 'MEMBERSHIP_REQUIRED' } })
-    expect(generate).not.toHaveBeenCalled()
-
-    await app.inject({ method: 'PUT', url: '/api/v1/billing/plan', headers, payload: { plan: 'member' } })
-    const memberReview = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/review',
-      headers,
-      payload,
-    })
-    expect(memberReview.statusCode).toBe(200)
-    expect(memberReview.json()).toMatchObject({
-      score: 82,
-      verdict: expect.stringContaining('视觉转折'),
-      dimensions: expect.arrayContaining([expect.objectContaining({ key: 'camera' })]),
-      generatedAt: expect.any(String),
-    })
   })
 
   it('splits the script into at most eight predictable shots without calling the text provider', async () => {
@@ -3827,7 +3908,11 @@ function bianchengChapterSummariesJson(): string {
         title: '第一章 茶峒渡口',
         summary: '翠翠和老船夫守着茶峒溪边渡口，渡船、白塔和河岸生活构成故事的核心环境。',
         keyEvents: ['翠翠随祖父在渡口生活', '老船夫负责摆渡往来行人'],
-        characters: ['老船夫：男性，老年，翠翠的祖父，茶峒渡口船夫/摆渡人', '翠翠：少女，老船夫的外孙女'],
+        characters: [
+          '老船夫：男性，七十岁，翠翠的祖父，茶峒渡口船夫/摆渡人',
+          '翠翠：女性，十三岁少女，老船夫的外孙女',
+          '黄狗：陪伴老船夫和翠翠的家犬，会协助牵船拖绳',
+        ],
         locations: ['茶峒渡口：溪边渡船停靠处，连接两岸日常往来', '白塔：渡口附近的重要地标'],
         timeline: ['近代湘西边城日常生活开端'],
         keyProps: ['渡船：老船夫日常摆渡的核心工具', '白塔：反复出现的地标'],
@@ -3840,7 +3925,10 @@ function bianchengChapterSummariesJson(): string {
         title: '第二章 端午相遇',
         summary: '端午节热闹人群中，翠翠与青年相遇，河边风俗和地方节庆推动人物关系。',
         keyEvents: ['端午节人群聚集', '翠翠在河边与青年相遇'],
-        characters: ['翠翠：少女，纯净羞涩，依恋祖父', '老船夫：男性，老年，关心翠翠未来的摆渡老人'],
+        characters: [
+          '翠翠：女性，十三岁少女，纯净羞涩，依恋祖父',
+          '老船夫：男性，七十岁，关心翠翠未来的摆渡老人',
+        ],
         locations: ['茶峒河岸：节庆人群和船只聚集处'],
         timeline: ['端午节，人物关系开始发生变化'],
         keyProps: ['渡船：连接节庆动线和日常摆渡'],

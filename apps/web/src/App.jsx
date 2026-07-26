@@ -380,13 +380,6 @@ function App() {
             await refreshWorkspace()
             setToast('剧本已保存')
           }}
-          onReview={async (script, direction, model) => {
-            try {
-              return await api.reviewScript(project.id, script, direction, undefined, model)
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
-          }}
           onImportNovel={async (input) => {
             const result = await api.importNovel(project.id, input)
             setProjects(await api.projects())
@@ -418,11 +411,6 @@ function App() {
               await refreshBilling().catch(() => {})
             }
           }}
-          onSuggestNovelAssets={async (documentId, input) => {
-            const result = await api.suggestNovelAssets(project.id, documentId, input)
-            setToast('小说资产建议已生成')
-            return result
-          }}
           onGenerateNovelChapterAdaptation={async (documentId, input) => {
             try {
               const result = await api.generateNovelChapterAdaptation(project.id, documentId, input)
@@ -432,9 +420,28 @@ function App() {
               await refreshBilling().catch(() => {})
             }
           }}
+          onSuggestNovelAssets={async (documentId, input) => {
+            try {
+              const result = await api.suggestNovelAssets(project.id, documentId, input)
+              setToast('小说资产建议已生成')
+              return result
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
           onSuggestAssets={(script, direction, model) =>
             api.suggestScriptAssets(project.id, script, direction, undefined, model)
           }
+          onEnrich={async (script, direction, model) => {
+            try {
+              const result = await api.enrichScript(project.id, script, direction, undefined, model)
+              await refreshWorkspace()
+              setToast('AI 扩写已写入剧本')
+              return result
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
           onCreateAsset={async (input) => {
             const created = await api.createAsset(project.id, input)
             await refreshWorkspace()
@@ -458,7 +465,6 @@ function App() {
             setToast(`已创建 ${result.createdAssets.length} 项尝鲜资产`)
             return result
           }}
-          onUpgrade={() => navigateTo('billing')}
           onNext={() => navigateTo('assets')}
         />
       ),

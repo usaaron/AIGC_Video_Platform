@@ -113,8 +113,10 @@ async function runRegression(options: CliOptions): Promise<RegressionReport> {
     UPLOAD_DIR: resolve('./data/novel-biancheng-regression'),
     MAX_UPLOAD_BYTES: '10485760',
   })
-  if (options.mode === 'live' && !config.DEEPSEEK_API_KEY) {
-    throw new Error('Live provider mode requires DEEPSEEK_API_KEY or STRINGX_API_KEY in apps/api/.env')
+  if (options.mode === 'live' && !hasConfiguredLiveTextProvider(config.TEXT_MODEL, config)) {
+    throw new Error(
+      'Live provider mode requires TOKENADVENT_API_KEY for GPT models, or DEEPSEEK_API_KEY/STRINGX_API_KEY for DeepSeek models in apps/api/.env',
+    )
   }
 
   const app = await buildApp({
@@ -359,6 +361,16 @@ function parseCliOptions(args: string[], environment: NodeJS.ProcessEnv): CliOpt
   )
   if (overlapChars >= targetChars) throw new Error('overlap 必须小于 target')
   return { mode, path, chunks, targetChars, overlapChars }
+}
+
+function hasConfiguredLiveTextProvider(
+  model: string,
+  config: { TOKENADVENT_API_KEY: string; DEEPSEEK_API_KEY: string },
+): boolean {
+  const normalizedModel = model.trim().toLowerCase()
+  if (normalizedModel.startsWith('gpt-')) return Boolean(config.TOKENADVENT_API_KEY)
+  if (normalizedModel.startsWith('deepseek')) return Boolean(config.DEEPSEEK_API_KEY)
+  return false
 }
 
 function valueAfter(args: string[], prefix: string): string | undefined {

@@ -64,6 +64,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly leaseTtlMs: number
   private readonly leaseOwnerId: string
   private readonly onVideoCompleted: ((task: GenerationTask) => Promise<void>) | null
+  private readonly activeExecutions = new Set<string>()
 
   constructor(
     private readonly store: AppStore,
@@ -121,16 +122,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const remoteTasks = await this.claimQueuedTasks()
 
     await this.refundTerminalTasks()
-    await Promise.all(
-      remoteTasks.video.map(async (task) => {
-        await this.submitRemoteVideo(task)
-      }),
-    )
-    await Promise.all(
-      remoteTasks.image.map(async (task) => {
-        await this.generateRemoteImage(task)
-      }),
-    )
+    this.scheduleRemoteExecutions(remoteTasks.video, (task) => this.submitRemoteVideo(task))
+    this.scheduleRemoteExecutions(remoteTasks.image, (task) => this.generateRemoteImage(task))
 
     await this.store.mutate((state) => {
       const now = new Date().toISOString()
@@ -415,6 +408,50 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const existingProviderName = stringValue(task.metadata.providerName, '')
     if (!providerName) return existingProviderName.length === 0
     return existingProviderName.length === 0 || existingProviderName === providerName
+  }
+
+  private scheduleRemoteExecutions(
+    tasks: GenerationTask[],
+    execute: (task: GenerationTask) => Promise<void>,
+  ): void {
+    for (const task of tasks) {
+      if (this.activeExecutions.has(task.id)) continue
+      this.activeExecutions.add(task.id)
+      void this.runRemoteExecution(task, execute).finally(() => {
+        this.activeExecutions.delete(task.id)
+      })
+    }
+  }
+
+  private async runRemoteExecution(
+    task: GenerationTask,
+    execute: (task: GenerationTask) => Promise<void>,
+  ): Promise<void> {
+    const leaseToken = stringValue(task.leaseToken, '')
+    if (!leaseToken) return
+    const stopHeartbeat = this.startLeaseHeartbeat(task.id, leaseToken)
+    try {
+      await execute(task)
+    } finally {
+      stopHeartbeat()
+    }
+  }
+
+  private startLeaseHeartbeat(taskId: string, leaseToken: string): () => void {
+    const intervalMs = Math.max(1_000, Math.floor(this.leaseTtlMs / 3))
+    const heartbeat = () => {
+      void this.store.mutate((state) => {
+        const stored = state.tasks.find((item) => item.id === taskId)
+        if (!stored || stored.status !== 'running') return
+        if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
+        const now = new Date()
+        renewGenerationTaskLease(stored, this.leaseOwnerId, leaseToken, this.leaseTtlMs, now)
+        stored.updatedAt = now.toISOString()
+      })
+    }
+    const timer = setInterval(heartbeat, intervalMs)
+    timer.unref?.()
+    return () => clearInterval(timer)
   }
 
   private isRemoteVideoTask(task: GenerationTask): boolean {
@@ -840,6 +877,14 @@ export class GenerationTaskRunner implements TaskDispatcher {
       task.status = 'failed'
       task.progress = 100
       task.error = error.slice(0, 1_000)
+      if (isRemoteProviderName(task.metadata.providerName)) {
+        task.metadata = {
+          ...task.metadata,
+          providerState: 'failed',
+          providerError: task.error,
+          providerFailedAt: now,
+        }
+      }
       releaseGenerationTaskLease(task)
       task.updatedAt = now
     })
@@ -959,7 +1004,18 @@ function videoResolution(value: unknown): string {
 }
 
 function messageFor(error: unknown): string {
+  if (error instanceof Error && isTimeoutError(error)) {
+    return '第三方生成请求超时：上游没有在限定时间内返回结果，本次任务没有生成成功；请稍后重试，或降低质量/减少参考图后再试'
+  }
   return error instanceof Error ? error.message : '第三方生成请求失败'
+}
+
+function isTimeoutError(error: Error): boolean {
+  return (
+    error.name === 'AbortError' ||
+    error.name === 'TimeoutError' ||
+    /aborted due to timeout|timed out|timeout/i.test(error.message)
+  )
 }
 
 function canRefundTask(task: GenerationTask, ledgerIds: string[]): boolean {
@@ -989,7 +1045,7 @@ function isRemoteProviderName(value: unknown): boolean {
 }
 
 function isVideoProviderName(value: unknown): boolean {
-  return value === 'stringx-seedance' || value === 'volc-ark-seedance' || value === 'aideos-seedance'
+  return value === 'stringx-seedance' || value === 'volc-ark-seedance'
 }
 
 function dependencyState(task: GenerationTask, userTasks: GenerationTask[]): 'ready' | 'waiting' | 'failed' {

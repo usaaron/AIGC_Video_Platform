@@ -4,6 +4,6 @@ export type TokenAdventTextOptions = Omit<OpenAIChatTextOptions, 'providerLabel'
 
 export class TokenAdventTextProvider extends OpenAIChatTextProvider {
   constructor(options: TokenAdventTextOptions) {
-    super({ ...options, providerLabel: 'TokenAdvent GPT text' })
+    super({ ...options, providerLabel: '序幕-SEQORA 文本服务' })
   }
 }

@@ -189,6 +189,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     },
     providerNames: {
       seedance: videoProvider ? videoProviderName(options.config) : 'local-mock',
+      img2: imageProvider ? 'tokenadvent-img2' : 'local-mock',
       text: textProvider ? textProviderName(options.config) : 'unavailable',
       assetLibrary: assetLibraryProvider ? 'stringx-maas' : 'unavailable',
     },

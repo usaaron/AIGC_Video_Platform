@@ -55,7 +55,7 @@ chmod 600 deploy/demo.env
 - 生产启动会强制检查当前视频 Provider 密钥、DeepSeek 文本密钥和 TokenAdvent GPT Image 2 密钥，缺少时直接停止，不允许静默使用 Mock 结果。
 - 要测试可信人像，再填写弦序 MaaS 素材库专用 `VOLC_ACCESS_KEY`、`VOLC_SECRET_KEY` 和与 StringX Token 同租户、同项目的 `VOLC_ARK_PROJECT_NAME`。StringX Bearer Token 不能代替素材库 AK/SK。
 - 可选填写 `ASSET_LIBRARY_CONSOLE_URL`，人物编辑器会跳转到弦序私域素材库；不再硬编码火山控制台地址。
-- `AIDEOS_*` 和 `ARK_API_*` 只用于显式回滚，默认全弦序链路不读取这些变量。
+- `ARK_API_*` 只用于官方火山回滚，默认全弦序链路不读取这些变量。
 - 不要把 `deploy/demo.env`、服务账号 JSON 或任何 Key 提交到 Git。
 
 启动前先检查最终配置，再构建并启动：

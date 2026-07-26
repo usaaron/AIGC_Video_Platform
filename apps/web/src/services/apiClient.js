@@ -134,11 +134,6 @@ export const api = {
       `/projects/${id}/script/enrich`,
       json('POST', { clientRequestId, script, direction, ...(model ? { model } : {}) }),
     ),
-  reviewScript: (id, script, direction, clientRequestId = crypto.randomUUID(), model) =>
-    request(
-      `/projects/${id}/script/review`,
-      json('POST', { clientRequestId, script, direction, ...(model ? { model } : {}) }),
-    ),
   planQuickStart: (id, model) =>
     request(`/projects/${id}/quick-start/plan`, json('POST', model ? { model } : {})),
   executeQuickStart: (id, input) => request(`/projects/${id}/quick-start/execute`, json('POST', input)),

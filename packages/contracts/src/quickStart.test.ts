@@ -58,8 +58,8 @@ describe('quick start contracts', () => {
     ).toBe(false)
   })
 
-  it('defaults quick start planning to deepseekV3 but accepts GPT selection', () => {
-    expect(quickStartPlanRequestSchema.parse({})).toEqual({ model: 'deepseekV3' })
+  it('defaults quick start planning to GPT 5.6 but still accepts GPT selection', () => {
+    expect(quickStartPlanRequestSchema.parse({})).toEqual({ model: 'gpt-5.6' })
     expect(quickStartPlanRequestSchema.parse({ model: 'gpt-5.6' })).toEqual({ model: 'gpt-5.6' })
   })
 })

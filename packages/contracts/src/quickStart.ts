@@ -49,7 +49,7 @@ export const quickStartPlanSchema = z.object({
 })
 
 export const quickStartPlanRequestSchema = z.object({
-  model: textModelSchema.default('deepseekV3'),
+  model: textModelSchema.default('gpt-5.6'),
 })
 
 export const executeQuickStartRequestSchema = z.object({

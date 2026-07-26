@@ -12,11 +12,7 @@ import type {
   UpdateProject,
   UpdateShot,
 } from '@seqora/contracts'
-import {
-  SCRIPT_OPERATION_CREDITS,
-  scriptAssetSuggestionsContentSchema,
-  scriptReviewContentSchema,
-} from '@seqora/contracts'
+import { SCRIPT_OPERATION_CREDITS, scriptAssetSuggestionsContentSchema } from '@seqora/contracts'
 import { z } from 'zod'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
@@ -82,7 +78,12 @@ export class ProjectService {
           maxOutputTokens: SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS,
           model,
         })
-        result = parseProviderJson(response, scriptAssetSuggestionsContentSchema, '资产建议结果格式错误')
+        result = parseProviderJson(
+          response,
+          scriptAssetSuggestionsContentSchema,
+          '资产建议结果格式错误',
+          (value) => normalizeScriptAssetSuggestionsContent(value, source, direction),
+        )
       } catch {
         warnings = ['文本服务返回格式异常，已根据剧本文本做基础资产建议']
         result = fallbackAssetSuggestions(source, direction)
@@ -203,41 +204,6 @@ export class ProjectService {
         const updated = await this.repository.update(projectId, { script: enriched }, principal)
         if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
         return { script: updated.script, mode: 'detailed' as const, warnings }
-      },
-    )
-  }
-
-  async reviewScript(
-    projectId: string,
-    script: string,
-    direction: ScriptCreativeDirection,
-    clientRequestId: string,
-    principal: Principal,
-    model?: string,
-  ) {
-    const workspace = this.workspace(projectId, principal)
-    if (this.repository.planFor(principal) !== 'member') {
-      throw new AppError(403, 'MEMBERSHIP_REQUIRED', '专业剧本审核仅对创作会员开放')
-    }
-    if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
-    const source = script.trim() || workspace.project.script.trim()
-    if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本后再进行专业审核')
-
-    return this.runBillableScriptOperation(
-      principal,
-      `script-review-${clientRequestId}`,
-      SCRIPT_OPERATION_CREDITS.review,
-      '专业审核剧本',
-      async () => {
-        const response = await this.textProvider!.generate({
-          systemPrompt:
-            '你是漫剧公司的编导总监、摄影指导和剪辑指导。请只返回严格 JSON，不要 Markdown，不要代码块。必须包含 score（0到100整数）、verdict、dimensions、priorityActions。dimensions 必须覆盖 plot、character、dialogue、style、composition、lighting、camera，每项包含 key、score、finding、suggestion。评价要具体到可执行的剧本修改和画面执行，不要泛泛而谈。',
-          userPrompt: `项目：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n画面比例：${workspace.project.aspectRatio}\n创作方向：${directionSummary(direction)}\n\n待审核剧本：\n${source}`,
-          maxOutputTokens: 4_000,
-          model,
-        })
-        const review = parseProviderJson(response, scriptReviewContentSchema, '专业审核结果格式错误')
-        return { ...review, generatedAt: new Date().toISOString() }
       },
     )
   }
@@ -409,6 +375,240 @@ const SCRIPT_ASSET_FIELD_BOUNDARIES = [
   '外观',
 ]
 const SCRIPT_ASSET_STOP_WORDS = new Set(SCRIPT_ASSET_FIELD_BOUNDARIES)
+const SCRIPT_ASSET_KINDS = ['character', 'scene', 'prop', 'costume'] as const
+const VISUAL_STYLE_VALUES = [
+  'photorealistic',
+  'cinematic-cg',
+  'chinese-3d',
+  'chinese-2d',
+  'anime',
+  'storybook',
+] as const
+const CHARACTER_SUBJECT_TYPES = ['human', 'animal'] as const
+const CHARACTER_GENDERS = ['male', 'female', 'unspecified'] as const
+const CHARACTER_AGE_GROUPS = ['child', 'teen', 'young', 'middle', 'senior'] as const
+const CHARACTER_FRAMINGS = ['portrait', 'half', 'full'] as const
+const CHARACTER_BODY_TYPES = ['slim', 'balanced', 'athletic', 'full'] as const
+const ASSET_BACKGROUNDS = ['solid', 'transparent', 'environment'] as const
+const CHARACTER_STATUSES = ['pending', 'approved'] as const
+const PORTRAIT_SOURCES = ['ai-virtual', 'authorized-real'] as const
+const TURNAROUND_LAYOUTS = ['sheet', 'separate'] as const
+const SCENE_SPACES = ['interior', 'exterior'] as const
+const SCENE_TYPES = [
+  'city',
+  'street',
+  'residential',
+  'commercial',
+  'nature',
+  'ancient',
+  'industrial',
+  'fantasy',
+] as const
+const SCENE_ERAS = ['ancient', 'recent', 'modern', 'future'] as const
+const SCENE_TIMES = ['dawn', 'day', 'sunset', 'night'] as const
+const SCENE_WEATHERS = ['clear', 'cloudy', 'rain', 'snow', 'fog'] as const
+const SCENE_MOODS = ['warm', 'tense', 'mystery', 'romantic', 'epic', 'desolate'] as const
+const SCENE_CAMERAS = ['eye-level', 'overhead', 'low-angle', 'aerial', 'wide'] as const
+const PROP_CATEGORIES = [
+  'weapon',
+  'vehicle',
+  'furniture',
+  'electronics',
+  'jewelry',
+  'food',
+  'daily',
+  'other',
+] as const
+const PROP_MATERIALS = ['wood', 'metal', 'glass', 'fabric', 'leather', 'ceramic', 'mixed'] as const
+const PROP_CONDITIONS = ['new', 'used', 'aged', 'damaged'] as const
+const PROP_VIEWS = ['front', 'side', 'turnaround'] as const
+const COSTUME_AUDIENCES = ['male', 'female', 'unisex'] as const
+const COSTUME_CATEGORIES = [
+  'daily',
+  'formal',
+  'professional',
+  'uniform',
+  'ancient',
+  'ceremonial',
+  'fantasy',
+  'armor',
+] as const
+const COSTUME_SEASONS = ['spring-summer', 'autumn-winter', 'all-season'] as const
+const COSTUME_DESIGNS = ['minimal', 'luxury', 'retro', 'future', 'chinese'] as const
+const COSTUME_PRESENTATIONS = ['flat', 'model', 'worn'] as const
+
+function normalizeScriptAssetSuggestionsContent(
+  value: unknown,
+  script: string,
+  direction: ScriptCreativeDirection,
+): unknown {
+  if (!isRecord(value)) return value
+  const fallback = fallbackAssetSuggestions(script, direction)
+  const rawAssets = Array.isArray(value.assets) ? value.assets : []
+  const assets = rawAssets
+    .map((asset) => normalizeProviderAssetSuggestion(asset, script, direction))
+    .filter((asset): asset is ScriptAssetSuggestion => asset !== null)
+
+  return {
+    summary: normalizedString(value.summary) || fallback.summary,
+    assets,
+  }
+}
+
+function normalizeProviderAssetSuggestion(
+  value: unknown,
+  script: string,
+  direction: ScriptCreativeDirection,
+): ScriptAssetSuggestion | null {
+  if (!isRecord(value)) return null
+  const kind = pickEnum(value.kind, SCRIPT_ASSET_KINDS, null)
+  const name = normalizedString(value.name)
+  if (!kind || !name) return null
+  const attributes = isRecord(value.attributes) ? value.attributes : {}
+  const visualStyle = pickEnum(attributes.visualStyle, VISUAL_STYLE_VALUES, suggestionVisualStyle(direction))
+  const base = {
+    name,
+    description:
+      normalizedString(value.description) || `从剧本中提取的${scriptAssetKindLabel(kind)}资产：${name}`,
+    prompt: normalizedString(value.prompt) || `${name}，中文 AI 视频资产设定，造型清晰，适合后续多镜头复用。`,
+    negativePrompt: normalizedString(value.negativePrompt),
+    reason: normalizedString(value.reason) || '该元素会影响后续镜头连续性，建议先建立为可复用资产。',
+    priority: normalizedPriority(value.priority),
+  }
+
+  if (kind === 'character') {
+    const subjectType = pickEnum(
+      attributes.subjectType,
+      CHARACTER_SUBJECT_TYPES,
+      inferScriptCharacterSubjectType(name),
+    )
+    const ageGroup = pickEnum(attributes.ageGroup, CHARACTER_AGE_GROUPS, inferScriptCharacterAge(name))
+    return {
+      ...base,
+      kind,
+      attributes: {
+        type: 'character',
+        subjectType,
+        gender: pickEnum(
+          attributes.gender,
+          CHARACTER_GENDERS,
+          subjectType === 'animal' ? 'unspecified' : inferScriptCharacterGender(name),
+        ),
+        ageGroup,
+        exactAge: normalizedExactAge(attributes.exactAge) ?? inferScriptCharacterExactAge(name, script),
+        species: normalizedString(attributes.species) || (subjectType === 'animal' ? name : ''),
+        anthropomorphic: normalizedBoolean(attributes.anthropomorphic, subjectType === 'animal'),
+        visualStyle,
+        framing: pickEnum(attributes.framing, CHARACTER_FRAMINGS, 'full'),
+        bodyType: pickEnum(attributes.bodyType, CHARACTER_BODY_TYPES, 'balanced'),
+        background: pickEnum(attributes.background, ASSET_BACKGROUNDS, 'solid'),
+        faceStatus: pickEnum(attributes.faceStatus, CHARACTER_STATUSES, 'pending'),
+        bodyStatus: pickEnum(attributes.bodyStatus, CHARACTER_STATUSES, 'pending'),
+        faceReference: null,
+        bodyReference: null,
+        portraitSource: pickEnum(attributes.portraitSource, PORTRAIT_SOURCES, 'ai-virtual'),
+        trustedPortrait: null,
+        legStretch: normalizedBoolean(attributes.legStretch, false),
+        turnaround: normalizedBoolean(attributes.turnaround, false),
+        turnaroundLayout: pickEnum(attributes.turnaroundLayout, TURNAROUND_LAYOUTS, 'sheet'),
+      },
+    }
+  }
+
+  if (kind === 'scene') {
+    return {
+      ...base,
+      kind,
+      attributes: {
+        type: 'scene',
+        space: pickEnum(attributes.space, SCENE_SPACES, inferSceneSpace(name)),
+        sceneType: pickEnum(attributes.sceneType, SCENE_TYPES, inferSceneType(name)),
+        era: pickEnum(attributes.era, SCENE_ERAS, inferEra(name)),
+        time: pickEnum(attributes.time, SCENE_TIMES, inferSceneTime(name)),
+        weather: pickEnum(attributes.weather, SCENE_WEATHERS, inferWeather(script)),
+        mood: pickEnum(attributes.mood, SCENE_MOODS, 'mystery'),
+        camera: pickEnum(attributes.camera, SCENE_CAMERAS, 'wide'),
+        visualStyle,
+        emptyScene: normalizedBoolean(attributes.emptyScene, true),
+        activitySpace: normalizedBoolean(attributes.activitySpace, true),
+      },
+    }
+  }
+
+  if (kind === 'prop') {
+    return {
+      ...base,
+      kind,
+      attributes: {
+        type: 'prop',
+        category: pickEnum(attributes.category, PROP_CATEGORIES, inferPropCategory(name)),
+        material: pickEnum(attributes.material, PROP_MATERIALS, inferPropMaterial(name)),
+        condition: pickEnum(attributes.condition, PROP_CONDITIONS, 'used'),
+        view: pickEnum(attributes.view, PROP_VIEWS, 'front'),
+        background: pickEnum(attributes.background, ASSET_BACKGROUNDS, 'solid'),
+        visualStyle,
+      },
+    }
+  }
+
+  return {
+    ...base,
+    kind,
+    attributes: {
+      type: 'costume',
+      audience: pickEnum(attributes.audience, COSTUME_AUDIENCES, 'unisex'),
+      category: pickEnum(attributes.category, COSTUME_CATEGORIES, inferCostumeCategory(name)),
+      season: pickEnum(attributes.season, COSTUME_SEASONS, inferCostumeSeason(name)),
+      design: pickEnum(attributes.design, COSTUME_DESIGNS, inferCostumeDesign(name)),
+      presentation: pickEnum(attributes.presentation, COSTUME_PRESENTATIONS, 'flat'),
+      visualStyle,
+      turnaround: normalizedBoolean(attributes.turnaround, false),
+    },
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function normalizedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizedBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function normalizedPriority(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 5 ? parsed : 3
+}
+
+function normalizedExactAge(value: unknown): number | null | undefined {
+  if (value === null) return null
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 120
+    ? value
+    : undefined
+}
+
+function pickEnum<T extends readonly string[]>(value: unknown, values: T, fallback: T[number]): T[number]
+function pickEnum<T extends readonly string[]>(value: unknown, values: T, fallback: null): T[number] | null
+function pickEnum<T extends readonly string[]>(
+  value: unknown,
+  values: T,
+  fallback: T[number] | null,
+): T[number] | null {
+  return typeof value === 'string' && values.includes(value as T[number]) ? value : fallback
+}
+
+function scriptAssetKindLabel(kind: ScriptAssetSuggestion['kind']): string {
+  return {
+    character: '角色',
+    scene: '场景',
+    prop: '道具',
+    costume: '服装',
+  }[kind]
+}
 
 function normalizeExpandedScript(raw: string): string {
   return raw

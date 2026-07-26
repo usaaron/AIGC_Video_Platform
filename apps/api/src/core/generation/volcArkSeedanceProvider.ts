@@ -5,6 +5,7 @@ import type {
   VideoGenerationProvider,
   VideoGenerationRequest,
   VideoGenerationTier,
+  VideoImageReference,
   VideoGenerationStatus,
   VideoGenerationSubmission,
 } from './videoProvider.js'
@@ -74,11 +75,7 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
         model: this.resolveModel(request.model, request.tier),
         content: [
           { type: 'text', text: effectivePrompt },
-          ...images.slice(0, 9).map((image) => ({
-            type: 'image_url',
-            image_url: { url: image.url },
-            role: image.role,
-          })),
+          ...images.slice(0, 9).map((image) => this.imageContentPart(image)),
         ],
         generate_audio: request.generateAudio,
         clientRequestId: request.taskId,
@@ -93,6 +90,14 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
     })
     const parsed = createTaskResponseSchema.parse(response)
     return { providerTaskId: parsed.id, status: 'queued', progress: 0 }
+  }
+
+  protected imageContentPart(image: VideoImageReference): Record<string, unknown> {
+    return {
+      type: 'image_url',
+      image_url: { url: image.url },
+      role: image.role,
+    }
   }
 
   async getStatus(providerTaskId: string): Promise<VideoGenerationStatus> {

@@ -47,49 +47,14 @@ export const generateScriptRequestSchema = z.object({
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
   mode: z.enum(['quick', 'segment']).default('quick'),
   segment: scriptGenerationSegmentSchema.default({ goal: '', targetMinutes: 5 }),
-  model: textModelSchema.default('deepseekV3'),
+  model: textModelSchema.default('gpt-5.6'),
 })
 
 export const enrichScriptRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().max(100_000).default(''),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
-  model: textModelSchema.default('deepseekV3'),
-})
-
-export const reviewScriptRequestSchema = z.object({
-  clientRequestId: z.string().min(1).max(128).optional(),
-  script: z.string().max(100_000).default(''),
-  direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
-  model: textModelSchema.default('deepseekV3'),
-})
-
-export const scriptReviewDimensionKeySchema = z.enum([
-  'plot',
-  'character',
-  'dialogue',
-  'style',
-  'composition',
-  'lighting',
-  'camera',
-])
-
-export const scriptReviewDimensionSchema = z.object({
-  key: scriptReviewDimensionKeySchema,
-  score: z.number().int().min(0).max(100),
-  finding: z.string().min(1).max(600),
-  suggestion: z.string().min(1).max(800),
-})
-
-export const scriptReviewContentSchema = z.object({
-  score: z.number().int().min(0).max(100),
-  verdict: z.string().min(1).max(1_000),
-  dimensions: z.array(scriptReviewDimensionSchema).min(5).max(7),
-  priorityActions: z.array(z.string().min(1).max(500)).min(1).max(5),
-})
-
-export const scriptReviewResultSchema = scriptReviewContentSchema.extend({
-  generatedAt: z.string().datetime(),
+  model: textModelSchema.default('gpt-5.6'),
 })
 
 export const generateShotsRequestSchema = z.object({
@@ -223,7 +188,7 @@ export const generateScriptAssetSuggestionsRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().trim().min(1).max(100_000),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
-  model: textModelSchema.default('deepseekV3'),
+  model: textModelSchema.default('gpt-5.6'),
 })
 
 export const scriptAssetSuggestionsContentSchema = z.object({
@@ -449,7 +414,4 @@ export type GenerateScriptAssetSuggestionsRequest = z.infer<
 export type ScriptAssetSuggestion = z.infer<typeof scriptAssetSuggestionSchema>
 export type ScriptAssetSuggestionsResult = z.infer<typeof scriptAssetSuggestionsResultSchema>
 export type GenerateScriptRequest = z.infer<typeof generateScriptRequestSchema>
-export type ReviewScriptRequest = z.infer<typeof reviewScriptRequestSchema>
-export type ScriptReviewContent = z.infer<typeof scriptReviewContentSchema>
-export type ScriptReviewResult = z.infer<typeof scriptReviewResultSchema>
 export type GenerateShotsRequest = z.infer<typeof generateShotsRequestSchema>

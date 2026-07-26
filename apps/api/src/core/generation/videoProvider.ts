@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream'
 
-export type VideoProviderName = 'stringx-seedance' | 'aideos-seedance' | 'volc-ark-seedance'
+export type VideoProviderName = 'stringx-seedance' | 'volc-ark-seedance'
 export type VideoGenerationTier = 'mini' | 'fast' | 'pro'
 
 export type VideoGenerationRequest = {

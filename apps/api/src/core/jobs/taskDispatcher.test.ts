@@ -63,6 +63,15 @@ describe('GenerationTaskRunner Seedance integration', () => {
     await vi.waitFor(() => expect(provider.submit).toHaveBeenCalledTimes(3))
     releaseSubmissions()
     await tick
+    await vi.waitFor(() =>
+      expect(
+        store.read((state) =>
+          state.tasks
+            .filter((task) => task.id.startsWith('parallel-video-'))
+            .every((task) => typeof task.metadata.providerTaskId === 'string'),
+        ),
+      ).toBe(true),
+    )
 
     expect(
       store.read((state) =>
@@ -122,6 +131,80 @@ describe('GenerationTaskRunner Seedance integration', () => {
         state.tasks.filter((task) => task.id.startsWith('parallel-video-')).map((task) => task.status),
       ),
     ).toEqual(['running', 'queued', 'queued'])
+  })
+
+  it('keeps claiming member image work while a previous Img2 request is still pending', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    await store.mutate((state) => {
+      state.users.find((user) => user.id === 'user-creator')!.plan = 'member'
+      state.tasks.unshift(imageTask('parallel-image-1', 'asset-image-1'))
+    })
+    const releases: Array<() => void> = []
+    const imageProvider: ImageGenerationProvider = {
+      generate: vi.fn(async () => {
+        const index = releases.length
+        await new Promise<void>((resolve) => {
+          releases[index] = resolve
+        })
+        return [{ view: 'single', contentType: 'image/png', content: Buffer.from(`image-${index + 1}`) }]
+      }),
+    }
+    const objectStorage = memoryObjectStorage()
+    const runner = new GenerationTaskRunner(store, { imageProvider, objectStorage })
+
+    await runner.tick()
+    await vi.waitFor(() => expect(imageProvider.generate).toHaveBeenCalledOnce())
+
+    await store.mutate((state) => {
+      state.tasks.unshift(imageTask('parallel-image-2', 'asset-image-2'))
+    })
+    await runner.tick()
+
+    await vi.waitFor(() => expect(imageProvider.generate).toHaveBeenCalledTimes(2))
+    releases.forEach((release) => release())
+    await vi.waitFor(() =>
+      expect(
+        store.read((state) =>
+          state.tasks
+            .filter((task) => task.id.startsWith('parallel-image-'))
+            .map((task) => task.status)
+            .sort(),
+        ),
+      ).toEqual(['completed', 'completed']),
+    )
+  })
+
+  it('marks a timed out Img2 submission as failed instead of leaving it submitting', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const task = imageTask('timeout-image-task', 'timeout-asset')
+    await store.mutate((state) => state.tasks.unshift(task))
+    const timeout = new Error('The operation was aborted due to timeout')
+    timeout.name = 'TimeoutError'
+    const imageProvider: ImageGenerationProvider = {
+      generate: vi.fn(async () => {
+        throw timeout
+      }),
+    }
+
+    await new GenerationTaskRunner(store, { imageProvider, objectStorage: memoryObjectStorage() }).tick()
+
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+        status: 'failed',
+        progress: 100,
+        error: expect.stringContaining('第三方生成请求超时'),
+        metadata: {
+          providerName: 'tokenadvent-img2',
+          providerState: 'failed',
+          providerError: expect.stringContaining('第三方生成请求超时'),
+          providerFailedAt: expect.any(String),
+        },
+        leaseOwnerId: null,
+        leaseToken: null,
+      }),
+    )
   })
 
   it('prevents a second runner from claiming a task while its lease is active', async () => {
@@ -585,7 +668,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
     await new GenerationTaskRunner(store, {
       videoProvider: provider,
-      videoProviderName: 'aideos-seedance',
+      videoProviderName: 'stringx-seedance',
       providerPollIntervalMs: 0,
     }).tick()
 
@@ -651,6 +734,14 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
     const runner = new GenerationTaskRunner(store, { videoProvider: provider })
     await runner.tick()
+    await vi.waitFor(() =>
+      expect(
+        store.read((state) => {
+          const stored = state.tasks.find((item) => item.id === task.id)
+          return stored?.status === 'failed' && typeof stored.metadata.creditsRefundedAt === 'string'
+        }),
+      ).toBe(true),
+    )
 
     expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
       status: 'failed',
@@ -1057,6 +1148,45 @@ function queuedVideoTasks(count: number): GenerationTask[] {
       error: null,
     }
   })
+}
+
+function imageTask(id: string, assetId: string): GenerationTask {
+  const now = new Date().toISOString()
+  return {
+    id,
+    clientRequestId: `${id}-client`,
+    projectId: 'project-midnight-film',
+    tenantId: 'tenant-seqora-demo',
+    userId: 'user-creator',
+    kind: 'image',
+    label: id,
+    prompt: '正面人物头像，纯色背景',
+    negativePrompt: '',
+    provider: 'img2',
+    model: 'gpt-image-2',
+    metadata: { assetId, assetKind: 'character', generationStage: 'face', aspectRatio: '1:1' },
+    status: 'queued',
+    progress: 0,
+    estimatedCredits: 4,
+    createdAt: now,
+    updatedAt: now,
+    resultUrl: null,
+    outputs: [],
+    error: null,
+  }
+}
+
+function memoryObjectStorage(): ObjectStorage {
+  const files = new Map<string, Buffer>()
+  return {
+    put: vi.fn(async (key, content) => {
+      files.set(key, content)
+    }),
+    get: vi.fn(async (key) => files.get(key) ?? Buffer.alloc(0)),
+    delete: vi.fn(async (key) => {
+      files.delete(key)
+    }),
+  }
 }
 
 function deferredVideoProvider(): {

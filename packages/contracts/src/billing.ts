@@ -4,7 +4,6 @@ import { planSchema } from './account.js'
 export const SCRIPT_OPERATION_CREDITS = {
   generate: 3,
   enrich: 5,
-  review: 3,
 } as const
 
 export const NOVEL_OPERATION_CREDITS = {

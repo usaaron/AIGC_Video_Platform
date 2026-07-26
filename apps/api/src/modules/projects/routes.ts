@@ -7,7 +7,6 @@ import {
   generateScriptRequestSchema,
   generateShotsRequestSchema,
   PERMISSIONS,
-  reviewScriptRequestSchema,
   updateAssetSchema,
   updateProjectSchema,
   updateShotSchema,
@@ -89,22 +88,6 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
       )
     },
   )
-  app.post(
-    '/projects/:projectId/script/review',
-    { preHandler: requirePermission(PERMISSIONS.PROJECT_READ) },
-    (request) => {
-      const input = parse(reviewScriptRequestSchema, request.body ?? {})
-      return service.reviewScript(
-        parse(projectParams, request.params).projectId,
-        input.script,
-        input.direction,
-        input.clientRequestId ?? randomUUID(),
-        request.principal!,
-        input.model,
-      )
-    },
-  )
-
   app.post(
     '/projects/:projectId/script/enrich',
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },

@@ -8,6 +8,7 @@ import type {
 const imageResponseSchema = z.object({
   data: z.array(z.object({ b64_json: z.string().min(1) })).min(1),
 })
+const MAX_IMAGE_REQUEST_ATTEMPTS = 3
 
 type Fetcher = typeof fetch
 
@@ -84,7 +85,7 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
 
   private async requestJson(path: string, init: RequestInit): Promise<unknown> {
     let lastError: unknown
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < MAX_IMAGE_REQUEST_ATTEMPTS; attempt += 1) {
       try {
         const response = await this.fetcher(`${this.baseUrl}${path}`, {
           ...init,
@@ -97,8 +98,8 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
         })
       } catch (error) {
         lastError = error
-        if (attempt > 0 || !isRetryable(error)) break
-        await new Promise((resolve) => setTimeout(resolve, 500))
+        if (attempt >= MAX_IMAGE_REQUEST_ATTEMPTS - 1 || !isRetryable(error)) break
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs(attempt)))
       }
     }
     throw lastError
@@ -136,12 +137,12 @@ function sizeFor(aspectRatio: string): string {
 
 async function providerError(response: Response): Promise<TokenAdventImageHttpError> {
   const body = await response.text().catch(() => '')
-  let message = body.slice(0, 500)
-  try {
-    const parsed = JSON.parse(body) as { error?: { message?: string }; message?: string }
-    message = parsed.error?.message || parsed.message || message
-  } catch {
-    // Keep the bounded text response when the provider does not return JSON.
+  let message = providerErrorMessage(body)
+  if (response.status === 524 || /524:\s*A timeout occurred/i.test(body)) {
+    message = '上游图片服务超时（524），本次图片没有生成成功；请稍后重试，或降低质量/减少参考图后再试'
+  }
+  if (response.status === 429) {
+    message = '上游图片服务限流（429），请稍后重试'
   }
   return new TokenAdventImageHttpError(
     response.status,
@@ -149,12 +150,32 @@ async function providerError(response: Response): Promise<TokenAdventImageHttpEr
   )
 }
 
+function providerErrorMessage(body: string): string {
+  let message = body.slice(0, 500)
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string }; message?: string }
+    message = parsed.error?.message || parsed.message || message
+  } catch {
+    message = htmlTitle(body) || message
+  }
+  return message
+}
+
 function isRetryable(error: unknown): boolean {
   if (error instanceof TokenAdventImageHttpError) {
+    if (error.status === 524) return false
     return error.status === 408 || error.status === 429 || error.status >= 500
   }
   return (
     error instanceof TypeError ||
     (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))
   )
+}
+
+function retryDelayMs(attempt: number): number {
+  return 750 * 2 ** attempt + Math.floor(Math.random() * 150)
+}
+
+function htmlTitle(body: string): string {
+  return /<title>(.*?)<\/title>/is.exec(body)?.[1]?.replace(/\s+/g, ' ').trim() ?? ''
 }

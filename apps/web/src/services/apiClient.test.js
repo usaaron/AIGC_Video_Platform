@@ -464,11 +464,10 @@ describe('api client', () => {
     )
   })
 
-  it('sends creative direction to script generation and review plus the shot split limit', async () => {
+  it('sends creative direction to script generation plus the shot split limit', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ script: '场景：雨夜车站' }))
-      .mockResolvedValueOnce(Response.json({ score: 80, dimensions: [] }))
       .mockResolvedValueOnce(Response.json([]))
     vi.stubGlobal('fetch', fetchMock)
     const direction = {
@@ -480,7 +479,6 @@ describe('api client', () => {
     }
 
     await api.generateScript('project-1', '故事草稿', direction, 'script-generate-1', 'deepseekV3')
-    await api.reviewScript('project-1', '完整剧本', direction, 'script-review-1', 'gpt-5.4')
     await api.generateShots('project-1', { maxShots: 8 })
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
@@ -489,13 +487,7 @@ describe('api client', () => {
       direction,
       model: 'deepseekV3',
     })
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
-      clientRequestId: 'script-review-1',
-      script: '完整剧本',
-      direction,
-      model: 'gpt-5.4',
-    })
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ maxShots: 8 })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ maxShots: 8 })
   })
 
   it('sends long-form segment generation requests without changing the quick endpoint', async () => {

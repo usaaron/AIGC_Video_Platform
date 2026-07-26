@@ -6,9 +6,7 @@ import {
   generateScriptAssetSuggestionsRequestSchema,
   generateScriptRequestSchema,
   generateShotsRequestSchema,
-  reviewScriptRequestSchema,
   scriptAssetSuggestionsResultSchema,
-  scriptReviewResultSchema,
   updateAssetSchema,
   updateShotSchema,
 } from './project.js'
@@ -93,7 +91,7 @@ describe('script workflow contracts', () => {
       draft: 'story draft',
       mode: 'quick',
       segment: { goal: '', targetMinutes: 5 },
-      model: 'deepseekV3',
+      model: 'gpt-5.6',
       direction: {
         style: 'auto',
         composition: 'auto',
@@ -106,21 +104,11 @@ describe('script workflow contracts', () => {
       generateScriptAssetSuggestionsRequestSchema.parse({ script: 'scene: river crossing' }),
     ).toMatchObject({
       script: 'scene: river crossing',
-      model: 'deepseekV3',
+      model: 'gpt-5.6',
       direction: expect.objectContaining({ style: 'auto' }),
     })
     expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
-      model: 'deepseekV3',
-      direction: {
-        style: 'auto',
-        composition: 'auto',
-        lighting: 'auto',
-        camera: 'auto',
-        focus: 'balanced',
-      },
-    })
-    expect(reviewScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
-      model: 'deepseekV3',
+      model: 'gpt-5.6',
       direction: {
         style: 'auto',
         composition: 'auto',
@@ -141,21 +129,6 @@ describe('script workflow contracts', () => {
       scriptAssetSuggestionsResultSchema.safeParse({
         summary: 'Suggestions',
         assets: [],
-        generatedAt: new Date().toISOString(),
-      }).success,
-    ).toBe(true)
-  })
-
-  it('validates structured professional review results', () => {
-    const dimensions = ['plot', 'character', 'dialogue', 'style', 'composition', 'lighting', 'camera'].map(
-      (key) => ({ key, score: 80, finding: 'clear issue', suggestion: 'provide a concrete fix' }),
-    )
-    expect(
-      scriptReviewResultSchema.safeParse({
-        score: 80,
-        verdict: 'production ready',
-        dimensions,
-        priorityActions: ['strengthen character goal'],
         generatedAt: new Date().toISOString(),
       }).success,
     ).toBe(true)

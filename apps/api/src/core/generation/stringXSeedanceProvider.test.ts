@@ -50,7 +50,6 @@ describe('StringXSeedanceProvider', () => {
         {
           type: 'image_url',
           image_url: { url: 'asset://maas-01kxypge98wdx00af6xxsrfhmr' },
-          role: 'reference_image',
         },
       ],
     })
@@ -117,12 +116,10 @@ describe('StringXSeedanceProvider', () => {
       {
         type: 'image_url',
         image_url: { url: 'data:image/jpeg;base64,tail' },
-        role: 'reference_image',
       },
       {
         type: 'image_url',
         image_url: { url: 'asset://maas-character' },
-        role: 'reference_image',
       },
     ])
   })
