@@ -122,7 +122,7 @@ Content-Type: multipart/form-data
 
 ## 剧本生成
 
-`POST /api/v1/projects/:projectId/script/generate` 使用 `TokenAdventTextProvider` 调用 `/v1/chat/completions`，现在默认是快速剧本模式。接口接收当前草稿或项目梗概、已确认资产和视觉方向，一次逻辑调用输出适合 15 到 30 秒视频的 4 到 6 个场景、基础动作和对白，目标约 800 到 1600 个中文字符，最大输出为 `2400` tokens。快速生成不会因为格式或篇幅不足而自动进行第二次完整重写；服务端会返回 `warnings`，用户可以继续编辑或主动补齐专业细节。Provider 的自动重试仅用于瞬时连接故障，不属于内容修订。文本模型由 `TEXT_MODEL` 配置。
+`POST /api/v1/projects/:projectId/script/generate` 默认使用 `DeepSeekTextProvider` 调用 OpenAI Chat Completions 兼容接口；页面也允许用户为单次中文文本任务选择 GPT `5.4`、`5.5` 或 `5.6` 作为备选。接口接收当前草稿或项目梗概、已确认资产和视觉方向，一次逻辑调用输出适合 15 到 30 秒视频的 4 到 6 个场景、基础动作和对白，目标约 800 到 1600 个中文字符，最大输出为 `2400` tokens。快速生成不会因为格式或篇幅不足而自动进行第二次完整重写；服务端会返回 `warnings`，用户可以继续编辑或主动补齐专业细节。Provider 的自动重试仅用于瞬时连接故障，不属于内容修订。默认文本模型由 `TEXT_MODEL=deepseekV3` 配置。
 
 `POST /api/v1/projects/:projectId/script/enrich` 是用户主动触发的专业视觉细节补齐接口。它保留快速剧本的场景数量、人物、剧情因果和对白，补充风格、构图、光影、运镜和衔接，最大输出为 `4000` tokens；本次调用也只进行一次逻辑生成，返回 `mode: detailed` 和可能的 `warnings`。生成后前端提供“补齐专业视觉细节”按钮，避免用户每次只想快速起稿时都等待完整制作级剧本。
 
@@ -143,6 +143,8 @@ Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默�
 - `POST https://maas.stringx.top/api/v3/contents/generations/tasks`：创建异步视频任务
 - `GET https://maas.stringx.top/api/v3/contents/generations/tasks/:taskId`：查询任务状态并取得 `video_url/last_frame_url`
 - `POST https://maas.stringx.top/api/v3/contents/generations/tasks/:taskId/cancel`：取消远端任务
+
+视频任务保存 `tier: mini | fast | pro`，默认由前端传 `fast`。`StringXSeedanceProvider` 根据 `STRINGX_SEEDANCE_MINI_MODEL`、`STRINGX_SEEDANCE_FAST_MODEL`、`STRINGX_SEEDANCE_PRO_MODEL` 把 tier 映射为真实 Seedance 模型；没有传 tier 时使用 `STRINGX_SEEDANCE_DEFAULT_TIER`。不要在前端硬编码真实模型名。
 
 Aideos 和官方火山 Provider 仍保留在服务端，分别通过 `VIDEO_PROVIDER=aideos` 和 `VIDEO_PROVIDER=volc-ark` 显式启用，只作为回滚通道。弦序任务记录 `providerName=stringx-seedance`，便于审计真实提交路径。
 

@@ -17,6 +17,13 @@ pnpm --filter @seqora/api worker
 - 创作端：[http://localhost:5173](http://localhost:5173)
 - API 健康检查：[http://localhost:8787/api/v1/health](http://localhost:8787/api/v1/health)
 
+## Provider routing
+
+- `textProvider`: defaults to DeepSeek V3 for Chinese understanding, summaries, scripts, and asset suggestions. GPT `5.4` / `5.5` / `5.6` remain selectable fallbacks.
+- `imageProvider`: uses TokenAdvent GPT Image 2 / `image2` only for image asset generation and image edits.
+- `videoProvider`: uses Seedance with `tier: mini | fast | pro`; the API stores the selected tier and the Provider maps it to the configured model.
+- Secrets must stay in `apps/api/.env` or deployment secrets. Do not put API keys in code, frontend env, docs, or Git.
+
 首次启动会自动创建两个本地演示账号：
 
 | 身份   | 邮箱                   | 密码          |

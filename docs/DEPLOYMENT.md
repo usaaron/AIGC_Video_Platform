@@ -51,8 +51,8 @@ chmod 600 deploy/demo.env
 - 两组 `BOOTSTRAP_*` 邮箱和密码必须唯一；只在空数据卷首次启动时生效。
 - 保持 `BOOTSTRAP_DEMO_WORKSPACE=false`，让客户登录后创建自己的第一个项目。
 - 2 vCPU / 4GB 机器先保留 `API_MEMORY_LIMIT=1536m`、`API_NODE_HEAP_MB=768`、`WEB_MEMORY_LIMIT=192m`；发生 OOM 时优先升级内存，不要移除所有上限。
-- 保持 `VIDEO_PROVIDER=stringx`，填写私有 `GCS_BUCKET`、`STRINGX_API_KEY` 和 `TOKENADVENT_API_KEY`。
-- 生产启动会强制检查当前视频 Provider 密钥和 `TOKENADVENT_API_KEY`，缺少时直接停止，不允许静默使用 Mock 结果。
+- 保持 `VIDEO_PROVIDER=stringx`，填写私有 `GCS_BUCKET`、`STRINGX_API_KEY`、`DEEPSEEK_API_KEY`（可复用 `STRINGX_API_KEY`）和 `TOKENADVENT_API_KEY`。
+- 生产启动会强制检查当前视频 Provider 密钥、DeepSeek 文本密钥和 TokenAdvent GPT Image 2 密钥，缺少时直接停止，不允许静默使用 Mock 结果。
 - 要测试可信人像，再填写弦序 MaaS 素材库专用 `VOLC_ACCESS_KEY`、`VOLC_SECRET_KEY` 和与 StringX Token 同租户、同项目的 `VOLC_ARK_PROJECT_NAME`。StringX Bearer Token 不能代替素材库 AK/SK。
 - 可选填写 `ASSET_LIBRARY_CONSOLE_URL`，人物编辑器会跳转到弦序私域素材库；不再硬编码火山控制台地址。
 - `AIDEOS_*` 和 `ARK_API_*` 只用于显式回滚，默认全弦序链路不读取这些变量。
