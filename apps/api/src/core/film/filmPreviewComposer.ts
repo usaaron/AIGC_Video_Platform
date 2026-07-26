@@ -1,4 +1,5 @@
 import type { GenerationTask } from '@seqora/contracts'
+import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
@@ -8,6 +9,12 @@ import { pipeline } from 'node:stream/promises'
 import type { VideoGenerationProvider, VideoProviderName } from '../generation/videoProvider.js'
 import type { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
+import {
+  claimGenerationTaskLease,
+  generationTaskLeaseMatches,
+  releaseGenerationTaskLease,
+  renewGenerationTaskLease,
+} from '../jobs/taskLease.js'
 
 type PreviewTarget = { width: number; height: number }
 type ComposeRunner = (
@@ -24,6 +31,9 @@ export interface FilmPreviewDispatcher {
 }
 
 export class FilmPreviewComposer implements FilmPreviewDispatcher {
+  private readonly leaseOwnerId = `film-preview-composer-${process.pid}-${randomUUID()}`
+  private readonly leaseTtlMs: number
+
   constructor(
     private readonly store: AppStore,
     private readonly videoProvider: VideoGenerationProvider,
@@ -32,7 +42,10 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
     private readonly timeoutMs: number,
     private readonly videoProviderName: VideoProviderName = 'stringx-seedance',
     private readonly composeRunner: ComposeRunner = runFfmpegComposition,
-  ) {}
+    leaseTtlMs = 120_000,
+  ) {
+    this.leaseTtlMs = leaseTtlMs
+  }
 
   async recoverInterrupted(): Promise<void> {
     await this.store.mutate((state) => {
@@ -43,6 +56,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
           task.status = 'failed'
           task.progress = 100
           task.error = '完整预览合成被服务重启中断，请重新合成'
+          releaseGenerationTaskLease(task)
           task.updatedAt = now
         })
     })
@@ -52,23 +66,27 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
     const started = await this.store.mutate((state) => {
       const stored = state.tasks.find((item) => item.id === task.id)
       if (!stored || stored.status !== 'queued') return stored ?? task
-      const now = new Date().toISOString()
+      const now = new Date()
+      claimGenerationTaskLease(stored, this.leaseOwnerId, this.leaseTtlMs, now)
+      const nowIso = now.toISOString()
       stored.status = 'running'
       stored.progress = 1
       stored.error = null
-      stored.metadata = { ...stored.metadata, providerState: 'composing', compositionStartedAt: now }
-      stored.updatedAt = now
+      stored.metadata = { ...stored.metadata, providerState: 'composing', compositionStartedAt: nowIso }
+      stored.updatedAt = nowIso
       return stored
     })
-    void this.compose(task.id)
+    void this.compose(task.id, typeof started.leaseToken === 'string' ? started.leaseToken : '')
     return started
   }
 
-  private async compose(taskId: string): Promise<void> {
+  private async compose(taskId: string, leaseToken: string): Promise<void> {
     let temporaryDirectory: string | null = null
     try {
       const task = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
       if (!task) throw new Error('完整预览任务不存在')
+      if (task.status !== 'running' || !generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken))
+        return
       const sourceTaskIds = stringArray(task.metadata.sourceVideoTaskIds)
       if (!sourceTaskIds.length) throw new Error('没有可用于合成的镜头视频')
       const sourceTasks = this.store.read((state) =>
@@ -98,15 +116,23 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       temporaryDirectory = await mkdtemp(join(tmpdir(), 'seqora-film-'))
       const inputPaths: string[] = []
       for (const [index, source] of sourceTasks.entries()) {
+        const current = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
+        if (
+          !current ||
+          current.status !== 'running' ||
+          !generationTaskLeaseMatches(current, this.leaseOwnerId, leaseToken)
+        ) {
+          return
+        }
         const inputPath = join(temporaryDirectory, `shot-${String(index + 1).padStart(3, '0')}.mp4`)
         const content = await this.videoProvider.getContent(String(source.metadata.providerTaskId))
         await pipeline(content.stream, createWriteStream(inputPath))
         inputPaths.push(inputPath)
-        await this.updateProgress(taskId, 5 + Math.round(((index + 1) / sourceTasks.length) * 40))
+        await this.updateProgress(taskId, 5 + Math.round(((index + 1) / sourceTasks.length) * 40), leaseToken)
       }
 
       const outputPath = join(temporaryDirectory, 'film-preview.mp4')
-      await this.updateProgress(taskId, 50)
+      await this.updateProgress(taskId, 50, leaseToken)
       await this.composeRunner(
         inputPaths,
         outputPath,
@@ -114,7 +140,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         this.ffmpegPath,
         this.timeoutMs,
       )
-      await this.updateProgress(taskId, 92)
+      await this.updateProgress(taskId, 92, leaseToken)
 
       const output = await readFile(outputPath)
       const storageKey = `${task.tenantId}/${task.projectId}/generated/${task.id}-film-preview.mp4`
@@ -122,6 +148,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       await this.store.mutate((state) => {
         const stored = state.tasks.find((item) => item.id === taskId)
         if (!stored || stored.status !== 'running') return
+        if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
         const now = new Date().toISOString()
         const url = `/api/v1/generation/tasks/${stored.id}/content`
         stored.status = 'completed'
@@ -138,16 +165,19 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
           compositionCompletedAt: now,
         }
         stored.updatedAt = now
+        releaseGenerationTaskLease(stored)
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : '完整预览合成失败'
       await this.store.mutate((state) => {
         const task = state.tasks.find((item) => item.id === taskId)
         if (!task) return
+        if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
         task.status = 'failed'
         task.progress = 100
         task.error = message.slice(0, 1_000)
         task.metadata = { ...task.metadata, providerState: 'failed' }
+        releaseGenerationTaskLease(task)
         task.updatedAt = new Date().toISOString()
       })
     } finally {
@@ -155,11 +185,13 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
     }
   }
 
-  private async updateProgress(taskId: string, progress: number): Promise<void> {
+  private async updateProgress(taskId: string, progress: number, leaseToken: string): Promise<void> {
     await this.store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task || task.status !== 'running') return
+      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
       task.progress = Math.min(99, Math.max(task.progress, progress))
+      renewGenerationTaskLease(task, this.leaseOwnerId, leaseToken, this.leaseTtlMs)
       task.updatedAt = new Date().toISOString()
     })
   }

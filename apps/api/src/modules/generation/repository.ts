@@ -2,6 +2,8 @@ import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/co
 import { randomUUID } from 'node:crypto'
 import type { AppStore } from '../../infra/store.js'
 import { AppError } from '../../core/errors.js'
+import { normalizeGenerationTaskLifecycle, releaseGenerationTaskLease } from '../../core/jobs/taskLease.js'
+import { cancellationResourceLockForTask } from '../../core/jobs/taskResourceLock.js'
 
 export class GenerationTaskRepository {
   constructor(private readonly store: AppStore) {}
@@ -60,29 +62,6 @@ export class GenerationTaskRepository {
   }
 
   async create(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask> {
-    const now = new Date().toISOString()
-    const task: GenerationTask = {
-      id: randomUUID(),
-      clientRequestId: input.clientRequestId,
-      projectId: input.projectId,
-      tenantId: principal.tenantId,
-      userId: principal.userId,
-      kind: input.kind,
-      label: input.label,
-      prompt: input.prompt ?? '',
-      negativePrompt: input.negativePrompt ?? '',
-      provider: input.provider,
-      model: input.model ?? null,
-      metadata: input.metadata ?? {},
-      status: 'queued',
-      progress: 0,
-      estimatedCredits: input.estimatedCredits,
-      createdAt: now,
-      updatedAt: now,
-      resultUrl: null,
-      outputs: [],
-      error: null,
-    }
     return this.store.mutate((state) => {
       const existing = state.tasks.find(
         (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
@@ -109,22 +88,63 @@ export class GenerationTaskRepository {
         }
       }
 
+      const now = new Date().toISOString()
+      const task = buildQueuedGenerationTask(input, principal, now)
       state.tasks.unshift(task)
       return task
     })
   }
 
-  async discardUncharged(taskId: string, principal: Principal): Promise<void> {
-    await this.store.mutate((state) => {
-      const taskIndex = state.tasks.findIndex(
-        (item) =>
-          item.id === taskId && item.tenantId === principal.tenantId && item.userId === principal.userId,
+  async createWithCharge(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask> {
+    return this.store.transaction((state) => {
+      const existing = state.tasks.find(
+        (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
       )
-      if (taskIndex < 0) return
-      const task = state.tasks[taskIndex]
-      if (!task) return
-      const charged = state.ledger.some((entry) => entry.id === `generation-${task.clientRequestId}`)
-      if (!charged && task.status === 'queued') state.tasks.splice(taskIndex, 1)
+      if (existing) return existing
+
+      const shotId = metadataString(input.metadata, 'shotId')
+      if (input.kind === 'video' && shotId) {
+        const activeTask = state.tasks.find(
+          (item) =>
+            item.projectId === input.projectId &&
+            item.tenantId === principal.tenantId &&
+            item.kind === 'video' &&
+            item.metadata.shotId === shotId &&
+            ['queued', 'paused', 'running'].includes(item.status) &&
+            typeof item.metadata.queueHiddenAt !== 'string',
+        )
+        if (activeTask) {
+          throw new AppError(
+            409,
+            'VIDEO_SHOT_BATCH_CONFLICT',
+            '璇ラ暅澶村凡鏈変竴涓敓鎴愪换鍔℃鍦ㄥ鐞嗭紝璇峰厛鍦ㄧ敓鎴愰槦鍒楁殏鍋滄垨鍒犻櫎瀹冿紝鍐嶉噸鏂伴€夋嫨鐢熸垚绛栫暐銆?',
+          )
+        }
+      }
+
+      const user = state.users.find(
+        (item) => item.id === principal.userId && item.tenantId === principal.tenantId,
+      )
+      if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', '璐﹀彿涓嶅瓨鍦?')
+      if (user.credits < input.estimatedCredits) {
+        throw new AppError(402, 'INSUFFICIENT_CREDITS', '绉垎涓嶈冻')
+      }
+
+      const now = new Date().toISOString()
+      const task = buildQueuedGenerationTask(input, principal, now)
+      user.credits -= input.estimatedCredits
+      state.ledger.unshift({
+        id: `generation-${input.clientRequestId}`,
+        userId: user.id,
+        tenantId: user.tenantId,
+        amount: -input.estimatedCredits,
+        balance: user.credits,
+        type: 'generation',
+        description: input.label,
+        createdAt: now,
+      })
+      state.tasks.unshift(task)
+      return task
     })
   }
 
@@ -217,6 +237,7 @@ export class GenerationTaskRepository {
       const now = new Date().toISOString()
       task.status = 'paused'
       task.metadata = { ...task.metadata, pausedAt: now }
+      releaseGenerationTaskLease(task)
       task.updatedAt = now
       return { outcome: 'paused' as const, task }
     })
@@ -238,6 +259,7 @@ export class GenerationTaskRepository {
       task.progress = 0
       task.error = null
       task.metadata = { ...metadata, resumedAt: now }
+      releaseGenerationTaskLease(task)
       task.updatedAt = now
       return { outcome: 'resumed' as const, task }
     })
@@ -258,7 +280,23 @@ export class GenerationTaskRepository {
         return { outcome: 'already_deleted' as const, task, refund: false }
       }
       if (task.status === 'running') {
-        return { outcome: 'not_deletable' as const, task, refund: false }
+        const now = new Date().toISOString()
+        const lock = cancellationResourceLockForTask(task)
+        task.status = 'cancelled'
+        task.progress = 100
+        task.error = null
+        task.metadata = {
+          ...task.metadata,
+          cancelResourceLockKind: lock.kind,
+          cancelResourceLockKey: lock.key,
+          providerCancelRequestedAt: now,
+          cancelledAt: now,
+          deletedAt: now,
+          queueHiddenAt: now,
+        }
+        releaseGenerationTaskLease(task)
+        task.updatedAt = now
+        return { outcome: 'deleted' as const, task, refund: false }
       }
       const now = new Date().toISOString()
       const refund = task.status === 'queued' || task.status === 'paused'
@@ -268,35 +306,50 @@ export class GenerationTaskRepository {
         task.metadata = { ...task.metadata, pausedAt: now }
       }
       task.metadata = { ...task.metadata, queueHiddenAt: now, deletedAt: now }
+      releaseGenerationTaskLease(task)
       task.updatedAt = now
       return { outcome: 'deleted' as const, task, refund }
     })
   }
 
   async cancelRunning(taskId: string, principal: Principal): Promise<GenerationTask | null> {
-    return this.store.mutate((state) => {
-      const task = findControlledTask(state.tasks, taskId, principal)
-      if (!task || task.status !== 'running') return null
-      const now = new Date().toISOString()
-      task.status = 'cancelled'
-      task.progress = 100
-      task.error = null
-      task.metadata = {
-        ...task.metadata,
-        providerState: 'cancelled',
-        cancelledAt: now,
-        deletedAt: now,
-        queueHiddenAt: now,
-      }
-      task.updatedAt = now
-      return task
-    })
+    return this.deleteFromQueue(taskId, principal).then((result) => result.task)
   }
 }
 
 function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
   const value = metadata?.[key]
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function buildQueuedGenerationTask(
+  input: CreateGenerationTask,
+  principal: Principal,
+  now: string,
+): GenerationTask {
+  return normalizeGenerationTaskLifecycle({
+    id: randomUUID(),
+    clientRequestId: input.clientRequestId,
+    projectId: input.projectId,
+    tenantId: principal.tenantId,
+    userId: principal.userId,
+    kind: input.kind,
+    label: input.label,
+    prompt: input.prompt ?? '',
+    negativePrompt: input.negativePrompt ?? '',
+    provider: input.provider,
+    model: input.model ?? null,
+    metadata: input.metadata ?? {},
+    status: 'queued',
+    progress: 0,
+    estimatedCredits: input.estimatedCredits,
+    maxAttempts: input.maxAttempts,
+    createdAt: now,
+    updatedAt: now,
+    resultUrl: null,
+    outputs: [],
+    error: null,
+  })
 }
 
 function findControlledTask(

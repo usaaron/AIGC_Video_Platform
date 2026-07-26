@@ -2,15 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { AppStore } from './store.js'
 
 describe('AppStore mutation queue', () => {
-  it('continues accepting writes after a transaction fails', async () => {
+  it('rolls back failed transactions before accepting the next write', async () => {
     const store = new AppStore(null)
     await store.initialize()
+    const originalName = store.read((state) => state.projects[0]!.name)
 
     await expect(
-      store.mutate(() => {
+      store.transaction((state) => {
+        state.projects[0]!.name = 'temporary mutation'
         throw new Error('rejected transaction')
       }),
     ).rejects.toThrow('rejected transaction')
+
+    expect(store.read((state) => state.projects[0]!.name)).toBe(originalName)
 
     await store.mutate((state) => {
       state.projects[0]!.name = '恢复后的项目'

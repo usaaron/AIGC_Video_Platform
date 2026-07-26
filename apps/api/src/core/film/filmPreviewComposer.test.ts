@@ -60,6 +60,15 @@ describe('FilmPreviewComposer', () => {
 
     const started = await composer.start(preview)
     expect(started.status).toBe('running')
+    expect(started).toMatchObject({
+      attempts: 1,
+      maxAttempts: 3,
+      leaseOwnerId: expect.any(String),
+      leaseToken: expect.any(String),
+      leaseAcquiredAt: expect.any(String),
+      leaseHeartbeatAt: expect.any(String),
+      leaseExpiresAt: expect.any(String),
+    })
     await vi.waitFor(() => {
       expect(store.read((state) => state.tasks.find((task) => task.id === preview.id)?.status)).toBe(
         'completed',
@@ -72,6 +81,11 @@ describe('FilmPreviewComposer', () => {
     expect(completed).toMatchObject({
       progress: 100,
       resultUrl: `/api/v1/generation/tasks/${preview.id}/content`,
+      leaseOwnerId: null,
+      leaseToken: null,
+      leaseAcquiredAt: null,
+      leaseHeartbeatAt: null,
+      leaseExpiresAt: null,
       metadata: {
         providerState: 'completed',
         previewContentType: 'video/mp4',
@@ -84,7 +98,16 @@ describe('FilmPreviewComposer', () => {
   it('marks an interrupted local composition as failed during startup recovery', async () => {
     const store = new AppStore(null)
     await store.initialize()
-    const task = { ...previewTask(['source-1']), status: 'running' as const }
+    const now = new Date().toISOString()
+    const task = {
+      ...previewTask(['source-1']),
+      status: 'running' as const,
+      leaseOwnerId: 'old-composer',
+      leaseToken: 'old-token',
+      leaseAcquiredAt: now,
+      leaseHeartbeatAt: now,
+      leaseExpiresAt: now,
+    }
     await store.mutate((state) => {
       state.tasks.unshift(task)
     })
@@ -101,6 +124,11 @@ describe('FilmPreviewComposer', () => {
     expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
       status: 'failed',
       error: '完整预览合成被服务重启中断，请重新合成',
+      leaseOwnerId: null,
+      leaseToken: null,
+      leaseAcquiredAt: null,
+      leaseHeartbeatAt: null,
+      leaseExpiresAt: null,
     })
   })
 })

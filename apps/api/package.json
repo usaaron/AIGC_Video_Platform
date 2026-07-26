@@ -5,11 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:worker": "tsx watch src/worker.ts",
     "start": "node dist/server.js",
+    "start:worker": "node dist/worker.js",
     "build": "tsc -p tsconfig.build.json",
     "lint": "oxlint src",
     "lint:fix": "oxlint src --fix",
     "test": "vitest run",
+    "worker": "tsx src/worker.ts",
     "regression:novel:biancheng": "tsx src/scripts/novelBianchengRegression.ts",
     "regression:novel:biancheng:live": "tsx src/scripts/novelBianchengRegression.ts --live"
   },

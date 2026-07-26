@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
+import { normalizeGenerationTaskLifecycle } from '../../core/jobs/taskLease.js'
 import type { AppStore } from '../../infra/store.js'
 
 const quickStartStyleSchema = z.enum(['cinematic-cg', 'chinese-3d', 'chinese-2d', 'anime', 'storybook'])
@@ -230,7 +231,7 @@ export class QuickStartService {
         }
         const cost = creditsFor(proposal.kind)
         const clientRequestId = `${input.clientRequestId.slice(0, 100)}-${index + 1}`
-        const task: GenerationTask = {
+        const task: GenerationTask = normalizeGenerationTaskLifecycle({
           id: randomUUID(),
           clientRequestId,
           projectId,
@@ -262,7 +263,7 @@ export class QuickStartService {
           resultUrl: null,
           outputs: [],
           error: null,
-        }
+        })
 
         user.credits -= cost
         state.ledger.unshift({

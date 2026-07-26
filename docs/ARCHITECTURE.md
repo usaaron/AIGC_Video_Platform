@@ -14,7 +14,8 @@ flowchart LR
   API --> Auth["AuthProvider"]
   API --> Ledger["CreditLedger"]
   API --> Repo["TaskRepository"]
-  API --> Queue["TaskDispatcher"]
+  API -. enqueue .-> Queue["TaskDispatcher"]
+  Worker["apps/api/src/worker.ts 任务 worker"] --> Queue
 ```
 
 ## 边界
@@ -52,7 +53,7 @@ apps/api/src/
 - `AuthProvider`：当前 Demo Header，未来替换为 OIDC/JWT 验证。
 - `GenerationTaskRepository`：当前内存，未来替换为 PostgreSQL。
 - `CreditLedger`：当前空实现，未来执行幂等、原子积分预占。
-- `TaskDispatcher`：当前空实现，未来接 Redis、SQS 或 RabbitMQ。
+- `TaskDispatcher`：API 侧默认 no-op；worker 进程里的 `GenerationTaskRunner` 负责执行，未来可替换 Redis、SQS 或 RabbitMQ。
 
 业务服务只依赖这些接口，因此替换基础设施时不需要修改路由或前端。
 

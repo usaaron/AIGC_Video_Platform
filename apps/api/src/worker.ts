@@ -1,0 +1,71 @@
+import 'dotenv/config'
+import { resolve } from 'node:path'
+import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
+import { GenerationTaskRunner, noopTaskDispatcher } from './core/jobs/taskDispatcher.js'
+import { FilmPreviewComposer } from './core/film/filmPreviewComposer.js'
+import { loadConfig } from './config.js'
+import { AppStore } from './infra/store.js'
+import { createObjectStorage } from './infra/objectStorage.js'
+import { GenerationTaskRepository } from './modules/generation/repository.js'
+import { GenerationService } from './modules/generation/service.js'
+import { createImageProvider, createVideoProvider, videoProviderName } from './runtime/providers.js'
+
+const config = loadConfig()
+const store = new AppStore(
+  config.DATA_FILE === ':memory:' ? null : resolve(config.DATA_FILE),
+  {
+    creatorName: config.BOOTSTRAP_CREATOR_NAME,
+    creatorEmail: config.BOOTSTRAP_CREATOR_EMAIL,
+    creatorPassword: config.BOOTSTRAP_CREATOR_PASSWORD,
+    adminName: config.BOOTSTRAP_ADMIN_NAME,
+    adminEmail: config.BOOTSTRAP_ADMIN_EMAIL,
+    adminPassword: config.BOOTSTRAP_ADMIN_PASSWORD,
+  },
+  config.BOOTSTRAP_DEMO_WORKSPACE,
+)
+await store.initialize()
+
+const objectStorage = createObjectStorage(config)
+const videoProvider = createVideoProvider(config)
+const imageProvider = createImageProvider(config)
+const filmPreviewComposer =
+  videoProvider && objectStorage
+    ? new FilmPreviewComposer(
+        store,
+        videoProvider,
+        objectStorage,
+        config.FFMPEG_PATH,
+        config.FILM_PREVIEW_TIMEOUT_MS,
+        videoProviderName(config),
+      )
+    : null
+await filmPreviewComposer?.recoverInterrupted()
+
+let generationService: GenerationService | null = null
+const taskRunner = new GenerationTaskRunner(store, {
+  videoProvider,
+  videoProviderName: videoProviderName(config),
+  imageProvider,
+  objectStorage,
+  providerPollIntervalMs: config.VIDEO_POLL_INTERVAL_MS,
+  onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
+})
+generationService = new GenerationService(
+  new GenerationTaskRepository(store),
+  noopTaskDispatcher,
+  videoProvider,
+  videoProviderName(config),
+  objectStorage,
+  filmPreviewComposer,
+)
+
+taskRunner.start()
+
+const shutdown = async (signal: string) => {
+  process.stdout.write(`[worker] shutting down on ${signal}\n`)
+  taskRunner.stop()
+  process.exit(0)
+}
+
+process.on('SIGINT', () => void shutdown('SIGINT'))
+process.on('SIGTERM', () => void shutdown('SIGTERM'))

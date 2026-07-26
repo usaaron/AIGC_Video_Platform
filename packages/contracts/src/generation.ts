@@ -27,6 +27,7 @@ export const createGenerationTaskSchema = z.object({
   provider: z.string().min(1).max(64).default('local'),
   model: z.string().min(1).max(128).optional(),
   estimatedCredits: z.number().int().positive().max(100_000),
+  maxAttempts: z.number().int().min(1).max(10).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
@@ -48,6 +49,13 @@ export const generationTaskSchema = z.object({
   estimatedCredits: z.number().int().nonnegative(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  attempts: z.number().int().min(0).optional(),
+  maxAttempts: z.number().int().min(1).max(10).optional(),
+  leaseOwnerId: z.string().min(1).max(128).nullable().optional(),
+  leaseToken: z.string().min(1).max(128).nullable().optional(),
+  leaseAcquiredAt: z.string().datetime().nullable().optional(),
+  leaseHeartbeatAt: z.string().datetime().nullable().optional(),
+  leaseExpiresAt: z.string().datetime().nullable().optional(),
   resultUrl: z.string().max(2_000).nullable(),
   outputs: z.array(generationOutputSchema),
   error: z.string().max(1_000).nullable(),

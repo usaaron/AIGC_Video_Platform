@@ -68,12 +68,36 @@ describe('GenerationTaskRunner Seedance integration', () => {
       store.read((state) =>
         state.tasks
           .filter((task) => task.id.startsWith('parallel-video-'))
-          .map((task) => ({ status: task.status, providerTaskId: task.metadata.providerTaskId })),
+          .map((task) => ({
+            status: task.status,
+            attempts: task.attempts,
+            leaseOwnerId: task.leaseOwnerId,
+            leaseToken: task.leaseToken,
+            providerTaskId: task.metadata.providerTaskId,
+          })),
       ),
     ).toEqual([
-      { status: 'running', providerTaskId: 'remote-parallel-video-1' },
-      { status: 'running', providerTaskId: 'remote-parallel-video-2' },
-      { status: 'running', providerTaskId: 'remote-parallel-video-3' },
+      {
+        status: 'running',
+        attempts: 1,
+        leaseOwnerId: expect.any(String),
+        leaseToken: expect.any(String),
+        providerTaskId: 'remote-parallel-video-1',
+      },
+      {
+        status: 'running',
+        attempts: 1,
+        leaseOwnerId: expect.any(String),
+        leaseToken: expect.any(String),
+        providerTaskId: 'remote-parallel-video-2',
+      },
+      {
+        status: 'running',
+        attempts: 1,
+        leaseOwnerId: expect.any(String),
+        leaseToken: expect.any(String),
+        providerTaskId: 'remote-parallel-video-3',
+      },
     ])
   })
 
@@ -98,6 +122,133 @@ describe('GenerationTaskRunner Seedance integration', () => {
         state.tasks.filter((task) => task.id.startsWith('parallel-video-')).map((task) => task.status),
       ),
     ).toEqual(['running', 'queued', 'queued'])
+  })
+
+  it('prevents a second runner from claiming a task while its lease is active', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    await store.mutate((state) => state.tasks.unshift(...queuedVideoTasks(1)))
+    const first = deferredVideoProvider()
+    const secondProvider: VideoGenerationProvider = {
+      submit: vi.fn(),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+    }
+    const firstRunner = new GenerationTaskRunner(store, {
+      videoProvider: first.provider,
+      providerPollIntervalMs: 60_000,
+      leaseTtlMs: 60_000,
+    })
+
+    const firstTick = firstRunner.tick()
+    await vi.waitFor(() => expect(first.provider.submit).toHaveBeenCalledOnce())
+    const claimed = store.read((state) => state.tasks.find((task) => task.id === 'parallel-video-1')!)
+
+    await new GenerationTaskRunner(store, {
+      videoProvider: secondProvider,
+      providerPollIntervalMs: 60_000,
+      leaseTtlMs: 60_000,
+    }).tick()
+
+    expect(secondProvider.submit).not.toHaveBeenCalled()
+    expect(claimed).toMatchObject({
+      status: 'running',
+      attempts: 1,
+      maxAttempts: 3,
+      leaseOwnerId: expect.any(String),
+      leaseToken: expect.any(String),
+      leaseAcquiredAt: expect.any(String),
+      leaseHeartbeatAt: expect.any(String),
+      leaseExpiresAt: expect.any(String),
+      metadata: { providerState: 'submitting' },
+    })
+
+    first.releaseSubmissions()
+    await firstTick
+  })
+
+  it('reclaims an expired remote lease before polling provider result', async () => {
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(),
+      getStatus: vi.fn(async () => ({ status: 'completed', progress: 100, error: null })),
+      getContent: vi.fn(),
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const [task] = queuedVideoTasks(1)
+    const now = new Date().toISOString()
+    const expired = new Date(Date.now() - 1_000).toISOString()
+    await store.mutate((state) => {
+      state.tasks.unshift({
+        ...task!,
+        status: 'running',
+        progress: 50,
+        attempts: 1,
+        maxAttempts: 3,
+        metadata: {
+          ...task!.metadata,
+          providerName: 'stringx-seedance',
+          providerTaskId: 'remote-expired-lease',
+          providerState: 'running',
+          providerPolledAt: 0,
+        },
+        leaseOwnerId: 'old-runner',
+        leaseToken: 'old-token',
+        leaseAcquiredAt: expired,
+        leaseHeartbeatAt: expired,
+        leaseExpiresAt: expired,
+        updatedAt: now,
+      })
+    })
+
+    await new GenerationTaskRunner(store, {
+      videoProvider: provider,
+      providerPollIntervalMs: 0,
+      leaseTtlMs: 60_000,
+    }).tick()
+
+    expect(provider.getStatus).toHaveBeenCalledWith('remote-expired-lease')
+    expect(store.read((state) => state.tasks.find((item) => item.id === task!.id))).toMatchObject({
+      status: 'completed',
+      attempts: 1,
+      progress: 100,
+      leaseOwnerId: null,
+      leaseToken: null,
+      leaseAcquiredAt: null,
+      leaseHeartbeatAt: null,
+      leaseExpiresAt: null,
+    })
+  })
+
+  it('fails a queued task without submitting when max attempts are exhausted', async () => {
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const [task] = queuedVideoTasks(1)
+    await store.mutate((state) => {
+      state.tasks.unshift({
+        ...task!,
+        attempts: 2,
+        maxAttempts: 2,
+      })
+    })
+
+    await new GenerationTaskRunner(store, { videoProvider: provider }).tick()
+
+    expect(provider.submit).not.toHaveBeenCalled()
+    expect(store.read((state) => state.tasks.find((item) => item.id === task!.id))).toMatchObject({
+      status: 'failed',
+      progress: 100,
+      attempts: 2,
+      maxAttempts: 2,
+      error: 'Task exceeded maximum attempts; create a new task or retry from details',
+      leaseOwnerId: null,
+      leaseToken: null,
+    })
   })
 
   it('submits and completes configured video tasks through the remote provider', async () => {
@@ -182,6 +333,12 @@ describe('GenerationTaskRunner Seedance integration', () => {
       status: 'completed',
       progress: 100,
       resultUrl: '/api/v1/generation/tasks/local-video-task/content',
+      attempts: 1,
+      leaseOwnerId: null,
+      leaseToken: null,
+      leaseAcquiredAt: null,
+      leaseHeartbeatAt: null,
+      leaseExpiresAt: null,
       metadata: {
         providerName: 'stringx-seedance',
         providerTaskId: 'remote-task-1',
@@ -385,7 +542,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
     expect(provider.submit).not.toHaveBeenCalled()
     expect(store.read((state) => state.tasks.find((task) => task.id === linked.id))).toMatchObject({
       status: 'failed',
-      error: '上一镜头尾帧提取失败，当前连续镜头未提交；请重新生成上一镜头',
+      error: 'Dependency source is missing a last frame; regenerate the previous shot',
     })
   })
 
@@ -508,6 +665,116 @@ describe('GenerationTaskRunner Seedance integration', () => {
     ])
   })
 
+  it('cancels remote video requests in the worker before refunding reserved credits', async () => {
+    const cancel = vi.fn(async () => {})
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+      cancel,
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'cancelled-video-task',
+      clientRequestId: 'cancelled-video-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-creator',
+      kind: 'video',
+      label: '镜头 01',
+      prompt: '雨夜车站',
+      negativePrompt: '',
+      provider: 'seedance',
+      model: 'doubao-seedance-2-0-260128',
+      metadata: {
+        providerName: 'stringx-seedance',
+        providerTaskId: 'remote-cancelled-video',
+        providerCancelRequestedAt: now,
+      },
+      status: 'cancelled',
+      progress: 100,
+      estimatedCredits: 18,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+    const originalCredits = store.read(
+      (state) => state.users.find((item) => item.id === task.userId)?.credits ?? 0,
+    )
+    await store.mutate((state) => {
+      const user = state.users.find((item) => item.id === task.userId)!
+      user.credits -= task.estimatedCredits
+      state.ledger.unshift({
+        id: `generation-${task.clientRequestId}`,
+        userId: task.userId,
+        tenantId: task.tenantId,
+        amount: -task.estimatedCredits,
+        balance: user.credits,
+        type: 'generation',
+        description: task.label,
+        createdAt: now,
+      })
+      state.tasks.unshift(task)
+    })
+
+    await new GenerationTaskRunner(store, { videoProvider: provider }).tick()
+
+    expect(cancel).toHaveBeenCalledWith('remote-cancelled-video')
+    expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+      status: 'cancelled',
+      metadata: {
+        providerCancelCompletedAt: expect.any(String),
+        creditsRefundedAt: expect.any(String),
+      },
+    })
+    expect(store.read((state) => state.users.find((item) => item.id === task.userId)?.credits)).toBe(
+      originalCredits,
+    )
+    expect(store.read((state) => state.ledger.filter((entry) => entry.id === `refund-${task.id}`))).toEqual([
+      expect.objectContaining({ amount: 18, type: 'adjustment', balance: originalCredits }),
+    ])
+  })
+
+  it('claims cancelled remote tasks by resource lock instead of processing the same shot twice', async () => {
+    const cancel = vi.fn(async () => {})
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+      cancel,
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    await store.mutate((state) => {
+      state.tasks.unshift(
+        cancelledRemoteVideoTask('cancelled-shot-1-a', 'shot-1', 'remote-cancelled-shot-1-a', now),
+        cancelledRemoteVideoTask('cancelled-shot-1-b', 'shot-1', 'remote-cancelled-shot-1-b', now),
+        cancelledRemoteVideoTask('cancelled-shot-2', 'shot-2', 'remote-cancelled-shot-2', now),
+      )
+    })
+
+    await new GenerationTaskRunner(store, { videoProvider: provider }).tick()
+
+    expect(cancel).toHaveBeenCalledTimes(2)
+    expect(cancel).toHaveBeenNthCalledWith(1, 'remote-cancelled-shot-1-a')
+    expect(cancel).toHaveBeenNthCalledWith(2, 'remote-cancelled-shot-2')
+    expect(store.read((state) => state.tasks.find((item) => item.id === 'cancelled-shot-1-b'))).toMatchObject(
+      {
+        status: 'cancelled',
+        metadata: {
+          cancelResourceLockKind: 'video-shot',
+          cancelResourceLockKey: 'shotId:shot-1',
+          providerCancelRequestedAt: now,
+        },
+      },
+    )
+  })
+
   it('recovers a visible remote video that an older status parser marked as failed', async () => {
     const provider: VideoGenerationProvider = {
       submit: vi.fn(),
@@ -618,6 +885,12 @@ describe('GenerationTaskRunner Seedance integration', () => {
       status: 'completed',
       progress: 100,
       resultUrl: '/api/v1/generation/tasks/storyboard-image-task/outputs/single',
+      attempts: 1,
+      leaseOwnerId: null,
+      leaseToken: null,
+      leaseAcquiredAt: null,
+      leaseHeartbeatAt: null,
+      leaseExpiresAt: null,
     })
     expect(store.read((state) => state.shots.find((item) => item.id === 'shot-1'))?.imageUrl).toBe(
       '/api/v1/generation/tasks/storyboard-image-task/outputs/single',
@@ -741,6 +1014,14 @@ describe('GenerationTaskRunner Seedance integration', () => {
     expect(store.read((state) => state.tasks.find((task) => task.id === videoTask.id)?.status)).toBe(
       'completed',
     )
+    expect(store.read((state) => state.tasks.find((task) => task.id === videoTask.id))).toMatchObject({
+      attempts: 1,
+      leaseOwnerId: null,
+      leaseToken: null,
+      leaseAcquiredAt: null,
+      leaseHeartbeatAt: null,
+      leaseExpiresAt: null,
+    })
   })
 })
 
@@ -800,5 +1081,42 @@ function deferredVideoProvider(): {
       getStatus: vi.fn(async () => ({ status: 'running', progress: 10, error: null })),
       getContent: vi.fn(),
     },
+  }
+}
+
+function cancelledRemoteVideoTask(
+  id: string,
+  shotId: string,
+  providerTaskId: string,
+  now: string,
+): GenerationTask {
+  return {
+    id,
+    clientRequestId: `${id}-client`,
+    projectId: 'project-midnight-film',
+    tenantId: 'tenant-seqora-demo',
+    userId: 'user-creator',
+    kind: 'video',
+    label: id,
+    prompt: 'cancelled remote video',
+    negativePrompt: '',
+    provider: 'seedance',
+    model: 'doubao-seedance-2-0-260128',
+    metadata: {
+      shotId,
+      cancelResourceLockKind: 'video-shot',
+      cancelResourceLockKey: `shotId:${shotId}`,
+      providerName: 'stringx-seedance',
+      providerTaskId,
+      providerCancelRequestedAt: now,
+    },
+    status: 'cancelled',
+    progress: 100,
+    estimatedCredits: 18,
+    createdAt: now,
+    updatedAt: now,
+    resultUrl: null,
+    outputs: [],
+    error: null,
   }
 }

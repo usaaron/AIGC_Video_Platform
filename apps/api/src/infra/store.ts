@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { hashPassword } from '../core/auth/password.js'
+import { normalizeGenerationTaskLifecycle } from '../core/jobs/taskLease.js'
 
 export type StoredUser = {
   id: string
@@ -126,10 +127,24 @@ export class AppStore {
   }
 
   async mutate<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
+    return this.runWrite(mutator)
+  }
+
+  async transaction<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
+    return this.runWrite(mutator)
+  }
+
+  private async runWrite<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
     let result!: T
     const operation = this.writeQueue.then(async () => {
-      result = await mutator(this.state)
-      await this.persist()
+      const snapshot = structuredClone(this.state)
+      try {
+        result = await mutator(this.state)
+        await this.persist()
+      } catch (error) {
+        this.state = snapshot
+        throw error
+      }
     })
     this.writeQueue = operation.then(
       () => undefined,
@@ -443,7 +458,7 @@ function normalizeState(input: Partial<AppState>): AppState {
       continuityMode: shot.continuityMode ?? 'independent',
       continuityNote: shot.continuityNote ?? '',
     })),
-    tasks,
+    tasks: tasks.map((task) => normalizeGenerationTaskLifecycle(task)),
     ledger: input.ledger ?? [],
     media: input.media ?? [],
     novelDocuments: input.novelDocuments ?? [],

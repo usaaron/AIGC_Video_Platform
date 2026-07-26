@@ -10,6 +10,8 @@
 corepack enable
 pnpm install
 pnpm dev
+# 另开一个终端启动任务 worker
+pnpm --filter @seqora/api worker
 ```
 
 - 创作端：[http://localhost:5173](http://localhost:5173)
@@ -41,14 +43,15 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 
 ## 常用命令
 
-| 命令           | 说明                           |
-| -------------- | ------------------------------ |
-| `pnpm dev`     | 同时启动 Web 和 API            |
-| `pnpm dev:web` | 只启动创作端                   |
-| `pnpm dev:api` | 只启动 API                     |
-| `pnpm test`    | 运行全部工作区测试             |
-| `pnpm build`   | 构建全部可部署应用             |
-| `pnpm check`   | 格式、Lint、测试和构建完整检查 |
+| 命令                               | 说明                           |
+| ---------------------------------- | ------------------------------ |
+| `pnpm dev`                         | 同时启动 Web 和 API            |
+| `pnpm dev:web`                     | 只启动创作端                   |
+| `pnpm dev:api`                     | 只启动 API                     |
+| `pnpm --filter @seqora/api worker` | 启动任务 worker                |
+| `pnpm test`                        | 运行全部工作区测试             |
+| `pnpm build`                       | 构建全部可部署应用             |
+| `pnpm check`                       | 格式、Lint、测试和构建完整检查 |
 
 ## 外部测试部署
 
@@ -87,7 +90,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 - 服务端生成队列、单任务暂停/继续/软删除、免费用户单任务并发、会员三任务并发、积分扣减、失败或删除等待任务自动退款与流水
 - 管理概览、用户和任务统计，以及服务端管理员权限校验
 
-当前版本使用本地 JSON 仓储和进程内任务执行器，适合直接演示和三人团队并行开发。仓储、任务分发器和认证提供方均保留清晰接口，后续可分别替换为 PostgreSQL、Redis/消息队列和 OIDC，而不改变前端 API 契约。
+当前版本使用本地 JSON 仓储，API 进程只负责 HTTP 和业务编排，`apps/api/src/worker.ts` 负责任务执行，适合直接演示和三人团队并行开发。仓储、任务分发器和认证提供方均保留清晰接口，后续可分别替换为 PostgreSQL、Redis/消息队列和 OIDC，而不改变前端 API 契约。
 
 ## API 范围
 

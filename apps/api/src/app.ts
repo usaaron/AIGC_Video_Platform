@@ -9,20 +9,14 @@ import type { AppConfig } from './config.js'
 import { installAuth } from './core/auth/installAuth.js'
 import { createAuthProvider } from './core/auth/provider.js'
 import { AppError } from './core/errors.js'
-import { AideosSeedanceProvider } from './core/generation/aideosSeedanceProvider.js'
 import type { ImageGenerationProvider } from './core/generation/imageProvider.js'
 import type { AssetLibraryProvider } from './core/generation/volcArkAssetLibraryProvider.js'
-import { VolcArkAssetLibraryProvider } from './core/generation/volcArkAssetLibraryProvider.js'
 import type { TextGenerationProvider } from './core/generation/textProvider.js'
-import { TokenAdventImageProvider } from './core/generation/tokenAdventImageProvider.js'
-import { TokenAdventTextProvider } from './core/generation/tokenAdventTextProvider.js'
 import { TextGenerationProviderError } from './core/generation/textProvider.js'
 import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
-import type { VideoProviderName } from './core/generation/videoProvider.js'
-import { StringXSeedanceProvider } from './core/generation/stringXSeedanceProvider.js'
-import { VolcArkSeedanceProvider } from './core/generation/volcArkSeedanceProvider.js'
 import { FilmPreviewComposer, type FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
-import { GenerationTaskRunner } from './core/jobs/taskDispatcher.js'
+import { GenerationTaskRunner, type TaskDispatcher } from './core/jobs/taskDispatcher.js'
+import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
 import { AppStore } from './infra/store.js'
 import { createObjectStorage } from './infra/objectStorage.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
@@ -47,12 +41,20 @@ import { QuickStartService } from './modules/quickStart/service.js'
 import { registerTrustedAssetRoutes } from './modules/trustedAssets/routes.js'
 import { TrustedAssetService } from './modules/trustedAssets/service.js'
 import { UserRepository } from './modules/users/repository.js'
+import {
+  createAssetLibraryProvider,
+  createImageProvider,
+  createTextProvider,
+  createVideoProvider,
+  videoProviderName,
+} from './runtime/providers.js'
 
 type BuildAppOptions = {
   config: AppConfig
   logger?: boolean
   store?: AppStore
   startWorker?: boolean
+  taskDispatcher?: TaskDispatcher
   videoProvider?: VideoGenerationProvider | null
   imageProvider?: ImageGenerationProvider | null
   textProvider?: TextGenerationProvider | null
@@ -123,47 +125,19 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       : (options.filmPreviewComposer ?? null)
   await filmPreviewComposer?.recoverInterrupted()
   let generationService: GenerationService | null = null
-  const taskRunner = new GenerationTaskRunner(store, {
-    videoProvider,
-    videoProviderName: videoProviderName(options.config),
-    imageProvider,
-    objectStorage,
-    providerPollIntervalMs: options.config.VIDEO_POLL_INTERVAL_MS,
-    onVideoCompleted: async (task) => {
-      const service = generationService
-      if (!service) return
-      const principal = store.read((state) => {
-        const user = state.users.find((item) => item.id === task.userId && item.tenantId === task.tenantId)
-        return user ? { userId: user.id, tenantId: user.tenantId, roles: user.roles } : null
-      })
-      if (!principal) return
-      const allShotsReady = store.read((state) => {
-        const shots = state.shots.filter(
-          (shot) => shot.projectId === task.projectId && shot.tenantId === task.tenantId,
-        )
-        return (
-          shots.length > 0 &&
-          shots.every((shot) =>
-            state.tasks.some(
-              (source) =>
-                source.projectId === task.projectId &&
-                source.tenantId === task.tenantId &&
-                source.kind === 'video' &&
-                source.provider === 'seedance' &&
-                source.status === 'completed' &&
-                source.metadata.shotId === shot.id &&
-                typeof source.metadata.providerTaskId === 'string',
-            ),
-          )
-        )
-      })
-      if (allShotsReady) await service.createFilmPreview(task.projectId, principal, 'full')
-    },
-  })
+  const taskDispatcher =
+    options.taskDispatcher ??
+    new GenerationTaskRunner(store, {
+      videoProvider,
+      videoProviderName: videoProviderName(options.config),
+      imageProvider,
+      objectStorage,
+      providerPollIntervalMs: options.config.VIDEO_POLL_INTERVAL_MS,
+      onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
+    })
   generationService = new GenerationService(
     new GenerationTaskRepository(store),
-    creditLedger,
-    taskRunner,
+    taskDispatcher,
     videoProvider,
     videoProviderName(options.config),
     objectStorage,
@@ -171,7 +145,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   )
   const projectService = new ProjectService(new ProjectRepository(store), textProvider, creditLedger)
   const novelService = new NovelService(new NovelRepository(store), textProvider, creditLedger)
-  const quickStartService = new QuickStartService(store, textProvider, taskRunner, Boolean(imageProvider))
+  const quickStartService = new QuickStartService(store, textProvider, taskDispatcher, Boolean(imageProvider))
   const mediaService = new MediaService(new MediaRepository(store), objectStorage)
   const trustedAssetService = new TrustedAssetService(
     store,
@@ -232,74 +206,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     { prefix: '/api/v1' },
   )
 
-  if (options.startWorker !== false) taskRunner.start()
-  app.addHook('onClose', async () => taskRunner.stop())
+  if (options.taskDispatcher === undefined && options.startWorker !== false) {
+    const inProcessRunner = taskDispatcher as GenerationTaskRunner
+    inProcessRunner.start()
+    app.addHook('onClose', async () => inProcessRunner.stop())
+  }
   return app
-}
-
-function createVideoProvider(config: AppConfig): VideoGenerationProvider | null {
-  if (config.VIDEO_PROVIDER === 'stringx') {
-    if (!config.STRINGX_API_KEY) return null
-    return new StringXSeedanceProvider({
-      baseUrl: config.STRINGX_BASE_URL,
-      apiKey: config.STRINGX_API_KEY,
-      defaultModel: config.STRINGX_VIDEO_MODEL,
-      requestTimeoutMs: config.STRINGX_REQUEST_TIMEOUT_MS,
-    })
-  }
-  if (config.VIDEO_PROVIDER === 'aideos') {
-    if (!config.AIDEOS_API_KEY) return null
-    return new AideosSeedanceProvider({
-      baseUrl: config.AIDEOS_BASE_URL,
-      apiKey: config.AIDEOS_API_KEY,
-      defaultModel: config.AIDEOS_VIDEO_MODEL,
-      requestTimeoutMs: config.AIDEOS_REQUEST_TIMEOUT_MS,
-      ffmpegPath: config.FFMPEG_PATH,
-      lastFrameTimeoutMs: config.FILM_PREVIEW_TIMEOUT_MS,
-    })
-  }
-  if (!config.ARK_API_KEY) return null
-  return new VolcArkSeedanceProvider({
-    baseUrl: config.ARK_API_BASE_URL,
-    apiKey: config.ARK_API_KEY,
-    defaultModel: config.ARK_VIDEO_MODEL,
-    requestTimeoutMs: config.ARK_REQUEST_TIMEOUT_MS,
-  })
-}
-
-function videoProviderName(config: AppConfig): VideoProviderName {
-  if (config.VIDEO_PROVIDER === 'stringx') return 'stringx-seedance'
-  return config.VIDEO_PROVIDER === 'aideos' ? 'aideos-seedance' : 'volc-ark-seedance'
-}
-
-function createImageProvider(config: AppConfig): ImageGenerationProvider | null {
-  if (!config.TOKENADVENT_API_KEY) return null
-  return new TokenAdventImageProvider({
-    baseUrl: config.TOKENADVENT_BASE_URL,
-    apiKey: config.TOKENADVENT_API_KEY,
-    model: config.IMG2_MODEL,
-    quality: config.IMG2_QUALITY,
-    requestTimeoutMs: config.TOKENADVENT_REQUEST_TIMEOUT_MS,
-  })
-}
-
-function createTextProvider(config: AppConfig): TextGenerationProvider | null {
-  if (!config.TOKENADVENT_API_KEY) return null
-  return new TokenAdventTextProvider({
-    baseUrl: config.TOKENADVENT_BASE_URL,
-    apiKey: config.TOKENADVENT_API_KEY,
-    model: config.TEXT_MODEL,
-    requestTimeoutMs: config.TOKENADVENT_REQUEST_TIMEOUT_MS,
-  })
-}
-
-function createAssetLibraryProvider(config: AppConfig): AssetLibraryProvider | null {
-  if (!config.VOLC_ACCESS_KEY || !config.VOLC_SECRET_KEY) return null
-  return new VolcArkAssetLibraryProvider({
-    baseUrl: config.VOLC_ASSET_BASE_URL,
-    accessKey: config.VOLC_ACCESS_KEY,
-    secretKey: config.VOLC_SECRET_KEY,
-    projectName: config.VOLC_ARK_PROJECT_NAME,
-    requestTimeoutMs: config.VOLC_ASSET_REQUEST_TIMEOUT_MS,
-  })
 }

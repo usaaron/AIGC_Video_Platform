@@ -6,7 +6,6 @@ import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
 import type { VideoGenerationProvider } from '../../core/generation/videoProvider.js'
 import type { VideoProviderName } from '../../core/generation/videoProvider.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
-import type { CreditLedger } from '../billing/creditLedger.js'
 import { AppError } from '../../core/errors.js'
 import type { GenerationTaskRepository } from './repository.js'
 
@@ -15,7 +14,6 @@ export type FilmPreviewMode = 'full' | 'partial'
 export class GenerationService {
   constructor(
     private readonly repository: GenerationTaskRepository,
-    private readonly creditLedger: CreditLedger,
     private readonly dispatcher: TaskDispatcher,
     private readonly videoProvider: VideoGenerationProvider | null = null,
     private readonly videoProviderName: VideoProviderName = 'stringx-seedance',
@@ -43,13 +41,7 @@ export class GenerationService {
         `以下人物使用弦序 MaaS 素材，不能提交到当前视频 Provider：${stringXPortraitNames.join('、')}。请切换弦序视频 API 后再生成`,
       )
     }
-    const task = await this.repository.create(input, principal)
-    try {
-      await this.creditLedger.reserve(principal, input.estimatedCredits, input.clientRequestId, input.label)
-    } catch (error) {
-      await this.repository.discardUncharged(task.id, principal)
-      throw error
-    }
+    const task = await this.repository.createWithCharge(input, principal)
     await this.dispatcher.dispatch(task)
     return task
   }
@@ -155,32 +147,10 @@ export class GenerationService {
   }
 
   async deleteTask(taskId: string, principal: Principal): Promise<void> {
-    const current = this.repository.findById(taskId, principal)
-    if (
-      current?.status === 'running' &&
-      current.provider === 'seedance' &&
-      current.metadata.providerName === 'stringx-seedance' &&
-      typeof current.metadata.providerTaskId === 'string' &&
-      this.videoProviderName === 'stringx-seedance' &&
-      this.videoProvider?.cancel
-    ) {
-      try {
-        await this.videoProvider.cancel(current.metadata.providerTaskId)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '弦序远端任务取消失败'
-        throw new AppError(502, 'REMOTE_TASK_CANCEL_FAILED', message)
-      }
-      const cancelled = await this.repository.cancelRunning(taskId, principal)
-      if (cancelled) await this.creditLedger.refundGeneration(cancelled, `${cancelled.label} · 取消退款`)
-      return
-    }
     const result = await this.repository.deleteFromQueue(taskId, principal)
     if (!result.task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权操作')
     if (result.outcome === 'not_deletable') {
       throw new AppError(409, 'TASK_NOT_DELETABLE', '第三方生成中的任务不能暂停或删除，请等待任务结束')
-    }
-    if (result.outcome === 'deleted' && result.refund) {
-      await this.creditLedger.refundGeneration(result.task)
     }
   }
 

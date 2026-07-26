@@ -6,6 +6,7 @@ import {
   QUALITY_RULE_VERSION,
   VIDEO_PROMPT_VERSION,
 } from '@seqora/prompting'
+import { randomUUID } from 'node:crypto'
 import type {
   ImageGenerationProvider,
   ImageGenerationRequest,
@@ -18,9 +19,27 @@ import type {
 } from '../generation/videoProvider.js'
 import type { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
+import { cancellationResourceLockForTask, taskResourceLockId } from './taskResourceLock.js'
+import {
+  GenerationResultWriteback,
+  generatedDescriptors,
+  type GeneratedOutputDescriptor,
+} from './taskWriteback.js'
+import {
+  DEFAULT_TASK_MAX_ATTEMPTS,
+  claimGenerationTaskLease,
+  generationTaskLeaseActive,
+  generationTaskLeaseMatches,
+  releaseGenerationTaskLease,
+  renewGenerationTaskLease,
+} from './taskLease.js'
 
 export interface TaskDispatcher {
   dispatch(task: GenerationTask): Promise<void>
+}
+
+export const noopTaskDispatcher: TaskDispatcher = {
+  async dispatch() {},
 }
 
 type GenerationTaskRunnerOptions = {
@@ -29,14 +48,8 @@ type GenerationTaskRunnerOptions = {
   imageProvider?: ImageGenerationProvider | null
   objectStorage?: ObjectStorage | null
   providerPollIntervalMs?: number
+  leaseTtlMs?: number
   onVideoCompleted?: (task: GenerationTask) => Promise<void>
-}
-
-type GeneratedOutputDescriptor = {
-  view: GenerationTask['outputs'][number]['view']
-  storageKey: string
-  contentType: string
-  size: number
 }
 
 export class GenerationTaskRunner implements TaskDispatcher {
@@ -46,7 +59,10 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly videoProviderName: VideoProviderName
   private readonly imageProvider: ImageGenerationProvider | null
   private readonly objectStorage: ObjectStorage | null
+  private readonly writeback: GenerationResultWriteback
   private readonly providerPollIntervalMs: number
+  private readonly leaseTtlMs: number
+  private readonly leaseOwnerId: string
   private readonly onVideoCompleted: ((task: GenerationTask) => Promise<void>) | null
 
   constructor(
@@ -57,7 +73,10 @@ export class GenerationTaskRunner implements TaskDispatcher {
     this.videoProviderName = options.videoProviderName ?? 'stringx-seedance'
     this.imageProvider = options.imageProvider ?? null
     this.objectStorage = options.objectStorage ?? null
+    this.writeback = new GenerationResultWriteback(store, this.objectStorage)
     this.providerPollIntervalMs = options.providerPollIntervalMs ?? 5_000
+    this.leaseTtlMs = options.leaseTtlMs ?? 120_000
+    this.leaseOwnerId = `generation-task-runner-${process.pid}-${randomUUID()}`
     this.onVideoCompleted = options.onVideoCompleted ?? null
   }
 
@@ -91,74 +110,25 @@ export class GenerationTaskRunner implements TaskDispatcher {
 
   private async runTick(): Promise<void> {
     await this.recoverStatusParseFailures()
-    await this.refundFailedTasks()
+    await this.recoverStaleRunningTasks()
+    await this.reconcileCancelledRemoteTasks()
+    await this.refundTerminalTasks()
     const hasActiveTasks = this.store.read((state) =>
       state.tasks.some((task) => task.status === 'queued' || task.status === 'running'),
     )
     if (!hasActiveTasks) return
 
-    const remoteTasks = await this.store.mutate((state) => {
-      const now = new Date().toISOString()
-      const selectedRemoteTasks: Array<{ task: GenerationTask; providerName: string }> = []
+    const remoteTasks = await this.claimQueuedTasks()
 
-      state.tasks
-        .filter(
-          (task) =>
-            task.status === 'running' &&
-            isRemoteProviderName(task.metadata.providerName) &&
-            task.metadata.providerState === 'submitting' &&
-            !task.metadata.providerTaskId,
-        )
-        .forEach((task) => {
-          task.status = 'failed'
-          task.progress = 100
-          task.error = '第三方生成提交过程被中断，请重新生成此任务'
-          task.updatedAt = now
-        })
-
-      for (const user of state.users) {
-        const userTasks = state.tasks.filter((task) => task.userId === user.id)
-        userTasks
-          .filter((task) => task.status === 'queued' && dependencyState(task, userTasks) === 'failed')
-          .forEach((task) => {
-            task.status = 'failed'
-            task.progress = 100
-            task.error = continuityDependencyMissingFrame(task, userTasks)
-              ? '上一镜头尾帧提取失败，当前连续镜头未提交；请重新生成上一镜头'
-              : '前置生成任务失败或不存在，当前任务未提交'
-            task.updatedAt = now
-          })
-        const running = userTasks.filter(
-          (task) => task.status === 'running' && task.provider !== 'local-compose',
-        )
-        const available = Math.max(0, (user.plan === 'member' ? 3 : 1) - running.length)
-        userTasks
-          .filter((task) => task.status === 'queued' && dependencyState(task, userTasks) === 'ready')
-          .slice(0, available)
-          .forEach((task) => {
-            const providerName = this.remoteProviderName(task)
-            task.status = 'running'
-            task.progress = providerName ? 1 : 8
-            task.updatedAt = now
-            if (providerName) {
-              task.metadata = {
-                ...task.metadata,
-                providerName,
-                providerState: 'submitting',
-              }
-              selectedRemoteTasks.push({ task, providerName })
-            }
-          })
-      }
-
-      return selectedRemoteTasks
-    })
-
-    await this.refundFailedTasks()
+    await this.refundTerminalTasks()
     await Promise.all(
-      remoteTasks.map(async (remote) => {
-        if (isVideoProviderName(remote.providerName)) await this.submitRemoteVideo(remote.task)
-        if (remote.providerName === 'tokenadvent-img2') await this.generateRemoteImage(remote.task)
+      remoteTasks.video.map(async (task) => {
+        await this.submitRemoteVideo(task)
+      }),
+    )
+    await Promise.all(
+      remoteTasks.image.map(async (task) => {
+        await this.generateRemoteImage(task)
       }),
     )
 
@@ -169,20 +139,295 @@ export class GenerationTaskRunner implements TaskDispatcher {
           (task) =>
             task.status === 'running' &&
             task.provider !== 'local-compose' &&
-            !isRemoteProviderName(task.metadata.providerName),
+            !isRemoteProviderName(task.metadata.providerName) &&
+            task.leaseOwnerId === this.leaseOwnerId,
         )
         .forEach((task) => {
           task.progress = Math.min(100, task.progress + 12)
+          if (task.leaseToken && generationTaskLeaseMatches(task, this.leaseOwnerId, task.leaseToken)) {
+            renewGenerationTaskLease(task, this.leaseOwnerId, task.leaseToken, this.leaseTtlMs, new Date(now))
+          }
           task.updatedAt = now
           if (task.progress >= 100) {
             task.status = 'completed'
             task.outputs = outputsFor(task)
             task.resultUrl = task.outputs[0]?.url ?? null
+            releaseGenerationTaskLease(task)
           }
         })
     })
 
     await this.pollRemoteVideos()
+  }
+
+  private async reconcileCancelledRemoteTasks(): Promise<void> {
+    const tasks = this.store.read((state) =>
+      state.tasks.filter(
+        (task) =>
+          task.status === 'cancelled' &&
+          task.metadata.providerName === this.videoProviderName &&
+          typeof task.metadata.providerTaskId === 'string' &&
+          typeof task.metadata.providerCancelRequestedAt === 'string' &&
+          typeof task.metadata.providerCancelCompletedAt !== 'string' &&
+          typeof task.metadata.providerCancelSkippedAt !== 'string',
+      ),
+    )
+    if (!tasks.length) return
+
+    if (!this.videoProvider?.cancel) {
+      await this.store.mutate((state) => {
+        const now = new Date().toISOString()
+        for (const task of tasks) {
+          const stored = state.tasks.find((item) => item.id === task.id)
+          if (!stored || stored.status !== 'cancelled') continue
+          const lock = cancellationResourceLockForTask(stored)
+          const {
+            cancelClaimedAt: _claimedAt,
+            cancelLeaseExpiresAt: _leaseExpiresAt,
+            providerCancelError: _error,
+            providerCancelFailedAt: _failedAt,
+            ...metadata
+          } = stored.metadata
+          stored.metadata = {
+            ...metadata,
+            cancelResourceLockKind: lock.kind,
+            cancelResourceLockKey: lock.key,
+            providerCancelSkippedAt: now,
+            providerCancelSkippedReason: 'Provider does not support remote cancellation',
+          }
+          stored.updatedAt = now
+        }
+      })
+      return
+    }
+
+    const claimedTasks = await this.claimCancelledRemoteTasks(tasks)
+
+    for (const task of claimedTasks) {
+      const providerTaskId = stringValue(task.metadata.providerTaskId, '')
+      if (!providerTaskId) continue
+      try {
+        await this.videoProvider.cancel(providerTaskId)
+        await this.store.mutate((state) => {
+          const stored = state.tasks.find((item) => item.id === task.id)
+          if (!stored || stored.status !== 'cancelled') return
+          const now = new Date().toISOString()
+          const {
+            providerCancelError: _error,
+            providerCancelFailedAt: _failedAt,
+            cancelClaimedAt: _claimedAt,
+            cancelLeaseExpiresAt: _leaseExpiresAt,
+            ...metadata
+          } = stored.metadata
+          stored.metadata = {
+            ...metadata,
+            providerState: 'cancelled',
+            providerCancelCompletedAt: now,
+          }
+          stored.updatedAt = now
+        })
+      } catch (error) {
+        await this.store.mutate((state) => {
+          const stored = state.tasks.find((item) => item.id === task.id)
+          if (!stored || stored.status !== 'cancelled') return
+          const now = new Date().toISOString()
+          stored.metadata = {
+            ...stored.metadata,
+            providerCancelError: messageFor(error),
+            providerCancelFailedAt: now,
+          }
+          stored.updatedAt = now
+        })
+      }
+    }
+  }
+
+  private async claimCancelledRemoteTasks(tasks: GenerationTask[]): Promise<GenerationTask[]> {
+    return this.store.mutate((state) => {
+      const now = new Date()
+      const nowIso = now.toISOString()
+      const leaseExpiresAt = new Date(now.getTime() + this.leaseTtlMs).toISOString()
+      const requestedTaskIds = new Set(tasks.map((task) => task.id))
+      const eligible = state.tasks
+        .filter(
+          (task) =>
+            requestedTaskIds.has(task.id) &&
+            task.status === 'cancelled' &&
+            task.metadata.providerName === this.videoProviderName &&
+            typeof task.metadata.providerTaskId === 'string' &&
+            typeof task.metadata.providerCancelRequestedAt === 'string' &&
+            typeof task.metadata.providerCancelCompletedAt !== 'string' &&
+            typeof task.metadata.providerCancelSkippedAt !== 'string',
+        )
+        .sort((left, right) => {
+          const createdAt = left.createdAt.localeCompare(right.createdAt)
+          if (createdAt !== 0) return createdAt
+          const updatedAt = left.updatedAt.localeCompare(right.updatedAt)
+          if (updatedAt !== 0) return updatedAt
+          return left.id.localeCompare(right.id)
+        })
+
+      const activeLocks = new Set<string>()
+      for (const task of eligible) {
+        const lock = cancellationResourceLockForTask(task)
+        if (this.cancelClaimActive(task, now.getTime())) activeLocks.add(taskResourceLockId(lock))
+      }
+
+      const claimedLocks = new Set<string>()
+      const claimedTasks: GenerationTask[] = []
+      for (const task of eligible) {
+        const lock = cancellationResourceLockForTask(task)
+        const lockId = taskResourceLockId(lock)
+        if (activeLocks.has(lockId) || claimedLocks.has(lockId)) continue
+        const stored = state.tasks.find((item) => item.id === task.id)
+        if (!stored || stored.status !== 'cancelled') continue
+        if (this.cancelClaimActive(stored, now.getTime())) {
+          activeLocks.add(lockId)
+          continue
+        }
+        const {
+          providerCancelError: _error,
+          providerCancelFailedAt: _failedAt,
+          providerCancelCompletedAt: _completedAt,
+          providerCancelSkippedAt: _skippedAt,
+          providerCancelSkippedReason: _skippedReason,
+          cancelClaimedAt: _claimedAt,
+          cancelLeaseExpiresAt: _leaseExpiresAt,
+          ...metadata
+        } = stored.metadata
+        stored.metadata = {
+          ...metadata,
+          cancelResourceLockKind: lock.kind,
+          cancelResourceLockKey: lock.key,
+          cancelClaimedAt: nowIso,
+          cancelLeaseExpiresAt: leaseExpiresAt,
+        }
+        stored.updatedAt = nowIso
+        claimedLocks.add(lockId)
+        claimedTasks.push(stored)
+      }
+
+      return claimedTasks
+    })
+  }
+
+  private cancelClaimActive(task: GenerationTask, now: number): boolean {
+    const claimedAt = stringValue(task.metadata.cancelClaimedAt, '')
+    const expiresAt = task.metadata.cancelLeaseExpiresAt
+    return Boolean(
+      claimedAt &&
+      typeof expiresAt === 'string' &&
+      expiresAt.length > 0 &&
+      Number.isFinite(Date.parse(expiresAt)) &&
+      Date.parse(expiresAt) > now,
+    )
+  }
+
+  private async recoverStaleRunningTasks(): Promise<void> {
+    await this.store.mutate((state) => {
+      const now = new Date()
+      const nowIso = now.toISOString()
+      state.tasks
+        .filter((task) => task.status === 'running' && task.provider !== 'local-compose')
+        .forEach((task) => {
+          const providerName = this.remoteProviderName(task)
+          if (!this.ownsTask(task, providerName)) return
+          if (generationTaskLeaseActive(task, now.getTime())) return
+          if (providerName && !task.metadata.providerTaskId) {
+            task.status = 'failed'
+            task.progress = 100
+            task.error = 'Remote generation submission was interrupted; retry this task'
+            task.updatedAt = nowIso
+            releaseGenerationTaskLease(task)
+            return
+          }
+          claimGenerationTaskLease(task, this.leaseOwnerId, this.leaseTtlMs, now, {
+            countAttempt: false,
+          })
+          task.updatedAt = nowIso
+        })
+    })
+  }
+
+  private async claimQueuedTasks(): Promise<{ video: GenerationTask[]; image: GenerationTask[] }> {
+    return this.store.mutate((state) => {
+      const now = new Date()
+      const nowIso = now.toISOString()
+      const selectedVideoTasks: GenerationTask[] = []
+      const selectedImageTasks: GenerationTask[] = []
+
+      for (const user of state.users) {
+        const userTasks = state.tasks.filter((task) => task.userId === user.id)
+        userTasks
+          .filter((task) => task.status === 'queued' && dependencyState(task, userTasks) === 'failed')
+          .forEach((task) => {
+            task.status = 'failed'
+            task.progress = 100
+            task.error = continuityDependencyMissingFrame(task, userTasks)
+              ? 'Dependency source is missing a last frame; regenerate the previous shot'
+              : 'Dependency task failed or is missing'
+            task.updatedAt = nowIso
+            releaseGenerationTaskLease(task)
+          })
+
+        const running = userTasks.filter(
+          (task) => task.status === 'running' && task.provider !== 'local-compose',
+        )
+        const available = Math.max(0, (user.plan === 'member' ? 3 : 1) - running.length)
+        let claimed = 0
+        for (const task of userTasks) {
+          if (claimed >= available) break
+          if (task.status !== 'queued') continue
+          if (task.provider === 'local-compose') continue
+          if (dependencyState(task, userTasks) !== 'ready') continue
+          const providerName = this.remoteProviderName(task)
+          if (!this.ownsTask(task, providerName)) continue
+          if ((task.attempts ?? 0) >= (task.maxAttempts ?? DEFAULT_TASK_MAX_ATTEMPTS)) {
+            task.status = 'failed'
+            task.progress = 100
+            task.error = 'Task exceeded maximum attempts; create a new task or retry from details'
+            task.updatedAt = nowIso
+            releaseGenerationTaskLease(task)
+            continue
+          }
+          claimGenerationTaskLease(task, this.leaseOwnerId, this.leaseTtlMs, now)
+          task.progress = providerName ? 1 : 8
+          task.updatedAt = nowIso
+          if (providerName) {
+            task.metadata = {
+              ...task.metadata,
+              providerName,
+              providerState: 'submitting',
+            }
+            if (this.isRemoteVideoTask(task)) selectedVideoTasks.push(task)
+            if (this.isRemoteImageTask(task)) selectedImageTasks.push(task)
+          }
+          claimed += 1
+        }
+      }
+
+      return { video: selectedVideoTasks, image: selectedImageTasks }
+    })
+  }
+
+  private ownsTask(task: GenerationTask, providerName: string | null): boolean {
+    if (task.provider === 'local-compose') return false
+    const existingProviderName = stringValue(task.metadata.providerName, '')
+    if (!providerName) return existingProviderName.length === 0
+    return existingProviderName.length === 0 || existingProviderName === providerName
+  }
+
+  private isRemoteVideoTask(task: GenerationTask): boolean {
+    return Boolean(this.videoProvider) && task.kind === 'video' && task.provider === 'seedance'
+  }
+
+  private isRemoteImageTask(task: GenerationTask): boolean {
+    return (
+      Boolean(this.imageProvider) &&
+      Boolean(this.objectStorage) &&
+      task.kind === 'image' &&
+      task.provider === 'img2'
+    )
   }
 
   private async recoverStatusParseFailures(): Promise<void> {
@@ -225,6 +470,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
   }
 
   private async submitRemoteVideo(task: GenerationTask): Promise<void> {
+    const leaseToken = stringValue(task.leaseToken, '')
+    if (!leaseToken) return
     try {
       const preparedTask = await this.prepareStoryboardVideoTask(task)
       const submission = await this.videoProvider!.submit(
@@ -233,6 +480,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
       await this.store.mutate((state) => {
         const stored = state.tasks.find((item) => item.id === task.id)
         if (!stored || stored.status !== 'running') return
+        if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
+        const now = new Date()
         stored.progress = Math.max(1, submission.progress)
         stored.metadata = {
           ...stored.metadata,
@@ -241,10 +490,11 @@ export class GenerationTaskRunner implements TaskDispatcher {
           providerPolledAt: Date.now(),
           providerPollErrors: 0,
         }
-        stored.updatedAt = new Date().toISOString()
+        renewGenerationTaskLease(stored, this.leaseOwnerId, leaseToken, this.leaseTtlMs, now)
+        stored.updatedAt = now.toISOString()
       })
     } catch (error) {
-      await this.failTask(task.id, messageFor(error))
+      await this.failTask(task.id, messageFor(error), leaseToken)
     }
   }
 
@@ -252,6 +502,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
     return this.store.mutate((state) => {
       const stored = state.tasks.find((item) => item.id === task.id)
       if (!stored) return task
+      const leaseToken = stringValue(task.leaseToken, '')
+      if (leaseToken && !generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return task
       const shotId = typeof stored.metadata.shotId === 'string' ? stored.metadata.shotId : null
       const project = state.projects.find(
         (item) => item.id === stored.projectId && item.tenantId === stored.tenantId,
@@ -348,7 +600,9 @@ export class GenerationTaskRunner implements TaskDispatcher {
         userNegativePrompt,
         sourceProjectVersion: project.version,
       }
-      stored.updatedAt = new Date().toISOString()
+      const now = new Date()
+      if (leaseToken) renewGenerationTaskLease(stored, this.leaseOwnerId, leaseToken, this.leaseTtlMs, now)
+      stored.updatedAt = now.toISOString()
       return stored
     })
   }
@@ -404,24 +658,16 @@ export class GenerationTaskRunner implements TaskDispatcher {
   }
 
   private async generateRemoteImage(task: GenerationTask): Promise<void> {
+    const leaseToken = stringValue(task.leaseToken, '')
+    if (!leaseToken) return
     try {
       const preparedTask = await this.prepareImageTask(task)
       const references = await this.resolveImageReferences(preparedTask)
       const outputs = await this.imageProvider!.generate(imageRequestFor(preparedTask, references))
-      const descriptors: GeneratedOutputDescriptor[] = []
-      for (const output of outputs) {
-        const storageKey = `${task.tenantId}/${task.projectId}/generated/${task.id}-${output.view}.png`
-        await this.objectStorage!.put(storageKey, output.content, output.contentType)
-        descriptors.push({
-          view: output.view,
-          storageKey,
-          contentType: output.contentType,
-          size: output.content.length,
-        })
-      }
-      await this.completeRemoteImage(task.id, descriptors)
+      const descriptors = await this.writeback.persistImageOutputs(task, outputs)
+      await this.writeback.completeImageTask(task.id, this.leaseOwnerId, leaseToken, descriptors)
     } catch (error) {
-      await this.failTask(task.id, messageFor(error))
+      await this.failTask(task.id, messageFor(error), leaseToken)
     }
   }
 
@@ -429,6 +675,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
     return this.store.mutate((state) => {
       const stored = state.tasks.find((item) => item.id === task.id)
       if (!stored) return task
+      const leaseToken = stringValue(task.leaseToken, '')
+      if (leaseToken && !generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return task
       const project = state.projects.find(
         (item) => item.id === stored.projectId && item.tenantId === stored.tenantId,
       )
@@ -453,7 +701,9 @@ export class GenerationTaskRunner implements TaskDispatcher {
         compiledNegativePrompt: quality.negativePrompt,
         userNegativePrompt,
       }
-      stored.updatedAt = new Date().toISOString()
+      const now = new Date()
+      if (leaseToken) renewGenerationTaskLease(stored, this.leaseOwnerId, leaseToken, this.leaseTtlMs, now)
+      stored.updatedAt = now.toISOString()
       return stored
     })
   }
@@ -503,38 +753,6 @@ export class GenerationTaskRunner implements TaskDispatcher {
     })
   }
 
-  private async completeRemoteImage(taskId: string, descriptors: GeneratedOutputDescriptor[]): Promise<void> {
-    await this.store.mutate((state) => {
-      const task = state.tasks.find((item) => item.id === taskId)
-      if (!task || task.status !== 'running') return
-      task.status = 'completed'
-      task.progress = 100
-      task.error = null
-      task.metadata = { ...task.metadata, providerState: 'completed', generatedOutputs: descriptors }
-      task.outputs = descriptors.map((descriptor) => ({
-        id: `${task.id}-${descriptor.view}`,
-        url: `/api/v1/generation/tasks/${task.id}/outputs/${descriptor.view}`,
-        mediaType: 'image',
-        view: descriptor.view,
-      }))
-      task.resultUrl = task.outputs[0]?.url ?? null
-      task.updatedAt = new Date().toISOString()
-
-      const assetId = typeof task.metadata.assetId === 'string' ? task.metadata.assetId : null
-      const shotId = typeof task.metadata.shotId === 'string' ? task.metadata.shotId : null
-      const asset = state.assets.find((item) => item.id === assetId && item.projectId === task.projectId)
-      const shot = state.shots.find((item) => item.id === shotId && item.projectId === task.projectId)
-      if (asset && task.resultUrl) {
-        asset.imageUrl = task.resultUrl
-        asset.updatedAt = task.updatedAt
-      }
-      if (shot && task.resultUrl) {
-        shot.imageUrl = task.resultUrl
-        shot.updatedAt = task.updatedAt
-      }
-    })
-  }
-
   private async pollRemoteVideos(): Promise<void> {
     if (!this.videoProvider) return
     const now = Date.now()
@@ -543,6 +761,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
         (task) =>
           task.status === 'running' &&
           task.metadata.providerName === this.videoProviderName &&
+          task.leaseOwnerId === this.leaseOwnerId &&
+          generationTaskLeaseActive(task, now) &&
           typeof task.metadata.providerTaskId === 'string' &&
           now - numberValue(task.metadata.providerPolledAt, 0) >= this.providerPollIntervalMs,
       ),
@@ -550,9 +770,13 @@ export class GenerationTaskRunner implements TaskDispatcher {
 
     for (const task of tasks) {
       const providerTaskId = String(task.metadata.providerTaskId)
+      const leaseToken = stringValue(task.leaseToken, '')
+      if (!leaseToken) continue
       await this.store.mutate((state) => {
         const stored = state.tasks.find((item) => item.id === task.id)
-        if (stored) stored.metadata = { ...stored.metadata, providerPolledAt: now }
+        if (!stored || !generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
+        stored.metadata = { ...stored.metadata, providerPolledAt: now }
+        renewGenerationTaskLease(stored, this.leaseOwnerId, leaseToken, this.leaseTtlMs)
       })
       try {
         const status = await this.videoProvider.getStatus(providerTaskId)
@@ -566,114 +790,77 @@ export class GenerationTaskRunner implements TaskDispatcher {
           this.objectStorage
         ) {
           try {
-            lastFrameDescriptor = await this.persistVideoLastFrame(task, providerTaskId)
+            lastFrameDescriptor = await this.writeback.persistVideoLastFrame(
+              task,
+              providerTaskId,
+              this.videoProvider,
+            )
           } catch (error) {
             lastFrameError = messageFor(error)
           }
         }
-        await this.store.mutate((state) => {
-          const stored = state.tasks.find((item) => item.id === task.id)
-          if (!stored || stored.status !== 'running') return
-          stored.status = status.status
-          stored.progress = status.progress
-          stored.error = status.error
-          stored.metadata = {
-            ...stored.metadata,
-            providerState: status.status,
-            providerPollErrors: 0,
-            ...(lastFrameDescriptor
-              ? {
-                  generatedOutputs: [
-                    ...generatedDescriptors(stored).filter((item) => item.view !== 'last-frame'),
-                    lastFrameDescriptor,
-                  ],
-                  lastFrameStorageKey: lastFrameDescriptor.storageKey,
-                  lastFrameContentType: lastFrameDescriptor.contentType,
-                }
-              : {}),
-            ...(lastFrameError ? { lastFrameError } : {}),
-          }
-          stored.updatedAt = new Date().toISOString()
-          if (status.status === 'completed') {
-            const url = `/api/v1/generation/tasks/${stored.id}/content`
-            stored.outputs = [
-              { id: `${stored.id}-video`, url, mediaType: 'video', view: 'single' },
-              ...(lastFrameDescriptor
-                ? [
-                    {
-                      id: `${stored.id}-last-frame`,
-                      url: `/api/v1/generation/tasks/${stored.id}/outputs/last-frame`,
-                      mediaType: 'image' as const,
-                      view: 'last-frame' as const,
-                    },
-                  ]
-                : []),
-            ]
-            stored.resultUrl = url
-          }
+        await this.writeback.writeVideoPollResult({
+          taskId: task.id,
+          leaseOwnerId: this.leaseOwnerId,
+          leaseToken,
+          leaseTtlMs: this.leaseTtlMs,
+          status,
+          lastFrameDescriptor,
+          lastFrameError,
         })
         if (status.status === 'completed' && this.onVideoCompleted) {
           const completedTask = this.store.read(
             (state) => state.tasks.find((item) => item.id === task.id) ?? null,
           )
-          if (completedTask) await this.onVideoCompleted(completedTask).catch(() => {})
+          if (completedTask?.status === 'completed')
+            await this.onVideoCompleted(completedTask).catch(() => {})
         }
       } catch (error) {
         const attempts = numberValue(task.metadata.providerPollErrors, 0) + 1
         if (attempts >= 3) {
-          await this.failTask(task.id, messageFor(error))
+          await this.failTask(task.id, messageFor(error), leaseToken)
         } else {
           await this.store.mutate((state) => {
             const stored = state.tasks.find((item) => item.id === task.id)
-            if (stored) stored.metadata = { ...stored.metadata, providerPollErrors: attempts }
+            if (!stored || !generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
+            stored.metadata = { ...stored.metadata, providerPollErrors: attempts }
+            renewGenerationTaskLease(stored, this.leaseOwnerId, leaseToken, this.leaseTtlMs)
           })
         }
       }
     }
   }
 
-  private async persistVideoLastFrame(
-    task: GenerationTask,
-    providerTaskId: string,
-  ): Promise<GeneratedOutputDescriptor> {
-    const content = await this.videoProvider!.getLastFrameContent!(providerTaskId)
-    const buffer = await readableToBuffer(content.stream)
-    const storageKey = `${task.tenantId}/${task.projectId}/generated/${task.id}-last-frame.jpg`
-    await this.objectStorage!.put(storageKey, buffer, content.contentType)
-    return { view: 'last-frame', storageKey, contentType: content.contentType, size: buffer.length }
-  }
-
-  private async failTask(taskId: string, error: string): Promise<void> {
+  private async failTask(taskId: string, error: string, leaseToken?: string): Promise<void> {
     await this.store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task) return
+      if (leaseToken && !generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
       const now = new Date().toISOString()
       task.status = 'failed'
       task.progress = 100
       task.error = error.slice(0, 1_000)
+      releaseGenerationTaskLease(task)
       task.updatedAt = now
     })
-    await this.refundFailedTasks()
+    await this.refundTerminalTasks()
   }
 
-  private async refundFailedTasks(): Promise<void> {
+  private async refundTerminalTasks(): Promise<void> {
     const hasRefundableTask = this.store.read((state) =>
-      state.tasks.some(
-        (task) =>
-          task.status === 'failed' &&
-          task.estimatedCredits > 0 &&
-          state.ledger.some((entry) => entry.id === `generation-${task.clientRequestId}`) &&
-          !state.ledger.some((entry) => entry.id === `refund-${task.id}`),
+      state.tasks.some((task) =>
+        canRefundTask(
+          task,
+          state.ledger.map((entry) => entry.id),
+        ),
       ),
     )
     if (!hasRefundableTask) return
     await this.store.mutate((state) => {
-      for (const task of state.tasks.filter((item) => item.status === 'failed')) {
+      const ledgerIds = state.ledger.map((entry) => entry.id)
+      for (const task of state.tasks) {
+        if (!canRefundTask(task, ledgerIds)) continue
         const refundId = `refund-${task.id}`
-        const hasDebit = state.ledger.some((entry) => entry.id === `generation-${task.clientRequestId}`)
-        if (!hasDebit || state.ledger.some((entry) => entry.id === refundId) || task.estimatedCredits <= 0) {
-          continue
-        }
         const user = state.users.find((item) => item.id === task.userId && item.tenantId === task.tenantId)
         if (!user) continue
         const now = new Date().toISOString()
@@ -685,10 +872,11 @@ export class GenerationTaskRunner implements TaskDispatcher {
           amount: task.estimatedCredits,
           balance: user.credits,
           type: 'adjustment',
-          description: `${task.label} · 失败退款`,
+          description: refundDescription(task),
           createdAt: now,
         })
         task.metadata = { ...task.metadata, creditsRefundedAt: now }
+        ledgerIds.unshift(refundId)
       }
     })
   }
@@ -773,6 +961,28 @@ function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : '第三方生成请求失败'
 }
 
+function canRefundTask(task: GenerationTask, ledgerIds: string[]): boolean {
+  if (task.estimatedCredits <= 0) return false
+  if (!ledgerIds.includes(`generation-${task.clientRequestId}`)) return false
+  if (ledgerIds.includes(`refund-${task.id}`)) return false
+  if (task.status === 'failed') return true
+  if (task.status === 'paused') return typeof task.metadata.queueHiddenAt === 'string'
+  if (task.status !== 'cancelled') return false
+
+  const providerTaskId = stringValue(task.metadata.providerTaskId, '')
+  if (!providerTaskId || typeof task.metadata.providerCancelRequestedAt !== 'string') return true
+  return (
+    typeof task.metadata.providerCancelCompletedAt === 'string' ||
+    typeof task.metadata.providerCancelSkippedAt === 'string'
+  )
+}
+
+function refundDescription(task: GenerationTask): string {
+  if (task.status === 'failed') return `${task.label} · 失败退款`
+  if (task.status === 'cancelled') return `${task.label} · 取消退款`
+  return `${task.label} · 已删除退款`
+}
+
 function isRemoteProviderName(value: unknown): boolean {
   return isVideoProviderName(value) || value === 'tokenadvent-img2'
 }
@@ -820,28 +1030,6 @@ function continuityDependencyMissingFrame(task: GenerationTask, userTasks: Gener
     source?.status === 'completed' &&
     !generatedDescriptors(source).some((item) => item.view === 'last-frame'),
   )
-}
-
-async function readableToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
-  const chunks: Buffer[] = []
-  for await (const chunk of stream as AsyncIterable<Uint8Array | string>) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-  }
-  return Buffer.concat(chunks)
-}
-
-function generatedDescriptors(task: GenerationTask | undefined): GeneratedOutputDescriptor[] {
-  if (!task || !Array.isArray(task.metadata.generatedOutputs)) return []
-  return task.metadata.generatedOutputs.filter((item): item is GeneratedOutputDescriptor => {
-    if (!item || typeof item !== 'object') return false
-    const descriptor = item as Partial<GeneratedOutputDescriptor>
-    return (
-      typeof descriptor.view === 'string' &&
-      typeof descriptor.storageKey === 'string' &&
-      typeof descriptor.contentType === 'string' &&
-      typeof descriptor.size === 'number'
-    )
-  })
 }
 
 function outputsFor(task: GenerationTask): GenerationTask['outputs'] {

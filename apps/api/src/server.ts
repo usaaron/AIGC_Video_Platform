@@ -1,9 +1,10 @@
 import 'dotenv/config'
 import { buildApp } from './app.js'
 import { loadConfig } from './config.js'
+import { noopTaskDispatcher } from './core/jobs/taskDispatcher.js'
 
 const config = loadConfig()
-const app = await buildApp({ config, logger: true })
+const app = await buildApp({ config, logger: true, taskDispatcher: noopTaskDispatcher, startWorker: false })
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, 'shutting down')
