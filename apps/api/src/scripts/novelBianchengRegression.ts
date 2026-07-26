@@ -113,8 +113,8 @@ async function runRegression(options: CliOptions): Promise<RegressionReport> {
     UPLOAD_DIR: resolve('./data/novel-biancheng-regression'),
     MAX_UPLOAD_BYTES: '10485760',
   })
-  if (options.mode === 'live' && !config.TOKENADVENT_API_KEY) {
-    throw new Error('真实 Provider 模式需要配置 TOKENADVENT_API_KEY，可以放在 apps/api/.env')
+  if (options.mode === 'live' && !config.DEEPSEEK_API_KEY) {
+    throw new Error('Live provider mode requires DEEPSEEK_API_KEY or STRINGX_API_KEY in apps/api/.env')
   }
 
   const app = await buildApp({

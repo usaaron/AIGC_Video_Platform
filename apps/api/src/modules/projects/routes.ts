@@ -68,6 +68,7 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         input.script,
         input.direction,
         request.principal!,
+        input.model,
       )
     },
   )
@@ -84,6 +85,7 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         input.segment,
         input.clientRequestId ?? randomUUID(),
         request.principal!,
+        input.model,
       )
     },
   )
@@ -98,6 +100,7 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         input.direction,
         input.clientRequestId ?? randomUUID(),
         request.principal!,
+        input.model,
       )
     },
   )
@@ -113,6 +116,7 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         input.direction,
         input.clientRequestId ?? randomUUID(),
         request.principal!,
+        input.model,
       )
     },
   )

@@ -61,6 +61,7 @@ export class ProjectService {
     script: string,
     direction: ScriptCreativeDirection,
     principal: Principal,
+    model?: string,
   ) {
     const workspace = this.workspace(projectId, principal)
     const source = script.trim()
@@ -79,6 +80,7 @@ export class ProjectService {
           systemPrompt: SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
           userPrompt: `${projectContext}\n\n剧本：\n${headExcerpt(source, 30_000)}`,
           maxOutputTokens: SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS,
+          model,
         })
         result = parseProviderJson(response, scriptAssetSuggestionsContentSchema, '资产建议结果格式错误')
       } catch {
@@ -103,6 +105,7 @@ export class ProjectService {
     segment: GenerateScriptRequest['segment'],
     clientRequestId: string,
     principal: Principal,
+    model?: string,
   ) {
     const workspace = this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
@@ -131,6 +134,7 @@ export class ProjectService {
               systemPrompt: SCRIPT_SEGMENT_SYSTEM_PROMPT,
               userPrompt: `${projectContext}\n\n已有剧本或故事上下文：\n${scriptSegmentContext(source)}\n\n本段目标：${segment.goal || '顺着现有剧情自然推进下一段'}\n本段预计时长：约 ${segment.targetMinutes} 分钟\n\n请只生成下一段剧本正文，不要重写已有内容。`,
               maxOutputTokens: segmentMaxOutputTokens(segment.targetMinutes),
+              model,
             }),
           )
           if (!segmentText) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', '分段剧本为空')
@@ -149,6 +153,7 @@ export class ProjectService {
             systemPrompt: QUICK_SCRIPT_SYSTEM_PROMPT,
             userPrompt: `${projectContext}\n\n请把以下素材改编成 15 到 30 秒视频可以直接使用的快速剧本骨架：\n${source}`,
             maxOutputTokens: QUICK_SCRIPT_MAX_TOKENS,
+            model,
           }),
         )
         const script = candidate
@@ -166,6 +171,7 @@ export class ProjectService {
     direction: ScriptCreativeDirection,
     clientRequestId: string,
     principal: Principal,
+    model?: string,
   ) {
     const workspace = this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
@@ -186,6 +192,7 @@ export class ProjectService {
             maxOutputTokens: isLongScript(source)
               ? longScriptMaxOutputTokens(source)
               : SCRIPT_DETAIL_MAX_TOKENS,
+            model,
           }),
         )
         const preserved = isLongScript(source) && candidateIsTooShort(source, candidate)
@@ -206,6 +213,7 @@ export class ProjectService {
     direction: ScriptCreativeDirection,
     clientRequestId: string,
     principal: Principal,
+    model?: string,
   ) {
     const workspace = this.workspace(projectId, principal)
     if (this.repository.planFor(principal) !== 'member') {
@@ -226,6 +234,7 @@ export class ProjectService {
             '你是漫剧公司的编导总监、摄影指导和剪辑指导。请只返回严格 JSON，不要 Markdown，不要代码块。必须包含 score（0到100整数）、verdict、dimensions、priorityActions。dimensions 必须覆盖 plot、character、dialogue、style、composition、lighting、camera，每项包含 key、score、finding、suggestion。评价要具体到可执行的剧本修改和画面执行，不要泛泛而谈。',
           userPrompt: `项目：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n画面比例：${workspace.project.aspectRatio}\n创作方向：${directionSummary(direction)}\n\n待审核剧本：\n${source}`,
           maxOutputTokens: 4_000,
+          model,
         })
         const review = parseProviderJson(response, scriptReviewContentSchema, '专业审核结果格式错误')
         return { ...review, generatedAt: new Date().toISOString() }

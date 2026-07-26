@@ -227,6 +227,7 @@ export class NovelService {
           systemPrompt: NOVEL_BOUNDARY_NOTE_SYSTEM_PROMPT,
           userPrompt: boundaryNotesPrompt(current.document.name, selected),
           maxOutputTokens: Math.min(6_000, Math.max(1_200, selected.length * 320)),
+          model: input.model,
         })
         const parsed = parseBoundaryNotesProviderJson(response)
         const drafts = parsed.notes
@@ -577,6 +578,7 @@ export class NovelService {
           systemPrompt: NOVEL_CHAPTER_SUMMARY_SYSTEM_PROMPT,
           userPrompt: chapterSummaryPrompt(source.document.name, selectedChapters),
           maxOutputTokens: chapterSummaryMaxTokens(selectedChapters.length),
+          model: input.model,
         })
         const parsed = parseChapterSummariesProviderJson(response)
         const drafts = parsed.summaries
@@ -662,6 +664,7 @@ export class NovelService {
           systemPrompt: NOVEL_STORY_BIBLE_SYSTEM_PROMPT,
           userPrompt: storyBiblePrompt(source.document.name, source.summaries),
           maxOutputTokens: NOVEL_STORY_BIBLE_MAX_TOKENS,
+          model: input.model,
         })
         const parsed = parseStoryBibleProviderJson(response)
         const storyBible = await this.repository.saveStoryBible(
@@ -707,6 +710,7 @@ export class NovelService {
           systemPrompt: NOVEL_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
           userPrompt: novelAssetSuggestionsPrompt(source, input.maxAssets),
           maxOutputTokens: NOVEL_ASSET_SUGGESTIONS_MAX_TOKENS,
+          model: input.model,
         })
         result = scriptAssetSuggestionsContentSchema.parse(
           parseProviderJsonValue(response, '小说资产建议结果格式错误'),
@@ -756,6 +760,7 @@ export class NovelService {
             input,
           ),
           maxOutputTokens: NOVEL_CHAPTER_ADAPTATION_MAX_TOKENS,
+          model: input.model,
         })
         const script = normalizeAdaptedScript(response)
         if (!script) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', '章节改编剧本为空')

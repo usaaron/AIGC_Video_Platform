@@ -906,6 +906,7 @@ function videoRequestFor(
   return {
     taskId: task.id,
     model: task.model,
+    tier: task.tier ?? null,
     prompt: task.prompt,
     negativePrompt: task.negativePrompt,
     seconds: boundedInteger(task.metadata.duration, 5, 4, 15),
