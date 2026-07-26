@@ -19,6 +19,7 @@ import {
   UserRound,
 } from 'lucide-react'
 import { IconButton, PageHeader } from '../components/ui'
+import { AssetEditor } from '../features/assets/AssetEditor'
 import { NovelImportPanel } from '../features/novel/NovelImportPanel'
 import { QuickStartModal } from '../features/quickStart/QuickStartModal'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../features/script/AssetSuggestionsPanel'
@@ -184,6 +185,7 @@ export function ScriptPage({
   onGenerateNovelChapterAdaptation,
   onSuggestAssets,
   onCreateAsset,
+  onUpload,
   onPlanQuickStart,
   onExecuteQuickStart,
   onUpgrade,
@@ -218,6 +220,7 @@ export function ScriptPage({
   const [assetSuggestionError, setAssetSuggestionError] = useState('')
   const [creatingAssetKeys, setCreatingAssetKeys] = useState(() => new Set())
   const [createdAssetKeys, setCreatedAssetKeys] = useState(() => new Set())
+  const [suggestedAssetEditor, setSuggestedAssetEditor] = useState(null)
   const fileInput = useRef(null)
   const textArea = useRef(null)
   const count = script.replace(/\s/g, '').length
@@ -289,32 +292,15 @@ export function ScriptPage({
     }
   }
 
-  const createSuggestedAsset = async (asset) => {
+  const openSuggestedAssetEditor = (asset) => {
     const key = assetSuggestionKey(asset)
-    setCreatingAssetKeys((current) => new Set(current).add(key))
     setAssetSuggestionError('')
-    try {
-      await onCreateAsset({
-        kind: asset.kind,
-        sourceMode: 'generate',
-        name: asset.name,
-        description: asset.description,
-        prompt: asset.prompt,
-        negativePrompt: asset.negativePrompt,
-        attributes: asset.attributes,
-        references: [],
-        imageUrl: null,
-      })
-      setCreatedAssetKeys((current) => new Set(current).add(key))
-    } catch (createError) {
-      setAssetSuggestionError(createError.message)
-    } finally {
-      setCreatingAssetKeys((current) => {
-        const next = new Set(current)
-        next.delete(key)
-        return next
-      })
-    }
+    setSuggestedAssetEditor({
+      kind: asset.kind,
+      suggestion: asset,
+      suggestionKey: key,
+      editorKey: crypto.randomUUID(),
+    })
   }
 
   const useOutline = (outline) => {
@@ -624,6 +610,8 @@ export function ScriptPage({
             onSuggestNovelAssets={onSuggestNovelAssets}
             onGenerateChapterAdaptation={onGenerateNovelChapterAdaptation}
             onCreateAsset={onCreateAsset}
+            onUpload={onUpload}
+            aspectRatio={project.aspectRatio}
             onUseAdaptedScript={useAdaptedNovelScript}
           />
         </section>
@@ -975,7 +963,7 @@ export function ScriptPage({
             creatingKeys={creatingAssetKeys}
             createdKeys={createdAssetKeys}
             onRefresh={() => void suggestAssetsForScript(script)}
-            onCreate={createSuggestedAsset}
+            onInspect={openSuggestedAssetEditor}
           />
 
           {error && (
@@ -1001,6 +989,23 @@ export function ScriptPage({
             </div>
           </section>
         </>
+      )}
+
+      {suggestedAssetEditor && (
+        <AssetEditor
+          key={suggestedAssetEditor.editorKey}
+          asset={suggestedAssetEditor}
+          aspectRatio={project.aspectRatio}
+          tasks={[]}
+          onUpload={onUpload}
+          onClose={() => setSuggestedAssetEditor(null)}
+          onSave={async (input) => {
+            const created = await onCreateAsset(input)
+            setCreatedAssetKeys((current) => new Set(current).add(suggestedAssetEditor.suggestionKey))
+            setSuggestedAssetEditor(null)
+            return created
+          }}
+        />
       )}
 
       {quickStartOpen && (

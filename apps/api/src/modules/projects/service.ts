@@ -571,6 +571,29 @@ const SCRIPT_SCENE_FIELDS = [
   '运镜',
   '衔接',
 ]
+const SCRIPT_ASSET_FIELD_BOUNDARIES = [
+  '场次',
+  '剧情',
+  '场景',
+  '角色',
+  '人物',
+  '主角',
+  '动作',
+  '对白',
+  '风格',
+  '构图',
+  '光影',
+  '运镜',
+  '衔接',
+  '关键物件',
+  '关键道具',
+  '物件',
+  '道具',
+  '服装',
+  '衣装',
+  '外观',
+]
+const SCRIPT_ASSET_STOP_WORDS = new Set(SCRIPT_ASSET_FIELD_BOUNDARIES)
 
 function normalizeExpandedScript(raw: string): string {
   return raw
@@ -639,37 +662,51 @@ function fallbackAssetSuggestions(
   const props = extractAssetNames(script, ['关键物件', '关键道具', '物件', '道具'], [], 5)
   const costumes = extractAssetNames(script, ['服装', '衣装', '外观'], [], 4)
   const assets: ScriptAssetSuggestion[] = [
-    ...characters.map((name): ScriptAssetSuggestion => ({
-      kind: 'character',
-      name,
-      description: `从剧本中提取的主要角色：${name}`,
-      prompt: `${name}，中文 AI 视频角色设定，面部清晰，造型统一，符合剧本风格，适合后续保持角色一致性。`,
-      negativePrompt: '',
-      reason: '角色在剧本中出现，需要先建立可复用的人物资产。',
-      priority: 5,
-      attributes: {
-        type: 'character',
-        subjectType: 'human',
-        gender: 'unspecified',
-        ageGroup: 'young',
-        exactAge: null,
-        species: '',
-        anthropomorphic: false,
-        visualStyle,
-        framing: 'full',
-        bodyType: 'balanced',
-        background: 'solid',
-        faceStatus: 'pending',
-        bodyStatus: 'pending',
-        faceReference: null,
-        bodyReference: null,
-        portraitSource: 'ai-virtual',
-        trustedPortrait: null,
-        legStretch: false,
-        turnaround: false,
-        turnaroundLayout: 'sheet',
-      },
-    })),
+    ...characters.map((name): ScriptAssetSuggestion => {
+      const subjectType = inferScriptCharacterSubjectType(name)
+      const gender = subjectType === 'animal' ? 'unspecified' : inferScriptCharacterGender(name)
+      const ageGroup = inferScriptCharacterAge(name)
+      const exactAge = inferScriptCharacterExactAge(name, script)
+      const identityTags = inferScriptCharacterIdentityTags(name)
+      const profile = [
+        gender === 'male' ? '男性' : gender === 'female' ? '女性' : '',
+        scriptAgeLabel(ageGroup),
+        exactAge ? `${exactAge}岁` : '',
+        ...identityTags,
+      ].filter(Boolean)
+      const profileText = profile.length ? profile.join('，') : '中文 AI 视频人物设定'
+      return {
+        kind: 'character',
+        name,
+        description: `从剧本中提取的主要角色：${name}${profile.length ? `（${profileText}）` : ''}`,
+        prompt: `${name}，${profileText}，中文 AI 视频人物设定，面部清晰，造型统一，符合剧本风格，适合后续保持角色一致性。`,
+        negativePrompt: '',
+        reason: '角色在剧本中出现，需要先建立可复用的人物资产。',
+        priority: 5,
+        attributes: {
+          type: 'character',
+          subjectType,
+          gender,
+          ageGroup,
+          exactAge,
+          species: subjectType === 'animal' ? name : '',
+          anthropomorphic: subjectType === 'animal',
+          visualStyle,
+          framing: 'full',
+          bodyType: ageGroup === 'senior' ? 'balanced' : 'balanced',
+          background: 'solid',
+          faceStatus: 'pending',
+          bodyStatus: 'pending',
+          faceReference: null,
+          bodyReference: null,
+          portraitSource: 'ai-virtual',
+          trustedPortrait: null,
+          legStretch: false,
+          turnaround: false,
+          turnaroundLayout: 'sheet',
+        },
+      }
+    }),
     ...scenes.map((name): ScriptAssetSuggestion => ({
       kind: 'scene',
       name,
@@ -738,13 +775,19 @@ function fallbackAssetSuggestions(
 
 function extractAssetNames(script: string, fields: string[], fallback: string[], limit: number): string[] {
   const values: string[] = []
+  const fieldBoundaries = SCRIPT_ASSET_FIELD_BOUNDARIES.map(escapeRegExp).join('|')
   for (const field of fields) {
-    const pattern = new RegExp(`${field}[：:]([^\\n|]+)`, 'g')
+    const pattern = new RegExp(
+      `${escapeRegExp(field)}[：:]([\\s\\S]*?)(?=(?:${fieldBoundaries})[：:]|\\n|\\||｜|$)`,
+      'gu',
+    )
     for (const match of script.matchAll(pattern)) {
       values.push(...splitAssetNameList(match[1] || ''))
     }
   }
-  const uniqueValues = [...new Set(values.map(cleanAssetName).filter(Boolean))]
+  const uniqueValues = [...new Set(values.map(cleanAssetName).filter(Boolean))].filter(
+    (value) => !SCRIPT_ASSET_STOP_WORDS.has(value),
+  )
   return (uniqueValues.length ? uniqueValues : fallback).slice(0, limit)
 }
 
@@ -758,11 +801,131 @@ function splitAssetNameList(value: string): string[] {
 function cleanAssetName(value: string): string {
   const cleaned = value
     .replace(/^[\s·\-—]+/u, '')
+    .replace(
+      /^(?:一位|一名|一个|这位|那位|该|某)?(?:[零〇一二三四五六七八九十百两\d]+岁(?:的)?|年迈的|年老的|老年的|少年的|少女的|年轻的|中年的|儿童的)/u,
+      '',
+    )
     .split(/[（(。.!！?？]/u)[0]!
     .split(/——|--|：|:/u)[0]!
     .trim()
   if (cleaned.length < 2) return ''
   return cleaned.length > 24 ? cleaned.slice(0, 24) : cleaned
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function inferScriptCharacterSubjectType(text: string): 'human' | 'animal' {
+  return /狗|猫|牛|马|羊|猪|鸡|鸭|鹅|鸟|鱼|狼|虎|熊|鹿|猴|犬/u.test(text) ? 'animal' : 'human'
+}
+
+function inferScriptCharacterGender(text: string): 'male' | 'female' | 'unspecified' {
+  if (/老船夫|船夫|祖父|爷爷|爷|父亲|男人|男性|哥哥|弟弟|少爷|他\b/u.test(text)) return 'male'
+  if (/翠翠|孙女|外孙女|女性|少女|姑娘|女孩|母亲|娘|妻|小姐|她\b/u.test(text)) return 'female'
+  return 'unspecified'
+}
+
+function inferScriptCharacterAge(text: string): 'child' | 'teen' | 'young' | 'middle' | 'senior' {
+  if (/老船夫|船夫|年迈|祖父|爷爷|老人|老年|晚年|七十|六十|五十/u.test(text)) return 'senior'
+  if (/儿童|孩子|小孩|幼/u.test(text)) return 'child'
+  if (/翠翠|少年|少女|十几|十三|十四|十五|十六|十七|十八/u.test(text)) return 'teen'
+  if (/中年|三十|四十/u.test(text)) return 'middle'
+  return 'young'
+}
+
+function inferScriptCharacterExactAge(name: string, script: string): number | null {
+  const exactFromContext = exactAgeNearCharacterName(name, script)
+  if (exactFromContext) return exactFromContext
+  return exactAgeFromText(name)
+}
+
+function exactAgeNearCharacterName(name: string, script: string): number | null {
+  const escapedName = escapeRegExp(name)
+  const ageToken = '[0-9零〇一二三四五六七八九十百两]{1,4}'
+  const patterns = [
+    new RegExp(`(${ageToken})岁(?:的)?[^\\n|｜。；;，,、]{0,12}${escapedName}`, 'u'),
+    new RegExp(`${escapedName}[^\\n|｜。；;，,、]{0,12}(${ageToken})岁`, 'u'),
+  ]
+  for (const pattern of patterns) {
+    const match = script.match(pattern)
+    const parsed = match ? parseAgeToken(match[1] || '') : null
+    if (parsed) return parsed
+  }
+  return null
+}
+
+function exactAgeFromText(text: string): number | null {
+  const digitMatch = text.match(/(\d{1,3})岁/u)
+  if (digitMatch) return parseAgeToken(digitMatch[1] || '')
+  const chineseMatch = text.match(/([零〇一二三四五六七八九十百两]+)岁/u)
+  if (!chineseMatch) return null
+  return parseAgeToken(chineseMatch[1] || '')
+}
+
+function parseAgeToken(value: string): number | null {
+  const parsed = /^\d+$/u.test(value) ? Number(value) : parseChineseAge(value)
+  return Number.isFinite(parsed) && parsed >= 1 && parsed <= 120 ? parsed : null
+}
+
+function parseChineseAge(value: string): number {
+  const trimmed = value.trim()
+  if (!trimmed) return NaN
+  const digitMap: Record<string, number> = {
+    零: 0,
+    〇: 0,
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  }
+  let total = 0
+  let current = 0
+  let hasUnit = false
+  for (const char of trimmed) {
+    if (char === '百') {
+      total += (current || 1) * 100
+      current = 0
+      hasUnit = true
+      continue
+    }
+    if (char === '十') {
+      total += (current || 1) * 10
+      current = 0
+      hasUnit = true
+      continue
+    }
+    const digit = digitMap[char]
+    if (digit === undefined) return NaN
+    current = digit
+  }
+  return hasUnit ? total + current : current
+}
+
+function inferScriptCharacterIdentityTags(text: string): string[] {
+  const tags = [
+    /船夫|摆渡|渡船/u.test(text) ? '船夫/摆渡人' : '',
+    /翠翠|少女|姑娘|女孩/u.test(text) ? '湘西少女' : '',
+    /祖父|爷爷|老人/u.test(text) ? '长辈' : '',
+    /黄狗|狗|犬/u.test(text) ? '家犬' : '',
+  ].filter(Boolean)
+  return [...new Set(tags)]
+}
+
+function scriptAgeLabel(ageGroup: 'child' | 'teen' | 'young' | 'middle' | 'senior'): string {
+  return {
+    child: '儿童',
+    teen: '少年/少女',
+    young: '青年',
+    middle: '中年',
+    senior: '老年',
+  }[ageGroup]
 }
 
 function suggestionVisualStyle(

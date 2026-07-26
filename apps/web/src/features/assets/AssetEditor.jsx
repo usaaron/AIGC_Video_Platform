@@ -9,7 +9,7 @@ import {
   buildAssetInput,
   inferAssetCreationMode,
 } from './assetDraft'
-import { ASSET_TABS, createDefaultAttributes } from './assetOptions'
+import { ASSET_TABS, createDefaultAttributes, optionLabel } from './assetOptions'
 import { CharacterWorkflow } from './CharacterWorkflow'
 import { compileAssetPrompt, compileCharacterStagePrompt } from './promptCompiler'
 import { ReferenceUploader } from './ReferenceUploader'
@@ -50,8 +50,11 @@ export function AssetEditor({
   onRefreshTrustedPortrait,
 }) {
   const kind = asset.kind
+  const sourceSuggestion = asset.suggestion || null
+  const suggestionOnly = Boolean(sourceSuggestion && !asset.id)
   const [creationMode, setCreationMode] = useState(() => inferAssetCreationMode(asset))
   const [draft, setDraft] = useState(() => createEditorDraft(asset, kind))
+  const [suggestionApplied, setSuggestionApplied] = useState(false)
   const [characterStage, setCharacterStage] = useState(() => {
     if (kind !== 'character' || draft?.attributes?.faceStatus !== 'approved') return 'face'
     return draft.attributes.bodyStatus === 'approved' ? 'turnaround' : 'body'
@@ -63,6 +66,7 @@ export function AssetEditor({
   useEffect(() => {
     setCreationMode(inferAssetCreationMode(asset))
     setDraft(createEditorDraft(asset, kind))
+    setSuggestionApplied(false)
     if (kind === 'character') {
       const nextAttributes = asset.attributes
       setCharacterStage(
@@ -73,7 +77,7 @@ export function AssetEditor({
             : 'body',
       )
     }
-  }, [asset.id])
+  }, [asset.id, asset.editorKey])
 
   useEffect(() => {
     if (!asset.id || kind !== 'character') return
@@ -125,6 +129,12 @@ export function AssetEditor({
   const selectCreationMode = (mode) => {
     setCreationMode(mode)
     setDraft((current) => applyAssetCreationMode(current, mode))
+  }
+
+  const applySourceSuggestion = (mode = 'full') => {
+    if (!sourceSuggestion) return
+    setDraft((current) => mergeSuggestionIntoDraft(current, sourceSuggestion, kind, mode))
+    setSuggestionApplied(true)
   }
 
   const persistDraft = async (nextDraft) => {
@@ -292,7 +302,7 @@ export function AssetEditor({
               </label>
             </div>
 
-            {kind === 'character' && (
+            {kind === 'character' && !suggestionOnly && (
               <CharacterWorkflow
                 assetId={asset.id}
                 assetName={draft.name}
@@ -345,6 +355,25 @@ export function AssetEditor({
               />
             )}
 
+            {kind === 'character' && suggestionOnly && (
+              <section className="character-identity-settings suggestion-only-identity">
+                <div className="character-identity-settings-head">
+                  <div>
+                    <span className="eyebrow">人工确认</span>
+                    <h3>确认人物基础字段</h3>
+                  </div>
+                  <p>
+                    建议只作为参考。保存前请确认性别、年龄和身份设定，后续再到资产页生成面部、全身和三视图。
+                  </p>
+                </div>
+                <AssetFields
+                  attributes={draft.attributes}
+                  characterStage="face"
+                  onChange={(attributes) => setDraft({ ...draft, attributes })}
+                />
+              </section>
+            )}
+
             {kind !== 'character' && (
               <AssetFields
                 attributes={draft.attributes}
@@ -371,6 +400,16 @@ export function AssetEditor({
                     : '中文'}
                 </strong>
               </div>
+              {sourceSuggestion && (
+                <SourceSuggestionPanel
+                  suggestion={sourceSuggestion}
+                  applied={suggestionApplied}
+                  titleLabel={kind === 'character' ? '人物建议栏' : '建议栏'}
+                  description="这里展示的是系统从剧本或小说事实源提取的建议，不会自动写入草稿。"
+                  onApply={() => applySourceSuggestion('full')}
+                  onApplyPrompt={() => applySourceSuggestion('prompt')}
+                />
+              )}
               <div className="prompt-mode-switch">
                 <button
                   type="button"
@@ -504,4 +543,134 @@ export function AssetEditor({
     </div>,
     document.body,
   )
+}
+
+function SourceSuggestionPanel({
+  suggestion,
+  applied,
+  titleLabel = '建议提示词',
+  description = '这里展示的是系统从剧本或小说事实源提取的建议，不会自动写入草稿。',
+  onApply,
+  onApplyPrompt,
+}) {
+  const facts = buildEditorSuggestionFacts(suggestion)
+  return (
+    <section className="asset-suggestion-panel">
+      <div className="asset-suggestion-panel-head">
+        <div>
+          <span className="eyebrow">{titleLabel}</span>
+          <h3>{suggestion.name || '未命名建议'}</h3>
+          <p>{description}</p>
+        </div>
+        <div className="asset-suggestion-actions">
+          <button className="button primary" type="button" onClick={onApply}>
+            {applied ? '重新填入建议' : '填入建议'}
+          </button>
+          {suggestion.prompt && (
+            <button className="button secondary" type="button" onClick={onApplyPrompt}>
+              仅填提示词
+            </button>
+          )}
+        </div>
+      </div>
+      {facts.length > 0 && (
+        <dl className="asset-suggestion-facts">
+          {facts.map((fact) => (
+            <div key={fact.label}>
+              <dt>{fact.label}</dt>
+              <dd>{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {suggestion.prompt && (
+        <div className="asset-suggestion-prompt">
+          <strong>提示词</strong>
+          <p>{suggestion.prompt}</p>
+        </div>
+      )}
+      {suggestion.reason && <small>建议依据：{suggestion.reason}</small>}
+    </section>
+  )
+}
+
+function mergeSuggestionIntoDraft(draft, suggestion, kind, mode) {
+  const promptPatch = suggestion.prompt
+    ? { promptMode: 'advanced', customPromptMode: 'replace', customPrompt: suggestion.prompt }
+    : {}
+  if (mode === 'prompt') {
+    return {
+      ...draft,
+      ...promptPatch,
+      negativePrompt: suggestion.negativePrompt || draft.negativePrompt,
+    }
+  }
+  return {
+    ...draft,
+    name: suggestion.name || draft.name,
+    description: suggestion.description || draft.description,
+    ...promptPatch,
+    negativePrompt: suggestion.negativePrompt || draft.negativePrompt,
+    references: suggestion.references?.length ? suggestion.references : draft.references,
+    imageUrl: suggestion.imageUrl || draft.imageUrl,
+    attributes:
+      suggestion.attributes?.type === kind
+        ? { ...draft.attributes, ...suggestion.attributes, type: kind }
+        : draft.attributes,
+  }
+}
+
+function buildEditorSuggestionFacts(suggestion) {
+  const attributes = suggestion.attributes || {}
+  if (suggestion.kind === 'character') {
+    return [
+      {
+        label: '性别',
+        value:
+          attributes.subjectType === 'animal'
+            ? '动物'
+            : optionLabel('gender', attributes.gender || 'unspecified'),
+      },
+      { label: '年龄段', value: optionLabel('ageGroup', attributes.ageGroup || 'young') },
+      { label: '精确年龄', value: attributes.exactAge ? String(attributes.exactAge) : '未指定' },
+      { label: '身份', value: suggestion.description || suggestion.reason || '未补充' },
+    ]
+  }
+  if (suggestion.kind === 'scene') {
+    return [
+      { label: '空间', value: attributes.space ? optionLabel('space', attributes.space) : '未指定' },
+      {
+        label: '场景',
+        value: attributes.sceneType ? optionLabel('sceneType', attributes.sceneType) : '未指定',
+      },
+      { label: '时间', value: attributes.time ? optionLabel('time', attributes.time) : '未指定' },
+      { label: '氛围', value: attributes.mood ? optionLabel('mood', attributes.mood) : '未指定' },
+    ]
+  }
+  if (suggestion.kind === 'prop') {
+    return [
+      {
+        label: '分类',
+        value: attributes.category ? optionLabel('propCategory', attributes.category) : '未指定',
+      },
+      { label: '材质', value: attributes.material ? optionLabel('material', attributes.material) : '未指定' },
+      { label: '视角', value: attributes.view ? optionLabel('view', attributes.view) : '未指定' },
+      {
+        label: '状态',
+        value: attributes.condition ? optionLabel('condition', attributes.condition) : '未指定',
+      },
+    ]
+  }
+  if (suggestion.kind === 'costume') {
+    return [
+      { label: '对象', value: attributes.audience ? optionLabel('audience', attributes.audience) : '未指定' },
+      {
+        label: '类型',
+        value: attributes.category ? optionLabel('costumeCategory', attributes.category) : '未指定',
+      },
+      { label: '季节', value: attributes.season ? optionLabel('season', attributes.season) : '未指定' },
+      { label: '风格', value: attributes.design ? optionLabel('design', attributes.design) : '未指定' },
+    ]
+  }
+  return []
 }

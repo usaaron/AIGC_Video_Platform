@@ -39,6 +39,7 @@ const SPLIT_MODE_LABELS = {
 
 export function NovelImportPanel({
   project,
+  aspectRatio,
   disabled,
   onImportNovel,
   onPreviewNovelSplit,
@@ -51,6 +52,7 @@ export function NovelImportPanel({
   onSuggestNovelAssets,
   onGenerateChapterAdaptation,
   onCreateAsset,
+  onUpload,
   onUseAdaptedScript,
 }) {
   const fileInput = useRef(null)
@@ -776,6 +778,8 @@ export function NovelImportPanel({
           onGetStoryBible={onGetNovelStoryBible}
           onGenerateStoryBible={onGenerateNovelStoryBible}
           onSuggestAssets={onSuggestNovelAssets}
+          aspectRatio={aspectRatio}
+          onUpload={onUpload}
           onCreateAsset={onCreateAsset}
         />
       )}

@@ -1100,6 +1100,72 @@ describe('API authorization', () => {
     })
   })
 
+  it('falls back to readable character suggestions when the script asset provider returns invalid JSON', async () => {
+    const generate = vi.fn(async () => '这不是有效 JSON')
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers,
+      payload: {
+        script:
+          '场次：1｜剧情：茶峒渡口的日常生活。｜场景：茶峒渡口｜角色：七十岁的老船夫、十三岁的翠翠、黄狗｜动作：老船夫撑船，翠翠望向河面，黄狗守在船头。｜对白：无台词',
+        direction: {
+          style: 'cinematic-cg',
+          composition: 'rule-of-thirds',
+          lighting: 'low-key',
+          camera: 'restrained',
+          focus: 'character',
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      summary: expect.stringContaining('提取角色'),
+      warnings: [expect.stringContaining('格式异常')],
+    })
+    expect(response.json().assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'character',
+          name: '老船夫',
+          description: expect.stringContaining('男性'),
+          prompt: expect.stringContaining('船夫/摆渡人'),
+          attributes: expect.objectContaining({
+            gender: 'male',
+            ageGroup: 'senior',
+            exactAge: 70,
+            subjectType: 'human',
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'character',
+          name: '翠翠',
+          description: expect.stringContaining('女性'),
+          prompt: expect.stringContaining('湘西少女'),
+          attributes: expect.objectContaining({
+            gender: 'female',
+            ageGroup: 'teen',
+            exactAge: 13,
+            subjectType: 'human',
+          }),
+        }),
+      ]),
+    )
+    expect(generate).toHaveBeenCalledOnce()
+  })
+
   it('imports a novel and splits explicit chapter headings without changing the script', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {

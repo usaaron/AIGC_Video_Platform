@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BookMarked, Eye, LoaderCircle, RefreshCw, ScrollText, Sparkles, X } from 'lucide-react'
 import { NOVEL_OPERATION_CREDITS } from '@seqora/contracts'
+import { AssetEditor } from '../assets/AssetEditor'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../script/AssetSuggestionsPanel'
 import { formatStoryOverviewText } from './storyOverviewText'
 
@@ -14,6 +15,8 @@ export function NovelDevelopmentPanel({
   onGetStoryBible,
   onGenerateStoryBible,
   onSuggestAssets,
+  aspectRatio,
+  onUpload,
   onCreateAsset,
 }) {
   const [summariesResult, setSummariesResult] = useState(null)
@@ -27,6 +30,7 @@ export function NovelDevelopmentPanel({
   const [assetSuggestionError, setAssetSuggestionError] = useState('')
   const [creatingAssetKeys, setCreatingAssetKeys] = useState(() => new Set())
   const [createdAssetKeys, setCreatedAssetKeys] = useState(() => new Set())
+  const [suggestedAssetEditor, setSuggestedAssetEditor] = useState(null)
 
   const isLoading = status === 'loading'
   const isGeneratingSummaries = status === 'generating-summaries'
@@ -137,33 +141,16 @@ export function NovelDevelopmentPanel({
     setCreatedAssetKeys(new Set())
   }
 
-  const createSuggestedAsset = async (asset) => {
+  const openSuggestedAssetEditor = (asset) => {
     if (!onCreateAsset) return
     const key = assetSuggestionKey(asset)
-    setCreatingAssetKeys((current) => new Set(current).add(key))
     setAssetSuggestionError('')
-    try {
-      await onCreateAsset({
-        kind: asset.kind,
-        sourceMode: 'generate',
-        name: asset.name,
-        description: asset.description,
-        prompt: asset.prompt,
-        negativePrompt: asset.negativePrompt,
-        attributes: asset.attributes,
-        references: [],
-        imageUrl: null,
-      })
-      setCreatedAssetKeys((current) => new Set(current).add(key))
-    } catch (createError) {
-      setAssetSuggestionError(createError.message)
-    } finally {
-      setCreatingAssetKeys((current) => {
-        const next = new Set(current)
-        next.delete(key)
-        return next
-      })
-    }
+    setSuggestedAssetEditor({
+      kind: asset.kind,
+      suggestion: asset,
+      suggestionKey: key,
+      editorKey: crypto.randomUUID(),
+    })
   }
 
   return (
@@ -261,6 +248,23 @@ export function NovelDevelopmentPanel({
         </>
       )}
 
+      {suggestedAssetEditor && (
+        <AssetEditor
+          key={suggestedAssetEditor.editorKey}
+          asset={suggestedAssetEditor}
+          aspectRatio={aspectRatio}
+          tasks={[]}
+          onUpload={onUpload}
+          onClose={() => setSuggestedAssetEditor(null)}
+          onSave={async (input) => {
+            const created = await onCreateAsset(input)
+            setCreatedAssetKeys((current) => new Set(current).add(suggestedAssetEditor.suggestionKey))
+            setSuggestedAssetEditor(null)
+            return created
+          }}
+        />
+      )}
+
       {summaryBrowserOpen && summariesResult?.summaries.length > 0 && (
         <div className="novel-browser-backdrop" role="presentation">
           <section className="novel-browser-modal" role="dialog" aria-modal="true" aria-label="全部章节概要">
@@ -347,7 +351,7 @@ export function NovelDevelopmentPanel({
         createdKeys={createdAssetKeys}
         disabled={disabled || isLoading || !summaryCount || !onSuggestAssets || !onCreateAsset}
         onRefresh={() => void handleSuggestAssets()}
-        onCreate={createSuggestedAsset}
+        onInspect={openSuggestedAssetEditor}
         copy={{
           eyebrow: '小说资产建议',
           title: '根据章节概要、故事概要和世界观提取资产',

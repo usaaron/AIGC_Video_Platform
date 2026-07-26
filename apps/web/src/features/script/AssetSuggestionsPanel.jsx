@@ -1,4 +1,5 @@
 import { LoaderCircle, MapPinned, Package, Plus, RefreshCcw, Shirt, Sparkles, UserRound } from 'lucide-react'
+import { optionLabel } from '../assets/assetOptions'
 
 const KIND_META = {
   character: { label: '角色', icon: UserRound },
@@ -17,6 +18,7 @@ export function AssetSuggestionsPanel({
   createdKeys,
   onRefresh,
   onCreate,
+  onInspect,
   disabled = false,
   copy = {},
 }) {
@@ -97,22 +99,56 @@ export function AssetSuggestionsPanel({
                               <strong>{asset.name}</strong>
                               <span>优先级 {asset.priority}</span>
                             </div>
+                            <div className="script-asset-suggestion-facts">
+                              {buildSuggestionFacts(asset).map((fact) => (
+                                <span key={`${key}-${fact.label}`}>
+                                  <b>{fact.label}</b>
+                                  <em>{fact.value}</em>
+                                </span>
+                              ))}
+                            </div>
                             <p>{asset.description}</p>
+                            {asset.prompt && (
+                              <div className="script-asset-suggestion-prompt">
+                                <strong>提示词</strong>
+                                <span>{asset.prompt}</span>
+                              </div>
+                            )}
                             <small>{asset.reason}</small>
                             <button
                               type="button"
                               className="button secondary"
-                              disabled={disabled || isCreating || isCreated}
-                              onClick={() => void onCreate(asset)}
+                              disabled={disabled || isCreated || (!onInspect && isCreating)}
+                              onClick={() => {
+                                if (onInspect) {
+                                  onInspect(asset)
+                                  return
+                                }
+                                void onCreate(asset)
+                              }}
                             >
-                              {isCreating ? (
+                              {onInspect ? (
+                                isCreated ? (
+                                  <Sparkles size={14} />
+                                ) : (
+                                  <Plus size={14} />
+                                )
+                              ) : isCreating ? (
                                 <LoaderCircle size={14} className="spin" />
                               ) : isCreated ? (
                                 <Sparkles size={14} />
                               ) : (
                                 <Plus size={14} />
                               )}
-                              {isCreating ? '正在加入' : isCreated ? '已加入资产库' : '加入资产库'}
+                              {onInspect
+                                ? isCreated
+                                  ? '已审阅并保存'
+                                  : '先审阅写入'
+                                : isCreating
+                                  ? '正在加入'
+                                  : isCreated
+                                    ? '已加入资产库'
+                                    : '加入资产库'}
                             </button>
                           </article>
                         )
@@ -139,6 +175,71 @@ export function assetSuggestionKey(asset) {
   return `${asset.kind}:${asset.name.trim().toLocaleLowerCase('zh-CN')}`
 }
 
+function buildSuggestionFacts(asset) {
+  const attributes = asset.attributes || {}
+  if (asset.kind === 'character') {
+    return [
+      {
+        label: '性别',
+        value:
+          attributes.subjectType === 'animal'
+            ? '动物'
+            : optionLabel('gender', attributes.gender || 'unspecified'),
+      },
+      { label: '年龄段', value: optionLabel('ageGroup', attributes.ageGroup || 'young') },
+      { label: '精确年龄', value: attributes.exactAge ? String(attributes.exactAge) : '未指定' },
+      { label: '身份', value: asset.description || asset.reason || '未补充' },
+    ]
+  }
+  if (asset.kind === 'scene') {
+    return [
+      { label: '空间', value: attributes.space ? optionLabel('space', attributes.space) : '未指定' },
+      {
+        label: '场景',
+        value: attributes.sceneType ? optionLabel('sceneType', attributes.sceneType) : '未指定',
+      },
+      { label: '氛围', value: attributes.mood ? optionLabel('mood', attributes.mood) : '未指定' },
+      { label: '运镜', value: attributes.camera ? optionLabel('camera', attributes.camera) : '未指定' },
+    ]
+  }
+  if (asset.kind === 'prop') {
+    return [
+      {
+        label: '分类',
+        value: attributes.category ? optionLabel('propCategory', attributes.category) : '未指定',
+      },
+      { label: '材质', value: attributes.material ? optionLabel('material', attributes.material) : '未指定' },
+      { label: '视角', value: attributes.view ? optionLabel('view', attributes.view) : '未指定' },
+      {
+        label: '状态',
+        value: attributes.condition ? optionLabel('condition', attributes.condition) : '未指定',
+      },
+    ]
+  }
+  if (asset.kind === 'costume') {
+    return [
+      { label: '对象', value: attributes.audience ? optionLabel('audience', attributes.audience) : '未指定' },
+      {
+        label: '类型',
+        value: attributes.category ? optionLabel('costumeCategory', attributes.category) : '未指定',
+      },
+      { label: '季节', value: attributes.season ? optionLabel('season', attributes.season) : '未指定' },
+      { label: '风格', value: attributes.design ? optionLabel('design', attributes.design) : '未指定' },
+    ]
+  }
+  if (asset.kind === 'audio') {
+    return [
+      {
+        label: '类型',
+        value: attributes.audioType ? optionLabel('audioType', attributes.audioType) : '未指定',
+      },
+      { label: '情绪', value: attributes.emotion ? optionLabel('emotion', attributes.emotion) : '未指定' },
+      { label: '音色', value: attributes.tone ? optionLabel('tone', attributes.tone) : '未指定' },
+      { label: '时长', value: attributes.duration ? `${attributes.duration} 秒` : '未指定' },
+    ]
+  }
+  return []
+}
 function groupAssets(assets) {
   return assets.reduce(
     (groups, asset) => ({
