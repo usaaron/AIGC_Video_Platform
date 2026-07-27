@@ -32,14 +32,15 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 
 常用命令：
 
-| 命令           | 用途                 |
-| -------------- | -------------------- |
-| `pnpm dev`     | 同时启动 Web 和 API  |
-| `pnpm dev:web` | 仅启动 Vite Web      |
-| `pnpm dev:api` | 构建共享包并启动 API |
-| `pnpm test`    | 运行全部测试         |
-| `pnpm build`   | 构建全部工作区       |
-| `pnpm check`   | 提交前完整检查       |
+| 命令              | 用途                        |
+| ----------------- | --------------------------- |
+| `pnpm dev`        | 同时启动 Web、API 和 Worker |
+| `pnpm dev:web`    | 仅启动 Vite Web             |
+| `pnpm dev:api`    | 构建共享包并启动 API        |
+| `pnpm dev:worker` | 构建共享包并启动 Worker     |
+| `pnpm test`       | 运行全部测试                |
+| `pnpm build`      | 构建全部工作区              |
+| `pnpm check`      | 提交前完整检查              |
 
 本地端口：Web `5173`，API `8787`。Vite 将 `/api` 代理到本地 API。
 
@@ -93,7 +94,7 @@ Route -> Service -> Repository / Provider -> AppStore / 外部 API
 - `routes.ts`：Zod 输入校验、权限和 HTTP 映射。
 - `service.ts`：业务编排，不直接依赖页面。
 - `repository.ts`：带用户、租户和项目边界的数据读写。
-- `core/generation/`：TokenAdvent、弦序、Aideos、官方方舟等 Provider 适配器。
+- `core/generation/`：TokenAdvent、弦序、官方方舟等 Provider 适配器。
 - `core/jobs/taskDispatcher.ts`：任务依赖、套餐并发、提交、轮询、失败和退款。
 - `core/film/`：下载分镜视频并调用 FFmpeg 合成完整预览。
 - `infra/store.ts`：当前 JSON 状态仓储，未来应替换为数据库。
@@ -145,7 +146,7 @@ Route -> Service -> Repository / Provider -> AppStore / 外部 API
 5. 后续 tick 轮询状态，完成后代理视频并保存末帧。
 6. 失败任务自动创建幂等退款流水。
 
-Aideos 和官方方舟保留为显式回滚 Provider，不要把 Aideos 称为弦序官方服务。
+官方方舟保留为显式回滚 Provider；当前视频主链路使用弦序 StringX Seedance。
 
 ### 连续性与三路并发
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { executeQuickStartRequestSchema, quickStartPlanSchema } from './quickStart.js'
+import {
+  executeQuickStartRequestSchema,
+  quickStartPlanRequestSchema,
+  quickStartPlanSchema,
+} from './quickStart.js'
 
 const scene = {
   kind: 'scene' as const,
@@ -52,5 +56,10 @@ describe('quick start contracts', () => {
         assets: [invalidAsset],
       }).success,
     ).toBe(false)
+  })
+
+  it('defaults quick start planning to GPT 5.6 but still accepts GPT selection', () => {
+    expect(quickStartPlanRequestSchema.parse({})).toEqual({ model: 'gpt-5.6' })
+    expect(quickStartPlanRequestSchema.parse({ model: 'gpt-5.6' })).toEqual({ model: 'gpt-5.6' })
   })
 })

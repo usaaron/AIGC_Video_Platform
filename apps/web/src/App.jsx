@@ -240,8 +240,8 @@ function App() {
         prompt: options.prompt,
         negativePrompt: options.negativePrompt,
         provider,
-        model:
-          kind === 'video' ? 'doubao-seedance-2-0-260128' : kind === 'image' ? 'img2-default' : undefined,
+        model: kind === 'video' ? undefined : kind === 'image' ? 'img2-default' : undefined,
+        tier: options.tier ?? (kind === 'video' ? 'fast' : undefined),
         estimatedCredits: cost,
         metadata: options.metadata,
       })
@@ -640,11 +640,6 @@ function App() {
               await refreshBilling().catch(() => {})
             }
           }}
-          onSuggestNovelAssets={async (documentId, input) => {
-            const result = await api.suggestNovelAssets(project.id, documentId, input)
-            setToast('小说资产建议已生成')
-            return result
-          }}
           onGenerateNovelChapterAdaptation={async (documentId, input) => {
             try {
               const result = await api.generateNovelChapterAdaptation(project.id, documentId, input)
@@ -654,14 +649,35 @@ function App() {
               await refreshBilling().catch(() => {})
             }
           }}
-          onSuggestAssets={(script, direction) => api.suggestScriptAssets(project.id, script, direction)}
+          onSuggestNovelAssets={async (documentId, input) => {
+            try {
+              const result = await api.suggestNovelAssets(project.id, documentId, input)
+              setToast('小说资产建议已生成')
+              return result
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
+          onSuggestAssets={(script, direction, model) =>
+            api.suggestScriptAssets(project.id, script, direction, undefined, model)
+          }
+          onEnrich={async (script, direction, model) => {
+            try {
+              const result = await api.enrichScript(project.id, script, direction, undefined, model)
+              await refreshWorkspace()
+              setToast('AI 扩写已写入剧本')
+              return result
+            } finally {
+              await refreshBilling().catch(() => {})
+            }
+          }}
           onCreateAsset={async (input) => {
             const created = await api.createAsset(project.id, input)
             await refreshWorkspace()
             setToast(`已加入资产：${created.name}`)
             return created
           }}
-          onPlanQuickStart={() => api.planQuickStart(project.id)}
+          onPlanQuickStart={(model) => api.planQuickStart(project.id, model)}
           onExecuteQuickStart={async (input) => {
             const result = await api.executeQuickStart(project.id, input)
             const [nextWorkspace, nextTasks, nextBilling, nextProjects] = await Promise.all([

@@ -49,7 +49,9 @@ export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
   if (asset.references?.length) {
     stageParts.push('严格保持导入参考图中的身份和关键外观特征')
   }
-  return applyCustomPrompt(asset, [...identity, ...stageParts].filter(Boolean).join('，'))
+  return applyCustomPrompt(asset, [...identity, ...stageParts].filter(Boolean).join('，'), {
+    preserveAutomatic: stage === 'face',
+  })
 }
 
 const CHARACTER_CUTOUT_REQUIREMENTS =

@@ -35,15 +35,15 @@ const configSchema = z
     UPLOAD_DIR: z.string().default('./data/uploads'),
     GCS_BUCKET: z.string().default(''),
     MAX_UPLOAD_BYTES: z.coerce.number().int().min(1_048_576).max(52_428_800).default(10_485_760),
-    VIDEO_PROVIDER: z.enum(['stringx', 'aideos', 'volc-ark']).default('stringx'),
+    VIDEO_PROVIDER: z.enum(['stringx', 'volc-ark']).default('stringx'),
     STRINGX_BASE_URL: z.string().url().default('https://maas.stringx.top/api/v3'),
     STRINGX_API_KEY: z.string().default(''),
     STRINGX_VIDEO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
+    STRINGX_SEEDANCE_DEFAULT_TIER: z.enum(['mini', 'fast', 'pro']).default('fast'),
+    STRINGX_SEEDANCE_MINI_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
+    STRINGX_SEEDANCE_FAST_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
+    STRINGX_SEEDANCE_PRO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
     STRINGX_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
-    AIDEOS_BASE_URL: z.string().url().default('https://aideos.openrouter.icu'),
-    AIDEOS_API_KEY: z.string().default(''),
-    AIDEOS_VIDEO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
-    AIDEOS_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
     VIDEO_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).max(60_000).default(5_000),
     ARK_API_BASE_URL: z.string().url().default('https://ark.cn-beijing.volces.com/api/v3'),
     ARK_API_KEY: z.string().default(''),
@@ -57,6 +57,11 @@ const configSchema = z
     VOLC_ASSET_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(30_000),
     FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
     FILM_PREVIEW_TIMEOUT_MS: z.coerce.number().int().min(30_000).max(1_800_000).default(600_000),
+    DEEPSEEK_BASE_URL: z.string().url().default('https://maas.stringx.top'),
+    DEEPSEEK_API_KEY: z.string().default(''),
+    DEEPSEEK_MODEL: z.string().min(1).default('deepseekV3'),
+    DEEPSEEK_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/api/v1/chat/completions'),
+    DEEPSEEK_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
     TOKENADVENT_BASE_URL: z.string().url().default('https://tokenadvent.com'),
     TOKENADVENT_API_KEY: z.string().default(''),
     IMG2_MODEL: z.string().min(1).default('gpt-image-2'),
@@ -107,13 +112,6 @@ const configSchema = z
     if (config.STORAGE_DRIVER === 'gcs' && !config.GCS_BUCKET) {
       context.addIssue({ code: 'custom', path: ['GCS_BUCKET'], message: 'GCS_BUCKET is required' })
     }
-    if (config.NODE_ENV === 'production' && config.VIDEO_PROVIDER === 'aideos' && !config.AIDEOS_API_KEY) {
-      context.addIssue({
-        code: 'custom',
-        path: ['AIDEOS_API_KEY'],
-        message: 'AIDEOS_API_KEY is required for the selected production video provider',
-      })
-    }
     if (config.NODE_ENV === 'production' && config.VIDEO_PROVIDER === 'stringx' && !config.STRINGX_API_KEY) {
       context.addIssue({
         code: 'custom',
@@ -128,11 +126,22 @@ const configSchema = z
         message: 'ARK_API_KEY is required for the selected production video provider',
       })
     }
+    if (
+      config.NODE_ENV === 'production' &&
+      config.TEXT_MODEL.toLowerCase().startsWith('deepseek') &&
+      !config.DEEPSEEK_API_KEY
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DEEPSEEK_API_KEY'],
+        message: 'DEEPSEEK_API_KEY or STRINGX_API_KEY is required for production text generation',
+      })
+    }
     if (config.NODE_ENV === 'production' && !config.TOKENADVENT_API_KEY) {
       context.addIssue({
         code: 'custom',
         path: ['TOKENADVENT_API_KEY'],
-        message: 'TOKENADVENT_API_KEY is required for production text and image generation',
+        message: 'TOKENADVENT_API_KEY is required for production GPT Image 2 generation',
       })
     }
     if (Boolean(config.VOLC_ACCESS_KEY) !== Boolean(config.VOLC_SECRET_KEY)) {
@@ -153,11 +162,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
       environment.BOOTSTRAP_CREATOR_NAME ?? (environment.NODE_ENV === 'production' ? '创作者' : '林夏'),
     BOOTSTRAP_DEMO_WORKSPACE:
       environment.BOOTSTRAP_DEMO_WORKSPACE ?? (environment.NODE_ENV === 'production' ? 'false' : 'true'),
-    AIDEOS_BASE_URL: environment.AIDEOS_BASE_URL || environment.SEEDANCE_API_BASE_URL,
-    AIDEOS_API_KEY: environment.AIDEOS_API_KEY || environment.SEEDANCE_API_KEY,
-    AIDEOS_VIDEO_MODEL: environment.AIDEOS_VIDEO_MODEL || environment.SEEDANCE_MODEL,
-    AIDEOS_REQUEST_TIMEOUT_MS:
-      environment.AIDEOS_REQUEST_TIMEOUT_MS || environment.SEEDANCE_REQUEST_TIMEOUT_MS,
     VIDEO_POLL_INTERVAL_MS: environment.VIDEO_POLL_INTERVAL_MS || environment.ARK_POLL_INTERVAL_MS,
+    DEEPSEEK_API_KEY: environment.DEEPSEEK_API_KEY || environment.STRINGX_API_KEY,
+    STRINGX_SEEDANCE_MINI_MODEL: environment.STRINGX_SEEDANCE_MINI_MODEL || environment.STRINGX_VIDEO_MODEL,
+    STRINGX_SEEDANCE_FAST_MODEL: environment.STRINGX_SEEDANCE_FAST_MODEL || environment.STRINGX_VIDEO_MODEL,
+    STRINGX_SEEDANCE_PRO_MODEL: environment.STRINGX_SEEDANCE_PRO_MODEL || environment.STRINGX_VIDEO_MODEL,
   })
 }

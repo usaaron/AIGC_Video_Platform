@@ -44,6 +44,27 @@ describe('asset prompt compiler', () => {
     ).toBe('完全自定义内容')
   })
 
+  it('preserves fixed face-stage constraints when character suggestions add prompt text', () => {
+    const asset = {
+      name: '翠翠',
+      description: '十三岁湘西少女',
+      sourceMode: 'generate',
+      promptMode: 'advanced',
+      customPromptMode: 'replace',
+      customPrompt: '天真敏捷，青山绿水间长大，朴素衣着，清澈眼神，带一点戒备感',
+      attributes: createDefaultAttributes('character'),
+    }
+
+    const facePrompt = compileCharacterStagePrompt(asset, '9:16', 'face')
+
+    expect(facePrompt).toContain('人物面部大头照')
+    expect(facePrompt).toContain('头部和肩部完整入镜')
+    expect(facePrompt).toContain('正面平视镜头')
+    expect(facePrompt).toContain('不出现手部')
+    expect(facePrompt).toContain('画面比例1:1')
+    expect(facePrompt).toContain('天真敏捷')
+  })
+
   it('uses dedicated ratios and constraints for character workflow stages', () => {
     const asset = {
       name: '林夏',

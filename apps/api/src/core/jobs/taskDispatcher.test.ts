@@ -107,6 +107,15 @@ describe('GenerationTaskRunner Seedance integration', () => {
     await vi.waitFor(() => expect(provider.submit).toHaveBeenCalledTimes(3))
     releaseSubmissions()
     await tick
+    await vi.waitFor(() =>
+      expect(
+        store.read((state) =>
+          state.tasks
+            .filter((task) => task.id.startsWith('parallel-video-'))
+            .every((task) => typeof task.metadata.providerTaskId === 'string'),
+        ),
+      ).toBe(true),
+    )
 
     expect(
       store.read((state) =>
@@ -735,7 +744,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
     await new GenerationTaskRunner(store, {
       videoProvider: provider,
-      videoProviderName: 'aideos-seedance',
+      videoProviderName: 'stringx-seedance',
       providerPollIntervalMs: 0,
     }).tick()
 
@@ -801,6 +810,14 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
     const runner = new GenerationTaskRunner(store, { videoProvider: provider })
     await runner.tick()
+    await vi.waitFor(() =>
+      expect(
+        store.read((state) => {
+          const stored = state.tasks.find((item) => item.id === task.id)
+          return stored?.status === 'failed' && typeof stored.metadata.creditsRefundedAt === 'string'
+        }),
+      ).toBe(true),
+    )
 
     expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
       status: 'failed',

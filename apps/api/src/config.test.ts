@@ -13,7 +13,7 @@ describe('production configuration', () => {
       BOOTSTRAP_ADMIN_EMAIL: 'admin@example.com',
       BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
       STRINGX_API_KEY: 'production-video-token',
-      TOKENADVENT_API_KEY: 'production-text-image-token',
+      TOKENADVENT_API_KEY: 'production-image-token',
     })
 
     expect(config.TRUST_PROXY).toBe(true)
@@ -45,9 +45,6 @@ describe('production configuration', () => {
       TOKENADVENT_API_KEY: 'production-text-image-token',
     }
     expect(() => loadConfig(production)).toThrow('STRINGX_API_KEY is required')
-    expect(() => loadConfig({ ...production, VIDEO_PROVIDER: 'aideos' })).toThrow(
-      'AIDEOS_API_KEY is required',
-    )
     expect(() => loadConfig({ ...production, VIDEO_PROVIDER: 'volc-ark' })).toThrow('ARK_API_KEY is required')
   })
 
@@ -61,20 +58,16 @@ describe('production configuration', () => {
     })
   })
 
-  it('defaults to StringX and keeps legacy Aideos settings available', () => {
+  it('defaults to StringX and ignores removed legacy Seedance aliases', () => {
     expect(
       loadConfig({
-        AIDEOS_API_KEY: '',
-        SEEDANCE_API_BASE_URL: 'https://legacy-aideos.example',
+        SEEDANCE_API_BASE_URL: 'https://legacy-seedance.example',
         SEEDANCE_API_KEY: 'legacy-token',
         SEEDANCE_MODEL: 'doubao-seedance-2-0-260128',
       }),
     ).toMatchObject({
       VIDEO_PROVIDER: 'stringx',
       STRINGX_BASE_URL: 'https://maas.stringx.top/api/v3',
-      AIDEOS_BASE_URL: 'https://legacy-aideos.example',
-      AIDEOS_API_KEY: 'legacy-token',
-      AIDEOS_VIDEO_MODEL: 'doubao-seedance-2-0-260128',
       VIDEO_POLL_INTERVAL_MS: 5_000,
     })
   })

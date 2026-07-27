@@ -115,10 +115,7 @@ export function AssetsPage({
             asset={asset}
             key={asset.id}
             onEdit={() => setEditing(asset)}
-            task={tasks.find(
-              (task) =>
-                task.metadata?.assetId === asset.id && ['queued', 'paused', 'running'].includes(task.status),
-            )}
+            task={taskForAssetCard(tasks, asset.id)}
             onGenerate={async () => {
               setBusyAssetId(asset.id)
               try {
@@ -288,4 +285,26 @@ function characterStatus(asset) {
   if (asset.attributes?.faceStatus !== 'approved') return '待确认面部'
   if (asset.attributes?.bodyStatus !== 'approved') return '面部已确认'
   return '全身已确认'
+}
+
+function taskForAssetCard(tasks, assetId) {
+  return (
+    tasks
+      .filter(
+        (task) =>
+          task.metadata?.assetId === assetId &&
+          ['queued', 'paused', 'running', 'failed', 'cancelled'].includes(task.status) &&
+          typeof task.metadata?.queueHiddenAt !== 'string',
+      )
+      .sort(newestTaskFirst)[0] || null
+  )
+}
+
+function newestTaskFirst(left, right) {
+  return taskTime(right) - taskTime(left)
+}
+
+function taskTime(task) {
+  const value = Date.parse(task.updatedAt || task.createdAt || '')
+  return Number.isFinite(value) ? value : 0
 }

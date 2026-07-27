@@ -208,17 +208,20 @@ describe('api client', () => {
     await api.generateNovelSummaries('project-1', 'novel-1', {
       clientRequestId: 'summary-1',
       batchSize: 4,
+      model: 'deepseekV3',
     })
     await api.novelStoryBible('project-1', 'novel-1')
     await api.generateNovelStoryBible('project-1', 'novel-1', {
       clientRequestId: 'bible-1',
       force: true,
+      model: 'gpt-5.6',
     })
     await api.generateNovelChapterAdaptation('project-1', 'novel-1', {
       clientRequestId: 'adapt-1',
       chapterIds: ['chapter-1'],
       targetSeconds: 60,
       mode: 'scene',
+      model: 'gpt-5.5',
     })
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -274,7 +277,7 @@ describe('api client', () => {
       expect.objectContaining({
         method: 'POST',
         credentials: 'include',
-        body: JSON.stringify({ clientRequestId: 'summary-1', batchSize: 4 }),
+        body: JSON.stringify({ clientRequestId: 'summary-1', batchSize: 4, model: 'deepseekV3' }),
       }),
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -288,7 +291,7 @@ describe('api client', () => {
       expect.objectContaining({
         method: 'POST',
         credentials: 'include',
-        body: JSON.stringify({ clientRequestId: 'bible-1', force: true }),
+        body: JSON.stringify({ clientRequestId: 'bible-1', force: true, model: 'gpt-5.6' }),
       }),
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -302,6 +305,7 @@ describe('api client', () => {
           chapterIds: ['chapter-1'],
           targetSeconds: 60,
           mode: 'scene',
+          model: 'gpt-5.5',
         }),
       }),
     )
@@ -418,6 +422,7 @@ describe('api client', () => {
       '场次：1｜场景：边城药铺｜角色：女剑客｜关键物件：旧长剑',
       direction,
       'asset-suggestions-1',
+      'gpt-5.6',
     )
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -429,6 +434,7 @@ describe('api client', () => {
           clientRequestId: 'asset-suggestions-1',
           script: '场次：1｜场景：边城药铺｜角色：女剑客｜关键物件：旧长剑',
           direction,
+          model: 'gpt-5.6',
         }),
       }),
     )
@@ -441,6 +447,7 @@ describe('api client', () => {
     await api.suggestNovelAssets('project-1', 'novel-1', {
       clientRequestId: 'novel-assets-1',
       maxAssets: 12,
+      model: 'gpt-5.4',
     })
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -451,16 +458,16 @@ describe('api client', () => {
         body: JSON.stringify({
           clientRequestId: 'novel-assets-1',
           maxAssets: 12,
+          model: 'gpt-5.4',
         }),
       }),
     )
   })
 
-  it('sends creative direction to script generation and review plus the shot split limit', async () => {
+  it('sends creative direction to script generation plus the shot split limit', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ script: '场景：雨夜车站' }))
-      .mockResolvedValueOnce(Response.json({ score: 80, dimensions: [] }))
       .mockResolvedValueOnce(Response.json([]))
     vi.stubGlobal('fetch', fetchMock)
     const direction = {
@@ -471,21 +478,16 @@ describe('api client', () => {
       focus: 'character',
     }
 
-    await api.generateScript('project-1', '故事草稿', direction, 'script-generate-1')
-    await api.reviewScript('project-1', '完整剧本', direction, 'script-review-1')
+    await api.generateScript('project-1', '故事草稿', direction, 'script-generate-1', 'deepseekV3')
     await api.generateShots('project-1', { maxShots: 8 })
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       clientRequestId: 'script-generate-1',
       draft: '故事草稿',
       direction,
+      model: 'deepseekV3',
     })
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
-      clientRequestId: 'script-review-1',
-      script: '完整剧本',
-      direction,
-    })
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ maxShots: 8 })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ maxShots: 8 })
   })
 
   it('sends long-form segment generation requests without changing the quick endpoint', async () => {
@@ -507,6 +509,7 @@ describe('api client', () => {
       direction,
       { goal: '进入第二个冲突', targetMinutes: 5 },
       'segment-1',
+      'gpt-5.5',
     )
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -520,6 +523,7 @@ describe('api client', () => {
           direction,
           mode: 'segment',
           segment: { goal: '进入第二个冲突', targetMinutes: 5 },
+          model: 'gpt-5.5',
         }),
       }),
     )
@@ -564,16 +568,21 @@ describe('api client', () => {
       focus: 'scene',
     }
 
-    await api.enrichScript('project-1', '快速剧本', direction, 'script-enrich-1')
+    await api.enrichScript('project-1', '快速剧本', direction, 'script-enrich-1', 'gpt-5.6')
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/projects/project-1/script/enrich',
       expect.objectContaining({
         method: 'POST',
         credentials: 'include',
-        body: JSON.stringify({ clientRequestId: 'script-enrich-1', script: '快速剧本', direction }),
       }),
     )
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      clientRequestId: 'script-enrich-1',
+      script: '快速剧本',
+      direction,
+      model: 'gpt-5.6',
+    })
   })
 
   it('recovers a generated script saved after the original connection ends', async () => {
@@ -604,13 +613,17 @@ describe('api client', () => {
       assets: [],
     }
 
-    await api.planQuickStart('project-1')
+    await api.planQuickStart('project-1', 'gpt-5.6')
     await api.executeQuickStart('project-1', input)
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       '/api/v1/projects/project-1/quick-start/plan',
-      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ model: 'gpt-5.6' }),
+      }),
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,

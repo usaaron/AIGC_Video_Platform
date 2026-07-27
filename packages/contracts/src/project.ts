@@ -260,6 +260,7 @@ export const generateScriptAssetSuggestionsRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().trim().min(1).max(100_000),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+  model: textModelSchema.default('gpt-5.6'),
 })
 
 export const scriptAssetSuggestionsContentSchema = z.object({
