@@ -455,7 +455,7 @@ export function ScriptPage({
       )}
 
       {activeScriptSection === 'writing' && (
-        <>
+        <div className="script-writing-stack">
           <section className="script-direction-bar" aria-label="AI 扩写方向">
             <div className="script-direction-title">
               <span className="direction-symbol">
@@ -640,7 +640,7 @@ export function ScriptPage({
               </button>
             </div>
           </section>
-        </>
+        </div>
       )}
 
       {suggestedAssetEditor && (

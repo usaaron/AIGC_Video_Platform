@@ -42,7 +42,15 @@ export function NovelDevelopmentPanel({
   const summaryCount = summariesResult?.summaries.length ?? 0
   const missingSummaryCount = summariesResult?.missingSummaryCount ?? document.chapterCount
   const summaryCompleted = summariesResult?.completed ?? false
+  const nextSummaryBatchSize = Math.max(0, Math.min(summaryBatchSize, missingSummaryCount))
   const storyBible = storyBibleResult?.storyBible ?? null
+  const storyOverviewStatus = summaryCompleted
+    ? storyBible
+      ? '已有故事概要，可按最新章节摘要刷新'
+      : '章节摘要已完成，可以生成故事概要'
+    : summaryCount
+      ? `还缺 ${missingSummaryCount} 章摘要，完成全部章节摘要后才能生成故事概要`
+      : '还没有章节概要，故事概要需要先读取章节概要作为事实源'
   const assetSuggestionEmptyText = !summaryCount
     ? '先生成至少一批章节概要，系统才有事实源可提取资产。'
     : storyBible
@@ -207,48 +215,42 @@ export function NovelDevelopmentPanel({
         </small>
       </div>
 
-      <div className="novel-development-actions">
-        <label className="novel-summary-batch-field">
-          <span>本次摘要章节数</span>
-          <select
-            value={summaryBatchSize}
-            disabled={disabled || isLoading || isGeneratingSummaries || summaryCompleted}
-            onChange={(event) => setSummaryBatchSize(Number(event.target.value))}
-          >
-            {SUMMARY_BATCH_OPTIONS.map((size) => (
-              <option key={size} value={size}>
-                {Math.min(size, missingSummaryCount)} 章
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          className="button secondary"
-          disabled={disabled || isLoading || isGeneratingSummaries || summaryCompleted}
-          onClick={() => void handleGenerateSummaries()}
-        >
-          {isGeneratingSummaries ? <LoaderCircle size={16} className="spin" /> : <ScrollText size={16} />}
-          {isGeneratingSummaries
-            ? '正在生成摘要'
-            : `生成 ${Math.min(summaryBatchSize, missingSummaryCount)} 章摘要 · ${NOVEL_OPERATION_CREDITS.chapterSummaryBatch} 积分`}
-        </button>
-        <button
-          className="button primary"
-          disabled={disabled || isLoading || isGeneratingStoryBible || !summaryCompleted}
-          onClick={() => void handleGenerateStoryBible(false)}
-        >
-          {isGeneratingStoryBible ? <LoaderCircle size={16} className="spin" /> : <BookMarked size={16} />}
-          {storyBible ? '查看/刷新故事概要' : `生成故事概要 · ${NOVEL_OPERATION_CREDITS.storyBible} 积分`}
-        </button>
-        {storyBible && (
+      <div className="novel-summary-action-card">
+        <div className="novel-summary-action-copy">
+          <span className="eyebrow">章节摘要批处理</span>
+          <strong>{summaryCompleted ? '章节摘要已完成' : `本次生成 ${nextSummaryBatchSize} 章摘要`}</strong>
+          <small>
+            {summaryCompleted
+              ? '后续可以基于这些章节概要生成故事概要。'
+              : '章节摘要会分批进入事实源，长篇小说不需要一次性处理完整原文。'}
+          </small>
+        </div>
+        <div className="novel-summary-action-controls">
+          <label className="novel-summary-batch-field">
+            <span>本次摘要章节数</span>
+            <select
+              value={summaryBatchSize}
+              disabled={disabled || isLoading || isGeneratingSummaries || summaryCompleted}
+              onChange={(event) => setSummaryBatchSize(Number(event.target.value))}
+            >
+              {SUMMARY_BATCH_OPTIONS.map((size) => (
+                <option key={size} value={size}>
+                  {Math.min(size, missingSummaryCount)} 章
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             className="button secondary"
-            disabled={disabled || isGeneratingStoryBible}
-            onClick={() => void handleGenerateStoryBible(true)}
+            disabled={disabled || isLoading || isGeneratingSummaries || summaryCompleted}
+            onClick={() => void handleGenerateSummaries()}
           >
-            <RefreshCw size={16} /> 重新生成
+            {isGeneratingSummaries ? <LoaderCircle size={16} className="spin" /> : <ScrollText size={16} />}
+            {isGeneratingSummaries
+              ? '正在生成摘要'
+              : `生成 ${nextSummaryBatchSize} 章摘要 · ${NOVEL_OPERATION_CREDITS.chapterSummaryBatch} 积分`}
           </button>
-        )}
+        </div>
       </div>
 
       {summariesResult?.summaries.length > 0 && (
@@ -274,6 +276,33 @@ export function NovelDevelopmentPanel({
           )}
         </>
       )}
+
+      <div className={`novel-story-overview-gate${summaryCompleted ? ' ready' : ''}`}>
+        <div>
+          <span className="eyebrow">故事概要</span>
+          <strong>{summaryCompleted ? '下一步：生成故事概要' : '等待章节概要完成'}</strong>
+          <small>{storyOverviewStatus}</small>
+        </div>
+        <div className="novel-story-overview-actions">
+          <button
+            className="button primary"
+            disabled={disabled || isLoading || isGeneratingStoryBible || !summaryCompleted}
+            onClick={() => void handleGenerateStoryBible(false)}
+          >
+            {isGeneratingStoryBible ? <LoaderCircle size={16} className="spin" /> : <BookMarked size={16} />}
+            {storyBible ? '查看/刷新故事概要' : `生成故事概要 · ${NOVEL_OPERATION_CREDITS.storyBible} 积分`}
+          </button>
+          {storyBible && (
+            <button
+              className="button secondary"
+              disabled={disabled || isGeneratingStoryBible}
+              onClick={() => void handleGenerateStoryBible(true)}
+            >
+              <RefreshCw size={16} /> 重新生成
+            </button>
+          )}
+        </div>
+      </div>
 
       {summaryBrowserOpen && summariesResult?.summaries.length > 0 && (
         <div className="novel-browser-backdrop" role="presentation">

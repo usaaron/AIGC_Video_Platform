@@ -403,12 +403,23 @@ export const generateNovelAssetSuggestionsRequestSchema = z.object({
 
 export const novelChapterAdaptationModeSchema = z.enum(['scene', 'opening', 'summary'])
 
+export const novelChapterAdaptationSourcesSchema = z
+  .object({
+    storyBible: z.boolean().optional(),
+    chapterSummaries: z.boolean().optional(),
+    chapterContent: z.boolean().optional(),
+  })
+  .refine((value) => Object.values(value).some(Boolean), {
+    message: '至少选择一种剧本生成依据',
+  })
+
 export const generateNovelChapterAdaptationRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   chapterIds: z.array(z.string().min(1).max(128)).min(1).max(6),
   targetSeconds: z.number().int().min(15).max(180).default(60),
   mode: novelChapterAdaptationModeSchema.default('scene'),
   model: textModelSchema.default('gpt-5.6'),
+  sourceOptions: novelChapterAdaptationSourcesSchema.optional(),
 })
 
 export const novelStoryBibleReadResultSchema = z.object({
@@ -481,6 +492,7 @@ export type GenerateNovelChapterSummariesResult = z.infer<typeof generateNovelCh
 export type GenerateNovelStoryBibleRequest = z.infer<typeof generateNovelStoryBibleRequestSchema>
 export type GenerateNovelAssetSuggestionsRequest = z.infer<typeof generateNovelAssetSuggestionsRequestSchema>
 export type NovelChapterAdaptationMode = z.infer<typeof novelChapterAdaptationModeSchema>
+export type NovelChapterAdaptationSources = z.infer<typeof novelChapterAdaptationSourcesSchema>
 export type GenerateNovelChapterAdaptationRequest = z.infer<
   typeof generateNovelChapterAdaptationRequestSchema
 >

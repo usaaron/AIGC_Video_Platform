@@ -2320,6 +2320,46 @@ describe('API authorization', () => {
     )
   })
 
+  it('requires matching chapter summaries when chapter summary source is selected', async () => {
+    const generate = vi.fn(async () => '不会被调用')
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/adapt-script`,
+      headers,
+      payload: {
+        clientRequestId: 'adapt-requires-matching-summary',
+        chapterIds: [imported.chapters[0].id],
+        targetSeconds: 60,
+        mode: 'scene',
+        sourceOptions: {
+          storyBible: false,
+          chapterSummaries: true,
+          chapterContent: true,
+        },
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(409)
+    expect(response.json()).toMatchObject({
+      error: {
+        code: 'NOVEL_CHAPTER_SUMMARIES_REQUIRED',
+      },
+    })
+    expect(generate).not.toHaveBeenCalled()
+  })
+
   it('generates a quick script once and returns warnings instead of retrying', async () => {
     const quickScript = Array.from(
       { length: 4 },

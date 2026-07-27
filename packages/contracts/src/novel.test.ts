@@ -499,16 +499,36 @@ describe('novel contracts', () => {
     expect(
       generateNovelChapterAdaptationRequestSchema.parse({
         chapterIds: ['chapter-1'],
+        sourceOptions: {
+          storyBible: true,
+          chapterSummaries: true,
+          chapterContent: false,
+        },
       }),
     ).toMatchObject({
       chapterIds: ['chapter-1'],
       targetSeconds: 60,
       mode: 'scene',
       model: 'gpt-5.6',
+      sourceOptions: {
+        storyBible: true,
+        chapterSummaries: true,
+        chapterContent: false,
+      },
     })
     expect(
       generateNovelChapterAdaptationRequestSchema.safeParse({
         chapterIds: ['1', '2', '3', '4', '5', '6', '7'],
+      }).success,
+    ).toBe(false)
+    expect(
+      generateNovelChapterAdaptationRequestSchema.safeParse({
+        chapterIds: ['chapter-1'],
+        sourceOptions: {
+          storyBible: false,
+          chapterSummaries: false,
+          chapterContent: false,
+        },
       }).success,
     ).toBe(false)
     expect(

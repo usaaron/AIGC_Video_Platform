@@ -32,6 +32,16 @@ const ADAPTATION_MODE_OPTIONS = [
   ['opening', '开场钩子'],
   ['summary', '概要改编'],
 ]
+const DEFAULT_ADAPTATION_SOURCES = {
+  storyBible: false,
+  chapterSummaries: false,
+  chapterContent: true,
+}
+const ADAPTATION_SOURCE_OPTIONS = [
+  ['storyBible', '故事概要'],
+  ['chapterSummaries', '对应章节概要'],
+  ['chapterContent', '对应章节原文'],
+]
 const SPLIT_MODE_LABELS = {
   auto: '自动识别',
   heading: '规则章节',
@@ -75,6 +85,14 @@ export function NovelImportPanel({
   const [selectedChapterIds, setSelectedChapterIds] = useState(() => new Set())
   const [adaptationTargetSeconds, setAdaptationTargetSeconds] = useState(60)
   const [adaptationMode, setAdaptationMode] = useState('scene')
+  const [adaptationSources, setAdaptationSources] = useState(DEFAULT_ADAPTATION_SOURCES)
+  const [adaptationContext, setAdaptationContext] = useState({
+    status: 'idle',
+    summaryChapterIds: [],
+    storyBibleReady: false,
+    summaryCount: 0,
+    error: '',
+  })
   const [adaptationResult, setAdaptationResult] = useState(null)
   const [adaptationStatus, setAdaptationStatus] = useState('idle')
   const [adaptationError, setAdaptationError] = useState('')
@@ -108,6 +126,14 @@ export function NovelImportPanel({
     setSelectedChapterIds(new Set())
     setAdaptationTargetSeconds(60)
     setAdaptationMode('scene')
+    setAdaptationSources(DEFAULT_ADAPTATION_SOURCES)
+    setAdaptationContext({
+      status: 'idle',
+      summaryChapterIds: [],
+      storyBibleReady: false,
+      summaryCount: 0,
+      error: '',
+    })
     setAdaptationResult(null)
     setAdaptationStatus('idle')
     setAdaptationError('')
@@ -150,6 +176,62 @@ export function NovelImportPanel({
     setSelectedChapterIds(new Set([result.chapters[0].id]))
   }, [result?.document.id])
 
+  useEffect(() => {
+    let cancelled = false
+    const documentId = result?.document.id
+    setAdaptationResult(null)
+    setAdaptationError('')
+    setAdaptationSources(DEFAULT_ADAPTATION_SOURCES)
+    setAdaptationContext({
+      status: documentId ? 'loading' : 'idle',
+      summaryChapterIds: [],
+      storyBibleReady: false,
+      summaryCount: 0,
+      error: '',
+    })
+    if (!documentId) {
+      return () => {
+        cancelled = true
+      }
+    }
+    const loadAdaptationContext = async () => {
+      try {
+        const [summaries, storyBible] = await Promise.all([
+          onGetNovelSummaries(documentId),
+          onGetNovelStoryBible(documentId),
+        ])
+        if (cancelled) return
+        const summaryChapterIds = (summaries?.summaries ?? []).map((summary) => summary.chapterId)
+        const storyBibleReady = Boolean(storyBible?.storyBible)
+        setAdaptationContext({
+          status: 'ready',
+          summaryChapterIds,
+          storyBibleReady,
+          summaryCount: summaryChapterIds.length,
+          error: '',
+        })
+        setAdaptationSources({
+          storyBible: storyBibleReady,
+          chapterSummaries: summaryChapterIds.length > 0,
+          chapterContent: true,
+        })
+      } catch (contextError) {
+        if (cancelled) return
+        setAdaptationContext({
+          status: 'error',
+          summaryChapterIds: [],
+          storyBibleReady: false,
+          summaryCount: 0,
+          error: contextError.message,
+        })
+      }
+    }
+    void loadAdaptationContext()
+    return () => {
+      cancelled = true
+    }
+  }, [result?.document.id])
+
   const resetSplitOutcome = () => {
     setPreviewResult(null)
     setResult(null)
@@ -157,6 +239,14 @@ export function NovelImportPanel({
     setExpandedChapterIds(new Set())
     setChapterBrowserOpen(false)
     setSelectedChapterIds(new Set())
+    setAdaptationSources(DEFAULT_ADAPTATION_SOURCES)
+    setAdaptationContext({
+      status: 'idle',
+      summaryChapterIds: [],
+      storyBibleReady: false,
+      summaryCount: 0,
+      error: '',
+    })
     setAdaptationResult(null)
     setAdaptationError('')
     setAdaptationStatus('idle')
@@ -295,6 +385,25 @@ export function NovelImportPanel({
       : null
   const visibleChapters = activeSplit?.chapters.slice(0, visibleChapterCount) ?? []
   const selectedChapters = result?.chapters.filter((chapter) => selectedChapterIds.has(chapter.id)) ?? []
+  const selectedSourceLabels = ADAPTATION_SOURCE_OPTIONS.filter(([key]) => adaptationSources[key]).map(
+    ([, label]) => label,
+  )
+  const summarizedChapterIds = new Set(adaptationContext.summaryChapterIds)
+  const selectedMissingSummaryCount = selectedChapters.filter(
+    (chapter) => !summarizedChapterIds.has(chapter.id),
+  ).length
+  const adaptationSourceError = !selectedSourceLabels.length
+    ? '请至少选择一种生成依据'
+    : adaptationSources.storyBible && !adaptationContext.storyBibleReady
+      ? '还没有故事概要，请先生成故事概要或取消勾选'
+      : adaptationSources.chapterSummaries && selectedMissingSummaryCount > 0
+        ? `所选章节中有 ${selectedMissingSummaryCount} 章还没有对应章节概要`
+        : ''
+  const adaptationSourceHint = adaptationSourceError
+    ? adaptationSourceError
+    : selectedSourceLabels.length
+      ? `生成依据：${selectedSourceLabels.join(' + ')}`
+      : '请选择生成依据'
   const effectiveSplitMode =
     result?.chapters[0]?.splitMode ??
     previewResult?.splitMode ??
@@ -328,10 +437,23 @@ export function NovelImportPanel({
     setAdaptationResult(null)
   }
 
+  const toggleAdaptationSource = (sourceKey) => {
+    setAdaptationSources((current) => ({
+      ...current,
+      [sourceKey]: !current[sourceKey],
+    }))
+    setAdaptationResult(null)
+    setAdaptationError('')
+  }
+
   const handleGenerateChapterAdaptation = async () => {
     if (!result || !onGenerateChapterAdaptation) return
     if (!selectedChapters.length) {
       setAdaptationError('请先选择至少一个章节')
+      return
+    }
+    if (adaptationSourceError) {
+      setAdaptationError(adaptationSourceError)
       return
     }
     setAdaptationStatus('adapting')
@@ -342,6 +464,7 @@ export function NovelImportPanel({
         chapterIds: selectedChapters.map((chapter) => chapter.id),
         targetSeconds: adaptationTargetSeconds,
         mode: adaptationMode,
+        sourceOptions: adaptationSources,
         model: textModel,
       })
       setAdaptationResult(adaptation)
@@ -523,7 +646,7 @@ export function NovelImportPanel({
             </div>
           )}
           {result && (
-            <div className="novel-adaptation-panel" aria-busy={isAdapting || isWritingAdaptedScript}>
+            <div className="novel-adaptation-overview" aria-busy={isAdapting || isWritingAdaptedScript}>
               <div className="novel-adaptation-head">
                 <div>
                   <span className="eyebrow">章节改编入口</span>
@@ -531,101 +654,6 @@ export function NovelImportPanel({
                 </div>
                 <span>{selectedChapters.length} / 6 章</span>
               </div>
-              <div className="novel-adaptation-controls">
-                <label>
-                  <span>目标时长</span>
-                  <select
-                    value={adaptationTargetSeconds}
-                    disabled={controlsDisabled}
-                    onChange={(event) => {
-                      setAdaptationTargetSeconds(Number(event.target.value))
-                      setAdaptationResult(null)
-                    }}
-                  >
-                    {ADAPTATION_TARGET_SECONDS_OPTIONS.map((seconds) => (
-                      <option key={seconds} value={seconds}>
-                        {seconds} 秒
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>改编模式</span>
-                  <select
-                    value={adaptationMode}
-                    disabled={controlsDisabled}
-                    onChange={(event) => {
-                      setAdaptationMode(event.target.value)
-                      setAdaptationResult(null)
-                    }}
-                  >
-                    {ADAPTATION_MODE_OPTIONS.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className="button primary"
-                  type="button"
-                  disabled={
-                    controlsDisabled ||
-                    !selectedChapters.length ||
-                    !onGenerateChapterAdaptation ||
-                    isWritingAdaptedScript
-                  }
-                  onClick={() => void handleGenerateChapterAdaptation()}
-                >
-                  {isAdapting ? (
-                    <LoaderCircle size={16} className="spin" />
-                  ) : adaptationResult ? (
-                    <RefreshCw size={16} />
-                  ) : (
-                    <Sparkles size={16} />
-                  )}
-                  {isAdapting
-                    ? '正在生成改编'
-                    : `${adaptationResult ? '重新生成' : '生成视频改编剧本'} · ${NOVEL_OPERATION_CREDITS.chapterAdaptation} 积分`}
-                </button>
-              </div>
-              {adaptationResult && (
-                <div className="novel-adaptation-result">
-                  <div>
-                    <strong>已生成改编剧本</strong>
-                    <span>
-                      {adaptationResult.chapters.length} 章 · {adaptationResult.targetSeconds} 秒 ·
-                      可继续资产建议/分镜
-                    </span>
-                  </div>
-                  <pre>{adaptationResult.script.slice(0, 900)}</pre>
-                  {adaptationResult.warnings?.length > 0 && (
-                    <div className="novel-adaptation-warnings">
-                      {adaptationResult.warnings.map((warning) => (
-                        <span key={warning}>{warning}</span>
-                      ))}
-                    </div>
-                  )}
-                  <button
-                    className="button secondary"
-                    type="button"
-                    disabled={disabled || isWritingAdaptedScript || !onUseAdaptedScript}
-                    onClick={() => void handleUseAdaptedScript()}
-                  >
-                    {isWritingAdaptedScript ? (
-                      <LoaderCircle size={16} className="spin" />
-                    ) : (
-                      <ArrowRight size={16} />
-                    )}
-                    {isWritingAdaptedScript ? '正在写入剧本页' : '写入剧本页并继续资产建议'}
-                  </button>
-                </div>
-              )}
-              {adaptationError && (
-                <p className="operation-error novel-import-error" role="alert">
-                  {adaptationError}
-                </p>
-              )}
             </div>
           )}
           <div className="novel-chapter-list">
@@ -691,6 +719,162 @@ export function NovelImportPanel({
             <button type="button" className="novel-result-more" onClick={() => setChapterBrowserOpen(true)}>
               查看全部 {activeSplit.chapters.length} 章/分块
             </button>
+          )}
+          {result && (
+            <div className="novel-adaptation-next" aria-busy={isAdapting || isWritingAdaptedScript}>
+              {!adaptationResult ? (
+                <>
+                  <div className="novel-adaptation-next-copy">
+                    <span className="eyebrow">
+                      {selectedChapters.length ? '下一步：生成视频改编剧本' : '先选择要改编的章节'}
+                    </span>
+                    <strong>
+                      {selectedChapters.length
+                        ? `已选择 ${selectedChapters.length} 章，预计生成 ${adaptationTargetSeconds} 秒视频改编剧本`
+                        : '未选择章节'}
+                    </strong>
+                    <small>
+                      {selectedChapters.length
+                        ? adaptationSourceHint
+                        : '请先在上方章节卡片中勾选要改编的章节，最多一次选择 6 章。'}
+                    </small>
+                  </div>
+                  <div className="novel-adaptation-controls">
+                    <label>
+                      <span>目标时长</span>
+                      <select
+                        value={adaptationTargetSeconds}
+                        disabled={controlsDisabled}
+                        onChange={(event) => {
+                          setAdaptationTargetSeconds(Number(event.target.value))
+                          setAdaptationResult(null)
+                        }}
+                      >
+                        {ADAPTATION_TARGET_SECONDS_OPTIONS.map((seconds) => (
+                          <option key={seconds} value={seconds}>
+                            {seconds} 秒
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>改编模式</span>
+                      <select
+                        value={adaptationMode}
+                        disabled={controlsDisabled}
+                        onChange={(event) => {
+                          setAdaptationMode(event.target.value)
+                          setAdaptationResult(null)
+                        }}
+                      >
+                        {ADAPTATION_MODE_OPTIONS.map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="novel-adaptation-source-field">
+                      <span>生成依据</span>
+                      <div className="novel-adaptation-source-row">
+                        <div className="novel-adaptation-source-options">
+                          {ADAPTATION_SOURCE_OPTIONS.map(([key, label]) => {
+                            const unavailable =
+                              (key === 'storyBible' && !adaptationContext.storyBibleReady) ||
+                              (key === 'chapterSummaries' && adaptationContext.summaryCount === 0)
+                            return (
+                              <label key={key} className={unavailable ? 'muted' : ''}>
+                                <input
+                                  type="checkbox"
+                                  checked={adaptationSources[key]}
+                                  disabled={controlsDisabled}
+                                  onChange={() => toggleAdaptationSource(key)}
+                                />
+                                <span>{label}</span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                        <button
+                          className="button primary novel-adaptation-primary"
+                          type="button"
+                          disabled={
+                            controlsDisabled ||
+                            !selectedChapters.length ||
+                            Boolean(adaptationSourceError) ||
+                            !onGenerateChapterAdaptation ||
+                            isWritingAdaptedScript
+                          }
+                          onClick={() => void handleGenerateChapterAdaptation()}
+                        >
+                          {isAdapting ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />}
+                          {isAdapting
+                            ? '正在生成改编'
+                            : `生成视频改编剧本 · ${NOVEL_OPERATION_CREDITS.chapterAdaptation} 积分`}
+                        </button>
+                      </div>
+                      <small>
+                        {adaptationContext.status === 'loading'
+                          ? '正在读取章节概要和故事概要状态'
+                          : adaptationContext.error || '章节概要只会匹配所选章节，不会跨章混用'}
+                      </small>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="novel-adaptation-next-copy">
+                    <span className="eyebrow">下一步：写入剧本页</span>
+                    <strong>
+                      已生成 {adaptationResult.chapters.length} 章改编 ·{' '}
+                      {adaptationResult.script.replace(/\s/g, '').length} 字
+                    </strong>
+                    <small>
+                      目标 {adaptationResult.targetSeconds} 秒，写入后会进入剧本页，继续资产建议 / 分镜。
+                    </small>
+                  </div>
+                  <div className="novel-adaptation-result-preview">
+                    <pre>{adaptationResult.script.slice(0, 520)}</pre>
+                    {adaptationResult.warnings?.length > 0 && (
+                      <div className="novel-adaptation-warnings">
+                        {adaptationResult.warnings.map((warning) => (
+                          <span key={warning}>{warning}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="novel-adaptation-next-actions">
+                    <button
+                      className="button secondary"
+                      type="button"
+                      disabled={controlsDisabled || !onGenerateChapterAdaptation || isWritingAdaptedScript}
+                      onClick={() => void handleGenerateChapterAdaptation()}
+                    >
+                      {isAdapting ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
+                      {isAdapting ? '正在重新生成' : '重新生成'}
+                    </button>
+                    <button
+                      className="button primary"
+                      type="button"
+                      disabled={disabled || isWritingAdaptedScript || !onUseAdaptedScript}
+                      onClick={() => void handleUseAdaptedScript()}
+                    >
+                      {isWritingAdaptedScript ? (
+                        <LoaderCircle size={16} className="spin" />
+                      ) : (
+                        <ArrowRight size={16} />
+                      )}
+                      {isWritingAdaptedScript ? '正在写入剧本页' : '写入剧本页'}
+                    </button>
+                  </div>
+                </>
+              )}
+              {adaptationError && (
+                <p className="operation-error novel-import-error" role="alert">
+                  {adaptationError}
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}

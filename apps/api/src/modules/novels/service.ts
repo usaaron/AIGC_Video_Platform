@@ -9,6 +9,7 @@ import type {
   GenerateNovelBoundaryNotesRequest,
   GenerateNovelChapterSummariesRequest,
   GenerateNovelChapterSummariesResult,
+  NovelChapterAdaptationSources,
   GenerateNovelStoryBibleRequest,
   ImportNovelRequest,
   NovelChapter,
@@ -125,6 +126,8 @@ type NovelAssetSuggestionSource = {
 
 type AdaptationSourceChapter = SummarySourceChapter &
   Pick<NovelChapter, 'sourceChapterTitle' | 'crossesChapterBoundary'>
+
+type ResolvedChapterAdaptationSources = Required<NovelChapterAdaptationSources>
 
 const AUTO_SPLIT_TARGET_CHARS = 6_000
 const AUTO_SPLIT_WINDOW_CHARS = 800
@@ -742,6 +745,21 @@ export class NovelService {
     if (selectedChapters.length !== new Set(input.chapterIds).size) {
       throw new AppError(400, 'NOVEL_CHAPTER_NOT_FOUND', '选择的章节不存在或不属于当前小说')
     }
+    const sources = resolveChapterAdaptationSources(input, source.storyBible)
+    if (input.sourceOptions?.storyBible && !source.storyBible) {
+      throw new AppError(409, 'NOVEL_STORY_BIBLE_REQUIRED', '请先生成故事概要，或取消勾选“故事概要”依据')
+    }
+    const selectedSummaryChapterIds = new Set(source.summaries.map((summary) => summary.chapterId))
+    const missingSummaryChapters = selectedChapters.filter(
+      (chapter) => !selectedSummaryChapterIds.has(chapter.id),
+    )
+    if (input.sourceOptions?.chapterSummaries && missingSummaryChapters.length > 0) {
+      throw new AppError(
+        409,
+        'NOVEL_CHAPTER_SUMMARIES_REQUIRED',
+        `所选章节中有 ${missingSummaryChapters.length} 章还没有对应章节概要，请先生成对应概要或取消勾选“章节概要”依据`,
+      )
+    }
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
 
     return this.runBillableNovelOperation(
@@ -757,6 +775,7 @@ export class NovelService {
             selectedChapters,
             source.summaries,
             source.storyBible,
+            sources,
             input,
           ),
           maxOutputTokens: NOVEL_CHAPTER_ADAPTATION_MAX_TOKENS,
@@ -771,7 +790,7 @@ export class NovelService {
           targetSeconds: input.targetSeconds,
           mode: input.mode,
           generatedAt: new Date().toISOString(),
-          warnings: chapterAdaptationWarnings(source.summaries, source.storyBible, selectedChapters),
+          warnings: chapterAdaptationWarnings(source.summaries, source.storyBible, selectedChapters, sources),
         }
       },
     )
@@ -1337,6 +1356,24 @@ function selectChaptersForAdaptation<T extends { id: string; order: number }>(
     .sort((left, right) => left.order - right.order)
 }
 
+function resolveChapterAdaptationSources(
+  input: GenerateNovelChapterAdaptationRequest,
+  storyBible: NovelStoryBible | null,
+): ResolvedChapterAdaptationSources {
+  if (!input.sourceOptions) {
+    return {
+      storyBible: Boolean(storyBible),
+      chapterSummaries: true,
+      chapterContent: true,
+    }
+  }
+  return {
+    storyBible: input.sourceOptions.storyBible === true,
+    chapterSummaries: input.sourceOptions.chapterSummaries === true,
+    chapterContent: input.sourceOptions.chapterContent === true,
+  }
+}
+
 function publicDocument(document: NovelDocument & { clientRequestId?: string }): NovelDocument {
   const { clientRequestId: _clientRequestId, ...publicValue } = document
   return publicValue
@@ -1374,6 +1411,7 @@ function chapterAdaptationPrompt(
   chapters: AdaptationSourceChapter[],
   summaries: NovelChapterSummary[],
   storyBible: NovelStoryBible | null,
+  sources: ResolvedChapterAdaptationSources,
   input: GenerateNovelChapterAdaptationRequest,
 ): string {
   const summaryByChapterId = new Map(summaries.map((summary) => [summary.chapterId, summary]))
@@ -1389,12 +1427,24 @@ function chapterAdaptationPrompt(
         `章节标题：${chapter.title}`,
         `所属原章节：${chapter.sourceChapterTitle ?? '未识别'}`,
         `是否跨章节：${chapter.crossesChapterBoundary ? '是' : '否'}`,
-        `章节摘要：${summary?.summary ?? '暂无摘要，请只依据原文摘录改编'}`,
-        `关键人物：${summary ? compactFactList(summary.characters, 6) : '暂无'}`,
-        `关键地点：${summary ? compactFactList(summary.locations, 5) : '暂无'}`,
-        `关键道具：${summary ? compactFactList(summary.keyProps, 5) : '暂无'}`,
-        `改编注意：${summary?.adaptationNotes || '保持原文事实，不提前补完未知剧情'}`,
-        `原文摘录：\n${headExcerpt(chapter.content, excerptLimit)}`,
+        sources.chapterSummaries
+          ? `章节摘要：${summary?.summary ?? '暂无摘要，请只依据其他已启用来源改编'}`
+          : '章节摘要：本次未启用',
+        sources.chapterSummaries
+          ? `关键人物：${summary ? compactFactList(summary.characters, 6) : '暂无'}`
+          : '',
+        sources.chapterSummaries
+          ? `关键地点：${summary ? compactFactList(summary.locations, 5) : '暂无'}`
+          : '',
+        sources.chapterSummaries
+          ? `关键道具：${summary ? compactFactList(summary.keyProps, 5) : '暂无'}`
+          : '',
+        sources.chapterSummaries
+          ? `改编注意：${summary?.adaptationNotes || '保持原文事实，不提前补完未知剧情'}`
+          : '',
+        sources.chapterContent
+          ? `原文摘录：\n${headExcerpt(chapter.content, excerptLimit)}`
+          : '原文摘录：本次未启用',
       ].join('\n')
     })
     .join('\n\n---\n\n')
@@ -1403,7 +1453,8 @@ function chapterAdaptationPrompt(
     `作品名称：${name}`,
     `目标时长：约 ${input.targetSeconds} 秒`,
     `改编模式：${chapterAdaptationModeLabel(input.mode)}`,
-    storyBible
+    `生成依据：${chapterAdaptationSourceLabel(sources)}`,
+    sources.storyBible && storyBible
       ? [
           `故事概要：${headExcerpt(storyBible.synopsis, 900)}`,
           `改编策略：${headExcerpt(storyBible.adaptationStrategy, 700)}`,
@@ -1416,7 +1467,9 @@ function chapterAdaptationPrompt(
             .map((location) => `${location.name}：${location.description}`)
             .join('；')}`,
         ].join('\n')
-      : '故事概要：暂无，请只依据已选章节和章节摘要生成。',
+      : sources.storyBible
+        ? '故事概要：暂无，请只依据已选章节来源生成。'
+        : '故事概要：本次未启用。',
     '',
     '请把所选章节改编成可直接写入“剧本页”的中文 AI 视频改编剧本。',
     '硬性要求：只改编所选章节，不剧透后续；不要输出 Markdown 标题或解释；不要输出 JSON；不要把原文逐字搬运成长段落。',
@@ -1432,6 +1485,16 @@ function chapterAdaptationModeLabel(mode: GenerateNovelChapterAdaptationRequest[
   if (mode === 'opening') return '短视频开场钩子'
   if (mode === 'summary') return '章节概要式改编'
   return '镜头场次式改编'
+}
+
+function chapterAdaptationSourceLabel(sources: ResolvedChapterAdaptationSources): string {
+  return [
+    sources.storyBible ? '故事概要' : '',
+    sources.chapterSummaries ? '对应章节概要' : '',
+    sources.chapterContent ? '对应章节原文' : '',
+  ]
+    .filter(Boolean)
+    .join(' + ')
 }
 
 function boundaryNotesPrompt(name: string, boundaries: NovelBoundary[]): string {
@@ -2022,14 +2085,19 @@ function chapterAdaptationWarnings(
   summaries: NovelChapterSummary[],
   storyBible: NovelStoryBible | null,
   chapters: AdaptationSourceChapter[],
+  sources: ResolvedChapterAdaptationSources,
 ): string[] {
   const warnings: string[] = []
   const summaryChapterIds = new Set(summaries.map((summary) => summary.chapterId))
   const missingSummaryCount = chapters.filter((chapter) => !summaryChapterIds.has(chapter.id)).length
-  if (missingSummaryCount > 0) {
+  if (sources.chapterSummaries && missingSummaryCount > 0) {
     warnings.push(`有 ${missingSummaryCount} 个所选章节尚无摘要，已使用原文摘录直接改编`)
   }
-  if (!storyBible) warnings.push('当前小说还没有故事概要，角色和世界观一致性需要后续复核')
+  if (!sources.chapterSummaries) warnings.push('本次未使用章节概要，剧情因果需要写入后人工复核')
+  if (!sources.chapterContent) warnings.push('本次未使用章节原文，细节对白和动作需要写入后人工复核')
+  if (sources.storyBible && !storyBible)
+    warnings.push('当前小说还没有故事概要，角色和世界观一致性需要后续复核')
+  if (!sources.storyBible) warnings.push('本次未使用故事概要，角色和世界观一致性需要后续复核')
   if (chapters.some((chapter) => chapter.crossesChapterBoundary)) {
     warnings.push('所选章节包含跨章节分块，建议写入剧本后人工检查首尾衔接')
   }
