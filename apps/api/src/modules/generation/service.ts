@@ -50,6 +50,10 @@ export class GenerationService {
     return Promise.resolve(this.repository.listByProject(projectId, principal))
   }
 
+  listRecentTasks(principal: Principal): Promise<GenerationTask[]> {
+    return Promise.resolve(this.repository.listRecent(principal))
+  }
+
   clearCompleted(projectId: string, principal: Principal): Promise<number> {
     return this.repository.clearCompleted(projectId, principal)
   }
@@ -59,6 +63,7 @@ export class GenerationService {
     principal: Principal,
     mode: FilmPreviewMode = 'full',
     force = false,
+    episodeNumber: number | null = null,
   ): Promise<GenerationTask> {
     if (!this.repository.canCreate(projectId, principal)) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成')
@@ -66,7 +71,7 @@ export class GenerationService {
     if (!this.filmPreviewComposer) {
       throw new AppError(503, 'FILM_PREVIEW_UNAVAILABLE', '完整预览合成服务尚未配置')
     }
-    const plan = this.repository.filmPreviewPlan(projectId, principal)
+    const plan = this.repository.filmPreviewPlan(projectId, principal, episodeNumber)
     if (!plan || !plan.shots.length) throw new AppError(400, 'SHOTS_REQUIRED', '项目还没有可合成的分镜')
     const missing = plan.sources.filter((source) => !source.task).map((source) => source.shot.title)
     if (mode === 'full' && missing.length) {
@@ -104,8 +109,8 @@ export class GenerationService {
         kind: 'video',
         label:
           mode === 'partial'
-            ? `${plan.project.name} · 前 ${selectedShots.length} 镜片段预览`
-            : `${plan.project.name} · 完整成片预览`,
+            ? `${plan.project.name} · ${episodeNumber ? `第 ${episodeNumber} 集 · ` : ''}前 ${selectedShots.length} 镜片段预览`
+            : `${plan.project.name} · ${episodeNumber ? `第 ${episodeNumber} 集` : '全部剧集'}成片预览`,
         prompt: '',
         provider: 'local-compose',
         estimatedCredits: 0,
@@ -120,6 +125,9 @@ export class GenerationService {
           totalShotCount: plan.shots.length,
           duration: selectedShots.reduce((total, shot) => total + shot.duration, 0),
           providerState: 'queued',
+          episodeNumber,
+          episodeNumbers: [...new Set(selectedShots.map((shot) => shot.episodeNumber))],
+          projectVersion: plan.project.version,
         },
       },
       principal,

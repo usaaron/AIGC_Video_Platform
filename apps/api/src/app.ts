@@ -17,6 +17,7 @@ import type { VideoGenerationProvider } from './core/generation/videoProvider.js
 import { FilmPreviewComposer, type FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
 import { GenerationTaskRunner, type TaskDispatcher } from './core/jobs/taskDispatcher.js'
 import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
+import { createScriptTaskHandler } from './core/jobs/scriptTaskHandler.js'
 import { AppStore } from './infra/store.js'
 import { createObjectStorage } from './infra/objectStorage.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
@@ -100,7 +101,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   const users = new UserRepository(store)
   const authService = new AuthService(users, options.config.AUTH_SECRET)
-  const creditLedger = new StoreCreditLedger(store, options.config.NODE_ENV !== 'production')
+  const creditLedger = new StoreCreditLedger(
+    store,
+    options.config.NODE_ENV !== 'production',
+    options.config.DEMO_UNLIMITED_GENERATION_CONCURRENCY,
+  )
   const objectStorage = createObjectStorage(options.config)
   const videoProvider =
     options.videoProvider === undefined ? createVideoProvider(options.config) : options.videoProvider
@@ -124,6 +129,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         )
       : (options.filmPreviewComposer ?? null)
   await filmPreviewComposer?.recoverInterrupted()
+  const projectService = new ProjectService(new ProjectRepository(store), textProvider, creditLedger)
   let generationService: GenerationService | null = null
   const taskDispatcher =
     options.taskDispatcher ??
@@ -133,7 +139,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       imageProvider,
       objectStorage,
       providerPollIntervalMs: options.config.VIDEO_POLL_INTERVAL_MS,
+      demoUnlimitedConcurrency: options.config.DEMO_UNLIMITED_GENERATION_CONCURRENCY,
       onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
+      textTaskHandler: createScriptTaskHandler(store, projectService),
     })
   generationService = new GenerationService(
     new GenerationTaskRepository(store),
@@ -143,7 +151,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     objectStorage,
     filmPreviewComposer,
   )
-  const projectService = new ProjectService(new ProjectRepository(store), textProvider, creditLedger)
   const novelService = new NovelService(new NovelRepository(store), textProvider, creditLedger)
   const quickStartService = new QuickStartService(store, textProvider, taskDispatcher, Boolean(imageProvider))
   const mediaService = new MediaService(new MediaRepository(store), objectStorage)

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Check, LoaderCircle, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
@@ -20,10 +20,13 @@ import {
   normalizedVideoDuration,
   VIDEO_PROMPT_VERSION,
 } from '@seqora/prompting'
+import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
 const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const videoResolutions = new Set(['480p', '720p', '1080p', '4k'])
 const activeTaskStatuses = new Set(['queued', 'paused', 'running'])
+const terminalTaskStatuses = new Set(['completed', 'failed'])
+const TASK_STATUS_CACHE_KEY = 'seqora:task-status-cache'
 const ACTIVE_TASK_POLL_MS = 2_500
 const IDLE_TASK_POLL_MS = 12_000
 const BACKGROUND_TASK_POLL_MS = 30_000
@@ -34,13 +37,14 @@ const BillingPage = lazyNamed(() => import('./pages/BillingPage'), 'BillingPage'
 const FilmPage = lazyNamed(() => import('./pages/FilmPage'), 'FilmPage')
 const GenerationPage = lazyNamed(() => import('./pages/GenerationPage'), 'GenerationPage')
 const OverviewPage = lazyNamed(() => import('./pages/OverviewPage'), 'OverviewPage')
+const ProjectHomePage = lazyNamed(() => import('./pages/ProjectHomePage'), 'ProjectHomePage')
 const ScriptPage = lazyNamed(() => import('./pages/ScriptPage'), 'ScriptPage')
 const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage')
 const StoryboardPage = lazyNamed(() => import('./pages/StoryboardPage'), 'StoryboardPage')
 
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
-  const [activeStep, setActiveStep] = useState('overview')
+  const [activeStep, setActiveStep] = useState('home')
   const [projects, setProjects] = useState([])
   const [workspace, setWorkspace] = useState(null)
   const [tasks, setTasks] = useState([])
@@ -51,6 +55,12 @@ function App() {
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const [toast, setToast] = useState('')
   const [currentShot, setCurrentShot] = useState(0)
+  const [recentTasks, setRecentTasks] = useState([])
+  const [recentTasksLoaded, setRecentTasksLoaded] = useState(false)
+  const [notifications, setNotifications] = useState([])
+  const [notificationPopups, setNotificationPopups] = useState([])
+  const taskStatusesRef = useRef(readTaskStatusCache())
+  const notificationHistoryReadyRef = useRef(false)
 
   const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
 
@@ -81,15 +91,20 @@ function App() {
       requestInFlight = true
       let nextDelay = IDLE_TASK_POLL_MS
       try {
-        const [nextTasks, nextWorkspace, nextBilling] = await Promise.all([
+        const [nextTasks, nextWorkspace, nextBilling, nextProjects, nextRecentTasks] = await Promise.all([
           api.tasks(workspace.project.id),
           api.project(workspace.project.id),
           api.billing(),
+          api.projects(),
+          api.recentTasks(),
         ])
         if (cancelled) return
         setTasks(nextTasks)
         setWorkspace(nextWorkspace)
         setBilling(nextBilling)
+        setProjects(nextProjects)
+        setRecentTasks(nextRecentTasks)
+        setRecentTasksLoaded(true)
         nextDelay = nextTasks.some((task) => activeTaskStatuses.has(task.status))
           ? ACTIVE_TASK_POLL_MS
           : IDLE_TASK_POLL_MS
@@ -113,6 +128,64 @@ function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [workspace?.project.id])
+
+  useEffect(() => {
+    if (!recentTasksLoaded) return
+    if (!recentTasks.length) {
+      taskStatusesRef.current = {}
+      window.localStorage.setItem(TASK_STATUS_CACHE_KEY, '{}')
+      setNotifications([])
+      notificationHistoryReadyRef.current = true
+      return
+    }
+    const previousStatuses = taskStatusesRef.current
+    const nextStatuses = {}
+    const recentIds = new Set(recentTasks.map((task) => task.id))
+    const now = Date.now()
+    const newlyFinished = []
+
+    for (const task of recentTasks) {
+      nextStatuses[task.id] = task.status
+      const previousStatus = previousStatuses[task.id]
+      const changedFromActive =
+        activeTaskStatuses.has(previousStatus) && terminalTaskStatuses.has(task.status)
+      const justCompletedUnseen =
+        notificationHistoryReadyRef.current &&
+        !previousStatus &&
+        terminalTaskStatuses.has(task.status) &&
+        now - Date.parse(task.updatedAt) < 60_000
+      if (changedFromActive || justCompletedUnseen) newlyFinished.push(task)
+    }
+
+    taskStatusesRef.current = nextStatuses
+    window.localStorage.setItem(TASK_STATUS_CACHE_KEY, JSON.stringify(nextStatuses))
+    setNotifications((current) => {
+      const byId = new Map(current.filter((item) => recentIds.has(item.id)).map((item) => [item.id, item]))
+      for (const task of recentTasks.filter((item) => terminalTaskStatuses.has(item.status)).slice(0, 30)) {
+        const existing = byId.get(task.id)
+        const isNew = newlyFinished.some((item) => item.id === task.id)
+        byId.set(task.id, createNotification(task, projects, isNew ? false : (existing?.read ?? true)))
+      }
+      return [...byId.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    })
+    if (newlyFinished.length) {
+      const popups = newlyFinished.map((task) => ({
+        ...createNotification(task, projects, false),
+        expiresAt: now + 15_000,
+      }))
+      setNotificationPopups((current) => [...popups, ...current].slice(0, 4))
+    }
+    notificationHistoryReadyRef.current = true
+  }, [projects, recentTasks, recentTasksLoaded])
+
+  useEffect(() => {
+    if (!notificationPopups.length) return undefined
+    const timer = window.setInterval(() => {
+      const now = Date.now()
+      setNotificationPopups((current) => current.filter((item) => item.expiresAt > now))
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [notificationPopups.length])
 
   useEffect(() => {
     if (!toast) return undefined
@@ -182,9 +255,67 @@ function App() {
     }
   }
 
+  const createScriptJob = async (label, operation, input) => {
+    if (!project) return null
+    try {
+      const task = await api.createTask({
+        clientRequestId: crypto.randomUUID(),
+        projectId: project.id,
+        kind: 'text',
+        label,
+        provider: 'text',
+        model: input.model,
+        estimatedCredits:
+          operation === 'enrich' ? SCRIPT_OPERATION_CREDITS.enrich : SCRIPT_OPERATION_CREDITS.generate,
+        metadata: {
+          generationStage: operation === 'enrich' ? 'script-enrich' : 'script-generate',
+          scriptOperation: operation,
+          billingMode: 'prepaid',
+          ...input,
+        },
+      })
+      setTasks(await api.tasks(project.id))
+      setToast(`${label}已提交后台生成`)
+      return task
+    } catch (error) {
+      setToast(error.message)
+      throw error
+    }
+  }
+
   const navigateTo = (id) => {
     setActiveStep(id)
     setMobileNav(false)
+    if (id === 'home') {
+      void api
+        .projects()
+        .then(setProjects)
+        .catch((error) => setToast(error.message))
+    }
+  }
+
+  const markNotificationRead = (notificationId) => {
+    setNotifications((current) =>
+      current.map((item) => (item.id === notificationId ? { ...item, read: true } : item)),
+    )
+  }
+
+  const openNotification = async (notification) => {
+    markNotificationRead(notification.id)
+    await refreshWorkspace(notification.projectId)
+    setTasks(await api.tasks(notification.projectId))
+    navigateTo(notification.target)
+  }
+
+  const retryNotification = async (notification) => {
+    try {
+      const created = await api.createTask(retryTaskInput(notification.task))
+      markNotificationRead(notification.id)
+      if (project?.id === created.projectId) setTasks(await api.tasks(created.projectId))
+      setToast(`${created.label}已重新提交`)
+    } catch (error) {
+      setToast(error.message)
+    }
   }
 
   const createProject = async (input) => {
@@ -211,6 +342,20 @@ function App() {
 
   const createStoryboardImage = (shot) => {
     const references = selectShotAssetReferences(workspace.assets, shot)
+    const generationReferences = [
+      ...(shot.imageUrl
+        ? [
+            {
+              id: `shot-reference-${shot.id}`,
+              url: shot.imageUrl,
+              name: `${shot.title}-reference.png`,
+              assetName: '镜头参考图',
+              assetKind: 'shot-reference',
+            },
+          ]
+        : []),
+      ...references,
+    ].slice(0, 4)
     const referencePrompt = references.length
       ? `参考项目资产：${references.map((reference) => reference.assetName).join('、')}，严格保持人物身份、服装、场景和关键物品一致`
       : ''
@@ -229,7 +374,7 @@ function App() {
         shotId: shot.id,
         generationStage: 'storyboard',
         aspectRatio: project.aspectRatio,
-        references,
+        references: generationReferences,
         referenceAssetIds: references.map((reference) => reference.id),
       },
     })
@@ -280,12 +425,10 @@ function App() {
     const manualImageUrl =
       shot.imageUrl && !shot.imageUrl.startsWith('/api/v1/generation/tasks/') ? shot.imageUrl : null
     const currentImageTask = taskUsesAssetReferences(existingImageTask, references) ? existingImageTask : null
-    const imageTask = currentImageTask
+    const completedImageTask = currentImageTask?.status === 'completed' ? currentImageTask : null
     const completedImageUrl =
-      manualImageUrl ||
-      (currentImageTask?.status === 'completed' ? currentImageTask.resultUrl || shot.imageUrl : null)
-    const storyboardImageUrl =
-      completedImageUrl || (imageTask ? `/api/v1/generation/tasks/${imageTask.id}/outputs/single` : null)
+      manualImageUrl || (completedImageTask ? completedImageTask.resultUrl || shot.imageUrl : null)
+    const storyboardImageUrl = completedImageUrl
     const images = selectVideoReferenceImages(storyboardImageUrl, references)
     const selectedResolution = videoResolutions.has(resolution) ? resolution : '720p'
     const videoPrompt = compileStoryboardVideoPrompt({
@@ -296,10 +439,9 @@ function App() {
       references,
       continuityMode,
     })
-    const dependencyIds = [
-      imageTask && imageTask.status !== 'completed' ? imageTask.id : null,
-      sourceTask && sourceTask.status !== 'completed' ? sourceTask.id : null,
-    ].filter(Boolean)
+    const dependencyIds = [sourceTask && sourceTask.status !== 'completed' ? sourceTask.id : null].filter(
+      Boolean,
+    )
     return createJob(`镜头 ${String(shot.order).padStart(2, '0')} · ${shot.title}`, '视频', 18, {
       prompt: videoPrompt,
       negativePrompt: shot.negativePrompt,
@@ -342,6 +484,36 @@ function App() {
   }
 
   const renderContent = () => {
+    if (activeStep === 'home') {
+      return (
+        <ProjectHomePage
+          projects={projects}
+          onCreate={() => setNewProjectOpen(true)}
+          onOpen={async (projectId) => {
+            await refreshWorkspace(projectId)
+            setTasks(await api.tasks(projectId))
+            navigateTo('overview')
+          }}
+          onRename={async (projectId, name) => {
+            await api.updateProject(projectId, { name })
+            if (project?.id === projectId) await refreshWorkspace(projectId)
+            else setProjects(await api.projects())
+            setToast('项目名称已更新')
+          }}
+          onDelete={async (projectId) => {
+            await api.deleteProject(projectId)
+            const nextProjects = await api.projects()
+            setProjects(nextProjects)
+            if (project?.id === projectId) {
+              const nextWorkspace = nextProjects[0] ? await api.project(nextProjects[0].id) : null
+              setWorkspace(nextWorkspace)
+              setTasks(nextProjects[0] ? await api.tasks(nextProjects[0].id) : [])
+            }
+            setToast('项目已删除并归档')
+          }}
+        />
+      )
+    }
     if (!project) {
       return (
         <div className="page empty-workspace">
@@ -375,17 +547,67 @@ function App() {
         <ScriptPage
           project={project}
           billing={billing}
+          tasks={tasks}
           onSave={async (script) => {
             await api.updateProject(project.id, { script })
             await refreshWorkspace()
             setToast('剧本已保存')
           }}
-          onReview={async (script, direction) => {
-            try {
-              return await api.reviewScript(project.id, script, direction)
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
+          onGenerate={async (
+            draft,
+            direction,
+            productionMode,
+            episodeMinutes,
+            model,
+            revisionNote,
+            setPhase,
+          ) => {
+            setPhase?.('submitting')
+            return createScriptJob(productionMode === 'web-series' ? '网剧剧本' : '快速剧本', 'generate', {
+              draft,
+              direction,
+              mode: 'quick',
+              productionMode,
+              episodeMinutes,
+              model,
+              revisionNote,
+            })
+          }}
+          onGenerateSegment={async (
+            draft,
+            direction,
+            segment,
+            productionMode,
+            episodeMinutes,
+            model,
+            revisionNote,
+            setPhase,
+          ) => {
+            setPhase?.('submitting')
+            return createScriptJob(
+              productionMode === 'web-series' ? '续写下一集' : '续写下一段',
+              'generate',
+              {
+                draft,
+                direction,
+                mode: 'segment',
+                segment,
+                productionMode,
+                episodeMinutes,
+                model,
+                revisionNote,
+              },
+            )
+          }}
+          onEnrich={async (script, direction, productionMode, episodeMinutes, model, revisionNote) => {
+            return createScriptJob('按场次补齐制作字段', 'enrich', {
+              script,
+              direction,
+              productionMode,
+              episodeMinutes,
+              model,
+              revisionNote,
+            })
           }}
           onImportNovel={async (input) => {
             const result = await api.importNovel(project.id, input)
@@ -456,7 +678,11 @@ function App() {
             setToast(`已创建 ${result.createdAssets.length} 项尝鲜资产`)
             return result
           }}
-          onUpgrade={() => navigateTo('billing')}
+          onCancelTask={async (taskId) => {
+            await api.deleteTask(taskId)
+            setTasks(await api.tasks(project.id))
+            setToast('已停止剧本生成，可以切换模型后重试')
+          }}
           onNext={() => navigateTo('assets')}
         />
       ),
@@ -578,13 +804,20 @@ function App() {
           assets={workspace.assets}
           tasks={tasks}
           concurrency={billing.concurrency}
-          onRegenerate={async (mode = 'scene') => {
+          unlimitedConcurrency={billing.unlimitedConcurrency}
+          onRegenerate={async (mode = 'scene', episodeDurationSeconds = 60) => {
             await api.generateShots(project.id, {
-              maxShots: mode === 'beat' ? 36 : 8,
+              maxShots: 48,
               mode,
+              episodeDurationSeconds,
             })
             await refreshWorkspace()
             setToast(mode === 'beat' ? '已按动作节拍细拆分镜' : '已按场次重新拆分分镜')
+          }}
+          onAutoSplitEpisodes={async (episodeDurationSeconds) => {
+            await api.autoSplitShotEpisodes(project.id, { episodeDurationSeconds })
+            await refreshWorkspace()
+            setToast(`已按每集约 ${episodeDurationSeconds} 秒完成分集`)
           }}
           onCreate={async (input) => {
             await api.createShot(project.id, input)
@@ -595,6 +828,7 @@ function App() {
             await refreshWorkspace()
             setToast('分镜已更新')
           }}
+          onUpload={(file) => api.uploadMedia(project.id, file)}
           onGenerateImage={createStoryboardImage}
           onGenerateVideo={createStoryboardVideo}
           onGenerateAllVideos={async (shotsToGenerate, resolution, mode = 'parallel') => {
@@ -659,8 +893,10 @@ function App() {
               const laneCount = Math.min(plan.immediateLaneCount, created)
               setToast(
                 mode === 'parallel'
-                  ? `已创建 ${created} 个视频任务，${laneCount} 路并发执行`
-                  : `已按原衔接关系创建 ${created} 个视频任务`,
+                  ? `已创建 ${created} 个视频任务，${laneCount} 路安全并发执行`
+                  : mode === 'independent'
+                    ? `已创建 ${created} 个独立视频任务，全部并发提交`
+                    : `已按尾帧承接关系创建 ${created} 个视频任务`,
               )
             }
           }}
@@ -722,9 +958,9 @@ function App() {
             setToast(`版本 v${saved.version} 已保存`)
           }}
           onEdit={() => navigateTo('storyboard')}
-          onComposePreview={async (mode = 'full') => {
+          onComposePreview={async (mode = 'full', episodeNumber = null) => {
             try {
-              const task = await api.createFilmPreview(project.id, mode)
+              const task = await api.createFilmPreview(project.id, mode, false, episodeNumber)
               setTasks(await api.tasks(project.id))
               const target = mode === 'partial' ? '已完成片段' : '完整预览'
               setToast(task.status === 'completed' ? `${target}已是最新版本` : `${target}正在后台合成`)
@@ -766,10 +1002,14 @@ function App() {
   return (
     <div className="app-shell">
       <AppHeader
-        projectName={project?.name || '选择项目'}
+        projectName={activeStep === 'home' ? '项目库' : project?.name || '选择项目'}
         billing={billing}
         account={session.account}
         runningJobs={runningJobs}
+        notifications={notifications}
+        onNotificationOpen={openNotification}
+        onNotificationRetry={retryNotification}
+        onNotificationRead={markNotificationRead}
         onOpenNav={() => setMobileNav(true)}
         onProjectClick={() => setProjectMenuOpen(true)}
         onCreditsClick={() => navigateTo('billing')}
@@ -808,6 +1048,25 @@ function App() {
             setNewProjectOpen(true)
           }}
         />
+      )}
+      {notificationPopups.length > 0 && (
+        <div className="notification-toast-stack" aria-live="polite">
+          {notificationPopups.map((notification) => (
+            <button
+              key={notification.id}
+              className={`notification-toast ${notification.status}`}
+              onClick={() => void openNotification(notification)}
+            >
+              <span className="notification-status-dot" />
+              <span>
+                <strong>{notification.title}</strong>
+                <small>
+                  {notification.projectName} · {notification.label}
+                </small>
+              </span>
+            </button>
+          ))}
+        </div>
       )}
       {toast && (
         <div className="toast">
@@ -902,6 +1161,61 @@ function exportProject(workspace, tasks) {
   anchor.download = `${workspace.project.name}-项目包.json`
   anchor.click()
   URL.revokeObjectURL(url)
+}
+
+function readTaskStatusCache() {
+  try {
+    return JSON.parse(window.localStorage.getItem(TASK_STATUS_CACHE_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function createNotification(task, projects, read) {
+  const projectName = projects.find((item) => item.id === task.projectId)?.name || '项目'
+  const status = task.status === 'failed' ? 'failed' : 'completed'
+  return {
+    id: task.id,
+    task,
+    projectId: task.projectId,
+    projectName,
+    label: task.label,
+    status,
+    title: status === 'failed' ? '生成失败' : '生成完成',
+    message: status === 'failed' ? task.error || '任务执行失败，请查看详情后重试。' : '生成结果已经保存。',
+    target: task.kind === 'text' ? 'script' : 'generate',
+    updatedAt: task.updatedAt,
+    read,
+  }
+}
+
+function retryTaskInput(task) {
+  const {
+    providerName: _providerName,
+    providerState: _providerState,
+    providerTaskId: _providerTaskId,
+    providerPolledAt: _providerPolledAt,
+    providerPollErrors: _providerPollErrors,
+    generatedOutputs: _generatedOutputs,
+    queueHiddenAt: _queueHiddenAt,
+    completedAt: _completedAt,
+    failedAt: _failedAt,
+    textResult: _textResult,
+    ...metadata
+  } = task.metadata || {}
+  return {
+    clientRequestId: crypto.randomUUID(),
+    projectId: task.projectId,
+    kind: task.kind,
+    label: task.label,
+    prompt: task.prompt,
+    negativePrompt: task.negativePrompt,
+    provider: task.provider,
+    model: task.model || undefined,
+    estimatedCredits: task.estimatedCredits,
+    maxAttempts: task.maxAttempts,
+    metadata,
+  }
 }
 
 export default App

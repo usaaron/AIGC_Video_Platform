@@ -3,6 +3,7 @@ import {
   Download,
   ExternalLink,
   Film,
+  History,
   LoaderCircle,
   RefreshCw,
   Save,
@@ -10,7 +11,7 @@ import {
   Video,
   Zap,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PageHeader } from '../components/ui'
 import {
   completedShotVideoTask,
@@ -38,28 +39,42 @@ export function FilmPage({
   const [composeSubmitting, setComposeSubmitting] = useState(null)
   const [loadedVideoUrl, setLoadedVideoUrl] = useState(null)
   const [failedVideoUrl, setFailedVideoUrl] = useState(null)
-  const safeIndex = Math.min(currentShot, Math.max(0, shots.length - 1))
-  const shot = shots[safeIndex]
-  const totalDuration = shots.reduce((sum, item) => sum + normalizedVideoDuration(item.duration), 0)
+  const episodeNumbers = [...new Set(shots.map((item) => item.episodeNumber || 1))].sort(
+    (left, right) => left - right,
+  )
+  const [selectedEpisode, setSelectedEpisode] = useState(() => String(episodeNumbers[0] || 'all'))
+  const [selectedPreviewTaskId, setSelectedPreviewTaskId] = useState('current')
+  const episodeNumber = selectedEpisode === 'all' ? null : Number(selectedEpisode)
+  const scopedShots = episodeNumber
+    ? shots.filter((item) => (item.episodeNumber || 1) === episodeNumber)
+    : shots
+  const selectedGlobalShot = shots[currentShot]
+  const scopedCurrentIndex = scopedShots.findIndex((item) => item.id === selectedGlobalShot?.id)
+  const safeIndex = scopedCurrentIndex >= 0 ? scopedCurrentIndex : 0
+  const shot = scopedShots[safeIndex]
+  const totalDuration = scopedShots.reduce((sum, item) => sum + normalizedVideoDuration(item.duration), 0)
   const videoTask = videoTaskFor(tasks, shot?.id)
   const videoUrl = videoUrlFor(videoTask)
   const videoState = stateFor(videoTask)
   const ratioMode = projectRatioMode(project.aspectRatio)
-  const completedSources = shots.map((item) => completedShotVideoTask(tasks, item.id))
+  const completedSources = scopedShots.map((item) => completedShotVideoTask(tasks, item.id))
   const readyShotCount = completedSources.filter(Boolean).length
-  const partialSourceTaskIds = contiguousSourceVideoTaskIds(tasks, shots)
-  const partialDuration = shots
+  const partialSourceTaskIds = contiguousSourceVideoTaskIds(tasks, scopedShots)
+  const partialDuration = scopedShots
     .slice(0, partialSourceTaskIds.length)
     .reduce((sum, item) => sum + normalizedVideoDuration(item.duration), 0)
-  const sourceTaskIds = sourceVideoTaskIds(tasks, shots)
-  const allShotsReady = shots.length > 0 && sourceTaskIds.length === shots.length
-  const fullPreviewTask = filmPreviewTaskFor(tasks, sourceTaskIds, 'full')
+  const sourceTaskIds = sourceVideoTaskIds(tasks, scopedShots)
+  const allShotsReady = scopedShots.length > 0 && sourceTaskIds.length === scopedShots.length
+  const scopedPreviewTasks = tasks.filter(
+    (task) => task.metadata?.generationStage === 'film-preview' && previewMatchesEpisode(task, episodeNumber),
+  )
+  const fullPreviewTask = filmPreviewTaskFor(scopedPreviewTasks, sourceTaskIds, 'full')
   const fullPreviewIsCurrent = isCurrentFilmPreview(fullPreviewTask, sourceTaskIds, 'full')
-  const partialPreviewTask = filmPreviewTaskFor(tasks, partialSourceTaskIds, 'partial')
+  const partialPreviewTask = filmPreviewTaskFor(scopedPreviewTasks, partialSourceTaskIds, 'partial')
   const partialPreviewIsCurrent = isCurrentFilmPreview(partialPreviewTask, partialSourceTaskIds, 'partial')
-  const retainedFullPreviewTask = latestCompletedFilmPreviewTask(tasks, 'full')
-  const retainedPartialPreviewTask = latestCompletedFilmPreviewTask(tasks, 'partial')
-  const previewMode = fullPreviewIsCurrent
+  const retainedFullPreviewTask = latestCompletedFilmPreviewTask(scopedPreviewTasks, 'full')
+  const retainedPartialPreviewTask = latestCompletedFilmPreviewTask(scopedPreviewTasks, 'partial')
+  const currentPreviewMode = fullPreviewIsCurrent
     ? 'full'
     : partialPreviewIsCurrent
       ? 'partial'
@@ -68,14 +83,26 @@ export function FilmPage({
         : retainedPartialPreviewTask
           ? 'partial'
           : 'full'
-  const previewTask = fullPreviewIsCurrent
+  const currentPreviewTask = fullPreviewIsCurrent
     ? fullPreviewTask
     : partialPreviewIsCurrent
       ? partialPreviewTask
-      : previewMode === 'full'
+      : currentPreviewMode === 'full'
         ? retainedFullPreviewTask || fullPreviewTask
         : retainedPartialPreviewTask || partialPreviewTask
-  const previewIsCurrent = previewMode === 'full' ? fullPreviewIsCurrent : partialPreviewIsCurrent
+  const selectedHistoryTask = scopedPreviewTasks.find((task) => task.id === selectedPreviewTaskId)
+  const previewMode =
+    selectedHistoryTask?.metadata?.previewMode === 'partial' ? 'partial' : currentPreviewMode
+  const previewTask = selectedHistoryTask || currentPreviewTask
+  const previewIsCurrent = selectedHistoryTask
+    ? isCurrentFilmPreview(
+        selectedHistoryTask,
+        selectedHistoryTask.metadata?.previewMode === 'partial' ? partialSourceTaskIds : sourceTaskIds,
+        selectedHistoryTask.metadata?.previewMode === 'partial' ? 'partial' : 'full',
+      )
+    : currentPreviewMode === 'full'
+      ? fullPreviewIsCurrent
+      : partialPreviewIsCurrent
   const previewUrl = videoUrlFor(previewTask)
   const retainedPreviewVisible = Boolean(previewUrl && !previewIsCurrent)
   const previewShotCount = retainedPreviewVisible
@@ -92,7 +119,7 @@ export function FilmPage({
     previewTask,
     previewIsCurrent,
     readyShotCount,
-    shots.length,
+    scopedShots.length,
     previewMode,
     partialSourceTaskIds.length,
   )
@@ -113,12 +140,24 @@ export function FilmPage({
       : previewMode === 'partial'
         ? `前${partialSourceTaskIds.length}镜片段`
         : '完整成片'
-  }.mp4`
+  }-${episodeNumber ? `第${episodeNumber}集` : '全部剧集'}-v${numericMetadata(previewTask, 'projectVersion', project.version)}.mp4`
+
+  useEffect(() => {
+    setSelectedPreviewTaskId('current')
+  }, [project.id, selectedEpisode])
+
+  const selectEpisode = (value) => {
+    setSelectedEpisode(value)
+    setViewMode('full')
+    const nextEpisode = value === 'all' ? null : Number(value)
+    const firstShot = nextEpisode ? shots.find((item) => (item.episodeNumber || 1) === nextEpisode) : shots[0]
+    if (firstShot) setCurrentShot(shots.findIndex((item) => item.id === firstShot.id))
+  }
 
   const composePreview = async (mode) => {
     setComposeSubmitting(mode)
     try {
-      await onComposePreview(mode)
+      await onComposePreview(mode, episodeNumber)
       setViewMode('full')
     } finally {
       setComposeSubmitting(null)
@@ -126,10 +165,10 @@ export function FilmPage({
   }
 
   const playNextCompletedVideo = () => {
-    const nextIndex = shots.findIndex(
+    const nextIndex = scopedShots.findIndex(
       (item, index) => index > safeIndex && Boolean(videoUrlFor(videoTaskFor(tasks, item.id))),
     )
-    if (nextIndex >= 0) setCurrentShot(nextIndex)
+    if (nextIndex >= 0) setCurrentShot(shots.findIndex((item) => item.id === scopedShots[nextIndex].id))
   }
 
   if (!shot)
@@ -148,19 +187,55 @@ export function FilmPage({
       <PageHeader
         eyebrow={`第 5 步 · 成片 · v${project.version}`}
         title={`《${project.name}》预览`}
-        description="检查镜头顺序与节奏，保存版本后可以继续修改。"
+        description="先选择剧集范围，再检查、合成并保存当前工作版；历史合成结果可随时回看。"
       >
         <span className="inherited-ratio">
           成片比例 <strong>{project.aspectRatio}</strong>
         </span>
         <button className="button secondary" onClick={onSave}>
-          <Save size={16} /> 保存版本
+          <Save size={16} /> 保存当前工作版
         </button>
         <button className="button primary" onClick={onExport}>
           <Download size={16} /> 导出项目数据
         </button>
       </PageHeader>
       <div className="film-preview-toolbar">
+        <div className="film-scope-controls">
+          <label>
+            <span>成片范围</span>
+            <select value={selectedEpisode} onChange={(event) => selectEpisode(event.target.value)}>
+              {episodeNumbers.map((number) => (
+                <option key={number} value={number}>
+                  第 {number} 集
+                </option>
+              ))}
+              {episodeNumbers.length > 1 && <option value="all">全部剧集</option>}
+            </select>
+          </label>
+          <label>
+            <span>
+              <History size={13} /> 观看版本
+            </span>
+            <select
+              value={selectedPreviewTaskId}
+              onChange={(event) => {
+                setSelectedPreviewTaskId(event.target.value)
+                setViewMode('full')
+              }}
+            >
+              <option value="current">当前工作版 · v{project.version}</option>
+              {scopedPreviewTasks
+                .filter((task) => task.status === 'completed' && task.metadata?.previewMode !== 'partial')
+                .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+                .map((task) => (
+                  <option key={task.id} value={task.id}>
+                    已合成 v{numericMetadata(task, 'projectVersion', 1)} ·{' '}
+                    {formatFilmTaskTime(task.updatedAt)}
+                  </option>
+                ))}
+            </select>
+          </label>
+        </div>
         <div className="film-view-switch" role="group" aria-label="成片观看模式">
           <button
             type="button"
@@ -196,7 +271,7 @@ export function FilmPage({
                   : previewMode === 'partial'
                     ? `前 ${partialSourceTaskIds.length} 镜连续预览已就绪`
                     : '完整成片已就绪'
-                : `视频生成进度 ${readyShotCount}/${shots.length}`}
+                : `视频生成进度 ${readyShotCount}/${scopedShots.length}`}
           </span>
           {previewUrl && (
             <>
@@ -240,7 +315,9 @@ export function FilmPage({
                 ) : (
                   <Film size={15} />
                 )}
-                {allShotsReady ? '合成完整成片' : `完整成片待完成 ${readyShotCount}/${shots.length}`}
+                {allShotsReady
+                  ? '合成当前范围成片'
+                  : `当前范围待完成 ${readyShotCount}/${scopedShots.length}`}
               </button>
             </>
           )}
@@ -333,8 +410,8 @@ export function FilmPage({
                   ? retainedPreviewVisible
                     ? `${previewShotCount}（上一版）`
                     : previewMode === 'partial'
-                      ? `${partialSourceTaskIds.length}/${shots.length}`
-                      : `${readyShotCount}/${shots.length}`
+                      ? `${partialSourceTaskIds.length}/${scopedShots.length}`
+                      : `${readyShotCount}/${scopedShots.length}`
                   : shot.framing}
               </dd>
             </div>
@@ -363,7 +440,9 @@ export function FilmPage({
         <div className="panel-head">
           <div>
             <h2>时间线</h2>
-            <span>第一集 · {totalDuration} 秒</span>
+            <span>
+              {episodeNumber ? `第 ${episodeNumber} 集` : '全部剧集'} · {totalDuration} 秒
+            </span>
           </div>
         </div>
         <div className="timeline-ruler">
@@ -373,13 +452,13 @@ export function FilmPage({
           <span>00:{totalDuration}</span>
         </div>
         <div className="timeline-track">
-          {shots.map((item, index) => (
+          {scopedShots.map((item, index) => (
             <button
               key={item.id}
               className={viewMode === 'shot' && safeIndex === index ? 'active' : ''}
               style={{ flex: normalizedVideoDuration(item.duration) }}
               onClick={() => {
-                setCurrentShot(index)
+                setCurrentShot(shots.findIndex((shotItem) => shotItem.id === item.id))
                 setViewMode('shot')
               }}
             >
@@ -506,4 +585,21 @@ function safeFileName(value) {
 function numericMetadata(task, key, fallback) {
   const value = task?.metadata?.[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function previewMatchesEpisode(task, episodeNumber) {
+  const taskEpisode = task.metadata?.episodeNumber
+  if (episodeNumber === null) return taskEpisode === null || taskEpisode === undefined
+  return taskEpisode === episodeNumber
+}
+
+function formatFilmTaskTime(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '历史版本'
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }

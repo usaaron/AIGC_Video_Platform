@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  autoSplitShotsRequestSchema,
   createAssetSchema,
   createShotSchema,
   enrichScriptRequestSchema,
@@ -7,6 +8,7 @@ import {
   generateScriptRequestSchema,
   generateShotsRequestSchema,
   scriptAssetSuggestionsResultSchema,
+  reviewScriptRequestSchema,
   scriptReviewResultSchema,
   updateAssetSchema,
   updateShotSchema,
@@ -74,7 +76,14 @@ describe('asset contracts', () => {
 
 describe('shot contracts', () => {
   it('stores a bounded continuity context and defaults it for older clients', () => {
-    expect(createShotSchema.parse({ title: 'Shot 01' }).continuityNote).toBe('')
+    expect(createShotSchema.parse({ title: 'Shot 01' })).toMatchObject({
+      continuityMode: 'continue',
+      continuityNote: '',
+      episodeBreakBefore: false,
+      episodeNumber: 1,
+      episodeTitle: '主故事',
+      episodeKind: 'standard',
+    })
     expect(updateShotSchema.parse({ continuityNote: 'previous action continues' })).toEqual({
       continuityNote: 'previous action continues',
     })
@@ -92,6 +101,10 @@ describe('script workflow contracts', () => {
       draft: 'story draft',
       mode: 'quick',
       segment: { goal: '', targetMinutes: 5 },
+      productionMode: 'short-video',
+      episodeMinutes: 1,
+      model: 'seqora-5.6',
+      revisionNote: '',
       direction: {
         style: 'auto',
         composition: 'auto',
@@ -113,7 +126,29 @@ describe('script workflow contracts', () => {
       camera: 'auto',
       focus: 'balanced',
     })
-    expect(generateShotsRequestSchema.parse({})).toMatchObject({ maxShots: 8, mode: 'scene' })
+    expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
+      model: 'seqora-5.6',
+      revisionNote: '',
+    })
+    expect(reviewScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
+      model: 'seqora-5.6',
+    })
+    expect(generateShotsRequestSchema.parse({})).toMatchObject({
+      maxShots: 8,
+      mode: 'scene',
+      episodeDurationSeconds: 60,
+    })
+    expect(autoSplitShotsRequestSchema.parse({})).toEqual({ episodeDurationSeconds: 60 })
+    expect(autoSplitShotsRequestSchema.parse({ episodeDurationSeconds: 300 })).toEqual({
+      episodeDurationSeconds: 300,
+    })
+    expect(
+      generateScriptRequestSchema.parse({
+        draft: 'web series',
+        productionMode: 'web-series',
+        episodeMinutes: 5,
+      }),
+    ).toMatchObject({ productionMode: 'web-series', episodeMinutes: 5 })
     expect(generateShotsRequestSchema.parse({ mode: 'beat', maxShots: 36 })).toMatchObject({
       maxShots: 36,
       mode: 'beat',

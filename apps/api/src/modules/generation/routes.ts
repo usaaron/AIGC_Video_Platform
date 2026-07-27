@@ -9,6 +9,7 @@ const projectParamsSchema = z.object({ projectId: z.string().min(1).max(128) })
 const filmPreviewBodySchema = z.object({
   mode: z.enum(['full', 'partial']).default('full'),
   force: z.boolean().default(false),
+  episodeNumber: z.number().int().positive().nullable().default(null),
 })
 const taskParamsSchema = z.object({ taskId: z.string().min(1).max(128) })
 const outputParamsSchema = taskParamsSchema.extend({
@@ -29,6 +30,12 @@ export async function registerGenerationRoutes(
       const task = await service.createTask(parsed.data, request.principal!)
       return reply.code(202).send(task)
     },
+  )
+
+  app.get(
+    '/generation/tasks/recent',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ) },
+    (request) => service.listRecentTasks(request.principal!),
   )
 
   app.get(
@@ -57,6 +64,7 @@ export async function registerGenerationRoutes(
             request.principal!,
             body.data.mode,
             body.data.force,
+            body.data.episodeNumber,
           ),
         )
     },

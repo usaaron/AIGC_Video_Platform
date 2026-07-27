@@ -21,7 +21,7 @@ function createEditorDraft(asset, kind) {
     name: asset.name || '',
     description: asset.description || '',
     promptMode: asset.promptMode || 'standard',
-    customPromptMode: asset.customPromptMode || 'append',
+    customPromptMode: asset.customPromptMode || 'replace',
     customPrompt: asset.customPrompt || '',
     negativePrompt: asset.negativePrompt || '',
     references: asset.references || [],
@@ -107,10 +107,11 @@ export function AssetEditor({
       active = false
     }
   }, [kind, onGetTrustedConfiguration])
-  const generatedPrompt =
+  const compileProviderPrompt = (value) =>
     kind === 'character'
-      ? compileCharacterStagePrompt(draft, aspectRatio, characterStage)
-      : compileAssetPrompt(draft, aspectRatio)
+      ? compileCharacterStagePrompt(value, aspectRatio, characterStage)
+      : compileAssetPrompt(value, aspectRatio)
+  const generatedPrompt = compileProviderPrompt(draft)
   const kindLabel = ASSET_TABS.find(([id]) => id === kind)?.[1]
   const directImport = creationMode === ASSET_CREATION_MODES.DIRECT
   const usesUpload = directImport || creationMode === ASSET_CREATION_MODES.REFERENCE
@@ -129,6 +130,27 @@ export function AssetEditor({
   const selectCreationMode = (mode) => {
     setCreationMode(mode)
     setDraft((current) => applyAssetCreationMode(current, mode))
+  }
+
+  const selectPromptMode = (mode) => {
+    if (mode === 'standard') {
+      setDraft((current) => ({ ...current, promptMode: 'standard' }))
+      return
+    }
+    setDraft((current) => {
+      const automaticDraft = {
+        ...current,
+        promptMode: 'standard',
+        customPromptMode: 'replace',
+        customPrompt: '',
+      }
+      return {
+        ...current,
+        promptMode: 'advanced',
+        customPromptMode: 'replace',
+        customPrompt: compileProviderPrompt(automaticDraft),
+      }
+    })
   }
 
   const applySourceSuggestion = (mode = 'full') => {
@@ -414,21 +436,35 @@ export function AssetEditor({
                 <button
                   type="button"
                   className={draft.promptMode === 'standard' ? 'active' : ''}
-                  onClick={() => setDraft({ ...draft, promptMode: 'standard' })}
+                  onClick={() => selectPromptMode('standard')}
                 >
                   标准模式
                 </button>
                 <button
                   type="button"
                   className={draft.promptMode === 'advanced' ? 'active' : ''}
-                  onClick={() => setDraft({ ...draft, promptMode: 'advanced' })}
+                  onClick={() => selectPromptMode('advanced')}
                 >
                   高级模式
                 </button>
               </div>
               <label className="compiled-prompt">
-                <span>最终发送给 Provider</span>
-                <textarea readOnly value={generatedPrompt} />
+                <span>
+                  {draft.promptMode === 'advanced'
+                    ? 'Provider 完整提示词（修改后直接传参）'
+                    : '最终发送给 Provider'}
+                </span>
+                <textarea
+                  readOnly={draft.promptMode !== 'advanced'}
+                  value={draft.promptMode === 'advanced' ? draft.customPrompt : generatedPrompt}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      customPromptMode: 'replace',
+                      customPrompt: event.target.value,
+                    })
+                  }
+                />
               </label>
               {draft.promptMode === 'advanced' && (
                 <>
@@ -448,14 +484,9 @@ export function AssetEditor({
                       完全覆盖
                     </button>
                   </div>
-                  <label>
-                    <span>高级自定义提示词</span>
-                    <textarea
-                      value={draft.customPrompt}
-                      placeholder="补充镜头语言、细节要求或完全自定义提示词"
-                      onChange={(event) => setDraft({ ...draft, customPrompt: event.target.value })}
-                    />
-                  </label>
+                  <small className="field-hint">
+                    进入高级模式时已复制系统完整提示词；选择完全覆盖后，上方内容不会再被系统追加或改写。
+                  </small>
                 </>
               )}
               <label>

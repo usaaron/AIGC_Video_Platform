@@ -168,7 +168,7 @@ describe('api client', () => {
       expect.objectContaining({
         method: 'POST',
         credentials: 'include',
-        body: JSON.stringify({ mode: 'partial', force: false }),
+        body: JSON.stringify({ mode: 'partial', force: false, episodeNumber: null }),
       }),
     )
   })
@@ -523,6 +523,32 @@ describe('api client', () => {
         }),
       }),
     )
+  })
+
+  it('sends web-series mode and episode duration to generation endpoints', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ script: '网剧剧本' }))
+    vi.stubGlobal('fetch', fetchMock)
+    const direction = {
+      style: 'cinematic-cg',
+      composition: 'dynamic',
+      lighting: 'high-contrast',
+      camera: 'suspense',
+      focus: 'balanced',
+    }
+
+    await api.generateScript('project-1', '故事素材', direction, 'web-series-1', {
+      productionMode: 'web-series',
+      episodeMinutes: 3,
+      model: 'kimi-3',
+      revisionNote: '保留主角关系，强化结尾钩子',
+    })
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      productionMode: 'web-series',
+      episodeMinutes: 3,
+      model: 'kimi-3',
+      revisionNote: '保留主角关系，强化结尾钩子',
+    })
   })
 
   it('sends the quick script to the explicit visual detail enrichment endpoint', async () => {

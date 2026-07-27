@@ -19,6 +19,8 @@ const configSchema = z
     PUBLIC_API_BASE_URL: z.union([z.literal(''), z.string().url()]).default(''),
     TRUST_PROXY: booleanFromEnvironment.default(false),
     RATE_LIMIT_MAX: z.coerce.number().int().min(30).max(10_000).default(300),
+    DEMO_UNLIMITED_GENERATION_CONCURRENCY: booleanFromEnvironment.default(false),
+    TASK_WORKER_MODE: z.enum(['in-process', 'external']).default('in-process'),
     AUTH_MODE: z.enum(['local', 'demo', 'oidc']).default('local'),
     AUTH_SECRET: z.string().min(32).default(developmentAuthSecret),
     BOOTSTRAP_CREATOR_NAME: z.string().min(1).max(80).default('林夏'),

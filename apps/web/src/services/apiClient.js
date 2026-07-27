@@ -66,6 +66,7 @@ export const api = {
   project: (id) => request(`/projects/${id}`),
   createProject: (input) => request('/projects', json('POST', input)),
   updateProject: (id, input) => request(`/projects/${id}`, json('PATCH', input)),
+  deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
   novels: (id) => request(`/projects/${id}/novels`),
   novel: (id, documentId) => request(`/projects/${id}/novels/${documentId}`),
   previewNovelSplit: (id, input) => request(`/projects/${id}/novels/preview-split`, json('POST', input)),
@@ -109,17 +110,33 @@ export const api = {
     request(`/projects/${id}/novels/${documentId}/adapt-script`, json('POST', input)),
   suggestScriptAssets: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
     request(`/projects/${id}/script/asset-suggestions`, json('POST', { clientRequestId, script, direction })),
-  generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID()) =>
-    request(`/projects/${id}/script/generate`, json('POST', { clientRequestId, draft, direction })),
-  generateScriptSegment: (id, draft, direction, segment, clientRequestId = crypto.randomUUID()) =>
+  generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID(), options = {}) =>
     request(
       `/projects/${id}/script/generate`,
-      json('POST', { clientRequestId, draft, direction, mode: 'segment', segment }),
+      json('POST', { clientRequestId, draft, direction, ...options }),
     ),
-  enrichScript: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
-    request(`/projects/${id}/script/enrich`, json('POST', { clientRequestId, script, direction })),
-  reviewScript: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
-    request(`/projects/${id}/script/review`, json('POST', { clientRequestId, script, direction })),
+  generateScriptSegment: (
+    id,
+    draft,
+    direction,
+    segment,
+    clientRequestId = crypto.randomUUID(),
+    options = {},
+  ) =>
+    request(
+      `/projects/${id}/script/generate`,
+      json('POST', { clientRequestId, draft, direction, mode: 'segment', segment, ...options }),
+    ),
+  enrichScript: (id, script, direction, clientRequestId = crypto.randomUUID(), options = {}) =>
+    request(
+      `/projects/${id}/script/enrich`,
+      json('POST', { clientRequestId, script, direction, ...options }),
+    ),
+  reviewScript: (id, script, direction, clientRequestId = crypto.randomUUID(), options = {}) =>
+    request(
+      `/projects/${id}/script/review`,
+      json('POST', { clientRequestId, script, direction, ...options }),
+    ),
   planQuickStart: (id) => request(`/projects/${id}/quick-start/plan`, { method: 'POST' }),
   executeQuickStart: (id, input) => request(`/projects/${id}/quick-start/execute`, json('POST', input)),
   saveVersion: (id) => request(`/projects/${id}/versions`, { method: 'POST' }),
@@ -146,10 +163,13 @@ export const api = {
     request(`/projects/${projectId}/shots/${shotId}`, json('PATCH', input)),
   generateShots: (projectId, input = {}) =>
     request(`/projects/${projectId}/shots/generate`, json('POST', input)),
+  autoSplitShotEpisodes: (projectId, input) =>
+    request(`/projects/${projectId}/shots/auto-episodes`, json('POST', input)),
   tasks: (projectId) => request(`/projects/${projectId}/generation/tasks`),
+  recentTasks: () => request('/generation/tasks/recent'),
   createTask: (input) => request('/generation/tasks', json('POST', input)),
-  createFilmPreview: (projectId, mode = 'full', force = false) =>
-    request(`/projects/${projectId}/film-preview`, json('POST', { mode, force })),
+  createFilmPreview: (projectId, mode = 'full', force = false, episodeNumber = null) =>
+    request(`/projects/${projectId}/film-preview`, json('POST', { mode, force, episodeNumber })),
   pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, { method: 'POST' }),
   resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, { method: 'POST' }),
   deleteTask: (taskId) => request(`/generation/tasks/${taskId}`, { method: 'DELETE' }),

@@ -160,7 +160,22 @@ export class GenerationTaskRepository {
     )
   }
 
-  filmPreviewPlan(projectId: string, principal: Principal) {
+  listRecent(principal: Principal, limit = 100): GenerationTask[] {
+    const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+    return this.store.read((state) =>
+      state.tasks
+        .filter(
+          (task) =>
+            task.tenantId === principal.tenantId &&
+            (canReadAll || task.userId === principal.userId) &&
+            typeof task.metadata.queueHiddenAt !== 'string',
+        )
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .slice(0, limit),
+    )
+  }
+
+  filmPreviewPlan(projectId: string, principal: Principal, episodeNumber: number | null = null) {
     return this.store.read((state) => {
       const project = state.projects.find(
         (item) =>
@@ -172,6 +187,7 @@ export class GenerationTaskRepository {
       if (!project) return null
       const shots = state.shots
         .filter((shot) => shot.projectId === projectId && shot.tenantId === principal.tenantId)
+        .filter((shot) => episodeNumber === null || shot.episodeNumber === episodeNumber)
         .sort((left, right) => left.order - right.order)
       const sources = shots.map((shot) => ({
         shot,

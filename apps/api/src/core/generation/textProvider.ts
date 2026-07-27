@@ -2,6 +2,8 @@ export type TextGenerationRequest = {
   systemPrompt: string
   userPrompt: string
   maxOutputTokens?: number
+  /** Logical model selected in the product; providers may map it to an upstream model. */
+  model?: string
 }
 
 export class TextGenerationProviderError extends Error {

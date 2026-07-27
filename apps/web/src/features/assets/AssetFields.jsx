@@ -22,18 +22,14 @@ function CharacterFields({ value, stage, update }) {
   if (stage === 'body') {
     return (
       <>
-        <ChoiceField
-          label="体型"
-          value={value.bodyType}
-          options={OPTIONS.bodyType}
-          onChange={(next) => update('bodyType', next)}
-        />
-        <ChoiceField
-          label="背景"
-          value={value.background}
-          options={OPTIONS.background}
-          onChange={(next) => update('background', next)}
-        />
+        {value.subjectType === 'human' && (
+          <ChoiceField
+            label="体型"
+            value={value.bodyType}
+            options={OPTIONS.bodyType}
+            onChange={(next) => update('bodyType', next)}
+          />
+        )}
       </>
     )
   }
@@ -46,31 +42,37 @@ function CharacterFields({ value, stage, update }) {
         options={OPTIONS.subjectType}
         onChange={(next) => update('subjectType', next)}
       />
-      <ChoiceField
-        className="character-gender-field"
-        label="性别"
-        value={value.gender}
-        options={OPTIONS.gender}
-        onChange={(next) => update('gender', next)}
-      />
-      <ChoiceField
-        className="character-age-field"
-        label="年龄段"
-        value={value.ageGroup}
-        options={OPTIONS.ageGroup}
-        onChange={(next) => update('ageGroup', next)}
-      />
+      {value.subjectType === 'human' && (
+        <ChoiceField
+          className="character-gender-field"
+          label="性别"
+          value={value.gender}
+          options={OPTIONS.gender}
+          onChange={(next) => update('gender', next)}
+        />
+      )}
+      {value.subjectType === 'human' && (
+        <ChoiceField
+          className="character-age-field"
+          label="年龄段"
+          value={value.ageGroup}
+          options={OPTIONS.ageGroup}
+          onChange={(next) => update('ageGroup', next)}
+        />
+      )}
       <div className="asset-inline-fields">
-        <label>
-          <span>具体年龄（可选）</span>
-          <input
-            type="number"
-            min="1"
-            max="120"
-            value={value.exactAge ?? ''}
-            onChange={(event) => update('exactAge', event.target.value ? Number(event.target.value) : null)}
-          />
-        </label>
+        {value.subjectType === 'human' && (
+          <label>
+            <span>具体年龄（可选）</span>
+            <input
+              type="number"
+              min="1"
+              max="120"
+              value={value.exactAge ?? ''}
+              onChange={(event) => update('exactAge', event.target.value ? Number(event.target.value) : null)}
+            />
+          </label>
+        )}
         {value.subjectType === 'animal' && (
           <label>
             <span>动物物种</span>

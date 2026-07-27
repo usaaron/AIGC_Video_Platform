@@ -1,6 +1,7 @@
 import type { BillingSummary, GenerationTask, Plan, Principal } from '@seqora/contracts'
 import { AppError } from '../../core/errors.js'
 import type { AppStore } from '../../infra/store.js'
+import { generationConcurrencyFor } from '../../core/jobs/generationConcurrency.js'
 
 export interface CreditLedger {
   reserve(principal: Principal, credits: number, referenceId: string, description?: string): Promise<boolean>
@@ -14,6 +15,7 @@ export class StoreCreditLedger implements CreditLedger {
   constructor(
     private readonly store: AppStore,
     private readonly planSelfServiceEnabled = false,
+    private readonly demoUnlimitedConcurrency = false,
   ) {}
 
   async reserve(
@@ -115,7 +117,8 @@ export class StoreCreditLedger implements CreditLedger {
       return {
         plan: user.plan,
         credits: user.credits,
-        concurrency: user.plan === 'member' ? 3 : 1,
+        concurrency: generationConcurrencyFor(user.plan, this.demoUnlimitedConcurrency),
+        unlimitedConcurrency: this.demoUnlimitedConcurrency,
         planSelfServiceEnabled: this.planSelfServiceEnabled,
         monthlyUsage: {
           periodStart,

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
-  Aperture,
   ArrowRight,
+  Bell,
   BookOpenText,
   Check,
   ChevronDown,
@@ -9,16 +9,19 @@ import {
   Clapperboard,
   Crown,
   FolderKanban,
+  FolderOpen,
   Layers3,
   LayoutDashboard,
   Menu,
   PackageOpen,
+  RefreshCw,
   Settings,
   UsersRound,
   WandSparkles,
   X,
   Zap,
 } from 'lucide-react'
+import { BrandMark } from './BrandMark'
 import { IconButton, StatusDot } from './ui'
 
 const STEPS = [
@@ -35,21 +38,27 @@ export function AppHeader({
   billing,
   account,
   runningJobs,
+  notifications = [],
   onOpenNav,
   onProjectClick,
   onCreditsClick,
   onPlanClick,
   onAccountClick,
+  onNotificationOpen,
+  onNotificationRetry,
+  onNotificationRead,
 }) {
+  const [notificationOpen, setNotificationOpen] = useState(false)
+  const unread = notifications.filter((item) => !item.read)
+  const hasUnreadFailure = unread.some((item) => item.status === 'failed')
+  const hasUnreadSuccess = unread.some((item) => item.status === 'completed')
   return (
     <header className="topbar">
       <div className="brand-block">
         <button className="mobile-menu" onClick={onOpenNav} aria-label="打开导航">
           <Menu size={21} />
         </button>
-        <div className="brand-mark">
-          <Aperture size={20} />
-        </div>
+        <BrandMark />
         <div className="brand-name">
           序幕 <span>SEQORA</span>
         </div>
@@ -63,6 +72,76 @@ export function AppHeader({
         <div className="queue-indicator">
           <StatusDot status={runningJobs.length ? 'running' : 'completed'} />
           {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '生成服务正常'}
+        </div>
+        <div
+          className="notification-center"
+          onMouseEnter={() => setNotificationOpen(true)}
+          onMouseLeave={() => setNotificationOpen(false)}
+        >
+          <button
+            type="button"
+            className={`notification-trigger ${unread.length ? 'has-unread' : ''}`}
+            aria-label={`消息中心，${unread.length} 条未读`}
+            aria-expanded={notificationOpen}
+            onClick={() => setNotificationOpen((current) => !current)}
+          >
+            <Bell size={17} />
+            {(hasUnreadFailure || hasUnreadSuccess) && (
+              <span className="notification-trigger-dots" aria-hidden="true">
+                {hasUnreadFailure && <i className="failed" />}
+                {hasUnreadSuccess && <i className="completed" />}
+              </span>
+            )}
+          </button>
+          {notificationOpen && (
+            <div className="notification-popover">
+              <header>
+                <div>
+                  <strong>消息中心</strong>
+                  <span>{unread.length ? `${unread.length} 条未读` : '任务状态已同步'}</span>
+                </div>
+              </header>
+              <div className="notification-list">
+                {notifications.length ? (
+                  notifications.slice(0, 10).map((notification) => (
+                    <article
+                      key={notification.id}
+                      className={`${notification.status} ${notification.read ? 'read' : 'unread'}`}
+                      onMouseEnter={() => onNotificationRead?.(notification.id)}
+                    >
+                      <span className="notification-status-dot" />
+                      <button
+                        type="button"
+                        className="notification-preview"
+                        onClick={() => void onNotificationOpen?.(notification)}
+                      >
+                        <strong>
+                          {notification.title} · {notification.label}
+                        </strong>
+                        <span>{notification.projectName}</span>
+                        <small>{notification.message}</small>
+                      </button>
+                      {notification.status === 'failed' && (
+                        <button
+                          type="button"
+                          className="notification-retry"
+                          title="使用原参数重试"
+                          onClick={() => void onNotificationRetry?.(notification)}
+                        >
+                          <RefreshCw size={14} />
+                        </button>
+                      )}
+                    </article>
+                  ))
+                ) : (
+                  <div className="notification-empty">
+                    <Bell size={18} />
+                    <span>暂无生成消息</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
         <button className="credit-button" onClick={onCreditsClick}>
           <Zap size={15} fill="currentColor" /> {billing?.credits ?? 0} 积分
@@ -97,6 +176,13 @@ export function AppSidebar({ activeStep, mobileNav, billing, assetCount, onNavig
           <X size={19} />
         </IconButton>
       </div>
+      <button
+        className={`sidebar-home ${activeStep === 'home' ? 'active' : ''}`}
+        onClick={() => onNavigate('home')}
+      >
+        <FolderOpen size={17} />
+        <span>项目库</span>
+      </button>
       <div className="sidebar-label">创作流程</div>
       <nav>
         {STEPS.map((step, index) => {

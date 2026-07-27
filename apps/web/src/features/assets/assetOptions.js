@@ -27,7 +27,7 @@ export const DEFAULT_ATTRIBUTES = {
     visualStyle: 'cinematic-cg',
     framing: 'full',
     bodyType: 'balanced',
-    background: 'solid',
+    background: 'transparent',
     faceStatus: 'pending',
     bodyStatus: 'pending',
     faceReference: null,

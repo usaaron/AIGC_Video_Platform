@@ -25,6 +25,8 @@ const testConfig: AppConfig = {
   PUBLIC_API_BASE_URL: '',
   TRUST_PROXY: false,
   RATE_LIMIT_MAX: 300,
+  DEMO_UNLIMITED_GENERATION_CONCURRENCY: false,
+  TASK_WORKER_MODE: 'in-process',
   AUTH_MODE: 'demo',
   AUTH_SECRET: 'test-secret-with-at-least-32-characters',
   BOOTSTRAP_CREATOR_NAME: '林夏',
@@ -106,6 +108,31 @@ describe('API authorization', () => {
       aspectRatio: '16:9',
       status: 'draft',
     })
+  })
+
+  it('archives a deleted project and removes it from the project library', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+
+    const archived = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+    const projects = await app.inject({ method: 'GET', url: '/api/v1/projects', headers })
+    const workspace = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    expect(archived.statusCode).toBe(204)
+    expect(projects.json()).toEqual([])
+    expect(workspace.statusCode).toBe(404)
   })
 
   it('returns the persisted shot when creating a shot', async () => {
@@ -2196,14 +2223,52 @@ describe('API authorization', () => {
       expect.objectContaining({
         systemPrompt: expect.stringContaining('15 到 30 秒视频'),
         userPrompt: expect.stringContaining('风格：仿真人电影感'),
-        maxOutputTokens: 2_400,
+        maxOutputTokens: 3_200,
+        model: 'seqora-5.6',
       }),
     )
   })
 
+  it('rewrites a mid-length script without forcing it into the short-script shape', async () => {
+    const source = Array.from(
+      { length: 30 },
+      (_, index) =>
+        `场次：${index + 1}｜剧情：林夏沿着父亲留下的线索继续调查，阻力逐步升级并迫使她改变计划。｜场景：雨夜旧车站与地下档案室。｜角色：林夏、看守。｜动作：林夏护住铁盒，回头确认门外脚步后继续向前。｜对白：林夏：“我必须查清楚。”`,
+    ).join('\n')
+    const generate = vi.fn(async () => source)
+    app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/generate',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        draft: source,
+        model: 'deepseek-v3',
+        revisionNote: '保留人物关系，强化结尾钩子',
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({ script: source, mode: 'quick' })
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining('剧本整理编剧'),
+        userPrompt: expect.stringContaining('强化结尾钩子'),
+        model: 'deepseek-v3',
+        maxOutputTokens: expect.any(Number),
+      }),
+    )
+    expect(generate.mock.calls[0][0].maxOutputTokens).toBeGreaterThan(2_400)
+  })
+
   it('preserves a long source script without sending an oversized provider request', async () => {
     const longSource = Array.from(
-      { length: 80 },
+      { length: 180 },
       (_, index) =>
         `场次：${index + 1}｜剧情：主角沿着旧线索继续调查并发现新的阻力。｜场景：雨夜车站。｜角色：林夏。｜动作：她打开铁盒确认线索。｜对白：我必须查清楚。`,
     ).join('\n')
@@ -2228,7 +2293,7 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({
       script: longSource,
-      warnings: [expect.stringContaining('按段继续')],
+      warnings: [expect.stringContaining('超过 1 万字')],
     })
     expect(generate).not.toHaveBeenCalled()
     const billing = await app.inject({
@@ -2361,6 +2426,37 @@ describe('API authorization', () => {
         maxOutputTokens: 4_000,
       }),
     )
+  })
+
+  it('merges incomplete visual enrichment back into the original scene fields', async () => {
+    const original =
+      '场次：S01｜剧情：林夏在车站找到铁盒并发现新的线索。｜场景：雨夜旧车站｜角色：林夏、远处的看守｜动作：林夏蹲下打开铁盒；她抬头确认脚步声；看守在远处停下并回头｜对白：林夏：不能让他发现。'
+    const visualOnly =
+      '场次：S01｜风格：电影级 CG｜构图：中景，林夏位于画面右侧｜光影：冷白顶光｜运镜：沿铁盒缓慢推进｜衔接：脚步声承接下一场'
+    const generate = vi.fn().mockResolvedValue(visualOnly)
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/enrich',
+      headers,
+      payload: { script: original },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().script).toContain('剧情：林夏在车站找到铁盒并发现新的线索。')
+    expect(response.json().script).toContain('动作：林夏蹲下打开铁盒；她抬头确认脚步声；看守在远处停下并回头')
+    expect(response.json().script).toContain('风格：电影级 CG')
+    expect(response.json().script).toContain('衔接：脚步声承接下一场')
   })
 
   it('preserves the current script and returns an actionable error when text generation is unavailable', async () => {
@@ -2647,7 +2743,7 @@ describe('API authorization', () => {
     expect(response.json()[7]).toMatchObject({
       title: '镜头 08',
       prompt: '剧本段落 8',
-      continuityMode: 'independent',
+      continuityMode: 'continue',
       continuityNote: expect.stringContaining('上一场收束：剧本段落 7'),
       imageUrl: null,
     })
@@ -2756,7 +2852,7 @@ describe('API authorization', () => {
     })
     expect(response.json()[3]).toMatchObject({
       title: '场次 2 · 动作 1',
-      continuityMode: 'independent',
+      continuityMode: 'continue',
       continuityNote: expect.stringContaining('上一场收束：林夏踏入积水'),
     })
   })

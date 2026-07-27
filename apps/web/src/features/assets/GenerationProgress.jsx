@@ -1,4 +1,5 @@
-import { AlertCircle, CheckCircle2, CircleDot, LoaderCircle, Sparkles } from 'lucide-react'
+import { AlertCircle, CheckCircle2, CircleDot } from 'lucide-react'
+import { BrandMark } from '../../components/BrandMark'
 
 const PHASES = [
   { id: 'request', label: '发起申请', detail: '已加入生成队列' },
@@ -34,7 +35,11 @@ export function GenerationProgress({ task, busy = false, compact = false }) {
       aria-live="polite"
     >
       <div className="generation-progress-head">
-        {completed ? <CheckCircle2 size={compact ? 14 : 20} /> : <Sparkles size={compact ? 14 : 18} />}
+        {completed ? (
+          <CheckCircle2 size={compact ? 14 : 20} />
+        ) : (
+          <BrandMark className="generation-progress-brand" size={compact ? 12 : 18} spin />
+        )}
         <div>
           <strong>{completed ? '资产已生成' : PHASES[phase].label}</strong>
           {!compact && <span>{completed ? '可以预览并确认资产' : phaseDetail(task, busy, phase)}</span>}
@@ -54,7 +59,6 @@ export function GenerationProgress({ task, busy = false, compact = false }) {
           ))}
         </div>
       )}
-      {!completed && task?.status === 'running' && <LoaderCircle size={compact ? 13 : 16} className="spin" />}
     </div>
   )
 }

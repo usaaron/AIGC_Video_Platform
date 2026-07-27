@@ -17,6 +17,21 @@ export function planVideoBatch(shots, mode = 'parallel', concurrency = 3) {
     return { lanes: [lane], immediateLaneCount: 1, continuityUpdates }
   }
 
+  if (mode === 'independent') {
+    const continuityUpdates = []
+    const lanes = orderedShots.map((shot) => {
+      if (shot.continuityMode !== 'independent') {
+        continuityUpdates.push({ shotId: shot.id, continuityMode: 'independent' })
+      }
+      return [{ ...shot, continuityMode: 'independent' }]
+    })
+    return {
+      lanes,
+      immediateLaneCount: Math.min(limit, lanes.length),
+      continuityUpdates,
+    }
+  }
+
   const lanes = continuitySegments(orderedShots)
 
   return {

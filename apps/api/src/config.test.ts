@@ -20,7 +20,15 @@ describe('production configuration', () => {
     expect(config.WEB_ORIGIN).toBe('https://studio.example.com')
     expect(config.BOOTSTRAP_CREATOR_NAME).toBe('创作者')
     expect(config.BOOTSTRAP_DEMO_WORKSPACE).toBe(false)
+    expect(config.DEMO_UNLIMITED_GENERATION_CONCURRENCY).toBe(false)
+    expect(config.TASK_WORKER_MODE).toBe('in-process')
     expect(config.TEXT_MODEL).toBe('gpt-5.6')
+  })
+
+  it('enables practical unlimited concurrency only when explicitly configured', () => {
+    expect(loadConfig({ DEMO_UNLIMITED_GENERATION_CONCURRENCY: 'true' })).toMatchObject({
+      DEMO_UNLIMITED_GENERATION_CONCURRENCY: true,
+    })
   })
 
   it('rejects development credentials in production', () => {

@@ -6,6 +6,7 @@ import type {
   Principal,
   Plan,
   Project,
+  ProjectGenerationSummary,
   ProjectWorkspace,
   Shot,
   UpdateAsset,
@@ -13,7 +14,7 @@ import type {
   UpdateShot,
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
-import type { AppStore } from '../../infra/store.js'
+import type { AppState, AppStore } from '../../infra/store.js'
 
 export class ProjectRepository {
   constructor(private readonly store: AppStore) {}
@@ -31,7 +32,13 @@ export class ProjectRepository {
     return this.store.read((state) =>
       state.projects
         .filter((project) => project.tenantId === principal.tenantId)
+        .filter((project) => project.status !== 'archived')
         .filter((project) => canReadAll || project.ownerId === principal.userId)
+        .map((project) => ({
+          ...project,
+          previewUrl: projectPreviewUrl(project.id, state),
+          generationSummary: projectGenerationSummary(project.id, state),
+        }))
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     )
   }
@@ -81,6 +88,19 @@ export class ProjectRepository {
       if (!project) return null
       Object.assign(project, input, { updatedAt: new Date().toISOString() })
       return project
+    })
+  }
+
+  async archive(projectId: string, principal: Principal): Promise<boolean> {
+    return this.store.mutate((state) => {
+      const project = state.projects.find(
+        (item) =>
+          item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
+      )
+      if (!project) return false
+      project.status = 'archived'
+      project.updatedAt = new Date().toISOString()
+      return true
     })
   }
 
@@ -167,6 +187,7 @@ export class ProjectRepository {
         tenantId: principal.tenantId,
         order: Math.max(0, ...projectShots.map((item) => item.order)) + 1,
         ...input,
+        continuityMode: projectShots.length === 0 ? 'independent' : input.continuityMode,
         createdAt: now,
         updatedAt: now,
       }
@@ -217,4 +238,98 @@ export class ProjectRepository {
       return created
     })
   }
+
+  async updateShotEpisodes(
+    projectId: string,
+    episodes: Array<Pick<Shot, 'id' | 'episodeNumber' | 'episodeTitle' | 'episodeKind'>>,
+    principal: Principal,
+  ): Promise<Shot[] | null> {
+    return this.store.mutate((state) => {
+      const project = state.projects.find(
+        (item) =>
+          item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
+      )
+      if (!project) return null
+      const updates = new Map(episodes.map((episode) => [episode.id, episode]))
+      const now = new Date().toISOString()
+      const updated = state.shots
+        .filter((shot) => shot.projectId === projectId && updates.has(shot.id))
+        .map((shot) => {
+          const episode = updates.get(shot.id)!
+          Object.assign(shot, episode, { updatedAt: now })
+          return shot
+        })
+      project.updatedAt = now
+      return updated
+    })
+  }
+}
+
+export function projectPreviewUrl(
+  projectId: string,
+  state: Pick<AppState, 'tasks' | 'shots' | 'assets'>,
+): string | null {
+  const completedVideoFrame = state.tasks
+    .filter((task) => task.projectId === projectId && task.kind === 'video' && task.status === 'completed')
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .flatMap((task) => task.outputs)
+    .find((output) => output.mediaType === 'image' && output.view === 'last-frame')
+  if (completedVideoFrame?.url) return completedVideoFrame.url
+
+  const storyboardImage = state.tasks
+    .filter((task) => task.projectId === projectId && task.kind === 'image' && task.status === 'completed')
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .flatMap((task) => task.outputs)
+    .find((output) => output.mediaType === 'image' && output.view === 'single')
+  if (storyboardImage?.url) return storyboardImage.url
+
+  const shotImage = state.shots
+    .filter((shot) => shot.projectId === projectId && shot.imageUrl)
+    .sort((left, right) => left.order - right.order)
+    .find((shot) => shot.imageUrl)?.imageUrl
+  if (shotImage) return shotImage
+
+  const asset = state.assets
+    .filter((item) => item.projectId === projectId && item.kind !== 'audio')
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .find((item) => assetPreviewUrl(item))
+  return asset ? assetPreviewUrl(asset) : null
+}
+
+export function projectGenerationSummary(
+  projectId: string,
+  state: Pick<AppState, 'tasks'>,
+): ProjectGenerationSummary {
+  const relevantStatuses = new Set(['queued', 'paused', 'running', 'failed'])
+  const tasks = state.tasks
+    .filter(
+      (task) =>
+        task.projectId === projectId &&
+        relevantStatuses.has(task.status) &&
+        typeof task.metadata?.queueHiddenAt !== 'string',
+    )
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+
+  return {
+    queued: tasks.filter((task) => task.status === 'queued').length,
+    paused: tasks.filter((task) => task.status === 'paused').length,
+    running: tasks.filter((task) => task.status === 'running').length,
+    failed: tasks.filter((task) => task.status === 'failed').length,
+    latest: tasks.slice(0, 3).map((task) => ({
+      id: task.id,
+      label: task.label,
+      kind: task.kind,
+      status: task.status as 'queued' | 'paused' | 'running' | 'failed',
+      progress: task.progress,
+      updatedAt: task.updatedAt,
+    })),
+  }
+}
+
+function assetPreviewUrl(asset: Asset): string | null {
+  if (asset.imageUrl) return asset.imageUrl
+  const attributes = asset.attributes as Record<string, unknown>
+  const faceReference = attributes.faceReference as { url?: unknown } | null | undefined
+  if (typeof faceReference?.url === 'string') return faceReference.url
+  return asset.references?.[0]?.url ?? null
 }

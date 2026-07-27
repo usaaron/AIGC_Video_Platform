@@ -33,6 +33,8 @@ import {
   releaseGenerationTaskLease,
   renewGenerationTaskLease,
 } from './taskLease.js'
+import { generationConcurrencyFor } from './generationConcurrency.js'
+import type { TextTaskHandler } from './scriptTaskHandler.js'
 
 export interface TaskDispatcher {
   dispatch(task: GenerationTask): Promise<void>
@@ -49,7 +51,9 @@ type GenerationTaskRunnerOptions = {
   objectStorage?: ObjectStorage | null
   providerPollIntervalMs?: number
   leaseTtlMs?: number
+  demoUnlimitedConcurrency?: boolean
   onVideoCompleted?: (task: GenerationTask) => Promise<void>
+  textTaskHandler?: TextTaskHandler | null
 }
 
 export class GenerationTaskRunner implements TaskDispatcher {
@@ -63,7 +67,9 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly providerPollIntervalMs: number
   private readonly leaseTtlMs: number
   private readonly leaseOwnerId: string
+  private readonly demoUnlimitedConcurrency: boolean
   private readonly onVideoCompleted: ((task: GenerationTask) => Promise<void>) | null
+  private readonly textTaskHandler: TextTaskHandler | null
 
   constructor(
     private readonly store: AppStore,
@@ -77,7 +83,9 @@ export class GenerationTaskRunner implements TaskDispatcher {
     this.providerPollIntervalMs = options.providerPollIntervalMs ?? 5_000
     this.leaseTtlMs = options.leaseTtlMs ?? 120_000
     this.leaseOwnerId = `generation-task-runner-${process.pid}-${randomUUID()}`
+    this.demoUnlimitedConcurrency = options.demoUnlimitedConcurrency ?? false
     this.onVideoCompleted = options.onVideoCompleted ?? null
+    this.textTaskHandler = options.textTaskHandler ?? null
   }
 
   start(): void {
@@ -121,16 +129,11 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const remoteTasks = await this.claimQueuedTasks()
 
     await this.refundTerminalTasks()
-    await Promise.all(
-      remoteTasks.video.map(async (task) => {
-        await this.submitRemoteVideo(task)
-      }),
-    )
-    await Promise.all(
-      remoteTasks.image.map(async (task) => {
-        await this.generateRemoteImage(task)
-      }),
-    )
+    await Promise.all([
+      ...remoteTasks.video.map((task) => this.submitRemoteVideo(task)),
+      ...remoteTasks.image.map((task) => this.generateRemoteImage(task)),
+      ...remoteTasks.text.map((task) => this.runTextTask(task)),
+    ])
 
     await this.store.mutate((state) => {
       const now = new Date().toISOString()
@@ -139,7 +142,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
           (task) =>
             task.status === 'running' &&
             task.provider !== 'local-compose' &&
-            !isRemoteProviderName(task.metadata.providerName) &&
+            !isManagedProviderName(task.metadata.providerName) &&
             task.leaseOwnerId === this.leaseOwnerId,
         )
         .forEach((task) => {
@@ -349,12 +352,17 @@ export class GenerationTaskRunner implements TaskDispatcher {
     })
   }
 
-  private async claimQueuedTasks(): Promise<{ video: GenerationTask[]; image: GenerationTask[] }> {
+  private async claimQueuedTasks(): Promise<{
+    video: GenerationTask[]
+    image: GenerationTask[]
+    text: GenerationTask[]
+  }> {
     return this.store.mutate((state) => {
       const now = new Date()
       const nowIso = now.toISOString()
       const selectedVideoTasks: GenerationTask[] = []
       const selectedImageTasks: GenerationTask[] = []
+      const selectedTextTasks: GenerationTask[] = []
 
       for (const user of state.users) {
         const userTasks = state.tasks.filter((task) => task.userId === user.id)
@@ -370,16 +378,34 @@ export class GenerationTaskRunner implements TaskDispatcher {
             releaseGenerationTaskLease(task)
           })
 
-        const running = userTasks.filter(
-          (task) => task.status === 'running' && task.provider !== 'local-compose',
-        )
-        const available = Math.max(0, (user.plan === 'member' ? 3 : 1) - running.length)
-        let claimed = 0
+        const concurrency = generationConcurrencyFor(user.plan, this.demoUnlimitedConcurrency)
+        const runningByPool = {
+          image: userTasks.filter(
+            (task) => task.status === 'running' && task.provider !== 'local-compose' && task.kind === 'image',
+          ).length,
+          video: userTasks.filter(
+            (task) => task.status === 'running' && task.provider !== 'local-compose' && task.kind === 'video',
+          ).length,
+          other: userTasks.filter(
+            (task) =>
+              task.status === 'running' &&
+              task.provider !== 'local-compose' &&
+              task.kind !== 'image' &&
+              task.kind !== 'video',
+          ).length,
+        }
+        const availableByPool = {
+          image: Math.max(0, concurrency - runningByPool.image),
+          video: Math.max(0, concurrency - runningByPool.video),
+          other: Math.max(0, concurrency - runningByPool.other),
+        }
+        const claimedByPool = { image: 0, video: 0, other: 0 }
         for (const task of userTasks) {
-          if (claimed >= available) break
           if (task.status !== 'queued') continue
           if (task.provider === 'local-compose') continue
           if (dependencyState(task, userTasks) !== 'ready') continue
+          const pool = task.kind === 'image' ? 'image' : task.kind === 'video' ? 'video' : 'other'
+          if (claimedByPool[pool] >= availableByPool[pool]) continue
           const providerName = this.remoteProviderName(task)
           if (!this.ownsTask(task, providerName)) continue
           if ((task.attempts ?? 0) >= (task.maxAttempts ?? DEFAULT_TASK_MAX_ATTEMPTS)) {
@@ -401,12 +427,13 @@ export class GenerationTaskRunner implements TaskDispatcher {
             }
             if (this.isRemoteVideoTask(task)) selectedVideoTasks.push(task)
             if (this.isRemoteImageTask(task)) selectedImageTasks.push(task)
+            if (this.isTextTask(task)) selectedTextTasks.push(task)
           }
-          claimed += 1
+          claimedByPool[pool] += 1
         }
       }
 
-      return { video: selectedVideoTasks, image: selectedImageTasks }
+      return { video: selectedVideoTasks, image: selectedImageTasks, text: selectedTextTasks }
     })
   }
 
@@ -428,6 +455,10 @@ export class GenerationTaskRunner implements TaskDispatcher {
       task.kind === 'image' &&
       task.provider === 'img2'
     )
+  }
+
+  private isTextTask(task: GenerationTask): boolean {
+    return Boolean(this.textTaskHandler) && task.kind === 'text' && task.provider === 'text'
   }
 
   private async recoverStatusParseFailures(): Promise<void> {
@@ -466,7 +497,37 @@ export class GenerationTaskRunner implements TaskDispatcher {
     if (this.imageProvider && this.objectStorage && task.kind === 'image' && task.provider === 'img2') {
       return 'tokenadvent-img2'
     }
+    if (this.textTaskHandler && task.kind === 'text' && task.provider === 'text') {
+      return 'seqora-text'
+    }
     return null
+  }
+
+  private async runTextTask(task: GenerationTask): Promise<void> {
+    const leaseToken = stringValue(task.leaseToken, '')
+    if (!leaseToken || !this.textTaskHandler) return
+    try {
+      const result = await this.textTaskHandler(task)
+      await this.store.mutate((state) => {
+        const stored = state.tasks.find((item) => item.id === task.id)
+        if (!stored || stored.status !== 'running') return
+        if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
+        const now = new Date().toISOString()
+        stored.status = 'completed'
+        stored.progress = 100
+        stored.error = null
+        stored.metadata = {
+          ...stored.metadata,
+          providerState: 'completed',
+          textResult: result,
+          completedAt: now,
+        }
+        stored.updatedAt = now
+        releaseGenerationTaskLease(stored)
+      })
+    } catch (error) {
+      await this.failTask(task.id, messageFor(error), leaseToken)
+    }
   }
 
   private async submitRemoteVideo(task: GenerationTask): Promise<void> {
@@ -983,6 +1044,10 @@ function refundDescription(task: GenerationTask): string {
   return `${task.label} · 已删除退款`
 }
 
+function isManagedProviderName(value: unknown): boolean {
+  return isRemoteProviderName(value) || value === 'seqora-text'
+}
+
 function isRemoteProviderName(value: unknown): boolean {
   return isVideoProviderName(value) || value === 'tokenadvent-img2'
 }
@@ -1005,18 +1070,36 @@ function dependencyState(task: GenerationTask, userTasks: GenerationTask[]): 're
       (item) =>
         item.id === dependencyId && item.projectId === task.projectId && item.tenantId === task.tenantId,
     )
+    if (!dependency) {
+      return 'failed'
+    }
+    const optionalStoryboardImage = isOptionalStoryboardImageDependency(task, dependency)
     if (
-      !dependency ||
-      dependency.status === 'failed' ||
-      dependency.status === 'cancelled' ||
-      typeof dependency.metadata.queueHiddenAt === 'string'
+      !optionalStoryboardImage &&
+      (dependency.status === 'failed' ||
+        dependency.status === 'cancelled' ||
+        typeof dependency.metadata.queueHiddenAt === 'string')
     ) {
       return 'failed'
     }
     if (continuityDependencyMissingFrame(task, userTasks)) return 'failed'
-    if (dependency.status !== 'completed') waiting = true
+    if (dependency.status !== 'completed' && !optionalStoryboardImage) waiting = true
   }
   return waiting ? 'waiting' : 'ready'
+}
+
+function isOptionalStoryboardImageDependency(task: GenerationTask, dependency: GenerationTask): boolean {
+  if (task.kind !== 'video' || dependency.kind !== 'image') return false
+  if (task.metadata.shotId !== dependency.metadata.shotId) return false
+  if (task.metadata.videoInputMode === 'storyboard-and-assets') return true
+
+  const storyboardImageUrl = stringValue(task.metadata.storyboardImageUrl, '')
+  if (storyboardImageUrl.includes(dependency.id)) return true
+  return Array.isArray(task.metadata.images)
+    ? task.metadata.images.some(
+        (value) => typeof value === 'string' && value.includes(`/generation/tasks/${dependency.id}/`),
+      )
+    : false
 }
 
 function continuityDependencyMissingFrame(task: GenerationTask, userTasks: GenerationTask[]): boolean {

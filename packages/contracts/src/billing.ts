@@ -38,6 +38,7 @@ export const billingSummarySchema = z.object({
   plan: planSchema,
   credits: z.number().int().nonnegative(),
   concurrency: z.number().int().positive(),
+  unlimitedConcurrency: z.boolean().default(false),
   planSelfServiceEnabled: z.boolean(),
   monthlyUsage: monthlyUsageSchema,
   entries: z.array(ledgerEntrySchema),

@@ -73,4 +73,47 @@ describe('asset prompt compiler', () => {
     expect(compileCharacterStagePrompt(asset, '1:1', 'face')).toContain('严格保持导入参考图')
     expect(compileAssetPrompt(asset, '9:16')).toContain('严格保持参考图')
   })
+
+  it('keeps character outputs transparent and free of lighting effects', () => {
+    const asset = {
+      name: '角色',
+      description: '',
+      sourceMode: 'generate',
+      promptMode: 'standard',
+      customPromptMode: 'append',
+      customPrompt: '',
+      attributes: createDefaultAttributes('character'),
+    }
+
+    const prompt = compileAssetPrompt(asset, '9:16')
+    expect(prompt).toContain('Alpha通道')
+    expect(prompt).toContain('无光影效果')
+    expect(prompt).toContain('无投影')
+  })
+
+  it('does not inject human gender or age into animal prompts', () => {
+    const attributes = createDefaultAttributes('character')
+    Object.assign(attributes, {
+      subjectType: 'animal',
+      species: '雪豹',
+      gender: 'female',
+      ageGroup: 'young',
+      exactAge: 22,
+    })
+    const asset = {
+      name: '雪山守卫',
+      description: '',
+      sourceMode: 'generate',
+      promptMode: 'standard',
+      customPrompt: '',
+      attributes,
+    }
+
+    const prompt = compileCharacterStagePrompt(asset, '1:1', 'face')
+    expect(prompt).toContain('动物角色，雪豹')
+    expect(prompt).toContain('禁止人类形态')
+    expect(prompt).not.toContain('女性')
+    expect(prompt).not.toContain('青年')
+    expect(prompt).not.toContain('22岁')
+  })
 })

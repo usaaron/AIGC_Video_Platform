@@ -1,0 +1,79 @@
+import {
+  enrichScriptRequestSchema,
+  generateScriptRequestSchema,
+  type GenerationTask,
+  type Principal,
+} from '@seqora/contracts'
+import type { AppStore } from '../../infra/store.js'
+import type { ProjectService } from '../../modules/projects/service.js'
+
+export type TextTaskHandler = (task: GenerationTask) => Promise<unknown>
+
+export function createScriptTaskHandler(store: AppStore, service: ProjectService): TextTaskHandler {
+  return async (task) => {
+    const principal = principalForTask(store, task)
+    const operation = task.metadata.scriptOperation
+
+    if (operation === 'generate') {
+      const input = generateScriptRequestSchema.parse({
+        clientRequestId: task.clientRequestId,
+        draft: task.metadata.draft,
+        direction: task.metadata.direction,
+        mode: task.metadata.mode,
+        segment: task.metadata.segment,
+        productionMode: task.metadata.productionMode,
+        episodeMinutes: task.metadata.episodeMinutes,
+        model: task.model ?? task.metadata.model,
+        revisionNote: task.metadata.revisionNote,
+      })
+      return service.generateScript(
+        task.projectId,
+        input.draft,
+        input.direction,
+        input.mode,
+        input.segment,
+        input.productionMode,
+        input.episodeMinutes,
+        task.clientRequestId,
+        principal,
+        input.model,
+        input.revisionNote,
+        task.metadata.billingMode === 'prepaid' ? 'prepaid' : 'direct',
+      )
+    }
+
+    if (operation === 'enrich') {
+      const input = enrichScriptRequestSchema.parse({
+        clientRequestId: task.clientRequestId,
+        script: task.metadata.script,
+        direction: task.metadata.direction,
+        productionMode: task.metadata.productionMode,
+        episodeMinutes: task.metadata.episodeMinutes,
+        model: task.model ?? task.metadata.model,
+        revisionNote: task.metadata.revisionNote,
+      })
+      return service.enrichScript(
+        task.projectId,
+        input.script,
+        input.direction,
+        input.productionMode,
+        input.episodeMinutes,
+        task.clientRequestId,
+        principal,
+        input.model,
+        input.revisionNote,
+        task.metadata.billingMode === 'prepaid' ? 'prepaid' : 'direct',
+      )
+    }
+
+    throw new Error('Unsupported text task operation')
+  }
+}
+
+function principalForTask(store: AppStore, task: GenerationTask): Principal {
+  const user = store.read((state) =>
+    state.users.find((item) => item.id === task.userId && item.tenantId === task.tenantId),
+  )
+  if (!user) throw new Error('Text task account no longer exists')
+  return { userId: user.id, tenantId: user.tenantId, roles: user.roles }
+}

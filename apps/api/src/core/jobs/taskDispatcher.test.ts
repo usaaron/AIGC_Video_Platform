@@ -9,6 +9,50 @@ import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { GenerationTaskRunner } from './taskDispatcher.js'
 
 describe('GenerationTaskRunner Seedance integration', () => {
+  it('executes queued text tasks through the configured handler', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'script-background-task',
+      clientRequestId: 'script-background-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-creator',
+      kind: 'text',
+      label: 'Background script',
+      prompt: '',
+      negativePrompt: '',
+      provider: 'text',
+      model: 'seqora-5.6',
+      metadata: { generationStage: 'script-generate', scriptOperation: 'generate' },
+      status: 'queued',
+      progress: 0,
+      estimatedCredits: 0,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+    const textTaskHandler = vi.fn(async () => ({ script: 'Generated script', warnings: [] }))
+
+    await new GenerationTaskRunner(store, { textTaskHandler }).tick()
+
+    expect(textTaskHandler).toHaveBeenCalledOnce()
+    expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+      status: 'completed',
+      progress: 100,
+      error: null,
+      metadata: {
+        providerName: 'seqora-text',
+        providerState: 'completed',
+        textResult: { script: 'Generated script', warnings: [] },
+      },
+    })
+  })
+
   it('leaves local FFmpeg composition progress under the composer ownership', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -101,6 +145,30 @@ describe('GenerationTaskRunner Seedance integration', () => {
     ])
   })
 
+  it('starts every ready independent task when demo unlimited concurrency is enabled', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    await store.mutate((state) => state.tasks.unshift(...queuedVideoTasks(6)))
+    const { provider, releaseSubmissions } = deferredVideoProvider()
+    const runner = new GenerationTaskRunner(store, {
+      videoProvider: provider,
+      providerPollIntervalMs: 60_000,
+      demoUnlimitedConcurrency: true,
+    })
+
+    const tick = runner.tick()
+    await vi.waitFor(() => expect(provider.submit).toHaveBeenCalledTimes(6))
+    releaseSubmissions()
+    await tick
+
+    expect(provider.submit).toHaveBeenCalledTimes(6)
+    expect(
+      store.read((state) =>
+        state.tasks.filter((task) => task.id.startsWith('parallel-video-')).map((task) => task.status),
+      ),
+    ).toEqual(Array.from({ length: 6 }, () => 'running'))
+  })
+
   it('starts only one provider submission in one tick for a free user', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -122,6 +190,88 @@ describe('GenerationTaskRunner Seedance integration', () => {
         state.tasks.filter((task) => task.id.startsWith('parallel-video-')).map((task) => task.status),
       ),
     ).toEqual(['running', 'queued', 'queued'])
+  })
+
+  it('uses independent image and video slots for a free user', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    await store.mutate((state) => {
+      state.tasks.unshift(...queuedVideoTasks(2), ...queuedImageTasks(2))
+    })
+    const video = deferredVideoProvider()
+    const imageProvider: ImageGenerationProvider = {
+      generate: vi.fn(async () => [
+        { view: 'single', contentType: 'image/png', content: Buffer.from('image') },
+      ]),
+    }
+    const files = new Map<string, Buffer>()
+    const objectStorage: ObjectStorage = {
+      put: vi.fn(async (key, content) => files.set(key, content)),
+      get: vi.fn(async (key) => files.get(key) ?? Buffer.alloc(0)),
+      delete: vi.fn(async (key) => files.delete(key)),
+    }
+    const runner = new GenerationTaskRunner(store, {
+      videoProvider: video.provider,
+      imageProvider,
+      objectStorage,
+      providerPollIntervalMs: 60_000,
+    })
+
+    const tick = runner.tick()
+    await vi.waitFor(() => {
+      expect(video.provider.submit).toHaveBeenCalledOnce()
+      expect(imageProvider.generate).toHaveBeenCalledOnce()
+    })
+    video.releaseSubmissions()
+    await tick
+
+    expect(
+      store.read((state) =>
+        state.tasks.filter((task) => task.id.startsWith('parallel-video-')).map((task) => task.status),
+      ),
+    ).toEqual(['running', 'queued'])
+    expect(
+      store.read((state) =>
+        state.tasks.filter((task) => task.id.startsWith('parallel-image-')).map((task) => task.status),
+      ),
+    ).toEqual(['completed', 'queued'])
+  })
+
+  it('allows three image slots and three video slots for a member', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    await store.mutate((state) => {
+      state.users.find((user) => user.id === 'user-creator')!.plan = 'member'
+      state.tasks.unshift(...queuedVideoTasks(4), ...queuedImageTasks(4))
+    })
+    const video = deferredVideoProvider()
+    const imageProvider: ImageGenerationProvider = {
+      generate: vi.fn(async () => [
+        { view: 'single', contentType: 'image/png', content: Buffer.from('image') },
+      ]),
+    }
+    const objectStorage: ObjectStorage = {
+      put: vi.fn(async () => {}),
+      get: vi.fn(async () => Buffer.alloc(0)),
+      delete: vi.fn(async () => {}),
+    }
+    const runner = new GenerationTaskRunner(store, {
+      videoProvider: video.provider,
+      imageProvider,
+      objectStorage,
+      providerPollIntervalMs: 60_000,
+    })
+
+    const tick = runner.tick()
+    await vi.waitFor(() => {
+      expect(video.provider.submit).toHaveBeenCalledTimes(3)
+      expect(imageProvider.generate).toHaveBeenCalledTimes(3)
+    })
+    video.releaseSubmissions()
+    await tick
+
+    expect(video.provider.submit).toHaveBeenCalledTimes(3)
+    expect(imageProvider.generate).toHaveBeenCalledTimes(3)
   })
 
   it('prevents a second runner from claiming a task while its lease is active', async () => {
@@ -897,7 +1047,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
     )
   })
 
-  it('waits for a storyboard image before submitting its dependent video', async () => {
+  it('submits a storyboard video without waiting for its optional storyboard image', async () => {
     const imageProvider: ImageGenerationProvider = {
       generate: vi.fn(async () => [
         { view: 'single', contentType: 'image/png', content: Buffer.from('storyboard-image') },
@@ -964,6 +1114,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
         duration: 5,
         aspectRatio: '9:16',
         resolution: '720p',
+        videoInputMode: 'storyboard-and-assets',
         dependsOnTaskId: imageTask.id,
         images: [`/api/v1/generation/tasks/${imageTask.id}/outputs/single`],
       },
@@ -987,19 +1138,11 @@ describe('GenerationTaskRunner Seedance integration', () => {
     await runner.tick()
 
     expect(imageProvider.generate).toHaveBeenCalledOnce()
-    expect(videoProvider.submit).not.toHaveBeenCalled()
-
-    await runner.tick()
-
+    expect(videoProvider.submit).toHaveBeenCalledOnce()
     expect(videoProvider.submit).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: expect.stringContaining('不是静止图片，不是幻灯片'),
-        images: [
-          {
-            url: `data:image/png;base64,${Buffer.from('storyboard-image').toString('base64')}`,
-            role: 'reference_image',
-          },
-        ],
+        images: [],
         negativePrompt: expect.stringContaining('不要闪烁'),
         returnLastFrame: true,
       }),
@@ -1050,6 +1193,35 @@ function queuedVideoTasks(count: number): GenerationTask[] {
       status: 'queued',
       progress: 0,
       estimatedCredits: 18,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+  })
+}
+
+function queuedImageTasks(count: number): GenerationTask[] {
+  const now = new Date().toISOString()
+  return Array.from({ length: count }, (_, index) => {
+    const sequence = index + 1
+    return {
+      id: `parallel-image-${sequence}`,
+      clientRequestId: `parallel-image-client-${sequence}`,
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-creator',
+      kind: 'image',
+      label: `并发图片 ${sequence}`,
+      prompt: `第 ${sequence} 张独立图片`,
+      negativePrompt: '',
+      provider: 'img2',
+      model: 'img2-default',
+      metadata: { aspectRatio: '16:9', references: [] },
+      status: 'queued',
+      progress: 0,
+      estimatedCredits: 6,
       createdAt: now,
       updatedAt: now,
       resultUrl: null,

@@ -14,6 +14,23 @@ export const visualStyleSchema = z.enum([
   'storybook',
 ])
 
+export const projectGenerationTaskSummarySchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1).max(200),
+  kind: z.enum(['text', 'image', 'video', 'audio']),
+  status: z.enum(['queued', 'paused', 'running', 'failed']),
+  progress: z.number().int().min(0).max(100),
+  updatedAt: z.string().datetime(),
+})
+
+export const projectGenerationSummarySchema = z.object({
+  queued: z.number().int().nonnegative(),
+  paused: z.number().int().nonnegative(),
+  running: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  latest: z.array(projectGenerationTaskSummarySchema).max(3),
+})
+
 export const DEFAULT_SCRIPT_DIRECTION = {
   style: 'auto',
   composition: 'auto',
@@ -21,6 +38,13 @@ export const DEFAULT_SCRIPT_DIRECTION = {
   camera: 'auto',
   focus: 'balanced',
 } as const
+
+export const scriptProductionModeSchema = z.enum(['short-video', 'web-series'])
+export const FORCE_EPISODE_BREAK_MARKER = '【强制下一集】'
+export const FORCE_SHOT_BREAK_MARKER = '【强制分镜】'
+
+export const scriptModelSchema = z.enum(['seqora-5.6', 'seqora-op-5', 'kimi-3', 'deepseek-v3', 'qwen3.8'])
+export const DEFAULT_SCRIPT_MODEL = 'seqora-5.6' as const
 
 export const scriptCreativeDirectionSchema = z.object({
   style: z
@@ -45,18 +69,27 @@ export const generateScriptRequestSchema = z.object({
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
   mode: z.enum(['quick', 'segment']).default('quick'),
   segment: scriptGenerationSegmentSchema.default({ goal: '', targetMinutes: 5 }),
+  productionMode: scriptProductionModeSchema.default('short-video'),
+  episodeMinutes: z.number().int().min(1).max(5).default(1),
+  model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
+  revisionNote: z.string().trim().max(2_000).default(''),
 })
 
 export const enrichScriptRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().max(100_000).default(''),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+  productionMode: scriptProductionModeSchema.default('short-video'),
+  episodeMinutes: z.number().int().min(1).max(5).default(1),
+  model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
+  revisionNote: z.string().trim().max(2_000).default(''),
 })
 
 export const reviewScriptRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().max(100_000).default(''),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+  model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
 })
 
 export const scriptReviewDimensionKeySchema = z.enum([
@@ -90,6 +123,15 @@ export const scriptReviewResultSchema = scriptReviewContentSchema.extend({
 export const generateShotsRequestSchema = z.object({
   maxShots: z.number().int().min(3).max(48).default(8),
   mode: z.enum(['scene', 'beat']).default('scene'),
+  episodeDurationSeconds: z
+    .union([z.literal(30), z.literal(60), z.literal(120), z.literal(180), z.literal(240), z.literal(300)])
+    .default(60),
+})
+
+export const autoSplitShotsRequestSchema = z.object({
+  episodeDurationSeconds: z
+    .union([z.literal(30), z.literal(60), z.literal(120), z.literal(180), z.literal(240), z.literal(300)])
+    .default(60),
 })
 
 export const mediaReferenceSchema = z.object({
@@ -262,6 +304,8 @@ export const projectSchema = z.object({
   synopsis: z.string().max(1_000),
   script: z.string().max(100_000),
   version: z.number().int().positive(),
+  previewUrl: z.string().max(2_000).nullable().optional(),
+  generationSummary: projectGenerationSummarySchema.optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
@@ -376,8 +420,12 @@ export const shotSchema = z.object({
   prompt: z.string().max(5_000),
   negativePrompt: z.string().max(2_000).default(''),
   imageUrl: z.string().max(2_000).nullable(),
-  continuityMode: z.enum(['independent', 'continue']).default('independent'),
+  continuityMode: z.enum(['independent', 'continue']).default('continue'),
   continuityNote: z.string().max(2_000).default(''),
+  episodeBreakBefore: z.boolean().default(false),
+  episodeNumber: z.number().int().positive().default(1),
+  episodeTitle: z.string().max(120).default('主故事'),
+  episodeKind: z.enum(['standard', 'hook']).default('standard'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
@@ -391,6 +439,10 @@ const shotInputFields = {
   imageUrl: z.string().max(2_000).nullable(),
   continuityMode: z.enum(['independent', 'continue']),
   continuityNote: z.string().max(2_000),
+  episodeBreakBefore: z.boolean(),
+  episodeNumber: z.number().int().positive(),
+  episodeTitle: z.string().max(120),
+  episodeKind: z.enum(['standard', 'hook']),
 } as const
 
 export const createShotSchema = z.object({
@@ -400,8 +452,12 @@ export const createShotSchema = z.object({
   prompt: shotInputFields.prompt.default(''),
   negativePrompt: shotInputFields.negativePrompt.default(''),
   imageUrl: shotInputFields.imageUrl.default(null),
-  continuityMode: shotInputFields.continuityMode.default('independent'),
+  continuityMode: shotInputFields.continuityMode.default('continue'),
   continuityNote: shotInputFields.continuityNote.default(''),
+  episodeBreakBefore: shotInputFields.episodeBreakBefore.default(false),
+  episodeNumber: shotInputFields.episodeNumber.default(1),
+  episodeTitle: shotInputFields.episodeTitle.default('主故事'),
+  episodeKind: shotInputFields.episodeKind.default('standard'),
 })
 
 export const updateShotSchema = z
@@ -414,6 +470,10 @@ export const updateShotSchema = z
     imageUrl: shotInputFields.imageUrl.optional(),
     continuityMode: shotInputFields.continuityMode.optional(),
     continuityNote: shotInputFields.continuityNote.optional(),
+    episodeBreakBefore: shotInputFields.episodeBreakBefore.optional(),
+    episodeNumber: shotInputFields.episodeNumber.optional(),
+    episodeTitle: shotInputFields.episodeTitle.optional(),
+    episodeKind: shotInputFields.episodeKind.optional(),
     order: z.number().int().positive().optional(),
   })
   .refine((input) => Object.keys(input).length > 0, 'At least one field is required')
@@ -425,6 +485,7 @@ export const projectWorkspaceSchema = z.object({
 })
 
 export type Project = z.infer<typeof projectSchema>
+export type ProjectGenerationSummary = z.infer<typeof projectGenerationSummarySchema>
 export type CreateProject = z.infer<typeof createProjectSchema>
 export type UpdateProject = z.infer<typeof updateProjectSchema>
 export type Asset = z.infer<typeof assetSchema>
@@ -436,13 +497,17 @@ export type CreateShot = z.infer<typeof createShotSchema>
 export type UpdateShot = z.infer<typeof updateShotSchema>
 export type ProjectWorkspace = z.infer<typeof projectWorkspaceSchema>
 export type ScriptCreativeDirection = z.infer<typeof scriptCreativeDirectionSchema>
+export type ScriptModel = z.infer<typeof scriptModelSchema>
+export type ScriptProductionMode = z.infer<typeof scriptProductionModeSchema>
 export type GenerateScriptAssetSuggestionsRequest = z.infer<
   typeof generateScriptAssetSuggestionsRequestSchema
 >
 export type ScriptAssetSuggestion = z.infer<typeof scriptAssetSuggestionSchema>
 export type ScriptAssetSuggestionsResult = z.infer<typeof scriptAssetSuggestionsResultSchema>
 export type GenerateScriptRequest = z.infer<typeof generateScriptRequestSchema>
+export type EnrichScriptRequest = z.infer<typeof enrichScriptRequestSchema>
 export type ReviewScriptRequest = z.infer<typeof reviewScriptRequestSchema>
 export type ScriptReviewContent = z.infer<typeof scriptReviewContentSchema>
 export type ScriptReviewResult = z.infer<typeof scriptReviewResultSchema>
 export type GenerateShotsRequest = z.infer<typeof generateShotsRequestSchema>
+export type AutoSplitShotsRequest = z.infer<typeof autoSplitShotsRequestSchema>

@@ -1,4 +1,5 @@
 import {
+  autoSplitShotsRequestSchema,
   createAssetSchema,
   createProjectSchema,
   createShotSchema,
@@ -50,6 +51,14 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
       request.principal!,
     ),
   )
+  app.delete(
+    '/projects/:projectId',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
+    async (request, reply) => {
+      await service.archive(parse(projectParams, request.params).projectId, request.principal!)
+      return reply.code(204).send()
+    },
+  )
   app.post(
     '/projects/:projectId/versions',
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
@@ -82,8 +91,12 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         input.direction,
         input.mode,
         input.segment,
+        input.productionMode,
+        input.episodeMinutes,
         input.clientRequestId ?? randomUUID(),
         request.principal!,
+        input.model,
+        input.revisionNote,
       )
     },
   )
@@ -98,6 +111,7 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         input.direction,
         input.clientRequestId ?? randomUUID(),
         request.principal!,
+        input.model,
       )
     },
   )
@@ -111,8 +125,12 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         parse(projectParams, request.params).projectId,
         input.script,
         input.direction,
+        input.productionMode,
+        input.episodeMinutes,
         input.clientRequestId ?? randomUUID(),
         request.principal!,
+        input.model,
+        input.revisionNote,
       )
     },
   )
@@ -178,6 +196,16 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
       service.generateShots(
         parse(projectParams, request.params).projectId,
         parse(generateShotsRequestSchema, request.body ?? {}),
+        request.principal!,
+      ),
+  )
+  app.post(
+    '/projects/:projectId/shots/auto-episodes',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
+    (request) =>
+      service.autoSplitShotEpisodes(
+        parse(projectParams, request.params).projectId,
+        parse(autoSplitShotsRequestSchema, request.body ?? {}),
         request.principal!,
       ),
   )

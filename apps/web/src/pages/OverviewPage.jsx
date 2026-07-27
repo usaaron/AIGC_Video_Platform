@@ -2,6 +2,7 @@ import { ArrowRight, BadgeCheck, Check, Crown, LoaderCircle, Pencil, Play, Plus,
 import { useState } from 'react'
 import { normalizedVideoDuration } from '@seqora/prompting'
 import { IconButton, JobRow, PageHeader, StatusDot } from '../components/ui'
+import { getAssetPreviewUrl } from '../features/assets/assetPreview'
 import { projectRatioMode } from '../features/film/projectRatio'
 
 export function OverviewPage({
@@ -21,6 +22,10 @@ export function OverviewPage({
   const running = jobs.filter((job) => job.status === 'running')
   const totalDuration = shots.reduce((sum, shot) => sum + normalizedVideoDuration(shot.duration), 0)
   const ratioMode = projectRatioMode(project.aspectRatio)
+  const projectPreview =
+    project.previewUrl ||
+    shots.find((shot) => shot.imageUrl)?.imageUrl ||
+    assets.map(getAssetPreviewUrl).find(Boolean)
   const progress = Math.min(
     100,
     Math.round(
@@ -96,7 +101,7 @@ export function OverviewPage({
           onClick={() => setActiveStep('film')}
           aria-label="预览成片"
         >
-          <img src={shots[0]?.imageUrl || '/demo/station.jpg'} alt="项目预览" />
+          <img src={projectPreview || '/demo/station.jpg'} alt="项目预览" />
           <span className="preview-play">
             <Play size={21} fill="currentColor" />
           </span>
