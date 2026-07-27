@@ -187,7 +187,6 @@ describe('novel contracts', () => {
     expect(generateNovelChapterSummariesRequestSchema.parse({})).toMatchObject({
       batchSize: 4,
       force: false,
-      model: 'gpt-5.6',
     })
     expect(generateNovelChapterSummariesRequestSchema.parse({ batchSize: 24 }).batchSize).toBe(24)
     expect(generateNovelChapterSummariesRequestSchema.safeParse({ batchSize: 25 }).success).toBe(false)
@@ -205,7 +204,6 @@ describe('novel contracts', () => {
     expect(generateNovelBoundaryNotesRequestSchema.parse({})).toMatchObject({
       batchSize: 8,
       force: false,
-      model: 'gpt-5.6',
     })
     expect(
       novelChapterSummariesResultSchema.safeParse({
@@ -448,14 +446,8 @@ describe('novel contracts', () => {
         ],
       }).success,
     ).toBe(true)
-    expect(generateNovelStoryBibleRequestSchema.parse({})).toEqual({
-      force: false,
-      model: 'gpt-5.6',
-    })
-    expect(generateNovelAssetSuggestionsRequestSchema.parse({})).toEqual({
-      maxAssets: 12,
-      model: 'gpt-5.6',
-    })
+    expect(generateNovelStoryBibleRequestSchema.parse({})).toEqual({ force: false })
+    expect(generateNovelAssetSuggestionsRequestSchema.parse({})).toEqual({ maxAssets: 12 })
     expect(
       novelAssetSuggestionsResultSchema.safeParse({
         summary: '已从小说事实源提取核心人物和场景建议。',
@@ -504,7 +496,6 @@ describe('novel contracts', () => {
       chapterIds: ['chapter-1'],
       targetSeconds: 60,
       mode: 'scene',
-      model: 'gpt-5.6',
     })
     expect(
       generateNovelChapterAdaptationRequestSchema.safeParse({

@@ -25,77 +25,6 @@ import {
   SCRIPT_OPERATION_CREDITS,
 } from '@seqora/contracts'
 
-const DEFAULT_TEXT_MODEL = 'gpt-5.6'
-const TEXT_MODEL_OPTIONS = [
-  { value: 'gpt-5.6', label: '序幕-SEQORA 5.6' },
-  { value: 'gpt-5.5', label: '序幕-SEQORA 5.5' },
-  { value: 'gpt-5.4', label: '序幕-SEQORA 5.4' },
-  { value: 'deepseekV3', label: 'DeepSeek V3' },
-]
-
-const DIRECTION_FIELDS = [
-  {
-    key: 'style',
-    label: '视觉风格',
-    icon: Sparkles,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['photorealistic', '仿真人电影感'],
-      ['cinematic-cg', '电影级 CG'],
-      ['chinese-3d', '国漫三维'],
-      ['chinese-2d', '国漫二维'],
-      ['anime', '日系动画'],
-      ['storybook', '绘本风格'],
-    ],
-  },
-  {
-    key: 'composition',
-    label: '构图',
-    icon: Image,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['rule-of-thirds', '三分法'],
-      ['centered', '中心构图'],
-      ['symmetry', '对称构图'],
-      ['negative-space', '留白构图'],
-      ['dynamic', '动态斜线'],
-    ],
-  },
-  {
-    key: 'lighting',
-    label: '光影',
-    icon: Lightbulb,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['natural-soft', '自然柔光'],
-      ['high-contrast', '高反差硬光'],
-      ['low-key', '低调暗光'],
-      ['backlight', '逆光轮廓光'],
-      ['neon', '霓虹彩光'],
-    ],
-  },
-  {
-    key: 'camera',
-    label: '运镜',
-    icon: Camera,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['restrained', '克制稳定'],
-      ['immersive', '沉浸跟随'],
-      ['dynamic', '动态动作'],
-      ['documentary', '纪录片手持'],
-      ['suspense', '悬疑压迫'],
-    ],
-  },
-]
-
-const FOCUS_OPTIONS = [
-  ['balanced', '均衡'],
-  ['scene', '场景'],
-  ['character', '角色'],
-  ['dialogue', '对白'],
-]
-
 const INSERT_BLOCKS = [
   {
     key: 'shot',
@@ -179,10 +108,9 @@ export function ScriptPage({
   onGenerateNovelSummaries,
   onGetNovelStoryBible,
   onGenerateNovelStoryBible,
-  onGenerateNovelChapterAdaptation,
   onSuggestNovelAssets,
+  onGenerateNovelChapterAdaptation,
   onSuggestAssets,
-  onEnrich,
   onCreateAsset,
   onUpload,
   onPlanQuickStart,
@@ -288,8 +216,8 @@ export function ScriptPage({
     setAssetSuggestionResult(null)
     setAssetSuggestionError('')
     setCreatingAssetKeys(new Set())
-    setCreatedAssetKeys(cachedAssetSuggestions?.createdKeys || new Set())
-  }, [project.id, project.script])
+    setCreatedAssetKeys(new Set())
+  }, [project.id])
 
   useEffect(() => {
     setQuickStartOpen(false)
@@ -314,7 +242,6 @@ export function ScriptPage({
     try {
       setAssetSuggestionResult(await onSuggestAssets(source, direction))
       setCreatedAssetKeys(new Set())
-      saveScriptAssetSuggestionsCache(project.id, source, direction, textModel, result, [])
     } catch (suggestError) {
       setAssetSuggestionError(suggestError.message)
     } finally {
@@ -555,7 +482,7 @@ export function ScriptPage({
     setQuickStartError('')
     try {
       if (!saved && !(await save())) throw new Error('剧本保存失败')
-      setQuickStartPlan(await onPlanQuickStart(textModel))
+      setQuickStartPlan(await onPlanQuickStart())
       setQuickStartState('ready')
     } catch (quickError) {
       setQuickStartError(quickError.message)
@@ -581,7 +508,7 @@ export function ScriptPage({
         </button>
         <button
           className="button primary"
-          disabled={busy || saved || !script.trim()}
+          disabled={saving || saved || !script.trim()}
           onClick={() => void save()}
         >
           {saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
@@ -621,7 +548,6 @@ export function ScriptPage({
         <section className="script-section-panel script-novel-section" aria-label="小说上传与章节">
           <NovelImportPanel
             project={project}
-            textModel={textModel}
             disabled={busy}
             onImportNovel={onImportNovel}
             onPreviewNovelSplit={onPreviewNovelSplit}
@@ -632,10 +558,10 @@ export function ScriptPage({
             onGetNovelStoryBible={onGetNovelStoryBible}
             onGenerateNovelStoryBible={onGenerateNovelStoryBible}
             onSuggestNovelAssets={onSuggestNovelAssets}
-            aspectRatio={project.aspectRatio}
             onGenerateChapterAdaptation={onGenerateNovelChapterAdaptation}
             onCreateAsset={onCreateAsset}
             onUpload={onUpload}
+            aspectRatio={project.aspectRatio}
             onUseAdaptedScript={useAdaptedNovelScript}
           />
         </section>
@@ -871,7 +797,7 @@ export function ScriptPage({
                 <span>{count} 字</span>
                 <span>{paragraphCount} 段</span>
                 <span>约 {estimatedMinutes} 分钟</span>
-                <button disabled={busy || saved || !script.trim()} onClick={() => void save()}>
+                <button disabled={saving || saved || !script.trim()} onClick={() => void save()}>
                   {saving ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />}
                   {saving ? '保存中' : saved ? '已保存' : '保存'}
                 </button>
@@ -1056,14 +982,6 @@ export function ScriptPage({
             onInspect={openSuggestedAssetEditor}
           />
 
-          {enrichWarnings.length > 0 && (
-            <div className="script-enrich-warnings" role="status">
-              {enrichWarnings.slice(0, 3).map((warning) => (
-                <span key={warning}>{warning}</span>
-              ))}
-            </div>
-          )}
-
           {error && (
             <p className="operation-error" role="alert">
               {error}
@@ -1099,18 +1017,7 @@ export function ScriptPage({
           onClose={() => setSuggestedAssetEditor(null)}
           onSave={async (input) => {
             const created = await onCreateAsset(input)
-            setCreatedAssetKeys((current) => {
-              const next = new Set(current).add(suggestedAssetEditor.suggestionKey)
-              saveScriptAssetSuggestionsCache(
-                project.id,
-                script,
-                direction,
-                textModel,
-                assetSuggestionResult,
-                next,
-              )
-              return next
-            })
+            setCreatedAssetKeys((current) => new Set(current).add(suggestedAssetEditor.suggestionKey))
             setSuggestedAssetEditor(null)
             return created
           }}

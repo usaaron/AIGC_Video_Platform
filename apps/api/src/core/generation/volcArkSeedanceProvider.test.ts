@@ -58,41 +58,6 @@ describe('VolcArkSeedanceProvider', () => {
     expect(result).toEqual({ providerTaskId: 'cgt-test-1', status: 'queued', progress: 0 })
   })
 
-  it('maps Seedance tiers to configured provider models', async () => {
-    let capturedInit: RequestInit | undefined
-    const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) => {
-      capturedInit = init
-      return Response.json({ id: 'cgt-tier-test' })
-    }) as typeof fetch
-    const provider = new VolcArkSeedanceProvider({
-      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3/',
-      apiKey: 'test-api-key',
-      defaultModel: 'seedance-default',
-      defaultTier: 'fast',
-      tierModels: {
-        mini: 'seedance-mini-model',
-        fast: 'seedance-fast-model',
-        pro: 'seedance-pro-model',
-      },
-      requestTimeoutMs: 30_000,
-      fetcher,
-    })
-
-    await provider.submit({
-      taskId: 'tier-task',
-      model: null,
-      tier: 'pro',
-      prompt: 'test prompt',
-      seconds: 5,
-      ratio: '16:9',
-      resolution: '720p',
-      images: [],
-      generateAudio: false,
-    })
-
-    expect(JSON.parse(String(capturedInit?.body)).model).toBe('seedance-pro-model')
-  })
-
   it('supports text-only video generation without a storyboard image', async () => {
     let capturedInit: RequestInit | undefined
     const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) => {

@@ -1,22 +1,11 @@
 import { VolcArkSeedanceProvider, type VolcArkSeedanceOptions } from './volcArkSeedanceProvider.js'
-import type {
-  VideoGenerationRequest,
-  VideoGenerationSubmission,
-  VideoImageReference,
-} from './videoProvider.js'
+import type { VideoGenerationRequest, VideoGenerationSubmission } from './videoProvider.js'
 
 export type StringXSeedanceOptions = Omit<VolcArkSeedanceOptions, 'providerLabel'>
 
 export class StringXSeedanceProvider extends VolcArkSeedanceProvider {
   constructor(options: StringXSeedanceOptions) {
     super({ ...options, providerLabel: '弦序' })
-  }
-
-  protected override imageContentPart(image: VideoImageReference): Record<string, unknown> {
-    return {
-      type: 'image_url',
-      image_url: { url: image.url },
-    }
   }
 
   override submit(request: VideoGenerationRequest): Promise<VideoGenerationSubmission> {

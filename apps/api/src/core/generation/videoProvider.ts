@@ -1,12 +1,10 @@
 import type { Readable } from 'node:stream'
 
-export type VideoProviderName = 'stringx-seedance' | 'volc-ark-seedance'
-export type VideoGenerationTier = 'mini' | 'fast' | 'pro'
+export type VideoProviderName = 'stringx-seedance' | 'aideos-seedance' | 'volc-ark-seedance'
 
 export type VideoGenerationRequest = {
   taskId: string
   model: string | null
-  tier?: VideoGenerationTier | null
   prompt: string
   negativePrompt?: string
   seconds: number

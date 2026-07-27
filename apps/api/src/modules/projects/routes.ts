@@ -8,6 +8,7 @@ import {
   generateScriptRequestSchema,
   generateShotsRequestSchema,
   PERMISSIONS,
+  reviewScriptRequestSchema,
   updateAssetSchema,
   updateProjectSchema,
   updateShotSchema,
@@ -76,7 +77,6 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         input.script,
         input.direction,
         request.principal!,
-        input.model,
       )
     },
   )

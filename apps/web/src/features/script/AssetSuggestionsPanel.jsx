@@ -178,18 +178,13 @@ export function assetSuggestionKey(asset) {
 function buildSuggestionFacts(asset) {
   const attributes = asset.attributes || {}
   if (asset.kind === 'character') {
-    if (attributes.subjectType === 'animal') {
-      return [
-        { label: '类型', value: '动物角色' },
-        { label: '物种', value: attributes.species || asset.name || '未指定' },
-        { label: '形态', value: attributes.anthropomorphic ? '拟人化' : '自然动物' },
-        { label: '身份', value: asset.description || asset.reason || '未补充' },
-      ]
-    }
     return [
       {
         label: '性别',
-        value: optionLabel('gender', attributes.gender || 'unspecified'),
+        value:
+          attributes.subjectType === 'animal'
+            ? '动物'
+            : optionLabel('gender', attributes.gender || 'unspecified'),
       },
       { label: '年龄段', value: optionLabel('ageGroup', attributes.ageGroup || 'young') },
       { label: '精确年龄', value: attributes.exactAge ? String(attributes.exactAge) : '未指定' },

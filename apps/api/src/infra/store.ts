@@ -16,8 +16,7 @@ import type {
   Shot,
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, open as openFile, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { hashPassword } from '../core/auth/password.js'
 import { normalizeGenerationTaskLifecycle } from '../core/jobs/taskLease.js'
@@ -99,15 +98,12 @@ const developmentBootstrapUsers: BootstrapUsers = {
 export class AppStore {
   private state!: AppState
   private writeQueue = Promise.resolve()
-  private readonly lockPath: string | null
 
   constructor(
     private readonly filePath: string | null,
     private readonly bootstrapUsers: BootstrapUsers = developmentBootstrapUsers,
     private readonly bootstrapDemoWorkspace = true,
-  ) {
-    this.lockPath = filePath ? `${filePath}.lock` : null
-  }
+  ) {}
 
   async initialize(): Promise<void> {
     if (this.filePath) {
@@ -127,7 +123,6 @@ export class AppStore {
   }
 
   read<T>(reader: (state: Readonly<AppState>) => T): T {
-    this.reloadFromDiskSync()
     return structuredClone(reader(this.state))
   }
 
@@ -142,17 +137,14 @@ export class AppStore {
   private async runWrite<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
     let result!: T
     const operation = this.writeQueue.then(async () => {
-      await this.withWriteLock(async () => {
-        await this.reloadFromDisk()
-        const snapshot = structuredClone(this.state)
-        try {
-          result = await mutator(this.state)
-          await this.persist()
-        } catch (error) {
-          this.state = snapshot
-          throw error
-        }
-      })
+      const snapshot = structuredClone(this.state)
+      try {
+        result = await mutator(this.state)
+        await this.persist()
+      } catch (error) {
+        this.state = snapshot
+        throw error
+      }
     })
     this.writeQueue = operation.then(
       () => undefined,
@@ -172,63 +164,6 @@ export class AppStore {
     } finally {
       await rm(temporary, { force: true }).catch(() => {})
     }
-  }
-
-  private async reloadFromDisk(): Promise<void> {
-    if (!this.filePath) return
-    try {
-      this.state = removeLegacyDemoCharacters(
-        normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>),
-      )
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-  }
-
-  private reloadFromDiskSync(): void {
-    if (!this.filePath || !existsSync(this.filePath)) return
-    this.state = removeLegacyDemoCharacters(
-      normalizeState(JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppState>),
-    )
-  }
-
-  private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
-    if (!this.lockPath) return operation()
-    const handle = await acquireFileLock(this.lockPath)
-    try {
-      return await operation()
-    } finally {
-      await handle.close().catch(() => {})
-      await rm(this.lockPath, { force: true }).catch(() => {})
-    }
-  }
-}
-
-async function acquireFileLock(lockPath: string) {
-  for (let attempt = 0; attempt < 400; attempt += 1) {
-    try {
-      const handle = await openFile(lockPath, 'wx')
-      await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: Date.now() }))
-      return handle
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      await removeStaleLock(lockPath)
-      await new Promise((resolve) => setTimeout(resolve, Math.min(25 + attempt * 5, 250)))
-    }
-  }
-  throw new Error(`Timed out waiting for app store lock: ${lockPath}`)
-}
-
-async function removeStaleLock(lockPath: string): Promise<void> {
-  const raw = await readFile(lockPath, 'utf8').catch(() => '')
-  let createdAt = Number.NaN
-  try {
-    createdAt = Number(JSON.parse(raw || '{}').createdAt)
-  } catch {
-    createdAt = Number.NaN
-  }
-  if (Number.isFinite(createdAt) && Date.now() - createdAt > 120_000) {
-    await rm(lockPath, { force: true }).catch(() => {})
   }
 }
 

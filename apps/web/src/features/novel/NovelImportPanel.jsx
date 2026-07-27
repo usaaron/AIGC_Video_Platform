@@ -21,10 +21,9 @@ import {
 } from '@seqora/contracts'
 import { NovelDevelopmentPanel } from './NovelDevelopmentPanel'
 import { decodeNovelFileText } from './textFileEncoding'
-import { restoreActiveNovelDocumentId, saveActiveNovelDocumentId } from './novelWorkflowCache'
 
 const MAX_CLIENT_FILE_LABEL = '5.66MB'
-const INITIAL_VISIBLE_CHAPTERS = 4
+const INITIAL_VISIBLE_CHAPTERS = 3
 const CHAPTER_PREVIEW_COLLAPSED_CHARS = 220
 const ADAPTATION_TARGET_SECONDS_OPTIONS = [30, 60, 90, 120, 180]
 const ADAPTATION_MODE_OPTIONS = [
@@ -40,9 +39,8 @@ const SPLIT_MODE_LABELS = {
 
 export function NovelImportPanel({
   project,
-  textModel = 'gpt-5.6',
-  disabled,
   aspectRatio,
+  disabled,
   onImportNovel,
   onPreviewNovelSplit,
   onListNovels,
@@ -113,27 +111,16 @@ export function NovelImportPanel({
     setAdaptationError('')
     setError('')
     setStatus('loading-documents')
-    const loadDocuments = async () => {
-      try {
-        const nextDocuments = await onListNovels()
-        if (cancelled) return
-        setDocuments(nextDocuments)
-        const activeDocumentId = restoreActiveNovelDocumentId(project.id)
-        if (activeDocumentId && nextDocuments.some((document) => document.id === activeDocumentId)) {
-          const activeDocument = await onGetNovel(activeDocumentId)
-          if (cancelled) return
-          setResult(activeDocument)
-          setVisibleChapterCount(INITIAL_VISIBLE_CHAPTERS)
-          setExpandedChapterIds(new Set())
-          setChapterBrowserOpen(false)
-        }
-      } catch (loadError) {
+    onListNovels()
+      .then((nextDocuments) => {
+        if (!cancelled) setDocuments(nextDocuments)
+      })
+      .catch((loadError) => {
         if (!cancelled) setError(loadError.message)
-      } finally {
+      })
+      .finally(() => {
         if (!cancelled) setStatus('idle')
-      }
-    }
-    void loadDocuments()
+      })
     return () => {
       cancelled = true
     }
@@ -247,7 +234,6 @@ export function NovelImportPanel({
         imported.document,
         ...current.filter((document) => document.id !== imported.document.id),
       ])
-      saveActiveNovelDocumentId(project.id, imported.document.id)
     } catch (importError) {
       setError(importError.message)
     } finally {
@@ -259,9 +245,7 @@ export function NovelImportPanel({
     setStatus('loading-documents')
     setError('')
     try {
-      const nextResult = await onGetNovel(documentId)
-      setResult(nextResult)
-      saveActiveNovelDocumentId(project.id, documentId)
+      setResult(await onGetNovel(documentId))
       setVisibleChapterCount(INITIAL_VISIBLE_CHAPTERS)
       setExpandedChapterIds(new Set())
       setChapterBrowserOpen(false)
@@ -342,7 +326,6 @@ export function NovelImportPanel({
         chapterIds: selectedChapters.map((chapter) => chapter.id),
         targetSeconds: adaptationTargetSeconds,
         mode: adaptationMode,
-        model: textModel,
       })
       setAdaptationResult(adaptation)
     } catch (adaptError) {
@@ -771,12 +754,7 @@ export function NovelImportPanel({
           </small>
         ) : documents.length ? (
           documents.slice(0, 4).map((document) => (
-            <button
-              key={document.id}
-              type="button"
-              className={result?.document.id === document.id ? 'active' : ''}
-              onClick={() => void handleViewDocument(document.id)}
-            >
+            <button key={document.id} type="button" onClick={() => void handleViewDocument(document.id)}>
               {document.name} · {document.chapterCount} 章
             </button>
           ))
@@ -794,7 +772,6 @@ export function NovelImportPanel({
       {result && (
         <NovelDevelopmentPanel
           document={result.document}
-          textModel={textModel}
           disabled={disabled}
           onGetSummaries={onGetNovelSummaries}
           onGenerateSummaries={onGenerateNovelSummaries}

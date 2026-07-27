@@ -355,7 +355,6 @@ function buildQueuedGenerationTask(
     negativePrompt: input.negativePrompt ?? '',
     provider: input.provider,
     model: input.model ?? null,
-    tier: input.tier ?? null,
     metadata: input.metadata ?? {},
     status: 'queued',
     progress: 0,

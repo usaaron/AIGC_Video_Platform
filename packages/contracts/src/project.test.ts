@@ -117,18 +117,14 @@ describe('script workflow contracts', () => {
       generateScriptAssetSuggestionsRequestSchema.parse({ script: 'scene: river crossing' }),
     ).toMatchObject({
       script: 'scene: river crossing',
-      model: 'gpt-5.6',
       direction: expect.objectContaining({ style: 'auto' }),
     })
-    expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
-      model: 'gpt-5.6',
-      direction: {
-        style: 'auto',
-        composition: 'auto',
-        lighting: 'auto',
-        camera: 'auto',
-        focus: 'balanced',
-      },
+    expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' }).direction).toMatchObject({
+      style: 'auto',
+      composition: 'auto',
+      lighting: 'auto',
+      camera: 'auto',
+      focus: 'balanced',
     })
     expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
       model: 'seqora-5.6',
@@ -164,6 +160,21 @@ describe('script workflow contracts', () => {
       scriptAssetSuggestionsResultSchema.safeParse({
         summary: 'Suggestions',
         assets: [],
+        generatedAt: new Date().toISOString(),
+      }).success,
+    ).toBe(true)
+  })
+
+  it('validates structured professional review results', () => {
+    const dimensions = ['plot', 'character', 'dialogue', 'style', 'composition', 'lighting', 'camera'].map(
+      (key) => ({ key, score: 80, finding: 'clear issue', suggestion: 'provide a concrete fix' }),
+    )
+    expect(
+      scriptReviewResultSchema.safeParse({
+        score: 80,
+        verdict: 'production ready',
+        dimensions,
+        priorityActions: ['strengthen character goal'],
         generatedAt: new Date().toISOString(),
       }).success,
     ).toBe(true)

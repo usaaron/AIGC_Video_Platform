@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 export const generationKindSchema = z.enum(['text', 'image', 'video', 'audio'])
-export const seedanceTierSchema = z.enum(['mini', 'fast', 'pro'])
 export const generationTaskStatusSchema = z.enum([
   'queued',
   'paused',
@@ -27,7 +26,6 @@ export const createGenerationTaskSchema = z.object({
   negativePrompt: z.string().max(5_000).optional(),
   provider: z.string().min(1).max(64).default('local'),
   model: z.string().min(1).max(128).optional(),
-  tier: seedanceTierSchema.optional(),
   estimatedCredits: z.number().int().positive().max(100_000),
   maxAttempts: z.number().int().min(1).max(10).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
@@ -45,7 +43,6 @@ export const generationTaskSchema = z.object({
   negativePrompt: z.string().max(5_000),
   provider: z.string().min(1).max(64),
   model: z.string().max(128).nullable(),
-  tier: seedanceTierSchema.nullable().optional(),
   metadata: z.record(z.string(), z.unknown()),
   status: generationTaskStatusSchema,
   progress: z.number().int().min(0).max(100),
@@ -66,4 +63,3 @@ export const generationTaskSchema = z.object({
 
 export type CreateGenerationTask = z.infer<typeof createGenerationTaskSchema>
 export type GenerationTask = z.infer<typeof generationTaskSchema>
-export type SeedanceTier = z.infer<typeof seedanceTierSchema>

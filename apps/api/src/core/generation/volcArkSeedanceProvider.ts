@@ -4,8 +4,6 @@ import type {
   VideoContent,
   VideoGenerationProvider,
   VideoGenerationRequest,
-  VideoGenerationTier,
-  VideoImageReference,
   VideoGenerationStatus,
   VideoGenerationSubmission,
 } from './videoProvider.js'
@@ -36,8 +34,6 @@ export type VolcArkSeedanceOptions = {
   baseUrl: string
   apiKey: string
   defaultModel: string
-  defaultTier?: VideoGenerationTier
-  tierModels?: Partial<Record<VideoGenerationTier, string>>
   requestTimeoutMs: number
   providerLabel?: string
   fetcher?: Fetcher
@@ -72,10 +68,14 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
     const response = await this.requestJson('/contents/generations/tasks', {
       method: 'POST',
       body: JSON.stringify({
-        model: this.resolveModel(request.model, request.tier),
+        model: this.resolveModel(request.model),
         content: [
           { type: 'text', text: effectivePrompt },
-          ...images.slice(0, 9).map((image) => this.imageContentPart(image)),
+          ...images.slice(0, 9).map((image) => ({
+            type: 'image_url',
+            image_url: { url: image.url },
+            role: image.role,
+          })),
         ],
         generate_audio: request.generateAudio,
         clientRequestId: request.taskId,
@@ -90,14 +90,6 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
     })
     const parsed = createTaskResponseSchema.parse(response)
     return { providerTaskId: parsed.id, status: 'queued', progress: 0 }
-  }
-
-  protected imageContentPart(image: VideoImageReference): Record<string, unknown> {
-    return {
-      type: 'image_url',
-      image_url: { url: image.url },
-      role: image.role,
-    }
   }
 
   async getStatus(providerTaskId: string): Promise<VideoGenerationStatus> {
@@ -217,19 +209,8 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
     return taskResponseSchema.parse(response)
   }
 
-  private resolveModel(model: string | null, tier?: VideoGenerationTier | null): string {
-    const normalizedTier = normalizeTier(tier)
-    if (normalizedTier) return this.options.tierModels?.[normalizedTier] ?? this.options.defaultModel
-    const normalizedModel = model?.trim()
-    if (!normalizedModel) {
-      const fallbackTier = this.options.defaultTier ?? 'fast'
-      return this.options.tierModels?.[fallbackTier] ?? this.options.defaultModel
-    }
-    const parsedTier = normalizeTier(normalizedModel)
-    if (parsedTier) return this.options.tierModels?.[parsedTier] ?? this.options.defaultModel
-    return normalizedModel.startsWith('doubao-seedance-') || normalizedModel.startsWith('seedance-')
-      ? normalizedModel
-      : this.options.defaultModel
+  private resolveModel(model: string | null): string {
+    return model?.startsWith('doubao-seedance-') ? model : this.options.defaultModel
   }
 
   private async requestJson(path: string, init: RequestInit): Promise<unknown> {
@@ -269,15 +250,6 @@ function statusMessage(status: string): string {
   if (status === 'cancelled' || status === 'canceled') return '方舟视频任务已取消'
   if (status === 'expired') return '方舟视频任务已超时'
   return '方舟视频生成失败'
-}
-
-function normalizeTier(value: string | null | undefined): VideoGenerationTier | null {
-  const normalized = value?.trim().toLowerCase()
-  if (!normalized) return null
-  if (normalized === 'mini' || normalized.endsWith('-mini')) return 'mini'
-  if (normalized === 'fast' || normalized.endsWith('-fast')) return 'fast'
-  if (normalized === 'pro' || normalized.endsWith('-pro')) return 'pro'
-  return null
 }
 
 function secureContentUrl(value: string): string {

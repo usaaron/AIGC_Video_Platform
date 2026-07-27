@@ -50,7 +50,7 @@ export function CharacterWorkflow({
   const [closingStage, setClosingStage] = useState(null)
   const [preview, setPreview] = useState(null)
   const relatedTasks = assetId ? tasks.filter((task) => task.metadata?.assetId === assetId) : []
-  const taskFor = (targetStage) => latestStageTask(relatedTasks, targetStage)
+  const taskFor = (targetStage) => relatedTasks.find((task) => task.metadata?.generationStage === targetStage)
   const faceTask = taskFor('face')
   const bodyTask = taskFor('body')
   const turnaroundTask = taskFor('turnaround')
@@ -177,6 +177,7 @@ export function CharacterWorkflow({
           }
           task={faceTask}
           reference={facePreview}
+          showTaskState={false}
           onPreview={(reference) =>
             setPreview({
               url: reference.url,
@@ -775,7 +776,6 @@ function TaskState({ task }) {
       )}
       <span>{label}</span>
       {running && typeof task.progress === 'number' && <b>{task.progress}%</b>}
-      {failed && task.error && <small>{readableTaskError(task.error)}</small>}
     </div>
   )
 }
@@ -835,33 +835,6 @@ function registrationAvailabilityHint(configuration, faceStatus) {
 
 function isActive(task) {
   return task?.status === 'queued' || task?.status === 'paused' || task?.status === 'running'
-}
-
-function latestStageTask(tasks, stage) {
-  return (
-    tasks
-      .filter(
-        (task) =>
-          task.metadata?.generationStage === stage && typeof task.metadata?.queueHiddenAt !== 'string',
-      )
-      .sort((left, right) => taskTime(right) - taskTime(left))[0] || null
-  )
-}
-
-function taskTime(task) {
-  const value = Date.parse(task.updatedAt || task.createdAt || '')
-  return Number.isFinite(value) ? value : 0
-}
-
-function readableTaskError(error) {
-  if (!error) return ''
-  if (/aborted due to timeout|timed out|timeout/i.test(error)) {
-    return '第三方图片生成请求超时，本次图片没有生成成功；请稍后重试'
-  }
-  if (/524:\s*A timeout occurred/i.test(error) || /TokenAdvent 图片请求失败 \(524\)/.test(error)) {
-    return '上游图片服务超时（524），本次图片没有生成成功；请稍后重试'
-  }
-  return error
 }
 
 function trustedLibraryStatus(status) {

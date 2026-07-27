@@ -3,16 +3,12 @@ import { BookMarked, Eye, LoaderCircle, RefreshCw, ScrollText, Sparkles, X } fro
 import { NOVEL_OPERATION_CREDITS } from '@seqora/contracts'
 import { AssetEditor } from '../assets/AssetEditor'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../script/AssetSuggestionsPanel'
-import { restoreNovelDevelopmentCache, saveNovelDevelopmentCache } from './novelWorkflowCache'
 import { formatStoryOverviewText } from './storyOverviewText'
 
 const SUMMARY_BATCH_OPTIONS = [1, 4, 8, 12, 16, 24]
-const SUMMARY_PREVIEW_COUNT = 4
-const ENABLE_NOVEL_ASSET_SUGGESTIONS = false
 
 export function NovelDevelopmentPanel({
   document,
-  textModel = 'gpt-5.6',
   disabled,
   onGetSummaries,
   onGenerateSummaries,
@@ -43,17 +39,9 @@ export function NovelDevelopmentPanel({
   const missingSummaryCount = summariesResult?.missingSummaryCount ?? document.chapterCount
   const summaryCompleted = summariesResult?.completed ?? false
   const storyBible = storyBibleResult?.storyBible ?? null
-  const assetSuggestionEmptyText = !summaryCount
-    ? '先生成至少一批章节概要，系统才有事实源可提取资产。'
-    : storyBible
-      ? '已具备章节概要和故事概要，点击按钮提取需要保持一致的角色、场景、道具和服装建议。'
-      : '已有章节概要，可以先生成基础资产建议；生成故事概要后，角色、场景、道具和服装建议会更准确。'
 
   useEffect(() => {
     let cancelled = false
-    const cached = restoreNovelDevelopmentCache(document.id)
-    setSummariesResult(cached?.summariesResult ?? null)
-    setStoryBibleResult(cached?.storyBibleResult ?? null)
     setStatus('loading')
     setError('')
     setSummaryBrowserOpen(false)
@@ -67,10 +55,6 @@ export function NovelDevelopmentPanel({
         if (cancelled) return
         setSummariesResult(nextSummaries)
         setStoryBibleResult(nextStoryBible)
-        saveNovelDevelopmentCache(document.id, {
-          summariesResult: nextSummaries,
-          storyBibleResult: nextStoryBible,
-        })
       })
       .catch((loadError) => {
         if (!cancelled) setError(loadError.message)
@@ -90,21 +74,17 @@ export function NovelDevelopmentPanel({
       const result = await onGenerateSummaries(document.id, {
         clientRequestId: crypto.randomUUID(),
         batchSize: summaryBatchSize,
-        model: textModel,
       })
-      const nextStoryBibleResult = storyBibleResult
-        ? {
-            ...storyBibleResult,
-            summaryCount: result.summaries.length,
-            missingSummaryCount: Math.max(0, result.document.chapterCount - result.summaries.length),
-          }
-        : storyBibleResult
       setSummariesResult(result)
-      setStoryBibleResult(nextStoryBibleResult)
-      saveNovelDevelopmentCache(document.id, {
-        summariesResult: result,
-        storyBibleResult: nextStoryBibleResult,
-      })
+      setStoryBibleResult((current) =>
+        current
+          ? {
+              ...current,
+              summaryCount: result.summaries.length,
+              missingSummaryCount: Math.max(0, result.document.chapterCount - result.summaries.length),
+            }
+          : current,
+      )
       resetAssetSuggestions()
     } catch (summaryError) {
       setError(summaryError.message)
@@ -120,18 +100,12 @@ export function NovelDevelopmentPanel({
       const result = await onGenerateStoryBible(document.id, {
         clientRequestId: crypto.randomUUID(),
         force,
-        model: textModel,
       })
-      const nextStoryBibleResult = {
+      setStoryBibleResult({
         storyBible: result.storyBible,
         summaryCount,
         chapterCount: document.chapterCount,
         missingSummaryCount: result.missingSummaryCount,
-      }
-      setStoryBibleResult(nextStoryBibleResult)
-      saveNovelDevelopmentCache(document.id, {
-        summariesResult,
-        storyBibleResult: nextStoryBibleResult,
       })
       resetAssetSuggestions()
     } catch (storyError) {
@@ -149,7 +123,6 @@ export function NovelDevelopmentPanel({
       const result = await onSuggestAssets(document.id, {
         clientRequestId: crypto.randomUUID(),
         maxAssets: 12,
-        model: textModel,
       })
       setAssetSuggestionResult(result)
       setCreatedAssetKeys(new Set())
@@ -254,7 +227,7 @@ export function NovelDevelopmentPanel({
       {summariesResult?.summaries.length > 0 && (
         <>
           <div className="novel-summary-list">
-            {summariesResult.summaries.slice(0, SUMMARY_PREVIEW_COUNT).map((summary) => (
+            {summariesResult.summaries.slice(0, 3).map((summary) => (
               <article key={summary.id}>
                 <strong>
                   {String(summary.order).padStart(2, '0')} · {summary.title}
@@ -267,12 +240,29 @@ export function NovelDevelopmentPanel({
               </article>
             ))}
           </div>
-          {summariesResult.summaries.length > SUMMARY_PREVIEW_COUNT && (
+          {summariesResult.summaries.length > 3 && (
             <button type="button" className="novel-result-more" onClick={() => setSummaryBrowserOpen(true)}>
               <Eye size={14} /> 查看全部 {summariesResult.summaries.length} 章概要
             </button>
           )}
         </>
+      )}
+
+      {suggestedAssetEditor && (
+        <AssetEditor
+          key={suggestedAssetEditor.editorKey}
+          asset={suggestedAssetEditor}
+          aspectRatio={aspectRatio}
+          tasks={[]}
+          onUpload={onUpload}
+          onClose={() => setSuggestedAssetEditor(null)}
+          onSave={async (input) => {
+            const created = await onCreateAsset(input)
+            setCreatedAssetKeys((current) => new Set(current).add(suggestedAssetEditor.suggestionKey))
+            setSuggestedAssetEditor(null)
+            return created
+          }}
+        />
       )}
 
       {summaryBrowserOpen && summariesResult?.summaries.length > 0 && (
@@ -283,8 +273,7 @@ export function NovelDevelopmentPanel({
                 <span className="eyebrow">全部章节概要</span>
                 <h3>{document.name}</h3>
                 <p>
-                  共 {summariesResult.summaries.length} 章概要 · 页面仅保留前 {SUMMARY_PREVIEW_COUNT}{' '}
-                  个卡片，完整内容在这里浏览
+                  共 {summariesResult.summaries.length} 章概要 · 页面仅保留前 3 个卡片，完整内容在这里浏览
                 </p>
               </div>
               <button
@@ -330,23 +319,6 @@ export function NovelDevelopmentPanel({
         </div>
       )}
 
-      {ENABLE_NOVEL_ASSET_SUGGESTIONS && suggestedAssetEditor && (
-        <AssetEditor
-          key={suggestedAssetEditor.editorKey}
-          asset={suggestedAssetEditor}
-          aspectRatio={aspectRatio}
-          tasks={[]}
-          onUpload={onUpload}
-          onClose={() => setSuggestedAssetEditor(null)}
-          onSave={async (input) => {
-            const created = await onCreateAsset(input)
-            setCreatedAssetKeys((current) => new Set(current).add(suggestedAssetEditor.suggestionKey))
-            setSuggestedAssetEditor(null)
-            return created
-          }}
-        />
-      )}
-
       {storyBible && (
         <div className="novel-story-bible-card">
           <div>
@@ -371,25 +343,23 @@ export function NovelDevelopmentPanel({
         </div>
       )}
 
-      {ENABLE_NOVEL_ASSET_SUGGESTIONS && (
-        <AssetSuggestionsPanel
-          status={assetSuggestionStatus}
-          result={assetSuggestionResult}
-          error={assetSuggestionError}
-          creatingKeys={creatingAssetKeys}
-          createdKeys={createdAssetKeys}
-          disabled={disabled || isLoading || !summaryCount || !onSuggestAssets || !onCreateAsset}
-          onRefresh={() => void handleSuggestAssets()}
-          onInspect={openSuggestedAssetEditor}
-          copy={{
-            eyebrow: '小说资产建议',
-            title: '根据章节概要、故事概要和世界观提取资产',
-            refresh: assetSuggestionResult ? '重新生成小说资产建议' : '根据小说事实源生成资产建议',
-            loading: '正在从小说事实源提取核心资产',
-            empty: assetSuggestionEmptyText,
-          }}
-        />
-      )}
+      <AssetSuggestionsPanel
+        status={assetSuggestionStatus}
+        result={assetSuggestionResult}
+        error={assetSuggestionError}
+        creatingKeys={creatingAssetKeys}
+        createdKeys={createdAssetKeys}
+        disabled={disabled || isLoading || !summaryCount || !onSuggestAssets || !onCreateAsset}
+        onRefresh={() => void handleSuggestAssets()}
+        onInspect={openSuggestedAssetEditor}
+        copy={{
+          eyebrow: '小说资产建议',
+          title: '根据章节概要、故事概要和世界观提取资产',
+          refresh: assetSuggestionResult ? '重新生成小说资产建议' : '根据小说事实源生成资产建议',
+          loading: '正在从小说事实源提取核心资产',
+          empty: '先完成章节概要；生成故事概要后，角色、场景、道具和服装建议会更准确。',
+        }}
+      />
 
       {error && (
         <p className="operation-error novel-import-error" role="alert">

@@ -29,7 +29,7 @@ Seedance 2.0 不允许把任意含真人人脸的公网图片或 Base64 直接�
 
 真人素材建议使用清晰正面图。全身参考图为竖版、人物全身正面；人脸特写图为竖版、正面无表情、肩部以上且面部约占画面三分之二。图片支持 JPEG/JPG/PNG/WebP/GIF/HEIC，小于 30MB，宽高比在 `(0.4, 2.5)`，边长在 300 到 6000px。一个真人素材组只能保存同一演员的不同妆造；每次补充素材都会做人脸一致性校验。
 
-视频和可信素材全走弦序，但使用两个弦序入口和两种凭证：Seedance 视频接口 `https://maas.stringx.top/api/v3` 使用 `sk-` Bearer Token，MaaS 素材库 `https://maas-ark.stringx.top` 使用一对 Access Key/Secret Key + 火山 SigV4。两类弦序凭证必须属于同一租户/项目，素材的 `ProjectName` 当前默认 `default`。服务端变量：
+视频和可信素材全走弦序，但使用两个弦序入口和两种凭证：Seedance 视频接口 `https://maas.stringx.top/api/v3` 使用 `sk-` Bearer Token，MaaS 素材库 `https://maas-ark.stringx.top` 使用一对 Access Key/Secret Key + 火山 SigV4。Aideos 是独立第三方中转，只保留为显式回滚选项，不属于弦序。两类弦序凭证必须属于同一租户/项目，素材的 `ProjectName` 当前默认 `default`。服务端变量：
 
 ```dotenv
 PUBLIC_API_BASE_URL=https://studio.example.com
@@ -122,7 +122,7 @@ Content-Type: multipart/form-data
 
 ## 剧本生成
 
-`POST /api/v1/projects/:projectId/script/generate` 默认使用 GPT `5.6`；页面也允许用户为单次中文文本任务选择 GPT `5.4`、`5.5` 或 DeepSeek V3 作为备选。接口接收当前草稿或项目梗概、已确认资产和视觉方向，一次逻辑调用输出适合 15 到 30 秒视频的 4 到 6 个场景、基础动作和对白，目标约 800 到 1600 个中文字符，最大输出为 `2400` tokens。快速生成不会因为格式或篇幅不足而自动进行第二次完整重写；服务端会返回 `warnings`，用户可以继续编辑或主动补齐专业细节。Provider 的自动重试仅用于瞬时连接故障，不属于内容修订。默认文本模型由 `TEXT_MODEL=gpt-5.6` 配置。
+`POST /api/v1/projects/:projectId/script/generate` 使用 `TokenAdventTextProvider` 调用 `/v1/chat/completions`，现在默认是快速剧本模式。接口接收当前草稿或项目梗概、已确认资产和视觉方向，一次逻辑调用输出适合 15 到 30 秒视频的 4 到 6 个场景、基础动作和对白，目标约 800 到 1600 个中文字符，最大输出为 `2400` tokens。快速生成不会因为格式或篇幅不足而自动进行第二次完整重写；服务端会返回 `warnings`，用户可以继续编辑或主动补齐专业细节。Provider 的自动重试仅用于瞬时连接故障，不属于内容修订。文本模型由 `TEXT_MODEL` 配置。
 
 `POST /api/v1/projects/:projectId/script/enrich` 是用户主动触发的专业视觉细节补齐接口。它保留快速剧本的场景数量、人物、剧情因果和对白，补充风格、构图、光影、运镜和衔接，最大输出为 `4000` tokens；本次调用也只进行一次逻辑生成，返回 `mode: detailed` 和可能的 `warnings`。生成后前端提供“补齐专业视觉细节”按钮，避免用户每次只想快速起稿时都等待完整制作级剧本。
 
@@ -144,9 +144,7 @@ Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默�
 - `GET https://maas.stringx.top/api/v3/contents/generations/tasks/:taskId`：查询任务状态并取得 `video_url/last_frame_url`
 - `POST https://maas.stringx.top/api/v3/contents/generations/tasks/:taskId/cancel`：取消远端任务
 
-视频任务保存 `tier: mini | fast | pro`，默认由前端传 `fast`。`StringXSeedanceProvider` 根据 `STRINGX_SEEDANCE_MINI_MODEL`、`STRINGX_SEEDANCE_FAST_MODEL`、`STRINGX_SEEDANCE_PRO_MODEL` 把 tier 映射为真实 Seedance 模型；没有传 tier 时使用 `STRINGX_SEEDANCE_DEFAULT_TIER`。不要在前端硬编码真实模型名。
-
-官方火山 Provider 仍保留在服务端，可通过 `VIDEO_PROVIDER=volc-ark` 显式启用，只作为回滚通道。弦序任务记录 `providerName=stringx-seedance`，便于审计真实提交路径。
+Aideos 和官方火山 Provider 仍保留在服务端，分别通过 `VIDEO_PROVIDER=aideos` 和 `VIDEO_PROVIDER=volc-ark` 显式启用，只作为回滚通道。弦序任务记录 `providerName=stringx-seedance`，便于审计真实提交路径。
 
 分镜页会根据镜头标题和提示词，从已生成的人物、场景、物品和服装中选择最多三项相关资产。人物优先使用已确认全身基准，选择结果写入图片任务的 `references`，并写入图片和视频任务的 `referenceAssetIds`。旧分镜图没有当前资产标记时会显示“需同步资产”，生成视频时忽略这类旧图，直接使用当前资产。
 
@@ -165,15 +163,15 @@ Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默�
 
 资产图片和分镜视频的负面提示词不是只在前端展示。Worker 在真正调用 Provider 前通过共享包 `packages/prompting/src/qualityRuleCompiler.ts` 编译，当前版本为 `quality-floor-v1`，并把以下审计字段保存到任务：`qualityRuleVersion`、`qualityPresetIds`、`compiledNegativePrompt`、`userNegativePrompt`。
 
-规则按条件启用：视频通用稳定性、仿真人拍摄设备和背景穿帮、人物五官与手部、场景结构与空场景人物排除、广告产品展示，以及用户自定义负面提示词。动漫/国漫不会误加“禁止动漫”，雾景不会误加“禁止烟雾”，广告允许用户指定的品牌标识。视频 Provider 使用服务端编译后的质量约束；图片 Provider 直接使用 `negativePrompt` 字段。规则用于抬高质量下限，不保证每次生成无瑕，仍需人工验收和必要的重试。
+规则按条件启用：视频通用稳定性、仿真人拍摄设备和背景穿帮、人物五官与手部、场景结构与空场景人物排除、广告产品展示，以及用户自定义负面提示词。动漫/国漫不会误加“禁止动漫”，雾景不会误加“禁止烟雾”，广告允许用户指定的品牌标识。Aideos 当前没有文档化的独立负面提示词字段，因此 Provider 将编译结果以 `【质量约束】...` 合入文本提示词；图片 Provider 直接使用 `negativePrompt` 字段。规则用于抬高质量下限，不保证每次生成无瑕，仍需人工验收和必要的重试。
 
-生成队列支持单任务暂停、继续和删除。只有本地仍为 `queued` 的任务可以暂停；暂停任务不参与 Worker 调度。删除等待任务时服务端先切换为 `paused`，再软删除并幂等退回预扣积分。运行中的弦序视频可以调用远端 `cancel`，成功后本地标记 `cancelled`、移出队列并退款。完成或失败任务删除时只写入 `queueHiddenAt`，不会破坏输出 URL。
+生成队列支持单任务暂停、继续和删除。只有本地仍为 `queued` 的任务可以暂停；暂停任务不参与 Worker 调度。删除等待任务时服务端先切换为 `paused`，再软删除并幂等退回预扣积分。运行中的弦序视频可以调用远端 `cancel`，成功后本地标记 `cancelled`、移出队列并退款；Aideos 没有可验证的取消接口，运行中仍返回 `409`。完成或失败任务删除时只写入 `queueHiddenAt`，不会破坏输出 URL。
 
 分镜卡片完整显示镜头提示词、参考资产、图片状态和视频状态，并提供独立的“生成图片”和“生成视频”按钮。两个入口互不依赖；“生成全部视频”也不会暗中创建图片任务。已有且匹配当前资产的分镜图会自动加入视频参考，没有时直接走资产或纯提示词。批量入口和每个镜头均可在生成前选择 `480p`、`720p`、`1080p` 或 `4k`，选中值冻结到任务 `metadata.resolution`。
 
 批量入口提供“并发优先”和“连续优先”。并发优先会把已有连续链均衡规划成最多套餐并发数条链，会员最多 3 条、免费用户 1 条；只把新增链首改为 `independent` 并持久化，链内仍按尾帧依赖顺序生成。连续优先完全保留用户现有衔接。后端 Worker 仍是最终并发控制者：会员同一 tick 最多向 Provider 提交 3 个可运行任务，免费用户最多 1 个。队列页显示实际运行数 / 上限。
 
-API 从对象存储读取受保护的分镜图和资产图并转换为 Base64 Data URL；已激活的可信人物改用 `asset://<asset_id>`。Worker 内部保留 `first_frame/reference_image` 语义，提交 Seedance 时按顺序传入最多 9 个图片引用；没有图片时只发送提示词。任务用 `videoInputMode` 记录 `storyboard-and-assets`、`assets` 或 `text`，便于排查实际生成路径。请求同时携带模型、项目比例、所选清晰度和关闭音频参数。分镜时长统一限制为 4 到 15 秒；建单超时默认 120 秒，建单成功后每 5 秒异步轮询。
+API 从对象存储读取受保护的分镜图和资产图并转换为 Base64 Data URL；已激活的可信人物改用 `asset://<asset_id>`。Worker 内部保留 `first_frame/reference_image` 语义，提交 Aideos 时按顺序扁平化为最多 9 个 URL 字符串；没有图片时只发送提示词。任务用 `videoInputMode` 记录 `storyboard-and-assets`、`assets` 或 `text`，便于排查实际生成路径。请求同时携带模型、项目比例、所选清晰度和关闭音频参数。分镜时长统一限制为 4 到 15 秒；建单超时默认 120 秒，建单成功后每 5 秒异步轮询。
 
 承接镜头的上一镜尾帧排在弦序 `content` 图片数组首位，最多仍遵守 9 张图片限制。有当前目标分镜图时提交成对首尾帧；只有上一镜尾帧时使用 `reference_image`，避免触发弦序校验。它不会替代人物/场景的结构化资产，也不会把上一段视频当作当前镜头视频输入。
 
@@ -185,6 +183,6 @@ API 从对象存储读取受保护的分镜图和资产图并转换为 Base64 Da
 
 该 MP4 是客户检查镜头顺序和节奏的无声视频预览，不再次调用 Seedance，也不扣积分。真实音频、配音、混音、字幕和正式交付导出尚未接入。
 
-第三方任务 ID 只保存在服务端任务 `metadata` 中；前端通过受登录权限保护的 `/api/v1/generation/tasks/:taskId/content` 播放或下载，不接触第三方 API Key。该代理从当前 Seedance Provider 或平台对象存储读取内容并支持浏览器 `Range` 请求。远端提交或生成失败时，任务会保存错误原因并自动退回本次预扣积分，退款账本使用任务 ID 保证幂等。
+第三方任务 ID 只保存在服务端任务 `metadata` 中；前端通过受登录权限保护的 `/api/v1/generation/tasks/:taskId/content` 播放或下载，不接触第三方 API Key。该代理把浏览器的 `Range` 请求转发给 Aideos content 端点并透传 `206`、`Accept-Ranges` 和 `Content-Range`。远端提交或生成失败时，任务会保存错误原因并自动退回本次预扣积分，退款账本使用任务 ID 保证幂等。
 
 本地开发在 `apps/api/.env` 配置 `VIDEO_PROVIDER=stringx`、`STRINGX_BASE_URL` 和 `STRINGX_API_KEY`。未配置密钥时开发环境使用本地模拟视频结果；生产环境缺少所选 Provider 密钥会拒绝启动。所有密钥只能通过服务端环境或 Secret Manager 注入，不能写入镜像、前端或 Git。

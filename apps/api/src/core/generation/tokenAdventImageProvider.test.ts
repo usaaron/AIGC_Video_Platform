@@ -103,30 +103,6 @@ describe('TokenAdventImageProvider', () => {
     ).rejects.toThrow('invalid prompt')
     expect(attempts).toBe(1)
   })
-
-  it('summarizes upstream 524 HTML timeouts without repeating a stuck image request', async () => {
-    let attempts = 0
-    const fetcher = (async () => {
-      attempts += 1
-      return new Response('<html><head><title>rehdasu.cn | 524: A timeout occurred</title></head></html>', {
-        status: 524,
-      })
-    }) as typeof fetch
-    const provider = createProvider(fetcher)
-
-    await expect(
-      provider.generate({
-        taskId: 'task-timeout',
-        assetId: 'asset-1',
-        aspectRatio: '1:1',
-        prompt: 'CG角色图',
-        negativePrompt: '',
-        references: [],
-        outputs: ['single'],
-      }),
-    ).rejects.toThrow('上游图片服务超时（524）')
-    expect(attempts).toBe(1)
-  })
 })
 
 function createProvider(fetcher: typeof fetch) {

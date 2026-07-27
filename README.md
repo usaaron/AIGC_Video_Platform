@@ -10,17 +10,12 @@
 corepack enable
 pnpm install
 pnpm dev
+# 另开一个终端启动任务 worker
+pnpm --filter @seqora/api worker
 ```
 
 - 创作端：[http://localhost:5173](http://localhost:5173)
 - API 健康检查：[http://localhost:8787/api/v1/health](http://localhost:8787/api/v1/health)
-
-## Provider routing
-
-- `textProvider`: defaults to GPT `5.6` for Chinese understanding, summaries, scripts, and asset suggestions while DeepSeek V3 remains selectable when its provider is available.
-- `imageProvider`: uses TokenAdvent GPT Image 2 / `image2` only for image asset generation and image edits.
-- `videoProvider`: uses Seedance with `tier: mini | fast | pro`; the API stores the selected tier and the Provider maps it to the configured model.
-- Secrets must stay in `apps/api/.env` or deployment secrets. Do not put API keys in code, frontend env, docs, or Git.
 
 首次启动会自动创建两个本地演示账号：
 
@@ -48,15 +43,15 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 
 ## 常用命令
 
-| 命令              | 说明                           |
-| ----------------- | ------------------------------ |
-| `pnpm dev`        | 同时启动 Web、API 和 Worker    |
-| `pnpm dev:web`    | 只启动创作端                   |
-| `pnpm dev:api`    | 只启动 API                     |
-| `pnpm dev:worker` | 只启动任务 Worker              |
-| `pnpm test`       | 运行全部工作区测试             |
-| `pnpm build`      | 构建全部可部署应用             |
-| `pnpm check`      | 格式、Lint、测试和构建完整检查 |
+| 命令                               | 说明                           |
+| ---------------------------------- | ------------------------------ |
+| `pnpm dev`                         | 同时启动 Web 和 API            |
+| `pnpm dev:web`                     | 只启动创作端                   |
+| `pnpm dev:api`                     | 只启动 API                     |
+| `pnpm --filter @seqora/api worker` | 启动任务 worker                |
+| `pnpm test`                        | 运行全部工作区测试             |
+| `pnpm build`                       | 构建全部可部署应用             |
+| `pnpm check`                       | 格式、Lint、测试和构建完整检查 |
 
 ## 外部测试部署
 
@@ -88,7 +83,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 - 本地媒体导入、三张参考图、中文提示词编译，以及面部/全身定稿和单张三视图设定表
 - 弦序可信人像：AI 仿真人 AIGC 入库、已授权真人 Asset ID 绑定、状态校验和视频 `asset://` 引用
 - TokenAdvent 中文剧本和图片生成、分镜静帧，以及弦序 Seedance 参考资产视频生成、清晰度选择与单镜头播放
-- 分镜连续性工作台：独立切镜或承接上一镜头尾帧；Seedance 完成后保存末帧，连续镜头自动等待，独立镜头仍按套餐并发
+- 分镜连续性工作台：独立切镜或承接上一镜头尾帧；Aideos 完成后由 FFmpeg 提取并保存末帧，连续镜头自动等待，独立镜头仍按套餐并发
 - 分镜同时支持按场次拆分、按动作节拍细拆和手动添加；动作级模式把一个场次拆为多个单动作镜头，不调用文本模型
 - 图片和视频服务端质量规则编译（`quality-floor-v1`），支持人物、场景、仿真人视频、广告和自定义负面提示词
 - 按分镜顺序把全部已完成的 Seedance 镜头合成为一个完整 MP4 预览，支持 `9:16`、`16:9`、`1:1` 且不重复扣除积分
