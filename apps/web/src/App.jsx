@@ -414,6 +414,7 @@ function App() {
               await refreshBilling().catch(() => {})
             }
           }}
+          onSuggestAssets={(script, direction) => api.suggestScriptAssets(project.id, script, direction)}
           onEnrich={async (script, direction) => {
             try {
               const enriched = await api.enrichScript(project.id, script, direction)
@@ -443,6 +444,13 @@ function App() {
               await refreshBilling().catch(() => {})
             }
           }}
+          onCreateAsset={async (input) => {
+            const created = await api.createAsset(project.id, input)
+            await refreshWorkspace()
+            setToast('资产建议已写入资产库')
+            return created
+          }}
+          onUpload={(file) => api.uploadMedia(project.id, file)}
           onReview={async (script, direction) => {
             try {
               return await api.reviewScript(project.id, script, direction)

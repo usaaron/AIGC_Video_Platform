@@ -47,12 +47,21 @@ export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
   if (asset.references?.length) {
     stageParts.push('严格保持导入参考图中的身份和关键外观特征')
   }
-  return applyCustomPrompt(asset, [...identity, ...stageParts].filter(Boolean).join('，'))
+  return applyCustomPrompt(asset, [...identity, ...stageParts].filter(Boolean).join('，'), {
+    preserveAutomatic: stage === 'face',
+  })
 }
 
-function applyCustomPrompt(asset, automatic) {
+function applyCustomPrompt(asset, automatic, options = {}) {
   const custom = asset.customPrompt?.trim() || ''
-  if (asset.promptMode === 'advanced' && asset.customPromptMode === 'replace' && custom) return custom
+  if (
+    asset.promptMode === 'advanced' &&
+    asset.customPromptMode === 'replace' &&
+    custom &&
+    !options.preserveAutomatic
+  ) {
+    return custom
+  }
   return [automatic, asset.promptMode === 'advanced' ? custom : ''].filter(Boolean).join('，')
 }
 

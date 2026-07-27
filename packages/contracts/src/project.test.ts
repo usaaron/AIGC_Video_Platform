@@ -3,8 +3,10 @@ import {
   createAssetSchema,
   createShotSchema,
   enrichScriptRequestSchema,
+  generateScriptAssetSuggestionsRequestSchema,
   generateScriptRequestSchema,
   generateShotsRequestSchema,
+  scriptAssetSuggestionsResultSchema,
   scriptReviewResultSchema,
   updateAssetSchema,
   updateShotSchema,
@@ -100,6 +102,12 @@ describe('script workflow contracts', () => {
       camera: 'auto',
       focus: 'balanced',
     })
+    expect(
+      generateScriptAssetSuggestionsRequestSchema.parse({ script: 'scene: river crossing' }),
+    ).toMatchObject({
+      script: 'scene: river crossing',
+      direction: expect.objectContaining({ style: 'auto' }),
+    })
     expect(generateShotsRequestSchema.parse({})).toMatchObject({ maxShots: 8, mode: 'scene' })
     expect(generateShotsRequestSchema.parse({ mode: 'beat', maxShots: 36 })).toMatchObject({
       maxShots: 36,
@@ -117,6 +125,31 @@ describe('script workflow contracts', () => {
         verdict: '具备制作基础',
         dimensions,
         priorityActions: ['补足角色目标'],
+        generatedAt: new Date().toISOString(),
+      }).success,
+    ).toBe(true)
+  })
+
+  it('validates generated asset suggestions from a script', () => {
+    expect(
+      scriptAssetSuggestionsResultSchema.safeParse({
+        summary: '建议先建立核心角色、复用场景和关键道具。',
+        assets: [
+          {
+            kind: 'character',
+            name: '翠翠',
+            description: '十三岁的湘西少女，老船夫抚养长大。',
+            prompt: '十三岁湘西少女，朴素衣着，清澈眼神，青山绿水间长大。',
+            negativePrompt: '',
+            reason: '主角需要跨镜头保持一致。',
+            priority: 5,
+            attributes: {
+              ...character,
+              ageGroup: 'teen',
+              exactAge: 13,
+            },
+          },
+        ],
         generatedAt: new Date().toISOString(),
       }).success,
     ).toBe(true)

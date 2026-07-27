@@ -173,6 +173,38 @@ describe('api client', () => {
     )
   })
 
+  it('requests script asset suggestions from the current script', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ summary: '资产建议', assets: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const direction = {
+      style: 'cinematic-cg',
+      composition: 'rule-of-thirds',
+      lighting: 'low-key',
+      camera: 'restrained',
+      focus: 'character',
+    }
+
+    await api.suggestScriptAssets(
+      'project-1',
+      '场次：1｜场景：边城渡口｜角色：翠翠、老船夫｜关键道具：渡船',
+      direction,
+      'asset-suggestions-1',
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/projects/project-1/script/asset-suggestions',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          clientRequestId: 'asset-suggestions-1',
+          script: '场次：1｜场景：边城渡口｜角色：翠翠、老船夫｜关键道具：渡船',
+          direction,
+        }),
+      }),
+    )
+  })
+
   it('sends creative direction to script generation and review plus the shot split limit', async () => {
     const fetchMock = vi
       .fn()

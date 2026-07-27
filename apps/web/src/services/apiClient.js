@@ -68,6 +68,8 @@ export const api = {
   updateProject: (id, input) => request(`/projects/${id}`, json('PATCH', input)),
   generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID()) =>
     request(`/projects/${id}/script/generate`, json('POST', { clientRequestId, draft, direction })),
+  suggestScriptAssets: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
+    request(`/projects/${id}/script/asset-suggestions`, json('POST', { clientRequestId, script, direction })),
   enrichScript: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
     request(`/projects/${id}/script/enrich`, json('POST', { clientRequestId, script, direction })),
   reviewScript: (id, script, direction, clientRequestId = crypto.randomUUID()) =>

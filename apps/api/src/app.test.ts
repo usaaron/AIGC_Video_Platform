@@ -1196,6 +1196,213 @@ describe('API authorization', () => {
     })
   })
 
+  it('normalizes usable script asset JSON instead of falling back when optional provider fields are missing', async () => {
+    const generate = vi.fn(async () =>
+      JSON.stringify({
+        summary: '建议围绕翠翠、渡口和渡船建立核心资产。',
+        assets: [
+          {
+            kind: 'character',
+            name: '十三岁的翠翠',
+            priority: '5',
+            attributes: {
+              gender: 'female',
+              ageGroup: 'teen',
+              visualStyle: 'cinematic-cg',
+            },
+          },
+          {
+            kind: 'scene',
+            name: '茶峒渡口',
+            description: '翠翠与老船夫生活的核心外景。',
+            prompt: '湘西茶峒渡口空场景，溪水、白塔、渡船和岸边木屋。',
+            reason: '渡口会在多个镜头复用。',
+            priority: 4,
+            attributes: {
+              space: 'exterior',
+              sceneType: 'nature',
+              era: 'recent',
+              visualStyle: 'cinematic-cg',
+            },
+          },
+          {
+            kind: 'prop',
+            name: '渡船',
+            description: '老船夫摆渡使用的小船。',
+            prompt: '旧木渡船道具，木纹清晰，正面展示。',
+            reason: '渡船是场景行动核心物件。',
+            attributes: {
+              category: 'vehicle',
+              material: 'wood',
+            },
+          },
+          {
+            kind: 'costume',
+            name: '翠翠日常衣装',
+            description: '翠翠在渡口生活的朴素日常服装。',
+            prompt: '十三岁湘西少女朴素日常衣装，布料自然，完整平铺展示。',
+            reason: '角色造型需要跨镜头保持一致。',
+            attributes: {
+              audience: 'female',
+              category: 'daily',
+              design: 'chinese',
+            },
+          },
+        ],
+      }),
+    )
+    app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers,
+      payload: {
+        script:
+          '场次：1｜剧情：茶峒渡口的日常生活。｜场景：茶峒渡口｜角色：十三岁的翠翠、老船夫｜动作：翠翠坐在渡船旁望向溪水。｜关键道具：渡船｜服装：翠翠日常衣装',
+        direction: {
+          style: 'cinematic-cg',
+          composition: 'rule-of-thirds',
+          lighting: 'natural-soft',
+          camera: 'restrained',
+          focus: 'character',
+        },
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      summary: expect.stringContaining('翠翠'),
+      warnings: [],
+    })
+    expect(response.json().assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'character',
+          name: '十三岁的翠翠',
+          prompt: expect.stringContaining('十三岁的翠翠'),
+          priority: 5,
+          attributes: expect.objectContaining({
+            type: 'character',
+            subjectType: 'human',
+            gender: 'female',
+            ageGroup: 'teen',
+            exactAge: 13,
+            faceReference: null,
+            trustedPortrait: null,
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'scene',
+          name: '茶峒渡口',
+          attributes: expect.objectContaining({
+            type: 'scene',
+            space: 'exterior',
+            sceneType: 'nature',
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'prop',
+          name: '渡船',
+          attributes: expect.objectContaining({
+            type: 'prop',
+            category: 'vehicle',
+            material: 'wood',
+            condition: 'used',
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'costume',
+          name: '翠翠日常衣装',
+          attributes: expect.objectContaining({
+            type: 'costume',
+            audience: 'female',
+            season: 'all-season',
+            turnaround: false,
+          }),
+        }),
+      ]),
+    )
+    expect(generate).toHaveBeenCalledOnce()
+  })
+
+  it('falls back to readable Biancheng asset suggestions when the script asset provider returns invalid JSON', async () => {
+    const generate = vi.fn(async () => '这不是有效 JSON')
+    app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers,
+      payload: {
+        script:
+          '场次：1｜剧情：茶峒渡口的日常生活。｜场景：茶峒渡口｜角色：七十岁的老船夫、十三岁的翠翠、黄狗｜动作：老船夫撑船，翠翠望向河面，黄狗守在船头。｜对白：无台词',
+        direction: {
+          style: 'cinematic-cg',
+          composition: 'rule-of-thirds',
+          lighting: 'low-key',
+          camera: 'restrained',
+          focus: 'character',
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      summary: expect.stringContaining('提取角色'),
+      warnings: [expect.stringContaining('格式异常')],
+    })
+    expect(response.json().assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'character',
+          name: '老船夫',
+          description: expect.stringContaining('男性'),
+          prompt: expect.stringContaining('船夫/摆渡人'),
+          attributes: expect.objectContaining({
+            gender: 'male',
+            ageGroup: 'senior',
+            exactAge: 70,
+            subjectType: 'human',
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'character',
+          name: '翠翠',
+          description: expect.stringContaining('女性'),
+          prompt: expect.stringContaining('湘西少女'),
+          attributes: expect.objectContaining({
+            gender: 'female',
+            ageGroup: 'teen',
+            exactAge: 13,
+            subjectType: 'human',
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'character',
+          name: '黄狗',
+          description: expect.stringContaining('动物角色'),
+          prompt: expect.stringContaining('黄狗/家犬'),
+          attributes: expect.objectContaining({
+            subjectType: 'animal',
+            species: '黄狗',
+          }),
+        }),
+      ]),
+    )
+    expect(generate).toHaveBeenCalledOnce()
+  })
+
   it('splits the script into at most eight predictable shots without calling the text provider', async () => {
     const generate = vi.fn(async () => '不应调用')
     app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })

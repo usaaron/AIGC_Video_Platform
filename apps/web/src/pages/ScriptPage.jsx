@@ -19,7 +19,13 @@ import {
   UserRound,
 } from 'lucide-react'
 import { IconButton, PageHeader } from '../components/ui'
+import { AssetEditor } from '../features/assets/AssetEditor'
 import { QuickStartModal } from '../features/quickStart/QuickStartModal'
+import { AssetSuggestionsPanel, assetSuggestionKey } from '../features/script/AssetSuggestionsPanel'
+import {
+  restoreScriptAssetSuggestionsCache,
+  saveScriptAssetSuggestionsCache,
+} from '../features/script/assetSuggestionCache'
 import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
 const DEFAULT_DIRECTION = {
@@ -141,8 +147,11 @@ export function ScriptPage({
   billing,
   onSave,
   onGenerate,
+  onSuggestAssets,
   onEnrich,
   onReview,
+  onCreateAsset,
+  onUpload,
   onPlanQuickStart,
   onExecuteQuickStart,
   onUpgrade,
@@ -162,6 +171,12 @@ export function ScriptPage({
   const [saving, setSaving] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [review, setReview] = useState(null)
+  const [assetSuggestionStatus, setAssetSuggestionStatus] = useState('idle')
+  const [assetSuggestionResult, setAssetSuggestionResult] = useState(null)
+  const [assetSuggestionError, setAssetSuggestionError] = useState('')
+  const [creatingAssetKeys] = useState(() => new Set())
+  const [createdAssetKeys, setCreatedAssetKeys] = useState(() => new Set())
+  const [suggestedAssetEditor, setSuggestedAssetEditor] = useState(null)
   const [inspectorOpen, setInspectorOpen] = useState(true)
   const [error, setError] = useState('')
   const [quickStartOpen, setQuickStartOpen] = useState(false)
@@ -180,11 +195,17 @@ export function ScriptPage({
   const busy = generating || enriching || saving || reviewing || quickStartState === 'starting'
 
   useEffect(() => {
-    setScript(project.script)
-    setSaved(true)
+    const cachedAssetSuggestions = restoreScriptAssetSuggestionsCache(project.id, project.script)
+    const nextScript = cachedAssetSuggestions?.sourceScript ?? project.script
+    setScript(nextScript)
+    setSaved(nextScript === project.script)
     setReview(null)
     setError('')
-    setNeedsVisualDetail(Boolean(project.script.trim()) && !hasProfessionalVisualFields(project.script))
+    setAssetSuggestionResult(cachedAssetSuggestions?.result ?? null)
+    setCreatedAssetKeys(cachedAssetSuggestions?.createdKeys ?? new Set())
+    setAssetSuggestionStatus(cachedAssetSuggestions?.result ? 'ready' : 'idle')
+    setAssetSuggestionError('')
+    setNeedsVisualDetail(Boolean(nextScript.trim()) && !hasProfessionalVisualFields(nextScript))
   }, [project.id, project.script])
 
   useEffect(() => {
@@ -213,6 +234,7 @@ export function ScriptPage({
     setScript(value)
     setSaved(false)
     setReview(null)
+    setAssetSuggestionError('')
   }
 
   const insert = (value) => {
@@ -335,6 +357,36 @@ export function ScriptPage({
     } finally {
       setReviewing(false)
     }
+  }
+
+  const suggestAssetsForScript = async (sourceScript = script) => {
+    const source = sourceScript.trim()
+    if (!source) {
+      setAssetSuggestionError('请先填写或生成剧本内容')
+      return
+    }
+    setAssetSuggestionStatus('suggesting')
+    setAssetSuggestionError('')
+    try {
+      const result = await onSuggestAssets(source, direction)
+      setAssetSuggestionResult(result)
+      saveScriptAssetSuggestionsCache(project.id, source, direction, undefined, result, createdAssetKeys)
+    } catch (suggestionError) {
+      setAssetSuggestionError(suggestionError.message)
+    } finally {
+      setAssetSuggestionStatus('ready')
+    }
+  }
+
+  const openSuggestedAssetEditor = (asset) => {
+    const key = assetSuggestionKey(asset)
+    setAssetSuggestionError('')
+    setSuggestedAssetEditor({
+      kind: asset.kind,
+      suggestion: asset,
+      suggestionKey: key,
+      editorKey: crypto.randomUUID(),
+    })
   }
 
   const openQuickStart = async () => {
@@ -610,6 +662,20 @@ export function ScriptPage({
         )}
       </div>
 
+      <AssetSuggestionsPanel
+        status={assetSuggestionStatus}
+        result={assetSuggestionResult}
+        error={assetSuggestionError}
+        creatingKeys={creatingAssetKeys}
+        createdKeys={createdAssetKeys}
+        onRefresh={() => void suggestAssetsForScript(script)}
+        onInspect={openSuggestedAssetEditor}
+        disabled={busy || !script.trim()}
+        copy={{
+          empty: '保存或生成剧本后，可以手动从当前文本提取资产建议。',
+        }}
+      />
+
       {error && (
         <p className="operation-error" role="alert">
           {error}
@@ -632,6 +698,34 @@ export function ScriptPage({
           </button>
         </div>
       </section>
+
+      {suggestedAssetEditor && (
+        <AssetEditor
+          key={suggestedAssetEditor.editorKey}
+          asset={suggestedAssetEditor}
+          aspectRatio={project.aspectRatio}
+          tasks={[]}
+          onUpload={onUpload}
+          onClose={() => setSuggestedAssetEditor(null)}
+          onSave={async (input) => {
+            const created = await onCreateAsset(input)
+            setCreatedAssetKeys((current) => {
+              const next = new Set(current).add(suggestedAssetEditor.suggestionKey)
+              saveScriptAssetSuggestionsCache(
+                project.id,
+                script,
+                direction,
+                undefined,
+                assetSuggestionResult,
+                next,
+              )
+              return next
+            })
+            setSuggestedAssetEditor(null)
+            return created
+          }}
+        />
+      )}
 
       {quickStartOpen && (
         <QuickStartModal

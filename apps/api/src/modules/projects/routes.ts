@@ -3,6 +3,7 @@ import {
   createProjectSchema,
   createShotSchema,
   enrichScriptRequestSchema,
+  generateScriptAssetSuggestionsRequestSchema,
   generateScriptRequestSchema,
   generateShotsRequestSchema,
   PERMISSIONS,
@@ -53,6 +54,22 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
     '/projects/:projectId/versions',
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
     (request) => service.saveVersion(parse(projectParams, request.params).projectId, request.principal!),
+  )
+  app.post(
+    '/projects/:projectId/script/asset-suggestions',
+    {
+      config: { rateLimit: { max: 8, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.PROJECT_READ),
+    },
+    (request) => {
+      const input = parse(generateScriptAssetSuggestionsRequestSchema, request.body ?? {})
+      return service.suggestScriptAssets(
+        parse(projectParams, request.params).projectId,
+        input.script,
+        input.direction,
+        request.principal!,
+      )
+    },
   )
   app.post(
     '/projects/:projectId/script/generate',
