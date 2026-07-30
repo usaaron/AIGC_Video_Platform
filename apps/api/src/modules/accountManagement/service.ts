@@ -1,10 +1,7 @@
 import type {
-  AcceptInvitationInput,
   Account,
+  AddTenantMemberInput,
   CreateWorkspaceInput,
-  Invitation,
-  InvitationCreated,
-  InviteMemberInput,
   Membership,
   Principal,
   Role,
@@ -14,7 +11,6 @@ import type {
   UpdateMembershipRolesInput,
   Workspace,
 } from '@seqora/contracts'
-import { randomBytes } from 'node:crypto'
 import { ROLES } from '@seqora/contracts'
 import { permissionsFor } from '../../core/auth/authorization.js'
 import { hashPassword } from '../../core/auth/password.js'
@@ -34,10 +30,12 @@ export class AccountManagementService {
     private readonly users: UserRepository,
     private readonly store: AppStore,
     private readonly secret: string,
-    private readonly webOrigin: string,
+    _webOrigin: string,
   ) {}
 
-  async register(input: RegisterAccountInput): Promise<{ session: Session; token: string; workspace: Workspace }> {
+  async register(
+    input: RegisterAccountInput,
+  ): Promise<{ session: Session; token: string; workspace: Workspace }> {
     const created = await this.accounts.registerAccount({
       name: normalizeName(input.name),
       email: normalizeEmail(input.email),
@@ -50,7 +48,10 @@ export class AccountManagementService {
     return await this.issueSession(created)
   }
 
-  async createWorkspace(principal: Principal, input: CreateWorkspaceInput): Promise<{
+  async createWorkspace(
+    principal: Principal,
+    input: CreateWorkspaceInput,
+  ): Promise<{
     session: Session
     token: string
     workspace: Workspace
@@ -63,47 +64,20 @@ export class AccountManagementService {
     return await this.issueSession(created)
   }
 
-  async inviteMember(
-    principal: Principal,
-    tenantId: string,
-    input: InviteMemberInput,
-  ): Promise<InvitationCreated> {
+  async addMember(principal: Principal, tenantId: string, input: AddTenantMemberInput): Promise<Membership> {
     this.requireTenantScope(principal, tenantId)
-    const inviter = await this.requireCurrentAccount(principal)
+    await this.requireCurrentAccount(principal)
     this.requireAssignableRoles(principal, input.roles)
-    const token = issueInviteToken()
-    const invitation = await this.accounts.createInvitation({
+    const member = await this.accounts.addMemberByEmail({
       tenantId,
       email: normalizeEmail(input.email),
       roles: input.roles,
-      invitedByUserId: inviter.id,
-      tokenHash: hashSessionSecret(token),
-      expiresAt: new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1_000).toISOString(),
     })
-    if (!invitation) {
-      throw new AppError(409, 'MEMBER_ALREADY_EXISTS', '该邮箱已经是成员')
+    if (!member) {
+      throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
     }
-    return {
-      ...invitation,
-      token,
-      inviteUrl: `${this.webOrigin.replace(/\/+$/, '')}/invite/${token}`,
-    }
-  }
-
-  async acceptInvitation(
-    principal: Principal,
-    input: AcceptInvitationInput,
-  ): Promise<{ session: Session; token: string; workspace: Workspace }> {
-    const current = await this.requireCurrentAccount(principal)
-    const accepted = await this.accounts.acceptInvitation({
-      tokenHash: hashSessionSecret(input.token.trim()),
-      userId: current.id,
-      email: normalizeEmail(current.email),
-    })
-    if (!accepted) {
-      throw new AppError(404, 'INVITATION_NOT_FOUND', '邀请不存在、已过期或邮箱不匹配')
-    }
-    return await this.issueSession(accepted)
+    await this.mirrorMembership(member)
+    return member
   }
 
   async listMembers(principal: Principal, tenantId: string): Promise<Membership[]> {
@@ -175,7 +149,10 @@ export class AccountManagementService {
     })
   }
 
-  async listSessions(principal: Principal, currentSessionToken: string | undefined): Promise<SessionSummary[]> {
+  async listSessions(
+    principal: Principal,
+    currentSessionToken: string | undefined,
+  ): Promise<SessionSummary[]> {
     await this.requireCurrentAccount(principal)
     const currentSessionId = currentSessionIdFromToken(currentSessionToken, this.secret)
     return await this.accounts.listUserSessions(principal.userId, principal.tenantId, currentSessionId)
@@ -200,7 +177,9 @@ export class AccountManagementService {
     return account ? this.users.toAccount(account) : null
   }
 
-  private async issueSession(created: AccountWorkspace): Promise<{ session: Session; token: string; workspace: Workspace }> {
+  private async issueSession(
+    created: AccountWorkspace,
+  ): Promise<{ session: Session; token: string; workspace: Workspace }> {
     const issued = issueSessionToken(this.secret)
     const createdSession = await this.users.createSession(
       created.account.id,
@@ -217,11 +196,13 @@ export class AccountManagementService {
       token: issued.token,
       session: {
         account: this.users.toAccount(created.account),
-        permissions: [...permissionsFor({
-          userId: created.account.id,
-          tenantId: created.account.tenantId,
-          roles: created.account.roles,
-        })],
+        permissions: [
+          ...permissionsFor({
+            userId: created.account.id,
+            tenantId: created.account.tenantId,
+            roles: created.account.roles,
+          }),
+        ],
       },
       workspace: created.workspace,
     }
@@ -268,9 +249,7 @@ export class AccountManagementService {
         plan: workspace.account.plan,
         credits: workspace.account.credits,
       }
-      const existing = state.users.find(
-        (item) => item.id === next.id && item.tenantId === next.tenantId,
-      )
+      const existing = state.users.find((item) => item.id === next.id && item.tenantId === next.tenantId)
       if (existing) {
         Object.assign(existing, next)
       } else {
@@ -297,10 +276,6 @@ function normalizeEmail(email: string): string {
 
 function normalizeName(name: string): string {
   return name.trim()
-}
-
-function issueInviteToken(): string {
-  return randomBytes(32).toString('base64url')
 }
 
 function currentSessionIdFromToken(token: string | undefined, secret: string): string | null {

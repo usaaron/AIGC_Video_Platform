@@ -1,7 +1,6 @@
 import {
-  acceptInvitationSchema,
+  addTenantMemberSchema,
   createWorkspaceSchema,
-  inviteMemberSchema,
   PERMISSIONS,
   registerAccountSchema,
   updateMembershipRolesSchema,
@@ -35,21 +34,6 @@ export async function registerAccountManagementRoutes(
     },
   )
 
-  app.post(
-    '/auth/invitations/accept',
-    {
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
-      preHandler: requireAuthenticated,
-    },
-    async (request, reply) => {
-      const result = await requireService(service).acceptInvitation(
-        request.principal!,
-        parse(acceptInvitationSchema, request.body),
-      )
-      return sendSession(reply, result, secureCookies)
-    },
-  )
-
   app.post('/workspaces', { preHandler: requireAuthenticated }, async (request, reply) => {
     const result = await requireService(service).createWorkspace(
       request.principal!,
@@ -68,19 +52,19 @@ export async function registerAccountManagementRoutes(
   )
 
   app.post(
-    '/tenants/:tenantId/invitations',
+    '/tenants/:tenantId/members',
     {
       config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
       preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
     },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
-      const invitation = await requireService(service).inviteMember(
+      const member = await requireService(service).addMember(
         request.principal!,
         tenantId,
-        parse(inviteMemberSchema, request.body),
+        parse(addTenantMemberSchema, request.body),
       )
-      return reply.code(201).send(invitation)
+      return reply.code(201).send(member)
     },
   )
 
@@ -125,8 +109,13 @@ export async function registerAccountManagementRoutes(
 
   app.delete('/auth/sessions/:sessionId', { preHandler: requireAuthenticated }, async (request, reply) => {
     const { sessionId } = parse(sessionParams, request.params)
-    const sessions = await requireService(service).listSessions(request.principal!, request.cookies[SESSION_COOKIE])
-    const revokingCurrentSession = sessions.some((session) => session.sessionId === sessionId && session.current)
+    const sessions = await requireService(service).listSessions(
+      request.principal!,
+      request.cookies[SESSION_COOKIE],
+    )
+    const revokingCurrentSession = sessions.some(
+      (session) => session.sessionId === sessionId && session.current,
+    )
     await requireService(service).revokeCurrentTenantSession(request.principal!, sessionId)
     reply.header('Cache-Control', 'no-store')
     if (revokingCurrentSession) clearSessionCookie(reply, secureCookies)

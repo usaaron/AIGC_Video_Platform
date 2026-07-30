@@ -241,36 +241,53 @@ describe('account management api', () => {
     })
   })
 
-  it('invites members, updates roles and disables memberships', async () => {
+  it('does not expose invitation endpoints', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
-    const owner = await registerUser('owner@example.com', 'OwnerPassword123!', 'Owner Workspace')
-    const member = await registerUser('member@example.com', 'MemberPassword123!', 'Member Workspace')
+    const owner = await registerUser('no-invites-owner@example.com', 'OwnerPassword123!', 'Owner Workspace')
 
-    const invite = await app.inject({
+    const createInvitation = await app.inject({
       method: 'POST',
       url: `/api/v1/tenants/${owner.tenantId}/invitations`,
       headers: { cookie: owner.cookie },
       payload: {
         email: 'member@example.com',
         roles: ['member'],
-        expiresInDays: 7,
+      },
+    })
+    expect(createInvitation.statusCode).toBe(404)
+
+    const acceptInvitation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/invitations/accept',
+      headers: { cookie: owner.cookie },
+      payload: { token: 'x'.repeat(64) },
+    })
+    expect(acceptInvitation.statusCode).toBe(404)
+  })
+
+  it('adds registered members, updates roles and disables memberships', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const owner = await registerUser('owner@example.com', 'OwnerPassword123!', 'Owner Workspace')
+    const member = await registerUser('member@example.com', 'MemberPassword123!', 'Member Workspace')
+
+    const added = await app.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${owner.tenantId}/members`,
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'member@example.com',
+        roles: ['member'],
       },
     })
 
-    expect(invite.statusCode).toBe(201)
-    const inviteToken = invite.json().token as string
-
-    const accept = await app.inject({
-      method: 'POST',
-      url: '/api/v1/auth/invitations/accept',
-      headers: { cookie: member.cookie },
-      payload: { token: inviteToken },
-    })
-    expect(accept.statusCode).toBe(200)
-    const memberAcceptedCookie = cookieValue(accept)
-    expect(accept.json()).toMatchObject({
-      workspace: { id: owner.tenantId, name: 'Owner Workspace' },
+    expect(added.statusCode).toBe(201)
+    expect(added.json()).toMatchObject({
+      email: 'member@example.com',
+      roles: ['member'],
+      tenantId: owner.tenantId,
+      userId: member.userId,
     })
 
     const members = await app.inject({
@@ -302,12 +319,15 @@ describe('account management api', () => {
     })
     expect(disabled.statusCode).toBe(204)
 
-    const revokedMe = await app.inject({
+    const disabledMembers = await app.inject({
       method: 'GET',
-      url: '/api/v1/auth/me',
-      headers: { cookie: memberAcceptedCookie },
+      url: `/api/v1/tenants/${owner.tenantId}/members`,
+      headers: { cookie: owner.cookie },
     })
-    expect(revokedMe.statusCode).toBe(401)
+    expect(disabledMembers.statusCode).toBe(200)
+    expect(disabledMembers.json()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ email: 'member@example.com', status: 'disabled' })]),
+    )
   })
 
   it('disables accounts for the whole tenant and blocks future logins', async () => {
@@ -315,25 +335,16 @@ describe('account management api', () => {
 
     const owner = await registerUser('owner2@example.com', 'OwnerPassword123!', 'Owner Workspace 2')
     const member = await registerUser('member2@example.com', 'MemberPassword123!', 'Member Workspace 2')
-    const invite = await app.inject({
+    const added = await app.inject({
       method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/invitations`,
+      url: `/api/v1/tenants/${owner.tenantId}/members`,
       headers: { cookie: owner.cookie },
       payload: {
         email: 'member2@example.com',
         roles: ['member'],
-        expiresInDays: 7,
       },
     })
-    const inviteToken = invite.json().token as string
-
-    const accept = await app.inject({
-      method: 'POST',
-      url: '/api/v1/auth/invitations/accept',
-      headers: { cookie: member.cookie },
-      payload: { token: inviteToken },
-    })
-    expect(accept.statusCode).toBe(200)
+    expect(added.statusCode).toBe(201)
 
     const disabled = await app.inject({
       method: 'DELETE',

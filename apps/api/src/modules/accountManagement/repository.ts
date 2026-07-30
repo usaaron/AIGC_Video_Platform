@@ -1,11 +1,4 @@
-import type {
-  Invitation,
-  Membership,
-  Plan,
-  Role,
-  SessionSummary,
-  Workspace,
-} from '@seqora/contracts'
+import type { Membership, Plan, Role, SessionSummary, Workspace } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AuthAccount } from '../auth/accounts.js'
@@ -133,118 +126,30 @@ export class AccountManagementRepository {
     })
   }
 
-  async createInvitation(input: {
+  async addMemberByEmail(input: {
     tenantId: string
     email: string
     roles: Role[]
-    invitedByUserId: string
-    tokenHash: string
-    expiresAt: string
-  }): Promise<Invitation | null> {
+  }): Promise<Membership | null> {
     return this.database.transaction(async (client) => {
-      const existingMember = await client.query<{ id: string }>(
+      const account = await client.query<{ user_id: string }>(
         `
-        SELECT m.id
-        FROM tenant_memberships m
-        JOIN users u ON u.id = m.user_id
-        JOIN auth_identities ai ON ai.user_id = u.id
-        WHERE m.tenant_id = $1
-          AND m.status = 'active'
-          AND u.status = 'active'
-          AND ai.provider = 'local'
-          AND lower(ai.email) = lower($2)
+        SELECT u.id AS user_id
+        FROM auth_identities ai
+        JOIN users u ON u.id = ai.user_id AND u.status = 'active'
+        WHERE ai.provider = 'local'
+          AND lower(ai.email) = lower($1)
+          AND ai.status = 'active'
+          AND ai.password_hash IS NOT NULL
+        ORDER BY ai.is_primary DESC, ai.created_at ASC
         LIMIT 1
         `,
-        [input.tenantId, input.email],
+        [input.email],
       )
-      if (existingMember.rows.length) return null
+      const userId = account.rows[0]?.user_id
+      if (!userId) return null
 
-      const pending = await client.query<{ id: string }>(
-        `
-        SELECT id
-        FROM tenant_invitations
-        WHERE tenant_id = $1
-          AND lower(email) = lower($2)
-          AND status = 'pending'
-        LIMIT 1
-        `,
-        [input.tenantId, input.email],
-      )
-
-      if (pending.rows[0]) {
-        await client.query(
-          `
-          UPDATE tenant_invitations
-          SET roles = $2,
-              invited_by_user_id = $3,
-              token_secret_hash = $4,
-              expires_at = $5,
-              updated_at = now()
-          WHERE id = $1
-          `,
-          [pending.rows[0].id, input.roles, input.invitedByUserId, input.tokenHash, input.expiresAt],
-        )
-        return this.readInvitation(client, pending.rows[0].id)
-      }
-
-      const invitationId = `invite-${randomUUID()}`
-      await client.query(
-        `
-        INSERT INTO tenant_invitations (
-          id, tenant_id, email, roles, invited_by_user_id, token_secret_hash, status, expires_at, created_at, updated_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, now(), now())
-        `,
-        [
-          invitationId,
-          input.tenantId,
-          input.email,
-          input.roles,
-          input.invitedByUserId,
-          input.tokenHash,
-          input.expiresAt,
-        ],
-      )
-      return this.readInvitation(client, invitationId)
-    })
-  }
-
-  async acceptInvitation(input: {
-    tokenHash: string
-    userId: string
-    email: string
-  }): Promise<AccountWorkspace | null> {
-    return this.database.transaction(async (client) => {
-      const invite = await client.query<InvitationRow>(
-        `
-        SELECT
-          i.id,
-          i.tenant_id,
-          t.name AS tenant_name,
-          i.email,
-          i.roles,
-          i.invited_by_user_id,
-          CASE
-            WHEN i.status = 'pending' AND i.expires_at <= now() THEN 'expired'
-            ELSE i.status
-          END AS status,
-          i.expires_at,
-          i.accepted_at,
-          i.revoked_at,
-          i.created_at,
-          i.updated_at
-        FROM tenant_invitations i
-        JOIN tenants t ON t.id = i.tenant_id AND t.status = 'active'
-        WHERE i.token_secret_hash = $1
-        LIMIT 1
-        `,
-        [input.tokenHash],
-      )
-      const invitation = invite.rows[0]
-      if (!invitation || invitation.status !== 'pending') return null
-      if (invitation.email.toLowerCase() !== input.email.toLowerCase()) return null
-
-      const membershipId = membershipIdFor(input.userId, invitation.tenant_id)
+      const membershipId = membershipIdFor(userId, input.tenantId)
       await client.query(
         `
         INSERT INTO tenant_memberships (
@@ -256,7 +161,7 @@ export class AccountManagementRepository {
                       status = 'active',
                       updated_at = now()
         `,
-        [membershipId, invitation.tenant_id, input.userId, invitation.roles],
+        [membershipId, input.tenantId, userId, input.roles],
       )
       await client.query(
         `
@@ -266,18 +171,11 @@ export class AccountManagementRepository {
         `,
         [membershipId, defaultPlan, defaultCredits],
       )
-      await client.query(
-        `
-        UPDATE tenant_invitations
-        SET status = 'accepted',
-            accepted_at = now(),
-            updated_at = now()
-        WHERE id = $1
-        `,
-        [invitation.id],
+      const member = await client.query<MembershipRow>(
+        membershipSelectSql('WHERE m.tenant_id = $1 AND m.user_id = $2'),
+        [input.tenantId, userId],
       )
-
-      return this.readAccountWorkspace(client, input.userId, invitation.tenant_id)
+      return member.rows[0] ? toMembership(member.rows[0]) : null
     })
   }
 
@@ -527,37 +425,6 @@ export class AccountManagementRepository {
       membership: toMembership(row),
     }
   }
-
-  private async readInvitation(client: Queryable, invitationId: string): Promise<Invitation> {
-    const result = await client.query<InvitationRow>(
-      `
-      SELECT
-        i.id,
-        i.tenant_id,
-        t.name AS tenant_name,
-        i.email,
-        i.roles,
-        i.invited_by_user_id,
-        CASE
-          WHEN i.status = 'pending' AND i.expires_at <= now() THEN 'expired'
-          ELSE i.status
-        END AS status,
-        i.expires_at,
-        i.accepted_at,
-        i.revoked_at,
-        i.created_at,
-        i.updated_at
-      FROM tenant_invitations i
-      JOIN tenants t ON t.id = i.tenant_id
-      WHERE i.id = $1
-      LIMIT 1
-      `,
-      [invitationId],
-    )
-    const row = result.rows[0]
-    if (!row) throw new Error(`Could not read invitation ${invitationId}`)
-    return toInvitation(row)
-  }
 }
 
 type Queryable = {
@@ -588,21 +455,6 @@ type MembershipRow = {
   is_primary: boolean
   membership_created_at: Date | string
   membership_updated_at: Date | string
-}
-
-type InvitationRow = {
-  id: string
-  tenant_id: string
-  tenant_name: string
-  email: string
-  roles: Role[]
-  invited_by_user_id: string
-  status: Invitation['status']
-  expires_at: Date | string
-  accepted_at: Date | string | null
-  revoked_at: Date | string | null
-  created_at: Date | string
-  updated_at: Date | string
 }
 
 type SessionRow = {
@@ -678,23 +530,6 @@ function toMembership(row: MembershipRow): Membership {
     isPrimary: row.is_primary,
     createdAt: toIso(row.membership_created_at),
     updatedAt: toIso(row.membership_updated_at),
-  }
-}
-
-function toInvitation(row: InvitationRow): Invitation {
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    tenantName: row.tenant_name,
-    email: row.email,
-    roles: row.roles,
-    invitedByUserId: row.invited_by_user_id,
-    status: row.status,
-    expiresAt: toIso(row.expires_at),
-    acceptedAt: row.accepted_at ? toIso(row.accepted_at) : null,
-    revokedAt: row.revoked_at ? toIso(row.revoked_at) : null,
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
   }
 }
 
