@@ -10,7 +10,7 @@ import type {
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type { AccountDatabase } from '../../infra/postgres.js'
-import type { AuthAccount } from '../auth/accounts.js'
+import type { AuditLogInput, AuthAccount } from '../auth/accounts.js'
 
 const defaultPlan: Plan = 'free'
 const defaultCredits = 0
@@ -215,9 +215,10 @@ export class AccountManagementRepository {
         await client.query(
           `
           INSERT INTO auth_identities (
-            id, user_id, provider, provider_subject, email, password_hash, is_primary, status, created_at, updated_at
+            id, user_id, provider, provider_subject, email, password_hash, is_primary, status,
+            email_verified_at, email_verification_status, created_at, updated_at
           )
-          VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', now(), now())
+          VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', now(), 'verified', now(), now())
           `,
           [authIdentityIdFor(userId), userId, row.email, input.passwordHash],
         )
@@ -396,9 +397,10 @@ export class AccountManagementRepository {
       await client.query(
         `
         INSERT INTO auth_identities (
-          id, user_id, provider, provider_subject, email, password_hash, is_primary, status, created_at, updated_at
+          id, user_id, provider, provider_subject, email, password_hash, is_primary, status,
+          email_verified_at, email_verification_status, created_at, updated_at
         )
-        VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', now(), now())
+        VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', now(), 'verified', now(), now())
         `,
         [authIdentityIdFor(userId), userId, input.email, input.passwordHash],
       )
@@ -567,7 +569,10 @@ export class AccountManagementRepository {
         s.created_at,
         s.last_seen_at,
         s.expires_at,
-        s.revoked_at
+        s.revoked_at,
+        s.ip_address,
+        s.user_agent,
+        s.device_label
       FROM sessions s
       JOIN tenant_memberships m ON m.id = s.membership_id
       JOIN tenants t ON t.id = m.tenant_id
@@ -592,7 +597,10 @@ export class AccountManagementRepository {
         s.created_at,
         s.last_seen_at,
         s.expires_at,
-        s.revoked_at
+        s.revoked_at,
+        s.ip_address,
+        s.user_agent,
+        s.device_label
       FROM sessions s
       JOIN tenant_memberships m ON m.id = s.membership_id
       JOIN tenants t ON t.id = m.tenant_id
@@ -616,7 +624,10 @@ export class AccountManagementRepository {
         s.created_at,
         s.last_seen_at,
         s.expires_at,
-        s.revoked_at
+        s.revoked_at,
+        s.ip_address,
+        s.user_agent,
+        s.device_label
       FROM sessions s
       JOIN tenant_memberships m ON m.id = s.membership_id
       JOIN tenants t ON t.id = m.tenant_id
@@ -660,6 +671,10 @@ export class AccountManagementRepository {
       [sessionId, tenantId],
     )
     return (result.rowCount ?? 0) > 0
+  }
+
+  async recordAuditLog(input: AuditLogInput): Promise<void> {
+    await insertAuditLog(this.database, input)
   }
 
   private async readAccountWorkspace(
@@ -725,6 +740,9 @@ type SessionRow = {
   last_seen_at: Date | string | null
   expires_at: Date | string
   revoked_at: Date | string | null
+  ip_address: string | null
+  user_agent: string | null
+  device_label: string | null
 }
 
 type TenantInvitationRow = {
@@ -915,8 +933,35 @@ function toSessionSummary(row: SessionRow, currentSessionId: string | null): Ses
     lastSeenAt: row.last_seen_at ? toIso(row.last_seen_at) : null,
     expiresAt: toIso(row.expires_at),
     revokedAt: row.revoked_at ? toIso(row.revoked_at) : null,
+    ipAddress: row.ip_address,
+    userAgent: row.user_agent,
+    deviceLabel: row.device_label,
     current: currentSessionId === row.session_id,
   }
+}
+
+async function insertAuditLog(client: Queryable, input: AuditLogInput): Promise<void> {
+  await client.query(
+    `
+    INSERT INTO audit_log_entries (
+      id, tenant_id, user_id, actor_user_id, action, resource_type, resource_id,
+      ip_address, user_agent, metadata, created_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, now())
+    `,
+    [
+      `audit-${randomUUID()}`,
+      input.tenantId,
+      input.userId,
+      input.actorUserId,
+      input.action,
+      input.resourceType,
+      input.resourceId,
+      input.ipAddress,
+      input.userAgent,
+      JSON.stringify(input.metadata ?? {}),
+    ],
+  )
 }
 
 function toIso(value: Date | string): string {

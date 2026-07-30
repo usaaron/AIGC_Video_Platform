@@ -1,7 +1,14 @@
 import type { Account, Plan, Role } from '@seqora/contracts'
 import type { AppStore, StoredUser } from '../../infra/store.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
-import type { AuthAccounts } from '../auth/accounts.js'
+import type {
+  AuditLogInput,
+  AuthAccounts,
+  PasswordResetTokenInput,
+  PasswordResetTokenResult,
+  ResetPasswordTokenInput,
+  SessionMetadata,
+} from '../auth/accounts.js'
 
 export type StoredSession = {
   sessionId: string
@@ -60,9 +67,10 @@ export class UserRepository implements AuthAccounts {
         await client.query(
           `
           INSERT INTO auth_identities (
-            id, user_id, provider, provider_subject, email, password_hash, is_primary, status, created_at, updated_at
+            id, user_id, provider, provider_subject, email, password_hash, is_primary, status,
+            email_verified_at, email_verification_status, created_at, updated_at
           )
-          VALUES ($1, $2, 'local', $3, $4, $5, true, 'active', now(), now())
+          VALUES ($1, $2, 'local', $3, $4, $5, true, 'active', now(), 'verified', now(), now())
           ON CONFLICT (id) DO NOTHING
         `,
           [authIdentityIdFor(userId), userId, seed.email.toLowerCase(), seed.email.toLowerCase(), seed.passwordHash],
@@ -329,6 +337,7 @@ export class UserRepository implements AuthAccounts {
     sessionId: string,
     tokenSecretHash: string,
     expiresAt: string,
+    metadata?: SessionMetadata,
   ): Promise<boolean> {
     if (!this.database) return true
 
@@ -338,16 +347,37 @@ export class UserRepository implements AuthAccounts {
       const result = await client.query(
         `
         INSERT INTO sessions (
-          id, membership_id, token_secret_hash, expires_at, revoked_at, created_at, last_seen_at
+          id, membership_id, token_secret_hash, expires_at, revoked_at, created_at, last_seen_at,
+          ip_address, user_agent, device_label
         )
-        VALUES ($1, $2, $3, $4, NULL, now(), now())
+        VALUES ($1, $2, $3, $4, NULL, now(), now(), $5, $6, $7)
         ON CONFLICT (id) DO NOTHING
         `,
-        [sessionId, membership.id, tokenSecretHash, expiresAt],
+        [
+          sessionId,
+          membership.id,
+          tokenSecretHash,
+          expiresAt,
+          metadata?.ipAddress ?? null,
+          metadata?.userAgent ?? null,
+          metadata?.deviceLabel ?? null,
+        ],
       )
       return (result.rowCount ?? 0) > 0
     })
   }
+
+  async createPasswordResetToken(
+    _input: PasswordResetTokenInput,
+  ): Promise<PasswordResetTokenResult | null> {
+    return null
+  }
+
+  async resetPasswordWithToken(_input: ResetPasswordTokenInput): Promise<boolean> {
+    return false
+  }
+
+  async recordAuditLog(_input: AuditLogInput): Promise<void> {}
 
   async resolveSession(sessionId: string): Promise<StoredSession | null> {
     if (!this.database) return null

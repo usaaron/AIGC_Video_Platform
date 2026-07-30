@@ -27,6 +27,7 @@ import {
 } from '../../core/auth/sessionToken.js'
 import { AppError } from '../../core/errors.js'
 import type { AppStore } from '../../infra/store.js'
+import type { SessionMetadata } from '../auth/accounts.js'
 import type { UserRepository } from '../users/repository.js'
 import { AccountManagementRepository, type AccountWorkspace } from './repository.js'
 
@@ -44,6 +45,7 @@ export class AccountManagementService {
   async createWorkspace(
     principal: Principal,
     input: CreateWorkspaceInput,
+    metadata?: SessionMetadata,
   ): Promise<{
     session: Session
     token: string
@@ -54,7 +56,18 @@ export class AccountManagementService {
     if (!created) {
       throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
     }
-    return await this.issueSession(created)
+    await this.accounts.recordAuditLog({
+      tenantId: created.workspace.id,
+      userId: principal.userId,
+      actorUserId: principal.userId,
+      action: 'workspace.created',
+      resourceType: 'tenant',
+      resourceId: created.workspace.id,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { name: created.workspace.name },
+    })
+    return await this.issueSession(created, metadata)
   }
 
   async listWorkspaces(principal: Principal): Promise<WorkspaceMembership[]> {
@@ -65,6 +78,7 @@ export class AccountManagementService {
   async switchWorkspace(
     principal: Principal,
     tenantId: string,
+    metadata?: SessionMetadata,
   ): Promise<{
     session: Session
     token: string
@@ -75,7 +89,7 @@ export class AccountManagementService {
     if (!workspace) {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist or membership is disabled')
     }
-    return await this.issueSession(workspace)
+    return await this.issueSession(workspace, metadata)
   }
 
   async createInvitation(
@@ -119,6 +133,7 @@ export class AccountManagementService {
 
   async acceptInvitation(
     input: AcceptTenantInvitationInput,
+    metadata?: SessionMetadata,
   ): Promise<{ session: Session; token: string; workspace: Workspace }> {
     const tokenSecretHash = hashInvitationToken(input.token)
     const invitation = await this.accounts.findInvitationByTokenHash(tokenSecretHash)
@@ -147,10 +162,15 @@ export class AccountManagementService {
     if (!accepted) {
       throw new AppError(410, 'INVITATION_EXPIRED', 'Invitation has expired')
     }
-    return await this.issueSession(accepted)
+    return await this.issueSession(accepted, metadata)
   }
 
-  async addMember(principal: Principal, tenantId: string, input: AddTenantMemberInput): Promise<Membership> {
+  async addMember(
+    principal: Principal,
+    tenantId: string,
+    input: AddTenantMemberInput,
+    metadata?: SessionMetadata,
+  ): Promise<Membership> {
     this.requireTenantScope(principal, tenantId)
     await this.requireCurrentAccount(principal)
     const roles = normalizeRoles(input.roles)
@@ -164,6 +184,17 @@ export class AccountManagementService {
       throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
     }
     await this.mirrorMembership(member)
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: member.userId,
+      actorUserId: principal.userId,
+      action: 'membership.added',
+      resourceType: 'tenant_membership',
+      resourceId: member.id,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { roles: member.roles },
+    })
     return member
   }
 
@@ -171,6 +202,7 @@ export class AccountManagementService {
     principal: Principal,
     tenantId: string,
     input: CreateTenantUserInput,
+    metadata?: SessionMetadata,
   ): Promise<Membership> {
     this.requireTenantScope(principal, tenantId)
     await this.requireCurrentAccount(principal)
@@ -191,6 +223,20 @@ export class AccountManagementService {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
     }
     await this.mirrorMembership(result.membership, passwordHash)
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: result.membership.userId,
+      actorUserId: principal.userId,
+      action: 'account.created',
+      resourceType: 'user',
+      resourceId: result.membership.userId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: {
+        membershipId: result.membership.id,
+        roles: result.membership.roles,
+      },
+    })
     return result.membership
   }
 
@@ -204,6 +250,7 @@ export class AccountManagementService {
     tenantId: string,
     userId: string,
     input: UpdateMembershipRolesInput,
+    metadata?: SessionMetadata,
   ): Promise<Membership> {
     this.requireTenantScope(principal, tenantId)
     const roles = normalizeRoles(input.roles)
@@ -219,10 +266,29 @@ export class AccountManagementService {
     const updated = await this.accounts.updateMembershipRoles(tenantId, userId, roles)
     if (!updated) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
     await this.mirrorMembership(updated)
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId,
+      actorUserId: principal.userId,
+      action: 'membership.roles.updated',
+      resourceType: 'tenant_membership',
+      resourceId: updated.id,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: {
+        previousRoles: target.roles,
+        roles: updated.roles,
+      },
+    })
     return updated
   }
 
-  async disableMembership(principal: Principal, tenantId: string, userId: string): Promise<void> {
+  async disableMembership(
+    principal: Principal,
+    tenantId: string,
+    userId: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
     this.requireTenantScope(principal, tenantId)
     if (principal.userId === userId) {
       throw new AppError(400, 'CANNOT_DISABLE_SELF_MEMBERSHIP', 'Cannot disable your current membership')
@@ -241,9 +307,25 @@ export class AccountManagementService {
     await this.store.mutate((state) => {
       state.users = state.users.filter((item) => !(item.id === userId && item.tenantId === tenantId))
     })
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId,
+      actorUserId: principal.userId,
+      action: 'membership.disabled',
+      resourceType: 'tenant_membership',
+      resourceId: target.id,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { roles: target.roles },
+    })
   }
 
-  async disableAccount(principal: Principal, tenantId: string, userId: string): Promise<void> {
+  async disableAccount(
+    principal: Principal,
+    tenantId: string,
+    userId: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
     this.requireTenantScope(principal, tenantId)
     if (!principal.roles.includes(ROLES.OWNER)) {
       throw new AppError(403, 'PERMISSION_DENIED', 'Only owners can disable accounts')
@@ -263,6 +345,17 @@ export class AccountManagementService {
     }
     await this.store.mutate((state) => {
       state.users = state.users.filter((item) => item.id !== userId)
+    })
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId,
+      actorUserId: principal.userId,
+      action: 'account.disabled',
+      resourceType: 'user',
+      resourceId: userId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { membershipId: target.id, roles: target.roles },
     })
   }
 
@@ -286,14 +379,34 @@ export class AccountManagementService {
     return await this.accounts.listTenantSessions(tenantId, currentSessionId)
   }
 
-  async revokeCurrentTenantSession(principal: Principal, sessionId: string): Promise<void> {
+  async revokeCurrentTenantSession(
+    principal: Principal,
+    sessionId: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
     await this.requireCurrentAccount(principal)
     if (!(await this.accounts.revokeUserSession(principal.userId, principal.tenantId, sessionId))) {
       throw new AppError(404, 'SESSION_NOT_FOUND', 'Session does not exist')
     }
+    await this.accounts.recordAuditLog({
+      tenantId: principal.tenantId,
+      userId: principal.userId,
+      actorUserId: principal.userId,
+      action: 'session.revoked',
+      resourceType: 'session',
+      resourceId: sessionId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { scope: 'self' },
+    })
   }
 
-  async revokeTenantSession(principal: Principal, tenantId: string, sessionId: string): Promise<void> {
+  async revokeTenantSession(
+    principal: Principal,
+    tenantId: string,
+    sessionId: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
     this.requireTenantScope(principal, tenantId)
     await this.requireCurrentAccount(principal)
     const target = await this.accounts.findTenantSession(tenantId, sessionId)
@@ -304,6 +417,17 @@ export class AccountManagementService {
     if (!(await this.accounts.revokeTenantSession(tenantId, sessionId))) {
       throw new AppError(404, 'SESSION_NOT_FOUND', 'Session does not exist')
     }
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: target.userId,
+      actorUserId: principal.userId,
+      action: 'session.revoked',
+      resourceType: 'session',
+      resourceId: sessionId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { scope: 'tenant' },
+    })
   }
 
   async selfWorkspace(principal: Principal): Promise<Account | null> {
@@ -313,6 +437,7 @@ export class AccountManagementService {
 
   private async issueSession(
     created: AccountWorkspace,
+    metadata?: SessionMetadata,
   ): Promise<{ session: Session; token: string; workspace: Workspace }> {
     const issued = issueSessionToken(this.secret)
     const createdSession = await this.users.createSession(
@@ -321,6 +446,7 @@ export class AccountManagementService {
       issued.payload.sessionId,
       hashSessionSecret(issued.payload.tokenSecret),
       new Date(issued.payload.expiresAt * 1_000).toISOString(),
+      metadata,
     )
     if (!createdSession) {
       throw new AppError(500, 'SESSION_CREATE_FAILED', 'Could not create session')

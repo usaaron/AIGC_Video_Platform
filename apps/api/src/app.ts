@@ -119,7 +119,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const users = new UserRepository(store, database)
   await users.bootstrapFromStore()
   const authAccounts = database ? new AuthRepository(database) : users
-  const authService = new AuthService(authAccounts, options.config.AUTH_SECRET)
+  const authService = new AuthService(authAccounts, options.config.AUTH_SECRET, {
+    exposePasswordResetTokens: options.config.NODE_ENV !== 'production',
+  })
   const accountManagementService = database
     ? new AccountManagementService(
         new AccountManagementRepository(database),

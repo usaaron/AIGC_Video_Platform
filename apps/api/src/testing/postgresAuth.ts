@@ -52,6 +52,8 @@ export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
         await database?.query(
           `
           TRUNCATE TABLE
+            audit_log_entries,
+            password_reset_tokens,
             sessions,
             billing_accounts,
             tenant_invitations,

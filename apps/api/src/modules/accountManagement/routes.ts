@@ -14,6 +14,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
 import { SESSION_COOKIE } from '../../core/auth/provider.js'
+import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { AppError } from '../../core/errors.js'
 import type { AccountManagementService } from './service.js'
 
@@ -38,6 +39,7 @@ export async function registerAccountManagementRoutes(
     async (request, reply) => {
       const result = await requireService(service).acceptInvitation(
         parse(acceptTenantInvitationSchema, request.body),
+        sessionMetadataFromRequest(request),
       )
       return sendSession(reply.code(201), result, secureCookies)
     },
@@ -47,6 +49,7 @@ export async function registerAccountManagementRoutes(
     const result = await requireService(service).createWorkspace(
       request.principal!,
       parse(createWorkspaceSchema, request.body),
+      sessionMetadataFromRequest(request),
     )
     return sendSession(reply.code(201), result, secureCookies)
   })
@@ -58,7 +61,11 @@ export async function registerAccountManagementRoutes(
 
   app.post('/workspaces/:tenantId/switch', { preHandler: requireAuthenticated }, async (request, reply) => {
     const { tenantId } = parse(tenantParams, request.params)
-    const result = await requireService(service).switchWorkspace(request.principal!, tenantId)
+    const result = await requireService(service).switchWorkspace(
+      request.principal!,
+      tenantId,
+      sessionMetadataFromRequest(request),
+    )
     return sendSession(reply, result, secureCookies)
   })
 
@@ -119,6 +126,7 @@ export async function registerAccountManagementRoutes(
         request.principal!,
         tenantId,
         parse(addTenantMemberSchema, request.body),
+        sessionMetadataFromRequest(request),
       )
       return reply.code(201).send(member)
     },
@@ -136,6 +144,7 @@ export async function registerAccountManagementRoutes(
         request.principal!,
         tenantId,
         parse(createTenantUserSchema, request.body),
+        sessionMetadataFromRequest(request),
       )
       return reply.code(201).send(member)
     },
@@ -151,6 +160,7 @@ export async function registerAccountManagementRoutes(
         tenantId,
         userId,
         parse(updateMembershipRolesSchema, request.body),
+        sessionMetadataFromRequest(request),
       )
     },
   )
@@ -160,7 +170,12 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId, userId } = parse(memberParams, request.params)
-      await requireService(service).disableMembership(request.principal!, tenantId, userId)
+      await requireService(service).disableMembership(
+        request.principal!,
+        tenantId,
+        userId,
+        sessionMetadataFromRequest(request),
+      )
       return reply.code(204).send()
     },
   )
@@ -170,7 +185,12 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId, userId } = parse(memberParams, request.params)
-      await requireService(service).disableAccount(request.principal!, tenantId, userId)
+      await requireService(service).disableAccount(
+        request.principal!,
+        tenantId,
+        userId,
+        sessionMetadataFromRequest(request),
+      )
       return reply.code(204).send()
     },
   )
@@ -189,7 +209,11 @@ export async function registerAccountManagementRoutes(
     const revokingCurrentSession = sessions.some(
       (session) => session.sessionId === sessionId && session.current,
     )
-    await requireService(service).revokeCurrentTenantSession(request.principal!, sessionId)
+    await requireService(service).revokeCurrentTenantSession(
+      request.principal!,
+      sessionId,
+      sessionMetadataFromRequest(request),
+    )
     reply.header('Cache-Control', 'no-store')
     if (revokingCurrentSession) clearSessionCookie(reply, secureCookies)
     return reply.code(204).send()
@@ -200,7 +224,12 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId, sessionId } = parse(tenantSessionParams, request.params)
-      await requireService(service).revokeTenantSession(request.principal!, tenantId, sessionId)
+      await requireService(service).revokeTenantSession(
+        request.principal!,
+        tenantId,
+        sessionId,
+        sessionMetadataFromRequest(request),
+      )
       return reply.code(204).send()
     },
   )

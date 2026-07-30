@@ -21,6 +21,45 @@ export type AuthSession = {
   revokedAt: string | null
 }
 
+export type SessionMetadata = {
+  ipAddress: string | null
+  userAgent: string | null
+  deviceLabel: string | null
+}
+
+export type PasswordResetTokenInput = {
+  email: string
+  tokenSecretHash: string
+  expiresAt: string
+  ipAddress: string | null
+  userAgent: string | null
+}
+
+export type PasswordResetTokenResult = {
+  userId: string
+  identityId: string
+  expiresAt: string
+}
+
+export type ResetPasswordTokenInput = {
+  tokenSecretHash: string
+  passwordHash: string
+  ipAddress: string | null
+  userAgent: string | null
+}
+
+export type AuditLogInput = {
+  tenantId: string | null
+  userId: string | null
+  actorUserId: string | null
+  action: string
+  resourceType: string
+  resourceId: string | null
+  ipAddress: string | null
+  userAgent: string | null
+  metadata?: Record<string, unknown>
+}
+
 export interface AuthAccounts {
   hasDatabase: boolean
   findByEmail(email: string): Promise<AuthAccount | null>
@@ -32,7 +71,11 @@ export interface AuthAccounts {
     sessionId: string,
     tokenSecretHash: string,
     expiresAt: string,
+    metadata?: SessionMetadata,
   ): Promise<boolean>
+  createPasswordResetToken(input: PasswordResetTokenInput): Promise<PasswordResetTokenResult | null>
+  resetPasswordWithToken(input: ResetPasswordTokenInput): Promise<boolean>
+  recordAuditLog(input: AuditLogInput): Promise<void>
   resolveSession(sessionId: string): Promise<AuthSession | null>
   touchSession(sessionId: string): Promise<void>
   revokeSession(sessionId: string): Promise<void>

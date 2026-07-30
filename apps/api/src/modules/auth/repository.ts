@@ -1,6 +1,16 @@
 import type { Account } from '@seqora/contracts'
+import { createHash, randomUUID } from 'node:crypto'
 import type { AccountDatabase } from '../../infra/postgres.js'
-import type { AuthAccount, AuthAccounts, AuthSession } from './accounts.js'
+import type {
+  AuditLogInput,
+  AuthAccount,
+  AuthAccounts,
+  AuthSession,
+  PasswordResetTokenInput,
+  PasswordResetTokenResult,
+  ResetPasswordTokenInput,
+  SessionMetadata,
+} from './accounts.js'
 
 export class AuthRepository implements AuthAccounts {
   readonly hasDatabase = true
@@ -113,6 +123,7 @@ export class AuthRepository implements AuthAccounts {
     sessionId: string,
     tokenSecretHash: string,
     expiresAt: string,
+    metadata?: SessionMetadata,
   ): Promise<boolean> {
     return this.database.transaction(async (client) => {
       const membership = await resolveMembership(client, userId, tenantId)
@@ -120,15 +131,194 @@ export class AuthRepository implements AuthAccounts {
       const result = await client.query(
         `
         INSERT INTO sessions (
-          id, membership_id, token_secret_hash, expires_at, revoked_at, created_at, last_seen_at
+          id, membership_id, token_secret_hash, expires_at, revoked_at, created_at, last_seen_at,
+          ip_address, user_agent, device_label
         )
-        VALUES ($1, $2, $3, $4, NULL, now(), now())
+        VALUES ($1, $2, $3, $4, NULL, now(), now(), $5, $6, $7)
         ON CONFLICT (id) DO NOTHING
         `,
-        [sessionId, membership.id, tokenSecretHash, expiresAt],
+        [
+          sessionId,
+          membership.id,
+          tokenSecretHash,
+          expiresAt,
+          metadata?.ipAddress ?? null,
+          metadata?.userAgent ?? null,
+          metadata?.deviceLabel ?? null,
+        ],
       )
       return (result.rowCount ?? 0) > 0
     })
+  }
+
+  async createPasswordResetToken(
+    input: PasswordResetTokenInput,
+  ): Promise<PasswordResetTokenResult | null> {
+    return this.database.transaction(async (client) => {
+      const account = await client.query<PasswordResetAccountRow>(
+        `
+        SELECT
+          ai.id AS identity_id,
+          ai.user_id
+        FROM auth_identities ai
+        JOIN users u ON u.id = ai.user_id AND u.status = 'active'
+        WHERE ai.provider = 'local'
+          AND lower(ai.email) = lower($1)
+          AND ai.status = 'active'
+          AND ai.password_hash IS NOT NULL
+        ORDER BY ai.is_primary DESC, ai.created_at ASC
+        LIMIT 1
+        FOR UPDATE OF ai
+        `,
+        [input.email],
+      )
+      const row = account.rows[0]
+      if (!row) {
+        await insertAuditLog(client, {
+          tenantId: null,
+          userId: null,
+          actorUserId: null,
+          action: 'auth.password_reset.requested',
+          resourceType: 'email',
+          resourceId: null,
+          ipAddress: input.ipAddress,
+          userAgent: input.userAgent,
+          metadata: { emailHash: hashAuditValue(input.email.toLowerCase()) },
+        })
+        return null
+      }
+
+      await client.query(
+        `
+        UPDATE password_reset_tokens
+        SET revoked_at = now(),
+            updated_at = now()
+        WHERE identity_id = $1
+          AND used_at IS NULL
+          AND revoked_at IS NULL
+          AND expires_at > now()
+        `,
+        [row.identity_id],
+      )
+      await client.query(
+        `
+        INSERT INTO password_reset_tokens (
+          id, user_id, identity_id, token_secret_hash, expires_at, used_at, revoked_at,
+          requested_ip, requested_user_agent, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, now(), now())
+        `,
+        [
+          `password-reset-${randomUUID()}`,
+          row.user_id,
+          row.identity_id,
+          input.tokenSecretHash,
+          input.expiresAt,
+          input.ipAddress,
+          input.userAgent,
+        ],
+      )
+      await insertAuditLog(client, {
+        tenantId: null,
+        userId: row.user_id,
+        actorUserId: null,
+        action: 'auth.password_reset.requested',
+        resourceType: 'auth_identity',
+        resourceId: row.identity_id,
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+        metadata: {},
+      })
+      return { userId: row.user_id, identityId: row.identity_id, expiresAt: input.expiresAt }
+    })
+  }
+
+  async resetPasswordWithToken(input: ResetPasswordTokenInput): Promise<boolean> {
+    return this.database.transaction(async (client) => {
+      const token = await client.query<PasswordResetTokenRow>(
+        `
+        SELECT
+          prt.id AS token_id,
+          prt.user_id,
+          prt.identity_id
+        FROM password_reset_tokens prt
+        JOIN auth_identities ai ON ai.id = prt.identity_id
+        JOIN users u ON u.id = prt.user_id
+        WHERE prt.token_secret_hash = $1
+          AND prt.used_at IS NULL
+          AND prt.revoked_at IS NULL
+          AND prt.expires_at > now()
+          AND ai.status = 'active'
+          AND ai.provider = 'local'
+          AND ai.password_hash IS NOT NULL
+          AND u.status = 'active'
+        LIMIT 1
+        FOR UPDATE OF prt
+        `,
+        [input.tokenSecretHash],
+      )
+      const row = token.rows[0]
+      if (!row) {
+        await insertAuditLog(client, {
+          tenantId: null,
+          userId: null,
+          actorUserId: null,
+          action: 'auth.password_reset.failed',
+          resourceType: 'password_reset_token',
+          resourceId: null,
+          ipAddress: input.ipAddress,
+          userAgent: input.userAgent,
+          metadata: { reason: 'invalid_or_expired' },
+        })
+        return false
+      }
+
+      await client.query(
+        `
+        UPDATE auth_identities
+        SET password_hash = $2,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [row.identity_id, input.passwordHash],
+      )
+      await client.query(
+        `
+        UPDATE password_reset_tokens
+        SET used_at = now(),
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [row.token_id],
+      )
+      await client.query(
+        `
+        UPDATE sessions s
+        SET revoked_at = now()
+        FROM tenant_memberships m
+        WHERE s.membership_id = m.id
+          AND m.user_id = $1
+          AND s.revoked_at IS NULL
+        `,
+        [row.user_id],
+      )
+      await insertAuditLog(client, {
+        tenantId: null,
+        userId: row.user_id,
+        actorUserId: row.user_id,
+        action: 'auth.password_reset.completed',
+        resourceType: 'auth_identity',
+        resourceId: row.identity_id,
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+        metadata: { resetTokenId: row.token_id },
+      })
+      return true
+    })
+  }
+
+  async recordAuditLog(input: AuditLogInput): Promise<void> {
+    await insertAuditLog(this.database, input)
   }
 
   async resolveSession(sessionId: string): Promise<AuthSession | null> {
@@ -250,6 +440,52 @@ type AuthSessionRow = {
   token_secret_hash: string
   expires_at: string
   revoked_at: string | null
+}
+
+type PasswordResetAccountRow = {
+  identity_id: string
+  user_id: string
+}
+
+type PasswordResetTokenRow = {
+  token_id: string
+  user_id: string
+  identity_id: string
+}
+
+type Queryable = {
+  query<T extends { [key: string]: unknown } = { [key: string]: unknown }>(
+    text: string,
+    params?: readonly unknown[],
+  ): Promise<{ rows: T[]; rowCount?: number | null }>
+}
+
+async function insertAuditLog(client: Queryable, input: AuditLogInput): Promise<void> {
+  await client.query(
+    `
+    INSERT INTO audit_log_entries (
+      id, tenant_id, user_id, actor_user_id, action, resource_type, resource_id,
+      ip_address, user_agent, metadata, created_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, now())
+    `,
+    [
+      `audit-${randomUUID()}`,
+      input.tenantId,
+      input.userId,
+      input.actorUserId,
+      input.action,
+      input.resourceType,
+      input.resourceId,
+      input.ipAddress,
+      input.userAgent,
+      JSON.stringify(input.metadata ?? {}),
+    ],
+  )
+}
+
+function hashAuditValue(value: string): string {
+  return createHash('sha256').update(value).digest('base64url')
 }
 
 function toAuthAccount(row: AuthAccountRow): AuthAccount {

@@ -9,6 +9,7 @@ import {
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
+import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { AppError } from '../../core/errors.js'
 import type { AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
@@ -24,6 +25,9 @@ const listQuery = z.object({
   membershipId: z.string().min(1).max(512).optional(),
   role: roleSchema.optional(),
   type: z.enum(['grant', 'generation', 'adjustment']).optional(),
+  action: z.string().min(1).max(120).optional(),
+  resourceType: z.string().min(1).max(120).optional(),
+  actorUserId: z.string().min(1).max(256).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 })
@@ -80,6 +84,7 @@ export async function registerAdminRoutes(
         request.principal!,
         userId,
         input.status,
+        sessionMetadataFromRequest(request),
       )
       if (!updated) throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
       return updated
@@ -133,6 +138,15 @@ export async function registerAdminRoutes(
       return await requireAdminRepository(adminRepository).listBillingLedgerEntries(
         parseListQuery(request.query),
       )
+    },
+  )
+
+  app.get(
+    '/admin/audit-logs',
+    { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await requireAdminRepository(adminRepository).listAuditLogEntries(parseListQuery(request.query))
     },
   )
 

@@ -33,8 +33,26 @@ export const changePasswordSchema = z
     message: 'New password must be different from the current password',
   })
 
+export const requestPasswordResetSchema = z.object({
+  email: z.string().email(),
+})
+
+export const requestPasswordResetResultSchema = z.object({
+  ok: z.literal(true),
+  resetToken: z.string().min(32).optional(),
+  expiresAt: z.string().datetime().optional(),
+})
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(32).max(256),
+  newPassword: z.string().min(12).max(128),
+})
+
 export type Account = z.infer<typeof accountSchema>
 export type Plan = z.infer<typeof planSchema>
 export type Session = z.infer<typeof sessionSchema>
 export type LoginInput = z.infer<typeof loginSchema>
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>
+export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchema>
+export type RequestPasswordResetResult = z.infer<typeof requestPasswordResetResultSchema>
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>

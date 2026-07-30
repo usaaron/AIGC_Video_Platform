@@ -1,5 +1,7 @@
 import type {
   AdminAccountStatus,
+  AdminAuditLogEntry,
+  AdminAuditLogEntryList,
   AdminBillingAccount,
   AdminBillingAccountList,
   AdminBillingLedgerEntry,
@@ -17,8 +19,10 @@ import type {
   Role,
 } from '@seqora/contracts'
 import { ROLES } from '@seqora/contracts'
+import { randomUUID } from 'node:crypto'
 import { AppError } from '../../core/errors.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
+import type { SessionMetadata } from '../auth/accounts.js'
 
 const defaultLimit = 50
 const maxLimit = 100
@@ -31,6 +35,9 @@ export type AdminListOptions = {
   membershipId?: string | undefined
   role?: Role | undefined
   type?: LedgerEntry['type'] | undefined
+  action?: string | undefined
+  resourceType?: string | undefined
+  actorUserId?: string | undefined
   limit: number
   offset: number
 }
@@ -242,10 +249,47 @@ export class AdminRepository {
     return listResult(rows.rows.map(toAdminBillingLedgerEntry), total.rows[0]?.total ?? 0, paging)
   }
 
+  async listAuditLogEntries(options: AdminListOptions): Promise<AdminAuditLogEntryList> {
+    const filter = buildAuditFilter(options)
+    const total = await this.database.query<{ total: number }>(
+      `
+      SELECT count(*)::int AS total
+      FROM audit_log_entries e
+      ${filter.where}
+      `,
+      filter.params,
+    )
+    const paging = normalizePaging(options)
+    const rows = await this.database.query<AdminAuditLogEntryRow>(
+      `
+      SELECT
+        e.id,
+        e.tenant_id,
+        e.user_id,
+        e.actor_user_id,
+        e.action,
+        e.resource_type,
+        e.resource_id,
+        e.ip_address,
+        e.user_agent,
+        e.metadata,
+        e.created_at
+      FROM audit_log_entries e
+      ${filter.where}
+      ORDER BY e.created_at DESC, e.id DESC
+      LIMIT $${filter.params.length + 1}
+      OFFSET $${filter.params.length + 2}
+      `,
+      [...filter.params, paging.limit, paging.offset],
+    )
+    return listResult(rows.rows.map(toAdminAuditLogEntry), total.rows[0]?.total ?? 0, paging)
+  }
+
   async setAccountStatus(
     principal: Principal,
     userId: string,
     status: AdminAccountStatus,
+    metadata?: SessionMetadata,
   ): Promise<AdminUser | null> {
     return this.database.transaction(async (client) => {
       const user = await client.query<{ id: string; status: AdminAccountStatus }>(
@@ -326,6 +370,20 @@ export class AdminRepository {
           [userId],
         )
       }
+      await insertAuditLog(client, {
+        tenantId: null,
+        userId,
+        actorUserId: principal.userId,
+        action: 'admin.account_status.updated',
+        resourceType: 'user',
+        resourceId: userId,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: {
+          previousStatus: user.rows[0].status,
+          status,
+        },
+      })
 
       return await readAdminUser(client, userId)
     })
@@ -409,6 +467,20 @@ type AdminBillingLedgerEntryRow = {
   metadata: Record<string, unknown> | string
 }
 
+type AdminAuditLogEntryRow = {
+  id: string
+  tenant_id: string | null
+  user_id: string | null
+  actor_user_id: string | null
+  action: string
+  resource_type: string
+  resource_id: string | null
+  ip_address: string | null
+  user_agent: string | null
+  metadata: Record<string, unknown> | string
+  created_at: Date | string
+}
+
 function buildUserFilter(options: AdminListOptions): Filter {
   const builder = new FilterBuilder()
   if (options.userId) builder.add('u.id = ?', options.userId)
@@ -469,6 +541,25 @@ function buildLedgerFilter(options: AdminListOptions): Filter {
   if (options.q?.trim()) {
     builder.add(
       '(lower(e.id) LIKE ? OR lower(e.reference_id) LIKE ? OR lower(e.description) LIKE ?)',
+      search(options.q),
+      search(options.q),
+      search(options.q),
+    )
+  }
+  return builder.build()
+}
+
+function buildAuditFilter(options: AdminListOptions): Filter {
+  const builder = new FilterBuilder()
+  if (options.tenantId) builder.add('e.tenant_id = ?', options.tenantId)
+  if (options.userId) builder.add('e.user_id = ?', options.userId)
+  if (options.actorUserId) builder.add('e.actor_user_id = ?', options.actorUserId)
+  if (options.action) builder.add('e.action = ?', options.action)
+  if (options.resourceType) builder.add('e.resource_type = ?', options.resourceType)
+  if (options.q?.trim()) {
+    builder.add(
+      '(lower(e.id) LIKE ? OR lower(e.action) LIKE ? OR lower(e.resource_type) LIKE ? OR lower(COALESCE(e.resource_id, \'\')) LIKE ?)',
+      search(options.q),
       search(options.q),
       search(options.q),
       search(options.q),
@@ -669,6 +760,22 @@ function toAdminBillingLedgerEntry(row: AdminBillingLedgerEntryRow): AdminBillin
   }
 }
 
+function toAdminAuditLogEntry(row: AdminAuditLogEntryRow): AdminAuditLogEntry {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    userId: row.user_id,
+    actorUserId: row.actor_user_id,
+    action: row.action,
+    resourceType: row.resource_type,
+    resourceId: row.resource_id,
+    ipAddress: row.ip_address,
+    userAgent: row.user_agent,
+    metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
+    createdAt: toIso(row.created_at),
+  }
+}
+
 function search(value: string): string {
   return `%${value.trim().toLowerCase()}%`
 }
@@ -679,6 +786,43 @@ function isOwner(principal: Principal): boolean {
 
 function hasElevatedRole(roles: Role[]): boolean {
   return roles.includes(ROLES.OWNER) || roles.includes(ROLES.ADMIN)
+}
+
+async function insertAuditLog(
+  client: Queryable,
+  input: {
+    tenantId: string | null
+    userId: string | null
+    actorUserId: string | null
+    action: string
+    resourceType: string
+    resourceId: string | null
+    ipAddress: string | null
+    userAgent: string | null
+    metadata?: Record<string, unknown>
+  },
+): Promise<void> {
+  await client.query(
+    `
+    INSERT INTO audit_log_entries (
+      id, tenant_id, user_id, actor_user_id, action, resource_type, resource_id,
+      ip_address, user_agent, metadata, created_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, now())
+    `,
+    [
+      `audit-${randomUUID()}`,
+      input.tenantId,
+      input.userId,
+      input.actorUserId,
+      input.action,
+      input.resourceType,
+      input.resourceId,
+      input.ipAddress,
+      input.userAgent,
+      JSON.stringify(input.metadata ?? {}),
+    ],
+  )
 }
 
 function toIso(value: Date | string): string {

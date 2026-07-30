@@ -87,6 +87,20 @@ export const adminBillingLedgerEntrySchema = ledgerEntrySchema.extend({
   metadata: z.record(z.string(), z.unknown()),
 })
 
+export const adminAuditLogEntrySchema = z.object({
+  id: z.string().min(1),
+  tenantId: z.string().min(1).nullable(),
+  userId: z.string().min(1).nullable(),
+  actorUserId: z.string().min(1).nullable(),
+  action: z.string().min(1),
+  resourceType: z.string().min(1),
+  resourceId: z.string().min(1).nullable(),
+  ipAddress: z.string().nullable(),
+  userAgent: z.string().nullable(),
+  metadata: z.record(z.string(), z.unknown()),
+  createdAt: z.string().datetime(),
+})
+
 export const adminUserListSchema = z.object({
   items: z.array(adminUserSchema),
   meta: adminListMetaSchema,
@@ -112,6 +126,11 @@ export const adminBillingLedgerEntryListSchema = z.object({
   meta: adminListMetaSchema,
 })
 
+export const adminAuditLogEntryListSchema = z.object({
+  items: z.array(adminAuditLogEntrySchema),
+  meta: adminListMetaSchema,
+})
+
 export const adminMembershipDetailSchema = z.object({
   membership: adminMembershipSchema,
   billing: adminBillingAccountSchema,
@@ -129,10 +148,12 @@ export type AdminTenant = z.infer<typeof adminTenantSchema>
 export type AdminMembership = z.infer<typeof adminMembershipSchema>
 export type AdminBillingAccount = z.infer<typeof adminBillingAccountSchema>
 export type AdminBillingLedgerEntry = z.infer<typeof adminBillingLedgerEntrySchema>
+export type AdminAuditLogEntry = z.infer<typeof adminAuditLogEntrySchema>
 export type AdminUserList = z.infer<typeof adminUserListSchema>
 export type AdminTenantList = z.infer<typeof adminTenantListSchema>
 export type AdminMembershipList = z.infer<typeof adminMembershipListSchema>
 export type AdminMembershipDetail = z.infer<typeof adminMembershipDetailSchema>
 export type AdminBillingAccountList = z.infer<typeof adminBillingAccountListSchema>
 export type AdminBillingLedgerEntryList = z.infer<typeof adminBillingLedgerEntryListSchema>
+export type AdminAuditLogEntryList = z.infer<typeof adminAuditLogEntryListSchema>
 export type AdminAccountStatusUpdateInput = z.infer<typeof adminAccountStatusUpdateSchema>
