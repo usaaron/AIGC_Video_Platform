@@ -190,7 +190,7 @@ export class GenerationTaskRepository {
 
       const now = new Date().toISOString()
       const task = buildQueuedGenerationTask(input, principal, now)
-      await creditLedger.reserveInState(
+      await creditLedger.reserveCreditsInState(
         state,
         principal,
         input.estimatedCredits,

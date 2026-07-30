@@ -1,4 +1,5 @@
 import type { BillingSummary, GenerationTask, LedgerEntry, Plan, Principal } from '@seqora/contracts'
+import { randomUUID } from 'node:crypto'
 import { AppError } from '../../core/errors.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
@@ -8,7 +9,20 @@ import { BillingLedgerRepository } from './repository.js'
 const monthlyGrantCredits = 500
 
 export interface CreditLedger {
+  reserveCredits(
+    principal: Principal,
+    credits: number,
+    referenceId: string,
+    description?: string,
+  ): Promise<boolean>
   reserve(principal: Principal, credits: number, referenceId: string, description?: string): Promise<boolean>
+  reserveCreditsInState(
+    state: AppState,
+    principal: Principal,
+    credits: number,
+    referenceId: string,
+    description?: string,
+  ): Promise<boolean>
   reserveInState(
     state: AppState,
     principal: Principal,
@@ -16,7 +30,14 @@ export interface CreditLedger {
     referenceId: string,
     description?: string,
   ): Promise<boolean>
+  refundCredits(principal: Principal, referenceId: string, description: string): Promise<void>
   refundReservation(principal: Principal, referenceId: string, description: string): Promise<void>
+  refundCreditsInState(
+    state: AppState,
+    principal: Principal,
+    referenceId: string,
+    description: string,
+  ): Promise<void>
   refundReservationInState(
     state: AppState,
     principal: Principal,
@@ -25,6 +46,21 @@ export interface CreditLedger {
   ): Promise<void>
   refundGeneration(task: GenerationTask, description?: string): Promise<void>
   refundGenerationInState(state: AppState, task: GenerationTask, description?: string): Promise<void>
+  grantCredits(principal: Principal, amount: number, reason: string): Promise<BillingSummary>
+  grantCreditsInState(state: AppState, principal: Principal, amount: number, reason: string): Promise<BillingSummary>
+  adjustCredits(
+    principal: Principal,
+    targetMembershipId: string,
+    amount: number,
+    reason: string,
+  ): Promise<BillingSummary>
+  adjustCreditsInState(
+    state: AppState,
+    principal: Principal,
+    targetMembershipId: string,
+    amount: number,
+    reason: string,
+  ): Promise<BillingSummary>
   adjustBalance(
     principal: Principal,
     amount: number,
@@ -38,7 +74,9 @@ export interface CreditLedger {
     referenceId: string,
     description: string,
   ): Promise<BillingSummary>
+  billingSummary(principal: Principal): Promise<BillingSummary>
   summary(principal: Principal): Promise<BillingSummary>
+  consumedCreditsSince(startIso: string): Promise<number>
   updatePlan(principal: Principal, plan: Plan): Promise<BillingSummary>
   updatePlanInState(state: AppState, principal: Principal, plan: Plan): Promise<BillingSummary>
 }
@@ -57,7 +95,17 @@ export class StoreCreditLedger implements CreditLedger {
 
   async bootstrapFromStore(): Promise<void> {
     if (!this.ledgerRepository) return
+    if (await this.ledgerRepository.hasImportedJsonEntries()) return
     await this.ledgerRepository.bootstrapFromStore(this.store.read((state) => state.ledger))
+  }
+
+  async reserveCredits(
+    principal: Principal,
+    credits: number,
+    referenceId: string,
+    description = 'Generation task',
+  ): Promise<boolean> {
+    return this.reserve(principal, credits, referenceId, description)
   }
 
   async reserve(
@@ -71,6 +119,16 @@ export class StoreCreditLedger implements CreditLedger {
     )
   }
 
+  async reserveCreditsInState(
+    state: AppState,
+    principal: Principal,
+    credits: number,
+    referenceId: string,
+    description = 'Generation task',
+  ): Promise<boolean> {
+    return this.reserveInState(state, principal, credits, referenceId, description)
+  }
+
   async reserveInState(
     state: AppState,
     principal: Principal,
@@ -79,7 +137,7 @@ export class StoreCreditLedger implements CreditLedger {
     description = 'Generation task',
   ): Promise<boolean> {
     const entryId = `generation-${referenceId}`
-    if (state.ledger.some((entry) => entry.id === entryId)) return false
+    if (!this.ledgerRepository && state.ledger.some((entry) => entry.id === entryId)) return false
     const user = findUser(state, principal)
     if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
 
@@ -95,7 +153,6 @@ export class StoreCreditLedger implements CreditLedger {
       })
       if (!recorded) return false
       user.credits = recorded.balance
-      mirrorLedgerEntry(state, recorded.entry)
       return true
     }
 
@@ -118,6 +175,19 @@ export class StoreCreditLedger implements CreditLedger {
     await this.store.transaction((state) =>
       this.refundReservationInState(state, principal, referenceId, description),
     )
+  }
+
+  async refundCredits(principal: Principal, referenceId: string, description: string): Promise<void> {
+    await this.refundReservation(principal, referenceId, description)
+  }
+
+  async refundCreditsInState(
+    state: AppState,
+    principal: Principal,
+    referenceId: string,
+    description: string,
+  ): Promise<void> {
+    await this.refundReservationInState(state, principal, referenceId, description)
   }
 
   async refundReservationInState(
@@ -146,7 +216,6 @@ export class StoreCreditLedger implements CreditLedger {
       })
       if (!recorded) return
       user.credits = recorded.balance
-      mirrorLedgerEntry(state, recorded.entry)
       return
     }
 
@@ -203,7 +272,6 @@ export class StoreCreditLedger implements CreditLedger {
       })
       if (!recorded) return
       user.credits = recorded.balance
-      mirrorLedgerEntry(state, recorded.entry)
       markTaskRefunded(state, task.id, now)
       return
     }
@@ -227,6 +295,131 @@ export class StoreCreditLedger implements CreditLedger {
       createdAt: now,
     })
     markTaskRefunded(state, task.id, now)
+  }
+
+  async grantCredits(principal: Principal, amount: number, reason: string): Promise<BillingSummary> {
+    return this.store.transaction((state) => this.grantCreditsInState(state, principal, amount, reason))
+  }
+
+  async grantCreditsInState(
+    state: AppState,
+    principal: Principal,
+    amount: number,
+    reason: string,
+  ): Promise<BillingSummary> {
+    if (amount <= 0) throw new AppError(400, 'INVALID_CREDIT_AMOUNT', 'Credit amount must be positive')
+    const user = findUser(state, principal)
+    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
+    const entryId = `grant-${cryptoRandomId()}`
+
+    if (this.ledgerRepository) {
+      const recorded = await this.ledgerRepository.recordGrant({
+        tenantId: principal.tenantId,
+        userId: principal.userId,
+        grantEntryId: entryId,
+        amount,
+        description: reason,
+        createdByUserId: principal.userId,
+      })
+      if (recorded) {
+        user.credits = recorded.balance
+      }
+      return this.billingSummary(principal)
+    }
+
+    user.credits += amount
+    mirrorLedgerEntry(state, {
+      id: entryId,
+      userId: user.id,
+      tenantId: user.tenantId,
+      amount,
+      balance: user.credits,
+      type: 'grant',
+      description: reason,
+      createdAt: new Date().toISOString(),
+    })
+    return buildSummaryFromEntries(
+      ledgerEntriesForPrincipal(state, principal),
+      user.plan,
+      user.credits,
+      this.planSelfServiceEnabled,
+    )
+  }
+
+  async adjustCredits(
+    principal: Principal,
+    targetMembershipId: string,
+    amount: number,
+    reason: string,
+  ): Promise<BillingSummary> {
+    return this.store.transaction((state) =>
+      this.adjustCreditsInState(state, principal, targetMembershipId, amount, reason),
+    )
+  }
+
+  async adjustCreditsInState(
+    state: AppState,
+    principal: Principal,
+    targetMembershipId: string,
+    amount: number,
+    reason: string,
+  ): Promise<BillingSummary> {
+    if (!isBillingAdmin(principal)) {
+      throw new AppError(403, 'PERMISSION_DENIED', 'Only administrators can adjust credits')
+    }
+    const entryId = `adjustment-${cryptoRandomId()}`
+
+    if (this.ledgerRepository) {
+      const recorded = await this.ledgerRepository.recordAdjustmentForMembership({
+        membershipId: targetMembershipId,
+        entryId,
+        referenceId: entryId,
+        entryType: 'adjustment',
+        amount,
+        description: reason,
+        createdByUserId: principal.userId,
+      })
+      if (!recorded) {
+        throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+      }
+      const targetUser = findUserById(state, recorded.userId, recorded.tenantId)
+      if (targetUser) targetUser.credits = recorded.balance
+      return this.billingSummary({
+        userId: recorded.userId,
+        tenantId: recorded.tenantId,
+        roles: principal.roles,
+      })
+    }
+
+    const targetUser = state.users.find(
+      (item) => `membership-${item.tenantId}-${item.id}` === targetMembershipId,
+    )
+    if (!targetUser) {
+      throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+    }
+    const nextCredits = targetUser.credits + amount
+    if (nextCredits < 0) throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
+    targetUser.credits = nextCredits
+    mirrorLedgerEntry(state, {
+      id: entryId,
+      userId: targetUser.id,
+      tenantId: targetUser.tenantId,
+      amount,
+      balance: targetUser.credits,
+      type: 'adjustment',
+      description: reason,
+      createdAt: new Date().toISOString(),
+    })
+    return buildSummaryFromEntries(
+      ledgerEntriesForPrincipal(state, {
+        userId: targetUser.id,
+        tenantId: targetUser.tenantId,
+        roles: principal.roles,
+      }),
+      targetUser.plan,
+      targetUser.credits,
+      this.planSelfServiceEnabled,
+    )
   }
 
   async adjustBalance(
@@ -263,7 +456,6 @@ export class StoreCreditLedger implements CreditLedger {
       })
       if (recorded) {
         user.credits = recorded.balance
-        mirrorLedgerEntry(state, recorded.entry)
       }
       const entries = await this.ledgerRepository.listEntries(principal.userId, principal.tenantId)
       return buildSummaryFromEntries(entries, user.plan, user.credits, this.planSelfServiceEnabled)
@@ -299,7 +491,7 @@ export class StoreCreditLedger implements CreditLedger {
     )
   }
 
-  async summary(principal: Principal): Promise<BillingSummary> {
+  async billingSummary(principal: Principal): Promise<BillingSummary> {
     const account = await this.users.findBillingAccount(principal.userId, principal.tenantId)
     if (!account) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
 
@@ -315,6 +507,27 @@ export class StoreCreditLedger implements CreditLedger {
         account.credits,
         this.planSelfServiceEnabled,
       ),
+    )
+  }
+
+  async summary(principal: Principal): Promise<BillingSummary> {
+    return this.billingSummary(principal)
+  }
+
+  async consumedCreditsSince(startIso: string): Promise<number> {
+    if (this.ledgerRepository) {
+      return this.ledgerRepository.countConsumedCreditsSince(startIso)
+    }
+    const startTime = new Date(startIso).getTime()
+    return this.store.read((state) =>
+      state.ledger
+        .filter(
+          (entry) =>
+            entry.type === 'generation' &&
+            entry.amount < 0 &&
+            new Date(entry.createdAt).getTime() >= startTime,
+        )
+        .reduce((total, entry) => total + Math.abs(entry.amount), 0),
     )
   }
 
@@ -340,7 +553,6 @@ export class StoreCreditLedger implements CreditLedger {
       if (!updated) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
       user.plan = updated.plan
       user.credits = updated.credits
-      if (updated.grantEntry) mirrorLedgerEntry(state, updated.grantEntry)
       const entries = await this.ledgerRepository.listEntries(principal.userId, principal.tenantId)
       return buildSummaryFromEntries(entries, user.plan, user.credits, this.planSelfServiceEnabled)
     }
@@ -387,6 +599,10 @@ function findUser(state: AppState, principal: Principal): AppState['users'][numb
 
 function findUserById(state: AppState, userId: string, tenantId: string): AppState['users'][number] | null {
   return state.users.find((item) => item.id === userId && item.tenantId === tenantId) ?? null
+}
+
+function isBillingAdmin(principal: Principal): boolean {
+  return principal.roles.some((role) => role === 'admin' || role === 'owner')
 }
 
 function ledgerEntriesForPrincipal(state: AppState, principal: Principal): LedgerEntry[] {
@@ -448,6 +664,10 @@ function orderLedgerEntries(entries: readonly LedgerEntry[]): LedgerEntry[] {
 
 function monthlyGrantId(userId: string): string {
   return `membership-${userId}-${startOfChinaMonth().slice(0, 10)}`
+}
+
+function cryptoRandomId(): string {
+  return randomUUID()
 }
 
 function startOfChinaMonth(now = new Date()): string {

@@ -268,7 +268,7 @@ export class QuickStartService {
         })
 
         if (this.creditLedger) {
-          await this.creditLedger.reserveInState(
+          await this.creditLedger.reserveCreditsInState(
             state,
             principal,
             cost,

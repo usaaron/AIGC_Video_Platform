@@ -4,6 +4,7 @@ import { AppError } from '../../core/errors.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 
 const monthlyGrantCredits = 500
+const emptyMetadata = '{}'
 
 export type BillingLedgerRecordInput = {
   tenantId: string
@@ -16,11 +17,33 @@ export type BillingLedgerRecordInput = {
   relatedEntryId?: string | null
   createdByUserId?: string | null
   createdAt?: string | undefined
+  metadata?: BillingLedgerMetadata | undefined
+}
+
+export type BillingLedgerMetadata = Record<string, unknown>
+
+export type BillingLedgerMembershipRecordInput = {
+  membershipId: string
+  entryId: string
+  referenceId: string
+  entryType: LedgerEntry['type']
+  amount: number
+  description: string
+  relatedEntryId?: string | null
+  createdByUserId?: string | null
+  createdAt?: string | undefined
+  metadata?: BillingLedgerMetadata | undefined
 }
 
 export type BillingLedgerRecordResult = {
   entry: LedgerEntry
   balance: number
+}
+
+export type BillingLedgerMembershipRecordResult = BillingLedgerRecordResult & {
+  membershipId: string
+  userId: string
+  tenantId: string
 }
 
 export type BillingPlanResult = {
@@ -54,9 +77,10 @@ export class BillingLedgerRepository {
             description,
             created_by_user_id,
             created_at,
-            updated_at
+            updated_at,
+            metadata
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11, $11)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11, $11, $12)
           ON CONFLICT (tenant_id, user_id, reference_id) DO NOTHING
           `,
           [
@@ -71,6 +95,7 @@ export class BillingLedgerRepository {
             entry.balance,
             entry.description,
             entry.createdAt,
+            JSON.stringify({ importedFromJson: true }),
           ],
         )
       }
@@ -229,9 +254,10 @@ export class BillingLedgerRepository {
           description,
           created_by_user_id,
           created_at,
-          updated_at
+          updated_at,
+          metadata
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13)
         RETURNING id, user_id, tenant_id, entry_type, amount, balance, description, created_at
         `,
         [
@@ -247,6 +273,7 @@ export class BillingLedgerRepository {
           input.description,
           input.createdByUserId ?? null,
           createdAt,
+          JSON.stringify(input.metadata ?? {}),
         ],
       )
       return {
@@ -288,6 +315,7 @@ export class BillingLedgerRepository {
     amount?: number
     createdByUserId?: string | null
     createdAt?: string
+    metadata?: BillingLedgerMetadata
   }): Promise<BillingLedgerRecordResult | null> {
     return this.recordEntry({
       tenantId: input.tenantId,
@@ -299,6 +327,7 @@ export class BillingLedgerRepository {
       description: input.description,
       createdByUserId: input.createdByUserId ?? null,
       createdAt: input.createdAt,
+      metadata: input.metadata,
     })
   }
 
@@ -312,6 +341,7 @@ export class BillingLedgerRepository {
     relatedEntryId?: string | null
     createdByUserId?: string | null
     createdAt?: string
+    metadata?: BillingLedgerMetadata
   }): Promise<BillingLedgerRecordResult | null> {
     return this.recordEntry({
       tenantId: input.tenantId,
@@ -324,6 +354,92 @@ export class BillingLedgerRepository {
       description: input.description,
       createdByUserId: input.createdByUserId ?? null,
       createdAt: input.createdAt,
+      metadata: input.metadata,
+    })
+  }
+
+  async recordAdjustmentForMembership(
+    input: BillingLedgerMembershipRecordInput,
+  ): Promise<BillingLedgerMembershipRecordResult | null> {
+    return this.database.transaction(async (client) => {
+      const account = await resolveAccountByMembershipId(client, input.membershipId)
+      if (!account) {
+        throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
+      }
+
+      const duplicate = await client.query<{ id: string }>(
+        `
+        SELECT id
+        FROM billing_ledger_entries
+        WHERE tenant_id = $1
+          AND user_id = $2
+          AND reference_id = $3
+        LIMIT 1
+        `,
+        [account.tenantId, account.userId, input.referenceId],
+      )
+      if (duplicate.rows[0]) return null
+
+      const nextCredits = account.credits + input.amount
+      if (nextCredits < 0) {
+        throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
+      }
+
+      await client.query(
+        `
+        UPDATE billing_accounts
+        SET credits = $2,
+            updated_at = now()
+        WHERE membership_id = $1
+        `,
+        [account.membershipId, nextCredits],
+      )
+
+      const createdAt = input.createdAt ?? new Date().toISOString()
+      const inserted = await client.query<LedgerEntryRow>(
+        `
+        INSERT INTO billing_ledger_entries (
+          id,
+          tenant_id,
+          user_id,
+          membership_id,
+          reference_id,
+          related_entry_id,
+          entry_type,
+          amount,
+          balance,
+          description,
+          created_by_user_id,
+          created_at,
+          updated_at,
+          metadata
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13)
+        RETURNING id, user_id, tenant_id, entry_type, amount, balance, description, created_at
+        `,
+        [
+          input.entryId,
+          account.tenantId,
+          account.userId,
+          account.membershipId,
+          input.referenceId,
+          input.relatedEntryId ?? null,
+          input.entryType,
+          input.amount,
+          nextCredits,
+          input.description,
+          input.createdByUserId ?? null,
+          createdAt,
+          JSON.stringify(input.metadata ?? {}),
+        ],
+      )
+      return {
+        entry: toLedgerEntry(inserted.rows[0]!),
+        balance: nextCredits,
+        membershipId: account.membershipId,
+        userId: account.userId,
+        tenantId: account.tenantId,
+      }
     })
   }
 
@@ -409,9 +525,10 @@ export class BillingLedgerRepository {
               description,
               created_by_user_id,
               created_at,
-              updated_at
+              updated_at,
+              metadata
             )
-            VALUES ($1, $2, $3, $4, $5, NULL, 'grant', $6, $7, $8, $9, $10, $10)
+            VALUES ($1, $2, $3, $4, $5, NULL, 'grant', $6, $7, $8, $9, $10, $10, $11)
             RETURNING id, user_id, tenant_id, entry_type, amount, balance, description, created_at
             `,
             [
@@ -425,6 +542,7 @@ export class BillingLedgerRepository {
               input.description ?? 'Member monthly grant',
               input.createdByUserId ?? null,
               createdAt,
+              emptyMetadata,
             ],
           )
           grantEntry = toLedgerEntry(inserted.rows[0]!)
@@ -433,6 +551,32 @@ export class BillingLedgerRepository {
 
       return { plan: input.plan, credits, grantEntry }
     })
+  }
+
+  async countConsumedCreditsSince(startIso: string): Promise<number> {
+    const result = await this.database.query<{ credits: number }>(
+      `
+      SELECT COALESCE(SUM(ABS(amount)), 0)::int AS credits
+      FROM billing_ledger_entries
+      WHERE entry_type = 'generation'
+        AND amount < 0
+        AND created_at >= $1::timestamptz
+      `,
+      [startIso],
+    )
+    return result.rows[0]?.credits ?? 0
+  }
+
+  async hasImportedJsonEntries(): Promise<boolean> {
+    const result = await this.database.query<{ id: string }>(
+      `
+      SELECT id
+      FROM billing_ledger_entries
+      WHERE metadata->>'importedFromJson' = 'true'
+      LIMIT 1
+      `,
+    )
+    return Boolean(result.rows[0])
   }
 }
 
@@ -460,6 +604,44 @@ async function resolveMembership(
     [userId, tenantId],
   )
   return result.rows[0] ?? null
+}
+
+async function resolveAccountByMembershipId(
+  client: {
+    query<T extends QueryResultRow = QueryResultRow>(
+      text: string,
+      params?: readonly unknown[],
+    ): Promise<{ rows: T[] }>
+  },
+  membershipId: string,
+): Promise<{ membershipId: string; userId: string; tenantId: string; credits: number } | null> {
+  const result = await client.query<{
+    membership_id: string
+    user_id: string
+    tenant_id: string
+    credits: number
+  }>(
+    `
+    SELECT b.membership_id, m.user_id, m.tenant_id, b.credits
+    FROM billing_accounts b
+    JOIN tenant_memberships m ON m.id = b.membership_id
+    JOIN users u ON u.id = m.user_id AND u.status = 'active'
+    JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
+    WHERE b.membership_id = $1
+      AND m.status = 'active'
+    FOR UPDATE OF b
+    `,
+    [membershipId],
+  )
+  const row = result.rows[0]
+  return row
+    ? {
+        membershipId: row.membership_id,
+        userId: row.user_id,
+        tenantId: row.tenant_id,
+        credits: row.credits,
+      }
+    : null
 }
 
 function monthlyGrantId(userId: string): string {

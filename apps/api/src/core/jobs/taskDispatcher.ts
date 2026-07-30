@@ -897,24 +897,19 @@ export class GenerationTaskRunner implements TaskDispatcher {
 
   private async refundTerminalTasks(): Promise<void> {
     const hasRefundableTask = this.store.read((state) =>
-      state.tasks.some((task) =>
-        canRefundTask(
-          task,
-          state.ledger.map((entry) => entry.id),
-        ),
-      ),
+      state.tasks.some((task) => canPotentiallyRefundTask(task)),
     )
     if (!hasRefundableTask) return
     const creditLedger = this.creditLedger
     await this.store.mutate(async (state) => {
-      const ledgerIds = state.ledger.map((entry) => entry.id)
       for (const task of state.tasks) {
-        if (!canRefundTask(task, ledgerIds)) continue
+        if (!canPotentiallyRefundTask(task)) continue
         if (creditLedger) {
           await creditLedger.refundGenerationInState(state, task, refundDescription(task))
-          ledgerIds.unshift(`refund-${task.id}`)
           continue
         }
+        const ledgerIds = state.ledger.map((entry) => entry.id)
+        if (!canRefundTask(task, ledgerIds)) continue
         const refundId = `refund-${task.id}`
         const user = state.users.find((item) => item.id === task.userId && item.tenantId === task.tenantId)
         if (!user) continue
@@ -931,7 +926,6 @@ export class GenerationTaskRunner implements TaskDispatcher {
           createdAt: now,
         })
         task.metadata = { ...task.metadata, creditsRefundedAt: now }
-        ledgerIds.unshift(refundId)
       }
     })
   }
@@ -1028,10 +1022,8 @@ function isTimeoutError(error: Error): boolean {
   )
 }
 
-function canRefundTask(task: GenerationTask, ledgerIds: string[]): boolean {
+function canPotentiallyRefundTask(task: GenerationTask): boolean {
   if (task.estimatedCredits <= 0) return false
-  if (!ledgerIds.includes(`generation-${task.clientRequestId}`)) return false
-  if (ledgerIds.includes(`refund-${task.id}`)) return false
   if (task.status === 'failed') return true
   if (task.status === 'paused') return typeof task.metadata.queueHiddenAt === 'string'
   if (task.status !== 'cancelled') return false
@@ -1042,6 +1034,12 @@ function canRefundTask(task: GenerationTask, ledgerIds: string[]): boolean {
     typeof task.metadata.providerCancelCompletedAt === 'string' ||
     typeof task.metadata.providerCancelSkippedAt === 'string'
   )
+}
+
+function canRefundTask(task: GenerationTask, ledgerIds: string[]): boolean {
+  if (!canPotentiallyRefundTask(task)) return false
+  if (!ledgerIds.includes(`generation-${task.clientRequestId}`)) return false
+  return !ledgerIds.includes(`refund-${task.id}`)
 }
 
 function refundDescription(task: GenerationTask): string {

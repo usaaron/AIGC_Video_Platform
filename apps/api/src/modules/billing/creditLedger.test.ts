@@ -12,6 +12,12 @@ const principal: Principal = {
   roles: ['creator'],
 }
 
+const adminPrincipal: Principal = {
+  userId: 'user-admin',
+  tenantId: 'tenant-seqora-demo',
+  roles: ['admin'],
+}
+
 let authDatabase: PostgresAuthFixture | undefined
 let openDatabases: AccountDatabase[] = []
 
@@ -36,14 +42,25 @@ describe('postgres billing ledger', () => {
   it('stores debits and refunds with idempotent references', async () => {
     const { database, ledger, store } = await createLedger()
 
-    const before = await ledger.summary(principal)
+    const before = await ledger.billingSummary(principal)
     expect(before.credits).toBe(286)
     expect(before.entries.map((entry) => entry.id)).toContain('ledger-initial')
 
-    await expect(ledger.reserve(principal, 12, 'billing-task-1', 'Task debit')).resolves.toBe(true)
-    await expect(ledger.reserve(principal, 12, 'billing-task-1', 'Duplicate task debit')).resolves.toBe(false)
+    const imported = await database.query<{ imported_from_json: boolean }>(
+      `
+      SELECT (metadata->>'importedFromJson')::boolean AS imported_from_json
+      FROM billing_ledger_entries
+      WHERE id = 'ledger-initial'
+      `,
+    )
+    expect(imported.rows[0]?.imported_from_json).toBe(true)
 
-    const debited = await ledger.summary(principal)
+    await expect(ledger.reserveCredits(principal, 12, 'billing-task-1', 'Task debit')).resolves.toBe(true)
+    await expect(ledger.reserveCredits(principal, 12, 'billing-task-1', 'Duplicate task debit')).resolves.toBe(
+      false,
+    )
+
+    const debited = await ledger.billingSummary(principal)
     expect(debited.credits).toBe(274)
     expect(debited.monthlyUsage).toMatchObject({
       consumedCredits: 12,
@@ -52,10 +69,10 @@ describe('postgres billing ledger', () => {
       generationCount: 1,
     })
 
-    await ledger.refundReservation(principal, 'billing-task-1', 'Task refund')
-    await ledger.refundReservation(principal, 'billing-task-1', 'Duplicate task refund')
+    await ledger.refundCredits(principal, 'billing-task-1', 'Task refund')
+    await ledger.refundCredits(principal, 'billing-task-1', 'Duplicate task refund')
 
-    const refunded = await ledger.summary(principal)
+    const refunded = await ledger.billingSummary(principal)
     expect(refunded.credits).toBe(286)
     expect(refunded.monthlyUsage).toMatchObject({
       consumedCredits: 12,
@@ -63,10 +80,11 @@ describe('postgres billing ledger', () => {
       netCredits: 0,
       generationCount: 1,
     })
+    await expect(ledger.consumedCreditsSince(before.monthlyUsage.periodStart)).resolves.toBe(12)
     expect(refunded.entries.filter((entry) => entry.id === 'refund-billing-task-1')).toHaveLength(1)
-    expect(
-      store.read((state) => state.ledger.filter((entry) => entry.id === 'refund-billing-task-1')),
-    ).toHaveLength(1)
+    const mirroredIds = store.read((state) => state.ledger.map((entry) => entry.id))
+    expect(mirroredIds).not.toContain('generation-billing-task-1')
+    expect(mirroredIds).not.toContain('refund-billing-task-1')
 
     const rows = await database.query<LedgerAuditRow>(
       `
@@ -140,6 +158,53 @@ describe('postgres billing ledger', () => {
         entry_type: 'adjustment',
         amount: 40,
         balance: 326,
+        created_by_user_id: principal.userId,
+      },
+    ])
+  })
+
+  it('grants credits and lets administrators adjust a target membership from postgres', async () => {
+    const { database, ledger, store } = await createLedger()
+
+    const granted = await ledger.grantCredits(principal, 30, 'Launch promotional grant')
+    expect(granted.credits).toBe(316)
+
+    const adjusted = await ledger.adjustCredits(
+      adminPrincipal,
+      'membership-tenant-seqora-demo-user-creator',
+      25,
+      'Admin manual top-up',
+    )
+    expect(adjusted.credits).toBe(341)
+    expect(store.read((state) => state.users.find((user) => user.id === principal.userId)?.credits)).toBe(341)
+    expect(
+      store.read((state) => state.ledger.some((entry) => entry.description === 'Admin manual top-up')),
+    ).toBe(false)
+
+    const rows = await database.query<{
+      membership_id: string
+      entry_type: string
+      amount: number
+      created_by_user_id: string | null
+    }>(
+      `
+      SELECT membership_id, entry_type, amount, created_by_user_id
+      FROM billing_ledger_entries
+      WHERE description IN ('Launch promotional grant', 'Admin manual top-up')
+      ORDER BY amount
+      `,
+    )
+    expect(rows.rows).toEqual([
+      {
+        membership_id: 'membership-tenant-seqora-demo-user-creator',
+        entry_type: 'adjustment',
+        amount: 25,
+        created_by_user_id: adminPrincipal.userId,
+      },
+      {
+        membership_id: 'membership-tenant-seqora-demo-user-creator',
+        entry_type: 'grant',
+        amount: 30,
         created_by_user_id: principal.userId,
       },
     ])
