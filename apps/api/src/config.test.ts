@@ -10,6 +10,8 @@ describe('production configuration', () => {
       AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
       BOOTSTRAP_CREATOR_EMAIL: 'creator@example.com',
       BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
+      BOOTSTRAP_OWNER_EMAIL: 'owner@example.com',
+      BOOTSTRAP_OWNER_PASSWORD: 'UniqueOwnerPassword123!',
       BOOTSTRAP_ADMIN_EMAIL: 'admin@example.com',
       BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
       STRINGX_API_KEY: 'production-video-token',
@@ -19,6 +21,7 @@ describe('production configuration', () => {
     expect(config.TRUST_PROXY).toBe(true)
     expect(config.WEB_ORIGIN).toBe('https://studio.example.com')
     expect(config.BOOTSTRAP_CREATOR_NAME).toBe('创作者')
+    expect(config.BOOTSTRAP_OWNER_NAME).toBe('平台所有者')
     expect(config.BOOTSTRAP_DEMO_WORKSPACE).toBe(false)
     expect(config.TEXT_MODEL).toBe('gpt-5.6')
   })
@@ -33,6 +36,8 @@ describe('production configuration', () => {
       WEB_ORIGIN: 'https://studio.example.com',
       AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
       BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
+      BOOTSTRAP_OWNER_EMAIL: 'owner@example.com',
+      BOOTSTRAP_OWNER_PASSWORD: 'UniqueOwnerPassword123!',
       BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
       TOKENADVENT_API_KEY: 'production-text-image-token',
     }
@@ -70,6 +75,8 @@ describe('production configuration', () => {
       WEB_ORIGIN: 'https://studio.example.com',
       AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
       BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
+      BOOTSTRAP_OWNER_EMAIL: 'owner@example.com',
+      BOOTSTRAP_OWNER_PASSWORD: 'UniqueOwnerPassword123!',
       BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
       STRINGX_API_KEY: 'production-video-token',
       TOKENADVENT_API_KEY: 'production-text-image-token',
@@ -85,6 +92,8 @@ describe('production configuration', () => {
         WEB_ORIGIN: 'https://studio.example.com',
         AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
         BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
+        BOOTSTRAP_OWNER_EMAIL: 'owner@example.com',
+        BOOTSTRAP_OWNER_PASSWORD: 'UniqueOwnerPassword123!',
         BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
         STRINGX_API_KEY: 'production-video-token',
       }),

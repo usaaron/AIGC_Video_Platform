@@ -27,6 +27,49 @@ afterAll(async () => {
 })
 
 describe('account management api', () => {
+  it('boots seed owner and admin accounts into local auth', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const ownerLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'owner@seqora.local',
+        password: 'OwnerPassword123!',
+      },
+    })
+    expect(ownerLogin.statusCode).toBe(200)
+    expect(ownerLogin.json()).toMatchObject({
+      account: {
+        email: 'owner@seqora.local',
+        roles: expect.arrayContaining(['owner']),
+      },
+    })
+
+    const adminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'admin@seqora.local',
+        password: 'Admin123!',
+      },
+    })
+    expect(adminLogin.statusCode).toBe(200)
+    expect(adminLogin.json()).toMatchObject({
+      account: {
+        email: 'admin@seqora.local',
+        roles: expect.arrayContaining(['admin']),
+      },
+    })
+
+    const overview = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/overview',
+      headers: { cookie: cookieValue(ownerLogin) },
+    })
+    expect(overview.statusCode).toBe(200)
+  })
+
   it('registers users, creates workspaces and revokes specific sessions', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 

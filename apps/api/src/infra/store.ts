@@ -82,6 +82,9 @@ export type BootstrapUsers = {
   creatorName?: string
   creatorEmail: string
   creatorPassword: string
+  ownerName?: string
+  ownerEmail: string
+  ownerPassword: string
   adminName?: string
   adminEmail: string
   adminPassword: string
@@ -91,6 +94,9 @@ const developmentBootstrapUsers: BootstrapUsers = {
   creatorName: '林夏',
   creatorEmail: 'creator@seqora.local',
   creatorPassword: 'Creator123!',
+  ownerName: '平台所有者',
+  ownerEmail: 'owner@seqora.local',
+  ownerPassword: 'OwnerPassword123!',
   adminName: '平台管理员',
   adminEmail: 'admin@seqora.local',
   adminPassword: 'Admin123!',
@@ -249,6 +255,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
   const now = new Date().toISOString()
   const tenantId = 'tenant-seqora-demo'
   const creatorId = 'user-creator'
+  const ownerId = 'user-owner'
   const projectId = 'project-midnight-film'
 
   return {
@@ -262,6 +269,16 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         roles: ['creator'],
         plan: 'free',
         credits: 286,
+      },
+      {
+        id: ownerId,
+        email: bootstrapUsers.ownerEmail.toLowerCase(),
+        name: bootstrapUsers.ownerName ?? '平台所有者',
+        passwordHash: hashPassword(bootstrapUsers.ownerPassword),
+        tenantId,
+        roles: ['owner'],
+        plan: 'member',
+        credits: 1_000,
       },
       {
         id: 'user-admin',

@@ -32,6 +32,8 @@ describe('AppStore mutation queue', () => {
       {
         creatorEmail: 'tester@example.com',
         creatorPassword: 'UniqueCreatorPassword123!',
+        ownerEmail: 'owner@example.com',
+        ownerPassword: 'UniqueOwnerPassword123!',
         adminEmail: 'admin@example.com',
         adminPassword: 'UniqueAdminPassword123!',
       },
@@ -47,7 +49,7 @@ describe('AppStore mutation queue', () => {
         shots: state.shots.length,
       })),
     ).toEqual({
-      users: ['tester@example.com', 'admin@example.com'],
+      users: ['tester@example.com', 'owner@example.com', 'admin@example.com'],
       projects: 0,
       assets: 0,
       shots: 0,

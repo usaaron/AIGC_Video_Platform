@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 const developmentAuthSecret = 'seqora-development-secret-change-me'
 const developmentCreatorPassword = 'Creator123!'
+const developmentOwnerPassword = 'OwnerPassword123!'
 const developmentAdminPassword = 'Admin123!'
 const developmentDatabaseUrl = 'postgres://seqora:seqora_dev_password@127.0.0.1:5432/seqora_dev'
 const booleanFromEnvironment = z.preprocess((value) => {
@@ -26,6 +27,9 @@ const configSchema = z
     BOOTSTRAP_CREATOR_NAME: z.string().min(1).max(80).default('林夏'),
     BOOTSTRAP_CREATOR_EMAIL: z.string().email().default('creator@seqora.local'),
     BOOTSTRAP_CREATOR_PASSWORD: z.string().min(12).max(128).default(developmentCreatorPassword),
+    BOOTSTRAP_OWNER_NAME: z.string().min(1).max(80).default('平台所有者'),
+    BOOTSTRAP_OWNER_EMAIL: z.string().email().default('owner@seqora.local'),
+    BOOTSTRAP_OWNER_PASSWORD: z.string().min(12).max(128).default(developmentOwnerPassword),
     BOOTSTRAP_ADMIN_NAME: z.string().min(1).max(80).default('平台管理员'),
     BOOTSTRAP_ADMIN_EMAIL: z.string().email().default('admin@seqora.local'),
     BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).max(128).default(developmentAdminPassword),
@@ -91,18 +95,44 @@ const configSchema = z
         message: 'HTTPS WEB_ORIGIN is required in production',
       })
     }
-    if (
-      config.NODE_ENV === 'production' &&
-      (config.BOOTSTRAP_CREATOR_PASSWORD === developmentCreatorPassword ||
-        config.BOOTSTRAP_ADMIN_PASSWORD === developmentAdminPassword)
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['BOOTSTRAP_ADMIN_PASSWORD'],
-        message: 'Unique bootstrap passwords are required in production',
-      })
+    if (config.NODE_ENV === 'production') {
+      if (config.BOOTSTRAP_CREATOR_PASSWORD === developmentCreatorPassword) {
+        context.addIssue({
+          code: 'custom',
+          path: ['BOOTSTRAP_CREATOR_PASSWORD'],
+          message: 'Unique bootstrap passwords are required in production',
+        })
+      }
+      if (config.BOOTSTRAP_OWNER_PASSWORD === developmentOwnerPassword) {
+        context.addIssue({
+          code: 'custom',
+          path: ['BOOTSTRAP_OWNER_PASSWORD'],
+          message: 'Unique bootstrap passwords are required in production',
+        })
+      }
+      if (config.BOOTSTRAP_ADMIN_PASSWORD === developmentAdminPassword) {
+        context.addIssue({
+          code: 'custom',
+          path: ['BOOTSTRAP_ADMIN_PASSWORD'],
+          message: 'Unique bootstrap passwords are required in production',
+        })
+      }
     }
     if (config.BOOTSTRAP_CREATOR_EMAIL === config.BOOTSTRAP_ADMIN_EMAIL) {
+      context.addIssue({
+        code: 'custom',
+        path: ['BOOTSTRAP_ADMIN_EMAIL'],
+        message: 'Bootstrap accounts must use different email addresses',
+      })
+    }
+    if (config.BOOTSTRAP_CREATOR_EMAIL === config.BOOTSTRAP_OWNER_EMAIL) {
+      context.addIssue({
+        code: 'custom',
+        path: ['BOOTSTRAP_OWNER_EMAIL'],
+        message: 'Bootstrap accounts must use different email addresses',
+      })
+    }
+    if (config.BOOTSTRAP_OWNER_EMAIL === config.BOOTSTRAP_ADMIN_EMAIL) {
       context.addIssue({
         code: 'custom',
         path: ['BOOTSTRAP_ADMIN_EMAIL'],

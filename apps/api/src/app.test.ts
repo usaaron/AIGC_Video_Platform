@@ -34,6 +34,9 @@ const testConfig: AppConfig = {
   BOOTSTRAP_CREATOR_NAME: '林夏',
   BOOTSTRAP_CREATOR_EMAIL: 'creator@seqora.local',
   BOOTSTRAP_CREATOR_PASSWORD: 'Creator123!',
+  BOOTSTRAP_OWNER_NAME: '平台所有者',
+  BOOTSTRAP_OWNER_EMAIL: 'owner@seqora.local',
+  BOOTSTRAP_OWNER_PASSWORD: 'OwnerPassword123!',
   BOOTSTRAP_ADMIN_NAME: '平台管理员',
   BOOTSTRAP_ADMIN_EMAIL: 'admin@seqora.local',
   BOOTSTRAP_ADMIN_PASSWORD: 'Admin123!',
@@ -754,7 +757,7 @@ describe('API authorization', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toMatchObject({ users: 2, activeTasks: 0 })
+    expect(response.json()).toMatchObject({ users: 3, activeTasks: 0 })
   })
 
   it('proxies completed Seedance video content through the authenticated API', async () => {
