@@ -12,7 +12,9 @@ import type {
   Session,
   SessionSummary,
   TenantInvitation,
+  TransferWorkspaceOwnerInput,
   UpdateMembershipRolesInput,
+  UpdateWorkspaceInput,
   Workspace,
   WorkspaceMembership,
 } from '@seqora/contracts'
@@ -75,6 +77,33 @@ export class AccountManagementService {
     return await this.accounts.listUserWorkspaces(principal.userId)
   }
 
+  async updateWorkspace(
+    principal: Principal,
+    tenantId: string,
+    input: UpdateWorkspaceInput,
+    metadata?: SessionMetadata,
+  ): Promise<Workspace> {
+    this.requireTenantScope(principal, tenantId)
+    this.requireTenantManager(principal)
+    await this.requireCurrentAccount(principal)
+    const updated = await this.accounts.updateWorkspaceName(tenantId, normalizeName(input.name))
+    if (!updated) {
+      throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
+    }
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: principal.userId,
+      actorUserId: principal.userId,
+      action: 'workspace.updated',
+      resourceType: 'tenant',
+      resourceId: tenantId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { name: updated.name },
+    })
+    return updated
+  }
+
   async switchWorkspace(
     principal: Principal,
     tenantId: string,
@@ -90,6 +119,112 @@ export class AccountManagementService {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist or membership is disabled')
     }
     return await this.issueSession(workspace, metadata)
+  }
+
+  async disableWorkspace(
+    principal: Principal,
+    tenantId: string,
+    metadata?: SessionMetadata,
+  ): Promise<{ session: Session; token: string; workspace: Workspace } | null> {
+    this.requireTenantScope(principal, tenantId)
+    this.requireOwner(principal, 'Only owners can disable workspaces')
+    await this.requireCurrentAccount(principal)
+    const result = await this.accounts.disableWorkspace(principal.userId, tenantId)
+    if (result.kind === 'missing') {
+      throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
+    }
+    await this.store.mutate((state) => {
+      state.users = state.users.filter((item) => item.tenantId !== tenantId)
+    })
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: principal.userId,
+      actorUserId: principal.userId,
+      action: 'workspace.disabled',
+      resourceType: 'tenant',
+      resourceId: tenantId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { name: result.workspace.name },
+    })
+    return result.nextWorkspace ? await this.issueSession(result.nextWorkspace, metadata) : null
+  }
+
+  async transferWorkspaceOwner(
+    principal: Principal,
+    tenantId: string,
+    input: TransferWorkspaceOwnerInput,
+    metadata?: SessionMetadata,
+  ): Promise<{ previousOwner: Membership; newOwner: Membership }> {
+    this.requireTenantScope(principal, tenantId)
+    this.requireOwner(principal, 'Only owners can transfer workspace ownership')
+    await this.requireCurrentAccount(principal)
+    if (principal.userId === input.targetUserId) {
+      throw new AppError(400, 'CANNOT_TRANSFER_OWNER_TO_SELF', 'Cannot transfer ownership to yourself')
+    }
+    const result = await this.accounts.transferWorkspaceOwner({
+      tenantId,
+      currentOwnerUserId: principal.userId,
+      targetUserId: input.targetUserId,
+      previousOwnerRole: input.previousOwnerRole,
+    })
+    if (result.kind === 'missing') {
+      throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace owner membership does not exist')
+    }
+    if (result.kind === 'target_missing') {
+      throw new AppError(404, 'TARGET_MEMBERSHIP_NOT_FOUND', 'Target member does not exist')
+    }
+    await this.mirrorMembership(result.previousOwner)
+    await this.mirrorMembership(result.newOwner)
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: result.newOwner.userId,
+      actorUserId: principal.userId,
+      action: 'workspace.owner.transferred',
+      resourceType: 'tenant',
+      resourceId: tenantId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: {
+        previousOwnerUserId: result.previousOwner.userId,
+        newOwnerUserId: result.newOwner.userId,
+        previousOwnerRole: input.previousOwnerRole,
+      },
+    })
+    return { previousOwner: result.previousOwner, newOwner: result.newOwner }
+  }
+
+  async leaveWorkspace(
+    principal: Principal,
+    tenantId: string,
+    metadata?: SessionMetadata,
+  ): Promise<{ session: Session; token: string; workspace: Workspace } | null> {
+    this.requireTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    const result = await this.accounts.leaveWorkspace(principal.userId, tenantId)
+    if (result.kind === 'missing') {
+      throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+    }
+    if (result.kind === 'last_owner') {
+      throw new AppError(409, 'LAST_OWNER_CANNOT_LEAVE', 'Transfer ownership before leaving this workspace')
+    }
+    await this.store.mutate((state) => {
+      state.users = state.users.filter(
+        (item) => !(item.id === principal.userId && item.tenantId === tenantId),
+      )
+    })
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: principal.userId,
+      actorUserId: principal.userId,
+      action: 'workspace.left',
+      resourceType: 'tenant_membership',
+      resourceId: result.membership.id,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { roles: result.membership.roles },
+    })
+    return result.nextWorkspace ? await this.issueSession(result.nextWorkspace, metadata) : null
   }
 
   async createInvitation(
@@ -495,6 +630,16 @@ export class AccountManagementService {
     if (roles.includes(ROLES.ADMIN) && !principal.roles.includes(ROLES.OWNER)) {
       throw new AppError(403, 'PERMISSION_DENIED', 'Only owners can assign admin role')
     }
+  }
+
+  private requireTenantManager(principal: Principal): void {
+    if (principal.roles.includes(ROLES.OWNER) || principal.roles.includes(ROLES.ADMIN)) return
+    throw new AppError(403, 'PERMISSION_DENIED', 'Only owners or administrators can manage workspaces')
+  }
+
+  private requireOwner(principal: Principal, message: string): void {
+    if (principal.roles.includes(ROLES.OWNER)) return
+    throw new AppError(403, 'OWNER_REQUIRED', message)
   }
 
   private requireCanManageMembership(

@@ -513,6 +513,181 @@ describe('account management api', { timeout: 30_000 }, () => {
     )
   })
 
+  it('renames workspaces, transfers ownership and lets non-last owners leave', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const owner = await createUserWorkspace(
+      'tenant-owner@example.com',
+      'OwnerPassword123!',
+      'Original Workspace',
+    )
+    const target = await createUserWorkspace(
+      'tenant-target@example.com',
+      'TargetPassword123!',
+      'Target Workspace',
+    )
+    const admin = await createUserWorkspace(
+      'tenant-admin@example.com',
+      'AdminPassword123!',
+      'Admin Workspace',
+    )
+
+    const addTarget = await app.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${owner.tenantId}/members`,
+      headers: { cookie: owner.cookie },
+      payload: { email: 'tenant-target@example.com', roles: ['member'] },
+    })
+    expect(addTarget.statusCode).toBe(201)
+
+    const addAdmin = await app.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${owner.tenantId}/members`,
+      headers: { cookie: owner.cookie },
+      payload: { email: 'tenant-admin@example.com', roles: ['admin'] },
+    })
+    expect(addAdmin.statusCode).toBe(201)
+
+    const adminSwitch = await switchWorkspace(admin.cookie, owner.tenantId)
+    expect(adminSwitch.statusCode).toBe(200)
+    const adminCookie = cookieValue(adminSwitch)
+
+    const renamed = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/workspaces/${owner.tenantId}`,
+      headers: { cookie: adminCookie },
+      payload: { name: 'Renamed Workspace' },
+    })
+    expect(renamed.statusCode).toBe(200)
+    expect(renamed.json()).toMatchObject({
+      id: owner.tenantId,
+      name: 'Renamed Workspace',
+      status: 'active',
+    })
+
+    const adminTransfersOwner = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${owner.tenantId}/owner-transfer`,
+      headers: { cookie: adminCookie },
+      payload: { targetUserId: target.userId },
+    })
+    expect(adminTransfersOwner.statusCode).toBe(403)
+    expect(adminTransfersOwner.json()).toMatchObject({ error: { code: 'OWNER_REQUIRED' } })
+
+    const transferred = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${owner.tenantId}/owner-transfer`,
+      headers: { cookie: owner.cookie },
+      payload: { targetUserId: target.userId, previousOwnerRole: 'admin' },
+    })
+    expect(transferred.statusCode).toBe(200)
+    expect(transferred.json()).toMatchObject({
+      previousOwner: {
+        userId: owner.userId,
+        roles: ['admin'],
+      },
+      newOwner: {
+        userId: target.userId,
+        roles: ['owner'],
+      },
+    })
+
+    const previousOwnerSession = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { cookie: owner.cookie },
+    })
+    expect(previousOwnerSession.statusCode).toBe(200)
+    expect(previousOwnerSession.json()).toMatchObject({
+      account: { tenantId: owner.tenantId, roles: ['admin'] },
+    })
+
+    const targetSwitch = await switchWorkspace(target.cookie, owner.tenantId)
+    expect(targetSwitch.statusCode).toBe(200)
+    expect(targetSwitch.json()).toMatchObject({
+      account: { id: target.userId, tenantId: owner.tenantId, roles: ['owner'] },
+      workspace: { id: owner.tenantId, name: 'Renamed Workspace' },
+    })
+
+    const previousOwnerLeaves = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${owner.tenantId}/leave`,
+      headers: { cookie: owner.cookie },
+    })
+    expect(previousOwnerLeaves.statusCode).toBe(200)
+    expect(previousOwnerLeaves.json()).toMatchObject({
+      account: { id: owner.userId, tenantId: 'tenant-seqora-demo', roles: ['member'] },
+      workspace: { id: 'tenant-seqora-demo' },
+    })
+
+    const switchBackAfterLeave = await switchWorkspace(cookieValue(previousOwnerLeaves), owner.tenantId)
+    expect(switchBackAfterLeave.statusCode).toBe(404)
+    expect(switchBackAfterLeave.json()).toMatchObject({ error: { code: 'WORKSPACE_NOT_FOUND' } })
+
+    const lastOwnerLeaves = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${owner.tenantId}/leave`,
+      headers: { cookie: cookieValue(targetSwitch) },
+    })
+    expect(lastOwnerLeaves.statusCode).toBe(409)
+    expect(lastOwnerLeaves.json()).toMatchObject({ error: { code: 'LAST_OWNER_CANNOT_LEAVE' } })
+  })
+
+  it('disables workspaces for owners only and revokes tenant access', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const owner = await createUserWorkspace(
+      'disable-owner@example.com',
+      'OwnerPassword123!',
+      'Disable Workspace',
+    )
+    const admin = await createUserWorkspace(
+      'disable-admin@example.com',
+      'AdminPassword123!',
+      'Disable Admin Workspace',
+    )
+
+    const addAdmin = await app.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${owner.tenantId}/members`,
+      headers: { cookie: owner.cookie },
+      payload: { email: 'disable-admin@example.com', roles: ['admin'] },
+    })
+    expect(addAdmin.statusCode).toBe(201)
+    const adminSwitch = await switchWorkspace(admin.cookie, owner.tenantId)
+    expect(adminSwitch.statusCode).toBe(200)
+
+    const adminDisablesWorkspace = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/workspaces/${owner.tenantId}`,
+      headers: { cookie: cookieValue(adminSwitch) },
+    })
+    expect(adminDisablesWorkspace.statusCode).toBe(403)
+    expect(adminDisablesWorkspace.json()).toMatchObject({ error: { code: 'OWNER_REQUIRED' } })
+
+    const disabled = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/workspaces/${owner.tenantId}`,
+      headers: { cookie: owner.cookie },
+    })
+    expect(disabled.statusCode).toBe(200)
+    expect(disabled.json()).toMatchObject({
+      account: { id: owner.userId, tenantId: 'tenant-seqora-demo', roles: ['member'] },
+      workspace: { id: 'tenant-seqora-demo' },
+    })
+
+    const switchBack = await switchWorkspace(cookieValue(disabled), owner.tenantId)
+    expect(switchBack.statusCode).toBe(404)
+    expect(switchBack.json()).toMatchObject({ error: { code: 'WORKSPACE_NOT_FOUND' } })
+
+    const adminOldTenantSession = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { cookie: cookieValue(adminSwitch) },
+    })
+    expect(adminOldTenantSession.statusCode).toBe(401)
+  })
+
   it('enforces owner boundaries for elevated memberships and tenant sessions', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 

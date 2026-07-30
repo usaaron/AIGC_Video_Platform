@@ -5,7 +5,9 @@ import {
   createTenantUserSchema,
   createWorkspaceSchema,
   PERMISSIONS,
+  transferWorkspaceOwnerSchema,
   updateMembershipRolesSchema,
+  updateWorkspaceSchema,
   type AccountSession,
   type Session,
   type Workspace,
@@ -57,6 +59,66 @@ export async function registerAccountManagementRoutes(
   app.get('/workspaces', { preHandler: requireAuthenticated }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
     return await requireService(service).listWorkspaces(request.principal!)
+  })
+
+  app.patch(
+    '/workspaces/:tenantId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireService(service).updateWorkspace(
+        request.principal!,
+        tenantId,
+        parse(updateWorkspaceSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+
+  app.delete(
+    '/workspaces/:tenantId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      const result = await requireService(service).disableWorkspace(
+        request.principal!,
+        tenantId,
+        sessionMetadataFromRequest(request),
+      )
+      reply.header('Cache-Control', 'no-store')
+      if (result) return sendSession(reply, result, secureCookies)
+      clearSessionCookie(reply, secureCookies)
+      return reply.code(204).send()
+    },
+  )
+
+  app.post(
+    '/workspaces/:tenantId/owner-transfer',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireService(service).transferWorkspaceOwner(
+        request.principal!,
+        tenantId,
+        parse(transferWorkspaceOwnerSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+
+  app.post('/workspaces/:tenantId/leave', { preHandler: requireAuthenticated }, async (request, reply) => {
+    const { tenantId } = parse(tenantParams, request.params)
+    const result = await requireService(service).leaveWorkspace(
+      request.principal!,
+      tenantId,
+      sessionMetadataFromRequest(request),
+    )
+    reply.header('Cache-Control', 'no-store')
+    if (result) return sendSession(reply, result, secureCookies)
+    clearSessionCookie(reply, secureCookies)
+    return reply.code(204).send()
   })
 
   app.post('/workspaces/:tenantId/switch', { preHandler: requireAuthenticated }, async (request, reply) => {

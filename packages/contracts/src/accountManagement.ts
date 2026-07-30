@@ -28,6 +28,15 @@ export const createWorkspaceSchema = z.object({
   name: z.string().min(1).max(80),
 })
 
+export const updateWorkspaceSchema = z.object({
+  name: z.string().min(1).max(80),
+})
+
+export const transferWorkspaceOwnerSchema = z.object({
+  targetUserId: z.string().min(1).max(256),
+  previousOwnerRole: z.enum(['admin', 'member']).default('admin'),
+})
+
 export const addTenantMemberSchema = z.object({
   email: z.string().email(),
   roles: z.array(roleSchema).min(1),
@@ -114,6 +123,8 @@ export type RegisterAccountInput = z.infer<typeof registerAccountSchema>
 export type CreateTenantInvitationInput = z.infer<typeof createTenantInvitationSchema>
 export type AcceptTenantInvitationInput = z.infer<typeof acceptTenantInvitationSchema>
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>
+export type UpdateWorkspaceInput = z.infer<typeof updateWorkspaceSchema>
+export type TransferWorkspaceOwnerInput = z.infer<typeof transferWorkspaceOwnerSchema>
 export type AddTenantMemberInput = z.infer<typeof addTenantMemberSchema>
 export type CreateTenantUserInput = z.infer<typeof createTenantUserSchema>
 export type UpdateMembershipRolesInput = z.infer<typeof updateMembershipRolesSchema>

@@ -24,6 +24,20 @@ export type AccountWorkspace = {
 export type CreateTenantUserResult =
   { kind: 'created'; membership: Membership } | { kind: 'duplicate' } | { kind: 'tenant_missing' }
 
+export type TransferWorkspaceOwnerResult =
+  | { kind: 'transferred'; previousOwner: Membership; newOwner: Membership }
+  | { kind: 'missing' }
+  | { kind: 'target_missing' }
+
+export type LeaveWorkspaceResult =
+  | { kind: 'left'; membership: Membership; nextWorkspace: AccountWorkspace | null }
+  | { kind: 'missing' }
+  | { kind: 'last_owner' }
+
+export type DisableWorkspaceResult =
+  | { kind: 'disabled'; workspace: Workspace; nextWorkspace: AccountWorkspace | null }
+  | { kind: 'missing' }
+
 export class AccountManagementRepository {
   constructor(private readonly database: AccountDatabase) {}
 
@@ -298,6 +312,179 @@ export class AccountManagementRepository {
           membership: toMembership(row),
         }
       : null
+  }
+
+  async updateWorkspaceName(tenantId: string, name: string): Promise<Workspace | null> {
+    const updated = await this.database.query<WorkspaceRow>(
+      `
+      UPDATE tenants
+      SET name = $2,
+          updated_at = now()
+      WHERE id = $1
+        AND status = 'active'
+      RETURNING id, name, status, created_at, updated_at
+      `,
+      [tenantId, name],
+    )
+    return updated.rows[0] ? toWorkspaceSummary(updated.rows[0]) : null
+  }
+
+  async transferWorkspaceOwner(input: {
+    tenantId: string
+    currentOwnerUserId: string
+    targetUserId: string
+    previousOwnerRole: 'admin' | 'member'
+  }): Promise<TransferWorkspaceOwnerResult> {
+    return this.database.transaction(async (client) => {
+      const currentOwner = await client.query<{ id: string; roles: Role[] }>(
+        `
+        SELECT m.id, m.roles
+        FROM tenant_memberships m
+        JOIN users u ON u.id = m.user_id AND u.status = 'active'
+        JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
+        WHERE m.tenant_id = $1
+          AND m.user_id = $2
+          AND m.status = 'active'
+          AND m.roles @> ARRAY['owner']::text[]
+        LIMIT 1
+        FOR UPDATE OF m
+        `,
+        [input.tenantId, input.currentOwnerUserId],
+      )
+      if (!currentOwner.rows[0]) return { kind: 'missing' }
+
+      const target = await client.query<{ id: string; roles: Role[] }>(
+        `
+        SELECT m.id, m.roles
+        FROM tenant_memberships m
+        JOIN users u ON u.id = m.user_id AND u.status = 'active'
+        JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
+        WHERE m.tenant_id = $1
+          AND m.user_id = $2
+          AND m.status = 'active'
+        LIMIT 1
+        FOR UPDATE OF m
+        `,
+        [input.tenantId, input.targetUserId],
+      )
+      if (!target.rows[0]) return { kind: 'target_missing' }
+
+      await client.query(
+        `
+        UPDATE tenant_memberships
+        SET roles = ARRAY['owner']::text[],
+            updated_at = now()
+        WHERE tenant_id = $1
+          AND user_id = $2
+        `,
+        [input.tenantId, input.targetUserId],
+      )
+      await client.query(
+        `
+        UPDATE tenant_memberships
+        SET roles = $3,
+            updated_at = now()
+        WHERE tenant_id = $1
+          AND user_id = $2
+        `,
+        [input.tenantId, input.currentOwnerUserId, [input.previousOwnerRole]],
+      )
+
+      const previousOwner = await readMembership(client, input.tenantId, input.currentOwnerUserId)
+      const newOwner = await readMembership(client, input.tenantId, input.targetUserId)
+      if (!previousOwner || !newOwner) throw new Error(`Could not read transferred owner ${input.tenantId}`)
+      return { kind: 'transferred', previousOwner, newOwner }
+    })
+  }
+
+  async leaveWorkspace(userId: string, tenantId: string): Promise<LeaveWorkspaceResult> {
+    return this.database.transaction(async (client) => {
+      const membership = await client.query<{ id: string; roles: Role[] }>(
+        `
+        SELECT m.id, m.roles
+        FROM tenant_memberships m
+        JOIN users u ON u.id = m.user_id AND u.status = 'active'
+        JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
+        WHERE m.user_id = $1
+          AND m.tenant_id = $2
+          AND m.status = 'active'
+        LIMIT 1
+        FOR UPDATE OF m
+        `,
+        [userId, tenantId],
+      )
+      const row = membership.rows[0]
+      if (!row) return { kind: 'missing' }
+      if (row.roles.includes('owner')) {
+        const owners = await client.query<{ count: number }>(
+          `
+          SELECT count(*)::int AS count
+          FROM tenant_memberships m
+          JOIN users u ON u.id = m.user_id AND u.status = 'active'
+          WHERE m.tenant_id = $1
+            AND m.status = 'active'
+            AND m.roles @> ARRAY['owner']::text[]
+          `,
+          [tenantId],
+        )
+        if ((owners.rows[0]?.count ?? 0) <= 1) return { kind: 'last_owner' }
+      }
+
+      const currentMembership = await readMembership(client, tenantId, userId)
+      if (!currentMembership) return { kind: 'missing' }
+      await client.query(
+        `
+        UPDATE tenant_memberships
+        SET status = 'disabled',
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [row.id],
+      )
+      await client.query(
+        `
+        UPDATE sessions
+        SET revoked_at = now()
+        WHERE membership_id = $1
+          AND revoked_at IS NULL
+        `,
+        [row.id],
+      )
+      const nextWorkspace = await readNextAccountWorkspace(client, userId, tenantId)
+      return { kind: 'left', membership: currentMembership, nextWorkspace }
+    })
+  }
+
+  async disableWorkspace(userId: string, tenantId: string): Promise<DisableWorkspaceResult> {
+    return this.database.transaction(async (client) => {
+      const workspace = await client.query<WorkspaceRow>(
+        `
+        UPDATE tenants
+        SET status = 'disabled',
+            updated_at = now()
+        WHERE id = $1
+          AND status = 'active'
+        RETURNING id, name, status, created_at, updated_at
+        `,
+        [tenantId],
+      )
+      const row = workspace.rows[0]
+      if (!row) return { kind: 'missing' }
+
+      await client.query(
+        `
+        UPDATE sessions s
+        SET revoked_at = now()
+        FROM tenant_memberships m
+        WHERE s.membership_id = m.id
+          AND m.tenant_id = $1
+          AND s.revoked_at IS NULL
+        `,
+        [tenantId],
+      )
+      const nextWorkspace = await readNextAccountWorkspace(client, userId, tenantId)
+      return { kind: 'disabled', workspace: toWorkspaceSummary(row), nextWorkspace }
+    })
   }
 
   async addMemberByEmail(input: {
@@ -716,6 +903,14 @@ type AccountWorkspaceRow = MembershipRow & {
   tenant_updated_at: Date | string
 }
 
+type WorkspaceRow = {
+  id: string
+  name: string
+  status: Workspace['status']
+  created_at: Date | string
+  updated_at: Date | string
+}
+
 type MembershipRow = {
   id: string
   email: string
@@ -864,6 +1059,51 @@ async function readInvitationById(client: Queryable, invitationId: string): Prom
     invitationId,
   ])
   return result.rows[0] ? toTenantInvitation(result.rows[0]) : null
+}
+
+async function readMembership(client: Queryable, tenantId: string, userId: string): Promise<Membership | null> {
+  const result = await client.query<MembershipRow>(
+    membershipSelectSql('WHERE m.tenant_id = $1 AND m.user_id = $2'),
+    [tenantId, userId],
+  )
+  return result.rows[0] ? toMembership(result.rows[0]) : null
+}
+
+async function readNextAccountWorkspace(
+  client: Queryable,
+  userId: string,
+  excludedTenantId: string,
+): Promise<AccountWorkspace | null> {
+  const result = await client.query<AccountWorkspaceRow>(
+    accountWorkspaceSelectSql(`
+      WHERE u.id = $1
+        AND m.tenant_id <> $2
+        AND u.status = 'active'
+        AND m.status = 'active'
+        AND t.status = 'active'
+      ORDER BY m.is_primary DESC, m.created_at ASC
+      LIMIT 1
+    `),
+    [userId, excludedTenantId],
+  )
+  const row = result.rows[0]
+  return row
+    ? {
+        account: toAccountWorkspaceAccount(row),
+        workspace: toWorkspace(row),
+        membership: toMembership(row),
+      }
+    : null
+}
+
+function toWorkspaceSummary(row: WorkspaceRow): Workspace {
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  }
 }
 
 function toWorkspace(row: AccountWorkspaceRow): Workspace {
