@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 import { Pool } from 'pg'
-import { ACCOUNT_SCHEMA_SQL } from '../infra/postgres.js'
+import { AccountDatabase } from '../infra/postgres.js'
 
 const execFileAsync = promisify(execFile)
 const postgresImage = 'postgres:16-alpine'
@@ -17,7 +17,8 @@ export type PostgresAuthFixture = {
 
 export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
   const containerName = `seqora-auth-${process.pid}-${randomUUID()}`
-  let pool: Pool | null = null
+  let waitPool: Pool | null = null
+  let database: AccountDatabase | null = null
   try {
     await execFileAsync('docker', [
       'run',
@@ -35,14 +36,17 @@ export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
     const { stdout } = await execFileAsync('docker', ['port', containerName, '5432/tcp'])
     const port = parsePublishedPort(stdout)
     const connectionString = `postgres://postgres:${postgresPassword}@127.0.0.1:${port}/${postgresDatabase}`
-    pool = new Pool({ connectionString, max: 1 })
-    await waitForPostgres(pool)
-    await pool.query(ACCOUNT_SCHEMA_SQL)
+    waitPool = new Pool({ connectionString, max: 1 })
+    await waitForPostgres(waitPool)
+    await waitPool.end()
+    waitPool = null
+    database = new AccountDatabase(connectionString)
+    await database.initialize()
 
     return {
       connectionString,
       async reset() {
-        await pool?.query(
+        await database?.query(
           `
           TRUNCATE TABLE
             sessions,
@@ -55,12 +59,13 @@ export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
         )
       },
       async close() {
-        await pool?.end()
+        await database?.close()
         await execFileAsync('docker', ['rm', '-f', containerName]).catch(() => {})
       },
     }
   } catch (error) {
-    await pool?.end().catch(() => {})
+    await database?.close().catch(() => {})
+    await waitPool?.end().catch(() => {})
     await execFileAsync('docker', ['rm', '-f', containerName]).catch(() => {})
     throw error
   }

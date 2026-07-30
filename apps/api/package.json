@@ -8,7 +8,7 @@
     "dev:worker": "tsx watch src/worker.ts",
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "lint": "oxlint src",
     "lint:fix": "oxlint src --fix",
     "test": "vitest run",
