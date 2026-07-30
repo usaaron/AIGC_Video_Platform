@@ -4,9 +4,13 @@ import type { AppStore } from '../../infra/store.js'
 import { AppError } from '../../core/errors.js'
 import { normalizeGenerationTaskLifecycle, releaseGenerationTaskLease } from '../../core/jobs/taskLease.js'
 import { cancellationResourceLockForTask } from '../../core/jobs/taskResourceLock.js'
+import type { CreditLedger } from '../billing/creditLedger.js'
 
 export class GenerationTaskRepository {
-  constructor(private readonly store: AppStore) {}
+  constructor(
+    private readonly store: AppStore,
+    private readonly creditLedger: CreditLedger | null = null,
+  ) {}
 
   canCreate(projectId: string, principal: Principal): boolean {
     return this.store.read((state) =>
@@ -96,7 +100,9 @@ export class GenerationTaskRepository {
   }
 
   async createWithCharge(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask> {
-    return this.store.transaction((state) => {
+    const creditLedger = this.creditLedger
+    if (!creditLedger) {
+      return this.store.transaction((state) => {
       const existing = state.tasks.find(
         (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
       )
@@ -143,6 +149,54 @@ export class GenerationTaskRepository {
         description: input.label,
         createdAt: now,
       })
+      state.tasks.unshift(task)
+      return task
+    })
+    }
+
+    return this.store.transaction(async (state) => {
+      const existing = state.tasks.find(
+        (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
+      )
+      if (existing) return existing
+
+      const shotId = metadataString(input.metadata, 'shotId')
+      if (input.kind === 'video' && shotId) {
+        const activeTask = state.tasks.find(
+          (item) =>
+            item.projectId === input.projectId &&
+            item.tenantId === principal.tenantId &&
+            item.kind === 'video' &&
+            item.metadata.shotId === shotId &&
+            ['queued', 'paused', 'running'].includes(item.status) &&
+            typeof item.metadata.queueHiddenAt !== 'string',
+        )
+        if (activeTask) {
+          throw new AppError(
+            409,
+            'VIDEO_SHOT_BATCH_CONFLICT',
+            '鐠囥儵鏆呮径鏉戝嚒閺堝绔存稉顏嗘晸閹存劒鎹㈤崝鈩冾劀閸︺劌顦╅悶鍡礉鐠囧嘲鍘涢崷銊ф晸閹存劙妲﹂崚妤佹畯閸嬫粍鍨ㄩ崚鐘绘珟鐎瑰喛绱濋崘宥夊櫢閺備即鈧瀚ㄩ悽鐔稿灇缁涙牜鏆愰妴?',
+          )
+        }
+      }
+
+      const user = state.users.find(
+        (item) => item.id === principal.userId && item.tenantId === principal.tenantId,
+      )
+      if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', '鐠愶箑褰挎稉宥呯摠閸?')
+      if (user.credits < input.estimatedCredits) {
+        throw new AppError(402, 'INSUFFICIENT_CREDITS', '缁夘垰鍨庢稉宥堝喕')
+      }
+
+      const now = new Date().toISOString()
+      const task = buildQueuedGenerationTask(input, principal, now)
+      await creditLedger.reserveInState(
+        state,
+        principal,
+        input.estimatedCredits,
+        input.clientRequestId,
+        input.label,
+      )
       state.tasks.unshift(task)
       return task
     })

@@ -17,10 +17,12 @@ import type { VideoGenerationProvider } from './core/generation/videoProvider.js
 import { FilmPreviewComposer, type FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
 import { GenerationTaskRunner, type TaskDispatcher } from './core/jobs/taskDispatcher.js'
 import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
+import { AccountDatabase } from './infra/postgres.js'
 import { AppStore } from './infra/store.js'
 import { createObjectStorage } from './infra/objectStorage.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
 import { registerAuthRoutes } from './modules/auth/routes.js'
+import { AuthRepository } from './modules/auth/repository.js'
 import { AuthService } from './modules/auth/service.js'
 import { registerBillingRoutes } from './modules/billing/routes.js'
 import { StoreCreditLedger } from './modules/billing/creditLedger.js'
@@ -87,6 +89,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       options.config.BOOTSTRAP_DEMO_WORKSPACE,
     )
   await store.initialize()
+  const database = options.config.DATABASE_URL ? new AccountDatabase(options.config.DATABASE_URL) : null
+  if (database) {
+    await database.initialize()
+  }
 
   await app.register(helmet, { contentSecurityPolicy: false })
   await app.register(rateLimit, {
@@ -99,9 +105,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     limits: { files: 1, fileSize: options.config.MAX_UPLOAD_BYTES, parts: 2 },
   })
 
-  const users = new UserRepository(store)
-  const authService = new AuthService(users, options.config.AUTH_SECRET)
-  const creditLedger = new StoreCreditLedger(store, options.config.NODE_ENV !== 'production')
+  const users = new UserRepository(store, database)
+  await users.bootstrapFromStore()
+  const authAccounts = database ? new AuthRepository(database) : users
+  const authService = new AuthService(authAccounts, options.config.AUTH_SECRET)
+  const creditLedger = new StoreCreditLedger(store, users, options.config.NODE_ENV !== 'production')
   const objectStorage = createObjectStorage(options.config)
   const videoProvider =
     options.videoProvider === undefined ? createVideoProvider(options.config) : options.videoProvider
@@ -133,11 +141,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       videoProviderName: videoProviderName(options.config),
       imageProvider,
       objectStorage,
+      creditLedger,
       providerPollIntervalMs: options.config.VIDEO_POLL_INTERVAL_MS,
       onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
     })
   generationService = new GenerationService(
-    new GenerationTaskRepository(store),
+    new GenerationTaskRepository(store, creditLedger),
     taskDispatcher,
     videoProvider,
     videoProviderName(options.config),
@@ -146,7 +155,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   )
   const projectService = new ProjectService(new ProjectRepository(store), textProvider, creditLedger)
   const novelService = new NovelService(new NovelRepository(store), textProvider, creditLedger)
-  const quickStartService = new QuickStartService(store, textProvider, taskDispatcher, Boolean(imageProvider))
+  const quickStartService = new QuickStartService(
+    store,
+    textProvider,
+    taskDispatcher,
+    Boolean(imageProvider),
+    creditLedger,
+  )
   const mediaService = new MediaService(new MediaRepository(store), objectStorage)
   const trustedAssetService = new TrustedAssetService(
     store,
@@ -158,7 +173,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     options.config.ASSET_LIBRARY_CONSOLE_URL,
   )
 
-  installAuth(app, createAuthProvider(options.config, users))
+  installAuth(app, createAuthProvider(options.config, authAccounts))
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {
@@ -170,6 +185,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     }
     if ((error as { code?: string }).code === 'FST_REQ_FILE_TOO_LARGE') {
       return reply.code(413).send({ error: { code: 'FILE_TOO_LARGE', message: '上传文件超过大小限制' } })
+    }
+    if ((error as { statusCode?: number }).statusCode === 415) {
+      return reply
+        .code(415)
+        .send({ error: { code: 'UNSUPPORTED_MEDIA_TYPE', message: '请求格式不支持，请使用 JSON 请求体' } })
     }
     if ((error as { statusCode?: number }).statusCode === 429) {
       return reply.code(429).send({ error: { code: 'RATE_LIMITED', message: '请求过于频繁，请稍后再试' } })
@@ -214,5 +234,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     inProcessRunner.start()
     app.addHook('onClose', async () => inProcessRunner.stop())
   }
+  app.addHook('onClose', async () => {
+    if (database) {
+      await database.close()
+    }
+  })
   return app
 }

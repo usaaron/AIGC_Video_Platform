@@ -19,6 +19,7 @@ import type {
 } from '../generation/videoProvider.js'
 import type { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
+import type { CreditLedger } from '../../modules/billing/creditLedger.js'
 import { cancellationResourceLockForTask, taskResourceLockId } from './taskResourceLock.js'
 import {
   GenerationResultWriteback,
@@ -47,6 +48,7 @@ type GenerationTaskRunnerOptions = {
   videoProviderName?: VideoProviderName
   imageProvider?: ImageGenerationProvider | null
   objectStorage?: ObjectStorage | null
+  creditLedger?: CreditLedger | null
   providerPollIntervalMs?: number
   leaseTtlMs?: number
   onVideoCompleted?: (task: GenerationTask) => Promise<void>
@@ -59,6 +61,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly videoProviderName: VideoProviderName
   private readonly imageProvider: ImageGenerationProvider | null
   private readonly objectStorage: ObjectStorage | null
+  private readonly creditLedger: CreditLedger | null
   private readonly writeback: GenerationResultWriteback
   private readonly providerPollIntervalMs: number
   private readonly leaseTtlMs: number
@@ -74,6 +77,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     this.videoProviderName = options.videoProviderName ?? 'stringx-seedance'
     this.imageProvider = options.imageProvider ?? null
     this.objectStorage = options.objectStorage ?? null
+    this.creditLedger = options.creditLedger ?? null
     this.writeback = new GenerationResultWriteback(store, this.objectStorage)
     this.providerPollIntervalMs = options.providerPollIntervalMs ?? 5_000
     this.leaseTtlMs = options.leaseTtlMs ?? 120_000
@@ -125,7 +129,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     this.scheduleRemoteExecutions(remoteTasks.video, (task) => this.submitRemoteVideo(task))
     this.scheduleRemoteExecutions(remoteTasks.image, (task) => this.generateRemoteImage(task))
 
-    await this.store.mutate((state) => {
+    await this.store.mutate(async (state) => {
       const now = new Date().toISOString()
       state.tasks
         .filter(
@@ -901,10 +905,16 @@ export class GenerationTaskRunner implements TaskDispatcher {
       ),
     )
     if (!hasRefundableTask) return
-    await this.store.mutate((state) => {
+    const creditLedger = this.creditLedger
+    await this.store.mutate(async (state) => {
       const ledgerIds = state.ledger.map((entry) => entry.id)
       for (const task of state.tasks) {
         if (!canRefundTask(task, ledgerIds)) continue
+        if (creditLedger) {
+          await creditLedger.refundGenerationInState(state, task, refundDescription(task))
+          ledgerIds.unshift(`refund-${task.id}`)
+          continue
+        }
         const refundId = `refund-${task.id}`
         const user = state.users.find((item) => item.id === task.userId && item.tenantId === task.tenantId)
         if (!user) continue

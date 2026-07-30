@@ -1,5 +1,5 @@
 import { NOVEL_IMPORT_MAX_FILE_BYTES, type GenerationTask } from '@seqora/contracts'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { readFile, rm, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -16,6 +16,10 @@ import { GenerationTaskRunner } from './core/jobs/taskDispatcher.js'
 import { createPublicMediaToken } from './core/media/publicMediaToken.js'
 import { AppStore, defaultAssetAttributes } from './infra/store.js'
 import { LocalObjectStorage } from './infra/objectStorage.js'
+import {
+  startPostgresAuthFixture,
+  type PostgresAuthFixture,
+} from './testing/postgresAuth.js'
 
 const testConfig: AppConfig = {
   NODE_ENV: 'test',
@@ -3353,14 +3357,36 @@ describe('one-click quick start', () => {
 })
 
 describe('local authentication', () => {
+  let authDatabase: PostgresAuthFixture | undefined
+
+  beforeAll(async () => {
+    authDatabase = await startPostgresAuthFixture()
+  }, 120_000)
+
+  beforeEach(async () => {
+    await authDatabase?.reset()
+  })
+
+  afterAll(async () => {
+    await authDatabase?.close()
+  })
+
+  function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
+    if (!authDatabase) throw new Error('Postgres auth fixture is not ready')
+    return {
+      ...testConfig,
+      ...overrides,
+      AUTH_MODE: 'local',
+      DATABASE_URL: authDatabase.connectionString,
+    }
+  }
+
   it('uses deployment-provided bootstrap credentials for an empty store', async () => {
     app = await buildApp({
-      config: {
-        ...testConfig,
-        AUTH_MODE: 'local',
+      config: localAuthConfig({
         BOOTSTRAP_CREATOR_EMAIL: 'tester@example.com',
         BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
-      },
+      }),
       startWorker: false,
     })
 
@@ -3381,7 +3407,7 @@ describe('local authentication', () => {
   })
 
   it('rate limits repeated failed login attempts', async () => {
-    app = await buildApp({ config: { ...testConfig, AUTH_MODE: 'local' }, startWorker: false })
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
     let response
     for (let attempt = 0; attempt < 11; attempt += 1) {
       response = await app.inject({
@@ -3398,7 +3424,7 @@ describe('local authentication', () => {
   })
 
   it('creates and clears an HttpOnly session', async () => {
-    app = await buildApp({ config: { ...testConfig, AUTH_MODE: 'local' }, startWorker: false })
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
@@ -3429,7 +3455,7 @@ describe('local authentication', () => {
   })
 
   it('changes an authenticated account password without accepting the old password afterward', async () => {
-    app = await buildApp({ config: { ...testConfig, AUTH_MODE: 'local' }, startWorker: false })
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
@@ -3474,7 +3500,7 @@ describe('local authentication', () => {
   })
 
   it('persists project, asset, task and billing mutations', async () => {
-    app = await buildApp({ config: { ...testConfig, AUTH_MODE: 'local' }, startWorker: false })
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
@@ -3580,7 +3606,7 @@ describe('local authentication', () => {
   })
 
   it('uploads and serves authenticated project media', async () => {
-    app = await buildApp({ config: { ...testConfig, AUTH_MODE: 'local' }, startWorker: false })
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',

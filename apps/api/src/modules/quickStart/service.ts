@@ -15,6 +15,7 @@ import type { TextGenerationProvider } from '../../core/generation/textProvider.
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
 import { normalizeGenerationTaskLifecycle } from '../../core/jobs/taskLease.js'
 import type { AppStore } from '../../infra/store.js'
+import type { CreditLedger } from '../billing/creditLedger.js'
 
 const quickStartStyleSchema = z.enum(['cinematic-cg', 'chinese-3d', 'chinese-2d', 'anime', 'storybook'])
 
@@ -106,6 +107,7 @@ export class QuickStartService {
     private readonly textProvider: TextGenerationProvider | null,
     private readonly dispatcher: TaskDispatcher,
     private readonly imageProviderAvailable: boolean,
+    private readonly creditLedger: CreditLedger | null = null,
   ) {}
 
   async plan(projectId: string, principal: Principal, model?: string): Promise<QuickStartPlan> {
@@ -142,7 +144,7 @@ export class QuickStartService {
       throw new AppError(503, 'IMAGE_PROVIDER_NOT_CONFIGURED', '图片生成服务尚未配置')
     }
 
-    const result = await this.store.mutate((state) => {
+    const result = await this.store.mutate(async (state) => {
       const project = state.projects.find(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
@@ -265,17 +267,27 @@ export class QuickStartService {
           error: null,
         })
 
-        user.credits -= cost
-        state.ledger.unshift({
-          id: `generation-${clientRequestId}`,
-          userId: user.id,
-          tenantId: user.tenantId,
-          amount: -cost,
-          balance: user.credits,
-          type: 'generation',
-          description: task.label,
-          createdAt: now,
-        })
+        if (this.creditLedger) {
+          await this.creditLedger.reserveInState(
+            state,
+            principal,
+            cost,
+            clientRequestId,
+            task.label,
+          )
+        } else {
+          user.credits -= cost
+          state.ledger.unshift({
+            id: `generation-${clientRequestId}`,
+            userId: user.id,
+            tenantId: user.tenantId,
+            amount: -cost,
+            balance: user.credits,
+            type: 'generation',
+            description: task.label,
+            createdAt: now,
+          })
+        }
         state.assets.push(asset)
         state.tasks.unshift(task)
         createdAssets.push(asset)

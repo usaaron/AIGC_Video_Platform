@@ -6,8 +6,8 @@ import { AppError } from '../../core/errors.js'
 import type { CreditLedger } from './creditLedger.js'
 
 export async function registerBillingRoutes(app: FastifyInstance, ledger: CreditLedger): Promise<void> {
-  app.get('/billing/summary', { preHandler: requirePermission(PERMISSIONS.BILLING_READ_SELF) }, (request) =>
-    ledger.summary(request.principal!),
+  app.get('/billing/summary', { preHandler: requirePermission(PERMISSIONS.BILLING_READ_SELF) }, async (request) =>
+    await ledger.summary(request.principal!),
   )
   app.put('/billing/plan', { preHandler: requirePermission(PERMISSIONS.BILLING_READ_SELF) }, (request) => {
     const parsed = updatePlanSchema.safeParse(request.body)

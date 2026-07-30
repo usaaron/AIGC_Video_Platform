@@ -4,10 +4,13 @@ import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
 import { GenerationTaskRunner, noopTaskDispatcher } from './core/jobs/taskDispatcher.js'
 import { FilmPreviewComposer } from './core/film/filmPreviewComposer.js'
 import { loadConfig } from './config.js'
+import { AccountDatabase } from './infra/postgres.js'
 import { AppStore } from './infra/store.js'
 import { createObjectStorage } from './infra/objectStorage.js'
+import { StoreCreditLedger } from './modules/billing/creditLedger.js'
 import { GenerationTaskRepository } from './modules/generation/repository.js'
 import { GenerationService } from './modules/generation/service.js'
+import { UserRepository } from './modules/users/repository.js'
 import { createImageProvider, createVideoProvider, videoProviderName } from './runtime/providers.js'
 
 const config = loadConfig()
@@ -24,10 +27,17 @@ const store = new AppStore(
   config.BOOTSTRAP_DEMO_WORKSPACE,
 )
 await store.initialize()
+const database = config.DATABASE_URL ? new AccountDatabase(config.DATABASE_URL) : null
+if (database) {
+  await database.initialize()
+}
+const users = new UserRepository(store, database)
+await users.bootstrapFromStore()
 
 const objectStorage = createObjectStorage(config)
 const videoProvider = createVideoProvider(config)
 const imageProvider = createImageProvider(config)
+const creditLedger = new StoreCreditLedger(store, users, config.NODE_ENV !== 'production')
 const filmPreviewComposer =
   videoProvider && objectStorage
     ? new FilmPreviewComposer(
@@ -47,11 +57,12 @@ const taskRunner = new GenerationTaskRunner(store, {
   videoProviderName: videoProviderName(config),
   imageProvider,
   objectStorage,
+  creditLedger,
   providerPollIntervalMs: config.VIDEO_POLL_INTERVAL_MS,
   onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
 })
 generationService = new GenerationService(
-  new GenerationTaskRepository(store),
+  new GenerationTaskRepository(store, creditLedger),
   noopTaskDispatcher,
   videoProvider,
   videoProviderName(config),
@@ -64,6 +75,9 @@ taskRunner.start()
 const shutdown = async (signal: string) => {
   process.stdout.write(`[worker] shutting down on ${signal}\n`)
   taskRunner.stop()
+  if (database) {
+    await database.close().catch(() => {})
+  }
   process.exit(0)
 }
 

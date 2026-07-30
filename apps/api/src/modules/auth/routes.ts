@@ -16,7 +16,7 @@ export async function registerAuthRoutes(
     async (request, reply) => {
       const parsed = loginSchema.safeParse(request.body)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
-      const { session, token } = service.login(parsed.data)
+      const { session, token } = await service.login(parsed.data)
       reply.header('Cache-Control', 'no-store')
       reply.setCookie(SESSION_COOKIE, token, {
         path: '/',
@@ -29,7 +29,8 @@ export async function registerAuthRoutes(
     },
   )
 
-  app.post('/auth/logout', async (_request, reply) => {
+  app.post('/auth/logout', async (request, reply) => {
+    await service.logout(request.cookies[SESSION_COOKIE])
     reply.header('Cache-Control', 'no-store')
     reply.clearCookie(SESSION_COOKIE, {
       path: '/',
@@ -43,7 +44,7 @@ export async function registerAuthRoutes(
   app.get('/auth/me', async (request, reply) => {
     if (!request.principal) throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录')
     reply.header('Cache-Control', 'no-store')
-    return service.session(request.principal)
+    return await service.session(request.principal)
   })
 
   app.put(

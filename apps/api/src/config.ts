@@ -21,6 +21,7 @@ const configSchema = z
     RATE_LIMIT_MAX: z.coerce.number().int().min(30).max(10_000).default(300),
     AUTH_MODE: z.enum(['local', 'demo', 'oidc']).default('local'),
     AUTH_SECRET: z.string().min(32).default(developmentAuthSecret),
+    DATABASE_URL: z.union([z.literal(''), z.string().min(1)]).default(''),
     BOOTSTRAP_CREATOR_NAME: z.string().min(1).max(80).default('林夏'),
     BOOTSTRAP_CREATOR_EMAIL: z.string().email().default('creator@seqora.local'),
     BOOTSTRAP_CREATOR_PASSWORD: z.string().min(12).max(128).default(developmentCreatorPassword),
