@@ -938,11 +938,26 @@ describe('API authorization', () => {
         assets: [
           {
             kind: 'character',
-            name: '十三岁的翠翠',
+            name: '翠翠',
             priority: '5',
             attributes: {
               gender: 'female',
-              ageGroup: 'teen',
+              ageGroup: 'young',
+              exactAge: null,
+              visualStyle: 'cinematic-cg',
+            },
+          },
+          {
+            kind: 'character',
+            name: '黄狗',
+            description: '陪伴翠翠和老船夫的 yellow dog。',
+            prompt: 'yellow dog, loyal animal companion, standing near the ferry boat.',
+            reason: '黄狗会在渡口镜头反复出现。',
+            priority: 4,
+            attributes: {
+              subjectType: 'animal',
+              species: 'dog',
+              ageGroup: 'young',
               visualStyle: 'cinematic-cg',
             },
           },
@@ -1003,7 +1018,7 @@ describe('API authorization', () => {
       headers,
       payload: {
         script:
-          '场次：1｜剧情：茶峒渡口的日常生活。｜场景：茶峒渡口｜角色：十三岁的翠翠、老船夫｜动作：翠翠坐在渡船旁望向溪水。｜关键道具：渡船｜服装：翠翠日常衣装',
+          '场次：1｜剧情：茶峒渡口的日常生活。｜场景：茶峒渡口｜角色：十三岁的孙女翠翠、七十岁的老船夫、黄狗｜动作：翠翠坐在渡船旁望向溪水，黄狗守在船头。｜关键道具：渡船｜服装：翠翠日常衣装',
         direction: {
           style: 'cinematic-cg',
           composition: 'rule-of-thirds',
@@ -1023,8 +1038,8 @@ describe('API authorization', () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: 'character',
-          name: '十三岁的翠翠',
-          prompt: expect.stringContaining('十三岁的翠翠'),
+          name: '翠翠',
+          prompt: expect.stringContaining('翠翠'),
           priority: 5,
           attributes: expect.objectContaining({
             type: 'character',
@@ -1034,6 +1049,18 @@ describe('API authorization', () => {
             exactAge: 13,
             faceReference: null,
             trustedPortrait: null,
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'character',
+          name: '黄狗',
+          description: expect.stringContaining('黄狗'),
+          prompt: expect.stringContaining('狗'),
+          attributes: expect.objectContaining({
+            type: 'character',
+            subjectType: 'animal',
+            species: '黄狗',
+            anthropomorphic: false,
           }),
         }),
         expect.objectContaining({
@@ -1131,6 +1158,19 @@ describe('API authorization', () => {
             ageGroup: 'teen',
             exactAge: 13,
             subjectType: 'human',
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'character',
+          name: '黄狗',
+          prompt: expect.stringContaining('黄狗'),
+          attributes: expect.objectContaining({
+            gender: 'unspecified',
+            ageGroup: 'young',
+            exactAge: null,
+            subjectType: 'animal',
+            species: '黄狗',
+            anthropomorphic: false,
           }),
         }),
       ]),

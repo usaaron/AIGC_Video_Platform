@@ -285,7 +285,9 @@ const SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT = `你是中文 AI 视频项目的�
 6. 角色只保留推动主线或多次出现的人物，建议 1 到 4 个；场景只保留复用率高或制作成本高的地点，建议 1 到 4 个；道具只保留重要且会多次出现或承载剧情转折的物件，建议 1 到 5 个；服装只保留角色一致性需要的核心服装，建议 1 到 4 个。
 7. 不要把一次性群众、背景摆件、普通环境装饰列成资产；不要重复已有资产。
 8. prompt 必须是可直接进入资产生成的中文视觉描述；场景 prompt 必须是空场景并预留表演空间；服装 prompt 只描述服装本身，不写脸；道具 prompt 只描述物件本身。
-9. 所有 attributes 必须严格使用下列枚举：
+9. 人物年龄必须优先读取剧本事实：如剧本写“十三岁的翠翠”，character.attributes.exactAge 必须为 13，ageGroup 必须为 teen；如写“七十岁的老船夫”，exactAge 必须为 70，ageGroup 必须为 senior。不要把明确年龄的人物泛化为 young。
+10. 动物角色的 species 必须用中文，不要输出 dog/cat/horse 等英文；如剧本写“黄狗”，species 写“黄狗”或“狗”，prompt 和 description 也必须以中文为主。
+11. 所有 attributes 必须严格使用下列枚举：
 character.subjectType human/animal；gender male/female/unspecified；ageGroup child/teen/young/middle/senior；visualStyle photorealistic/cinematic-cg/chinese-3d/chinese-2d/anime/storybook；framing portrait/half/full；bodyType slim/balanced/athletic/full；background solid/transparent/environment；faceStatus pending；bodyStatus pending；portraitSource ai-virtual；turnaroundLayout sheet/separate。
 scene.space interior/exterior；sceneType city/street/residential/commercial/nature/ancient/industrial/fantasy；era ancient/recent/modern/future；time dawn/day/sunset/night；weather clear/cloudy/rain/snow/fog；mood warm/tense/mystery/romantic/epic/desolate；camera eye-level/overhead/low-angle/aerial/wide。
 prop.category weapon/vehicle/furniture/electronics/jewelry/food/daily/other；material wood/metal/glass/fabric/leather/ceramic/mixed；condition new/used/aged/damaged；view front/side/turnaround；background solid/transparent/environment。
@@ -466,23 +468,47 @@ function normalizeProviderAssetSuggestion(
   if (!kind || !name) return null
   const attributes = isRecord(value.attributes) ? value.attributes : {}
   const visualStyle = pickEnum(attributes.visualStyle, VISUAL_STYLE_VALUES, suggestionVisualStyle(direction))
+  const description =
+    normalizedString(value.description) || `从剧本中提取的${scriptAssetKindLabel(kind)}资产：${name}`
+  const prompt =
+    normalizedString(value.prompt) || `${name}，中文 AI 视频资产设定，造型清晰，适合后续多镜头复用。`
+  const reason = normalizedString(value.reason) || '该元素会影响后续镜头连续性，建议先建立为可复用资产。'
   const base = {
     name,
-    description:
-      normalizedString(value.description) || `从剧本中提取的${scriptAssetKindLabel(kind)}资产：${name}`,
-    prompt: normalizedString(value.prompt) || `${name}，中文 AI 视频资产设定，造型清晰，适合后续多镜头复用。`,
+    description: localizeCommonAnimalTerms(description),
+    prompt: localizeCommonAnimalTerms(prompt),
     negativePrompt: normalizedString(value.negativePrompt),
-    reason: normalizedString(value.reason) || '该元素会影响后续镜头连续性，建议先建立为可复用资产。',
+    reason: localizeCommonAnimalTerms(reason),
     priority: normalizedPriority(value.priority),
   }
 
   if (kind === 'character') {
+    const characterContext = characterEvidenceText(name, base.description, base.prompt, base.reason, script, [
+      normalizedString(attributes.species),
+    ])
     const subjectType = pickEnum(
       attributes.subjectType,
       CHARACTER_SUBJECT_TYPES,
-      inferScriptCharacterSubjectType(name),
+      inferScriptCharacterSubjectTypeFromIdentity(name, normalizedString(attributes.species)),
     )
-    const ageGroup = pickEnum(attributes.ageGroup, CHARACTER_AGE_GROUPS, inferScriptCharacterAge(name))
+    const contextualExactAge =
+      subjectType === 'animal' ? null : inferScriptCharacterExactAge(name, script, characterContext)
+    const exactAge =
+      subjectType === 'animal'
+        ? null
+        : (contextualExactAge ?? normalizedExactAge(attributes.exactAge) ?? null)
+    const contextualAgeGroup =
+      subjectType === 'animal' ? null : inferScriptCharacterAgeSignal(characterContext)
+    const ageGroup =
+      subjectType === 'animal'
+        ? pickEnum(attributes.ageGroup, CHARACTER_AGE_GROUPS, 'young')
+        : ((exactAge ? ageGroupFromExactAge(exactAge) : null) ??
+          contextualAgeGroup ??
+          pickEnum(attributes.ageGroup, CHARACTER_AGE_GROUPS, inferScriptCharacterAge(characterContext)))
+    const species =
+      subjectType === 'animal'
+        ? normalizeAnimalSpecies(normalizedString(attributes.species), name, characterContext)
+        : ''
     return {
       ...base,
       kind,
@@ -492,12 +518,12 @@ function normalizeProviderAssetSuggestion(
         gender: pickEnum(
           attributes.gender,
           CHARACTER_GENDERS,
-          subjectType === 'animal' ? 'unspecified' : inferScriptCharacterGender(name),
+          subjectType === 'animal' ? 'unspecified' : inferScriptCharacterGender(characterContext),
         ),
         ageGroup,
-        exactAge: normalizedExactAge(attributes.exactAge) ?? inferScriptCharacterExactAge(name, script),
-        species: normalizedString(attributes.species) || (subjectType === 'animal' ? name : ''),
-        anthropomorphic: normalizedBoolean(attributes.anthropomorphic, subjectType === 'animal'),
+        exactAge,
+        species,
+        anthropomorphic: normalizedBoolean(attributes.anthropomorphic, false),
         visualStyle,
         framing: pickEnum(attributes.framing, CHARACTER_FRAMINGS, 'full'),
         bodyType: pickEnum(attributes.bodyType, CHARACTER_BODY_TYPES, 'balanced'),
@@ -678,15 +704,19 @@ function fallbackAssetSuggestions(
   const costumes = extractAssetNames(script, ['服装', '衣装', '外观'], [], 4)
   const assets: ScriptAssetSuggestion[] = [
     ...characters.map((name): ScriptAssetSuggestion => {
-      const subjectType = inferScriptCharacterSubjectType(name)
+      const characterContext = characterEvidenceText(name, '', '', '', script)
+      const subjectType = inferScriptCharacterSubjectTypeFromIdentity(name)
       const gender = subjectType === 'animal' ? 'unspecified' : inferScriptCharacterGender(name)
-      const ageGroup = inferScriptCharacterAge(name)
-      const exactAge = inferScriptCharacterExactAge(name, script)
+      const exactAge = subjectType === 'animal' ? null : inferScriptCharacterExactAge(name, script)
+      const ageGroup =
+        subjectType === 'animal' ? 'young' : inferScriptCharacterAge(characterContext, exactAge)
       const identityTags = inferScriptCharacterIdentityTags(name)
+      const species = subjectType === 'animal' ? normalizeAnimalSpecies('', name, characterContext) : ''
       const profile = [
         gender === 'male' ? '男性' : gender === 'female' ? '女性' : '',
         scriptAgeLabel(ageGroup),
         exactAge ? `${exactAge}岁` : '',
+        subjectType === 'animal' ? species : '',
         ...identityTags,
       ].filter(Boolean)
       const profileText = profile.length ? profile.join('，') : '中文 AI 视频人物设定'
@@ -704,8 +734,8 @@ function fallbackAssetSuggestions(
           gender,
           ageGroup,
           exactAge,
-          species: subjectType === 'animal' ? name : '',
-          anthropomorphic: subjectType === 'animal',
+          species,
+          anthropomorphic: false,
           visualStyle,
           framing: 'full',
           bodyType: ageGroup === 'senior' ? 'balanced' : 'balanced',
@@ -832,7 +862,15 @@ function escapeRegExp(value: string): string {
 }
 
 function inferScriptCharacterSubjectType(text: string): 'human' | 'animal' {
-  return /狗|猫|牛|马|羊|猪|鸡|鸭|鹅|鸟|鱼|狼|虎|熊|鹿|猴|犬/u.test(text) ? 'animal' : 'human'
+  return /狗|犬|dog|cat|horse|cow|wolf|tiger|bear|deer|monkey|猫|牛|马|羊|猪|鸡|鸭|鹅|鸟|鱼|狼|虎|熊|鹿|猴/iu.test(
+    text,
+  )
+    ? 'animal'
+    : 'human'
+}
+
+function inferScriptCharacterSubjectTypeFromIdentity(name: string, species = ''): 'human' | 'animal' {
+  return inferScriptCharacterSubjectType([name, species].filter(Boolean).join('，'))
 }
 
 function inferScriptCharacterGender(text: string): 'male' | 'female' | 'unspecified' {
@@ -841,17 +879,42 @@ function inferScriptCharacterGender(text: string): 'male' | 'female' | 'unspecif
   return 'unspecified'
 }
 
-function inferScriptCharacterAge(text: string): 'child' | 'teen' | 'young' | 'middle' | 'senior' {
+function inferScriptCharacterAge(
+  text: string,
+  exactAge: number | null = null,
+): 'child' | 'teen' | 'young' | 'middle' | 'senior' {
+  const exactAgeGroup = exactAge ? ageGroupFromExactAge(exactAge) : null
+  if (exactAgeGroup) return exactAgeGroup
+  return inferScriptCharacterAgeSignal(text) || 'young'
+}
+
+function inferScriptCharacterAgeSignal(
+  text: string,
+): 'child' | 'teen' | 'young' | 'middle' | 'senior' | null {
   if (/老船夫|船夫|年迈|祖父|爷爷|老人|老年|晚年|七十|六十|五十/u.test(text)) return 'senior'
   if (/儿童|孩子|小孩|幼/u.test(text)) return 'child'
   if (/翠翠|少年|少女|十几|十三|十四|十五|十六|十七|十八/u.test(text)) return 'teen'
   if (/中年|三十|四十/u.test(text)) return 'middle'
-  return 'young'
+  if (/青年|年轻|二十|二十一|二十二|二十三|二十四|二十五|二十六|二十七|二十八|二十九/u.test(text)) {
+    return 'young'
+  }
+  return null
 }
 
-function inferScriptCharacterExactAge(name: string, script: string): number | null {
+function ageGroupFromExactAge(age: number): 'child' | 'teen' | 'young' | 'middle' | 'senior' | null {
+  if (!Number.isInteger(age) || age < 1 || age > 120) return null
+  if (age <= 12) return 'child'
+  if (age <= 18) return 'teen'
+  if (age <= 35) return 'young'
+  if (age <= 55) return 'middle'
+  return 'senior'
+}
+
+function inferScriptCharacterExactAge(name: string, script: string, context = ''): number | null {
   const exactFromContext = exactAgeNearCharacterName(name, script)
   if (exactFromContext) return exactFromContext
+  const exactFromEvidence = exactAgeFromText(context)
+  if (exactFromEvidence) return exactFromEvidence
   return exactAgeFromText(name)
 }
 
@@ -868,6 +931,67 @@ function exactAgeNearCharacterName(name: string, script: string): number | null 
     if (parsed) return parsed
   }
   return null
+}
+
+function characterEvidenceText(
+  name: string,
+  description: string,
+  prompt: string,
+  reason: string,
+  script: string,
+  extra: string[] = [],
+): string {
+  return [name, description, prompt, reason, ...extra, scriptContextNearCharacterName(name, script)]
+    .filter(Boolean)
+    .join('，')
+}
+
+function scriptContextNearCharacterName(name: string, script: string): string {
+  const source = script.replace(/\s+/g, ' ')
+  if (!name.trim()) return ''
+  const candidates = [name, cleanAssetName(name)].filter(Boolean)
+  for (const candidate of candidates) {
+    const index = source.indexOf(candidate)
+    if (index >= 0) {
+      return source.slice(Math.max(0, index - 80), Math.min(source.length, index + candidate.length + 80))
+    }
+  }
+  return ''
+}
+
+function normalizeAnimalSpecies(value: string, name: string, context: string): string {
+  const raw = localizeCommonAnimalTerms(value).trim()
+  const combined = localizeCommonAnimalTerms([name, raw, context].filter(Boolean).join('，'))
+  const speciesFromName = chineseAnimalSpeciesFromText(name)
+  const speciesFromRaw = chineseAnimalSpeciesFromText(raw)
+  const speciesFromContext = chineseAnimalSpeciesFromText(combined)
+  return speciesFromName || speciesFromRaw || speciesFromContext || raw || '动物'
+}
+
+function chineseAnimalSpeciesFromText(text: string): string {
+  const normalized = localizeCommonAnimalTerms(text)
+  const coloredDog = normalized.match(/[黑白黄花灰]狗/u)?.[0]
+  if (coloredDog) return coloredDog
+  const coloredCat = normalized.match(/[黑白黄花灰]猫/u)?.[0]
+  if (coloredCat) return coloredCat
+  const match = normalized.match(/(狗|犬|猫|牛|马|羊|猪|鸡|鸭|鹅|鸟|鱼|狼|虎|熊|鹿|猴)/u)
+  return match?.[1] || ''
+}
+
+function localizeCommonAnimalTerms(value: string): string {
+  return value
+    .replace(/\byellow\s+dogs?\b/gi, '黄狗')
+    .replace(/\bdogs?\b/gi, '狗')
+    .replace(/\bcanines?\b/gi, '犬')
+    .replace(/\bhounds?\b/gi, '猎犬')
+    .replace(/\bcats?\b/gi, '猫')
+    .replace(/\bhorses?\b/gi, '马')
+    .replace(/\bcows?\b/gi, '牛')
+    .replace(/\bwolves?\b/gi, '狼')
+    .replace(/\btigers?\b/gi, '虎')
+    .replace(/\bbears?\b/gi, '熊')
+    .replace(/\bdeers?\b/gi, '鹿')
+    .replace(/\bmonkeys?\b/gi, '猴')
 }
 
 function exactAgeFromText(text: string): number | null {
