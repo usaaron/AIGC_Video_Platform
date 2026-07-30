@@ -1,7 +1,10 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg'
+import pg from 'pg'
+import type { Pool as PgPool, PoolClient, QueryResult, QueryResultRow } from 'pg'
+
+const { Pool } = pg as typeof import('pg')
 
 const migrationsDirectory = fileURLToPath(new URL('./migrations/', import.meta.url))
 
@@ -13,7 +16,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 `
 
 export class AccountDatabase {
-  private readonly pool: Pool
+  private readonly pool: PgPool
   private initialized = false
   private initializePromise: Promise<void> | null = null
 

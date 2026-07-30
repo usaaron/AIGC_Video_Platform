@@ -21,8 +21,9 @@ export class AuthRepository implements AuthAccounts {
         b.plan AS plan,
         b.credits AS credits
       FROM auth_identities ai
-      JOIN users u ON u.id = ai.user_id
+      JOIN users u ON u.id = ai.user_id AND u.status = 'active'
       JOIN tenant_memberships m ON m.user_id = u.id AND m.status = 'active'
+      JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
       JOIN billing_accounts b ON b.membership_id = m.id
       WHERE ai.provider = 'local'
         AND lower(ai.email) = lower($1)
@@ -50,6 +51,7 @@ export class AuthRepository implements AuthAccounts {
         b.credits AS credits
       FROM users u
       JOIN tenant_memberships m ON m.user_id = u.id AND m.status = 'active'
+      JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
       JOIN billing_accounts b ON b.membership_id = m.id
       LEFT JOIN LATERAL (
         SELECT email, password_hash
@@ -61,6 +63,7 @@ export class AuthRepository implements AuthAccounts {
         LIMIT 1
       ) ai ON true
       WHERE u.id = $1
+        AND u.status = 'active'
         AND ($2::text IS NULL OR m.tenant_id = $2)
       ORDER BY m.is_primary DESC, m.created_at ASC
       LIMIT 1
@@ -76,9 +79,12 @@ export class AuthRepository implements AuthAccounts {
         `
         SELECT ai.id
         FROM auth_identities ai
+        JOIN users u ON u.id = ai.user_id AND u.status = 'active'
         JOIN tenant_memberships m ON m.user_id = ai.user_id
+        JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
         WHERE ai.user_id = $1
           AND m.tenant_id = $2
+          AND m.status = 'active'
           AND ai.provider = 'local'
           AND ai.status = 'active'
         ORDER BY ai.is_primary DESC, ai.created_at ASC
@@ -138,7 +144,10 @@ export class AuthRepository implements AuthAccounts {
         s.revoked_at AS revoked_at
       FROM sessions s
       JOIN tenant_memberships m ON m.id = s.membership_id
+      JOIN users u ON u.id = m.user_id AND u.status = 'active'
+      JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
       WHERE s.id = $1
+        AND m.status = 'active'
       LIMIT 1
       `,
       [sessionId],
@@ -208,11 +217,13 @@ async function resolveMembership(
 ): Promise<{ id: string } | null> {
   const result = await client.query<{ id: string }>(
     `
-    SELECT id
-    FROM tenant_memberships
-    WHERE user_id = $1
-      AND tenant_id = $2
-      AND status = 'active'
+    SELECT m.id
+    FROM tenant_memberships m
+    JOIN users u ON u.id = m.user_id AND u.status = 'active'
+    JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
+    WHERE m.user_id = $1
+      AND m.tenant_id = $2
+      AND m.status = 'active'
     LIMIT 1
     `,
     [userId, tenantId],

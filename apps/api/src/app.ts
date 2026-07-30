@@ -20,6 +20,9 @@ import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
 import { AccountDatabase } from './infra/postgres.js'
 import { AppStore } from './infra/store.js'
 import { createObjectStorage } from './infra/objectStorage.js'
+import { AccountManagementRepository } from './modules/accountManagement/repository.js'
+import { registerAccountManagementRoutes } from './modules/accountManagement/routes.js'
+import { AccountManagementService } from './modules/accountManagement/service.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
 import { registerAuthRoutes } from './modules/auth/routes.js'
 import { AuthRepository } from './modules/auth/repository.js'
@@ -109,6 +112,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await users.bootstrapFromStore()
   const authAccounts = database ? new AuthRepository(database) : users
   const authService = new AuthService(authAccounts, options.config.AUTH_SECRET)
+  const accountManagementService = database
+    ? new AccountManagementService(
+        new AccountManagementRepository(database),
+        users,
+        store,
+        options.config.AUTH_SECRET,
+        options.config.WEB_ORIGIN,
+      )
+    : null
   const creditLedger = new StoreCreditLedger(store, users, options.config.NODE_ENV !== 'production')
   const objectStorage = createObjectStorage(options.config)
   const videoProvider =
@@ -217,6 +229,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(
     async (api) => {
       await registerAuthRoutes(api, authService, options.config.NODE_ENV === 'production')
+      await registerAccountManagementRoutes(
+        api,
+        accountManagementService,
+        options.config.NODE_ENV === 'production',
+      )
       await registerProjectRoutes(api, projectService)
       await registerNovelRoutes(api, novelService)
       await registerQuickStartRoutes(api, quickStartService)

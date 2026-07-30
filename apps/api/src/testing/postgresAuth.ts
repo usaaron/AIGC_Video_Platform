@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
-import { Pool } from 'pg'
+import pg from 'pg'
 import { AccountDatabase } from '../infra/postgres.js'
+
+const { Pool } = pg as typeof import('pg')
 
 const execFileAsync = promisify(execFile)
 const postgresImage = 'postgres:16-alpine'
@@ -50,8 +52,10 @@ export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
           `
           TRUNCATE TABLE
             sessions,
+            tenant_invitations,
             billing_accounts,
             tenant_memberships,
+            tenants,
             auth_identities,
             users
           RESTART IDENTITY CASCADE
