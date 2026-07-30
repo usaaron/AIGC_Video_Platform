@@ -1,15 +1,19 @@
 import {
   adminAccountStatusUpdateSchema,
   adminAdjustCreditsSchema,
+  adminSessionStatusSchema,
   adminGrantCreditsSchema,
   PERMISSIONS,
   roleSchema,
+  type AdminConsole,
   type AdminOverview,
 } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
+import { SESSION_COOKIE } from '../../core/auth/provider.js'
 import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
+import { parseIssuedSessionToken } from '../../core/auth/sessionToken.js'
 import { AppError } from '../../core/errors.js'
 import type { AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
@@ -17,6 +21,7 @@ import type { AdminListOptions, AdminRepository } from './repository.js'
 
 const billingMembershipParams = z.object({ membershipId: z.string().min(1).max(512) })
 const adminUserParams = z.object({ userId: z.string().min(1).max(256) })
+const adminSessionParams = z.object({ sessionId: z.string().min(1).max(128) })
 const listQuery = z.object({
   q: z.string().trim().min(1).max(200).optional(),
   status: z.enum(['active', 'disabled']).optional(),
@@ -31,37 +36,68 @@ const listQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 })
+const sessionListQuery = listQuery.omit({ status: true, type: true }).extend({
+  status: adminSessionStatusSchema.optional(),
+})
+const consoleQuery = listQuery.extend({
+  sessionStatus: adminSessionStatusSchema.optional(),
+})
 
 export async function registerAdminRoutes(
   app: FastifyInstance,
   store: AppStore,
   ledger: CreditLedger | null = null,
   adminRepository: AdminRepository | null = null,
+  authSecret?: string,
 ): Promise<void> {
   app.get(
     '/admin/overview',
     { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
-    async () => {
-      const today = startOfChinaDay()
-      const creditsConsumedToday = ledger
-        ? await ledger.consumedCreditsSince(today)
-        : store.read((state) =>
-            Math.abs(
-              state.ledger
-                .filter((entry) => entry.type === 'generation' && entry.createdAt >= today)
-                .reduce((total, entry) => total + entry.amount, 0),
-            ),
-          )
-      const overview: AdminOverview = {
-        users: store.read((state) => state.users.length),
-        activeTasks: store.read(
-          (state) =>
-            state.tasks.filter((task) => task.status === 'queued' || task.status === 'running').length,
-        ),
-        creditsConsumedToday,
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await readAdminOverview(store, ledger, adminRepository)
+    },
+  )
+
+  app.get(
+    '/admin/console',
+    { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      const repository = requireAdminRepository(adminRepository)
+      const options = parseConsoleQuery(request.query)
+      const currentSessionId = currentSessionIdFromCookie(request.cookies[SESSION_COOKIE], authSecret)
+      const [
+        overview,
+        users,
+        tenants,
+        memberships,
+        billingAccounts,
+        billingLedgerEntries,
+        sessions,
+        auditLogs,
+      ] = await Promise.all([
+        readAdminOverview(store, ledger, repository),
+        repository.listUsers(options),
+        repository.listTenants(options),
+        repository.listMemberships(options),
+        repository.listBillingAccounts(options),
+        repository.listBillingLedgerEntries(options),
+        repository.listSessions(options, currentSessionId),
+        repository.listAuditLogEntries(options),
+      ])
+      const snapshot: AdminConsole = {
+        overview,
+        users,
+        tenants,
+        memberships,
+        billingAccounts,
+        billingLedgerEntries,
+        sessions,
+        auditLogs,
         generatedAt: new Date().toISOString(),
       }
-      return overview
+      return snapshot
     },
   )
 
@@ -142,6 +178,34 @@ export async function registerAdminRoutes(
   )
 
   app.get(
+    '/admin/sessions',
+    { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await requireAdminRepository(adminRepository).listSessions(
+        parseSessionListQuery(request.query),
+        currentSessionIdFromCookie(request.cookies[SESSION_COOKIE], authSecret),
+      )
+    },
+  )
+
+  app.delete(
+    '/admin/sessions/:sessionId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { sessionId } = parse(adminSessionParams, request.params)
+      const revoked = await requireAdminRepository(adminRepository).revokeSession(
+        request.principal!,
+        sessionId,
+        sessionMetadataFromRequest(request),
+      )
+      if (!revoked) throw new AppError(404, 'SESSION_NOT_FOUND', 'Session does not exist')
+      reply.header('Cache-Control', 'no-store')
+      return reply.code(204).send()
+    },
+  )
+
+  app.get(
     '/admin/audit-logs',
     { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
     async (request, reply) => {
@@ -207,6 +271,48 @@ function requireAdminRepository(adminRepository: AdminRepository | null): AdminR
 
 function parseListQuery(value: unknown): AdminListOptions {
   return parse(listQuery, value)
+}
+
+function parseSessionListQuery(value: unknown): AdminListOptions {
+  const input = parse(sessionListQuery, value)
+  return { ...input, sessionStatus: input.status }
+}
+
+function parseConsoleQuery(value: unknown): AdminListOptions {
+  return parse(consoleQuery, value)
+}
+
+async function readAdminOverview(
+  store: AppStore,
+  ledger: CreditLedger | null,
+  adminRepository: AdminRepository | null = null,
+): Promise<AdminOverview> {
+  const today = startOfChinaDay()
+  const creditsConsumedToday = ledger
+    ? await ledger.consumedCreditsSince(today)
+    : store.read((state) =>
+        Math.abs(
+          state.ledger
+            .filter((entry) => entry.type === 'generation' && entry.createdAt >= today)
+            .reduce((total, entry) => total + entry.amount, 0),
+        ),
+      )
+  const users = adminRepository
+    ? (await adminRepository.listUsers({ limit: 1, offset: 0 })).meta.total
+    : store.read((state) => state.users.length)
+  return {
+    users,
+    activeTasks: store.read(
+      (state) => state.tasks.filter((task) => task.status === 'queued' || task.status === 'running').length,
+    ),
+    creditsConsumedToday,
+    generatedAt: new Date().toISOString(),
+  }
+}
+
+function currentSessionIdFromCookie(token: string | undefined, authSecret: string | undefined): string | null {
+  if (!token || !authSecret) return null
+  return parseIssuedSessionToken(token, authSecret)?.sessionId ?? null
 }
 
 function startOfChinaDay(now = new Date()): string {

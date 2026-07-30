@@ -9,6 +9,9 @@ import type {
   AdminMembership,
   AdminMembershipDetail,
   AdminMembershipList,
+  AdminSession,
+  AdminSessionList,
+  AdminSessionStatus,
   AdminTenant,
   AdminTenantList,
   AdminUser,
@@ -38,6 +41,7 @@ export type AdminListOptions = {
   action?: string | undefined
   resourceType?: string | undefined
   actorUserId?: string | undefined
+  sessionStatus?: AdminSessionStatus | undefined
   limit: number
   offset: number
 }
@@ -247,6 +251,107 @@ export class AdminRepository {
       [...filter.params, paging.limit, paging.offset],
     )
     return listResult(rows.rows.map(toAdminBillingLedgerEntry), total.rows[0]?.total ?? 0, paging)
+  }
+
+  async listSessions(
+    options: AdminListOptions,
+    currentSessionId: string | null = null,
+  ): Promise<AdminSessionList> {
+    const filter = buildSessionFilter(options)
+    const total = await this.database.query<{ total: number }>(
+      `
+      SELECT count(*)::int AS total
+      FROM sessions s
+      JOIN tenant_memberships m ON m.id = s.membership_id
+      JOIN users u ON u.id = m.user_id
+      JOIN tenants t ON t.id = m.tenant_id
+      LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
+      ${filter.where}
+      `,
+      filter.params,
+    )
+    const paging = normalizePaging(options)
+    const rows = await this.database.query<AdminSessionRow>(
+      `
+      ${adminSessionSelectSql()}
+      ${filter.where}
+      ORDER BY s.created_at DESC, s.id DESC
+      LIMIT $${filter.params.length + 1}
+      OFFSET $${filter.params.length + 2}
+      `,
+      [...filter.params, paging.limit, paging.offset],
+    )
+    return listResult(
+      rows.rows.map((row) => toAdminSession(row, currentSessionId)),
+      total.rows[0]?.total ?? 0,
+      paging,
+    )
+  }
+
+  async revokeSession(
+    principal: Principal,
+    sessionId: string,
+    metadata?: SessionMetadata,
+  ): Promise<AdminSession | null> {
+    return this.database.transaction(async (client) => {
+      const target = await client.query<AdminSessionRow>(
+        `
+        ${adminSessionSelectSql()}
+        WHERE s.id = $1
+        LIMIT 1
+        FOR UPDATE OF s
+        `,
+        [sessionId],
+      )
+      const row = target.rows[0]
+      if (!row || row.revoked_at) return null
+      if (principal.userId === row.user_id) {
+        throw new AppError(400, 'CANNOT_REVOKE_SELF_SESSION', 'Use the current account session API to sign out')
+      }
+      if (hasElevatedRole(row.roles) && !isOwner(principal)) {
+        throw new AppError(
+          403,
+          'ELEVATED_SESSION_REQUIRES_OWNER',
+          'Only owners can revoke owner or admin sessions',
+        )
+      }
+
+      await client.query(
+        `
+        UPDATE sessions
+        SET revoked_at = now()
+        WHERE id = $1
+          AND revoked_at IS NULL
+        `,
+        [sessionId],
+      )
+      await insertAuditLog(client, {
+        tenantId: row.tenant_id,
+        userId: row.user_id,
+        actorUserId: principal.userId,
+        action: 'admin.session.revoked',
+        resourceType: 'session',
+        resourceId: sessionId,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: {
+          membershipId: row.membership_id,
+          roles: row.roles,
+          scope: 'admin_console',
+        },
+      })
+
+      const revoked = await client.query<AdminSessionRow>(
+        `
+        ${adminSessionSelectSql()}
+        WHERE s.id = $1
+        LIMIT 1
+        `,
+        [sessionId],
+      )
+      const revokedRow = revoked.rows[0]
+      return revokedRow ? toAdminSession(revokedRow, null) : null
+    })
   }
 
   async listAuditLogEntries(options: AdminListOptions): Promise<AdminAuditLogEntryList> {
@@ -467,6 +572,27 @@ type AdminBillingLedgerEntryRow = {
   metadata: Record<string, unknown> | string
 }
 
+type AdminSessionRow = {
+  session_id: string
+  membership_id: string
+  tenant_id: string
+  tenant_name: string
+  tenant_status: AdminTenant['status']
+  user_id: string
+  email: string | null
+  name: string
+  user_status: AdminAccountStatus
+  roles: Role[]
+  membership_status: AdminMembership['status']
+  session_created_at: Date | string
+  last_seen_at: Date | string | null
+  expires_at: Date | string
+  revoked_at: Date | string | null
+  ip_address: string | null
+  user_agent: string | null
+  device_label: string | null
+}
+
 type AdminAuditLogEntryRow = {
   id: string
   tenant_id: string | null
@@ -541,6 +667,34 @@ function buildLedgerFilter(options: AdminListOptions): Filter {
   if (options.q?.trim()) {
     builder.add(
       '(lower(e.id) LIKE ? OR lower(e.reference_id) LIKE ? OR lower(e.description) LIKE ?)',
+      search(options.q),
+      search(options.q),
+      search(options.q),
+    )
+  }
+  return builder.build()
+}
+
+function buildSessionFilter(options: AdminListOptions): Filter {
+  const builder = new FilterBuilder()
+  if (options.membershipId) builder.add('s.membership_id = ?', options.membershipId)
+  if (options.tenantId) builder.add('m.tenant_id = ?', options.tenantId)
+  if (options.userId) builder.add('m.user_id = ?', options.userId)
+  if (options.role) builder.add('? = ANY(m.roles)', options.role)
+  if (options.sessionStatus === 'active') {
+    builder.add('s.revoked_at IS NULL AND s.expires_at > now()')
+  } else if (options.sessionStatus === 'revoked') {
+    builder.add('s.revoked_at IS NOT NULL')
+  } else if (options.sessionStatus === 'expired') {
+    builder.add('s.revoked_at IS NULL AND s.expires_at <= now()')
+  }
+  if (options.q?.trim()) {
+    builder.add(
+      '(lower(s.id) LIKE ? OR lower(m.user_id) LIKE ? OR lower(u.display_name) LIKE ? OR lower(ai.email) LIKE ? OR lower(t.name) LIKE ? OR lower(COALESCE(s.ip_address, \'\')) LIKE ? OR lower(COALESCE(s.device_label, \'\')) LIKE ?)',
+      search(options.q),
+      search(options.q),
+      search(options.q),
+      search(options.q),
       search(options.q),
       search(options.q),
       search(options.q),
@@ -642,6 +796,35 @@ function membershipSelectSql(): string {
     JOIN users u ON u.id = m.user_id
     JOIN tenants t ON t.id = m.tenant_id
     JOIN billing_accounts b ON b.membership_id = m.id
+    LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
+  `
+}
+
+function adminSessionSelectSql(): string {
+  return `
+    SELECT
+      s.id AS session_id,
+      s.membership_id,
+      m.tenant_id,
+      t.name AS tenant_name,
+      t.status AS tenant_status,
+      m.user_id,
+      ai.email,
+      u.display_name AS name,
+      u.status AS user_status,
+      m.roles,
+      m.status AS membership_status,
+      s.created_at AS session_created_at,
+      s.last_seen_at,
+      s.expires_at,
+      s.revoked_at,
+      s.ip_address,
+      s.user_agent,
+      s.device_label
+    FROM sessions s
+    JOIN tenant_memberships m ON m.id = s.membership_id
+    JOIN users u ON u.id = m.user_id
+    JOIN tenants t ON t.id = m.tenant_id
     LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
   `
 }
@@ -760,6 +943,33 @@ function toAdminBillingLedgerEntry(row: AdminBillingLedgerEntryRow): AdminBillin
   }
 }
 
+function toAdminSession(row: AdminSessionRow, currentSessionId: string | null): AdminSession {
+  const expiresAt = toIso(row.expires_at)
+  const revokedAt = row.revoked_at ? toIso(row.revoked_at) : null
+  return {
+    sessionId: row.session_id,
+    membershipId: row.membership_id,
+    tenantId: row.tenant_id,
+    tenantName: row.tenant_name,
+    tenantStatus: row.tenant_status,
+    userId: row.user_id,
+    email: row.email,
+    name: row.name,
+    userStatus: row.user_status,
+    membershipStatus: row.membership_status,
+    roles: row.roles,
+    status: sessionStatus(expiresAt, revokedAt),
+    createdAt: toIso(row.session_created_at),
+    lastSeenAt: row.last_seen_at ? toIso(row.last_seen_at) : null,
+    expiresAt,
+    revokedAt,
+    ipAddress: row.ip_address,
+    userAgent: row.user_agent,
+    deviceLabel: row.device_label,
+    current: currentSessionId === row.session_id,
+  }
+}
+
 function toAdminAuditLogEntry(row: AdminAuditLogEntryRow): AdminAuditLogEntry {
   return {
     id: row.id,
@@ -786,6 +996,11 @@ function isOwner(principal: Principal): boolean {
 
 function hasElevatedRole(roles: Role[]): boolean {
   return roles.includes(ROLES.OWNER) || roles.includes(ROLES.ADMIN)
+}
+
+function sessionStatus(expiresAt: string, revokedAt: string | null): AdminSessionStatus {
+  if (revokedAt) return 'revoked'
+  return new Date(expiresAt).getTime() <= Date.now() ? 'expired' : 'active'
 }
 
 async function insertAuditLog(

@@ -253,7 +253,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await registerTrustedAssetRoutes(api, trustedAssetService)
       await registerGenerationRoutes(api, generationService)
       await registerBillingRoutes(api, creditLedger)
-      await registerAdminRoutes(api, store, creditLedger, adminRepository)
+      await registerAdminRoutes(api, store, creditLedger, adminRepository, options.config.AUTH_SECRET)
     },
     { prefix: '/api/v1' },
   )

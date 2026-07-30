@@ -27,6 +27,74 @@ afterAll(async () => {
 })
 
 describe('admin console api', { timeout: 30_000 }, () => {
+  it('returns a unified admin console snapshot', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const admin = await login('admin@seqora.local', 'Admin123!', {
+      'user-agent': 'ConsoleAdminBrowser/1.0',
+    })
+    await login('creator@seqora.local', 'Creator123!', {
+      'user-agent': 'CreatorDevice/1.0',
+    })
+    const adminCookie = cookieValue(admin)
+
+    const snapshot = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/console?limit=10',
+      headers: { cookie: adminCookie },
+    })
+    expect(snapshot.statusCode).toBe(200)
+    expect(snapshot.json()).toMatchObject({
+      overview: {
+        users: 3,
+        activeTasks: expect.any(Number),
+        creditsConsumedToday: expect.any(Number),
+        generatedAt: expect.any(String),
+      },
+      users: {
+        meta: expect.objectContaining({ limit: 10, offset: 0 }),
+        items: expect.arrayContaining([
+          expect.objectContaining({ id: 'user-admin', email: 'admin@seqora.local' }),
+        ]),
+      },
+      tenants: {
+        items: [expect.objectContaining({ id: 'tenant-seqora-demo', status: 'active' })],
+      },
+      memberships: {
+        items: expect.arrayContaining([
+          expect.objectContaining({ id: 'membership-tenant-seqora-demo-user-admin' }),
+        ]),
+      },
+      billingAccounts: {
+        items: expect.arrayContaining([
+          expect.objectContaining({ membershipId: 'membership-tenant-seqora-demo-user-creator' }),
+        ]),
+      },
+      sessions: {
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            userId: 'user-admin',
+            tenantId: 'tenant-seqora-demo',
+            status: 'active',
+            current: true,
+            userAgent: 'ConsoleAdminBrowser/1.0',
+          }),
+          expect.objectContaining({
+            userId: 'user-creator',
+            status: 'active',
+            current: false,
+            userAgent: 'CreatorDevice/1.0',
+          }),
+        ]),
+      },
+      auditLogs: {
+        items: expect.arrayContaining([
+          expect.objectContaining({ action: 'auth.login.succeeded', resourceType: 'session' }),
+        ]),
+      },
+      generatedAt: expect.any(String),
+    })
+  })
+
   it('lists users, tenants, memberships and billing records', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const admin = await login('admin@seqora.local', 'Admin123!')
@@ -204,6 +272,128 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(loginAfterEnable.statusCode).toBe(200)
   })
 
+  it('lists and revokes sessions through admin console boundaries', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const admin = await login('admin@seqora.local', 'Admin123!', {
+      'user-agent': 'AdminSessionDevice/1.0',
+    })
+    const creator = await login('creator@seqora.local', 'Creator123!', {
+      'user-agent': 'CreatorSessionDevice/1.0',
+    })
+    const owner = await login('owner@seqora.local', 'OwnerPassword123!', {
+      'user-agent': 'OwnerSessionDevice/1.0',
+    })
+    const adminCookie = cookieValue(admin)
+
+    const activeCreatorSessions = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/sessions?userId=user-creator&status=active',
+      headers: { cookie: adminCookie },
+    })
+    expect(activeCreatorSessions.statusCode).toBe(200)
+    expect(activeCreatorSessions.json()).toMatchObject({
+      items: [
+        expect.objectContaining({
+          userId: 'user-creator',
+          tenantId: 'tenant-seqora-demo',
+          status: 'active',
+          userAgent: 'CreatorSessionDevice/1.0',
+        }),
+      ],
+    })
+    const creatorSessionId = activeCreatorSessions.json().items[0].sessionId
+
+    const selfSessions = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/sessions?userId=user-admin&status=active',
+      headers: { cookie: adminCookie },
+    })
+    expect(selfSessions.statusCode).toBe(200)
+    const adminSessionId = selfSessions.json().items[0].sessionId
+
+    const adminRevokesSelf = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/sessions/${adminSessionId}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(adminRevokesSelf.statusCode).toBe(400)
+    expect(adminRevokesSelf.json()).toMatchObject({
+      error: { code: 'CANNOT_REVOKE_SELF_SESSION' },
+    })
+
+    const activeOwnerSessions = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/sessions?userId=user-owner&status=active',
+      headers: { cookie: adminCookie },
+    })
+    expect(activeOwnerSessions.statusCode).toBe(200)
+    const ownerSessionId = activeOwnerSessions.json().items[0].sessionId
+
+    const adminRevokesOwner = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/sessions/${ownerSessionId}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(adminRevokesOwner.statusCode).toBe(403)
+    expect(adminRevokesOwner.json()).toMatchObject({
+      error: { code: 'ELEVATED_SESSION_REQUIRES_OWNER' },
+    })
+
+    const revoked = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/sessions/${creatorSessionId}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(revoked.statusCode).toBe(204)
+
+    const oldCreatorSession = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { cookie: cookieValue(creator) },
+    })
+    expect(oldCreatorSession.statusCode).toBe(401)
+
+    const revokedCreatorSessions = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/sessions?userId=user-creator&status=revoked',
+      headers: { cookie: adminCookie },
+    })
+    expect(revokedCreatorSessions.statusCode).toBe(200)
+    expect(revokedCreatorSessions.json()).toMatchObject({
+      items: [
+        expect.objectContaining({
+          sessionId: creatorSessionId,
+          userId: 'user-creator',
+          status: 'revoked',
+          revokedAt: expect.any(String),
+        }),
+      ],
+    })
+
+    const audit = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/audit-logs?action=admin.session.revoked&userId=user-creator',
+      headers: { cookie: adminCookie },
+    })
+    expect(audit.statusCode).toBe(200)
+    expect(audit.json()).toMatchObject({
+      items: [
+        expect.objectContaining({
+          actorUserId: 'user-admin',
+          resourceId: creatorSessionId,
+          metadata: expect.objectContaining({ scope: 'admin_console' }),
+        }),
+      ],
+    })
+
+    const ownerRevokesAdmin = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/sessions/${adminSessionId}`,
+      headers: { cookie: cookieValue(owner) },
+    })
+    expect(ownerRevokesAdmin.statusCode).toBe(204)
+  })
+
   it('enforces elevated account and self-disable boundaries', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const admin = await login('admin@seqora.local', 'Admin123!')
@@ -280,6 +470,13 @@ describe('admin console api', { timeout: 30_000 }, () => {
       headers: { cookie: cookieValue(creator) },
     })
     expect(billing.statusCode).toBe(403)
+
+    const sessions = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/sessions',
+      headers: { cookie: cookieValue(creator) },
+    })
+    expect(sessions.statusCode).toBe(403)
   })
 })
 
@@ -296,11 +493,12 @@ function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   })
 }
 
-async function login(email: string, password: string) {
+async function login(email: string, password: string, headers?: Record<string, string>) {
   if (!app) throw new Error('App is not ready')
   return await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
+    headers,
     payload: { email, password },
   })
 }
