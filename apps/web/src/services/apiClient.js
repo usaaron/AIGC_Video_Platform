@@ -65,6 +65,11 @@ export const api = {
   changePassword: (input) => request('/auth/password', json('PUT', input)),
   workspaces: () => request('/workspaces'),
   switchWorkspace: (tenantId) => request(`/workspaces/${tenantId}/switch`, emptyJsonPost()),
+  updateWorkspace: (tenantId, input) => request(`/workspaces/${tenantId}`, json('PATCH', input)),
+  disableWorkspace: (tenantId) => request(`/workspaces/${tenantId}`, { method: 'DELETE' }),
+  transferWorkspaceOwner: (tenantId, input) =>
+    request(`/workspaces/${tenantId}/owner-transfer`, json('POST', input)),
+  leaveWorkspace: (tenantId) => request(`/workspaces/${tenantId}/leave`, emptyJsonPost()),
   tenantMembers: (tenantId) => request(`/tenants/${tenantId}/members`),
   createTenantUser: (tenantId, input) => request(`/tenants/${tenantId}/users`, json('POST', input)),
   updateMemberRoles: (tenantId, userId, roles) =>

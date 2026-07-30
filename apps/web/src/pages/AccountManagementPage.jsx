@@ -1,7 +1,11 @@
 import {
   Check,
+  Crown,
+  DoorOpen,
   KeyRound,
   LoaderCircle,
+  Pencil,
+  Power,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -15,7 +19,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../components/AuthProvider'
 import { IconButton, PageHeader } from '../components/ui'
 import { canOpenAccountAdmin } from '../features/account/access'
-import { api } from '../services/apiClient'
+import { api, AUTH_EXPIRED_EVENT } from '../services/apiClient'
 import {
   identityRolesFor,
   MemberAdminTable,
@@ -44,12 +48,20 @@ export function AccountManagementPage({ embedded = false, onWorkspaceChanged }) 
   const [notice, setNotice] = useState('')
   const [createUserOpen, setCreateUserOpen] = useState(false)
   const [createUserForm, setCreateUserForm] = useState(createUserInitialState)
+  const [workspaceNameDraft, setWorkspaceNameDraft] = useState('')
+  const [ownerTransferTarget, setOwnerTransferTarget] = useState('')
 
   const tenantId = session.account.tenantId
   const canReadMembers = hasPermission(session, 'user.read') || hasPermission(session, 'user.manage')
   const canManageMembers = hasPermission(session, 'user.manage')
   const canAccessAdminConsole = canOpenAccountAdmin(session)
   const canManageAdminRole = session.account.roles.includes('owner')
+  const currentWorkspaceItem = workspaces.find((item) => item.workspace.id === tenantId)
+  const currentWorkspace = currentWorkspaceItem?.workspace ?? null
+  const ownerTransferCandidates = members.filter(
+    (member) =>
+      member.status === 'active' && member.userId !== session.account.id && !member.roles.includes('owner'),
+  )
   const filteredMembers = members.filter((member) =>
     matchesMember(member, memberQuery, statusFilter, roleFilter),
   )
@@ -100,6 +112,11 @@ export function AccountManagementPage({ embedded = false, onWorkspaceChanged }) 
     return () => window.clearTimeout(timer)
   }, [notice])
 
+  useEffect(() => {
+    setWorkspaceNameDraft(currentWorkspace?.name ?? '')
+    setOwnerTransferTarget('')
+  }, [currentWorkspace?.id, currentWorkspace?.name])
+
   const switchWorkspace = async (nextTenantId) => {
     if (nextTenantId === tenantId) return
     await runAction(`switch:${nextTenantId}`, async () => {
@@ -108,6 +125,80 @@ export function AccountManagementPage({ embedded = false, onWorkspaceChanged }) 
       await load(nextSession.account.tenantId, nextSession.permissions)
       await onWorkspaceChanged?.(nextSession)
       setNotice('Workspace 已切换')
+    })
+  }
+
+  const saveWorkspaceName = async (event) => {
+    event.preventDefault()
+    const name = workspaceNameDraft.trim()
+    if (!name || !currentWorkspace || name === currentWorkspace.name) return
+    const confirmed = window.confirm(
+      `确认将当前 workspace 改名为「${name}」？\n\n改名后当前 workspace 的所有成员都会看到新名称。`,
+    )
+    if (!confirmed) return
+    await runAction('workspace:rename', async () => {
+      const updated = await api.updateWorkspace(tenantId, { name })
+      setWorkspaces((items) =>
+        items.map((item) =>
+          item.workspace.id === tenantId ? { ...item, workspace: { ...item.workspace, ...updated } } : item,
+        ),
+      )
+      setNotice('Workspace 已改名')
+    })
+  }
+
+  const transferOwner = async () => {
+    const target = ownerTransferCandidates.find((member) => member.userId === ownerTransferTarget)
+    if (!target) return
+    const confirmed = window.confirm(
+      `确认将 workspace 所有者转让给 ${target.name}？\n\n转让后你会保留管理员身份，新所有者可以继续管理管理员、账单和 workspace 设置。`,
+    )
+    if (!confirmed) return
+    await runAction('workspace:transfer-owner', async () => {
+      await api.transferWorkspaceOwner(tenantId, {
+        targetUserId: target.userId,
+        previousOwnerRole: 'admin',
+      })
+      const nextSession = await refresh()
+      await load(nextSession.account.tenantId, nextSession.permissions)
+      await onWorkspaceChanged?.(nextSession)
+      setNotice('Workspace 所有者已转让')
+    })
+  }
+
+  const leaveWorkspace = async () => {
+    const confirmed = window.confirm(
+      '确认退出当前 workspace？\n\n退出后你将失去当前 workspace 的访问权限，当前 workspace 的登录 session 会被撤销。',
+    )
+    if (!confirmed) return
+    await runAction('workspace:leave', async () => {
+      const nextAccountSession = await api.leaveWorkspace(tenantId)
+      if (!nextAccountSession?.account) {
+        window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+        return
+      }
+      const nextSession = await refresh()
+      await load(nextSession.account.tenantId, nextSession.permissions)
+      await onWorkspaceChanged?.(nextSession)
+      setNotice('已退出 workspace')
+    })
+  }
+
+  const disableWorkspace = async () => {
+    const confirmed = window.confirm(
+      '确认禁用当前 workspace？\n\n禁用后所有成员都会失去访问权限，当前 workspace 的 session 会被撤销。该操作需要数据库层面恢复或后续专门启用接口。',
+    )
+    if (!confirmed) return
+    await runAction('workspace:disable', async () => {
+      const nextAccountSession = await api.disableWorkspace(tenantId)
+      if (!nextAccountSession?.account) {
+        window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+        return
+      }
+      const nextSession = await refresh()
+      await load(nextSession.account.tenantId, nextSession.permissions)
+      await onWorkspaceChanged?.(nextSession)
+      setNotice('Workspace 已禁用')
     })
   }
 
@@ -282,6 +373,103 @@ export function AccountManagementPage({ embedded = false, onWorkspaceChanged }) 
               {item.workspace.id === tenantId ? <Check size={16} /> : <span>切换</span>}
             </button>
           ))}
+        </div>
+      </section>
+
+      <section className="account-panel account-workspace-settings">
+        <PanelHeading title="Workspace 管理" icon={Pencil} />
+        <div className="workspace-management-grid">
+          <form className="workspace-management-row" onSubmit={saveWorkspaceName}>
+            <label>
+              <span>Workspace 名称</span>
+              <input
+                className="text-input"
+                value={workspaceNameDraft}
+                onChange={(event) => setWorkspaceNameDraft(event.target.value)}
+                maxLength={80}
+                disabled={!canManageMembers || busy === 'workspace:rename'}
+              />
+            </label>
+            <button
+              className="button secondary"
+              type="submit"
+              disabled={
+                !canManageMembers ||
+                busy === 'workspace:rename' ||
+                !workspaceNameDraft.trim() ||
+                workspaceNameDraft.trim() === currentWorkspace?.name
+              }
+            >
+              {busy === 'workspace:rename' ? <LoaderCircle size={15} className="spin" /> : <Pencil size={15} />}
+              保存名称
+            </button>
+          </form>
+
+          <div className="workspace-management-row">
+            <label>
+              <span>转让所有者</span>
+              <select
+                value={ownerTransferTarget}
+                onChange={(event) => setOwnerTransferTarget(event.target.value)}
+                disabled={!canManageAdminRole || busy === 'workspace:transfer-owner'}
+              >
+                <option value="">选择新的所有者</option>
+                {ownerTransferCandidates.map((member) => (
+                  <option key={member.userId} value={member.userId}>
+                    {member.name} · {member.email}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="button secondary"
+              type="button"
+              disabled={!canManageAdminRole || !ownerTransferTarget || busy === 'workspace:transfer-owner'}
+              onClick={transferOwner}
+            >
+              {busy === 'workspace:transfer-owner' ? (
+                <LoaderCircle size={15} className="spin" />
+              ) : (
+                <Crown size={15} />
+              )}
+              转让 owner
+            </button>
+          </div>
+
+          <div className="workspace-management-row danger">
+            <div>
+              <span>退出与禁用</span>
+              <strong>{currentWorkspace?.name ?? '当前 workspace'}</strong>
+            </div>
+            <div className="workspace-danger-actions">
+              <button
+                className="button secondary"
+                type="button"
+                disabled={busy === 'workspace:leave'}
+                onClick={leaveWorkspace}
+              >
+                {busy === 'workspace:leave' ? (
+                  <LoaderCircle size={15} className="spin" />
+                ) : (
+                  <DoorOpen size={15} />
+                )}
+                退出
+              </button>
+              <button
+                className="button secondary danger-inline"
+                type="button"
+                disabled={!canManageAdminRole || busy === 'workspace:disable'}
+                onClick={disableWorkspace}
+              >
+                {busy === 'workspace:disable' ? (
+                  <LoaderCircle size={15} className="spin" />
+                ) : (
+                  <Power size={15} />
+                )}
+                禁用
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 

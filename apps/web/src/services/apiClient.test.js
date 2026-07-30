@@ -198,6 +198,58 @@ describe('api client', () => {
     )
   })
 
+  it('calls tenant workspace management endpoints', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ id: 'tenant-2', name: 'Renamed Workspace' }))
+      .mockResolvedValueOnce(
+        Response.json({
+          previousOwner: { userId: 'user-owner', roles: ['admin'] },
+          newOwner: { userId: 'user-next-owner', roles: ['owner'] },
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ account: { tenantId: 'tenant-1' } }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.updateWorkspace('tenant-2', { name: 'Renamed Workspace' })
+    await api.transferWorkspaceOwner('tenant-2', {
+      targetUserId: 'user-next-owner',
+      previousOwnerRole: 'admin',
+    })
+    await api.leaveWorkspace('tenant-2')
+    await api.disableWorkspace('tenant-2')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/workspaces/tenant-2',
+      expect.objectContaining({
+        method: 'PATCH',
+        credentials: 'include',
+        body: JSON.stringify({ name: 'Renamed Workspace' }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/workspaces/tenant-2/owner-transfer',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ targetUserId: 'user-next-owner', previousOwnerRole: 'admin' }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/v1/workspaces/tenant-2/leave',
+      expect.objectContaining({ method: 'POST', credentials: 'include', body: JSON.stringify({}) }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      '/api/v1/workspaces/tenant-2',
+      expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
+    )
+  })
+
   it('uploads media as multipart data without overriding its content type', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ id: 'media-1', url: '/api/v1/media/media-1' }), {

@@ -7287,6 +7287,76 @@
 .account-workspace-panel {
   margin-bottom: 14px;
 }
+.account-workspace-settings {
+  margin-bottom: 14px;
+}
+.workspace-management-grid {
+  display: grid;
+  gap: 0;
+}
+.workspace-management-row {
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 13px 0;
+  border-top: 1px solid var(--soft-line);
+}
+.workspace-management-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.workspace-management-row:last-child {
+  padding-bottom: 0;
+}
+.workspace-management-row label,
+.workspace-management-row > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.workspace-management-row label span,
+.workspace-management-row > div:first-child span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+.workspace-management-row input,
+.workspace-management-row select {
+  width: 100%;
+  height: 36px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 11px;
+}
+.workspace-management-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-management-row > .button,
+.workspace-danger-actions .button {
+  min-width: 116px;
+  min-height: 36px;
+  white-space: nowrap;
+}
+.workspace-management-row.danger {
+  align-items: center;
+}
+.workspace-danger-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
 .workspace-switch-list.compact {
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }
@@ -7703,6 +7773,14 @@
   .account-admin-toolbar {
     grid-template-columns: 1fr minmax(240px, 1.1fr);
   }
+  .workspace-management-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .workspace-management-row > .button,
+  .workspace-danger-actions .button {
+    width: 100%;
+  }
   .account-filter-group {
     grid-column: 1 / -1;
     justify-self: end;
@@ -7982,6 +8060,9 @@
   .workspace-switch-list,
   .member-row {
     grid-template-columns: 1fr;
+  }
+  .workspace-danger-actions {
+    justify-content: stretch;
   }
   .member-row {
     gap: 10px;
