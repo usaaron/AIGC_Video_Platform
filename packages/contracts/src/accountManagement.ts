@@ -7,10 +7,10 @@ export const membershipStatusSchema = z.enum(['active', 'disabled'])
 export const tenantInvitationStatusSchema = z.enum(['pending', 'accepted', 'revoked', 'expired'])
 
 export const registerAccountSchema = z.object({
+  token: z.string().min(32).max(256),
   name: z.string().min(1).max(80),
   email: z.string().email(),
   password: z.string().min(12).max(128),
-  workspaceName: z.string().min(1).max(80).optional(),
 })
 
 export const createTenantInvitationSchema = z.object({
@@ -21,6 +21,7 @@ export const createTenantInvitationSchema = z.object({
 export const acceptTenantInvitationSchema = z.object({
   token: z.string().min(32).max(256),
   name: z.string().min(1).max(80),
+  email: z.string().email().optional(),
   password: z.string().min(12).max(128),
 })
 

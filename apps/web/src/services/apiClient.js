@@ -60,6 +60,7 @@ export async function waitForProjectScriptUpdate(
 
 export const api = {
   login: (input) => request('/auth/login', json('POST', input)),
+  register: (input) => request('/auth/register', json('POST', input)),
   logout: () => request('/auth/logout', emptyJsonPost()),
   session: () => request('/auth/me'),
   changePassword: (input) => request('/auth/password', json('PUT', input)),

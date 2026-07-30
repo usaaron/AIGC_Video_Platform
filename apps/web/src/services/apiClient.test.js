@@ -21,6 +21,37 @@ describe('api client', () => {
     )
   })
 
+  it('sends invitation-code registration requests with cookie credentials', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ account: { id: 'user-1' }, permissions: [] }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.register({
+      token: 'invite-token-'.padEnd(32, '1'),
+      name: 'New Member',
+      email: 'member@example.com',
+      password: 'MemberPassword123!',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/auth/register',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          token: 'invite-token-'.padEnd(32, '1'),
+          name: 'New Member',
+          email: 'member@example.com',
+          password: 'MemberPassword123!',
+        }),
+      }),
+    )
+  })
+
   it('surfaces API error messages', async () => {
     vi.stubGlobal(
       'fetch',

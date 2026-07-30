@@ -174,28 +174,77 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(response.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } })
   })
 
-  it('disables public registration and accepts invitations for account creation', async () => {
+  it('requires invitation codes for registration and creates accounts through auth register', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
-    const register = await app.inject({
+    const missingInvitationCode = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/register',
       payload: {
         name: 'Alice',
         email: 'alice@example.com',
         password: 'AlicePassword123!',
-        workspaceName: 'Alice Studio',
       },
     })
-    expect(register.statusCode).toBe(403)
-    expect(register.json()).toMatchObject({ error: { code: 'REGISTRATION_DISABLED' } })
+    expect(missingInvitationCode.statusCode).toBe(400)
+    expect(missingInvitationCode.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
 
-    const accepted = await inviteAndAcceptUser('alice@example.com', 'AlicePassword123!', ['member'])
-    expect(accepted.response.json()).toMatchObject({
-      account: { email: 'alice@example.com', name: 'alice', tenantId: 'tenant-seqora-demo' },
+    const owner = await seedOwnerLogin()
+    const invitation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/tenants/tenant-seqora-demo/invitations',
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'alice@example.com',
+        roles: ['member'],
+      },
+    })
+    expect(invitation.statusCode).toBe(201)
+    const invitationToken = invitation.json().token as string
+
+    const wrongEmail = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: invitationToken,
+        name: 'Alice',
+        email: 'wrong-alice@example.com',
+        password: 'AlicePassword123!',
+      },
+    })
+    expect(wrongEmail.statusCode).toBe(400)
+    expect(wrongEmail.json()).toMatchObject({ error: { code: 'INVITATION_EMAIL_MISMATCH' } })
+
+    const register = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: invitationToken,
+        name: 'Alice',
+        email: 'alice@example.com',
+        password: 'AlicePassword123!',
+      },
+    })
+    expect(register.statusCode).toBe(201)
+    expect(register.json()).toMatchObject({
+      account: { email: 'alice@example.com', name: 'Alice', tenantId: 'tenant-seqora-demo' },
       workspace: { id: 'tenant-seqora-demo', status: 'active' },
     })
-    const registerCookie = accepted.cookie
+
+    const reusedInvitationCode = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: invitationToken,
+        name: 'Alice',
+        email: 'alice@example.com',
+        password: 'AlicePassword123!',
+      },
+    })
+    expect(reusedInvitationCode.statusCode).toBe(409)
+    expect(reusedInvitationCode.json()).toMatchObject({ error: { code: 'INVITATION_NOT_PENDING' } })
+
+    const registerCookie = cookieValue(register)
 
     const relogin = await app.inject({
       method: 'POST',

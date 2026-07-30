@@ -100,7 +100,7 @@ Route -> Service -> Repository / Provider -> AppStore / 外部 API
 - `infra/postgres.ts`：Postgres migration、`schema_migrations` 和事务工具。
 - `infra/store.ts`：项目、资产、分镜、生成任务和兼容备份的 JSON 状态仓储。
 - `infra/objectStorage.ts`：本地文件或 GCS 的统一对象存储接口。
-- `modules/accountManagement`：公开注册关闭、workspace、成员、角色、tenant session 和受控邀请。
+- `modules/accountManagement`：邀请码注册、workspace、成员、角色、tenant session 和受控邀请。
 - `modules/admin`：统一后台查询、账号启停、账单、session 和审计日志。
 - `modules/billing`：Postgres ledger，扣费、退款、充值和管理员调账。
 

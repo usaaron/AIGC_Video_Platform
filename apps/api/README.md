@@ -43,7 +43,7 @@ Route -> Service -> Repository / Provider -> Database / Store / External API
 ```
 
 - `modules/auth`：登录、退出、会话解析、自助改密、忘记密码和密码重置。
-- `modules/accountManagement`：注册关闭、受控邀请、workspace、成员、角色、membership、tenant session。
+- `modules/accountManagement`：邀请码注册、受控邀请、workspace、成员、角色、membership、tenant session。
 - `modules/admin`：统一 Admin Console API、用户/租户/membership/账单/session/审计查询、账号启停、后台充值/调账。
 - `modules/billing`：Postgres billing ledger，幂等扣费、退款、grant 和 adjustment。
 - `modules/generation`：任务创建、查询、暂停、恢复、删除、输出读取。
@@ -55,6 +55,7 @@ Route -> Service -> Repository / Provider -> Database / Store / External API
 ## 关键 API
 
 - `POST /auth/login`、`POST /auth/logout`、`GET /auth/me`
+- `POST /auth/register`、`POST /auth/invitations/accept`
 - `PUT /auth/password`、`POST /auth/password/reset-request`、`POST /auth/password/reset`
 - `GET /auth/sessions`、`DELETE /auth/sessions/:sessionId`
 - `POST /workspaces`、`POST /workspaces/:tenantId/switch`

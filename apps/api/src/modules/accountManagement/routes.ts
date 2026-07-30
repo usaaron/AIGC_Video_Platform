@@ -5,6 +5,7 @@ import {
   createTenantUserSchema,
   createWorkspaceSchema,
   PERMISSIONS,
+  registerAccountSchema,
   transferWorkspaceOwnerSchema,
   updateMembershipRolesSchema,
   updateWorkspaceSchema,
@@ -31,9 +32,17 @@ export async function registerAccountManagementRoutes(
   service: AccountManagementService | null,
   secureCookies: boolean,
 ): Promise<void> {
-  app.post('/auth/register', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async () => {
-    throw new AppError(403, 'REGISTRATION_DISABLED', 'Public registration is disabled')
-  })
+  app.post(
+    '/auth/register',
+    { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const result = await requireService(service).registerAccount(
+        parse(registerAccountSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+      return sendSession(reply.code(201), result, secureCookies)
+    },
+  )
 
   app.post(
     '/auth/invitations/accept',

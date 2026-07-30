@@ -34,7 +34,7 @@ pnpm dev
 
 认证使用经 `scrypt` 哈希的本地账号密码和签名 HttpOnly 会话 Cookie。账号、身份、会话、租户 membership、账单账户、账单流水、密码重置 token 和审计日志写入 Postgres；项目、资产、分镜、生成任务和本地媒体索引仍由 `apps/api/data/app.json` 与对象存储承载。`app.json` 已被 Git 忽略；删除它只会重置创作 Demo 数据，Postgres 账号数据需清理数据库或重建卷。
 
-已有账号登录后在“项目设置 -> 账号安全”修改密码；新密码至少 12 位。当前不开放公开注册；owner/admin 可在账号管理页创建用户、添加成员、调整角色、禁用 membership、查看和撤销 session，并管理 workspace。受控租户邀请和密码重置 API 已具备后端能力；生产正式开放前还需要接入邮件/短信投递与运营流程。云端首次账号由服务器 `deploy/demo.env` 的 `BOOTSTRAP_*` 设置，并且只在空数据卷第一次启动时生效。不要把真实密码写进仓库。
+已有账号登录后在“项目设置 -> 账号安全”修改密码；新密码至少 12 位。当前注册入口开放但必须提交租户邀请码，邮箱需与邀请绑定邮箱一致；没有邀请码不能自助注册。owner/admin 可在账号管理页创建用户、添加成员、生成邀请、调整角色、禁用 membership、查看和撤销 session，并管理 workspace。密码重置 API 已具备后端能力；生产正式开放前还需要接入邮件/短信投递与运营流程。云端首次账号由服务器 `deploy/demo.env` 的 `BOOTSTRAP_*` 设置，并且只在空数据卷第一次启动时生效。不要把真实密码写进仓库。
 
 ## 仓库结构
 
@@ -67,7 +67,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 
 该部署模式面向封闭外测：API 和 Web 同域，Postgres 承载账号/auth/账单账本，JSON 数据卷仍承载项目、资产、分镜和生成任务，媒体使用私有 GCS。正式商用前还必须完成持久队列、独立 Worker、支付/订阅回调、邮件投递、监控告警、数据导出/删除和备份恢复演练。
 
-封闭外测默认只开放账号密码登录，不提供公开注册入口。生产首次启动创建创作者、owner 和管理员账号，不写入演示项目；前端登录前只加载登录页，工作台页面按需下载，Compose 默认资源边界适配 2 vCPU / 4 GB 起步机器。
+封闭外测默认开放账号密码登录和邀请码注册，不支持无邀请码自助注册。生产首次启动创建创作者、owner 和管理员账号，不写入演示项目；前端登录前只加载登录页，工作台页面按需下载，Compose 默认资源边界适配 2 vCPU / 4 GB 起步机器。
 
 ## 架构入口
 
@@ -111,7 +111,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 所有业务接口位于 `/api/v1`：
 
 - `/auth/*`：登录、退出、当前会话、修改密码、忘记密码请求、密码重置、个人 session 列表和撤销
-- `/auth/invitations/accept`：接受受控租户邀请；`/auth/register` 当前固定返回 `REGISTRATION_DISABLED`
+- `/auth/register`：邀请码注册，必须提交邀请 token、受邀邮箱、姓名和密码；`/auth/invitations/accept` 保留为兼容的邀请接受入口
 - `/workspaces/*`：创建、切换、改名、禁用、转让 owner、退出 workspace
 - `/tenants/:tenantId/*`：成员、角色、禁用 membership、创建租户用户、邀请和租户 session 管理
 - `/projects/*`：项目、版本、剧本、资产和分镜

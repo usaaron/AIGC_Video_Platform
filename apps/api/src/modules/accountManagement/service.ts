@@ -8,6 +8,7 @@ import type {
   CreateWorkspaceInput,
   Membership,
   Principal,
+  RegisterAccountInput,
   Role,
   Session,
   SessionSummary,
@@ -270,6 +271,20 @@ export class AccountManagementService {
     input: AcceptTenantInvitationInput,
     metadata?: SessionMetadata,
   ): Promise<{ session: Session; token: string; workspace: Workspace }> {
+    return await this.acceptInvitationToken(input, metadata)
+  }
+
+  async registerAccount(
+    input: RegisterAccountInput,
+    metadata?: SessionMetadata,
+  ): Promise<{ session: Session; token: string; workspace: Workspace }> {
+    return await this.acceptInvitationToken(input, metadata)
+  }
+
+  private async acceptInvitationToken(
+    input: AcceptTenantInvitationInput | RegisterAccountInput,
+    metadata?: SessionMetadata,
+  ): Promise<{ session: Session; token: string; workspace: Workspace }> {
     const tokenSecretHash = hashInvitationToken(input.token)
     const invitation = await this.accounts.findInvitationByTokenHash(tokenSecretHash)
     if (!invitation) {
@@ -280,6 +295,9 @@ export class AccountManagementService {
     }
     if (invitation.status !== 'pending') {
       throw new AppError(409, 'INVITATION_NOT_PENDING', 'Invitation is no longer pending')
+    }
+    if (input.email && normalizeEmail(input.email) !== normalizeEmail(invitation.email)) {
+      throw new AppError(400, 'INVITATION_EMAIL_MISMATCH', 'Invitation code does not match this email')
     }
 
     const existing = await this.users.findByEmail(invitation.email)

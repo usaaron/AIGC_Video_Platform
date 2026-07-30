@@ -24,6 +24,12 @@ export function AuthProvider({ children }) {
     return nextSession
   }
 
+  const register = async (input) => {
+    const nextSession = await api.register(input)
+    setSession(nextSession)
+    return nextSession
+  }
+
   const logout = async () => {
     await api.logout()
     setSession(null)
@@ -36,7 +42,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, loading, login, logout, refresh }}>
+    <AuthContext.Provider value={{ session, loading, login, register, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   )

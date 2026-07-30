@@ -955,7 +955,7 @@ pnpm check
 ## 27. 2026-07-31 账号、账单和后台基线
 
 - 账号/auth 已切到 Postgres：`users`、`auth_identities`、`sessions`、`tenants`、`tenant_memberships`、`billing_accounts`、`password_reset_tokens` 和 `audit_log_entries` 由 migration 管理。dev/test 启动可自动执行 migration；production 启动只检查是否最新，部署前显式运行 `pnpm --filter @seqora/api db:migrate`。
-- 公开注册关闭，`/api/v1/auth/register` 返回 `REGISTRATION_DISABLED`。账号入口包括 bootstrap 首次账号、owner/admin 主动创建用户、添加已有用户和受控租户邀请 API；生产开放邀请或忘记密码前仍需接邮件/短信投递、频控和运营流程。
+- 注册入口已改为邀请码准入，`/api/v1/auth/register` 必须提交邀请 token、受邀邮箱、姓名和密码，邮箱需与邀请绑定邮箱一致；无 token、过期、已使用、撤销或邮箱不匹配都会失败。账号入口包括 bootstrap 首次账号、owner/admin 主动创建用户、添加已有用户和受控租户邀请 API；生产开放邀请邮件或忘记密码前仍需接邮件/短信投递、频控和运营流程。
 - 账号管理页已具备 workspace 切换、改名、禁用、转让 owner、退出 workspace、成员列表、角色修改、禁用 membership、个人/租户 session 列表和踢下线。普通成员只能看到个人资料；owner/admin 才能看到管理员端入口；权限或状态变更操作必须二次确认。
 - Billing ledger 已迁到 Postgres，扣费、退款、grant 和 admin adjustment 在数据库事务中完成并保持幂等 reference；JSON ledger 只作为历史备份，不再作为业务来源。
 - Admin Console API 已统一：`GET /api/v1/admin/console` 返回 overview、用户、租户、membership、账单账户、账单流水、session 和审计日志；同时保留分项列表、账号启停、管理员充值/调账和后台撤销 session API。

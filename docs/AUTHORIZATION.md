@@ -46,14 +46,14 @@
 
 ## 账号与租户边界
 
-- 公开注册已关闭，`POST /api/v1/auth/register` 固定返回 `REGISTRATION_DISABLED`。
+- 注册入口开放但必须使用租户邀请码：`POST /api/v1/auth/register` 要求提交邀请 token、受邀邮箱、姓名和密码；邮箱必须匹配邀请绑定邮箱。
 - owner/admin 可创建租户用户、添加已有用户、修改普通成员角色、禁用 membership 和查看 tenant session。
 - 只有 owner 可以添加或删除管理员、管理 owner/admin membership、转让 workspace owner、禁用 workspace 和撤销 owner/admin session。
 - 用户不能修改自己的角色、禁用自己的当前 membership，或通过后台接口撤销自己的当前 session。
 - 最后一个 active owner 不能被移除、禁用或自行退出 workspace。
 - Workspace 改名允许 owner/admin；禁用 workspace 和转让 owner 只允许 owner。
 
-受控邀请 API 仍存在，用于封闭 onboarding 或后续独立管理员端；它不是公开注册入口。
+受控邀请 API 是注册准入来源。owner/admin 创建邀请后会得到一次性 token；无 token、token 过期、已使用、撤销或邮箱不匹配都会拒绝注册。
 
 ## 账号安全与审计
 
