@@ -927,7 +927,7 @@ pnpm check
 ## 24. 2026-07-21 账号改密与模块化 CI/CD
 
 - 已增加登录账号自助改密：前端入口位于“项目设置 -> 账号安全”，调用 `PUT /api/v1/auth/password`。服务端校验当前密码，新密码至少 12 位且不能与当前密码相同，继续使用 scrypt 哈希持久化；错误当前密码不会清除有效会话。
-- 云端首次账号仍由 `/opt/seqora/deploy/demo.env` 的 `BOOTSTRAP_CREATOR_*` 与 `BOOTSTRAP_ADMIN_*` 创建，且仅在空 `seqora_data` 卷首次启动时生效。修改这些变量不能修改现有账号；现有账号必须登录后自助改密。当前没有忘记密码和管理员强制重置功能。
+- 截至 2026-07-21，云端首次账号仍由 `/opt/seqora/deploy/demo.env` 的 `BOOTSTRAP_CREATOR_*` 与 `BOOTSTRAP_ADMIN_*` 创建，且仅在空 `seqora_data` 卷首次启动时生效。修改这些变量不能修改现有账号；现有账号必须登录后自助改密。当时还没有忘记密码和管理员强制重置功能。
 - 真实云端账号凭据仍只保存在本机忽略文件 `C:\Users\admin\Desktop\图片\seqora-deploy-credentials.txt`，禁止提交、打印到日志或复制进本文。改密后应同步更新该本机凭据记录。
 - `compose.demo.yml` 现在通过 `API_IMAGE` 和 `WEB_IMAGE` 独立选择镜像，同时保留本地 `build`。服务器私有 `deploy/release.env` 保存当前镜像引用，并被 Git 忽略。
 - `.github/workflows/ci.yml` 在完整 Push 范围内判断 API/Web 变化，并把经过检查的 `release-plan.env` 作为短期 Artifact 交给 `.github/workflows/deploy.yml`。只改 `apps/web` 时仅发布 Web，只改 `apps/api` 时仅发布 API；`packages/*`、锁文件、Compose 或发布脚本变化会发布两端；纯文档变化不发布。
@@ -951,3 +951,13 @@ pnpm check
 - 新增 `deploy/update-source.sh`：先备份旧源码目录和生产配置，再替换源码、重新构建 API/Web 容器；健康检查失败会自动恢复旧源码目录并重新启动旧版本。
 - 云端验证通过：`https://zjh.ai/` 返回 200，`/api/v1/health` 返回 200，未登录 `/api/v1/auth/me` 返回 401，`/api/v1/trusted-assets/configuration` 返回 `virtualRegistrationReady=true`；API 容器 healthy，Web 容器 running，8787 未直接暴露公网。
 - 云端当前配置确认：`PUBLIC_API_BASE_URL=https://zjh.ai`、`VIDEO_PROVIDER=stringx`、`TEXT_MODEL=gpt-5.6-terra`。本机 gcloud OAuth 刷新曾超时，本次使用已配置的 `seqoradeploy` SSH 密钥完成发布，不影响云端服务。
+
+## 27. 2026-07-31 账号、账单和后台基线
+
+- 账号/auth 已切到 Postgres：`users`、`auth_identities`、`sessions`、`tenants`、`tenant_memberships`、`billing_accounts`、`password_reset_tokens` 和 `audit_log_entries` 由 migration 管理。dev/test 启动可自动执行 migration；production 启动只检查是否最新，部署前显式运行 `pnpm --filter @seqora/api db:migrate`。
+- 公开注册关闭，`/api/v1/auth/register` 返回 `REGISTRATION_DISABLED`。账号入口包括 bootstrap 首次账号、owner/admin 主动创建用户、添加已有用户和受控租户邀请 API；生产开放邀请或忘记密码前仍需接邮件/短信投递、频控和运营流程。
+- 账号管理页已具备 workspace 切换、改名、禁用、转让 owner、退出 workspace、成员列表、角色修改、禁用 membership、个人/租户 session 列表和踢下线。普通成员只能看到个人资料；owner/admin 才能看到管理员端入口；权限或状态变更操作必须二次确认。
+- Billing ledger 已迁到 Postgres，扣费、退款、grant 和 admin adjustment 在数据库事务中完成并保持幂等 reference；JSON ledger 只作为历史备份，不再作为业务来源。
+- Admin Console API 已统一：`GET /api/v1/admin/console` 返回 overview、用户、租户、membership、账单账户、账单流水、session 和审计日志；同时保留分项列表、账号启停、管理员充值/调账和后台撤销 session API。
+- CI `database` job 起 Postgres，执行 migration，并运行 `postgres.test.ts`、`auth/routes.test.ts`、`accountManagement/routes.test.ts` 和 `billing/creditLedger.test.ts`。分支保护应同时要求 `CI / quality` 和 `CI / database`。
+- 仍未完成：项目/资产/分镜/生成任务全面数据库化、真实队列和独立 Worker、支付/订阅回调、邮件/短信投递、正式监控告警、数据导出/删除、音频和正式成片交付链路。

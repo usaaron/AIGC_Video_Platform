@@ -5,7 +5,7 @@
 ## 日常流程
 
 1. 功能分支提交 Pull Request。
-2. `.github/workflows/ci.yml` 执行格式、Lint、测试和构建；`.github/workflows/containers.yml` 验证两个容器可以构建。
+2. `.github/workflows/ci.yml` 执行格式、Lint、测试和构建；其中 `database` job 会起 Postgres、执行 migration，并运行 auth/account/billing 集成测试；`.github/workflows/containers.yml` 验证两个容器可以构建。
 3. Review 通过后合并到 `main`。
 4. CI 根据本次完整 Push 的文件变化生成发布清单。
 5. `.github/workflows/deploy.yml` 使用 Workload Identity Federation 获取短期 Google 凭据，推送不可变 Commit SHA 镜像，并通过 IAP SSH 更新 GCE。
@@ -148,5 +148,5 @@ sudo /opt/seqora/deploy/update-release.sh web \
 
 - CI/CD 文件已经就绪，但在 Artifact Registry、Workload Identity Federation、GitHub Environment 和 IAM 未完成前，自动部署不会成功。
 - 当前单实例更新会短暂重建目标容器，不是零停机。Web 通常为数秒，API 更新期间新请求可能短暂失败。
-- API 使用本地 JSON 和进程内任务 Worker。更新 API 前会备份数据，但运行中的生成任务不适合跨进程恢复；客户规模扩大前应迁移 PostgreSQL、Redis/队列和独立 Worker。
+- API 已使用 Postgres 承载账号/auth/session/租户 membership 和账单 ledger；项目、资产、分镜和生成任务仍使用本地 JSON 和进程内任务 Worker。更新 API 前会备份 Postgres 与 JSON 数据，但运行中的生成任务不适合跨进程恢复；客户规模扩大前应迁移项目域数据、Redis/队列和独立 Worker。
 - 数据结构发生破坏性变化时必须先写迁移脚本，不能只依赖镜像回滚。

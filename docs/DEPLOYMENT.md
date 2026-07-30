@@ -1,17 +1,18 @@
 # 外部测试部署
 
-当前推荐把 Demo 部署到一台 Google Compute Engine VM，通过 Docker Compose 运行 API 和 Web。Caddy 在同一域名下提供静态站点、`/api` 反向代理和自动 HTTPS；API 数据写入 Docker 持久卷，媒体写入私有 GCS Bucket。API 的 `8787` 端口不对公网开放。
+当前推荐把 Demo 部署到一台 Google Compute Engine VM，通过 Docker Compose 运行 Postgres、API 和 Web。Caddy 在同一域名下提供静态站点、`/api` 反向代理和自动 HTTPS；账号/auth/账单账本写入 Postgres 持久卷，项目与任务 Demo 数据写入 API JSON 持久卷，媒体写入私有 GCS Bucket。API 的 `8787` 端口不对公网开放。
 
 这套方案适合封闭客户测试和小规模并发，不是正式商用架构。正式商用前必须完成本文“生产前必须替换”的事项。
 
 ## 封闭外测登录边界
 
 - 公网只展示登录页；除 `/api/v1/health` 和 `/api/v1/auth/login` 外，项目、媒体、任务、账单和管理 API 都要求有效账号会话。
-- 当前不提供注册、找回密码或公开邀请码。账号只从 `deploy/demo.env` 的 `BOOTSTRAP_*` 变量在空数据卷首次启动时创建。
-- 创作者账号进入创作工作台；管理员账号只进入管理概览，显示名由 `BOOTSTRAP_*_NAME` 设置，两者必须使用不同邮箱和强密码。不要向客户提供管理员账号。
+- 当前不开放公开注册。账号可由 `deploy/demo.env` 的 `BOOTSTRAP_*` 变量在空数据卷首次启动时创建，也可由 owner/admin 在账号管理页或 Admin Console API 中受控创建。
+- 受控租户邀请 API 和密码重置 API 已有后端能力；生产面向用户开放前，必须先接入邮件/短信投递、频控、运营审核和告警。
+- 创作者账号进入创作工作台；owner/admin 可以看到账号管理和后台入口，显示名由 `BOOTSTRAP_*_NAME` 设置。三类首次账号必须使用不同邮箱和强密码，不要向客户提供管理员或 owner 账号。
 - `BOOTSTRAP_DEMO_WORKSPACE=false` 时新云端账号从空项目列表开始，不会出现本地开发的“午夜胶片”样例。
-- 多位测试者共用一个创作者账号时会看到同一批项目和积分。需要客户间数据隔离时，应暂时为每个客户部署独立实例；正式多客户版本必须先完成租户级账号管理。
-- `BOOTSTRAP_*` 只在数据文件不存在时生效，修改环境变量不会改掉已有账号密码。已有账号登录后可在“项目设置 -> 账号安全”修改自己的密码；当前仍没有忘记密码或管理员重置功能，因此首次密码必须妥善保存。
+- 同一 workspace 的多位成员会看到同一批项目和账单权益。需要客户间强隔离时，为每个客户创建独立 workspace；项目/任务数据仍在 JSON Store，正式多实例商用前必须继续迁移项目域数据和任务队列。
+- `BOOTSTRAP_*` 只在账号库为空时生效，修改环境变量不会改掉已有账号密码。已有账号登录后可在“项目设置 -> 账号安全”修改自己的密码；忘记密码 API 在生产开放前需要接邮件/短信投递。
 
 ## 独立部署单元
 
@@ -48,7 +49,7 @@ chmod 600 deploy/demo.env
 
 - `APP_ADDRESS`、`WEB_ORIGIN` 和 `PUBLIC_API_BASE_URL` 使用同一个真实 HTTPS 域名。
 - `AUTH_SECRET` 使用 `openssl rand -base64 48` 生成。
-- 两组 `BOOTSTRAP_*` 邮箱和密码必须唯一；只在空数据卷首次启动时生效。
+- 三组 `BOOTSTRAP_*` 邮箱和密码必须唯一：creator、owner、admin；只在空账号库首次启动时生效。
 - 保持 `BOOTSTRAP_DEMO_WORKSPACE=false`，让客户登录后创建自己的第一个项目。
 - 2 vCPU / 4GB 机器先保留 `API_MEMORY_LIMIT=1536m`、`API_NODE_HEAP_MB=768`、`WEB_MEMORY_LIMIT=192m`；发生 OOM 时优先升级内存，不要移除所有上限。
 - 保持 `VIDEO_PROVIDER=stringx`，填写私有 `GCS_BUCKET`、`STRINGX_API_KEY`、默认中文文本模型需要的 `REHDASU_API_KEY` 和图片生成需要的 `TOKENADVENT_API_KEY`；只有选择 DeepSeek V3 时才需要 `DEEPSEEK_API_KEY`（可复用 `STRINGX_API_KEY`）。
@@ -62,12 +63,26 @@ chmod 600 deploy/demo.env
 
 ```bash
 docker compose --env-file deploy/demo.env -f compose.demo.yml config
+docker compose --env-file deploy/demo.env -f compose.demo.yml build api
+docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
+  node dist/scripts/dbMigrate.js
 docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
 docker compose --env-file deploy/demo.env -f compose.demo.yml ps
 curl --fail https://studio.example.com/api/v1/health
 ```
 
-`deploy/demo.env` 会完整注入 API 容器；Web 容器只接收 `APP_ADDRESS`，不会获得模型密钥。API 镜像内置 FFmpeg 并以非 root 用户运行。
+`deploy/demo.env` 会完整注入 Postgres 和 API 容器；Web 容器只接收 `APP_ADDRESS`，不会获得模型密钥或数据库连接串。API 镜像内置 FFmpeg 并以非 root 用户运行。
+
+生产部署和升级时先显式执行 migration，再启动新 API：
+
+```bash
+docker compose --env-file deploy/demo.env -f compose.demo.yml build api
+docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
+  node dist/scripts/dbMigrate.js
+docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
+```
+
+API 在 `NODE_ENV=production` 下启动只检查 migration 是否最新，不自动改库。
 
 Compose 默认把 API 限制为 1.5 CPU、1536MB 内存和 256 个进程，把 Caddy 限制为 0.5 CPU、192MB 内存和 128 个进程；每个容器日志最多保留 3 个 10MB 文件。前端登录前不会下载工作台代码，进入后按页面拆包；任务轮询为运行中 2.5 秒、空闲 12 秒、后台标签页 30 秒。静态资源使用长期缓存，入口 HTML 禁止缓存，更新后不需要客户手工清浏览器缓存。
 
@@ -79,18 +94,23 @@ Compose 默认把 API 限制为 1.5 CPU、1536MB 内存和 256 个进程，把 C
 
 ### 人工源码更新
 
-每次更新先备份数据，再拉取已通过 CI 的提交：
+每次更新先备份 Postgres、JSON 数据和对象存储版本，再拉取已通过 CI 的提交：
 
 ```bash
 mkdir -p backups
+docker compose --env-file deploy/demo.env -f compose.demo.yml exec -T postgres \
+  sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "backups/postgres-$(date +%Y%m%d-%H%M%S).sql"
 docker compose --env-file deploy/demo.env -f compose.demo.yml exec -T api \
   sh -c 'cat /var/lib/seqora/app.json' > "backups/app-$(date +%Y%m%d-%H%M%S).json"
 git pull --ff-only
+docker compose --env-file deploy/demo.env -f compose.demo.yml build api
+docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
+  node dist/scripts/dbMigrate.js
 docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
 curl --fail https://studio.example.com/api/v1/health
 ```
 
-回滚时切回上一个已知正常的 Git Tag/Commit 并重新构建。恢复 JSON 前必须停止 API，并保留当前文件的第二份备份。GCS Bucket 应单独启用版本控制和生命周期策略；JSON 备份不包含 GCS 媒体对象。
+回滚时切回上一个已知正常的 Git Tag/Commit 并重新构建。恢复 Postgres 或 JSON 前必须停止 API，并保留当前数据库和文件的第二份备份。GCS Bucket 应单独启用版本控制和生命周期策略；数据库和 JSON 备份不包含 GCS 媒体对象。
 
 ## 外测上线门槛
 
@@ -102,21 +122,21 @@ curl --fail https://studio.example.com/api/v1/health
 4. Provider Key 只在 `deploy/demo.env` 或 Secret Manager，Web 构建和 Git 中没有 Key。
 5. GCS Bucket 非公开，上传图片和生成视频只能登录后通过 API 读取。
 6. 为弦序 Seedance/MaaS、TokenAdvent 和 Google Cloud 设置预算告警与每日额度。
-7. 备份和恢复至少演练一次，升级前保留 JSON 与 GCS 对象版本。
-8. 明确告知测试者：当前无音频、共享单租户、任务不可跨实例恢复，不上传敏感或未授权素材。
+7. 备份和恢复至少演练一次，升级前保留 Postgres、JSON 与 GCS 对象版本。
+8. 明确告知测试者：当前无音频、项目/任务仍是单实例 JSON Store、任务不可跨实例恢复，不上传敏感或未授权素材。
 9. 浏览器实测登录、剧本、资产、分镜、视频、完整预览和退出登录。
 10. 仿真人测试先确认面部并等待 AIGC 资源变为 Active；真人测试必须由演员本人完成认证授权，制作方接收后再绑定 Asset ID。
 
 ## 生产前必须替换
 
-1. 使用 OIDC/JWT `AuthProvider`，禁止 Demo Header。
-2. 使用持久化任务仓储，并为所有查询增加租户条件。
-3. 使用原子积分账本，创建任务与扣费保证幂等。
-4. 使用真实队列和 Worker 执行模型任务。
-5. 增加结构化审计日志、速率限制、监控和告警。
-6. 将密钥放入部署平台 Secret，不使用 `VITE_` 变量保存服务端密钥。
-7. 增加邀请制账号管理、客户级租户隔离、数据导出与删除流程。
+1. 禁止 Demo Header；当前 local auth 可用于封闭外测，企业 SSO 再接 OIDC/JWT。
+2. 使用持久化任务仓储和真实队列，避免多 API/Worker 实例重复调度。
+3. 继续把项目、资产、分镜和生成任务迁出 JSON Store，并为所有查询保留租户条件。
+4. 支付和订阅只能由服务端回调改变权益；前端不得自助伪造套餐和积分。
+5. 接入邮件/短信投递后再开放忘记密码和邀请/注册相关用户流程。
+6. 增加监控、告警、备份恢复演练、密钥轮换和数据导出/删除流程。
+7. 将密钥放入部署平台 Secret，不使用 `VITE_` 变量保存服务端密钥。
 
 ## CI
 
-GitHub Actions 在每个 PR 执行 `pnpm check`，并构建 API/Web 容器但不推送。合并 `main` 后，CI 产生经过验证的模块发布清单，生产发布只使用该清单和对应 Commit SHA。建议保护 `main`：要求 CI 通过、至少一位 Review、禁止强制推送，并为 `production` Environment 配置审批规则。
+GitHub Actions 在每个 PR 执行 `CI / quality`，并通过 `CI / database` 起 Postgres、执行 `pnpm --filter @seqora/api db:migrate`、跑 migration/auth/account/billing 集成测试；Container Images workflow 构建 API/Web 容器但不推送。合并 `main` 后，CI 产生经过验证的模块发布清单，生产发布只使用该清单和对应 Commit SHA。建议保护 `main`：要求 `CI / quality`、`CI / database`、至少一位 Review、禁止强制推送，并为 `production` Environment 配置审批规则。

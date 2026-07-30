@@ -19,7 +19,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 - 分镜按场次或动作拆分、资产匹配、尾帧承接和会员三路并发。
 - FFmpeg 按分镜顺序合成无声完整 MP4 预览。
 
-尚未完成正式音频、支付、邀请注册、多客户隔离、PostgreSQL、持久消息队列和正式商用监控。当前定位是封闭客户测试和小团队联合开发。
+尚未完成正式音频、支付、邮件/短信投递、项目域数据全面数据库化、持久消息队列和正式商用监控。账号/auth、租户 membership、session、账单账户、账单流水、密码重置 token 和审计日志已经迁入 Postgres；项目、资产、分镜、生成任务和 Worker 状态仍是 JSON + 单实例进程内调度。当前定位是封闭客户测试和小团队联合开发。
 
 ## 2. 收到压缩包后先做什么
 
@@ -63,7 +63,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 apps/
   web/        React 19 + Vite 8 创作端
   api/        Fastify 5 + TypeScript API 与进程内 Worker
-  admin/      未来独立管理员端边界占位
+  admin/      未来独立管理员端边界占位；当前后台入口临时在 Web 内
 packages/
   contracts/  前后端共享 Zod Schema、实体、角色和权限
   prompting/  图片/视频提示词与质量规则编译
@@ -97,8 +97,12 @@ Route -> Service -> Repository / Provider -> AppStore / 外部 API
 - `core/generation/`：TokenAdvent、弦序、官方方舟等 Provider 适配器。
 - `core/jobs/taskDispatcher.ts`：任务依赖、套餐并发、提交、轮询、失败和退款。
 - `core/film/`：下载分镜视频并调用 FFmpeg 合成完整预览。
-- `infra/store.ts`：当前 JSON 状态仓储，未来应替换为数据库。
+- `infra/postgres.ts`：Postgres migration、`schema_migrations` 和事务工具。
+- `infra/store.ts`：项目、资产、分镜、生成任务和兼容备份的 JSON 状态仓储。
 - `infra/objectStorage.ts`：本地文件或 GCS 的统一对象存储接口。
+- `modules/accountManagement`：公开注册关闭、workspace、成员、角色、tenant session 和受控邀请。
+- `modules/admin`：统一后台查询、账号启停、账单、session 和审计日志。
+- `modules/billing`：Postgres ledger，扣费、退款、充值和管理员调账。
 
 新增接口时，先修改 `packages/contracts` 的 Schema，再改 API 和 Web。不要在两端复制枚举或手写不一致的请求类型。
 
@@ -117,15 +121,25 @@ Route -> Service -> Repository / Provider -> AppStore / 外部 API
 
 ## 7. 核心数据模型
 
-当前状态保存在 `apps/api/data/app.json`：
+当前状态分为 Postgres、JSON 和对象存储三类。
 
-- `User`：账号、租户、角色、套餐和积分余额。
+Postgres：
+
+- `users` / `auth_identities`：账号和本地登录身份。
+- `sessions`：HttpOnly Cookie 对应的服务端 session、设备信息、撤销状态和过期时间。
+- `tenants` / `tenant_memberships`：workspace、角色、状态和主 workspace。
+- `billing_accounts` / `billing_ledger_entries`：套餐、余额、幂等扣费、退款、充值和调账流水。
+- `password_reset_tokens`：忘记密码 token。
+- `audit_log_entries`：账号、成员、workspace、session、账单等敏感操作审计。
+
+JSON `apps/api/data/app.json`：
+
 - `Project`：名称、内容类型、比例、简介、剧本和版本。
 - `Asset`：人物、场景、物品、服装或音频及其结构化属性。
 - `Shot`：顺序、景别、时长、提示词、分镜图和连续模式。
 - `GenerationTask`：Provider、模型、依赖、状态、积分、输出和错误。
-- `LedgerEntry`：积分发放、生成扣减和退款流水。
 - `Media`：上传文件元数据和对象存储位置。
+- 兼容镜像：账号和 ledger 的历史 JSON 备份，不再作为 Postgres 账号/账本业务来源。
 
 任务状态包括 `queued`、`paused`、`running`、`completed`、`failed` 和 `cancelled`。任务归档只写 `queueHiddenAt`，不能物理删除已完成任务，否则资产和视频输出 URL 会失效。
 
@@ -176,6 +190,8 @@ Route -> Service -> Repository / Provider -> AppStore / 外部 API
 | 修改分镜拆分           | `modules/projects/service.ts`、`StoryboardPage.jsx`                     |
 | 修改三路并发           | `videoBatchPlanner.js`、`taskDispatcher.ts`，两端测试必须同时更新       |
 | 修改完整成片           | `core/film/`、`FilmPage.jsx`、`features/film/`                          |
+| 修改 workspace/session | `modules/accountManagement/`、`AccountManagementPage.jsx`               |
+| 修改后台管理           | `modules/admin/`、`packages/contracts/src/admin.ts`                     |
 | 修改部署               | `compose.demo.yml`、`deploy/`、`docs/DEPLOYMENT.md`                     |
 
 ## 11. 测试和代码规范
@@ -195,6 +211,12 @@ pnpm check
 
 它依次运行 Prettier 检查、Oxlint、全部 Vitest 和生产构建。Provider 测试使用测试替身，不应在 CI 中产生真实费用。
 
+账号和账单改动还应单独跑 CI database job 的核心范围：
+
+```bash
+pnpm --filter @seqora/api exec vitest run src/infra/postgres.test.ts src/modules/auth/routes.test.ts src/modules/accountManagement/routes.test.ts src/modules/billing/creditLedger.test.ts
+```
+
 ## 12. 部署
 
 封闭外测推荐 Google Compute Engine + Docker Compose + Caddy：
@@ -205,16 +227,16 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
 docker compose --env-file deploy/demo.env -f compose.demo.yml ps
 ```
 
-生产 Web 与 API 同域，Caddy 处理 HTTPS 和 `/api` 代理。API 使用 Docker 持久卷保存 `app.json`，媒体推荐私有 GCS。完整部署、备份、回滚和 CI/CD 步骤见 `docs/DEPLOYMENT.md` 与 `docs/CICD.md`。
+生产 Web 与 API 同域，Caddy 处理 HTTPS 和 `/api` 代理。Compose 同时运行 Postgres；API 使用 Docker 持久卷保存 `app.json`，媒体推荐私有 GCS。完整部署、备份、回滚和 CI/CD 步骤见 `docs/DEPLOYMENT.md` 与 `docs/CICD.md`。
 
-复制本地 `apps/api/data/` 不能直接覆盖正在运行的云端数据卷。恢复前必须停止 API、备份服务器当前数据，并确认对象存储中的媒体与 JSON 记录一致。
+复制本地 `apps/api/data/` 不能直接覆盖正在运行的云端数据卷。恢复前必须停止 API、备份服务器当前 Postgres、JSON 和 GCS 对象，并确认对象存储中的媒体与 JSON 记录一致。
 
 ## 13. 当前必须知道的限制
 
-1. JSON Store 和进程内 Worker 只适合单 API 实例；多实例会产生状态竞争和重复调度风险。
+1. 项目/任务 JSON Store 和进程内 Worker 只适合单 API 实例；多实例会产生状态竞争和重复调度风险。
 2. 任务轮询与调度依赖 API 进程存活，尚未接入持久消息队列。
-3. 多位测试者共用一个创作者账号会看到相同数据，不是正式租户隔离。
-4. 音频、支付、找回密码和邀请注册尚未实现。
+3. 账号和 workspace 已具备租户边界，但项目域数据还没全面数据库化，商用多实例前仍需迁移。
+4. 音频、支付、邮件/短信投递和用户协议/隐私/数据删除流程尚未实现。
 5. 第三方生成质量不稳定，提示词和负面规则只能提高下限，仍需人工验收。
 6. 上游额度、并发池、素材审核和安全策略会导致平台外部错误，不能用本地假状态掩盖。
 

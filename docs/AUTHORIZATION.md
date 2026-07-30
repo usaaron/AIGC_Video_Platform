@@ -18,6 +18,22 @@
 
 角色与权限映射定义在 `packages/contracts/src/permissions.ts`。会员并发不是新权限，而是套餐额度策略，避免角色数量随套餐膨胀。
 
+## 当前认证实现
+
+`AUTH_MODE=local` 是当前默认路径。用户通过邮箱和密码登录，密码使用 `scrypt` 哈希，服务端签发 HttpOnly Cookie；Postgres `sessions` 表保存 session id、secret hash、过期时间、撤销时间、IP、User-Agent 和设备标签。
+
+`AUTH_MODE=demo` 只允许开发/测试使用 header 模拟主体。生产环境禁止 `AUTH_MODE=demo`。`AUTH_MODE=oidc` 是预留方向，接入前必须完成签名、issuer、audience、过期时间和撤销策略校验。
+
+账号相关正式表：
+
+- `users`
+- `auth_identities`
+- `tenant_memberships`
+- `sessions`
+- `billing_accounts`
+- `password_reset_tokens`
+- `audit_log_entries`
+
 ## 请求流程
 
 1. `AuthProvider` 验证 Token 并产生 `Principal`。
@@ -27,6 +43,31 @@
 5. 计费或敏感操作写入审计日志。
 
 开发环境可通过 `x-demo-role`、`x-demo-user-id`、`x-demo-tenant-id` 模拟主体。生产环境禁止 `AUTH_MODE=demo`。
+
+## 账号与租户边界
+
+- 公开注册已关闭，`POST /api/v1/auth/register` 固定返回 `REGISTRATION_DISABLED`。
+- owner/admin 可创建租户用户、添加已有用户、修改普通成员角色、禁用 membership 和查看 tenant session。
+- 只有 owner 可以添加或删除管理员、管理 owner/admin membership、转让 workspace owner、禁用 workspace 和撤销 owner/admin session。
+- 用户不能修改自己的角色、禁用自己的当前 membership，或通过后台接口撤销自己的当前 session。
+- 最后一个 active owner 不能被移除、禁用或自行退出 workspace。
+- Workspace 改名允许 owner/admin；禁用 workspace 和转让 owner 只允许 owner。
+
+受控邀请 API 仍存在，用于封闭 onboarding 或后续独立管理员端；它不是公开注册入口。
+
+## 账号安全与审计
+
+已实现：
+
+- 登录、退出和 session 恢复。
+- 自助改密，改密后撤销当前租户下已有 session。
+- 忘记密码请求和密码重置 token；非生产测试环境可返回 token，生产环境需要接邮件/短信投递后才能对用户开放。
+- 个人 session 列表与撤销。
+- tenant session 列表与管理员踢下线。
+- Admin Console session 查询和撤销。
+- 审计日志：登录成功/失败、退出、改密、密码重置、成员/角色/workspace/session/账单等敏感操作。
+
+日志和审计元数据不得记录完整密码、token、第三方 Key、Cookie 或用户敏感原文。
 
 ## OIDC 接入位置
 
