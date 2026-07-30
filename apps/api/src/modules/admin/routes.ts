@@ -1,7 +1,9 @@
 import {
+  adminAccountStatusUpdateSchema,
   adminAdjustCreditsSchema,
   adminGrantCreditsSchema,
   PERMISSIONS,
+  roleSchema,
   type AdminOverview,
 } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
@@ -10,13 +12,27 @@ import { requirePermission } from '../../core/auth/authorization.js'
 import { AppError } from '../../core/errors.js'
 import type { AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
+import type { AdminListOptions, AdminRepository } from './repository.js'
 
 const billingMembershipParams = z.object({ membershipId: z.string().min(1).max(512) })
+const adminUserParams = z.object({ userId: z.string().min(1).max(256) })
+const listQuery = z.object({
+  q: z.string().trim().min(1).max(200).optional(),
+  status: z.enum(['active', 'disabled']).optional(),
+  tenantId: z.string().min(1).max(256).optional(),
+  userId: z.string().min(1).max(256).optional(),
+  membershipId: z.string().min(1).max(512).optional(),
+  role: roleSchema.optional(),
+  type: z.enum(['grant', 'generation', 'adjustment']).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+})
 
 export async function registerAdminRoutes(
   app: FastifyInstance,
   store: AppStore,
   ledger: CreditLedger | null = null,
+  adminRepository: AdminRepository | null = null,
 ): Promise<void> {
   app.get(
     '/admin/overview',
@@ -42,6 +58,93 @@ export async function registerAdminRoutes(
         generatedAt: new Date().toISOString(),
       }
       return overview
+    },
+  )
+
+  app.get(
+    '/admin/users',
+    { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await requireAdminRepository(adminRepository).listUsers(parseListQuery(request.query))
+    },
+  )
+
+  app.patch(
+    '/admin/users/:userId/status',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request) => {
+      const { userId } = parse(adminUserParams, request.params)
+      const input = parse(adminAccountStatusUpdateSchema, request.body)
+      const updated = await requireAdminRepository(adminRepository).setAccountStatus(
+        request.principal!,
+        userId,
+        input.status,
+      )
+      if (!updated) throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
+      return updated
+    },
+  )
+
+  app.get(
+    '/admin/tenants',
+    { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await requireAdminRepository(adminRepository).listTenants(parseListQuery(request.query))
+    },
+  )
+
+  app.get(
+    '/admin/memberships',
+    { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await requireAdminRepository(adminRepository).listMemberships(parseListQuery(request.query))
+    },
+  )
+
+  app.get(
+    '/admin/memberships/:membershipId',
+    { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
+    async (request, reply) => {
+      const { membershipId } = parse(billingMembershipParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      const detail = await requireAdminRepository(adminRepository).findMembership(membershipId)
+      if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+      return detail
+    },
+  )
+
+  app.get(
+    '/admin/billing/accounts',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_ALL) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await requireAdminRepository(adminRepository).listBillingAccounts(parseListQuery(request.query))
+    },
+  )
+
+  app.get(
+    '/admin/billing/ledger',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_ALL) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await requireAdminRepository(adminRepository).listBillingLedgerEntries(
+        parseListQuery(request.query),
+      )
+    },
+  )
+
+  app.get(
+    '/admin/billing/memberships/:membershipId',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_ALL) },
+    async (request, reply) => {
+      const { membershipId } = parse(billingMembershipParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      const detail = await requireAdminRepository(adminRepository).findMembership(membershipId)
+      if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+      return detail
     },
   )
 
@@ -79,6 +182,17 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 function requireLedger(ledger: CreditLedger | null): CreditLedger {
   if (!ledger) throw new AppError(503, 'BILLING_LEDGER_REQUIRED', 'Billing ledger is required')
   return ledger
+}
+
+function requireAdminRepository(adminRepository: AdminRepository | null): AdminRepository {
+  if (!adminRepository) {
+    throw new AppError(503, 'ACCOUNT_DATABASE_REQUIRED', 'Postgres account database is required')
+  }
+  return adminRepository
+}
+
+function parseListQuery(value: unknown): AdminListOptions {
+  return parse(listQuery, value)
 }
 
 function startOfChinaDay(now = new Date()): string {

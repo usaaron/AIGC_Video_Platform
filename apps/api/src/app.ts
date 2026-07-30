@@ -23,6 +23,7 @@ import { createObjectStorage } from './infra/objectStorage.js'
 import { AccountManagementRepository } from './modules/accountManagement/repository.js'
 import { registerAccountManagementRoutes } from './modules/accountManagement/routes.js'
 import { AccountManagementService } from './modules/accountManagement/service.js'
+import { AdminRepository } from './modules/admin/repository.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
 import { registerAuthRoutes } from './modules/auth/routes.js'
 import { AuthRepository } from './modules/auth/repository.js'
@@ -128,6 +129,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         options.config.WEB_ORIGIN,
       )
     : null
+  const adminRepository = database ? new AdminRepository(database) : null
   const creditLedger = new StoreCreditLedger(store, users, options.config.NODE_ENV !== 'production', database)
   await creditLedger.bootstrapFromStore()
   const objectStorage = createObjectStorage(options.config)
@@ -249,7 +251,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await registerTrustedAssetRoutes(api, trustedAssetService)
       await registerGenerationRoutes(api, generationService)
       await registerBillingRoutes(api, creditLedger)
-      await registerAdminRoutes(api, store, creditLedger)
+      await registerAdminRoutes(api, store, creditLedger, adminRepository)
     },
     { prefix: '/api/v1' },
   )
