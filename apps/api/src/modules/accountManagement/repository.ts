@@ -1,8 +1,10 @@
 import type {
+  CreatedTenantInvitation,
   Membership,
   Plan,
   Role,
   SessionSummary,
+  TenantInvitation,
   Workspace,
   WorkspaceMembership,
 } from '@seqora/contracts'
@@ -19,75 +21,11 @@ export type AccountWorkspace = {
   membership: Membership
 }
 
+export type CreateTenantUserResult =
+  { kind: 'created'; membership: Membership } | { kind: 'duplicate' } | { kind: 'tenant_missing' }
+
 export class AccountManagementRepository {
   constructor(private readonly database: AccountDatabase) {}
-
-  async registerAccount(input: {
-    name: string
-    email: string
-    passwordHash: string
-    workspaceName: string
-  }): Promise<AccountWorkspace | null> {
-    return this.database.transaction(async (client) => {
-      const existing = await client.query<{ id: string }>(
-        `
-        SELECT id
-        FROM auth_identities
-        WHERE provider = 'local'
-          AND lower(email) = lower($1)
-        LIMIT 1
-        `,
-        [input.email],
-      )
-      if (existing.rows.length) return null
-
-      const userId = `user-${randomUUID()}`
-      const tenantId = `tenant-${randomUUID()}`
-      const membershipId = membershipIdFor(userId, tenantId)
-
-      await client.query(
-        `
-        INSERT INTO users (id, display_name, status, created_at, updated_at)
-        VALUES ($1, $2, 'active', now(), now())
-        `,
-        [userId, input.name],
-      )
-      await client.query(
-        `
-        INSERT INTO auth_identities (
-          id, user_id, provider, provider_subject, email, password_hash, is_primary, status, created_at, updated_at
-        )
-        VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', now(), now())
-        `,
-        [authIdentityIdFor(userId), userId, input.email, input.passwordHash],
-      )
-      await client.query(
-        `
-        INSERT INTO tenants (id, name, status, created_by_user_id, created_at, updated_at)
-        VALUES ($1, $2, 'active', $3, now(), now())
-        `,
-        [tenantId, input.workspaceName, userId],
-      )
-      await client.query(
-        `
-        INSERT INTO tenant_memberships (
-          id, tenant_id, user_id, roles, is_primary, status, created_at, updated_at
-        )
-        VALUES ($1, $2, $3, $4, true, 'active', now(), now())
-        `,
-        [membershipId, tenantId, userId, ['owner']],
-      )
-      await client.query(
-        `
-        INSERT INTO billing_accounts (membership_id, plan, credits, created_at, updated_at)
-        VALUES ($1, $2, $3, now(), now())
-        `,
-        [membershipId, defaultPlan, defaultCredits],
-      )
-
-      return this.readAccountWorkspace(client, userId, tenantId)
-    })
-  }
 
   async createWorkspaceForUser(userId: string, name: string): Promise<AccountWorkspace | null> {
     return this.database.transaction(async (client) => {
@@ -130,6 +68,195 @@ export class AccountManagementRepository {
       )
 
       return this.readAccountWorkspace(client, userId, tenantId)
+    })
+  }
+
+  async createInvitation(input: {
+    tenantId: string
+    email: string
+    roles: Role[]
+    invitedByUserId: string
+    token: string
+    tokenSecretHash: string
+    expiresAt: string
+  }): Promise<CreatedTenantInvitation | null> {
+    return this.database.transaction(async (client) => {
+      const activeMember = await client.query<{ id: string }>(
+        `
+        SELECT m.id
+        FROM tenant_memberships m
+        JOIN auth_identities ai ON ai.user_id = m.user_id
+        JOIN users u ON u.id = m.user_id AND u.status = 'active'
+        WHERE m.tenant_id = $1
+          AND lower(ai.email) = lower($2)
+          AND ai.provider = 'local'
+          AND ai.status = 'active'
+          AND m.status = 'active'
+        LIMIT 1
+        `,
+        [input.tenantId, input.email],
+      )
+      if (activeMember.rows.length) return null
+
+      const updated = await client.query<{ id: string }>(
+        `
+        UPDATE tenant_invitations
+        SET roles = $3,
+            invited_by_user_id = $4,
+            token_secret_hash = $5,
+            expires_at = $6,
+            accepted_at = NULL,
+            revoked_at = NULL,
+            updated_at = now()
+        WHERE tenant_id = $1
+          AND lower(email) = lower($2)
+          AND status = 'pending'
+        RETURNING id
+        `,
+        [
+          input.tenantId,
+          input.email,
+          input.roles,
+          input.invitedByUserId,
+          input.tokenSecretHash,
+          input.expiresAt,
+        ],
+      )
+      const invitationId = updated.rows[0]?.id ?? `invitation-${randomUUID()}`
+      if (!updated.rows.length) {
+        await client.query(
+          `
+          INSERT INTO tenant_invitations (
+            id, tenant_id, email, roles, invited_by_user_id, token_secret_hash, status, expires_at,
+            accepted_at, revoked_at, created_at, updated_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, NULL, NULL, now(), now())
+          `,
+          [
+            invitationId,
+            input.tenantId,
+            input.email,
+            input.roles,
+            input.invitedByUserId,
+            input.tokenSecretHash,
+            input.expiresAt,
+          ],
+        )
+      }
+
+      const invitation = await readInvitationById(client, invitationId)
+      return invitation ? { ...invitation, token: input.token } : null
+    })
+  }
+
+  async listInvitations(tenantId: string): Promise<TenantInvitation[]> {
+    const result = await this.database.query<TenantInvitationRow>(
+      invitationSelectSql('WHERE i.tenant_id = $1 ORDER BY i.created_at DESC'),
+      [tenantId],
+    )
+    return result.rows.map(toTenantInvitation)
+  }
+
+  async findInvitationByTokenHash(tokenSecretHash: string): Promise<TenantInvitation | null> {
+    const result = await this.database.query<TenantInvitationRow>(
+      invitationSelectSql('WHERE i.token_secret_hash = $1 LIMIT 1'),
+      [tokenSecretHash],
+    )
+    return result.rows[0] ? toTenantInvitation(result.rows[0]) : null
+  }
+
+  async revokeInvitation(tenantId: string, invitationId: string): Promise<boolean> {
+    const result = await this.database.query(
+      `
+      UPDATE tenant_invitations
+      SET status = 'revoked',
+          revoked_at = now(),
+          updated_at = now()
+      WHERE tenant_id = $1
+        AND id = $2
+        AND status = 'pending'
+      `,
+      [tenantId, invitationId],
+    )
+    return (result.rowCount ?? 0) > 0
+  }
+
+  async acceptInvitation(input: {
+    invitationId: string
+    tokenSecretHash: string
+    name: string
+    passwordHash: string
+    existingUserId?: string
+  }): Promise<AccountWorkspace | null> {
+    return this.database.transaction(async (client) => {
+      const invitation = await client.query<TenantInvitationRow>(
+        invitationSelectSql(`
+          WHERE i.id = $1
+            AND i.token_secret_hash = $2
+            AND i.status = 'pending'
+            AND i.expires_at > now()
+          LIMIT 1
+          FOR UPDATE OF i
+        `),
+        [input.invitationId, input.tokenSecretHash],
+      )
+      const row = invitation.rows[0]
+      if (!row) return null
+
+      const userId = input.existingUserId ?? `user-${randomUUID()}`
+      if (!input.existingUserId) {
+        await client.query(
+          `
+          INSERT INTO users (id, display_name, status, created_at, updated_at)
+          VALUES ($1, $2, 'active', now(), now())
+          `,
+          [userId, input.name],
+        )
+        await client.query(
+          `
+          INSERT INTO auth_identities (
+            id, user_id, provider, provider_subject, email, password_hash, is_primary, status, created_at, updated_at
+          )
+          VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', now(), now())
+          `,
+          [authIdentityIdFor(userId), userId, row.email, input.passwordHash],
+        )
+      }
+
+      const membershipId = membershipIdFor(userId, row.tenant_id)
+      await client.query(
+        `
+        INSERT INTO tenant_memberships (
+          id, tenant_id, user_id, roles, is_primary, status, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, false, 'active', now(), now())
+        ON CONFLICT (tenant_id, user_id)
+        DO UPDATE SET roles = EXCLUDED.roles,
+                      status = 'active',
+                      updated_at = now()
+        `,
+        [membershipId, row.tenant_id, userId, row.roles],
+      )
+      await client.query(
+        `
+        INSERT INTO billing_accounts (membership_id, plan, credits, created_at, updated_at)
+        VALUES ($1, $2, $3, now(), now())
+        ON CONFLICT (membership_id) DO NOTHING
+        `,
+        [membershipId, defaultPlan, defaultCredits],
+      )
+      await client.query(
+        `
+        UPDATE tenant_invitations
+        SET status = 'accepted',
+            accepted_at = now(),
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [row.invitation_id],
+      )
+
+      return this.readAccountWorkspace(client, userId, row.tenant_id)
     })
   }
 
@@ -222,6 +349,82 @@ export class AccountManagementRepository {
         [input.tenantId, userId],
       )
       return member.rows[0] ? toMembership(member.rows[0]) : null
+    })
+  }
+
+  async createTenantUser(input: {
+    tenantId: string
+    email: string
+    name: string
+    passwordHash: string
+    roles: Role[]
+  }): Promise<CreateTenantUserResult> {
+    return this.database.transaction(async (client) => {
+      const tenant = await client.query<{ id: string }>(
+        `
+        SELECT id
+        FROM tenants
+        WHERE id = $1
+          AND status = 'active'
+        LIMIT 1
+        `,
+        [input.tenantId],
+      )
+      if (!tenant.rows.length) return { kind: 'tenant_missing' }
+
+      const existingIdentity = await client.query<{ id: string }>(
+        `
+        SELECT id
+        FROM auth_identities
+        WHERE provider = 'local'
+          AND lower(email) = lower($1)
+        LIMIT 1
+        `,
+        [input.email],
+      )
+      if (existingIdentity.rows.length) return { kind: 'duplicate' }
+
+      const userId = `user-${randomUUID()}`
+      const membershipId = membershipIdFor(userId, input.tenantId)
+      await client.query(
+        `
+        INSERT INTO users (id, display_name, status, created_at, updated_at)
+        VALUES ($1, $2, 'active', now(), now())
+        `,
+        [userId, input.name],
+      )
+      await client.query(
+        `
+        INSERT INTO auth_identities (
+          id, user_id, provider, provider_subject, email, password_hash, is_primary, status, created_at, updated_at
+        )
+        VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', now(), now())
+        `,
+        [authIdentityIdFor(userId), userId, input.email, input.passwordHash],
+      )
+      await client.query(
+        `
+        INSERT INTO tenant_memberships (
+          id, tenant_id, user_id, roles, is_primary, status, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, false, 'active', now(), now())
+        `,
+        [membershipId, input.tenantId, userId, input.roles],
+      )
+      await client.query(
+        `
+        INSERT INTO billing_accounts (membership_id, plan, credits, created_at, updated_at)
+        VALUES ($1, $2, $3, now(), now())
+        `,
+        [membershipId, defaultPlan, defaultCredits],
+      )
+
+      const member = await client.query<MembershipRow>(
+        membershipSelectSql('WHERE m.tenant_id = $1 AND m.user_id = $2'),
+        [input.tenantId, userId],
+      )
+      if (!member.rows[0]) throw new Error(`Could not read created membership ${membershipId}`)
+      return { kind: 'created', membership: toMembership(member.rows[0]) }
     })
   }
 
@@ -524,6 +727,21 @@ type SessionRow = {
   revoked_at: Date | string | null
 }
 
+type TenantInvitationRow = {
+  invitation_id: string
+  tenant_id: string
+  tenant_name: string
+  email: string
+  roles: Role[]
+  invitation_status: TenantInvitation['status']
+  invited_by_user_id: string
+  expires_at: Date | string
+  accepted_at: Date | string | null
+  revoked_at: Date | string | null
+  invitation_created_at: Date | string
+  invitation_updated_at: Date | string
+}
+
 function accountWorkspaceSelectSql(whereClause: string): string {
   return `
     SELECT
@@ -557,6 +775,30 @@ function accountWorkspaceSelectSql(whereClause: string): string {
       ORDER BY ai.is_primary DESC, ai.created_at ASC
       LIMIT 1
     ) ai ON true
+    ${whereClause}
+  `
+}
+
+function invitationSelectSql(whereClause: string): string {
+  return `
+    SELECT
+      i.id AS invitation_id,
+      i.tenant_id,
+      t.name AS tenant_name,
+      i.email,
+      i.roles,
+      CASE
+        WHEN i.status = 'pending' AND i.expires_at <= now() THEN 'expired'
+        ELSE i.status
+      END AS invitation_status,
+      i.invited_by_user_id,
+      i.expires_at,
+      i.accepted_at,
+      i.revoked_at,
+      i.created_at AS invitation_created_at,
+      i.updated_at AS invitation_updated_at
+    FROM tenant_invitations i
+    JOIN tenants t ON t.id = i.tenant_id
     ${whereClause}
   `
 }
@@ -599,6 +841,13 @@ function authIdentityIdFor(userId: string): string {
   return `identity-${userId}`
 }
 
+async function readInvitationById(client: Queryable, invitationId: string): Promise<TenantInvitation | null> {
+  const result = await client.query<TenantInvitationRow>(invitationSelectSql('WHERE i.id = $1 LIMIT 1'), [
+    invitationId,
+  ])
+  return result.rows[0] ? toTenantInvitation(result.rows[0]) : null
+}
+
 function toWorkspace(row: AccountWorkspaceRow): Workspace {
   return {
     id: row.tenant_id,
@@ -635,6 +884,23 @@ function toMembership(row: MembershipRow): Membership {
     isPrimary: row.is_primary,
     createdAt: toIso(row.membership_created_at),
     updatedAt: toIso(row.membership_updated_at),
+  }
+}
+
+function toTenantInvitation(row: TenantInvitationRow): TenantInvitation {
+  return {
+    id: row.invitation_id,
+    tenantId: row.tenant_id,
+    tenantName: row.tenant_name,
+    email: row.email,
+    roles: row.roles,
+    status: row.invitation_status,
+    invitedByUserId: row.invited_by_user_id,
+    expiresAt: toIso(row.expires_at),
+    acceptedAt: row.accepted_at ? toIso(row.accepted_at) : null,
+    revokedAt: row.revoked_at ? toIso(row.revoked_at) : null,
+    createdAt: toIso(row.invitation_created_at),
+    updatedAt: toIso(row.invitation_updated_at),
   }
 }
 

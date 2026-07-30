@@ -1,8 +1,10 @@
 import {
+  acceptTenantInvitationSchema,
   addTenantMemberSchema,
+  createTenantInvitationSchema,
+  createTenantUserSchema,
   createWorkspaceSchema,
   PERMISSIONS,
-  registerAccountSchema,
   updateMembershipRolesSchema,
   type AccountSession,
   type Session,
@@ -17,6 +19,7 @@ import type { AccountManagementService } from './service.js'
 
 const tenantParams = z.object({ tenantId: z.string().min(1).max(256) })
 const memberParams = tenantParams.extend({ userId: z.string().min(1).max(256) })
+const invitationParams = tenantParams.extend({ invitationId: z.string().min(1).max(256) })
 const sessionParams = z.object({ sessionId: z.string().min(1).max(128) })
 const tenantSessionParams = tenantParams.extend({ sessionId: z.string().min(1).max(128) })
 
@@ -25,11 +28,17 @@ export async function registerAccountManagementRoutes(
   service: AccountManagementService | null,
   secureCookies: boolean,
 ): Promise<void> {
+  app.post('/auth/register', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async () => {
+    throw new AppError(403, 'REGISTRATION_DISABLED', 'Public registration is disabled')
+  })
+
   app.post(
-    '/auth/register',
+    '/auth/invitations/accept',
     { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
     async (request, reply) => {
-      const result = await requireService(service).register(parse(registerAccountSchema, request.body))
+      const result = await requireService(service).acceptInvitation(
+        parse(acceptTenantInvitationSchema, request.body),
+      )
       return sendSession(reply.code(201), result, secureCookies)
     },
   )
@@ -62,6 +71,42 @@ export async function registerAccountManagementRoutes(
     },
   )
 
+  app.get(
+    '/tenants/:tenantId/invitations',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      return await requireService(service).listInvitations(request.principal!, tenantId)
+    },
+  )
+
+  app.post(
+    '/tenants/:tenantId/invitations',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      const invitation = await requireService(service).createInvitation(
+        request.principal!,
+        tenantId,
+        parse(createTenantInvitationSchema, request.body),
+      )
+      return reply.code(201).send(invitation)
+    },
+  )
+
+  app.delete(
+    '/tenants/:tenantId/invitations/:invitationId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId, invitationId } = parse(invitationParams, request.params)
+      await requireService(service).revokeInvitation(request.principal!, tenantId, invitationId)
+      return reply.code(204).send()
+    },
+  )
+
   app.post(
     '/tenants/:tenantId/members',
     {
@@ -74,6 +119,23 @@ export async function registerAccountManagementRoutes(
         request.principal!,
         tenantId,
         parse(addTenantMemberSchema, request.body),
+      )
+      return reply.code(201).send(member)
+    },
+  )
+
+  app.post(
+    '/tenants/:tenantId/users',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      const member = await requireService(service).createTenantUser(
+        request.principal!,
+        tenantId,
+        parse(createTenantUserSchema, request.body),
       )
       return reply.code(201).send(member)
     },

@@ -1,20 +1,25 @@
 import type {
+  AcceptTenantInvitationInput,
   Account,
   AddTenantMemberInput,
+  CreatedTenantInvitation,
+  CreateTenantInvitationInput,
+  CreateTenantUserInput,
   CreateWorkspaceInput,
   Membership,
   Principal,
   Role,
-  RegisterAccountInput,
   Session,
   SessionSummary,
+  TenantInvitation,
   UpdateMembershipRolesInput,
   Workspace,
   WorkspaceMembership,
 } from '@seqora/contracts'
 import { ROLES } from '@seqora/contracts'
+import { createHash, randomBytes } from 'node:crypto'
 import { permissionsFor } from '../../core/auth/authorization.js'
-import { hashPassword } from '../../core/auth/password.js'
+import { hashPassword, verifyPassword } from '../../core/auth/password.js'
 import {
   hashSessionSecret,
   issueSessionToken,
@@ -25,6 +30,8 @@ import type { AppStore } from '../../infra/store.js'
 import type { UserRepository } from '../users/repository.js'
 import { AccountManagementRepository, type AccountWorkspace } from './repository.js'
 
+const invitationLifetimeSeconds = 60 * 60 * 24 * 7
+
 export class AccountManagementService {
   constructor(
     private readonly accounts: AccountManagementRepository,
@@ -33,21 +40,6 @@ export class AccountManagementService {
     private readonly secret: string,
     _webOrigin: string,
   ) {}
-
-  async register(
-    input: RegisterAccountInput,
-  ): Promise<{ session: Session; token: string; workspace: Workspace }> {
-    const created = await this.accounts.registerAccount({
-      name: normalizeName(input.name),
-      email: normalizeEmail(input.email),
-      passwordHash: hashPassword(input.password),
-      workspaceName: normalizeName(input.workspaceName ?? input.name),
-    })
-    if (!created) {
-      throw new AppError(409, 'EMAIL_ALREADY_EXISTS', 'Email is already registered')
-    }
-    return await this.issueSession(created)
-  }
 
   async createWorkspace(
     principal: Principal,
@@ -86,6 +78,78 @@ export class AccountManagementService {
     return await this.issueSession(workspace)
   }
 
+  async createInvitation(
+    principal: Principal,
+    tenantId: string,
+    input: CreateTenantInvitationInput,
+  ): Promise<CreatedTenantInvitation> {
+    this.requireTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    const roles = normalizeRoles(input.roles)
+    this.requireAssignableRoles(principal, roles)
+    const token = issueInvitationToken()
+    const invitation = await this.accounts.createInvitation({
+      tenantId,
+      email: normalizeEmail(input.email),
+      roles,
+      invitedByUserId: principal.userId,
+      token,
+      tokenSecretHash: hashInvitationToken(token),
+      expiresAt: new Date(Date.now() + invitationLifetimeSeconds * 1_000).toISOString(),
+    })
+    if (!invitation) {
+      throw new AppError(409, 'MEMBERSHIP_ALREADY_EXISTS', 'Account is already an active member')
+    }
+    return invitation
+  }
+
+  async listInvitations(principal: Principal, tenantId: string): Promise<TenantInvitation[]> {
+    this.requireTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    return await this.accounts.listInvitations(tenantId)
+  }
+
+  async revokeInvitation(principal: Principal, tenantId: string, invitationId: string): Promise<void> {
+    this.requireTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    if (!(await this.accounts.revokeInvitation(tenantId, invitationId))) {
+      throw new AppError(404, 'INVITATION_NOT_FOUND', 'Invitation does not exist')
+    }
+  }
+
+  async acceptInvitation(
+    input: AcceptTenantInvitationInput,
+  ): Promise<{ session: Session; token: string; workspace: Workspace }> {
+    const tokenSecretHash = hashInvitationToken(input.token)
+    const invitation = await this.accounts.findInvitationByTokenHash(tokenSecretHash)
+    if (!invitation) {
+      throw new AppError(404, 'INVITATION_NOT_FOUND', 'Invitation does not exist')
+    }
+    if (invitation.status === 'expired') {
+      throw new AppError(410, 'INVITATION_EXPIRED', 'Invitation has expired')
+    }
+    if (invitation.status !== 'pending') {
+      throw new AppError(409, 'INVITATION_NOT_PENDING', 'Invitation is no longer pending')
+    }
+
+    const existing = await this.users.findByEmail(invitation.email)
+    if (existing && !verifyPassword(input.password, existing.passwordHash)) {
+      throw new AppError(401, 'INVITATION_ACCOUNT_PASSWORD_INVALID', 'Password is incorrect')
+    }
+
+    const accepted = await this.accounts.acceptInvitation({
+      invitationId: invitation.id,
+      tokenSecretHash,
+      name: normalizeName(input.name),
+      passwordHash: hashPassword(input.password),
+      ...(existing ? { existingUserId: existing.id } : {}),
+    })
+    if (!accepted) {
+      throw new AppError(410, 'INVITATION_EXPIRED', 'Invitation has expired')
+    }
+    return await this.issueSession(accepted)
+  }
+
   async addMember(principal: Principal, tenantId: string, input: AddTenantMemberInput): Promise<Membership> {
     this.requireTenantScope(principal, tenantId)
     await this.requireCurrentAccount(principal)
@@ -101,6 +165,33 @@ export class AccountManagementService {
     }
     await this.mirrorMembership(member)
     return member
+  }
+
+  async createTenantUser(
+    principal: Principal,
+    tenantId: string,
+    input: CreateTenantUserInput,
+  ): Promise<Membership> {
+    this.requireTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    const roles: Role[] = [input.role]
+    this.requireAssignableRoles(principal, roles)
+    const passwordHash = hashPassword(input.password)
+    const result = await this.accounts.createTenantUser({
+      tenantId,
+      email: normalizeEmail(input.email),
+      name: normalizeName(input.name),
+      passwordHash,
+      roles,
+    })
+    if (result.kind === 'duplicate') {
+      throw new AppError(409, 'ACCOUNT_ALREADY_EXISTS', 'A local account already exists for this email')
+    }
+    if (result.kind === 'tenant_missing') {
+      throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
+    }
+    await this.mirrorMembership(result.membership, passwordHash)
+    return result.membership
   }
 
   async listMembers(principal: Principal, tenantId: string): Promise<Membership[]> {
@@ -338,7 +429,7 @@ export class AccountManagementService {
     })
   }
 
-  private async mirrorMembership(membership: Membership): Promise<void> {
+  private async mirrorMembership(membership: Membership, passwordHash?: string): Promise<void> {
     await this.store.mutate((state) => {
       const existing = state.users.find(
         (item) => item.id === membership.userId && item.tenantId === membership.tenantId,
@@ -347,13 +438,14 @@ export class AccountManagementService {
         existing.email = normalizeEmail(membership.email)
         existing.name = membership.name
         existing.roles = membership.roles
+        if (passwordHash) existing.passwordHash = passwordHash
       } else if (membership.status === 'active') {
         const account = state.users.find((item) => item.id === membership.userId)
         state.users.push({
           id: membership.userId,
           email: normalizeEmail(membership.email),
           name: membership.name,
-          passwordHash: account?.passwordHash ?? '',
+          passwordHash: passwordHash ?? account?.passwordHash ?? '',
           tenantId: membership.tenantId,
           roles: membership.roles,
           plan: account?.plan ?? 'free',
@@ -374,6 +466,14 @@ function normalizeName(name: string): string {
 
 function normalizeRoles(roles: Role[]): Role[] {
   return [...new Set(roles)]
+}
+
+function issueInvitationToken(): string {
+  return randomBytes(32).toString('base64url')
+}
+
+function hashInvitationToken(token: string): string {
+  return createHash('sha256').update(token).digest('base64url')
 }
 
 function hasElevatedRole(roles: Role[]): boolean {

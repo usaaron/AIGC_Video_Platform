@@ -54,6 +54,7 @@ export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
           TRUNCATE TABLE
             sessions,
             billing_accounts,
+            tenant_invitations,
             tenant_memberships,
             tenants,
             auth_identities,
