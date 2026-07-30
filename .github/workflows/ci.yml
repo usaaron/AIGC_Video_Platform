@@ -148,4 +148,4 @@ jobs:
         run: pnpm --filter @seqora/api db:migrate
 
       - name: Run migration, auth, and billing tests
-        run: pnpm --filter @seqora/api exec vitest run src/infra/postgres.test.ts src/modules/accountManagement/routes.test.ts src/modules/billing/creditLedger.test.ts
+        run: pnpm --filter @seqora/api exec vitest run src/infra/postgres.test.ts src/modules/auth/routes.test.ts src/modules/accountManagement/routes.test.ts src/modules/billing/creditLedger.test.ts

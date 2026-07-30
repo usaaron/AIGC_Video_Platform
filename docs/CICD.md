@@ -124,7 +124,7 @@ echo "$DEPLOY_SA_EMAIL"
 | `GCE_INSTANCE`                 | `instance-20260719-184241`       |
 | `GCE_ZONE`                     | `asia-east2-c`                   |
 
-在 `Settings -> Branches` 保护 `main`：要求 `CI / quality` 通过、至少一位 Review、禁止强推。三人协作时采用短功能分支和小 PR，避免多人直接覆盖 `main`。
+在 `Settings -> Branches` 保护 `main`：要求 `CI / quality`、`CI / database` 通过、至少一位 Review、禁止强推。三人协作时采用短功能分支和小 PR，避免多人直接覆盖 `main`。
 
 ## 手动发布与回滚
 
