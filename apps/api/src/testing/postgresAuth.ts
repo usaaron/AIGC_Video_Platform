@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 import pg from 'pg'
+import type { Pool as PgPool } from 'pg'
 import { AccountDatabase } from '../infra/postgres.js'
 
 const { Pool } = pg as typeof import('pg')
@@ -19,7 +20,7 @@ export type PostgresAuthFixture = {
 
 export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
   const containerName = `seqora-auth-${process.pid}-${randomUUID()}`
-  let waitPool: Pool | null = null
+  let waitPool: PgPool | null = null
   let database: AccountDatabase | null = null
   try {
     await execFileAsync('docker', [
@@ -81,7 +82,7 @@ function parsePublishedPort(output: string): string {
   return match[1]
 }
 
-async function waitForPostgres(pool: Pool): Promise<void> {
+async function waitForPostgres(pool: PgPool): Promise<void> {
   let lastError: unknown
   for (let attempt = 0; attempt < 80; attempt += 1) {
     try {
