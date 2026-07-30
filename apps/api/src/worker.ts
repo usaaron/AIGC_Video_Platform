@@ -37,7 +37,8 @@ await users.bootstrapFromStore()
 const objectStorage = createObjectStorage(config)
 const videoProvider = createVideoProvider(config)
 const imageProvider = createImageProvider(config)
-const creditLedger = new StoreCreditLedger(store, users, config.NODE_ENV !== 'production')
+const creditLedger = new StoreCreditLedger(store, users, config.NODE_ENV !== 'production', database)
+await creditLedger.bootstrapFromStore()
 const filmPreviewComposer =
   videoProvider && objectStorage
     ? new FilmPreviewComposer(

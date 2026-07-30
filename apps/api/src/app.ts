@@ -121,7 +121,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         options.config.WEB_ORIGIN,
       )
     : null
-  const creditLedger = new StoreCreditLedger(store, users, options.config.NODE_ENV !== 'production')
+  const creditLedger = new StoreCreditLedger(store, users, options.config.NODE_ENV !== 'production', database)
+  await creditLedger.bootstrapFromStore()
   const objectStorage = createObjectStorage(options.config)
   const videoProvider =
     options.videoProvider === undefined ? createVideoProvider(options.config) : options.videoProvider
