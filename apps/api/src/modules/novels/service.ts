@@ -643,16 +643,22 @@ export class NovelService {
   ): Promise<NovelStoryBibleResult> {
     const source = this.repository.sourceForGeneration(projectId, documentId, principal)
     if (!source) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成故事概要')
+    const selectedSummaries = selectSummariesForStoryBible(source.summaries, input.summaryLimit)
     const missingSummaryCount = Math.max(0, source.document.chapterCount - source.summaries.length)
-    if (missingSummaryCount > 0) {
-      throw new AppError(409, 'NOVEL_SUMMARIES_INCOMPLETE', '请先完成全部章节摘要，再生成故事概要')
+    const warnings = storyBibleWarnings(source.document.chapterCount, selectedSummaries.length)
+    if (!selectedSummaries.length) {
+      throw new AppError(409, 'NOVEL_SUMMARIES_REQUIRED', '请先生成至少一批章节摘要，再生成故事概要')
     }
-    if (source.storyBible && !input.force) {
+    if (
+      source.storyBible &&
+      !input.force &&
+      source.storyBible.sourceSummaryCount === selectedSummaries.length
+    ) {
       return {
         storyBible: source.storyBible,
-        missingSummaryCount: 0,
+        missingSummaryCount,
         generatedAt: new Date().toISOString(),
-        warnings: [],
+        warnings,
       }
     }
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
@@ -665,7 +671,7 @@ export class NovelService {
       async () => {
         const response = await this.textProvider!.generate({
           systemPrompt: NOVEL_STORY_BIBLE_SYSTEM_PROMPT,
-          userPrompt: storyBiblePrompt(source.document.name, source.summaries),
+          userPrompt: storyBiblePrompt(source.document.name, selectedSummaries, source.document.chapterCount),
           maxOutputTokens: NOVEL_STORY_BIBLE_MAX_TOKENS,
           model: input.model,
         })
@@ -674,15 +680,15 @@ export class NovelService {
           projectId,
           documentId,
           parsed,
-          source.summaries.length,
+          selectedSummaries.length,
           principal,
         )
         if (!storyBible) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成故事概要')
         return {
           storyBible,
-          missingSummaryCount: 0,
+          missingSummaryCount,
           generatedAt: new Date().toISOString(),
-          warnings: [],
+          warnings,
         }
       },
     )
@@ -1345,6 +1351,37 @@ function selectChaptersForSummary(
     .slice(0, input.batchSize)
 }
 
+function selectSummariesForStoryBible(
+  summaries: NovelChapterSummary[],
+  summaryLimit: number | undefined,
+): NovelChapterSummary[] {
+  const limit = Math.min(summaries.length, summaryLimit ?? summaries.length)
+  if (limit <= 0) return []
+  const ordered = [...summaries].sort((left, right) => left.order - right.order)
+  const selected = new Map<string, NovelChapterSummary>()
+  for (const summary of ordered) {
+    if (!isOpeningSummary(summary)) continue
+    selected.set(summary.id, summary)
+    if (selected.size >= limit) break
+  }
+  for (const summary of ordered) {
+    if (selected.size >= limit) break
+    selected.set(summary.id, summary)
+  }
+  return [...selected.values()].sort((left, right) => left.order - right.order)
+}
+
+function isOpeningSummary(summary: Pick<NovelChapterSummary, 'order' | 'title'>): boolean {
+  return summary.order === 1 || /序章|序幕|开篇|楔子|前言|引子|prologue|preface/i.test(summary.title.trim())
+}
+
+function storyBibleWarnings(chapterCount: number, sourceSummaryCount: number): string[] {
+  if (sourceSummaryCount >= chapterCount) return []
+  return [
+    `本次故事概要只使用 ${sourceSummaryCount} / ${chapterCount} 章摘要，适合阶段性梳理；由于并非全书摘要，人物关系、世界观规则和伏笔回收可能不完整，后续建议在摘要更多后刷新。`,
+  ]
+}
+
 function selectChaptersForAdaptation<T extends { id: string; order: number }>(
   chapters: T[],
   input: GenerateNovelChapterAdaptationRequest,
@@ -1519,11 +1556,12 @@ function boundaryNotesPrompt(name: string, boundaries: NovelBoundary[]): string 
   ].join('\n')
 }
 
-function storyBiblePrompt(name: string, summaries: NovelChapterSummary[]): string {
+function storyBiblePrompt(name: string, summaries: NovelChapterSummary[], chapterCount: number): string {
   const summaryBlocks = summaries
     .map((summary) =>
       [
         `章节 ${summary.order}：${summary.title}`,
+        `开篇权重：${isOpeningSummary(summary) ? '高；通常包含全书题眼、世界观或故事方向' : '普通'}`,
         `摘要：${headExcerpt(summary.summary, STORY_OVERVIEW_SUMMARY_CHAR_LIMIT)}`,
         `关键事件：${compactFactList(summary.keyEvents, 3)}`,
         `人物：${compactFactList(summary.characters, 4)}`,
@@ -1536,8 +1574,12 @@ function storyBiblePrompt(name: string, summaries: NovelChapterSummary[]): strin
     .join('\n\n')
   return [
     `作品名称：${name}`,
-    `已完成章节摘要数量：${summaries.length}`,
-    '请基于所有章节摘要生成全书故事概要。只使用摘要中出现的事实，缺失处写入 risks，不要自行补完。',
+    `本次使用章节摘要数量：${summaries.length} / ${chapterCount}`,
+    '请基于本次提供的章节摘要生成故事概要。只使用摘要中出现的事实，缺失处写入 risks，不要自行补完。',
+    '开篇、序章、序幕、楔子、前言、引子通常会概括全书题眼、世界观或主要矛盾，请给予更高权重；但后续章节出现的具体事实优先级更高，不要用开篇概述覆盖后续明确事实。',
+    summaries.length < chapterCount
+      ? '注意：本次不是全书摘要，只能生成阶段性故事概要。请在 risks 中明确指出未覆盖后续章节导致的人物关系、世界观规则、伏笔回收风险。'
+      : '本次已覆盖全部章节摘要，可以生成完整故事概要。',
     '故事概要要服务 AI 视频改编：人物、地点、道具和世界观规则必须可供后续大纲、分集、资产和分镜复用。',
     '输出控制：synopsis 保持 500-900 字；characters、locations、keyProps、timeline、foreshadowing、worldRules 只保留最关键条目；不要展开成完整长文。',
     '字段类型必须符合约定：characters、locations、keyProps 是对象数组；timeline 是 {order,label,event} 数组；foreshadowing 是 {setup,payoff,status} 数组；themes、worldRules、risks 是字符串数组。',
@@ -2065,7 +2107,7 @@ function compactFactList(values: string[], maxItems: number): string {
 }
 
 function chapterSummaryMaxTokens(chapterCount: number): number {
-  return Math.min(24_000, Math.max(3_000, chapterCount * 1_200))
+  return Math.min(24_000, Math.max(3_000, chapterCount * 2_400))
 }
 
 function headExcerpt(value: string, limit: number): string {
@@ -2143,12 +2185,53 @@ function parseProviderJsonValue(raw: string, errorMessage: string): unknown {
   const starts = [text.indexOf('{'), text.indexOf('[')].filter((index) => index >= 0)
   const start = starts.length ? Math.min(...starts) : -1
   const end = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'))
-  if (start < 0 || end < start) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', errorMessage)
-  try {
-    return JSON.parse(text.slice(start, end + 1))
-  } catch {
-    throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', errorMessage)
+  if (start < 0) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', errorMessage)
+  if (end < start) {
+    throw new AppError(
+      502,
+      'PROVIDER_RESPONSE_INVALID',
+      `${errorMessage}：模型输出被截断，请减少本次章节数或重试`,
+    )
   }
+  const jsonText = text.slice(start, end + 1)
+  try {
+    return JSON.parse(jsonText)
+  } catch {
+    const message = isLikelyIncompleteJson(jsonText)
+      ? `${errorMessage}：模型输出被截断，请减少本次章节数或重试`
+      : errorMessage
+    throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', message)
+  }
+}
+
+function isLikelyIncompleteJson(value: string): boolean {
+  const stack: string[] = []
+  let inString = false
+  let escaped = false
+  for (const character of value) {
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (character === '\\') {
+      escaped = inString
+      continue
+    }
+    if (character === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+    if (character === '{' || character === '[') {
+      stack.push(character)
+      continue
+    }
+    if (character === '}' || character === ']') {
+      const expected = character === '}' ? '{' : '['
+      if (stack.at(-1) === expected) stack.pop()
+    }
+  }
+  return inString || stack.length > 0
 }
 
 function normalizeChapterSummariesProviderContent(value: unknown): unknown {

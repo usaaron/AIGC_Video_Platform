@@ -450,7 +450,12 @@ describe('novel contracts', () => {
     ).toBe(true)
     expect(generateNovelStoryBibleRequestSchema.parse({})).toEqual({
       force: false,
-      model: 'gpt-5.6',
+      model: 'glm-5.2',
+    })
+    expect(generateNovelStoryBibleRequestSchema.parse({ summaryLimit: 24 })).toEqual({
+      force: false,
+      summaryLimit: 24,
+      model: 'glm-5.2',
     })
     expect(generateNovelAssetSuggestionsRequestSchema.parse({})).toEqual({
       maxAssets: 12,

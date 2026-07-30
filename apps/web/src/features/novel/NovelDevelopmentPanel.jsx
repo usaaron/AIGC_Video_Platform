@@ -7,12 +7,13 @@ import { restoreNovelDevelopmentCache, saveNovelDevelopmentCache } from './novel
 import { formatStoryOverviewText } from './storyOverviewText'
 
 const SUMMARY_BATCH_OPTIONS = [1, 4, 8, 12, 16, 24]
+const STORY_OVERVIEW_SOURCE_OPTIONS = [1, 4, 8, 12, 24, 48, 96, 192]
 const SUMMARY_PREVIEW_COUNT = 4
 const ENABLE_NOVEL_ASSET_SUGGESTIONS = false
 
 export function NovelDevelopmentPanel({
   document,
-  textModel = 'gpt-5.6',
+  textModel = 'glm-5.2',
   disabled,
   onGetSummaries,
   onGenerateSummaries,
@@ -26,6 +27,7 @@ export function NovelDevelopmentPanel({
   const [summariesResult, setSummariesResult] = useState(null)
   const [storyBibleResult, setStoryBibleResult] = useState(null)
   const [summaryBatchSize, setSummaryBatchSize] = useState(4)
+  const [storySummaryLimit, setStorySummaryLimit] = useState(24)
   const [summaryBrowserOpen, setSummaryBrowserOpen] = useState(false)
   const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
@@ -44,13 +46,21 @@ export function NovelDevelopmentPanel({
   const summaryCompleted = summariesResult?.completed ?? false
   const nextSummaryBatchSize = Math.max(0, Math.min(summaryBatchSize, missingSummaryCount))
   const storyBible = storyBibleResult?.storyBible ?? null
-  const storyOverviewStatus = summaryCompleted
+  const storyOverviewSourceCount = Math.max(0, Math.min(storySummaryLimit, summaryCount))
+  const storyOverviewOptions = Array.from(
+    new Set(
+      [...STORY_OVERVIEW_SOURCE_OPTIONS.filter((size) => size <= summaryCount), summaryCount].filter(Boolean),
+    ),
+  )
+  const storyOverviewPartial = summaryCount > 0 && storyOverviewSourceCount < document.chapterCount
+  const storyOverviewStatus = summaryCount
     ? storyBible
-      ? '已有故事概要，可按最新章节摘要刷新'
-      : '章节摘要已完成，可以生成故事概要'
-    : summaryCount
-      ? `还缺 ${missingSummaryCount} 章摘要，完成全部章节摘要后才能生成故事概要`
-      : '还没有章节概要，故事概要需要先读取章节概要作为事实源'
+      ? `已有故事概要，当前可用 ${storyOverviewSourceCount} / ${document.chapterCount} 章摘要刷新`
+      : `可先基于 ${storyOverviewSourceCount} / ${document.chapterCount} 章摘要生成阶段性故事概要`
+    : '还没有章节概要，故事概要需要先读取章节概要作为事实源'
+  const storyOverviewCoverageText = storyOverviewPartial
+    ? `本次只使用 ${storyOverviewSourceCount} / ${document.chapterCount} 章摘要，适合阶段性故事概要；不是全书摘要，可能不够准确，后续摘要更多后可刷新。`
+    : '本次已覆盖当前全部章节摘要，可以生成更完整的故事概要。'
   const assetSuggestionEmptyText = !summaryCount
     ? '先生成至少一批章节概要，系统才有事实源可提取资产。'
     : storyBible
@@ -128,6 +138,7 @@ export function NovelDevelopmentPanel({
       const result = await onGenerateStoryBible(document.id, {
         clientRequestId: crypto.randomUUID(),
         force,
+        summaryLimit: storyOverviewSourceCount,
         model: textModel,
       })
       const nextStoryBibleResult = {
@@ -135,6 +146,7 @@ export function NovelDevelopmentPanel({
         summaryCount,
         chapterCount: document.chapterCount,
         missingSummaryCount: result.missingSummaryCount,
+        warnings: result.warnings ?? [],
       }
       setStoryBibleResult(nextStoryBibleResult)
       saveNovelDevelopmentCache(document.id, {
@@ -277,16 +289,35 @@ export function NovelDevelopmentPanel({
         </>
       )}
 
-      <div className={`novel-story-overview-gate${summaryCompleted ? ' ready' : ''}`}>
+      <div className={`novel-story-overview-gate${summaryCount ? ' ready' : ''}`}>
         <div>
           <span className="eyebrow">故事概要</span>
-          <strong>{summaryCompleted ? '下一步：生成故事概要' : '等待章节概要完成'}</strong>
+          <strong>{summaryCount ? '下一步：生成故事概要' : '等待章节概要'}</strong>
           <small>{storyOverviewStatus}</small>
+          {summaryCount > 0 && (
+            <small className="novel-story-overview-note">
+              开篇 / 序章会优先参与故事概要，并给予更高权重；后续章节事实仍然优先。
+            </small>
+          )}
         </div>
         <div className="novel-story-overview-actions">
+          <label className="novel-summary-batch-field">
+            <span>使用摘要数量</span>
+            <select
+              value={storyOverviewSourceCount || ''}
+              disabled={disabled || isLoading || isGeneratingStoryBible || !summaryCount}
+              onChange={(event) => setStorySummaryLimit(Number(event.target.value))}
+            >
+              {storyOverviewOptions.map((size) => (
+                <option key={size} value={size}>
+                  {size === summaryCount ? `${size} 章（当前全部）` : `${size} 章`}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             className="button primary"
-            disabled={disabled || isLoading || isGeneratingStoryBible || !summaryCompleted}
+            disabled={disabled || isLoading || isGeneratingStoryBible || !summaryCount}
             onClick={() => void handleGenerateStoryBible(false)}
           >
             {isGeneratingStoryBible ? <LoaderCircle size={16} className="spin" /> : <BookMarked size={16} />}
@@ -303,6 +334,12 @@ export function NovelDevelopmentPanel({
           )}
         </div>
       </div>
+      {summaryCount > 0 && <p className="novel-story-overview-warning">{storyOverviewCoverageText}</p>}
+      {storyBibleResult?.warnings?.length > 0 && (
+        <div className="novel-story-overview-warning" role="status">
+          {storyBibleResult.warnings.slice(0, 2).join('；')}
+        </div>
+      )}
 
       {summaryBrowserOpen && summariesResult?.summaries.length > 0 && (
         <div className="novel-browser-backdrop" role="presentation">
@@ -379,11 +416,16 @@ export function NovelDevelopmentPanel({
       {storyBible && (
         <div className="novel-story-bible-card">
           <div>
-            <span className="eyebrow">全书故事概要</span>
+            <span className="eyebrow">
+              {storyBible.sourceSummaryCount < storyBible.chapterCount ? '阶段性故事概要' : '全书故事概要'}
+            </span>
             <h4>{storyBible.title}</h4>
             <p>{storyBible.logline}</p>
           </div>
           <div className="novel-bible-meta">
+            <span>
+              摘要 {storyBible.sourceSummaryCount} / {storyBible.chapterCount}
+            </span>
             <span>人物 {storyBible.characters.length}</span>
             <span>地点 {storyBible.locations.length}</span>
             <span>道具 {storyBible.keyProps.length}</span>

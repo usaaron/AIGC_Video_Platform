@@ -392,7 +392,8 @@ export const generateNovelChapterSummariesResultSchema = z.object({
 export const generateNovelStoryBibleRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   force: z.boolean().default(false),
-  model: textModelSchema.default('gpt-5.6'),
+  summaryLimit: z.number().int().min(1).max(1_000).optional(),
+  model: textModelSchema.default('glm-5.2'),
 })
 
 export const generateNovelAssetSuggestionsRequestSchema = z.object({

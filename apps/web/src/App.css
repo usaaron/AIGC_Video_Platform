@@ -1347,8 +1347,24 @@
 
 .novel-story-overview-actions {
   display: flex;
+  align-items: end;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.novel-story-overview-note {
+  color: #6c5921 !important;
+}
+
+.novel-story-overview-warning {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #e0d6aa;
+  border-radius: 6px;
+  background: #fff9e9;
+  color: #6c5921;
+  font-size: 10px;
+  line-height: 1.55;
 }
 
 .novel-summary-batch-field {

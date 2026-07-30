@@ -2003,7 +2003,7 @@ describe('API authorization', () => {
       expect.objectContaining({
         systemPrompt: expect.stringContaining('长篇小说改编统筹'),
         userPrompt: expect.stringContaining('章节序号：1'),
-        maxOutputTokens: 3_000,
+        maxOutputTokens: 4_800,
       }),
     )
 
@@ -2056,6 +2056,39 @@ describe('API authorization', () => {
       locations: [expect.stringContaining('废弃旧车站')],
       keyProps: [expect.stringContaining('匿名来信')],
       adaptationNotes: expect.stringContaining('改编重点'),
+    })
+  })
+
+  it('reports truncated provider chapter summary JSON as incomplete output', async () => {
+    const generate = vi.fn(async () => '{"summaries":[{"order":1,"title":"第一章","summary":"摘要尚未写完"')
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries/generate`,
+      headers,
+      payload: {
+        clientRequestId: 'chapter-summary-truncated-json',
+        batchSize: 1,
+      },
+    })
+
+    expect(response.statusCode).toBe(502)
+    expect(response.json()).toMatchObject({
+      error: {
+        code: 'PROVIDER_RESPONSE_INVALID',
+        message: expect.stringContaining('模型输出被截断'),
+      },
     })
   })
 
@@ -2122,13 +2155,59 @@ describe('API authorization', () => {
     })
     expect(generate.mock.calls[1][0]).toMatchObject({
       systemPrompt: expect.stringContaining('故事概要编辑'),
-      userPrompt: expect.stringContaining('已完成章节摘要数量：2'),
+      userPrompt: expect.stringContaining('本次使用章节摘要数量：2 / 2'),
       maxOutputTokens: 6_000,
     })
     const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(billing.json().entries).toEqual(
       expect.arrayContaining([expect.objectContaining({ amount: -6, description: '生成小说故事概要' })]),
     )
+  })
+
+  it('generates a partial story overview from the selected number of chapter summaries', async () => {
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce(novelChapterSummariesJson())
+      .mockResolvedValueOnce(novelStoryBibleJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries/generate`,
+      headers,
+      payload: { clientRequestId: 'partial-chapter-summary-for-bible', batchSize: 1 },
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/story-bible/generate`,
+      headers,
+      payload: { clientRequestId: 'partial-story-bible', summaryLimit: 1 },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      storyBible: {
+        sourceSummaryCount: 1,
+        chapterCount: 2,
+      },
+      missingSummaryCount: 1,
+      warnings: [expect.stringContaining('1 / 2 章摘要')],
+    })
+    expect(generate.mock.calls[1][0]).toMatchObject({
+      userPrompt: expect.stringContaining('本次使用章节摘要数量：1 / 2'),
+      maxOutputTokens: 6_000,
+    })
+    expect(generate.mock.calls[1][0].userPrompt).toContain('开篇权重：高')
   })
 
   it('normalizes richer provider story overview JSON into stable content', async () => {
