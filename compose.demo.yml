@@ -7,6 +7,23 @@ x-default-logging: &default-logging
     max-file: '3'
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./deploy/demo.env
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    volumes:
+      - seqora_postgres:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+
   api:
     image: ${API_IMAGE:-seqora-api:local}
     build:
@@ -16,6 +33,9 @@ services:
     init: true
     env_file:
       - ./deploy/demo.env
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       API_HOST: 0.0.0.0
@@ -64,5 +84,6 @@ services:
 
 volumes:
   seqora_data:
+  seqora_postgres:
   caddy_data:
   caddy_config:

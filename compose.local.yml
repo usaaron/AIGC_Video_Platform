@@ -1,0 +1,41 @@
+name: seqora-local
+
+x-postgres: &postgres
+  image: postgres:16-alpine
+  restart: unless-stopped
+  init: true
+  healthcheck:
+    test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+    interval: 5s
+    timeout: 5s
+    retries: 20
+    start_period: 10s
+
+services:
+  postgres-dev:
+    <<: *postgres
+    profiles: ['dev']
+    environment:
+      POSTGRES_DB: seqora_dev
+      POSTGRES_USER: seqora
+      POSTGRES_PASSWORD: seqora_dev_password
+    ports:
+      - '${POSTGRES_DEV_PORT:-5432}:5432'
+    volumes:
+      - seqora_postgres_dev:/var/lib/postgresql/data
+
+  postgres-test:
+    <<: *postgres
+    profiles: ['test']
+    environment:
+      POSTGRES_DB: seqora_test
+      POSTGRES_USER: seqora
+      POSTGRES_PASSWORD: seqora_test_password
+    ports:
+      - '${POSTGRES_TEST_PORT:-5433}:5432'
+    volumes:
+      - seqora_postgres_test:/var/lib/postgresql/data
+
+volumes:
+  seqora_postgres_dev:
+  seqora_postgres_test:

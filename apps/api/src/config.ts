@@ -3,6 +3,7 @@ import { z } from 'zod'
 const developmentAuthSecret = 'seqora-development-secret-change-me'
 const developmentCreatorPassword = 'Creator123!'
 const developmentAdminPassword = 'Admin123!'
+const developmentDatabaseUrl = 'postgres://seqora:seqora_dev_password@127.0.0.1:5432/seqora_dev'
 const booleanFromEnvironment = z.preprocess((value) => {
   if (typeof value === 'boolean') return value
   if (value === 'true') return true
@@ -157,6 +158,11 @@ export type AppConfig = z.infer<typeof configSchema>
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
   return configSchema.parse({
     ...environment,
+    DATABASE_URL: environment.DATABASE_URL?.trim()
+      ? environment.DATABASE_URL
+      : environment.NODE_ENV === 'production'
+        ? ''
+        : developmentDatabaseUrl,
     BOOTSTRAP_CREATOR_NAME:
       environment.BOOTSTRAP_CREATOR_NAME ?? (environment.NODE_ENV === 'production' ? '创作者' : '林夏'),
     BOOTSTRAP_DEMO_WORKSPACE:

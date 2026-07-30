@@ -10,6 +10,7 @@ const children = new Set()
 let shuttingDown = false
 
 await runBlocking('build:shared', ['build:shared'])
+await runBlocking('dev:db', ['dev:db'])
 
 const tasks = [
   ['web', ['--filter', '@seqora/web', 'dev']],
