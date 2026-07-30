@@ -184,7 +184,7 @@ async function createLedger(): Promise<{
 
   const database = new AccountDatabase(authDatabase.connectionString)
   openDatabases.push(database)
-  await database.initialize()
+  await database.migrate()
 
   const store = new AppStore(null)
   await store.initialize()

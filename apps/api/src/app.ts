@@ -94,7 +94,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await store.initialize()
   const database = options.config.DATABASE_URL ? new AccountDatabase(options.config.DATABASE_URL) : null
   if (database) {
-    await database.initialize()
+    if (options.config.NODE_ENV === 'production') {
+      await database.ensureLatestMigrations()
+    } else {
+      await database.migrate()
+    }
   }
 
   await app.register(helmet, { contentSecurityPolicy: false })

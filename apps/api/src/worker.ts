@@ -29,7 +29,11 @@ const store = new AppStore(
 await store.initialize()
 const database = config.DATABASE_URL ? new AccountDatabase(config.DATABASE_URL) : null
 if (database) {
-  await database.initialize()
+  if (config.NODE_ENV === 'production') {
+    await database.ensureLatestMigrations()
+  } else {
+    await database.migrate()
+  }
 }
 const users = new UserRepository(store, database)
 await users.bootstrapFromStore()

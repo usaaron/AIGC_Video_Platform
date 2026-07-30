@@ -15,6 +15,12 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 `
 
+export type DatabaseMigrationMode = 'migrate' | 'check'
+
+export type DatabaseInitializeOptions = {
+  mode?: DatabaseMigrationMode
+}
+
 export class AccountDatabase {
   private readonly pool: PgPool
   private initialized = false
@@ -27,9 +33,10 @@ export class AccountDatabase {
     this.pool = new Pool({ connectionString })
   }
 
-  async initialize(): Promise<void> {
+  async initialize(options: DatabaseInitializeOptions = {}): Promise<void> {
     if (this.initialized) return
-    this.initializePromise ??= this.runPendingMigrations()
+    const mode = options.mode ?? 'migrate'
+    this.initializePromise ??= this.runInitialization(mode)
       .then(() => {
         this.initialized = true
       })
@@ -38,6 +45,14 @@ export class AccountDatabase {
         throw error
       })
     await this.initializePromise
+  }
+
+  async migrate(): Promise<void> {
+    await this.initialize({ mode: 'migrate' })
+  }
+
+  async ensureLatestMigrations(): Promise<void> {
+    await this.initialize({ mode: 'check' })
   }
 
   async close(): Promise<void> {
@@ -66,18 +81,63 @@ export class AccountDatabase {
     }
   }
 
+  private async runInitialization(mode: DatabaseMigrationMode): Promise<void> {
+    if (mode === 'migrate') {
+      await this.runPendingMigrations()
+      return
+    }
+    await this.verifyNoPendingMigrations()
+  }
+
   private async runPendingMigrations(): Promise<void> {
     const migrations = await loadMigrationFiles(this.migrationsPath)
+    await this.ensureSchemaMigrationsTable()
+    const appliedNames = await this.loadAppliedMigrationNames()
+
+    for (const migration of migrations) {
+      if (appliedNames.has(migration.name)) continue
+      await this.applyMigration(migration)
+    }
+  }
+
+  private async verifyNoPendingMigrations(): Promise<void> {
+    const migrations = await loadMigrationFiles(this.migrationsPath)
+    const appliedNames = await this.loadAppliedMigrationNames()
+    const pending = migrations.filter((migration) => !appliedNames.has(migration.name))
+    if (pending.length) {
+      throw new Error(
+        [
+          `Pending Postgres migrations: ${pending.map((migration) => migration.name).join(', ')}`,
+          'Run `pnpm --filter @seqora/api db:migrate` before starting the production API.',
+        ].join('. '),
+      )
+    }
+  }
+
+  private async ensureSchemaMigrationsTable(): Promise<void> {
     await this.transaction(async (client) => {
       await client.query(schemaMigrationsSql)
-      const applied = await client.query<{ name: string }>('SELECT name FROM schema_migrations')
-      const appliedNames = new Set(applied.rows.map((row) => row.name))
+    })
+  }
 
-      for (const migration of migrations) {
-        if (appliedNames.has(migration.name)) continue
-        await client.query(migration.sql)
-        await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [migration.name])
-      }
+  private async loadAppliedMigrationNames(): Promise<Set<string>> {
+    const table = await this.query<{ table_name: string | null }>(
+      "SELECT to_regclass('public.schema_migrations')::text AS table_name",
+    )
+    if (!table.rows[0]?.table_name) {
+      throw new Error(
+        'Postgres schema_migrations table is missing. Run `pnpm --filter @seqora/api db:migrate` before starting the production API.',
+      )
+    }
+
+    const applied = await this.query<{ name: string }>('SELECT name FROM schema_migrations')
+    return new Set(applied.rows.map((row) => row.name))
+  }
+
+  private async applyMigration(migration: MigrationFile): Promise<void> {
+    await this.transaction(async (client) => {
+      await client.query(migration.sql)
+      await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [migration.name])
     })
   }
 }

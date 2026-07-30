@@ -44,7 +44,7 @@ export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
     await waitPool.end()
     waitPool = null
     database = new AccountDatabase(connectionString)
-    await database.initialize()
+    await database.migrate()
 
     return {
       connectionString,
