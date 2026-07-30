@@ -70,6 +70,110 @@ describe('account management api', () => {
     expect(overview.statusCode).toBe(200)
   })
 
+  it('lets admins grant credits and adjust target memberships from the admin API', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const adminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'admin@seqora.local',
+        password: 'Admin123!',
+      },
+    })
+    expect(adminLogin.statusCode).toBe(200)
+    const adminCookie = cookieValue(adminLogin)
+
+    const granted = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/billing/grants',
+      headers: { cookie: adminCookie },
+      payload: {
+        amount: 40,
+        reason: 'Admin self top-up',
+      },
+    })
+    expect(granted.statusCode).toBe(200)
+    expect(granted.json()).toMatchObject({
+      credits: 1_040,
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          amount: 40,
+          type: 'grant',
+          description: 'Admin self top-up',
+        }),
+      ]),
+    })
+
+    const adjusted = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-creator/adjustments',
+      headers: { cookie: adminCookie },
+      payload: {
+        amount: 25,
+        reason: 'Creator campaign top-up',
+      },
+    })
+    expect(adjusted.statusCode).toBe(200)
+    expect(adjusted.json()).toMatchObject({
+      credits: 311,
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          amount: 25,
+          type: 'adjustment',
+          description: 'Creator campaign top-up',
+        }),
+      ]),
+    })
+
+    const corrected = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-creator/adjustments',
+      headers: { cookie: adminCookie },
+      payload: {
+        amount: -10,
+        reason: 'Creator manual correction',
+      },
+    })
+    expect(corrected.statusCode).toBe(200)
+    expect(corrected.json()).toMatchObject({
+      credits: 301,
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          amount: -10,
+          type: 'adjustment',
+          description: 'Creator manual correction',
+        }),
+      ]),
+    })
+  })
+
+  it('denies creator accounts from admin billing adjustments', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const creatorLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'creator@seqora.local',
+        password: 'Creator123!',
+      },
+    })
+    expect(creatorLogin.statusCode).toBe(200)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-creator/adjustments',
+      headers: { cookie: cookieValue(creatorLogin) },
+      payload: {
+        amount: 10,
+        reason: 'Unauthorized adjustment',
+      },
+    })
+    expect(response.statusCode).toBe(403)
+    expect(response.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } })
+  })
+
   it('registers users, creates workspaces and revokes specific sessions', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 

@@ -43,7 +43,22 @@ export const billingSummarySchema = z.object({
 })
 
 export const updatePlanSchema = z.object({ plan: planSchema })
+export const adminGrantCreditsSchema = z.object({
+  amount: z.coerce.number().int().positive().max(1_000_000),
+  reason: z.string().min(1).max(200),
+})
+export const adminAdjustCreditsSchema = z.object({
+  amount: z.coerce
+    .number()
+    .int()
+    .min(-1_000_000)
+    .max(1_000_000)
+    .refine((amount) => amount !== 0, { message: 'Adjustment amount cannot be zero' }),
+  reason: z.string().min(1).max(200),
+})
 
 export type LedgerEntry = z.infer<typeof ledgerEntrySchema>
 export type MonthlyUsage = z.infer<typeof monthlyUsageSchema>
 export type BillingSummary = z.infer<typeof billingSummarySchema>
+export type AdminGrantCreditsInput = z.infer<typeof adminGrantCreditsSchema>
+export type AdminAdjustCreditsInput = z.infer<typeof adminAdjustCreditsSchema>
