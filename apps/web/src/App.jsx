@@ -4,6 +4,7 @@ import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
 import { IconButton } from './components/ui'
 import { useAuth } from './components/AuthProvider'
+import { canEditProjectSettings, canOpenAccountAdmin } from './features/account/access'
 import { api } from './services/apiClient'
 import {
   selectShotAssetReferences,
@@ -29,6 +30,10 @@ const IDLE_TASK_POLL_MS = 12_000
 const BACKGROUND_TASK_POLL_MS = 30_000
 
 const AdminPage = lazyNamed(() => import('./pages/AdminPage'), 'AdminPage')
+const AccountManagementPage = lazyNamed(
+  () => import('./pages/AccountManagementPage'),
+  'AccountManagementPage',
+)
 const AssetsPage = lazyNamed(() => import('./pages/AssetsPage'), 'AssetsPage')
 const BillingPage = lazyNamed(() => import('./pages/BillingPage'), 'BillingPage')
 const FilmPage = lazyNamed(() => import('./pages/FilmPage'), 'FilmPage')
@@ -53,9 +58,14 @@ function App() {
   const [currentShot, setCurrentShot] = useState(0)
 
   const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
+  const canOpenAdminAccounts = canOpenAccountAdmin(session)
+  const canManageProjectSettings = canEditProjectSettings(session)
 
   useEffect(() => {
     if (adminOnly) return
+    setLoading(true)
+    setWorkspace(null)
+    setTasks([])
     Promise.all([api.projects(), api.billing()])
       .then(async ([projectList, billingSummary]) => {
         setProjects(projectList)
@@ -64,7 +74,7 @@ function App() {
       })
       .catch((error) => setToast(error.message))
       .finally(() => setLoading(false))
-  }, [adminOnly])
+  }, [adminOnly, session.account.tenantId])
 
   useEffect(() => {
     if (!workspace?.project.id) return undefined
@@ -119,6 +129,10 @@ function App() {
     const timer = window.setTimeout(() => setToast(''), 2_800)
     return () => window.clearTimeout(timer)
   }, [toast])
+
+  useEffect(() => {
+    if (activeStep === 'accounts' && !canOpenAdminAccounts) setActiveStep('settings')
+  }, [activeStep, canOpenAdminAccounts])
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
@@ -183,7 +197,7 @@ function App() {
   }
 
   const navigateTo = (id) => {
-    setActiveStep(id)
+    setActiveStep(id === 'accounts' && !canOpenAdminAccounts ? 'settings' : id)
     setMobileNav(false)
   }
 
@@ -342,6 +356,34 @@ function App() {
   }
 
   const renderContent = () => {
+    const settingsPage = (
+      <SettingsPage
+        key={project?.id ?? 'profile'}
+        project={project}
+        account={session.account}
+        canEditProject={canManageProjectSettings}
+        onSave={updateProject}
+        onChangePassword={(input) => api.changePassword(input)}
+        onLogout={logout}
+      />
+    )
+
+    if (activeStep === 'accounts') {
+      if (!canOpenAdminAccounts) return settingsPage
+      return (
+        <AccountManagementPage
+          onWorkspaceChanged={async () => {
+            setProjects([])
+            setWorkspace(null)
+            setTasks([])
+            setBilling(await api.billing())
+          }}
+        />
+      )
+    }
+
+    if (activeStep === 'settings') return settingsPage
+
     if (!project) {
       return (
         <div className="page empty-workspace">
@@ -755,16 +797,7 @@ function App() {
           }}
         />
       ),
-      settings: (
-        <SettingsPage
-          key={project.id}
-          project={project}
-          account={session.account}
-          onSave={updateProject}
-          onChangePassword={(input) => api.changePassword(input)}
-          onLogout={logout}
-        />
-      ),
+      settings: settingsPage,
     }
     return pages[activeStep] || pages.overview
   }
@@ -789,6 +822,7 @@ function App() {
         mobileNav={mobileNav}
         billing={billing}
         assetCount={workspace?.assets.length ?? 0}
+        canOpenAdminAccounts={canOpenAdminAccounts}
         onNavigate={navigateTo}
         onClose={() => setMobileNav(false)}
       />

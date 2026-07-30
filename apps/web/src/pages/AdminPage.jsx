@@ -10,6 +10,7 @@ import {
 import { useEffect, useState } from 'react'
 import { useAuth } from '../components/AuthProvider'
 import { api } from '../services/apiClient'
+import { AccountManagementPage } from './AccountManagementPage'
 
 export function AdminPage() {
   const { session, logout } = useAuth()
@@ -94,6 +95,7 @@ export function AdminPage() {
             </section>
           </>
         )}
+        <AccountManagementPage embedded />
       </main>
     </div>
   )

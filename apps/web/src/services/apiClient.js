@@ -63,6 +63,19 @@ export const api = {
   logout: () => request('/auth/logout', emptyJsonPost()),
   session: () => request('/auth/me'),
   changePassword: (input) => request('/auth/password', json('PUT', input)),
+  workspaces: () => request('/workspaces'),
+  switchWorkspace: (tenantId) => request(`/workspaces/${tenantId}/switch`, emptyJsonPost()),
+  tenantMembers: (tenantId) => request(`/tenants/${tenantId}/members`),
+  createTenantUser: (tenantId, input) => request(`/tenants/${tenantId}/users`, json('POST', input)),
+  updateMemberRoles: (tenantId, userId, roles) =>
+    request(`/tenants/${tenantId}/members/${userId}/roles`, json('PATCH', { roles })),
+  disableMember: (tenantId, userId) =>
+    request(`/tenants/${tenantId}/members/${userId}`, { method: 'DELETE' }),
+  authSessions: () => request('/auth/sessions'),
+  revokeAuthSession: (sessionId) => request(`/auth/sessions/${sessionId}`, { method: 'DELETE' }),
+  tenantSessions: (tenantId) => request(`/tenants/${tenantId}/sessions`),
+  revokeTenantSession: (tenantId, sessionId) =>
+    request(`/tenants/${tenantId}/sessions/${sessionId}`, { method: 'DELETE' }),
   projects: () => request('/projects'),
   project: (id) => request(`/projects/${id}`),
   createProject: (input) => request('/projects', json('POST', input)),

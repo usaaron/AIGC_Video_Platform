@@ -13,7 +13,8 @@ import {
   LayoutDashboard,
   Menu,
   PackageOpen,
-  Settings,
+  UserCog,
+  UserRound,
   UsersRound,
   WandSparkles,
   X,
@@ -81,7 +82,15 @@ export function AppHeader({
   )
 }
 
-export function AppSidebar({ activeStep, mobileNav, billing, assetCount, onNavigate, onClose }) {
+export function AppSidebar({
+  activeStep,
+  mobileNav,
+  billing,
+  assetCount,
+  canOpenAdminAccounts = false,
+  onNavigate,
+  onClose,
+}) {
   const activeIndex = STEPS.findIndex((item) => item.id === activeStep)
   const usage = billing?.monthlyUsage
   const usageBudget = usage?.includedCredits || (usage?.netCredits ?? 0) + (billing?.credits ?? 0)
@@ -130,8 +139,16 @@ export function AppSidebar({ activeStep, mobileNav, billing, assetCount, onNavig
         className={`sidebar-link ${activeStep === 'settings' ? 'active' : ''}`}
         onClick={() => onNavigate('settings')}
       >
-        <Settings size={17} /> 项目设置
+        <UserRound size={17} /> 个人资料
       </button>
+      {canOpenAdminAccounts && (
+        <button
+          className={`sidebar-link ${activeStep === 'accounts' ? 'active' : ''}`}
+          onClick={() => onNavigate('accounts')}
+        >
+          <UserCog size={17} /> 管理员端
+        </button>
+      )}
       <button
         type="button"
         className="usage-box"

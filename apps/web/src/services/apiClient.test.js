@@ -100,6 +100,104 @@ describe('api client', () => {
     )
   })
 
+  it('calls workspace, member and session account management endpoints', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(
+        Response.json({ account: { tenantId: 'tenant-2' }, workspace: { id: 'tenant-2' } }),
+      )
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(Response.json({ userId: 'user-2', roles: ['member'] }))
+      .mockResolvedValueOnce(Response.json({ userId: 'user-1', roles: ['admin'] }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.workspaces()
+    await api.switchWorkspace('tenant-2')
+    await api.tenantMembers('tenant-2')
+    await api.createTenantUser('tenant-2', {
+      email: 'new-member@example.com',
+      name: 'New Member',
+      password: 'NewMember123!',
+      role: 'member',
+    })
+    await api.updateMemberRoles('tenant-2', 'user-1', ['admin'])
+    await api.disableMember('tenant-2', 'user-1')
+    await api.authSessions()
+    await api.revokeAuthSession('session-1')
+    await api.tenantSessions('tenant-2')
+    await api.revokeTenantSession('tenant-2', 'session-2')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/workspaces',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/workspaces/tenant-2/switch',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/v1/tenants/tenant-2/members',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      '/api/v1/tenants/tenant-2/users',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          email: 'new-member@example.com',
+          name: 'New Member',
+          password: 'NewMember123!',
+          role: 'member',
+        }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      '/api/v1/tenants/tenant-2/members/user-1/roles',
+      expect.objectContaining({
+        method: 'PATCH',
+        credentials: 'include',
+        body: JSON.stringify({ roles: ['admin'] }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      '/api/v1/tenants/tenant-2/members/user-1',
+      expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      7,
+      '/api/v1/auth/sessions',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      8,
+      '/api/v1/auth/sessions/session-1',
+      expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      9,
+      '/api/v1/tenants/tenant-2/sessions',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      10,
+      '/api/v1/tenants/tenant-2/sessions/session-2',
+      expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
+    )
+  })
+
   it('uploads media as multipart data without overriding its content type', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ id: 'media-1', url: '/api/v1/media/media-1' }), {
