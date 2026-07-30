@@ -64,6 +64,11 @@ export const accountSessionSchema = sessionSchema.extend({
   workspace: workspaceSchema,
 })
 
+export const workspaceMembershipSchema = z.object({
+  workspace: workspaceSchema,
+  membership: membershipSchema,
+})
+
 export type RegisterAccountInput = z.infer<typeof registerAccountSchema>
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>
 export type AddTenantMemberInput = z.infer<typeof addTenantMemberSchema>
@@ -72,3 +77,4 @@ export type Workspace = z.infer<typeof workspaceSchema>
 export type Membership = z.infer<typeof membershipSchema>
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 export type AccountSession = z.infer<typeof accountSessionSchema>
+export type WorkspaceMembership = z.infer<typeof workspaceMembershipSchema>

@@ -42,6 +42,17 @@ export async function registerAccountManagementRoutes(
     return sendSession(reply.code(201), result, secureCookies)
   })
 
+  app.get('/workspaces', { preHandler: requireAuthenticated }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    return await requireService(service).listWorkspaces(request.principal!)
+  })
+
+  app.post('/workspaces/:tenantId/switch', { preHandler: requireAuthenticated }, async (request, reply) => {
+    const { tenantId } = parse(tenantParams, request.params)
+    const result = await requireService(service).switchWorkspace(request.principal!, tenantId)
+    return sendSession(reply, result, secureCookies)
+  })
+
   app.get(
     '/tenants/:tenantId/members',
     { preHandler: requirePermission(PERMISSIONS.USER_READ) },
@@ -129,6 +140,20 @@ export async function registerAccountManagementRoutes(
       const { tenantId, sessionId } = parse(tenantSessionParams, request.params)
       await requireService(service).revokeTenantSession(request.principal!, tenantId, sessionId)
       return reply.code(204).send()
+    },
+  )
+
+  app.get(
+    '/tenants/:tenantId/sessions',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireService(service).listTenantSessions(
+        request.principal!,
+        tenantId,
+        request.cookies[SESSION_COOKIE],
+      )
     },
   )
 }

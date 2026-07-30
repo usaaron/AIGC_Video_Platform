@@ -19,7 +19,7 @@ export class AuthService {
   async login(input: LoginInput): Promise<{ session: Session; token: string }> {
     const user = await this.users.findByEmail(input.email)
     if (!user || !verifyPassword(input.password, user.passwordHash)) {
-      throw new AppError(401, 'INVALID_CREDENTIALS', '邮箱或密码错误')
+      throw new AppError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect')
     }
 
     const principal: Principal = { userId: user.id, tenantId: user.tenantId, roles: user.roles }
@@ -33,7 +33,7 @@ export class AuthService {
         new Date(issued.payload.expiresAt * 1_000).toISOString(),
       )
       if (!created) {
-        throw new AppError(500, 'SESSION_CREATE_FAILED', '会话创建失败')
+        throw new AppError(500, 'SESSION_CREATE_FAILED', 'Could not create session')
       }
       return {
         token: issued.token,
@@ -55,7 +55,7 @@ export class AuthService {
 
   async session(principal: Principal): Promise<Session> {
     const user = await this.users.findById(principal.userId, principal.tenantId)
-    if (!user) throw new AppError(401, 'SESSION_INVALID', '登录状态已失效')
+    if (!user) throw new AppError(401, 'SESSION_INVALID', 'Session is no longer valid')
     return {
       account: this.users.toAccount(user),
       permissions: [...permissionsFor(principal)],
@@ -65,13 +65,13 @@ export class AuthService {
   async changePassword(principal: Principal, input: ChangePasswordInput): Promise<void> {
     const user = await this.users.findById(principal.userId, principal.tenantId)
     if (!user || user.tenantId !== principal.tenantId) {
-      throw new AppError(401, 'SESSION_INVALID', '登录状态已失效')
+      throw new AppError(401, 'SESSION_INVALID', 'Session is no longer valid')
     }
     if (!verifyPassword(input.currentPassword, user.passwordHash)) {
       throw new AppError(401, 'CURRENT_PASSWORD_INVALID', '当前密码错误')
     }
     if (!(await this.users.updatePassword(user.id, user.tenantId, hashPassword(input.newPassword)))) {
-      throw new AppError(401, 'SESSION_INVALID', '登录状态已失效')
+      throw new AppError(401, 'SESSION_INVALID', 'Session is no longer valid')
     }
     if (this.users.hasDatabase) {
       await this.users.revokeSessionsForUser(user.id, user.tenantId)

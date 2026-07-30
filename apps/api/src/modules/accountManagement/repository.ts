@@ -1,4 +1,11 @@
-import type { Membership, Plan, Role, SessionSummary, Workspace } from '@seqora/contracts'
+import type {
+  Membership,
+  Plan,
+  Role,
+  SessionSummary,
+  Workspace,
+  WorkspaceMembership,
+} from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AuthAccount } from '../auth/accounts.js'
@@ -124,6 +131,45 @@ export class AccountManagementRepository {
 
       return this.readAccountWorkspace(client, userId, tenantId)
     })
+  }
+
+  async listUserWorkspaces(userId: string): Promise<WorkspaceMembership[]> {
+    const result = await this.database.query<AccountWorkspaceRow>(
+      accountWorkspaceSelectSql(`
+        WHERE u.id = $1
+          AND u.status = 'active'
+          AND m.status = 'active'
+          AND t.status = 'active'
+        ORDER BY m.is_primary DESC, m.created_at ASC
+      `),
+      [userId],
+    )
+    return result.rows.map((row) => ({
+      workspace: toWorkspace(row),
+      membership: toMembership(row),
+    }))
+  }
+
+  async findActiveAccountWorkspace(userId: string, tenantId: string): Promise<AccountWorkspace | null> {
+    const result = await this.database.query<AccountWorkspaceRow>(
+      accountWorkspaceSelectSql(`
+        WHERE u.id = $1
+          AND m.tenant_id = $2
+          AND u.status = 'active'
+          AND m.status = 'active'
+          AND t.status = 'active'
+        LIMIT 1
+      `),
+      [userId, tenantId],
+    )
+    const row = result.rows[0]
+    return row
+      ? {
+          account: toAccountWorkspaceAccount(row),
+          workspace: toWorkspace(row),
+          membership: toMembership(row),
+        }
+      : null
   }
 
   async addMemberByEmail(input: {
@@ -331,6 +377,55 @@ export class AccountManagementRepository {
     return result.rows.map((row) => toSessionSummary(row, currentSessionId))
   }
 
+  async listTenantSessions(tenantId: string, currentSessionId: string | null): Promise<SessionSummary[]> {
+    const result = await this.database.query<SessionRow>(
+      `
+      SELECT
+        s.id AS session_id,
+        m.user_id,
+        m.tenant_id,
+        t.name AS tenant_name,
+        m.roles,
+        s.created_at,
+        s.last_seen_at,
+        s.expires_at,
+        s.revoked_at
+      FROM sessions s
+      JOIN tenant_memberships m ON m.id = s.membership_id
+      JOIN tenants t ON t.id = m.tenant_id
+      WHERE m.tenant_id = $1
+      ORDER BY s.created_at DESC
+      `,
+      [tenantId],
+    )
+    return result.rows.map((row) => toSessionSummary(row, currentSessionId))
+  }
+
+  async findTenantSession(tenantId: string, sessionId: string): Promise<SessionSummary | null> {
+    const result = await this.database.query<SessionRow>(
+      `
+      SELECT
+        s.id AS session_id,
+        m.user_id,
+        m.tenant_id,
+        t.name AS tenant_name,
+        m.roles,
+        s.created_at,
+        s.last_seen_at,
+        s.expires_at,
+        s.revoked_at
+      FROM sessions s
+      JOIN tenant_memberships m ON m.id = s.membership_id
+      JOIN tenants t ON t.id = m.tenant_id
+      WHERE m.tenant_id = $1
+        AND s.id = $2
+      LIMIT 1
+      `,
+      [tenantId, sessionId],
+    )
+    return result.rows[0] ? toSessionSummary(result.rows[0], null) : null
+  }
+
   async revokeUserSession(userId: string, tenantId: string, sessionId: string): Promise<boolean> {
     const result = await this.database.query(
       `
@@ -370,57 +465,17 @@ export class AccountManagementRepository {
     tenantId: string,
   ): Promise<AccountWorkspace> {
     const result = await client.query<AccountWorkspaceRow>(
-      `
-      SELECT
-        u.id,
-        ai.email,
-        u.display_name AS name,
-        ai.password_hash,
-        m.id AS membership_id,
-        m.tenant_id,
-        m.roles,
-        m.status AS membership_status,
-        m.is_primary,
-        m.created_at AS membership_created_at,
-        m.updated_at AS membership_updated_at,
-        t.name AS tenant_name,
-        t.status AS tenant_status,
-        t.created_at AS tenant_created_at,
-        t.updated_at AS tenant_updated_at,
-        b.plan,
-        b.credits
-      FROM users u
-      JOIN tenant_memberships m ON m.user_id = u.id
-      JOIN tenants t ON t.id = m.tenant_id
-      JOIN billing_accounts b ON b.membership_id = m.id
-      LEFT JOIN LATERAL (
-        SELECT email, password_hash
-        FROM auth_identities ai
-        WHERE ai.user_id = u.id
-          AND ai.provider = 'local'
-          AND ai.status = 'active'
-        ORDER BY ai.is_primary DESC, ai.created_at ASC
+      accountWorkspaceSelectSql(`
+        WHERE u.id = $1
+          AND m.tenant_id = $2
         LIMIT 1
-      ) ai ON true
-      WHERE u.id = $1
-        AND m.tenant_id = $2
-      LIMIT 1
-      `,
+      `),
       [userId, tenantId],
     )
     const row = result.rows[0]
     if (!row) throw new Error(`Could not read account workspace ${tenantId} for ${userId}`)
     return {
-      account: {
-        id: row.id,
-        email: row.email,
-        name: row.name,
-        passwordHash: row.password_hash ?? '',
-        tenantId: row.tenant_id,
-        roles: row.roles,
-        plan: row.plan,
-        credits: row.credits,
-      },
+      account: toAccountWorkspaceAccount(row),
       workspace: toWorkspace(row),
       membership: toMembership(row),
     }
@@ -469,6 +524,43 @@ type SessionRow = {
   revoked_at: Date | string | null
 }
 
+function accountWorkspaceSelectSql(whereClause: string): string {
+  return `
+    SELECT
+      u.id,
+      ai.email,
+      u.display_name AS name,
+      ai.password_hash,
+      m.id AS membership_id,
+      m.tenant_id,
+      m.roles,
+      m.status AS membership_status,
+      m.is_primary,
+      m.created_at AS membership_created_at,
+      m.updated_at AS membership_updated_at,
+      t.name AS tenant_name,
+      t.status AS tenant_status,
+      t.created_at AS tenant_created_at,
+      t.updated_at AS tenant_updated_at,
+      b.plan,
+      b.credits
+    FROM users u
+    JOIN tenant_memberships m ON m.user_id = u.id
+    JOIN tenants t ON t.id = m.tenant_id
+    JOIN billing_accounts b ON b.membership_id = m.id
+    LEFT JOIN LATERAL (
+      SELECT email, password_hash
+      FROM auth_identities ai
+      WHERE ai.user_id = u.id
+        AND ai.provider = 'local'
+        AND ai.status = 'active'
+      ORDER BY ai.is_primary DESC, ai.created_at ASC
+      LIMIT 1
+    ) ai ON true
+    ${whereClause}
+  `
+}
+
 function membershipSelectSql(whereClause: string): string {
   return `
     SELECT
@@ -514,6 +606,19 @@ function toWorkspace(row: AccountWorkspaceRow): Workspace {
     status: row.tenant_status,
     createdAt: toIso(row.tenant_created_at),
     updatedAt: toIso(row.tenant_updated_at),
+  }
+}
+
+function toAccountWorkspaceAccount(row: AccountWorkspaceRow): AuthAccount {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    passwordHash: row.password_hash ?? '',
+    tenantId: row.tenant_id,
+    roles: row.roles,
+    plan: row.plan,
+    credits: row.credits,
   }
 }
 

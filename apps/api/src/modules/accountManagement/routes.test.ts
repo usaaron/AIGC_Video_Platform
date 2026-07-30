@@ -241,6 +241,234 @@ describe('account management api', () => {
     })
   })
 
+  it('lists and switches workspaces for active memberships', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const owner = await registerUser('workspace-owner@example.com', 'OwnerPassword123!', 'Owner Workspace')
+    const member = await registerUser(
+      'workspace-member@example.com',
+      'MemberPassword123!',
+      'Member Workspace',
+    )
+
+    const added = await app.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${owner.tenantId}/members`,
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'workspace-member@example.com',
+        roles: ['member', 'member'],
+      },
+    })
+    expect(added.statusCode).toBe(201)
+    expect(added.json()).toMatchObject({
+      roles: ['member'],
+      tenantId: owner.tenantId,
+      userId: member.userId,
+    })
+
+    const workspaces = await app.inject({
+      method: 'GET',
+      url: '/api/v1/workspaces',
+      headers: { cookie: member.cookie },
+    })
+    expect(workspaces.statusCode).toBe(200)
+    expect(workspaces.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workspace: expect.objectContaining({ id: member.tenantId, name: 'Member Workspace' }),
+          membership: expect.objectContaining({ roles: expect.arrayContaining(['owner']) }),
+        }),
+        expect.objectContaining({
+          workspace: expect.objectContaining({ id: owner.tenantId, name: 'Owner Workspace' }),
+          membership: expect.objectContaining({ roles: ['member'] }),
+        }),
+      ]),
+    )
+
+    const switched = await switchWorkspace(member.cookie, owner.tenantId)
+    expect(switched.statusCode).toBe(200)
+    expect(switched.json()).toMatchObject({
+      account: {
+        id: member.userId,
+        tenantId: owner.tenantId,
+        roles: ['member'],
+      },
+      workspace: {
+        id: owner.tenantId,
+        name: 'Owner Workspace',
+      },
+    })
+
+    const switchedCookie = cookieValue(switched)
+    const current = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { cookie: switchedCookie },
+    })
+    expect(current.statusCode).toBe(200)
+    expect(current.json()).toMatchObject({
+      account: {
+        id: member.userId,
+        tenantId: owner.tenantId,
+        roles: ['member'],
+      },
+    })
+
+    const sessions = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/sessions',
+      headers: { cookie: switchedCookie },
+    })
+    expect(sessions.statusCode).toBe(200)
+    expect(sessions.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          userId: member.userId,
+          tenantId: owner.tenantId,
+          current: true,
+        }),
+      ]),
+    )
+  })
+
+  it('enforces owner boundaries for elevated memberships and tenant sessions', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const owner = await registerUser('boundary-owner@example.com', 'OwnerPassword123!', 'Boundary Workspace')
+    const admin = await registerUser('boundary-admin@example.com', 'AdminPassword123!', 'Admin Workspace')
+    const member = await registerUser('boundary-member@example.com', 'MemberPassword123!', 'Member Workspace')
+
+    const addAdmin = await app.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${owner.tenantId}/members`,
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'boundary-admin@example.com',
+        roles: ['admin'],
+      },
+    })
+    expect(addAdmin.statusCode).toBe(201)
+
+    const addMember = await app.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${owner.tenantId}/members`,
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'boundary-member@example.com',
+        roles: ['member'],
+      },
+    })
+    expect(addMember.statusCode).toBe(201)
+
+    const adminSwitch = await switchWorkspace(admin.cookie, owner.tenantId)
+    const adminCookie = cookieValue(adminSwitch)
+
+    const selfRoleChange = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/tenants/${owner.tenantId}/members/${owner.userId}/roles`,
+      headers: { cookie: owner.cookie },
+      payload: { roles: ['member'] },
+    })
+    expect(selfRoleChange.statusCode).toBe(400)
+    expect(selfRoleChange.json()).toMatchObject({ error: { code: 'CANNOT_CHANGE_SELF_ROLES' } })
+
+    const demoteOwner = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/tenants/${owner.tenantId}/members/${owner.userId}/roles`,
+      headers: { cookie: adminCookie },
+      payload: { roles: ['member'] },
+    })
+    expect(demoteOwner.statusCode).toBe(403)
+    expect(demoteOwner.json()).toMatchObject({
+      error: { code: 'ELEVATED_MEMBERSHIP_REQUIRES_OWNER' },
+    })
+
+    const disableOwner = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/tenants/${owner.tenantId}/members/${owner.userId}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(disableOwner.statusCode).toBe(403)
+    expect(disableOwner.json()).toMatchObject({
+      error: { code: 'ELEVATED_MEMBERSHIP_REQUIRES_OWNER' },
+    })
+
+    const promoteMember = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/tenants/${owner.tenantId}/members/${member.userId}/roles`,
+      headers: { cookie: adminCookie },
+      payload: { roles: ['admin'] },
+    })
+    expect(promoteMember.statusCode).toBe(403)
+    expect(promoteMember.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } })
+
+    const tenantSessions = await app.inject({
+      method: 'GET',
+      url: `/api/v1/tenants/${owner.tenantId}/sessions`,
+      headers: { cookie: adminCookie },
+    })
+    expect(tenantSessions.statusCode).toBe(200)
+    const sessionList = tenantSessions.json() as Array<{
+      sessionId: string
+      userId: string
+      current: boolean
+    }>
+    const ownerSession = sessionList.find((session) => session.userId === owner.userId)
+    const adminSession = sessionList.find((session) => session.userId === admin.userId && session.current)
+    expect(ownerSession?.sessionId).toEqual(expect.any(String))
+    expect(adminSession?.sessionId).toEqual(expect.any(String))
+
+    const revokeOwnerSession = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/tenants/${owner.tenantId}/sessions/${ownerSession?.sessionId}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(revokeOwnerSession.statusCode).toBe(403)
+    expect(revokeOwnerSession.json()).toMatchObject({
+      error: { code: 'ELEVATED_SESSION_REQUIRES_OWNER' },
+    })
+
+    const revokeOwnAdminSession = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/tenants/${owner.tenantId}/sessions/${adminSession?.sessionId}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(revokeOwnAdminSession.statusCode).toBe(400)
+    expect(revokeOwnAdminSession.json()).toMatchObject({
+      error: { code: 'CANNOT_REVOKE_SELF_SESSION' },
+    })
+
+    const disableMember = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/tenants/${owner.tenantId}/members/${member.userId}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(disableMember.statusCode).toBe(204)
+
+    const disabledSwitch = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${owner.tenantId}/switch`,
+      headers: { cookie: member.cookie },
+    })
+    expect(disabledSwitch.statusCode).toBe(404)
+    expect(disabledSwitch.json()).toMatchObject({ error: { code: 'WORKSPACE_NOT_FOUND' } })
+
+    const ownerRevokesAdmin = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/tenants/${owner.tenantId}/sessions/${adminSession?.sessionId}`,
+      headers: { cookie: owner.cookie },
+    })
+    expect(ownerRevokesAdmin.statusCode).toBe(204)
+
+    const adminAfterRevoke = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { cookie: adminCookie },
+    })
+    expect(adminAfterRevoke.statusCode).toBe(401)
+  })
+
   it('does not expose invitation endpoints', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
@@ -393,6 +621,15 @@ async function registerUser(email: string, password: string, workspaceName: stri
     tenantId: response.json().account.tenantId as string,
     cookie: cookieValue(response),
   }
+}
+
+async function switchWorkspace(cookie: string, tenantId: string) {
+  if (!app) throw new Error('App is not ready')
+  return await app.inject({
+    method: 'POST',
+    url: `/api/v1/workspaces/${tenantId}/switch`,
+    headers: { cookie },
+  })
 }
 
 function cookieValue(response: { cookies: Array<{ name: string; value: string }> }): string {

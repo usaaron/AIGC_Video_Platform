@@ -42,7 +42,7 @@ export async function registerAuthRoutes(
   })
 
   app.get('/auth/me', async (request, reply) => {
-    if (!request.principal) throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录')
+    if (!request.principal) throw new AppError(401, 'AUTHENTICATION_REQUIRED', 'Authentication is required')
     reply.header('Cache-Control', 'no-store')
     return await service.session(request.principal)
   })
@@ -51,7 +51,7 @@ export async function registerAuthRoutes(
     '/auth/password',
     { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
     async (request, reply) => {
-      if (!request.principal) throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录')
+      if (!request.principal) throw new AppError(401, 'AUTHENTICATION_REQUIRED', 'Authentication is required')
       const parsed = changePasswordSchema.safeParse(request.body)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
       await service.changePassword(request.principal, parsed.data)
