@@ -187,7 +187,7 @@ describe('novel contracts', () => {
     expect(generateNovelChapterSummariesRequestSchema.parse({})).toMatchObject({
       batchSize: 4,
       force: false,
-      model: 'gpt-5.6',
+      model: 'glm-5.2',
     })
     expect(generateNovelChapterSummariesRequestSchema.parse({ batchSize: 24 }).batchSize).toBe(24)
     expect(generateNovelChapterSummariesRequestSchema.safeParse({ batchSize: 25 }).success).toBe(false)
@@ -205,7 +205,7 @@ describe('novel contracts', () => {
     expect(generateNovelBoundaryNotesRequestSchema.parse({})).toMatchObject({
       batchSize: 8,
       force: false,
-      model: 'gpt-5.6',
+      model: 'glm-5.2',
     })
     expect(
       novelChapterSummariesResultSchema.safeParse({
@@ -454,7 +454,7 @@ describe('novel contracts', () => {
     })
     expect(generateNovelAssetSuggestionsRequestSchema.parse({})).toEqual({
       maxAssets: 12,
-      model: 'gpt-5.6',
+      model: 'glm-5.2',
     })
     expect(
       novelAssetSuggestionsResultSchema.safeParse({
@@ -509,7 +509,7 @@ describe('novel contracts', () => {
       chapterIds: ['chapter-1'],
       targetSeconds: 60,
       mode: 'scene',
-      model: 'gpt-5.6',
+      model: 'glm-5.2',
       sourceOptions: {
         storyBible: true,
         chapterSummaries: true,

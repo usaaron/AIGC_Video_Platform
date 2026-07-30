@@ -91,7 +91,7 @@ describe('script workflow contracts', () => {
       draft: 'story draft',
       mode: 'quick',
       segment: { goal: '', targetMinutes: 5 },
-      model: 'gpt-5.6',
+      model: 'glm-5.2',
       direction: {
         style: 'auto',
         composition: 'auto',
@@ -104,11 +104,11 @@ describe('script workflow contracts', () => {
       generateScriptAssetSuggestionsRequestSchema.parse({ script: 'scene: river crossing' }),
     ).toMatchObject({
       script: 'scene: river crossing',
-      model: 'gpt-5.6',
+      model: 'glm-5.2',
       direction: expect.objectContaining({ style: 'auto' }),
     })
     expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
-      model: 'gpt-5.6',
+      model: 'glm-5.2',
       direction: {
         style: 'auto',
         composition: 'auto',

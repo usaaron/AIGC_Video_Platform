@@ -115,7 +115,7 @@ async function runRegression(options: CliOptions): Promise<RegressionReport> {
   })
   if (options.mode === 'live' && !hasConfiguredLiveTextProvider(config.TEXT_MODEL, config)) {
     throw new Error(
-      'Live provider mode requires TOKENADVENT_API_KEY for GPT models, or DEEPSEEK_API_KEY/STRINGX_API_KEY for DeepSeek models in apps/api/.env',
+      'Live provider mode requires REHDASU_API_KEY for GLM/Kimi models, TOKENADVENT_API_KEY for SEQORA models, or DEEPSEEK_API_KEY/STRINGX_API_KEY for DeepSeek models in apps/api/.env',
     )
   }
 
@@ -365,11 +365,14 @@ function parseCliOptions(args: string[], environment: NodeJS.ProcessEnv): CliOpt
 
 function hasConfiguredLiveTextProvider(
   model: string,
-  config: { TOKENADVENT_API_KEY: string; DEEPSEEK_API_KEY: string },
+  config: { TOKENADVENT_API_KEY: string; DEEPSEEK_API_KEY: string; REHDASU_API_KEY: string },
 ): boolean {
   const normalizedModel = model.trim().toLowerCase()
   if (normalizedModel.startsWith('gpt-')) return Boolean(config.TOKENADVENT_API_KEY)
   if (normalizedModel.startsWith('deepseek')) return Boolean(config.DEEPSEEK_API_KEY)
+  if (/^(glm-5\.2|glm-5\.2-fast|kimi-k3|kimi-k3-thinking)$/.test(normalizedModel)) {
+    return Boolean(config.REHDASU_API_KEY)
+  }
   return false
 }
 

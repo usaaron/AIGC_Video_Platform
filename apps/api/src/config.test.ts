@@ -16,6 +16,7 @@ describe('production configuration', () => {
       BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
       STRINGX_API_KEY: 'production-video-token',
       TOKENADVENT_API_KEY: 'production-image-token',
+      REHDASU_API_KEY: 'production-text-token',
     })
 
     expect(config.TRUST_PROXY).toBe(true)
@@ -23,7 +24,7 @@ describe('production configuration', () => {
     expect(config.BOOTSTRAP_CREATOR_NAME).toBe('创作者')
     expect(config.BOOTSTRAP_OWNER_NAME).toBe('平台所有者')
     expect(config.BOOTSTRAP_DEMO_WORKSPACE).toBe(false)
-    expect(config.TEXT_MODEL).toBe('gpt-5.6')
+    expect(config.TEXT_MODEL).toBe('glm-5.2')
   })
 
   it('rejects development credentials in production', () => {
@@ -40,6 +41,7 @@ describe('production configuration', () => {
       BOOTSTRAP_OWNER_PASSWORD: 'UniqueOwnerPassword123!',
       BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
       TOKENADVENT_API_KEY: 'production-text-image-token',
+      REHDASU_API_KEY: 'production-text-token',
     }
     expect(() => loadConfig(production)).toThrow('STRINGX_API_KEY is required')
     expect(() => loadConfig({ ...production, VIDEO_PROVIDER: 'volc-ark' })).toThrow('ARK_API_KEY is required')
@@ -80,6 +82,7 @@ describe('production configuration', () => {
       BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
       STRINGX_API_KEY: 'production-video-token',
       TOKENADVENT_API_KEY: 'production-text-image-token',
+      REHDASU_API_KEY: 'production-text-token',
       BOOTSTRAP_DEMO_WORKSPACE: 'true',
     }
     expect(loadConfig(production).BOOTSTRAP_DEMO_WORKSPACE).toBe(true)
@@ -98,5 +101,22 @@ describe('production configuration', () => {
         STRINGX_API_KEY: 'production-video-token',
       }),
     ).toThrow('TOKENADVENT_API_KEY is required')
+  })
+
+  it('requires the selected Rehdasu text provider key in production', () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        WEB_ORIGIN: 'https://studio.example.com',
+        AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
+        BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
+        BOOTSTRAP_OWNER_EMAIL: 'owner@example.com',
+        BOOTSTRAP_OWNER_PASSWORD: 'UniqueOwnerPassword123!',
+        BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
+        STRINGX_API_KEY: 'production-video-token',
+        TOKENADVENT_API_KEY: 'production-image-token',
+        TEXT_MODEL: 'glm-5.2',
+      }),
+    ).toThrow('REHDASU_API_KEY is required')
   })
 })

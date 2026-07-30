@@ -58,8 +58,8 @@ describe('quick start contracts', () => {
     ).toBe(false)
   })
 
-  it('defaults quick start planning to GPT 5.6 but still accepts GPT selection', () => {
-    expect(quickStartPlanRequestSchema.parse({})).toEqual({ model: 'gpt-5.6' })
+  it('defaults quick start planning to GLM 5.2 but still accepts SEQORA selection', () => {
+    expect(quickStartPlanRequestSchema.parse({})).toEqual({ model: 'glm-5.2' })
     expect(quickStartPlanRequestSchema.parse({ model: 'gpt-5.6' })).toEqual({ model: 'gpt-5.6' })
   })
 })

@@ -27,8 +27,12 @@ import {
 } from '../features/script/assetSuggestionCache'
 import { DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
-const DEFAULT_TEXT_MODEL = 'gpt-5.6'
+const DEFAULT_TEXT_MODEL = 'glm-5.2'
 const TEXT_MODEL_OPTIONS = [
+  { value: 'glm-5.2', label: 'GLM 5.2' },
+  { value: 'glm-5.2-fast', label: 'GLM 5.2 Fast' },
+  { value: 'kimi-k3', label: 'Kimi K3' },
+  { value: 'kimi-k3-thinking', label: 'Kimi K3 Thinking' },
   { value: 'gpt-5.6', label: '序幕-SEQORA 5.6' },
   { value: 'gpt-5.5', label: '序幕-SEQORA 5.5' },
   { value: 'gpt-5.4', label: '序幕-SEQORA 5.4' },

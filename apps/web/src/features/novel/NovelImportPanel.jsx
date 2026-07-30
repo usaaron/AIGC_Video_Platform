@@ -50,7 +50,7 @@ const SPLIT_MODE_LABELS = {
 
 export function NovelImportPanel({
   project,
-  textModel = 'gpt-5.6',
+  textModel = 'glm-5.2',
   disabled,
   aspectRatio,
   onImportNovel,

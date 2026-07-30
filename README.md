@@ -17,7 +17,7 @@ pnpm dev
 
 ## Provider routing
 
-- `textProvider`: defaults to GPT `5.6` for Chinese understanding, summaries, scripts, and asset suggestions while DeepSeek V3 remains selectable when its provider is available.
+- `textProvider`: defaults to Rehdasu `glm-5.2` for Chinese understanding, summaries, scripts, and asset suggestions. `kimi-k3`、`kimi-k3-thinking`、`glm-5.2-fast`、DeepSeek V3 and SEQORA 5.4/5.5/5.6 remain selectable when their providers are configured.
 - `imageProvider`: uses TokenAdvent GPT Image 2 / `image2` only for image asset generation and image edits.
 - `videoProvider`: uses Seedance with `tier: mini | fast | pro`; the API stores the selected tier and the Provider maps it to the configured model.
 - Secrets must stay in `apps/api/.env` or deployment secrets. Do not put API keys in code, frontend env, docs, or Git.

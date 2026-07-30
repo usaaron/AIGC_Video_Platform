@@ -22,7 +22,16 @@ export const DEFAULT_SCRIPT_DIRECTION = {
   focus: 'balanced',
 } as const
 
-export const textModelSchema = z.enum(['deepseekV3', 'gpt-5.4', 'gpt-5.5', 'gpt-5.6'])
+export const textModelSchema = z.enum([
+  'glm-5.2',
+  'glm-5.2-fast',
+  'kimi-k3',
+  'kimi-k3-thinking',
+  'deepseekV3',
+  'gpt-5.4',
+  'gpt-5.5',
+  'gpt-5.6',
+])
 
 export const scriptCreativeDirectionSchema = z.object({
   style: z
@@ -47,14 +56,14 @@ export const generateScriptRequestSchema = z.object({
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
   mode: z.enum(['quick', 'segment']).default('quick'),
   segment: scriptGenerationSegmentSchema.default({ goal: '', targetMinutes: 5 }),
-  model: textModelSchema.default('gpt-5.6'),
+  model: textModelSchema.default('glm-5.2'),
 })
 
 export const enrichScriptRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().max(100_000).default(''),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
-  model: textModelSchema.default('gpt-5.6'),
+  model: textModelSchema.default('glm-5.2'),
 })
 
 export const generateShotsRequestSchema = z.object({
@@ -188,7 +197,7 @@ export const generateScriptAssetSuggestionsRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().trim().min(1).max(100_000),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
-  model: textModelSchema.default('gpt-5.6'),
+  model: textModelSchema.default('glm-5.2'),
 })
 
 export const scriptAssetSuggestionsContentSchema = z.object({

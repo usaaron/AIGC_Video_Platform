@@ -122,7 +122,7 @@ Content-Type: multipart/form-data
 
 ## 剧本生成
 
-`POST /api/v1/projects/:projectId/script/generate` 默认使用 GPT `5.6`；页面也允许用户为单次中文文本任务选择 GPT `5.4`、`5.5` 或 DeepSeek V3 作为备选。接口接收当前草稿或项目梗概、已确认资产和视觉方向，一次逻辑调用输出适合 15 到 30 秒视频的 4 到 6 个场景、基础动作和对白，目标约 800 到 1600 个中文字符，最大输出为 `2400` tokens。快速生成不会因为格式或篇幅不足而自动进行第二次完整重写；服务端会返回 `warnings`，用户可以继续编辑或主动补齐专业细节。Provider 的自动重试仅用于瞬时连接故障，不属于内容修订。默认文本模型由 `TEXT_MODEL=gpt-5.6` 配置。
+`POST /api/v1/projects/:projectId/script/generate` 默认使用 Rehdasu `glm-5.2`；页面也允许用户为单次中文文本任务选择 `glm-5.2-fast`、`kimi-k3`、`kimi-k3-thinking`、DeepSeek V3 或 SEQORA `5.4`、`5.5`、`5.6` 作为备选。接口接收当前草稿或项目梗概、已确认资产和视觉方向，一次逻辑调用输出适合 15 到 30 秒视频的 4 到 6 个场景、基础动作和对白，目标约 800 到 1600 个中文字符，最大输出为 `2400` tokens。快速生成不会因为格式或篇幅不足而自动进行第二次完整重写；服务端会返回 `warnings`，用户可以继续编辑或主动补齐专业细节。Provider 的自动重试仅用于瞬时连接故障，不属于内容修订。默认文本模型由 `TEXT_MODEL=glm-5.2` 配置；GLM/Kimi 需要 `REHDASU_API_KEY`、`REHDASU_BASE_URL` 和 `REHDASU_CHAT_COMPLETIONS_PATH`。
 
 `POST /api/v1/projects/:projectId/script/enrich` 是用户主动触发的专业视觉细节补齐接口。它保留快速剧本的场景数量、人物、剧情因果和对白，补充风格、构图、光影、运镜和衔接，最大输出为 `4000` tokens；本次调用也只进行一次逻辑生成，返回 `mode: detailed` 和可能的 `warnings`。生成后前端提供“补齐专业视觉细节”按钮，避免用户每次只想快速起稿时都等待完整制作级剧本。
 

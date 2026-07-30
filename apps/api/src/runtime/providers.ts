@@ -6,6 +6,7 @@ import type { ImageGenerationProvider } from '../core/generation/imageProvider.j
 import { TokenAdventImageProvider } from '../core/generation/tokenAdventImageProvider.js'
 import type { TextGenerationProvider } from '../core/generation/textProvider.js'
 import { TextGenerationProviderError, type TextGenerationRequest } from '../core/generation/textProvider.js'
+import { RehdasuTextProvider } from '../core/generation/rehdasuTextProvider.js'
 import { TokenAdventTextProvider } from '../core/generation/tokenAdventTextProvider.js'
 import type { VideoGenerationProvider, VideoProviderName } from '../core/generation/videoProvider.js'
 import { StringXSeedanceProvider } from '../core/generation/stringXSeedanceProvider.js'
@@ -70,11 +71,28 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
         requestTimeoutMs: config.TOKENADVENT_REQUEST_TIMEOUT_MS,
       })
     : null
-  if (!deepSeekProvider && !gptProvider) return null
-  return new RoutedTextProvider(config.TEXT_MODEL, config.DEEPSEEK_MODEL, deepSeekProvider, gptProvider)
+  const rehdasuProvider = config.REHDASU_API_KEY
+    ? new RehdasuTextProvider({
+        baseUrl: config.REHDASU_BASE_URL,
+        apiKey: config.REHDASU_API_KEY,
+        model: config.REHDASU_MODEL,
+        completionsPath: config.REHDASU_CHAT_COMPLETIONS_PATH,
+        requestTimeoutMs: config.REHDASU_REQUEST_TIMEOUT_MS,
+      })
+    : null
+  if (!deepSeekProvider && !gptProvider && !rehdasuProvider) return null
+  return new RoutedTextProvider(
+    config.TEXT_MODEL,
+    config.DEEPSEEK_MODEL,
+    config.REHDASU_MODEL,
+    deepSeekProvider,
+    gptProvider,
+    rehdasuProvider,
+  )
 }
 
 export function textProviderName(config: AppConfig): string {
+  if (isRehdasuModel(config.TEXT_MODEL)) return 'rehdasu'
   return isGptModel(config.TEXT_MODEL) ? 'tokenadvent-gpt' : 'deepseek-v3'
 }
 
@@ -82,8 +100,10 @@ class RoutedTextProvider implements TextGenerationProvider {
   constructor(
     private readonly defaultModel: string,
     private readonly deepSeekModel: string,
+    private readonly rehdasuModel: string,
     private readonly deepSeekProvider: TextGenerationProvider | null,
     private readonly gptProvider: TextGenerationProvider | null,
+    private readonly rehdasuProvider: TextGenerationProvider | null,
   ) {}
 
   generate(request: TextGenerationRequest): Promise<string> {
@@ -99,6 +119,13 @@ class RoutedTextProvider implements TextGenerationProvider {
         model: isDeepSeekPublicAlias(requestedModel) ? this.deepSeekModel : requestedModel,
       })
     }
+    if (isRehdasuModel(requestedModel)) {
+      if (!this.rehdasuProvider) throw modelNotConfigured(requestedModel)
+      return this.rehdasuProvider.generate({
+        ...request,
+        model: isRehdasuPublicAlias(requestedModel) ? this.rehdasuModel : requestedModel,
+      })
+    }
     throw new TextGenerationProviderError(`文本模型 ${requestedModel} 尚未接入`)
   }
 }
@@ -111,8 +138,16 @@ function isDeepSeekModel(model: string): boolean {
   return model.trim().toLowerCase().startsWith('deepseek')
 }
 
+function isRehdasuModel(model: string): boolean {
+  return /^(glm-5\.2|glm-5\.2-fast|kimi-k3|kimi-k3-thinking)$/i.test(model.trim())
+}
+
 function isDeepSeekPublicAlias(model: string): boolean {
   return ['deepseekv3', 'deepseek-v3'].includes(model.trim().toLowerCase())
+}
+
+function isRehdasuPublicAlias(model: string): boolean {
+  return ['rehdasu', 'rehdasu-default'].includes(model.trim().toLowerCase())
 }
 
 function modelNotConfigured(model: string): TextGenerationProviderError {

@@ -22,9 +22,11 @@ const completionSchema = z.object({
 
 const streamChunkSchema = z.object({
   choices: z.array(
-    z.object({
-      delta: z.object({ content: z.string().optional() }).passthrough(),
-    }),
+    z
+      .object({
+        delta: z.object({ content: z.string().optional() }).passthrough(),
+      })
+      .passthrough(),
   ),
 })
 
@@ -35,6 +37,7 @@ export type OpenAIChatTextOptions = {
   requestTimeoutMs: number
   providerLabel: string
   completionsPath?: string
+  maxTokensMode?: 'both' | 'max_tokens' | 'max_completion_tokens'
   fetcher?: typeof fetch
 }
 
@@ -64,9 +67,7 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
   }
 
   private async generateOnce(request: TextGenerationRequest): Promise<string> {
-    const maxTokens = request.maxOutputTokens
-      ? { max_tokens: request.maxOutputTokens, max_completion_tokens: request.maxOutputTokens }
-      : {}
+    const maxTokens = maxTokenPayload(request.maxOutputTokens, this.options.maxTokensMode ?? 'both')
     const response = await this.fetcher(`${this.baseUrl}${this.completionsPath}`, {
       method: 'POST',
       headers: {
@@ -178,6 +179,16 @@ async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs:
 
 function timeoutError(): DOMException {
   return new DOMException('Text stream timed out', 'TimeoutError')
+}
+
+function maxTokenPayload(
+  maxOutputTokens: number | undefined,
+  mode: 'both' | 'max_tokens' | 'max_completion_tokens',
+): Record<string, number> {
+  if (!maxOutputTokens) return {}
+  if (mode === 'max_tokens') return { max_tokens: maxOutputTokens }
+  if (mode === 'max_completion_tokens') return { max_completion_tokens: maxOutputTokens }
+  return { max_tokens: maxOutputTokens, max_completion_tokens: maxOutputTokens }
 }
 
 async function textProviderError(providerLabel: string, response: Response): Promise<OpenAIChatHttpError> {

@@ -307,7 +307,7 @@ queued -> running -> completed
 
 默认模型：
 
-- 文本：`gpt-5.6`（2026-07-23 已通过 TokenAdvent 模型列表确认可用）
+- 文本：`glm-5.2`（2026-07-27 已通过 Rehdasu `/v1/chat/completions` 验证可用；SEQORA 5.4/5.5/5.6、DeepSeek V3、Kimi K3 仍保留为可选模型）
 - 图片：`gpt-image-2`
 - 图片质量：`low`
 
@@ -561,7 +561,11 @@ TOKENADVENT_BASE_URL=https://tokenadvent.com
 TOKENADVENT_API_KEY=<从密码管理器或部署 Secret 注入>
 IMG2_MODEL=gpt-image-2
 IMG2_QUALITY=low
-TEXT_MODEL=gpt-5.6
+REHDASU_BASE_URL=https://tokenadvent.com
+REHDASU_API_KEY=<从密码管理器或部署 Secret 注入>
+REHDASU_MODEL=glm-5.2
+REHDASU_CHAT_COMPLETIONS_PATH=/v1/chat/completions
+TEXT_MODEL=glm-5.2
 TOKENADVENT_REQUEST_TIMEOUT_MS=180000
 ```
 
@@ -938,7 +942,7 @@ pnpm check
 - 剧本页“一键尝鲜”真实流程为：自动保存当前剧本 -> 文本模型提取最多 1-2 个主要人物、1-2 套服装、1-2 个场景 -> 跳过同类型同名已有资产 -> 展示服务端积分/时间/并发报价 -> 用户确认后原子创建资产、扣积分并加入 Img2 队列 -> 前端刷新项目、任务、账单和会话。分析异常会先修复 JSON，再使用剧本字段提取兜底；没有新资产时不执行重复生成和扣费。
 - 本地浏览器只执行了真实尝鲜“分析计划”，没有点击最终生成：当前项目已有主要人物，因此计划返回 0 个人物、1 套服装、2 个场景，共 3 个任务和 18 积分报价。弹窗能清楚显示“分析完成”和待确认扣费状态，证明按钮、保存、Provider、计划接口和 UI 已闭环。
 - 分镜契约新增 `continuityNote`，旧项目读取时默认空字符串。按场次拆分会提取上一场末尾最多 320 字和本场开头最多 180 字；动作级细拆会优先提取上一镜动作。备注同时进入分镜图片与 Seedance 视频提示词，也可在分镜编辑器手工修改。不要把上一整场原文重复发送给每个镜头；真实 `last-frame -> first_frame` 仍是连续模式的第一优先级，文本上下文只补充人物位置、动作方向、服装、物品和光线状态。
-- TokenAdvent 实时模型列表已确认包含 `gpt-5.6`，本地、默认配置和部署示例均由 `gpt-5.4` 切换到 `gpt-5.6`。该切换减少了本次尝鲜等待，但上游排队、输出长度和 JSON 修复仍可能影响耗时，不能承诺固定响应秒数。
+- Rehdasu 实时模型列表已确认包含 `glm-5.2`、`glm-5.2-fast`、`kimi-k3`、`kimi-k3-thinking`；当前实测 `glm-5.2` 和 `kimi-k3` 可用，`glm-5.2-fast` 与 `kimi-k3-thinking` 返回 503。默认中文文本模型已切换为 `glm-5.2`，但上游排队、输出长度和 JSON 修复仍可能影响耗时，不能承诺固定响应秒数。
 - 本次 `pnpm check` 全部通过：API 92 项、Web 45 项、Contracts 12 项、Prompting 8 项，共 157 项测试；格式、lint、TypeScript 和生产构建均成功。桌面与 `390 x 844` 移动端无横向溢出，浏览器控制台无错误。
 
 ## 26. 2026-07-23 云端源码更新

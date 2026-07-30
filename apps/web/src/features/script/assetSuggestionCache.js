@@ -2,7 +2,7 @@ import { DEFAULT_SCRIPT_DIRECTION } from '@seqora/contracts'
 
 const CACHE_VERSION = 1
 const CACHE_PREFIX = 'seqora:script-asset-suggestions:'
-const DEFAULT_TEXT_MODEL = 'gpt-5.6'
+const DEFAULT_TEXT_MODEL = 'glm-5.2'
 
 export function restoreScriptAssetSuggestionsCache(projectId, script, storage = browserStorage()) {
   if (!projectId || !storage) return null

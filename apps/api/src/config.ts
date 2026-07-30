@@ -66,11 +66,16 @@ const configSchema = z
     DEEPSEEK_MODEL: z.string().min(1).default('deepseekV3'),
     DEEPSEEK_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/api/v1/chat/completions'),
     DEEPSEEK_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
+    REHDASU_BASE_URL: z.string().url().default('https://tokenadvent.com'),
+    REHDASU_API_KEY: z.string().default(''),
+    REHDASU_MODEL: z.string().min(1).default('glm-5.2'),
+    REHDASU_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/v1/chat/completions'),
+    REHDASU_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
     TOKENADVENT_BASE_URL: z.string().url().default('https://tokenadvent.com'),
     TOKENADVENT_API_KEY: z.string().default(''),
     IMG2_MODEL: z.string().min(1).default('gpt-image-2'),
     IMG2_QUALITY: z.enum(['low', 'medium', 'high']).default('low'),
-    TEXT_MODEL: z.string().min(1).default('gpt-5.6'),
+    TEXT_MODEL: z.string().min(1).default('glm-5.2'),
     TOKENADVENT_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
   })
   .superRefine((config, context) => {
@@ -167,6 +172,17 @@ const configSchema = z
         message: 'DEEPSEEK_API_KEY or STRINGX_API_KEY is required for production text generation',
       })
     }
+    if (
+      config.NODE_ENV === 'production' &&
+      isRehdasuTextModel(config.TEXT_MODEL) &&
+      !config.REHDASU_API_KEY
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['REHDASU_API_KEY'],
+        message: 'REHDASU_API_KEY is required for the selected production text model',
+      })
+    }
     if (config.NODE_ENV === 'production' && !config.TOKENADVENT_API_KEY) {
       context.addIssue({
         code: 'custom',
@@ -203,4 +219,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     STRINGX_SEEDANCE_FAST_MODEL: environment.STRINGX_SEEDANCE_FAST_MODEL || environment.STRINGX_VIDEO_MODEL,
     STRINGX_SEEDANCE_PRO_MODEL: environment.STRINGX_SEEDANCE_PRO_MODEL || environment.STRINGX_VIDEO_MODEL,
   })
+}
+
+function isRehdasuTextModel(model: string): boolean {
+  return /^(glm-5\.2|glm-5\.2-fast|kimi-k3|kimi-k3-thinking)$/i.test(model.trim())
 }
