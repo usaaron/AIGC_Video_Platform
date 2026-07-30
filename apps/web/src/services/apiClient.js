@@ -28,6 +28,7 @@ async function request(path, options = {}) {
 }
 
 const json = (method, body) => ({ method, body: JSON.stringify(body) })
+const emptyJsonPost = () => json('POST', {})
 
 const upload = (file) => {
   const body = new FormData()
@@ -59,7 +60,7 @@ export async function waitForProjectScriptUpdate(
 
 export const api = {
   login: (input) => request('/auth/login', json('POST', input)),
-  logout: () => request('/auth/logout', { method: 'POST' }),
+  logout: () => request('/auth/logout', emptyJsonPost()),
   session: () => request('/auth/me'),
   changePassword: (input) => request('/auth/password', json('PUT', input)),
   projects: () => request('/projects'),
@@ -82,17 +83,19 @@ export const api = {
   runNovelSummaryQueueBatch: (id, documentId, queueId, input = {}) =>
     request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/run-batch`, json('POST', input)),
   pauseNovelSummaryQueue: (id, documentId, queueId) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/pause`, { method: 'POST' }),
+    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/pause`, emptyJsonPost()),
   resumeNovelSummaryQueue: (id, documentId, queueId) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/resume`, { method: 'POST' }),
+    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/resume`, emptyJsonPost()),
   retryNovelSummaryQueueItem: (id, documentId, queueId, itemId) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/items/${itemId}/retry`, {
-      method: 'POST',
-    }),
+    request(
+      `/projects/${id}/novels/${documentId}/summary-queue/${queueId}/items/${itemId}/retry`,
+      emptyJsonPost(),
+    ),
   skipNovelSummaryQueueItem: (id, documentId, queueId, itemId) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/items/${itemId}/skip`, {
-      method: 'POST',
-    }),
+    request(
+      `/projects/${id}/novels/${documentId}/summary-queue/${queueId}/items/${itemId}/skip`,
+      emptyJsonPost(),
+    ),
   commitNovelSummaryQueueResults: (id, documentId, queueId, input = {}) =>
     request(
       `/projects/${id}/novels/${documentId}/summary-queue/${queueId}/commit-results`,
@@ -137,7 +140,7 @@ export const api = {
   planQuickStart: (id, model) =>
     request(`/projects/${id}/quick-start/plan`, json('POST', model ? { model } : {})),
   executeQuickStart: (id, input) => request(`/projects/${id}/quick-start/execute`, json('POST', input)),
-  saveVersion: (id) => request(`/projects/${id}/versions`, { method: 'POST' }),
+  saveVersion: (id) => request(`/projects/${id}/versions`, emptyJsonPost()),
   createAsset: (projectId, input) => request(`/projects/${projectId}/assets`, json('POST', input)),
   updateAsset: (projectId, assetId, input) =>
     request(`/projects/${projectId}/assets/${assetId}`, json('PATCH', input)),
@@ -147,14 +150,14 @@ export const api = {
   trustedPortraits: (groupType) =>
     request(`/trusted-assets/portraits?groupType=${encodeURIComponent(groupType)}`),
   registerVirtualPortrait: (projectId, assetId) =>
-    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/register`, { method: 'POST' }),
+    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/register`, emptyJsonPost()),
   bindTrustedPortrait: (projectId, assetId, providerAssetId) =>
     request(
       `/projects/${projectId}/assets/${assetId}/trusted-portrait/bind`,
       json('POST', { providerAssetId }),
     ),
   refreshTrustedPortrait: (projectId, assetId) =>
-    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/refresh`, { method: 'POST' }),
+    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/refresh`, emptyJsonPost()),
   uploadMedia: (projectId, file) => request(`/projects/${projectId}/media`, upload(file)),
   createShot: (projectId, input) => request(`/projects/${projectId}/shots`, json('POST', input)),
   updateShot: (projectId, shotId, input) =>
@@ -165,8 +168,8 @@ export const api = {
   createTask: (input) => request('/generation/tasks', json('POST', input)),
   createFilmPreview: (projectId, mode = 'full', force = false) =>
     request(`/projects/${projectId}/film-preview`, json('POST', { mode, force })),
-  pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, { method: 'POST' }),
-  resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, { method: 'POST' }),
+  pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, emptyJsonPost()),
+  resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, emptyJsonPost()),
   deleteTask: (taskId) => request(`/generation/tasks/${taskId}`, { method: 'DELETE' }),
   clearTasks: (projectId) =>
     request(`/projects/${projectId}/generation/tasks/completed`, { method: 'DELETE' }),

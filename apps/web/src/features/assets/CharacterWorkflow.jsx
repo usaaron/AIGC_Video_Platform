@@ -382,6 +382,7 @@ function TrustedPortraitPanel({
   const [busyAction, setBusyAction] = useState(null)
   const [error, setError] = useState('')
   const [pollError, setPollError] = useState('')
+  const [actionNotice, setActionNotice] = useState('')
   const refreshTrustedPortraitRef = useRef(onRefreshTrustedPortrait)
   const attributesChangeRef = useRef(onAttributesChange)
   const portrait = attributes.trustedPortrait
@@ -393,7 +394,18 @@ function TrustedPortraitPanel({
     failed: '审核失败',
   }
   const activeLibraryPortraits = libraryPortraits.filter((item) => item.status === 'active')
-  const registrationHint = registrationAvailabilityHint(configuration, attributes.faceStatus)
+  const registerBlocker = virtualPortraitRegistrationBlocker({
+    assetId,
+    canEnsureAsset: Boolean(onEnsureAsset),
+    configuration,
+    faceStatus: attributes.faceStatus,
+    portrait,
+    busyAction,
+  })
+  const registrationHint = registrationAvailabilityHint(registerBlocker)
+  const registerButtonTitle = registerBlocker
+    ? `当前不能创建 AI 人像资源：${registerBlocker}`
+    : '提交已确认的面部基准到弦序素材库'
   const boundPreviewUrl = portraitPreviewUrl(portrait)
 
   useEffect(() => {
@@ -436,12 +448,23 @@ function TrustedPortraitPanel({
   const run = async (action, callback) => {
     setBusyAction(action)
     setError('')
+    setActionNotice(action === 'register' ? '正在提交面部基准到弦序素材库，请等待上游返回 Asset ID。' : '')
     if (action === 'register' || action === 'refresh') setPollError('')
     try {
       const updated = await callback()
       if (updated?.attributes) onAttributesChange(updated.attributes)
+      if (action === 'register') {
+        setActionNotice('创建申请已提交，系统会自动同步弦序状态；通过后即可用于 Seedance 视频。')
+      } else if (action === 'refresh') {
+        setActionNotice('已同步弦序人像状态。')
+      } else if (action === 'bind') {
+        setActionNotice('已校验并绑定可信人像。')
+      } else if (action === 'list') {
+        setActionNotice('素材库白名单已同步。')
+      }
     } catch (actionError) {
-      setError(actionError.message)
+      setActionNotice('')
+      setError(actionError instanceof Error ? actionError.message : '可信人像操作失败')
     } finally {
       setBusyAction(null)
     }
@@ -486,21 +509,21 @@ function TrustedPortraitPanel({
         <button
           className="button secondary"
           type="button"
-          disabled={
-            (!assetId && !onEnsureAsset) ||
-            attributes.faceStatus !== 'approved' ||
-            (portrait?.status !== 'failed' && Boolean(portrait)) ||
-            portrait?.status === 'processing' ||
-            busyAction !== null ||
-            !configuration?.virtualRegistrationReady
-          }
-          onClick={() =>
+          disabled={busyAction !== null}
+          data-blocked={registerBlocker ? 'true' : undefined}
+          title={registerButtonTitle}
+          onClick={() => {
+            if (registerBlocker) {
+              setError('')
+              setActionNotice(`当前不能创建 AI 人像资源：${registerBlocker}`)
+              return
+            }
             void run('register', async () => {
               const persisted = assetId ? { id: assetId } : await onEnsureAsset?.()
               if (!persisted?.id) throw new Error('请先保存人物资产，再创建 AI 人像资源')
               return onRegisterVirtualPortrait(persisted.id)
             })
-          }
+          }}
         >
           {busyAction === 'register' ? (
             <LoaderCircle size={15} className="spin" />
@@ -525,6 +548,11 @@ function TrustedPortraitPanel({
       {registrationHint && (
         <p className="trusted-portrait-registration-hint" role="status">
           {registrationHint}
+        </p>
+      )}
+      {actionNotice && (
+        <p className="trusted-portrait-action-notice" role="status" aria-live="polite">
+          {actionNotice}
         </p>
       )}
 
@@ -823,14 +851,30 @@ function completedOutput(task) {
   )
 }
 
-function registrationAvailabilityHint(configuration, faceStatus) {
-  if (!configuration) return '正在检查弦序素材库配置。'
-  if (faceStatus !== 'approved') return '先在面部定稿步骤确认面部基准，随后即可提交 AI 人像资源。'
-  if (!configuration.configured) return '弦序素材库凭据尚未配置，请先使用下方素材库绑定已有资源。'
-  if (!configuration.virtualRegistrationReady) {
-    return '自动创建需要配置可公网访问的 API 地址，供弦序读取面部原图；本地可先在弦序上传，再从下方素材库绑定。'
-  }
+function virtualPortraitRegistrationBlocker({
+  assetId,
+  canEnsureAsset,
+  configuration,
+  faceStatus,
+  portrait,
+  busyAction,
+}) {
+  if (busyAction === 'register') return '正在提交创建申请，请等待当前操作完成'
+  if (busyAction !== null) return '请等待当前素材库操作完成'
+  if (!assetId && !canEnsureAsset) return '请先保存人物资产'
+  if (!configuration) return '正在检查弦序素材库配置'
+  if (!configuration.configured) return '服务端尚未配置素材库 Access Key / Secret Key'
+  if (!configuration.virtualRegistrationReady) return '缺少公网 API 地址，弦序无法下载面部基准'
+  if (faceStatus !== 'approved') return '请先在面部定稿步骤确认面部基准'
+  if (portrait?.status === 'processing') return '已提交上游处理中，请等待自动同步或手动刷新'
+  if (portrait?.status === 'active') return '已绑定可用人像资源，无需重复创建'
+  if (portrait && portrait.status !== 'failed') return '当前人像状态暂不支持重新提交'
   return ''
+}
+
+function registrationAvailabilityHint(blocker) {
+  if (blocker) return `当前不能创建：${blocker}。`
+  return '面部基准已确认，可以提交 AI 人像资源；提交后需等待弦序审核通过。'
 }
 
 function isActive(task) {

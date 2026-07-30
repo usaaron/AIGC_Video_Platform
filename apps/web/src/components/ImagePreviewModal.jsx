@@ -1,10 +1,11 @@
 import { Download, LoaderCircle, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { hasDownloadedImageName, imageDownloadFileName, rememberDownloadedImageName } from './imageDownload'
 
 export function ImagePreviewModal({ image, onClose }) {
   const [downloading, setDownloading] = useState(false)
-  const [error, setError] = useState('')
+  const [downloadMessage, setDownloadMessage] = useState(null)
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -21,11 +22,20 @@ export function ImagePreviewModal({ image, onClose }) {
 
   const handleDownload = async () => {
     setDownloading(true)
-    setError('')
+    setDownloadMessage(null)
     try {
-      await downloadImage(image.url, image.fileName || image.alt || '资产图片')
+      const result = await downloadImage(image.url, image.fileName || image.alt || '资产图片')
+      setDownloadMessage({
+        type: result.duplicate ? 'warning' : 'success',
+        text: result.duplicate
+          ? `已开始下载 ${result.fileName}。检测到本浏览器曾下载过同名文件，浏览器可能会自动追加编号，或在保存时提示覆盖。`
+          : `已开始下载 ${result.fileName}。`,
+      })
     } catch (downloadError) {
-      setError(downloadError.message)
+      setDownloadMessage({
+        type: 'error',
+        text: downloadError instanceof Error ? downloadError.message : '图片下载失败，请稍后重试',
+      })
     } finally {
       setDownloading(false)
     }
@@ -66,9 +76,13 @@ export function ImagePreviewModal({ image, onClose }) {
         <div className="image-preview-canvas">
           <img src={image.url} alt={image.alt || '资产图片'} />
         </div>
-        {error && (
-          <p className="image-preview-error" role="alert">
-            {error}
+        {downloadMessage && (
+          <p
+            className={`image-preview-message ${downloadMessage.type}`}
+            role={downloadMessage.type === 'error' ? 'alert' : 'status'}
+            aria-live="polite"
+          >
+            {downloadMessage.text}
           </p>
         )}
       </div>
@@ -81,29 +95,16 @@ async function downloadImage(url, requestedName) {
   const response = await fetch(url, { credentials: 'include' })
   if (!response.ok) throw new Error('图片下载失败，请稍后重试')
   const blob = await response.blob()
-  const extension = extensionFor(blob.type)
-  const baseName = sanitizeFileName(requestedName).replace(/\.(png|jpe?g|webp|gif)$/i, '') || '资产图片'
+  const fileName = imageDownloadFileName(requestedName, blob.type)
+  const duplicate = hasDownloadedImageName(fileName)
   const objectUrl = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = objectUrl
-  anchor.download = `${baseName}.${extension}`
+  anchor.download = fileName
   document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
-}
-
-function extensionFor(contentType) {
-  if (contentType.includes('jpeg')) return 'jpg'
-  if (contentType.includes('webp')) return 'webp'
-  if (contentType.includes('gif')) return 'gif'
-  return 'png'
-}
-
-function sanitizeFileName(value) {
-  const reserved = '<>:"/\\|?*'
-  return [...value]
-    .map((character) => (character.charCodeAt(0) < 32 || reserved.includes(character) ? '-' : character))
-    .join('')
-    .trim()
+  rememberDownloadedImageName(fileName)
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000)
+  return { duplicate, fileName }
 }
