@@ -7,6 +7,7 @@ import type { VideoGenerationProvider } from '../generation/videoProvider.js'
 import { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { GenerationTaskRunner } from './taskDispatcher.js'
+import type { TaskRunnerLock } from './taskRunnerLock.js'
 
 describe('GenerationTaskRunner Seedance integration', () => {
   it('leaves local FFmpeg composition progress under the composer ownership', async () => {
@@ -133,6 +134,49 @@ describe('GenerationTaskRunner Seedance integration', () => {
     ).toEqual(['running', 'queued', 'queued'])
   })
 
+  it('skips worker work when the task runner lock is already held', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    await store.mutate((state) => state.tasks.unshift(...queuedVideoTasks(1)))
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+    }
+    const taskRunnerLock: TaskRunnerLock = {
+      runExclusive: vi.fn(async () => false),
+    }
+
+    await new GenerationTaskRunner(store, { videoProvider: provider, taskRunnerLock }).tick()
+
+    expect(taskRunnerLock.runExclusive).toHaveBeenCalledOnce()
+    expect(provider.submit).not.toHaveBeenCalled()
+    const stored = store.read((state) => state.tasks.find((task) => task.id === 'parallel-video-1')!)
+    expect(stored.status).toBe('queued')
+    expect(stored.attempts ?? 0).toBe(0)
+    expect(stored.leaseOwnerId ?? null).toBeNull()
+  })
+
+  it('refreshes runtime state before running inside the task runner lock', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const calls: string[] = []
+    const taskRunnerLock: TaskRunnerLock = {
+      runExclusive: vi.fn(async (operation) => {
+        calls.push('lock')
+        await operation()
+        return true
+      }),
+    }
+    const beforeTick = vi.fn(async () => {
+      calls.push('refresh')
+    })
+
+    await new GenerationTaskRunner(store, { beforeTick, taskRunnerLock }).tick()
+
+    expect(calls).toEqual(['lock', 'refresh'])
+  })
+
   it('keeps claiming member image work while a previous Img2 request is still pending', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -173,6 +217,34 @@ describe('GenerationTaskRunner Seedance integration', () => {
         ),
       ).toEqual(['completed', 'completed']),
     )
+  })
+
+  it('passes a stable idempotency key to Img2 provider submissions', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const task = imageTask('idempotent-image-task', 'asset-idempotent')
+    await store.mutate((state) => state.tasks.unshift(task))
+    const imageProvider: ImageGenerationProvider = {
+      generate: vi.fn(async () => [
+        { view: 'single', contentType: 'image/png', content: Buffer.from('idempotent-image') },
+      ]),
+    }
+
+    await new GenerationTaskRunner(store, {
+      imageProvider,
+      objectStorage: memoryObjectStorage(),
+    }).tick()
+
+    await vi.waitFor(() => expect(imageProvider.generate).toHaveBeenCalledOnce())
+    expect(imageProvider.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: task.id,
+        idempotencyKey: `generation:${task.tenantId}:${task.id}`,
+      }),
+    )
+    expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+      metadata: { providerIdempotencyKey: `generation:${task.tenantId}:${task.id}` },
+    })
   })
 
   it('marks a timed out Img2 submission as failed instead of leaving it submitting', async () => {
@@ -303,6 +375,65 @@ describe('GenerationTaskRunner Seedance integration', () => {
     })
   })
 
+  it('retries an interrupted remote submission with the same idempotency key after restart', async () => {
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(async () => ({ providerTaskId: 'remote-recovered-submission', status: 'queued', progress: 0 })),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const [task] = queuedVideoTasks(1)
+    const expired = new Date(Date.now() - 1_000).toISOString()
+    const idempotencyKey = `generation:${task!.tenantId}:${task!.id}`
+    await store.mutate((state) => {
+      state.tasks.unshift({
+        ...task!,
+        status: 'running',
+        progress: 1,
+        attempts: 1,
+        maxAttempts: 3,
+        metadata: {
+          ...task!.metadata,
+          providerName: 'stringx-seedance',
+          providerState: 'submitting',
+          providerIdempotencyKey: idempotencyKey,
+        },
+        leaseOwnerId: 'old-runner',
+        leaseToken: 'old-token',
+        leaseAcquiredAt: expired,
+        leaseHeartbeatAt: expired,
+        leaseExpiresAt: expired,
+        updatedAt: expired,
+      })
+    })
+
+    await new GenerationTaskRunner(store, {
+      videoProvider: provider,
+      providerPollIntervalMs: 60_000,
+      leaseTtlMs: 60_000,
+    }).tick()
+
+    await vi.waitFor(() => expect(provider.submit).toHaveBeenCalledOnce())
+    expect(provider.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: task!.id,
+        idempotencyKey,
+      }),
+    )
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((item) => item.id === task!.id))).toMatchObject({
+        status: 'running',
+        attempts: 1,
+        metadata: {
+          providerTaskId: 'remote-recovered-submission',
+          providerIdempotencyKey: idempotencyKey,
+          providerSubmissionRecoveredAt: expect.any(String),
+        },
+      }),
+    )
+  })
+
   it('fails a queued task without submitting when max attempts are exhausted', async () => {
     const provider: VideoGenerationProvider = {
       submit: vi.fn(),
@@ -400,6 +531,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
     expect(provider.submit).toHaveBeenCalledWith(
       expect.objectContaining({
+        idempotencyKey: `generation:${task.tenantId}:${task.id}`,
         prompt: task.prompt,
         seconds: 4,
         ratio: '9:16',
@@ -425,6 +557,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       metadata: {
         providerName: 'stringx-seedance',
         providerTaskId: 'remote-task-1',
+        providerIdempotencyKey: `generation:${task.tenantId}:${task.id}`,
         providerState: 'completed',
       },
       outputs: [

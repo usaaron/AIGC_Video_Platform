@@ -58,6 +58,34 @@ describe('VolcArkSeedanceProvider', () => {
     expect(result).toEqual({ providerTaskId: 'cgt-test-1', status: 'queued', progress: 0 })
   })
 
+  it('sends idempotency keys to the provider request', async () => {
+    let capturedInit: RequestInit | undefined
+    const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedInit = init
+      return Response.json({ id: 'cgt-idempotent' })
+    }) as typeof fetch
+    const provider = createProvider(fetcher)
+
+    await provider.submit({
+      taskId: 'local-task-idempotent',
+      idempotencyKey: 'generation:tenant-1:task-1',
+      model: 'doubao-seedance-2-0-260128',
+      prompt: 'test prompt',
+      seconds: 5,
+      ratio: '16:9',
+      resolution: '720p',
+      images: [],
+      generateAudio: false,
+    })
+
+    expect(capturedInit?.headers).toMatchObject({
+      'Idempotency-Key': 'generation:tenant-1:task-1',
+    })
+    expect(JSON.parse(String(capturedInit?.body))).toMatchObject({
+      clientRequestId: 'generation:tenant-1:task-1',
+    })
+  })
+
   it('maps Seedance tiers to configured provider models', async () => {
     let capturedInit: RequestInit | undefined
     const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) => {

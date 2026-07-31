@@ -18,6 +18,7 @@ import { FilmPreviewComposer, type FilmPreviewDispatcher } from './core/film/fil
 import { GenerationTaskRunner, noopTaskDispatcher, type TaskDispatcher } from './core/jobs/taskDispatcher.js'
 import { createBullMqTaskDispatcher, type BullMqTaskDispatcher } from './core/jobs/bullMqQueue.js'
 import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
+import { PostgresAdvisoryTaskRunnerLock } from './core/jobs/taskRunnerLock.js'
 import { AccountDatabase } from './infra/postgres.js'
 import { AppStore } from './infra/store.js'
 import { createObjectStorage } from './infra/objectStorage.js'
@@ -157,6 +158,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await generationTaskRepository.persistRuntimeSnapshot(snapshot)
     })
   }
+  const refreshProjectDomainRuntimeCache = database
+    ? async () => {
+        await projectRepository.refreshRuntimeCacheFromDatabase()
+        await generationTaskRepository.refreshRuntimeCacheFromDatabase()
+      }
+    : null
   const objectStorage = createObjectStorage(options.config)
   const videoProvider =
     options.videoProvider === undefined ? createVideoProvider(options.config) : options.videoProvider
@@ -320,6 +327,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         objectStorage,
         creditLedger,
         providerPollIntervalMs: options.config.VIDEO_POLL_INTERVAL_MS,
+        ...(refreshProjectDomainRuntimeCache ? { beforeTick: refreshProjectDomainRuntimeCache } : {}),
+        ...(database ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database) } : {}),
         onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
       }),
       bullMqDispatcher: null,

@@ -14,6 +14,7 @@ describe('TokenAdventImageProvider', () => {
 
     const outputs = await provider.generate({
       taskId: 'task-1',
+      idempotencyKey: 'generation:tenant-1:task-1',
       assetId: 'asset-1',
       aspectRatio: '9:16',
       prompt: '青年女性角色大头照',
@@ -28,6 +29,9 @@ describe('TokenAdventImageProvider', () => {
       size: '1024x1536',
       quality: 'low',
       output_format: 'png',
+    })
+    expect(capturedInit?.headers).toMatchObject({
+      'Idempotency-Key': 'generation:tenant-1:task-1:single',
     })
     expect(outputs[0]).toMatchObject({ view: 'single', contentType: 'image/png' })
     expect(outputs[0]?.content.toString()).toBe('png-content')

@@ -71,6 +71,9 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
 
     const response = await this.requestJson('/contents/generations/tasks', {
       method: 'POST',
+      ...(request.idempotencyKey
+        ? { headers: { 'Idempotency-Key': request.idempotencyKey } }
+        : {}),
       body: JSON.stringify({
         model: this.resolveModel(request.model, request.tier),
         content: [
@@ -78,7 +81,7 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
           ...images.slice(0, 9).map((image) => this.imageContentPart(image)),
         ],
         generate_audio: request.generateAudio,
-        clientRequestId: request.taskId,
+        clientRequestId: request.idempotencyKey ?? request.taskId,
         resolution: resolutionSchema.parse(request.resolution),
         ratio: request.ratio,
         duration: request.seconds,

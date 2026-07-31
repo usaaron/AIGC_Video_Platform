@@ -5,6 +5,7 @@ export type VideoGenerationTier = 'mini' | 'fast' | 'pro'
 
 export type VideoGenerationRequest = {
   taskId: string
+  idempotencyKey?: string
   model: string | null
   tier?: VideoGenerationTier | null
   prompt: string

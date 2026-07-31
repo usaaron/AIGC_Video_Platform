@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { createBullMqGenerationWorker, type BullMqGenerationWorker } from './core/jobs/bullMqQueue.js'
 import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
 import { GenerationTaskRunner, noopTaskDispatcher } from './core/jobs/taskDispatcher.js'
+import { PostgresAdvisoryTaskRunnerLock } from './core/jobs/taskRunnerLock.js'
 import { FilmPreviewComposer } from './core/film/filmPreviewComposer.js'
 import { loadConfig } from './config.js'
 import { AccountDatabase } from './infra/postgres.js'
@@ -61,6 +62,12 @@ if (database) {
     await generationTaskRepository.persistRuntimeSnapshot(snapshot)
   })
 }
+const refreshProjectDomainRuntimeCache = database
+  ? async () => {
+      await projectRepository.refreshRuntimeCacheFromDatabase()
+      await generationTaskRepository.refreshRuntimeCacheFromDatabase()
+    }
+  : null
 const filmPreviewComposer =
   videoProvider && objectStorage
     ? new FilmPreviewComposer(
@@ -82,6 +89,8 @@ const taskRunner = new GenerationTaskRunner(store, {
   objectStorage,
   creditLedger,
   providerPollIntervalMs: config.VIDEO_POLL_INTERVAL_MS,
+  ...(refreshProjectDomainRuntimeCache ? { beforeTick: refreshProjectDomainRuntimeCache } : {}),
+  ...(database ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database) } : {}),
   onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
 })
 generationService = new GenerationService(
@@ -95,6 +104,7 @@ generationService = new GenerationService(
 
 let queueWorker: BullMqGenerationWorker | null = null
 if (config.TASK_QUEUE_DRIVER === 'bullmq') {
+  await taskRunner.recoverInterrupted()
   queueWorker = createBullMqGenerationWorker(config, taskRunner)
   await queueWorker.start()
   process.stdout.write(

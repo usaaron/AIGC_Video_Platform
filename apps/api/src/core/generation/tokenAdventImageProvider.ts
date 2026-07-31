@@ -34,9 +34,10 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
     const outputs: ImageGenerationOutput[] = []
     for (const view of request.outputs) {
       const prompt = promptFor(request, view)
+      const idempotencyKey = request.idempotencyKey ? `${request.idempotencyKey}:${view}` : undefined
       const response = request.references.length
-        ? await this.edit(prompt, request.aspectRatio, request.references)
-        : await this.create(prompt, request.aspectRatio)
+        ? await this.edit(prompt, request.aspectRatio, request.references, idempotencyKey)
+        : await this.create(prompt, request.aspectRatio, idempotencyKey)
       const parsed = imageResponseSchema.parse(response)
       outputs.push({
         view,
@@ -47,10 +48,13 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
     return outputs
   }
 
-  private create(prompt: string, aspectRatio: string): Promise<unknown> {
+  private create(prompt: string, aspectRatio: string, idempotencyKey?: string): Promise<unknown> {
     return this.requestJson('/v1/images/generations', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+      },
       body: JSON.stringify({
         model: this.options.model,
         prompt,
@@ -66,6 +70,7 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
     prompt: string,
     aspectRatio: string,
     references: ImageGenerationRequest['references'],
+    idempotencyKey?: string,
   ): Promise<unknown> {
     const body = new FormData()
     body.set('model', this.options.model)
@@ -80,7 +85,11 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
         reference.name,
       )
     }
-    return this.requestJson('/v1/images/edits', { method: 'POST', body })
+    return this.requestJson('/v1/images/edits', {
+      method: 'POST',
+      ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
+      body,
+    })
   }
 
   private async requestJson(path: string, init: RequestInit): Promise<unknown> {

@@ -17,6 +17,25 @@ afterAll(async () => {
 })
 
 describe('postgres migrations', () => {
+  it('runs advisory lock operations only while the lock is available', async () => {
+    if (!postgres) throw new Error('Postgres fixture is not ready')
+    const database = new AccountDatabase(postgres.connectionString)
+    const lockKey = `seqora:test-lock:${uniqueSuffix()}`
+
+    try {
+      const result = await database.withAdvisoryLock(lockKey, async () => {
+        const nested = await database.withAdvisoryLock(lockKey, async () => 'nested')
+        return { nested }
+      })
+      const released = await database.withAdvisoryLock(lockKey, async () => 'released')
+
+      expect(result).toEqual({ nested: null })
+      expect(released).toBe('released')
+    } finally {
+      await database.close()
+    }
+  })
+
   it('checks pending migrations without applying them', async () => {
     const suffix = uniqueSuffix()
     const tableName = `migration_check_${suffix}`

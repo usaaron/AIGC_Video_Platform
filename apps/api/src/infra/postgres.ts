@@ -81,6 +81,34 @@ export class AccountDatabase {
     }
   }
 
+  async withAdvisoryLock<T>(lockKey: string, operation: () => Promise<T>): Promise<T | null> {
+    const client = await this.pool.connect()
+    let acquired = false
+    try {
+      const lock = await client.query<{ acquired: boolean }>(
+        'SELECT pg_try_advisory_lock(hashtext($1)) AS acquired',
+        [lockKey],
+      )
+      acquired = lock.rows[0]?.acquired === true
+      if (!acquired) return null
+      return await operation()
+    } finally {
+      if (acquired) {
+        await client
+          .query('SELECT pg_advisory_unlock(hashtext($1))', [lockKey])
+          .catch((error: unknown) => {
+            process.emitWarning(
+              `Failed to release Postgres advisory lock ${lockKey}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              { code: 'SEQORA_POSTGRES_ADVISORY_LOCK_RELEASE_FAILED' },
+            )
+          })
+      }
+      client.release()
+    }
+  }
+
   private async runInitialization(mode: DatabaseMigrationMode): Promise<void> {
     if (mode === 'migrate') {
       await this.runPendingMigrations()

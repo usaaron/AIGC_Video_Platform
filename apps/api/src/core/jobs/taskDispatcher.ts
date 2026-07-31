@@ -34,6 +34,7 @@ import {
   releaseGenerationTaskLease,
   renewGenerationTaskLease,
 } from './taskLease.js'
+import { noopTaskRunnerLock, type TaskRunnerLock } from './taskRunnerLock.js'
 
 export interface TaskDispatcher {
   dispatch(task: GenerationTask): Promise<void>
@@ -51,6 +52,8 @@ type GenerationTaskRunnerOptions = {
   creditLedger?: CreditLedger | null
   providerPollIntervalMs?: number
   leaseTtlMs?: number
+  beforeTick?: () => Promise<void>
+  taskRunnerLock?: TaskRunnerLock | null
   onVideoCompleted?: (task: GenerationTask) => Promise<void>
 }
 
@@ -66,6 +69,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly providerPollIntervalMs: number
   private readonly leaseTtlMs: number
   private readonly leaseOwnerId: string
+  private readonly beforeTick: (() => Promise<void>) | null
+  private readonly taskRunnerLock: TaskRunnerLock
   private readonly onVideoCompleted: ((task: GenerationTask) => Promise<void>) | null
   private readonly activeExecutions = new Set<string>()
 
@@ -82,6 +87,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
     this.providerPollIntervalMs = options.providerPollIntervalMs ?? 5_000
     this.leaseTtlMs = options.leaseTtlMs ?? 120_000
     this.leaseOwnerId = `generation-task-runner-${process.pid}-${randomUUID()}`
+    this.beforeTick = options.beforeTick ?? null
+    this.taskRunnerLock = options.taskRunnerLock ?? noopTaskRunnerLock
     this.onVideoCompleted = options.onVideoCompleted ?? null
   }
 
@@ -103,7 +110,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   async tick(): Promise<void> {
     if (this.tickPromise) return this.tickPromise
 
-    const tickPromise = this.runTick()
+    const tickPromise = this.taskRunnerLock.runExclusive(() => this.runTick()).then(() => undefined)
     this.tickPromise = tickPromise
 
     try {
@@ -113,9 +120,14 @@ export class GenerationTaskRunner implements TaskDispatcher {
     }
   }
 
+  async recoverInterrupted(): Promise<void> {
+    await this.tick()
+  }
+
   private async runTick(): Promise<void> {
+    await this.beforeTick?.()
     await this.recoverStatusParseFailures()
-    await this.recoverStaleRunningTasks()
+    const recoveredSubmissions = await this.recoverStaleRunningTasks()
     await this.reconcileCancelledRemoteTasks()
     await this.refundTerminalTasks()
     const hasActiveTasks = this.store.read((state) =>
@@ -126,8 +138,12 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const remoteTasks = await this.claimQueuedTasks()
 
     await this.refundTerminalTasks()
-    this.scheduleRemoteExecutions(remoteTasks.video, (task) => this.submitRemoteVideo(task))
-    this.scheduleRemoteExecutions(remoteTasks.image, (task) => this.generateRemoteImage(task))
+    this.scheduleRemoteExecutions([...recoveredSubmissions.video, ...remoteTasks.video], (task) =>
+      this.submitRemoteVideo(task),
+    )
+    this.scheduleRemoteExecutions([...recoveredSubmissions.image, ...remoteTasks.image], (task) =>
+      this.generateRemoteImage(task),
+    )
 
     await this.store.mutate(async (state) => {
       const now = new Date().toISOString()
@@ -320,10 +336,12 @@ export class GenerationTaskRunner implements TaskDispatcher {
     )
   }
 
-  private async recoverStaleRunningTasks(): Promise<void> {
-    await this.store.mutate((state) => {
+  private async recoverStaleRunningTasks(): Promise<{ video: GenerationTask[]; image: GenerationTask[] }> {
+    return this.store.mutate((state) => {
       const now = new Date()
       const nowIso = now.toISOString()
+      const video: GenerationTask[] = []
+      const image: GenerationTask[] = []
       state.tasks
         .filter((task) => task.status === 'running' && task.provider !== 'local-compose')
         .forEach((task) => {
@@ -331,11 +349,21 @@ export class GenerationTaskRunner implements TaskDispatcher {
           if (!this.ownsTask(task, providerName)) return
           if (generationTaskLeaseActive(task, now.getTime())) return
           if (providerName && !task.metadata.providerTaskId) {
-            task.status = 'failed'
-            task.progress = 100
-            task.error = 'Remote generation submission was interrupted; retry this task'
+            claimGenerationTaskLease(task, this.leaseOwnerId, this.leaseTtlMs, now, {
+              countAttempt: false,
+            })
+            task.progress = Math.max(1, task.progress)
+            task.error = null
+            task.metadata = {
+              ...task.metadata,
+              providerName,
+              providerState: 'submitting',
+              providerIdempotencyKey: providerIdempotencyKeyFor(task),
+              providerSubmissionRecoveredAt: nowIso,
+            }
             task.updatedAt = nowIso
-            releaseGenerationTaskLease(task)
+            if (this.isRemoteVideoTask(task)) video.push(task)
+            if (this.isRemoteImageTask(task)) image.push(task)
             return
           }
           claimGenerationTaskLease(task, this.leaseOwnerId, this.leaseTtlMs, now, {
@@ -343,6 +371,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
           })
           task.updatedAt = nowIso
         })
+      return { video, image }
     })
   }
 
@@ -395,6 +424,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
               ...task.metadata,
               providerName,
               providerState: 'submitting',
+              providerIdempotencyKey: providerIdempotencyKeyFor(task),
             }
             if (this.isRemoteVideoTask(task)) selectedVideoTasks.push(task)
             if (this.isRemoteImageTask(task)) selectedImageTasks.push(task)
@@ -624,6 +654,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
       stored.negativePrompt = quality.negativePrompt
       stored.metadata = {
         ...stored.metadata,
+        providerIdempotencyKey: providerIdempotencyKeyFor(stored),
         ...(Array.isArray(stored.metadata.images)
           ? {
               images: stored.metadata.images.map((value) =>
@@ -737,6 +768,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
       stored.negativePrompt = quality.negativePrompt
       stored.metadata = {
         ...stored.metadata,
+        providerIdempotencyKey: providerIdempotencyKeyFor(stored),
         qualityRuleVersion: QUALITY_RULE_VERSION,
         qualityPresetIds: quality.presetIds,
         compiledNegativePrompt: quality.negativePrompt,
@@ -936,6 +968,7 @@ function imageRequestFor(task: GenerationTask, references: ImageReference[]): Im
     task.metadata.turnaround === true ? ['front', 'side', 'back'] : ['single']
   return {
     taskId: task.id,
+    idempotencyKey: providerIdempotencyKeyFor(task),
     assetId: stringValue(task.metadata.assetId, ''),
     aspectRatio: stringValue(task.metadata.aspectRatio, '1:1'),
     prompt: task.prompt,
@@ -954,6 +987,7 @@ function videoRequestFor(
   const cameraFixed = optionalBoolean(task.metadata.cameraFixed)
   return {
     taskId: task.id,
+    idempotencyKey: providerIdempotencyKeyFor(task),
     model: task.model,
     tier: task.tier ?? null,
     prompt: task.prompt,
@@ -968,6 +1002,10 @@ function videoRequestFor(
     ...(watermark === null ? {} : { watermark }),
     ...(cameraFixed === null ? {} : { cameraFixed }),
   }
+}
+
+function providerIdempotencyKeyFor(task: GenerationTask): string {
+  return stringValue(task.metadata.providerIdempotencyKey, `generation:${task.tenantId}:${task.id}`)
 }
 
 function stringValue(value: unknown, fallback: string): string {

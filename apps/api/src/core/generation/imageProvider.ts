@@ -8,6 +8,7 @@ export type ImageReference = {
 
 export type ImageGenerationRequest = {
   taskId: string
+  idempotencyKey?: string
   assetId: string
   aspectRatio: string
   prompt: string
