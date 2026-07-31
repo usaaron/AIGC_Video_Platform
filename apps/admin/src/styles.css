@@ -810,6 +810,34 @@ p {
   white-space: nowrap;
 }
 
+.security-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  min-height: 23px;
+  padding: 0 8px;
+  border: 1px solid #cbdc90;
+  border-radius: 999px;
+  background: #f3f8df;
+  color: #506417;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.security-badge.required {
+  border-color: #ead7a6;
+  background: #fff9ea;
+  color: #7a5b16;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .row-button,
 .icon-text-button,
 .primary-button,
@@ -983,6 +1011,24 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #fbfcf8;
+}
+
+.checkbox-field {
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+}
+
+.modal-form .checkbox-field input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: #829a32;
+}
+
+.modal-form .checkbox-field span {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .modal-backdrop {

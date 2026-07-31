@@ -34,6 +34,13 @@ export const api = {
   adminConsole: async () => adminConsoleSchema.parse(await request('/admin/console?limit=100&offset=0')),
   updateUserStatus: (userId, status) =>
     request(`/admin/users/${encodeURIComponent(userId)}/status`, json('PATCH', { status })),
+  updatePasswordResetRequirement: (userId, input) =>
+    request(
+      `/admin/users/${encodeURIComponent(userId)}/password-reset-requirement`,
+      json('PATCH', input),
+    ),
+  setUserPassword: (userId, input) =>
+    request(`/admin/users/${encodeURIComponent(userId)}/password`, json('PUT', input)),
   revokeSession: (sessionId) =>
     request(`/admin/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
   grantCredits: (input) => request('/admin/billing/grants', json('POST', input)),

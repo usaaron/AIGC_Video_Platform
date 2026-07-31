@@ -61,6 +61,7 @@ const tabs = [
 const loginInitialState = { email: '', password: '' }
 const adjustmentInitialState = { amount: '', reason: '' }
 const grantInitialState = { amount: '', reason: '' }
+const passwordInitialState = { newPassword: '', requireChange: true, revokeSessions: true }
 
 export function App() {
   const [session, setSession] = useState(null)
@@ -83,6 +84,8 @@ export function App() {
   const [auditActionFilter, setAuditActionFilter] = useState('all')
   const [auditResourceFilter, setAuditResourceFilter] = useState('all')
   const [sessionRiskFilter, setSessionRiskFilter] = useState('all')
+  const [passwordTarget, setPasswordTarget] = useState(null)
+  const [passwordForm, setPasswordForm] = useState(passwordInitialState)
 
   useEffect(() => {
     let cancelled = false
@@ -194,6 +197,41 @@ export function App() {
       await api.updateUserStatus(user.id, nextStatus)
       await loadConsole()
       setNotice(`账号已${nextStatus === 'disabled' ? '禁用' : '启用'}`)
+    })
+  }
+
+  const openPasswordReset = (user) => {
+    setPasswordTarget(user)
+    setPasswordForm(passwordInitialState)
+  }
+
+  const forcePasswordReset = async (user) => {
+    const confirmed = window.confirm(
+      `确认强制 ${user.name} 下次登录修改密码？\n\n账号：${user.email ?? user.id}\n现有 session 将被撤销。`,
+    )
+    if (!confirmed) return
+    await runAction(`force-password:${user.id}`, async () => {
+      await api.updatePasswordResetRequirement(user.id, { required: true, revokeSessions: true })
+      await loadConsole()
+      setNotice('已要求账号下次登录修改密码')
+    })
+  }
+
+  const submitPasswordReset = async (event) => {
+    event.preventDefault()
+    if (!passwordTarget) return
+    const confirmed = window.confirm(
+      `确认给 ${passwordTarget.name} 设置临时密码？\n\n账号：${passwordTarget.email ?? passwordTarget.id}\n${
+        passwordForm.requireChange ? '登录后必须再次修改密码。' : '登录后不会强制再次修改密码。'
+      }\n${passwordForm.revokeSessions ? '现有 session 将被撤销。' : '现有 session 将保留。'}`,
+    )
+    if (!confirmed) return
+    await runAction(`password:${passwordTarget.id}`, async () => {
+      await api.setUserPassword(passwordTarget.id, passwordForm)
+      setPasswordTarget(null)
+      setPasswordForm(passwordInitialState)
+      await loadConsole()
+      setNotice('临时密码已设置')
     })
   }
 
@@ -378,6 +416,8 @@ export function App() {
                   canManage={canManageAccountStatus}
                   busy={busy}
                   onSetStatus={setUserStatus}
+                  onOpenPasswordReset={openPasswordReset}
+                  onForcePasswordReset={forcePasswordReset}
                 />
               )}
               {activeTab === 'tenants' && <TenantsTable tenants={filtered.tenants} />}
@@ -461,6 +501,16 @@ export function App() {
           onChange={setGrantForm}
           onClose={() => setGrantOpen(false)}
           onSubmit={submitGrant}
+        />
+      )}
+      {passwordTarget && (
+        <PasswordResetModal
+          target={passwordTarget}
+          form={passwordForm}
+          busy={busy === `password:${passwordTarget.id}`}
+          onChange={setPasswordForm}
+          onClose={() => setPasswordTarget(null)}
+          onSubmit={submitPasswordReset}
         />
       )}
     </div>
@@ -563,14 +613,23 @@ function OverviewPanel({ snapshot, summary, setActiveTab }) {
   )
 }
 
-function UsersTable({ users, currentUserId, canManage, busy, onSetStatus }) {
+function UsersTable({
+  users,
+  currentUserId,
+  canManage,
+  busy,
+  onSetStatus,
+  onOpenPasswordReset,
+  onForcePasswordReset,
+}) {
   return (
     <DataSection title="用户列表" count={users.length}>
-      <table className="data-table">
+      <table className="data-table wide">
         <thead>
           <tr>
             <th>用户</th>
             <th>状态</th>
+            <th>安全</th>
             <th>角色</th>
             <th>Membership</th>
             <th>更新时间</th>
@@ -587,6 +646,9 @@ function UsersTable({ users, currentUserId, canManage, busy, onSetStatus }) {
                 <StatusBadge status={user.status} />
               </td>
               <td>
+                <PasswordResetBadge required={user.passwordResetRequired} />
+              </td>
+              <td>
                 <RolePills roles={user.roles} />
               </td>
               <td>
@@ -594,23 +656,56 @@ function UsersTable({ users, currentUserId, canManage, busy, onSetStatus }) {
               </td>
               <td>{formatDate(user.updatedAt)}</td>
               <td>
-                <button
-                  className={user.status === 'active' ? 'row-button danger' : 'row-button'}
-                  type="button"
-                  disabled={!canManage || user.id === currentUserId || busy === `user:${user.id}`}
-                  onClick={() => onSetStatus(user)}
-                >
-                  {busy === `user:${user.id}` ? (
-                    <LoaderCircle size={14} className="spin" />
-                  ) : (
-                    <Power size={14} />
-                  )}
-                  {user.status === 'active' ? '禁用' : '启用'}
-                </button>
+                <div className="row-actions">
+                  <button
+                    className="row-button"
+                    type="button"
+                    disabled={!canManage || user.id === currentUserId || busy === `password:${user.id}`}
+                    onClick={() => onOpenPasswordReset(user)}
+                  >
+                    {busy === `password:${user.id}` ? (
+                      <LoaderCircle size={14} className="spin" />
+                    ) : (
+                      <KeyRound size={14} />
+                    )}
+                    临时密码
+                  </button>
+                  <button
+                    className="row-button danger"
+                    type="button"
+                    disabled={
+                      !canManage ||
+                      user.id === currentUserId ||
+                      user.passwordResetRequired ||
+                      busy === `force-password:${user.id}`
+                    }
+                    onClick={() => onForcePasswordReset(user)}
+                  >
+                    {busy === `force-password:${user.id}` ? (
+                      <LoaderCircle size={14} className="spin" />
+                    ) : (
+                      <ShieldCheck size={14} />
+                    )}
+                    强制改密
+                  </button>
+                  <button
+                    className={user.status === 'active' ? 'row-button danger' : 'row-button'}
+                    type="button"
+                    disabled={!canManage || user.id === currentUserId || busy === `user:${user.id}`}
+                    onClick={() => onSetStatus(user)}
+                  >
+                    {busy === `user:${user.id}` ? (
+                      <LoaderCircle size={14} className="spin" />
+                    ) : (
+                      <Power size={14} />
+                    )}
+                    {user.status === 'active' ? '禁用' : '启用'}
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
-          <EmptyRow visible={!users.length} columns={6} />
+          <EmptyRow visible={!users.length} columns={7} />
         </tbody>
       </table>
     </DataSection>
@@ -1242,6 +1337,47 @@ function GrantModal({ form, busy, onChange, onClose, onSubmit }) {
   )
 }
 
+function PasswordResetModal({ target, form, busy, onChange, onClose, onSubmit }) {
+  const passwordLength = form.newPassword.length
+  const valid = passwordLength >= 12 && passwordLength <= 128
+  return (
+    <Modal title="设置临时密码" onClose={onClose}>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <IdentityCell name={target.name} detail={target.email ?? target.id} />
+        <label>
+          <span>临时密码</span>
+          <input
+            type="password"
+            value={form.newPassword}
+            onChange={(event) => onChange({ ...form, newPassword: event.target.value })}
+            minLength={12}
+            maxLength={128}
+            autoComplete="new-password"
+            required
+          />
+        </label>
+        <label className="checkbox-field">
+          <input
+            type="checkbox"
+            checked={form.requireChange}
+            onChange={(event) => onChange({ ...form, requireChange: event.target.checked })}
+          />
+          <span>要求用户登录后再次修改密码</span>
+        </label>
+        <label className="checkbox-field">
+          <input
+            type="checkbox"
+            checked={form.revokeSessions}
+            onChange={(event) => onChange({ ...form, revokeSessions: event.target.checked })}
+          />
+          <span>撤销该账号现有 session</span>
+        </label>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="设置临时密码" />
+      </form>
+    </Modal>
+  )
+}
+
 function Modal({ title, children, onClose }) {
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -1298,6 +1434,14 @@ function IdentityCell({ name, detail, compact = false }) {
 
 function StatusBadge({ status }) {
   return <span className={`status-badge ${status}`}>{statusName(status)}</span>
+}
+
+function PasswordResetBadge({ required }) {
+  return (
+    <span className={required ? 'security-badge required' : 'security-badge'}>
+      {required ? '需改密' : '正常'}
+    </span>
+  )
 }
 
 function StatusPair({ primary, secondary }) {
