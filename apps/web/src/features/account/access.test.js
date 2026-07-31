@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { canEditProjectSettings, canOpenAccountAdmin } from './access'
 
 describe('account access helpers', () => {
-  it('opens the account admin only for owner or admin sessions with user management permission', () => {
+  it('opens the account admin only for elevated sessions with user management permission', () => {
     expect(
       canOpenAccountAdmin({
         account: { roles: ['owner'] },
+        permissions: ['user.manage'],
+      }),
+    ).toBe(true)
+    expect(
+      canOpenAccountAdmin({
+        account: { roles: ['super_admin'] },
         permissions: ['user.manage'],
       }),
     ).toBe(true)
@@ -17,7 +23,7 @@ describe('account access helpers', () => {
     ).toBe(true)
     expect(
       canOpenAccountAdmin({
-        account: { roles: ['creator'] },
+        account: { roles: ['member'] },
         permissions: ['user.manage'],
       }),
     ).toBe(false)

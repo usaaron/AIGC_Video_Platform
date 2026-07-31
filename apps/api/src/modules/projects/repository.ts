@@ -13,6 +13,7 @@ import type {
   UpdateShot,
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
+import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import type { AppStore } from '../../infra/store.js'
 
 export class ProjectRepository {
@@ -27,7 +28,7 @@ export class ProjectRepository {
   }
 
   list(principal: Principal): Project[] {
-    const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+    const canReadAll = canReadAllTenantContent(principal)
     return this.store.read((state) =>
       state.projects
         .filter((project) => project.tenantId === principal.tenantId)

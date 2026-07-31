@@ -85,6 +85,9 @@ export type BootstrapUsers = {
   ownerName?: string
   ownerEmail: string
   ownerPassword: string
+  superAdminName?: string
+  superAdminEmail: string
+  superAdminPassword: string
   adminName?: string
   adminEmail: string
   adminPassword: string
@@ -97,6 +100,9 @@ const developmentBootstrapUsers: BootstrapUsers = {
   ownerName: '平台所有者',
   ownerEmail: 'owner@seqora.local',
   ownerPassword: 'OwnerPassword123!',
+  superAdminName: '超级管理员',
+  superAdminEmail: 'superadmin@seqora.local',
+  superAdminPassword: 'SuperAdmin123!',
   adminName: '平台管理员',
   adminEmail: 'admin@seqora.local',
   adminPassword: 'Admin123!',
@@ -256,6 +262,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
   const tenantId = 'tenant-seqora-demo'
   const creatorId = 'user-creator'
   const ownerId = 'user-owner'
+  const superAdminId = 'user-super-admin'
   const projectId = 'project-midnight-film'
 
   return {
@@ -266,7 +273,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         name: bootstrapUsers.creatorName ?? '创作者',
         passwordHash: hashPassword(bootstrapUsers.creatorPassword),
         tenantId,
-        roles: ['creator'],
+        roles: ['member'],
         plan: 'free',
         credits: 286,
       },
@@ -277,6 +284,16 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         passwordHash: hashPassword(bootstrapUsers.ownerPassword),
         tenantId,
         roles: ['owner'],
+        plan: 'member',
+        credits: 1_000,
+      },
+      {
+        id: superAdminId,
+        email: bootstrapUsers.superAdminEmail.toLowerCase(),
+        name: bootstrapUsers.superAdminName ?? '超级管理员',
+        passwordHash: hashPassword(bootstrapUsers.superAdminPassword),
+        tenantId,
+        roles: ['super_admin'],
         plan: 'member',
         credits: 1_000,
       },
@@ -491,6 +508,10 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
 }
 
 function normalizeState(input: Partial<AppState>): AppState {
+  const users = (input.users ?? []).map((user) => ({
+    ...user,
+    roles: normalizeStoredRoles((user as { roles?: readonly unknown[] }).roles ?? []),
+  }))
   const assets = (input.assets ?? []).map((stored) => {
     const legacy = stored as Omit<Partial<Asset>, 'kind'> & {
       id: string
@@ -531,7 +552,7 @@ function normalizeState(input: Partial<AppState>): AppState {
     outputs: task.outputs ?? [],
   }))
   return {
-    users: input.users ?? [],
+    users,
     projects: input.projects ?? [],
     assets,
     shots: (input.shots ?? []).map((shot) => ({
@@ -551,6 +572,12 @@ function normalizeState(input: Partial<AppState>): AppState {
     novelBoundaries: input.novelBoundaries ?? [],
     novelStoryBibles: input.novelStoryBibles ?? [],
   }
+}
+
+function normalizeStoredRoles(roles: readonly unknown[]): Role[] {
+  const allowed = new Set(['member', 'admin', 'super_admin', 'owner'])
+  const normalized = roles.flatMap((role) => (String(role) === 'creator' ? ['member'] : [String(role)]))
+  return [...new Set(normalized.filter((role) => allowed.has(role)))].map((role) => role as Role)
 }
 
 const DEFAULT_SCRIPT = `雨夜，临港市旧火车站。

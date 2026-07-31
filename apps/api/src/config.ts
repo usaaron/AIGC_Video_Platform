@@ -3,6 +3,7 @@ import { z } from 'zod'
 const developmentAuthSecret = 'seqora-development-secret-change-me'
 const developmentCreatorPassword = 'Creator123!'
 const developmentOwnerPassword = 'OwnerPassword123!'
+const developmentSuperAdminPassword = 'SuperAdmin123!'
 const developmentAdminPassword = 'Admin123!'
 const developmentDatabaseUrl = 'postgres://seqora:seqora_dev_password@127.0.0.1:5432/seqora_dev'
 const booleanFromEnvironment = z.preprocess((value) => {
@@ -30,6 +31,9 @@ const configSchema = z
     BOOTSTRAP_OWNER_NAME: z.string().min(1).max(80).default('平台所有者'),
     BOOTSTRAP_OWNER_EMAIL: z.string().email().default('owner@seqora.local'),
     BOOTSTRAP_OWNER_PASSWORD: z.string().min(12).max(128).default(developmentOwnerPassword),
+    BOOTSTRAP_SUPER_ADMIN_NAME: z.string().min(1).max(80).default('超级管理员'),
+    BOOTSTRAP_SUPER_ADMIN_EMAIL: z.string().email().default('superadmin@seqora.local'),
+    BOOTSTRAP_SUPER_ADMIN_PASSWORD: z.string().min(12).max(128).default(developmentSuperAdminPassword),
     BOOTSTRAP_ADMIN_NAME: z.string().min(1).max(80).default('平台管理员'),
     BOOTSTRAP_ADMIN_EMAIL: z.string().email().default('admin@seqora.local'),
     BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).max(128).default(developmentAdminPassword),
@@ -115,6 +119,13 @@ const configSchema = z
           message: 'Unique bootstrap passwords are required in production',
         })
       }
+      if (config.BOOTSTRAP_SUPER_ADMIN_PASSWORD === developmentSuperAdminPassword) {
+        context.addIssue({
+          code: 'custom',
+          path: ['BOOTSTRAP_SUPER_ADMIN_PASSWORD'],
+          message: 'Unique bootstrap passwords are required in production',
+        })
+      }
       if (config.BOOTSTRAP_ADMIN_PASSWORD === developmentAdminPassword) {
         context.addIssue({
           code: 'custom',
@@ -134,6 +145,27 @@ const configSchema = z
       context.addIssue({
         code: 'custom',
         path: ['BOOTSTRAP_OWNER_EMAIL'],
+        message: 'Bootstrap accounts must use different email addresses',
+      })
+    }
+    if (config.BOOTSTRAP_CREATOR_EMAIL === config.BOOTSTRAP_SUPER_ADMIN_EMAIL) {
+      context.addIssue({
+        code: 'custom',
+        path: ['BOOTSTRAP_SUPER_ADMIN_EMAIL'],
+        message: 'Bootstrap accounts must use different email addresses',
+      })
+    }
+    if (config.BOOTSTRAP_OWNER_EMAIL === config.BOOTSTRAP_SUPER_ADMIN_EMAIL) {
+      context.addIssue({
+        code: 'custom',
+        path: ['BOOTSTRAP_SUPER_ADMIN_EMAIL'],
+        message: 'Bootstrap accounts must use different email addresses',
+      })
+    }
+    if (config.BOOTSTRAP_SUPER_ADMIN_EMAIL === config.BOOTSTRAP_ADMIN_EMAIL) {
+      context.addIssue({
+        code: 'custom',
+        path: ['BOOTSTRAP_ADMIN_EMAIL'],
         message: 'Bootstrap accounts must use different email addresses',
       })
     }
@@ -211,6 +243,9 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
         : developmentDatabaseUrl,
     BOOTSTRAP_CREATOR_NAME:
       environment.BOOTSTRAP_CREATOR_NAME ?? (environment.NODE_ENV === 'production' ? '创作者' : '林夏'),
+    BOOTSTRAP_SUPER_ADMIN_NAME:
+      environment.BOOTSTRAP_SUPER_ADMIN_NAME ??
+      (environment.NODE_ENV === 'production' ? '超级管理员' : '超级管理员'),
     BOOTSTRAP_DEMO_WORKSPACE:
       environment.BOOTSTRAP_DEMO_WORKSPACE ?? (environment.NODE_ENV === 'production' ? 'false' : 'true'),
     VIDEO_POLL_INTERVAL_MS: environment.VIDEO_POLL_INTERVAL_MS || environment.ARK_POLL_INTERVAL_MS,

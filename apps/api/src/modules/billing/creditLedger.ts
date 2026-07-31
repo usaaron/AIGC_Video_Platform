@@ -1,5 +1,6 @@
 import type { BillingSummary, GenerationTask, LedgerEntry, Plan, Principal } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
+import { isPlatformAdmin, isTenantManager } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
@@ -47,7 +48,12 @@ export interface CreditLedger {
   refundGeneration(task: GenerationTask, description?: string): Promise<void>
   refundGenerationInState(state: AppState, task: GenerationTask, description?: string): Promise<void>
   grantCredits(principal: Principal, amount: number, reason: string): Promise<BillingSummary>
-  grantCreditsInState(state: AppState, principal: Principal, amount: number, reason: string): Promise<BillingSummary>
+  grantCreditsInState(
+    state: AppState,
+    principal: Principal,
+    amount: number,
+    reason: string,
+  ): Promise<BillingSummary>
   adjustCredits(
     principal: Principal,
     targetMembershipId: string,
@@ -76,7 +82,7 @@ export interface CreditLedger {
   ): Promise<BillingSummary>
   billingSummary(principal: Principal): Promise<BillingSummary>
   summary(principal: Principal): Promise<BillingSummary>
-  consumedCreditsSince(startIso: string): Promise<number>
+  consumedCreditsSince(startIso: string, tenantId?: string): Promise<number>
   updatePlan(principal: Principal, plan: Plan): Promise<BillingSummary>
   updatePlanInState(state: AppState, principal: Principal, plan: Plan): Promise<BillingSummary>
 }
@@ -372,6 +378,7 @@ export class StoreCreditLedger implements CreditLedger {
     if (this.ledgerRepository) {
       const recorded = await this.ledgerRepository.recordAdjustmentForMembership({
         membershipId: targetMembershipId,
+        ...(isPlatformAdmin(principal) ? {} : { scopeTenantId: principal.tenantId }),
         entryId,
         referenceId: entryId,
         entryType: 'adjustment',
@@ -396,6 +403,9 @@ export class StoreCreditLedger implements CreditLedger {
     )
     if (!targetUser) {
       throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+    }
+    if (!isPlatformAdmin(principal) && targetUser.tenantId !== principal.tenantId) {
+      throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot adjust billing for another workspace')
     }
     const nextCredits = targetUser.credits + amount
     if (nextCredits < 0) throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
@@ -514,9 +524,9 @@ export class StoreCreditLedger implements CreditLedger {
     return this.billingSummary(principal)
   }
 
-  async consumedCreditsSince(startIso: string): Promise<number> {
+  async consumedCreditsSince(startIso: string, tenantId?: string): Promise<number> {
     if (this.ledgerRepository) {
-      return this.ledgerRepository.countConsumedCreditsSince(startIso)
+      return this.ledgerRepository.countConsumedCreditsSince(startIso, tenantId)
     }
     const startTime = new Date(startIso).getTime()
     return this.store.read((state) =>
@@ -525,6 +535,7 @@ export class StoreCreditLedger implements CreditLedger {
           (entry) =>
             entry.type === 'generation' &&
             entry.amount < 0 &&
+            (!tenantId || entry.tenantId === tenantId) &&
             new Date(entry.createdAt).getTime() >= startTime,
         )
         .reduce((total, entry) => total + Math.abs(entry.amount), 0),
@@ -602,7 +613,7 @@ function findUserById(state: AppState, userId: string, tenantId: string): AppSta
 }
 
 function isBillingAdmin(principal: Principal): boolean {
-  return principal.roles.some((role) => role === 'admin' || role === 'owner')
+  return isTenantManager(principal)
 }
 
 function ledgerEntriesForPrincipal(state: AppState, principal: Principal): LedgerEntry[] {

@@ -27,7 +27,7 @@ afterAll(async () => {
 })
 
 describe('account management api', { timeout: 30_000 }, () => {
-  it('boots seed owner and admin accounts into local auth', async () => {
+  it('boots seed owner, super admin and admin accounts into local auth', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
     const ownerLogin = await app.inject({
@@ -59,6 +59,22 @@ describe('account management api', { timeout: 30_000 }, () => {
       account: {
         email: 'admin@seqora.local',
         roles: expect.arrayContaining(['admin']),
+      },
+    })
+
+    const superAdminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'superadmin@seqora.local',
+        password: 'SuperAdmin123!',
+      },
+    })
+    expect(superAdminLogin.statusCode).toBe(200)
+    expect(superAdminLogin.json()).toMatchObject({
+      account: {
+        email: 'superadmin@seqora.local',
+        roles: expect.arrayContaining(['super_admin']),
       },
     })
 
@@ -148,7 +164,7 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
   })
 
-  it('denies creator accounts from admin billing adjustments', async () => {
+  it('denies member accounts from admin billing adjustments', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
     const creatorLogin = await app.inject({
@@ -307,6 +323,71 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(adminLogin.statusCode).toBe(200)
     const adminCookie = cookieValue(adminLogin)
 
+    const superAdminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'superadmin@seqora.local',
+        password: 'SuperAdmin123!',
+      },
+    })
+    expect(superAdminLogin.statusCode).toBe(200)
+    const superAdminCookie = cookieValue(superAdminLogin)
+
+    const ownerCreatesSuperAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/tenants/tenant-seqora-demo/users',
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'created-super-admin@example.com',
+        name: 'Created Super Admin',
+        password: 'CreatedSuperAdmin123!',
+        role: 'super_admin',
+      },
+    })
+    expect(ownerCreatesSuperAdmin.statusCode).toBe(201)
+    expect(ownerCreatesSuperAdmin.json()).toMatchObject({
+      email: 'created-super-admin@example.com',
+      name: 'Created Super Admin',
+      roles: ['super_admin'],
+      tenantId: 'tenant-seqora-demo',
+      status: 'active',
+    })
+    const createdSuperAdminUserId = ownerCreatesSuperAdmin.json().userId as string
+
+    const superAdminCreatesAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/tenants/tenant-seqora-demo/users',
+      headers: { cookie: superAdminCookie },
+      payload: {
+        email: 'super-admin-created-admin@example.com',
+        name: 'Super Admin Created Admin',
+        password: 'CreatedAdmin123!',
+        role: 'admin',
+      },
+    })
+    expect(superAdminCreatesAdmin.statusCode).toBe(201)
+    expect(superAdminCreatesAdmin.json()).toMatchObject({
+      email: 'super-admin-created-admin@example.com',
+      roles: ['admin'],
+      tenantId: 'tenant-seqora-demo',
+    })
+    const superAdminCreatedAdminUserId = superAdminCreatesAdmin.json().userId as string
+
+    const superAdminCreatesSuperAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/tenants/tenant-seqora-demo/users',
+      headers: { cookie: superAdminCookie },
+      payload: {
+        email: 'super-admin-created-super-admin@example.com',
+        name: 'Super Admin Created Super Admin',
+        password: 'CreatedSuperAdmin123!',
+        role: 'super_admin',
+      },
+    })
+    expect(superAdminCreatesSuperAdmin.statusCode).toBe(403)
+    expect(superAdminCreatesSuperAdmin.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } })
+
     const createdAdmin = await app.inject({
       method: 'POST',
       url: '/api/v1/tenants/tenant-seqora-demo/users',
@@ -411,8 +492,25 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
     expect(adminDeletesAdmin.statusCode).toBe(403)
     expect(adminDeletesAdmin.json()).toMatchObject({
+      error: { code: 'ELEVATED_MEMBERSHIP_REQUIRES_PLATFORM_ADMIN' },
+    })
+
+    const superAdminDeletesSuperAdmin = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/tenants/tenant-seqora-demo/members/${createdSuperAdminUserId}`,
+      headers: { cookie: superAdminCookie },
+    })
+    expect(superAdminDeletesSuperAdmin.statusCode).toBe(403)
+    expect(superAdminDeletesSuperAdmin.json()).toMatchObject({
       error: { code: 'ELEVATED_MEMBERSHIP_REQUIRES_OWNER' },
     })
+
+    const superAdminDeletesAdmin = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/tenants/tenant-seqora-demo/members/${superAdminCreatedAdminUserId}`,
+      headers: { cookie: superAdminCookie },
+    })
+    expect(superAdminDeletesAdmin.statusCode).toBe(204)
 
     const adminDeletesMember = await app.inject({
       method: 'DELETE',

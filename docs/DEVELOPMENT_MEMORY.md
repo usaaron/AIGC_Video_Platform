@@ -51,7 +51,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 创作工�
 - 一键尝鲜入口位于剧本页顶部主操作区；模型返回非法 JSON 时，服务端会尝试修复，仍失败则从剧本的角色、场景和服装字段提取最小资产计划，避免客户看到“功能无响应”。
 - 超过 2,000 个非空白字符的长剧本进入保留原稿模式，模型必须保留全部场景和剧情事实；若模型输出比原稿短超过 15%，服务端拒绝覆盖并自动保留原稿。
 - 免费版每个用户同时运行 1 个生成任务，会员版同时运行 3 个。
-- 封闭外测使用本地账号密码和签名 HttpOnly Cookie，不开放注册；生产空数据卷只创建环境变量指定的创作者和管理员账号，默认不写入演示项目。
+- 封闭外测使用本地账号密码和签名 HttpOnly Cookie；注册入口开放但必须使用租户邀请码。生产空数据卷只创建环境变量指定的 member、owner、super_admin 和 admin 账号，默认不写入演示项目。
 - 登录前只加载认证页面，工作台和各流程页面按需拆包；前端任务轮询按运行中、空闲和后台标签页动态降频。
 - 第三方任务失败必须自动退还平台积分，退款必须幂等。
 - 管理员、权限、多租户和订阅能力预留边界，但当前只做适合三人团队的模块化单体，不提前拆微服务。
@@ -602,10 +602,12 @@ pnpm dev:web
 
 本地 Seed 账号：
 
-| 身份   | 邮箱                   | 密码          |
-| ------ | ---------------------- | ------------- |
-| 创作者 | `creator@seqora.local` | `Creator123!` |
-| 管理员 | `admin@seqora.local`   | `Admin123!`   |
+| 身份       | 邮箱                      | 密码                |
+| ---------- | ------------------------- | ------------------- |
+| 普通会员   | `creator@seqora.local`    | `Creator123!`       |
+| 所有者     | `owner@seqora.local`      | `OwnerPassword123!` |
+| 超级管理员 | `superadmin@seqora.local` | `SuperAdmin123!`    |
+| 管理员     | `admin@seqora.local`      | `Admin123!`         |
 
 密码使用 scrypt 哈希保存，会话使用签名 HttpOnly Cookie。`BOOTSTRAP_*` 只在 `DATA_FILE` 不存在时读取，已有数据不会因环境变量变化而改密码。生产环境必须替换本地默认账号和 `AUTH_SECRET`。
 
@@ -654,7 +656,7 @@ apps/api/data/app.json
 - 主体包含 `userId`、`tenantId` 和 `roles`。
 - 路由使用稳定权限字符串，不直接依赖 UI 隐藏按钮。
 - Repository 再次按租户和用户过滤，形成纵深保护。
-- 角色：`creator`、`member`、`admin`、`owner`。
+- 角色：`member`、`admin`、`super_admin`、`owner`；旧 `creator` 角色会由正式 migration 统一迁为 `member`。
 - 会员是套餐并发策略，不应继续膨胀为多个角色。
 - 生产禁止 `AUTH_MODE=demo`。
 - 生产 OIDC/JWT 必须校验签名、issuer、audience 和过期时间，不能只 decode。

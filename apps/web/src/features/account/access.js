@@ -1,4 +1,4 @@
-const accountAdminRoles = new Set(['owner', 'admin'])
+const accountAdminRoles = new Set(['owner', 'super_admin', 'admin'])
 
 export function canOpenAccountAdmin(session) {
   const roles = session?.account?.roles ?? []

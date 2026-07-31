@@ -6,7 +6,7 @@ import { GenerationTaskRepository } from './repository.js'
 const creator: Principal = {
   userId: 'user-creator',
   tenantId: 'tenant-seqora-demo',
-  roles: ['creator'],
+  roles: ['member'],
 }
 
 describe('GenerationTaskRepository charged creation', () => {

@@ -24,6 +24,14 @@ import { createHash, randomBytes } from 'node:crypto'
 import { permissionsFor } from '../../core/auth/authorization.js'
 import { hashPassword, verifyPassword } from '../../core/auth/password.js'
 import {
+  hasAdminRole,
+  hasOwnerRole,
+  hasSuperAdminRole,
+  isOwner,
+  isPlatformAdmin,
+  isTenantManager,
+} from '../../core/auth/roles.js'
+import {
   hashSessionSecret,
   issueSessionToken,
   parseIssuedSessionToken,
@@ -480,13 +488,14 @@ export class AccountManagementService {
     metadata?: SessionMetadata,
   ): Promise<void> {
     this.requireTenantScope(principal, tenantId)
-    if (!principal.roles.includes(ROLES.OWNER)) {
-      throw new AppError(403, 'PERMISSION_DENIED', 'Only owners can disable accounts')
+    if (!isPlatformAdmin(principal)) {
+      throw new AppError(403, 'PERMISSION_DENIED', 'Only owners or super admins can disable accounts')
     }
     if (principal.userId === userId) {
       throw new AppError(400, 'CANNOT_DISABLE_SELF_ACCOUNT', 'Cannot disable your own account')
     }
     const target = await this.requireMembership(tenantId, userId)
+    this.requireCanManageMembership(principal, target, 'disable')
     if (target.roles.includes(ROLES.OWNER)) {
       const owners = await this.accounts.countActiveOwners(tenantId)
       if (owners <= 1) {
@@ -642,21 +651,24 @@ export class AccountManagementService {
   }
 
   private requireAssignableRoles(principal: Principal, roles: Role[]): void {
-    if (roles.includes(ROLES.OWNER) && !principal.roles.includes(ROLES.OWNER)) {
+    if (roles.includes(ROLES.OWNER) && !isOwner(principal)) {
       throw new AppError(403, 'PERMISSION_DENIED', 'Only owners can assign owner role')
     }
-    if (roles.includes(ROLES.ADMIN) && !principal.roles.includes(ROLES.OWNER)) {
-      throw new AppError(403, 'PERMISSION_DENIED', 'Only owners can assign admin role')
+    if (roles.includes(ROLES.SUPER_ADMIN) && !isOwner(principal)) {
+      throw new AppError(403, 'PERMISSION_DENIED', 'Only owners can assign super admin role')
+    }
+    if (roles.includes(ROLES.ADMIN) && !isPlatformAdmin(principal)) {
+      throw new AppError(403, 'PERMISSION_DENIED', 'Only owners or super admins can assign admin role')
     }
   }
 
   private requireTenantManager(principal: Principal): void {
-    if (principal.roles.includes(ROLES.OWNER) || principal.roles.includes(ROLES.ADMIN)) return
+    if (isTenantManager(principal)) return
     throw new AppError(403, 'PERMISSION_DENIED', 'Only owners or administrators can manage workspaces')
   }
 
   private requireOwner(principal: Principal, message: string): void {
-    if (principal.roles.includes(ROLES.OWNER)) return
+    if (isOwner(principal)) return
     throw new AppError(403, 'OWNER_REQUIRED', message)
   }
 
@@ -665,6 +677,9 @@ export class AccountManagementService {
     target: Membership,
     action: 'roles' | 'disable',
   ): void {
+    if (!isTenantManager(principal)) {
+      throw new AppError(403, 'PERMISSION_DENIED', 'Only administrators can manage memberships')
+    }
     if (principal.userId === target.userId) {
       const code = action === 'roles' ? 'CANNOT_CHANGE_SELF_ROLES' : 'CANNOT_DISABLE_SELF_MEMBERSHIP'
       const message =
@@ -673,26 +688,45 @@ export class AccountManagementService {
           : 'Cannot disable your current membership'
       throw new AppError(400, code, message)
     }
-    if (principal.roles.includes(ROLES.OWNER)) return
-    if (hasElevatedRole(target.roles)) {
+    if (isOwner(principal)) return
+    if (isPlatformAdmin(principal) && !hasOwnerRole(target.roles) && !hasSuperAdminRole(target.roles)) return
+    if (hasOwnerRole(target.roles) || hasSuperAdminRole(target.roles)) {
       throw new AppError(
         403,
         'ELEVATED_MEMBERSHIP_REQUIRES_OWNER',
-        'Only owners can manage owner or admin memberships',
+        'Only owners can manage owner or super admin memberships',
+      )
+    }
+    if (hasAdminRole(target.roles)) {
+      throw new AppError(
+        403,
+        'ELEVATED_MEMBERSHIP_REQUIRES_PLATFORM_ADMIN',
+        'Only owners or super admins can manage admin memberships',
       )
     }
   }
 
   private requireCanManageSession(principal: Principal, target: SessionSummary): void {
+    if (!isTenantManager(principal)) {
+      throw new AppError(403, 'PERMISSION_DENIED', 'Only administrators can manage tenant sessions')
+    }
     if (principal.userId === target.userId) {
       throw new AppError(400, 'CANNOT_REVOKE_SELF_SESSION', 'Use the current account session API to sign out')
     }
-    if (principal.roles.includes(ROLES.OWNER)) return
-    if (hasElevatedRole(target.roles)) {
+    if (isOwner(principal)) return
+    if (isPlatformAdmin(principal) && !hasOwnerRole(target.roles) && !hasSuperAdminRole(target.roles)) return
+    if (hasOwnerRole(target.roles) || hasSuperAdminRole(target.roles)) {
       throw new AppError(
         403,
         'ELEVATED_SESSION_REQUIRES_OWNER',
-        'Only owners can revoke owner or admin sessions',
+        'Only owners can revoke owner or super admin sessions',
+      )
+    }
+    if (hasAdminRole(target.roles)) {
+      throw new AppError(
+        403,
+        'ELEVATED_SESSION_REQUIRES_PLATFORM_ADMIN',
+        'Only owners or super admins can revoke admin sessions',
       )
     }
   }
@@ -763,10 +797,6 @@ function issueInvitationToken(): string {
 
 function hashInvitationToken(token: string): string {
   return createHash('sha256').update(token).digest('base64url')
-}
-
-function hasElevatedRole(roles: Role[]): boolean {
-  return roles.includes(ROLES.OWNER) || roles.includes(ROLES.ADMIN)
 }
 
 function currentSessionIdFromToken(token: string | undefined, secret: string): string | null {

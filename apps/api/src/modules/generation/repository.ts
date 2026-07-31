@@ -2,6 +2,7 @@ import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/co
 import { randomUUID } from 'node:crypto'
 import type { AppStore } from '../../infra/store.js'
 import { AppError } from '../../core/errors.js'
+import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import { normalizeGenerationTaskLifecycle, releaseGenerationTaskLease } from '../../core/jobs/taskLease.js'
 import { cancellationResourceLockForTask } from '../../core/jobs/taskResourceLock.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
@@ -203,7 +204,7 @@ export class GenerationTaskRepository {
   }
 
   listByProject(projectId: string, principal: Principal): GenerationTask[] {
-    const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+    const canReadAll = canReadAllTenantContent(principal)
     return this.store.read((state) =>
       state.tasks.filter(
         (task) =>
@@ -221,7 +222,7 @@ export class GenerationTaskRepository {
           item.id === projectId &&
           item.tenantId === principal.tenantId &&
           (item.ownerId === principal.userId ||
-            principal.roles.some((role) => role === 'admin' || role === 'owner')),
+            canReadAllTenantContent(principal)),
       )
       if (!project) return null
       const shots = state.shots
@@ -245,7 +246,7 @@ export class GenerationTaskRepository {
   }
 
   findById(taskId: string, principal: Principal): GenerationTask | null {
-    const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+    const canReadAll = canReadAllTenantContent(principal)
     return this.store.read(
       (state) =>
         state.tasks.find(
@@ -412,7 +413,7 @@ function findControlledTask(
   taskId: string,
   principal: Principal,
 ): GenerationTask | undefined {
-  const canControlAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+  const canControlAll = canReadAllTenantContent(principal)
   return tasks.find(
     (task) =>
       task.id === taskId &&

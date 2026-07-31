@@ -24,6 +24,7 @@ export type BillingLedgerMetadata = Record<string, unknown>
 
 export type BillingLedgerMembershipRecordInput = {
   membershipId: string
+  scopeTenantId?: string
   entryId: string
   referenceId: string
   entryType: LedgerEntry['type']
@@ -366,6 +367,9 @@ export class BillingLedgerRepository {
       if (!account) {
         throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
       }
+      if (input.scopeTenantId && account.tenantId !== input.scopeTenantId) {
+        throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot adjust billing for another workspace')
+      }
 
       const duplicate = await client.query<{ id: string }>(
         `
@@ -553,7 +557,7 @@ export class BillingLedgerRepository {
     })
   }
 
-  async countConsumedCreditsSince(startIso: string): Promise<number> {
+  async countConsumedCreditsSince(startIso: string, tenantId?: string): Promise<number> {
     const result = await this.database.query<{ credits: number }>(
       `
       SELECT COALESCE(SUM(ABS(amount)), 0)::int AS credits
@@ -561,8 +565,9 @@ export class BillingLedgerRepository {
       WHERE entry_type = 'generation'
         AND amount < 0
         AND created_at >= $1::timestamptz
+        AND ($2::text IS NULL OR tenant_id = $2)
       `,
-      [startIso],
+      [startIso, tenantId ?? null],
     )
     return result.rows[0]?.credits ?? 0
   }

@@ -9,7 +9,7 @@ import { StoreCreditLedger } from './creditLedger.js'
 const principal: Principal = {
   userId: 'user-creator',
   tenantId: 'tenant-seqora-demo',
-  roles: ['creator'],
+  roles: ['member'],
 }
 
 const adminPrincipal: Principal = {

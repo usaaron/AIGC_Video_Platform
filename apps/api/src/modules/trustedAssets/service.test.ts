@@ -105,7 +105,7 @@ describe('TrustedAssetService', () => {
     const updated = await service.registerVirtual('project-midnight-film', 'character-1', {
       userId: 'user-creator',
       tenantId: 'tenant-seqora-demo',
-      roles: ['creator'],
+      roles: ['member'],
     })
 
     expect(updated.attributes).toMatchObject({
@@ -198,7 +198,7 @@ describe('TrustedAssetService', () => {
     const updated = await service.registerVirtual('project-midnight-film', 'character-existing', {
       userId: 'user-creator',
       tenantId: 'tenant-seqora-demo',
-      roles: ['creator'],
+      roles: ['member'],
     })
 
     expect(createCalls).toBe(0)
@@ -330,7 +330,7 @@ describe('TrustedAssetService', () => {
     await service.registerVirtual('project-midnight-film', 'character-local-face', {
       userId: 'user-creator',
       tenantId: 'tenant-seqora-demo',
-      roles: ['creator'],
+      roles: ['member'],
     })
 
     const token = submittedSourceUrl.split('/').pop()!
@@ -410,7 +410,7 @@ describe('TrustedAssetService', () => {
     const updated = await service.refresh('project-midnight-film', 'character-rejected', {
       userId: 'user-creator',
       tenantId: 'tenant-seqora-demo',
-      roles: ['creator'],
+      roles: ['member'],
     })
 
     expect(updated.attributes).toMatchObject({

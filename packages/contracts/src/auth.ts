@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ROLES } from './permissions.js'
 
-export const roleSchema = z.enum([ROLES.CREATOR, ROLES.MEMBER, ROLES.ADMIN, ROLES.OWNER])
+export const roleSchema = z.enum([ROLES.MEMBER, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.OWNER])
 
 export const principalSchema = z.object({
   userId: z.string().min(1),

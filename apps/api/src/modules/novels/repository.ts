@@ -18,6 +18,7 @@ import type {
   Principal,
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
+import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import type {
   AppState,
   AppStore,
@@ -803,7 +804,7 @@ export class NovelRepository {
 }
 
 function findReadableProject(state: AppState, projectId: string, principal: Principal) {
-  const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+  const canReadAll = canReadAllTenantContent(principal)
   return state.projects.find(
     (project) =>
       project.id === projectId &&

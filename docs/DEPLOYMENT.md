@@ -7,9 +7,9 @@
 ## 封闭外测登录边界
 
 - 公网只展示登录页；除 `/api/v1/health` 和 `/api/v1/auth/login` 外，项目、媒体、任务、账单和管理 API 都要求有效账号会话。
-- 当前开放邀请码注册，不支持无邀请码自助注册。账号可由 `deploy/demo.env` 的 `BOOTSTRAP_*` 变量在空数据卷首次启动时创建，也可由 owner/admin 在账号管理页或 Admin Console API 中受控创建/邀请。
+- 当前开放邀请码注册，不支持无邀请码自助注册。账号可由 `deploy/demo.env` 的 `BOOTSTRAP_*` 变量在空数据卷首次启动时创建，也可由 owner/super_admin/admin 在账号管理页按权限边界受控创建/邀请。
 - 受控租户邀请 API 是注册准入来源，密码重置 API 已有后端能力；生产面向用户开放前，必须先接入邮件/短信投递、频控、运营审核和告警。
-- 创作者账号进入创作工作台；owner/admin 可以看到账号管理和后台入口，显示名由 `BOOTSTRAP_*_NAME` 设置。三类首次账号必须使用不同邮箱和强密码，不要向客户提供管理员或 owner 账号。
+- member 账号进入创作工作台；owner/super_admin/admin 可以看到账号管理入口，显示名由 `BOOTSTRAP_*_NAME` 设置。四类首次账号必须使用不同邮箱和强密码，不要向客户提供管理员、super_admin 或 owner 账号。
 - `BOOTSTRAP_DEMO_WORKSPACE=false` 时新云端账号从空项目列表开始，不会出现本地开发的“午夜胶片”样例。
 - 同一 workspace 的多位成员会看到同一批项目和账单权益。需要客户间强隔离时，为每个客户创建独立 workspace；项目/任务数据仍在 JSON Store，正式多实例商用前必须继续迁移项目域数据和任务队列。
 - `BOOTSTRAP_*` 只在账号库为空时生效，修改环境变量不会改掉已有账号密码。已有账号登录后可在“项目设置 -> 账号安全”修改自己的密码；忘记密码 API 在生产开放前需要接邮件/短信投递。
@@ -49,7 +49,7 @@ chmod 600 deploy/demo.env
 
 - `APP_ADDRESS`、`WEB_ORIGIN` 和 `PUBLIC_API_BASE_URL` 使用同一个真实 HTTPS 域名。
 - `AUTH_SECRET` 使用 `openssl rand -base64 48` 生成。
-- 三组 `BOOTSTRAP_*` 邮箱和密码必须唯一：creator、owner、admin；只在空账号库首次启动时生效。
+- 四组 `BOOTSTRAP_*` 邮箱和密码必须唯一：member、owner、super_admin、admin；只在空账号库首次启动时生效。
 - 保持 `BOOTSTRAP_DEMO_WORKSPACE=false`，让客户登录后创建自己的第一个项目。
 - 2 vCPU / 4GB 机器先保留 `API_MEMORY_LIMIT=1536m`、`API_NODE_HEAP_MB=768`、`WEB_MEMORY_LIMIT=192m`；发生 OOM 时优先升级内存，不要移除所有上限。
 - 保持 `VIDEO_PROVIDER=stringx`，填写私有 `GCS_BUCKET`、`STRINGX_API_KEY`、默认中文文本模型需要的 `REHDASU_API_KEY` 和图片生成需要的 `TOKENADVENT_API_KEY`；只有选择 DeepSeek V3 时才需要 `DEEPSEEK_API_KEY`（可复用 `STRINGX_API_KEY`）。

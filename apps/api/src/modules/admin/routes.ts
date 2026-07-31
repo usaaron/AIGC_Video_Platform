@@ -7,6 +7,7 @@ import {
   roleSchema,
   type AdminConsole,
   type AdminOverview,
+  type Principal,
 } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -14,6 +15,7 @@ import { requirePermission } from '../../core/auth/authorization.js'
 import { SESSION_COOKIE } from '../../core/auth/provider.js'
 import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { parseIssuedSessionToken } from '../../core/auth/sessionToken.js'
+import { isPlatformAdmin } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
 import type { AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
@@ -55,7 +57,7 @@ export async function registerAdminRoutes(
     { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store')
-      return await readAdminOverview(store, ledger, adminRepository)
+      return await readAdminOverview(store, ledger, adminRepository, request.principal!)
     },
   )
 
@@ -65,7 +67,7 @@ export async function registerAdminRoutes(
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store')
       const repository = requireAdminRepository(adminRepository)
-      const options = parseConsoleQuery(request.query)
+      const options = scopeAdminOptions(request.principal!, parseConsoleQuery(request.query))
       const currentSessionId = currentSessionIdFromCookie(request.cookies[SESSION_COOKIE], authSecret)
       const [
         overview,
@@ -77,7 +79,7 @@ export async function registerAdminRoutes(
         sessions,
         auditLogs,
       ] = await Promise.all([
-        readAdminOverview(store, ledger, repository),
+        readAdminOverview(store, ledger, repository, request.principal!),
         repository.listUsers(options),
         repository.listTenants(options),
         repository.listMemberships(options),
@@ -106,7 +108,9 @@ export async function registerAdminRoutes(
     { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store')
-      return await requireAdminRepository(adminRepository).listUsers(parseListQuery(request.query))
+      return await requireAdminRepository(adminRepository).listUsers(
+        scopeAdminOptions(request.principal!, parseListQuery(request.query)),
+      )
     },
   )
 
@@ -132,7 +136,9 @@ export async function registerAdminRoutes(
     { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store')
-      return await requireAdminRepository(adminRepository).listTenants(parseListQuery(request.query))
+      return await requireAdminRepository(adminRepository).listTenants(
+        scopeAdminOptions(request.principal!, parseListQuery(request.query)),
+      )
     },
   )
 
@@ -141,7 +147,9 @@ export async function registerAdminRoutes(
     { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store')
-      return await requireAdminRepository(adminRepository).listMemberships(parseListQuery(request.query))
+      return await requireAdminRepository(adminRepository).listMemberships(
+        scopeAdminOptions(request.principal!, parseListQuery(request.query)),
+      )
     },
   )
 
@@ -153,6 +161,12 @@ export async function registerAdminRoutes(
       reply.header('Cache-Control', 'no-store')
       const detail = await requireAdminRepository(adminRepository).findMembership(membershipId)
       if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+      if (
+        !isPlatformAdmin(request.principal!) &&
+        detail.membership.tenantId !== request.principal!.tenantId
+      ) {
+        throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot read another workspace membership')
+      }
       return detail
     },
   )
@@ -162,7 +176,9 @@ export async function registerAdminRoutes(
     { preHandler: requirePermission(PERMISSIONS.BILLING_READ_ALL) },
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store')
-      return await requireAdminRepository(adminRepository).listBillingAccounts(parseListQuery(request.query))
+      return await requireAdminRepository(adminRepository).listBillingAccounts(
+        scopeAdminOptions(request.principal!, parseListQuery(request.query)),
+      )
     },
   )
 
@@ -172,7 +188,7 @@ export async function registerAdminRoutes(
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store')
       return await requireAdminRepository(adminRepository).listBillingLedgerEntries(
-        parseListQuery(request.query),
+        scopeAdminOptions(request.principal!, parseListQuery(request.query)),
       )
     },
   )
@@ -183,7 +199,7 @@ export async function registerAdminRoutes(
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store')
       return await requireAdminRepository(adminRepository).listSessions(
-        parseSessionListQuery(request.query),
+        scopeAdminOptions(request.principal!, parseSessionListQuery(request.query)),
         currentSessionIdFromCookie(request.cookies[SESSION_COOKIE], authSecret),
       )
     },
@@ -210,7 +226,9 @@ export async function registerAdminRoutes(
     { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store')
-      return await requireAdminRepository(adminRepository).listAuditLogEntries(parseListQuery(request.query))
+      return await requireAdminRepository(adminRepository).listAuditLogEntries(
+        scopeAdminOptions(request.principal!, parseListQuery(request.query)),
+      )
     },
   )
 
@@ -222,6 +240,12 @@ export async function registerAdminRoutes(
       reply.header('Cache-Control', 'no-store')
       const detail = await requireAdminRepository(adminRepository).findMembership(membershipId)
       if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+      if (
+        !isPlatformAdmin(request.principal!) &&
+        detail.membership.tenantId !== request.principal!.tenantId
+      ) {
+        throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot read another workspace membership')
+      }
       return detail
     },
   )
@@ -282,35 +306,59 @@ function parseConsoleQuery(value: unknown): AdminListOptions {
   return parse(consoleQuery, value)
 }
 
+function scopeAdminOptions(principal: Principal, options: AdminListOptions): AdminListOptions {
+  if (isPlatformAdmin(principal)) return options
+  return { ...options, tenantId: principal.tenantId }
+}
+
 async function readAdminOverview(
   store: AppStore,
   ledger: CreditLedger | null,
   adminRepository: AdminRepository | null = null,
+  principal?: Principal,
 ): Promise<AdminOverview> {
   const today = startOfChinaDay()
+  const scopedTenantId = principal && !isPlatformAdmin(principal) ? principal.tenantId : undefined
   const creditsConsumedToday = ledger
-    ? await ledger.consumedCreditsSince(today)
+    ? await ledger.consumedCreditsSince(today, scopedTenantId)
     : store.read((state) =>
         Math.abs(
           state.ledger
-            .filter((entry) => entry.type === 'generation' && entry.createdAt >= today)
+            .filter(
+              (entry) =>
+                entry.type === 'generation' &&
+                entry.createdAt >= today &&
+                (!scopedTenantId || entry.tenantId === scopedTenantId),
+            )
             .reduce((total, entry) => total + entry.amount, 0),
         ),
       )
   const users = adminRepository
-    ? (await adminRepository.listUsers({ limit: 1, offset: 0 })).meta.total
-    : store.read((state) => state.users.length)
+    ? (await adminRepository.listUsers({ limit: 1, offset: 0, tenantId: scopedTenantId })).meta.total
+    : store.read((state) =>
+        scopedTenantId
+          ? state.users.filter((user) => user.tenantId === scopedTenantId).length
+          : state.users.length,
+      )
   return {
     users,
     activeTasks: store.read(
-      (state) => state.tasks.filter((task) => task.status === 'queued' || task.status === 'running').length,
+      (state) =>
+        state.tasks.filter(
+          (task) =>
+            (task.status === 'queued' || task.status === 'running') &&
+            (!scopedTenantId || task.tenantId === scopedTenantId),
+        ).length,
     ),
     creditsConsumedToday,
     generatedAt: new Date().toISOString(),
   }
 }
 
-function currentSessionIdFromCookie(token: string | undefined, authSecret: string | undefined): string | null {
+function currentSessionIdFromCookie(
+  token: string | undefined,
+  authSecret: string | undefined,
+): string | null {
   if (!token || !authSecret) return null
   return parseIssuedSessionToken(token, authSecret)?.sessionId ?? null
 }

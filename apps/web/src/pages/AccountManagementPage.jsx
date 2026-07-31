@@ -21,12 +21,13 @@ import { IconButton, PageHeader } from '../components/ui'
 import { canOpenAccountAdmin } from '../features/account/access'
 import { api, AUTH_EXPIRED_EVENT } from '../services/apiClient'
 import {
+  assignableRoleOptions,
   identityRolesFor,
   MemberAdminTable,
   Metric,
   PanelHeading,
+  roleFilterOptions,
   roleName,
-  roleOptions,
   SessionList,
 } from './AccountManagementParts'
 
@@ -55,7 +56,9 @@ export function AccountManagementPage({ embedded = false, onWorkspaceChanged }) 
   const canReadMembers = hasPermission(session, 'user.read') || hasPermission(session, 'user.manage')
   const canManageMembers = hasPermission(session, 'user.manage')
   const canAccessAdminConsole = canOpenAccountAdmin(session)
-  const canManageAdminRole = session.account.roles.includes('owner')
+  const canManageSuperAdminRole = session.account.roles.includes('owner')
+  const canManageAdminRole = canManageSuperAdminRole || session.account.roles.includes('super_admin')
+  const createUserRoleOptions = assignableRoleOptions({ canManageAdminRole, canManageSuperAdminRole })
   const currentWorkspaceItem = workspaces.find((item) => item.workspace.id === tenantId)
   const currentWorkspace = currentWorkspaceItem?.workspace ?? null
   const ownerTransferCandidates = members.filter(
@@ -203,20 +206,22 @@ export function AccountManagementPage({ embedded = false, onWorkspaceChanged }) 
   }
 
   const openCreateUser = () => {
-    setCreateUserForm({ ...createUserInitialState })
+    setCreateUserForm({ ...createUserInitialState, role: createUserRoleOptions[0] ?? 'member' })
     setCreateUserOpen(true)
   }
 
   const createTenantUser = async (event) => {
     event.preventDefault()
-    const role = canManageAdminRole ? createUserForm.role : 'member'
+    const role = createUserRoleOptions.includes(createUserForm.role) ? createUserForm.role : 'member'
     const email = createUserForm.email.trim()
     const name = createUserForm.name.trim()
-    const confirmed = window.confirm(
-      role === 'admin'
-        ? `确认创建管理员账号？\n\n账号：${email}\n显示名称：${name}\n该账号将获得当前 workspace 的管理员权限。`
-        : `确认创建普通会员账号？\n\n账号：${email}\n显示名称：${name}`,
-    )
+    const roleNotice =
+      role === 'super_admin'
+        ? `确认创建超级管理员账号？\n\n账号：${email}\n显示名称：${name}\n该账号将获得接近 owner 的平台管理权限，但不能任命 owner。`
+        : role === 'admin'
+          ? `确认创建管理员账号？\n\n账号：${email}\n显示名称：${name}\n该账号将获得当前 workspace 的管理员权限。`
+          : `确认创建普通会员账号？\n\n账号：${email}\n显示名称：${name}`
+    const confirmed = window.confirm(roleNotice)
     if (!confirmed) return
     await runAction('create-user', async () => {
       await api.createTenantUser(tenantId, {
@@ -340,7 +345,7 @@ export function AccountManagementPage({ embedded = false, onWorkspaceChanged }) 
       {createUserOpen && (
         <CreateTenantUserModal
           busy={busy === 'create-user'}
-          canCreateAdmin={canManageAdminRole}
+          selectableRoles={createUserRoleOptions}
           form={createUserForm}
           onChange={setCreateUserForm}
           onClose={() => setCreateUserOpen(false)}
@@ -400,7 +405,11 @@ export function AccountManagementPage({ embedded = false, onWorkspaceChanged }) 
                 workspaceNameDraft.trim() === currentWorkspace?.name
               }
             >
-              {busy === 'workspace:rename' ? <LoaderCircle size={15} className="spin" /> : <Pencil size={15} />}
+              {busy === 'workspace:rename' ? (
+                <LoaderCircle size={15} className="spin" />
+              ) : (
+                <Pencil size={15} />
+              )}
               保存名称
             </button>
           </form>
@@ -503,7 +512,7 @@ export function AccountManagementPage({ embedded = false, onWorkspaceChanged }) 
               onChange={(event) => setRoleFilter(event.target.value)}
             >
               <option value="all">全部角色</option>
-              {roleOptions.map((role) => (
+              {roleFilterOptions.map((role) => (
                 <option key={role} value={role}>
                   {roleName(role)}
                 </option>
@@ -521,6 +530,7 @@ export function AccountManagementPage({ embedded = false, onWorkspaceChanged }) 
             busy={busy}
             canManage={canManageMembers}
             canManageAdminRole={canManageAdminRole}
+            canManageSuperAdminRole={canManageSuperAdminRole}
             sessionStatsByUser={sessionStatsByUser}
             onRolesChange={(userId, roles) => setRoleDrafts((drafts) => ({ ...drafts, [userId]: roles }))}
             onSave={saveRoles}
@@ -560,9 +570,8 @@ export function AccountManagementPage({ embedded = false, onWorkspaceChanged }) 
   )
 }
 
-function CreateTenantUserModal({ busy, canCreateAdmin, form, onChange, onClose, onSubmit }) {
-  const selectableRoles = canCreateAdmin ? ['member', 'admin'] : ['member']
-  const selectedRole = canCreateAdmin ? form.role : 'member'
+function CreateTenantUserModal({ busy, selectableRoles, form, onChange, onClose, onSubmit }) {
+  const selectedRole = selectableRoles.includes(form.role) ? form.role : selectableRoles[0]
   const canSubmit = form.email.trim() && form.name.trim() && form.password.length >= 12
 
   const update = (field, value) => {
@@ -613,7 +622,7 @@ function CreateTenantUserModal({ busy, canCreateAdmin, form, onChange, onClose, 
             <select
               value={selectedRole}
               onChange={(event) => update('role', event.target.value)}
-              disabled={!canCreateAdmin}
+              disabled={selectableRoles.length <= 1}
             >
               {selectableRoles.map((role) => (
                 <option key={role} value={role}>

@@ -9,12 +9,12 @@
 
 ## 当前角色
 
-| 角色      | 用途       | 典型权限                                  |
-| --------- | ---------- | ----------------------------------------- |
-| `creator` | 免费创作者 | 项目、资产、生成、个人账单                |
-| `member`  | 订阅创作者 | 与 creator 相同，额度与并发由套餐策略决定 |
-| `admin`   | 运营管理员 | 用户查询、全局账单、任务排障、管理概览    |
-| `owner`   | 系统所有者 | 全部权限和系统配置                        |
+| 角色          | 用途             | 典型权限                                           |
+| ------------- | ---------------- | -------------------------------------------------- |
+| `member`      | 普通创作成员     | 项目、资产、生成、个人账单                         |
+| `admin`       | Workspace 管理员 | 当前 workspace 的成员、session、账单调账和任务排障 |
+| `super_admin` | 平台超级管理员   | 接近 owner 的运营权限，可管理管理员和所有普通用户  |
+| `owner`       | 系统所有者       | 全部权限和系统配置，可任命 super_admin、转让 owner |
 
 角色与权限映射定义在 `packages/contracts/src/permissions.ts`。会员并发不是新权限，而是套餐额度策略，避免角色数量随套餐膨胀。
 
@@ -47,8 +47,10 @@
 ## 账号与租户边界
 
 - 注册入口开放但必须使用租户邀请码：`POST /api/v1/auth/register` 要求提交邀请 token、受邀邮箱、姓名和密码；邮箱必须匹配邀请绑定邮箱。
-- owner/admin 可创建租户用户、添加已有用户、修改普通成员角色、禁用 membership 和查看 tenant session。
-- 只有 owner 可以添加或删除管理员、管理 owner/admin membership、转让 workspace owner、禁用 workspace 和撤销 owner/admin session。
+- owner 可任命或移除 super_admin；owner/super_admin 可创建或移除 admin，并管理所有普通用户。
+- 普通 admin 可创建普通会员、添加已有普通会员、修改普通会员角色、禁用普通会员 membership 和查看当前 tenant session。
+- admin 的管理范围以当前 `tenantId` 为边界；面向 B 端客户时，为每个客户创建独立 workspace，避免不同企业管理员互相影响。
+- 只有 owner 可以管理 owner/super_admin membership、转让 workspace owner、禁用 workspace 和撤销 owner/super_admin session。
 - 用户不能修改自己的角色、禁用自己的当前 membership，或通过后台接口撤销自己的当前 session。
 - 最后一个 active owner 不能被移除、禁用或自行退出 workspace。
 - Workspace 改名允许 owner/admin；禁用 workspace 和转让 owner 只允许 owner。

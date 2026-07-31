@@ -1,7 +1,13 @@
 import { CircleSlash, LoaderCircle, LogOut, Save } from 'lucide-react'
 
-export const roleOptions = ['member', 'admin']
-const roleLabels = { member: '普通会员', creator: '普通会员', admin: '管理员', owner: '所有者' }
+export const roleOptions = ['member', 'admin', 'super_admin']
+export const roleFilterOptions = ['owner', 'super_admin', 'admin', 'member']
+const roleLabels = {
+  member: '普通会员',
+  admin: '管理员',
+  super_admin: '超级管理员',
+  owner: '所有者',
+}
 const statusLabels = { active: '启用', disabled: '禁用' }
 
 export function Metric({ icon: Icon, label, value }) {
@@ -30,6 +36,7 @@ export function MemberAdminTable({
   busy,
   canManage,
   canManageAdminRole,
+  canManageSuperAdminRole,
   sessionStatsByUser,
   onRolesChange,
   onSave,
@@ -64,10 +71,20 @@ export function MemberAdminTable({
             const disabled = member.status !== 'active'
             const isCurrentUser = member.userId === currentUserId
             const isOwner = member.roles.includes('owner')
+            const isSuperAdmin = member.roles.includes('super_admin')
             const isAdmin = member.roles.includes('admin')
             const canManageRow =
-              canManage && !disabled && !isCurrentUser && !isOwner && (canManageAdminRole || !isAdmin)
-            const editableRoleOptions = canManageAdminRole ? roleOptions : ['member']
+              canManage &&
+              !disabled &&
+              !isCurrentUser &&
+              !isOwner &&
+              ((isSuperAdmin && canManageSuperAdminRole) ||
+                (isAdmin && canManageAdminRole) ||
+                (!isSuperAdmin && !isAdmin))
+            const editableRoleOptions = assignableRoleOptions({
+              canManageAdminRole,
+              canManageSuperAdminRole,
+            })
             const changed = !sameRoles(identityRolesFor(member.roles), roles)
             const sessionStats = sessionStatsByUser[member.userId] ?? {
               activeCount: 0,
@@ -228,7 +245,14 @@ export function roleName(role) {
 
 export function identityRolesFor(roles) {
   if (roles.includes('owner')) return ['owner']
+  if (roles.includes('super_admin')) return ['super_admin']
   if (roles.includes('admin')) return ['admin']
+  return ['member']
+}
+
+export function assignableRoleOptions({ canManageAdminRole, canManageSuperAdminRole }) {
+  if (canManageSuperAdminRole) return ['member', 'admin', 'super_admin']
+  if (canManageAdminRole) return ['member', 'admin']
   return ['member']
 }
 

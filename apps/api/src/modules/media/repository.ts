@@ -1,5 +1,6 @@
 import type { MediaKind, MediaObject, Principal } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
+import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import type { AppStore, StoredMedia } from '../../infra/store.js'
 
 export class MediaRepository {
@@ -44,7 +45,7 @@ export class MediaRepository {
     return this.store.read((state) => {
       const media = state.media.find((item) => item.id === id && item.tenantId === principal.tenantId)
       if (!media) return null
-      const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+      const canReadAll = canReadAllTenantContent(principal)
       const project = state.projects.find((item) => item.id === media.projectId)
       return canReadAll || project?.ownerId === principal.userId ? media : null
     })

@@ -97,11 +97,7 @@ describe('auth security api', { timeout: 30_000 }, () => {
     const oldPassword = await login('creator@seqora.local', 'Creator123!', chromeWindowsUserAgent)
     expect(oldPassword.statusCode).toBe(401)
 
-    const newPassword = await login(
-      'creator@seqora.local',
-      'CreatorNewPassword123!',
-      chromeWindowsUserAgent,
-    )
+    const newPassword = await login('creator@seqora.local', 'CreatorNewPassword123!', chromeWindowsUserAgent)
     expect(newPassword.statusCode).toBe(200)
 
     const reusedToken = await app.inject({
@@ -114,7 +110,7 @@ describe('auth security api', { timeout: 30_000 }, () => {
       error: { code: 'PASSWORD_RESET_TOKEN_INVALID' },
     })
 
-    const admin = await login('admin@seqora.local', 'Admin123!', chromeWindowsUserAgent)
+    const admin = await login('superadmin@seqora.local', 'SuperAdmin123!', chromeWindowsUserAgent)
     const audit = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/audit-logs?action=auth.password_reset.completed&userId=user-creator',

@@ -23,6 +23,14 @@ import type {
 } from '@seqora/contracts'
 import { ROLES } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
+import {
+  hasAdminRole,
+  hasElevatedRole,
+  hasOwnerRole,
+  hasSuperAdminRole,
+  isOwner,
+  isPlatformAdmin,
+} from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { SessionMetadata } from '../auth/accounts.js'
@@ -306,13 +314,23 @@ export class AdminRepository {
       const row = target.rows[0]
       if (!row || row.revoked_at) return null
       if (principal.userId === row.user_id) {
-        throw new AppError(400, 'CANNOT_REVOKE_SELF_SESSION', 'Use the current account session API to sign out')
+        throw new AppError(
+          400,
+          'CANNOT_REVOKE_SELF_SESSION',
+          'Use the current account session API to sign out',
+        )
       }
-      if (hasElevatedRole(row.roles) && !isOwner(principal)) {
+      if (!isPlatformAdmin(principal) && row.tenant_id !== principal.tenantId) {
+        throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot revoke a session from another workspace')
+      }
+      if (!canManageElevatedRoles(principal, row.roles)) {
+        const ownerOnly = (hasOwnerRole(row.roles) || hasSuperAdminRole(row.roles)) && !isOwner(principal)
         throw new AppError(
           403,
-          'ELEVATED_SESSION_REQUIRES_OWNER',
-          'Only owners can revoke owner or admin sessions',
+          ownerOnly ? 'ELEVATED_SESSION_REQUIRES_OWNER' : 'ELEVATED_SESSION_REQUIRES_PLATFORM_ADMIN',
+          ownerOnly
+            ? 'Only owners can revoke owner or super admin sessions'
+            : 'Only owners or super admins can revoke admin sessions',
         )
       }
 
@@ -410,6 +428,13 @@ export class AdminRepository {
       if (principal.userId === userId && status === 'disabled') {
         throw new AppError(400, 'CANNOT_DISABLE_SELF_ACCOUNT', 'Cannot disable your own account')
       }
+      if (!isPlatformAdmin(principal)) {
+        throw new AppError(
+          403,
+          'PLATFORM_ADMIN_REQUIRED',
+          'Only owners or super admins can change account status',
+        )
+      }
 
       const memberships = await client.query<{ tenant_id: string; roles: Role[]; status: string }>(
         `
@@ -419,8 +444,24 @@ export class AdminRepository {
         `,
         [userId],
       )
-      if (memberships.rows.some((membership) => hasElevatedRole(membership.roles)) && !isOwner(principal)) {
-        throw new AppError(403, 'ELEVATED_ACCOUNT_REQUIRES_OWNER', 'Only owners can manage elevated accounts')
+      if (
+        memberships.rows.some(
+          (membership) =>
+            (hasOwnerRole(membership.roles) || hasSuperAdminRole(membership.roles)) && !isOwner(principal),
+        )
+      ) {
+        throw new AppError(
+          403,
+          'ELEVATED_ACCOUNT_REQUIRES_OWNER',
+          'Only owners can change owner or super admin accounts',
+        )
+      }
+      if (memberships.rows.some((membership) => !canManageElevatedRoles(principal, membership.roles))) {
+        throw new AppError(
+          403,
+          'ELEVATED_ACCOUNT_REQUIRES_PLATFORM_ADMIN',
+          'Only owners or super admins can manage elevated accounts',
+        )
       }
 
       if (status === 'disabled') {
@@ -690,7 +731,7 @@ function buildSessionFilter(options: AdminListOptions): Filter {
   }
   if (options.q?.trim()) {
     builder.add(
-      '(lower(s.id) LIKE ? OR lower(m.user_id) LIKE ? OR lower(u.display_name) LIKE ? OR lower(ai.email) LIKE ? OR lower(t.name) LIKE ? OR lower(COALESCE(s.ip_address, \'\')) LIKE ? OR lower(COALESCE(s.device_label, \'\')) LIKE ?)',
+      "(lower(s.id) LIKE ? OR lower(m.user_id) LIKE ? OR lower(u.display_name) LIKE ? OR lower(ai.email) LIKE ? OR lower(t.name) LIKE ? OR lower(COALESCE(s.ip_address, '')) LIKE ? OR lower(COALESCE(s.device_label, '')) LIKE ?)",
       search(options.q),
       search(options.q),
       search(options.q),
@@ -712,7 +753,7 @@ function buildAuditFilter(options: AdminListOptions): Filter {
   if (options.resourceType) builder.add('e.resource_type = ?', options.resourceType)
   if (options.q?.trim()) {
     builder.add(
-      '(lower(e.id) LIKE ? OR lower(e.action) LIKE ? OR lower(e.resource_type) LIKE ? OR lower(COALESCE(e.resource_id, \'\')) LIKE ?)',
+      "(lower(e.id) LIKE ? OR lower(e.action) LIKE ? OR lower(e.resource_type) LIKE ? OR lower(COALESCE(e.resource_id, '')) LIKE ?)",
       search(options.q),
       search(options.q),
       search(options.q),
@@ -990,12 +1031,12 @@ function search(value: string): string {
   return `%${value.trim().toLowerCase()}%`
 }
 
-function isOwner(principal: Principal): boolean {
-  return principal.roles.includes(ROLES.OWNER)
-}
-
-function hasElevatedRole(roles: Role[]): boolean {
-  return roles.includes(ROLES.OWNER) || roles.includes(ROLES.ADMIN)
+function canManageElevatedRoles(principal: Principal, roles: Role[]): boolean {
+  if (!hasElevatedRole(roles)) return true
+  if (isOwner(principal)) return true
+  return (
+    isPlatformAdmin(principal) && hasAdminRole(roles) && !hasOwnerRole(roles) && !hasSuperAdminRole(roles)
+  )
 }
 
 function sessionStatus(expiresAt: string, revokedAt: string | null): AdminSessionStatus {

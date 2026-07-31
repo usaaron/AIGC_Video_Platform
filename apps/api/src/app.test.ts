@@ -16,10 +16,7 @@ import { GenerationTaskRunner } from './core/jobs/taskDispatcher.js'
 import { createPublicMediaToken } from './core/media/publicMediaToken.js'
 import { AppStore, defaultAssetAttributes } from './infra/store.js'
 import { LocalObjectStorage } from './infra/objectStorage.js'
-import {
-  startPostgresAuthFixture,
-  type PostgresAuthFixture,
-} from './testing/postgresAuth.js'
+import { startPostgresAuthFixture, type PostgresAuthFixture } from './testing/postgresAuth.js'
 
 const testConfig: AppConfig = {
   NODE_ENV: 'test',
@@ -37,6 +34,9 @@ const testConfig: AppConfig = {
   BOOTSTRAP_OWNER_NAME: '平台所有者',
   BOOTSTRAP_OWNER_EMAIL: 'owner@seqora.local',
   BOOTSTRAP_OWNER_PASSWORD: 'OwnerPassword123!',
+  BOOTSTRAP_SUPER_ADMIN_NAME: '超级管理员',
+  BOOTSTRAP_SUPER_ADMIN_EMAIL: 'superadmin@seqora.local',
+  BOOTSTRAP_SUPER_ADMIN_PASSWORD: 'SuperAdmin123!',
   BOOTSTRAP_ADMIN_NAME: '平台管理员',
   BOOTSTRAP_ADMIN_EMAIL: 'admin@seqora.local',
   BOOTSTRAP_ADMIN_PASSWORD: 'Admin123!',
@@ -108,7 +108,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -132,7 +132,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/shots',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -188,7 +188,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -291,7 +291,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -343,7 +343,7 @@ describe('API authorization', () => {
       method: 'GET',
       url: '/api/v1/projects/project-midnight-film',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -365,7 +365,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/generation/tasks',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -386,7 +386,7 @@ describe('API authorization', () => {
     const store = new AppStore(null)
     app = await buildApp({ config: testConfig, store, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -483,7 +483,7 @@ describe('API authorization', () => {
     const store = new AppStore(null)
     app = await buildApp({ config: testConfig, store, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -625,7 +625,7 @@ describe('API authorization', () => {
     const store = new AppStore(null)
     app = await buildApp({ config: testConfig, store, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -682,7 +682,7 @@ describe('API authorization', () => {
     const store = new AppStore(null)
     app = await buildApp({ config: testConfig, store, videoProvider, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -758,11 +758,11 @@ describe('API authorization', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/overview',
-      headers: { 'x-demo-role': 'admin' },
+      headers: { 'x-demo-role': 'admin', 'x-demo-tenant-id': 'tenant-seqora-demo' },
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toMatchObject({ users: 3, activeTasks: 0 })
+    expect(response.json()).toMatchObject({ users: 4, activeTasks: 0 })
   })
 
   it('proxies completed Seedance video content through the authenticated API', async () => {
@@ -810,7 +810,7 @@ describe('API authorization', () => {
       method: 'GET',
       url: task.resultUrl!,
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
         range: 'bytes=0-12',
@@ -832,7 +832,7 @@ describe('API authorization', () => {
       method: 'GET',
       url: task.resultUrl!,
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -849,7 +849,7 @@ describe('API authorization', () => {
       method: 'DELETE',
       url: '/api/v1/projects/project-midnight-film/generation/tasks/completed',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -861,7 +861,7 @@ describe('API authorization', () => {
       method: 'GET',
       url: task.resultUrl!,
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -878,7 +878,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -1007,7 +1007,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -1107,7 +1107,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -1181,7 +1181,7 @@ describe('API authorization', () => {
   it('imports a novel and splits explicit chapter headings without changing the script', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -1258,7 +1258,7 @@ describe('API authorization', () => {
   it('previews novel splitting without importing a document', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -1330,7 +1330,7 @@ describe('API authorization', () => {
   it('keeps repeated novel imports idempotent by client request id', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -1371,7 +1371,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -1409,7 +1409,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -1461,7 +1461,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -1501,7 +1501,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -1519,7 +1519,7 @@ describe('API authorization', () => {
   it('detects suspicious novel chunk boundaries without changing chapter content', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -1593,7 +1593,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -1683,7 +1683,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -1704,7 +1704,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-other',
         'x-demo-tenant-id': 'tenant-other',
       },
@@ -1725,7 +1725,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -1809,7 +1809,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -1919,7 +1919,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2001,7 +2001,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2073,7 +2073,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2107,7 +2107,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2143,7 +2143,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2215,7 +2215,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2261,7 +2261,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2317,7 +2317,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2413,7 +2413,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2459,7 +2459,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2508,7 +2508,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/script/generate',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -2554,7 +2554,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/script/generate',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -2571,7 +2571,7 @@ describe('API authorization', () => {
       method: 'GET',
       url: '/api/v1/billing/summary',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -2595,7 +2595,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2667,7 +2667,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2710,7 +2710,7 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2749,7 +2749,7 @@ describe('API authorization', () => {
       .mockRejectedValueOnce(new TextGenerationProviderError('上游暂时不可用'))
     app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2821,7 +2821,7 @@ describe('API authorization', () => {
       user.credits = 2
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2841,7 +2841,7 @@ describe('API authorization', () => {
   it('grants monthly member credits only once and disables plan self-service in production', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2876,7 +2876,7 @@ describe('API authorization', () => {
     const generate = vi.fn(async () => '不应调用')
     app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2918,7 +2918,7 @@ describe('API authorization', () => {
   it('preserves omitted asset and shot fields during partial updates', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -2962,7 +2962,7 @@ describe('API authorization', () => {
   it('splits structured scenes into one continuous shot per action beat', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -3030,7 +3030,7 @@ describe('API authorization', () => {
     }
     app = await buildApp({ config: testConfig, imageProvider, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -3124,7 +3124,7 @@ describe('film preview composition', () => {
       return tasks.map((task) => task.id)
     })
     const headers = {
-      'x-demo-role': 'creator',
+      'x-demo-role': 'member',
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
@@ -3196,7 +3196,7 @@ describe('film preview composition', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/film-preview',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
@@ -3262,7 +3262,7 @@ describe('film preview composition', () => {
       method: 'GET',
       url: '/api/v1/generation/tasks/range-preview/content',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-creator',
         'x-demo-tenant-id': 'tenant-seqora-demo',
         range: 'bytes=2-5',
@@ -3278,7 +3278,7 @@ describe('film preview composition', () => {
 
 describe('one-click quick start', () => {
   const headers = {
-    'x-demo-role': 'creator',
+    'x-demo-role': 'member',
     'x-demo-user-id': 'user-creator',
     'x-demo-tenant-id': 'tenant-seqora-demo',
   }
@@ -3791,7 +3791,7 @@ describe('local authentication', () => {
 
 localNovelRegression('local novel fixture regression', () => {
   const headers = {
-    'x-demo-role': 'creator',
+    'x-demo-role': 'member',
     'x-demo-user-id': 'user-creator',
     'x-demo-tenant-id': 'tenant-seqora-demo',
   }

@@ -45,7 +45,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(snapshot.statusCode).toBe(200)
     expect(snapshot.json()).toMatchObject({
       overview: {
-        users: 3,
+        users: 4,
         activeTasks: expect.any(Number),
         creditsConsumedToday: expect.any(Number),
         generatedAt: expect.any(String),
@@ -107,7 +107,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     })
     expect(users.statusCode).toBe(200)
     expect(users.json()).toMatchObject({
-      meta: { total: 3, limit: 50, offset: 0 },
+      meta: { total: 4, limit: 50, offset: 0 },
       items: expect.arrayContaining([
         expect.objectContaining({
           id: 'user-admin',
@@ -134,7 +134,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
         expect.objectContaining({
           id: 'tenant-seqora-demo',
           status: 'active',
-          activeMembershipCount: 3,
+          activeMembershipCount: 4,
           activeOwnerCount: 1,
         }),
       ],
@@ -142,7 +142,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const memberships = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/memberships?tenantId=tenant-seqora-demo&role=creator',
+      url: '/api/v1/admin/memberships?tenantId=tenant-seqora-demo&role=member',
       headers: { cookie: adminCookie },
     })
     expect(memberships.statusCode).toBe(200)
@@ -212,7 +212,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     })
     expect(detail.statusCode).toBe(200)
     expect(detail.json()).toMatchObject({
-      membership: expect.objectContaining({ userId: 'user-creator', roles: ['creator'] }),
+      membership: expect.objectContaining({ userId: 'user-creator', roles: ['member'] }),
       billing: expect.objectContaining({ credits: 301 }),
       entries: expect.arrayContaining([
         expect.objectContaining({ amount: 15, description: 'Admin console audit top-up' }),
@@ -222,13 +222,13 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
   it('enables and disables ordinary accounts without touching membership status', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
-    const admin = await login('admin@seqora.local', 'Admin123!')
+    const superAdmin = await login('superadmin@seqora.local', 'SuperAdmin123!')
     const creator = await login('creator@seqora.local', 'Creator123!')
 
     const disabled = await app.inject({
       method: 'PATCH',
       url: '/api/v1/admin/users/user-creator/status',
-      headers: { cookie: cookieValue(admin) },
+      headers: { cookie: cookieValue(superAdmin) },
       payload: { status: 'disabled' },
     })
     expect(disabled.statusCode).toBe(200)
@@ -258,7 +258,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const enabled = await app.inject({
       method: 'PATCH',
       url: '/api/v1/admin/users/user-creator/status',
-      headers: { cookie: cookieValue(admin) },
+      headers: { cookie: cookieValue(superAdmin) },
       payload: { status: 'active' },
     })
     expect(enabled.statusCode).toBe(200)
@@ -397,6 +397,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
   it('enforces elevated account and self-disable boundaries', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const admin = await login('admin@seqora.local', 'Admin123!')
+    const superAdmin = await login('superadmin@seqora.local', 'SuperAdmin123!')
     const owner = await login('owner@seqora.local', 'OwnerPassword123!')
 
     const adminDisablesOwner = await app.inject({
@@ -407,6 +408,17 @@ describe('admin console api', { timeout: 30_000 }, () => {
     })
     expect(adminDisablesOwner.statusCode).toBe(403)
     expect(adminDisablesOwner.json()).toMatchObject({
+      error: { code: 'PLATFORM_ADMIN_REQUIRED' },
+    })
+
+    const superAdminDisablesOwner = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/admin/users/user-owner/status',
+      headers: { cookie: cookieValue(superAdmin) },
+      payload: { status: 'disabled' },
+    })
+    expect(superAdminDisablesOwner.statusCode).toBe(403)
+    expect(superAdminDisablesOwner.json()).toMatchObject({
       error: { code: 'ELEVATED_ACCOUNT_REQUIRES_OWNER' },
     })
 

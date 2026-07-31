@@ -24,17 +24,18 @@ pnpm dev
 - `videoProvider`: uses Seedance with `tier: mini | fast | pro`; the API stores the selected tier and the Provider maps it to the configured model.
 - Secrets must stay in `apps/api/.env` or deployment secrets. Do not put API keys in code, frontend env, docs, or Git.
 
-首次启动会自动创建三个本地演示账号：
+首次启动会自动创建四个本地演示账号：
 
-| 身份   | 邮箱                   | 密码                |
-| ------ | ---------------------- | ------------------- |
-| 创作者 | `creator@seqora.local` | `Creator123!`       |
-| 所有者 | `owner@seqora.local`   | `OwnerPassword123!` |
-| 管理员 | `admin@seqora.local`   | `Admin123!`         |
+| 身份       | 邮箱                      | 密码                |
+| ---------- | ------------------------- | ------------------- |
+| 普通会员   | `creator@seqora.local`    | `Creator123!`       |
+| 所有者     | `owner@seqora.local`      | `OwnerPassword123!` |
+| 超级管理员 | `superadmin@seqora.local` | `SuperAdmin123!`    |
+| 管理员     | `admin@seqora.local`      | `Admin123!`         |
 
 认证使用经 `scrypt` 哈希的本地账号密码和签名 HttpOnly 会话 Cookie。账号、身份、会话、租户 membership、账单账户、账单流水、密码重置 token 和审计日志写入 Postgres；项目、资产、分镜、生成任务和本地媒体索引仍由 `apps/api/data/app.json` 与对象存储承载。`app.json` 已被 Git 忽略；删除它只会重置创作 Demo 数据，Postgres 账号数据需清理数据库或重建卷。
 
-已有账号登录后在“项目设置 -> 账号安全”修改密码；新密码至少 12 位。当前注册入口开放但必须提交租户邀请码，邮箱需与邀请绑定邮箱一致；没有邀请码不能自助注册。owner/admin 可在账号管理页创建用户、添加成员、生成邀请、调整角色、禁用 membership、查看和撤销 session，并管理 workspace。密码重置 API 已具备后端能力；生产正式开放前还需要接入邮件/短信投递与运营流程。云端首次账号由服务器 `deploy/demo.env` 的 `BOOTSTRAP_*` 设置，并且只在空数据卷第一次启动时生效。不要把真实密码写进仓库。
+已有账号登录后在“项目设置 -> 账号安全”修改密码；新密码至少 12 位。当前注册入口开放但必须提交租户邀请码，邮箱需与邀请绑定邮箱一致；没有邀请码不能自助注册。owner 可任命超级管理员；owner/super_admin 可管理管理员和普通会员；普通 admin 仅管理当前 workspace 的普通会员。密码重置 API 已具备后端能力；生产正式开放前还需要接入邮件/短信投递与运营流程。云端首次账号由服务器 `deploy/demo.env` 的 `BOOTSTRAP_*` 设置，并且只在空数据卷第一次启动时生效。不要把真实密码写进仓库。
 
 ## 仓库结构
 
@@ -67,7 +68,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 
 该部署模式面向封闭外测：API 和 Web 同域，Postgres 承载账号/auth/账单账本，JSON 数据卷仍承载项目、资产、分镜和生成任务，媒体使用私有 GCS。正式商用前还必须完成持久队列、独立 Worker、支付/订阅回调、邮件投递、监控告警、数据导出/删除和备份恢复演练。
 
-封闭外测默认开放账号密码登录和邀请码注册，不支持无邀请码自助注册。生产首次启动创建创作者、owner 和管理员账号，不写入演示项目；前端登录前只加载登录页，工作台页面按需下载，Compose 默认资源边界适配 2 vCPU / 4 GB 起步机器。
+封闭外测默认开放账号密码登录和邀请码注册，不支持无邀请码自助注册。生产首次启动创建 member、owner、super_admin 和 admin 账号，不写入演示项目；前端登录前只加载登录页，工作台页面按需下载，Compose 默认资源边界适配 2 vCPU / 4 GB 起步机器。
 
 ## 架构入口
 

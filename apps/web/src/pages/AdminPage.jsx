@@ -89,7 +89,7 @@ export function AdminPage() {
               <ShieldCheck size={22} />
               <div>
                 <h2>权限系统正常</h2>
-                <p>当前账号通过后端 `admin.dashboard.read` 权限访问此页面，创作者账号无法调用该接口。</p>
+                <p>当前账号通过后端 `admin.dashboard.read` 权限访问此页面，普通会员账号无法调用该接口。</p>
               </div>
               <span>{new Date(overview.generatedAt).toLocaleString('zh-CN')}</span>
             </section>

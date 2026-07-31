@@ -92,7 +92,7 @@ type RegressionReport = {
 
 const PROJECT_ID = 'project-midnight-film'
 const HEADERS = {
-  'x-demo-role': 'creator',
+  'x-demo-role': 'member',
   'x-demo-user-id': 'user-creator',
   'x-demo-tenant-id': 'tenant-seqora-demo',
 }

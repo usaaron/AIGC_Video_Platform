@@ -319,6 +319,105 @@ describe('postgres migrations', () => {
       await database.close()
     }
   })
+
+  it('normalizes legacy creator roles and rejects unknown account roles', async () => {
+    if (!postgres) throw new Error('Postgres fixture is not ready')
+    const suffix = uniqueSuffix()
+    const database = new AccountDatabase(postgres.connectionString)
+
+    try {
+      const userId = `user-legacy-${suffix}`
+      const tenantId = `tenant-legacy-${suffix}`
+      const membershipId = `membership-legacy-${suffix}`
+      const invitationId = `invitation-legacy-${suffix}`
+      await database.transaction(async (client) => {
+        await client.query(
+          'ALTER TABLE tenant_memberships DROP CONSTRAINT IF EXISTS tenant_memberships_roles_known_check',
+        )
+        await client.query(
+          'ALTER TABLE tenant_invitations DROP CONSTRAINT IF EXISTS tenant_invitations_roles_known_check',
+        )
+        await client.query(
+          `
+          INSERT INTO users (id, display_name, status, created_at, updated_at)
+          VALUES ($1, 'Legacy User', 'active', now(), now())
+          `,
+          [userId],
+        )
+        await client.query(
+          `
+          INSERT INTO tenants (id, name, status, created_at, updated_at)
+          VALUES ($1, 'Legacy Tenant', 'active', now(), now())
+          `,
+          [tenantId],
+        )
+        await client.query(
+          `
+          INSERT INTO tenant_memberships (id, tenant_id, user_id, roles, is_primary, status, created_at, updated_at)
+          VALUES ($1, $2, $3, ARRAY['creator', 'admin', 'creator']::text[], false, 'active', now(), now())
+          `,
+          [membershipId, tenantId, userId],
+        )
+        await client.query(
+          `
+          INSERT INTO tenant_invitations (
+            id, tenant_id, email, roles, invited_by_user_id, token_secret_hash, status, expires_at,
+            created_at, updated_at
+          )
+          VALUES ($1, $2, $3, ARRAY['creator']::text[], $4, $5, 'pending', now() + interval '7 days', now(), now())
+          `,
+          [invitationId, tenantId, `legacy-${suffix}@example.com`, userId, `token-secret-${suffix}`],
+        )
+      })
+      await database.query(await readProjectMigration('009_account_roles.sql'))
+
+      const roles = await database.query<{
+        membership_roles: string[]
+        invitation_roles: string[]
+      }>(
+        `
+        SELECT
+          (SELECT roles FROM tenant_memberships WHERE id = $1) AS membership_roles,
+          (SELECT roles FROM tenant_invitations WHERE id = $2) AS invitation_roles
+        `,
+        [membershipId, invitationId],
+      )
+      expect(roles.rows[0]).toEqual({
+        membership_roles: ['member', 'admin'],
+        invitation_roles: ['member'],
+      })
+
+      await expect(
+        database.query(
+          `
+          INSERT INTO tenant_memberships (id, tenant_id, user_id, roles)
+          VALUES ($1, $2, $3, ARRAY['creator']::text[])
+          `,
+          [`membership-invalid-${suffix}`, tenantId, userId],
+        ),
+      ).rejects.toThrow()
+
+      await expect(
+        database.query(
+          `
+          INSERT INTO tenant_invitations (
+            id, tenant_id, email, roles, invited_by_user_id, token_secret_hash, status, expires_at
+          )
+          VALUES ($1, $2, $3, ARRAY['creator']::text[], $4, $5, 'pending', now() + interval '7 days')
+          `,
+          [
+            `invitation-invalid-${suffix}`,
+            tenantId,
+            `invalid-${suffix}@example.com`,
+            userId,
+            `invalid-token-secret-${suffix}`,
+          ],
+        ),
+      ).rejects.toThrow()
+    } finally {
+      await database.close()
+    }
+  })
 })
 
 async function createDatabase(migrationsPath: string): Promise<AccountDatabase> {
@@ -332,6 +431,12 @@ async function createMigrationDirectory(files: Record<string, string>): Promise<
     Object.entries(files).map(([name, sql]) => writeFile(join(migrationsPath, name), sql, 'utf8')),
   )
   return migrationsPath
+}
+
+async function readProjectMigration(name: string): Promise<string> {
+  return await import('node:fs/promises').then(({ readFile }) =>
+    readFile(new URL(`./migrations/${name}`, import.meta.url), 'utf8'),
+  )
 }
 
 function uniqueSuffix(): string {
