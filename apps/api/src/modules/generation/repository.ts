@@ -189,9 +189,8 @@ export class GenerationTaskRepository {
         .filter((shot) => shot.projectId === projectId && shot.tenantId === principal.tenantId)
         .filter((shot) => episodeNumber === null || shot.episodeNumber === episodeNumber)
         .sort((left, right) => left.order - right.order)
-      const sources = shots.map((shot) => ({
-        shot,
-        task: state.tasks.find(
+      const sources = shots.map((shot) => {
+        const completedTasks = state.tasks.filter(
           (task) =>
             task.projectId === projectId &&
             task.tenantId === principal.tenantId &&
@@ -200,8 +199,12 @@ export class GenerationTaskRepository {
             task.status === 'completed' &&
             task.metadata.shotId === shot.id &&
             typeof task.metadata.providerTaskId === 'string',
-        ),
-      }))
+        )
+        return {
+          shot,
+          task: completedTasks.find((task) => task.id === shot.selectedVideoTaskId) ?? completedTasks[0],
+        }
+      })
       return { project, shots, sources }
     })
   }

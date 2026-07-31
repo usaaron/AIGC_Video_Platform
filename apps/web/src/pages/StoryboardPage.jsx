@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowDown,
@@ -10,6 +10,7 @@ import {
   CircleHelp,
   Clock3,
   Film,
+  History,
   ImagePlus,
   Link2,
   LoaderCircle,
@@ -17,6 +18,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  RotateCcw,
   Scissors,
   Video,
   Upload,
@@ -24,6 +26,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { IconButton, PageHeader } from '../components/ui'
+import { AssetAwareTextarea, AssetShortcutBar } from '../features/assets/AssetShortcutBar'
 import { selectShotAssetReferences, taskUsesAssetReferences } from '../features/storyboard/referenceSelector'
 import { activeVideoTasksForShots, planVideoBatch } from '../features/storyboard/videoBatchPlanner'
 import { normalizedVideoDuration } from '@seqora/prompting'
@@ -36,9 +39,12 @@ const VIDEO_RESOLUTIONS = [
 ]
 
 export function StoryboardPage({
+  project,
   shots,
   assets,
   tasks,
+  episodeDurationSeconds: projectEpisodeDurationSeconds = 60,
+  onUpdateEpisodeDuration,
   concurrency = 1,
   unlimitedConcurrency = false,
   onRegenerate,
@@ -53,27 +59,38 @@ export function StoryboardPage({
 }) {
   const [selected, setSelected] = useState(shots[0]?.id)
   const [editing, setEditing] = useState(null)
+  const [historyShotId, setHistoryShotId] = useState(null)
   const [batchResolution, setBatchResolution] = useState('720p')
   const [batchMode, setBatchMode] = useState('parallel')
-  const [episodeDuration, setEpisodeDuration] = useState(60)
+  const [episodeDuration, setEpisodeDuration] = useState(projectEpisodeDurationSeconds)
   const [shotResolutions, setShotResolutions] = useState({})
   const [splitting, setSplitting] = useState('')
   const [splittingEpisodes, setSplittingEpisodes] = useState(false)
   const [generatingAll, setGeneratingAll] = useState(false)
   const [operationError, setOperationError] = useState('')
-  const totalDuration = shots.reduce((sum, shot) => sum + normalizedVideoDuration(shot.duration), 0)
+  const isWebSeries = project?.contentType === 'short-drama'
+  const shotMinDuration = isWebSeries ? 3 : 4
+  const totalDuration = shots.reduce(
+    (sum, shot) => sum + normalizedVideoDuration(shot.duration, shotMinDuration),
+    0,
+  )
   const batchPlan = planVideoBatch(shots, batchMode, concurrency)
   const activeBatchTasks = activeVideoTasksForShots(tasks, shots)
   const batchLocked = activeBatchTasks.length > 0
   const controlsLocked = batchLocked || Boolean(splitting) || splittingEpisodes || generatingAll
   const activeShotCount = new Set(activeBatchTasks.map((task) => task.metadata?.shotId)).size
-  const episodes = groupShotsByEpisode(shots)
+  const episodes = groupShotsByEpisode(shots, shotMinDuration)
   const [selectedEpisode, setSelectedEpisode] = useState(() => episodeKeyForShot(shots[0]) || 'all')
   const visibleEpisodes =
     selectedEpisode === 'all'
       ? episodes
       : episodes.filter((episode) => episodeKey(episode) === selectedEpisode)
   const selectedEpisodeIndex = episodes.findIndex((episode) => episodeKey(episode) === selectedEpisode)
+  const historyShot = shots.find((shot) => shot.id === historyShotId) || null
+
+  useEffect(() => {
+    setEpisodeDuration(projectEpisodeDurationSeconds)
+  }, [project?.id, projectEpisodeDurationSeconds])
 
   useEffect(() => {
     if (selectedEpisode === 'all') return
@@ -135,7 +152,7 @@ export function StoryboardPage({
   const newShotDraft = (episodeNumber = latestEpisode?.number || 1, forceNewEpisode = false) => ({
     title: forceNewEpisode ? `第 ${episodeNumber} 集 · 开场镜头` : `镜头 ${shots.length + 1}`,
     framing: '中景',
-    duration: 4,
+    duration: shotMinDuration,
     prompt: '',
     negativePrompt: '',
     imageUrl: null,
@@ -160,9 +177,10 @@ export function StoryboardPage({
           className="button secondary"
           onClick={() => void splitFromScript('scene')}
           disabled={controlsLocked}
+          title="按剧本场次自动拆出动作镜头、补齐角色反应，并继续生成队列"
         >
           {splitting === 'scene' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
-          {splitting === 'scene' ? '正在按场次拆分' : '按场次拆分'}
+          {splitting === 'scene' ? '正在按场次智能生成' : '按场次智能生成'}
         </button>
         <button
           className="button secondary"
@@ -170,7 +188,7 @@ export function StoryboardPage({
           disabled={controlsLocked}
         >
           {splitting === 'beat' ? <LoaderCircle size={16} className="spin" /> : <Scissors size={16} />}
-          {splitting === 'beat' ? '正在动作级细拆' : '动作级细拆'}
+          {splitting === 'beat' ? '正在动作级细拆' : '高级：动作级细拆'}
         </button>
         <button
           type="button"
@@ -253,18 +271,27 @@ export function StoryboardPage({
         </div>
         <label>
           <span>每集时长</span>
-          <select
-            value={episodeDuration}
-            disabled={controlsLocked}
-            onChange={(event) => setEpisodeDuration(Number(event.target.value))}
-          >
-            <option value={30}>约 30 秒</option>
-            <option value={60}>约 1 分钟</option>
-            <option value={120}>约 2 分钟</option>
-            <option value={180}>约 3 分钟</option>
-            <option value={240}>约 4 分钟</option>
-            <option value={300}>约 5 分钟</option>
-          </select>
+          <span className="episode-duration-input">
+            <input
+              aria-label="分镜每集时长（秒）"
+              type="number"
+              min="30"
+              max="300"
+              step="1"
+              value={episodeDuration}
+              disabled={controlsLocked}
+              onChange={(event) => setEpisodeDuration(Number(event.target.value) || 0)}
+              onBlur={() => {
+                const next = Math.min(300, Math.max(30, Math.round(Number(episodeDuration) || 60)))
+                setEpisodeDuration(next)
+                if (next !== projectEpisodeDurationSeconds && onUpdateEpisodeDuration) {
+                  void onUpdateEpisodeDuration(next).catch((error) => setOperationError(error.message))
+                }
+              }}
+            />
+            <em>秒</em>
+          </span>
+          <span className="episode-duration-source">沿用剧本设置</span>
         </label>
         <button
           className="button secondary"
@@ -376,6 +403,7 @@ export function StoryboardPage({
                   <ShotRow
                     key={shot.id}
                     shot={shot}
+                    minDuration={shotMinDuration}
                     previousShot={previousShot}
                     selected={selected === shot.id}
                     assets={assets}
@@ -383,7 +411,7 @@ export function StoryboardPage({
                     batchLocked={batchLocked}
                     resolution={
                       shotResolutions[shot.id] ||
-                      videoResolutionForTask(taskFor(tasks, shot.id, 'video')) ||
+                      videoResolutionForTask(taskFor(tasks, shot, 'video')) ||
                       batchResolution
                     }
                     onSelect={() => setSelected(shot.id)}
@@ -392,6 +420,7 @@ export function StoryboardPage({
                     }
                     onUpdate={onUpdate}
                     onEdit={() => setEditing(shot)}
+                    onHistory={() => setHistoryShotId(shot.id)}
                     onGenerateImage={onGenerateImage}
                     onGenerateVideo={onGenerateVideo}
                   />
@@ -402,7 +431,7 @@ export function StoryboardPage({
         ))}
       </div>
       <div className="sticky-actions">
-        <span>视频 18 积分；分镜图可选，系统会按项目类型自动合并质量保护规则。</span>
+        <span>视频 18 积分；分镜图可选；新视频默认生成对白、环境声和动作音效。</span>
         <button className="button primary" onClick={onNext}>
           查看生成队列 <ArrowRight size={16} />
         </button>
@@ -410,6 +439,9 @@ export function StoryboardPage({
       {editing && (
         <ShotEditor
           shot={editing}
+          minDuration={shotMinDuration}
+          assets={assets}
+          tasks={tasks}
           onUpload={onUpload}
           onClose={() => setEditing(null)}
           onSave={async (input) => {
@@ -423,13 +455,29 @@ export function StoryboardPage({
           }}
         />
       )}
+      {historyShot && (
+        <ShotHistoryModal
+          shot={historyShot}
+          tasks={tasks}
+          onClose={() => setHistoryShotId(null)}
+          onRestore={async (kind, taskId) => {
+            const field = kind === 'image' ? 'selectedImageTaskId' : 'selectedVideoTaskId'
+            await onUpdate(historyShot.id, { [field]: taskId })
+          }}
+        />
+      )}
     </div>
   )
 }
 
-function taskFor(tasks, shotId, kind) {
+function taskFor(tasks, shot, kind) {
+  const shotId = typeof shot === 'string' ? shot : shot.id
+  const selectedTaskId =
+    typeof shot === 'string' ? null : kind === 'image' ? shot.selectedImageTaskId : shot.selectedVideoTaskId
   const candidates = tasks.filter((task) => task.kind === kind && task.metadata?.shotId === shotId)
   return (
+    candidates.find((task) => isActive(task) && typeof task.metadata?.queueHiddenAt !== 'string') ||
+    candidates.find((task) => task.id === selectedTaskId && task.status === 'completed') ||
     candidates.find((task) => typeof task.metadata?.queueHiddenAt !== 'string') ||
     candidates.find((task) => task.status === 'completed') ||
     null
@@ -438,6 +486,7 @@ function taskFor(tasks, shotId, kind) {
 
 function ShotRow({
   shot,
+  minDuration = 4,
   previousShot,
   selected,
   assets,
@@ -448,11 +497,12 @@ function ShotRow({
   onResolutionChange,
   onUpdate,
   onEdit,
+  onHistory,
   onGenerateImage,
   onGenerateVideo,
 }) {
-  const imageTask = taskFor(tasks, shot.id, 'image')
-  const videoTask = taskFor(tasks, shot.id, 'video')
+  const imageTask = taskFor(tasks, shot, 'image')
+  const videoTask = taskFor(tasks, shot, 'video')
   const references = selectShotAssetReferences(assets, shot)
   const imageMatchesAssets = taskUsesAssetReferences(imageTask, references)
   const videoMatchesAssets = taskUsesAssetReferences(videoTask, references)
@@ -470,7 +520,7 @@ function ShotRow({
         <ContinuityConnector
           previousShot={previousShot}
           shot={shot}
-          previousVideoTask={taskFor(tasks, previousShot.id, 'video')}
+          previousVideoTask={taskFor(tasks, previousShot, 'video')}
           onChange={(continuityMode) => void onUpdate(shot.id, { continuityMode })}
           disabled={batchLocked}
         />
@@ -485,7 +535,7 @@ function ShotRow({
           <div>
             <h3>{shot.title}</h3>
             <span>
-              <Clock3 size={13} /> 输出 {normalizedVideoDuration(shot.duration)} 秒
+              <Clock3 size={13} /> 输出 {normalizedVideoDuration(shot.duration, minDuration)} 秒
             </span>
           </div>
           <p>{shot.prompt}</p>
@@ -587,23 +637,203 @@ function ShotRow({
             {isActive(videoTask) ? <LoaderCircle size={16} className="spin" /> : <Video size={16} />}
             <span>{videoActionLabel}</span>
           </button>
-          <IconButton
-            label="编辑分镜"
-            disabled={batchLocked}
-            onClick={(event) => {
-              event.stopPropagation()
-              onEdit()
-            }}
-          >
-            <Pencil size={17} />
-          </IconButton>
+          <div className="shot-utility-actions">
+            <IconButton
+              label="版本历史"
+              onClick={(event) => {
+                event.stopPropagation()
+                onHistory()
+              }}
+            >
+              <History size={17} />
+            </IconButton>
+            <IconButton
+              label="编辑分镜"
+              disabled={batchLocked}
+              onClick={(event) => {
+                event.stopPropagation()
+                onEdit()
+              }}
+            >
+              <Pencil size={17} />
+            </IconButton>
+          </div>
         </div>
       </article>
     </Fragment>
   )
 }
 
-export function groupShotsByEpisode(shots) {
+function ShotHistoryModal({ shot, tasks, onClose, onRestore }) {
+  const [restoring, setRestoring] = useState('')
+  const [error, setError] = useState('')
+  const imageVersions = shotVersionPair(tasks, shot, 'image')
+  const videoVersions = shotVersionPair(tasks, shot, 'video')
+
+  const restore = async (kind, taskId) => {
+    setRestoring(taskId)
+    setError('')
+    try {
+      await onRestore(kind, taskId)
+    } catch (restoreError) {
+      setError(restoreError.message)
+    } finally {
+      setRestoring('')
+    }
+  }
+
+  return createPortal(
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <section className="modal shot-history-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <span className="eyebrow">镜头版本</span>
+            <h2>{shot.title}</h2>
+            <p>仅保留当前版和上一版入口，恢复后成片合成与镜头承接会同步使用该版本。</p>
+          </div>
+          <IconButton label="关闭" type="button" onClick={onClose}>
+            <X size={20} />
+          </IconButton>
+        </div>
+        <div className="shot-history-columns">
+          <ShotHistoryColumn
+            title="分镜图"
+            kind="image"
+            versions={imageVersions}
+            selectedTaskId={selectedVersionTaskId(tasks, shot, 'image')}
+            restoring={restoring}
+            onRestore={restore}
+          />
+          <ShotHistoryColumn
+            title="镜头视频"
+            kind="video"
+            versions={videoVersions}
+            selectedTaskId={selectedVersionTaskId(tasks, shot, 'video')}
+            restoring={restoring}
+            onRestore={restore}
+          />
+        </div>
+        {error && (
+          <p className="operation-error" role="alert">
+            {error}
+          </p>
+        )}
+      </section>
+    </div>,
+    document.body,
+  )
+}
+
+function ShotHistoryColumn({ title, kind, versions, selectedTaskId, restoring, onRestore }) {
+  return (
+    <section className="shot-history-column">
+      <header>
+        <span>{kind === 'image' ? <ImagePlus size={15} /> : <Video size={15} />}</span>
+        <div>
+          <strong>{title}</strong>
+          <small>{versions.length > 1 ? '当前版本 + 上一版本' : '首个版本生成后自动留档'}</small>
+        </div>
+      </header>
+      {versions.length ? (
+        <div className="shot-version-list">
+          {versions.map((task, index) => {
+            const current = task.id === selectedTaskId
+            const url = taskOutputUrl(task, kind)
+            return (
+              <article className={`shot-version-card ${current ? 'current' : ''}`} key={task.id}>
+                <div className="shot-version-media">
+                  {kind === 'video' ? (
+                    <video src={url || undefined} controls preload="metadata" />
+                  ) : url ? (
+                    <img src={url} alt={`${title}${current ? '当前版' : '上一版'}`} />
+                  ) : (
+                    <ImagePlus size={24} />
+                  )}
+                  <span>{current ? '当前使用' : index === 0 ? '最新生成' : '上一版本'}</span>
+                </div>
+                <div className="shot-version-meta">
+                  <div>
+                    <strong>{task.model || (kind === 'video' ? 'Seedance' : 'Img2')}</strong>
+                    <span>{formatVersionTime(task.updatedAt || task.createdAt)}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`button ${current ? 'secondary' : 'primary'}`}
+                    disabled={current || Boolean(restoring)}
+                    onClick={() => void onRestore(kind, task.id)}
+                  >
+                    {restoring === task.id ? (
+                      <LoaderCircle size={15} className="spin" />
+                    ) : current ? (
+                      <Check size={15} />
+                    ) : (
+                      <RotateCcw size={15} />
+                    )}
+                    {current ? '正在使用' : '恢复此版本'}
+                  </button>
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="shot-history-empty">
+          <History size={20} />
+          <span>还没有可用版本</span>
+          <small>完成首次{title}生成后会自动保留</small>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function shotVersionPair(tasks, shot, kind) {
+  const completed = tasks
+    .filter((task) => task.kind === kind && task.metadata?.shotId === shot.id && task.status === 'completed')
+    .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
+  if (!completed.length) return []
+  const selectedId = selectedVersionTaskId(tasks, shot, kind)
+  const current = completed.find((task) => task.id === selectedId) || completed[0]
+  const previous = completed.find((task) => task.id !== current.id)
+  return [current, previous].filter(Boolean)
+}
+
+function selectedVersionTaskId(tasks, shot, kind) {
+  const storedId = kind === 'image' ? shot.selectedImageTaskId : shot.selectedVideoTaskId
+  if (
+    storedId &&
+    tasks.some(
+      (task) =>
+        task.id === storedId &&
+        task.kind === kind &&
+        task.metadata?.shotId === shot.id &&
+        task.status === 'completed',
+    )
+  )
+    return storedId
+  return tasks
+    .filter((task) => task.kind === kind && task.metadata?.shotId === shot.id && task.status === 'completed')
+    .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))[0]?.id
+}
+
+function taskOutputUrl(task, kind) {
+  if (!task) return null
+  if (kind === 'video')
+    return task.resultUrl || task.outputs?.find((output) => output.mediaType === 'video')?.url
+  return task.resultUrl || task.outputs?.find((output) => output.mediaType === 'image')?.url
+}
+
+function formatVersionTime(value) {
+  if (!value) return '时间未知'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value))
+}
+
+export function groupShotsByEpisode(shots, minDuration = 4) {
   const groups = new Map()
   for (const shot of shots) {
     const number = shot.episodeNumber || 1
@@ -618,7 +848,7 @@ export function groupShotsByEpisode(shots) {
       shots: [],
     }
     current.shots.push(shot)
-    current.duration += normalizedVideoDuration(shot.duration)
+    current.duration += normalizedVideoDuration(shot.duration, minDuration)
     current.hasHook ||= kind === 'hook'
     current.kind = current.hasHook ? 'hook' : 'standard'
     groups.set(key, current)
@@ -729,15 +959,15 @@ function resolutionLabel(value) {
   return VIDEO_RESOLUTIONS.find((option) => option.value === value)?.label || '720P'
 }
 
-function ShotEditor({ shot, onUpload, onClose, onSave }) {
+function ShotEditor({ shot, minDuration = 4, assets = [], tasks = [], onUpload, onClose, onSave }) {
   const [title, setTitle] = useState(shot.title || '')
   const [framing, setFraming] = useState(shot.framing || '中景')
-  const [duration, setDuration] = useState(normalizedVideoDuration(shot.duration))
+  const [duration, setDuration] = useState(normalizedVideoDuration(shot.duration, minDuration))
   const [prompt, setPrompt] = useState(shot.prompt || '')
+  const promptArea = useRef(null)
   const [negativePrompt, setNegativePrompt] = useState(shot.negativePrompt || '')
   const [continuityNote, setContinuityNote] = useState(shot.continuityNote || '')
   const [imageUrl, setImageUrl] = useState(shot.imageUrl || '')
-  const [episodeBreakBefore, setEpisodeBreakBefore] = useState(Boolean(shot.episodeBreakBefore))
   const [episodeNumber, setEpisodeNumber] = useState(shot.episodeNumber || 1)
   const [episodeTitle, setEpisodeTitle] = useState(shot.episodeTitle || `第 ${shot.episodeNumber || 1} 集`)
   const [episodeKind, setEpisodeKind] = useState(shot.episodeKind || 'standard')
@@ -774,7 +1004,7 @@ function ShotEditor({ shot, onUpload, onClose, onSave }) {
             negativePrompt,
             continuityNote,
             imageUrl: imageUrl || null,
-            episodeBreakBefore,
+            episodeBreakBefore: Boolean(shot.episodeBreakBefore),
             episodeNumber: Number(episodeNumber),
             episodeTitle: episodeTitle.trim() || `第 ${episodeNumber} 集`,
             episodeKind,
@@ -817,7 +1047,7 @@ function ShotEditor({ shot, onUpload, onClose, onSave }) {
             <input
               className="text-input"
               type="number"
-              min="4"
+              min={minDuration}
               max="15"
               value={duration}
               onChange={(event) => setDuration(event.target.value)}
@@ -858,17 +1088,6 @@ function ShotEditor({ shot, onUpload, onClose, onSave }) {
             />
           </label>
         </div>
-        <label className="shot-episode-break-toggle">
-          <input
-            type="checkbox"
-            checked={episodeBreakBefore}
-            onChange={(event) => setEpisodeBreakBefore(event.target.checked)}
-          />
-          <span>
-            <strong>本镜头开启新集</strong>
-            <small>重新拆分或保存后，当前镜头会作为该集的起点。</small>
-          </span>
-        </label>
         <div className="shot-reference-editor">
           <div className="shot-reference-preview">
             {imageUrl ? <img src={imageUrl} alt="镜头参考" /> : <ImagePlus size={24} />}
@@ -900,7 +1119,22 @@ function ShotEditor({ shot, onUpload, onClose, onSave }) {
           </p>
         )}
         <label className="field-label">画面提示词</label>
-        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+        <AssetAwareTextarea
+          inputRef={promptArea}
+          assets={assets}
+          tasks={tasks}
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          aria-label="画面提示词"
+        />
+        <AssetShortcutBar
+          assets={assets}
+          tasks={tasks}
+          value={prompt}
+          onChange={setPrompt}
+          inputRef={promptArea}
+          label="本镜头资产快捷键"
+        />
         <label className="field-label">衔接上下文</label>
         <textarea
           value={continuityNote}

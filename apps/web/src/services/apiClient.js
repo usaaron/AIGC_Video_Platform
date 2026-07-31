@@ -58,6 +58,7 @@ export async function waitForProjectScriptUpdate(
 }
 
 export const api = {
+  health: () => request('/health'),
   login: (input) => request('/auth/login', json('POST', input)),
   logout: () => request('/auth/logout', { method: 'POST' }),
   session: () => request('/auth/me'),
@@ -108,8 +109,35 @@ export const api = {
     request(`/projects/${id}/novels/${documentId}/asset-suggestions`, json('POST', input)),
   generateNovelChapterAdaptation: (id, documentId, input = {}) =>
     request(`/projects/${id}/novels/${documentId}/adapt-script`, json('POST', input)),
-  suggestScriptAssets: (id, script, direction, clientRequestId = crypto.randomUUID()) =>
-    request(`/projects/${id}/script/asset-suggestions`, json('POST', { clientRequestId, script, direction })),
+  suggestScriptAssets: (
+    id,
+    script,
+    direction,
+    modelOrClientRequestId,
+    clientRequestId = crypto.randomUUID(),
+  ) => {
+    const modelValues = new Set([
+      'seqora-5.6',
+      'seqora-op-5',
+      'kimi-3',
+      'deepseek-v3',
+      'qwen3.8',
+      'gpt-5.6-terra',
+      'kimi-k3',
+      'glm-5.2',
+      'glm-5.2-fast',
+    ])
+    const hasModel = modelValues.has(modelOrClientRequestId)
+    return request(
+      `/projects/${id}/script/asset-suggestions`,
+      json('POST', {
+        clientRequestId: hasModel ? clientRequestId : modelOrClientRequestId || crypto.randomUUID(),
+        script,
+        direction,
+        ...(hasModel ? { model: modelOrClientRequestId } : {}),
+      }),
+    )
+  },
   generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID(), options = {}) =>
     request(
       `/projects/${id}/script/generate`,
@@ -137,7 +165,7 @@ export const api = {
       `/projects/${id}/script/review`,
       json('POST', { clientRequestId, script, direction, ...options }),
     ),
-  planQuickStart: (id) => request(`/projects/${id}/quick-start/plan`, { method: 'POST' }),
+  planQuickStart: (id, model) => request(`/projects/${id}/quick-start/plan`, json('POST', { model })),
   executeQuickStart: (id, input) => request(`/projects/${id}/quick-start/execute`, json('POST', input)),
   saveVersion: (id) => request(`/projects/${id}/versions`, { method: 'POST' }),
   createAsset: (projectId, input) => request(`/projects/${projectId}/assets`, json('POST', input)),

@@ -59,6 +59,72 @@ describe('TokenAdventImageProvider', () => {
     expect(capturedBody?.getAll('image[]')).toHaveLength(1)
   })
 
+  it('uses a separately configured Nano Banana upstream instead of falling back to Img2', async () => {
+    let capturedUrl = ''
+    let capturedBody: string | undefined
+    let capturedAuthorization = ''
+    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      capturedUrl = String(input)
+      capturedBody = String(init?.body)
+      capturedAuthorization = new Headers(init?.headers).get('authorization') || ''
+      return Response.json({ data: [{ b64_json: Buffer.from('banana').toString('base64') }] })
+    }) as typeof fetch
+    const provider = new TokenAdventImageProvider({
+      baseUrl: 'https://tokenadvent.example',
+      apiKey: 'img2-key',
+      alternateBaseUrl: 'https://nano.example',
+      alternateApiKey: 'banana-key',
+      alternateModels: ['nano-banana'],
+      alternateModel: 'nano-banana',
+      model: 'gpt-image-2',
+      quality: 'low',
+      requestTimeoutMs: 180_000,
+      fetcher,
+    })
+
+    await provider.generate({
+      taskId: 'task-banana',
+      assetId: 'asset-1',
+      model: 'nano-banana',
+      aspectRatio: '1:1',
+      prompt: 'a single prop',
+      negativePrompt: '',
+      references: [],
+      outputs: ['single'],
+    })
+
+    expect(capturedUrl).toBe('https://nano.example/v1/images/generations')
+    expect(JSON.parse(capturedBody || '')).toMatchObject({ model: 'nano-banana' })
+    expect(capturedAuthorization).toBe('Bearer banana-key')
+  })
+
+  it('refuses Nano Banana when its real upstream is not configured', async () => {
+    const fetcher = (async () => {
+      throw new Error('should not call an upstream')
+    }) as typeof fetch
+    const provider = new TokenAdventImageProvider({
+      baseUrl: 'https://tokenadvent.example',
+      apiKey: 'img2-key',
+      model: 'gpt-image-2',
+      quality: 'low',
+      requestTimeoutMs: 180_000,
+      fetcher,
+    })
+
+    await expect(
+      provider.generate({
+        taskId: 'task-unconfigured-banana',
+        assetId: 'asset-1',
+        model: 'nano-banana',
+        aspectRatio: '1:1',
+        prompt: 'a single prop',
+        negativePrompt: '',
+        references: [],
+        outputs: ['single'],
+      }),
+    ).rejects.toThrow('尚未配置真实 API 地址')
+  })
+
   it('retries one transient network failure', async () => {
     let attempts = 0
     const fetcher = (async () => {

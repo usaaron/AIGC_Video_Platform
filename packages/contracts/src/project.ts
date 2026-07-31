@@ -43,8 +43,20 @@ export const scriptProductionModeSchema = z.enum(['short-video', 'web-series'])
 export const FORCE_EPISODE_BREAK_MARKER = '【强制下一集】'
 export const FORCE_SHOT_BREAK_MARKER = '【强制分镜】'
 
-export const scriptModelSchema = z.enum(['seqora-5.6', 'seqora-op-5', 'kimi-3', 'deepseek-v3', 'qwen3.8'])
-export const DEFAULT_SCRIPT_MODEL = 'seqora-5.6' as const
+// Keep the original logical values for stored tasks, while allowing models that
+// are actually available from the configured OpenAI-compatible relay.
+export const scriptModelSchema = z.enum([
+  'seqora-5.6',
+  'seqora-op-5',
+  'kimi-3',
+  'deepseek-v3',
+  'qwen3.8',
+  'gpt-5.6-terra',
+  'kimi-k3',
+  'glm-5.2',
+  'glm-5.2-fast',
+])
+export const DEFAULT_SCRIPT_MODEL = 'glm-5.2' as const
 
 export const scriptCreativeDirectionSchema = z.object({
   style: z
@@ -61,6 +73,7 @@ export const scriptCreativeDirectionSchema = z.object({
 export const scriptGenerationSegmentSchema = z.object({
   goal: z.string().trim().max(500).default(''),
   targetMinutes: z.number().int().min(1).max(15).default(5),
+  targetSeconds: z.number().int().min(15).max(900).optional(),
 })
 
 export const generateScriptRequestSchema = z.object({
@@ -71,6 +84,7 @@ export const generateScriptRequestSchema = z.object({
   segment: scriptGenerationSegmentSchema.default({ goal: '', targetMinutes: 5 }),
   productionMode: scriptProductionModeSchema.default('short-video'),
   episodeMinutes: z.number().int().min(1).max(5).default(1),
+  episodeDurationSeconds: z.number().int().min(30).max(300).default(60),
   model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
   revisionNote: z.string().trim().max(2_000).default(''),
 })
@@ -81,6 +95,7 @@ export const enrichScriptRequestSchema = z.object({
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
   productionMode: scriptProductionModeSchema.default('short-video'),
   episodeMinutes: z.number().int().min(1).max(5).default(1),
+  episodeDurationSeconds: z.number().int().min(30).max(300).default(60),
   model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
   revisionNote: z.string().trim().max(2_000).default(''),
 })
@@ -121,23 +136,29 @@ export const scriptReviewResultSchema = scriptReviewContentSchema.extend({
 })
 
 export const generateShotsRequestSchema = z.object({
-  maxShots: z.number().int().min(3).max(48).default(8),
+  maxShots: z.number().int().min(3).max(120).default(8),
   mode: z.enum(['scene', 'beat']).default('scene'),
-  episodeDurationSeconds: z
-    .union([z.literal(30), z.literal(60), z.literal(120), z.literal(180), z.literal(240), z.literal(300)])
-    .default(60),
+  episodeDurationSeconds: z.number().int().min(30).max(300).default(60),
 })
 
 export const autoSplitShotsRequestSchema = z.object({
-  episodeDurationSeconds: z
-    .union([z.literal(30), z.literal(60), z.literal(120), z.literal(180), z.literal(240), z.literal(300)])
-    .default(60),
+  episodeDurationSeconds: z.number().int().min(30).max(300).default(60),
 })
 
 export const mediaReferenceSchema = z.object({
   id: z.string().min(1).max(128),
   url: z.string().min(1).max(2_000),
   name: z.string().min(1).max(255),
+})
+
+export const characterAppearanceVariantSchema = z.object({
+  id: z.string().min(1).max(128),
+  name: z.string().trim().min(1).max(80),
+  bodyReference: mediaReferenceSchema.nullable().default(null),
+  turnaroundReferences: z.array(mediaReferenceSchema).max(3).default([]),
+  turnaroundLayout: z.enum(['sheet', 'separate']).default('sheet'),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
 })
 
 export const trustedPortraitSchema = z.object({
@@ -158,6 +179,27 @@ export const characterAttributesSchema = z.object({
   gender: z.enum(['male', 'female', 'unspecified']),
   ageGroup: z.enum(['child', 'teen', 'young', 'middle', 'senior']),
   exactAge: z.number().int().min(1).max(120).nullable(),
+  ethnicity: z
+    .enum([
+      'unspecified',
+      'east-asian',
+      'south-asian',
+      'southeast-asian',
+      'white',
+      'black',
+      'latino',
+      'middle-eastern',
+      'mixed',
+      'other',
+    ])
+    .default('unspecified'),
+  skinTone: z.enum(['unspecified', 'fair', 'light', 'medium', 'tan', 'deep', 'dark']).default('unspecified'),
+  eyeColor: z
+    .enum(['unspecified', 'black', 'dark-brown', 'brown', 'hazel', 'green', 'blue', 'gray', 'amber'])
+    .default('unspecified'),
+  hairColor: z
+    .enum(['unspecified', 'black', 'dark-brown', 'brown', 'blonde', 'red', 'gray', 'white', 'other'])
+    .default('unspecified'),
   species: z.string().max(80),
   anthropomorphic: z.boolean(),
   visualStyle: visualStyleSchema,
@@ -173,6 +215,8 @@ export const characterAttributesSchema = z.object({
   legStretch: z.boolean(),
   turnaround: z.boolean(),
   turnaroundLayout: z.enum(['sheet', 'separate']),
+  appearanceVariants: z.array(characterAppearanceVariantSchema).max(12).default([]),
+  activeAppearanceVariantId: z.string().max(128).nullable().default(null),
 })
 
 export const sceneAttributesSchema = z.object({
@@ -260,6 +304,7 @@ export const generateScriptAssetSuggestionsRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().trim().min(1).max(100_000),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
+  model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
 })
 
 export const scriptAssetSuggestionsContentSchema = z.object({
@@ -299,6 +344,10 @@ export const projectSchema = z.object({
   ownerId: z.string().min(1),
   name: z.string().min(1).max(120),
   contentType: z.enum(['short-drama', 'advertisement', 'animation']),
+  // Visual direction is a project rule. Asset-level values are retained only
+  // for legacy compatibility and are normalized to this value by the API.
+  visualStyle: visualStyleSchema.optional(),
+  episodeDurationSeconds: z.number().int().min(30).max(300).optional(),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']),
   status: projectStatusSchema,
   synopsis: z.string().max(1_000),
@@ -313,6 +362,8 @@ export const projectSchema = z.object({
 export const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(120),
   contentType: z.enum(['short-drama', 'advertisement', 'animation']).default('short-drama'),
+  visualStyle: visualStyleSchema.default('cinematic-cg'),
+  episodeDurationSeconds: z.number().int().min(30).max(300).default(60),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']).default('9:16'),
 })
 
@@ -320,6 +371,8 @@ export const updateProjectSchema = z
   .object({
     name: z.string().trim().min(1).max(120).optional(),
     status: projectStatusSchema.optional(),
+    visualStyle: visualStyleSchema.optional(),
+    episodeDurationSeconds: z.number().int().min(30).max(300).optional(),
     synopsis: z.string().max(1_000).optional(),
     script: z.string().max(100_000).optional(),
   })
@@ -416,10 +469,12 @@ export const shotSchema = z.object({
   order: z.number().int().positive(),
   title: z.string().min(1).max(120),
   framing: z.string().min(1).max(80),
-  duration: z.number().int().min(4).max(15),
+  duration: z.number().int().min(3).max(15),
   prompt: z.string().max(5_000),
   negativePrompt: z.string().max(2_000).default(''),
   imageUrl: z.string().max(2_000).nullable(),
+  selectedImageTaskId: z.string().min(1).max(128).nullable().optional(),
+  selectedVideoTaskId: z.string().min(1).max(128).nullable().optional(),
   continuityMode: z.enum(['independent', 'continue']).default('continue'),
   continuityNote: z.string().max(2_000).default(''),
   episodeBreakBefore: z.boolean().default(false),
@@ -433,10 +488,12 @@ export const shotSchema = z.object({
 const shotInputFields = {
   title: z.string().trim().min(1).max(120),
   framing: z.string().trim().min(1).max(80),
-  duration: z.number().int().min(4).max(15),
+  duration: z.number().int().min(3).max(15),
   prompt: z.string().max(5_000),
   negativePrompt: z.string().max(2_000),
   imageUrl: z.string().max(2_000).nullable(),
+  selectedImageTaskId: z.string().min(1).max(128).nullable(),
+  selectedVideoTaskId: z.string().min(1).max(128).nullable(),
   continuityMode: z.enum(['independent', 'continue']),
   continuityNote: z.string().max(2_000),
   episodeBreakBefore: z.boolean(),
@@ -452,6 +509,8 @@ export const createShotSchema = z.object({
   prompt: shotInputFields.prompt.default(''),
   negativePrompt: shotInputFields.negativePrompt.default(''),
   imageUrl: shotInputFields.imageUrl.default(null),
+  selectedImageTaskId: shotInputFields.selectedImageTaskId.optional(),
+  selectedVideoTaskId: shotInputFields.selectedVideoTaskId.optional(),
   continuityMode: shotInputFields.continuityMode.default('continue'),
   continuityNote: shotInputFields.continuityNote.default(''),
   episodeBreakBefore: shotInputFields.episodeBreakBefore.default(false),
@@ -468,6 +527,8 @@ export const updateShotSchema = z
     prompt: shotInputFields.prompt.optional(),
     negativePrompt: shotInputFields.negativePrompt.optional(),
     imageUrl: shotInputFields.imageUrl.optional(),
+    selectedImageTaskId: shotInputFields.selectedImageTaskId.optional(),
+    selectedVideoTaskId: shotInputFields.selectedVideoTaskId.optional(),
     continuityMode: shotInputFields.continuityMode.optional(),
     continuityNote: shotInputFields.continuityNote.optional(),
     episodeBreakBefore: shotInputFields.episodeBreakBefore.optional(),
@@ -489,6 +550,7 @@ export type ProjectGenerationSummary = z.infer<typeof projectGenerationSummarySc
 export type CreateProject = z.infer<typeof createProjectSchema>
 export type UpdateProject = z.infer<typeof updateProjectSchema>
 export type Asset = z.infer<typeof assetSchema>
+export type CharacterAppearanceVariant = z.infer<typeof characterAppearanceVariantSchema>
 export type TrustedPortrait = z.infer<typeof trustedPortraitSchema>
 export type CreateAsset = z.infer<typeof createAssetSchema>
 export type UpdateAsset = z.infer<typeof updateAssetSchema>

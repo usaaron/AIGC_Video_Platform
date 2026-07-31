@@ -53,6 +53,56 @@ describe('GenerationTaskRunner Seedance integration', () => {
     })
   })
 
+  it('executes trusted portrait registration tasks through the asset worker handler', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'trusted-portrait-task',
+      clientRequestId: 'trusted-portrait-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-creator',
+      kind: 'text',
+      label: '创建 AI 人像资源',
+      prompt: '',
+      negativePrompt: '',
+      provider: 'asset-library',
+      model: null,
+      metadata: {
+        generationStage: 'trusted-portrait',
+        trustedAssetOperation: 'register-virtual',
+        assetId: 'character-1',
+      },
+      status: 'queued',
+      progress: 0,
+      estimatedCredits: 1,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+    const trustedAssetTaskHandler = vi.fn(async () => ({
+      id: 'character-1',
+      attributes: { trustedPortrait: { status: 'processing' } },
+    }))
+
+    await new GenerationTaskRunner(store, { trustedAssetTaskHandler }).tick()
+
+    expect(trustedAssetTaskHandler).toHaveBeenCalledWith(expect.objectContaining({ id: task.id }))
+    expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+      status: 'completed',
+      progress: 100,
+      metadata: {
+        providerName: 'stringx-asset-library',
+        providerState: 'completed',
+        textResult: { id: 'character-1' },
+      },
+    })
+  })
+
   it('leaves local FFmpeg composition progress under the composer ownership', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -475,6 +525,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
           { url: 'asset://maas-01kxxwtxkp0f1tanhkatt8q0gb', role: 'reference_image' },
         ],
         negativePrompt: expect.any(String),
+        generateAudio: true,
         returnLastFrame: true,
       }),
     )

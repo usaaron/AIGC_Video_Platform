@@ -12,16 +12,16 @@ export function inferAssetCreationMode(asset) {
   return ASSET_CREATION_MODES.TEXT
 }
 
-export function applyAssetCreationMode(draft, mode) {
+export function applyAssetCreationMode(draft, mode, kind) {
   if (mode === ASSET_CREATION_MODES.DIRECT) {
     return {
       ...draft,
       sourceMode: 'import',
       promptMode: 'standard',
-      customPromptMode: 'append',
+      customPromptMode: 'replace',
       customPrompt: '',
       negativePrompt: '',
-      references: draft.references.slice(0, 1),
+      references: draft.references.slice(0, kind === 'scene' ? 3 : 1),
     }
   }
   if (mode === ASSET_CREATION_MODES.TEXT) {
@@ -44,7 +44,9 @@ export function confirmCharacterFace(attributes, candidate, assetName) {
     faceReference,
     bodyStatus: 'pending',
     bodyReference: null,
-    ...(faceChanged ? { portraitSource: 'ai-virtual', trustedPortrait: null } : {}),
+    ...(faceChanged
+      ? { portraitSource: 'ai-virtual', trustedPortrait: null, activeAppearanceVariantId: null }
+      : {}),
   }
 }
 
@@ -58,7 +60,7 @@ export function buildAssetInput({ asset, draft, kind, aspectRatio, creationMode 
     ...(direct
       ? {
           promptMode: 'standard',
-          customPromptMode: 'append',
+          customPromptMode: 'replace',
           customPrompt: '',
           negativePrompt: '',
         }

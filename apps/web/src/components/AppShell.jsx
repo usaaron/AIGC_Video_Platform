@@ -244,7 +244,18 @@ export function AppSidebar({ activeStep, mobileNav, billing, assetCount, onNavig
 export function NewProjectModal({ onClose, onCreate }) {
   const [name, setName] = useState('未命名影片')
   const [contentType, setContentType] = useState('short-drama')
+  const [visualStyle, setVisualStyle] = useState('cinematic-cg')
   const [aspectRatio, setAspectRatio] = useState('9:16')
+  const contentTypes = [
+    ['short-drama', '网剧', '连续剧情与分集钩子'],
+    ['advertisement', '广告', '产品或品牌传播'],
+    ['animation', '短片', '完整独立叙事'],
+  ]
+  const visualStyles = [
+    ['cinematic-cg', 'CG风', '影视化三维质感'],
+    ['photorealistic', '仿真人', '真人摄影与真实材质'],
+    ['chinese-2d', '2D风', '二维动画与插画表现'],
+  ]
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -267,15 +278,41 @@ export function NewProjectModal({ onClose, onCreate }) {
           onChange={(event) => setName(event.target.value)}
           id="new-project-name"
         />
-        <div className="field-grid">
-          <label>
-            <span>内容类型</span>
-            <select value={contentType} onChange={(event) => setContentType(event.target.value)}>
-              <option value="short-drama">短剧</option>
-              <option value="advertisement">广告</option>
-              <option value="animation">动画短片</option>
-            </select>
-          </label>
+        <section className="new-project-choice-group">
+          <span>内容类型</span>
+          <div className="new-project-choice-grid" role="group" aria-label="内容类型">
+            {contentTypes.map(([value, label, description]) => (
+              <button
+                type="button"
+                key={value}
+                className={contentType === value ? 'active' : ''}
+                aria-pressed={contentType === value}
+                onClick={() => setContentType(value)}
+              >
+                <strong>{label}</strong>
+                <small>{description}</small>
+              </button>
+            ))}
+          </div>
+        </section>
+        <section className="new-project-choice-group">
+          <span>项目视觉风格</span>
+          <div className="new-project-choice-grid visual-style-grid" role="group" aria-label="项目视觉风格">
+            {visualStyles.map(([value, label, description]) => (
+              <button
+                type="button"
+                key={value}
+                className={visualStyle === value ? 'active' : ''}
+                aria-pressed={visualStyle === value}
+                onClick={() => setVisualStyle(value)}
+              >
+                <strong>{label}</strong>
+                <small>{description}</small>
+              </button>
+            ))}
+          </div>
+        </section>
+        <div className="field-grid new-project-ratio">
           <label>
             <span>画面比例</span>
             <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>
@@ -291,7 +328,15 @@ export function NewProjectModal({ onClose, onCreate }) {
           </button>
           <button
             className="button primary"
-            onClick={() => onCreate({ name: name || '未命名影片', contentType, aspectRatio })}
+            onClick={() =>
+              onCreate({
+                name: name || '未命名影片',
+                contentType,
+                visualStyle,
+                aspectRatio,
+                episodeDurationSeconds: contentType === 'short-drama' ? 60 : 30,
+              })
+            }
           >
             创建并写剧本 <ArrowRight size={16} />
           </button>

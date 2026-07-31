@@ -2,14 +2,17 @@ export const FILM_PREVIEW_STAGE = 'film-preview'
 export const FILM_PREVIEW_MODE_FULL = 'full'
 export const FILM_PREVIEW_MODE_PARTIAL = 'partial'
 
-export function completedShotVideoTask(tasks, shotId) {
-  return tasks.find(
+export function completedShotVideoTask(tasks, shotOrId) {
+  const shotId = typeof shotOrId === 'string' ? shotOrId : shotOrId.id
+  const selectedVideoTaskId = typeof shotOrId === 'string' ? null : shotOrId.selectedVideoTaskId
+  const completed = tasks.filter(
     (task) =>
       task.kind === 'video' &&
       task.provider === 'seedance' &&
       task.status === 'completed' &&
       task.metadata?.shotId === shotId,
   )
+  return completed.find((task) => task.id === selectedVideoTaskId) || completed[0]
 }
 
 export function sourceVideoTaskIds(tasks, shots) {
@@ -20,7 +23,7 @@ export function sourceVideoTaskIds(tasks, shots) {
 export function contiguousSourceVideoTaskIds(tasks, shots) {
   const sourceTaskIds = []
   for (const shot of shots) {
-    const task = completedShotVideoTask(tasks, shot.id)
+    const task = completedShotVideoTask(tasks, shot)
     if (!task) break
     sourceTaskIds.push(task.id)
   }

@@ -6,6 +6,11 @@ export const ASSET_TABS = [
   ['audio', '音频'],
 ]
 
+export const IMAGE_MODEL_OPTIONS = [
+  ['img2-default', 'Img2'],
+  ['nano-banana', 'Nano Banana'],
+]
+
 export const VISUAL_STYLES = [
   ['photorealistic', '仿真人'],
   ['cinematic-cg', '影视 CG'],
@@ -22,6 +27,10 @@ export const DEFAULT_ATTRIBUTES = {
     gender: 'female',
     ageGroup: 'young',
     exactAge: null,
+    ethnicity: 'unspecified',
+    skinTone: 'unspecified',
+    eyeColor: 'unspecified',
+    hairColor: 'unspecified',
     species: '',
     anthropomorphic: false,
     visualStyle: 'cinematic-cg',
@@ -37,6 +46,8 @@ export const DEFAULT_ATTRIBUTES = {
     legStretch: false,
     turnaround: false,
     turnaroundLayout: 'sheet',
+    appearanceVariants: [],
+    activeAppearanceVariantId: null,
   },
   scene: {
     type: 'scene',
@@ -100,6 +111,49 @@ export const OPTIONS = {
     ['young', '青年'],
     ['middle', '中年'],
     ['senior', '老年'],
+  ],
+  ethnicity: [
+    ['unspecified', '不指定'],
+    ['east-asian', '东亚'],
+    ['south-asian', '南亚'],
+    ['southeast-asian', '东南亚'],
+    ['white', '欧美白人'],
+    ['black', '黑人'],
+    ['latino', '拉丁裔'],
+    ['middle-eastern', '中东'],
+    ['mixed', '混血'],
+    ['other', '其他'],
+  ],
+  skinTone: [
+    ['unspecified', '不指定'],
+    ['fair', '瓷白'],
+    ['light', '白皙'],
+    ['medium', '自然'],
+    ['tan', '小麦'],
+    ['deep', '深棕'],
+    ['dark', '深色'],
+  ],
+  eyeColor: [
+    ['unspecified', '不指定'],
+    ['black', '黑色'],
+    ['dark-brown', '深棕'],
+    ['brown', '棕色'],
+    ['hazel', '榛色'],
+    ['green', '绿色'],
+    ['blue', '蓝色'],
+    ['gray', '灰色'],
+    ['amber', '琥珀色'],
+  ],
+  hairColor: [
+    ['unspecified', '不指定'],
+    ['black', '黑色'],
+    ['dark-brown', '深棕'],
+    ['brown', '棕色'],
+    ['blonde', '金色'],
+    ['red', '红色'],
+    ['gray', '灰色'],
+    ['white', '白色'],
+    ['other', '其他'],
   ],
   framing: [
     ['portrait', '头像'],
@@ -260,8 +314,10 @@ export const OPTIONS = {
   ],
 }
 
-export function createDefaultAttributes(kind) {
-  return structuredClone(DEFAULT_ATTRIBUTES[kind])
+export function createDefaultAttributes(kind, visualStyle = 'cinematic-cg') {
+  const attributes = structuredClone(DEFAULT_ATTRIBUTES[kind])
+  if (attributes && 'visualStyle' in attributes) attributes.visualStyle = visualStyle
+  return attributes
 }
 
 export function optionLabel(key, value) {

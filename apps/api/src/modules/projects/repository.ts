@@ -65,6 +65,8 @@ export class ProjectRepository {
       ownerId: principal.userId,
       name: input.name,
       contentType: input.contentType,
+      visualStyle: input.visualStyle,
+      episodeDurationSeconds: input.episodeDurationSeconds,
       aspectRatio: input.aspectRatio,
       status: 'draft',
       synopsis: '',
@@ -130,6 +132,8 @@ export class ProjectRepository {
         projectId,
         tenantId: principal.tenantId,
         ...input,
+        attributes: enforceProjectVisualStyle(input.attributes, project.visualStyle ?? 'cinematic-cg'),
+        customPromptMode: 'replace',
         status: input.sourceMode === 'import' ? 'confirmed' : 'draft',
         createdAt: now,
         updatedAt: now,
@@ -147,14 +151,20 @@ export class ProjectRepository {
     principal: Principal,
   ): Promise<Asset | null> {
     return this.store.mutate((state) => {
-      const ownsProject = state.projects.some(
+      const project = state.projects.find(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
       )
       const asset = state.assets.find((item) => item.id === assetId && item.projectId === projectId)
-      if (!ownsProject || !asset) return null
+      if (!project || !asset) return null
       if (input.attributes && input.attributes.type !== asset.kind) return null
-      Object.assign(asset, input, { updatedAt: new Date().toISOString() })
+      Object.assign(asset, input, {
+        ...(input.attributes
+          ? { attributes: enforceProjectVisualStyle(input.attributes, project.visualStyle ?? 'cinematic-cg') }
+          : {}),
+        customPromptMode: 'replace',
+        updatedAt: new Date().toISOString(),
+      })
       return asset
     })
   }
@@ -210,7 +220,33 @@ export class ProjectRepository {
       )
       const shot = state.shots.find((item) => item.id === shotId && item.projectId === projectId)
       if (!ownsProject || !shot) return null
-      Object.assign(shot, input, { updatedAt: new Date().toISOString() })
+      const updates = { ...input }
+      if (input.selectedImageTaskId) {
+        const selectedImageTask = state.tasks.find(
+          (task) =>
+            task.id === input.selectedImageTaskId &&
+            task.projectId === projectId &&
+            task.tenantId === principal.tenantId &&
+            task.kind === 'image' &&
+            task.status === 'completed' &&
+            task.metadata.shotId === shotId,
+        )
+        if (!selectedImageTask?.resultUrl) return null
+        updates.imageUrl = selectedImageTask.resultUrl
+      }
+      if (input.selectedVideoTaskId) {
+        const selectedVideoTask = state.tasks.find(
+          (task) =>
+            task.id === input.selectedVideoTaskId &&
+            task.projectId === projectId &&
+            task.tenantId === principal.tenantId &&
+            task.kind === 'video' &&
+            task.status === 'completed' &&
+            task.metadata.shotId === shotId,
+        )
+        if (!selectedVideoTask?.resultUrl) return null
+      }
+      Object.assign(shot, updates, { updatedAt: new Date().toISOString() })
       return shot
     })
   }
@@ -263,6 +299,17 @@ export class ProjectRepository {
       return updated
     })
   }
+}
+
+function enforceProjectVisualStyle<T extends Asset['attributes']>(
+  attributes: T,
+  visualStyle: Project['visualStyle'],
+): T {
+  const next = 'visualStyle' in attributes ? { ...attributes, visualStyle } : { ...attributes }
+  if (next.type === 'scene') {
+    return { ...next, emptyScene: true, activitySpace: true } as T
+  }
+  return next as T
 }
 
 export function projectPreviewUrl(

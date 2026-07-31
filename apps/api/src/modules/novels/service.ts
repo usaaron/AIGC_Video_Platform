@@ -1651,6 +1651,10 @@ function novelCharacterSuggestion(seed: NovelCharacterSeed): ScriptAssetSuggesti
       gender,
       ageGroup,
       exactAge: null,
+      ethnicity: 'unspecified',
+      skinTone: 'unspecified',
+      eyeColor: 'unspecified',
+      hairColor: 'unspecified',
       species: '',
       anthropomorphic: false,
       visualStyle: 'cinematic-cg',
@@ -1666,6 +1670,8 @@ function novelCharacterSuggestion(seed: NovelCharacterSeed): ScriptAssetSuggesti
       legStretch: false,
       turnaround: false,
       turnaroundLayout: 'sheet',
+      appearanceVariants: [],
+      activeAppearanceVariantId: null,
     },
   }
 }

@@ -46,10 +46,14 @@ export function videoProviderName(config: AppConfig): VideoProviderName {
 }
 
 export function createImageProvider(config: AppConfig): ImageGenerationProvider | null {
-  if (!config.TOKENADVENT_API_KEY) return null
+  if (!config.TOKENADVENT_API_KEY && !(config.NANOBANANA_BASE_URL && config.NANOBANANA_API_KEY)) return null
   return new TokenAdventImageProvider({
     baseUrl: config.TOKENADVENT_BASE_URL,
     apiKey: config.TOKENADVENT_API_KEY,
+    alternateApiKey: config.NANOBANANA_API_KEY,
+    ...(config.NANOBANANA_BASE_URL ? { alternateBaseUrl: config.NANOBANANA_BASE_URL } : {}),
+    alternateModels: ['nano-banana'],
+    alternateModel: config.NANOBANANA_MODEL,
     model: config.IMG2_MODEL,
     quality: config.IMG2_QUALITY,
     requestTimeoutMs: config.TOKENADVENT_REQUEST_TIMEOUT_MS,
@@ -57,10 +61,12 @@ export function createImageProvider(config: AppConfig): ImageGenerationProvider 
 }
 
 export function createTextProvider(config: AppConfig): TextGenerationProvider | null {
-  if (!config.TOKENADVENT_API_KEY) return null
+  if (!config.TOKENADVENT_API_KEY && !config.TEXT_API_KEY) return null
   return new TokenAdventTextProvider({
     baseUrl: config.TOKENADVENT_BASE_URL,
-    apiKey: config.TOKENADVENT_API_KEY,
+    apiKey: config.TOKENADVENT_API_KEY || config.TEXT_API_KEY,
+    alternateApiKey: config.TEXT_API_KEY,
+    alternateModels: ['kimi-k3', 'glm-5.2', 'glm-5.2-fast'],
     model: config.TEXT_MODEL,
     requestTimeoutMs: config.TOKENADVENT_REQUEST_TIMEOUT_MS,
   })

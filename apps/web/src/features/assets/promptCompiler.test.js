@@ -91,6 +91,32 @@ describe('asset prompt compiler', () => {
     expect(prompt).toContain('无投影')
   })
 
+  it('injects advanced human appearance settings into the prompt', () => {
+    const attributes = createDefaultAttributes('character')
+    Object.assign(attributes, {
+      ethnicity: 'east-asian',
+      skinTone: 'tan',
+      eyeColor: 'amber',
+      hairColor: 'white',
+    })
+    const prompt = compileAssetPrompt(
+      {
+        name: '角色',
+        description: '',
+        sourceMode: 'generate',
+        promptMode: 'standard',
+        customPrompt: '',
+        attributes,
+      },
+      '9:16',
+    )
+
+    expect(prompt).toContain('东亚族裔特征')
+    expect(prompt).toContain('小麦肤色')
+    expect(prompt).toContain('琥珀色瞳孔')
+    expect(prompt).toContain('白色头发')
+  })
+
   it('does not inject human gender or age into animal prompts', () => {
     const attributes = createDefaultAttributes('character')
     Object.assign(attributes, {
@@ -115,5 +141,24 @@ describe('asset prompt compiler', () => {
     expect(prompt).not.toContain('女性')
     expect(prompt).not.toContain('青年')
     expect(prompt).not.toContain('22岁')
+  })
+
+  it('always reserves an empty stage for scene production', () => {
+    const attributes = createDefaultAttributes('scene')
+    Object.assign(attributes, { emptyScene: false, activitySpace: false })
+    const prompt = compileAssetPrompt(
+      {
+        name: '青云宗山门',
+        description: '',
+        sourceMode: 'generate',
+        promptMode: 'standard',
+        customPrompt: '',
+        attributes,
+      },
+      '16:9',
+    )
+
+    expect(prompt).toContain('空场景，不出现人物')
+    expect(prompt).toContain('预留人物表演和镜头运动空间')
   })
 })

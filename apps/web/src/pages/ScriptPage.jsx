@@ -13,41 +13,22 @@ import {
 import { PageHeader } from '../components/ui'
 import { BrandMark } from '../components/BrandMark'
 import { AssetEditor } from '../features/assets/AssetEditor'
+import { AssetAwareTextarea, AssetShortcutBar } from '../features/assets/AssetShortcutBar'
 import { NovelImportPanel } from '../features/novel/NovelImportPanel'
-import { QuickStartModal } from '../features/quickStart/QuickStartModal'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../features/script/AssetSuggestionsPanel'
 import { LongFormStudioPlaceholder } from '../features/script/LongFormStudioPlaceholder'
 import {
   DEFAULT_SCRIPT_MODEL,
   DEFAULT_SCRIPT_DIRECTION,
-  FORCE_EPISODE_BREAK_MARKER,
-  FORCE_SHOT_BREAK_MARKER,
   SCRIPT_OPERATION_CREDITS,
 } from '@seqora/contracts'
 
-const INSERT_BLOCKS = [
-  {
-    key: 'shot',
-    label: '添加分镜',
-    icon: Clapperboard,
-    value: `\n\n${FORCE_SHOT_BREAK_MARKER}\n\n`,
-    title: '在光标处插入强制分镜标记，重新拆分时从这里开始新的镜头',
-  },
-  {
-    key: 'episode',
-    label: '添加分集',
-    icon: BookOpenText,
-    value: `\n\n${FORCE_EPISODE_BREAK_MARKER}\n\n`,
-    title: '在光标处插入强制分集标记，重新拆分时从这里开始新的一集',
-  },
-]
-
 const SCRIPT_MODEL_OPTIONS = [
-  ['seqora-5.6', '序幕 5.6'],
-  ['seqora-op-5', '序幕-op-5'],
-  ['kimi-3', 'kimi-3'],
-  ['deepseek-v3', 'deepseek-v3'],
-  ['qwen3.8', 'qwen3.8'],
+  ['seqora-5.6', 'GPT 5.6（当前中转）'],
+  ['gpt-5.6-terra', 'GPT 5.6 Terra'],
+  ['kimi-k3', 'Kimi K3'],
+  ['glm-5.2', 'GLM 5.2'],
+  ['glm-5.2-fast', 'GLM 5.2 Fast'],
 ]
 
 const SCRIPT_SECTIONS = [
@@ -59,33 +40,19 @@ const SCRIPT_SECTIONS = [
   },
   {
     id: 'novel',
-    label: '小说上传与章节（建议大于1万字时使用）',
-    description: '导入长文本，切分章节并生成概要',
+    label: '小说上传与章节',
+    description: '长文本导入与章节改编',
+    status: '开发中',
     icon: Upload,
   },
   {
     id: 'long-form',
     label: '长剧本创作',
     description: '大纲、人物与世界设定',
-    status: '待开发',
+    status: '开发中',
     icon: BookOpenText,
   },
 ]
-
-function hasProfessionalVisualFields(value) {
-  const scenes = value
-    .split(/\n+/)
-    .map((scene) => scene.trim())
-    .filter(Boolean)
-    .filter(
-      (scene) => !scene.includes(FORCE_EPISODE_BREAK_MARKER) && !scene.includes(FORCE_SHOT_BREAK_MARKER),
-    )
-  const fields = ['风格', '构图', '光影', '运镜', '衔接']
-  return (
-    scenes.length > 0 &&
-    scenes.every((scene) => fields.every((field) => new RegExp(`${field}[：:]`).test(scene)))
-  )
-}
 
 function looksLikeDevelopedScript(value) {
   const source = value.trim()
@@ -94,12 +61,12 @@ function looksLikeDevelopedScript(value) {
 
 export function ScriptPage({
   project,
+  assets = [],
   billing,
   tasks = [],
   onSave,
   onGenerate,
   onGenerateSegment,
-  onEnrich,
   onImportNovel,
   onPreviewNovelSplit,
   onListNovels,
@@ -113,27 +80,23 @@ export function ScriptPage({
   onSuggestAssets,
   onCreateAsset,
   onUpload,
-  onPlanQuickStart,
-  onExecuteQuickStart,
   onCancelTask,
+  onUpdateEpisodeDuration,
   onNext,
 }) {
+  const productionMode = project.contentType === 'short-drama' ? 'web-series' : 'short-video'
+  const defaultEpisodeSeconds = project.episodeDurationSeconds || (productionMode === 'web-series' ? 60 : 30)
   const [script, setScript] = useState(project.script)
   const [direction] = useState(DEFAULT_SCRIPT_DIRECTION)
   const [scriptModel, setScriptModel] = useState(DEFAULT_SCRIPT_MODEL)
   const [revisionNote, setRevisionNote] = useState('')
-  const [productionMode, setProductionMode] = useState('short-video')
-  const [episodeMinutes, setEpisodeMinutes] = useState(1)
+  const [episodeDurationSeconds, setEpisodeDurationSeconds] = useState(defaultEpisodeSeconds)
   const [segmentGoal, setSegmentGoal] = useState('')
-  const [segmentMinutes, setSegmentMinutes] = useState(1)
+  const [segmentDurationSeconds, setSegmentDurationSeconds] = useState(defaultEpisodeSeconds)
   const [saved, setSaved] = useState(true)
   const [generating, setGenerating] = useState(false)
-  const [enriching, setEnriching] = useState(false)
   const [generationPhase, setGenerationPhase] = useState('idle')
   const [generationSeconds, setGenerationSeconds] = useState(0)
-  const [needsVisualDetail, setNeedsVisualDetail] = useState(
-    () => Boolean(project.script.trim()) && !hasProfessionalVisualFields(project.script),
-  )
   const [generationWarnings, setGenerationWarnings] = useState([])
   const [saving, setSaving] = useState(false)
   const [hasGeneratedScript, setHasGeneratedScript] = useState(() => looksLikeDevelopedScript(project.script))
@@ -141,11 +104,6 @@ export function ScriptPage({
   const [longFormSource, setLongFormSource] = useState('short-script')
   const [longFormDraft, setLongFormDraft] = useState('')
   const [error, setError] = useState('')
-  const [quickStartOpen, setQuickStartOpen] = useState(false)
-  const [quickStartState, setQuickStartState] = useState('idle')
-  const [quickStartPlan, setQuickStartPlan] = useState(null)
-  const [quickStartResult, setQuickStartResult] = useState(null)
-  const [quickStartError, setQuickStartError] = useState('')
   const [assetSuggestionStatus, setAssetSuggestionStatus] = useState('idle')
   const [assetSuggestionResult, setAssetSuggestionResult] = useState(null)
   const [assetSuggestionError, setAssetSuggestionError] = useState('')
@@ -158,19 +116,27 @@ export function ScriptPage({
   const count = script.replace(/\s/g, '').length
   const paragraphCount = script.split(/\n+/).filter(Boolean).length
   const estimatedMinutes = script.trim() ? Math.max(1, Math.ceil(count / 120)) : 0
+  const assetSuggestionFingerprint = scriptSuggestionFingerprint(script)
+  const latestAssetSuggestionTask = [...tasks]
+    .filter(
+      (task) =>
+        task.kind === 'text' &&
+        task.metadata?.scriptOperation === 'suggest-assets' &&
+        task.metadata?.sourceScriptFingerprint === assetSuggestionFingerprint,
+    )
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0]
   const activeScriptTasks = tasks.filter(
     (task) =>
       task.kind === 'text' &&
       String(task.metadata?.generationStage || '').startsWith('script-') &&
+      task.metadata?.scriptOperation !== 'suggest-assets' &&
       ['queued', 'paused', 'running'].includes(task.status),
   )
   const activeScriptTask = activeScriptTasks[0]
   const activeGenerateTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'generate')
   const activeRevisionTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'revise')
-  const activeEnrichTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'enrich')
   const activeSegmentTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'segment')
-  const busy =
-    generating || enriching || saving || quickStartState === 'starting' || Boolean(activeScriptTask)
+  const busy = generating || saving || Boolean(activeScriptTask)
 
   const stopScriptTask = async (task, label) => {
     if (!task || !onCancelTask || stoppingTaskId) return
@@ -189,12 +155,16 @@ export function ScriptPage({
 
   useEffect(() => {
     setScript(project.script)
+    setEpisodeDurationSeconds(defaultEpisodeSeconds)
+    setSegmentDurationSeconds(defaultEpisodeSeconds)
     setRevisionNote('')
     setSaved(true)
     setError('')
     setHasGeneratedScript(looksLikeDevelopedScript(project.script))
-    setNeedsVisualDetail(Boolean(project.script.trim()) && !hasProfessionalVisualFields(project.script))
-  }, [project.id, project.script])
+    setAssetSuggestionStatus('idle')
+    setAssetSuggestionResult(null)
+    setAssetSuggestionError('')
+  }, [project.id, project.script, defaultEpisodeSeconds])
 
   useEffect(() => {
     setLongFormSource('short-script')
@@ -202,14 +172,14 @@ export function ScriptPage({
   }, [project.id])
 
   useEffect(() => {
-    if (!generating && !enriching) return undefined
+    if (!generating) return undefined
     const startedAt = Date.now()
     setGenerationSeconds(0)
     const timer = window.setInterval(() => {
       setGenerationSeconds(Math.floor((Date.now() - startedAt) / 1_000))
     }, 1_000)
     return () => window.clearInterval(timer)
-  }, [generating, enriching])
+  }, [generating])
 
   useEffect(() => {
     setAssetSuggestionStatus('idle')
@@ -220,31 +190,68 @@ export function ScriptPage({
   }, [project.id])
 
   useEffect(() => {
-    setQuickStartOpen(false)
-    setQuickStartState('idle')
-    setQuickStartPlan(null)
-    setQuickStartResult(null)
-    setQuickStartError('')
-  }, [project.id])
+    if (!latestAssetSuggestionTask) return
+    if (['queued', 'paused', 'running'].includes(latestAssetSuggestionTask.status)) {
+      setAssetSuggestionStatus('suggesting')
+      setAssetSuggestionError('')
+      return
+    }
+    if (latestAssetSuggestionTask.status === 'completed') {
+      const result = latestAssetSuggestionTask.metadata?.textResult
+      if (isAssetSuggestionResult(result)) {
+        setAssetSuggestionResult(result)
+        setAssetSuggestionError('')
+        setAssetSuggestionStatus('ready')
+      } else {
+        setAssetSuggestionResult(null)
+        setAssetSuggestionError('资产建议任务已完成，但没有返回有效结果，请重新分析。')
+        setAssetSuggestionStatus('ready')
+      }
+      return
+    }
+    if (latestAssetSuggestionTask.status === 'failed') {
+      setAssetSuggestionResult(null)
+      setAssetSuggestionError(latestAssetSuggestionTask.error || '资产建议生成失败，请重试。')
+      setAssetSuggestionStatus('ready')
+    }
+  }, [latestAssetSuggestionTask])
 
   const update = (value) => {
     setScript(value)
     setSaved(false)
     setAssetSuggestionStatus('idle')
+    setAssetSuggestionResult(null)
     setAssetSuggestionError('')
+  }
+
+  const commitEpisodeDuration = async () => {
+    if (productionMode !== 'web-series') return
+    const next = Math.min(300, Math.max(30, Math.round(Number(episodeDurationSeconds) || 60)))
+    setEpisodeDurationSeconds(next)
+    setSegmentDurationSeconds(next)
+    if (next === project.episodeDurationSeconds || !onUpdateEpisodeDuration) return
+    try {
+      await onUpdateEpisodeDuration(next)
+    } catch (durationError) {
+      setError(durationError.message)
+    }
   }
 
   const suggestAssetsForScript = async (value) => {
     const source = value.trim()
     if (!source) return
     setAssetSuggestionStatus('suggesting')
+    setAssetSuggestionResult(null)
     setAssetSuggestionError('')
     try {
-      setAssetSuggestionResult(await onSuggestAssets(source, direction))
+      const task = await onSuggestAssets(source, direction, scriptSuggestionFingerprint(source), scriptModel)
+      if (!isQueuedTextTask(task)) {
+        setAssetSuggestionResult(task)
+        setAssetSuggestionStatus('ready')
+      }
       setCreatedAssetKeys(new Set())
     } catch (suggestError) {
       setAssetSuggestionError(suggestError.message)
-    } finally {
       setAssetSuggestionStatus('ready')
     }
   }
@@ -283,21 +290,6 @@ export function ScriptPage({
     } finally {
       setSaving(false)
     }
-  }
-
-  const insert = (value) => {
-    const element = textArea.current
-    const start = element?.selectionStart ?? script.length
-    const end = element?.selectionEnd ?? script.length
-    const prefix =
-      script && start === 0 ? '' : script && !script.endsWith('\n') && start === script.length ? '\n\n' : ''
-    const next = `${script.slice(0, start)}${prefix}${value}${script.slice(end)}`
-    update(next)
-    requestAnimationFrame(() => {
-      element?.focus()
-      const cursor = start + prefix.length + value.length
-      element?.setSelectionRange(cursor, cursor)
-    })
   }
 
   const upload = async (event) => {
@@ -339,7 +331,7 @@ export function ScriptPage({
         script,
         direction,
         productionMode,
-        episodeMinutes,
+        episodeDurationSeconds,
         scriptModel,
         intent === 'revise' ? revisionNote : '',
         setGenerationPhase,
@@ -351,7 +343,6 @@ export function ScriptPage({
       const next = readGenerationResult(result)
       setScript(next.script)
       setHasGeneratedScript(true)
-      setNeedsVisualDetail(true)
       setGenerationWarnings(next.warnings)
       setSaved(true)
       void suggestAssetsForScript(next.script)
@@ -380,9 +371,13 @@ export function ScriptPage({
       const result = await onGenerateSegment(
         script,
         direction,
-        { goal: segmentGoal, targetMinutes: segmentMinutes },
+        {
+          goal: segmentGoal,
+          targetSeconds: segmentDurationSeconds,
+          targetMinutes: Math.max(1, Math.ceil(segmentDurationSeconds / 60)),
+        },
         productionMode,
-        episodeMinutes,
+        episodeDurationSeconds,
         scriptModel,
         revisionNote,
         setGenerationPhase,
@@ -395,7 +390,6 @@ export function ScriptPage({
       const next = readGenerationResult(result)
       setScript(next.script)
       setHasGeneratedScript(true)
-      setNeedsVisualDetail(true)
       setGenerationWarnings(next.warnings)
       setSaved(true)
       setSegmentGoal('')
@@ -404,49 +398,6 @@ export function ScriptPage({
       setError(generationError.message)
     } finally {
       setGenerating(false)
-      setGenerationPhase('idle')
-    }
-  }
-
-  const enrich = async () => {
-    if (!script.trim()) {
-      setError('请先生成或填写剧本')
-      return
-    }
-    if (billing.credits < SCRIPT_OPERATION_CREDITS.enrich) {
-      setError(
-        `补齐专业视觉细节需要 ${SCRIPT_OPERATION_CREDITS.enrich} 积分，当前剩余 ${billing.credits} 积分`,
-      )
-      return
-    }
-    setEnriching(true)
-    setGenerationPhase('enriching')
-    setGenerationWarnings([])
-    setError('')
-    try {
-      const result = await onEnrich(
-        script,
-        direction,
-        productionMode,
-        episodeMinutes,
-        scriptModel,
-        revisionNote,
-      )
-      if (isQueuedTextTask(result)) {
-        setGenerationWarnings(['镜头语言补齐已进入后台，完成后会自动更新剧本。'])
-        return
-      }
-      const next = readGenerationResult(result)
-      setScript(next.script)
-      setHasGeneratedScript(true)
-      setNeedsVisualDetail(false)
-      setGenerationWarnings(next.warnings)
-      setSaved(true)
-      void suggestAssetsForScript(next.script)
-    } catch (enrichError) {
-      setError(enrichError.message)
-    } finally {
-      setEnriching(false)
       setGenerationPhase('idle')
     }
   }
@@ -467,26 +418,6 @@ export function ScriptPage({
       return false
     } finally {
       setSaving(false)
-    }
-  }
-
-  const openQuickStart = async () => {
-    if (!script.trim()) {
-      setError('请先填写剧本内容')
-      return
-    }
-    setQuickStartOpen(true)
-    setQuickStartState('analyzing')
-    setQuickStartPlan(null)
-    setQuickStartResult(null)
-    setQuickStartError('')
-    try {
-      if (!saved && !(await save())) throw new Error('剧本保存失败')
-      setQuickStartPlan(await onPlanQuickStart())
-      setQuickStartState('ready')
-    } catch (quickError) {
-      setQuickStartError(quickError.message)
-      setQuickStartState('error')
     }
   }
 
@@ -513,13 +444,6 @@ export function ScriptPage({
         >
           {saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
           {saving ? '保存中' : saved ? '已保存' : '保存剧本'}
-        </button>
-        <button
-          className="button quick-start-trigger"
-          disabled={busy || !script.trim()}
-          onClick={() => void openQuickStart()}
-        >
-          <Sparkles size={16} /> 一键尝鲜
         </button>
       </PageHeader>
 
@@ -549,6 +473,7 @@ export function ScriptPage({
           <NovelImportPanel
             project={project}
             disabled={busy}
+            developmentOnly
             onImportNovel={onImportNovel}
             onPreviewNovelSplit={onPreviewNovelSplit}
             onListNovels={onListNovels}
@@ -599,68 +524,51 @@ export function ScriptPage({
               <div className="script-generation-summary">
                 <strong>{count.toLocaleString()} 字</strong>
                 <span>
-                  {productionMode === 'web-series' ? `${episodeMinutes} 分钟 / 集` : '15～30 秒短视频'}
+                  {productionMode === 'web-series'
+                    ? `${formatEpisodeDuration(episodeDurationSeconds)} / 集`
+                    : '15～30 秒短片'}
                 </span>
               </div>
             </header>
 
             <div className="script-generation-controls">
-              <section className="script-setting-block script-mode-card" aria-label="制作模式">
-                <div className="script-setting-label">
-                  <strong>制作模式</strong>
-                  <small>决定场次节奏</small>
+              <section className="script-format-strip" aria-label="剧本节奏">
+                <div className="script-format-identity">
+                  <span className="direction-symbol">
+                    <Clapperboard size={17} />
+                  </span>
+                  <div>
+                    <span className="eyebrow">项目节奏已锁定</span>
+                    <strong>{productionMode === 'web-series' ? '网剧模式' : '短视频模式'}</strong>
+                  </div>
                 </div>
-                <div className="script-mode-switch" role="group" aria-label="剧本制作模式">
-                  <button
-                    type="button"
-                    className={productionMode === 'short-video' ? 'active' : ''}
-                    aria-pressed={productionMode === 'short-video'}
-                    onClick={() => {
-                      setProductionMode('short-video')
-                      setSegmentMinutes(1)
-                    }}
-                  >
-                    <span>短视频</span>
-                    <span className="script-mode-help" tabIndex={0} aria-label="短视频模式说明">
-                      <CircleHelp size={13} />
-                      <span role="tooltip">适合 15 到 30 秒内容，快速确认故事骨架。</span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className={productionMode === 'web-series' ? 'active' : ''}
-                    aria-pressed={productionMode === 'web-series'}
-                    onClick={() => {
-                      setProductionMode('web-series')
-                      setSegmentMinutes(episodeMinutes)
-                    }}
-                  >
-                    <span>网剧模式</span>
-                    <span className="script-mode-help" tabIndex={0} aria-label="网剧模式说明">
-                      <CircleHelp size={13} />
-                      <span role="tooltip">每集 1 到 5 分钟，最后一场保留悬念钩子。</span>
-                    </span>
-                  </button>
-                </div>
+                <span className="script-format-note">
+                  {productionMode === 'web-series'
+                    ? '每集结尾自动保留钩子，分镜将承接同一集时长。'
+                    : '以 15～30 秒为单位，快速确认故事骨架。'}
+                </span>
                 {productionMode === 'web-series' && (
-                  <label className="script-episode-duration">
-                    <span>每集</span>
-                    <select
-                      value={episodeMinutes}
-                      onChange={(event) => {
-                        const minutes = Number(event.target.value)
-                        setEpisodeMinutes(minutes)
-                        setSegmentMinutes(minutes)
-                      }}
-                    >
-                      {[1, 2, 3, 4, 5].map((minutes) => (
-                        <option key={minutes} value={minutes}>
-                          {minutes} 分钟
-                        </option>
-                      ))}
-                    </select>
+                  <label className="script-episode-seconds">
+                    <span>每集时长</span>
+                    <span className="script-seconds-input">
+                      <input
+                        aria-label="每集时长（秒）"
+                        type="number"
+                        min="30"
+                        max="300"
+                        step="1"
+                        value={episodeDurationSeconds}
+                        onChange={(event) => setEpisodeDurationSeconds(Number(event.target.value) || 0)}
+                        onBlur={() => void commitEpisodeDuration()}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') void commitEpisodeDuration()
+                        }}
+                      />
+                      <em>秒</em>
+                    </span>
                   </label>
                 )}
+                <span className="script-format-source">由新建影片的内容类型决定</span>
               </section>
 
               <section className="script-setting-block script-model-card" aria-label="生成模型">
@@ -687,17 +595,16 @@ export function ScriptPage({
                   }`}
                   disabled={
                     saving ||
-                    quickStartState === 'starting' ||
                     (Boolean(activeScriptTask) && !activeGenerateTask) ||
                     (generating && !activeGenerateTask) ||
                     Boolean(stoppingTaskId)
                   }
                   onClick={() =>
-                    activeGenerateTask
-                      ? void stopScriptTask(
-                          activeGenerateTask,
-                          hasGeneratedScript ? '剧本重生成' : '剧本生成',
-                        )
+                        activeGenerateTask
+                          ? void stopScriptTask(
+                              activeGenerateTask,
+                              '智能生成',
+                            )
                       : void expand('generate')
                   }
                 >
@@ -706,18 +613,17 @@ export function ScriptPage({
                   ) : (
                     <Sparkles size={16} />
                   )}
-                  {stoppingTaskId === activeGenerateTask?.id
-                    ? '正在停止'
-                    : activeGenerateTask
-                      ? hasGeneratedScript
-                        ? '重新生成中 · 点击停止'
-                        : '生成中 · 点击停止'
-                      : generating && generationPhase !== 'segment'
-                        ? hasGeneratedScript
-                          ? '正在重新生成'
-                          : '正在生成剧本'
-                        : `${hasGeneratedScript ? '重新生成' : '生成剧本'} · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
+                    {stoppingTaskId === activeGenerateTask?.id
+                      ? '正在停止'
+                      : activeGenerateTask
+                        ? '智能生成中 · 点击停止'
+                        : generating && generationPhase !== 'segment'
+                          ? '正在智能生成'
+                          : `智能生成 · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
                 </button>
+                <span className="script-primary-generation-note">
+                  剧情结构 · 光影 · 运镜 · 台词
+                </span>
               </div>
             </div>
           </section>
@@ -747,21 +653,9 @@ export function ScriptPage({
           )}
 
           <div className={`script-workspace ${hasGeneratedScript ? 'with-revision-tools' : 'full-width'}`}>
-            <section className="script-document" aria-busy={generating || enriching}>
+            <section className="script-document" aria-busy={generating}>
               <div className="script-document-toolbar">
-                <div className="script-block-actions" role="group" aria-label="插入剧本结构">
-                  {INSERT_BLOCKS.map(({ key, label, icon: Icon, value, title }) => (
-                    <button
-                      type="button"
-                      className="format-button"
-                      key={key}
-                      title={title}
-                      onClick={() => insert(value)}
-                    >
-                      <Icon size={14} /> {label}
-                    </button>
-                  ))}
-                </div>
+                <span className="script-document-toolbar-label">当前剧本正文</span>
                 <div className="script-document-status">
                   <span className={saved ? 'saved' : 'unsaved'}>
                     <BadgeCheck size={14} /> {saved ? '已同步' : '未保存'}
@@ -769,30 +663,37 @@ export function ScriptPage({
                 </div>
               </div>
               <div className="script-textarea-wrap">
-                <textarea
-                  ref={textArea}
+                <AssetAwareTextarea
+                  inputRef={textArea}
+                  assets={assets}
+                  tasks={tasks}
                   value={script}
                   onChange={(event) => update(event.target.value)}
                   placeholder="写下故事/想法,或导入小说/文本,系统会根据项目已创建的资产/项目概览等信息自动切分章节并生成剧本内容。"
                 />
-                {(generating || enriching) && (
+                {generating && (
                   <div className="script-processing-overlay" role="status" aria-live="polite">
                     <LoaderCircle size={25} className="spin" />
                     <strong>
-                      {enriching
-                        ? '正在按场次补齐剧情、动作、表演、风格、构图、光影、运镜与衔接'
-                        : generationPhase === 'segment'
-                          ? productionMode === 'web-series'
-                            ? '正在承接钩子续写下一集'
-                            : '正在续写下一段'
-                          : productionMode === 'web-series'
-                            ? '正在编排网剧冲突与结尾钩子'
-                            : '正在整理快速剧本'}
+                      {generationPhase === 'segment'
+                        ? productionMode === 'web-series'
+                          ? '正在承接钩子续写下一集'
+                          : '正在续写下一段'
+                        : productionMode === 'web-series'
+                          ? '正在编排网剧冲突与结尾钩子'
+                          : '正在整理快速剧本'}
                     </strong>
                     <span>已等待 {generationSeconds} 秒 · 完成后自动保存并刷新，无需手动操作</span>
                   </div>
                 )}
               </div>
+              <AssetShortcutBar
+                assets={assets}
+                tasks={tasks}
+                value={script}
+                onChange={update}
+                inputRef={textArea}
+              />
               <div className="script-document-footer">
                 <span>{count} 字</span>
                 <span>{paragraphCount} 段</span>
@@ -818,9 +719,9 @@ export function ScriptPage({
 
                 <section className="script-revision-tool">
                   <div className="script-revision-tool-title">
-                    <strong>改写 / 补充</strong>
-                    <ScriptHelp label="改写与补充说明">
-                      “按要求改写”处理剧情意见；“补齐制作字段”按场次补充动作、表演、构图、光影、运镜和衔接。
+                    <strong>按要求改写</strong>
+                    <ScriptHelp label="剧本改写说明">
+                      根据你的修改意见重写当前剧本，保留已有故事和资产设定。
                     </ScriptHelp>
                   </div>
                   <textarea
@@ -842,7 +743,6 @@ export function ScriptPage({
                       }`}
                       disabled={
                         saving ||
-                        quickStartState === 'starting' ||
                         (!revisionNote.trim() && !activeRevisionTask) ||
                         (Boolean(activeScriptTask) && !activeRevisionTask) ||
                         (generating && !activeRevisionTask) ||
@@ -867,38 +767,6 @@ export function ScriptPage({
                             ? '正在改写'
                             : `按要求改写 · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
                     </button>
-                    <button
-                      type="button"
-                      className={`button direction-detail-button ${needsVisualDetail ? 'recommended' : ''} ${
-                        activeEnrichTask || enriching ? 'is-generating' : ''
-                      }`}
-                      disabled={
-                        saving ||
-                        quickStartState === 'starting' ||
-                        !script.trim() ||
-                        (Boolean(activeScriptTask) && !activeEnrichTask) ||
-                        (enriching && !activeEnrichTask) ||
-                        Boolean(stoppingTaskId)
-                      }
-                      onClick={() =>
-                        activeEnrichTask
-                          ? void stopScriptTask(activeEnrichTask, '制作字段补齐')
-                          : void enrich()
-                      }
-                    >
-                      {activeEnrichTask || enriching ? (
-                        <LoaderCircle size={15} className="spin" />
-                      ) : (
-                        <Clapperboard size={15} />
-                      )}
-                      {stoppingTaskId === activeEnrichTask?.id
-                        ? '正在停止'
-                        : activeEnrichTask
-                          ? '补齐中 · 点击停止'
-                          : enriching
-                            ? '正在补齐'
-                            : `补齐制作字段 · ${SCRIPT_OPERATION_CREDITS.enrich} 积分`}
-                    </button>
                   </div>
                 </section>
 
@@ -919,13 +787,14 @@ export function ScriptPage({
                   <label className="script-append-duration">
                     <span>目标时长</span>
                     <select
-                      value={segmentMinutes}
-                      onChange={(event) => setSegmentMinutes(Number(event.target.value))}
+                      value={segmentDurationSeconds}
+                      onChange={(event) => setSegmentDurationSeconds(Number(event.target.value))}
                     >
-                      {(productionMode === 'web-series' ? [1, 2, 3, 4, 5] : [1, 3, 5, 8, 10, 15]).map(
-                        (minutes) => (
-                          <option key={minutes} value={minutes}>
-                            {minutes} 分钟
+                      {(productionMode === 'web-series'
+                        ? [30, 60, 90, 120, 180, 240, 300]
+                        : [15, 30]).map((seconds) => (
+                          <option key={seconds} value={seconds}>
+                            {formatEpisodeDuration(seconds)}
                           </option>
                         ),
                       )}
@@ -940,7 +809,6 @@ export function ScriptPage({
                     }`}
                     disabled={
                       saving ||
-                      quickStartState === 'starting' ||
                       (Boolean(activeScriptTask) && !activeSegmentTask) ||
                       (generating && !activeSegmentTask) ||
                       Boolean(stoppingTaskId)
@@ -1023,38 +891,6 @@ export function ScriptPage({
           }}
         />
       )}
-
-      {quickStartOpen && (
-        <QuickStartModal
-          state={quickStartState}
-          plan={quickStartPlan}
-          result={quickStartResult}
-          error={quickStartError}
-          credits={billing.credits}
-          onClose={() => quickStartState !== 'starting' && setQuickStartOpen(false)}
-          onRetry={() => void openQuickStart()}
-          onStart={async () => {
-            setQuickStartState('starting')
-            setQuickStartError('')
-            try {
-              const result = await onExecuteQuickStart({
-                clientRequestId: crypto.randomUUID(),
-                sourceScriptHash: quickStartPlan.sourceScriptHash,
-                assets: quickStartPlan.assets,
-              })
-              setQuickStartResult(result)
-              setQuickStartState('complete')
-            } catch (quickError) {
-              setQuickStartError(quickError.message)
-              setQuickStartState('ready')
-            }
-          }}
-          onViewAssets={() => {
-            setQuickStartOpen(false)
-            onNext()
-          }}
-        />
-      )}
     </div>
   )
 }
@@ -1068,8 +904,33 @@ function ScriptHelp({ label, children }) {
   )
 }
 
+function formatEpisodeDuration(seconds) {
+  const value = Math.max(0, Math.round(Number(seconds) || 0))
+  if (value >= 60) {
+    const minutes = Math.floor(value / 60)
+    const remainder = value % 60
+    return remainder ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`
+  }
+  return `${value} 秒`
+}
+
 function isQueuedTextTask(result) {
   return Boolean(result?.kind === 'text' && ['queued', 'running', 'paused'].includes(result.status))
+}
+
+function isAssetSuggestionResult(value) {
+  return Boolean(
+    value && typeof value === 'object' && typeof value.summary === 'string' && Array.isArray(value.assets),
+  )
+}
+
+function scriptSuggestionFingerprint(value) {
+  let hash = 2166136261
+  for (const character of value.trim()) {
+    hash ^= character.codePointAt(0) || 0
+    hash = Math.imul(hash, 16777619)
+  }
+  return `${value.trim().length}:${(hash >>> 0).toString(16)}`
 }
 
 function scriptTaskOperation(task) {

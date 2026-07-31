@@ -45,6 +45,7 @@ export function FilmPage({
   const [selectedEpisode, setSelectedEpisode] = useState(() => String(episodeNumbers[0] || 'all'))
   const [selectedPreviewTaskId, setSelectedPreviewTaskId] = useState('current')
   const episodeNumber = selectedEpisode === 'all' ? null : Number(selectedEpisode)
+  const shotMinDuration = project?.contentType === 'short-drama' ? 3 : 4
   const scopedShots = episodeNumber
     ? shots.filter((item) => (item.episodeNumber || 1) === episodeNumber)
     : shots
@@ -52,17 +53,20 @@ export function FilmPage({
   const scopedCurrentIndex = scopedShots.findIndex((item) => item.id === selectedGlobalShot?.id)
   const safeIndex = scopedCurrentIndex >= 0 ? scopedCurrentIndex : 0
   const shot = scopedShots[safeIndex]
-  const totalDuration = scopedShots.reduce((sum, item) => sum + normalizedVideoDuration(item.duration), 0)
-  const videoTask = videoTaskFor(tasks, shot?.id)
+  const totalDuration = scopedShots.reduce(
+    (sum, item) => sum + normalizedVideoDuration(item.duration, shotMinDuration),
+    0,
+  )
+  const videoTask = videoTaskFor(tasks, shot)
   const videoUrl = videoUrlFor(videoTask)
   const videoState = stateFor(videoTask)
   const ratioMode = projectRatioMode(project.aspectRatio)
-  const completedSources = scopedShots.map((item) => completedShotVideoTask(tasks, item.id))
+  const completedSources = scopedShots.map((item) => completedShotVideoTask(tasks, item))
   const readyShotCount = completedSources.filter(Boolean).length
   const partialSourceTaskIds = contiguousSourceVideoTaskIds(tasks, scopedShots)
   const partialDuration = scopedShots
     .slice(0, partialSourceTaskIds.length)
-    .reduce((sum, item) => sum + normalizedVideoDuration(item.duration), 0)
+    .reduce((sum, item) => sum + normalizedVideoDuration(item.duration, shotMinDuration), 0)
   const sourceTaskIds = sourceVideoTaskIds(tasks, scopedShots)
   const allShotsReady = scopedShots.length > 0 && sourceTaskIds.length === scopedShots.length
   const scopedPreviewTasks = tasks.filter(
@@ -420,7 +424,7 @@ export function FilmPage({
               <dd>
                 {viewMode === 'full'
                   ? previewDuration
-                  : normalizedVideoDuration(videoTask?.metadata?.duration ?? shot.duration)}{' '}
+                  : normalizedVideoDuration(videoTask?.metadata?.duration ?? shot.duration, shotMinDuration)}{' '}
                 秒
               </dd>
             </div>
@@ -456,7 +460,7 @@ export function FilmPage({
             <button
               key={item.id}
               className={viewMode === 'shot' && safeIndex === index ? 'active' : ''}
-              style={{ flex: normalizedVideoDuration(item.duration) }}
+                style={{ flex: normalizedVideoDuration(item.duration, shotMinDuration) }}
               onClick={() => {
                 setCurrentShot(shots.findIndex((shotItem) => shotItem.id === item.id))
                 setViewMode('shot')
@@ -478,7 +482,9 @@ export function FilmPage({
   )
 }
 
-function videoTaskFor(tasks, shotId) {
+function videoTaskFor(tasks, shot) {
+  const shotId = shot?.id
+  const selectedVideoTaskId = shot?.selectedVideoTaskId
   const shotTasks = tasks.filter(
     (task) => task.kind === 'video' && task.metadata?.shotId === shotId && task.status !== 'cancelled',
   )
@@ -486,6 +492,7 @@ function videoTaskFor(tasks, shotId) {
     shotTasks.find(
       (task) => task.status === 'running' || task.status === 'queued' || task.status === 'paused',
     ) ||
+    shotTasks.find((task) => task.id === selectedVideoTaskId && task.status === 'completed') ||
     shotTasks.find((task) => task.status === 'completed') ||
     shotTasks[0]
   )

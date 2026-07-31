@@ -5,6 +5,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { VideoGenerationProvider, VideoProviderName } from '../generation/videoProvider.js'
 import type { AppStore } from '../../infra/store.js'
@@ -15,6 +16,7 @@ import {
   releaseGenerationTaskLease,
   renewGenerationTaskLease,
 } from '../jobs/taskLease.js'
+import { generatedDescriptors } from '../jobs/taskWriteback.js'
 
 type PreviewTarget = { width: number; height: number }
 type ComposeRunner = (
@@ -125,8 +127,16 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
           return
         }
         const inputPath = join(temporaryDirectory, `shot-${String(index + 1).padStart(3, '0')}.mp4`)
-        const content = await this.videoProvider.getContent(String(source.metadata.providerTaskId))
-        await pipeline(content.stream, createWriteStream(inputPath))
+        const cachedVideo = generatedDescriptors(source).find(
+          (item) => item.view === 'single' && item.contentType.startsWith('video/'),
+        )
+        if (cachedVideo) {
+          const content = await this.objectStorage.get(cachedVideo.storageKey)
+          await pipeline(Readable.from(content), createWriteStream(inputPath))
+        } else {
+          const content = await this.videoProvider.getContent(String(source.metadata.providerTaskId))
+          await pipeline(content.stream, createWriteStream(inputPath))
+        }
         inputPaths.push(inputPath)
         await this.updateProgress(taskId, 5 + Math.round(((index + 1) / sourceTasks.length) * 40), leaseToken)
       }
@@ -204,16 +214,45 @@ export async function runFfmpegComposition(
   ffmpegPath: string,
   timeoutMs: number,
 ): Promise<void> {
+  try {
+    await runFfmpegCompositionPass(inputPaths, outputPath, target, ffmpegPath, timeoutMs, true)
+  } catch (audioError) {
+    // Older provider videos may be silent. Keep them composable while making all
+    // newly generated videos preserve their audio whenever an audio stream exists.
+    try {
+      await runFfmpegCompositionPass(inputPaths, outputPath, target, ffmpegPath, timeoutMs, false)
+    } catch {
+      throw audioError
+    }
+  }
+}
+
+async function runFfmpegCompositionPass(
+  inputPaths: string[],
+  outputPath: string,
+  target: PreviewTarget,
+  ffmpegPath: string,
+  timeoutMs: number,
+  withAudio: boolean,
+): Promise<void> {
   const inputs = inputPaths.flatMap((path) => ['-i', path])
-  const filters = inputPaths.map(
+  const videoFilters = inputPaths.map(
     (_, index) =>
       `[${index}:v]scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,` +
       `pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=24,` +
       `format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS[v${index}]`,
   )
-  filters.push(
-    `${inputPaths.map((_, index) => `[v${index}]`).join('')}concat=n=${inputPaths.length}:v=1:a=0[outv]`,
-  )
+  const filters = [...videoFilters]
+  if (withAudio) {
+    filters.push(
+      ...inputPaths.map((_, index) => `[${index}:a]aresample=48000,asetpts=PTS-STARTPTS[a${index}]`),
+      `${inputPaths.map((_, index) => `[v${index}][a${index}]`).join('')}concat=n=${inputPaths.length}:v=1:a=1[outv][outa]`,
+    )
+  } else {
+    filters.push(
+      `${inputPaths.map((_, index) => `[v${index}]`).join('')}concat=n=${inputPaths.length}:v=1:a=0[outv]`,
+    )
+  }
   const args = [
     '-hide_banner',
     '-y',
@@ -222,7 +261,7 @@ export async function runFfmpegComposition(
     filters.join(';'),
     '-map',
     '[outv]',
-    '-an',
+    ...(withAudio ? ['-map', '[outa]', '-c:a', 'aac', '-b:a', '128k'] : ['-an']),
     '-c:v',
     'libx264',
     '-preset',

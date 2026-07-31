@@ -122,7 +122,9 @@ Content-Type: multipart/form-data
 
 ## 剧本生成
 
-`POST /api/v1/projects/:projectId/script/generate` 使用 `TokenAdventTextProvider` 调用 `/v1/chat/completions`，现在默认是快速剧本模式。接口接收当前草稿或项目梗概、已确认资产和视觉方向，一次逻辑调用输出适合 15 到 30 秒视频的 4 到 6 个场景、基础动作和对白，目标约 800 到 1600 个中文字符，最大输出为 `2400` tokens。快速生成不会因为格式或篇幅不足而自动进行第二次完整重写；服务端会返回 `warnings`，用户可以继续编辑或主动补齐专业细节。Provider 的自动重试仅用于瞬时连接故障，不属于内容修订。文本模型由 `TEXT_MODEL` 配置。
+`POST /api/v1/projects/:projectId/script/generate` 使用 `TokenAdventTextProvider` 调用 `/v1/chat/completions`，现在默认是快速剧本模式。接口接收当前草稿或项目梗概、已确认资产和视觉方向，一次逻辑调用输出适合 15 到 30 秒视频的 4 到 6 个场景、基础动作和对白，目标约 800 到 1600 个中文字符，最大输出为 `2400` tokens。快速生成不会因为格式或篇幅不足而自动进行第二次完整重写；服务端会返回 `warnings`，用户可以继续编辑或主动补齐专业细节。Provider 的自动重试仅用于瞬时连接故障，不属于内容修订。
+
+文本模型通过同一个 OpenAI 兼容中转接口切换。默认逻辑值为 `glm-5.2`；历史值 `seqora-5.6` 仍会使用 `TEXT_MODEL`，当前页面可选择 `gpt-5.6-terra`、`kimi-k3`、`glm-5.2` 和 `glm-5.2-fast`，选中的值会作为请求的 `model` 发送给 `/v1/chat/completions`。所有未明确指定模型的剧本、解析、资产建议和一键尝鲜流程统一使用 `glm-5.2`。GPT 和图片使用 `TOKENADVENT_API_KEY`；`kimi-k3`、`glm-5.2`、`glm-5.2-fast` 优先使用 `TEXT_API_KEY`，未配置时才回退到 `TOKENADVENT_API_KEY`。
 
 `POST /api/v1/projects/:projectId/script/enrich` 是用户主动触发的专业视觉细节补齐接口。它保留快速剧本的场景数量、人物、剧情因果和对白，补充风格、构图、光影、运镜和衔接，最大输出为 `4000` tokens；本次调用也只进行一次逻辑生成，返回 `mode: detailed` 和可能的 `warnings`。生成后前端提供“补齐专业视觉细节”按钮，避免用户每次只想快速起稿时都等待完整制作级剧本。
 

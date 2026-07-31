@@ -14,6 +14,10 @@ type Fetcher = typeof fetch
 export type TokenAdventImageOptions = {
   baseUrl: string
   apiKey: string
+  alternateBaseUrl?: string
+  alternateApiKey?: string
+  alternateModels?: readonly string[]
+  alternateModel?: string
   model: string
   quality: 'low' | 'medium' | 'high'
   requestTimeoutMs: number
@@ -31,11 +35,12 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
 
   async generate(request: ImageGenerationRequest): Promise<ImageGenerationOutput[]> {
     const outputs: ImageGenerationOutput[] = []
+    const model = this.resolveModel(request.model)
     for (const view of request.outputs) {
       const prompt = promptFor(request, view)
       const response = request.references.length
-        ? await this.edit(prompt, request.aspectRatio, request.references)
-        : await this.create(prompt, request.aspectRatio)
+        ? await this.edit(prompt, request.aspectRatio, request.references, model)
+        : await this.create(prompt, request.aspectRatio, model)
       const parsed = imageResponseSchema.parse(response)
       outputs.push({
         view,
@@ -46,28 +51,33 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
     return outputs
   }
 
-  private create(prompt: string, aspectRatio: string): Promise<unknown> {
-    return this.requestJson('/v1/images/generations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: this.options.model,
-        prompt,
-        n: 1,
-        size: sizeFor(aspectRatio),
-        quality: this.options.quality,
-        output_format: 'png',
-      }),
-    })
+  private create(prompt: string, aspectRatio: string, model: string): Promise<unknown> {
+    return this.requestJson(
+      '/v1/images/generations',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          prompt,
+          n: 1,
+          size: sizeFor(aspectRatio),
+          quality: this.options.quality,
+          output_format: 'png',
+        }),
+      },
+      model,
+    )
   }
 
   private edit(
     prompt: string,
     aspectRatio: string,
     references: ImageGenerationRequest['references'],
+    model: string,
   ): Promise<unknown> {
     const body = new FormData()
-    body.set('model', this.options.model)
+    body.set('model', model)
     body.set('prompt', prompt)
     body.set('size', sizeFor(aspectRatio))
     body.set('quality', this.options.quality)
@@ -79,16 +89,24 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
         reference.name,
       )
     }
-    return this.requestJson('/v1/images/edits', { method: 'POST', body })
+    return this.requestJson('/v1/images/edits', { method: 'POST', body }, model)
   }
 
-  private async requestJson(path: string, init: RequestInit): Promise<unknown> {
+  private resolveModel(model: string | null | undefined): string {
+    if (model === 'nano-banana') return this.options.alternateModel || 'nano-banana'
+    if (!model || model === 'img2-default') return this.options.model
+    return model
+  }
+
+  private async requestJson(path: string, init: RequestInit, model: string): Promise<unknown> {
+    const baseUrl = this.resolveBaseUrl(model)
+    const apiKey = this.resolveApiKey(model)
     let lastError: unknown
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const response = await this.fetcher(`${this.baseUrl}${path}`, {
+        const response = await this.fetcher(`${baseUrl}${path}`, {
           ...init,
-          headers: { Authorization: `Bearer ${this.options.apiKey}`, ...init.headers },
+          headers: { Authorization: `Bearer ${apiKey}`, ...init.headers },
           signal: AbortSignal.timeout(this.options.requestTimeoutMs),
         })
         if (!response.ok) throw await providerError(response)
@@ -102,6 +120,34 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
       }
     }
     throw lastError
+  }
+
+  private resolveApiKey(model: string): string {
+    if (this.isAlternateModel(model)) {
+      if (!this.options.alternateApiKey) {
+        throw new Error('Nano Banana 尚未配置真实 API 密钥，当前不能提交生成')
+      }
+      return this.options.alternateApiKey
+    }
+    return this.options.apiKey
+  }
+
+  private resolveBaseUrl(model: string): string {
+    if (this.isAlternateModel(model)) {
+      if (!this.options.alternateBaseUrl) {
+        throw new Error('Nano Banana 尚未配置真实 API 地址，当前不能提交生成')
+      }
+      return this.options.alternateBaseUrl.replace(/\/+$/, '')
+    }
+    return this.baseUrl
+  }
+
+  private isAlternateModel(model: string): boolean {
+    return (
+      model === 'nano-banana' ||
+      model === this.options.alternateModel ||
+      this.options.alternateModels?.includes(model) === true
+    )
   }
 }
 

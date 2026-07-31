@@ -103,7 +103,7 @@ describe('script workflow contracts', () => {
       segment: { goal: '', targetMinutes: 5 },
       productionMode: 'short-video',
       episodeMinutes: 1,
-      model: 'seqora-5.6',
+      model: 'glm-5.2',
       revisionNote: '',
       direction: {
         style: 'auto',
@@ -127,11 +127,11 @@ describe('script workflow contracts', () => {
       focus: 'balanced',
     })
     expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
-      model: 'seqora-5.6',
+      model: 'glm-5.2',
       revisionNote: '',
     })
     expect(reviewScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
-      model: 'seqora-5.6',
+      model: 'glm-5.2',
     })
     expect(generateShotsRequestSchema.parse({})).toMatchObject({
       maxShots: 8,
@@ -141,6 +141,12 @@ describe('script workflow contracts', () => {
     expect(autoSplitShotsRequestSchema.parse({})).toEqual({ episodeDurationSeconds: 60 })
     expect(autoSplitShotsRequestSchema.parse({ episodeDurationSeconds: 300 })).toEqual({
       episodeDurationSeconds: 300,
+    })
+    expect(generateShotsRequestSchema.parse({ episodeDurationSeconds: 90 })).toMatchObject({
+      episodeDurationSeconds: 90,
+    })
+    expect(autoSplitShotsRequestSchema.parse({ episodeDurationSeconds: 90 })).toEqual({
+      episodeDurationSeconds: 90,
     })
     expect(
       generateScriptRequestSchema.parse({

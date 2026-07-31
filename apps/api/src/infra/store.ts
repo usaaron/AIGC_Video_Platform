@@ -217,6 +217,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
             ownerId: creatorId,
             name: '午夜胶片',
             contentType: 'short-drama',
+            visualStyle: 'cinematic-cg',
             aspectRatio: '9:16',
             status: 'producing',
             synopsis: '雨夜，一卷能预见明天的胶片，正等待被打开。',
@@ -314,6 +315,10 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
       gender: 'female',
       ageGroup: 'young',
       exactAge: null,
+      ethnicity: 'unspecified',
+      skinTone: 'unspecified',
+      eyeColor: 'unspecified',
+      hairColor: 'unspecified',
       species: '',
       anthropomorphic: false,
       visualStyle: 'cinematic-cg',
@@ -329,6 +334,8 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
       legStretch: false,
       turnaround: false,
       turnaroundLayout: 'sheet',
+      appearanceVariants: [],
+      activeAppearanceVariantId: null,
     }
   }
   if (kind === 'scene') {
@@ -413,6 +420,12 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
 }
 
 function normalizeState(input: Partial<AppState>): AppState {
+  const projects = (input.projects ?? []).map((project) => ({
+    ...project,
+    visualStyle: project.visualStyle ?? 'cinematic-cg',
+    episodeDurationSeconds: project.episodeDurationSeconds ?? 60,
+  }))
+  const projectStyles = new Map(projects.map((project) => [project.id, project.visualStyle]))
   const assets = (input.assets ?? []).map((stored) => {
     const legacy = stored as Omit<Partial<Asset>, 'kind'> & {
       id: string
@@ -428,19 +441,28 @@ function normalizeState(input: Partial<AppState>): AppState {
       updatedAt: string
     }
     const kind: Asset['kind'] = legacy.kind === 'sound' ? 'audio' : legacy.kind
+    const attributes =
+      legacy.attributes?.type === kind
+        ? { ...defaultAssetAttributes(kind), ...legacy.attributes }
+        : defaultAssetAttributes(kind)
+    const normalizedAttributes =
+      attributes.type === 'scene'
+        ? { ...attributes, emptyScene: true, activitySpace: true }
+        : attributes
+    const projectVisualStyle = projectStyles.get(legacy.projectId) ?? 'cinematic-cg'
     return {
       ...legacy,
       kind,
       sourceMode: legacy.sourceMode ?? 'generate',
       promptMode: legacy.promptMode ?? 'standard',
-      customPromptMode: legacy.customPromptMode ?? 'append',
+      customPromptMode: 'replace',
       customPrompt: legacy.customPrompt ?? '',
       negativePrompt: legacy.negativePrompt ?? '',
       references: legacy.references ?? [],
       attributes:
-        legacy.attributes?.type === kind
-          ? { ...defaultAssetAttributes(kind), ...legacy.attributes }
-          : defaultAssetAttributes(kind),
+        'visualStyle' in normalizedAttributes
+          ? { ...normalizedAttributes, visualStyle: projectVisualStyle }
+          : normalizedAttributes,
     } as Asset
   })
   const tasks = (input.tasks ?? []).map((task) => ({
@@ -454,13 +476,15 @@ function normalizeState(input: Partial<AppState>): AppState {
   }))
   return {
     users: input.users ?? [],
-    projects: input.projects ?? [],
+    projects: projects as AppState['projects'],
     assets,
     shots: (input.shots ?? []).map((shot) => ({
       ...shot,
       negativePrompt: shot.negativePrompt ?? '',
       continuityMode: shot.continuityMode ?? 'independent',
       continuityNote: shot.continuityNote ?? '',
+      selectedImageTaskId: shot.selectedImageTaskId ?? null,
+      selectedVideoTaskId: shot.selectedVideoTaskId ?? null,
       episodeBreakBefore: shot.episodeBreakBefore ?? false,
       episodeNumber: shot.episodeNumber ?? 1,
       episodeTitle: shot.episodeTitle ?? '主故事',

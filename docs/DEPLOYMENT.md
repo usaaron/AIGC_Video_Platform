@@ -51,12 +51,37 @@ chmod 600 deploy/demo.env
 - 两组 `BOOTSTRAP_*` 邮箱和密码必须唯一；只在空数据卷首次启动时生效。
 - 保持 `BOOTSTRAP_DEMO_WORKSPACE=false`，让客户登录后创建自己的第一个项目。
 - 2 vCPU / 4GB 机器先保留 `API_MEMORY_LIMIT=1536m`、`API_NODE_HEAP_MB=768`、`WEB_MEMORY_LIMIT=192m`；发生 OOM 时优先升级内存，不要移除所有上限。
-- 保持 `VIDEO_PROVIDER=stringx`，填写私有 `GCS_BUCKET`、`STRINGX_API_KEY` 和 `TOKENADVENT_API_KEY`。
+- 保持 `VIDEO_PROVIDER=stringx`，填写私有 `GCS_BUCKET`、`STRINGX_API_KEY` 和 `TOKENADVENT_API_KEY`。`TEXT_API_KEY` 用于 Kimi/GLM 模型；GPT 和图片继续使用 `TOKENADVENT_API_KEY`，避免不同中转账号组的模型权限相互影响。
+- 资产页的 `Nano Banana` 选项只有在上游确实开通对应模型后才可用；通过 `NANOBANANA_MODEL` 配置真实上游 ID，必要时用 `NANOBANANA_API_KEY` 配置独立密钥。当前项目不会把 Nano Banana 静默降级为 Img2。
 - 生产启动会强制检查当前视频 Provider 密钥和 `TOKENADVENT_API_KEY`，缺少时直接停止，不允许静默使用 Mock 结果。
 - 要测试可信人像，再填写弦序 MaaS 素材库专用 `VOLC_ACCESS_KEY`、`VOLC_SECRET_KEY` 和与 StringX Token 同租户、同项目的 `VOLC_ARK_PROJECT_NAME`。StringX Bearer Token 不能代替素材库 AK/SK。
 - 可选填写 `ASSET_LIBRARY_CONSOLE_URL`，人物编辑器会跳转到弦序私域素材库；不再硬编码火山控制台地址。
 - `AIDEOS_*` 和 `ARK_API_*` 只用于显式回滚，默认全弦序链路不读取这些变量。
 - 不要把 `deploy/demo.env`、服务账号 JSON 或任何 Key 提交到 Git。
+
+### 轻量新机部署
+
+Windows 开发机可先生成轻量源码包：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy/package.ps1
+```
+
+默认输出到系统临时目录的 `seqora-deployment/seqora-source.tgz`，不会携带
+`apps/api/data`、本地上传媒体、`node_modules`、构建产物或测试缓存。只有明确需要迁移本地
+Demo 数据时才使用 `-IncludeRuntimeData`；新服务器不要默认迁移旧素材。
+
+源码包会包含忽略提交的 `deploy/demo.env`，只能通过 SSH/SCP 等私有通道传输。部署完成后，
+`bootstrap-fresh-gce.sh` 会删除服务器临时归档；开发机也应删除临时目录，禁止把归档上传到
+GitHub、公共 Bucket 或聊天。新机初始化命令为：
+
+```bash
+sudo bash /tmp/bootstrap-fresh-gce.sh /tmp/seqora-source.tgz
+```
+
+脚本适配 Debian/Ubuntu GCE：从 Docker 官方仓库安装 Engine、Buildx 和 Compose Plugin，
+原子替换 `/opt/seqora`，校验 Compose 后构建并启动。Docker 构建上下文不会包含生产环境文件；
+API 与 Web 分别只安装自身及共享工作区依赖，并复用 pnpm 下载缓存。
 
 启动前先检查最终配置，再构建并启动：
 

@@ -1,7 +1,9 @@
-export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v5'
+export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v7'
 
 export type PromptProject = {
   aspectRatio: string
+  contentType?: string
+  visualStyle?: string
   script?: string
 }
 
@@ -20,6 +22,7 @@ export type PromptAsset = {
   name: string
   description?: string
   prompt?: string
+  attributes?: unknown
 }
 
 export type PromptReference = { id: string }
@@ -40,18 +43,28 @@ export function compileStoryboardVideoPrompt(input: {
   continuityMode?: 'independent' | 'continue'
 }): string {
   const { project, shot, shots = [], assets = [], references = [], continuityMode = 'independent' } = input
-  const duration = normalizedVideoDuration(shot.duration)
+  const duration = normalizedVideoDuration(shot.duration, project.contentType === 'short-drama' ? 3 : 4)
   const referenceAssets = references
     .map((reference) => assets.find((asset) => asset.id === reference.id))
     .filter((asset): asset is PromptAsset => Boolean(asset))
   const context = adjacentShotContext(shot, shots)
   const focusedPrompt = focusedShotPrompt(shot.prompt)
-  const primaryAction = primaryActionFor(shot.prompt)
+  const actionSequence = actionSequenceFor(shot.prompt)
+  const shotFields = promptFields(String(shot.prompt || ''))
   const identityRules = referenceAssets.map(identityRuleFor).join('；')
-  const subjectMotion = subjectMotionFor(primaryAction || focusedPrompt, referenceAssets)
+  const actorPerformance = actorPerformanceFor(shotFields.角色, actionSequence, shotFields.对白)
+  const soundPlan = soundPlanFor(shotFields.对白, shot.prompt, referenceAssets)
+  const subjectMotion = subjectMotionFor(
+    shotFields.动作
+      ? `动作：${actionSequence}`
+      : shotFields.对白
+        ? `对白：${shotFields.对白}`
+        : actionSequence || focusedPrompt,
+    referenceAssets,
+  )
 
   return [
-    `生成一段连续${duration}秒、${project.aspectRatio}画幅的电影叙事视频。`,
+    `生成一段连续${duration}秒、${project.aspectRatio}画幅的${visualStyleLabel(project.visualStyle)}电影叙事视频。`,
     `【当前镜头】${shot.title || '未命名镜头'}，${shot.framing || '中景'}。${sentence(focusedPrompt)}`,
     context ? `【前后镜头】${context}` : '',
     shot.continuityNote ? `【场景衔接上下文】${sentence(shot.continuityNote)}` : '',
@@ -59,20 +72,36 @@ export function compileStoryboardVideoPrompt(input: {
       ? '【镜头衔接】严格承接上一镜头尾帧，人物身份、动作方向、视线、空间位置、光线和服装保持连续，首帧不要跳变。'
       : '',
     identityRules ? `【资产一致性】${identityRules}。严格沿用输入参考图，不得更换人物或重设计资产。` : '',
-    `【连续动作】${subjectMotion}`,
+    `【动作执行】${subjectMotion}`,
+    `【群像表演】${actorPerformance}`,
+    actionSequence ? `【动作顺序】必须按以下顺序完成，不得跳过、合并或凭空增加动作：${actionSequence}` : '',
+    `【声音执行】${soundPlan}`,
     `【镜头运动】${cameraMotionFor(shot.framing)}`,
     `【环境运动】${environmentMotionFor(shot.prompt, referenceAssets)}`,
     `【时间推进】0-1秒建立画面，1-${Math.max(2, duration - 1)}秒完成主要动作，最后1秒自然收束并保持动作连续。`,
     '【镜内剪辑】全程保持同一时间、同一空间和同一条动作线，只完成当前镜头指定动作。禁止插入特写、钟表、回忆、下一事件或其他画面；禁止突然切镜、跳时、回切和蒙太奇。',
-    '输出必须是真实连续动态视频，不是静止图片，不是幻灯片；人物不能全程冻结，避免只有缩放、平移或单帧抖动。保持角色面部、身材、服装、场景空间和光线方向跨帧稳定。',
+    '输出必须是真实连续动态视频，不是静止图片，不是幻灯片；人物不能全程冻结，避免只有缩放、平移或单帧抖动。保持角色面部、身材、服装、场景空间和光线方向跨帧稳定。必须生成可听见的现场声音、对白或旁白；不要输出静音视频。',
   ]
     .filter(Boolean)
     .join('\n')
 }
 
-export function normalizedVideoDuration(value: unknown): number {
+function visualStyleLabel(value: string | undefined): string {
+  const labels: Record<string, string> = {
+    photorealistic: '仿真人风格',
+    'cinematic-cg': '影视CG风格',
+    'chinese-2d': '2D风格',
+    'chinese-3d': '3D国漫风格',
+    anime: '日漫风格',
+    storybook: '绘本风格',
+  }
+  return labels[value || 'cinematic-cg'] || '统一项目视觉风格'
+}
+
+export function normalizedVideoDuration(value: unknown, minimum = 4): number {
   const parsed = Number(value)
-  return Number.isFinite(parsed) ? Math.min(15, Math.max(4, Math.round(parsed))) : 5
+  const min = Math.min(15, Math.max(1, Math.round(minimum)))
+  return Number.isFinite(parsed) ? Math.min(15, Math.max(min, Math.round(parsed))) : Math.max(5, min)
 }
 
 function adjacentShotContext(shot: PromptShot, shots: PromptShot[]): string {
@@ -88,7 +117,13 @@ function adjacentShotContext(shot: PromptShot, shots: PromptShot[]): string {
 
 function identityRuleFor(asset: PromptAsset): string {
   const label = ASSET_KIND_LABELS[asset.kind] || '资产'
-  const detail = [asset.description, conciseAssetPrompt(asset.prompt)].filter(Boolean).join('，')
+  const detail = [
+    asset.description,
+    conciseAssetPrompt(asset.prompt),
+    conciseAssetAttributes(asset.attributes),
+  ]
+    .filter(Boolean)
+    .join('，')
   if (asset.kind === 'character') {
     return `${label}“${asset.name}”保持参考图中的脸、发型、年龄、体型和服装完全一致${detail ? `（${detail}）` : ''}`
   }
@@ -106,6 +141,47 @@ function subjectMotionFor(prompt: string | undefined, assets: PromptAsset[]): st
     return `${sentence(text)}人物持续做与剧情相符的细微表情、呼吸、视线和身体动作，动作有明确开始与结束。`
   }
   return `${sentence(text)}画面中的可动物体持续发生符合剧情和物理规律的变化。`
+}
+
+function actorPerformanceFor(
+  roleField: string | undefined,
+  actionSequence: string,
+  dialogue: string | undefined,
+): string {
+  const roles = String(roleField || '').trim()
+  const dialogueText = String(dialogue || '').trim()
+  if (!roles) {
+    return '画面内所有人物都必须有可见的呼吸、眨眼、视线、表情或姿态变化；不能只有主角运动，不能把配角和背景人物冻结成照片。'
+  }
+  return [
+    `角色栏列出的所有人物都必须实际出现在镜头中：${roles}`,
+    '主角执行当前动作时，配角和背景角色必须同步做符合场景的可见反应，例如转头、后退、交换视线、握紧物件、调整姿态、交谈口型或表情变化；不得凭空增加角色，也不得让除主角外的人物静止不动。',
+    '每 2 到 3 秒至少发生一次可见的表情、视线、重心、手部或姿态变化；动作从起势连续发展到结束姿态，角色之间保持明确的视线和空间关系。',
+    dialogueText && !/无台词/u.test(dialogueText)
+      ? '有台词时说话者必须有自然口型、呼吸和表情反应，听者必须同步做可见的倾听或反应。'
+      : '没有台词时，用现场动作、表情和环境声传达信息，不要用空镜或静止人物填充时间。',
+  ].join('')
+}
+
+function soundPlanFor(
+  dialogue: string | undefined,
+  prompt: string | undefined,
+  assets: PromptAsset[],
+): string {
+  const dialogueText = String(dialogue || '').trim()
+  const source = `${prompt || ''} ${assets.map((asset) => `${asset.name} ${asset.description || ''} ${asset.prompt || ''}`).join(' ')}`
+  const effects: string[] = []
+  if (/雨|水|湿|伞/u.test(source)) effects.push('雨声和水滴声')
+  if (/门|脚步|走|跑|站台|列车|车/u.test(source)) effects.push('脚步、门响或远处交通声')
+  if (/风|树|帘|衣/u.test(source)) effects.push('连续风声和环境物体轻微摩擦声')
+  if (!effects.length) effects.push('与场景一致的低存在感环境底噪和动作音效')
+  return [
+    dialogueText && !/无台词/u.test(dialogueText)
+      ? `严格按对白字段生成同步人声：${dialogueText}；[对白]需要口型同步，[画外音]和[内心独白]只作为画外声音，不让人物错误对口型。`
+      : '本镜无台词，生成自然的现场声和动作音效，不插入无意义的人声。',
+    `声音至少包含${effects.join('、')}，声音随动作先后进入、变化并在镜尾自然收束。`,
+    '不要静音、不要把对白写成字幕、不要生成背景音乐盖住台词。',
+  ].join('')
 }
 
 function cameraMotionFor(framing: string | undefined): string {
@@ -140,6 +216,26 @@ function conciseAssetPrompt(value: string | undefined): string {
     .join('，')
 }
 
+function conciseAssetAttributes(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+  const attributes = value as Record<string, unknown>
+  return Object.entries(attributes)
+    .filter(
+      ([key, item]) =>
+        key !== 'type' &&
+        key !== 'faceReference' &&
+        key !== 'bodyReference' &&
+        key !== 'trustedPortrait' &&
+        key !== 'appearanceVariants' &&
+        item !== null &&
+        item !== undefined &&
+        item !== '',
+    )
+    .slice(0, 8)
+    .map(([key, item]) => `${key}=${String(item)}`)
+    .join('、')
+}
+
 function sentence(value: string | undefined): string {
   const text = String(value || '').trim()
   return text && !/[。！？!?]$/.test(text) ? `${text}。` : text
@@ -148,16 +244,19 @@ function sentence(value: string | undefined): string {
 function focusedShotPrompt(value: string | undefined): string {
   const text = String(value || '').trim()
   const fields = promptFields(text)
-  if (!Object.keys(fields).length) return text.slice(0, 500)
+  if (!Object.keys(fields).length) return text.slice(0, 900)
   return [
-    compactField('场景', fields.场景, 160),
-    compactField('角色', fields.角色, 160),
-    compactField('动作', primaryActionFor(text), 220),
-    compactField('对白', fields.动作 ? '' : firstBeat(fields.对白), 120),
-    compactField('风格', fields.风格, 100),
-    compactField('构图', fields.构图, 120),
-    compactField('光影', fields.光影, 100),
-    compactField('运镜', firstBeat(fields.运镜), 100),
+    compactField('剧情目的', fields.剧情, 240),
+    compactField('场景', fields.场景, 260),
+    compactField('角色状态', fields.角色, 260),
+    compactField('关键物件', fields.关键物件 || fields.物件 || fields.道具, 220),
+    compactField('动作', actionSequenceFor(text), 420),
+    compactField('对白与声音', fields.对白, 240),
+    compactField('风格', fields.风格, 140),
+    compactField('构图', fields.构图, 180),
+    compactField('光影', fields.光影, 180),
+    compactField('运镜', fields.运镜, 200),
+    compactField('衔接', fields.衔接, 280),
   ]
     .filter(Boolean)
     .join('｜')
@@ -178,6 +277,14 @@ function primaryActionFor(value: string | undefined): string {
   return firstBeat(fields.动作 || fields.剧情 || text).slice(0, 240)
 }
 
+function actionSequenceFor(value: string | undefined): string {
+  const text = String(value || '').trim()
+  const fields = promptFields(text)
+  const source = fields.动作 || fields.剧情 || (Object.keys(fields).length ? '' : text)
+  const beats = fieldBeats(source)
+  return (beats.length ? beats.slice(0, 3).join('；') : source).slice(0, 420)
+}
+
 function lastActionFor(value: string | undefined): string {
   const text = String(value || '').trim()
   const fields = promptFields(text)
@@ -191,7 +298,7 @@ function firstBeat(value: string | undefined): string {
 
 function fieldBeats(value: string | undefined): string[] {
   return String(value || '')
-    .split(/[；;]+/)
+    .split(/[；;]+|(?=动作\s*[1-9][0-9]*\s*[：:])/u)
     .map((item) => item.trim())
     .filter(Boolean)
 }

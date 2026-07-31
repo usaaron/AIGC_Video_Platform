@@ -9,6 +9,11 @@ import {
 } from './assetDraft'
 
 const reference = { id: 'media-1', url: '/api/v1/media/media-1', name: 'hero.png' }
+const sceneReferences = [
+  reference,
+  { id: 'media-2', url: '/api/v1/media/media-2', name: 'scene-side.png' },
+  { id: 'media-3', url: '/api/v1/media/media-3', name: 'scene-detail.png' },
+]
 
 function draft(overrides = {}) {
   return {
@@ -44,6 +49,15 @@ describe('asset creation modes', () => {
       imageUrl: reference.url,
       references: [reference],
     })
+  })
+
+  it('keeps up to three direct references for scenes', () => {
+    const sceneDraft = {
+      ...draft({ references: sceneReferences }),
+      attributes: createDefaultAttributes('scene'),
+    }
+    const next = applyAssetCreationMode(sceneDraft, ASSET_CREATION_MODES.DIRECT, 'scene')
+    expect(next.references).toHaveLength(3)
   })
 
   it('keeps references and prompt constraints for reference generation', () => {

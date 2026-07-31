@@ -65,9 +65,13 @@ const testConfig: AppConfig = {
   FILM_PREVIEW_TIMEOUT_MS: 60_000,
   TOKENADVENT_BASE_URL: 'https://tokenadvent.com',
   TOKENADVENT_API_KEY: '',
+  TEXT_API_KEY: '',
   IMG2_MODEL: 'gpt-image-2',
+  NANOBANANA_BASE_URL: '',
+  NANOBANANA_MODEL: 'nano-banana',
+  NANOBANANA_API_KEY: '',
   IMG2_QUALITY: 'low',
-  TEXT_MODEL: 'gpt-5.4',
+  TEXT_MODEL: 'glm-5.2',
   TOKENADVENT_REQUEST_TIMEOUT_MS: 180_000,
 }
 
@@ -117,7 +121,6 @@ describe('API authorization', () => {
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
-
     const archived = await app.inject({
       method: 'DELETE',
       url: '/api/v1/projects/project-midnight-film',
@@ -217,6 +220,12 @@ describe('API authorization', () => {
       'x-demo-user-id': 'user-creator',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
+    await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+      payload: { visualStyle: 'photorealistic' },
+    })
     const whitelist = await app.inject({
       method: 'GET',
       url: '/api/v1/trusted-assets/portraits?groupType=LivenessFace',
@@ -946,6 +955,16 @@ describe('API authorization', () => {
       'scene',
       'costume',
     ])
+    const generatedCharacter = response
+      .json()
+      .assets.find(
+        (asset: { kind: string; name: string }) => asset.kind === 'character' && asset.name === '女剑客',
+      )
+    expect(generatedCharacter).toMatchObject({
+      prompt: expect.stringContaining('透明背景'),
+      negativePrompt: expect.stringContaining('手部'),
+      attributes: { visualStyle: 'cinematic-cg', framing: 'portrait', background: 'transparent' },
+    })
     expect(after.json().assets).toHaveLength(before.json().assets.length)
     expect(after.json().project.script).toBe(before.json().project.script)
     expect(generate).toHaveBeenCalledOnce()
@@ -953,6 +972,63 @@ describe('API authorization', () => {
       systemPrompt: expect.stringContaining('资产制片'),
       userPrompt: expect.stringContaining('已有资产'),
       maxOutputTokens: 6_000,
+    })
+  })
+
+  it('normalizes wrapped partial asset suggestions returned by text models', async () => {
+    const generate = vi.fn(async () =>
+      JSON.stringify({
+        result: {
+          summary: '已识别主要人物与核心场景。',
+          characters: [
+            {
+              name: '林夏',
+              description: '贯穿主线的年轻女主角。',
+              prompt: '林夏，影视 CG 风格人物设定。',
+              reason: '主角需要跨镜头保持一致。',
+              priority: '5',
+              attributes: { gender: 'female' },
+            },
+          ],
+        },
+      }),
+    )
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        script: '场次：1｜场景：旧码头｜角色：林夏｜剧情：林夏独自等待渡船。',
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      summary: '已识别主要人物与核心场景。',
+      warnings: [],
+      assets: expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'character',
+          name: '林夏',
+          priority: 5,
+          attributes: expect.objectContaining({
+            type: 'character',
+            gender: 'female',
+            framing: 'portrait',
+            background: 'transparent',
+          }),
+        }),
+      ]),
     })
   })
 
@@ -1019,7 +1095,153 @@ describe('API authorization', () => {
         }),
       ]),
     )
+    const animal = response
+      .json()
+      .assets.find(
+        (asset: { kind: string; name: string }) => asset.kind === 'character' && asset.name === '黄狗',
+      )
+    expect(animal).toMatchObject({
+      prompt: expect.stringContaining('动物角色'),
+      attributes: { subjectType: 'animal', framing: 'portrait', background: 'transparent' },
+    })
+    expect(animal.prompt).not.toMatch(/男性|女性|青年|少年|少女|中年|老年/u)
     expect(generate).toHaveBeenCalledOnce()
+  })
+
+  it('recovers gender, age, and character background from script evidence', async () => {
+    const providerResult = JSON.parse(scriptAssetSuggestionsJson())
+    const character = providerResult.assets.find((asset: { kind: string }) => asset.kind === 'character')
+    character.name = '林川'
+    character.description = '贯穿主线的退役镖师。'
+    character.prompt = '古风武侠角色，沉默克制，保持人物一致性。'
+    character.attributes.gender = 'unspecified'
+    character.attributes.ageGroup = 'young'
+    character.attributes.exactAge = null
+
+    const generate = vi.fn(async () => JSON.stringify(providerResult))
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        script: '场次：1｜场景：旧码头｜角色：林川｜剧情：林川，35岁男性，曾是退役镖师，如今独自守着旧码头。',
+      },
+    })
+
+    const result = response.json()
+    const recovered = result.assets.find((asset: { name: string }) => asset.name === '林川')
+    expect(response.statusCode, response.body).toBe(200)
+    expect(recovered).toMatchObject({
+      description: expect.stringContaining('男性'),
+      prompt: expect.stringContaining('35岁'),
+      attributes: {
+        gender: 'male',
+        ageGroup: 'middle',
+        exactAge: 35,
+      },
+    })
+    expect(recovered.description).toContain('镖师')
+  })
+
+  it('extracts stable character and location names instead of actions and scene descriptions', async () => {
+    const generate = vi.fn(async () => '这不是有效 JSON')
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers,
+      payload: {
+        script:
+          '场次：S01｜场景：青云宗山门广场，石阶尽头立着测灵石，清晨冷雾未散，四周站满等待试炼的弟子｜角色：主要角色林川，先神情紧张、低头缩肩，随后强装镇定；配角青云宗长老、弟子甲、数名试炼弟子；背景角色弟子们交头接耳、抱臂观望｜动作：林川走向测灵石。',
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    const names = response.json().assets.map((asset: { name: string }) => asset.name)
+    expect(response.json().assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'character', name: '林川' }),
+        expect.objectContaining({ kind: 'character', name: '青云宗长老' }),
+        expect.objectContaining({
+          kind: 'scene',
+          name: '青云宗山门广场',
+          attributes: expect.objectContaining({ sceneType: 'fantasy', era: 'ancient' }),
+        }),
+      ]),
+    )
+    expect(names).not.toEqual(
+      expect.arrayContaining([
+        '先神情紧张',
+        '低头缩肩',
+        '随后强装镇定',
+        '石阶尽头立着测灵石',
+        '清晨冷雾未散',
+        '四周站满等待试炼的弟子',
+        '数名试炼弟子',
+        '背景角色弟子们交头接耳',
+      ]),
+    )
+  })
+
+  it('recovers invalid provider asset names from explicit script entities', async () => {
+    const providerResult = JSON.parse(scriptAssetSuggestionsJson())
+    providerResult.assets = providerResult.assets.filter(
+      (asset: { kind: string }) => asset.kind === 'character' || asset.kind === 'scene',
+    )
+    providerResult.assets[0].name = '低头缩肩'
+    providerResult.assets[0].description = '主要角色林川在本场伪装紧张。'
+    providerResult.assets[1].name = '清晨冷雾未散'
+    providerResult.assets[1].description = '核心地点为青云宗山门广场。'
+    providerResult.assets[1].attributes.sceneType = 'city'
+    providerResult.assets[1].attributes.era = 'modern'
+    const generate = vi.fn(async () => JSON.stringify(providerResult))
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        script:
+          '场次：S01｜场景：青云宗山门广场，清晨冷雾未散｜角色：主要角色林川，先神情紧张、低头缩肩｜动作：林川走向测灵石。',
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'character', name: '林川' }),
+        expect.objectContaining({ kind: 'scene', name: '青云宗山门广场' }),
+      ]),
+    )
+    expect(response.json().assets.map((asset: { name: string }) => asset.name)).not.toEqual(
+      expect.arrayContaining(['低头缩肩', '清晨冷雾未散']),
+    )
   })
 
   it('imports a novel and splits explicit chapter headings without changing the script', async () => {
@@ -2223,8 +2445,8 @@ describe('API authorization', () => {
       expect.objectContaining({
         systemPrompt: expect.stringContaining('15 到 30 秒视频'),
         userPrompt: expect.stringContaining('风格：仿真人电影感'),
-        maxOutputTokens: 3_200,
-        model: 'seqora-5.6',
+        maxOutputTokens: 4_800,
+        model: 'glm-5.2',
       }),
     )
   })
@@ -2734,17 +2956,17 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toHaveLength(8)
     expect(response.json()[0]).toMatchObject({
-      title: '镜头 01',
-      prompt: '剧本段落 1',
+      title: '场次 1 · 动作 1',
+      prompt: expect.stringContaining('动作：剧本段落 1'),
       continuityMode: 'independent',
       continuityNote: '',
       imageUrl: null,
     })
     expect(response.json()[7]).toMatchObject({
-      title: '镜头 08',
-      prompt: '剧本段落 8',
+      title: '场次 3 · 动作 2',
+      prompt: expect.stringContaining('动作：画面内角色改变站位'),
       continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一场收束：剧本段落 7'),
+      continuityNote: expect.stringContaining('上一镜收束'),
       imageUrl: null,
     })
     expect(generate).not.toHaveBeenCalled()
@@ -2834,7 +3056,7 @@ describe('API authorization', () => {
     expect(response.json()[0]).toMatchObject({
       title: '场次 1 · 动作 1',
       framing: '大全景',
-      duration: 5,
+      duration: 3,
       continuityMode: 'independent',
       prompt: expect.stringContaining('动作：林夏踏入积水'),
     })

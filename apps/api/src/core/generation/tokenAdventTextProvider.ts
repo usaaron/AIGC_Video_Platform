@@ -1,24 +1,14 @@
-import { z } from 'zod'
 import {
   TextGenerationProviderError,
   type TextGenerationProvider,
   type TextGenerationRequest,
 } from './textProvider.js'
 
-const completionSchema = z.object({
-  choices: z.array(z.object({ message: z.object({ content: z.string().min(1) }) })).min(1),
-})
-const streamChunkSchema = z.object({
-  choices: z.array(
-    z.object({
-      delta: z.object({ content: z.string().optional() }).passthrough(),
-    }),
-  ),
-})
-
 export type TokenAdventTextOptions = {
   baseUrl: string
   apiKey: string
+  alternateApiKey?: string
+  alternateModels?: readonly string[]
   model: string
   requestTimeoutMs: number
   fetcher?: typeof fetch
@@ -44,18 +34,19 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
         await new Promise((resolve) => setTimeout(resolve, 300))
       }
     }
-    throw publicProviderError(lastError)
+    throw publicProviderError(lastError, this.resolveModel(request.model))
   }
 
   private async generateOnce(request: TextGenerationRequest): Promise<string> {
+    const model = this.resolveModel(request.model)
     const response = await this.fetcher(`${this.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.options.apiKey}`,
+        Authorization: `Bearer ${this.resolveApiKey(model)}`,
         'Content-Type': 'application/json; charset=utf-8',
       },
       body: JSON.stringify({
-        model: this.options.model,
+        model,
         messages: [
           { role: 'system', content: request.systemPrompt },
           { role: 'user', content: request.userPrompt },
@@ -70,9 +61,22 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
     if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
       return readCompletionStream(response.body, this.options.requestTimeoutMs)
     }
-    const parsed = completionSchema.safeParse(await response.json())
-    if (!parsed.success) throw new InvalidTextResponseError()
-    return parsed.data.choices[0]!.message.content.trim()
+    const content = completionText(await response.json())
+    if (!content) throw new InvalidTextResponseError()
+    return content.trim()
+  }
+
+  private resolveModel(model: string | null | undefined): string {
+    const selected = model?.trim()
+    // The default logical model follows TEXT_MODEL so existing deployments keep
+    // their configured GPT model without requiring a migration.
+    return !selected || selected === 'seqora-5.6' ? this.options.model : selected
+  }
+
+  private resolveApiKey(model: string): string {
+    return this.options.alternateApiKey && this.options.alternateModels?.includes(model)
+      ? this.options.alternateApiKey
+      : this.options.apiKey
   }
 }
 
@@ -108,11 +112,10 @@ async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs:
     try {
       value = JSON.parse(payload)
     } catch {
-      throw new InvalidTextResponseError()
+      return
     }
-    const parsed = streamChunkSchema.safeParse(value)
-    if (!parsed.success) return
-    for (const choice of parsed.data.choices) content += choice.delta.content ?? ''
+    if (!isRecord(value)) return
+    content += completionText(value)
   }
 
   const readWithTimeout = async () => {
@@ -157,6 +160,55 @@ function timeoutError(): DOMException {
   return new DOMException('TokenAdvent text stream timed out', 'TimeoutError')
 }
 
+function completionText(value: unknown): string {
+  if (!isRecord(value)) return textFromValue(value)
+  const direct = textFromValue(value.output_text ?? value.text ?? value.content)
+  if (direct) return direct
+  if (Array.isArray(value.choices)) {
+    for (const choice of value.choices) {
+      if (!isRecord(choice)) continue
+      const delta = isRecord(choice.delta) ? choice.delta : undefined
+      const message = isRecord(choice.message) ? choice.message : undefined
+      const content = textFromValue(
+        delta?.content ??
+          delta?.text ??
+          message?.content ??
+          message?.text ??
+          message?.reasoning_content ??
+          choice.text ??
+          choice.content,
+      )
+      if (content) return content
+    }
+  }
+  for (const key of ['data', 'result', 'output', 'response', 'payload']) {
+    if (key in value) {
+      const nested = completionText(value[key])
+      if (nested) return nested
+    }
+  }
+  return ''
+}
+
+function textFromValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    return value
+      .map((part) => {
+        if (typeof part === 'string') return part
+        if (!isRecord(part)) return ''
+        return textFromValue(part.text ?? part.content ?? part.value)
+      })
+      .filter(Boolean)
+      .join('')
+  }
+  return ''
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 async function textProviderError(response: Response): Promise<TokenAdventHttpError> {
   const body = await response.text().catch(() => '')
   let message = body.slice(0, 500)
@@ -182,8 +234,18 @@ function isRetryable(error: unknown): boolean {
   )
 }
 
-function publicProviderError(error: unknown): TextGenerationProviderError {
+function publicProviderError(error: unknown, model: string): TextGenerationProviderError {
   if (error instanceof TokenAdventHttpError) {
+    if (error.status === 404) {
+      return new TextGenerationProviderError(`模型 ${model} 当前未在中转账号中开通，请切换模型后重试`, {
+        cause: error,
+      })
+    }
+    if (error.status === 503) {
+      return new TextGenerationProviderError(`模型 ${model} 上游暂时不可用，请切换模型或稍后重试`, {
+        cause: error,
+      })
+    }
     return new TextGenerationProviderError(error.message, { cause: error })
   }
   if (error instanceof InvalidTextResponseError) {

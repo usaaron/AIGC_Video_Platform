@@ -32,6 +32,12 @@ const CHARACTER_BASE =
 const PHOTOREAL_CHARACTER =
   '不要磨皮过度、塑料皮肤、假人感、娃娃脸和蜡像脸；不要卡通、动漫、低质量3D渲染和塑料材质感'
 
+const PROP_BASE =
+  '只生成单个物品本体；不要人物、人体、手、手指、手臂、腿、脚、脸、身体局部、模特、工作人员、穿戴状态和人形轮廓'
+
+const COSTUME_BASE =
+  '只生成服装本体；不要人物、人体、脸、手、手臂、腿、脚、身体局部、模特、工作人员、穿着效果、人体轮廓和衣架'
+
 const SCENE_BASE = '不要悬浮物体、断开物体、穿帮接缝和无意重复纹理；不要色彩不自然、饱和度溢出和色温跳变'
 
 const PHOTOREAL_SCENE = '不要卡通、动漫、低质量3D渲染和塑料感'
@@ -58,6 +64,12 @@ export function compileQualityRules(input: QualityRuleInput): CompiledQualityRul
   if (input.assetKind === 'character') {
     presets.push(['character-anatomy', CHARACTER_BASE])
     if (photorealistic) presets.push(['photoreal-character', PHOTOREAL_CHARACTER])
+  }
+  if (input.assetKind === 'prop') {
+    presets.push(['prop-isolated', PROP_BASE])
+  }
+  if (input.assetKind === 'costume') {
+    presets.push(['costume-isolated', COSTUME_BASE])
   }
   if (input.assetKind === 'scene' || input.assetKind === 'storyboard') {
     presets.push(['scene-integrity', SCENE_BASE])

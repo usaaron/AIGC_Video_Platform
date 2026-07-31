@@ -77,6 +77,7 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         input.script,
         input.direction,
         request.principal!,
+        input.model,
       )
     },
   )
@@ -97,6 +98,8 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         request.principal!,
         input.model,
         input.revisionNote,
+        'direct',
+        input.episodeDurationSeconds,
       )
     },
   )
@@ -131,6 +134,8 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         request.principal!,
         input.model,
         input.revisionNote,
+        'direct',
+        input.episodeDurationSeconds,
       )
     },
   )

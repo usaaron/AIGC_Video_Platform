@@ -75,6 +75,7 @@ export class GenerationResultWriteback {
       }
       if (shot && task.resultUrl) {
         shot.imageUrl = task.resultUrl
+        shot.selectedImageTaskId = task.id
         shot.updatedAt = task.updatedAt
       }
     })
@@ -95,12 +96,27 @@ export class GenerationResultWriteback {
     return { view: 'last-frame', storageKey, contentType: content.contentType, size: buffer.length }
   }
 
+  async persistVideoContent(
+    task: GenerationTask,
+    providerTaskId: string,
+    videoProvider: VideoGenerationProvider,
+  ): Promise<GeneratedOutputDescriptor> {
+    if (!this.objectStorage) throw new Error('Video storage is not configured')
+    const content = await videoProvider.getContent(providerTaskId)
+    const buffer = await readableToBuffer(content.stream)
+    const storageKey = `${task.tenantId}/${task.projectId}/generated/${task.id}-video.mp4`
+    await this.objectStorage.put(storageKey, buffer, content.contentType)
+    return { view: 'single', storageKey, contentType: content.contentType, size: buffer.length }
+  }
+
   async writeVideoPollResult(input: {
     taskId: string
     leaseOwnerId: string
     leaseToken: string
     leaseTtlMs: number
     status: VideoGenerationStatus
+    videoDescriptor?: GeneratedOutputDescriptor | null
+    videoCacheError?: string | null
     lastFrameDescriptor?: GeneratedOutputDescriptor | null
     lastFrameError?: string | null
   }): Promise<GenerationTask | null> {
@@ -112,20 +128,36 @@ export class GenerationResultWriteback {
       stored.status = input.status.status
       stored.progress = input.status.progress
       stored.error = input.status.error
+      const descriptors = generatedDescriptors(stored).filter(
+        (item) =>
+          (!input.videoDescriptor || item.view !== 'single') &&
+          (!input.lastFrameDescriptor || item.view !== 'last-frame'),
+      )
+      if (input.videoDescriptor) descriptors.push(input.videoDescriptor)
+      if (input.lastFrameDescriptor) descriptors.push(input.lastFrameDescriptor)
       stored.metadata = {
         ...stored.metadata,
         providerState: input.status.status,
         providerPollErrors: 0,
+        ...(input.videoDescriptor || input.lastFrameDescriptor
+          ? {
+              generatedOutputs: descriptors,
+            }
+          : {}),
+        ...(input.videoDescriptor
+          ? {
+              videoStorageKey: input.videoDescriptor.storageKey,
+              videoContentType: input.videoDescriptor.contentType,
+              videoSize: input.videoDescriptor.size,
+            }
+          : {}),
         ...(input.lastFrameDescriptor
           ? {
-              generatedOutputs: [
-                ...generatedDescriptors(stored).filter((item) => item.view !== 'last-frame'),
-                input.lastFrameDescriptor,
-              ],
               lastFrameStorageKey: input.lastFrameDescriptor.storageKey,
               lastFrameContentType: input.lastFrameDescriptor.contentType,
             }
           : {}),
+        ...(input.videoCacheError ? { videoCacheError: input.videoCacheError } : {}),
         ...(input.lastFrameError ? { lastFrameError: input.lastFrameError } : {}),
       }
       if (input.status.status === 'running') {
@@ -150,6 +182,15 @@ export class GenerationResultWriteback {
             : []),
         ]
         stored.resultUrl = url
+        const shotId = typeof stored.metadata.shotId === 'string' ? stored.metadata.shotId : null
+        const shot = state.shots.find(
+          (item) =>
+            item.id === shotId && item.projectId === stored.projectId && item.tenantId === stored.tenantId,
+        )
+        if (shot) {
+          shot.selectedVideoTaskId = stored.id
+          shot.updatedAt = stored.updatedAt
+        }
       }
       return stored
     })

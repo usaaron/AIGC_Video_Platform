@@ -1,40 +1,55 @@
 import {
   ArrowRight,
+  BookOpenText,
   CircleAlert,
   Clock3,
   FolderOpen,
+  ImagePlus,
   LoaderCircle,
   PauseCircle,
   Pencil,
   Plus,
-  Sparkles,
   Trash2,
   X,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { BrandMark } from '../components/BrandMark'
 import { IconButton, PageHeader } from '../components/ui'
 
-const AGENT_EXAMPLES = [
+const FUNCTION_STACK = [
   {
-    input: '帮我生成我朋友15s的短片',
-    thinking: '已识别为短视频任务，准备进入人物、场景和镜头流程。',
-    output: '15 秒 · 9:16 · 1 个主角 · 3 个镜头 · 预计 54 积分',
+    id: 'agent',
+    index: '01',
+    eyebrow: 'ORCHESTRATOR / AGENT',
+    title: '对话一句成片',
+    description: '从一句创作意图开始，未来串起剧本、资产、分镜与成片。',
+    icon: BrandMark,
+    className: 'function-stack-card-agent',
+    messages: [
+      ['user', '帮我做一支 60 秒的赛博悬疑短片'],
+      ['system', '已识别主题，准备规划故事与制作链路'],
+      ['system', '剧本 · 资产 · 分镜 · 成片 · 待确认'],
+    ],
   },
   {
-    input: '帮我生产60s的内容',
-    thinking: '正在把时长拆成可连续生成的镜头段，并保留前后尾帧。',
-    output: '60 秒 · 约 8 个镜头 · 自动建立 2 条连续性链路',
+    id: 'image',
+    index: '02',
+    eyebrow: 'IMAGE STUDIO',
+    title: '图片大师',
+    description: '独立生成角色、场景、物品和视觉参考图。',
+    icon: ImagePlus,
+    className: 'function-stack-card-image',
+    messages: ['人物面部', '场景设定', '产品视觉'],
   },
   {
-    input: '帮我生成5万字的都市悬疑故事',
-    thinking: '长篇内容将先建立人物关系、案件主线和章节节奏。',
-    output: '故事大纲 · 角色卡 · 线索表 · 章节规划 · 待确认后扩写',
-  },
-  {
-    input: '帮我策划一部5万字的小说，每集一分钟，主角是个可以看见未来的摄影师',
-    thinking: '已捕捉题材、主角能力和短剧节奏，准备生成一份可制作方案。',
-    output: '60 集 · 每集 1 分钟 · 视觉风格建议 · 资产清单 · 分镜计划',
+    id: 'script',
+    index: '03',
+    eyebrow: 'WRITING ROOM',
+    title: '剧本大师',
+    description: '面向长剧本的世界观、人物关系、分集与章节规划。',
+    icon: BookOpenText,
+    className: 'function-stack-card-script',
+    messages: ['世界观', '人物关系', '分集大纲'],
   },
 ]
 
@@ -43,48 +58,6 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
   const [name, setName] = useState('')
   const [busyId, setBusyId] = useState(null)
   const [error, setError] = useState('')
-  const [agentInput, setAgentInput] = useState('')
-  const [agentExampleIndex, setAgentExampleIndex] = useState(0)
-  const [agentTypedText, setAgentTypedText] = useState('')
-  const [agentPhase, setAgentPhase] = useState('input')
-
-  useEffect(() => {
-    let cancelled = false
-    let timer = null
-    const example = AGENT_EXAMPLES[agentExampleIndex]
-    let cursor = 0
-    setAgentPhase('input')
-    setAgentTypedText('')
-
-    const typeNext = () => {
-      if (cancelled) return
-      cursor += 1
-      setAgentTypedText(example.input.slice(0, cursor))
-      if (cursor < example.input.length) {
-        timer = window.setTimeout(typeNext, 38)
-        return
-      }
-      setAgentPhase('planning')
-      timer = window.setTimeout(() => {
-        if (cancelled) return
-        setAgentPhase('output')
-        timer = window.setTimeout(() => {
-          if (!cancelled) setAgentExampleIndex((index) => (index + 1) % AGENT_EXAMPLES.length)
-        }, 2300)
-      }, 1600)
-    }
-
-    timer = window.setTimeout(typeNext, 420)
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-    }
-  }, [agentExampleIndex])
-
-  const useAgentExample = (example) => {
-    setAgentInput(example.input)
-    setAgentPhase('input')
-  }
 
   const beginRename = (project) => {
     setEditingId(project.id)
@@ -162,7 +135,8 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
                 </span>
                 <span className="project-folder-copy">
                   <span className="project-folder-meta">
-                    {contentTypeLabel(project.contentType)} · {project.aspectRatio}
+                    {contentTypeLabel(project.contentType)} · {visualStyleLabel(project.visualStyle)} ·{' '}
+                    {project.aspectRatio}
                   </span>
                   <strong>{project.name}</strong>
                   <span className="project-folder-date">
@@ -212,60 +186,19 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
         </div>
       </section>
 
-      <section className="project-agent-shell">
-        <div className="project-agent-heading">
-          <span className="project-agent-icon">
-            <BrandMark className="project-agent-brand-mark" size={19} />
-          </span>
+      <section className="function-stack" aria-label="功能栈">
+        <header className="function-stack-heading">
           <div>
-            <span className="eyebrow">创作 Agent</span>
-            <h2>描述你想制作的内容</h2>
+            <span className="eyebrow">FUNCTION STACK</span>
+            <h2>把创作拆成三个入口</h2>
+            <p>先从最适合你的工作方式开始，项目内的素材和风格会在后续流程中保持一致。</p>
           </div>
-          <span className="project-agent-status">
-            <Sparkles size={13} /> 框架预览
-          </span>
-        </div>
-        <div className="project-agent-stage" aria-live="polite">
-          <div className="project-agent-stage-line project-agent-stage-user">
-            <span>YOU</span>
-            <strong>{agentTypedText || '等待你的创作指令'}</strong>
-            {agentPhase === 'input' && <i className="project-agent-caret" />}
-          </div>
-          <div className={`project-agent-stage-line project-agent-stage-system ${agentPhase}`}>
-            <span>SEQORA</span>
-            <strong>
-              {agentPhase === 'input' && '正在接收创作意图'}
-              {agentPhase === 'planning' && AGENT_EXAMPLES[agentExampleIndex].thinking}
-              {agentPhase === 'output' && AGENT_EXAMPLES[agentExampleIndex].output}
-            </strong>
-            {agentPhase === 'planning' && <BrandMark className="project-agent-stage-mark" size={11} spin />}
-          </div>
-        </div>
-        <div className="project-agent-examples" aria-label="创作示例">
-          <span>试试这样说</span>
-          {AGENT_EXAMPLES.map((example) => (
-            <button key={example.input} type="button" onClick={() => useAgentExample(example)}>
-              {example.input}
-            </button>
+          <span className="function-stack-rule">序幕 / 01</span>
+        </header>
+        <div className="function-stack-grid">
+          {FUNCTION_STACK.map((item) => (
+            <FunctionStackCard item={item} key={item.id} />
           ))}
-        </div>
-        <textarea
-          value={agentInput}
-          onChange={(event) => setAgentInput(event.target.value)}
-          placeholder="例如：帮我策划一部 60 集的都市悬疑漫剧，每集 1 分钟，主角是一名能看见未来的摄影师……"
-        />
-        <div className="project-agent-footer">
-          <div>
-            <span>剧集规划</span>
-            <span>剧本</span>
-            <span>资产</span>
-            <span>分镜</span>
-            <span>生成</span>
-          </div>
-          <button className="button primary" disabled title="Agent 自动工作流将在后续版本开放">
-            <BrandMark className="project-agent-button-mark" size={13} spin={agentPhase === 'planning'} />{' '}
-            开始规划
-          </button>
         </div>
       </section>
     </div>
@@ -274,8 +207,63 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
 
 function contentTypeLabel(value) {
   if (value === 'advertisement') return '广告'
-  if (value === 'animation') return '动画短片'
-  return '短剧'
+  if (value === 'animation') return '短片'
+  return '网剧'
+}
+
+function visualStyleLabel(value) {
+  if (value === 'photorealistic') return '仿真人'
+  if (value === 'chinese-2d' || value === 'anime') return '2D风'
+  if (value === 'chinese-3d') return '3D风'
+  if (value === 'storybook') return '绘本风'
+  return 'CG风'
+}
+
+function FunctionStackCard({ item }) {
+  const Icon = item.icon
+  return (
+    <article className={`function-stack-card ${item.className}`}>
+      <div className="function-stack-card-topline">
+        <span>{item.index}</span>
+        <span>{item.eyebrow}</span>
+        <i />
+      </div>
+      <div className="function-stack-card-title">
+        <span className="function-stack-card-icon">
+          <Icon size={item.id === 'agent' ? 20 : 18} />
+        </span>
+        <div>
+          <h3>{item.title}</h3>
+          <p>{item.description}</p>
+        </div>
+      </div>
+      {item.id === 'agent' ? (
+        <div className="function-stack-agent-preview" aria-hidden="true">
+          {item.messages.map(([role, message]) => (
+            <div className={`function-stack-message ${role}`} key={message}>
+              <span>{role === 'user' ? 'YOU' : 'SEQORA'}</span>
+              <strong>{message}</strong>
+            </div>
+          ))}
+          <span className="function-stack-agent-pulse" />
+        </div>
+      ) : (
+        <div className="function-stack-tool-preview" aria-hidden="true">
+          {item.messages.map((message, index) => (
+            <span key={message} style={{ '--stack-delay': `${index * 120}ms` }}>
+              {message}
+            </span>
+          ))}
+        </div>
+      )}
+      <footer className="function-stack-card-footer">
+        <span>本期 UI 已就绪 · 功能开发中</span>
+        <button type="button" className="function-stack-open" disabled title="该功能将在后续版本开放">
+          即将开放 <ArrowRight size={14} />
+        </button>
+      </footer>
+    </article>
+  )
 }
 
 function ProjectGenerationState({ summary }) {

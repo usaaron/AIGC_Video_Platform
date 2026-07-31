@@ -562,6 +562,7 @@ TOKENADVENT_API_KEY=<从密码管理器或部署 Secret 注入>
 IMG2_MODEL=gpt-image-2
 IMG2_QUALITY=low
 TEXT_MODEL=gpt-5.6
+TEXT_API_KEY=<可选：Kimi/GLM 模型中转密钥；GPT 和图片继续使用 TOKENADVENT_API_KEY>
 TOKENADVENT_REQUEST_TIMEOUT_MS=180000
 ```
 
@@ -907,7 +908,7 @@ pnpm check
 - 源码部署包和运行数据包曾上传到临时私有 Bucket `gs://seqora-deploy-project-935680ce-9aaf-496a-bb7/releases/20260721/`；部署完成后已删除整个 Bucket，避免生产 `demo.env` 长期留在云端。运行数据包含当前项目 `app.json`、资产和生成媒体，不进入 Git。部署中修复了 `uploads/uploads` 的重复目录，完整成片 Range 请求已验证为 206、`video/mp4`、`1920 x 1080`、25.208333 秒。
 - 云端强账号凭据只保存在本机 `C:\Users\admin\Desktop\图片\seqora-deploy-credentials.txt`，禁止提交 GitHub 或发到聊天。迁移数据后的旧 `creator@seqora.local / Creator123!` 已失效，新创作者和管理员账号登录均已验证。
 - 云端浏览器验收：登录成功、4 个项目存在、《星渊越界》存在、Provider 状态正常、完整成片直接播放 `readyState=4`。当前项目后来扩展为 8 个分镜，旧 5 镜完整成片仍可从最近生成任务打开；成片页对当前 8 镜显示待重新生成是正确的一致性保护。
-- 代码侧新增可复用部署脚本：`deploy/package.ps1`、`deploy/credential-patch.mjs`、`deploy/bootstrap-gce.sh`。脚本排除运行数据和密钥，部署前必须重新生成包并校验 SHA-256。
+- 代码侧新增可复用部署脚本：`deploy/package.ps1`、`deploy/credential-patch.mjs`、`deploy/bootstrap-gce.sh`。运行数据与源码分包；生产 `demo.env` 只允许经 SSH/SCP 私密传输，部署后必须清理临时归档，部署前必须重新生成包并校验 SHA-256。
 - 本次本地最终检查：`pnpm check` 通过，125 项测试通过，API/Web/shared 构建通过。当前工作树仍有大量未提交改动，未执行 commit、push 或 reset。
 
 ## 23. 2026-07-21 本地用量与资产来源重构
@@ -947,3 +948,13 @@ pnpm check
 - 新增 `deploy/update-source.sh`：先备份旧源码目录和生产配置，再替换源码、重新构建 API/Web 容器；健康检查失败会自动恢复旧源码目录并重新启动旧版本。
 - 云端验证通过：`https://zjh.ai/` 返回 200，`/api/v1/health` 返回 200，未登录 `/api/v1/auth/me` 返回 401，`/api/v1/trusted-assets/configuration` 返回 `virtualRegistrationReady=true`；API 容器 healthy，Web 容器 running，8787 未直接暴露公网。
 - 云端当前配置确认：`PUBLIC_API_BASE_URL=https://zjh.ai`、`VIDEO_PROVIDER=stringx`、`TEXT_MODEL=gpt-5.6-terra`。本机 gcloud OAuth 刷新曾超时，本次使用已配置的 `seqoradeploy` SSH 密钥完成发布，不影响云端服务。
+
+## 27. 2026-07-27 新 GCE 轻量迁移
+
+- 新实例为 `instance-20260726-112218`，项目 `project-b3b9bf9e-3c8b-4fbc-9cc`，区域 `asia-east2-b`，规格 `n2d-standard-4`，约 4 vCPU、16GB 内存、250GB 系统盘。公网地址 `34.92.246.97` 已提升为区域静态地址 `seqora-prod-ip`。
+- 新增 `seqora-web` 网络标签和 `seqora-allow-web` 防火墙规则，只开放 TCP 80/443 与 UDP 443；API 的 8787 仍只在 Docker 网络内暴露。Docker Engine、Buildx 和 Compose Plugin 使用 Docker 官方 Debian 仓库安装。
+- `deploy/package.ps1` 默认不再生成约 391MB 的本地运行数据包，只有传入 `-IncludeRuntimeData` 才迁移 `apps/api/data`。本次实际源码归档为 1.16MB，新服务器使用全新 `seqora_data` 卷，未迁移旧服务器项目、素材或任务。
+- `.dockerignore` 排除生产 `demo.env`、本地数据、依赖、构建产物、测试和文档；API/Web Dockerfile 使用过滤后的工作区依赖与 BuildKit pnpm 缓存。首次 API/Web 构建约 93 秒，后续依赖未变化时可复用缓存。
+- 新机生产资源限制为 API 3 CPU、4GB 内存、2GB Node 堆，Web/Caddy 0.5 CPU、256MB 内存。空闲实测 API 约 87MB、Web 约 16MB，服务器仍保留充足空间给 FFmpeg 和并发任务。
+- `zjh.ai` 已切换解析至 `34.92.246.97`，Google DNS 与 Cloudflare DNS 均返回新地址；Caddy 已取得正式证书。公网首页和 `/api/v1/health` 返回 200，未登录 `/api/v1/auth/me` 返回 401，Seedance、Img2、文本和弦序 MaaS 素材库均显示 configured。
+- 旧实例未被停止或修改，可在确认新机业务流程、账号和新数据卷无误后再单独下线。新机初始化脚本为 `deploy/bootstrap-fresh-gce.sh`，生产临时源码归档会在成功部署后从服务器删除。

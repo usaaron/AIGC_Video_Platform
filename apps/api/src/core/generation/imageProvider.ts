@@ -9,6 +9,7 @@ export type ImageReference = {
 export type ImageGenerationRequest = {
   taskId: string
   assetId: string
+  model?: string | null
   aspectRatio: string
   prompt: string
   negativePrompt: string

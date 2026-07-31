@@ -14,26 +14,35 @@ import { CharacterWorkflow } from './CharacterWorkflow'
 import { compileAssetPrompt, compileCharacterStagePrompt } from './promptCompiler'
 import { ReferenceUploader } from './ReferenceUploader'
 
-function createEditorDraft(asset, kind) {
-  const initialAttributes = createDefaultAttributes(kind)
+function createEditorDraft(asset, kind, projectVisualStyle = 'cinematic-cg') {
+  const initialAttributes = createDefaultAttributes(kind, projectVisualStyle)
   return {
     sourceMode: asset.sourceMode || 'generate',
     name: asset.name || '',
     description: asset.description || '',
-    promptMode: asset.promptMode || 'standard',
-    customPromptMode: asset.customPromptMode || 'replace',
-    customPrompt: asset.customPrompt || '',
+    promptMode: asset.promptMode || (asset.prompt ? 'advanced' : 'standard'),
+    customPromptMode: 'replace',
+    customPrompt: asset.customPrompt || asset.prompt || '',
     negativePrompt: asset.negativePrompt || '',
     references: asset.references || [],
     imageUrl: asset.imageUrl || null,
     attributes:
-      asset.attributes?.type === kind ? { ...initialAttributes, ...asset.attributes } : initialAttributes,
+      asset.attributes?.type === kind
+        ? {
+            ...initialAttributes,
+            ...asset.attributes,
+            ...(projectVisualStyle && 'visualStyle' in initialAttributes
+              ? { visualStyle: projectVisualStyle }
+              : {}),
+          }
+        : initialAttributes,
   }
 }
 
 export function AssetEditor({
   asset,
   aspectRatio,
+  projectVisualStyle = 'cinematic-cg',
   tasks = [],
   onClose,
   onCreateDraft,
@@ -41,6 +50,7 @@ export function AssetEditor({
   onPersist,
   onGenerateStage,
   onGenerateAsset,
+  imageModel = 'img2-default',
   onDelete,
   onUpload,
   onGetTrustedConfiguration,
@@ -53,7 +63,7 @@ export function AssetEditor({
   const sourceSuggestion = asset.suggestion || null
   const suggestionOnly = Boolean(sourceSuggestion && !asset.id)
   const [creationMode, setCreationMode] = useState(() => inferAssetCreationMode(asset))
-  const [draft, setDraft] = useState(() => createEditorDraft(asset, kind))
+  const [draft, setDraft] = useState(() => createEditorDraft(asset, kind, projectVisualStyle))
   const [suggestionApplied, setSuggestionApplied] = useState(false)
   const [characterStage, setCharacterStage] = useState(() => {
     if (kind !== 'character' || draft?.attributes?.faceStatus !== 'approved') return 'face'
@@ -65,7 +75,7 @@ export function AssetEditor({
 
   useEffect(() => {
     setCreationMode(inferAssetCreationMode(asset))
-    setDraft(createEditorDraft(asset, kind))
+    setDraft(createEditorDraft(asset, kind, projectVisualStyle))
     setSuggestionApplied(false)
     if (kind === 'character') {
       const nextAttributes = asset.attributes
@@ -77,7 +87,7 @@ export function AssetEditor({
             : 'body',
       )
     }
-  }, [asset.id, asset.editorKey])
+  }, [asset.id, asset.editorKey, projectVisualStyle])
 
   useEffect(() => {
     if (!asset.id || kind !== 'character') return
@@ -118,7 +128,13 @@ export function AssetEditor({
   const promptWorkbenchVisible = !directImport || (kind === 'character' && characterStage !== 'face')
 
   const inputFor = (nextDraft = draft) =>
-    buildAssetInput({ asset, draft: nextDraft, kind, aspectRatio, creationMode })
+    buildAssetInput({
+      asset,
+      draft: enforceProjectStyle(nextDraft, projectVisualStyle),
+      kind,
+      aspectRatio,
+      creationMode,
+    })
 
   const validateDraft = (nextDraft) => {
     if (!nextDraft.name.trim()) throw new Error('请先填写资产名称')
@@ -129,7 +145,7 @@ export function AssetEditor({
 
   const selectCreationMode = (mode) => {
     setCreationMode(mode)
-    setDraft((current) => applyAssetCreationMode(current, mode))
+    setDraft((current) => applyAssetCreationMode(current, mode, kind))
   }
 
   const selectPromptMode = (mode) => {
@@ -207,6 +223,7 @@ export function AssetEditor({
       persistedAsset,
       stage,
       compileCharacterStagePrompt(nextDraft, aspectRatio, stage),
+      imageModel,
     )
     if (!task) throw new Error('任务未能加入生成队列，请检查页面提示后重试')
     if (closeAfterQueue) onClose()
@@ -220,7 +237,7 @@ export function AssetEditor({
     setError('')
     try {
       const persistedAsset = await persistDraft(draft)
-      const task = await onGenerateAsset(persistedAsset)
+      const task = await onGenerateAsset(persistedAsset, imageModel)
       if (!task) throw new Error('任务未能加入生成队列，请检查页面提示后重试')
       onClose()
     } catch (generationError) {
@@ -297,7 +314,7 @@ export function AssetEditor({
               <ReferenceUploader
                 kind={kind}
                 mode={directImport ? 'direct' : 'reference'}
-                limit={directImport ? 1 : undefined}
+                limit={directImport && kind !== 'scene' ? 1 : undefined}
                 references={draft.references}
                 onChange={(references) => setDraft({ ...draft, references })}
                 onUpload={onUpload}
@@ -466,29 +483,6 @@ export function AssetEditor({
                   }
                 />
               </label>
-              {draft.promptMode === 'advanced' && (
-                <>
-                  <div className="custom-prompt-mode">
-                    <button
-                      type="button"
-                      className={draft.customPromptMode === 'append' ? 'active' : ''}
-                      onClick={() => setDraft({ ...draft, customPromptMode: 'append' })}
-                    >
-                      追加内容
-                    </button>
-                    <button
-                      type="button"
-                      className={draft.customPromptMode === 'replace' ? 'active' : ''}
-                      onClick={() => setDraft({ ...draft, customPromptMode: 'replace' })}
-                    >
-                      完全覆盖
-                    </button>
-                  </div>
-                  <small className="field-hint">
-                    进入高级模式时已复制系统完整提示词；选择完全覆盖后，上方内容不会再被系统追加或改写。
-                  </small>
-                </>
-              )}
               <label>
                 <span>负面提示词</span>
                 <textarea
@@ -574,6 +568,11 @@ export function AssetEditor({
     </div>,
     document.body,
   )
+}
+
+function enforceProjectStyle(draft, visualStyle) {
+  if (!visualStyle || !draft.attributes || !('visualStyle' in draft.attributes)) return draft
+  return { ...draft, attributes: { ...draft.attributes, visualStyle }, customPromptMode: 'replace' }
 }
 
 function SourceSuggestionPanel({
@@ -664,6 +663,17 @@ function buildEditorSuggestionFacts(suggestion) {
       },
       { label: '年龄段', value: optionLabel('ageGroup', attributes.ageGroup || 'young') },
       { label: '精确年龄', value: attributes.exactAge ? String(attributes.exactAge) : '未指定' },
+      {
+        label: '外观细节',
+        value: [
+          optionLabel('ethnicity', attributes.ethnicity || 'unspecified'),
+          optionLabel('skinTone', attributes.skinTone || 'unspecified'),
+          optionLabel('eyeColor', attributes.eyeColor || 'unspecified'),
+          optionLabel('hairColor', attributes.hairColor || 'unspecified'),
+        ]
+          .filter((value) => value && value !== '不指定')
+          .join(' / ') || '未指定',
+      },
       { label: '身份', value: suggestion.description || suggestion.reason || '未补充' },
     ]
   }

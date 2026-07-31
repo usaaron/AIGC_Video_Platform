@@ -181,6 +181,23 @@ export class GenerationService {
     if (task.provider !== 'seedance') {
       throw new AppError(400, 'VIDEO_CONTENT_UNAVAILABLE', '该任务没有可播放的视频内容')
     }
+    const cachedVideo = Array.isArray(task.metadata.generatedOutputs)
+      ? task.metadata.generatedOutputs.find(
+          (item) =>
+            item &&
+            typeof item === 'object' &&
+            (item as { view?: unknown }).view === 'single' &&
+            typeof (item as { storageKey?: unknown }).storageKey === 'string' &&
+            typeof (item as { contentType?: unknown }).contentType === 'string' &&
+            String((item as { contentType: string }).contentType).startsWith('video/'),
+        )
+      : null
+    if (cachedVideo && this.objectStorage) {
+      return bufferVideoContent(
+        await this.objectStorage.get((cachedVideo as { storageKey: string }).storageKey),
+        range,
+      )
+    }
     if (!this.videoProvider) {
       throw new AppError(503, 'SEEDANCE_NOT_CONFIGURED', 'Seedance 服务尚未配置')
     }

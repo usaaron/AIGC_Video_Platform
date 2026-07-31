@@ -41,7 +41,7 @@ describe('compileStoryboardVideoPrompt', () => {
       references: [{ id: 'lin' }, { id: 'station' }],
     })
 
-    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v5')
+    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v7')
     expect(prompt).toContain('连续4秒、9:16画幅')
     expect(prompt).toContain('【当前镜头】镜头，特写')
     expect(prompt).toContain('上一镜结束：场景：雨夜旧火车站。')
@@ -50,6 +50,9 @@ describe('compileStoryboardVideoPrompt', () => {
     expect(prompt).toContain('人物“林夏”保持参考图中的脸')
     expect(prompt).toContain('场景“三号站台”保持结构')
     expect(prompt).toContain('自然眨眼、呼吸、转头')
+    expect(prompt).toContain('【群像表演】')
+    expect(prompt).toContain('【声音执行】')
+    expect(prompt).toContain('不要输出静音视频')
     expect(prompt).toContain('不是静止图片，不是幻灯片')
     expect(prompt).toContain('禁止突然切镜、跳时、回切和蒙太奇')
   })
@@ -82,8 +85,9 @@ describe('compileStoryboardVideoPrompt', () => {
     })
 
     expect(prompt).toContain('动作：林夏踏入积水')
-    expect(prompt).not.toContain('她举起信封')
-    expect(prompt.length).toBeLessThan(2_000)
+    expect(prompt).toContain('她举起信封')
+    expect(prompt).toContain('【动作顺序】必须按以下顺序完成')
+    expect(prompt.length).toBeLessThan(4_000)
   })
 })
 

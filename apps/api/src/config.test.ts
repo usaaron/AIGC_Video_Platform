@@ -22,7 +22,16 @@ describe('production configuration', () => {
     expect(config.BOOTSTRAP_DEMO_WORKSPACE).toBe(false)
     expect(config.DEMO_UNLIMITED_GENERATION_CONCURRENCY).toBe(false)
     expect(config.TASK_WORKER_MODE).toBe('in-process')
-    expect(config.TEXT_MODEL).toBe('gpt-5.6')
+    expect(config.TEXT_MODEL).toBe('glm-5.2')
+    expect(config.TEXT_API_KEY).toBe('')
+  })
+
+  it('allows a separate text key while keeping image credentials independent', () => {
+    const config = loadConfig({
+      TOKENADVENT_API_KEY: 'image-token',
+      TEXT_API_KEY: 'text-model-token',
+    })
+    expect(config.TEXT_API_KEY).toBe('text-model-token')
   })
 
   it('enables practical unlimited concurrency only when explicitly configured', () => {

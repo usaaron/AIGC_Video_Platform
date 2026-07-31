@@ -7,6 +7,7 @@ import type {
   QuickStartEstimate,
   QuickStartExecutionResult,
   QuickStartPlan,
+  ScriptModel,
 } from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -108,7 +109,11 @@ export class QuickStartService {
     private readonly imageProviderAvailable: boolean,
   ) {}
 
-  async plan(projectId: string, principal: Principal): Promise<QuickStartPlan> {
+  async plan(
+    projectId: string,
+    principal: Principal,
+    model: ScriptModel = 'glm-5.2',
+  ): Promise<QuickStartPlan> {
     const context = this.projectContext(projectId, principal)
     const script = context.project.script.trim()
     if (!script) throw new AppError(400, 'SCRIPT_REQUIRED', '请先保存剧本再使用一键尝鲜')
@@ -121,7 +126,7 @@ export class QuickStartService {
       `已有资产：${context.assets.length ? context.assets.map((asset) => `${asset.kind}:${asset.name}`).join('；') : '无'}`,
       `剧本：\n${boundedScript(script)}`,
     ].join('\n')
-    const analysis = await this.generateAnalysis(userPrompt, script)
+    const analysis = await this.generateAnalysis(userPrompt, script, model)
     const assets = deduplicateProposals(proposalsFor(analysis), context.assets)
     const estimate = estimateFor(assets, context.user.plan === 'member' ? 3 : 1, context.queueAhead)
     return {
@@ -319,11 +324,16 @@ export class QuickStartService {
     })
   }
 
-  private async generateAnalysis(userPrompt: string, sourceScript: string): Promise<ProviderAnalysis> {
+  private async generateAnalysis(
+    userPrompt: string,
+    sourceScript: string,
+    model: ScriptModel,
+  ): Promise<ProviderAnalysis> {
     const first = await this.textProvider!.generate({
       systemPrompt: QUICK_START_SYSTEM_PROMPT,
       userPrompt,
       maxOutputTokens: 3_000,
+      model,
     })
     try {
       return parseProviderAnalysis(first)
@@ -333,6 +343,7 @@ export class QuickStartService {
           systemPrompt: `${QUICK_START_SYSTEM_PROMPT}\n上一版格式不合格。请修复为完全符合字段和枚举约束的 JSON。`,
           userPrompt: `${userPrompt}\n\n待修复输出：\n${first.slice(0, 12_000)}`,
           maxOutputTokens: 3_000,
+          model,
         })
         return parseProviderAnalysis(repaired)
       } catch {
@@ -408,6 +419,10 @@ function proposalsFor(analysis: ProviderAnalysis): QuickStartAssetProposal[] {
         gender: character.gender,
         ageGroup: character.ageGroup,
         exactAge: null,
+        ethnicity: 'unspecified',
+        skinTone: 'unspecified',
+        eyeColor: 'unspecified',
+        hairColor: 'unspecified',
         species: character.subjectType === 'animal' ? character.species : '',
         anthropomorphic: character.subjectType === 'animal' && character.anthropomorphic,
         visualStyle,
@@ -423,6 +438,8 @@ function proposalsFor(analysis: ProviderAnalysis): QuickStartAssetProposal[] {
         legStretch: false,
         turnaround: false,
         turnaroundLayout: 'sheet',
+        appearanceVariants: [],
+        activeAppearanceVariantId: null,
       },
     })),
     ...analysis.costumes.map((costume): QuickStartAssetProposal => ({

@@ -1,4 +1,9 @@
-import { executeQuickStartRequestSchema, PERMISSIONS, type Permission } from '@seqora/contracts'
+import {
+  executeQuickStartRequestSchema,
+  PERMISSIONS,
+  quickStartPlanRequestSchema,
+  type Permission,
+} from '@seqora/contracts'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
@@ -17,7 +22,12 @@ export async function registerQuickStartRoutes(
       config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
       preHandler: requirePermission(PERMISSIONS.PROJECT_READ),
     },
-    (request) => service.plan(parse(projectParams, request.params).projectId, request.principal!),
+    (request) =>
+      service.plan(
+        parse(projectParams, request.params).projectId,
+        request.principal!,
+        parse(quickStartPlanRequestSchema, request.body ?? {}).model,
+      ),
   )
   app.post(
     '/projects/:projectId/quick-start/execute',

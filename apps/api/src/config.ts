@@ -59,9 +59,13 @@ const configSchema = z
     FILM_PREVIEW_TIMEOUT_MS: z.coerce.number().int().min(30_000).max(1_800_000).default(600_000),
     TOKENADVENT_BASE_URL: z.string().url().default('https://tokenadvent.com'),
     TOKENADVENT_API_KEY: z.string().default(''),
+    TEXT_API_KEY: z.string().default(''),
     IMG2_MODEL: z.string().min(1).default('gpt-image-2'),
+    NANOBANANA_BASE_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    NANOBANANA_MODEL: z.string().min(1).default('nano-banana'),
+    NANOBANANA_API_KEY: z.string().default(''),
     IMG2_QUALITY: z.enum(['low', 'medium', 'high']).default('low'),
-    TEXT_MODEL: z.string().min(1).default('gpt-5.6'),
+    TEXT_MODEL: z.string().min(1).default('glm-5.2'),
     TOKENADVENT_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
   })
   .superRefine((config, context) => {

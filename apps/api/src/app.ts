@@ -18,6 +18,7 @@ import { FilmPreviewComposer, type FilmPreviewDispatcher } from './core/film/fil
 import { GenerationTaskRunner, type TaskDispatcher } from './core/jobs/taskDispatcher.js'
 import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
 import { createScriptTaskHandler } from './core/jobs/scriptTaskHandler.js'
+import { createTrustedAssetTaskHandler } from './core/jobs/trustedAssetTaskHandler.js'
 import { AppStore } from './infra/store.js'
 import { createObjectStorage } from './infra/objectStorage.js'
 import { registerAdminRoutes } from './modules/admin/routes.js'
@@ -117,6 +118,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     options.assetLibraryProvider === undefined
       ? createAssetLibraryProvider(options.config)
       : options.assetLibraryProvider
+  const trustedAssetService = new TrustedAssetService(
+    store,
+    assetLibraryProvider,
+    objectStorage,
+    options.config.AUTH_SECRET,
+    options.config.PUBLIC_API_BASE_URL.replace(/\/+$/, ''),
+    options.config.VOLC_ARK_PROJECT_NAME,
+    options.config.ASSET_LIBRARY_CONSOLE_URL,
+  )
   const filmPreviewComposer =
     options.filmPreviewComposer === undefined && videoProvider
       ? new FilmPreviewComposer(
@@ -142,6 +152,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       demoUnlimitedConcurrency: options.config.DEMO_UNLIMITED_GENERATION_CONCURRENCY,
       onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
       textTaskHandler: createScriptTaskHandler(store, projectService),
+      trustedAssetTaskHandler: createTrustedAssetTaskHandler(store, trustedAssetService),
     })
   generationService = new GenerationService(
     new GenerationTaskRepository(store),
@@ -154,16 +165,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const novelService = new NovelService(new NovelRepository(store), textProvider, creditLedger)
   const quickStartService = new QuickStartService(store, textProvider, taskDispatcher, Boolean(imageProvider))
   const mediaService = new MediaService(new MediaRepository(store), objectStorage)
-  const trustedAssetService = new TrustedAssetService(
-    store,
-    assetLibraryProvider,
-    objectStorage,
-    options.config.AUTH_SECRET,
-    options.config.PUBLIC_API_BASE_URL.replace(/\/+$/, ''),
-    options.config.VOLC_ARK_PROJECT_NAME,
-    options.config.ASSET_LIBRARY_CONSOLE_URL,
-  )
-
   installAuth(app, createAuthProvider(options.config, users))
 
   app.setErrorHandler((error, request, reply) => {
@@ -196,6 +197,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     providerNames: {
       seedance: videoProvider ? videoProviderName(options.config) : 'local-mock',
       assetLibrary: assetLibraryProvider ? 'stringx-maas' : 'unavailable',
+    },
+    imageModels: {
+      img2: options.config.TOKENADVENT_API_KEY ? 'configured' : 'unavailable',
+      nanoBanana:
+        options.config.NANOBANANA_BASE_URL && options.config.NANOBANANA_API_KEY
+          ? 'configured'
+          : 'unavailable',
     },
   }))
   await app.register(

@@ -10,10 +10,10 @@ RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps/api/package.json apps/api/package.json
-COPY apps/web/package.json apps/web/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/prompting/package.json packages/prompting/package.json
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=seqora-pnpm-api,target=/pnpm/store \
+  pnpm install --frozen-lockfile --filter @seqora/api...
 
 COPY apps/api apps/api
 COPY packages/contracts packages/contracts

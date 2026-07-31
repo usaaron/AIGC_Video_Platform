@@ -5,10 +5,10 @@ import {
   Download,
   ExternalLink,
   Images,
-  Link2,
   LoaderCircle,
   Lock,
   LogOut,
+  Save,
   RefreshCw,
   ScanFace,
   ShieldCheck,
@@ -49,15 +49,29 @@ export function CharacterWorkflow({
   const [submittingStage, setSubmittingStage] = useState(null)
   const [closingStage, setClosingStage] = useState(null)
   const [preview, setPreview] = useState(null)
+  const [variantName, setVariantName] = useState('')
   const relatedTasks = assetId ? tasks.filter((task) => task.metadata?.assetId === assetId) : []
-  const taskFor = (targetStage) => relatedTasks.find((task) => task.metadata?.generationStage === targetStage)
+  const taskFor = (targetStage) => latestTask(relatedTasks, targetStage)
   const faceTask = taskFor('face')
   const bodyTask = taskFor('body')
   const turnaroundTask = taskFor('turnaround')
+  const registrationTask = latestTask(relatedTasks, 'trusted-portrait')
+  const registrationTaskActive = ['queued', 'paused', 'running'].includes(registrationTask?.status)
   const generatedFaceCandidate = completedOutput(faceTask)
+  const completedFaceTask = latestCompletedTask(relatedTasks, 'face')
+  const completedFaceCandidate = completedOutput(completedFaceTask)
   const faceCandidate = faceCreationMode === 'direct' ? references[0] || null : generatedFaceCandidate
-  const facePreview = faceCandidate || attributes.faceReference || references[0] || null
+  const confirmedOrCompletedFace = faceCreationMode === 'direct' ? references[0] || null : completedFaceCandidate
+  const facePreview = faceCandidate || confirmedOrCompletedFace || attributes.faceReference || references[0] || null
   const bodyCandidate = completedOutput(bodyTask)
+  const appearanceVariants = Array.isArray(attributes.appearanceVariants) ? attributes.appearanceVariants : []
+  const activeAppearanceVariantId = attributes.activeAppearanceVariantId || null
+  const activeAppearanceVariant = appearanceVariants.find((variant) => variant.id === activeAppearanceVariantId) || null
+
+  useEffect(() => {
+    if (stage !== 'turnaround' || variantName.trim()) return
+    setVariantName(`${assetName || '人物'} · 造型 ${appearanceVariants.length + 1}`)
+  }, [assetName, appearanceVariants.length, stage, variantName])
 
   const generate = async (targetStage, closeAfterQueue = false) => {
     setError('')
@@ -99,6 +113,46 @@ export function CharacterWorkflow({
       bodyReference: toReference(bodyCandidate, `${assetName}-全身基准`),
     }
     if (await persist(next)) onStageChange('turnaround')
+  }
+
+  const saveAppearanceVariant = async () => {
+    const references = (turnaroundTask?.outputs || [])
+      .filter((output) => output.mediaType === 'image' && output.url)
+      .slice(0, 3)
+      .map((output) => toReference(output, `${assetName || '人物'}-${viewLabel(output.view)}`))
+    const bodyReference = attributes.bodyReference || (bodyCandidate ? toReference(bodyCandidate, `${assetName || '人物'}-全身基准`) : null)
+    if (!bodyReference) throw new Error('请先确认一整套身体图，再保存人物版本')
+    if (references.length < 3) throw new Error('请等待正面、侧面、背面三张三视图全部生成')
+    const name = variantName.trim()
+    if (!name) throw new Error('请给这套身体图/三视图填写人物版本名称')
+    const now = new Date().toISOString()
+    const variant = {
+      id: createVariantId(),
+      name,
+      bodyReference,
+      turnaroundReferences: references,
+      turnaroundLayout: attributes.turnaroundLayout || 'sheet',
+      createdAt: now,
+      updatedAt: now,
+    }
+    const next = {
+      ...attributes,
+      appearanceVariants: [...appearanceVariants, variant].slice(-12),
+      activeAppearanceVariantId: variant.id,
+    }
+    if (await persist(next)) setVariantName('')
+  }
+
+  const activateAppearanceVariant = async (variant) => {
+    const next = {
+      ...attributes,
+      bodyStatus: 'approved',
+      bodyReference: variant.bodyReference,
+      turnaround: true,
+      activeAppearanceVariantId: variant.id,
+      turnaroundLayout: variant.turnaroundLayout || attributes.turnaroundLayout,
+    }
+    await persist(next)
   }
 
   const backgroundGenerateButton = (targetStage) => (
@@ -144,27 +198,6 @@ export function CharacterWorkflow({
         })}
       </div>
       {settings}
-
-      {attributes.subjectType === 'human' && (
-        <TrustedPortraitPanel
-          assetId={assetId}
-          attributes={attributes}
-          configuration={trustedConfiguration}
-          onAttributesChange={onAttributesChange}
-          onListTrustedPortraits={onListTrustedPortraits}
-          onRegisterVirtualPortrait={onRegisterVirtualPortrait}
-          onBindTrustedPortrait={onBindTrustedPortrait}
-          onRefreshTrustedPortrait={onRefreshTrustedPortrait}
-          onEnsureAsset={onEnsureAsset}
-          onPreview={(reference) =>
-            setPreview({
-              url: reference.url,
-              alt: reference.name || '可信人像预览',
-              fileName: reference.name || '可信人像预览',
-            })
-          }
-        />
-      )}
 
       {stage === 'face' && (
         <StagePanel
@@ -227,6 +260,30 @@ export function CharacterWorkflow({
             设为面部基准
           </button>
         </StagePanel>
+      )}
+
+      {attributes.subjectType === 'human' && (
+        <TrustedPortraitPanel
+          assetId={assetId}
+          assetName={assetName}
+          attributes={attributes}
+          registrationTask={registrationTask}
+          registrationTaskActive={registrationTaskActive}
+          configuration={trustedConfiguration}
+          onAttributesChange={onAttributesChange}
+          onListTrustedPortraits={onListTrustedPortraits}
+          onRegisterVirtualPortrait={onRegisterVirtualPortrait}
+          onBindTrustedPortrait={onBindTrustedPortrait}
+          onRefreshTrustedPortrait={onRefreshTrustedPortrait}
+          onEnsureAsset={onEnsureAsset}
+          onPreview={(reference) =>
+            setPreview({
+              url: reference.url,
+              alt: reference.name || '可信人像预览',
+              fileName: reference.name || '可信人像预览',
+            })
+          }
+        />
       )}
 
       {stage === 'body' && (
@@ -313,11 +370,29 @@ export function CharacterWorkflow({
           </div>
           <TurnaroundPreview
             task={turnaroundTask}
+            variant={activeAppearanceVariant}
             onPreview={(output) =>
               setPreview({
                 url: output.url,
                 alt: `${assetName || '人物'}${viewLabel(output.view)}视图`,
                 fileName: `${assetName || '人物'}-${viewLabel(output.view)}视图`,
+              })
+            }
+          />
+          <AppearanceVariantPanel
+            assetName={assetName}
+            variants={appearanceVariants}
+            activeVariantId={activeAppearanceVariantId}
+            variantName={variantName}
+            canSave={turnaroundTask?.status === 'completed'}
+            onVariantNameChange={setVariantName}
+            onSave={() => void saveAppearanceVariant().catch((saveError) => setError(saveError.message))}
+            onActivate={(variant) => void activateAppearanceVariant(variant)}
+            onPreview={(reference) =>
+              setPreview({
+                url: reference.url,
+                alt: `${assetName || '人物'}${reference.name || '造型版本'}`,
+                fileName: reference.name || `${assetName || '人物'}-造型版本`,
               })
             }
           />
@@ -366,7 +441,10 @@ export function CharacterWorkflow({
 
 function TrustedPortraitPanel({
   assetId,
+  assetName,
   attributes,
+  registrationTask,
+  registrationTaskActive,
   configuration,
   onAttributesChange,
   onListTrustedPortraits,
@@ -386,16 +464,23 @@ function TrustedPortraitPanel({
   const refreshTrustedPortraitRef = useRef(onRefreshTrustedPortrait)
   const attributesChangeRef = useRef(onAttributesChange)
   const portrait = attributes.trustedPortrait
-  const status = portrait?.status || 'unlinked'
+  const registrationTaskFailed = registrationTask?.status === 'failed'
+  const status = registrationTaskActive
+    ? 'processing'
+    : registrationTaskFailed && portrait?.status !== 'active'
+      ? 'failed'
+      : portrait?.status || 'unlinked'
   const statusLabels = {
     unlinked: '未绑定',
-    processing: '上游处理中',
+    processing: registrationTaskActive ? '后台任务处理中' : '上游处理中',
     active: '可用于视频',
     failed: '审核失败',
   }
   const activeLibraryPortraits = libraryPortraits.filter((item) => item.status === 'active')
   const registrationHint = registrationAvailabilityHint(configuration, attributes.faceStatus)
   const boundPreviewUrl = portraitPreviewUrl(portrait)
+  const registrationDisabledReason = registrationAvailabilityHint(configuration, attributes.faceStatus)
+  const registrationSetupBlocked = Boolean(configuration && !configuration.virtualRegistrationReady)
 
   useEffect(() => {
     if (portrait?.assetId) setProviderAssetId(portrait.assetId)
@@ -484,32 +569,58 @@ function TrustedPortraitPanel({
       )}
 
       <div className="trusted-portrait-actions">
-        <button
-          className="button secondary"
-          type="button"
-          disabled={
-            (!assetId && !onEnsureAsset) ||
-            attributes.faceStatus !== 'approved' ||
-            (portrait?.status !== 'failed' && Boolean(portrait)) ||
-            portrait?.status === 'processing' ||
-            busyAction !== null ||
-            !configuration?.virtualRegistrationReady
-          }
-          onClick={() =>
-            void run('register', async () => {
-              const persisted = assetId ? { id: assetId } : await onEnsureAsset?.()
-              if (!persisted?.id) throw new Error('请先保存人物资产，再创建 AI 人像资源')
-              return onRegisterVirtualPortrait(persisted.id)
-            })
-          }
-        >
-          {busyAction === 'register' ? (
-            <LoaderCircle size={15} className="spin" />
-          ) : (
-            <CloudUpload size={15} />
-          )}
-          {portrait?.groupType === 'AIGC' ? '重新提交 AI 人像' : '创建 AI 人像资源'}
-        </button>
+          <span
+            className={`trusted-portrait-action-tooltip ${registrationSetupBlocked ? 'is-blocked' : ''}`}
+            title={registrationDisabledReason || '创建 AI 人像资源'}
+          >
+            <button
+              className={`button secondary ${registrationSetupBlocked ? 'requires-setup' : ''}`}
+              type="button"
+              disabled={
+                (!assetId && !onEnsureAsset) ||
+                attributes.faceStatus !== 'approved' ||
+                (portrait?.status !== 'failed' && Boolean(portrait) && !registrationTaskFailed) ||
+                (portrait?.status === 'processing' && !registrationTaskFailed) ||
+                registrationTaskActive ||
+                busyAction !== null
+              }
+              aria-describedby={registrationHint ? 'trusted-portrait-registration-hint' : undefined}
+              onClick={() => {
+                if (!configuration?.virtualRegistrationReady) {
+                  setError(registrationDisabledReason || '素材库配置尚未完成，暂时无法创建 AI 人像资源')
+                  return
+                }
+                if (!onRegisterVirtualPortrait) {
+                  setError('AI 人像资源任务接口未连接，请刷新页面后重试')
+                  return
+                }
+                void run('register', async () => {
+                  const persisted = assetId ? { id: assetId } : await onEnsureAsset?.()
+                  if (!persisted?.id) throw new Error('请先保存人物资产，再创建 AI 人像资源')
+                  return onRegisterVirtualPortrait(persisted.id, assetName)
+                })
+              }}
+            >
+              {busyAction === 'register' || registrationTaskActive ? (
+                <LoaderCircle size={15} className="spin" />
+              ) : (
+                <CloudUpload size={15} />
+              )}
+              {registrationTaskActive
+                ? registrationTask?.status === 'queued'
+                  ? '等待创建资源'
+                  : '正在创建资源'
+                : !configuration
+                  ? '正在检查配置'
+                  : !configuration.virtualRegistrationReady
+                    ? '需要公网地址'
+                    : registrationTaskFailed || portrait?.status === 'failed'
+                      ? '重试 AI 人像资源'
+                      : portrait?.groupType === 'AIGC'
+                        ? '重新提交 AI 人像'
+                        : '创建 AI 人像资源'}
+            </button>
+          </span>
 
         {portrait && (
           <button
@@ -524,8 +635,14 @@ function TrustedPortraitPanel({
         )}
       </div>
       {registrationHint && (
-        <p className="trusted-portrait-registration-hint" role="status">
-          {registrationHint}
+        <p
+          id="trusted-portrait-registration-hint"
+          className={`trusted-portrait-registration-hint ${registrationSetupBlocked ? 'is-blocked' : ''}`}
+          role="status"
+          aria-live="polite"
+        >
+          <AlertCircle size={13} />
+          <span>{registrationHint}</span>
         </p>
       )}
 
@@ -603,7 +720,14 @@ function TrustedPortraitPanel({
                   className="trusted-portrait-card-select"
                   type="button"
                   disabled={!selectable || busyAction !== null}
-                  onClick={() => setProviderAssetId(item.assetId)}
+                  onClick={() =>
+                    void run('bind', async () => {
+                      const persisted = assetId ? { id: assetId } : await onEnsureAsset?.()
+                      if (!persisted?.id) throw new Error('请先保存人物资产，再绑定人像资源')
+                      setProviderAssetId(item.assetId)
+                      return onBindTrustedPortrait(persisted.id, item.assetId)
+                    })
+                  }
                 >
                   <span className="trusted-portrait-card-title">
                     <strong>{item.name || '未命名人像'}</strong>
@@ -612,7 +736,7 @@ function TrustedPortraitPanel({
                   <code>{item.assetId}</code>
                   <small>
                     {selected
-                      ? '已选择，点击下方完成绑定'
+                      ? '已绑定到当前人物'
                       : selectable
                         ? '点击选择'
                         : trustedLibraryStatus(item.status)}
@@ -629,24 +753,8 @@ function TrustedPortraitPanel({
         </p>
       )}
 
-      <div className="trusted-portrait-bind-row">
-        <label>
-          <span>已选人像 Asset ID（也可手动输入）</span>
-          <input
-            value={providerAssetId}
-            placeholder="先点击上方人像卡片，或输入 asset ID"
-            onChange={(event) => setProviderAssetId(event.target.value)}
-          />
-        </label>
-        <button
-          className="button primary"
-          type="button"
-          disabled={!assetId || !providerAssetId.trim() || busyAction !== null || !configuration?.configured}
-          onClick={() => void run('bind', () => onBindTrustedPortrait(assetId, providerAssetId.trim()))}
-        >
-          {busyAction === 'bind' ? <LoaderCircle size={15} className="spin" /> : <Link2 size={15} />}
-          校验并绑定
-        </button>
+      <div className="trusted-portrait-bind-row trusted-portrait-bind-info">
+        <span>选择可用人像后会自动绑定到当前人物资产。</span>
         {configuration?.authorizationUrl && (
           <a
             className="button secondary"
@@ -685,7 +793,15 @@ function TrustedPortraitPanel({
       )}
       {portrait?.status === 'failed' && (
         <p className="trusted-portrait-error">
-          {portrait.errorMessage || portrait.errorCode || '上游审核未通过，请检查正面图清晰度和人脸一致性。'}
+          {registrationTask?.error ||
+            portrait.errorMessage ||
+            portrait.errorCode ||
+            '上游审核未通过，请检查正面图清晰度和人脸一致性。'}
+        </p>
+      )}
+      {registrationTaskFailed && portrait?.status !== 'failed' && (
+        <p className="trusted-portrait-error" role="alert">
+          {registrationTask.error || '人像资源任务失败，可以直接重试；已保留原人物面部基准。'}
         </p>
       )}
       {pollError && status === 'processing' && (
@@ -708,6 +824,38 @@ function portraitPreviewUrl(portrait) {
     return `/api/v1/trusted-assets/portraits/${encodeURIComponent(portrait.assetId)}/preview`
   }
   return portrait.status === 'active' ? portrait.previewUrl || null : null
+}
+
+function latestTask(tasks, generationStage) {
+  return tasks
+    .filter((task) => matchesGenerationStage(task, generationStage))
+    .sort((left, right) => taskTimestamp(right) - taskTimestamp(left))[0]
+}
+
+function latestCompletedTask(tasks, generationStage) {
+  return tasks
+    .filter(
+      (task) =>
+        matchesGenerationStage(task, generationStage) &&
+        task.status === 'completed' &&
+        Boolean(completedOutput(task)),
+    )
+    .sort((left, right) => taskTimestamp(right) - taskTimestamp(left))[0]
+}
+
+function matchesGenerationStage(task, generationStage) {
+  if (task.metadata?.generationStage === generationStage) return true
+  return (
+    generationStage === 'face' &&
+    !task.metadata?.generationStage &&
+    task.metadata?.assetKind === 'character' &&
+    task.metadata?.turnaround !== true
+  )
+}
+
+function taskTimestamp(task) {
+  const value = Date.parse(task.updatedAt || task.createdAt || '')
+  return Number.isFinite(value) ? value : 0
 }
 
 function StagePanel({
@@ -780,8 +928,18 @@ function TaskState({ task }) {
   )
 }
 
-function TurnaroundPreview({ task, onPreview }) {
-  if (!task || task.status !== 'completed') {
+function TurnaroundPreview({ task, variant, onPreview }) {
+  const outputs =
+    variant?.turnaroundReferences?.length
+      ? variant.turnaroundReferences.slice(0, 3).map((reference, index) => ({
+          ...reference,
+          mediaType: 'image',
+          view: ['front', 'side', 'back'][index],
+        }))
+      : task?.status === 'completed'
+        ? task.outputs.slice(0, 3)
+        : []
+  if (!outputs.length) {
     return (
       <div className="turnaround-empty">
         <Images size={28} />
@@ -795,7 +953,6 @@ function TurnaroundPreview({ task, onPreview }) {
       </div>
     )
   }
-  const outputs = task.outputs.slice(0, 3)
   return (
     <div className="turnaround-sheet-preview">
       {outputs.map((output) => (
@@ -814,6 +971,91 @@ function TurnaroundPreview({ task, onPreview }) {
   )
 }
 
+function AppearanceVariantPanel({
+  assetName,
+  variants,
+  activeVariantId,
+  variantName,
+  canSave,
+  onVariantNameChange,
+  onSave,
+  onActivate,
+  onPreview,
+}) {
+  return (
+    <section className="appearance-variant-panel">
+      <div className="appearance-variant-head">
+        <div>
+          <span className="eyebrow">人物版本 / 造型版本</span>
+          <h3>保存一整套身体图 / 三视图</h3>
+          <p>每套版本独立命名，后续剧本和分镜可继续使用当前版本。</p>
+        </div>
+        <label className="appearance-variant-name">
+          <span>版本名称</span>
+          <input
+            className="text-input"
+            value={variantName}
+            maxLength={80}
+            placeholder={`${assetName || '人物'} · 日常装`}
+            onChange={(event) => onVariantNameChange(event.target.value)}
+          />
+        </label>
+        <button className="button primary" type="button" disabled={!canSave} onClick={onSave}>
+          <Save size={15} />
+          保存人物版本
+        </button>
+      </div>
+      {variants.length > 0 ? (
+        <div className="appearance-variant-list">
+          {variants.map((variant) => (
+            <article
+              className={`appearance-variant-card ${variant.id === activeVariantId ? 'active' : ''}`}
+              key={variant.id}
+            >
+              <button
+                type="button"
+                className="appearance-variant-preview"
+                onClick={() => variant.bodyReference?.url && onPreview(variant.bodyReference)}
+                disabled={!variant.bodyReference?.url}
+                aria-label={`预览${variant.name}`}
+              >
+                {variant.bodyReference?.url ? <img src={variant.bodyReference.url} alt="" /> : <UserRound size={18} />}
+              </button>
+              <div className="appearance-variant-info">
+                <strong>{variant.name}</strong>
+                <span>身体图 + {variant.turnaroundReferences?.length || 0} 张三视图</span>
+                {variant.id === activeVariantId && <small>当前使用</small>}
+              </div>
+              <div className="appearance-variant-views">
+                {(variant.turnaroundReferences || []).slice(0, 3).map((reference, index) => (
+                  <button
+                    key={`${variant.id}-${reference.id || index}`}
+                    type="button"
+                    onClick={() => onPreview(reference)}
+                    aria-label={`预览${variant.name}${['正面', '侧面', '背面'][index]}`}
+                  >
+                    <img src={reference.url} alt="" />
+                  </button>
+                ))}
+              </div>
+              <button
+                className="button secondary compact"
+                type="button"
+                disabled={variant.id === activeVariantId}
+                onClick={() => onActivate(variant)}
+              >
+                {variant.id === activeVariantId ? '已设为当前' : '使用这套造型'}
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="appearance-variant-empty">生成三视图后，可以把这一整套身体图保存成可切换版本。</p>
+      )}
+    </section>
+  )
+}
+
 function completedOutput(task) {
   if (task?.status !== 'completed') return null
   return (
@@ -825,7 +1067,7 @@ function completedOutput(task) {
 
 function registrationAvailabilityHint(configuration, faceStatus) {
   if (!configuration) return '正在检查弦序素材库配置。'
-  if (faceStatus !== 'approved') return '先在面部定稿步骤确认面部基准，随后即可提交 AI 人像资源。'
+  if (faceStatus !== 'approved') return '请先创建任务大头照-设定面部基准后，再创建 AI 人像资源。'
   if (!configuration.configured) return '弦序素材库凭据尚未配置，请先使用下方素材库绑定已有资源。'
   if (!configuration.virtualRegistrationReady) {
     return '自动创建需要配置可公网访问的 API 地址，供弦序读取面部原图；本地可先在弦序上传，再从下方素材库绑定。'
@@ -843,6 +1085,12 @@ function trustedLibraryStatus(status) {
 
 function toReference(candidate, name) {
   return { id: candidate.id, url: candidate.url, name }
+}
+
+function createVariantId() {
+  return typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `appearance-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 function viewLabel(view) {

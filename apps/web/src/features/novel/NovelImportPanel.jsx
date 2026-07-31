@@ -41,6 +41,7 @@ export function NovelImportPanel({
   project,
   aspectRatio,
   disabled,
+  developmentOnly = false,
   onImportNovel,
   onPreviewNovelSplit,
   onListNovels,
@@ -86,7 +87,9 @@ export function NovelImportPanel({
   const isAdapting = adaptationStatus === 'adapting'
   const isWritingAdaptedScript = adaptationStatus === 'writing'
   const hasContent = content.trim().length > 0
-  const controlsDisabled = disabled || isImporting || isPreviewing || isAdapting || isWritingAdaptedScript
+  const moduleDisabled = Boolean(disabled || developmentOnly)
+  const controlsDisabled =
+    moduleDisabled || isImporting || isPreviewing || isAdapting || isWritingAdaptedScript
 
   useEffect(() => {
     let cancelled = false
@@ -110,6 +113,11 @@ export function NovelImportPanel({
     setAdaptationStatus('idle')
     setAdaptationError('')
     setError('')
+    if (developmentOnly) {
+      setDocuments([])
+      setStatus('idle')
+      return undefined
+    }
     setStatus('loading-documents')
     onListNovels()
       .then((nextDocuments) => {
@@ -124,7 +132,7 @@ export function NovelImportPanel({
     return () => {
       cancelled = true
     }
-  }, [project.id, project.name])
+  }, [developmentOnly, project.id, project.name])
 
   useEffect(() => {
     setAdaptationResult(null)
@@ -349,7 +357,11 @@ export function NovelImportPanel({
   }
 
   return (
-    <section className="novel-import-panel">
+    <section
+      className={`novel-import-panel${developmentOnly ? ' is-development-only' : ''}`}
+      data-development-only={developmentOnly ? 'true' : 'false'}
+      aria-disabled={developmentOnly || undefined}
+    >
       <div className="novel-import-head">
         <div className="novel-import-title">
           <span className="novel-import-symbol">
@@ -362,6 +374,16 @@ export function NovelImportPanel({
         </div>
         <p>导入长篇小说原文，先把章节边界整理出来，再进入后续摘要、故事概要和剧本改编。</p>
       </div>
+
+      {developmentOnly && (
+        <div className="novel-development-banner" role="status">
+          <BookOpen size={15} />
+          <div>
+            <strong>小说上传与章节功能开发中</strong>
+            <span>当前仅展示规划布局，上传、切分、章节选择和视频改编暂未开放。</span>
+          </div>
+        </div>
+      )}
 
       <div className="novel-import-grid">
         <button
@@ -382,6 +404,7 @@ export function NovelImportPanel({
           ref={fileInput}
           className="hidden-input"
           type="file"
+          disabled={controlsDisabled}
           accept=".txt,.md,.markdown,text/plain,text/markdown"
           onChange={handleFileSelected}
         />
@@ -772,7 +795,7 @@ export function NovelImportPanel({
       {result && (
         <NovelDevelopmentPanel
           document={result.document}
-          disabled={disabled}
+          disabled={moduleDisabled}
           onGetSummaries={onGetNovelSummaries}
           onGenerateSummaries={onGenerateNovelSummaries}
           onGetStoryBible={onGetNovelStoryBible}

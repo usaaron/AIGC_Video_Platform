@@ -42,7 +42,7 @@ export function ReferenceUploader({
             {isAudio
               ? '支持 MP3、WAV、OGG，最多 1 个文件'
               : direct
-                ? '支持 JPG、PNG、WebP，选择 1 张成品图'
+                ? `支持 JPG、PNG、WebP，${limit > 1 ? '最多 3 张场景参考图' : '选择 1 张成品图'}`
                 : '支持 JPG、PNG、WebP，最多 3 张'}
           </small>
         </div>

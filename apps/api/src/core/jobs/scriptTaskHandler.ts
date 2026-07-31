@@ -1,6 +1,7 @@
 import {
   enrichScriptRequestSchema,
   generateScriptRequestSchema,
+  generateScriptAssetSuggestionsRequestSchema,
   type GenerationTask,
   type Principal,
 } from '@seqora/contracts'
@@ -23,6 +24,7 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         segment: task.metadata.segment,
         productionMode: task.metadata.productionMode,
         episodeMinutes: task.metadata.episodeMinutes,
+        episodeDurationSeconds: task.metadata.episodeDurationSeconds,
         model: task.model ?? task.metadata.model,
         revisionNote: task.metadata.revisionNote,
       })
@@ -39,6 +41,7 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         input.model,
         input.revisionNote,
         task.metadata.billingMode === 'prepaid' ? 'prepaid' : 'direct',
+        input.episodeDurationSeconds,
       )
     }
 
@@ -49,6 +52,7 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         direction: task.metadata.direction,
         productionMode: task.metadata.productionMode,
         episodeMinutes: task.metadata.episodeMinutes,
+        episodeDurationSeconds: task.metadata.episodeDurationSeconds,
         model: task.model ?? task.metadata.model,
         revisionNote: task.metadata.revisionNote,
       })
@@ -63,6 +67,22 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         input.model,
         input.revisionNote,
         task.metadata.billingMode === 'prepaid' ? 'prepaid' : 'direct',
+        input.episodeDurationSeconds,
+      )
+    }
+
+    if (operation === 'suggest-assets') {
+      const input = generateScriptAssetSuggestionsRequestSchema.parse({
+        clientRequestId: task.clientRequestId,
+        script: task.metadata.script,
+        direction: task.metadata.direction,
+      })
+      return service.suggestScriptAssets(
+        task.projectId,
+        input.script,
+        input.direction,
+        principal,
+        input.model,
       )
     }
 

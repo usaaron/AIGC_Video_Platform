@@ -35,6 +35,7 @@ import {
 } from './taskLease.js'
 import { generationConcurrencyFor } from './generationConcurrency.js'
 import type { TextTaskHandler } from './scriptTaskHandler.js'
+import type { TrustedAssetTaskHandler } from './trustedAssetTaskHandler.js'
 
 export interface TaskDispatcher {
   dispatch(task: GenerationTask): Promise<void>
@@ -54,6 +55,7 @@ type GenerationTaskRunnerOptions = {
   demoUnlimitedConcurrency?: boolean
   onVideoCompleted?: (task: GenerationTask) => Promise<void>
   textTaskHandler?: TextTaskHandler | null
+  trustedAssetTaskHandler?: TrustedAssetTaskHandler | null
 }
 
 export class GenerationTaskRunner implements TaskDispatcher {
@@ -70,6 +72,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly demoUnlimitedConcurrency: boolean
   private readonly onVideoCompleted: ((task: GenerationTask) => Promise<void>) | null
   private readonly textTaskHandler: TextTaskHandler | null
+  private readonly trustedAssetTaskHandler: TrustedAssetTaskHandler | null
 
   constructor(
     private readonly store: AppStore,
@@ -86,6 +89,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     this.demoUnlimitedConcurrency = options.demoUnlimitedConcurrency ?? false
     this.onVideoCompleted = options.onVideoCompleted ?? null
     this.textTaskHandler = options.textTaskHandler ?? null
+    this.trustedAssetTaskHandler = options.trustedAssetTaskHandler ?? null
   }
 
   start(): void {
@@ -156,6 +160,19 @@ export class GenerationTaskRunner implements TaskDispatcher {
             task.outputs = outputsFor(task)
             task.resultUrl = task.outputs[0]?.url ?? null
             releaseGenerationTaskLease(task)
+            const shotId = typeof task.metadata.shotId === 'string' ? task.metadata.shotId : null
+            const shot = state.shots.find(
+              (item) =>
+                item.id === shotId && item.projectId === task.projectId && item.tenantId === task.tenantId,
+            )
+            if (shot && task.resultUrl) {
+              if (task.kind === 'image') {
+                shot.imageUrl = task.resultUrl
+                shot.selectedImageTaskId = task.id
+              }
+              if (task.kind === 'video') shot.selectedVideoTaskId = task.id
+              shot.updatedAt = now
+            }
           }
         })
     })
@@ -458,7 +475,13 @@ export class GenerationTaskRunner implements TaskDispatcher {
   }
 
   private isTextTask(task: GenerationTask): boolean {
-    return Boolean(this.textTaskHandler) && task.kind === 'text' && task.provider === 'text'
+    return (
+      task.kind === 'text' &&
+      Boolean(
+        (task.provider === 'text' && this.textTaskHandler) ||
+        (task.provider === 'asset-library' && this.trustedAssetTaskHandler),
+      )
+    )
   }
 
   private async recoverStatusParseFailures(): Promise<void> {
@@ -500,14 +523,18 @@ export class GenerationTaskRunner implements TaskDispatcher {
     if (this.textTaskHandler && task.kind === 'text' && task.provider === 'text') {
       return 'seqora-text'
     }
+    if (this.trustedAssetTaskHandler && task.kind === 'text' && task.provider === 'asset-library') {
+      return 'stringx-asset-library'
+    }
     return null
   }
 
   private async runTextTask(task: GenerationTask): Promise<void> {
     const leaseToken = stringValue(task.leaseToken, '')
-    if (!leaseToken || !this.textTaskHandler) return
+    const handler = task.provider === 'asset-library' ? this.trustedAssetTaskHandler : this.textTaskHandler
+    if (!leaseToken || !handler) return
     try {
-      const result = await this.textTaskHandler(task)
+      const result = await handler(task)
       await this.store.mutate((state) => {
         const stored = state.tasks.find((item) => item.id === task.id)
         if (!stored || stored.status !== 'running') return
@@ -587,11 +614,15 @@ export class GenerationTaskRunner implements TaskDispatcher {
       const referenceAssets = referenceAssetIds
         .map((id) => assets.find((asset) => asset.id === id))
         .filter((asset): asset is (typeof assets)[number] => Boolean(asset))
+      const legacyVisualStyle = referenceAssets.reduce<string | undefined>((current, asset) => {
+        if (current || asset.attributes.type === 'audio') return current
+        return asset.attributes.visualStyle
+      }, undefined)
+      const projectVisualStyle = project.visualStyle ?? legacyVisualStyle ?? 'cinematic-cg'
       const blockedPortraits = referenceAssets.filter((asset) => {
         if (asset.attributes.type !== 'character' || asset.attributes.subjectType !== 'human') return false
         const needsTrustedPortrait =
-          asset.attributes.portraitSource === 'authorized-real' ||
-          asset.attributes.visualStyle === 'photorealistic'
+          asset.attributes.portraitSource === 'authorized-real' || projectVisualStyle === 'photorealistic'
         return needsTrustedPortrait && asset.attributes.trustedPortrait?.status !== 'active'
       })
       if (blockedPortraits.length) {
@@ -613,17 +644,19 @@ export class GenerationTaskRunner implements TaskDispatcher {
           if (value) trustedAliases.set(value, uri)
         }
       }
+      const promptProject = {
+        ...project,
+        visualStyle: projectVisualStyle,
+      }
       const compiledPrompt = compileStoryboardVideoPrompt({
-        project,
+        project: promptProject,
         shot,
         shots,
         assets,
         references: referenceAssetIds.map((id) => ({ id })),
         continuityMode: stored.metadata.continuityMode === 'continue' ? 'continue' : 'independent',
       })
-      const visualStyles = referenceAssets
-        .map((asset) => ('visualStyle' in asset.attributes ? asset.attributes.visualStyle : null))
-        .filter((style): style is NonNullable<typeof style> => typeof style === 'string')
+      const visualStyles = [projectVisualStyle]
       const scene = referenceAssets.find((asset) => asset.kind === 'scene')
       const userNegativePrompt = stringValue(stored.metadata.userNegativePrompt, stored.negativePrompt)
       const quality = compileQualityRules({
@@ -651,7 +684,10 @@ export class GenerationTaskRunner implements TaskDispatcher {
               ),
             }
           : {}),
-        duration: normalizedVideoDuration(stored.metadata.duration ?? shot.duration),
+        duration: normalizedVideoDuration(
+          stored.metadata.duration ?? shot.duration,
+          project.contentType === 'short-drama' ? 3 : 4,
+        ),
         requestedDuration: stored.metadata.requestedDuration ?? shot.duration,
         compiledPrompt,
         videoPromptVersion: VIDEO_PROMPT_VERSION,
@@ -743,11 +779,15 @@ export class GenerationTaskRunner implements TaskDispatcher {
       )
       const attributes = objectValue(stored.metadata.attributes)
       const assetKind = imageAssetKind(stored)
+      const projectVisualStyle =
+        project?.visualStyle ??
+        (typeof attributes.visualStyle === 'string' ? attributes.visualStyle : 'cinematic-cg')
+      if ('visualStyle' in attributes) attributes.visualStyle = projectVisualStyle
       const userNegativePrompt = stringValue(stored.metadata.userNegativePrompt, stored.negativePrompt)
       const quality = compileQualityRules({
         mediaKind: 'image',
         assetKind,
-        visualStyles: typeof attributes.visualStyle === 'string' ? [attributes.visualStyle] : [],
+        visualStyles: [projectVisualStyle],
         emptyScene: attributes.emptyScene === true,
         sourcePrompt: stored.prompt,
         customNegativePrompt: userNegativePrompt,
@@ -757,6 +797,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
       stored.negativePrompt = quality.negativePrompt
       stored.metadata = {
         ...stored.metadata,
+        attributes,
         qualityRuleVersion: QUALITY_RULE_VERSION,
         qualityPresetIds: quality.presetIds,
         compiledNegativePrompt: quality.negativePrompt,
@@ -841,9 +882,25 @@ export class GenerationTaskRunner implements TaskDispatcher {
       })
       try {
         const status = await this.videoProvider.getStatus(providerTaskId)
+        let videoDescriptor: GeneratedOutputDescriptor | null = null
+        let videoCacheError: string | null = null
         let lastFrameDescriptor: GeneratedOutputDescriptor | null = null
         let lastFrameError: string | null = null
+        const hasVideo = generatedDescriptors(task).some(
+          (item) => item.view === 'single' && item.contentType.startsWith('video/'),
+        )
         const hasLastFrame = generatedDescriptors(task).some((item) => item.view === 'last-frame')
+        if (status.status === 'completed' && !hasVideo && this.objectStorage) {
+          try {
+            videoDescriptor = await this.writeback.persistVideoContent(
+              task,
+              providerTaskId,
+              this.videoProvider,
+            )
+          } catch (error) {
+            videoCacheError = messageFor(error)
+          }
+        }
         if (
           status.status === 'completed' &&
           !hasLastFrame &&
@@ -866,6 +923,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
           leaseToken,
           leaseTtlMs: this.leaseTtlMs,
           status,
+          videoDescriptor,
+          videoCacheError,
           lastFrameDescriptor,
           lastFrameError,
         })
@@ -949,6 +1008,7 @@ function imageRequestFor(task: GenerationTask, references: ImageReference[]): Im
   return {
     taskId: task.id,
     assetId: stringValue(task.metadata.assetId, ''),
+    model: task.model,
     aspectRatio: stringValue(task.metadata.aspectRatio, '1:1'),
     prompt: task.prompt,
     negativePrompt: task.negativePrompt,
@@ -973,7 +1033,9 @@ function videoRequestFor(
     ratio: stringValue(task.metadata.aspectRatio, '16:9'),
     resolution: videoResolution(task.metadata.resolution),
     images,
-    generateAudio: task.metadata.generateAudio === true,
+    // New video tasks generate sound by default. An explicit false remains available
+    // for silent B-roll or image-to-video callers that intentionally need no audio.
+    generateAudio: task.metadata.generateAudio !== false,
     returnLastFrame: task.metadata.returnLastFrame !== false,
     ...(seed === null ? {} : { seed }),
     ...(watermark === null ? {} : { watermark }),
@@ -1045,7 +1107,7 @@ function refundDescription(task: GenerationTask): string {
 }
 
 function isManagedProviderName(value: unknown): boolean {
-  return isRemoteProviderName(value) || value === 'seqora-text'
+  return isRemoteProviderName(value) || value === 'seqora-text' || value === 'stringx-asset-library'
 }
 
 function isRemoteProviderName(value: unknown): boolean {

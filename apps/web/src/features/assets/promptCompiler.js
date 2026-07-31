@@ -67,7 +67,22 @@ function characterIdentityParts(attributes) {
     '人物角色',
     optionLabel('gender', attributes.gender),
     attributes.exactAge ? `${attributes.exactAge}岁` : optionLabel('ageGroup', attributes.ageGroup),
+    ...characterAppearanceParts(attributes),
   ]
+}
+
+function characterAppearanceParts(attributes) {
+  return [
+    specifiedOption('ethnicity', attributes.ethnicity, '族裔特征'),
+    specifiedOption('skinTone', attributes.skinTone, '肤色'),
+    specifiedOption('eyeColor', attributes.eyeColor, '瞳孔'),
+    specifiedOption('hairColor', attributes.hairColor, '头发'),
+  ].filter(Boolean)
+}
+
+function specifiedOption(option, value, suffix) {
+  if (!value || value === 'unspecified') return ''
+  return `${optionLabel(option, value)}${suffix}`
 }
 
 function applyCustomPrompt(asset, automatic) {
@@ -103,8 +118,8 @@ function compileAutomatic(asset, aspectRatio) {
       `${optionLabel('weather', attributes.weather)}天`,
       `${optionLabel('mood', attributes.mood)}氛围`,
       optionLabel('camera', attributes.camera),
-      attributes.emptyScene ? '空场景，不出现人物' : '',
-      attributes.activitySpace ? '预留人物表演和镜头运动空间' : '',
+      '空场景，不出现人物',
+      '预留人物表演和镜头运动空间',
     )
   }
   if (attributes.type === 'prop') {
@@ -113,6 +128,7 @@ function compileAutomatic(asset, aspectRatio) {
       `${optionLabel('material', attributes.material)}材质`,
       optionLabel('condition', attributes.condition),
       optionLabel('view', attributes.view),
+      '只生成单个物品本体，不生成人物、人体、手、手指、手臂、腿、脚、脸、身体局部、模特、工作人员、穿戴状态和人形轮廓',
     )
   }
   if (attributes.type === 'costume') {
@@ -123,6 +139,7 @@ function compileAutomatic(asset, aspectRatio) {
       optionLabel('design', attributes.design),
       `${optionLabel('presentation', attributes.presentation)}展示`,
       attributes.turnaround ? '分别生成服装正面、背面和细节三张独立图片' : '',
+      '只生成服装本体，不生成人物、人体、脸、手、手臂、腿、脚、身体局部、模特、工作人员、穿着效果、人体轮廓和衣架',
     )
   }
   if (attributes.type === 'audio') {
@@ -157,12 +174,16 @@ function compileAutomatic(asset, aspectRatio) {
 export function summarizeAsset(asset) {
   const attributes = asset.attributes
   if (attributes.type === 'character') {
+    const activeVariant = (attributes.appearanceVariants || []).find(
+      (variant) => variant.id === attributes.activeAppearanceVariantId,
+    )
     return [
       attributes.subjectType === 'animal'
         ? attributes.species || '动物'
         : optionLabel('gender', attributes.gender),
       optionLabel('visualStyle', attributes.visualStyle),
       attributes.turnaround ? '三视图' : optionLabel('framing', attributes.framing),
+      activeVariant?.name ? `当前版本：${activeVariant.name}` : '',
     ]
   }
   if (attributes.type === 'scene') {

@@ -21,6 +21,7 @@ import {
   VIDEO_PROMPT_VERSION,
 } from '@seqora/prompting'
 import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
+import { compileCharacterStagePrompt } from './features/assets/promptCompiler'
 
 const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const videoResolutions = new Set(['480p', '720p', '1080p', '4k'])
@@ -49,6 +50,7 @@ function App() {
   const [workspace, setWorkspace] = useState(null)
   const [tasks, setTasks] = useState([])
   const [billing, setBilling] = useState(null)
+  const [providerHealth, setProviderHealth] = useState(null)
   const [loading, setLoading] = useState(true)
   const [mobileNav, setMobileNav] = useState(false)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
@@ -66,10 +68,11 @@ function App() {
 
   useEffect(() => {
     if (adminOnly) return
-    Promise.all([api.projects(), api.billing()])
-      .then(async ([projectList, billingSummary]) => {
+    Promise.all([api.projects(), api.billing(), api.health().catch(() => null)])
+      .then(async ([projectList, billingSummary, health]) => {
         setProjects(projectList)
         setBilling(billingSummary)
+        setProviderHealth(health)
         if (projectList[0]) setWorkspace(await api.project(projectList[0].id))
       })
       .catch((error) => setToast(error.message))
@@ -241,7 +244,11 @@ function App() {
         negativePrompt: options.negativePrompt,
         provider,
         model:
-          kind === 'video' ? 'doubao-seedance-2-0-260128' : kind === 'image' ? 'img2-default' : undefined,
+          kind === 'video'
+            ? 'doubao-seedance-2-0-260128'
+            : kind === 'image'
+              ? options.model || 'img2-default'
+              : undefined,
         estimatedCredits: cost,
         metadata: options.metadata,
       })
@@ -255,9 +262,52 @@ function App() {
     }
   }
 
+  const createCharacterFaceJob = (asset, model, label = '面部大头照') =>
+    createJob(`${asset.name} · ${label}`, '图片', 4, {
+      prompt: compileCharacterStagePrompt(asset, '1:1', 'face'),
+      model,
+      negativePrompt: asset.negativePrompt,
+      metadata: {
+        assetId: asset.id,
+        assetKind: asset.kind,
+        generationStage: 'face',
+        aspectRatio: '1:1',
+        sourceMode: asset.sourceMode,
+        references: asset.references,
+        attributes: asset.attributes,
+      },
+    })
+
+  const createTrustedPortraitJob = async (assetId, assetName = '人物') => {
+    if (!project) return null
+    const task = await api.createTask({
+      clientRequestId: crypto.randomUUID(),
+      projectId: project.id,
+      kind: 'text',
+      label: `${assetName || '人物'} · 创建 AI 人像资源`,
+      provider: 'asset-library',
+      estimatedCredits: 1,
+      metadata: {
+        generationStage: 'trusted-portrait',
+        trustedAssetOperation: 'register-virtual',
+        assetId,
+      },
+    })
+    setTasks(await api.tasks(project.id))
+    await refreshBilling()
+    setToast('AI 人像资源已进入后台任务，完成后会自动同步状态')
+    return task
+  }
+
   const createScriptJob = async (label, operation, input) => {
     if (!project) return null
     try {
+      const generationStage =
+        operation === 'enrich'
+          ? 'script-enrich'
+          : operation === 'suggest-assets'
+            ? 'script-asset-suggestions'
+            : 'script-generate'
       const task = await api.createTask({
         clientRequestId: crypto.randomUUID(),
         projectId: project.id,
@@ -266,15 +316,20 @@ function App() {
         provider: 'text',
         model: input.model,
         estimatedCredits:
-          operation === 'enrich' ? SCRIPT_OPERATION_CREDITS.enrich : SCRIPT_OPERATION_CREDITS.generate,
+          operation === 'enrich'
+            ? SCRIPT_OPERATION_CREDITS.enrich
+            : operation === 'suggest-assets'
+              ? SCRIPT_OPERATION_CREDITS.suggestAssets
+              : SCRIPT_OPERATION_CREDITS.generate,
         metadata: {
-          generationStage: operation === 'enrich' ? 'script-enrich' : 'script-generate',
+          generationStage,
           scriptOperation: operation,
           billingMode: 'prepaid',
           ...input,
         },
       })
       setTasks(await api.tasks(project.id))
+      await refreshBilling()
       setToast(`${label}已提交后台生成`)
       return task
     } catch (error) {
@@ -397,7 +452,7 @@ function App() {
     const previousShot = shotIndex > 0 ? orderedShots[shotIndex - 1] : null
     let sourceTask = continuitySourceTask
     if (continuityMode === 'continue' && previousShot && !sourceTask) {
-      sourceTask = latestVideoTaskFor(tasks, previousShot.id, true)
+      sourceTask = latestVideoTaskFor(tasks, previousShot, true)
       if (!sourceTask && !chain.includes(previousShot.id)) {
         sourceTask = await createStoryboardVideo(previousShot, {
           resolution,
@@ -415,13 +470,15 @@ function App() {
       setToast('上一镜头虽已完成，但尾帧提取失败；请重新生成上一镜头后再继续')
       return null
     }
-    const existingImageTask = tasks.find(
+    const imageTasks = tasks.filter(
       (task) =>
         task.kind === 'image' &&
         task.metadata?.shotId === shot.id &&
         task.status !== 'failed' &&
         task.status !== 'cancelled',
     )
+    const existingImageTask =
+      imageTasks.find((task) => task.id === shot.selectedImageTaskId) || imageTasks[0] || null
     const manualImageUrl =
       shot.imageUrl && !shot.imageUrl.startsWith('/api/v1/generation/tasks/') ? shot.imageUrl : null
     const currentImageTask = taskUsesAssetReferences(existingImageTask, references) ? existingImageTask : null
@@ -447,11 +504,12 @@ function App() {
       negativePrompt: shot.negativePrompt,
       metadata: {
         shotId: shot.id,
-        duration: normalizedVideoDuration(shot.duration),
+        duration: normalizedVideoDuration(shot.duration, project.contentType === 'short-drama' ? 3 : 4),
         requestedDuration: shot.duration,
         aspectRatio: project.aspectRatio,
         resolution: selectedResolution,
-        generateAudio: false,
+        // Seedance 负责输出镜头内的对白、画外音和现场声；成片合成会继续保留音轨。
+        generateAudio: true,
         watermark: false,
         returnLastFrame: true,
         continuityMode,
@@ -546,6 +604,7 @@ function App() {
       script: (
         <ScriptPage
           project={project}
+          assets={workspace.assets}
           billing={billing}
           tasks={tasks}
           onSave={async (script) => {
@@ -553,11 +612,16 @@ function App() {
             await refreshWorkspace()
             setToast('剧本已保存')
           }}
+          onUpdateEpisodeDuration={async (episodeDurationSeconds) => {
+            await api.updateProject(project.id, { episodeDurationSeconds })
+            await refreshWorkspace()
+            setToast(`已设置每集 ${episodeDurationSeconds} 秒，分镜会沿用该时长`)
+          }}
           onGenerate={async (
             draft,
             direction,
             productionMode,
-            episodeMinutes,
+            episodeDurationSeconds,
             model,
             revisionNote,
             setPhase,
@@ -568,7 +632,8 @@ function App() {
               direction,
               mode: 'quick',
               productionMode,
-              episodeMinutes,
+              episodeDurationSeconds,
+              episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
               model,
               revisionNote,
             })
@@ -578,7 +643,7 @@ function App() {
             direction,
             segment,
             productionMode,
-            episodeMinutes,
+            episodeDurationSeconds,
             model,
             revisionNote,
             setPhase,
@@ -593,21 +658,12 @@ function App() {
                 mode: 'segment',
                 segment,
                 productionMode,
-                episodeMinutes,
+                episodeDurationSeconds,
+                episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
                 model,
                 revisionNote,
               },
             )
-          }}
-          onEnrich={async (script, direction, productionMode, episodeMinutes, model, revisionNote) => {
-            return createScriptJob('按场次补齐制作字段', 'enrich', {
-              script,
-              direction,
-              productionMode,
-              episodeMinutes,
-              model,
-              revisionNote,
-            })
           }}
           onImportNovel={async (input) => {
             const result = await api.importNovel(project.id, input)
@@ -654,29 +710,19 @@ function App() {
               await refreshBilling().catch(() => {})
             }
           }}
-          onSuggestAssets={(script, direction) => api.suggestScriptAssets(project.id, script, direction)}
+          onSuggestAssets={(script, direction, sourceScriptFingerprint, model) =>
+            createScriptJob('资产建议', 'suggest-assets', {
+              script,
+              direction,
+              sourceScriptFingerprint,
+              model,
+            })
+          }
           onCreateAsset={async (input) => {
             const created = await api.createAsset(project.id, input)
             await refreshWorkspace()
             setToast(`已加入资产：${created.name}`)
             return created
-          }}
-          onPlanQuickStart={() => api.planQuickStart(project.id)}
-          onExecuteQuickStart={async (input) => {
-            const result = await api.executeQuickStart(project.id, input)
-            const [nextWorkspace, nextTasks, nextBilling, nextProjects] = await Promise.all([
-              api.project(project.id),
-              api.tasks(project.id),
-              api.billing(),
-              api.projects(),
-            ])
-            setWorkspace(nextWorkspace)
-            setTasks(nextTasks)
-            setBilling(nextBilling)
-            setProjects(nextProjects)
-            await refreshSession()
-            setToast(`已创建 ${result.createdAssets.length} 项尝鲜资产`)
-            return result
           }}
           onCancelTask={async (taskId) => {
             await api.deleteTask(taskId)
@@ -691,6 +737,7 @@ function App() {
           project={project}
           assets={workspace.assets}
           tasks={tasks}
+          imageModels={providerHealth?.imageModels}
           concurrency={billing.concurrency}
           billing={billing}
           onCreate={async (input) => {
@@ -713,11 +760,7 @@ function App() {
           onUpload={(file) => api.uploadMedia(project.id, file)}
           onGetTrustedConfiguration={() => api.trustedAssetConfiguration()}
           onListTrustedPortraits={(groupType) => api.trustedPortraits(groupType)}
-          onRegisterVirtualPortrait={async (assetId) => {
-            const updated = await api.registerVirtualPortrait(project.id, assetId)
-            await refreshWorkspace()
-            return updated
-          }}
+          onRegisterVirtualPortrait={createTrustedPortraitJob}
           onBindTrustedPortrait={async (assetId, providerAssetId) => {
             const updated = await api.bindTrustedPortrait(project.id, assetId, providerAssetId)
             await refreshWorkspace()
@@ -728,7 +771,7 @@ function App() {
             await refreshWorkspace()
             return updated
           }}
-          onGenerateStage={(asset, stage, prompt) => {
+          onGenerateStage={(asset, stage, prompt, model) => {
             const references =
               stage === 'face'
                 ? asset.references
@@ -739,6 +782,7 @@ function App() {
             const costs = { face: 4, body: 6, turnaround: 18 }
             return createJob(`${asset.name} · ${labels[stage]}`, '图片', costs[stage], {
               prompt,
+              model,
               negativePrompt: asset.negativePrompt,
               metadata: {
                 assetId: asset.id,
@@ -754,13 +798,15 @@ function App() {
               },
             })
           }}
-          onGenerate={(asset) => {
+          onGenerate={(asset, model) => {
             if (asset.sourceMode === 'import') {
               setToast('直接导入资产已使用原图，不会创建 Img2 任务')
               return null
             }
+            if (asset.kind === 'character') return createCharacterFaceJob(asset, model, '重新生成面部大头照')
             return createJob(`${asset.name} · 重新生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
               prompt: asset.prompt,
+              model,
               negativePrompt: asset.negativePrompt,
               metadata: {
                 assetId: asset.id,
@@ -773,25 +819,28 @@ function App() {
               },
             })
           }}
-          onGenerateAll={(selectedAssets) =>
+          onGenerateAll={(selectedAssets, model) =>
             Promise.all(
               selectedAssets
                 .filter((asset) => asset.sourceMode === 'generate')
                 .map((asset) =>
-                  createJob(`${asset.name} · 资产生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
-                    prompt: asset.prompt,
-                    negativePrompt: asset.negativePrompt,
-                    metadata: {
-                      assetId: asset.id,
-                      assetKind: asset.kind,
-                      aspectRatio: project.aspectRatio,
-                      sourceMode: asset.sourceMode,
-                      references: asset.references,
-                      attributes: asset.attributes,
-                      turnaround:
-                        asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
-                    },
-                  }),
+                  asset.kind === 'character'
+                    ? createCharacterFaceJob(asset, model)
+                    : createJob(`${asset.name} · 资产生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
+                        prompt: asset.prompt,
+                        model,
+                        negativePrompt: asset.negativePrompt,
+                        metadata: {
+                          assetId: asset.id,
+                          assetKind: asset.kind,
+                          aspectRatio: project.aspectRatio,
+                          sourceMode: asset.sourceMode,
+                          references: asset.references,
+                          attributes: asset.attributes,
+                          turnaround:
+                            asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
+                        },
+                      }),
                 ),
             )
           }
@@ -800,19 +849,26 @@ function App() {
       ),
       storyboard: (
         <StoryboardPage
+          project={project}
           shots={workspace.shots}
           assets={workspace.assets}
           tasks={tasks}
+          episodeDurationSeconds={project.episodeDurationSeconds}
+          onUpdateEpisodeDuration={async (episodeDurationSeconds) => {
+            await api.updateProject(project.id, { episodeDurationSeconds })
+            await refreshWorkspace()
+            setToast(`已同步分镜每集 ${episodeDurationSeconds} 秒设置`)
+          }}
           concurrency={billing.concurrency}
           unlimitedConcurrency={billing.unlimitedConcurrency}
           onRegenerate={async (mode = 'scene', episodeDurationSeconds = 60) => {
             await api.generateShots(project.id, {
-              maxShots: 48,
+              maxShots: project.contentType === 'short-drama' ? 120 : 48,
               mode,
               episodeDurationSeconds,
             })
             await refreshWorkspace()
-            setToast(mode === 'beat' ? '已按动作节拍细拆分镜' : '已按场次重新拆分分镜')
+            setToast(mode === 'beat' ? '已按动作节拍细拆分镜' : '已按场次智能生成并自动拆分动作镜头')
           }}
           onAutoSplitEpisodes={async (episodeDurationSeconds) => {
             await api.autoSplitShotEpisodes(project.id, { episodeDurationSeconds })
@@ -1090,7 +1146,17 @@ function WorkspaceLoading({ fullPage = false }) {
   )
 }
 
-function latestVideoTaskFor(tasks, shotId, needsLastFrame = false) {
+function latestVideoTaskFor(tasks, shotOrId, needsLastFrame = false) {
+  const shotId = typeof shotOrId === 'string' ? shotOrId : shotOrId.id
+  const selectedVideoTaskId = typeof shotOrId === 'string' ? null : shotOrId.selectedVideoTaskId
+  const selected = tasks.find(
+    (task) =>
+      task.id === selectedVideoTaskId &&
+      task.kind === 'video' &&
+      task.metadata?.shotId === shotId &&
+      task.status === 'completed' &&
+      (!needsLastFrame || hasLastFrame(task)),
+  )
   return (
     tasks.find(
       (task) =>
@@ -1099,6 +1165,7 @@ function latestVideoTaskFor(tasks, shotId, needsLastFrame = false) {
         task.status !== 'cancelled' &&
         (task.status === 'queued' || task.status === 'paused' || task.status === 'running'),
     ) ||
+    selected ||
     tasks.find(
       (task) =>
         task.kind === 'video' &&
@@ -1174,6 +1241,7 @@ function readTaskStatusCache() {
 function createNotification(task, projects, read) {
   const projectName = projects.find((item) => item.id === task.projectId)?.name || '项目'
   const status = task.status === 'failed' ? 'failed' : 'completed'
+  const isTrustedPortraitTask = task.metadata?.generationStage === 'trusted-portrait'
   return {
     id: task.id,
     task,
@@ -1181,9 +1249,9 @@ function createNotification(task, projects, read) {
     projectName,
     label: task.label,
     status,
-    title: status === 'failed' ? '生成失败' : '生成完成',
+    title: status === 'failed' ? (isTrustedPortraitTask ? '人像资源创建失败' : '生成失败') : '生成完成',
     message: status === 'failed' ? task.error || '任务执行失败，请查看详情后重试。' : '生成结果已经保存。',
-    target: task.kind === 'text' ? 'script' : 'generate',
+    target: isTrustedPortraitTask ? 'assets' : task.kind === 'text' ? 'script' : 'generate',
     updatedAt: task.updatedAt,
     read,
   }
