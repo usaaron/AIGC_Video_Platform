@@ -10,7 +10,7 @@ Fastify + TypeScript 后端，默认监听 `http://127.0.0.1:8787`，所有业�
 pnpm dev
 ```
 
-单独启动 API 时先准备 Postgres，并确保共享包已构建：
+单独启动 API 时先准备 Postgres 和 Redis，并确保共享包已构建：
 
 ```bash
 pnpm dev:db
@@ -18,12 +18,13 @@ pnpm build:shared
 pnpm --filter @seqora/api dev
 ```
 
-开发环境未显式设置 `DATABASE_URL` 时，`loadConfig()` 默认使用 `postgres://seqora:seqora_dev_password@127.0.0.1:5432/seqora_dev`。生产环境必须在部署 Secret 或 `deploy/demo.env` 中显式设置 `DATABASE_URL`。
+开发环境未显式设置 `DATABASE_URL` 时，`loadConfig()` 默认使用 `postgres://seqora:seqora_dev_password@127.0.0.1:5432/seqora_dev`；未显式设置 `REDIS_URL` 时，任务队列默认使用 `redis://127.0.0.1:6379`。生产环境必须在部署 Secret 或 `deploy/demo.env` 中显式设置 `DATABASE_URL`，并提供可用 Redis/BullMQ 队列。
 
 ## 数据边界
 
-- Postgres：账号、身份、session、租户、membership、账单账户、账单流水、密码重置 token、审计日志。
-- JSON `DATA_FILE`：项目、资产、分镜、生成任务、本地 Demo 状态和兼容备份。
+- Postgres：账号、身份、session、租户、membership、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜和生成任务。
+- Redis/BullMQ：生成任务触发队列；API 只入队，`src/worker.ts` 作为独立消费者执行。
+- JSON `DATA_FILE`：本地媒体索引、Demo 兼容状态和迁移备份。
 - ObjectStorage：上传媒体、生成图片、生成视频、尾帧和完整成片预览。
 
 `NODE_ENV=development` 和 `test` 下 API 启动会自动执行未执行 migration。`NODE_ENV=production` 下 API 启动只检查 migration 是否最新；部署前必须显式执行：
@@ -47,7 +48,7 @@ Route -> Service -> Repository / Provider -> Database / Store / External API
 - `modules/admin`：统一 Admin Console API、用户/租户/membership/账单/session/审计查询、账号启停、后台充值/调账。
 - `modules/billing`：Postgres billing ledger，幂等扣费、退款、grant 和 adjustment。
 - `modules/generation`：任务创建、查询、暂停、恢复、删除、输出读取。
-- `core/jobs`：任务依赖、并发、Provider 轮询、失败退款和写回。
+- `core/jobs`：BullMQ 任务分发、任务依赖、并发、Provider 轮询、失败退款和写回。
 - `core/film`：FFmpeg 完整成片合成。
 
 所有外部输入优先在 `@seqora/contracts` 定义 Zod Schema；路由只做协议、权限和 HTTP 映射，业务规则放 Service，数据库并发和事务放 Repository。
@@ -73,7 +74,7 @@ Route -> Service -> Repository / Provider -> Database / Store / External API
 
 ```bash
 pnpm --filter @seqora/api test
-pnpm --filter @seqora/api exec vitest run src/infra/postgres.test.ts src/modules/auth/routes.test.ts src/modules/accountManagement/routes.test.ts src/modules/billing/creditLedger.test.ts
+pnpm --filter @seqora/api exec vitest run src/infra/postgres.test.ts src/modules/auth/routes.test.ts src/modules/accountManagement/routes.test.ts src/modules/billing/creditLedger.test.ts src/config.test.ts src/core/jobs/bullMqQueue.test.ts
 ```
 
-第二条命令等价于 CI database job 的核心测试范围：起 Postgres、跑 migration、验证 auth/account/billing 集成行为。
+第二条命令等价于 CI database job 的核心测试范围：起 Postgres 和 Redis、跑 migration、验证 auth/account/billing 集成行为以及 BullMQ 任务分发。

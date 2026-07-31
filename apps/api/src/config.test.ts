@@ -19,6 +19,7 @@ describe('production configuration', () => {
       STRINGX_API_KEY: 'production-video-token',
       TOKENADVENT_API_KEY: 'production-image-token',
       REHDASU_API_KEY: 'production-text-token',
+      REDIS_URL: 'redis://redis:6379',
     })
 
     expect(config.TRUST_PROXY).toBe(true)
@@ -27,6 +28,8 @@ describe('production configuration', () => {
     expect(config.BOOTSTRAP_OWNER_NAME).toBe('平台所有者')
     expect(config.BOOTSTRAP_DEMO_WORKSPACE).toBe(false)
     expect(config.TEXT_MODEL).toBe('glm-5.2')
+    expect(config.TASK_QUEUE_DRIVER).toBe('bullmq')
+    expect(config.REDIS_URL).toBe('redis://redis:6379')
   })
 
   it('rejects development credentials in production', () => {
@@ -46,6 +49,7 @@ describe('production configuration', () => {
       BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
       TOKENADVENT_API_KEY: 'production-text-image-token',
       REHDASU_API_KEY: 'production-text-token',
+      REDIS_URL: 'redis://redis:6379',
     }
     expect(() => loadConfig(production)).toThrow('STRINGX_API_KEY is required')
     expect(() => loadConfig({ ...production, VIDEO_PROVIDER: 'volc-ark' })).toThrow('ARK_API_KEY is required')
@@ -59,6 +63,36 @@ describe('production configuration', () => {
       VOLC_ARK_PROJECT_NAME: 'default',
       VOLC_ASSET_BASE_URL: 'https://maas-ark.stringx.top',
     })
+  })
+
+  it('keeps tests on inline queue by default and validates bullmq Redis config', () => {
+    expect(loadConfig({ NODE_ENV: 'test' }).TASK_QUEUE_DRIVER).toBe('inline')
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'test',
+        TASK_QUEUE_DRIVER: 'bullmq',
+        REDIS_URL: '',
+      }),
+    ).toThrow('REDIS_URL is required when TASK_QUEUE_DRIVER=bullmq')
+  })
+
+  it('requires an explicit Redis URL for the production BullMQ queue', () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        WEB_ORIGIN: 'https://studio.example.com',
+        AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
+        BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
+        BOOTSTRAP_OWNER_EMAIL: 'owner@example.com',
+        BOOTSTRAP_OWNER_PASSWORD: 'UniqueOwnerPassword123!',
+        BOOTSTRAP_SUPER_ADMIN_EMAIL: 'superadmin@example.com',
+        BOOTSTRAP_SUPER_ADMIN_PASSWORD: 'UniqueSuperAdminPassword123!',
+        BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
+        STRINGX_API_KEY: 'production-video-token',
+        TOKENADVENT_API_KEY: 'production-image-token',
+        REHDASU_API_KEY: 'production-text-token',
+      }),
+    ).toThrow('REDIS_URL is required when TASK_QUEUE_DRIVER=bullmq')
   })
 
   it('defaults to StringX and ignores removed legacy Seedance aliases', () => {
@@ -90,6 +124,7 @@ describe('production configuration', () => {
       TOKENADVENT_API_KEY: 'production-text-image-token',
       REHDASU_API_KEY: 'production-text-token',
       BOOTSTRAP_DEMO_WORKSPACE: 'true',
+      REDIS_URL: 'redis://redis:6379',
     }
     expect(loadConfig(production).BOOTSTRAP_DEMO_WORKSPACE).toBe(true)
   })
@@ -107,6 +142,7 @@ describe('production configuration', () => {
         BOOTSTRAP_SUPER_ADMIN_PASSWORD: 'UniqueSuperAdminPassword123!',
         BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
         STRINGX_API_KEY: 'production-video-token',
+        REDIS_URL: 'redis://redis:6379',
       }),
     ).toThrow('TOKENADVENT_API_KEY is required')
   })
@@ -126,6 +162,7 @@ describe('production configuration', () => {
         STRINGX_API_KEY: 'production-video-token',
         TOKENADVENT_API_KEY: 'production-image-token',
         TEXT_MODEL: 'glm-5.2',
+        REDIS_URL: 'redis://redis:6379',
       }),
     ).toThrow('REHDASU_API_KEY is required')
   })

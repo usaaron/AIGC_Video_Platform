@@ -19,7 +19,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 - 分镜按场次或动作拆分、资产匹配、尾帧承接和会员三路并发。
 - FFmpeg 按分镜顺序合成无声完整 MP4 预览。
 
-尚未完成正式音频、支付、邮件/短信投递、项目域数据全面数据库化、持久消息队列和正式商用监控。账号/auth、租户 membership、session、账单账户、账单流水、密码重置 token 和审计日志已经迁入 Postgres；项目、资产、分镜、生成任务和 Worker 状态仍是 JSON + 单实例进程内调度。当前定位是封闭客户测试和小团队联合开发。
+尚未完成正式音频、支付、邮件/短信投递、队列监控/告警、Worker 横向扩缩容演练和正式商用监控。账号/auth、租户 membership、session、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜和生成任务已经迁入 Postgres；生成任务触发通过 Redis/BullMQ，由独立 Worker 进程消费。当前定位是封闭客户测试和小团队联合开发。
 
 ## 2. 收到压缩包后先做什么
 
@@ -62,7 +62,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 ```text
 apps/
   web/        React 19 + Vite 8 创作端
-  api/        Fastify 5 + TypeScript API 与进程内 Worker
+  api/        Fastify 5 + TypeScript API 与 BullMQ Worker
   admin/      未来独立管理员端边界占位；当前后台入口临时在 Web 内
 packages/
   contracts/  前后端共享 Zod Schema、实体、角色和权限
@@ -88,17 +88,18 @@ API 入口是 `apps/api/src/app.ts`，配置入口是 `apps/api/src/config.ts`�
 每个业务模块遵守以下分层：
 
 ```text
-Route -> Service -> Repository / Provider -> AppStore / 外部 API
+Route -> Service -> Repository / Provider -> Postgres / AppStore / 外部 API
 ```
 
 - `routes.ts`：Zod 输入校验、权限和 HTTP 映射。
 - `service.ts`：业务编排，不直接依赖页面。
 - `repository.ts`：带用户、租户和项目边界的数据读写。
 - `core/generation/`：TokenAdvent、弦序、官方方舟等 Provider 适配器。
+- `core/jobs/bullMqQueue.ts`：BullMQ/Redis 任务触发队列，API 入队，Worker 消费。
 - `core/jobs/taskDispatcher.ts`：任务依赖、套餐并发、提交、轮询、失败和退款。
 - `core/film/`：下载分镜视频并调用 FFmpeg 合成完整预览。
 - `infra/postgres.ts`：Postgres migration、`schema_migrations` 和事务工具。
-- `infra/store.ts`：项目、资产、分镜、生成任务和兼容备份的 JSON 状态仓储。
+- `infra/store.ts`：本地媒体索引、运行态缓存和兼容备份的 JSON 状态仓储；项目域新数据以 Postgres 为业务来源。
 - `infra/objectStorage.ts`：本地文件或 GCS 的统一对象存储接口。
 - `modules/accountManagement`：邀请码注册、workspace、成员、角色、tenant session 和受控邀请。
 - `modules/admin`：统一后台查询、账号启停、账单、session 和审计日志。
@@ -131,15 +132,15 @@ Postgres：
 - `billing_accounts` / `billing_ledger_entries`：套餐、余额、幂等扣费、退款、充值和调账流水。
 - `password_reset_tokens`：忘记密码 token。
 - `audit_log_entries`：账号、成员、workspace、session、账单等敏感操作审计。
+- `projects` / `project_versions`：项目、比例、内容类型、简介、剧本和版本。
+- `assets`：人物、场景、物品、服装或音频及其结构化属性。
+- `shots`：顺序、景别、时长、提示词、分镜图和连续模式。
+- `generation_tasks`：Provider、模型、依赖、状态、积分、输出和错误。
 
 JSON `apps/api/data/app.json`：
 
-- `Project`：名称、内容类型、比例、简介、剧本和版本。
-- `Asset`：人物、场景、物品、服装或音频及其结构化属性。
-- `Shot`：顺序、景别、时长、提示词、分镜图和连续模式。
-- `GenerationTask`：Provider、模型、依赖、状态、积分、输出和错误。
 - `Media`：上传文件元数据和对象存储位置。
-- 兼容镜像：账号和 ledger 的历史 JSON 备份，不再作为 Postgres 账号/账本业务来源。
+- 兼容镜像：账号、ledger 和项目域的历史 JSON 备份，不再作为 Postgres 业务来源。
 
 任务状态包括 `queued`、`paused`、`running`、`completed`、`failed` 和 `cancelled`。任务归档只写 `queueHiddenAt`，不能物理删除已完成任务，否则资产和视频输出 URL 会失效。
 
@@ -227,15 +228,15 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
 docker compose --env-file deploy/demo.env -f compose.demo.yml ps
 ```
 
-生产 Web 与 API 同域，Caddy 处理 HTTPS 和 `/api` 代理。Compose 同时运行 Postgres；API 使用 Docker 持久卷保存 `app.json`，媒体推荐私有 GCS。完整部署、备份、回滚和 CI/CD 步骤见 `docs/DEPLOYMENT.md` 与 `docs/CICD.md`。
+生产 Web 与 API 同域，Caddy 处理 HTTPS 和 `/api` 代理。Compose 同时运行 Postgres、Redis、API、Worker 和 Web；`app.json` 只保留媒体索引和兼容备份，媒体推荐私有 GCS。完整部署、备份、回滚和 CI/CD 步骤见 `docs/DEPLOYMENT.md` 与 `docs/CICD.md`。
 
-复制本地 `apps/api/data/` 不能直接覆盖正在运行的云端数据卷。恢复前必须停止 API、备份服务器当前 Postgres、JSON 和 GCS 对象，并确认对象存储中的媒体与 JSON 记录一致。
+复制本地 `apps/api/data/` 不能直接覆盖正在运行的云端数据卷。恢复前必须停止 API 和 Worker、备份服务器当前 Postgres、JSON 和 GCS 对象，并确认对象存储中的媒体与 JSON 记录一致。
 
 ## 13. 当前必须知道的限制
 
-1. 项目/任务 JSON Store 和进程内 Worker 只适合单 API 实例；多实例会产生状态竞争和重复调度风险。
-2. 任务轮询与调度依赖 API 进程存活，尚未接入持久消息队列。
-3. 账号和 workspace 已具备租户边界，但项目域数据还没全面数据库化，商用多实例前仍需迁移。
+1. 项目/任务已进入 Postgres，任务触发已进入 Redis/BullMQ；商用多实例前仍要验证租户过滤、重复投递、故障恢复和 Worker 横向扩缩容。
+2. Worker 是独立进程，但队列监控、死信处理、任务恢复演练和告警还没生产化。
+3. `app.json` 仍承载本地媒体索引和兼容备份，恢复数据前必须先确认 Postgres、JSON 和对象存储三者一致。
 4. 音频、支付、邮件/短信投递和用户协议/隐私/数据删除流程尚未实现。
 5. 第三方生成质量不稳定，提示词和负面规则只能提高下限，仍需人工验收。
 6. 上游额度、并发池、素材审核和安全策略会导致平台外部错误，不能用本地假状态掩盖。

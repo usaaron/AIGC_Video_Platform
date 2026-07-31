@@ -14,10 +14,11 @@ flowchart LR
   API --> Auth["AuthProvider"]
   API --> Ledger["CreditLedger"]
   API --> AccountDb["Postgres account/auth/billing"]
-  API --> Store["JSON project/task store"]
-  API --> Repo["TaskRepository"]
-  API -. enqueue .-> Queue["TaskDispatcher"]
+  API --> ProjectDb["Postgres project/assets/shots/tasks"]
+  API --> Store["JSON media/demo compatibility store"]
+  API -. enqueue .-> Queue["BullMQ/Redis task queue"]
   Worker["apps/api/src/worker.ts 任务 worker"] --> Queue
+  Worker --> ProjectDb
 ```
 
 ## 边界
@@ -53,12 +54,13 @@ apps/api/src/
 
 认证主体始终包含 `userId`、`tenantId` 和 `roles`。仓储查询必须显式带入主体并按 `tenantId` 过滤。客户端传入的租户 ID 不可信，不能用于数据隔离。
 
-当前账号与租户边界由 Postgres 中的 `users`、`auth_identities`、`tenant_memberships`、`sessions`、`billing_accounts` 和 `billing_ledger_entries` 承载。项目、资产、分镜和生成任务仍在 JSON Store 中按 `tenantId` 过滤；迁移这些领域数据前不能多实例运行 API/Worker。
+当前账号、租户、账单和项目域边界由 Postgres 中的 `users`、`auth_identities`、`tenant_memberships`、`sessions`、`billing_accounts`、`billing_ledger_entries`、`projects`、`assets`、`shots` 和 `generation_tasks` 承载。项目域仓储查询必须保留 `tenantId` 条件；JSON 只作为本地媒体索引、Demo 兼容和迁移备份。
 
 ## 数据持久化
 
-- Postgres：账号、身份、session、workspace/tenant、membership、账单账户、账单流水、密码重置 token 和审计日志。
-- JSON Store：项目、资产、分镜、生成任务、历史兼容数据和本地 Demo 状态。
+- Postgres：账号、身份、session、workspace/tenant、membership、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜和生成任务。
+- Redis/BullMQ：生成任务触发队列；API 进程入队，worker 进程消费并执行 `GenerationTaskRunner.tick()`。
+- JSON Store：本地媒体索引、历史兼容数据和本地 Demo 备份状态。
 - ObjectStorage：上传文件、生成图片、视频、尾帧和完整成片预览。
 
 Migration 文件位于 `apps/api/src/infra/migrations`。dev/test 启动时可以自动迁移；production 启动只检查是否最新，部署前必须运行 `pnpm --filter @seqora/api db:migrate`。
@@ -66,9 +68,9 @@ Migration 文件位于 `apps/api/src/infra/migrations`。dev/test 启动时可�
 ## 可替换端口
 
 - `AuthProvider`：当前生产路径为本地账号 + 签名 HttpOnly Cookie + Postgres session；`demo` header 只允许开发/测试。企业 SSO 可替换为 OIDC/JWT。
-- `GenerationTaskRepository`：当前 JSON Store，未来替换为 PostgreSQL。
+- `GenerationTaskRepository`：当前通过 Postgres 持久化生成任务，并保留 JSON 运行态兼容镜像。
 - `CreditLedger`：当前已支持 Postgres billing ledger，扣费、退款、grant 和 adjustment 在数据库事务中完成。
-- `TaskDispatcher`：API 侧默认 no-op；worker 进程里的 `GenerationTaskRunner` 负责执行，未来可替换 Redis、SQS 或 RabbitMQ。
+- `TaskDispatcher`：生产默认 `bullmq`，API 只写入 Redis 队列；worker 进程消费队列并执行 `GenerationTaskRunner`。`inline` 仅用于测试或临时本地回退。
 
 业务服务只依赖这些接口，因此替换基础设施时不需要修改路由或前端。
 

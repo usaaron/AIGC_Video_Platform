@@ -121,8 +121,18 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/seqora_ci
+      TEST_REDIS_URL: redis://127.0.0.1:6379
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -147,5 +157,5 @@ jobs:
       - name: Apply Postgres migrations
         run: pnpm --filter @seqora/api db:migrate
 
-      - name: Run migration, auth, and billing tests
-        run: pnpm --filter @seqora/api exec vitest run src/infra/postgres.test.ts src/modules/auth/routes.test.ts src/modules/accountManagement/routes.test.ts src/modules/billing/creditLedger.test.ts
+      - name: Run migration, auth, billing, and queue tests
+        run: pnpm --filter @seqora/api exec vitest run src/infra/postgres.test.ts src/modules/auth/routes.test.ts src/modules/accountManagement/routes.test.ts src/modules/billing/creditLedger.test.ts src/config.test.ts src/core/jobs/bullMqQueue.test.ts

@@ -15,7 +15,8 @@ import type { TextGenerationProvider } from './core/generation/textProvider.js'
 import { TextGenerationProviderError } from './core/generation/textProvider.js'
 import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
 import { FilmPreviewComposer, type FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
-import { GenerationTaskRunner, type TaskDispatcher } from './core/jobs/taskDispatcher.js'
+import { GenerationTaskRunner, noopTaskDispatcher, type TaskDispatcher } from './core/jobs/taskDispatcher.js'
+import { createBullMqTaskDispatcher, type BullMqTaskDispatcher } from './core/jobs/bullMqQueue.js'
 import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
 import { AccountDatabase } from './infra/postgres.js'
 import { AppStore } from './infra/store.js'
@@ -67,6 +68,15 @@ type BuildAppOptions = {
   textProvider?: TextGenerationProvider | null
   assetLibraryProvider?: AssetLibraryProvider | null
   filmPreviewComposer?: FilmPreviewDispatcher | null
+}
+
+type ManagedTaskDispatcher = TaskDispatcher & {
+  close?: () => Promise<void>
+}
+
+type ConfiguredTaskDispatcher = {
+  taskDispatcher: ManagedTaskDispatcher
+  bullMqDispatcher: BullMqTaskDispatcher | null
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -171,17 +181,19 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       : (options.filmPreviewComposer ?? null)
   await filmPreviewComposer?.recoverInterrupted()
   let generationService: GenerationService | null = null
-  const taskDispatcher =
-    options.taskDispatcher ??
-    new GenerationTaskRunner(store, {
-      videoProvider,
-      videoProviderName: videoProviderName(options.config),
-      imageProvider,
-      objectStorage,
-      creditLedger,
-      providerPollIntervalMs: options.config.VIDEO_POLL_INTERVAL_MS,
-      onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
-    })
+  const configuredTaskDispatcher =
+    options.taskDispatcher === undefined
+      ? createConfiguredTaskDispatcher()
+      : { taskDispatcher: options.taskDispatcher, bullMqDispatcher: null }
+  const taskDispatcher = configuredTaskDispatcher.taskDispatcher
+  if (configuredTaskDispatcher.bullMqDispatcher) {
+    try {
+      await configuredTaskDispatcher.bullMqDispatcher.waitUntilReady()
+    } catch (error) {
+      await configuredTaskDispatcher.bullMqDispatcher.close().catch(() => {})
+      throw error
+    }
+  }
   generationService = new GenerationService(
     generationTaskRepository,
     taskDispatcher,
@@ -251,6 +263,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       text: textProvider ? textProviderName(options.config) : 'unavailable',
       assetLibrary: assetLibraryProvider ? 'stringx-maas' : 'unavailable',
     },
+    taskQueue: {
+      driver: options.config.TASK_QUEUE_DRIVER,
+      name: options.config.TASK_QUEUE_NAME,
+    },
   }))
   await app.register(
     async (api) => {
@@ -272,15 +288,41 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     { prefix: '/api/v1' },
   )
 
-  if (options.taskDispatcher === undefined && options.startWorker !== false) {
-    const inProcessRunner = taskDispatcher as GenerationTaskRunner
+  const inProcessRunner =
+    options.taskDispatcher === undefined && options.config.TASK_QUEUE_DRIVER === 'inline'
+      ? (taskDispatcher as GenerationTaskRunner)
+      : null
+  if (inProcessRunner && options.startWorker !== false) {
     inProcessRunner.start()
     app.addHook('onClose', async () => inProcessRunner.stop())
   }
   app.addHook('onClose', async () => {
+    await configuredTaskDispatcher.bullMqDispatcher?.close()
     if (database) {
       await database.close()
     }
   })
   return app
+
+  function createConfiguredTaskDispatcher(): ConfiguredTaskDispatcher {
+    if (options.config.TASK_QUEUE_DRIVER === 'bullmq') {
+      const bullMqDispatcher = createBullMqTaskDispatcher(options.config)
+      return { taskDispatcher: bullMqDispatcher, bullMqDispatcher }
+    }
+    if (options.config.TASK_QUEUE_DRIVER === 'none') {
+      return { taskDispatcher: noopTaskDispatcher, bullMqDispatcher: null }
+    }
+    return {
+      taskDispatcher: new GenerationTaskRunner(store, {
+        videoProvider,
+        videoProviderName: videoProviderName(options.config),
+        imageProvider,
+        objectStorage,
+        creditLedger,
+        providerPollIntervalMs: options.config.VIDEO_POLL_INTERVAL_MS,
+        onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
+      }),
+      bullMqDispatcher: null,
+    }
+  }
 }

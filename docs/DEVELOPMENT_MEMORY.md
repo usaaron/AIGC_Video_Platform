@@ -378,9 +378,9 @@ queued -> running -> completed
 - `.env.example` 只能保留空值和变量说明。
 - 真实调用会产生外部费用。测试时先做一段剧本、少量低质量图片和一个 5 秒视频。
 
-## 9. GenerationTaskRunner 工作方式
+## 9. BullMQ Worker 与 GenerationTaskRunner 工作方式
 
-`GenerationTaskRunner` 是当前进程内 Worker，每 900ms 执行一次 tick：
+生产默认路径是 API 将生成任务触发写入 Redis/BullMQ，`apps/api/src/worker.ts` 作为独立进程消费队列并调用 `GenerationTaskRunner.tick()`；`TASK_QUEUE_DRIVER=inline` 只用于测试或临时本地回退。`GenerationTaskRunner` 在每次 tick 中执行：
 
 1. 补偿历史失败但尚未退款的任务。
 2. 按用户套餐计算可用并发：免费 1、会员 3。
@@ -756,8 +756,8 @@ pnpm check
 ### P1：收费前必须完成
 
 1. 把项目视觉方向、专业审核结果、审核所基于的项目版本和“一键应用建议”记录持久化。当前 `ScriptPage.jsx` 只保存在 React state，刷新即丢失。
-2. 把 JSON AppStore 换成 PostgreSQL，给项目、资产、分镜、任务、账本、审核结果和媒体建立迁移、索引、软删除、版本与备份策略。
-3. 把进程内 Worker 换成持久队列。任务创建、积分预占和 Outbox 必须在一个数据库事务中提交；Provider 建单使用幂等键，并建立“平台已退款但第三方可能已扣费”的自动对账队列。
+2. 项目、资产、分镜、生成任务和账本已迁入 PostgreSQL；下一步继续补审核结果、媒体索引、数据导出/删除、备份恢复和跨租户审计。
+3. BullMQ/Redis 队列已接入，API 不再内联执行生成任务；下一步补 Outbox、死信/重试策略、Provider 建单幂等键，以及“平台已退款但第三方可能已扣费”的自动对账队列。
 4. 使用正式 OIDC/JWT 或成熟身份服务，增加邀请、禁用、密码重置、租户成员管理、会话撤销和管理员审计；真实订阅只由支付回调改变权益。
 5. 上传文件按魔数检测真实类型，限制图片尺寸和解码资源，加入恶意文件扫描；大文件改为直传对象存储或流式上传，不能长期使用 `toBuffer()` 全量进入 API 内存。
 6. 增加用户协议、隐私说明、素材版权授权、人物肖像授权、内容安全审核、数据导出与删除流程。未完成前不接收敏感素材或公开注册。
@@ -961,5 +961,5 @@ pnpm check
 - 账号管理页已具备 workspace 切换、改名、禁用、转让 owner、退出 workspace、成员列表、角色修改、禁用 membership、个人/租户 session 列表和踢下线。普通成员只能看到个人资料；owner/admin 才能看到管理员端入口；权限或状态变更操作必须二次确认。
 - Billing ledger 已迁到 Postgres，扣费、退款、grant 和 admin adjustment 在数据库事务中完成并保持幂等 reference；JSON ledger 只作为历史备份，不再作为业务来源。
 - Admin Console API 已统一：`GET /api/v1/admin/console` 返回 overview、用户、租户、membership、账单账户、账单流水、session 和审计日志；同时保留分项列表、账号启停、管理员充值/调账和后台撤销 session API。
-- CI `database` job 起 Postgres，执行 migration，并运行 `postgres.test.ts`、`auth/routes.test.ts`、`accountManagement/routes.test.ts` 和 `billing/creditLedger.test.ts`。分支保护应同时要求 `CI / quality` 和 `CI / database`。
-- 仍未完成：项目/资产/分镜/生成任务全面数据库化、真实队列和独立 Worker、支付/订阅回调、邮件/短信投递、正式监控告警、数据导出/删除、音频和正式成片交付链路。
+- CI `database` job 起 Postgres 和 Redis，执行 migration，并运行 `postgres.test.ts`、`auth/routes.test.ts`、`accountManagement/routes.test.ts`、`billing/creditLedger.test.ts`、`config.test.ts` 和 `core/jobs/bullMqQueue.test.ts`。分支保护应同时要求 `CI / quality` 和 `CI / database`。
+- 仍未完成：支付/订阅回调、邮件/短信投递、队列监控和死信处理、Worker 横向扩缩容与恢复演练、数据导出/删除、音频和正式成片交付链路。

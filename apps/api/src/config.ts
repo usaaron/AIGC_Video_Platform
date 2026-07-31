@@ -22,6 +22,11 @@ const configSchema = z
     PUBLIC_API_BASE_URL: z.union([z.literal(''), z.string().url()]).default(''),
     TRUST_PROXY: booleanFromEnvironment.default(false),
     RATE_LIMIT_MAX: z.coerce.number().int().min(30).max(10_000).default(300),
+    TASK_QUEUE_DRIVER: z.enum(['inline', 'bullmq', 'none']).default('bullmq'),
+    TASK_QUEUE_NAME: z.string().min(1).max(128).default('seqora-generation'),
+    TASK_QUEUE_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+    TASK_QUEUE_POLL_INTERVAL_MS: z.coerce.number().int().min(900).max(60_000).default(5_000),
+    REDIS_URL: z.union([z.literal(''), z.string().min(1)]).default('redis://127.0.0.1:6379'),
     AUTH_MODE: z.enum(['local', 'demo', 'oidc']).default('local'),
     AUTH_SECRET: z.string().min(32).default(developmentAuthSecret),
     DATABASE_URL: z.union([z.literal(''), z.string().min(1)]).default(''),
@@ -102,6 +107,13 @@ const configSchema = z
         code: 'custom',
         path: ['WEB_ORIGIN'],
         message: 'HTTPS WEB_ORIGIN is required in production',
+      })
+    }
+    if (config.TASK_QUEUE_DRIVER === 'bullmq' && !config.REDIS_URL) {
+      context.addIssue({
+        code: 'custom',
+        path: ['REDIS_URL'],
+        message: 'REDIS_URL is required when TASK_QUEUE_DRIVER=bullmq',
       })
     }
     if (config.NODE_ENV === 'production') {
@@ -236,6 +248,13 @@ export type AppConfig = z.infer<typeof configSchema>
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
   return configSchema.parse({
     ...environment,
+    TASK_QUEUE_DRIVER:
+      environment.TASK_QUEUE_DRIVER ?? (environment.NODE_ENV === 'test' ? 'inline' : 'bullmq'),
+    REDIS_URL: environment.REDIS_URL?.trim()
+      ? environment.REDIS_URL
+      : environment.NODE_ENV === 'production'
+        ? ''
+        : environment.REDIS_URL,
     DATABASE_URL: environment.DATABASE_URL?.trim()
       ? environment.DATABASE_URL
       : environment.NODE_ENV === 'production'

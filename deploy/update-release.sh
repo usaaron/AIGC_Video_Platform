@@ -81,7 +81,7 @@ services=()
 case "$component" in
   api)
     next_api="$2"
-    services=(api)
+    services=(api worker)
     ;;
   web)
     next_web="$2"
@@ -90,7 +90,7 @@ case "$component" in
   all)
     next_api="$2"
     next_web="$3"
-    services=(api web)
+    services=(api worker web)
     ;;
 esac
 

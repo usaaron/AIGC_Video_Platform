@@ -12,7 +12,7 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` 会先启动 `compose.local.yml` 中的 Postgres dev 服务，再启动 Web、API 和 Worker。开发环境未显式设置 `DATABASE_URL` 时，API 默认使用 `postgres://seqora:seqora_dev_password@127.0.0.1:5432/seqora_dev`，并在启动时自动执行未执行的 migration。
+`pnpm dev` 会先启动 `compose.local.yml` 中的 Postgres dev 和 Redis dev 服务，再启动 Web、API 和 Worker。开发环境未显式设置 `DATABASE_URL` 时，API 默认使用 `postgres://seqora:seqora_dev_password@127.0.0.1:5432/seqora_dev`，并在启动时自动执行未执行的 migration；未显式设置 `REDIS_URL` 时，任务队列默认使用 `redis://127.0.0.1:6379`。
 
 - 创作端：[http://localhost:5173](http://localhost:5173)
 - API 健康检查：[http://localhost:8787/api/v1/health](http://localhost:8787/api/v1/health)
@@ -33,7 +33,7 @@ pnpm dev
 | 超级管理员 | `superadmin@seqora.local` | `SuperAdmin123!`    |
 | 管理员     | `admin@seqora.local`      | `Admin123!`         |
 
-认证使用经 `scrypt` 哈希的本地账号密码和签名 HttpOnly 会话 Cookie。账号、身份、会话、租户 membership、账单账户、账单流水、密码重置 token 和审计日志写入 Postgres；项目、资产、分镜、生成任务和本地媒体索引仍由 `apps/api/data/app.json` 与对象存储承载。`app.json` 已被 Git 忽略；删除它只会重置创作 Demo 数据，Postgres 账号数据需清理数据库或重建卷。
+认证使用经 `scrypt` 哈希的本地账号密码和签名 HttpOnly 会话 Cookie。账号、身份、会话、租户 membership、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜和生成任务写入 Postgres；任务触发队列使用 BullMQ/Redis；本地媒体索引仍由 `apps/api/data/app.json` 与对象存储承载。`app.json` 已被 Git 忽略；删除它只会重置本地 Demo/兼容备份数据，Postgres 账号和项目域数据需清理数据库或重建卷。
 
 已有账号登录后在“项目设置 -> 账号安全”修改密码；新密码至少 12 位。当前注册入口开放但必须提交租户邀请码，邮箱需与邀请绑定邮箱一致；没有邀请码不能自助注册。owner 可任命超级管理员；owner/super_admin 可管理管理员和普通会员；普通 admin 仅管理当前 workspace 的普通会员。密码重置 API 已具备后端能力；生产正式开放前还需要接入邮件/短信投递与运营流程。云端首次账号由服务器 `deploy/demo.env` 的 `BOOTSTRAP_*` 设置，并且只在空数据卷第一次启动时生效。不要把真实密码写进仓库。
 
@@ -66,7 +66,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 
 仓库包含 Google Compute Engine 单机 Demo 所需的 `compose.demo.yml`、API/Web Dockerfile、Caddy 自动 HTTPS 配置和无密钥环境变量模板。完整步骤、上线门槛、备份和回滚见 [外部测试部署](docs/DEPLOYMENT.md)。
 
-该部署模式面向封闭外测：API 和 Web 同域，Postgres 承载账号/auth/账单账本，JSON 数据卷仍承载项目、资产、分镜和生成任务，媒体使用私有 GCS。正式商用前还必须完成持久队列、独立 Worker、支付/订阅回调、邮件投递、监控告警、数据导出/删除和备份恢复演练。
+该部署模式面向封闭外测：API 和 Web 同域，Postgres 承载账号/auth/账单账本和项目域数据，Redis/BullMQ 承载生成任务触发队列，媒体使用私有 GCS。正式商用前还必须完成支付/订阅回调、邮件投递、监控告警、数据导出/删除和备份恢复演练。
 
 封闭外测默认开放账号密码登录和邀请码注册，不支持无邀请码自助注册。生产首次启动创建 member、owner、super_admin 和 admin 账号，不写入演示项目；前端登录前只加载登录页，工作台页面按需下载，Compose 默认资源边界适配 2 vCPU / 4 GB 起步机器。
 
@@ -105,7 +105,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 - Admin Console API：统一查询用户、租户、membership、账单账户、账单流水、session 和审计日志；支持账号启停、管理员充值/调账、撤销 session
 - DB billing ledger：幂等扣费、退款、充值和管理员调账在 Postgres 事务中完成，JSON ledger 仅保留为历史备份
 
-当前版本是混合持久化：账号/auth/租户/账单账本已迁入 Postgres；项目、资产、分镜、生成任务和 Worker 状态仍使用本地 JSON 仓储。API 进程负责 HTTP 和业务编排，`apps/api/src/worker.ts` 负责任务执行，适合封闭外测和三人团队并行开发。下一步生产化重点是把任务队列和项目域数据继续迁入正式数据库/队列。
+当前版本已将账号/auth/租户/账单账本、项目、资产、分镜和生成任务迁入 Postgres；API 进程负责 HTTP 和业务编排，任务触发通过 BullMQ/Redis 进入 `apps/api/src/worker.ts` 执行。JSON store 仅保留本地媒体索引、Demo 兼容和迁移备份用途。下一步生产化重点是价格/套餐闭环、支付订阅、正式监控告警和 Worker 横向扩缩容验证。
 
 ## API 范围
 

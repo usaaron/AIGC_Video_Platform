@@ -24,6 +24,22 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    init: true
+    command: ['redis-server', '--appendonly', 'yes']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    volumes:
+      - seqora_redis:/data
+    security_opt:
+      - no-new-privileges:true
+
   api:
     image: ${API_IMAGE:-seqora-api:local}
     build:
@@ -36,10 +52,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       API_HOST: 0.0.0.0
       API_PORT: 8787
+      REDIS_URL: redis://redis:6379
       DATA_FILE: /var/lib/seqora/app.json
       UPLOAD_DIR: /var/lib/seqora/uploads
       FFMPEG_PATH: /usr/bin/ffmpeg
@@ -48,6 +67,38 @@ services:
       - '8787'
     cpus: ${API_CPUS:-1.5}
     mem_limit: ${API_MEMORY_LIMIT:-1536m}
+    pids_limit: 256
+    stop_grace_period: 45s
+    logging: *default-logging
+    volumes:
+      - seqora_data:/var/lib/seqora
+    security_opt:
+      - no-new-privileges:true
+
+  worker:
+    image: ${API_IMAGE:-seqora-api:local}
+    build:
+      context: .
+      dockerfile: deploy/api.Dockerfile
+    command: ['node', 'dist/worker.js']
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./deploy/demo.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      DATA_FILE: /var/lib/seqora/app.json
+      UPLOAD_DIR: /var/lib/seqora/uploads
+      FFMPEG_PATH: /usr/bin/ffmpeg
+      NODE_OPTIONS: --max-old-space-size=${WORKER_NODE_HEAP_MB:-768}
+    cpus: ${WORKER_CPUS:-1.5}
+    mem_limit: ${WORKER_MEMORY_LIMIT:-1536m}
     pids_limit: 256
     stop_grace_period: 45s
     logging: *default-logging
@@ -85,5 +136,6 @@ services:
 volumes:
   seqora_data:
   seqora_postgres:
+  seqora_redis:
   caddy_data:
   caddy_config:

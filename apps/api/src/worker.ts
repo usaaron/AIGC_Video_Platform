@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { resolve } from 'node:path'
+import { createBullMqGenerationWorker, type BullMqGenerationWorker } from './core/jobs/bullMqQueue.js'
 import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
 import { GenerationTaskRunner, noopTaskDispatcher } from './core/jobs/taskDispatcher.js'
 import { FilmPreviewComposer } from './core/film/filmPreviewComposer.js'
@@ -92,11 +93,24 @@ generationService = new GenerationService(
   filmPreviewComposer,
 )
 
-taskRunner.start()
+let queueWorker: BullMqGenerationWorker | null = null
+if (config.TASK_QUEUE_DRIVER === 'bullmq') {
+  queueWorker = createBullMqGenerationWorker(config, taskRunner)
+  await queueWorker.start()
+  process.stdout.write(
+    `[worker] BullMQ worker listening on ${config.TASK_QUEUE_NAME} (${config.REDIS_URL})\n`,
+  )
+} else if (config.TASK_QUEUE_DRIVER === 'inline') {
+  taskRunner.start()
+  process.stdout.write('[worker] inline task runner started\n')
+} else {
+  process.stdout.write('[worker] task queue disabled\n')
+}
 
 const shutdown = async (signal: string) => {
   process.stdout.write(`[worker] shutting down on ${signal}\n`)
   taskRunner.stop()
+  await queueWorker?.close().catch(() => {})
   if (database) {
     await database.close().catch(() => {})
   }
