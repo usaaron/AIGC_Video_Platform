@@ -135,7 +135,7 @@ echo "$DEPLOY_SA_EMAIL"
 - `all`：发布两端。
 - `auto`：手动运行时按安全策略等同 `all`；自动流水线会读取 CI 的精确发布清单。
 
-每次发布使用 Commit SHA 标签，旧镜像不会被覆盖。服务器会在 `/opt/seqora-backups/releases` 保存发布前的 `app.json` 和镜像清单，并在健康检查失败时自动回滚。需要人工回退到指定镜像时：
+每次发布使用 Commit SHA 标签，旧镜像不会被覆盖。服务器会在 `/opt/seqora-backups/releases` 保存发布前的 `app.json` 和镜像清单，并在健康检查失败时自动回滚。发布前和破坏性 migration 前还必须运行 [备份与恢复流程](BACKUP_RESTORE.md) 的全量备份，保留 Postgres dump、JSON 历史与 GCS generation 清单。需要人工回退到指定镜像时：
 
 ```bash
 sudo /opt/seqora/deploy/update-release.sh api \

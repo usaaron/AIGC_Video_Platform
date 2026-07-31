@@ -96,14 +96,10 @@ Compose 默认把 API 和 Worker 分别限制为 1.5 CPU、1536MB 内存和 256 
 
 ### 人工源码更新
 
-每次更新先备份 Postgres、JSON 数据和对象存储版本，再拉取已通过 CI 的提交：
+每次更新先执行完整备份流程，再拉取已通过 CI 的提交。备份会导出 Postgres、JSON 历史、本地 uploads（如有）和 GCS 对象版本清单；恢复步骤见[备份与恢复流程](BACKUP_RESTORE.md)：
 
 ```bash
-mkdir -p backups
-docker compose --env-file deploy/demo.env -f compose.demo.yml exec -T postgres \
-  sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "backups/postgres-$(date +%Y%m%d-%H%M%S).sql"
-docker compose --env-file deploy/demo.env -f compose.demo.yml exec -T api \
-  sh -c 'cat /var/lib/seqora/app.json' > "backups/app-$(date +%Y%m%d-%H%M%S).json"
+sudo /opt/seqora/deploy/backup-demo.sh
 git pull --ff-only
 docker compose --env-file deploy/demo.env -f compose.demo.yml build api
 docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
@@ -124,7 +120,7 @@ curl --fail https://studio.example.com/api/v1/health
 4. Provider Key 只在 `deploy/demo.env` 或 Secret Manager，Web 构建和 Git 中没有 Key。
 5. GCS Bucket 非公开，上传图片和生成视频只能登录后通过 API 读取。
 6. 为弦序 Seedance/MaaS、TokenAdvent 和 Google Cloud 设置预算告警与每日额度。
-7. 备份和恢复至少演练一次，升级前保留 Postgres、JSON 与 GCS 对象版本。
+7. 备份和恢复至少演练一次，升级前执行 `deploy/backup-demo.sh` 并保留 Postgres、JSON 与 GCS 对象版本清单。
 8. 明确告知测试者：当前无音频，任务队列和项目域虽已进入 Postgres/Redis 底座但仍处封闭外测阶段，不上传敏感或未授权素材。
 9. 浏览器实测登录、剧本、资产、分镜、视频、完整预览和退出登录。
 10. 仿真人测试先确认面部并等待 AIGC 资源变为 Active；真人测试必须由演员本人完成认证授权，制作方接收后再绑定 Asset ID。

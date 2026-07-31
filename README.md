@@ -64,7 +64,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 
 ## 外部测试部署
 
-仓库包含 Google Compute Engine 单机 Demo 所需的 `compose.demo.yml`、API/Web Dockerfile、Caddy 自动 HTTPS 配置和无密钥环境变量模板。完整步骤、上线门槛、备份和回滚见 [外部测试部署](docs/DEPLOYMENT.md)。
+仓库包含 Google Compute Engine 单机 Demo 所需的 `compose.demo.yml`、API/Web Dockerfile、Caddy 自动 HTTPS 配置和无密钥环境变量模板。完整步骤、上线门槛、备份和回滚见 [外部测试部署](docs/DEPLOYMENT.md) 与 [备份与恢复流程](docs/BACKUP_RESTORE.md)。
 
 该部署模式面向封闭外测：API 和 Web 同域，Postgres 承载账号/auth/账单账本和项目域数据，Redis/BullMQ 承载生成任务触发队列，媒体使用私有 GCS。正式商用前还必须完成支付/订阅回调、邮件投递、监控告警、数据导出/删除和备份恢复演练。
 
@@ -79,6 +79,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 - [资产生成与 Provider 接入](docs/ASSET_GENERATION.md)
 - [代码规范](docs/CODE_STYLE.md)
 - [部署边界](docs/DEPLOYMENT.md)
+- [备份与恢复流程](docs/BACKUP_RESTORE.md)
 - [CI/CD 与模块化发布](docs/CICD.md)
 - [参与开发](CONTRIBUTING.md)
 - [第三方素材说明](THIRD_PARTY_NOTICES.md)
