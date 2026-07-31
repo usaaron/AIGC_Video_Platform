@@ -47,7 +47,7 @@ export class GenerationService {
   }
 
   listProjectTasks(projectId: string, principal: Principal): Promise<GenerationTask[]> {
-    return Promise.resolve(this.repository.listByProject(projectId, principal))
+    return this.repository.listByProject(projectId, principal)
   }
 
   clearCompleted(projectId: string, principal: Principal): Promise<number> {
@@ -83,18 +83,16 @@ export class GenerationService {
     const selectedShots = selectedSources.map((source) => source.shot)
     const sourceTasks = selectedSources.map((source) => source.task!)
     const sourceVideoTaskIds = sourceTasks.map((task) => task.id)
-    const existing = this.repository
-      .listByProject(projectId, principal)
-      .find(
-        (task) =>
-          task.provider === 'local-compose' &&
-          task.metadata.generationStage === 'film-preview' &&
-          (mode === 'partial'
-            ? task.metadata.previewMode === 'partial'
-            : task.metadata.previewMode !== 'partial') &&
-          sameStringArray(task.metadata.sourceVideoTaskIds, sourceVideoTaskIds) &&
-          (task.status === 'queued' || task.status === 'running' || task.status === 'completed'),
-      )
+    const existing = (await this.repository.listByProject(projectId, principal)).find(
+      (task) =>
+        task.provider === 'local-compose' &&
+        task.metadata.generationStage === 'film-preview' &&
+        (mode === 'partial'
+          ? task.metadata.previewMode === 'partial'
+          : task.metadata.previewMode !== 'partial') &&
+        sameStringArray(task.metadata.sourceVideoTaskIds, sourceVideoTaskIds) &&
+        (task.status === 'queued' || task.status === 'running' || task.status === 'completed'),
+    )
     if (existing && !force) return existing
 
     const task = await this.repository.create(
@@ -155,7 +153,7 @@ export class GenerationService {
   }
 
   async getVideoContent(taskId: string, principal: Principal, range?: string) {
-    const task = this.repository.findById(taskId, principal)
+    const task = await this.repository.findById(taskId, principal)
     if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权访问')
     if (task.kind !== 'video') {
       throw new AppError(400, 'VIDEO_CONTENT_UNAVAILABLE', '该任务没有视频内容')
@@ -199,7 +197,7 @@ export class GenerationService {
   }
 
   async getImageOutput(taskId: string, view: string, principal: Principal) {
-    const task = this.repository.findById(taskId, principal)
+    const task = await this.repository.findById(taskId, principal)
     if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权访问')
     if (
       (task.kind !== 'image' && !(task.kind === 'video' && view === 'last-frame')) ||

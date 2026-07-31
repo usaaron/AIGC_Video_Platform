@@ -78,6 +78,10 @@ export type AppState = {
   novelStoryBibles: StoredNovelStoryBible[]
 }
 
+export type ProjectDomainRuntimeSnapshot = Pick<AppState, 'projects' | 'assets' | 'shots' | 'tasks'>
+
+export type ProjectDomainRuntimePersister = (snapshot: ProjectDomainRuntimeSnapshot) => Promise<void>
+
 export type BootstrapUsers = {
   creatorName?: string
   creatorEmail: string
@@ -114,6 +118,9 @@ export class AppStore {
   private readonly lockPath: string | null
   private projectWorkspaceRuntimeCache: Pick<AppState, 'projects' | 'assets' | 'shots'> | null = null
   private projectWorkspacePersistenceBackup: Pick<AppState, 'projects' | 'assets' | 'shots'> | null = null
+  private generationTaskRuntimeCache: Pick<AppState, 'tasks'> | null = null
+  private generationTaskPersistenceBackup: Pick<AppState, 'tasks'> | null = null
+  private projectDomainRuntimePersister: ProjectDomainRuntimePersister | null = null
 
   constructor(
     private readonly filePath: string | null,
@@ -143,6 +150,7 @@ export class AppStore {
   read<T>(reader: (state: Readonly<AppState>) => T): T {
     this.reloadFromDiskSync()
     this.applyProjectWorkspaceRuntimeCache()
+    this.applyGenerationTaskRuntimeCache()
     return structuredClone(reader(this.state))
   }
 
@@ -166,10 +174,24 @@ export class AppStore {
     this.applyProjectWorkspaceRuntimeCache()
   }
 
+  replaceGenerationTaskRuntimeCache(tasks: GenerationTask[]): void {
+    if (!this.generationTaskPersistenceBackup) {
+      this.generationTaskPersistenceBackup = structuredClone({ tasks: this.state.tasks })
+    }
+    this.generationTaskRuntimeCache = structuredClone({ tasks })
+    this.applyGenerationTaskRuntimeCache()
+  }
+
+  setProjectDomainRuntimePersister(persister: ProjectDomainRuntimePersister | null): void {
+    this.projectDomainRuntimePersister = persister
+  }
+
   mutateProjectWorkspaceRuntimeCache<T>(mutator: (state: AppState) => T): T {
     this.applyProjectWorkspaceRuntimeCache()
+    this.applyGenerationTaskRuntimeCache()
     const result = mutator(this.state)
     this.captureProjectWorkspaceRuntimeCache()
+    this.captureGenerationTaskRuntimeCache()
     return structuredClone(result)
   }
 
@@ -179,10 +201,13 @@ export class AppStore {
       await this.withWriteLock(async () => {
         await this.reloadFromDisk()
         this.applyProjectWorkspaceRuntimeCache()
+        this.applyGenerationTaskRuntimeCache()
         const snapshot = structuredClone(this.state)
         try {
           result = await mutator(this.state)
           this.captureProjectWorkspaceRuntimeCache()
+          this.captureGenerationTaskRuntimeCache()
+          await this.flushProjectDomainRuntimePersistence()
           await this.persist()
         } catch (error) {
           this.state = snapshot
@@ -217,6 +242,7 @@ export class AppStore {
         normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>),
       )
       this.applyProjectWorkspaceRuntimeCache()
+      this.applyGenerationTaskRuntimeCache()
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
@@ -228,6 +254,7 @@ export class AppStore {
       normalizeState(JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppState>),
     )
     this.applyProjectWorkspaceRuntimeCache()
+    this.applyGenerationTaskRuntimeCache()
   }
 
   private applyProjectWorkspaceRuntimeCache(): void {
@@ -235,6 +262,11 @@ export class AppStore {
     this.state.projects = structuredClone(this.projectWorkspaceRuntimeCache.projects)
     this.state.assets = structuredClone(this.projectWorkspaceRuntimeCache.assets)
     this.state.shots = structuredClone(this.projectWorkspaceRuntimeCache.shots)
+  }
+
+  private applyGenerationTaskRuntimeCache(): void {
+    if (!this.generationTaskRuntimeCache) return
+    this.state.tasks = structuredClone(this.generationTaskRuntimeCache.tasks)
   }
 
   private captureProjectWorkspaceRuntimeCache(): void {
@@ -246,14 +278,38 @@ export class AppStore {
     })
   }
 
+  private captureGenerationTaskRuntimeCache(): void {
+    if (!this.generationTaskRuntimeCache) return
+    this.generationTaskRuntimeCache = structuredClone({ tasks: this.state.tasks })
+  }
+
+  private async flushProjectDomainRuntimePersistence(): Promise<void> {
+    if (!this.projectDomainRuntimePersister) return
+    if (!this.projectWorkspaceRuntimeCache && !this.generationTaskRuntimeCache) return
+    await this.projectDomainRuntimePersister(
+      structuredClone({
+        projects: this.state.projects,
+        assets: this.state.assets,
+        shots: this.state.shots,
+        tasks: this.state.tasks,
+      }),
+    )
+  }
+
   private stateForPersistence(): AppState {
-    if (!this.projectWorkspacePersistenceBackup) return this.state
-    return {
+    if (!this.projectWorkspacePersistenceBackup && !this.generationTaskPersistenceBackup) return this.state
+    const persisted = {
       ...this.state,
-      projects: structuredClone(this.projectWorkspacePersistenceBackup.projects),
-      assets: structuredClone(this.projectWorkspacePersistenceBackup.assets),
-      shots: structuredClone(this.projectWorkspacePersistenceBackup.shots),
     }
+    if (this.projectWorkspacePersistenceBackup) {
+      persisted.projects = structuredClone(this.projectWorkspacePersistenceBackup.projects)
+      persisted.assets = structuredClone(this.projectWorkspacePersistenceBackup.assets)
+      persisted.shots = structuredClone(this.projectWorkspacePersistenceBackup.shots)
+    }
+    if (this.generationTaskPersistenceBackup) {
+      persisted.tasks = structuredClone(this.generationTaskPersistenceBackup.tasks)
+    }
+    return persisted
   }
 
   private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {

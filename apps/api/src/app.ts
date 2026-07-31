@@ -139,6 +139,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const adminRepository = database ? new AdminRepository(database) : null
   const creditLedger = new StoreCreditLedger(store, users, options.config.NODE_ENV !== 'production', database)
   await creditLedger.bootstrapFromStore()
+  const generationTaskRepository = new GenerationTaskRepository(store, creditLedger, database)
+  await generationTaskRepository.refreshRuntimeCacheFromDatabase()
+  if (database) {
+    store.setProjectDomainRuntimePersister(async (snapshot) => {
+      await projectRepository.persistRuntimeSnapshot(snapshot)
+      await generationTaskRepository.persistRuntimeSnapshot(snapshot)
+    })
+  }
   const objectStorage = createObjectStorage(options.config)
   const videoProvider =
     options.videoProvider === undefined ? createVideoProvider(options.config) : options.videoProvider
@@ -175,7 +183,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
     })
   generationService = new GenerationService(
-    new GenerationTaskRepository(store, creditLedger),
+    generationTaskRepository,
     taskDispatcher,
     videoProvider,
     videoProviderName(options.config),

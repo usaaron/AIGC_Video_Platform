@@ -6,6 +6,7 @@ import { loadConfig } from '../config.js'
 import { AccountDatabase } from '../infra/postgres.js'
 import { AppStore } from '../infra/store.js'
 import { StoreCreditLedger } from '../modules/billing/creditLedger.js'
+import { GenerationTaskRepository } from '../modules/generation/repository.js'
 import { ProjectRepository } from '../modules/projects/repository.js'
 import { UserRepository } from '../modules/users/repository.js'
 
@@ -63,7 +64,9 @@ try {
   await creditLedger.bootstrapFromStore()
 
   const projects = new ProjectRepository(store, database)
-  const result = await projects.importFromStore()
+  const projectResult = await projects.importFromStore()
+  const generationTasks = new GenerationTaskRepository(store, creditLedger, database)
+  const taskResult = await generationTasks.importFromStore()
 
   process.stdout.write(
     [
@@ -71,9 +74,10 @@ try {
       `  source: ${dataFile}`,
       `  backup: ${backupPath}`,
       '[db:import-json] import complete',
-      `  projects: inserted ${result.projects.inserted}, skipped ${result.projects.skipped}`,
-      `  assets: inserted ${result.assets.inserted}, skipped ${result.assets.skipped}`,
-      `  shots: inserted ${result.shots.inserted}, skipped ${result.shots.skipped}`,
+      `  projects: inserted ${projectResult.projects.inserted}, skipped ${projectResult.projects.skipped}`,
+      `  assets: inserted ${projectResult.assets.inserted}, skipped ${projectResult.assets.skipped}`,
+      `  shots: inserted ${projectResult.shots.inserted}, skipped ${projectResult.shots.skipped}`,
+      `  generation_tasks: inserted ${taskResult.tasks.inserted}, skipped ${taskResult.tasks.skipped}`,
     ].join('\n') + '\n',
   )
 } finally {

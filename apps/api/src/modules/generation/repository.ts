@@ -1,17 +1,134 @@
 import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
-import type { AppStore } from '../../infra/store.js'
-import { AppError } from '../../core/errors.js'
+import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
+import { AppError } from '../../core/errors.js'
 import { normalizeGenerationTaskLifecycle, releaseGenerationTaskLease } from '../../core/jobs/taskLease.js'
 import { cancellationResourceLockForTask } from '../../core/jobs/taskResourceLock.js'
+import type { AccountDatabase } from '../../infra/postgres.js'
+import type { AppState, AppStore, ProjectDomainRuntimeSnapshot } from '../../infra/store.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
+
+type Queryable = {
+  query<T extends QueryResultRow = QueryResultRow>(
+    text: string,
+    params?: readonly unknown[],
+  ): Promise<QueryResult<T>>
+}
+
+type GenerationTaskRow = QueryResultRow & {
+  id: string
+  client_request_id: string
+  project_id: string
+  tenant_id: string
+  user_id: string
+  kind: GenerationTask['kind']
+  label: string
+  prompt: string
+  negative_prompt: string
+  provider: string
+  model: string | null
+  tier: GenerationTask['tier'] | null
+  metadata: unknown
+  status: GenerationTask['status']
+  progress: number | string
+  estimated_credits: number | string
+  attempts: number | string
+  max_attempts: number | string | null
+  lease_owner_id: string | null
+  lease_token: string | null
+  lease_acquired_at: Date | string | null
+  lease_heartbeat_at: Date | string | null
+  lease_expires_at: Date | string | null
+  result_url: string | null
+  outputs: unknown
+  error: string | null
+  created_at: Date | string
+  updated_at: Date | string
+}
+
+type GenerationTaskImportResult = {
+  tasks: { inserted: number; skipped: number }
+}
+
+const generationTaskColumns = `
+  id,
+  client_request_id,
+  project_id,
+  tenant_id,
+  user_id,
+  kind,
+  label,
+  prompt,
+  negative_prompt,
+  provider,
+  model,
+  tier,
+  metadata,
+  status,
+  progress,
+  estimated_credits,
+  attempts,
+  max_attempts,
+  lease_owner_id,
+  lease_token,
+  lease_acquired_at,
+  lease_heartbeat_at,
+  lease_expires_at,
+  result_url,
+  outputs,
+  error,
+  created_at,
+  updated_at
+`
 
 export class GenerationTaskRepository {
   constructor(
     private readonly store: AppStore,
     private readonly creditLedger: CreditLedger | null = null,
+    private readonly database: AccountDatabase | null = null,
   ) {}
+
+  async importFromStore(): Promise<GenerationTaskImportResult> {
+    const result: GenerationTaskImportResult = { tasks: { inserted: 0, skipped: 0 } }
+    if (!this.database) return result
+
+    const tasks = this.store.read((state) => state.tasks)
+    if (!tasks.length) return result
+
+    await this.database.transaction(async (client) => {
+      for (const task of tasks) {
+        if (await insertTaskFromStore(client, task)) {
+          result.tasks.inserted += 1
+        } else {
+          result.tasks.skipped += 1
+        }
+      }
+    })
+    await this.refreshRuntimeCacheFromDatabase()
+    return result
+  }
+
+  async refreshRuntimeCacheFromDatabase(): Promise<void> {
+    if (!this.database) return
+    const result = await this.database.query<GenerationTaskRow>(
+      `
+      SELECT ${generationTaskColumns}
+      FROM generation_tasks
+      ORDER BY created_at DESC, id DESC
+      `,
+    )
+    this.store.replaceGenerationTaskRuntimeCache(result.rows.map(taskFromRow))
+  }
+
+  async persistRuntimeSnapshot(snapshot: Pick<ProjectDomainRuntimeSnapshot, 'tasks'>): Promise<void> {
+    if (!this.database) return
+    await this.database.transaction(async (client) => {
+      for (const task of snapshot.tasks) {
+        await upsertTaskRuntime(client, task)
+      }
+    })
+  }
 
   canCreate(projectId: string, principal: Principal): boolean {
     return this.store.read((state) =>
@@ -67,152 +184,31 @@ export class GenerationTaskRepository {
   }
 
   async create(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask> {
-    return this.store.mutate((state) => {
-      const existing = state.tasks.find(
-        (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
-      )
-      if (existing) return existing
-
-      const shotId = metadataString(input.metadata, 'shotId')
-      if (input.kind === 'video' && shotId) {
-        const activeTask = state.tasks.find(
-          (item) =>
-            item.projectId === input.projectId &&
-            item.tenantId === principal.tenantId &&
-            item.kind === 'video' &&
-            item.metadata.shotId === shotId &&
-            ['queued', 'paused', 'running'].includes(item.status) &&
-            typeof item.metadata.queueHiddenAt !== 'string',
-        )
-        if (activeTask) {
-          throw new AppError(
-            409,
-            'VIDEO_SHOT_BATCH_CONFLICT',
-            '该镜头已有一个生成任务正在处理，请先在生成队列暂停或删除它，再重新选择生成策略。',
-          )
-        }
-      }
-
-      const now = new Date().toISOString()
-      const task = buildQueuedGenerationTask(input, principal, now)
-      state.tasks.unshift(task)
-      return task
-    })
+    if (this.database) return this.createInDatabase(input, principal, false)
+    return this.createInStore(input, principal)
   }
 
   async createWithCharge(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask> {
-    const creditLedger = this.creditLedger
-    if (!creditLedger) {
-      return this.store.transaction((state) => {
-      const existing = state.tasks.find(
-        (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
-      )
-      if (existing) return existing
-
-      const shotId = metadataString(input.metadata, 'shotId')
-      if (input.kind === 'video' && shotId) {
-        const activeTask = state.tasks.find(
-          (item) =>
-            item.projectId === input.projectId &&
-            item.tenantId === principal.tenantId &&
-            item.kind === 'video' &&
-            item.metadata.shotId === shotId &&
-            ['queued', 'paused', 'running'].includes(item.status) &&
-            typeof item.metadata.queueHiddenAt !== 'string',
-        )
-        if (activeTask) {
-          throw new AppError(
-            409,
-            'VIDEO_SHOT_BATCH_CONFLICT',
-            '璇ラ暅澶村凡鏈変竴涓敓鎴愪换鍔℃鍦ㄥ鐞嗭紝璇峰厛鍦ㄧ敓鎴愰槦鍒楁殏鍋滄垨鍒犻櫎瀹冿紝鍐嶉噸鏂伴€夋嫨鐢熸垚绛栫暐銆?',
-          )
-        }
-      }
-
-      const user = state.users.find(
-        (item) => item.id === principal.userId && item.tenantId === principal.tenantId,
-      )
-      if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', '璐﹀彿涓嶅瓨鍦?')
-      if (user.credits < input.estimatedCredits) {
-        throw new AppError(402, 'INSUFFICIENT_CREDITS', '绉垎涓嶈冻')
-      }
-
-      const now = new Date().toISOString()
-      const task = buildQueuedGenerationTask(input, principal, now)
-      user.credits -= input.estimatedCredits
-      state.ledger.unshift({
-        id: `generation-${input.clientRequestId}`,
-        userId: user.id,
-        tenantId: user.tenantId,
-        amount: -input.estimatedCredits,
-        balance: user.credits,
-        type: 'generation',
-        description: input.label,
-        createdAt: now,
-      })
-      state.tasks.unshift(task)
-      return task
-    })
-    }
-
-    return this.store.transaction(async (state) => {
-      const existing = state.tasks.find(
-        (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
-      )
-      if (existing) return existing
-
-      const shotId = metadataString(input.metadata, 'shotId')
-      if (input.kind === 'video' && shotId) {
-        const activeTask = state.tasks.find(
-          (item) =>
-            item.projectId === input.projectId &&
-            item.tenantId === principal.tenantId &&
-            item.kind === 'video' &&
-            item.metadata.shotId === shotId &&
-            ['queued', 'paused', 'running'].includes(item.status) &&
-            typeof item.metadata.queueHiddenAt !== 'string',
-        )
-        if (activeTask) {
-          throw new AppError(
-            409,
-            'VIDEO_SHOT_BATCH_CONFLICT',
-            '鐠囥儵鏆呮径鏉戝嚒閺堝绔存稉顏嗘晸閹存劒鎹㈤崝鈩冾劀閸︺劌顦╅悶鍡礉鐠囧嘲鍘涢崷銊ф晸閹存劙妲﹂崚妤佹畯閸嬫粍鍨ㄩ崚鐘绘珟鐎瑰喛绱濋崘宥夊櫢閺備即鈧瀚ㄩ悽鐔稿灇缁涙牜鏆愰妴?',
-          )
-        }
-      }
-
-      const user = state.users.find(
-        (item) => item.id === principal.userId && item.tenantId === principal.tenantId,
-      )
-      if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', '鐠愶箑褰挎稉宥呯摠閸?')
-      if (user.credits < input.estimatedCredits) {
-        throw new AppError(402, 'INSUFFICIENT_CREDITS', '缁夘垰鍨庢稉宥堝喕')
-      }
-
-      const now = new Date().toISOString()
-      const task = buildQueuedGenerationTask(input, principal, now)
-      await creditLedger.reserveCreditsInState(
-        state,
-        principal,
-        input.estimatedCredits,
-        input.clientRequestId,
-        input.label,
-      )
-      state.tasks.unshift(task)
-      return task
-    })
+    if (this.database) return this.createInDatabase(input, principal, true)
+    return this.createWithChargeInStore(input, principal)
   }
 
-  listByProject(projectId: string, principal: Principal): GenerationTask[] {
+  async listByProject(projectId: string, principal: Principal): Promise<GenerationTask[]> {
+    if (!this.database) return this.listByProjectFromStore(projectId, principal)
+
     const canReadAll = canReadAllTenantContent(principal)
-    return this.store.read((state) =>
-      state.tasks.filter(
-        (task) =>
-          task.projectId === projectId &&
-          task.tenantId === principal.tenantId &&
-          (canReadAll || task.userId === principal.userId),
-      ),
+    const result = await this.database.query<GenerationTaskRow>(
+      `
+      SELECT ${generationTaskColumns}
+      FROM generation_tasks
+      WHERE project_id = $1
+        AND tenant_id = $2
+        AND ($3::boolean OR user_id = $4)
+      ORDER BY created_at DESC, id DESC
+      `,
+      [projectId, principal.tenantId, canReadAll, principal.userId],
     )
+    return result.rows.map(taskFromRow)
   }
 
   filmPreviewPlan(projectId: string, principal: Principal) {
@@ -221,8 +217,7 @@ export class GenerationTaskRepository {
         (item) =>
           item.id === projectId &&
           item.tenantId === principal.tenantId &&
-          (item.ownerId === principal.userId ||
-            canReadAllTenantContent(principal)),
+          (item.ownerId === principal.userId || canReadAllTenantContent(principal)),
       )
       if (!project) return null
       const shots = state.shots
@@ -245,17 +240,22 @@ export class GenerationTaskRepository {
     })
   }
 
-  findById(taskId: string, principal: Principal): GenerationTask | null {
+  async findById(taskId: string, principal: Principal): Promise<GenerationTask | null> {
+    if (!this.database) return this.findByIdFromStore(taskId, principal)
+
     const canReadAll = canReadAllTenantContent(principal)
-    return this.store.read(
-      (state) =>
-        state.tasks.find(
-          (task) =>
-            task.id === taskId &&
-            task.tenantId === principal.tenantId &&
-            (canReadAll || task.userId === principal.userId),
-        ) ?? null,
+    const result = await this.database.query<GenerationTaskRow>(
+      `
+      SELECT ${generationTaskColumns}
+      FROM generation_tasks
+      WHERE id = $1
+        AND tenant_id = $2
+        AND ($3::boolean OR user_id = $4)
+      LIMIT 1
+      `,
+      [taskId, principal.tenantId, canReadAll, principal.userId],
     )
+    return result.rows[0] ? taskFromRow(result.rows[0]) : null
   }
 
   async clearCompleted(projectId: string, principal: Principal): Promise<number> {
@@ -270,6 +270,7 @@ export class GenerationTaskRepository {
       )
       terminalTasks.forEach((task) => {
         task.metadata = { ...task.metadata, queueHiddenAt: now }
+        task.updatedAt = now
       })
       return terminalTasks.length
     })
@@ -370,11 +371,492 @@ export class GenerationTaskRepository {
   async cancelRunning(taskId: string, principal: Principal): Promise<GenerationTask | null> {
     return this.deleteFromQueue(taskId, principal).then((result) => result.task)
   }
+
+  private async createInDatabase(
+    input: CreateGenerationTask,
+    principal: Principal,
+    chargeCredits: boolean,
+  ): Promise<GenerationTask> {
+    const created = await this.database!.transaction(async (client) => {
+      const replayed = await findTaskByClientRequest(client, input.clientRequestId, principal)
+      if (replayed) return { task: replayed, credits: null }
+
+      await assertNoActiveShotTask(client, input, principal)
+      const membership = await resolveMembershipForTask(client, principal, chargeCredits)
+      if (!membership) {
+        throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
+      }
+
+      const now = new Date().toISOString()
+      const task = buildQueuedGenerationTask(input, principal, now)
+      const inserted = await insertCreatedTask(client, task, membership.id)
+      if (!inserted) {
+        const existing = await findTaskByClientRequest(client, input.clientRequestId, principal)
+        if (existing) return { task: existing, credits: null }
+        throw new AppError(409, 'TASK_CONFLICT', 'Generation task already exists')
+      }
+
+      if (!chargeCredits || input.estimatedCredits <= 0) return { task: inserted, credits: null }
+      if (membership.credits === null || membership.credits < input.estimatedCredits) {
+        throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
+      }
+
+      const nextCredits = membership.credits - input.estimatedCredits
+      await client.query(
+        `
+        UPDATE billing_accounts
+        SET credits = $2,
+            updated_at = now()
+        WHERE membership_id = $1
+        `,
+        [membership.id, nextCredits],
+      )
+      await client.query(
+        `
+        INSERT INTO billing_ledger_entries (
+          id,
+          tenant_id,
+          user_id,
+          membership_id,
+          reference_id,
+          related_entry_id,
+          entry_type,
+          amount,
+          balance,
+          description,
+          created_by_user_id,
+          created_at,
+          updated_at,
+          metadata
+        )
+        VALUES ($1, $2, $3, $4, $5, NULL, 'generation', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
+        `,
+        [
+          `generation-${input.clientRequestId}`,
+          principal.tenantId,
+          principal.userId,
+          membership.id,
+          input.clientRequestId,
+          -input.estimatedCredits,
+          nextCredits,
+          input.label,
+          now,
+        ],
+      )
+      return { task: inserted, credits: nextCredits }
+    })
+
+    await this.mirrorTask(created.task, created.credits)
+    return created.task
+  }
+
+  private async createInStore(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask> {
+    return this.store.mutate((state) => {
+      const existing = state.tasks.find(
+        (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
+      )
+      if (existing) return existing
+
+      assertNoActiveShotTaskInState(state, input, principal)
+      const now = new Date().toISOString()
+      const task = buildQueuedGenerationTask(input, principal, now)
+      state.tasks.unshift(task)
+      return task
+    })
+  }
+
+  private async createWithChargeInStore(
+    input: CreateGenerationTask,
+    principal: Principal,
+  ): Promise<GenerationTask> {
+    const creditLedger = this.creditLedger
+    return this.store.transaction(async (state) => {
+      const existing = state.tasks.find(
+        (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
+      )
+      if (existing) return existing
+
+      assertNoActiveShotTaskInState(state, input, principal)
+      const user = state.users.find(
+        (item) => item.id === principal.userId && item.tenantId === principal.tenantId,
+      )
+      if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
+
+      const now = new Date().toISOString()
+      const task = buildQueuedGenerationTask(input, principal, now)
+      if (creditLedger) {
+        await creditLedger.reserveCreditsInState(
+          state,
+          principal,
+          input.estimatedCredits,
+          input.clientRequestId,
+          input.label,
+        )
+      } else {
+        if (user.credits < input.estimatedCredits) {
+          throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
+        }
+        user.credits -= input.estimatedCredits
+        state.ledger.unshift({
+          id: `generation-${input.clientRequestId}`,
+          userId: user.id,
+          tenantId: user.tenantId,
+          amount: -input.estimatedCredits,
+          balance: user.credits,
+          type: 'generation',
+          description: input.label,
+          createdAt: now,
+        })
+      }
+      state.tasks.unshift(task)
+      return task
+    })
+  }
+
+  private listByProjectFromStore(projectId: string, principal: Principal): GenerationTask[] {
+    const canReadAll = canReadAllTenantContent(principal)
+    return this.store.read((state) =>
+      state.tasks.filter(
+        (task) =>
+          task.projectId === projectId &&
+          task.tenantId === principal.tenantId &&
+          (canReadAll || task.userId === principal.userId),
+      ),
+    )
+  }
+
+  private findByIdFromStore(taskId: string, principal: Principal): GenerationTask | null {
+    const canReadAll = canReadAllTenantContent(principal)
+    return this.store.read(
+      (state) =>
+        state.tasks.find(
+          (task) =>
+            task.id === taskId &&
+            task.tenantId === principal.tenantId &&
+            (canReadAll || task.userId === principal.userId),
+        ) ?? null,
+    )
+  }
+
+  private async mirrorTask(task: GenerationTask, credits: number | null): Promise<void> {
+    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
+      upsertTaskInState(state, task)
+      if (credits === null) return
+      const user = state.users.find((item) => item.id === task.userId && item.tenantId === task.tenantId)
+      if (user) user.credits = credits
+    })
+  }
 }
 
-function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
-  const value = metadata?.[key]
-  return typeof value === 'string' && value.length > 0 ? value : null
+async function findTaskByClientRequest(
+  queryable: Queryable,
+  clientRequestId: string,
+  principal: Principal,
+): Promise<GenerationTask | null> {
+  const result = await queryable.query<GenerationTaskRow>(
+    `
+    SELECT ${generationTaskColumns}
+    FROM generation_tasks
+    WHERE tenant_id = $1
+      AND user_id = $2
+      AND client_request_id = $3
+    LIMIT 1
+    `,
+    [principal.tenantId, principal.userId, clientRequestId],
+  )
+  return result.rows[0] ? taskFromRow(result.rows[0]) : null
+}
+
+async function assertNoActiveShotTask(
+  queryable: Queryable,
+  input: CreateGenerationTask,
+  principal: Principal,
+): Promise<void> {
+  const shotId = metadataString(input.metadata, 'shotId')
+  if (input.kind !== 'video' || !shotId) return
+  const activeTask = await queryable.query<{ id: string }>(
+    `
+    SELECT id
+    FROM generation_tasks
+    WHERE project_id = $1
+      AND tenant_id = $2
+      AND kind = 'video'
+      AND metadata->>'shotId' = $3
+      AND status IN ('queued', 'paused', 'running')
+      AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
+    LIMIT 1
+    `,
+    [input.projectId, principal.tenantId, shotId],
+  )
+  if (activeTask.rows[0]) throw videoShotConflict()
+}
+
+function assertNoActiveShotTaskInState(
+  state: AppState,
+  input: CreateGenerationTask,
+  principal: Principal,
+): void {
+  const shotId = metadataString(input.metadata, 'shotId')
+  if (input.kind !== 'video' || !shotId) return
+  const activeTask = state.tasks.find(
+    (item) =>
+      item.projectId === input.projectId &&
+      item.tenantId === principal.tenantId &&
+      item.kind === 'video' &&
+      item.metadata.shotId === shotId &&
+      ['queued', 'paused', 'running'].includes(item.status) &&
+      typeof item.metadata.queueHiddenAt !== 'string',
+  )
+  if (activeTask) throw videoShotConflict()
+}
+
+function videoShotConflict(): AppError {
+  return new AppError(
+    409,
+    'VIDEO_SHOT_BATCH_CONFLICT',
+    'This shot already has an active video generation task. Pause or delete it before creating another one.',
+  )
+}
+
+async function resolveMembershipForTask(
+  queryable: Queryable,
+  principal: Principal,
+  forUpdate: boolean,
+): Promise<{ id: string; credits: number | null } | null> {
+  const result = await queryable.query<{ id: string; credits: number | null }>(
+    `
+    SELECT m.id, ${forUpdate ? 'b.credits' : 'NULL::integer'} AS credits
+    FROM tenant_memberships m
+    JOIN users u ON u.id = m.user_id AND u.status = 'active'
+    JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
+    JOIN billing_accounts b ON b.membership_id = m.id
+    WHERE m.user_id = $1
+      AND m.tenant_id = $2
+      AND m.status = 'active'
+    LIMIT 1
+    ${forUpdate ? 'FOR UPDATE OF b' : ''}
+    `,
+    [principal.userId, principal.tenantId],
+  )
+  const row = result.rows[0]
+  return row ? { id: row.id, credits: row.credits === null ? null : Number(row.credits) } : null
+}
+
+async function insertCreatedTask(
+  client: PoolClient,
+  task: GenerationTask,
+  membershipId: string | null,
+): Promise<GenerationTask | null> {
+  const inserted = await client.query<GenerationTaskRow>(
+    `
+    INSERT INTO generation_tasks (
+      id,
+      client_request_id,
+      project_id,
+      tenant_id,
+      user_id,
+      membership_id,
+      kind,
+      label,
+      prompt,
+      negative_prompt,
+      provider,
+      model,
+      tier,
+      metadata,
+      status,
+      progress,
+      estimated_credits,
+      attempts,
+      max_attempts,
+      lease_owner_id,
+      lease_token,
+      lease_acquired_at,
+      lease_heartbeat_at,
+      lease_expires_at,
+      result_url,
+      outputs,
+      error,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+      $11, $12, $13, $14::jsonb, $15, $16, $17, $18, $19,
+      $20, $21, $22, $23, $24, $25, $26::jsonb, $27, $28, $29
+    )
+    ON CONFLICT (tenant_id, user_id, client_request_id) DO NOTHING
+    RETURNING ${generationTaskColumns}
+    `,
+    taskInsertParams(task, membershipId),
+  )
+  return inserted.rows[0] ? taskFromRow(inserted.rows[0]) : null
+}
+
+async function insertTaskFromStore(client: PoolClient, task: GenerationTask): Promise<boolean> {
+  const membership = await resolveMembershipForTask(
+    client,
+    { userId: task.userId, tenantId: task.tenantId, roles: [] },
+    false,
+  )
+  const result = await client.query(
+    `
+    INSERT INTO generation_tasks (
+      id,
+      client_request_id,
+      project_id,
+      tenant_id,
+      user_id,
+      membership_id,
+      kind,
+      label,
+      prompt,
+      negative_prompt,
+      provider,
+      model,
+      tier,
+      metadata,
+      status,
+      progress,
+      estimated_credits,
+      attempts,
+      max_attempts,
+      lease_owner_id,
+      lease_token,
+      lease_acquired_at,
+      lease_heartbeat_at,
+      lease_expires_at,
+      result_url,
+      outputs,
+      error,
+      created_at,
+      updated_at
+    )
+    SELECT
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+      $11, $12, $13, $14::jsonb, $15, $16, $17, $18, $19,
+      $20, $21, $22, $23, $24, $25, $26::jsonb, $27, $28, $29
+    WHERE EXISTS (SELECT 1 FROM projects WHERE id = $3 AND tenant_id = $4)
+      AND EXISTS (SELECT 1 FROM users WHERE id = $5)
+    ON CONFLICT DO NOTHING
+    RETURNING id
+    `,
+    taskInsertParams(normalizeGenerationTaskLifecycle(task), membership?.id ?? null),
+  )
+  return (result.rowCount ?? 0) > 0
+}
+
+async function upsertTaskRuntime(client: PoolClient, task: GenerationTask): Promise<void> {
+  const membership = await resolveMembershipForTask(
+    client,
+    { userId: task.userId, tenantId: task.tenantId, roles: [] },
+    false,
+  )
+  await client.query(
+    `
+    INSERT INTO generation_tasks (
+      id,
+      client_request_id,
+      project_id,
+      tenant_id,
+      user_id,
+      membership_id,
+      kind,
+      label,
+      prompt,
+      negative_prompt,
+      provider,
+      model,
+      tier,
+      metadata,
+      status,
+      progress,
+      estimated_credits,
+      attempts,
+      max_attempts,
+      lease_owner_id,
+      lease_token,
+      lease_acquired_at,
+      lease_heartbeat_at,
+      lease_expires_at,
+      result_url,
+      outputs,
+      error,
+      created_at,
+      updated_at
+    )
+    SELECT
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+      $11, $12, $13, $14::jsonb, $15, $16, $17, $18, $19,
+      $20, $21, $22, $23, $24, $25, $26::jsonb, $27, $28, $29
+    WHERE EXISTS (SELECT 1 FROM projects WHERE id = $3 AND tenant_id = $4)
+      AND EXISTS (SELECT 1 FROM users WHERE id = $5)
+    ON CONFLICT (id) DO UPDATE
+    SET
+      client_request_id = EXCLUDED.client_request_id,
+      project_id = EXCLUDED.project_id,
+      tenant_id = EXCLUDED.tenant_id,
+      user_id = EXCLUDED.user_id,
+      membership_id = EXCLUDED.membership_id,
+      kind = EXCLUDED.kind,
+      label = EXCLUDED.label,
+      prompt = EXCLUDED.prompt,
+      negative_prompt = EXCLUDED.negative_prompt,
+      provider = EXCLUDED.provider,
+      model = EXCLUDED.model,
+      tier = EXCLUDED.tier,
+      metadata = EXCLUDED.metadata,
+      status = EXCLUDED.status,
+      progress = EXCLUDED.progress,
+      estimated_credits = EXCLUDED.estimated_credits,
+      attempts = EXCLUDED.attempts,
+      max_attempts = EXCLUDED.max_attempts,
+      lease_owner_id = EXCLUDED.lease_owner_id,
+      lease_token = EXCLUDED.lease_token,
+      lease_acquired_at = EXCLUDED.lease_acquired_at,
+      lease_heartbeat_at = EXCLUDED.lease_heartbeat_at,
+      lease_expires_at = EXCLUDED.lease_expires_at,
+      result_url = EXCLUDED.result_url,
+      outputs = EXCLUDED.outputs,
+      error = EXCLUDED.error,
+      updated_at = EXCLUDED.updated_at
+    `,
+    taskInsertParams(normalizeGenerationTaskLifecycle(task), membership?.id ?? null),
+  )
+}
+
+function taskInsertParams(task: GenerationTask, membershipId: string | null): unknown[] {
+  return [
+    task.id,
+    task.clientRequestId,
+    task.projectId,
+    task.tenantId,
+    task.userId,
+    membershipId,
+    task.kind,
+    task.label,
+    task.prompt,
+    task.negativePrompt,
+    task.provider,
+    task.model,
+    task.tier ?? null,
+    JSON.stringify(task.metadata),
+    task.status,
+    task.progress,
+    task.estimatedCredits,
+    task.attempts ?? 0,
+    task.maxAttempts ?? null,
+    task.leaseOwnerId ?? null,
+    task.leaseToken ?? null,
+    task.leaseAcquiredAt ?? null,
+    task.leaseHeartbeatAt ?? null,
+    task.leaseExpiresAt ?? null,
+    task.resultUrl,
+    JSON.stringify(task.outputs),
+    task.error,
+    task.createdAt,
+    task.updatedAt,
+  ]
 }
 
 function buildQueuedGenerationTask(
@@ -408,6 +890,48 @@ function buildQueuedGenerationTask(
   })
 }
 
+function taskFromRow(row: GenerationTaskRow): GenerationTask {
+  return normalizeGenerationTaskLifecycle({
+    id: row.id,
+    clientRequestId: row.client_request_id,
+    projectId: row.project_id,
+    tenantId: row.tenant_id,
+    userId: row.user_id,
+    kind: row.kind,
+    label: row.label,
+    prompt: row.prompt,
+    negativePrompt: row.negative_prompt,
+    provider: row.provider,
+    model: row.model,
+    tier: row.tier ?? null,
+    metadata: jsonValue(row.metadata, {}),
+    status: row.status,
+    progress: Number(row.progress),
+    estimatedCredits: Number(row.estimated_credits),
+    attempts: Number(row.attempts),
+    maxAttempts: row.max_attempts === null ? undefined : Number(row.max_attempts),
+    leaseOwnerId: row.lease_owner_id,
+    leaseToken: row.lease_token,
+    leaseAcquiredAt: nullableIsoString(row.lease_acquired_at),
+    leaseHeartbeatAt: nullableIsoString(row.lease_heartbeat_at),
+    leaseExpiresAt: nullableIsoString(row.lease_expires_at),
+    resultUrl: row.result_url,
+    outputs: jsonValue(row.outputs, []),
+    error: row.error,
+    createdAt: isoString(row.created_at),
+    updatedAt: isoString(row.updated_at),
+  })
+}
+
+function upsertTaskInState(state: AppState, task: GenerationTask): void {
+  const index = state.tasks.findIndex((item) => item.id === task.id)
+  if (index >= 0) {
+    state.tasks[index] = task
+  } else {
+    state.tasks.unshift(task)
+  }
+}
+
 function findControlledTask(
   tasks: GenerationTask[],
   taskId: string,
@@ -420,4 +944,29 @@ function findControlledTask(
       task.tenantId === principal.tenantId &&
       (canControlAll || task.userId === principal.userId),
   )
+}
+
+function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key]
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function jsonValue<T>(value: unknown, fallback: T): T {
+  if (value === null || value === undefined) return fallback
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as T
+    } catch {
+      return fallback
+    }
+  }
+  return structuredClone(value) as T
+}
+
+function isoString(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
+}
+
+function nullableIsoString(value: Date | string | null): string | null {
+  return value === null ? null : isoString(value)
 }
