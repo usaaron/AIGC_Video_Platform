@@ -6,6 +6,7 @@ const developmentOwnerPassword = 'OwnerPassword123!'
 const developmentSuperAdminPassword = 'SuperAdmin123!'
 const developmentAdminPassword = 'Admin123!'
 const developmentDatabaseUrl = 'postgres://seqora:seqora_dev_password@127.0.0.1:5432/seqora_dev'
+const developmentBillingWebhookSecret = 'seqora-development-billing-webhook-secret'
 const booleanFromEnvironment = z.preprocess((value) => {
   if (typeof value === 'boolean') return value
   if (value === 'true') return true
@@ -29,6 +30,7 @@ const configSchema = z
     REDIS_URL: z.union([z.literal(''), z.string().min(1)]).default('redis://127.0.0.1:6379'),
     AUTH_MODE: z.enum(['local', 'demo', 'oidc']).default('local'),
     AUTH_SECRET: z.string().min(32).default(developmentAuthSecret),
+    BILLING_WEBHOOK_SECRET: z.string().min(32).default(developmentBillingWebhookSecret),
     DATABASE_URL: z.union([z.literal(''), z.string().min(1)]).default(''),
     BOOTSTRAP_CREATOR_NAME: z.string().min(1).max(80).default('林夏'),
     BOOTSTRAP_CREATOR_EMAIL: z.string().email().default('creator@seqora.local'),
@@ -100,6 +102,13 @@ const configSchema = z
         code: 'custom',
         path: ['AUTH_SECRET'],
         message: 'A unique AUTH_SECRET is required in production',
+      })
+    }
+    if (config.NODE_ENV === 'production' && config.BILLING_WEBHOOK_SECRET === developmentBillingWebhookSecret) {
+      context.addIssue({
+        code: 'custom',
+        path: ['BILLING_WEBHOOK_SECRET'],
+        message: 'A unique BILLING_WEBHOOK_SECRET is required in production',
       })
     }
     if (config.NODE_ENV === 'production' && !config.WEB_ORIGIN.startsWith('https://')) {

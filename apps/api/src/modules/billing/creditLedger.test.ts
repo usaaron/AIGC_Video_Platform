@@ -210,18 +210,45 @@ describe('postgres billing ledger', () => {
     ])
   })
 
-  it('updates plans and grants monthly member credits once', async () => {
-    const { database, ledger } = await createLedger()
+  it('processes subscription webhooks and grants monthly member credits once', async () => {
+    const { database, ledger, store } = await createLedger()
 
-    await ledger.updatePlan(principal, 'member')
-    await ledger.updatePlan(principal, 'free')
-    const summary = await ledger.updatePlan(principal, 'member')
+    await expect(ledger.updatePlan(principal, 'member')).rejects.toMatchObject({
+      code: 'PLAN_CHANGE_REQUIRES_ADMIN',
+    })
 
+    const activated = await ledger.processBillingWebhook('testpay', {
+      eventId: 'evt-subscription-activated',
+      type: 'subscription.activated',
+      membershipId: 'membership-tenant-seqora-demo-user-creator',
+      occurredAt: '2026-07-01T00:00:00.000Z',
+      metadata: { subscriptionId: 'sub_1' },
+    })
+    const duplicate = await ledger.processBillingWebhook('testpay', {
+      eventId: 'evt-subscription-activated',
+      type: 'subscription.activated',
+      membershipId: 'membership-tenant-seqora-demo-user-creator',
+      occurredAt: '2026-07-01T00:00:00.000Z',
+      metadata: { subscriptionId: 'sub_1' },
+    })
+    const summary = await ledger.billingSummary(principal)
+
+    expect(activated).toMatchObject({
+      duplicate: false,
+      plan: 'member',
+      credits: 786,
+      ledgerEntry: { type: 'grant', amount: 500 },
+    })
+    expect(duplicate).toMatchObject({ duplicate: true, plan: 'member' })
     expect(summary).toMatchObject({
       plan: 'member',
       credits: 786,
-      planSelfServiceEnabled: true,
+      planSelfServiceEnabled: false,
       monthlyUsage: { includedCredits: 500 },
+    })
+    expect(store.read((state) => state.users.find((user) => user.id === principal.userId))).toMatchObject({
+      plan: 'member',
+      credits: 786,
     })
 
     const grants = await database.query<{ count: number }>(
@@ -237,6 +264,15 @@ describe('postgres billing ledger', () => {
       [principal.userId, principal.tenantId, `membership-${principal.userId}-%`],
     )
     expect(grants.rows[0]?.count).toBe(1)
+
+    const cancelled = await ledger.processBillingWebhook('testpay', {
+      eventId: 'evt-subscription-cancelled',
+      type: 'subscription.cancelled',
+      membershipId: 'membership-tenant-seqora-demo-user-creator',
+      metadata: { subscriptionId: 'sub_1' },
+    })
+    expect(cancelled).toMatchObject({ plan: 'free', credits: 786 })
+    await expect(ledger.billingSummary(principal)).resolves.toMatchObject({ plan: 'free', credits: 786 })
   })
 })
 
@@ -257,7 +293,7 @@ async function createLedger(): Promise<{
   const users = new UserRepository(store, database)
   await users.bootstrapFromStore()
 
-  const ledger = new StoreCreditLedger(store, users, true, database)
+  const ledger = new StoreCreditLedger(store, users, false, database)
   await ledger.bootstrapFromStore()
 
   return { database, ledger, store }

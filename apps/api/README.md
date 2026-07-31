@@ -64,7 +64,7 @@ Route -> Service -> Repository / Provider -> Database / Store / External API
 - `POST /workspaces/:tenantId/owner-transfer`、`POST /workspaces/:tenantId/leave`
 - `GET /tenants/:tenantId/members`、`POST /tenants/:tenantId/users`
 - `PATCH /tenants/:tenantId/members/:userId/roles`、`DELETE /tenants/:tenantId/members/:userId`
-- `GET /billing/summary`、`PUT /billing/plan`
+- `GET /billing/summary`、`POST /billing/webhooks/:provider`；`PUT /billing/plan` 仅保留为禁止前端自助改套餐的兼容拦截
 - `GET /admin/console`、`GET /admin/users`、`GET /admin/tenants`、`GET /admin/memberships`
 - `GET /admin/billing/accounts`、`GET /admin/billing/ledger`
 - `GET /admin/sessions`、`DELETE /admin/sessions/:sessionId`

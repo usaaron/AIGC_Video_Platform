@@ -43,6 +43,47 @@ export const billingSummarySchema = z.object({
 })
 
 export const updatePlanSchema = z.object({ plan: planSchema })
+export const billingWebhookEventTypeSchema = z.enum([
+  'subscription.activated',
+  'subscription.renewed',
+  'subscription.cancelled',
+  'subscription.expired',
+  'credits.purchased',
+  'payment.refunded',
+])
+export const billingWebhookEventSchema = z
+  .object({
+    eventId: z.string().min(1).max(200),
+    type: billingWebhookEventTypeSchema,
+    membershipId: z.string().min(1).max(512).optional(),
+    tenantId: z.string().min(1).max(256).optional(),
+    userId: z.string().min(1).max(256).optional(),
+    plan: planSchema.optional(),
+    credits: z.coerce.number().int().positive().max(1_000_000).optional(),
+    referenceId: z.string().min(1).max(300).optional(),
+    description: z.string().min(1).max(200).optional(),
+    occurredAt: z.string().datetime().optional(),
+    metadata: z.record(z.string(), z.unknown()).default({}),
+  })
+  .superRefine((input, context) => {
+    if (!input.membershipId && (!input.tenantId || !input.userId)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['membershipId'],
+        message: 'membershipId or tenantId + userId is required',
+      })
+    }
+    if (
+      (input.type === 'credits.purchased' || input.type === 'payment.refunded') &&
+      input.credits === undefined
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['credits'],
+        message: 'credits is required for credit purchase and refund events',
+      })
+    }
+  })
 export const adminGrantCreditsSchema = z.object({
   amount: z.coerce.number().int().positive().max(1_000_000),
   reason: z.string().min(1).max(200),
@@ -60,5 +101,7 @@ export const adminAdjustCreditsSchema = z.object({
 export type LedgerEntry = z.infer<typeof ledgerEntrySchema>
 export type MonthlyUsage = z.infer<typeof monthlyUsageSchema>
 export type BillingSummary = z.infer<typeof billingSummarySchema>
+export type BillingWebhookEvent = z.infer<typeof billingWebhookEventSchema>
+export type BillingWebhookEventType = z.infer<typeof billingWebhookEventTypeSchema>
 export type AdminGrantCreditsInput = z.infer<typeof adminGrantCreditsSchema>
 export type AdminAdjustCreditsInput = z.infer<typeof adminAdjustCreditsSchema>

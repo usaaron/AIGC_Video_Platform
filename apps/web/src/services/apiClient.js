@@ -193,6 +193,5 @@ export const api = {
   clearTasks: (projectId) =>
     request(`/projects/${projectId}/generation/tasks/completed`, { method: 'DELETE' }),
   billing: () => request('/billing/summary'),
-  updatePlan: (plan) => request('/billing/plan', json('PUT', { plan })),
   adminOverview: () => request('/admin/overview'),
 }

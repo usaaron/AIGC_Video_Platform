@@ -1,4 +1,4 @@
-import type { LedgerEntry, Plan } from '@seqora/contracts'
+import type { BillingWebhookEvent, LedgerEntry, Plan } from '@seqora/contracts'
 import type { QueryResultRow } from 'pg'
 import { AppError } from '../../core/errors.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
@@ -51,6 +51,25 @@ export type BillingPlanResult = {
   plan: Plan
   credits: number
   grantEntry: LedgerEntry | null
+}
+
+export type BillingWebhookProcessInput = {
+  provider: string
+  payload: BillingWebhookEvent
+}
+
+export type BillingWebhookProcessResult = {
+  provider: string
+  eventId: string
+  eventType: BillingWebhookEvent['type']
+  duplicate: boolean
+  status: 'processed'
+  tenantId: string | null
+  userId: string | null
+  membershipId: string | null
+  plan: Plan | null
+  credits: number | null
+  ledgerEntry: LedgerEntry | null
 }
 
 export class BillingLedgerRepository {
@@ -447,6 +466,204 @@ export class BillingLedgerRepository {
     })
   }
 
+  async processWebhookEvent(input: BillingWebhookProcessInput): Promise<BillingWebhookProcessResult> {
+    return this.database.transaction(async (client) => {
+      const payload = input.payload
+      const inserted = await client.query<{ id: string }>(
+        `
+        INSERT INTO billing_webhook_events (
+          id,
+          provider,
+          provider_event_id,
+          event_type,
+          status,
+          payload,
+          metadata
+        )
+        VALUES ($1, $2, $3, $4, 'processing', $5, $6)
+        ON CONFLICT (provider, provider_event_id) DO NOTHING
+        RETURNING id
+        `,
+        [
+          webhookEventId(input.provider, payload.eventId),
+          input.provider,
+          payload.eventId,
+          payload.type,
+          JSON.stringify(payload),
+          JSON.stringify(payload.metadata ?? {}),
+        ],
+      )
+
+      if (!inserted.rows[0]) {
+        const existing = await client.query<BillingWebhookEventRow>(
+          `
+          SELECT
+            provider,
+            provider_event_id,
+            event_type,
+            status,
+            tenant_id,
+            user_id,
+            membership_id,
+            plan,
+            amount
+          FROM billing_webhook_events
+          WHERE provider = $1
+            AND provider_event_id = $2
+          LIMIT 1
+          `,
+          [input.provider, payload.eventId],
+        )
+        return webhookResultFromRow(existing.rows[0]!, true)
+      }
+
+      const account = payload.membershipId
+        ? await resolveAccountByMembershipId(client, payload.membershipId)
+        : await resolveAccountByPrincipal(client, payload.userId!, payload.tenantId!)
+      if (!account) {
+        throw new AppError(404, 'BILLING_ACCOUNT_NOT_FOUND', 'Billing account does not exist')
+      }
+
+      let plan = account.plan
+      let credits = account.credits
+      let ledgerEntry: LedgerEntry | null = null
+      let amount: number | null = null
+      const occurredAt = payload.occurredAt ?? new Date().toISOString()
+      const metadata = webhookLedgerMetadata(input.provider, payload)
+
+      if (payload.type === 'subscription.activated' || payload.type === 'subscription.renewed') {
+        const nextPlan = payload.plan ?? 'member'
+        if (plan !== nextPlan) {
+          await client.query(
+            `
+            UPDATE billing_accounts
+            SET plan = $2,
+                updated_at = now()
+            WHERE membership_id = $1
+            `,
+            [account.membershipId, nextPlan],
+          )
+          plan = nextPlan
+        }
+        if (nextPlan === 'member') {
+          const grantId = monthlyGrantId(account.userId, occurredAt)
+          const monthlyGrant = await insertLedgerEntryIfAbsent(client, {
+            account,
+            entryId: grantId,
+            referenceId: grantId,
+            entryType: 'grant',
+            amount: monthlyGrantCredits,
+            currentCredits: credits,
+            description: payload.description ?? 'Member monthly grant',
+            createdAt: occurredAt,
+            metadata,
+          })
+          if (monthlyGrant) {
+            credits = monthlyGrant.balance
+            ledgerEntry = monthlyGrant.entry
+            amount = monthlyGrantCredits
+          }
+        }
+      }
+
+      if (payload.type === 'subscription.cancelled' || payload.type === 'subscription.expired') {
+        if (plan !== 'free') {
+          await client.query(
+            `
+            UPDATE billing_accounts
+            SET plan = 'free',
+                updated_at = now()
+            WHERE membership_id = $1
+            `,
+            [account.membershipId],
+          )
+          plan = 'free'
+        }
+      }
+
+      if (payload.type === 'credits.purchased') {
+        const referenceId = payload.referenceId ?? `payment-${input.provider}-${payload.eventId}`
+        const grant = await insertLedgerEntryIfAbsent(client, {
+          account,
+          entryId: `payment-${input.provider}-${payload.eventId}`,
+          referenceId,
+          entryType: 'grant',
+          amount: payload.credits!,
+          currentCredits: credits,
+          description: payload.description ?? 'Credit purchase',
+          createdAt: occurredAt,
+          metadata,
+        })
+        if (grant) {
+          credits = grant.balance
+          ledgerEntry = grant.entry
+        }
+        amount = payload.credits!
+      }
+
+      if (payload.type === 'payment.refunded') {
+        const referenceId = payload.referenceId
+          ? `refund-${payload.referenceId}`
+          : `refund-${input.provider}-${payload.eventId}`
+        const refund = await insertLedgerEntryIfAbsent(client, {
+          account,
+          entryId: `refund-${input.provider}-${payload.eventId}`,
+          referenceId,
+          entryType: 'adjustment',
+          amount: -payload.credits!,
+          currentCredits: credits,
+          description: payload.description ?? 'Payment refund',
+          createdAt: occurredAt,
+          metadata,
+        })
+        if (refund) {
+          credits = refund.balance
+          ledgerEntry = refund.entry
+        }
+        amount = -payload.credits!
+      }
+
+      await client.query(
+        `
+        UPDATE billing_webhook_events
+        SET status = 'processed',
+            tenant_id = $2,
+            user_id = $3,
+            membership_id = $4,
+            reference_id = $5,
+            plan = $6,
+            amount = $7,
+            processed_at = now(),
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [
+          inserted.rows[0].id,
+          account.tenantId,
+          account.userId,
+          account.membershipId,
+          payload.referenceId ?? null,
+          plan,
+          amount,
+        ],
+      )
+
+      return {
+        provider: input.provider,
+        eventId: payload.eventId,
+        eventType: payload.type,
+        duplicate: false,
+        status: 'processed',
+        tenantId: account.tenantId,
+        userId: account.userId,
+        membershipId: account.membershipId,
+        plan,
+        credits,
+        ledgerEntry,
+      }
+    })
+  }
+
   async updatePlan(input: {
     tenantId: string
     userId: string
@@ -619,15 +836,16 @@ async function resolveAccountByMembershipId(
     ): Promise<{ rows: T[] }>
   },
   membershipId: string,
-): Promise<{ membershipId: string; userId: string; tenantId: string; credits: number } | null> {
+): Promise<BillingAccountRecord | null> {
   const result = await client.query<{
     membership_id: string
     user_id: string
     tenant_id: string
+    plan: Plan
     credits: number
   }>(
     `
-    SELECT b.membership_id, m.user_id, m.tenant_id, b.credits
+    SELECT b.membership_id, m.user_id, m.tenant_id, b.plan, b.credits
     FROM billing_accounts b
     JOIN tenant_memberships m ON m.id = b.membership_id
     JOIN users u ON u.id = m.user_id AND u.status = 'active'
@@ -644,13 +862,10 @@ async function resolveAccountByMembershipId(
         membershipId: row.membership_id,
         userId: row.user_id,
         tenantId: row.tenant_id,
+        plan: row.plan,
         credits: row.credits,
       }
     : null
-}
-
-function monthlyGrantId(userId: string): string {
-  return `membership-${userId}-${startOfChinaMonth().slice(0, 10)}`
 }
 
 function bootstrapReferenceId(entryId: string): string {
@@ -675,12 +890,157 @@ function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }
 
-function startOfChinaMonth(now = new Date()): string {
+function webhookEventId(provider: string, eventId: string): string {
+  return `billing-webhook-${provider}-${eventId}`
+}
+
+function webhookLedgerMetadata(provider: string, payload: BillingWebhookEvent): BillingLedgerMetadata {
+  return {
+    ...payload.metadata,
+    webhookProvider: provider,
+    webhookEventId: payload.eventId,
+    webhookEventType: payload.type,
+  }
+}
+
+async function resolveAccountByPrincipal(
+  client: {
+    query<T extends QueryResultRow = QueryResultRow>(
+      text: string,
+      params?: readonly unknown[],
+    ): Promise<{ rows: T[] }>
+  },
+  userId: string,
+  tenantId: string,
+): Promise<BillingAccountRecord | null> {
+  const membership = await resolveMembership(client, userId, tenantId)
+  if (!membership) return null
+  return resolveAccountByMembershipId(client, membership.id)
+}
+
+async function insertLedgerEntryIfAbsent(
+  client: {
+    query<T extends QueryResultRow = QueryResultRow>(
+      text: string,
+      params?: readonly unknown[],
+    ): Promise<{ rows: T[] }>
+  },
+  input: {
+    account: BillingAccountRecord
+    entryId: string
+    referenceId: string
+    entryType: LedgerEntry['type']
+    amount: number
+    currentCredits: number
+    description: string
+    createdAt: string
+    metadata: BillingLedgerMetadata
+  },
+): Promise<BillingLedgerRecordResult | null> {
+  const duplicate = await client.query<{ id: string }>(
+    `
+    SELECT id
+    FROM billing_ledger_entries
+    WHERE tenant_id = $1
+      AND user_id = $2
+      AND reference_id = $3
+    LIMIT 1
+    `,
+    [input.account.tenantId, input.account.userId, input.referenceId],
+  )
+  if (duplicate.rows[0]) return null
+
+  const nextCredits = input.currentCredits + input.amount
+  if (nextCredits < 0) {
+    throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
+  }
+
+  await client.query(
+    `
+    UPDATE billing_accounts
+    SET credits = $2,
+        updated_at = now()
+    WHERE membership_id = $1
+    `,
+    [input.account.membershipId, nextCredits],
+  )
+
+  const inserted = await client.query<LedgerEntryRow>(
+    `
+    INSERT INTO billing_ledger_entries (
+      id,
+      tenant_id,
+      user_id,
+      membership_id,
+      reference_id,
+      related_entry_id,
+      entry_type,
+      amount,
+      balance,
+      description,
+      created_by_user_id,
+      created_at,
+      updated_at,
+      metadata
+    )
+    VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, NULL, $10, $10, $11)
+    RETURNING id, user_id, tenant_id, entry_type, amount, balance, description, created_at
+    `,
+    [
+      input.entryId,
+      input.account.tenantId,
+      input.account.userId,
+      input.account.membershipId,
+      input.referenceId,
+      input.entryType,
+      input.amount,
+      nextCredits,
+      input.description,
+      input.createdAt,
+      JSON.stringify(input.metadata),
+    ],
+  )
+  return { entry: toLedgerEntry(inserted.rows[0]!), balance: nextCredits }
+}
+
+function webhookResultFromRow(
+  row: BillingWebhookEventRow,
+  duplicate: boolean,
+): BillingWebhookProcessResult {
+  return {
+    provider: row.provider,
+    eventId: row.provider_event_id,
+    eventType: row.event_type,
+    duplicate,
+    status: 'processed',
+    tenantId: row.tenant_id,
+    userId: row.user_id,
+    membershipId: row.membership_id,
+    plan: row.plan,
+    credits: null,
+    ledgerEntry: null,
+  }
+}
+
+function monthlyGrantId(userId: string, now: Date | string = new Date()): string {
+  return `membership-${userId}-${startOfChinaMonth(now).slice(0, 10)}`
+}
+
+function startOfChinaMonth(now: Date | string = new Date()): string {
+  const inputDate = now instanceof Date ? now : new Date(now)
   const chinaOffsetMs = 8 * 60 * 60 * 1_000
-  const chinaNow = new Date(now.getTime() + chinaOffsetMs)
+  const chinaNow = new Date(inputDate.getTime() + chinaOffsetMs)
   return new Date(
     Date.UTC(chinaNow.getUTCFullYear(), chinaNow.getUTCMonth(), 1) - chinaOffsetMs,
   ).toISOString()
+}
+
+type BillingAccountRecord = {
+  membershipId: string
+  userId: string
+  tenantId: string
+  plan: Plan
+  credits: number
 }
 
 type LedgerEntryRow = {
@@ -692,4 +1052,16 @@ type LedgerEntryRow = {
   balance: number
   description: string
   created_at: Date | string
+}
+
+type BillingWebhookEventRow = {
+  provider: string
+  provider_event_id: string
+  event_type: BillingWebhookEvent['type']
+  status: 'processing' | 'processed'
+  tenant_id: string | null
+  user_id: string | null
+  membership_id: string | null
+  plan: Plan | null
+  amount: number | null
 }

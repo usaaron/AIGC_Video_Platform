@@ -2,6 +2,7 @@ import { NOVEL_IMPORT_MAX_FILE_BYTES, type GenerationTask } from '@seqora/contra
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { readFile, rm, stat } from 'node:fs/promises'
+import { createHmac } from 'node:crypto'
 import { resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { TextDecoder } from 'node:util'
@@ -36,6 +37,7 @@ const testConfig: AppConfig = {
   REDIS_URL: '',
   AUTH_MODE: 'demo',
   AUTH_SECRET: 'test-secret-with-at-least-32-characters',
+  BILLING_WEBHOOK_SECRET: 'test-billing-webhook-secret-32-chars',
   BOOTSTRAP_CREATOR_NAME: '林夏',
   BOOTSTRAP_CREATOR_EMAIL: 'creator@seqora.local',
   BOOTSTRAP_CREATOR_PASSWORD: 'Creator123!',
@@ -2801,7 +2803,7 @@ describe('API authorization', () => {
       plan: 'free',
       credits: 278,
       concurrency: 1,
-      planSelfServiceEnabled: true,
+      planSelfServiceEnabled: false,
       monthlyUsage: {
         consumedCredits: 11,
         refundedCredits: 3,
@@ -2846,7 +2848,7 @@ describe('API authorization', () => {
     expect(generate).not.toHaveBeenCalled()
   })
 
-  it('grants monthly member credits only once and disables plan self-service in production', async () => {
+  it('blocks frontend plan changes in every environment', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
@@ -2854,17 +2856,16 @@ describe('API authorization', () => {
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
-    for (const plan of ['member', 'free', 'member'] as const) {
-      const changed = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/billing/plan',
-        headers,
-        payload: { plan },
-      })
-      expect(changed.statusCode, changed.body).toBe(200)
-    }
+    const changed = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/billing/plan',
+      headers,
+      payload: { plan: 'member' },
+    })
+    expect(changed.statusCode).toBe(403)
+    expect(changed.json()).toMatchObject({ error: { code: 'PLAN_CHANGE_REQUIRES_BILLING_WEBHOOK' } })
     const testSummary = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
-    expect(testSummary.json()).toMatchObject({ plan: 'member', credits: 786, planSelfServiceEnabled: true })
+    expect(testSummary.json()).toMatchObject({ plan: 'free', credits: 286, planSelfServiceEnabled: false })
 
     await app.close()
     app = await buildApp({ config: { ...testConfig, NODE_ENV: 'production' }, startWorker: false })
@@ -2875,7 +2876,7 @@ describe('API authorization', () => {
       payload: { plan: 'member' },
     })
     expect(blocked.statusCode).toBe(403)
-    expect(blocked.json()).toMatchObject({ error: { code: 'PLAN_CHANGE_REQUIRES_ADMIN' } })
+    expect(blocked.json()).toMatchObject({ error: { code: 'PLAN_CHANGE_REQUIRES_BILLING_WEBHOOK' } })
     const productionSummary = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(productionSummary.json()).toMatchObject({ planSelfServiceEnabled: false })
   })
@@ -3587,6 +3588,105 @@ describe('local authentication', () => {
       headers: { cookie: `seqora_session=${cookie?.value}` },
     })
     expect(logout.statusCode).toBe(204)
+  })
+
+  it('applies signed billing webhooks and ignores duplicate payment events', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+    })
+    const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
+    const sessionHeaders = { cookie: `seqora_session=${sessionCookie?.value}` }
+    const subscriptionPayload = {
+      eventId: 'evt-subscription-activated-1',
+      type: 'subscription.activated',
+      membershipId: 'membership-tenant-seqora-demo-user-creator',
+      occurredAt: '2026-07-01T00:00:00.000Z',
+      metadata: { subscriptionId: 'sub_1' },
+    }
+
+    const unsigned = await app.inject({
+      method: 'POST',
+      url: '/api/v1/billing/webhooks/testpay',
+      payload: subscriptionPayload,
+    })
+    expect(unsigned.statusCode).toBe(401)
+
+    const activated = await app.inject({
+      method: 'POST',
+      url: '/api/v1/billing/webhooks/testpay',
+      headers: signedWebhookHeaders(subscriptionPayload),
+      payload: subscriptionPayload,
+    })
+    expect(activated.statusCode, activated.body).toBe(200)
+    expect(activated.json()).toMatchObject({
+      duplicate: false,
+      eventId: 'evt-subscription-activated-1',
+      plan: 'member',
+      credits: 786,
+      ledgerEntry: { type: 'grant', amount: 500 },
+    })
+
+    const duplicateSubscription = await app.inject({
+      method: 'POST',
+      url: '/api/v1/billing/webhooks/testpay',
+      headers: signedWebhookHeaders(subscriptionPayload),
+      payload: subscriptionPayload,
+    })
+    expect(duplicateSubscription.statusCode).toBe(200)
+    expect(duplicateSubscription.json()).toMatchObject({ duplicate: true, plan: 'member' })
+
+    const purchasePayload = {
+      eventId: 'evt-credits-purchased-1',
+      type: 'credits.purchased',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-creator',
+      credits: 120,
+      referenceId: 'payment-order-1',
+      description: 'Credit purchase',
+      metadata: { orderId: 'order_1' },
+    }
+    const purchased = await app.inject({
+      method: 'POST',
+      url: '/api/v1/billing/webhooks/testpay',
+      headers: signedWebhookHeaders(purchasePayload),
+      payload: purchasePayload,
+    })
+    expect(purchased.statusCode, purchased.body).toBe(200)
+    expect(purchased.json()).toMatchObject({
+      duplicate: false,
+      credits: 906,
+      ledgerEntry: { type: 'grant', amount: 120, description: 'Credit purchase' },
+    })
+
+    const duplicatePurchase = await app.inject({
+      method: 'POST',
+      url: '/api/v1/billing/webhooks/testpay',
+      headers: signedWebhookHeaders(purchasePayload),
+      payload: purchasePayload,
+    })
+    expect(duplicatePurchase.statusCode).toBe(200)
+    expect(duplicatePurchase.json()).toMatchObject({ duplicate: true })
+
+    const summary = await app.inject({
+      method: 'GET',
+      url: '/api/v1/billing/summary',
+      headers: sessionHeaders,
+    })
+    expect(summary.json()).toMatchObject({
+      plan: 'member',
+      credits: 906,
+      planSelfServiceEnabled: false,
+      monthlyUsage: { includedCredits: 500 },
+    })
+    expect(summary.json().entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ amount: 500, type: 'grant' }),
+        expect.objectContaining({ amount: 120, type: 'grant', description: 'Credit purchase' }),
+      ]),
+    )
   })
 
   it('changes an authenticated account password without accepting the old password afterward', async () => {
@@ -4352,4 +4452,25 @@ function quickStartAnalysis(): string {
       },
     ],
   })
+}
+
+function signedWebhookHeaders(payload: unknown): Record<string, string> {
+  const signature = createHmac('sha256', testConfig.BILLING_WEBHOOK_SECRET)
+    .update(canonicalJson(payload))
+    .digest('hex')
+  return { 'x-seqora-signature': `sha256=${signature}` }
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value)) ?? ''
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJsonValue)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
+      .map(([key, item]) => [key, sortJsonValue(item)]),
+  )
 }

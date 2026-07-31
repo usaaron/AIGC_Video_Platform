@@ -1,11 +1,18 @@
-import type { BillingSummary, GenerationTask, LedgerEntry, Plan, Principal } from '@seqora/contracts'
+import type {
+  BillingSummary,
+  BillingWebhookEvent,
+  GenerationTask,
+  LedgerEntry,
+  Plan,
+  Principal,
+} from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import { isPlatformAdmin, isTenantManager } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
 import type { UserRepository } from '../users/repository.js'
-import { BillingLedgerRepository } from './repository.js'
+import { BillingLedgerRepository, type BillingWebhookProcessResult } from './repository.js'
 
 const monthlyGrantCredits = 500
 
@@ -85,6 +92,10 @@ export interface CreditLedger {
   consumedCreditsSince(startIso: string, tenantId?: string): Promise<number>
   updatePlan(principal: Principal, plan: Plan): Promise<BillingSummary>
   updatePlanInState(state: AppState, principal: Principal, plan: Plan): Promise<BillingSummary>
+  processBillingWebhook(
+    provider: string,
+    payload: BillingWebhookEvent,
+  ): Promise<BillingWebhookProcessResult>
 }
 
 export class StoreCreditLedger implements CreditLedger {
@@ -599,6 +610,24 @@ export class StoreCreditLedger implements CreditLedger {
       user.credits,
       this.planSelfServiceEnabled,
     )
+  }
+
+  async processBillingWebhook(
+    provider: string,
+    payload: BillingWebhookEvent,
+  ): Promise<BillingWebhookProcessResult> {
+    if (!this.ledgerRepository) {
+      throw new AppError(503, 'ACCOUNT_DATABASE_REQUIRED', 'Postgres account database is required')
+    }
+    const result = await this.ledgerRepository.processWebhookEvent({ provider, payload })
+    if (result.duplicate || !result.userId || !result.tenantId) return result
+    await this.store.mutate((state) => {
+      const user = findUserById(state, result.userId!, result.tenantId!)
+      if (!user) return
+      if (result.plan) user.plan = result.plan
+      if (result.credits !== null) user.credits = result.credits
+    })
+    return result
   }
 }
 

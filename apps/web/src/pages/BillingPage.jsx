@@ -1,7 +1,7 @@
 import { CalendarClock, Check, Crown, Gauge, ReceiptText, Zap } from 'lucide-react'
 import { PageHeader } from '../components/ui'
 
-export function BillingPage({ billing, onPlanChange }) {
+export function BillingPage({ billing }) {
   const member = billing.plan === 'member'
   return (
     <div className="page billing-page">
@@ -51,15 +51,9 @@ export function BillingPage({ billing, onPlanChange }) {
               。
             </p>
           </div>
-          {billing.planSelfServiceEnabled ? (
-            <button className="button primary" onClick={() => onPlanChange(member ? 'free' : 'member')}>
-              {member ? '测试切换免费版' : '测试开通会员'}
-            </button>
-          ) : (
-            <button className="button primary" disabled>
-              {member ? '会员已开通' : '联系管理员开通'}
-            </button>
-          )}
+          <button className="button primary" disabled>
+            {member ? '会员已开通' : '联系管理员开通'}
+          </button>
         </div>
       </section>
       <section className="ledger-panel">

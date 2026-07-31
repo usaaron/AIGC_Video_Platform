@@ -148,7 +148,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       )
     : null
   const adminRepository = database ? new AdminRepository(database) : null
-  const creditLedger = new StoreCreditLedger(store, users, options.config.NODE_ENV !== 'production', database)
+  const creditLedger = new StoreCreditLedger(store, users, false, database)
   await creditLedger.bootstrapFromStore()
   const generationTaskRepository = new GenerationTaskRepository(store, creditLedger, database)
   await generationTaskRepository.refreshRuntimeCacheFromDatabase()
@@ -289,7 +289,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await registerMediaRoutes(api, mediaService, options.config.MAX_UPLOAD_BYTES)
       await registerTrustedAssetRoutes(api, trustedAssetService)
       await registerGenerationRoutes(api, generationService)
-      await registerBillingRoutes(api, creditLedger)
+      await registerBillingRoutes(api, creditLedger, {
+        webhookSecret: options.config.BILLING_WEBHOOK_SECRET,
+      })
       await registerAdminRoutes(api, store, creditLedger, adminRepository, options.config.AUTH_SECRET)
     },
     { prefix: '/api/v1' },

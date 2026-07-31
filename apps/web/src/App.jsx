@@ -787,16 +787,7 @@ function App() {
           onExport={() => exportProject(workspace, tasks)}
         />
       ),
-      billing: (
-        <BillingPage
-          billing={billing}
-          onPlanChange={async (plan) => {
-            setBilling(await api.updatePlan(plan))
-            await refreshSession()
-            setToast(plan === 'member' ? '会员已开通，赠送 500 积分' : '已切换为免费版')
-          }}
-        />
-      ),
+      billing: <BillingPage billing={billing} />,
       settings: settingsPage,
     }
     return pages[activeStep] || pages.overview
