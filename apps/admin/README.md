@@ -1,8 +1,22 @@
-# 管理员端预留目录
+# 管理员端
 
-管理员端将作为独立应用部署，不与创作端共享页面路由或构建产物。当前正式的后台后端能力已经位于 `/api/v1/admin/*`，创作端内也有一个临时账号管理/管理员端入口用于测试账号、workspace、membership 和 session 管理。
+管理员端是独立 Vite/React 应用，不与创作端共享页面路由或构建产物。当前首屏消费 `GET /api/v1/admin/console`，统一展示 overview、用户、租户、membership、账单账户、账单流水、session 和审计日志。
 
-独立 `apps/admin` 启动开发前，应先复用现有 Admin Console API，不要重新定义一套后台协议。
+## 本地运行
+
+先启动 API：
+
+```bash
+pnpm dev:api
+```
+
+再启动管理员端：
+
+```bash
+pnpm dev:admin
+```
+
+默认地址是 [http://localhost:5174](http://localhost:5174)。Vite 会把 `/api` 代理到 `http://127.0.0.1:8787`，登录 Cookie 保持同源。
 
 约束：
 
@@ -13,7 +27,7 @@
 - 高风险操作必须二次确认：账号启停、workspace 禁用、owner 转让、角色变更、membership 禁用、session 撤销、充值和调账。
 - 不提供任意 SQL、任意 JSON 编辑或绕过 Service 的数据库操作。
 
-首批独立页面建议：
+当前页面：
 
 - 用户与账号状态。
 - 租户/workspace 和 membership。

@@ -56,6 +56,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 | ----------------- | ------------------------------ |
 | `pnpm dev`        | 同时启动 Web、API 和 Worker    |
 | `pnpm dev:web`    | 只启动创作端                   |
+| `pnpm dev:admin`  | 只启动独立管理员端             |
 | `pnpm dev:api`    | 只启动 API                     |
 | `pnpm dev:worker` | 只启动任务 Worker              |
 | `pnpm test`       | 运行全部工作区测试             |
@@ -103,6 +104,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 - Postgres 账号体系：`users`、`auth_identities`、`sessions`、`tenant_memberships`、`billing_accounts`、密码重置 token 和审计日志
 - Workspace 管理：切换、改名、禁用、转让 owner、退出 workspace
 - 账号管理页：只有 owner/admin 看到管理员端入口；普通成员只看到个人资料；变更权限、禁用和踢下线操作均要求二次确认
+- 独立 `apps/admin` 管理员端：通过 `/api/v1/auth/me` 鉴权，首屏消费 `/api/v1/admin/console`，展示用户、租户、membership、账单、session 和审计日志
 - Admin Console API：统一查询用户、租户、membership、账单账户、账单流水、session 和审计日志；支持账号启停、管理员充值/调账、撤销 session
 - DB billing ledger：幂等扣费、退款、充值和管理员调账在 Postgres 事务中完成，JSON ledger 仅保留为历史备份
 

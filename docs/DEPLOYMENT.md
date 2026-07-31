@@ -19,7 +19,7 @@
 - `apps/web`：静态站点，可部署到 Vercel、Cloudflare Pages 或对象存储/CDN。
 - `apps/api`：Node.js 服务，可部署到容器平台、云应用平台或虚拟机。
 - `apps/api` worker：复用 API 镜像，执行 `node dist/worker.js`，消费 Redis/BullMQ 里的生成任务触发。
-- `apps/admin`：未来独立静态站点，建议使用单独域名并限制访问来源。
+- `apps/admin`：独立管理员静态站点，消费 `/api/v1/admin/console`；正式部署建议使用单独域名、限制访问来源，并沿用后端权限和审计边界。
 
 Web 使用 `VITE_API_BASE_URL` 指向 API。API 使用 `WEB_ORIGIN` 限制跨域来源。生产中两者可以使用 `studio.example.com` 和 `api.example.com`。
 
