@@ -1,8 +1,10 @@
 import {
   adminAccountStatusUpdateSchema,
   adminAdjustCreditsSchema,
-  adminSessionStatusSchema,
   adminGrantCreditsSchema,
+  adminPasswordResetRequirementUpdateSchema,
+  adminSessionStatusSchema,
+  adminSetUserPasswordSchema,
   PERMISSIONS,
   roleSchema,
   type AdminConsole,
@@ -12,6 +14,7 @@ import {
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
+import { hashPassword } from '../../core/auth/password.js'
 import { SESSION_COOKIE } from '../../core/auth/provider.js'
 import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { parseIssuedSessionToken } from '../../core/auth/sessionToken.js'
@@ -124,6 +127,40 @@ export async function registerAdminRoutes(
         request.principal!,
         userId,
         input.status,
+        sessionMetadataFromRequest(request),
+      )
+      if (!updated) throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
+      return updated
+    },
+  )
+
+  app.patch(
+    '/admin/users/:userId/password-reset-requirement',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request) => {
+      const { userId } = parse(adminUserParams, request.params)
+      const input = parse(adminPasswordResetRequirementUpdateSchema, request.body)
+      const updated = await requireAdminRepository(adminRepository).setPasswordResetRequirement(
+        request.principal!,
+        userId,
+        input,
+        sessionMetadataFromRequest(request),
+      )
+      if (!updated) throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
+      return updated
+    },
+  )
+
+  app.put(
+    '/admin/users/:userId/password',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request) => {
+      const { userId } = parse(adminUserParams, request.params)
+      const input = parse(adminSetUserPasswordSchema, request.body)
+      const updated = await requireAdminRepository(adminRepository).setUserPassword(
+        request.principal!,
+        userId,
+        { ...input, passwordHash: hashPassword(input.newPassword) },
         sessionMetadataFromRequest(request),
       )
       if (!updated) throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist')

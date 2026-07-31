@@ -742,6 +742,7 @@ export class AccountManagementService {
         roles: workspace.account.roles,
         plan: workspace.account.plan,
         credits: workspace.account.credits,
+        passwordResetRequired: workspace.account.passwordResetRequired,
       }
       const existing = state.users.find((item) => item.id === next.id && item.tenantId === next.tenantId)
       if (existing) {
@@ -773,6 +774,7 @@ export class AccountManagementService {
           roles: membership.roles,
           plan: account?.plan ?? 'free',
           credits: 0,
+          passwordResetRequired: account?.passwordResetRequired ?? false,
         })
       }
     })

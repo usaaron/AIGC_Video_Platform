@@ -896,6 +896,7 @@ type Queryable = {
 
 type AccountWorkspaceRow = MembershipRow & {
   password_hash: string | null
+  password_reset_required: boolean
   plan: Plan
   credits: number
   tenant_status: Workspace['status']
@@ -962,6 +963,7 @@ function accountWorkspaceSelectSql(whereClause: string): string {
       ai.email,
       u.display_name AS name,
       ai.password_hash,
+      u.password_reset_required,
       m.id AS membership_id,
       m.tenant_id,
       m.roles,
@@ -1126,6 +1128,7 @@ function toAccountWorkspaceAccount(row: AccountWorkspaceRow): AuthAccount {
     roles: row.roles,
     plan: row.plan,
     credits: row.credits,
+    passwordResetRequired: row.password_reset_required,
   }
 }
 

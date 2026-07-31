@@ -29,6 +29,7 @@ export const adminUserSchema = z.object({
   roles: z.array(roleSchema),
   membershipCount: z.number().int().nonnegative(),
   activeMembershipCount: z.number().int().nonnegative(),
+  passwordResetRequired: z.boolean(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
@@ -170,6 +171,17 @@ export const adminAccountStatusUpdateSchema = z.object({
   status: adminAccountStatusSchema,
 })
 
+export const adminPasswordResetRequirementUpdateSchema = z.object({
+  required: z.boolean(),
+  revokeSessions: z.boolean().default(true),
+})
+
+export const adminSetUserPasswordSchema = z.object({
+  newPassword: z.string().min(12).max(128),
+  requireChange: z.boolean().default(true),
+  revokeSessions: z.boolean().default(true),
+})
+
 export const adminConsoleSchema = z.object({
   overview: adminOverviewSchema,
   users: adminUserListSchema,
@@ -202,3 +214,7 @@ export type AdminSessionList = z.infer<typeof adminSessionListSchema>
 export type AdminAuditLogEntryList = z.infer<typeof adminAuditLogEntryListSchema>
 export type AdminConsole = z.infer<typeof adminConsoleSchema>
 export type AdminAccountStatusUpdateInput = z.infer<typeof adminAccountStatusUpdateSchema>
+export type AdminPasswordResetRequirementUpdateInput = z.infer<
+  typeof adminPasswordResetRequirementUpdateSchema
+>
+export type AdminSetUserPasswordInput = z.infer<typeof adminSetUserPasswordSchema>

@@ -31,6 +31,7 @@ export type StoredUser = {
   roles: Role[]
   plan: Plan
   credits: number
+  passwordResetRequired: boolean
 }
 
 export type StoredMedia = {
@@ -384,6 +385,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         roles: ['member'],
         plan: 'free',
         credits: 286,
+        passwordResetRequired: false,
       },
       {
         id: ownerId,
@@ -394,6 +396,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         roles: ['owner'],
         plan: 'member',
         credits: 1_000,
+        passwordResetRequired: false,
       },
       {
         id: superAdminId,
@@ -404,6 +407,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         roles: ['super_admin'],
         plan: 'member',
         credits: 1_000,
+        passwordResetRequired: false,
       },
       {
         id: 'user-admin',
@@ -414,6 +418,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         roles: ['admin'],
         plan: 'member',
         credits: 1_000,
+        passwordResetRequired: false,
       },
     ],
     projects: demoWorkspace

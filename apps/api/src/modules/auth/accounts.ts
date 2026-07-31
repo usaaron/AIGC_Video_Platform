@@ -9,6 +9,7 @@ export type AuthAccount = {
   roles: Role[]
   plan: Plan
   credits: number
+  passwordResetRequired: boolean
 }
 
 export type AuthSession = {
@@ -16,6 +17,7 @@ export type AuthSession = {
   userId: string
   tenantId: string
   roles: Role[]
+  passwordResetRequired: boolean
   tokenSecretHash: string
   expiresAt: string
   revokedAt: string | null

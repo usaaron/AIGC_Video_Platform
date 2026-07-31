@@ -29,7 +29,8 @@ export class AuthRepository implements AuthAccounts {
         m.tenant_id AS tenant_id,
         m.roles AS roles,
         b.plan AS plan,
-        b.credits AS credits
+        b.credits AS credits,
+        u.password_reset_required AS password_reset_required
       FROM auth_identities ai
       JOIN users u ON u.id = ai.user_id AND u.status = 'active'
       JOIN tenant_memberships m ON m.user_id = u.id AND m.status = 'active'
@@ -58,7 +59,8 @@ export class AuthRepository implements AuthAccounts {
         m.tenant_id AS tenant_id,
         m.roles AS roles,
         b.plan AS plan,
-        b.credits AS credits
+        b.credits AS credits,
+        u.password_reset_required AS password_reset_required
       FROM users u
       JOIN tenant_memberships m ON m.user_id = u.id AND m.status = 'active'
       JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
@@ -112,6 +114,17 @@ export class AuthRepository implements AuthAccounts {
         WHERE id = $1
         `,
         [identityId, passwordHash],
+      )
+      await client.query(
+        `
+        UPDATE users
+        SET password_reset_required = false,
+            password_reset_required_at = NULL,
+            password_reset_required_by_user_id = NULL,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [userId],
       )
       return (updated.rowCount ?? 0) > 0
     })
@@ -284,6 +297,17 @@ export class AuthRepository implements AuthAccounts {
       )
       await client.query(
         `
+        UPDATE users
+        SET password_reset_required = false,
+            password_reset_required_at = NULL,
+            password_reset_required_by_user_id = NULL,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [row.user_id],
+      )
+      await client.query(
+        `
         UPDATE password_reset_tokens
         SET used_at = now(),
             updated_at = now()
@@ -329,6 +353,7 @@ export class AuthRepository implements AuthAccounts {
         m.user_id AS user_id,
         m.tenant_id AS tenant_id,
         m.roles AS roles,
+        u.password_reset_required AS password_reset_required,
         s.token_secret_hash AS token_secret_hash,
         s.expires_at AS expires_at,
         s.revoked_at AS revoked_at
@@ -391,6 +416,7 @@ export class AuthRepository implements AuthAccounts {
       roles: user.roles,
       plan: user.plan,
       credits: user.credits,
+      passwordResetRequired: user.passwordResetRequired,
     }
   }
 }
@@ -430,6 +456,7 @@ type AuthAccountRow = {
   roles: AuthAccount['roles']
   plan: AuthAccount['plan']
   credits: number
+  password_reset_required: boolean
 }
 
 type AuthSessionRow = {
@@ -437,6 +464,7 @@ type AuthSessionRow = {
   user_id: string
   tenant_id: string
   roles: AuthAccount['roles']
+  password_reset_required: boolean
   token_secret_hash: string
   expires_at: string
   revoked_at: string | null
@@ -498,6 +526,7 @@ function toAuthAccount(row: AuthAccountRow): AuthAccount {
     roles: row.roles,
     plan: row.plan,
     credits: row.credits,
+    passwordResetRequired: row.password_reset_required,
   }
 }
 
@@ -507,6 +536,7 @@ function toAuthSession(row: AuthSessionRow): AuthSession {
     userId: row.user_id,
     tenantId: row.tenant_id,
     roles: row.roles,
+    passwordResetRequired: row.password_reset_required,
     tokenSecretHash: row.token_secret_hash,
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,

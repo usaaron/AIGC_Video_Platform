@@ -9,9 +9,11 @@ import type {
   AdminMembership,
   AdminMembershipDetail,
   AdminMembershipList,
+  AdminPasswordResetRequirementUpdateInput,
   AdminSession,
   AdminSessionList,
   AdminSessionStatus,
+  AdminSetUserPasswordInput,
   AdminTenant,
   AdminTenantList,
   AdminUser,
@@ -76,6 +78,7 @@ export class AdminRepository {
         ai.email,
         u.display_name AS name,
         u.status,
+        u.password_reset_required,
         COALESCE(
           array_agg(DISTINCT role_value.role) FILTER (WHERE role_value.role IS NOT NULL),
           ARRAY[]::text[]
@@ -534,6 +537,104 @@ export class AdminRepository {
       return await readAdminUser(client, userId)
     })
   }
+
+  async setPasswordResetRequirement(
+    principal: Principal,
+    userId: string,
+    input: AdminPasswordResetRequirementUpdateInput,
+    metadata?: SessionMetadata,
+  ): Promise<AdminUser | null> {
+    return this.database.transaction(async (client) => {
+      const target = await loadPasswordManagementTarget(client, principal, userId)
+      if (!target) return null
+
+      await client.query(
+        `
+        UPDATE users
+        SET password_reset_required = $2,
+            password_reset_required_at = CASE WHEN $2 THEN now() ELSE NULL END,
+            password_reset_required_by_user_id = CASE WHEN $2 THEN $3 ELSE NULL END,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [userId, input.required, principal.userId],
+      )
+      const revokedSessionCount = input.revokeSessions
+        ? await revokeSessionsForUser(client, userId)
+        : 0
+      await insertAuditLog(client, {
+        tenantId: null,
+        userId,
+        actorUserId: principal.userId,
+        action: 'admin.password_reset_requirement.updated',
+        resourceType: 'user',
+        resourceId: userId,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: {
+          previousRequired: target.user.password_reset_required,
+          required: input.required,
+          revokedSessionCount,
+          scope: 'admin_console',
+        },
+      })
+
+      return await readAdminUser(client, userId)
+    })
+  }
+
+  async setUserPassword(
+    principal: Principal,
+    userId: string,
+    input: AdminSetUserPasswordInput & { passwordHash: string },
+    metadata?: SessionMetadata,
+  ): Promise<AdminUser | null> {
+    return this.database.transaction(async (client) => {
+      const target = await loadPasswordManagementTarget(client, principal, userId)
+      if (!target) return null
+
+      await client.query(
+        `
+        UPDATE auth_identities
+        SET password_hash = $2,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [target.identityId, input.passwordHash],
+      )
+      await client.query(
+        `
+        UPDATE users
+        SET password_reset_required = $2,
+            password_reset_required_at = CASE WHEN $2 THEN now() ELSE NULL END,
+            password_reset_required_by_user_id = CASE WHEN $2 THEN $3 ELSE NULL END,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [userId, input.requireChange, principal.userId],
+      )
+      const revokedSessionCount = input.revokeSessions
+        ? await revokeSessionsForUser(client, userId)
+        : 0
+      await insertAuditLog(client, {
+        tenantId: null,
+        userId,
+        actorUserId: principal.userId,
+        action: 'admin.password.temporary_set',
+        resourceType: 'auth_identity',
+        resourceId: target.identityId,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: {
+          requireChange: input.requireChange,
+          revokedSessionCount,
+          scope: 'admin_console',
+        },
+      })
+
+      return await readAdminUser(client, userId)
+    })
+  }
 }
 
 type Filter = {
@@ -558,6 +659,7 @@ type AdminUserRow = {
   email: string | null
   name: string
   status: AdminAccountStatus
+  password_reset_required: boolean
   roles: Role[]
   membership_count: number
   active_membership_count: number
@@ -792,6 +894,7 @@ async function readAdminUser(client: Queryable, userId: string): Promise<AdminUs
       ai.email,
       u.display_name AS name,
       u.status,
+      u.password_reset_required,
       COALESCE(
         array_agg(DISTINCT role_value.role) FILTER (WHERE role_value.role IS NOT NULL),
         ARRAY[]::text[]
@@ -908,6 +1011,7 @@ function toAdminUser(row: AdminUserRow): AdminUser {
     roles: row.roles,
     membershipCount: row.membership_count,
     activeMembershipCount: row.active_membership_count,
+    passwordResetRequired: row.password_reset_required,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   }
@@ -1037,6 +1141,137 @@ function canManageElevatedRoles(principal: Principal, roles: Role[]): boolean {
   return (
     isPlatformAdmin(principal) && hasAdminRole(roles) && !hasOwnerRole(roles) && !hasSuperAdminRole(roles)
   )
+}
+
+type PasswordManagementTarget = {
+  user: {
+    id: string
+    status: AdminAccountStatus
+    password_reset_required: boolean
+  }
+  identityId: string
+  memberships: Array<{ tenant_id: string; roles: Role[]; status: string }>
+}
+
+async function loadPasswordManagementTarget(
+  client: Queryable,
+  principal: Principal,
+  userId: string,
+): Promise<PasswordManagementTarget | null> {
+  const user = await client.query<PasswordManagementTarget['user']>(
+    `
+    SELECT id, status, password_reset_required
+    FROM users
+    WHERE id = $1
+    LIMIT 1
+    FOR UPDATE
+    `,
+    [userId],
+  )
+  const userRow = user.rows[0]
+  if (!userRow) return null
+
+  const identity = await client.query<{ id: string }>(
+    `
+    SELECT id
+    FROM auth_identities
+    WHERE user_id = $1
+      AND provider = 'local'
+    ORDER BY is_primary DESC, created_at ASC
+    LIMIT 1
+    FOR UPDATE
+    `,
+    [userId],
+  )
+  const identityId = identity.rows[0]?.id
+  if (!identityId) {
+    throw new AppError(409, 'LOCAL_PASSWORD_IDENTITY_REQUIRED', 'Account does not have a local password identity')
+  }
+
+  const memberships = await client.query<{ tenant_id: string; roles: Role[]; status: string }>(
+    `
+    SELECT tenant_id, roles, status
+    FROM tenant_memberships
+    WHERE user_id = $1
+    `,
+    [userId],
+  )
+  assertCanManageAccountPassword(principal, userId, memberships.rows)
+  return { user: userRow, identityId, memberships: memberships.rows }
+}
+
+function assertCanManageAccountPassword(
+  principal: Principal,
+  userId: string,
+  memberships: Array<{ tenant_id: string; roles: Role[]; status: string }>,
+): void {
+  if (principal.userId === userId) {
+    throw new AppError(400, 'CANNOT_MANAGE_SELF_PASSWORD', 'Use the current account password API')
+  }
+
+  if (!isPlatformAdmin(principal)) {
+    const inTenant = memberships.some(
+      (membership) => membership.tenant_id === principal.tenantId && membership.status === 'active',
+    )
+    if (!inTenant) {
+      throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot manage another workspace account')
+    }
+    if (memberships.some((membership) => membership.tenant_id !== principal.tenantId && membership.status === 'active')) {
+      throw new AppError(
+        403,
+        'CROSS_TENANT_PASSWORD_REQUIRES_PLATFORM_ADMIN',
+        'Only owners or super admins can reset cross-workspace accounts',
+      )
+    }
+    if (memberships.some((membership) => hasElevatedRole(membership.roles))) {
+      throw new AppError(
+        403,
+        'ELEVATED_ACCOUNT_REQUIRES_PLATFORM_ADMIN',
+        'Only owners or super admins can reset elevated account passwords',
+      )
+    }
+    return
+  }
+
+  if (
+    memberships.some(
+      (membership) =>
+        (hasOwnerRole(membership.roles) || hasSuperAdminRole(membership.roles)) && !isOwner(principal),
+    )
+  ) {
+    throw new AppError(
+      403,
+      'ELEVATED_ACCOUNT_REQUIRES_OWNER',
+      'Only owners can reset owner or super admin account passwords',
+    )
+  }
+  if (memberships.some((membership) => !canManageElevatedRoles(principal, membership.roles))) {
+    throw new AppError(
+      403,
+      'ELEVATED_ACCOUNT_REQUIRES_PLATFORM_ADMIN',
+      'Only owners or super admins can reset elevated account passwords',
+    )
+  }
+}
+
+async function revokeSessionsForUser(client: Queryable, userId: string): Promise<number> {
+  const revoked = await client.query<{ count: number }>(
+    `
+    WITH revoked AS (
+      UPDATE sessions s
+      SET revoked_at = now()
+      FROM tenant_memberships m
+      WHERE s.membership_id = m.id
+        AND m.user_id = $1
+        AND s.revoked_at IS NULL
+      RETURNING s.id
+    )
+    SELECT count(*)::int AS count
+    FROM revoked
+    `,
+    [userId],
+  )
+  return revoked.rows[0]?.count ?? 0
 }
 
 function sessionStatus(expiresAt: string, revokedAt: string | null): AdminSessionStatus {

@@ -11,6 +11,7 @@ export const accountSchema = z.object({
   roles: z.array(roleSchema).min(1),
   plan: planSchema,
   credits: z.number().int().nonnegative(),
+  passwordResetRequired: z.boolean().default(false),
 })
 
 export const sessionSchema = z.object({

@@ -18,6 +18,7 @@ export type StoredSession = {
   tokenSecretHash: string
   expiresAt: string
   revokedAt: string | null
+  passwordResetRequired: boolean
 }
 
 type BillingAccount = {
@@ -121,7 +122,8 @@ export class UserRepository implements AuthAccounts {
         m.tenant_id AS tenant_id,
         m.roles AS roles,
         b.plan AS plan,
-        b.credits AS credits
+        b.credits AS credits,
+        u.password_reset_required AS password_reset_required
       FROM auth_identities ai
       JOIN users u ON u.id = ai.user_id AND u.status = 'active'
       JOIN tenant_memberships m ON m.user_id = u.id AND m.status = 'active'
@@ -157,7 +159,8 @@ export class UserRepository implements AuthAccounts {
         m.tenant_id AS tenant_id,
         m.roles AS roles,
         b.plan AS plan,
-        b.credits AS credits
+        b.credits AS credits,
+        u.password_reset_required AS password_reset_required
       FROM users u
       JOIN tenant_memberships m ON m.user_id = u.id AND m.status = 'active'
       JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
@@ -188,6 +191,7 @@ export class UserRepository implements AuthAccounts {
         const user = state.users.find((item) => item.id === userId && item.tenantId === tenantId)
         if (!user) return false
         user.passwordHash = passwordHash
+        user.passwordResetRequired = false
         return true
       })
     }
@@ -220,6 +224,17 @@ export class UserRepository implements AuthAccounts {
         WHERE id = $1
         `,
         [identityId, passwordHash],
+      )
+      await client.query(
+        `
+        UPDATE users
+        SET password_reset_required = false,
+            password_reset_required_at = NULL,
+            password_reset_required_by_user_id = NULL,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [userId],
       )
       return (updated.rowCount ?? 0) > 0
     })
@@ -389,6 +404,7 @@ export class UserRepository implements AuthAccounts {
         m.user_id AS user_id,
         m.tenant_id AS tenant_id,
         m.roles AS roles,
+        u.password_reset_required AS password_reset_required,
         s.token_secret_hash AS token_secret_hash,
         s.expires_at AS expires_at,
         s.revoked_at AS revoked_at
@@ -454,6 +470,7 @@ export class UserRepository implements AuthAccounts {
       roles: user.roles,
       plan: user.plan,
       credits: user.credits,
+      passwordResetRequired: user.passwordResetRequired ?? false,
     }
   }
 }
@@ -501,6 +518,7 @@ type StoredUserRow = {
   roles: Role[]
   plan: Plan
   credits: number
+  password_reset_required: boolean
 }
 
 type BillingAccountRow = {
@@ -513,6 +531,7 @@ type StoredSessionRow = {
   user_id: string
   tenant_id: string
   roles: Role[]
+  password_reset_required: boolean
   token_secret_hash: string
   expires_at: string
   revoked_at: string | null
@@ -528,6 +547,7 @@ function toStoredUser(row: StoredUserRow): StoredUser {
     roles: row.roles,
     plan: row.plan,
     credits: row.credits,
+    passwordResetRequired: row.password_reset_required ?? false,
   }
 }
 
@@ -537,6 +557,7 @@ function toStoredSession(row: StoredSessionRow): StoredSession {
     userId: row.user_id,
     tenantId: row.tenant_id,
     roles: row.roles,
+    passwordResetRequired: row.password_reset_required ?? false,
     tokenSecretHash: row.token_secret_hash,
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,

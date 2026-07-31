@@ -23,6 +23,7 @@ class DemoAuthProvider implements AuthProvider {
       userId: getHeader(request, 'x-demo-user-id') ?? 'demo-user',
       tenantId: getHeader(request, 'x-demo-tenant-id') ?? 'demo-tenant',
       roles: [role],
+      passwordResetRequired: false,
     }
   }
 }
@@ -49,13 +50,25 @@ class LocalAuthProvider implements AuthProvider {
         return null
       }
       await this.users.touchSession(payload.sessionId)
-      return { userId: session.userId, tenantId: session.tenantId, roles: session.roles }
+      return {
+        userId: session.userId,
+        tenantId: session.tenantId,
+        roles: session.roles,
+        passwordResetRequired: session.passwordResetRequired,
+      }
     }
 
     const payload = verifySessionToken(token, this.secret)
     if (!payload) return null
     const user = await this.users.findById(payload.userId)
-    return user ? { userId: user.id, tenantId: user.tenantId, roles: user.roles } : null
+    return user
+      ? {
+          userId: user.id,
+          tenantId: user.tenantId,
+          roles: user.roles,
+          passwordResetRequired: user.passwordResetRequired,
+        }
+      : null
   }
 }
 

@@ -272,6 +272,175 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(loginAfterEnable.statusCode).toBe(200)
   })
 
+  it('lets admins set temporary member passwords and records the forced reset state', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const admin = await login('admin@seqora.local', 'Admin123!')
+
+    const updated = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/admin/users/user-creator/password',
+      headers: { cookie: cookieValue(admin) },
+      payload: {
+        newPassword: 'CreatorTempPassword123!',
+        requireChange: true,
+        revokeSessions: true,
+      },
+    })
+    expect(updated.statusCode).toBe(200)
+    expect(updated.json()).toMatchObject({
+      id: 'user-creator',
+      passwordResetRequired: true,
+    })
+
+    const oldPassword = await login('creator@seqora.local', 'Creator123!')
+    expect(oldPassword.statusCode).toBe(401)
+
+    const temporaryPassword = await login('creator@seqora.local', 'CreatorTempPassword123!')
+    expect(temporaryPassword.statusCode).toBe(200)
+    expect(temporaryPassword.json()).toMatchObject({
+      account: {
+        id: 'user-creator',
+        passwordResetRequired: true,
+      },
+    })
+
+    const blockedProjects = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects',
+      headers: { cookie: cookieValue(temporaryPassword) },
+    })
+    expect(blockedProjects.statusCode).toBe(403)
+    expect(blockedProjects.json()).toMatchObject({
+      error: { code: 'PASSWORD_RESET_REQUIRED' },
+    })
+
+    const audit = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/audit-logs?action=admin.password.temporary_set&userId=user-creator',
+      headers: { cookie: cookieValue(admin) },
+    })
+    expect(audit.statusCode).toBe(200)
+    expect(audit.json()).toMatchObject({
+      meta: { total: 1 },
+      items: [
+        expect.objectContaining({
+          actorUserId: 'user-admin',
+          resourceType: 'auth_identity',
+          metadata: expect.objectContaining({ requireChange: true, scope: 'admin_console' }),
+        }),
+      ],
+    })
+  })
+
+  it('forces password reset until the user changes password', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const superAdmin = await login('superadmin@seqora.local', 'SuperAdmin123!')
+    const creator = await login('creator@seqora.local', 'Creator123!')
+
+    const forced = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/admin/users/user-creator/password-reset-requirement',
+      headers: { cookie: cookieValue(superAdmin) },
+      payload: {
+        required: true,
+        revokeSessions: true,
+      },
+    })
+    expect(forced.statusCode).toBe(200)
+    expect(forced.json()).toMatchObject({
+      id: 'user-creator',
+      passwordResetRequired: true,
+    })
+
+    const oldSession = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { cookie: cookieValue(creator) },
+    })
+    expect(oldSession.statusCode).toBe(401)
+
+    const forcedLogin = await login('creator@seqora.local', 'Creator123!')
+    expect(forcedLogin.statusCode).toBe(200)
+    expect(forcedLogin.json()).toMatchObject({
+      account: { passwordResetRequired: true },
+    })
+    const forcedCookie = cookieValue(forcedLogin)
+
+    const blockedBilling = await app.inject({
+      method: 'GET',
+      url: '/api/v1/billing/summary',
+      headers: { cookie: forcedCookie },
+    })
+    expect(blockedBilling.statusCode).toBe(403)
+    expect(blockedBilling.json()).toMatchObject({
+      error: { code: 'PASSWORD_RESET_REQUIRED' },
+    })
+
+    const passwordChanged = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/auth/password',
+      headers: { cookie: forcedCookie },
+      payload: {
+        currentPassword: 'Creator123!',
+        newPassword: 'CreatorChangedPassword123!',
+      },
+    })
+    expect(passwordChanged.statusCode).toBe(204)
+
+    const changedLogin = await login('creator@seqora.local', 'CreatorChangedPassword123!')
+    expect(changedLogin.statusCode).toBe(200)
+    expect(changedLogin.json()).toMatchObject({
+      account: { passwordResetRequired: false },
+    })
+
+    const projects = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects',
+      headers: { cookie: cookieValue(changedLogin) },
+    })
+    expect(projects.statusCode).toBe(200)
+  })
+
+  it('enforces password management role boundaries', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const admin = await login('admin@seqora.local', 'Admin123!')
+    const superAdmin = await login('superadmin@seqora.local', 'SuperAdmin123!')
+
+    const adminResetsSelf = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/admin/users/user-admin/password-reset-requirement',
+      headers: { cookie: cookieValue(admin) },
+      payload: { required: true, revokeSessions: true },
+    })
+    expect(adminResetsSelf.statusCode).toBe(400)
+    expect(adminResetsSelf.json()).toMatchObject({
+      error: { code: 'CANNOT_MANAGE_SELF_PASSWORD' },
+    })
+
+    const adminResetsOwner = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/admin/users/user-owner/password',
+      headers: { cookie: cookieValue(admin) },
+      payload: {
+        newPassword: 'OwnerTempPassword123!',
+        requireChange: true,
+        revokeSessions: true,
+      },
+    })
+    expect(adminResetsOwner.statusCode).toBe(403)
+
+    const superAdminResetsOwner = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/admin/users/user-owner/password-reset-requirement',
+      headers: { cookie: cookieValue(superAdmin) },
+      payload: { required: true, revokeSessions: true },
+    })
+    expect(superAdminResetsOwner.statusCode).toBe(403)
+    expect(superAdminResetsOwner.json()).toMatchObject({
+      error: { code: 'ELEVATED_ACCOUNT_REQUIRES_OWNER' },
+    })
+  })
+
   it('lists and revokes sessions through admin console boundaries', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const admin = await login('admin@seqora.local', 'Admin123!', {
