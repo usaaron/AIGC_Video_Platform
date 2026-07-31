@@ -25,6 +25,12 @@ export const ledgerTypeLabels = {
   adjustment: '调账',
 }
 
+export const riskLevelLabels = {
+  high: '高风险',
+  medium: '需关注',
+  low: '正常',
+}
+
 export function canReadAdminConsole(session) {
   return session?.permissions?.includes(PERMISSIONS.ADMIN_DASHBOARD_READ) ?? false
 }
@@ -51,6 +57,10 @@ export function planName(plan) {
 
 export function ledgerTypeName(type) {
   return ledgerTypeLabels[type] ?? type
+}
+
+export function riskLevelName(level) {
+  return riskLevelLabels[level] ?? level
 }
 
 export function formatDate(value) {
@@ -89,4 +99,139 @@ export function summarizeConsole(snapshot) {
     billingAccounts: snapshot?.billingAccounts?.meta?.total ?? 0,
     auditLogs: snapshot?.auditLogs?.meta?.total ?? 0,
   }
+}
+
+export function membershipIdFor(row) {
+  return row?.membershipId ?? row?.id ?? ''
+}
+
+export function buildSessionRiskRows(sessions, now = new Date()) {
+  const activeCountsByUser = sessions.reduce((counts, session) => {
+    if (session.status !== 'active') return counts
+    counts.set(session.userId, (counts.get(session.userId) ?? 0) + 1)
+    return counts
+  }, new Map())
+
+  return sessions
+    .map((session) => {
+      const reasons = []
+      let score = 0
+      const elevated = session.roles.some((role) => ['owner', 'super_admin', 'admin'].includes(role))
+      const activeCount = activeCountsByUser.get(session.userId) ?? 0
+      const lastSeenAt = session.lastSeenAt ?? session.createdAt
+      const inactiveHours = hoursBetween(lastSeenAt, now)
+
+      if (session.status !== 'active') {
+        reasons.push(statusName(session.status))
+        return { ...session, riskLevel: 'low', riskScore: 0, reasons, inactiveHours, activeCount }
+      }
+      if (elevated) {
+        score += session.current ? 1 : 2
+        reasons.push('高权限账号')
+      }
+      if (activeCount >= 4) {
+        score += 2
+        reasons.push('同账号活跃 session 过多')
+      } else if (activeCount >= 2) {
+        score += 1
+        reasons.push('同账号多个活跃 session')
+      }
+      if (!session.ipAddress) {
+        score += 1
+        reasons.push('缺少 IP')
+      }
+      if (!session.deviceLabel && !session.userAgent) {
+        score += 1
+        reasons.push('缺少设备信息')
+      }
+      if (inactiveHours >= 24 * 7) {
+        score += 2
+        reasons.push('超过 7 天未活跃')
+      } else if (inactiveHours >= 24 * 3) {
+        score += 1
+        reasons.push('超过 3 天未活跃')
+      }
+      if (session.current) reasons.push('当前 session')
+      if (!reasons.length) reasons.push('近期活跃')
+
+      return {
+        ...session,
+        riskLevel: score >= 5 ? 'high' : score >= 2 ? 'medium' : 'low',
+        riskScore: score,
+        reasons,
+        inactiveHours,
+        activeCount,
+      }
+    })
+    .sort((left, right) => {
+      const riskDelta = riskSortValue(right.riskLevel) - riskSortValue(left.riskLevel)
+      if (riskDelta !== 0) return riskDelta
+      return right.riskScore - left.riskScore
+    })
+}
+
+export function summarizeSessionRisks(rows) {
+  return rows.reduce(
+    (summary, row) => {
+      summary[row.riskLevel] += 1
+      if (row.status === 'active') summary.active += 1
+      return summary
+    },
+    { high: 0, medium: 0, low: 0, active: 0 },
+  )
+}
+
+export function summarizeAuditLogs(entries) {
+  const actors = new Set(entries.map((entry) => entry.actorUserId).filter(Boolean))
+  return {
+    total: entries.length,
+    accountEvents: entries.filter((entry) => entry.resourceType === 'user').length,
+    sessionEvents: entries.filter((entry) => entry.resourceType === 'session').length,
+    billingEvents: entries.filter((entry) => entry.action.includes('billing')).length,
+    actors: actors.size,
+  }
+}
+
+export function auditLogTone(entry) {
+  if (
+    entry.action.includes('disabled') ||
+    entry.action.includes('revoked') ||
+    entry.action.includes('adjust')
+  ) {
+    return 'high'
+  }
+  if (
+    entry.action.includes('role') ||
+    entry.action.includes('owner') ||
+    entry.action.includes('password') ||
+    entry.action.includes('billing')
+  ) {
+    return 'medium'
+  }
+  return 'low'
+}
+
+export function summarizeBillingAdjustments(entries) {
+  const adjustmentEntries = entries.filter((entry) => entry.type === 'adjustment')
+  const grantEntries = entries.filter((entry) => entry.type === 'grant')
+  return {
+    adjustments: adjustmentEntries.length,
+    grants: grantEntries.length,
+    positiveCredits: entries
+      .filter((entry) => entry.amount > 0)
+      .reduce((total, entry) => total + entry.amount, 0),
+    negativeCredits: Math.abs(
+      entries.filter((entry) => entry.amount < 0).reduce((total, entry) => total + entry.amount, 0),
+    ),
+  }
+}
+
+function hoursBetween(value, now) {
+  const timestamp = new Date(value).getTime()
+  if (!Number.isFinite(timestamp)) return 0
+  return Math.max(0, (now.getTime() - timestamp) / 3_600_000)
+}
+
+function riskSortValue(level) {
+  return { high: 3, medium: 2, low: 1 }[level] ?? 0
 }

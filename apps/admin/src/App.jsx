@@ -1,13 +1,18 @@
 import {
   Activity,
+  AlertTriangle,
   Building2,
+  Clock,
   CreditCard,
+  Filter,
   FileText,
   Gauge,
+  Globe,
   IdCard,
   KeyRound,
   LoaderCircle,
   LogOut,
+  Monitor,
   PencilLine,
   Plus,
   Power,
@@ -20,6 +25,8 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { api } from './apiClient'
 import {
+  auditLogTone,
+  buildSessionRiskRows,
   canManageBilling,
   canManageUsers,
   canReadAdminConsole,
@@ -27,11 +34,16 @@ import {
   formatDate,
   formatSignedAmount,
   ledgerTypeName,
+  membershipIdFor,
   planName,
+  riskLevelName,
   roleName,
   shortId,
   statusName,
+  summarizeAuditLogs,
+  summarizeBillingAdjustments,
   summarizeConsole,
+  summarizeSessionRisks,
 } from './adminConsole'
 
 const tabs = [
@@ -39,9 +51,11 @@ const tabs = [
   { id: 'users', label: '用户', icon: UsersRound },
   { id: 'tenants', label: '租户', icon: Building2 },
   { id: 'memberships', label: '成员关系', icon: IdCard },
-  { id: 'billing', label: '账单', icon: CreditCard },
+  { id: 'billing', label: '账单流水', icon: CreditCard },
+  { id: 'adjustments', label: '账单调账', icon: PencilLine },
   { id: 'sessions', label: 'Session', icon: KeyRound },
-  { id: 'audit', label: '审计', icon: FileText },
+  { id: 'session-risk', label: 'Session 风险', icon: AlertTriangle },
+  { id: 'audit', label: '审计日志', icon: FileText },
 ]
 
 const loginInitialState = { email: '', password: '' }
@@ -62,8 +76,13 @@ export function App() {
   const [busy, setBusy] = useState('')
   const [adjustTarget, setAdjustTarget] = useState(null)
   const [adjustmentForm, setAdjustmentForm] = useState(adjustmentInitialState)
+  const [adjustmentPageMembershipId, setAdjustmentPageMembershipId] = useState('')
+  const [adjustmentPageForm, setAdjustmentPageForm] = useState(adjustmentInitialState)
   const [grantOpen, setGrantOpen] = useState(false)
   const [grantForm, setGrantForm] = useState(grantInitialState)
+  const [auditActionFilter, setAuditActionFilter] = useState('all')
+  const [auditResourceFilter, setAuditResourceFilter] = useState('all')
+  const [sessionRiskFilter, setSessionRiskFilter] = useState('all')
 
   useEffect(() => {
     let cancelled = false
@@ -110,6 +129,19 @@ export function App() {
     const timer = window.setTimeout(() => setNotice(''), 3000)
     return () => window.clearTimeout(timer)
   }, [notice])
+
+  useEffect(() => {
+    const accounts = snapshot?.billingAccounts?.items ?? []
+    if (!accounts.length) {
+      setAdjustmentPageMembershipId('')
+      return
+    }
+    setAdjustmentPageMembershipId((current) =>
+      current && accounts.some((account) => membershipIdFor(account) === current)
+        ? current
+        : membershipIdFor(accounts[0]),
+    )
+  }, [snapshot?.generatedAt])
 
   const filtered = useMemo(() => {
     if (!snapshot) return null
@@ -185,15 +217,37 @@ export function App() {
   const submitAdjustment = async (event) => {
     event.preventDefault()
     if (!adjustTarget) return
+    const membershipId = membershipIdFor(adjustTarget)
     const amount = Number(adjustmentForm.amount)
     const reason = adjustmentForm.reason.trim()
     const confirmed = window.confirm(
-      `确认对 ${adjustTarget.name} 执行调账？\n\nMembership：${adjustTarget.id}\n积分变化：${formatSignedAmount(amount)}\n原因：${reason}`,
+      `确认对 ${adjustTarget.name} 执行调账？\n\nMembership：${membershipId}\n积分变化：${formatSignedAmount(amount)}\n原因：${reason}`,
     )
     if (!confirmed) return
-    await runAction(`adjust:${adjustTarget.id}`, async () => {
-      await api.adjustCredits(adjustTarget.id, { amount, reason })
+    await runAction(`adjust:${membershipId}`, async () => {
+      await api.adjustCredits(membershipId, { amount, reason })
       setAdjustTarget(null)
+      await loadConsole()
+      setNotice('调账已提交')
+    })
+  }
+
+  const submitPageAdjustment = async (event) => {
+    event.preventDefault()
+    const target = snapshot?.billingAccounts?.items.find(
+      (account) => membershipIdFor(account) === adjustmentPageMembershipId,
+    )
+    if (!target) return
+    const amount = Number(adjustmentPageForm.amount)
+    const reason = adjustmentPageForm.reason.trim()
+    const membershipId = membershipIdFor(target)
+    const confirmed = window.confirm(
+      `确认提交账单调账？\n\n目标：${target.name}\nWorkspace：${target.tenantName}\nMembership：${membershipId}\n积分变化：${formatSignedAmount(amount)}\n原因：${reason}`,
+    )
+    if (!confirmed) return
+    await runAction(`adjust-page:${membershipId}`, async () => {
+      await api.adjustCredits(membershipId, { amount, reason })
+      setAdjustmentPageForm(adjustmentInitialState)
       await loadConsole()
       setNotice('调账已提交')
     })
@@ -343,6 +397,20 @@ export function App() {
                   onGrant={() => setGrantOpen(true)}
                 />
               )}
+              {activeTab === 'adjustments' && (
+                <BillingAdjustmentPage
+                  accounts={filtered.billingAccounts}
+                  entries={filtered.billingLedgerEntries}
+                  selectedMembershipId={adjustmentPageMembershipId}
+                  form={adjustmentPageForm}
+                  canManage={canAdjustBilling}
+                  busy={busy}
+                  onSelectMembership={setAdjustmentPageMembershipId}
+                  onFormChange={setAdjustmentPageForm}
+                  onSubmit={submitPageAdjustment}
+                  onGrant={() => setGrantOpen(true)}
+                />
+              )}
               {activeTab === 'sessions' && (
                 <SessionsTable
                   sessions={filtered.sessions}
@@ -351,7 +419,26 @@ export function App() {
                   onRevoke={revokeSession}
                 />
               )}
-              {activeTab === 'audit' && <AuditTable entries={filtered.auditLogs} />}
+              {activeTab === 'session-risk' && (
+                <SessionRiskView
+                  sessions={filtered.sessions}
+                  riskFilter={sessionRiskFilter}
+                  canManage={canManageAccountStatus}
+                  busy={busy}
+                  onRiskFilterChange={setSessionRiskFilter}
+                  onRevoke={revokeSession}
+                />
+              )}
+              {activeTab === 'audit' && (
+                <AuditLogPage
+                  entries={filtered.auditLogs}
+                  allEntries={snapshot.auditLogs.items}
+                  actionFilter={auditActionFilter}
+                  resourceFilter={auditResourceFilter}
+                  onActionFilterChange={setAuditActionFilter}
+                  onResourceFilterChange={setAuditResourceFilter}
+                />
+              )}
             </>
           )}
         </main>
@@ -361,7 +448,7 @@ export function App() {
         <AdjustmentModal
           target={adjustTarget}
           form={adjustmentForm}
-          busy={busy === `adjust:${adjustTarget.id}`}
+          busy={busy === `adjust:${membershipIdFor(adjustTarget)}`}
           onChange={setAdjustmentForm}
           onClose={() => setAdjustTarget(null)}
           onSubmit={submitAdjustment}
@@ -711,6 +798,158 @@ function BillingPanel({ accounts, entries, canManage, onAdjust, onGrant }) {
   )
 }
 
+function BillingAdjustmentPage({
+  accounts,
+  entries,
+  selectedMembershipId,
+  form,
+  canManage,
+  busy,
+  onSelectMembership,
+  onFormChange,
+  onSubmit,
+  onGrant,
+}) {
+  const selectedAccount =
+    accounts.find((account) => membershipIdFor(account) === selectedMembershipId) ?? accounts[0] ?? null
+  const selectedId = selectedAccount ? membershipIdFor(selectedAccount) : ''
+  const amount = Number(form.amount)
+  const validAmount = Number.isInteger(amount) && amount !== 0
+  const projectedBalance = selectedAccount && validAmount ? selectedAccount.credits + amount : null
+  const adjustmentEntries = entries.filter((entry) => entry.type === 'adjustment' || entry.type === 'grant')
+  const summary = summarizeBillingAdjustments(adjustmentEntries)
+
+  return (
+    <div className="adjustment-page">
+      <section className="adjustment-workbench">
+        <header>
+          <div>
+            <span className="eyebrow">Billing Operations</span>
+            <h2>账单调账</h2>
+          </div>
+          <button className="row-button" type="button" disabled={!canManage} onClick={onGrant}>
+            <Plus size={14} />
+            当前账号充值
+          </button>
+        </header>
+        <form className="adjustment-form" onSubmit={onSubmit}>
+          <label>
+            <span>目标 membership</span>
+            <select
+              value={selectedId}
+              onChange={(event) => onSelectMembership(event.target.value)}
+              disabled={!accounts.length}
+            >
+              {accounts.map((account) => (
+                <option key={membershipIdFor(account)} value={membershipIdFor(account)}>
+                  {account.name} · {account.tenantName} · {account.email ?? account.userId}
+                </option>
+              ))}
+            </select>
+          </label>
+          {selectedAccount && (
+            <div className="adjustment-target-card">
+              <IdentityCell
+                name={selectedAccount.name}
+                detail={`${selectedAccount.tenantName} · ${selectedAccount.email ?? selectedAccount.userId}`}
+              />
+              <div>
+                <span>当前余额</span>
+                <strong>{selectedAccount.credits}</strong>
+              </div>
+              <div>
+                <span>预计余额</span>
+                <strong>{projectedBalance === null ? '-' : projectedBalance}</strong>
+              </div>
+              <StatusPair primary={selectedAccount.membershipStatus} secondary={selectedAccount.userStatus} />
+            </div>
+          )}
+          <div className="adjustment-fields">
+            <label>
+              <span>积分变化</span>
+              <input
+                type="number"
+                value={form.amount}
+                onChange={(event) => onFormChange({ ...form, amount: event.target.value })}
+                min="-1000000"
+                max="1000000"
+                required
+              />
+            </label>
+            <label>
+              <span>调账原因</span>
+              <input
+                value={form.reason}
+                onChange={(event) => onFormChange({ ...form, reason: event.target.value })}
+                maxLength={200}
+                required
+              />
+            </label>
+          </div>
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={
+              !canManage ||
+              !selectedAccount ||
+              !validAmount ||
+              !form.reason.trim() ||
+              projectedBalance < 0 ||
+              busy === `adjust-page:${selectedId}`
+            }
+          >
+            {busy === `adjust-page:${selectedId}` ? (
+              <LoaderCircle size={15} className="spin" />
+            ) : (
+              <PencilLine size={15} />
+            )}
+            提交调账
+          </button>
+        </form>
+      </section>
+
+      <section className="summary-strip">
+        <MetricBlock icon={PencilLine} label="调账流水" value={summary.adjustments} />
+        <MetricBlock icon={Plus} label="充值流水" value={summary.grants} />
+        <MetricBlock icon={CreditCard} label="增加积分" value={summary.positiveCredits} />
+        <MetricBlock icon={AlertTriangle} label="扣减积分" value={summary.negativeCredits} />
+      </section>
+
+      <DataSection title="最近充值与调账" count={adjustmentEntries.length}>
+        <table className="data-table ledger">
+          <thead>
+            <tr>
+              <th>类型</th>
+              <th>金额</th>
+              <th>余额</th>
+              <th>Membership</th>
+              <th>描述</th>
+              <th>Reference</th>
+              <th>创建时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            {adjustmentEntries.map((entry) => (
+              <tr key={entry.id}>
+                <td>{ledgerTypeName(entry.type)}</td>
+                <td className={entry.amount >= 0 ? 'amount positive' : 'amount negative'}>
+                  {formatSignedAmount(entry.amount)}
+                </td>
+                <td>{entry.balance}</td>
+                <td>{shortId(entry.membershipId)}</td>
+                <td>{entry.description}</td>
+                <td>{shortId(entry.referenceId)}</td>
+                <td>{formatDate(entry.createdAt)}</td>
+              </tr>
+            ))}
+            <EmptyRow visible={!adjustmentEntries.length} columns={7} />
+          </tbody>
+        </table>
+      </DataSection>
+    </div>
+  )
+}
+
 function SessionsTable({ sessions, canManage, busy, onRevoke }) {
   return (
     <DataSection title="Session 设备信息" count={sessions.length}>
@@ -770,41 +1009,171 @@ function SessionsTable({ sessions, canManage, busy, onRevoke }) {
   )
 }
 
-function AuditTable({ entries }) {
+function SessionRiskView({ sessions, riskFilter, canManage, busy, onRiskFilterChange, onRevoke }) {
+  const rows = buildSessionRiskRows(sessions)
+  const summary = summarizeSessionRisks(rows)
+  const visibleRows = riskFilter === 'all' ? rows : rows.filter((row) => row.riskLevel === riskFilter)
+
   return (
-    <DataSection title="审计日志" count={entries.length}>
-      <table className="data-table audit">
-        <thead>
-          <tr>
-            <th>动作</th>
-            <th>资源</th>
-            <th>操作者</th>
-            <th>用户</th>
-            <th>IP</th>
-            <th>时间</th>
-            <th>Metadata</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((entry) => (
-            <tr key={entry.id}>
-              <td>{entry.action}</td>
-              <td>
-                {entry.resourceType} · {entry.resourceId ? shortId(entry.resourceId) : '-'}
-              </td>
-              <td>{entry.actorUserId ? shortId(entry.actorUserId) : '-'}</td>
-              <td>{entry.userId ? shortId(entry.userId) : '-'}</td>
-              <td>{entry.ipAddress ?? '-'}</td>
-              <td>{formatDate(entry.createdAt)}</td>
-              <td>
-                <code>{compactJson(entry.metadata)}</code>
-              </td>
+    <div className="risk-page">
+      <section className="summary-strip">
+        <MetricBlock icon={AlertTriangle} label="高风险" value={summary.high} tone="high" />
+        <MetricBlock icon={ShieldCheck} label="需关注" value={summary.medium} tone="medium" />
+        <MetricBlock icon={KeyRound} label="活跃 Session" value={summary.active} />
+        <MetricBlock icon={Monitor} label="已纳入评估" value={rows.length} />
+      </section>
+
+      <DataSection title="Session 风险视图" count={visibleRows.length}>
+        <div className="inline-filter-bar">
+          <label>
+            <Filter size={14} />
+            <select value={riskFilter} onChange={(event) => onRiskFilterChange(event.target.value)}>
+              <option value="all">全部风险</option>
+              <option value="high">高风险</option>
+              <option value="medium">需关注</option>
+              <option value="low">正常</option>
+            </select>
+          </label>
+        </div>
+        <table className="data-table risk-table">
+          <thead>
+            <tr>
+              <th>风险</th>
+              <th>用户</th>
+              <th>Workspace</th>
+              <th>设备 / IP</th>
+              <th>活跃数</th>
+              <th>未活跃</th>
+              <th>原因</th>
+              <th>操作</th>
             </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((session) => (
+              <tr key={session.sessionId}>
+                <td>
+                  <RiskBadge level={session.riskLevel} />
+                </td>
+                <td>
+                  <IdentityCell name={session.name} detail={session.email ?? session.userId} />
+                </td>
+                <td>{session.tenantName}</td>
+                <td>
+                  <DeviceCell session={session} />
+                </td>
+                <td>{session.activeCount}</td>
+                <td>{formatInactiveHours(session.inactiveHours)}</td>
+                <td>
+                  <ReasonPills reasons={session.reasons} />
+                </td>
+                <td>
+                  <button
+                    className="row-button danger"
+                    type="button"
+                    disabled={
+                      !canManage ||
+                      session.current ||
+                      session.status !== 'active' ||
+                      busy === `session:${session.sessionId}`
+                    }
+                    onClick={() => onRevoke(session)}
+                  >
+                    {busy === `session:${session.sessionId}` ? (
+                      <LoaderCircle size={14} className="spin" />
+                    ) : (
+                      <LogOut size={14} />
+                    )}
+                    撤销
+                  </button>
+                </td>
+              </tr>
+            ))}
+            <EmptyRow visible={!visibleRows.length} columns={8} />
+          </tbody>
+        </table>
+      </DataSection>
+    </div>
+  )
+}
+
+function AuditLogPage({
+  entries,
+  allEntries,
+  actionFilter,
+  resourceFilter,
+  onActionFilterChange,
+  onResourceFilterChange,
+}) {
+  const actions = uniqueValues(allEntries, 'action')
+  const resourceTypes = uniqueValues(allEntries, 'resourceType')
+  const visibleEntries = entries.filter(
+    (entry) =>
+      (actionFilter === 'all' || entry.action === actionFilter) &&
+      (resourceFilter === 'all' || entry.resourceType === resourceFilter),
+  )
+  const summary = summarizeAuditLogs(visibleEntries)
+
+  return (
+    <div className="audit-page">
+      <section className="summary-strip">
+        <MetricBlock icon={FileText} label="日志" value={summary.total} />
+        <MetricBlock icon={UsersRound} label="账号事件" value={summary.accountEvents} />
+        <MetricBlock icon={KeyRound} label="Session 事件" value={summary.sessionEvents} />
+        <MetricBlock icon={CreditCard} label="账单事件" value={summary.billingEvents} />
+      </section>
+
+      <DataSection title="审计日志页面" count={visibleEntries.length}>
+        <div className="inline-filter-bar">
+          <label>
+            <Filter size={14} />
+            <select value={actionFilter} onChange={(event) => onActionFilterChange(event.target.value)}>
+              <option value="all">全部动作</option>
+              {actions.map((action) => (
+                <option key={action} value={action}>
+                  {action}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <FileText size={14} />
+            <select value={resourceFilter} onChange={(event) => onResourceFilterChange(event.target.value)}>
+              <option value="all">全部资源</option>
+              {resourceTypes.map((resourceType) => (
+                <option key={resourceType} value={resourceType}>
+                  {resourceType}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="audit-timeline">
+          {visibleEntries.map((entry) => (
+            <article key={entry.id} className={`audit-event ${auditLogTone(entry)}`}>
+              <div className="audit-event-icon">
+                <FileText size={15} />
+              </div>
+              <div className="audit-event-main">
+                <div>
+                  <strong>{entry.action}</strong>
+                  <time>{formatDate(entry.createdAt)}</time>
+                </div>
+                <p>
+                  {entry.resourceType} · {entry.resourceId ? shortId(entry.resourceId) : '-'}
+                </p>
+                <div className="audit-event-meta">
+                  <span>Actor {entry.actorUserId ? shortId(entry.actorUserId) : '-'}</span>
+                  <span>User {entry.userId ? shortId(entry.userId) : '-'}</span>
+                  <span>IP {entry.ipAddress ?? '-'}</span>
+                </div>
+                <code>{compactJson(entry.metadata)}</code>
+              </div>
+            </article>
           ))}
-          <EmptyRow visible={!entries.length} columns={7} />
-        </tbody>
-      </table>
-    </DataSection>
+          {!visibleEntries.length && <p className="empty-table">没有匹配的审计日志。</p>}
+        </div>
+      </DataSection>
+    </div>
   )
 }
 
@@ -968,10 +1337,22 @@ function tabCount(tabId, summary) {
     tenants: summary.tenants,
     memberships: summary.memberships,
     billing: summary.billingAccounts,
+    adjustments: summary.billingAccounts,
     sessions: summary.sessions,
+    'session-risk': summary.sessions,
     audit: summary.auditLogs,
   }
   return counts[tabId] ?? ''
+}
+
+function MetricBlock({ icon: Icon, label, value, tone = '' }) {
+  return (
+    <div className={tone ? `metric-block ${tone}` : 'metric-block'}>
+      <Icon size={17} />
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
 }
 
 function userAgentSummary(userAgent) {
@@ -980,6 +1361,51 @@ function userAgentSummary(userAgent) {
   if (userAgent.includes('Firefox')) return 'Firefox'
   if (userAgent.includes('Safari')) return 'Safari'
   return userAgent.slice(0, 34)
+}
+
+function RiskBadge({ level }) {
+  return <span className={`risk-badge ${level}`}>{riskLevelName(level)}</span>
+}
+
+function ReasonPills({ reasons }) {
+  return (
+    <div className="reason-pills">
+      {reasons.map((reason) => (
+        <span key={reason}>{reason}</span>
+      ))}
+    </div>
+  )
+}
+
+function DeviceCell({ session }) {
+  return (
+    <div className="device-cell">
+      <span>
+        <Monitor size={13} />
+        {session.deviceLabel ?? userAgentSummary(session.userAgent)}
+      </span>
+      <span>
+        <Globe size={13} />
+        {session.ipAddress ?? '-'}
+      </span>
+      <span>
+        <Clock size={13} />
+        {formatDate(session.lastSeenAt ?? session.createdAt)}
+      </span>
+    </div>
+  )
+}
+
+function formatInactiveHours(hours) {
+  if (hours < 1) return '1 小时内'
+  if (hours < 24) return `${Math.floor(hours)} 小时`
+  return `${Math.floor(hours / 24)} 天`
+}
+
+function uniqueValues(rows, field) {
+  return Array.from(new Set(rows.map((row) => row[field]).filter(Boolean))).sort((left, right) =>
+    left.localeCompare(right),
+  )
 }
 
 function compactJson(value) {

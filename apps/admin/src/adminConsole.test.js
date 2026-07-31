@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { canReadAdminConsole, filterRows, formatSignedAmount, summarizeConsole } from './adminConsole'
+import {
+  auditLogTone,
+  buildSessionRiskRows,
+  canReadAdminConsole,
+  filterRows,
+  formatSignedAmount,
+  summarizeAuditLogs,
+  summarizeBillingAdjustments,
+  summarizeConsole,
+  summarizeSessionRisks,
+} from './adminConsole'
 
 describe('admin console helpers', () => {
   it('checks admin console permission from the session', () => {
@@ -41,5 +51,65 @@ describe('admin console helpers', () => {
   it('formats positive ledger amounts with an explicit sign', () => {
     expect(formatSignedAmount(20)).toBe('+20')
     expect(formatSignedAmount(-3)).toBe('-3')
+  })
+
+  it('scores active elevated stale sessions as higher risk', () => {
+    const now = new Date('2026-07-31T08:00:00.000Z')
+    const rows = buildSessionRiskRows(
+      [
+        {
+          sessionId: 'high',
+          userId: 'u1',
+          roles: ['owner'],
+          status: 'active',
+          current: false,
+          createdAt: '2026-07-20T08:00:00.000Z',
+          lastSeenAt: '2026-07-20T08:00:00.000Z',
+          ipAddress: null,
+          deviceLabel: null,
+          userAgent: null,
+        },
+        {
+          sessionId: 'low',
+          userId: 'u2',
+          roles: ['member'],
+          status: 'active',
+          current: false,
+          createdAt: '2026-07-31T07:00:00.000Z',
+          lastSeenAt: '2026-07-31T07:30:00.000Z',
+          ipAddress: '127.0.0.1',
+          deviceLabel: 'Chrome on Windows',
+          userAgent: 'Chrome',
+        },
+      ],
+      now,
+    )
+
+    expect(rows[0].sessionId).toBe('high')
+    expect(rows[0].riskLevel).toBe('high')
+    expect(rows[1].riskLevel).toBe('low')
+    expect(summarizeSessionRisks(rows)).toMatchObject({ high: 1, low: 1, active: 2 })
+  })
+
+  it('summarizes audit and billing adjustment activity', () => {
+    const auditEntries = [
+      { action: 'admin.session.revoked', resourceType: 'session', actorUserId: 'owner' },
+      { action: 'admin.account_status.updated', resourceType: 'user', actorUserId: 'owner' },
+      { action: 'billing.adjusted', resourceType: 'billing', actorUserId: 'admin' },
+    ]
+    expect(summarizeAuditLogs(auditEntries)).toEqual({
+      total: 3,
+      accountEvents: 1,
+      sessionEvents: 1,
+      billingEvents: 1,
+      actors: 2,
+    })
+    expect(auditLogTone(auditEntries[0])).toBe('high')
+    expect(
+      summarizeBillingAdjustments([
+        { type: 'adjustment', amount: -8 },
+        { type: 'grant', amount: 20 },
+      ]),
+    ).toEqual({ adjustments: 1, grants: 1, positiveCredits: 20, negativeCredits: 8 })
   })
 })

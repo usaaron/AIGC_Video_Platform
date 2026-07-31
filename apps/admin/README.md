@@ -31,6 +31,8 @@ pnpm dev:admin
 
 - 用户与账号状态。
 - 租户/workspace 和 membership。
-- 账单账户、ledger、充值和调账。
+- 账单流水查询。
+- 账单调账页面：选择目标 membership、预览调账后余额、提交调账、查看最近充值/调账流水。
 - Session 设备信息和踢下线。
-- 审计日志查询。
+- Session 风险视图：按高权限账号、多活跃 session、缺少设备/IP 和长期未活跃做风险分级。
+- 审计日志页面：按 action 和 resourceType 筛选，展示事件流、操作者、目标用户、IP 和 metadata。
