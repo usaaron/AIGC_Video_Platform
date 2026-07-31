@@ -9,6 +9,7 @@ import { createPublicMediaToken, verifyPublicMediaToken } from '../../core/media
 import { AppError } from '../../core/errors.js'
 import type { AppStore, StoredMedia } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
+import type { ProjectRepository } from '../projects/repository.js'
 
 const SOURCE_URL_TTL_MS = 24 * 60 * 60 * 1_000
 const PREVIEW_REQUEST_TIMEOUT_MS = 30_000
@@ -31,6 +32,7 @@ export class TrustedAssetService {
     private readonly publicApiBaseUrl: string,
     private readonly projectName: string,
     private readonly consoleUrl = '',
+    private readonly projectRepository: Pick<ProjectRepository, 'updateAsset'> | null = null,
   ) {}
 
   configuration() {
@@ -88,7 +90,7 @@ export class TrustedAssetService {
     const current = asset.attributes.trustedPortrait
     if (current?.groupType === 'AIGC' && current.status === 'processing') {
       const portrait = await this.callProvider(() => provider.getPortrait(current.assetId))
-      return this.savePortrait(asset, portrait, 'ai-virtual')
+      return this.savePortrait(asset, portrait, 'ai-virtual', principal)
     }
 
     const source = this.findSource(asset)
@@ -106,7 +108,7 @@ export class TrustedAssetService {
     const portrait = await this.callProvider(() =>
       provider.createVirtualAsset(groupId, `${asset.name}-面部基准`, sourceUrl),
     )
-    return this.savePortrait(asset, portrait, 'ai-virtual')
+    return this.savePortrait(asset, portrait, 'ai-virtual', principal)
   }
 
   async bind(
@@ -124,6 +126,7 @@ export class TrustedAssetService {
       asset,
       portrait,
       portrait.groupType === 'LivenessFace' ? 'authorized-real' : 'ai-virtual',
+      principal,
     )
   }
 
@@ -136,6 +139,7 @@ export class TrustedAssetService {
       asset,
       portrait,
       portrait.groupType === 'LivenessFace' ? 'authorized-real' : 'ai-virtual',
+      principal,
     )
   }
 
@@ -266,11 +270,27 @@ export class TrustedAssetService {
   }
 
   private savePortrait(
-    asset: Asset,
+    asset: CharacterAsset,
     portrait: ProviderPortrait,
     portraitSource: 'ai-virtual' | 'authorized-real',
+    principal: Principal,
   ): Promise<Asset> {
     const trustedPortrait = toTrustedPortrait(portrait)
+    if (this.projectRepository) {
+      return this.projectRepository
+        .updateAsset(
+          asset.projectId,
+          asset.id,
+          { attributes: { ...asset.attributes, portraitSource, trustedPortrait } },
+          principal,
+        )
+        .then((updated) => {
+          if (!updated) {
+            throw new AppError(404, 'CHARACTER_ASSET_NOT_FOUND', '浜虹墿璧勪骇涓嶅瓨鍦ㄦ垨宸茶鍒犻櫎')
+          }
+          return updated
+        })
+    }
     return this.store.mutate((state) => {
       const stored = state.assets.find(
         (item) =>

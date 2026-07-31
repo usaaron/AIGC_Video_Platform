@@ -26,12 +26,12 @@ export class ProjectService {
     private readonly creditLedger: CreditLedger | null = null,
   ) {}
 
-  list(principal: Principal) {
+  async list(principal: Principal) {
     return this.repository.list(principal)
   }
 
-  workspace(projectId: string, principal: Principal) {
-    const workspace = this.repository.workspace(projectId, principal)
+  async workspace(projectId: string, principal: Principal) {
+    const workspace = await this.repository.workspace(projectId, principal)
     if (!workspace) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权访问')
     return workspace
   }
@@ -59,7 +59,7 @@ export class ProjectService {
     principal: Principal,
     model?: string,
   ) {
-    const workspace = this.workspace(projectId, principal)
+    const workspace = await this.workspace(projectId, principal)
     const source = script.trim()
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本内容')
 
@@ -108,7 +108,7 @@ export class ProjectService {
     principal: Principal,
     model?: string,
   ) {
-    const workspace = this.workspace(projectId, principal)
+    const workspace = await this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const source = draft.trim() || workspace.project.synopsis.trim()
     if (!source) throw new AppError(400, 'SCRIPT_SOURCE_REQUIRED', '请先填写故事梗概或剧本草稿')
@@ -174,7 +174,7 @@ export class ProjectService {
     principal: Principal,
     model?: string,
   ) {
-    const workspace = this.workspace(projectId, principal)
+    const workspace = await this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const source = script.trim() || workspace.project.script.trim()
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先生成或填写快速剧本')
@@ -259,7 +259,7 @@ export class ProjectService {
   }
 
   async generateShots(projectId: string, input: GenerateShotsRequest, principal: Principal) {
-    const workspace = this.workspace(projectId, principal)
+    const workspace = await this.workspace(projectId, principal)
     const source = workspace.project.script.trim()
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本')
 

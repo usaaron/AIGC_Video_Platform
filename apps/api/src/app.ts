@@ -121,6 +121,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   const users = new UserRepository(store, database)
   await users.bootstrapFromStore()
+  const projectRepository = new ProjectRepository(store, database)
+  await projectRepository.bootstrapFromStore()
   const authAccounts = database ? new AuthRepository(database) : users
   const authService = new AuthService(authAccounts, options.config.AUTH_SECRET, {
     exposePasswordResetTokens: options.config.NODE_ENV !== 'production',
@@ -180,7 +182,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     objectStorage,
     filmPreviewComposer,
   )
-  const projectService = new ProjectService(new ProjectRepository(store), textProvider, creditLedger)
+  const projectService = new ProjectService(projectRepository, textProvider, creditLedger)
   const novelService = new NovelService(new NovelRepository(store), textProvider, creditLedger)
   const quickStartService = new QuickStartService(
     store,
@@ -198,6 +200,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     options.config.PUBLIC_API_BASE_URL.replace(/\/+$/, ''),
     options.config.VOLC_ARK_PROJECT_NAME,
     options.config.ASSET_LIBRARY_CONSOLE_URL,
+    projectRepository,
   )
 
   installAuth(app, createAuthProvider(options.config, authAccounts))
