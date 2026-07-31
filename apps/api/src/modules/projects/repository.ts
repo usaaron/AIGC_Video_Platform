@@ -131,40 +131,65 @@ const shotColumns = `
   updated_at
 `
 
+export type ProjectJsonImportResult = {
+  projects: { inserted: number; skipped: number }
+  assets: { inserted: number; skipped: number }
+  shots: { inserted: number; skipped: number }
+}
+
 export class ProjectRepository {
   constructor(
     private readonly store: AppStore,
     private readonly database: AccountDatabase | null = null,
   ) {}
 
-  async bootstrapFromStore(): Promise<void> {
-    if (!this.database) return
-
-    const existing = await this.database.query<{ project_count: string }>(
-      'SELECT count(*)::text AS project_count FROM projects',
-    )
-    if (existing.rows[0]?.project_count === '0') {
-      const snapshot = this.store.read((state) => ({
-        projects: state.projects,
-        assets: state.assets,
-        shots: state.shots,
-      }))
-      if (snapshot.projects.length) {
-        await this.database.transaction(async (client) => {
-          for (const project of snapshot.projects) {
-            await insertProjectFromStore(client, project)
-          }
-          for (const asset of snapshot.assets) {
-            await insertAssetFromStore(client, asset)
-          }
-          for (const shot of snapshot.shots) {
-            await insertShotFromStore(client, shot)
-          }
-        })
+  async importFromStore(): Promise<ProjectJsonImportResult> {
+    if (!this.database) {
+      return {
+        projects: { inserted: 0, skipped: 0 },
+        assets: { inserted: 0, skipped: 0 },
+        shots: { inserted: 0, skipped: 0 },
       }
     }
+    const snapshot = this.store.read((state) => ({
+      projects: state.projects,
+      assets: state.assets,
+      shots: state.shots,
+    }))
+    const result: ProjectJsonImportResult = {
+      projects: { inserted: 0, skipped: 0 },
+      assets: { inserted: 0, skipped: 0 },
+      shots: { inserted: 0, skipped: 0 },
+    }
+    await this.database.transaction(async (client) => {
+      for (const project of snapshot.projects) {
+        if (await insertProjectFromStore(client, project)) {
+          result.projects.inserted += 1
+        } else {
+          result.projects.skipped += 1
+        }
+      }
+      for (const asset of snapshot.assets) {
+        if (await insertAssetFromStore(client, asset)) {
+          result.assets.inserted += 1
+        } else {
+          result.assets.skipped += 1
+        }
+      }
+      for (const shot of snapshot.shots) {
+        if (await insertShotFromStore(client, shot)) {
+          result.shots.inserted += 1
+        } else {
+          result.shots.skipped += 1
+        }
+      }
+    })
+    await this.refreshRuntimeCacheFromDatabase()
+    return result
+  }
 
-    await this.refreshStoreFromDatabase()
+  async bootstrapFromStore(): Promise<void> {
+    await this.importFromStore()
   }
 
   planFor(principal: Principal): Plan | null {
@@ -1016,7 +1041,7 @@ export class ProjectRepository {
     return result.rows[0] ? projectFromRow(result.rows[0]) : null
   }
 
-  private async refreshStoreFromDatabase(): Promise<void> {
+  async refreshRuntimeCacheFromDatabase(): Promise<void> {
     if (!this.database) return
     const [projects, assets, shots] = await Promise.all([
       this.database.query<ProjectRow>(`SELECT ${projectColumns} FROM projects ORDER BY updated_at DESC`),
@@ -1025,19 +1050,19 @@ export class ProjectRepository {
       ),
       this.database.query<ShotRow>(`SELECT ${shotColumns} FROM shots ORDER BY shot_order ASC`),
     ])
-    await this.store.mutate((state) => {
-      state.projects = projects.rows.map(projectFromRow)
-      state.assets = assets.rows.map(assetFromRow)
-      state.shots = shots.rows.map(shotFromRow)
+    this.store.replaceProjectWorkspaceRuntimeCache({
+      projects: projects.rows.map(projectFromRow),
+      assets: assets.rows.map(assetFromRow),
+      shots: shots.rows.map(shotFromRow),
     })
   }
 
   private async mirrorProject(project: Project): Promise<void> {
-    await this.store.mutate((state) => upsertProject(state, project))
+    this.store.mutateProjectWorkspaceRuntimeCache((state) => upsertProject(state, project))
   }
 
   private async mirrorAsset(asset: Asset): Promise<void> {
-    await this.store.mutate((state) => {
+    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
       upsertAsset(state, asset)
       const project = state.projects.find(
         (item) => item.id === asset.projectId && item.tenantId === asset.tenantId,
@@ -1047,13 +1072,13 @@ export class ProjectRepository {
   }
 
   private async mirrorDeletedAsset(projectId: string, assetId: string): Promise<void> {
-    await this.store.mutate((state) => {
+    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
       state.assets = state.assets.filter((asset) => asset.id !== assetId || asset.projectId !== projectId)
     })
   }
 
   private async mirrorShot(shot: Shot): Promise<void> {
-    await this.store.mutate((state) => {
+    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
       upsertShot(state, shot)
       const project = state.projects.find(
         (item) => item.id === shot.projectId && item.tenantId === shot.tenantId,
@@ -1063,7 +1088,7 @@ export class ProjectRepository {
   }
 
   private async mirrorReplacedShots(projectId: string, shots: Shot[]): Promise<void> {
-    await this.store.mutate((state) => {
+    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
       const tenantId = shots[0]?.tenantId
       state.shots = state.shots.filter(
         (shot) => shot.projectId !== projectId || (tenantId ? shot.tenantId !== tenantId : false),
@@ -1078,8 +1103,8 @@ export class ProjectRepository {
   }
 }
 
-async function insertProjectFromStore(client: PoolClient, project: Project): Promise<void> {
-  await client.query(
+async function insertProjectFromStore(client: PoolClient, project: Project): Promise<boolean> {
+  const result = await client.query(
     `
     INSERT INTO projects (
       id,
@@ -1099,6 +1124,7 @@ async function insertProjectFromStore(client: PoolClient, project: Project): Pro
     WHERE EXISTS (SELECT 1 FROM tenants WHERE id = $2)
       AND EXISTS (SELECT 1 FROM users WHERE id = $3)
     ON CONFLICT (id) DO NOTHING
+    RETURNING id
     `,
     [
       project.id,
@@ -1115,10 +1141,11 @@ async function insertProjectFromStore(client: PoolClient, project: Project): Pro
       project.updatedAt,
     ],
   )
+  return (result.rowCount ?? 0) > 0
 }
 
-async function insertAssetFromStore(client: PoolClient, asset: Asset): Promise<void> {
-  await client.query(
+async function insertAssetFromStore(client: PoolClient, asset: Asset): Promise<boolean> {
+  const result = await client.query(
     `
     INSERT INTO assets (
       id,
@@ -1145,13 +1172,15 @@ async function insertAssetFromStore(client: PoolClient, asset: Asset): Promise<v
       $13::jsonb, $14::jsonb, $15, $16, $17, $18
     WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
     ON CONFLICT (id) DO NOTHING
+    RETURNING id
     `,
     assetInsertParams(asset),
   )
+  return (result.rowCount ?? 0) > 0
 }
 
-async function insertShotFromStore(client: PoolClient, shot: Shot): Promise<void> {
-  await client.query(
+async function insertShotFromStore(client: PoolClient, shot: Shot): Promise<boolean> {
+  const result = await client.query(
     `
     INSERT INTO shots (
       id,
@@ -1172,9 +1201,11 @@ async function insertShotFromStore(client: PoolClient, shot: Shot): Promise<void
     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
     WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
     ON CONFLICT (id) DO NOTHING
+    RETURNING id
     `,
     shotInsertParams(shot),
   )
+  return (result.rowCount ?? 0) > 0
 }
 
 async function touchProject(

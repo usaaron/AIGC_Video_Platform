@@ -15,6 +15,9 @@ import type { FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
 import { GenerationTaskRunner } from './core/jobs/taskDispatcher.js'
 import { createPublicMediaToken } from './core/media/publicMediaToken.js'
 import { AppStore, defaultAssetAttributes } from './infra/store.js'
+import { AccountDatabase } from './infra/postgres.js'
+import { ProjectRepository } from './modules/projects/repository.js'
+import { UserRepository } from './modules/users/repository.js'
 import { LocalObjectStorage } from './infra/objectStorage.js'
 import { startPostgresAuthFixture, type PostgresAuthFixture } from './testing/postgresAuth.js'
 
@@ -3627,7 +3630,7 @@ describe('local authentication', () => {
   })
 
   it('persists project, asset, task and billing mutations', async () => {
-    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    app = await buildApp({ config: localAuthConfig(), store: await importedProjectStore(), startWorker: false })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
@@ -3733,7 +3736,7 @@ describe('local authentication', () => {
   })
 
   it('uploads and serves authenticated project media', async () => {
-    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    app = await buildApp({ config: localAuthConfig(), store: await importedProjectStore(), startWorker: false })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
@@ -3787,6 +3790,21 @@ describe('local authentication', () => {
     expect(source.headers['content-type']).toContain('image/png')
     expect(source.body).toBe('public-source')
   })
+
+  async function importedProjectStore(): Promise<AppStore> {
+    if (!authDatabase) throw new Error('Postgres auth fixture is not ready')
+    const store = new AppStore(null)
+    await store.initialize()
+    const database = new AccountDatabase(authDatabase.connectionString)
+    try {
+      const users = new UserRepository(store, database)
+      await users.bootstrapFromStore()
+      await new ProjectRepository(store, database).importFromStore()
+    } finally {
+      await database.close()
+    }
+    return store
+  }
 })
 
 localNovelRegression('local novel fixture regression', () => {

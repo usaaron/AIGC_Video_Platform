@@ -112,6 +112,8 @@ export class AppStore {
   private state!: AppState
   private writeQueue = Promise.resolve()
   private readonly lockPath: string | null
+  private projectWorkspaceRuntimeCache: Pick<AppState, 'projects' | 'assets' | 'shots'> | null = null
+  private projectWorkspacePersistenceBackup: Pick<AppState, 'projects' | 'assets' | 'shots'> | null = null
 
   constructor(
     private readonly filePath: string | null,
@@ -140,6 +142,7 @@ export class AppStore {
 
   read<T>(reader: (state: Readonly<AppState>) => T): T {
     this.reloadFromDiskSync()
+    this.applyProjectWorkspaceRuntimeCache()
     return structuredClone(reader(this.state))
   }
 
@@ -151,14 +154,35 @@ export class AppStore {
     return this.runWrite(mutator)
   }
 
+  replaceProjectWorkspaceRuntimeCache(input: Pick<AppState, 'projects' | 'assets' | 'shots'>): void {
+    if (!this.projectWorkspacePersistenceBackup) {
+      this.projectWorkspacePersistenceBackup = structuredClone({
+        projects: this.state.projects,
+        assets: this.state.assets,
+        shots: this.state.shots,
+      })
+    }
+    this.projectWorkspaceRuntimeCache = structuredClone(input)
+    this.applyProjectWorkspaceRuntimeCache()
+  }
+
+  mutateProjectWorkspaceRuntimeCache<T>(mutator: (state: AppState) => T): T {
+    this.applyProjectWorkspaceRuntimeCache()
+    const result = mutator(this.state)
+    this.captureProjectWorkspaceRuntimeCache()
+    return structuredClone(result)
+  }
+
   private async runWrite<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
     let result!: T
     const operation = this.writeQueue.then(async () => {
       await this.withWriteLock(async () => {
         await this.reloadFromDisk()
+        this.applyProjectWorkspaceRuntimeCache()
         const snapshot = structuredClone(this.state)
         try {
           result = await mutator(this.state)
+          this.captureProjectWorkspaceRuntimeCache()
           await this.persist()
         } catch (error) {
           this.state = snapshot
@@ -179,7 +203,7 @@ export class AppStore {
     await mkdir(dirname(this.filePath), { recursive: true })
     const temporary = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`
     try {
-      await writeFile(temporary, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8')
+      await writeFile(temporary, `${JSON.stringify(this.stateForPersistence(), null, 2)}\n`, 'utf8')
       await renameWithRetry(temporary, this.filePath)
     } finally {
       await rm(temporary, { force: true }).catch(() => {})
@@ -192,6 +216,7 @@ export class AppStore {
       this.state = removeLegacyDemoCharacters(
         normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>),
       )
+      this.applyProjectWorkspaceRuntimeCache()
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
@@ -202,6 +227,33 @@ export class AppStore {
     this.state = removeLegacyDemoCharacters(
       normalizeState(JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppState>),
     )
+    this.applyProjectWorkspaceRuntimeCache()
+  }
+
+  private applyProjectWorkspaceRuntimeCache(): void {
+    if (!this.projectWorkspaceRuntimeCache) return
+    this.state.projects = structuredClone(this.projectWorkspaceRuntimeCache.projects)
+    this.state.assets = structuredClone(this.projectWorkspaceRuntimeCache.assets)
+    this.state.shots = structuredClone(this.projectWorkspaceRuntimeCache.shots)
+  }
+
+  private captureProjectWorkspaceRuntimeCache(): void {
+    if (!this.projectWorkspaceRuntimeCache) return
+    this.projectWorkspaceRuntimeCache = structuredClone({
+      projects: this.state.projects,
+      assets: this.state.assets,
+      shots: this.state.shots,
+    })
+  }
+
+  private stateForPersistence(): AppState {
+    if (!this.projectWorkspacePersistenceBackup) return this.state
+    return {
+      ...this.state,
+      projects: structuredClone(this.projectWorkspacePersistenceBackup.projects),
+      assets: structuredClone(this.projectWorkspacePersistenceBackup.assets),
+      shots: structuredClone(this.projectWorkspacePersistenceBackup.shots),
+    }
   }
 
   private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {

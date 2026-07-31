@@ -1,11 +1,14 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { rm } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { buildApp } from '../../app.js'
 import { loadConfig, type AppConfig } from '../../config.js'
 import { AccountDatabase } from '../../infra/postgres.js'
 import { AppStore, defaultAssetAttributes } from '../../infra/store.js'
+import { ProjectRepository } from './repository.js'
 import { startPostgresAuthFixture, type PostgresAuthFixture } from '../../testing/postgresAuth.js'
+import { UserRepository } from '../users/repository.js'
 
 let app: Awaited<ReturnType<typeof buildApp>> | undefined
 let postgres: PostgresAuthFixture | undefined
@@ -29,8 +32,9 @@ afterAll(async () => {
 })
 
 describe('project postgres api', { timeout: 30_000 }, () => {
-  it('imports the seed project workspace into postgres before serving project reads', async () => {
-    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+  it('serves seed project workspace after explicit postgres import', async () => {
+    const store = await importJsonWorkspaceToPostgres()
+    app = await buildApp({ config: localAuthConfig(), store, startWorker: false })
     const cookie = await login('creator@seqora.local', 'Creator123!')
 
     const workspace = await app.inject({
@@ -225,6 +229,36 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     })
     expect(store.read((state) => state.assets.some((asset) => asset.id === assetId))).toBe(false)
   })
+
+  it('keeps the JSON project workspace as a backup after postgres writes', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'seqora-project-json-backup-'))
+    const dataFile = join(directory, 'app.json')
+    const store = new AppStore(dataFile)
+    app = await buildApp({ config: localAuthConfig({ DATA_FILE: dataFile }), store, startWorker: false })
+    const before = await readFile(dataFile, 'utf8')
+    const cookie = await login('creator@seqora.local', 'Creator123!')
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: { cookie },
+      payload: { name: 'Postgres Only Project', contentType: 'animation', aspectRatio: '16:9' },
+    })
+    expect(created.statusCode).toBe(201)
+
+    const after = await readFile(dataFile, 'utf8')
+    expect(after).toBe(before)
+
+    await withDatabase(async (database) => {
+      const project = await database.query<{ count: string }>(
+        'SELECT count(*)::text AS count FROM projects WHERE name = $1',
+        ['Postgres Only Project'],
+      )
+      expect(project.rows[0]).toEqual({ count: '1' })
+    })
+
+    await rm(directory, { recursive: true, force: true })
+  })
 })
 
 function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -259,6 +293,23 @@ async function withDatabase(operation: (database: AccountDatabase) => Promise<vo
   } finally {
     await database.close()
   }
+}
+
+async function importJsonWorkspaceToPostgres(): Promise<AppStore> {
+  const store = new AppStore(null)
+  await store.initialize()
+  await withDatabase(async (database) => {
+    const users = new UserRepository(store, database)
+    await users.bootstrapFromStore()
+    const projects = new ProjectRepository(store, database)
+    const result = await projects.importFromStore()
+    expect(result).toEqual({
+      projects: { inserted: 1, skipped: 0 },
+      assets: { inserted: 4, skipped: 0 },
+      shots: { inserted: 5, skipped: 0 },
+    })
+  })
+  return store
 }
 
 function cookieValue(response: { cookies: Array<{ name: string; value: string }> }): string {
