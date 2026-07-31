@@ -92,6 +92,233 @@ describe('postgres migrations', () => {
       await rm(migrationsPath, { recursive: true, force: true })
     }
   })
+
+  it('creates the project domain tables with their core constraints', async () => {
+    if (!postgres) throw new Error('Postgres fixture is not ready')
+    const database = new AccountDatabase(postgres.connectionString)
+
+    try {
+      const tables = await database.query<{
+        projects_table: string | null
+        project_versions_table: string | null
+        assets_table: string | null
+        shots_table: string | null
+        generation_tasks_table: string | null
+        media_objects_table: string | null
+      }>(
+        `
+        SELECT
+          to_regclass('public.projects')::text AS projects_table,
+          to_regclass('public.project_versions')::text AS project_versions_table,
+          to_regclass('public.assets')::text AS assets_table,
+          to_regclass('public.shots')::text AS shots_table,
+          to_regclass('public.generation_tasks')::text AS generation_tasks_table,
+          to_regclass('public.media_objects')::text AS media_objects_table
+        `,
+      )
+      expect(tables.rows[0]).toEqual({
+        projects_table: 'projects',
+        project_versions_table: 'project_versions',
+        assets_table: 'assets',
+        shots_table: 'shots',
+        generation_tasks_table: 'generation_tasks',
+        media_objects_table: 'media_objects',
+      })
+
+      const userId = `user-${uniqueSuffix()}`
+      const tenantId = `tenant-${uniqueSuffix()}`
+      const projectId = `project-${uniqueSuffix()}`
+      const assetId = `asset-${uniqueSuffix()}`
+      const shotId = `shot-${uniqueSuffix()}`
+      const taskId = `task-${uniqueSuffix()}`
+      const mediaId = `media-${uniqueSuffix()}`
+      const versionId = `version-${uniqueSuffix()}`
+      const membershipId = `membership-${tenantId}-${userId}`
+
+      await database.transaction(async (client) => {
+        await client.query(
+          `INSERT INTO users (id, display_name, status, created_at, updated_at) VALUES ($1, $2, 'active', now(), now())`,
+          [userId, 'Migration User'],
+        )
+        await client.query(
+          `
+          INSERT INTO tenants (id, name, status, created_by_user_id, created_at, updated_at)
+          VALUES ($1, $2, 'active', $3, now(), now())
+          `,
+          [tenantId, 'Migration Tenant', userId],
+        )
+        await client.query(
+          `
+          INSERT INTO tenant_memberships (
+            id, tenant_id, user_id, roles, is_primary, status, created_at, updated_at
+          )
+          VALUES ($1, $2, $3, $4, false, 'active', now(), now())
+          `,
+          [membershipId, tenantId, userId, ['owner']],
+        )
+        await client.query(
+          `
+          INSERT INTO projects (
+            id, tenant_id, owner_user_id, name, content_type, aspect_ratio, status,
+            synopsis, script, version, created_at, updated_at
+          )
+          VALUES ($1, $2, $3, $4, 'short-drama', '9:16', 'draft', '', '', 1, now(), now())
+          `,
+          [projectId, tenantId, userId, 'Migration Project'],
+        )
+        await client.query(
+          `
+          INSERT INTO project_versions (
+            id, project_id, tenant_id, version, name, synopsis, script,
+            project_snapshot, assets_snapshot, shots_snapshot, created_by_user_id, created_at
+          )
+          VALUES (
+            $1, $2, $3, 1, $4, $5, $6,
+            $7::jsonb, $8::jsonb, $9::jsonb, $10, now()
+          )
+          `,
+          [
+            versionId,
+            projectId,
+            tenantId,
+            'Migration Project v1',
+            'Snapshot synopsis',
+            'Snapshot script',
+            JSON.stringify({
+              id: projectId,
+              tenantId,
+              ownerId: userId,
+              name: 'Migration Project',
+              contentType: 'short-drama',
+              aspectRatio: '9:16',
+              status: 'draft',
+              synopsis: '',
+              script: '',
+              version: 1,
+            }),
+            JSON.stringify([
+              {
+                id: assetId,
+                name: 'Snapshot Asset',
+              },
+            ]),
+            JSON.stringify([
+              {
+                id: shotId,
+                title: 'Snapshot Shot',
+              },
+            ]),
+            userId,
+          ],
+        )
+        await client.query(
+          `
+          INSERT INTO assets (
+            id, project_id, tenant_id, kind, source_mode, name, description, prompt, prompt_mode,
+            custom_prompt_mode, custom_prompt, negative_prompt, reference_items, attributes, image_url,
+            status, created_at, updated_at
+          )
+          VALUES (
+            $1, $2, $3, 'character', 'generate', $4, 'Asset description', 'Asset prompt',
+            'standard', 'append', '', '', '[]'::jsonb,
+            '{"type":"character","subjectType":"human","gender":"female","ageGroup":"young","exactAge":null,"species":"","anthropomorphic":false,"visualStyle":"cinematic-cg","framing":"full","bodyType":"balanced","background":"solid","faceStatus":"pending","bodyStatus":"pending","faceReference":null,"bodyReference":null,"portraitSource":"ai-virtual","trustedPortrait":null,"legStretch":false,"turnaround":false,"turnaroundLayout":"sheet"}'::jsonb,
+            NULL, 'draft', now(), now()
+          )
+          `,
+          [assetId, projectId, tenantId, 'Migration Asset'],
+        )
+        await client.query(
+          `
+          INSERT INTO shots (
+            id, project_id, tenant_id, shot_order, title, framing, duration_seconds, prompt,
+            negative_prompt, image_url, continuity_mode, continuity_note, created_at, updated_at
+          )
+          VALUES ($1, $2, $3, 1, $4, '中景', 5, 'Shot prompt', '', NULL, 'independent', '', now(), now())
+          `,
+          [shotId, projectId, tenantId, 'Migration Shot'],
+        )
+        await client.query(
+          `
+          INSERT INTO generation_tasks (
+            id, client_request_id, project_id, tenant_id, user_id, membership_id, kind, label,
+            prompt, negative_prompt, provider, model, tier, metadata, status, progress,
+            estimated_credits, attempts, max_attempts, lease_owner_id, lease_token,
+            lease_acquired_at, lease_heartbeat_at, lease_expires_at, result_url, outputs, error,
+            created_at, updated_at
+          )
+          VALUES (
+            $1, 'client-request-1', $2, $3, $4, $5, 'video', 'Task label',
+            'Task prompt', '', 'local', NULL, NULL, '{"shotId":"shot-1"}'::jsonb, 'queued', 0,
+            10, 0, 3, NULL, NULL, NULL, NULL, NULL, NULL, '[]'::jsonb, NULL, now(), now()
+          )
+          `,
+          [taskId, projectId, tenantId, userId, membershipId],
+        )
+        await client.query(
+          `
+          INSERT INTO media_objects (
+            id, project_id, tenant_id, created_by_user_id, generation_task_id, asset_id, shot_id,
+            media_type, purpose, name, content_type, size_bytes, storage_driver, storage_key, bucket,
+            checksum_sha256, width, height, duration_seconds, metadata, status, deleted_at, created_at,
+            updated_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6, $7,
+            'video', 'generation-output', 'Render output', 'video/mp4', 1024, 'local', 'media/1',
+            NULL, NULL, 1920, 1080, 5.25, '{}'::jsonb, 'active', NULL, now(), now()
+          )
+          `,
+          [mediaId, projectId, tenantId, userId, taskId, assetId, shotId],
+        )
+      })
+
+      const counts = await database.query<{
+        project_count: string
+        version_count: string
+        asset_count: string
+        shot_count: string
+        task_count: string
+        media_count: string
+      }>(
+        `
+        SELECT
+          (SELECT count(*)::text FROM projects WHERE id = $1) AS project_count,
+          (SELECT count(*)::text FROM project_versions WHERE project_id = $1) AS version_count,
+          (SELECT count(*)::text FROM assets WHERE project_id = $1) AS asset_count,
+          (SELECT count(*)::text FROM shots WHERE project_id = $1) AS shot_count,
+          (SELECT count(*)::text FROM generation_tasks WHERE project_id = $1) AS task_count,
+          (SELECT count(*)::text FROM media_objects WHERE project_id = $1) AS media_count
+        `,
+        [projectId],
+      )
+      expect(counts.rows[0]).toEqual({
+        project_count: '1',
+        version_count: '1',
+        asset_count: '1',
+        shot_count: '1',
+        task_count: '1',
+        media_count: '1',
+      })
+
+      await expect(
+        database.query(
+          `
+          INSERT INTO media_objects (
+            id, project_id, tenant_id, media_type, purpose, name, content_type, size_bytes,
+            storage_driver, storage_key, created_at, updated_at
+          )
+          VALUES (
+            $1, $2, $3, 'video', 'generation-output', 'Duplicate storage key', 'video/mp4', 1,
+            'local', 'media/1', now(), now()
+          )
+          `,
+          [`media-${uniqueSuffix()}`, projectId, tenantId],
+        ),
+      ).rejects.toThrow()
+    } finally {
+      await database.close()
+    }
+  })
 })
 
 async function createDatabase(migrationsPath: string): Promise<AccountDatabase> {
