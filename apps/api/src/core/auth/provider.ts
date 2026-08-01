@@ -24,6 +24,7 @@ class DemoAuthProvider implements AuthProvider {
         'demo-tenant',
       roles: [role],
       passwordResetRequired: false,
+      emailVerified: true,
     }
   }
 }
@@ -56,6 +57,7 @@ class LocalAuthProvider implements AuthProvider {
         organizationId: session.organizationId ?? session.tenantId,
         roles: session.roles,
         passwordResetRequired: session.passwordResetRequired,
+        emailVerified: session.emailVerified,
       }
     }
 
@@ -69,6 +71,7 @@ class LocalAuthProvider implements AuthProvider {
           organizationId: user.organizationId ?? user.tenantId,
           roles: user.roles,
           passwordResetRequired: user.passwordResetRequired,
+          emailVerified: user.emailVerified,
         }
       : null
   }

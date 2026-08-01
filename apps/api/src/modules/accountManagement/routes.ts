@@ -1,6 +1,7 @@
 import {
   acceptTenantInvitationSchema,
   addTenantMemberSchema,
+  createOrganizationSchema,
   createTenantInvitationSchema,
   createTenantUserSchema,
   createWorkspaceSchema,
@@ -8,6 +9,7 @@ import {
   registerAccountSchema,
   transferOrganizationAdminSchema,
   updateMembershipRolesSchema,
+  updateOrganizationSchema,
   updateWorkspaceSchema,
   type AccountSession,
   type Session,
@@ -66,9 +68,9 @@ export async function registerAccountManagementRoutes(
     return sendSession(reply.code(201), result, secureCookies)
   })
   app.post('/organizations', { preHandler: requireAuthenticated }, async (request, reply) => {
-    const result = await requireService(service).createWorkspace(
+    const result = await requireService(service).createOrganization(
       request.principal!,
-      parse(createWorkspaceSchema, request.body),
+      parse(createOrganizationSchema, request.body),
       sessionMetadataFromRequest(request),
     )
     return sendSession(reply.code(201), result, secureCookies)
@@ -81,7 +83,7 @@ export async function registerAccountManagementRoutes(
   })
   app.get('/organizations', { preHandler: requireAuthenticated }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
-    return await requireService(service).listWorkspaces(request.principal!)
+    return await requireService(service).listOrganizations(request.principal!)
   })
 
   app.patch(
@@ -105,10 +107,10 @@ export async function registerAccountManagementRoutes(
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
       reply.header('Cache-Control', 'no-store')
-      return await requireService(service).updateWorkspace(
+      return await requireService(service).updateOrganization(
         request.principal!,
         tenantId,
-        parse(updateWorkspaceSchema, request.body),
+        parse(updateOrganizationSchema, request.body),
         sessionMetadataFromRequest(request),
       )
     },
@@ -136,7 +138,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
-      const result = await requireService(service).disableWorkspace(
+      const result = await requireService(service).disableOrganization(
         request.principal!,
         tenantId,
         sessionMetadataFromRequest(request),
@@ -199,7 +201,7 @@ export async function registerAccountManagementRoutes(
   })
   app.post('/organizations/:tenantId/leave', { preHandler: requireAuthenticated }, async (request, reply) => {
     const { tenantId } = parse(tenantParams, request.params)
-    const result = await requireService(service).leaveWorkspace(
+    const result = await requireService(service).leaveOrganization(
       request.principal!,
       tenantId,
       sessionMetadataFromRequest(request),
@@ -225,7 +227,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requireAuthenticated },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
-      const result = await requireService(service).switchWorkspace(
+      const result = await requireService(service).switchOrganization(
         request.principal!,
         tenantId,
         sessionMetadataFromRequest(request),
@@ -248,7 +250,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_READ) },
     async (request) => {
       const { tenantId } = parse(tenantParams, request.params)
-      return await requireService(service).listMembers(request.principal!, tenantId)
+      return await requireService(service).listOrganizationMembers(request.principal!, tenantId)
     },
   )
 
@@ -353,7 +355,7 @@ export async function registerAccountManagementRoutes(
     },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
-      const member = await requireService(service).addMember(
+      const member = await requireService(service).addOrganizationMember(
         request.principal!,
         tenantId,
         parse(addTenantMemberSchema, request.body),
@@ -389,7 +391,7 @@ export async function registerAccountManagementRoutes(
     },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
-      const member = await requireService(service).createTenantUser(
+      const member = await requireService(service).createOrganizationUser(
         request.principal!,
         tenantId,
         parse(createTenantUserSchema, request.body),
@@ -419,7 +421,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request) => {
       const { tenantId, userId } = parse(memberParams, request.params)
-      return await requireService(service).updateMembershipRoles(
+      return await requireService(service).updateOrganizationMembershipRoles(
         request.principal!,
         tenantId,
         userId,
@@ -449,7 +451,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId, userId } = parse(memberParams, request.params)
-      await requireService(service).disableMembership(
+      await requireService(service).disableOrganizationMembership(
         request.principal!,
         tenantId,
         userId,
@@ -479,7 +481,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId, userId } = parse(memberParams, request.params)
-      await requireService(service).disableAccount(
+      await requireService(service).disableOrganizationAccount(
         request.principal!,
         tenantId,
         userId,
@@ -533,7 +535,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId, sessionId } = parse(tenantSessionParams, request.params)
-      await requireService(service).revokeTenantSession(
+      await requireService(service).revokeOrganizationSession(
         request.principal!,
         tenantId,
         sessionId,
@@ -563,7 +565,7 @@ export async function registerAccountManagementRoutes(
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
       reply.header('Cache-Control', 'no-store')
-      return await requireService(service).listTenantSessions(
+      return await requireService(service).listOrganizationSessions(
         request.principal!,
         tenantId,
         request.cookies[SESSION_COOKIE],

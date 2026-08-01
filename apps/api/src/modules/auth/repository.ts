@@ -6,10 +6,13 @@ import type {
   AuthAccount,
   AuthAccounts,
   AuthSession,
+  EmailVerificationTokenInput,
+  EmailVerificationTokenResult,
   PasswordResetTokenInput,
   PasswordResetTokenResult,
   ResetPasswordTokenInput,
   SessionMetadata,
+  VerifyEmailTokenInput,
 } from './accounts.js'
 
 export class AuthRepository implements AuthAccounts {
@@ -30,7 +33,8 @@ export class AuthRepository implements AuthAccounts {
         m.roles AS roles,
         b.plan AS plan,
         b.credits AS credits,
-        u.password_reset_required AS password_reset_required
+        u.password_reset_required AS password_reset_required,
+        COALESCE(ai.email_verification_status = 'verified', false) AS email_verified
       FROM auth_identities ai
       JOIN users u ON u.id = ai.user_id AND u.status = 'active'
       JOIN tenant_memberships m ON m.user_id = u.id AND m.status = 'active'
@@ -60,13 +64,14 @@ export class AuthRepository implements AuthAccounts {
         m.roles AS roles,
         b.plan AS plan,
         b.credits AS credits,
-        u.password_reset_required AS password_reset_required
+        u.password_reset_required AS password_reset_required,
+        COALESCE(ai.email_verification_status = 'verified', false) AS email_verified
       FROM users u
       JOIN tenant_memberships m ON m.user_id = u.id AND m.status = 'active'
       JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
       JOIN billing_accounts b ON b.membership_id = m.id
       LEFT JOIN LATERAL (
-        SELECT email, password_hash
+        SELECT email, password_hash, email_verification_status
         FROM auth_identities ai
         WHERE ai.user_id = u.id
           AND ai.provider = 'local'
@@ -339,6 +344,179 @@ export class AuthRepository implements AuthAccounts {
     })
   }
 
+  async createEmailVerificationToken(
+    input: EmailVerificationTokenInput,
+  ): Promise<EmailVerificationTokenResult | null> {
+    return this.database.transaction(async (client) => {
+      const account = await client.query<EmailVerificationAccountRow>(
+        `
+        SELECT
+          ai.id AS identity_id,
+          ai.user_id,
+          ai.email_verification_status
+        FROM auth_identities ai
+        JOIN users u ON u.id = ai.user_id AND u.status = 'active'
+        WHERE ai.provider = 'local'
+          AND lower(ai.email) = lower($1)
+          AND ai.status = 'active'
+          AND ai.password_hash IS NOT NULL
+        ORDER BY ai.is_primary DESC, ai.created_at ASC
+        LIMIT 1
+        FOR UPDATE OF ai
+        `,
+        [input.email],
+      )
+      const row = account.rows[0]
+      if (!row) {
+        await insertAuditLog(client, {
+          tenantId: null,
+          userId: null,
+          actorUserId: null,
+          action: 'auth.email_verification.requested',
+          resourceType: 'email',
+          resourceId: null,
+          ipAddress: input.ipAddress,
+          userAgent: input.userAgent,
+          metadata: { emailHash: hashAuditValue(input.email.toLowerCase()) },
+        })
+        return null
+      }
+      if (row.email_verification_status === 'verified') {
+        await insertAuditLog(client, {
+          tenantId: null,
+          userId: row.user_id,
+          actorUserId: row.user_id,
+          action: 'auth.email_verification.requested',
+          resourceType: 'auth_identity',
+          resourceId: row.identity_id,
+          ipAddress: input.ipAddress,
+          userAgent: input.userAgent,
+          metadata: { alreadyVerified: true },
+        })
+        return null
+      }
+
+      await client.query(
+        `
+        UPDATE email_verification_tokens
+        SET revoked_at = now(),
+            updated_at = now()
+        WHERE identity_id = $1
+          AND used_at IS NULL
+          AND revoked_at IS NULL
+          AND expires_at > now()
+        `,
+        [row.identity_id],
+      )
+      await client.query(
+        `
+        INSERT INTO email_verification_tokens (
+          id, user_id, identity_id, token_secret_hash, expires_at, used_at, revoked_at,
+          requested_ip, requested_user_agent, verified_ip, verified_user_agent, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, NULL, NULL, now(), now())
+        `,
+        [
+          `email-verification-${randomUUID()}`,
+          row.user_id,
+          row.identity_id,
+          input.tokenSecretHash,
+          input.expiresAt,
+          input.ipAddress,
+          input.userAgent,
+        ],
+      )
+      await insertAuditLog(client, {
+        tenantId: null,
+        userId: row.user_id,
+        actorUserId: row.user_id,
+        action: 'auth.email_verification.requested',
+        resourceType: 'auth_identity',
+        resourceId: row.identity_id,
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+        metadata: {},
+      })
+      return { userId: row.user_id, identityId: row.identity_id, expiresAt: input.expiresAt }
+    })
+  }
+
+  async verifyEmailWithToken(input: VerifyEmailTokenInput): Promise<boolean> {
+    return this.database.transaction(async (client) => {
+      const token = await client.query<EmailVerificationTokenRow>(
+        `
+        SELECT
+          evt.id AS token_id,
+          evt.user_id,
+          evt.identity_id
+        FROM email_verification_tokens evt
+        JOIN auth_identities ai ON ai.id = evt.identity_id
+        JOIN users u ON u.id = evt.user_id
+        WHERE evt.token_secret_hash = $1
+          AND evt.used_at IS NULL
+          AND evt.revoked_at IS NULL
+          AND evt.expires_at > now()
+          AND ai.status = 'active'
+          AND ai.provider = 'local'
+          AND ai.password_hash IS NOT NULL
+          AND u.status = 'active'
+        LIMIT 1
+        FOR UPDATE OF evt
+        `,
+        [input.tokenSecretHash],
+      )
+      const row = token.rows[0]
+      if (!row) {
+        await insertAuditLog(client, {
+          tenantId: null,
+          userId: null,
+          actorUserId: null,
+          action: 'auth.email_verification.failed',
+          resourceType: 'email_verification_token',
+          resourceId: null,
+          ipAddress: input.ipAddress,
+          userAgent: input.userAgent,
+          metadata: { reason: 'invalid_or_expired' },
+        })
+        return false
+      }
+
+      await client.query(
+        `
+        UPDATE auth_identities
+        SET email_verification_status = 'verified',
+            email_verified_at = COALESCE(email_verified_at, now()),
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [row.identity_id],
+      )
+      await client.query(
+        `
+        UPDATE email_verification_tokens
+        SET used_at = now(),
+            verified_ip = $2,
+            verified_user_agent = $3,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [row.token_id, input.ipAddress, input.userAgent],
+      )
+      await insertAuditLog(client, {
+        tenantId: null,
+        userId: row.user_id,
+        actorUserId: row.user_id,
+        action: 'auth.email_verification.completed',
+        resourceType: 'auth_identity',
+        resourceId: row.identity_id,
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+        metadata: { verificationTokenId: row.token_id },
+      })
+      return true
+    })
+  }
+
   async recordAuditLog(input: AuditLogInput): Promise<void> {
     await insertAuditLog(this.database, input)
   }
@@ -352,6 +530,7 @@ export class AuthRepository implements AuthAccounts {
         m.tenant_id AS tenant_id,
         m.roles AS roles,
         u.password_reset_required AS password_reset_required,
+        COALESCE(ai.email_verification_status = 'verified', false) AS email_verified,
         s.token_secret_hash AS token_secret_hash,
         s.expires_at AS expires_at,
         s.revoked_at AS revoked_at
@@ -359,6 +538,15 @@ export class AuthRepository implements AuthAccounts {
       JOIN tenant_memberships m ON m.id = s.membership_id
       JOIN users u ON u.id = m.user_id AND u.status = 'active'
       JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
+      LEFT JOIN LATERAL (
+        SELECT email_verification_status
+        FROM auth_identities ai
+        WHERE ai.user_id = u.id
+          AND ai.provider = 'local'
+          AND ai.status = 'active'
+        ORDER BY ai.is_primary DESC, ai.created_at ASC
+        LIMIT 1
+      ) ai ON true
       WHERE s.id = $1
         AND m.status = 'active'
       LIMIT 1
@@ -416,6 +604,7 @@ export class AuthRepository implements AuthAccounts {
       plan: user.plan,
       credits: user.credits,
       passwordResetRequired: user.passwordResetRequired,
+      emailVerified: user.emailVerified,
     }
   }
 }
@@ -456,6 +645,7 @@ type AuthAccountRow = {
   plan: AuthAccount['plan']
   credits: number
   password_reset_required: boolean
+  email_verified: boolean
 }
 
 type AuthSessionRow = {
@@ -464,6 +654,7 @@ type AuthSessionRow = {
   tenant_id: string
   roles: AuthAccount['roles']
   password_reset_required: boolean
+  email_verified: boolean
   token_secret_hash: string
   expires_at: string
   revoked_at: string | null
@@ -475,6 +666,18 @@ type PasswordResetAccountRow = {
 }
 
 type PasswordResetTokenRow = {
+  token_id: string
+  user_id: string
+  identity_id: string
+}
+
+type EmailVerificationAccountRow = {
+  identity_id: string
+  user_id: string
+  email_verification_status: 'unverified' | 'verified'
+}
+
+type EmailVerificationTokenRow = {
   token_id: string
   user_id: string
   identity_id: string
@@ -527,6 +730,7 @@ function toAuthAccount(row: AuthAccountRow): AuthAccount {
     plan: row.plan,
     credits: row.credits,
     passwordResetRequired: row.password_reset_required,
+    emailVerified: row.email_verified,
   }
 }
 
@@ -538,6 +742,7 @@ function toAuthSession(row: AuthSessionRow): AuthSession {
     organizationId: row.tenant_id,
     roles: row.roles,
     passwordResetRequired: row.password_reset_required,
+    emailVerified: row.email_verified,
     tokenSecretHash: row.token_secret_hash,
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,

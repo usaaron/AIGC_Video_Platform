@@ -35,7 +35,12 @@ const configSchema = z
     EMAIL_FROM: z.string().min(1).max(256).default('Seqora <no-reply@seqora.local>'),
     EMAIL_REPLY_TO: z.union([z.literal(''), z.string().email()]).default(''),
     RESEND_API_KEY: z.string().default(''),
+    EMAIL_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(15_000),
+    EMAIL_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
+    EMAIL_RETRY_BASE_DELAY_MS: z.coerce.number().int().min(50).max(10_000).default(250),
+    BILLING_ALERT_EMAILS: z.string().default(''),
     AUTH_PASSWORD_RESET_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    AUTH_EMAIL_VERIFICATION_URL: z.union([z.literal(''), z.string().url()]).default(''),
     AUTH_INVITATION_URL: z.union([z.literal(''), z.string().url()]).default(''),
     PAYMENT_PROVIDER: z.enum(['none', 'stripe']).default('none'),
     BILLING_SUCCESS_URL: z.union([z.literal(''), z.string().url()]).default(''),
@@ -149,6 +154,23 @@ const configSchema = z
         path: ['RESEND_API_KEY'],
         message: 'RESEND_API_KEY is required when EMAIL_PROVIDER=resend',
       })
+    }
+    if (config.NODE_ENV === 'production' && /@(?:seqora\.local|localhost)(?:>|$)/i.test(config.EMAIL_FROM)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['EMAIL_FROM'],
+        message: 'A verified production sender domain is required in EMAIL_FROM',
+      })
+    }
+    if (config.NODE_ENV === 'production') {
+      for (const key of ['AUTH_PASSWORD_RESET_URL', 'AUTH_EMAIL_VERIFICATION_URL'] as const) {
+        if (config[key].startsWith('https://')) continue
+        context.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `${key} must use HTTPS in production`,
+        })
+      }
     }
     if (config.TASK_QUEUE_DRIVER === 'bullmq' && !config.REDIS_URL) {
       context.addIssue({
@@ -337,6 +359,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     AUTH_PASSWORD_RESET_URL:
       environment.AUTH_PASSWORD_RESET_URL ??
       `${(environment.WEB_ORIGIN ?? 'http://localhost:5173').replace(/\/+$/, '')}/reset-password`,
+    AUTH_EMAIL_VERIFICATION_URL:
+      environment.AUTH_EMAIL_VERIFICATION_URL ??
+      `${(environment.WEB_ORIGIN ?? 'http://localhost:5173').replace(/\/+$/, '')}/verify-email`,
+    BILLING_ALERT_EMAILS: normalizeCsv(environment.BILLING_ALERT_EMAILS),
     AUTH_INVITATION_URL:
       environment.AUTH_INVITATION_URL ??
       `${(environment.WEB_ORIGIN ?? 'http://localhost:5173').replace(/\/+$/, '')}/register`,
@@ -350,4 +376,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
 
 function isRehdasuTextModel(model: string): boolean {
   return /^(glm-5\.2|glm-5\.2-fast|kimi-k3|kimi-k3-thinking)$/i.test(model.trim())
+}
+
+function normalizeCsv(value: string | undefined): string {
+  return value?.trim() ?? ''
 }

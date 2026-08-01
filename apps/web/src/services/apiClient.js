@@ -64,6 +64,10 @@ export async function waitForProjectScriptUpdate(
 export const api = {
   login: (input) => request('/auth/login', json('POST', input)),
   register: (input) => request('/auth/register', json('POST', input)),
+  requestEmailVerification: (input) => request('/auth/email-verification/request', json('POST', input)),
+  verifyEmail: (input) => request('/auth/email-verification/verify', json('POST', input)),
+  requestPasswordReset: (input) => request('/auth/password/reset-request', json('POST', input)),
+  resetPassword: (input) => request('/auth/password/reset', json('POST', input)),
   logout: () => request('/auth/logout', emptyJsonPost()),
   session: () => request('/auth/me'),
   changePassword: (input) => request('/auth/password', json('PUT', input)),

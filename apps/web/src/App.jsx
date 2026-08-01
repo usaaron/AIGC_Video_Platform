@@ -55,7 +55,8 @@ function App() {
   const [currentShot, setCurrentShot] = useState(0)
 
   const canOpenAdminAccounts = canOpenAccountAdmin(session)
-  const canUseCreativeWorkspace = session.permissions.includes('project.write')
+  const canUseCreativeWorkspace =
+    session.account.emailVerified !== false && session.permissions.includes('project.write')
   const canManageProjectSettings = canEditProjectSettings(session)
   const adminConsoleUrl = getAdminConsoleUrl()
 
@@ -397,6 +398,7 @@ function App() {
         onRevokeSession={revokeOwnSession}
         onSave={updateProject}
         onChangePassword={(input) => api.changePassword(input)}
+        onRequestEmailVerification={() => api.requestEmailVerification({ email: session.account.email })}
         onLogout={logout}
       />
     )

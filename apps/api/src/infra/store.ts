@@ -34,6 +34,7 @@ export type StoredUser = {
   plan: Plan
   credits: number
   passwordResetRequired: boolean
+  emailVerified: boolean
 }
 
 export type StoredMedia = {
@@ -116,6 +117,8 @@ export class AppStore {
   private state!: AppState
   private writeQueue = Promise.resolve()
   private readonly lockPath: string | null
+  private accountRuntimeCache: Pick<AppState, 'users' | 'ledger'> | null = null
+  private accountPersistenceBackup: Pick<AppState, 'users' | 'ledger'> | null = null
   private projectWorkspaceRuntimeCache: Pick<AppState, 'projects' | 'assets' | 'shots'> | null = null
   private projectWorkspacePersistenceBackup: Pick<AppState, 'projects' | 'assets' | 'shots'> | null = null
   private generationTaskRuntimeCache: Pick<AppState, 'tasks'> | null = null
@@ -150,6 +153,7 @@ export class AppStore {
 
   read<T>(reader: (state: Readonly<AppState>) => T): T {
     this.reloadFromDiskSync()
+    this.applyAccountRuntimeCache()
     this.applyProjectWorkspaceRuntimeCache()
     this.applyGenerationTaskRuntimeCache()
     this.applyAiJobRuntimeCache()
@@ -162,6 +166,39 @@ export class AppStore {
 
   async transaction<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
     return this.runWrite(mutator)
+  }
+
+  replaceAccountRuntimeCache(input: Pick<AppState, 'users' | 'ledger'>): void {
+    if (!this.accountPersistenceBackup) {
+      this.accountPersistenceBackup = structuredClone({
+        users: this.state.users,
+        ledger: this.state.ledger,
+      })
+    }
+    this.accountRuntimeCache = structuredClone(input)
+    this.applyAccountRuntimeCache()
+  }
+
+  mutateAccountRuntimeCache<T>(mutator: (state: AppState) => T): T {
+    this.applyAccountRuntimeCache()
+    this.applyProjectWorkspaceRuntimeCache()
+    this.applyGenerationTaskRuntimeCache()
+    this.applyAiJobRuntimeCache()
+    if (!this.accountPersistenceBackup) {
+      this.accountPersistenceBackup = structuredClone({
+        users: this.state.users,
+        ledger: this.state.ledger,
+      })
+    }
+    if (!this.accountRuntimeCache) {
+      this.accountRuntimeCache = structuredClone({
+        users: this.state.users,
+        ledger: this.state.ledger,
+      })
+    }
+    const result = mutator(this.state)
+    this.captureAccountRuntimeCache()
+    return structuredClone(result)
   }
 
   replaceProjectWorkspaceRuntimeCache(input: Pick<AppState, 'projects' | 'assets' | 'shots'>): void {
@@ -208,12 +245,14 @@ export class AppStore {
     const operation = this.writeQueue.then(async () => {
       await this.withWriteLock(async () => {
         await this.reloadFromDisk()
+        this.applyAccountRuntimeCache()
         this.applyProjectWorkspaceRuntimeCache()
         this.applyGenerationTaskRuntimeCache()
         this.applyAiJobRuntimeCache()
         const snapshot = structuredClone(this.state)
         try {
           result = await mutator(this.state)
+          this.captureAccountRuntimeCache()
           this.applyProjectWorkspaceRuntimeCache()
           this.applyGenerationTaskRuntimeCache()
           this.applyAiJobRuntimeCache()
@@ -250,6 +289,7 @@ export class AppStore {
       this.state = removeLegacyDemoCharacters(
         normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>),
       )
+      this.applyAccountRuntimeCache()
       this.applyProjectWorkspaceRuntimeCache()
       this.applyGenerationTaskRuntimeCache()
       this.applyAiJobRuntimeCache()
@@ -263,9 +303,16 @@ export class AppStore {
     this.state = removeLegacyDemoCharacters(
       normalizeState(JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppState>),
     )
+    this.applyAccountRuntimeCache()
     this.applyProjectWorkspaceRuntimeCache()
     this.applyGenerationTaskRuntimeCache()
     this.applyAiJobRuntimeCache()
+  }
+
+  private applyAccountRuntimeCache(): void {
+    if (!this.accountRuntimeCache) return
+    this.state.users = structuredClone(this.accountRuntimeCache.users)
+    this.state.ledger = structuredClone(this.accountRuntimeCache.ledger)
   }
 
   private applyProjectWorkspaceRuntimeCache(): void {
@@ -283,6 +330,14 @@ export class AppStore {
   private applyAiJobRuntimeCache(): void {
     if (!this.aiJobRuntimeCache) return
     this.state.aiJobs = structuredClone(this.aiJobRuntimeCache.aiJobs)
+  }
+
+  private captureAccountRuntimeCache(): void {
+    if (!this.accountRuntimeCache) return
+    this.accountRuntimeCache = structuredClone({
+      users: this.state.users,
+      ledger: this.state.ledger,
+    })
   }
 
   private captureProjectWorkspaceRuntimeCache(): void {
@@ -306,6 +361,7 @@ export class AppStore {
 
   private stateForPersistence(): AppState {
     if (
+      !this.accountPersistenceBackup &&
       !this.projectWorkspacePersistenceBackup &&
       !this.generationTaskPersistenceBackup &&
       !this.aiJobPersistenceBackup
@@ -313,6 +369,10 @@ export class AppStore {
       return this.state
     const persisted = {
       ...this.state,
+    }
+    if (this.accountPersistenceBackup) {
+      persisted.users = structuredClone(this.accountPersistenceBackup.users)
+      persisted.ledger = structuredClone(this.accountPersistenceBackup.ledger)
     }
     if (this.projectWorkspacePersistenceBackup) {
       persisted.projects = structuredClone(this.projectWorkspacePersistenceBackup.projects)
@@ -401,6 +461,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         plan: 'free',
         credits: 286,
         passwordResetRequired: false,
+        emailVerified: true,
       },
       {
         id: ownerId,
@@ -412,6 +473,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         plan: 'member',
         credits: 1_000,
         passwordResetRequired: false,
+        emailVerified: true,
       },
       {
         id: superAdminId,
@@ -423,6 +485,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         plan: 'member',
         credits: 1_000,
         passwordResetRequired: false,
+        emailVerified: true,
       },
       {
         id: 'user-admin',
@@ -434,6 +497,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         plan: 'member',
         credits: 1_000,
         passwordResetRequired: false,
+        emailVerified: true,
       },
     ],
     projects: demoWorkspace

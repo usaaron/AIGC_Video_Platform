@@ -2,10 +2,13 @@ import type {
   ChangePasswordInput,
   LoginInput,
   Principal,
+  RequestEmailVerificationInput,
+  RequestEmailVerificationResult,
   RequestPasswordResetInput,
   RequestPasswordResetResult,
   ResetPasswordInput,
   Session,
+  VerifyEmailInput,
 } from '@seqora/contracts'
 import { createHash, randomBytes } from 'node:crypto'
 import { permissionsFor } from '../../core/auth/authorization.js'
@@ -21,11 +24,14 @@ import { AppError } from '../../core/errors.js'
 import type { AuthAccounts, SessionMetadata } from './accounts.js'
 
 const passwordResetLifetimeSeconds = 60 * 30
+const emailVerificationLifetimeSeconds = 60 * 60 * 24
 
 type AuthServiceOptions = {
   exposePasswordResetTokens?: boolean
+  exposeEmailVerificationTokens?: boolean
   mailer?: Mailer
   passwordResetUrl?: string
+  emailVerificationUrl?: string
 }
 
 export class AuthService {
@@ -55,7 +61,12 @@ export class AuthService {
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect')
     }
 
-    const principal: Principal = { userId: user.id, tenantId: user.tenantId, roles: user.roles }
+    const principal: Principal = {
+      userId: user.id,
+      tenantId: user.tenantId,
+      roles: user.roles,
+      emailVerified: user.emailVerified,
+    }
     if (this.users.hasDatabase) {
       const issued = issueSessionToken(this.secret)
       const created = await this.users.createSession(
@@ -171,6 +182,43 @@ export class AuthService {
     return { ok: true }
   }
 
+  async requestEmailVerification(
+    input: RequestEmailVerificationInput,
+    metadata?: SessionMetadata,
+  ): Promise<RequestEmailVerificationResult> {
+    const token = issueEmailVerificationToken()
+    const expiresAt = new Date(Date.now() + emailVerificationLifetimeSeconds * 1_000).toISOString()
+    const created = await this.users.createEmailVerificationToken({
+      email: input.email.toLowerCase(),
+      tokenSecretHash: hashEmailVerificationToken(token),
+      expiresAt,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+    })
+    if (created) {
+      await this.sendEmailVerificationEmail(input.email.toLowerCase(), token, created.expiresAt, metadata)
+    }
+    if (created && this.options.exposeEmailVerificationTokens) {
+      return { ok: true, verificationToken: token, expiresAt: created.expiresAt }
+    }
+    return { ok: true }
+  }
+
+  async verifyEmail(input: VerifyEmailInput, metadata?: SessionMetadata): Promise<void> {
+    const verified = await this.users.verifyEmailWithToken({
+      tokenSecretHash: hashEmailVerificationToken(input.token),
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+    })
+    if (!verified) {
+      throw new AppError(
+        400,
+        'EMAIL_VERIFICATION_TOKEN_INVALID',
+        'Email verification token is invalid, expired or already used',
+      )
+    }
+  }
+
   async resetPassword(input: ResetPasswordInput, metadata?: SessionMetadata): Promise<void> {
     const updated = await this.users.resetPasswordWithToken({
       tokenSecretHash: hashPasswordResetToken(input.token),
@@ -213,6 +261,8 @@ export class AuthService {
           `<p>This link expires at ${escapeHtml(expiresAt)}.</p>`,
           '<p>If you did not request this change, you can ignore this email.</p>',
         ].join(''),
+        purpose: 'password_reset',
+        idempotencyKey: `password-reset:${hashAuditValue(token)}`,
       })
     } catch (error) {
       await this.users.recordAuditLog({
@@ -231,6 +281,66 @@ export class AuthService {
         },
       })
       throw new AppError(502, 'EMAIL_DELIVERY_FAILED', 'Could not send password reset email')
+    }
+  }
+
+  private async sendEmailVerificationEmail(
+    email: string,
+    token: string,
+    expiresAt: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
+    const verifyUrl = tokenUrl(this.options.emailVerificationUrl ?? '', token)
+    const text = [
+      'Verify your Seqora email address using the link below.',
+      '',
+      verifyUrl,
+      '',
+      `This link expires at ${expiresAt}.`,
+      'If you did not create this account, you can ignore this email.',
+    ].join('\n')
+    try {
+      await (this.options.mailer ?? new NoopMailer()).send({
+        to: email,
+        subject: 'Verify your Seqora email',
+        text,
+        html: [
+          '<p>Verify your Seqora email address using the link below.</p>',
+          `<p><a href="${escapeHtml(verifyUrl)}">Verify email</a></p>`,
+          `<p>This link expires at ${escapeHtml(expiresAt)}.</p>`,
+          '<p>If you did not create this account, you can ignore this email.</p>',
+        ].join(''),
+        purpose: 'email_verification',
+        idempotencyKey: `email-verification:${hashAuditValue(token)}`,
+      })
+      await this.users.recordAuditLog({
+        tenantId: null,
+        userId: null,
+        actorUserId: null,
+        action: 'auth.email.delivery_succeeded',
+        resourceType: 'email',
+        resourceId: null,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: { purpose: 'email_verification', emailHash: hashAuditValue(email) },
+      })
+    } catch (error) {
+      await this.users.recordAuditLog({
+        tenantId: null,
+        userId: null,
+        actorUserId: null,
+        action: 'auth.email.delivery_failed',
+        resourceType: 'email',
+        resourceId: null,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: {
+          purpose: 'email_verification',
+          emailHash: hashAuditValue(email),
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      })
+      throw new AppError(502, 'EMAIL_DELIVERY_FAILED', 'Could not send email verification email')
     }
   }
 
@@ -259,7 +369,15 @@ function issuePasswordResetToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
+function issueEmailVerificationToken(): string {
+  return randomBytes(32).toString('base64url')
+}
+
 function hashPasswordResetToken(token: string): string {
+  return createHash('sha256').update(token).digest('base64url')
+}
+
+function hashEmailVerificationToken(token: string): string {
   return createHash('sha256').update(token).digest('base64url')
 }
 

@@ -11,6 +11,7 @@ export type AuthAccount = {
   plan: Plan
   credits: number
   passwordResetRequired: boolean
+  emailVerified: boolean
 }
 
 export type AuthSession = {
@@ -20,6 +21,7 @@ export type AuthSession = {
   organizationId?: string
   roles: Role[]
   passwordResetRequired: boolean
+  emailVerified: boolean
   tokenSecretHash: string
   expiresAt: string
   revokedAt: string | null
@@ -52,6 +54,26 @@ export type ResetPasswordTokenInput = {
   userAgent: string | null
 }
 
+export type EmailVerificationTokenInput = {
+  email: string
+  tokenSecretHash: string
+  expiresAt: string
+  ipAddress: string | null
+  userAgent: string | null
+}
+
+export type EmailVerificationTokenResult = {
+  userId: string
+  identityId: string
+  expiresAt: string
+}
+
+export type VerifyEmailTokenInput = {
+  tokenSecretHash: string
+  ipAddress: string | null
+  userAgent: string | null
+}
+
 export type AuditLogInput = {
   tenantId: string | null
   userId: string | null
@@ -79,6 +101,10 @@ export interface AuthAccounts {
   ): Promise<boolean>
   createPasswordResetToken(input: PasswordResetTokenInput): Promise<PasswordResetTokenResult | null>
   resetPasswordWithToken(input: ResetPasswordTokenInput): Promise<boolean>
+  createEmailVerificationToken(
+    input: EmailVerificationTokenInput,
+  ): Promise<EmailVerificationTokenResult | null>
+  verifyEmailWithToken(input: VerifyEmailTokenInput): Promise<boolean>
   recordAuditLog(input: AuditLogInput): Promise<void>
   resolveSession(sessionId: string): Promise<AuthSession | null>
   touchSession(sessionId: string): Promise<void>

@@ -15,6 +15,7 @@ export function SettingsPage({
   onRevokeSession,
   onSave,
   onChangePassword,
+  onRequestEmailVerification,
   onLogout,
 }) {
   const canEditCurrentProject = canEditProject && Boolean(project)
@@ -27,6 +28,7 @@ export function SettingsPage({
   const [passwordState, setPasswordState] = useState({ status: 'idle', message: '' })
   const [accountBusy, setAccountBusy] = useState('')
   const [accountMessage, setAccountMessage] = useState({ status: 'idle', message: '' })
+  const [verificationState, setVerificationState] = useState({ status: 'idle', message: '' })
 
   useEffect(() => {
     let cancelled = false
@@ -116,6 +118,17 @@ export function SettingsPage({
     }
   }
 
+  const requestEmailVerification = async () => {
+    if (!onRequestEmailVerification) return
+    setVerificationState({ status: 'saving', message: '' })
+    try {
+      await onRequestEmailVerification()
+      setVerificationState({ status: 'success', message: '验证邮件已发送，请检查收件箱' })
+    } catch (error) {
+      setVerificationState({ status: 'error', message: error.message })
+    }
+  }
+
   return (
     <div className="page settings-page">
       <PageHeader eyebrow="账号" title="个人资料" description="查看当前登录账号，并管理自己的登录安全。">
@@ -159,6 +172,28 @@ export function SettingsPage({
           </span>
           <h2>{account.name}</h2>
           <p>{account.email}</p>
+          {account.emailVerified === false && (
+            <div className="verification-notice">
+              <strong>邮箱尚未验证</strong>
+              <span>验证邮箱后才能进入创作工作台和使用计费功能。</span>
+              {verificationState.message && (
+                <small className={verificationState.status}>{verificationState.message}</small>
+              )}
+              <button
+                className="button secondary"
+                type="button"
+                onClick={requestEmailVerification}
+                disabled={verificationState.status === 'saving'}
+              >
+                {verificationState.status === 'saving' ? (
+                  <LoaderCircle size={15} className="spin" />
+                ) : (
+                  <RefreshCw size={15} />
+                )}
+                重新发送验证邮件
+              </button>
+            </div>
+          )}
           <dl>
             <div>
               <dt>角色</dt>

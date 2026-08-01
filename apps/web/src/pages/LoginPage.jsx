@@ -11,6 +11,7 @@ import {
   UserPlus,
 } from 'lucide-react'
 import { useAuth } from '../components/AuthProvider'
+import { api } from '../services/apiClient'
 import './LoginPage.css'
 
 export function LoginPage() {
@@ -23,15 +24,21 @@ export function LoginPage() {
   const [visible, setVisible] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
   const isRegistering = mode === 'register'
+  const isForgotPassword = mode === 'forgot'
 
   const submit = async (event) => {
     event.preventDefault()
     setSubmitting(true)
     setError('')
+    setSuccess('')
     try {
-      if (isRegistering) {
+      if (isForgotPassword) {
+        await api.requestPasswordReset({ email: email.trim() })
+        setSuccess('如果邮箱已开通账号，密码重置邮件会发送到该邮箱。')
+      } else if (isRegistering) {
         await register({
           token: token.trim(),
           name: name.trim(),
@@ -51,6 +58,7 @@ export function LoginPage() {
   const switchMode = (nextMode) => {
     setMode(nextMode)
     setError('')
+    setSuccess('')
   }
 
   return (
@@ -74,8 +82,14 @@ export function LoginPage() {
         <form onSubmit={submit} className="login-form">
           <div className="login-heading">
             <span className="eyebrow">创作工作台</span>
-            <h2>{isRegistering ? '邀请码注册' : '欢迎回来'}</h2>
-            <p>{isRegistering ? '使用受邀邮箱和邀请码创建账号。' : '登录后继续你的项目。'}</p>
+            <h2>{isForgotPassword ? '找回密码' : isRegistering ? '邀请码注册' : '欢迎回来'}</h2>
+            <p>
+              {isForgotPassword
+                ? '输入账号邮箱，系统会发送密码重置链接。'
+                : isRegistering
+                  ? '使用受邀邮箱和邀请码创建账号。'
+                  : '登录后继续你的项目。'}
+            </p>
           </div>
 
           <div className="login-mode-switch" role="tablist" aria-label="账号入口">
@@ -147,40 +161,53 @@ export function LoginPage() {
               />
             </div>
           </label>
-          <label>
-            <span>密码</span>
-            <div className="login-input">
-              <LockKeyhole size={17} />
-              <input
-                type={visible ? 'text' : 'password'}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete={isRegistering ? 'new-password' : 'current-password'}
-                placeholder={isRegistering ? '至少 12 位密码' : '请输入密码'}
-                required
-                minLength={isRegistering ? 12 : undefined}
-              />
-              <button
-                type="button"
-                onClick={() => setVisible((value) => !value)}
-                aria-label={visible ? '隐藏密码' : '显示密码'}
-              >
-                {visible ? <EyeOff size={17} /> : <Eye size={17} />}
-              </button>
-            </div>
-          </label>
+          {!isForgotPassword && (
+            <label>
+              <span>密码</span>
+              <div className="login-input">
+                <LockKeyhole size={17} />
+                <input
+                  type={visible ? 'text' : 'password'}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete={isRegistering ? 'new-password' : 'current-password'}
+                  placeholder={isRegistering ? '至少 12 位密码' : '请输入密码'}
+                  required
+                  minLength={isRegistering ? 12 : undefined}
+                />
+                <button
+                  type="button"
+                  onClick={() => setVisible((value) => !value)}
+                  aria-label={visible ? '隐藏密码' : '显示密码'}
+                >
+                  {visible ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </div>
+            </label>
+          )}
           {error && <div className="login-error">{error}</div>}
+          {success && <div className="login-success">{success}</div>}
           <button className="login-submit" disabled={submitting}>
             {submitting ? (
               <LoaderCircle size={18} className="spin" />
             ) : (
               <>
-                {isRegistering ? '创建账号' : '进入工作台'} <ArrowRight size={17} />
+                {isForgotPassword ? '发送重置邮件' : isRegistering ? '创建账号' : '进入工作台'} <ArrowRight size={17} />
               </>
             )}
           </button>
+          {!isRegistering && (
+            <button
+              className="login-link-button"
+              type="button"
+              onClick={() => switchMode(isForgotPassword ? 'login' : 'forgot')}
+            >
+              {isForgotPassword ? '返回登录' : '忘记密码？'}
+            </button>
+          )}
           <p className="login-access-note">
-            <LockKeyhole size={14} /> {isRegistering ? '仅限持有邀请码的受邀邮箱' : '仅限已开通账号'}
+            <LockKeyhole size={14} />{' '}
+            {isForgotPassword ? '重置邮件会发送到已注册邮箱' : isRegistering ? '仅限持有邀请码的受邀邮箱' : '仅限已开通账号'}
           </p>
         </form>
       </section>
@@ -201,7 +228,7 @@ function authErrorMessage(error, isRegistering) {
     case 'INVITATION_EMAIL_MISMATCH':
       return '邮箱与邀请码绑定的受邀邮箱不一致'
     case 'VALIDATION_ERROR':
-      return isRegistering ? '请检查邀请码、邮箱和密码，密码至少 12 位。' : '请检查邮箱和密码。'
+      return isRegistering ? '请检查邀请码、邮箱和密码，密码至少 12 位。' : isForgotPassword ? '请检查邮箱格式。' : '请检查邮箱和密码。'
     default:
       return error?.message || '请求失败，请稍后重试'
   }

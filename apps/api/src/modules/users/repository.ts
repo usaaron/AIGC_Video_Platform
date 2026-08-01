@@ -4,10 +4,13 @@ import type { AccountDatabase } from '../../infra/postgres.js'
 import type {
   AuditLogInput,
   AuthAccounts,
+  EmailVerificationTokenInput,
+  EmailVerificationTokenResult,
   PasswordResetTokenInput,
   PasswordResetTokenResult,
   ResetPasswordTokenInput,
   SessionMetadata,
+  VerifyEmailTokenInput,
 } from '../auth/accounts.js'
 
 export type StoredSession = {
@@ -19,6 +22,7 @@ export type StoredSession = {
   expiresAt: string
   revokedAt: string | null
   passwordResetRequired: boolean
+  emailVerified: boolean
 }
 
 type BillingAccount = {
@@ -131,7 +135,8 @@ export class UserRepository implements AuthAccounts {
         m.roles AS roles,
         b.plan AS plan,
         b.credits AS credits,
-        u.password_reset_required AS password_reset_required
+        u.password_reset_required AS password_reset_required,
+        COALESCE(ai.email_verification_status = 'verified', false) AS email_verified
       FROM auth_identities ai
       JOIN users u ON u.id = ai.user_id AND u.status = 'active'
       JOIN tenant_memberships m ON m.user_id = u.id AND m.status = 'active'
@@ -169,13 +174,14 @@ export class UserRepository implements AuthAccounts {
         m.roles AS roles,
         b.plan AS plan,
         b.credits AS credits,
-        u.password_reset_required AS password_reset_required
+        u.password_reset_required AS password_reset_required,
+        COALESCE(ai.email_verification_status = 'verified', false) AS email_verified
       FROM users u
       JOIN tenant_memberships m ON m.user_id = u.id AND m.status = 'active'
       JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
       JOIN billing_accounts b ON b.membership_id = m.id
       LEFT JOIN LATERAL (
-        SELECT email, password_hash
+        SELECT email, password_hash, email_verification_status
         FROM auth_identities ai
         WHERE ai.user_id = u.id
           AND ai.provider = 'local'
@@ -399,6 +405,16 @@ export class UserRepository implements AuthAccounts {
     return false
   }
 
+  async createEmailVerificationToken(
+    _input: EmailVerificationTokenInput,
+  ): Promise<EmailVerificationTokenResult | null> {
+    return null
+  }
+
+  async verifyEmailWithToken(_input: VerifyEmailTokenInput): Promise<boolean> {
+    return false
+  }
+
   async recordAuditLog(_input: AuditLogInput): Promise<void> {}
 
   async resolveSession(sessionId: string): Promise<StoredSession | null> {
@@ -412,6 +428,7 @@ export class UserRepository implements AuthAccounts {
         m.tenant_id AS tenant_id,
         m.roles AS roles,
         u.password_reset_required AS password_reset_required,
+        COALESCE(ai.email_verification_status = 'verified', false) AS email_verified,
         s.token_secret_hash AS token_secret_hash,
         s.expires_at AS expires_at,
         s.revoked_at AS revoked_at
@@ -419,6 +436,15 @@ export class UserRepository implements AuthAccounts {
       JOIN tenant_memberships m ON m.id = s.membership_id
       JOIN users u ON u.id = m.user_id AND u.status = 'active'
       JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
+      LEFT JOIN LATERAL (
+        SELECT email_verification_status
+        FROM auth_identities ai
+        WHERE ai.user_id = u.id
+          AND ai.provider = 'local'
+          AND ai.status = 'active'
+        ORDER BY ai.is_primary DESC, ai.created_at ASC
+        LIMIT 1
+      ) ai ON true
       WHERE s.id = $1
         AND m.status = 'active'
       LIMIT 1
@@ -479,6 +505,7 @@ export class UserRepository implements AuthAccounts {
       plan: user.plan,
       credits: user.credits,
       passwordResetRequired: user.passwordResetRequired ?? false,
+      emailVerified: user.emailVerified ?? true,
     }
   }
 }
@@ -527,6 +554,7 @@ type StoredUserRow = {
   plan: Plan
   credits: number
   password_reset_required: boolean
+  email_verified: boolean
 }
 
 type BillingAccountRow = {
@@ -540,6 +568,7 @@ type StoredSessionRow = {
   tenant_id: string
   roles: Role[]
   password_reset_required: boolean
+  email_verified: boolean
   token_secret_hash: string
   expires_at: string
   revoked_at: string | null
@@ -556,6 +585,7 @@ function toStoredUser(row: StoredUserRow): StoredUser {
     plan: row.plan,
     credits: row.credits,
     passwordResetRequired: row.password_reset_required ?? false,
+    emailVerified: row.email_verified ?? false,
   }
 }
 
@@ -566,6 +596,7 @@ function toStoredSession(row: StoredSessionRow): StoredSession {
     tenantId: row.tenant_id,
     roles: row.roles,
     passwordResetRequired: row.password_reset_required ?? false,
+    emailVerified: row.email_verified ?? false,
     tokenSecretHash: row.token_secret_hash,
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,

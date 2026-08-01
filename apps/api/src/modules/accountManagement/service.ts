@@ -3,10 +3,13 @@ import type {
   Account,
   AddTenantMemberInput,
   CreatedTenantInvitation,
+  CreateOrganizationInput,
   CreateTenantInvitationInput,
   CreateTenantUserInput,
   CreateWorkspaceInput,
   Membership,
+  Organization,
+  OrganizationMembership,
   Principal,
   RegisterAccountInput,
   Role,
@@ -16,6 +19,7 @@ import type {
   TransferOrganizationAdminInput,
   AdminTransferOrganizationAdminInput,
   UpdateMembershipRolesInput,
+  UpdateOrganizationInput,
   UpdateWorkspaceInput,
   Workspace,
   WorkspaceMembership,
@@ -47,6 +51,10 @@ import { AccountManagementRepository, type AccountWorkspace } from './repository
 
 const invitationLifetimeSeconds = 60 * 60 * 24 * 7
 const systemOrganizationRoles = new Set<Role>([ROLES.OWNER, ROLES.SUPER_ADMIN, ROLES.ADMIN])
+type RequestEmailVerification = (
+  input: { email: string },
+  metadata?: SessionMetadata,
+) => Promise<unknown>
 
 export class AccountManagementService {
   constructor(
@@ -57,6 +65,7 @@ export class AccountManagementService {
     private readonly webOrigin: string,
     private readonly mailer: Mailer = new NoopMailer(),
     private readonly invitationUrl: string = `${webOrigin.replace(/\/+$/, '')}/register`,
+    private readonly requestEmailVerification?: RequestEmailVerification,
   ) {}
 
   async createWorkspace(
@@ -87,9 +96,25 @@ export class AccountManagementService {
     return await this.issueSession(created, metadata)
   }
 
+  async createOrganization(
+    principal: Principal,
+    input: CreateOrganizationInput,
+    metadata?: SessionMetadata,
+  ): Promise<{
+    session: Session
+    token: string
+    workspace: Workspace
+  }> {
+    return await this.createWorkspace(principal, input, metadata)
+  }
+
   async listWorkspaces(principal: Principal): Promise<WorkspaceMembership[]> {
     await this.requireCurrentAccount(principal)
     return await this.accounts.listUserWorkspaces(principal.userId)
+  }
+
+  async listOrganizations(principal: Principal): Promise<OrganizationMembership[]> {
+    return await this.listWorkspaces(principal)
   }
 
   async updateWorkspace(
@@ -120,6 +145,15 @@ export class AccountManagementService {
     return updated
   }
 
+  async updateOrganization(
+    principal: Principal,
+    tenantId: string,
+    input: UpdateOrganizationInput,
+    metadata?: SessionMetadata,
+  ): Promise<Organization> {
+    return await this.updateWorkspace(principal, tenantId, input, metadata)
+  }
+
   async adminUpdateWorkspace(
     principal: Principal,
     tenantId: string,
@@ -148,6 +182,15 @@ export class AccountManagementService {
     return updated
   }
 
+  async adminUpdateOrganization(
+    principal: Principal,
+    tenantId: string,
+    input: UpdateOrganizationInput,
+    metadata?: SessionMetadata,
+  ): Promise<Organization> {
+    return await this.adminUpdateWorkspace(principal, tenantId, input, metadata)
+  }
+
   async switchWorkspace(
     principal: Principal,
     tenantId: string,
@@ -165,6 +208,18 @@ export class AccountManagementService {
     return await this.issueSession(workspace, metadata)
   }
 
+  async switchOrganization(
+    principal: Principal,
+    tenantId: string,
+    metadata?: SessionMetadata,
+  ): Promise<{
+    session: Session
+    token: string
+    workspace: Workspace
+  }> {
+    return await this.switchWorkspace(principal, tenantId, metadata)
+  }
+
   async disableWorkspace(
     principal: Principal,
     tenantId: string,
@@ -178,9 +233,7 @@ export class AccountManagementService {
     if (result.kind === 'missing') {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
     }
-    await this.store.mutate((state) => {
-      state.users = state.users.filter((item) => item.tenantId !== tenantId)
-    })
+    this.removeTenantFromRuntimeCache(tenantId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: principal.userId,
@@ -193,6 +246,14 @@ export class AccountManagementService {
       metadata: { name: result.workspace.name },
     })
     return result.nextWorkspace ? await this.issueSession(result.nextWorkspace, metadata) : null
+  }
+
+  async disableOrganization(
+    principal: Principal,
+    tenantId: string,
+    metadata?: SessionMetadata,
+  ): Promise<{ session: Session; token: string; workspace: Workspace } | null> {
+    return await this.disableWorkspace(principal, tenantId, metadata)
   }
 
   async adminDisableWorkspace(
@@ -208,9 +269,7 @@ export class AccountManagementService {
     if (result.kind === 'missing') {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
     }
-    await this.store.mutate((state) => {
-      state.users = state.users.filter((item) => item.tenantId !== tenantId)
-    })
+    this.removeTenantFromRuntimeCache(tenantId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: principal.userId,
@@ -223,6 +282,14 @@ export class AccountManagementService {
       metadata: { name: result.workspace.name, scope: 'admin_console' },
     })
     return result.workspace
+  }
+
+  async adminDisableOrganization(
+    principal: Principal,
+    tenantId: string,
+    metadata?: SessionMetadata,
+  ): Promise<Organization> {
+    return await this.adminDisableWorkspace(principal, tenantId, metadata)
   }
 
   async transferOrganizationAdmin(
@@ -270,8 +337,8 @@ export class AccountManagementService {
         'Target organization member does not exist',
       )
     }
-    await this.mirrorMembership(result.previousOrganizationAdmin)
-    await this.mirrorMembership(result.newOrganizationAdmin)
+    this.mirrorMembership(result.previousOrganizationAdmin)
+    this.mirrorMembership(result.newOrganizationAdmin)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: result.newOrganizationAdmin.userId,
@@ -348,8 +415,8 @@ export class AccountManagementService {
         'Target organization member does not exist',
       )
     }
-    await this.mirrorMembership(result.previousOrganizationAdmin)
-    await this.mirrorMembership(result.newOrganizationAdmin)
+    this.mirrorMembership(result.previousOrganizationAdmin)
+    this.mirrorMembership(result.newOrganizationAdmin)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: result.newOrganizationAdmin.userId,
@@ -385,11 +452,7 @@ export class AccountManagementService {
     if (result.kind === 'last_owner') {
       throw new AppError(409, 'LAST_OWNER_CANNOT_LEAVE', 'Transfer ownership before leaving this workspace')
     }
-    await this.store.mutate((state) => {
-      state.users = state.users.filter(
-        (item) => !(item.id === principal.userId && item.tenantId === tenantId),
-      )
-    })
+    this.removeMembershipFromRuntimeCache(principal.userId, tenantId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: principal.userId,
@@ -402,6 +465,14 @@ export class AccountManagementService {
       metadata: { roles: result.membership.roles },
     })
     return result.nextWorkspace ? await this.issueSession(result.nextWorkspace, metadata) : null
+  }
+
+  async leaveOrganization(
+    principal: Principal,
+    tenantId: string,
+    metadata?: SessionMetadata,
+  ): Promise<{ session: Session; token: string; workspace: Workspace } | null> {
+    return await this.leaveWorkspace(principal, tenantId, metadata)
   }
 
   async createInvitation(
@@ -463,6 +534,8 @@ export class AccountManagementService {
         `<p><a href="${escapeHtml(invitationUrl)}">Accept invitation</a></p>`,
         `<p>This invitation expires at ${escapeHtml(invitation.expiresAt)}.</p>`,
       ].join(''),
+      purpose: 'invitation',
+      idempotencyKey: `invitation:${hashInvitationToken(invitation.token)}`,
     })
   }
 
@@ -516,6 +589,7 @@ export class AccountManagementService {
     if (!accepted) {
       throw new AppError(410, 'INVITATION_EXPIRED', 'Invitation has expired')
     }
+    await this.requestVerificationEmail(accepted.account.email, metadata)
     return await this.issueSession(accepted, metadata)
   }
 
@@ -540,7 +614,7 @@ export class AccountManagementService {
     if (!member) {
       throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
     }
-    await this.mirrorMembership(member)
+    this.mirrorMembership(member)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: member.userId,
@@ -552,7 +626,17 @@ export class AccountManagementService {
       userAgent: metadata?.userAgent ?? null,
       metadata: { roles: member.roles },
     })
+    await this.requestVerificationEmail(member.email, metadata)
     return member
+  }
+
+  async addOrganizationMember(
+    principal: Principal,
+    tenantId: string,
+    input: AddTenantMemberInput,
+    metadata?: SessionMetadata,
+  ): Promise<Membership> {
+    return await this.addMember(principal, tenantId, input, metadata)
   }
 
   async createTenantUser(
@@ -581,7 +665,7 @@ export class AccountManagementService {
     if (result.kind === 'tenant_missing') {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
     }
-    await this.mirrorMembership(result.membership, passwordHash)
+    this.mirrorMembership(result.membership, passwordHash)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: result.membership.userId,
@@ -596,7 +680,17 @@ export class AccountManagementService {
         roles: result.membership.roles,
       },
     })
+    await this.requestVerificationEmail(result.membership.email, metadata)
     return result.membership
+  }
+
+  async createOrganizationUser(
+    principal: Principal,
+    tenantId: string,
+    input: CreateTenantUserInput,
+    metadata?: SessionMetadata,
+  ): Promise<Membership> {
+    return await this.createTenantUser(principal, tenantId, input, metadata)
   }
 
   async adminCreateTenantUser(
@@ -625,7 +719,7 @@ export class AccountManagementService {
     if (result.kind === 'tenant_missing') {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
     }
-    await this.mirrorMembership(result.membership, passwordHash)
+    this.mirrorMembership(result.membership, passwordHash)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: result.membership.userId,
@@ -641,12 +735,31 @@ export class AccountManagementService {
         scope: 'admin_console',
       },
     })
+    await this.requestVerificationEmail(result.membership.email, metadata)
     return result.membership
+  }
+
+  async adminCreateOrganizationUser(
+    principal: Principal,
+    tenantId: string,
+    input: CreateTenantUserInput,
+    metadata?: SessionMetadata,
+  ): Promise<Membership> {
+    return await this.adminCreateTenantUser(principal, tenantId, input, metadata)
+  }
+
+  private async requestVerificationEmail(email: string, metadata?: SessionMetadata): Promise<void> {
+    if (!this.requestEmailVerification) return
+    await this.requestEmailVerification({ email }, metadata)
   }
 
   async listMembers(principal: Principal, tenantId: string): Promise<Membership[]> {
     this.requireTenantScope(principal, tenantId)
     return await this.accounts.listMembers(tenantId)
+  }
+
+  async listOrganizationMembers(principal: Principal, tenantId: string): Promise<Membership[]> {
+    return await this.listMembers(principal, tenantId)
   }
 
   async updateMembershipRoles(
@@ -671,7 +784,7 @@ export class AccountManagementService {
     }
     const updated = await this.accounts.updateMembershipRoles(tenantId, userId, roles)
     if (!updated) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
-    await this.mirrorMembership(updated)
+    this.mirrorMembership(updated)
     await this.accounts.recordAuditLog({
       tenantId,
       userId,
@@ -687,6 +800,16 @@ export class AccountManagementService {
       },
     })
     return updated
+  }
+
+  async updateOrganizationMembershipRoles(
+    principal: Principal,
+    tenantId: string,
+    userId: string,
+    input: UpdateMembershipRolesInput,
+    metadata?: SessionMetadata,
+  ): Promise<Membership> {
+    return await this.updateMembershipRoles(principal, tenantId, userId, input, metadata)
   }
 
   async adminUpdateMembershipRoles(
@@ -711,7 +834,7 @@ export class AccountManagementService {
     }
     const updated = await this.accounts.updateMembershipRoles(tenantId, userId, roles)
     if (!updated) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
-    await this.mirrorMembership(updated)
+    this.mirrorMembership(updated)
     await this.accounts.recordAuditLog({
       tenantId,
       userId,
@@ -728,6 +851,16 @@ export class AccountManagementService {
       },
     })
     return updated
+  }
+
+  async adminUpdateOrganizationMembershipRoles(
+    principal: Principal,
+    tenantId: string,
+    userId: string,
+    input: UpdateMembershipRolesInput,
+    metadata?: SessionMetadata,
+  ): Promise<Membership> {
+    return await this.adminUpdateMembershipRoles(principal, tenantId, userId, input, metadata)
   }
 
   async disableMembership(
@@ -752,9 +885,7 @@ export class AccountManagementService {
     if (!(await this.accounts.disableMembership(tenantId, userId))) {
       throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
     }
-    await this.store.mutate((state) => {
-      state.users = state.users.filter((item) => !(item.id === userId && item.tenantId === tenantId))
-    })
+    this.removeMembershipFromRuntimeCache(userId, tenantId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId,
@@ -766,6 +897,15 @@ export class AccountManagementService {
       userAgent: metadata?.userAgent ?? null,
       metadata: { roles: target.roles },
     })
+  }
+
+  async disableOrganizationMembership(
+    principal: Principal,
+    tenantId: string,
+    userId: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
+    await this.disableMembership(principal, tenantId, userId, metadata)
   }
 
   async adminDisableMembership(
@@ -790,9 +930,7 @@ export class AccountManagementService {
     if (!(await this.accounts.disableMembership(tenantId, userId))) {
       throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
     }
-    await this.store.mutate((state) => {
-      state.users = state.users.filter((item) => !(item.id === userId && item.tenantId === tenantId))
-    })
+    this.removeMembershipFromRuntimeCache(userId, tenantId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId,
@@ -804,6 +942,15 @@ export class AccountManagementService {
       userAgent: metadata?.userAgent ?? null,
       metadata: { roles: target.roles, scope: 'admin_console' },
     })
+  }
+
+  async adminDisableOrganizationMembership(
+    principal: Principal,
+    tenantId: string,
+    userId: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
+    await this.adminDisableMembership(principal, tenantId, userId, metadata)
   }
 
   async disableAccount(
@@ -830,9 +977,7 @@ export class AccountManagementService {
     if (!(await this.accounts.disableAccount(userId))) {
       throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     }
-    await this.store.mutate((state) => {
-      state.users = state.users.filter((item) => item.id !== userId)
-    })
+    this.removeAccountFromRuntimeCache(userId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId,
@@ -844,6 +989,15 @@ export class AccountManagementService {
       userAgent: metadata?.userAgent ?? null,
       metadata: { membershipId: target.id, roles: target.roles },
     })
+  }
+
+  async disableOrganizationAccount(
+    principal: Principal,
+    tenantId: string,
+    userId: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
+    await this.disableAccount(principal, tenantId, userId, metadata)
   }
 
   async listSessions(
@@ -864,6 +1018,14 @@ export class AccountManagementService {
     await this.requireCurrentAccount(principal)
     const currentSessionId = currentSessionIdFromToken(currentSessionToken, this.secret)
     return await this.accounts.listTenantSessions(tenantId, currentSessionId)
+  }
+
+  async listOrganizationSessions(
+    principal: Principal,
+    tenantId: string,
+    currentSessionToken: string | undefined,
+  ): Promise<SessionSummary[]> {
+    return await this.listTenantSessions(principal, tenantId, currentSessionToken)
   }
 
   async revokeCurrentTenantSession(
@@ -917,9 +1079,22 @@ export class AccountManagementService {
     })
   }
 
+  async revokeOrganizationSession(
+    principal: Principal,
+    tenantId: string,
+    sessionId: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
+    await this.revokeTenantSession(principal, tenantId, sessionId, metadata)
+  }
+
   async selfWorkspace(principal: Principal): Promise<Account | null> {
     const account = await this.users.findById(principal.userId, principal.tenantId)
     return account ? this.users.toAccount(account) : null
+  }
+
+  async selfOrganization(principal: Principal): Promise<Account | null> {
+    return this.selfWorkspace(principal)
   }
 
   private async requireSystemOrganizationManagedByInternalAccount(
@@ -988,7 +1163,7 @@ export class AccountManagementService {
     if (!createdSession) {
       throw new AppError(500, 'SESSION_CREATE_FAILED', 'Could not create session')
     }
-    await this.mirrorWorkspace(created)
+    this.mirrorWorkspace(created)
     return {
       token: issued.token,
       session: {
@@ -1197,8 +1372,8 @@ export class AccountManagementService {
     }
   }
 
-  private async mirrorWorkspace(workspace: AccountWorkspace): Promise<void> {
-    await this.store.mutate((state) => {
+  private mirrorWorkspace(workspace: AccountWorkspace): void {
+    this.store.mutateAccountRuntimeCache((state) => {
       const next = {
         id: workspace.account.id,
         email: normalizeEmail(workspace.account.email),
@@ -1209,6 +1384,7 @@ export class AccountManagementService {
         plan: workspace.account.plan,
         credits: workspace.account.credits,
         passwordResetRequired: workspace.account.passwordResetRequired,
+        emailVerified: workspace.account.emailVerified,
       }
       const existing = state.users.find((item) => item.id === next.id && item.tenantId === next.tenantId)
       if (existing) {
@@ -1219,8 +1395,8 @@ export class AccountManagementService {
     })
   }
 
-  private async mirrorMembership(membership: Membership, passwordHash?: string): Promise<void> {
-    await this.store.mutate((state) => {
+  private mirrorMembership(membership: Membership, passwordHash?: string): void {
+    this.store.mutateAccountRuntimeCache((state) => {
       const existing = state.users.find(
         (item) => item.id === membership.userId && item.tenantId === membership.tenantId,
       )
@@ -1241,8 +1417,29 @@ export class AccountManagementService {
           plan: account?.plan ?? 'free',
           credits: 0,
           passwordResetRequired: account?.passwordResetRequired ?? false,
+          emailVerified: account?.emailVerified ?? false,
         })
       }
+    })
+  }
+
+  private removeTenantFromRuntimeCache(tenantId: string): void {
+    this.store.mutateAccountRuntimeCache((state) => {
+      state.users = state.users.filter((item) => item.tenantId !== tenantId)
+      state.ledger = state.ledger.filter((item) => item.tenantId !== tenantId)
+    })
+  }
+
+  private removeMembershipFromRuntimeCache(userId: string, tenantId: string): void {
+    this.store.mutateAccountRuntimeCache((state) => {
+      state.users = state.users.filter((item) => !(item.id === userId && item.tenantId === tenantId))
+    })
+  }
+
+  private removeAccountFromRuntimeCache(userId: string): void {
+    this.store.mutateAccountRuntimeCache((state) => {
+      state.users = state.users.filter((item) => item.id !== userId)
+      state.ledger = state.ledger.filter((item) => item.userId !== userId)
     })
   }
 }

@@ -16,6 +16,7 @@ export const principalSchema = z.object({
   organizationId: z.string().min(1).optional(),
   roles: z.array(roleSchema).min(1),
   passwordResetRequired: z.boolean().optional(),
+  emailVerified: z.boolean().optional(),
 })
 
 export type Principal = z.infer<typeof principalSchema>

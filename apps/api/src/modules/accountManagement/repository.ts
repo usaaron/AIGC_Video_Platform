@@ -236,7 +236,7 @@ export class AccountManagementRepository {
             id, user_id, provider, provider_subject, email, password_hash, is_primary, status,
             email_verified_at, email_verification_status, created_at, updated_at
           )
-          VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', now(), 'verified', now(), now())
+          VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', NULL, 'unverified', now(), now())
           `,
           [authIdentityIdFor(userId), userId, row.email, input.passwordHash],
         )
@@ -615,11 +615,11 @@ export class AccountManagementRepository {
       )
       await client.query(
         `
-        INSERT INTO auth_identities (
-          id, user_id, provider, provider_subject, email, password_hash, is_primary, status,
-          email_verified_at, email_verification_status, created_at, updated_at
-        )
-        VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', now(), 'verified', now(), now())
+          INSERT INTO auth_identities (
+            id, user_id, provider, provider_subject, email, password_hash, is_primary, status,
+            email_verified_at, email_verification_status, created_at, updated_at
+          )
+          VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', NULL, 'unverified', now(), now())
         `,
         [authIdentityIdFor(userId), userId, input.email, input.passwordHash],
       )
@@ -947,6 +947,7 @@ type Queryable = {
 type AccountWorkspaceRow = MembershipRow & {
   password_hash: string | null
   password_reset_required: boolean
+  email_verified: boolean
   plan: Plan
   credits: number
   tenant_status: Workspace['status']
@@ -1014,6 +1015,7 @@ function accountWorkspaceSelectSql(whereClause: string): string {
       u.display_name AS name,
       ai.password_hash,
       u.password_reset_required,
+      COALESCE(ai.email_verification_status = 'verified', false) AS email_verified,
       m.id AS membership_id,
       m.tenant_id,
       m.roles,
@@ -1032,7 +1034,7 @@ function accountWorkspaceSelectSql(whereClause: string): string {
     JOIN tenants t ON t.id = m.tenant_id
     JOIN billing_accounts b ON b.membership_id = m.id
     LEFT JOIN LATERAL (
-      SELECT email, password_hash
+      SELECT email, password_hash, email_verification_status
       FROM auth_identities ai
       WHERE ai.user_id = u.id
         AND ai.provider = 'local'
@@ -1201,6 +1203,7 @@ function toAccountWorkspaceAccount(row: AccountWorkspaceRow): AuthAccount {
     plan: row.plan,
     credits: row.credits,
     passwordResetRequired: row.password_reset_required,
+    emailVerified: row.email_verified,
   }
 }
 

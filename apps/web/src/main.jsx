@@ -3,11 +3,16 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import { AuthProvider, useAuth } from './components/AuthProvider.jsx'
 import { LoginPage } from './pages/LoginPage.jsx'
+import { EmailVerificationPage } from './pages/EmailVerificationPage.jsx'
+import { PasswordResetPage } from './pages/PasswordResetPage.jsx'
 
 const App = lazy(() => import('./App.jsx'))
 
 function Root() {
   const { session, loading } = useAuth()
+  const path = window.location.pathname
+  if (path === '/verify-email') return <EmailVerificationPage />
+  if (path === '/reset-password') return <PasswordResetPage />
   if (loading)
     return (
       <div className="app-loading">

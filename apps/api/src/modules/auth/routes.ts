@@ -1,8 +1,10 @@
 import {
   changePasswordSchema,
   loginSchema,
+  requestEmailVerificationSchema,
   requestPasswordResetSchema,
   resetPasswordSchema,
+  verifyEmailSchema,
 } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -61,6 +63,31 @@ export async function registerAuthRoutes(
       const parsed = changePasswordSchema.safeParse(request.body)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
       await service.changePassword(request.principal, parsed.data, sessionMetadataFromRequest(request))
+      reply.header('Cache-Control', 'no-store')
+      return reply.code(204).send()
+    },
+  )
+
+  app.post(
+    '/auth/email-verification/request',
+    { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const parsed = requestEmailVerificationSchema.safeParse(request.body)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      reply.header('Cache-Control', 'no-store')
+      return reply
+        .code(202)
+        .send(await service.requestEmailVerification(parsed.data, sessionMetadataFromRequest(request)))
+    },
+  )
+
+  app.post(
+    '/auth/email-verification/verify',
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const parsed = verifyEmailSchema.safeParse(request.body)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      await service.verifyEmail(parsed.data, sessionMetadataFromRequest(request))
       reply.header('Cache-Control', 'no-store')
       return reply.code(204).send()
     },

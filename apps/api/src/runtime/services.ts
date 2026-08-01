@@ -164,8 +164,10 @@ export function createRuntimeServices(input: {
   const mailer = mailerOverride ?? createMailer(config)
   const authService = new AuthService(repositories.authAccounts, config.AUTH_SECRET, {
     exposePasswordResetTokens: config.NODE_ENV !== 'production',
+    exposeEmailVerificationTokens: config.NODE_ENV !== 'production',
     mailer,
     passwordResetUrl: config.AUTH_PASSWORD_RESET_URL,
+    emailVerificationUrl: config.AUTH_EMAIL_VERIFICATION_URL,
   })
   const accountManagementService = database
     ? new AccountManagementService(
@@ -176,6 +178,7 @@ export function createRuntimeServices(input: {
         config.WEB_ORIGIN,
         mailer,
         config.AUTH_INVITATION_URL,
+        (input, metadata) => authService.requestEmailVerification(input, metadata),
       )
     : null
   const generationService = new GenerationService(
