@@ -7,9 +7,14 @@ import type {
   Principal,
 } from '@seqora/contracts'
 import { AppError } from '../../core/errors.js'
+import type { Mailer } from '../../core/email/mailer.js'
 import type { CreditLedger } from './creditLedger.js'
 import type { BillingPaymentProvider, BillingPaymentWebhookEvent } from './paymentProvider.js'
-import type { BillingPaymentRepository, BillingPaymentSessionRecord } from './paymentRepository.js'
+import type {
+  BillingPaymentReconciliationAlertInput,
+  BillingPaymentRepository,
+  BillingPaymentSessionRecord,
+} from './paymentRepository.js'
 
 type BillingPaymentServiceOptions = {
   successUrl: string
@@ -17,6 +22,7 @@ type BillingPaymentServiceOptions = {
   memberPriceId: string
   creditPriceId: string
   creditPackCredits: number
+  alertEmails: string[]
 }
 
 export class BillingPaymentService {
@@ -25,6 +31,7 @@ export class BillingPaymentService {
     private readonly ledger: CreditLedger,
     private readonly provider: BillingPaymentProvider,
     private readonly options: BillingPaymentServiceOptions,
+    private readonly mailer: Mailer | null = null,
   ) {}
 
   configuration(): BillingPaymentConfiguration {
@@ -115,8 +122,14 @@ export class BillingPaymentService {
       if (event.type === 'checkout.session.completed') {
         return await this.processCheckoutCompleted(event)
       }
+      if (event.type === 'checkout.session.expired') {
+        return await this.processCheckoutExpired(event)
+      }
       if (event.type === 'invoice.paid') {
         return await this.processSubscriptionRenewed(event)
+      }
+      if (event.type === 'invoice.payment_failed') {
+        return await this.processInvoicePaymentFailed(event)
       }
       if (event.type === 'customer.subscription.deleted') {
         return await this.processSubscriptionCancelled(event)
@@ -142,6 +155,18 @@ export class BillingPaymentService {
         message: error instanceof Error ? error.message : String(error),
         metadata: { stripeObject: safeEventObject(event.data) },
       })
+      await this.raiseReconciliationAlert({
+        provider: this.provider.provider,
+        providerEventId: event.id,
+        eventType: event.type,
+        alertType: 'webhook.processing_failed',
+        severity: 'critical',
+        message: error instanceof Error ? error.message : String(error),
+        metadata: {
+          stripeObject: safeEventObject(event.data),
+          errorName: error instanceof Error ? error.name : typeof error,
+        },
+      })
       throw error
     }
   }
@@ -152,11 +177,13 @@ export class BillingPaymentService {
     const checkoutType = metadata.seqoraCheckoutType
     const providerSessionId = stringValue(session.id)
     if (!providerSessionId || (checkoutType !== 'subscription' && checkoutType !== 'credits')) {
-      await this.repository.recordReconciliation({
+      await this.recordIgnored(event, null, 'Checkout session is missing Seqora billing metadata')
+      await this.raiseReconciliationAlert({
         provider: this.provider.provider,
         providerEventId: event.id,
         eventType: event.type,
-        status: 'ignored',
+        alertType: 'checkout.metadata_missing',
+        severity: 'critical',
         message: 'Checkout session is missing Seqora billing metadata',
         metadata: { stripeObject: safeEventObject(session) },
       })
@@ -205,6 +232,40 @@ export class BillingPaymentService {
     }
   }
 
+  private async processCheckoutExpired(event: BillingPaymentWebhookEvent): Promise<PaymentWebhookResult> {
+    const session = objectRecord(event.data)
+    const providerSessionId = stringValue(session.id)
+    if (!providerSessionId) {
+      await this.recordIgnored(event, null, 'Expired checkout session is missing the session id')
+      return ignoredPaymentWebhookResult(event)
+    }
+    const expired = await this.repository.markCheckoutExpired({
+      provider: this.provider.provider,
+      providerSessionId,
+      expiredAt: event.createdAt,
+    })
+    if (!expired) {
+      await this.recordIgnored(event, null, 'Expired checkout session was not created by this API')
+      return ignoredPaymentWebhookResult(event)
+    }
+    await this.repository.recordReconciliation({
+      provider: this.provider.provider,
+      providerEventId: event.id,
+      eventType: event.type,
+      paymentSessionId: expired.id,
+      tenantId: expired.tenantId,
+      userId: expired.userId,
+      membershipId: expired.membershipId,
+      status: 'ignored',
+      amount: null,
+      currency: expired.currency ?? null,
+      credits: expired.credits ?? null,
+      message: 'Checkout session expired',
+      metadata: { stripeObject: safeEventObject(session) },
+    })
+    return ignoredPaymentWebhookResult(event, expired)
+  }
+
   private async processSubscriptionRenewed(event: BillingPaymentWebhookEvent): Promise<PaymentWebhookResult> {
     const invoice = objectRecord(event.data)
     const subscriptionId = subscriptionIdFromInvoice(invoice)
@@ -249,6 +310,95 @@ export class BillingPaymentService {
       plan: result.plan,
       credits: result.credits,
       ledgerEntry: result.ledgerEntry,
+    }
+  }
+
+  private async processInvoicePaymentFailed(event: BillingPaymentWebhookEvent): Promise<PaymentWebhookResult> {
+    const invoice = objectRecord(event.data)
+    const subscriptionId = subscriptionIdFromInvoice(invoice)
+    if (!subscriptionId) {
+      await this.recordIgnored(event, null, 'Failed invoice does not reference a subscription')
+      return ignoredPaymentWebhookResult(event)
+    }
+    const paymentSession = await this.repository.findBySubscriptionId(this.provider.provider, subscriptionId)
+    if (!paymentSession) {
+      const reconciliationId = await this.repository.recordReconciliation({
+        provider: this.provider.provider,
+        providerEventId: event.id,
+        eventType: event.type,
+        status: 'failed',
+        amount: null,
+        currency: null,
+        credits: null,
+        message: 'Stripe invoice payment failed for an unmapped subscription',
+        metadata: {
+          stripeObject: safeEventObject(invoice),
+          stripeSubscriptionId: subscriptionId,
+        },
+      })
+      await this.raiseReconciliationAlert({
+        provider: this.provider.provider,
+        providerEventId: event.id,
+        eventType: event.type,
+        alertType: 'invoice.subscription_missing',
+        severity: 'critical',
+        message: 'Stripe invoice payment failed for an unmapped subscription',
+        metadata: {
+          stripeObject: safeEventObject(invoice),
+          stripeSubscriptionId: subscriptionId,
+          reconciliationItemId: reconciliationId,
+        },
+      })
+      return ignoredPaymentWebhookResult(event)
+    }
+    const reconciliationId = await this.repository.recordReconciliation({
+      provider: this.provider.provider,
+      providerEventId: event.id,
+      eventType: event.type,
+      paymentSessionId: paymentSession.id,
+      tenantId: paymentSession.tenantId,
+      userId: paymentSession.userId,
+      membershipId: paymentSession.membershipId,
+      status: 'failed',
+      amount: null,
+      currency: paymentSession.currency ?? null,
+      credits: null,
+      message: 'Stripe invoice payment failed',
+      metadata: {
+        stripeObject: safeEventObject(invoice),
+        stripeSubscriptionId: subscriptionId,
+      },
+    })
+    await this.raiseReconciliationAlert({
+      provider: this.provider.provider,
+      providerEventId: event.id,
+      eventType: event.type,
+      alertType: 'invoice.payment_failed',
+      severity: 'warning',
+      paymentSessionId: paymentSession.id,
+      reconciliationItemId: reconciliationId,
+      tenantId: paymentSession.tenantId,
+      userId: paymentSession.userId,
+      membershipId: paymentSession.membershipId,
+      message: 'Stripe invoice payment failed',
+      metadata: {
+        stripeObject: safeEventObject(invoice),
+        stripeSubscriptionId: subscriptionId,
+      },
+    })
+    return {
+      provider: this.provider.provider,
+      eventId: event.id,
+      eventType: event.type,
+      status: 'processed',
+      duplicate: false,
+      internalEventType: 'subscription.expired',
+      membershipId: paymentSession.membershipId,
+      tenantId: paymentSession.tenantId,
+      userId: paymentSession.userId,
+      plan: paymentSession.plan ?? null,
+      credits: paymentSession.credits ?? null,
+      ledgerEntry: null,
     }
   }
 
@@ -311,7 +461,23 @@ export class BillingPaymentService {
       this.provider.provider,
       paymentIntentId,
     )
-    if (!paymentSession || paymentSession.checkoutType !== 'credits') {
+    if (!paymentSession) {
+      await this.raiseReconciliationAlert({
+        provider: this.provider.provider,
+        providerEventId: event.id,
+        eventType: event.type,
+        alertType: 'refund.unmapped',
+        severity: 'warning',
+        message: 'Refunded charge is not mapped to a billing payment session',
+        metadata: {
+          stripeObject: safeEventObject(event.data),
+          stripePaymentIntentId: paymentIntentId,
+        },
+      })
+      await this.recordIgnored(event, null, 'Refunded charge is not mapped to a billing payment session')
+      return ignoredPaymentWebhookResult(event)
+    }
+    if (paymentSession.checkoutType !== 'credits') {
       await this.recordIgnored(event, paymentSession, 'Refunded charge is not mapped to a credit purchase')
       return ignoredPaymentWebhookResult(event, paymentSession ?? undefined)
     }
@@ -389,7 +555,7 @@ export class BillingPaymentService {
     ledgerEntryId: string | null,
     payload: BillingWebhookEvent,
   ): Promise<void> {
-    await this.repository.recordReconciliation({
+    const reconciliationId = await this.repository.recordReconciliation({
       provider: this.provider.provider,
       providerEventId: event.id,
       eventType: event.type,
@@ -409,6 +575,11 @@ export class BillingPaymentService {
         referenceId: payload.referenceId,
         stripeObject: safeEventObject(event.data),
       },
+    })
+    await this.repository.resolveAlertsForEvent(this.provider.provider, event.id, {
+      reconciliationItemId: reconciliationId,
+      internalEventType: payload.type,
+      referenceId: payload.referenceId,
     })
   }
 
@@ -432,6 +603,43 @@ export class BillingPaymentService {
       message,
       metadata: { stripeObject: safeEventObject(event.data) },
     })
+  }
+
+  private async raiseReconciliationAlert(input: BillingPaymentReconciliationAlertInput): Promise<void> {
+    const alert = await this.repository.recordReconciliationAlert(input)
+    if (!this.mailer || !this.options.alertEmails.length) return
+    const subject = `[Stripe billing] ${input.alertType} ${input.severity}`
+    const text = [
+      `Alert: ${input.alertType}`,
+      `Severity: ${input.severity}`,
+      `Provider event: ${input.providerEventId}`,
+      `Event type: ${input.eventType}`,
+      `Message: ${input.message}`,
+      input.membershipId ? `Membership: ${input.membershipId}` : null,
+      input.tenantId ? `Tenant: ${input.tenantId}` : null,
+      input.userId ? `User: ${input.userId}` : null,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join('\n')
+
+    let delivered = false
+    for (const to of this.options.alertEmails) {
+      try {
+        await this.mailer.send({
+          to,
+          subject,
+          text,
+          purpose: 'billing_reconciliation_alert',
+          idempotencyKey: `billing-alert-${alert.id}-${to}`,
+        })
+        delivered = true
+      } catch {
+        // Keep the webhook flow moving. Alert rows remain open until a later retry or manual action.
+      }
+    }
+    if (delivered) {
+      await this.repository.markReconciliationAlertNotified(alert.id)
+    }
   }
 }
 

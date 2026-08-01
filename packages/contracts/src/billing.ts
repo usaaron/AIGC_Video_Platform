@@ -64,6 +64,39 @@ export const billingCheckoutSessionSchema = z.object({
 export const createCreditCheckoutSchema = z.object({
   credits: z.number().int().positive().max(1_000_000).optional(),
 })
+export const billingReconciliationAlertStatusSchema = z.enum(['open', 'acknowledged', 'resolved'])
+export const billingReconciliationAlertSeveritySchema = z.enum(['warning', 'critical'])
+export const billingReconciliationAlertSchema = z.object({
+  id: z.string().min(1),
+  provider: z.string().min(1),
+  providerEventId: z.string().min(1),
+  eventType: z.string().min(1),
+  paymentSessionId: z.string().min(1).nullable(),
+  reconciliationItemId: z.string().min(1).nullable(),
+  tenantId: z.string().min(1).nullable(),
+  organizationId: z.string().min(1).nullable(),
+  userId: z.string().min(1).nullable(),
+  membershipId: z.string().min(1).nullable(),
+  alertType: z.string().min(1),
+  severity: billingReconciliationAlertSeveritySchema,
+  status: billingReconciliationAlertStatusSchema,
+  message: z.string().min(1),
+  metadata: z.record(z.string(), z.unknown()),
+  notifiedAt: z.string().datetime().nullable(),
+  acknowledgedByUserId: z.string().min(1).nullable(),
+  acknowledgedAt: z.string().datetime().nullable(),
+  resolvedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
+export const billingReconciliationAlertListSchema = z.object({
+  items: z.array(billingReconciliationAlertSchema),
+  meta: z.object({
+    limit: z.number().int().positive(),
+    offset: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+})
 export const billingWebhookEventTypeSchema = z.enum([
   'subscription.activated',
   'subscription.renewed',
@@ -127,6 +160,10 @@ export type BillingPaymentProvider = z.infer<typeof billingPaymentProviderSchema
 export type BillingPaymentConfiguration = z.infer<typeof billingPaymentConfigurationSchema>
 export type BillingCheckoutSession = z.infer<typeof billingCheckoutSessionSchema>
 export type CreateCreditCheckoutInput = z.infer<typeof createCreditCheckoutSchema>
+export type BillingReconciliationAlertStatus = z.infer<typeof billingReconciliationAlertStatusSchema>
+export type BillingReconciliationAlertSeverity = z.infer<typeof billingReconciliationAlertSeveritySchema>
+export type BillingReconciliationAlert = z.infer<typeof billingReconciliationAlertSchema>
+export type BillingReconciliationAlertList = z.infer<typeof billingReconciliationAlertListSchema>
 export type BillingWebhookEvent = z.infer<typeof billingWebhookEventSchema>
 export type BillingWebhookEventType = z.infer<typeof billingWebhookEventTypeSchema>
 export type AdminGrantCreditsInput = z.infer<typeof adminGrantCreditsSchema>

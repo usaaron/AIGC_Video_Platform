@@ -1,4 +1,11 @@
-import type { BillingCheckoutSession, BillingCheckoutType, Plan } from '@seqora/contracts'
+import type {
+  BillingCheckoutSession,
+  BillingCheckoutType,
+  BillingReconciliationAlert,
+  BillingReconciliationAlertSeverity,
+  BillingReconciliationAlertStatus,
+  Plan,
+} from '@seqora/contracts'
 import type { QueryResultRow } from 'pg'
 import type { AccountDatabase } from '../../infra/postgres.js'
 
@@ -52,6 +59,28 @@ export type BillingPaymentReconciliationInput = {
   currency?: string | null
   credits?: number | null
   message: string
+  metadata?: Record<string, unknown>
+}
+
+export type BillingPaymentReconciliationAlertInput = {
+  provider: 'stripe'
+  providerEventId: string
+  eventType: string
+  alertType: string
+  severity: BillingReconciliationAlertSeverity
+  message: string
+  paymentSessionId?: string | null
+  reconciliationItemId?: string | null
+  tenantId?: string | null
+  userId?: string | null
+  membershipId?: string | null
+  metadata?: Record<string, unknown>
+}
+
+export type BillingPaymentReconciliationAlertUpdateInput = {
+  status: BillingReconciliationAlertStatus
+  acknowledgedByUserId?: string | null
+  message?: string
   metadata?: Record<string, unknown>
 }
 
@@ -225,6 +254,25 @@ export class BillingPaymentRepository {
     return result.rows[0] ? toPaymentSessionRecord(result.rows[0]) : null
   }
 
+  async markCheckoutExpired(input: {
+    provider: 'stripe'
+    providerSessionId: string
+    expiredAt?: string
+  }): Promise<BillingPaymentSessionRecord | null> {
+    const result = await this.database.query<BillingPaymentSessionRecordRow>(
+      `
+      UPDATE billing_payment_sessions
+      SET status = 'expired',
+          updated_at = COALESCE($3::timestamptz, now())
+      WHERE provider = $1
+        AND provider_session_id = $2
+      RETURNING *
+      `,
+      [input.provider, input.providerSessionId, input.expiredAt ?? null],
+    )
+    return result.rows[0] ? toPaymentSessionRecord(result.rows[0]) : null
+  }
+
   async findBySubscriptionId(
     provider: 'stripe',
     providerSubscriptionId: string,
@@ -261,8 +309,8 @@ export class BillingPaymentRepository {
     return result.rows[0] ? toPaymentSessionRecord(result.rows[0]) : null
   }
 
-  async recordReconciliation(input: BillingPaymentReconciliationInput): Promise<void> {
-    await this.database.query(
+  async recordReconciliation(input: BillingPaymentReconciliationInput): Promise<string> {
+    const result = await this.database.query<{ id: string }>(
       `
       INSERT INTO billing_payment_reconciliation_items (
         id,
@@ -299,6 +347,7 @@ export class BillingPaymentRepository {
                     message = EXCLUDED.message,
                     metadata = billing_payment_reconciliation_items.metadata || EXCLUDED.metadata,
                     updated_at = now()
+      RETURNING id
       `,
       [
         paymentReconciliationId(input.provider, input.providerEventId),
@@ -319,7 +368,142 @@ export class BillingPaymentRepository {
         JSON.stringify(input.metadata ?? {}),
       ],
     )
+    return result.rows[0]!.id
   }
+
+  async recordReconciliationAlert(input: BillingPaymentReconciliationAlertInput): Promise<BillingReconciliationAlert> {
+    const result = await this.database.query<BillingReconciliationAlertRow>(
+      `
+      INSERT INTO billing_reconciliation_alerts (
+        id,
+        provider,
+        provider_event_id,
+        event_type,
+        alert_type,
+        severity,
+        status,
+        payment_session_id,
+        reconciliation_item_id,
+        tenant_id,
+        user_id,
+        membership_id,
+        message,
+        metadata,
+        created_at,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, $12, $13, now(), now())
+      ON CONFLICT (provider, provider_event_id, alert_type)
+      DO UPDATE SET
+        event_type = EXCLUDED.event_type,
+        severity = EXCLUDED.severity,
+        payment_session_id = COALESCE(EXCLUDED.payment_session_id, billing_reconciliation_alerts.payment_session_id),
+        reconciliation_item_id = COALESCE(EXCLUDED.reconciliation_item_id, billing_reconciliation_alerts.reconciliation_item_id),
+        tenant_id = COALESCE(EXCLUDED.tenant_id, billing_reconciliation_alerts.tenant_id),
+        user_id = COALESCE(EXCLUDED.user_id, billing_reconciliation_alerts.user_id),
+        membership_id = COALESCE(EXCLUDED.membership_id, billing_reconciliation_alerts.membership_id),
+        message = EXCLUDED.message,
+        metadata = billing_reconciliation_alerts.metadata || EXCLUDED.metadata,
+        status = CASE
+          WHEN billing_reconciliation_alerts.status = 'resolved' THEN 'resolved'
+          WHEN billing_reconciliation_alerts.status = 'acknowledged' THEN 'acknowledged'
+          ELSE EXCLUDED.status
+        END,
+        updated_at = now()
+      RETURNING *
+      `,
+      [
+        billingReconciliationAlertId(input.provider, input.providerEventId, input.alertType),
+        input.provider,
+        input.providerEventId,
+        input.eventType,
+        input.alertType,
+        input.severity,
+        input.paymentSessionId ?? null,
+        input.reconciliationItemId ?? null,
+        input.tenantId ?? null,
+        input.userId ?? null,
+        input.membershipId ?? null,
+        input.message,
+        JSON.stringify(input.metadata ?? {}),
+      ],
+    )
+    return toBillingReconciliationAlert(result.rows[0]!)
+  }
+
+  async markReconciliationAlertNotified(alertId: string, notifiedAt?: string): Promise<void> {
+    await this.database.query(
+      `
+      UPDATE billing_reconciliation_alerts
+      SET notified_at = COALESCE($2::timestamptz, notified_at, now()),
+          updated_at = now()
+      WHERE id = $1
+      `,
+      [alertId, notifiedAt ?? null],
+    )
+  }
+
+  async updateReconciliationAlert(
+    alertId: string,
+    input: BillingPaymentReconciliationAlertUpdateInput,
+  ): Promise<BillingReconciliationAlert | null> {
+    const result = await this.database.query<BillingReconciliationAlertRow>(
+      `
+      UPDATE billing_reconciliation_alerts
+      SET status = $2,
+          acknowledged_by_user_id = CASE WHEN $2 = 'acknowledged' THEN $3 ELSE acknowledged_by_user_id END,
+          acknowledged_at = CASE WHEN $2 = 'acknowledged' THEN COALESCE(acknowledged_at, now()) ELSE acknowledged_at END,
+          resolved_at = CASE WHEN $2 = 'resolved' THEN COALESCE(resolved_at, now()) ELSE resolved_at END,
+          message = COALESCE($4, message),
+          metadata = metadata || $5::jsonb,
+          updated_at = now()
+      WHERE id = $1
+      RETURNING *
+      `,
+      [
+        alertId,
+        input.status,
+        input.acknowledgedByUserId ?? null,
+        input.message ?? null,
+        JSON.stringify(input.metadata ?? {}),
+      ],
+    )
+    return result.rows[0] ? toBillingReconciliationAlert(result.rows[0]) : null
+  }
+
+  async resolveAlertsForEvent(
+    provider: 'stripe',
+    providerEventId: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<number> {
+    const result = await this.database.query<{ count: number }>(
+      `
+      WITH resolved AS (
+        UPDATE billing_reconciliation_alerts
+        SET status = CASE WHEN status = 'acknowledged' THEN 'acknowledged' ELSE 'resolved' END,
+            resolved_at = COALESCE(resolved_at, now()),
+            metadata = metadata || $3::jsonb,
+            updated_at = now()
+        WHERE provider = $1
+          AND provider_event_id = $2
+          AND status <> 'resolved'
+        RETURNING id
+      )
+      SELECT count(*)::int AS count
+      FROM resolved
+      `,
+      [provider, providerEventId, JSON.stringify(metadata ?? {})],
+    )
+    return result.rows[0]?.count ?? 0
+  }
+}
+
+function billingReconciliationAlertId(
+  provider: string,
+  providerEventId: string,
+  alertType: string,
+): string {
+  return `billing-alert-${provider}-${providerEventId}-${alertType}`
 }
 
 function paymentSessionId(provider: string, providerSessionId: string): string {
@@ -405,3 +589,52 @@ type BillingPaymentSessionRecordRow = BillingPaymentSessionRow &
     created_at: Date | string
     updated_at: Date | string
   }
+
+type BillingReconciliationAlertRow = QueryResultRow & {
+  id: string
+  provider: string
+  provider_event_id: string
+  event_type: string
+  alert_type: string
+  severity: BillingReconciliationAlertSeverity
+  status: BillingReconciliationAlertStatus
+  payment_session_id: string | null
+  reconciliation_item_id: string | null
+  tenant_id: string | null
+  user_id: string | null
+  membership_id: string | null
+  message: string
+  metadata: Record<string, unknown> | string
+  notified_at: Date | string | null
+  acknowledged_by_user_id: string | null
+  acknowledged_at: Date | string | null
+  resolved_at: Date | string | null
+  created_at: Date | string
+  updated_at: Date | string
+}
+
+function toBillingReconciliationAlert(row: BillingReconciliationAlertRow): BillingReconciliationAlert {
+  return {
+    id: row.id,
+    provider: row.provider,
+    providerEventId: row.provider_event_id,
+    eventType: row.event_type,
+    paymentSessionId: row.payment_session_id,
+    reconciliationItemId: row.reconciliation_item_id,
+    tenantId: row.tenant_id,
+    organizationId: row.tenant_id,
+    userId: row.user_id,
+    membershipId: row.membership_id,
+    alertType: row.alert_type,
+    severity: row.severity,
+    status: row.status,
+    message: row.message,
+    metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
+    notifiedAt: row.notified_at ? toIso(row.notified_at) : null,
+    acknowledgedByUserId: row.acknowledged_by_user_id,
+    acknowledgedAt: row.acknowledged_at ? toIso(row.acknowledged_at) : null,
+    resolvedAt: row.resolved_at ? toIso(row.resolved_at) : null,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  }
+}

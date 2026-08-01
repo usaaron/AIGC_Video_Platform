@@ -234,7 +234,9 @@ export function createRuntimeServices(input: {
             memberPriceId: config.STRIPE_MEMBER_PRICE_ID,
             creditPriceId: config.STRIPE_CREDIT_PRICE_ID,
             creditPackCredits: config.STRIPE_CREDIT_PACK_CREDITS,
+            alertEmails: billingAlertEmails(config.BILLING_ALERT_EMAILS),
           },
+          mailer,
         )
       : null
 
@@ -260,4 +262,11 @@ function createRuntimePaymentProvider(config: AppConfig): BillingPaymentProvider
 function billingRedirectUrl(configured: string, webOrigin: string, path: string): string {
   if (configured) return configured
   return `${webOrigin.replace(/\/+$/, '')}${path}`
+}
+
+function billingAlertEmails(value: string): string[] {
+  return value
+    .split(',')
+    .map((email) => email.trim())
+    .filter((email) => email.length > 0)
 }

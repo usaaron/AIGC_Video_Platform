@@ -153,8 +153,6 @@ export class StoreCreditLedger implements CreditLedger {
   ): Promise<boolean> {
     const entryId = `generation-${referenceId}`
     if (!this.ledgerRepository && state.ledger.some((entry) => entry.id === entryId)) return false
-    const user = findUser(state, principal)
-    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
 
     if (this.ledgerRepository) {
       const recorded = await this.ledgerRepository.recordEntry({
@@ -167,10 +165,13 @@ export class StoreCreditLedger implements CreditLedger {
         description,
       })
       if (!recorded) return false
-      user.credits = recorded.balance
+      const cachedUser = findUser(state, principal)
+      if (cachedUser) cachedUser.credits = recorded.balance
       return true
     }
 
+    const user = findUser(state, principal)
+    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     if (user.credits < credits) throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
     user.credits -= credits
     mirrorLedgerEntry(state, {
@@ -211,8 +212,6 @@ export class StoreCreditLedger implements CreditLedger {
     referenceId: string,
     description: string,
   ): Promise<void> {
-    const user = findUser(state, principal)
-    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     const debitId = `generation-${referenceId}`
     const refundId = `refund-${referenceId}`
 
@@ -230,11 +229,14 @@ export class StoreCreditLedger implements CreditLedger {
         description,
       })
       if (!recorded) return
-      user.credits = recorded.balance
+      const cachedUser = findUser(state, principal)
+      if (cachedUser) cachedUser.credits = recorded.balance
       observabilityMetrics.recordRefund({ tenantId: principal.tenantId, amount: Math.abs(debit.amount) })
       return
     }
 
+    const user = findUser(state, principal)
+    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     const debit = state.ledger.find(
       (entry) =>
         entry.id === debitId && entry.userId === principal.userId && entry.tenantId === principal.tenantId,
@@ -267,8 +269,6 @@ export class StoreCreditLedger implements CreditLedger {
   ): Promise<void> {
     const refundId = `refund-${task.id}`
     const debitId = `generation-${task.clientRequestId}`
-    const user = findUserById(state, task.userId, task.tenantId)
-    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     const now = new Date().toISOString()
 
     if (this.ledgerRepository) {
@@ -288,12 +288,15 @@ export class StoreCreditLedger implements CreditLedger {
         createdAt: now,
       })
       if (!recorded) return
-      user.credits = recorded.balance
+      const cachedUser = findUserById(state, task.userId, task.tenantId)
+      if (cachedUser) cachedUser.credits = recorded.balance
       markTaskRefunded(state, task.id, now)
       observabilityMetrics.recordRefund({ tenantId: task.tenantId, amount })
       return
     }
 
+    const user = findUserById(state, task.userId, task.tenantId)
+    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     const debit = state.ledger.find(
       (entry) => entry.id === debitId && entry.userId === task.userId && entry.tenantId === task.tenantId,
     )
@@ -327,8 +330,6 @@ export class StoreCreditLedger implements CreditLedger {
     reason: string,
   ): Promise<BillingSummary> {
     if (amount <= 0) throw new AppError(400, 'INVALID_CREDIT_AMOUNT', 'Credit amount must be positive')
-    const user = findUser(state, principal)
-    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     const entryId = `grant-${cryptoRandomId()}`
 
     if (this.ledgerRepository) {
@@ -341,11 +342,14 @@ export class StoreCreditLedger implements CreditLedger {
         createdByUserId: principal.userId,
       })
       if (recorded) {
-        user.credits = recorded.balance
+        const cachedUser = findUser(state, principal)
+        if (cachedUser) cachedUser.credits = recorded.balance
       }
       return this.billingSummary(principal)
     }
 
+    const user = findUser(state, principal)
+    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     user.credits += amount
     mirrorLedgerEntry(state, {
       id: entryId,
@@ -463,8 +467,6 @@ export class StoreCreditLedger implements CreditLedger {
     referenceId: string,
     description: string,
   ): Promise<BillingSummary> {
-    const user = findUser(state, principal)
-    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     const entryId = `adjustment-${referenceId}`
 
     if (this.ledgerRepository) {
@@ -478,12 +480,14 @@ export class StoreCreditLedger implements CreditLedger {
         createdByUserId: principal.userId,
       })
       if (recorded) {
-        user.credits = recorded.balance
+        const cachedUser = findUser(state, principal)
+        if (cachedUser) cachedUser.credits = recorded.balance
       }
-      const entries = await this.ledgerRepository.listEntries(principal.userId, principal.tenantId)
-      return buildSummaryFromEntries(entries, user.plan, user.credits, this.planSelfServiceEnabled)
+      return this.billingSummary(principal)
     }
 
+    const user = findUser(state, principal)
+    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     if (state.ledger.some((entry) => entry.id === entryId)) {
       return buildSummaryFromEntries(
         ledgerEntriesForPrincipal(state, principal),
@@ -563,9 +567,6 @@ export class StoreCreditLedger implements CreditLedger {
   }
 
   async updatePlanInState(state: AppState, principal: Principal, plan: Plan): Promise<BillingSummary> {
-    const user = findUser(state, principal)
-    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
-
     if (this.ledgerRepository) {
       const updated = await this.ledgerRepository.updatePlan({
         tenantId: principal.tenantId,
@@ -575,12 +576,16 @@ export class StoreCreditLedger implements CreditLedger {
         createdByUserId: principal.userId,
       })
       if (!updated) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
-      user.plan = updated.plan
-      user.credits = updated.credits
-      const entries = await this.ledgerRepository.listEntries(principal.userId, principal.tenantId)
-      return buildSummaryFromEntries(entries, user.plan, user.credits, this.planSelfServiceEnabled)
+      const cachedUser = findUser(state, principal)
+      if (cachedUser) {
+        cachedUser.plan = updated.plan
+        cachedUser.credits = updated.credits
+      }
+      return this.billingSummary(principal)
     }
 
+    const user = findUser(state, principal)
+    if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     if (user.plan === plan) {
       return buildSummaryFromEntries(
         ledgerEntriesForPrincipal(state, principal),
