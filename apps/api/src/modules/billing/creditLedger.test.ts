@@ -7,7 +7,7 @@ import { UserRepository } from '../users/repository.js'
 import { StoreCreditLedger } from './creditLedger.js'
 
 const principal: Principal = {
-  userId: 'user-creator',
+  userId: 'user-member',
   tenantId: 'tenant-seqora-demo',
   roles: ['member'],
 }
@@ -56,9 +56,9 @@ describe('postgres billing ledger', () => {
     expect(imported.rows[0]?.imported_from_json).toBe(true)
 
     await expect(ledger.reserveCredits(principal, 12, 'billing-task-1', 'Task debit')).resolves.toBe(true)
-    await expect(ledger.reserveCredits(principal, 12, 'billing-task-1', 'Duplicate task debit')).resolves.toBe(
-      false,
-    )
+    await expect(
+      ledger.reserveCredits(principal, 12, 'billing-task-1', 'Duplicate task debit'),
+    ).resolves.toBe(false)
 
     const debited = await ledger.billingSummary(principal)
     expect(debited.credits).toBe(274)
@@ -171,7 +171,7 @@ describe('postgres billing ledger', () => {
 
     const adjusted = await ledger.adjustCredits(
       adminPrincipal,
-      'membership-tenant-seqora-demo-user-creator',
+      'membership-tenant-seqora-demo-user-member',
       25,
       'Admin manual top-up',
     )
@@ -196,13 +196,13 @@ describe('postgres billing ledger', () => {
     )
     expect(rows.rows).toEqual([
       {
-        membership_id: 'membership-tenant-seqora-demo-user-creator',
+        membership_id: 'membership-tenant-seqora-demo-user-member',
         entry_type: 'adjustment',
         amount: 25,
         created_by_user_id: adminPrincipal.userId,
       },
       {
-        membership_id: 'membership-tenant-seqora-demo-user-creator',
+        membership_id: 'membership-tenant-seqora-demo-user-member',
         entry_type: 'grant',
         amount: 30,
         created_by_user_id: principal.userId,
@@ -220,14 +220,14 @@ describe('postgres billing ledger', () => {
     const activated = await ledger.processBillingWebhook('testpay', {
       eventId: 'evt-subscription-activated',
       type: 'subscription.activated',
-      membershipId: 'membership-tenant-seqora-demo-user-creator',
+      membershipId: 'membership-tenant-seqora-demo-user-member',
       occurredAt: '2026-07-01T00:00:00.000Z',
       metadata: { subscriptionId: 'sub_1' },
     })
     const duplicate = await ledger.processBillingWebhook('testpay', {
       eventId: 'evt-subscription-activated',
       type: 'subscription.activated',
-      membershipId: 'membership-tenant-seqora-demo-user-creator',
+      membershipId: 'membership-tenant-seqora-demo-user-member',
       occurredAt: '2026-07-01T00:00:00.000Z',
       metadata: { subscriptionId: 'sub_1' },
     })
@@ -268,7 +268,7 @@ describe('postgres billing ledger', () => {
     const cancelled = await ledger.processBillingWebhook('testpay', {
       eventId: 'evt-subscription-cancelled',
       type: 'subscription.cancelled',
-      membershipId: 'membership-tenant-seqora-demo-user-creator',
+      membershipId: 'membership-tenant-seqora-demo-user-member',
       metadata: { subscriptionId: 'sub_1' },
     })
     expect(cancelled).toMatchObject({ plan: 'free', credits: 786 })

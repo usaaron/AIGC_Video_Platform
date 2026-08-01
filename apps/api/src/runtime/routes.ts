@@ -105,6 +105,7 @@ export async function registerRuntimeRoutes(input: {
       await registerObservabilityRoutes(api, store)
       await registerBillingRoutes(api, repositories.creditLedger, {
         webhookSecret: config.BILLING_WEBHOOK_SECRET,
+        paymentService: services.paymentService,
       })
       await registerAdminRoutes(
         api,

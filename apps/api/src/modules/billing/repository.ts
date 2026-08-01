@@ -1003,10 +1003,7 @@ async function insertLedgerEntryIfAbsent(
   return { entry: toLedgerEntry(inserted.rows[0]!), balance: nextCredits }
 }
 
-function webhookResultFromRow(
-  row: BillingWebhookEventRow,
-  duplicate: boolean,
-): BillingWebhookProcessResult {
+function webhookResultFromRow(row: BillingWebhookEventRow, duplicate: boolean): BillingWebhookProcessResult {
   return {
     provider: row.provider,
     eventId: row.provider_event_id,

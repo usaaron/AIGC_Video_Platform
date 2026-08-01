@@ -8,14 +8,14 @@ import {
   createTenantUserSchema,
   PERMISSIONS,
   roleSchema,
-  transferWorkspaceOwnerSchema,
+  adminTransferOrganizationAdminSchema,
   updateMembershipRolesSchema,
   updateWorkspaceSchema,
   type AdminConsole,
   type AdminOverview,
   type Principal,
 } from '@seqora/contracts'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
 import { hashPassword } from '../../core/auth/password.js'
@@ -44,6 +44,7 @@ const listQuery = z.object({
   action: z.string().min(1).max(120).optional(),
   resourceType: z.string().min(1).max(120).optional(),
   actorUserId: z.string().min(1).max(256).optional(),
+  paymentStatus: z.enum(['processed', 'ignored', 'failed']).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 })
@@ -86,6 +87,7 @@ export async function registerAdminRoutes(
         memberships,
         billingAccounts,
         billingLedgerEntries,
+        billingPaymentReconciliation,
         sessions,
         auditLogs,
       ] = await Promise.all([
@@ -95,6 +97,7 @@ export async function registerAdminRoutes(
         repository.listMemberships(options),
         repository.listBillingAccounts(options),
         repository.listBillingLedgerEntries(options),
+        repository.listBillingPaymentReconciliation(options),
         repository.listSessions(options, currentSessionId),
         repository.listAuditLogEntries(options),
       ])
@@ -106,6 +109,7 @@ export async function registerAdminRoutes(
         memberships,
         billingAccounts,
         billingLedgerEntries,
+        billingPaymentReconciliation,
         sessions,
         auditLogs,
         generatedAt: new Date().toISOString(),
@@ -180,6 +184,7 @@ export async function registerAdminRoutes(
     '/admin/tenants',
     { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
     async (request, reply) => {
+      markDeprecated(reply, '/admin/organizations')
       reply.header('Cache-Control', 'no-store')
       return await requireAdminRepository(adminRepository).listTenants(
         scopeAdminOptions(request.principal!, parseListQuery(request.query)),
@@ -202,6 +207,7 @@ export async function registerAdminRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(adminTenantParams, request.params)
+      markDeprecated(reply, adminOrganizationSuccessor(tenantId))
       reply.header('Cache-Control', 'no-store')
       return await requireAccountManagementService(accountManagementService).adminUpdateWorkspace(
         request.principal!,
@@ -231,6 +237,7 @@ export async function registerAdminRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(adminTenantParams, request.params)
+      markDeprecated(reply, adminOrganizationSuccessor(tenantId))
       const workspace = await requireAccountManagementService(accountManagementService).adminDisableWorkspace(
         request.principal!,
         tenantId,
@@ -256,33 +263,40 @@ export async function registerAdminRoutes(
   )
 
   app.post(
-    '/admin/tenants/:tenantId/owner-transfer',
+    '/admin/organizations/:tenantId/admin-transfer',
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(adminTenantParams, request.params)
       reply.header('Cache-Control', 'no-store')
-      return await requireAccountManagementService(accountManagementService).adminTransferWorkspaceOwner(
+      return await requireAccountManagementService(accountManagementService).adminTransferOrganizationAdmin(
         request.principal!,
         tenantId,
-        parse(transferWorkspaceOwnerSchema, request.body),
+        parse(adminTransferOrganizationAdminSchema, request.body),
         sessionMetadataFromRequest(request),
       )
     },
   )
-  app.post(
-    '/admin/organizations/:tenantId/owner-transfer',
-    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
-    async (request, reply) => {
+  for (const path of [
+    '/admin/organizations/:tenantId/organization-admin-transfer',
+    '/admin/tenants/:tenantId/organization-admin-transfer',
+  ]) {
+    app.post(path, { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) }, async (request, reply) => {
       const { tenantId } = parse(adminTenantParams, request.params)
-      reply.header('Cache-Control', 'no-store')
-      return await requireAccountManagementService(accountManagementService).adminTransferWorkspaceOwner(
+      reply
+        .header('Cache-Control', 'no-store')
+        .header('Deprecation', 'true')
+        .header(
+          'Link',
+          `</api/v1/admin/organizations/${encodeURIComponent(tenantId)}/admin-transfer>; rel="successor-version"`,
+        )
+      return await requireAccountManagementService(accountManagementService).adminTransferOrganizationAdmin(
         request.principal!,
         tenantId,
-        parse(transferWorkspaceOwnerSchema, request.body),
+        parse(adminTransferOrganizationAdminSchema, request.body),
         sessionMetadataFromRequest(request),
       )
-    },
-  )
+    })
+  }
 
   app.post(
     '/admin/tenants/:tenantId/users',
@@ -292,6 +306,7 @@ export async function registerAdminRoutes(
     },
     async (request, reply) => {
       const { tenantId } = parse(adminTenantParams, request.params)
+      markDeprecated(reply, adminOrganizationSuccessor(tenantId, '/users'))
       const member = await requireAccountManagementService(accountManagementService).adminCreateTenantUser(
         request.principal!,
         tenantId,
@@ -337,7 +352,10 @@ export async function registerAdminRoutes(
       const { membershipId } = parse(billingMembershipParams, request.params)
       const detail = await requireAdminRepository(adminRepository).findMembership(membershipId)
       if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
-      if (!isPlatformAdmin(request.principal!) && detail.membership.tenantId !== request.principal!.tenantId) {
+      if (
+        !isPlatformAdmin(request.principal!) &&
+        detail.membership.tenantId !== request.principal!.tenantId
+      ) {
         throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot manage another workspace membership')
       }
       reply.header('Cache-Control', 'no-store')
@@ -358,7 +376,10 @@ export async function registerAdminRoutes(
       const { membershipId } = parse(billingMembershipParams, request.params)
       const detail = await requireAdminRepository(adminRepository).findMembership(membershipId)
       if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
-      if (!isPlatformAdmin(request.principal!) && detail.membership.tenantId !== request.principal!.tenantId) {
+      if (
+        !isPlatformAdmin(request.principal!) &&
+        detail.membership.tenantId !== request.principal!.tenantId
+      ) {
         throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot manage another workspace membership')
       }
       await requireAccountManagementService(accountManagementService).adminDisableMembership(
@@ -406,6 +427,17 @@ export async function registerAdminRoutes(
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store')
       return await requireAdminRepository(adminRepository).listBillingLedgerEntries(
+        scopeAdminOptions(request.principal!, parseListQuery(request.query)),
+      )
+    },
+  )
+
+  app.get(
+    '/admin/billing/reconciliation',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_ALL) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await requireAdminRepository(adminRepository).listBillingPaymentReconciliation(
         scopeAdminOptions(request.principal!, parseListQuery(request.query)),
       )
     },
@@ -497,6 +529,15 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value)
   if (!result.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(result.error))
   return result.data
+}
+
+function markDeprecated(reply: FastifyReply, successorPath: string): void {
+  reply.header('Deprecation', 'true')
+  reply.header('Link', `</api/v1${successorPath}>; rel="successor-version"`)
+}
+
+function adminOrganizationSuccessor(tenantId: string, suffix = ''): string {
+  return `/admin/organizations/${encodeURIComponent(tenantId)}${suffix}`
 }
 
 function requireLedger(ledger: CreditLedger | null): CreditLedger {

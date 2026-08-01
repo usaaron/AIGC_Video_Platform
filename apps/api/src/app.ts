@@ -4,11 +4,13 @@ import helmet from '@fastify/helmet'
 import multipart from '@fastify/multipart'
 import rateLimit from '@fastify/rate-limit'
 import Fastify, { type FastifyInstance } from 'fastify'
+import fastifyRawBody from 'fastify-raw-body'
 import type { AppConfig } from './config.js'
 import type { FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
 import type { TaskDispatcher } from './core/jobs/taskDispatcher.js'
 import { installObservabilityHooks } from './core/observability/hooks.js'
 import type { AppStore } from './infra/store.js'
+import type { Mailer } from './core/email/mailer.js'
 import { createRuntimeDatabase } from './runtime/database.js'
 import { createRuntimeProviders, type RuntimeProviderOverrides } from './runtime/providers.js'
 import { createRuntimeQueues } from './runtime/queues.js'
@@ -23,6 +25,7 @@ import {
   createRuntimeServices,
 } from './runtime/services.js'
 import { createRuntimeStorage } from './runtime/storage.js'
+import type { BillingPaymentProvider } from './modules/billing/paymentProvider.js'
 
 type BuildAppOptions = RuntimeProviderOverrides & {
   config: AppConfig
@@ -31,6 +34,8 @@ type BuildAppOptions = RuntimeProviderOverrides & {
   startWorker?: boolean
   taskDispatcher?: TaskDispatcher
   filmPreviewComposer?: FilmPreviewDispatcher | null
+  paymentProvider?: BillingPaymentProvider | null
+  mailer?: Mailer | null
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -89,6 +94,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       aiJobDispatcher: queues.aiJobDispatcher,
     },
     filmPreviewComposer,
+    ...(options.paymentProvider !== undefined ? { paymentProviderOverride: options.paymentProvider } : {}),
+    ...(options.mailer !== undefined ? { mailerOverride: options.mailer } : {}),
   })
 
   installRuntimeErrorHandler(app)
@@ -127,6 +134,7 @@ async function registerHttpPlugins(app: FastifyInstance, config: AppConfig): Pro
   })
   await app.register(cookie)
   await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true })
+  await app.register(fastifyRawBody, { global: false, runFirst: true, encoding: 'utf8' })
   await app.register(multipart, {
     limits: { files: 1, fileSize: config.MAX_UPLOAD_BYTES, parts: 2 },
   })

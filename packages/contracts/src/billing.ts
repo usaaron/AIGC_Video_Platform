@@ -43,6 +43,27 @@ export const billingSummarySchema = z.object({
 })
 
 export const updatePlanSchema = z.object({ plan: planSchema })
+export const billingCheckoutTypeSchema = z.enum(['subscription', 'credits'])
+export const billingPaymentProviderSchema = z.enum(['stripe'])
+export const billingPaymentConfigurationSchema = z.object({
+  provider: billingPaymentProviderSchema.nullable(),
+  enabled: z.boolean(),
+  memberSubscriptionEnabled: z.boolean(),
+  creditPurchaseEnabled: z.boolean(),
+  creditPackCredits: z.number().int().positive().nullable(),
+})
+export const billingCheckoutSessionSchema = z.object({
+  provider: billingPaymentProviderSchema,
+  checkoutType: billingCheckoutTypeSchema,
+  checkoutSessionId: z.string().min(1),
+  url: z.string().url(),
+  status: z.enum(['open', 'completed', 'expired', 'cancelled', 'refunded']),
+  plan: planSchema.nullable(),
+  credits: z.number().int().positive().nullable(),
+})
+export const createCreditCheckoutSchema = z.object({
+  credits: z.number().int().positive().max(1_000_000).optional(),
+})
 export const billingWebhookEventTypeSchema = z.enum([
   'subscription.activated',
   'subscription.renewed',
@@ -101,6 +122,11 @@ export const adminAdjustCreditsSchema = z.object({
 export type LedgerEntry = z.infer<typeof ledgerEntrySchema>
 export type MonthlyUsage = z.infer<typeof monthlyUsageSchema>
 export type BillingSummary = z.infer<typeof billingSummarySchema>
+export type BillingCheckoutType = z.infer<typeof billingCheckoutTypeSchema>
+export type BillingPaymentProvider = z.infer<typeof billingPaymentProviderSchema>
+export type BillingPaymentConfiguration = z.infer<typeof billingPaymentConfigurationSchema>
+export type BillingCheckoutSession = z.infer<typeof billingCheckoutSessionSchema>
+export type CreateCreditCheckoutInput = z.infer<typeof createCreditCheckoutSchema>
 export type BillingWebhookEvent = z.infer<typeof billingWebhookEventSchema>
 export type BillingWebhookEventType = z.infer<typeof billingWebhookEventTypeSchema>
 export type AdminGrantCreditsInput = z.infer<typeof adminGrantCreditsSchema>

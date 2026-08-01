@@ -6,6 +6,8 @@ import type {
   AdminBillingAccountList,
   AdminBillingLedgerEntry,
   AdminBillingLedgerEntryList,
+  AdminBillingPaymentReconciliationItem,
+  AdminBillingPaymentReconciliationList,
   AdminMembership,
   AdminMembershipDetail,
   AdminMembershipList,
@@ -53,6 +55,7 @@ export type AdminListOptions = {
   resourceType?: string | undefined
   actorUserId?: string | undefined
   sessionStatus?: AdminSessionStatus | undefined
+  paymentStatus?: 'processed' | 'ignored' | 'failed' | undefined
   limit: number
   offset: number
 }
@@ -129,6 +132,7 @@ export class AdminRepository {
         t.id,
         t.name,
         t.status,
+        t.is_system,
         t.created_by_user_id,
         created_by_identity.email AS created_by_email,
         created_by.display_name AS created_by_name,
@@ -136,8 +140,9 @@ export class AdminRepository {
         count(DISTINCT m.id) FILTER (WHERE m.status = 'active' AND u.status = 'active')::int
           AS active_membership_count,
         count(DISTINCT m.id) FILTER (
-          WHERE m.status = 'active' AND u.status = 'active' AND m.roles @> ARRAY['owner']::text[]
-        )::int AS active_owner_count,
+          WHERE m.status = 'active' AND u.status = 'active'
+            AND m.roles @> ARRAY['organization_admin']::text[]
+        )::int AS active_organization_admin_count,
         t.created_at,
         t.updated_at
       FROM tenants t
@@ -265,6 +270,54 @@ export class AdminRepository {
       [...filter.params, paging.limit, paging.offset],
     )
     return listResult(rows.rows.map(toAdminBillingLedgerEntry), total.rows[0]?.total ?? 0, paging)
+  }
+
+  async listBillingPaymentReconciliation(
+    options: AdminListOptions,
+  ): Promise<AdminBillingPaymentReconciliationList> {
+    const filter = buildPaymentReconciliationFilter(options)
+    const total = await this.database.query<{ total: number }>(
+      `
+      SELECT count(*)::int AS total
+      FROM billing_payment_reconciliation_items r
+      ${filter.where}
+      `,
+      filter.params,
+    )
+    const paging = normalizePaging(options)
+    const rows = await this.database.query<AdminBillingPaymentReconciliationRow>(
+      `
+      SELECT
+        r.id,
+        r.provider,
+        r.provider_event_id,
+        r.event_type,
+        r.payment_session_id,
+        r.billing_webhook_event_id,
+        r.ledger_entry_id,
+        r.tenant_id,
+        r.user_id,
+        r.membership_id,
+        r.status,
+        r.amount,
+        r.currency,
+        r.credits,
+        r.message,
+        r.metadata,
+        r.created_at
+      FROM billing_payment_reconciliation_items r
+      ${filter.where}
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT $${filter.params.length + 1}
+      OFFSET $${filter.params.length + 2}
+      `,
+      [...filter.params, paging.limit, paging.offset],
+    )
+    return listResult(
+      rows.rows.map(toAdminBillingPaymentReconciliationItem),
+      total.rows[0]?.total ?? 0,
+      paging,
+    )
   }
 
   async listSessions(
@@ -562,9 +615,7 @@ export class AdminRepository {
         `,
         [userId, input.required, principal.userId],
       )
-      const revokedSessionCount = input.revokeSessions
-        ? await revokeSessionsForUser(client, userId)
-        : 0
+      const revokedSessionCount = input.revokeSessions ? await revokeSessionsForUser(client, userId) : 0
       await insertAuditLog(client, {
         tenantId: null,
         userId,
@@ -616,9 +667,7 @@ export class AdminRepository {
         `,
         [userId, input.requireChange, principal.userId],
       )
-      const revokedSessionCount = input.revokeSessions
-        ? await revokeSessionsForUser(client, userId)
-        : 0
+      const revokedSessionCount = input.revokeSessions ? await revokeSessionsForUser(client, userId) : 0
       await insertAuditLog(client, {
         tenantId: null,
         userId,
@@ -674,12 +723,13 @@ type AdminTenantRow = {
   id: string
   name: string
   status: AdminTenant['status']
+  is_system: boolean
   created_by_user_id: string | null
   created_by_email: string | null
   created_by_name: string | null
   membership_count: number
   active_membership_count: number
-  active_owner_count: number
+  active_organization_admin_count: number
   created_at: Date | string
   updated_at: Date | string
 }
@@ -716,6 +766,26 @@ type AdminBillingLedgerEntryRow = {
   created_by_user_id: string | null
   created_at: Date | string
   metadata: Record<string, unknown> | string
+}
+
+type AdminBillingPaymentReconciliationRow = {
+  id: string
+  provider: string
+  provider_event_id: string
+  event_type: string
+  payment_session_id: string | null
+  billing_webhook_event_id: string | null
+  ledger_entry_id: string | null
+  tenant_id: string | null
+  user_id: string | null
+  membership_id: string | null
+  status: AdminBillingPaymentReconciliationItem['status']
+  amount: number | null
+  currency: string | null
+  credits: number | null
+  message: string
+  metadata: Record<string, unknown> | string
+  created_at: Date | string
 }
 
 type AdminSessionRow = {
@@ -813,6 +883,24 @@ function buildLedgerFilter(options: AdminListOptions): Filter {
   if (options.q?.trim()) {
     builder.add(
       '(lower(e.id) LIKE ? OR lower(e.reference_id) LIKE ? OR lower(e.description) LIKE ?)',
+      search(options.q),
+      search(options.q),
+      search(options.q),
+    )
+  }
+  return builder.build()
+}
+
+function buildPaymentReconciliationFilter(options: AdminListOptions): Filter {
+  const builder = new FilterBuilder()
+  if (options.membershipId) builder.add('r.membership_id = ?', options.membershipId)
+  if (options.tenantId) builder.add('r.tenant_id = ?', options.tenantId)
+  if (options.userId) builder.add('r.user_id = ?', options.userId)
+  if (options.paymentStatus) builder.add('r.status = ?', options.paymentStatus)
+  if (options.q?.trim()) {
+    builder.add(
+      '(lower(r.id) LIKE ? OR lower(r.provider_event_id) LIKE ? OR lower(r.event_type) LIKE ? OR lower(r.message) LIKE ?)',
+      search(options.q),
       search(options.q),
       search(options.q),
       search(options.q),
@@ -1038,12 +1126,13 @@ function toAdminTenant(row: AdminTenantRow): AdminTenant {
     id: row.id,
     name: row.name,
     status: row.status,
+    isSystem: row.is_system,
     createdByUserId: row.created_by_user_id,
     createdByEmail: row.created_by_email,
     createdByName: row.created_by_name,
     membershipCount: row.membership_count,
     activeMembershipCount: row.active_membership_count,
-    activeOwnerCount: row.active_owner_count,
+    activeOrganizationAdminCount: row.active_organization_admin_count,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   }
@@ -1104,6 +1193,31 @@ function toAdminBillingLedgerEntry(row: AdminBillingLedgerEntryRow): AdminBillin
     type: row.entry_type,
     description: row.description,
     createdByUserId: row.created_by_user_id,
+    metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
+    createdAt: toIso(row.created_at),
+  }
+}
+
+function toAdminBillingPaymentReconciliationItem(
+  row: AdminBillingPaymentReconciliationRow,
+): AdminBillingPaymentReconciliationItem {
+  return {
+    id: row.id,
+    provider: row.provider,
+    providerEventId: row.provider_event_id,
+    eventType: row.event_type,
+    paymentSessionId: row.payment_session_id,
+    billingWebhookEventId: row.billing_webhook_event_id,
+    ledgerEntryId: row.ledger_entry_id,
+    tenantId: row.tenant_id,
+    organizationId: row.tenant_id,
+    userId: row.user_id,
+    membershipId: row.membership_id,
+    status: row.status,
+    amount: row.amount,
+    currency: row.currency,
+    credits: row.credits,
+    message: row.message,
     metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
     createdAt: toIso(row.created_at),
   }
@@ -1215,7 +1329,11 @@ async function loadPasswordManagementTarget(
   )
   const identityId = identity.rows[0]?.id
   if (!identityId) {
-    throw new AppError(409, 'LOCAL_PASSWORD_IDENTITY_REQUIRED', 'Account does not have a local password identity')
+    throw new AppError(
+      409,
+      'LOCAL_PASSWORD_IDENTITY_REQUIRED',
+      'Account does not have a local password identity',
+    )
   }
 
   const memberships = await client.query<{ tenant_id: string; roles: Role[]; status: string }>(
@@ -1246,7 +1364,11 @@ function assertCanManageAccountPassword(
     if (!inTenant) {
       throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot manage another workspace account')
     }
-    if (memberships.some((membership) => membership.tenant_id !== principal.tenantId && membership.status === 'active')) {
+    if (
+      memberships.some(
+        (membership) => membership.tenant_id !== principal.tenantId && membership.status === 'active',
+      )
+    ) {
       throw new AppError(
         403,
         'CROSS_TENANT_PASSWORD_REQUIRES_PLATFORM_ADMIN',

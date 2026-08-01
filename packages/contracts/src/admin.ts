@@ -39,12 +39,13 @@ export const adminTenantSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(80),
   status: adminTenantStatusSchema,
+  isSystem: z.boolean().default(false),
   createdByUserId: z.string().min(1).nullable(),
   createdByEmail: z.string().email().nullable(),
   createdByName: z.string().min(1).max(80).nullable(),
   membershipCount: z.number().int().nonnegative(),
   activeMembershipCount: z.number().int().nonnegative(),
-  activeOwnerCount: z.number().int().nonnegative(),
+  activeOrganizationAdminCount: z.number().int().nonnegative(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
@@ -136,6 +137,27 @@ export const adminAuditLogEntrySchema = z.object({
   createdAt: z.string().datetime(),
 })
 
+export const adminBillingPaymentReconciliationItemSchema = z.object({
+  id: z.string().min(1),
+  provider: z.string().min(1),
+  providerEventId: z.string().min(1),
+  eventType: z.string().min(1),
+  paymentSessionId: z.string().min(1).nullable(),
+  billingWebhookEventId: z.string().min(1).nullable(),
+  ledgerEntryId: z.string().min(1).nullable(),
+  tenantId: z.string().min(1).nullable(),
+  organizationId: z.string().min(1).nullable(),
+  userId: z.string().min(1).nullable(),
+  membershipId: z.string().min(1).nullable(),
+  status: z.enum(['processed', 'ignored', 'failed']),
+  amount: z.number().int().nullable(),
+  currency: z.string().min(1).nullable(),
+  credits: z.number().int().nullable(),
+  message: z.string().min(1),
+  metadata: z.record(z.string(), z.unknown()),
+  createdAt: z.string().datetime(),
+})
+
 export const adminUserListSchema = z.object({
   items: z.array(adminUserSchema),
   meta: adminListMetaSchema,
@@ -159,6 +181,11 @@ export const adminBillingAccountListSchema = z.object({
 
 export const adminBillingLedgerEntryListSchema = z.object({
   items: z.array(adminBillingLedgerEntrySchema),
+  meta: adminListMetaSchema,
+})
+
+export const adminBillingPaymentReconciliationListSchema = z.object({
+  items: z.array(adminBillingPaymentReconciliationItemSchema),
   meta: adminListMetaSchema,
 })
 
@@ -201,6 +228,7 @@ export const adminConsoleSchema = z.object({
   memberships: adminMembershipListSchema,
   billingAccounts: adminBillingAccountListSchema,
   billingLedgerEntries: adminBillingLedgerEntryListSchema,
+  billingPaymentReconciliation: adminBillingPaymentReconciliationListSchema,
   sessions: adminSessionListSchema,
   auditLogs: adminAuditLogEntryListSchema,
   generatedAt: z.string().datetime(),
@@ -215,6 +243,9 @@ export type AdminOrganization = z.infer<typeof adminTenantSchema>
 export type AdminMembership = z.infer<typeof adminMembershipSchema>
 export type AdminBillingAccount = z.infer<typeof adminBillingAccountSchema>
 export type AdminBillingLedgerEntry = z.infer<typeof adminBillingLedgerEntrySchema>
+export type AdminBillingPaymentReconciliationItem = z.infer<
+  typeof adminBillingPaymentReconciliationItemSchema
+>
 export type AdminSession = z.infer<typeof adminSessionSchema>
 export type AdminAuditLogEntry = z.infer<typeof adminAuditLogEntrySchema>
 export type AdminUserList = z.infer<typeof adminUserListSchema>
@@ -224,6 +255,9 @@ export type AdminMembershipList = z.infer<typeof adminMembershipListSchema>
 export type AdminMembershipDetail = z.infer<typeof adminMembershipDetailSchema>
 export type AdminBillingAccountList = z.infer<typeof adminBillingAccountListSchema>
 export type AdminBillingLedgerEntryList = z.infer<typeof adminBillingLedgerEntryListSchema>
+export type AdminBillingPaymentReconciliationList = z.infer<
+  typeof adminBillingPaymentReconciliationListSchema
+>
 export type AdminSessionList = z.infer<typeof adminSessionListSchema>
 export type AdminAuditLogEntryList = z.infer<typeof adminAuditLogEntryListSchema>
 export type AdminConsole = z.infer<typeof adminConsoleSchema>

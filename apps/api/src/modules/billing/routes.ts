@@ -1,26 +1,83 @@
-import { billingWebhookEventSchema, PERMISSIONS } from '@seqora/contracts'
+import { billingWebhookEventSchema, createCreditCheckoutSchema, PERMISSIONS } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
 import { AppError } from '../../core/errors.js'
 import type { CreditLedger } from './creditLedger.js'
+import type { BillingPaymentService } from './paymentService.js'
 
 const webhookProviderParams = z.object({
-  provider: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9_-]*$/i),
+  provider: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9][a-z0-9_-]*$/i),
 })
 
 export async function registerBillingRoutes(
   app: FastifyInstance,
   ledger: CreditLedger,
-  options: { webhookSecret?: string } = {},
+  options: { webhookSecret?: string; paymentService?: BillingPaymentService | null } = {},
 ): Promise<void> {
-  app.get('/billing/summary', { preHandler: requirePermission(PERMISSIONS.BILLING_READ_SELF) }, async (request) =>
-    await ledger.billingSummary(request.principal!),
+  app.get(
+    '/billing/summary',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_SELF) },
+    async (request) => await ledger.billingSummary(request.principal!),
   )
   app.put('/billing/plan', { preHandler: requirePermission(PERMISSIONS.BILLING_READ_SELF) }, () => {
     throw new AppError(403, 'PLAN_CHANGE_REQUIRES_BILLING_WEBHOOK', 'Plan changes require a payment webhook')
   })
+  app.get(
+    '/billing/payment/configuration',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_SELF) },
+    async () =>
+      options.paymentService?.configuration() ?? {
+        provider: null,
+        enabled: false,
+        memberSubscriptionEnabled: false,
+        creditPurchaseEnabled: false,
+        creditPackCredits: null,
+      },
+  )
+  app.post(
+    '/billing/checkout/subscription',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_SELF) },
+    async (request, reply) => {
+      const checkout = await requirePaymentService(options.paymentService).createMemberSubscriptionCheckout(
+        request.principal!,
+      )
+      reply.header('Cache-Control', 'no-store')
+      return reply.code(201).send(checkout)
+    },
+  )
+  app.post(
+    '/billing/checkout/credits',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_SELF) },
+    async (request, reply) => {
+      const checkout = await requirePaymentService(options.paymentService).createCreditCheckout(
+        request.principal!,
+        parse(createCreditCheckoutSchema, request.body ?? {}),
+      )
+      reply.header('Cache-Control', 'no-store')
+      return reply.code(201).send(checkout)
+    },
+  )
+  app.post(
+    '/billing/webhooks/stripe',
+    { config: { rateLimit: false, rawBody: true } },
+    async (request, reply) => {
+      const signature = firstHeader(request.headers['stripe-signature'])
+      if (!signature) throw new AppError(401, 'INVALID_WEBHOOK_SIGNATURE', 'Invalid webhook signature')
+      const rawBody = request.rawBody
+      if (rawBody === undefined) {
+        throw new AppError(500, 'RAW_WEBHOOK_BODY_MISSING', 'Raw webhook body is not available')
+      }
+      const result = await requirePaymentService(options.paymentService).processWebhook(rawBody, signature)
+      reply.header('Cache-Control', 'no-store')
+      return result
+    },
+  )
   app.post('/billing/webhooks/:provider', { config: { rateLimit: false } }, async (request, reply) => {
     const { provider } = parse(webhookProviderParams, request.params)
     verifyWebhookSignature(options.webhookSecret, request.headers['x-seqora-signature'], request.body)
@@ -29,6 +86,16 @@ export async function registerBillingRoutes(
     reply.header('Cache-Control', 'no-store')
     return result
   })
+}
+
+function requirePaymentService(service: BillingPaymentService | null | undefined): BillingPaymentService {
+  if (!service)
+    throw new AppError(503, 'PAYMENT_PROVIDER_NOT_CONFIGURED', 'Payment provider is not configured')
+  return service
+}
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value
 }
 
 function verifyWebhookSignature(
