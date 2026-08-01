@@ -97,7 +97,7 @@ Problem / Requirement
 - 不提交 API Key、真实凭据、用户隐私数据或外部研究仓库内容。
 - 不因重构删除或绕过现有质量 Gate。
 
-当前技术基线：FastAPI、Pydantic、pytest；持久化方案以正式 Database Decision 为准，不在业务模块中自行固化。
+当前技术基线：FastAPI、Pydantic、SQLModel、PostgreSQL、Alembic、Psycopg 3、pytest。生产 Schema 只能通过受审阅的 Alembic migration 演进，不允许由应用启动时的 `create_all` 静默修改。
 
 ## Testing And Benchmark Rules
 
@@ -158,6 +158,16 @@ Capability Development
 - 新建、合并、冻结或删除分支时必须同步 Branch Registry，已经失效的分支记录应标记 closed / merged，不静默删除历史语义。
 - feature branch 合并回 `main` 前，必须完成验证、文档同步和明确 commit；重要能力阶段还应建立 version tag。
 - 不把本地领先、远程存在或已经 push 等 Git 状态混同为“已经进入稳定主线”。只有完成审核并合并到 `main` 的能力才属于正式主线。
+
+### Persistence Management
+
+- PostgreSQL 是正式生产数据源；SQLite 只用于自动化测试和 migration compatibility，不作为生产替代。
+- 每个 Web 请求或 Application Use Case 使用独立 Session 和事务，异常时必须 rollback。
+- 稳定筛选字段、外键、状态、版本、集数和时间关系化；仍在演进的长篇结构保存 JSONB 完整快照。
+- Story Bible、Story Stage、Episode Plan 和 Continuity Ledger 版本一经写入不得原地覆盖，新内容必须提升 version。
+- Project、Batch 和 Job 等可变对象使用 revision 做 optimistic concurrency，禁止静默 last-write-wins。
+- Migration 必须验证 upgrade、downgrade 和 metadata drift；Alembic autogenerate 结果必须人工审阅。
+- API 尚未切换到数据库 Repository 前，不得宣称前端项目已经 durable persistence。
 
 ## Data Intelligence Rules
 

@@ -13,8 +13,9 @@ AI Comic Content OS 当前面向中国大陆漫剧市场，重点建设中文长
 - 默认：`SCRIPT_MARKET_PROFILE=cn_mainland`
 - 保留但关闭：`overseas_tiktok`
 - 暂停：Creative Deepening 前后端运行开关默认关闭
-- 已完成契约、尚未接入 runtime：Story Project、Story Bible、故事阶段、Episode Plan、Continuity Ledger 与可恢复批次检查点
-- 尚未实现：完整 60 万字母本、PostgreSQL 持久化、自动规划、连续性更新和后台可恢复生成
+- 已完成基础：Story Project、Story Bible、故事阶段、Episode Plan、Continuity Ledger、批次检查点契约，以及 PostgreSQL / JSONB schema、Alembic migration 和事务型 Repository
+- 尚未接入 runtime：上述长篇 Repository 的 Application Use Cases、API、Frontend、自动规划、连续性更新和后台可恢复执行
+- 尚未实现：完整 60 万字母本自动生成
 
 当前已经跑通：
 
@@ -38,7 +39,7 @@ Frontend MVP 支持本地项目、标签、角色、逐集生成和分阶段全�
 - Revision 仍以规则式受控修改为主。
 - Acceptance 当前是 shadow 信号，不阻断 Finalization；Creative Deepening 当前默认关闭。
 - 全部生成由前端按批次有界调用单集 Draft API，并保存本地批次 lineage；不等同于 Story Planning runtime、后台 Job 或完整 60 万字自动生成。
-- 项目历史当前保存在浏览器 IndexedDB；后端业务 Repository 仍是内存实现。
+- 项目历史当前仍保存在浏览器 IndexedDB；长篇 PostgreSQL Repository foundation 已建立，但现有业务 API 尚未切换到它。
 - 中文界面的英文剧本对照翻译是 presentation artifact，不修改正式英文剧本。
 - Agent、动态 RAG、视频生产和统一 Script Generation Facade 尚未实现。
 
@@ -75,6 +76,7 @@ LLM_TIMEOUT_SECONDS=300
 LLM_MAX_RETRIES=2
 SCRIPT_MARKET_PROFILE=cn_mainland
 SCRIPT_CREATIVE_DEEPENING_ENABLED=false
+DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:5432/ai_comic_content_os
 ```
 
 只有需要恢复旧海外验证配置时才改为：
@@ -98,6 +100,8 @@ SCRIPT_MARKET_PROFILE=overseas_tiktok
 
 脚本会启动后端、初始化 Frontend MVP 所需的内存资源并启动前端。使用 `Ctrl+C` 同时停止两个服务。
 
+`start-local.sh` 当前不会自动执行数据库迁移，也不会把 IndexedDB 项目迁移到 PostgreSQL。长篇 API 接入完成前，`DATABASE_URL` 只用于迁移和 Repository 开发验证。
+
 如果提示端口占用，先停止旧的 `uvicorn` / `next dev` 进程，再重新运行启动脚本。
 
 ## Development Commands
@@ -107,6 +111,16 @@ SCRIPT_MARKET_PROFILE=overseas_tiktok
 ```bash
 .venv/bin/pytest -q
 ```
+
+数据库迁移开发验证：
+
+```bash
+export DATABASE_URL='postgresql+psycopg://user:password@127.0.0.1:5432/ai_comic_content_os'
+.venv/bin/alembic upgrade head
+.venv/bin/alembic check
+```
+
+生产环境必须使用 PostgreSQL，并在发布流程中显式执行 Alembic migration；SQLite 只用于自动化测试。
 
 前端静态验证：
 

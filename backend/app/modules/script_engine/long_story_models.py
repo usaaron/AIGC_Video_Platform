@@ -74,6 +74,7 @@ class StoryProject(BaseModel):
 
     schema_version: str = Field(default="v1", pattern=r"^v\d+$")
     project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    revision: int = Field(default=1, ge=1)
     title: str = Field(min_length=2, max_length=160)
     content_spec_id: str = Field(min_length=3, max_length=120)
     output_language: str = Field(default="zh", min_length=2, max_length=20)
@@ -81,6 +82,12 @@ class StoryProject(BaseModel):
     planned_episode_count: int = Field(ge=1, le=2_000)
     default_batch_size: int = Field(default=5, ge=1, le=20)
     status: StoryProjectStatus = StoryProjectStatus.planning
+    active_story_bible_id: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=120,
+        pattern=IDENTIFIER_PATTERN,
+    )
     active_story_bible_version: int | None = Field(default=None, ge=1)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -91,6 +98,12 @@ class StoryProject(BaseModel):
             raise ValueError("default_batch_size must not exceed planned_episode_count.")
         if self.updated_at < self.created_at:
             raise ValueError("updated_at must not be earlier than created_at.")
+        if (self.active_story_bible_id is None) != (
+            self.active_story_bible_version is None
+        ):
+            raise ValueError(
+                "active_story_bible_id and active_story_bible_version must be set together."
+            )
         return self
 
 
@@ -244,6 +257,7 @@ class StoryStagePlan(BaseModel):
     story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     story_bible_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     story_bible_version: int = Field(ge=1)
+    version: int = Field(default=1, ge=1)
     stage_number: int = Field(ge=1, le=2_000)
     title: str = Field(min_length=2, max_length=160)
     start_episode: int = Field(ge=1, le=2_000)
@@ -288,7 +302,9 @@ class EpisodePlan(BaseModel):
     story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     story_bible_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     story_bible_version: int = Field(ge=1)
+    version: int = Field(default=1, ge=1)
     stage_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    stage_version: int = Field(default=1, ge=1)
     episode_number: int = Field(ge=1, le=2_000)
     episode_goal: str = Field(min_length=5, max_length=800)
     entry_state: str = Field(min_length=5, max_length=1_000)
@@ -438,6 +454,7 @@ class ContinuityLedger(BaseModel):
     story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     story_bible_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     story_bible_version: int = Field(ge=1)
+    version: int = Field(default=1, ge=1)
     through_episode_number: int = Field(default=0, ge=0, le=2_000)
     character_states: list[ContinuityCharacterState] = Field(default_factory=list, max_length=50)
     relationship_states: list[ContinuityRelationshipState] = Field(default_factory=list, max_length=100)
@@ -498,11 +515,13 @@ class GenerationBatchPlan(BaseModel):
 
     schema_version: str = Field(default="v1", pattern=r"^v\d+$")
     batch_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    revision: int = Field(default=1, ge=1)
     story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     batch_number: int = Field(ge=1, le=2_000)
     start_episode: int = Field(ge=1, le=2_000)
     end_episode: int = Field(ge=1, le=2_000)
     stage_id: str | None = Field(default=None, min_length=3, max_length=120)
+    stage_version: int | None = Field(default=None, ge=1)
     episode_plan_ids: list[str] = Field(min_length=1, max_length=20)
     instruction: str | None = Field(default=None, max_length=1_000)
     status: GenerationBatchStatus = GenerationBatchStatus.planned
@@ -524,6 +543,8 @@ class GenerationBatchPlan(BaseModel):
         expected_count = self.end_episode - self.start_episode + 1
         if len(self.episode_plan_ids) != expected_count:
             raise ValueError("Batch requires one Episode Plan ID per episode.")
+        if (self.stage_id is None) != (self.stage_version is None):
+            raise ValueError("stage_id and stage_version must be set together.")
         if self.status == GenerationBatchStatus.completed and self.completed_at is None:
             raise ValueError("Completed batch requires completed_at.")
         if self.status != GenerationBatchStatus.completed and self.completed_at is not None:
@@ -538,6 +559,7 @@ class GenerationJobCheckpoint(BaseModel):
 
     schema_version: str = Field(default="v1", pattern=r"^v\d+$")
     job_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    revision: int = Field(default=1, ge=1)
     batch_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     status: GenerationJobStatus = GenerationJobStatus.queued
     attempt_count: int = Field(default=0, ge=0, le=20)

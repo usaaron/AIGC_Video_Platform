@@ -257,7 +257,7 @@ Phase 1 当前状态：
 - Frontend MVP 已将 Resolver、分集上下文 `generate-draft`、编辑后 `review-draft`、用户指令 `modify-draft` 和主动 `deepen-draft` 接入创作界面
 - 当前支持逐集生成与“全部生成（分阶段）”；逐集模式每次一集，全部模式每次最多生成使用者设定的有界批次，再由使用者决定何时继续下一阶段
 - 每次阶段生成通过 optional `GenerationBatchContext` 保留阶段编号、起止集数与阶段指令；批次之间可更新 Creative Intent、标签、角色和连续性信息，新输入只影响后续集数
-- 当前阶段生成仍由前端顺序调用现有单集 API，项目和任务状态保存在 IndexedDB；尚无 PostgreSQL 项目聚合、后台 Job、断点重试或 Story Blueprint / Episode Planning runtime
+- 当前阶段生成仍由前端顺序调用现有单集 API，项目和任务状态保存在 IndexedDB；PostgreSQL schema、migration 与 Repository foundation 已实现，但尚未接入现有 API、后台 Job、断点重试或 Story Blueprint / Episode Planning runtime
 - 每集保持独立编辑、确认、候选、Revision 与 Finalization 状态；确认后的手动稿先重新 QC，再允许进入受控质量链
 - Frontend 使用现有 `revise-draft` 和 `master-scripts/finalize` 步骤 API 完成受控质量链，不改变 Script Engine 契约
 - 项目与本地编辑版本存在 IndexedDB；后端仓储仍是内存级，不得宣称为 durable persistence
@@ -287,7 +287,15 @@ Creative Intent / ContentSpec
 - `ContinuityLedger` 保存紧凑已发生状态，不替代历史剧本或 Story QC。
 - `GenerationJobCheckpoint` 只表达技术恢复状态，不评价内容质量。
 
-当前只完成 contract foundation。尚未实现 API、Repository、PostgreSQL 映射、规划生成、人工批准工作流、自动账本更新、后台 Job 或 Prompt 注入，因此现有运行链路行为不变。
+当前已完成 contract foundation，以及 SQLModel / PostgreSQL + JSONB mapping、Alembic migration 和事务型 Repository。尚未实现 API 接入、规划生成、人工批准工作流、自动账本更新、后台 Job executor 或 Prompt 注入，因此现有运行链路行为不变。
+
+持久化规则：
+
+- PostgreSQL 是生产目标；SQLite 只运行 Repository 与 migration tests。
+- Story Bible / Stage / Episode Plan / Ledger 采用 immutable version snapshot。
+- Project / Batch / Job 使用 optimistic revision，Repository 拒绝 stale write。
+- Batch / Job 状态必须按显式状态机推进，completed 不允许倒退。
+- 当前 migration 可完成 upgrade、downgrade，并通过 Alembic metadata drift check。
 
 当前 Resolver 仅支持已归一化且不超过 240 字符的 free creative prompt，并将其确定性映射为 `ContentSpec.story_goal`。更复杂的语义解析仍需后续独立验证，不允许在 Phase 1 中静默使用 LLM 推断。
 

@@ -48,11 +48,12 @@
 当前默认顺序：
 
 1. 已完成第一轮长篇 contract foundation：`StoryProject`、`StoryBible`、`StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、bounded batch / checkpoint models。
-2. 下一步将项目、Story Bible、规划、剧集、批次、版本和 Generation Checkpoint 持久化到 PostgreSQL，并支持安全恢复。
-3. 在持久化边界稳定后，实现人工批准与有界规划用例，不直接改变当前单集生成主链路。
-4. 用当前有界阶段生成验证批次间新增元素、连续性和人工确认，不直接从零运行完整 60 万字。
-5. 扩充并治理中国大陆长篇创作与漫剧改编知识资产。
-6. 在长篇结构稳定后，再决定 Creative Deepening、Agent 和 DDD-lite 的进入时点。
+2. 已完成 PostgreSQL / JSONB schema、Alembic migration、事务型 Repository、immutable version 与 optimistic revision foundation。
+3. 下一步实现 Project / Story Bible / Stage / Episode Plan 的 Application Use Cases 和 API，再迁移 Frontend IndexedDB 项目。
+4. 随后实现人工批准、Episode Artifact 持久化和后台 Job 安全恢复，不直接改变当前单集生成主链路。
+5. 用当前有界阶段生成验证批次间新增元素、连续性和人工确认，不直接从零运行完整 60 万字。
+6. 扩充并治理中国大陆长篇创作与漫剧改编知识资产。
+7. 在长篇结构稳定后，再决定 Creative Deepening、Agent 和 DDD-lite 的进入时点。
 
 ## Near-Term Candidates
 

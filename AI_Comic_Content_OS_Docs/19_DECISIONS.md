@@ -516,3 +516,33 @@ Raw Data
 - 当前批次状态和项目历史仍保存在浏览器 IndexedDB，后端 PostgreSQL 项目聚合、Generation Job 和断点恢复仍是下一阶段能力
 - 阶段生成提高了创作可控性，但不解决 Story Bible、跨阶段 Setup/Payoff、长期人物弧和专业连续性规划
 - 后续热点或 Data Intelligence 推荐必须由使用者确认后进入下一阶段输入，不得自动改写已确认剧集
+
+---
+
+## D-022 长篇持久化采用 PostgreSQL 关系字段与 JSONB 版本快照
+
+状态：Accepted
+
+决策：
+
+- 生产环境使用 PostgreSQL；SQLite 只用于 Repository 和 migration 自动化测试
+- 使用 SQLModel / SQLAlchemy 映射、Psycopg 3 驱动和 Alembic migration，不依赖应用启动时自动建表
+- 项目、版本号、状态、集数范围、时间等查询与约束字段采用关系列和索引
+- Story Bible、Stage Plan、Episode Plan、Continuity Ledger 等完整版本对象保存为 JSONB snapshot，避免将领域契约拆散为不可维护的超细表结构
+- Story Bible、Stage Plan、Episode Plan 和 Continuity Ledger 采用 immutable version；已保存版本不得原地覆盖
+- Story Project、Generation Batch 和 Generation Job 使用 optimistic revision；Repository 拒绝 stale write 和非法状态倒退
+- 一个 Application Use Case 使用一个数据库 Session / transaction；Repository 不自行提交事务
+- 所有 schema 变化必须通过可升级、可降级并可检查 metadata drift 的 migration 交付
+
+原因：
+
+- 数十万字长篇需要可靠保存总纲、阶段、分集计划、连续性和可恢复批次，浏览器 IndexedDB 与进程内 Repository 不能作为商业产品的事实来源
+- 纯 JSON 文档缺少关键查询、唯一性和状态约束；完全关系化又会使版本化领域对象迁移成本过高
+- 关系字段与 JSONB 快照的混合方式兼顾可查询性、契约演进、审计和恢复能力
+
+影响：
+
+- 当前已完成 schema、migration 和事务型 Repository foundation，但现有 API、Frontend 和后台 Job 尚未接入，不得宣称用户项目已经服务端持久化
+- Application Use Cases 必须负责权限边界、事务范围和领域对象协调；API 不得直接操作 SQLModel Record
+- 前端 IndexedDB 迁移必须在服务端 API 稳定后单独设计并验证，不允许静默丢失或覆盖本地项目
+- 本决策不引入新的 Engine，也不改变现有单集生成、Story QC、Revision 或 Finalization 行为

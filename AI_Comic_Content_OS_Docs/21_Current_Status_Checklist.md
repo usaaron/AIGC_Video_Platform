@@ -23,11 +23,11 @@
 
 - 职责：承载中国大陆漫剧市场切换与长篇分阶段生成的最小兼容实现。
 - 基于：本地 `main` 的 `script-generation-research-checkpoint-v1.1.0` 基线。
-- 已推送功能基线：`7bd4350`，commit 为 `feat: add mainland creator workflow and staged generation`。
+- 已推送长篇契约基线：`e5fdf81`，commit 为 `feat: add long story contract foundation`；其前置功能基线为 `7bd4350`。
 - 主要内容：默认 `cn_mainland` market profile、保留但关闭 `overseas_tiktok`、红果 reference-only 定位、逐集与有界阶段生成、批次 lineage、后续阶段可选新元素指令、长篇参数估算、Creative Deepening 前后端默认关闭。
-- 当前增量：长篇 Contract Foundation，包括 Story Project、Story Bible、故事阶段、Episode Plan、Continuity Ledger 与可恢复批次/任务检查点模型；尚未接入运行时。
-- 明确边界：仍通过现有单集 Draft API 编排，不等同于 Story Blueprint、Episode Planning、PostgreSQL 持久化、后台长任务或完整 60 万字自动生成 runtime。
-- 验证状态：当前增量后端全量 `241 passed, 1 skipped`，前端 typecheck/build 通过；提交前继续执行 `git diff --check`。
+- 当前增量：长篇 Contract Foundation，以及 PostgreSQL/JSONB schema、Alembic migration、事务型 Repository、immutable version 与 optimistic revision；尚未接入现有 API/Frontend runtime。
+- 明确边界：仍通过现有单集 Draft API 编排；PostgreSQL 数据层 foundation 不等同于 API 已接入，也不等同于 Story Blueprint、Episode Planning、后台长任务或完整 60 万字自动生成 runtime。
+- 验证状态：当前增量后端全量 `249 passed, 1 skipped`，长篇契约 / Repository / migration 定向 `20 passed`，前端 typecheck/build 通过。
 - 远程状态：已推送并跟踪 `origin/feature/cn-mainland-staged-generation`。
 - 合并状态：尚未合并到 `main`；应在合作方需求确认和新版手工验收完成后再决定是否合并并建立新版本 tag。
 
@@ -92,6 +92,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - 结构化 `DraftMasterScript`
 - optional episode context，包括上一集状态、本集指令和项目连续性摘要
 - 长篇 Contract Foundation：`StoryProject`、`StoryBible`、人物弧/关系/故事线、`StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、`GenerationBatchPlan`、`GenerationJobCheckpoint`
+- 长篇 Persistence Foundation：SQLModel tables、PostgreSQL JSONB、Psycopg 3、Alembic migration、事务 Session、版本不可覆盖、stale write 与非法状态倒退保护
 
 ### Quality Loop
 
@@ -156,8 +157,9 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 
 ## Not Implemented
 
-- 后端持久化的 Script Project / Episode / Version 聚合
-- 长篇契约的 API、Repository、PostgreSQL 映射与迁移
+- 后端持久化 Application Use Cases 及面向 API 的 Script Project / Episode / Version 聚合操作
+- 长篇契约的 Application Use Cases、API 与 Frontend 接入
+- Episode Draft / Revised / Final artifact 的服务端版本持久化
 - Story Bible / Story Stage / Episode Plan 的生成、人工批准和 Prompt 注入
 - Continuity Ledger 的自动提取、更新与冲突检查
 - 后台 Generation Job 执行、暂停、恢复和断点重试
@@ -172,7 +174,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 
 ## Important Boundaries
 
-- Frontend 项目数据当前保存在浏览器 IndexedDB；后端重启不会恢复内存 Repository 数据。
+- Frontend 项目数据当前仍保存在浏览器 IndexedDB；数据库 foundation 尚未连接现有 API，因此后端重启仍不会恢复当前用户项目。
 - “全部生成”是前端按有界批次逐集调用，不等同于一次生成完整系列规划；批次尚不具备后端持久化或断点任务恢复。
 - 故事线和人物关系是本地 authoring / continuity artifact，不是 Final `MasterScript` 字段。
 - Bilingual View 是开发者 / 中文用户审阅工件，不进入目标语言正式剧本。
@@ -184,16 +186,18 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 
 最近一次代码变更后的记录：
 
-- 后端全量测试：`241 passed, 1 skipped`
+- 后端全量测试：`249 passed, 1 skipped`
+- 长篇模型、Repository 与 migration 定向测试：`20 passed`
 - 前端 TypeScript：通过
 - 前端 production build：通过
 - `git diff --check`：通过
-- 本地前后端 HTTP smoke：通过
+- Alembic upgrade / check / downgrade / re-upgrade：通过 SQLite 自动化验证
+- 真实 PostgreSQL 集成：本轮未运行，进入 API 接入与 CI 阶段后补充
 
-该记录是历史验证快照，不代表后续未提交改动自动通过。合作方新要求完成后需要重新建立完整验收结果。
+该记录是当前持久化 foundation 的验证快照，不代表 API、Frontend 或后台任务已经完成持久化接入。
 
 ## Current Hold
 
-- 暂停旧手工测试清单；旧清单已从当前文档集移除。
-- 暂停新增大型能力和架构重构。
-- 等待合作方新要求，再更新 Roadmap、契约和验收方案。
+- 暂停旧手工测试清单；旧清单已从当前文档集移除，待长篇主流程形成可用切片后重建验收清单。
+- 暂停 Creative Deepening、海外 TikTok 默认适配、视频生产、Agent runtime 和大型架构重构。
+- 当前只推进中国大陆长篇生成基础、持久化接入和有界阶段生产能力。

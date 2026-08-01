@@ -1342,6 +1342,7 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 
 - `schema_version`
 - `project_id`
+- optimistic concurrency `revision`
 - `title`
 - `content_spec_id`
 - `output_language`
@@ -1349,7 +1350,7 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 - `planned_episode_count`
 - `default_batch_size`
 - `status`
-- optional `active_story_bible_version`
+- optional `active_story_bible_id` + `active_story_bible_version`
 - 创建与更新时间
 
 默认目标字数为 600,000、默认批次为 5 集，但二者是产品默认值而非行业硬规则。批次大小不得超过计划总集数。
@@ -1415,13 +1416,38 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 - `GenerationBatchPlan`：保存一次有界批次的集数范围、对应 Episode Plan、阶段引用、补充指令和状态。
 - `GenerationJobCheckpoint`：保存 queued / running / paused / completed / partial / failed 技术状态、已完成集、失败集、尝试次数和最后错误。
 
+`StoryProject`、`GenerationBatchPlan` 和 `GenerationJobCheckpoint` 使用单调递增 `revision` 防止 stale write。completed 状态不可倒退；已完成集数不可从 Job checkpoint 中删除。
+
 这些对象只定义未来可恢复执行的数据边界。当前 Frontend `GenerationBatchRecord` 和 `GenerationBatchContext` 继续工作，旧请求不需要提供任何新对象。
+
+### PostgreSQL Persistence Foundation
+
+当前已实现 SQLModel / PostgreSQL 持久化映射和首个 Alembic migration：
+
+- `story_projects`
+- `story_bible_versions`
+- `story_stage_plan_versions`
+- `episode_plan_versions`
+- `continuity_ledger_versions`
+- `generation_batches`
+- `generation_job_checkpoints`
+
+设计采用关系索引字段 + JSONB immutable snapshot：
+
+- ID、FK、version / revision、status、集数范围和时间用于查询、唯一性与数据库约束。
+- 完整 Pydantic payload 保存为 JSONB，保证契约版本可以完整复原和审计。
+- Story Bible、Stage、Episode Plan 与 Ledger 使用复合版本主键，已有版本写入后不可覆盖。
+- Project、Batch 与 Job 允许受控更新，但 Repository 要求 revision 连续增长并校验状态迁移。
+- PostgreSQL 使用 JSONB；SQLite 测试使用 JSON compatibility variant。
+- 时间列使用 timezone-aware 类型。
+
+当前持久化仅完成 schema、migration 与 Repository foundation；尚未连接现有 API、Frontend、Draft / Final episode artifacts 或后台 worker。
 
 ### Compatibility Boundary
 
 - 未修改 `ContentSpec`、`DraftMasterScript`、Final `MasterScript` 或现有 API contract。
-- 未启用 Story Planning LLM call、Continuity 自动抽取或 PostgreSQL persistence。
-- `StoryBible` / `StoryStagePlan` / `EpisodePlan` 进入生成上下文前，仍需后续 mapper、持久化和固定样本验证。
+- 未启用 Story Planning LLM call、Continuity 自动抽取或 API persistence integration。
+- `StoryBible` / `StoryStagePlan` / `EpisodePlan` 进入生成上下文前，仍需后续 mapper、Application Use Case 和固定样本验证。
 - 新契约不代表完整 60 万字 runtime 已经完成。
 
 ## OrchestrationPlan 当前字段
