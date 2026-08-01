@@ -28,14 +28,14 @@ pnpm dev
 
 | 身份       | 邮箱                      | 密码                |
 | ---------- | ------------------------- | ------------------- |
-| 普通成员   | `member@seqora.local`     | `Member123!`        |
+| 普通成员   | `member@seqora.local`     | `MemberPassword123!` |
 | 所有者     | `owner@seqora.local`      | `OwnerPassword123!` |
 | 超级管理员 | `superadmin@seqora.local` | `SuperAdmin123!`    |
 | 管理员     | `admin@seqora.local`      | `Admin123!`         |
 
 认证使用经 `scrypt` 哈希的本地账号密码和签名 HttpOnly 会话 Cookie。产品上统一称为“组织”；底层 Postgres 仍以 `tenants`、`tenant_memberships` 等表承载组织边界。账号、身份、会话、组织 membership、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜和生成任务写入 Postgres；任务触发队列使用 BullMQ/Redis；本地媒体索引仍由 `apps/api/data/app.json` 与对象存储承载。`app.json` 已被 Git 忽略；删除它只会重置本地 Demo/兼容备份数据，Postgres 账号和项目域数据需清理数据库或重建卷。
 
-已有账号登录后在“项目设置 -> 账号安全”修改密码；新密码至少 12 位。当前注册入口开放但必须提交组织邀请码，邮箱需与邀请绑定邮箱一致；没有邀请码不能自助注册。正式身份分为 owner、super_admin、admin、member、organization_admin、organization_member：`member` 是 C 端普通创作者，`admin` 是平台内部管理员，`organization_admin` 和 `organization_member` 用于 B 端组织。密码重置 API 已具备后端能力；生产正式开放前还需要接入邮件/短信投递与运营流程。云端首次账号由服务器 `deploy/demo.env` 的 `BOOTSTRAP_*` 设置，并且只在空数据卷第一次启动时生效。不要把真实密码写进仓库。
+已有账号登录后在“项目设置 -> 账号安全”修改密码；新密码至少 12 位。当前注册入口开放但必须提交组织邀请码，邮箱需与邀请绑定邮箱一致；没有邀请码不能自助注册。正式身份分为 owner、super_admin、admin、member、organization_admin、organization_member：`member` 是 C 端普通用户，`admin` 是平台内部管理员，`organization_admin` 和 `organization_member` 用于 B 端组织。密码重置 API 已具备后端能力；生产正式开放前还需要接入邮件/短信投递与运营流程。云端首次账号由服务器 `deploy/demo.env` 的 `BOOTSTRAP_*` 设置，并且只在空数据卷第一次启动时生效。不要把真实密码写进仓库。
 
 ## 仓库结构
 
@@ -67,7 +67,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 
 仓库包含 Google Compute Engine 单机 Demo 所需的 `compose.demo.yml`、API/Web Dockerfile、Caddy 自动 HTTPS 配置和无密钥环境变量模板。完整步骤、上线门槛、备份和回滚见 [外部测试部署](docs/DEPLOYMENT.md) 与 [备份与恢复流程](docs/BACKUP_RESTORE.md)。
 
-该部署模式面向封闭外测：API 和 Web 同域，Postgres 承载账号/auth/账单账本和项目域数据，Redis/BullMQ 承载生成任务触发队列，媒体使用私有 GCS。正式商用前还必须完成支付/订阅回调、邮件投递、监控告警、数据导出/删除和备份恢复演练。
+该部署模式面向封闭外测：API 和 Web 同域，Postgres 承载账号/auth/账单账本和项目域数据，Redis/BullMQ 承载生成任务触发队列，媒体使用私有 GCS。Stripe test mode 支付沙箱已接入；正式商用前还必须完成正式价格/webhook endpoint、税务发票、邮件投递、监控告警、数据导出/删除和备份恢复演练。
 
 封闭外测默认开放账号密码登录和邀请码注册，不支持无邀请码自助注册。生产首次启动创建 member、owner、super_admin 和 admin 账号，不写入演示项目；前端登录前只加载登录页，工作台页面按需下载，Compose 默认资源边界适配 2 vCPU / 4 GB 起步机器。
 
@@ -81,6 +81,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 - [代码规范](docs/CODE_STYLE.md)
 - [部署边界](docs/DEPLOYMENT.md)
 - [备份与恢复流程](docs/BACKUP_RESTORE.md)
+- [支付沙箱与账单闭环](docs/BILLING_PAYMENTS.md)
 - [组织概念迁移说明](docs/ORGANIZATION_MIGRATION.md)
 - [CI/CD 与模块化发布](docs/CICD.md)
 - [参与开发](CONTRIBUTING.md)
@@ -88,7 +89,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 
 ## 已实现功能
 
-- 登录、退出、会话恢复，以及创作者和管理员权限隔离
+- 登录、退出、会话恢复，以及普通用户和管理员权限隔离
 - 项目创建与设置、剧本编辑、人物/场景/物品/服装/音频资产管理、分镜编辑和成片版本保存
 - 概览页编辑故事简介；制作级 AI 深度扩写会补齐剧情、场景、角色、动作、对白、风格、构图、光影、运镜和衔接，另有场景/角色/对白结构块
 - 剧本页“一键尝鲜”：自动保存当前剧本，分析 1-2 个主要人物、核心服装和核心场景，确认服务端积分与时间报价后批量创建并生成最小资产闭环
@@ -103,13 +104,13 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 - 管理概览、用户和任务统计，以及服务端管理员权限校验
 - Postgres migration 体系、`schema_migrations` 执行记录、dev/test 自动迁移、production 启动只检查 migration 是否最新
 - Postgres 账号体系：`users`、`auth_identities`、`sessions`、`tenant_memberships`、`billing_accounts`、密码重置 token 和审计日志；`tenant*` 是当前数据库兼容命名，对外产品概念统一为组织
-- 组织管理：切换、改名、禁用、转让 owner、退出组织
+- 组织管理：切换、改名、禁用、更换组织负责人、退出组织
 - 账号管理页：只有 owner/super_admin/admin/organization_admin 看到管理员端入口；普通成员和组织成员只看到个人资料；变更权限、禁用和踢下线操作均要求二次确认
 - 独立 `apps/admin` 管理员端：通过 `/api/v1/auth/me` 鉴权，首屏消费 `/api/v1/admin/console`，展示用户、组织、membership、账单、session 和审计日志
 - Admin Console API：统一查询用户、组织、membership、账单账户、账单流水、session 和审计日志；支持账号启停、管理员充值/调账、撤销 session
 - DB billing ledger：幂等扣费、退款、充值和管理员调账在 Postgres 事务中完成，JSON ledger 仅保留为历史备份
 
-当前版本已将账号/auth/组织边界/账单账本、项目、资产、分镜和生成任务迁入 Postgres；API 进程负责 HTTP 和业务编排，任务触发通过 BullMQ/Redis 进入 `apps/api/src/worker.ts` 执行。JSON store 仅保留本地媒体索引、Demo 兼容和迁移备份用途。下一步生产化重点是价格/套餐闭环、支付订阅、正式监控告警和 Worker 横向扩缩容验证。
+当前版本已将账号/auth/组织边界/账单账本、项目、资产、分镜和生成任务迁入 Postgres；API 进程负责 HTTP 和业务编排，任务触发通过 BullMQ/Redis 进入 `apps/api/src/worker.ts` 执行。JSON store 仅保留本地媒体索引、Demo 兼容和迁移备份用途。下一步生产化重点是正式 Stripe 价格与 webhook endpoint、税务/发票/通知、监控告警和 Worker 横向扩缩容验证。
 
 ## API 范围
 
@@ -117,13 +118,13 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 
 - `/auth/*`：登录、退出、当前会话、修改密码、忘记密码请求、密码重置、个人 session 列表和撤销
 - `/auth/register`：邀请码注册，必须提交邀请 token、受邀邮箱、姓名和密码；`/auth/invitations/accept` 保留为兼容的邀请接受入口
-- `/organizations/*`：创建、切换、改名、禁用、转让 owner、退出组织
-- `/organizations/:organizationId/*`：成员、角色、禁用 membership、创建组织用户、邀请和组织 session 管理
-- `/workspaces/*`、`/tenants/:tenantId/*`：旧兼容入口，新代码优先使用 `/organizations/*`
+- `/organizations/*`：创建、切换、改名、禁用、更换组织负责人、退出组织
+- `/organizations/:organizationId/*`：成员、角色、禁用 membership、创建组织用户、组织负责人更换、邀请和组织 session 管理
+- `/workspaces/*`、`/tenants/:tenantId/*`：旧兼容入口并返回 `Deprecation: true`，新代码必须使用 `/organizations/*`
 - `/projects/*`：项目、版本、剧本、资产和分镜
 - `/projects/:projectId/script/generate`、`/script/enrich`、`/script/asset-suggestions`：剧本生成、AI 扩写和资产建议
 - `/projects/:projectId/media`、`/media/*`：媒体上传与读取
 - `/generation/*`：生成任务创建、查询和清理
 - `/projects/:projectId/film-preview`：创建或复用完整成片预览
-- `/billing/*`：套餐、积分余额、月度用量和 Postgres 账本摘要
-- `/admin/*`：仅 owner、super_admin、admin、organization_admin 按权限边界访问的平台/组织后台；提供统一后台查询、账号启停、账单查询/充值/调账、session 撤销和审计日志；组织管理新入口为 `/admin/organizations/*`，`/admin/tenants/*` 保留兼容
+- `/billing/*`：套餐、积分余额、月度用量、Postgres 账本摘要、Stripe checkout、支付 webhook 和禁止前端自助改套餐的兼容拦截
+- `/admin/*`：仅 owner、super_admin、admin、organization_admin 按权限边界访问的平台/组织后台；提供统一后台查询、账号启停、账单查询/充值/调账、支付对账、session 撤销和审计日志；组织管理新入口为 `/admin/organizations/*`，`/admin/tenants/*` 保留兼容并返回 `Deprecation: true`

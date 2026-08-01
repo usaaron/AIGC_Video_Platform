@@ -94,16 +94,14 @@ export class AccountDatabase {
       return await operation()
     } finally {
       if (acquired) {
-        await client
-          .query('SELECT pg_advisory_unlock(hashtext($1))', [lockKey])
-          .catch((error: unknown) => {
-            process.emitWarning(
-              `Failed to release Postgres advisory lock ${lockKey}: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-              { code: 'SEQORA_POSTGRES_ADVISORY_LOCK_RELEASE_FAILED' },
-            )
-          })
+        await client.query('SELECT pg_advisory_unlock(hashtext($1))', [lockKey]).catch((error: unknown) => {
+          process.emitWarning(
+            `Failed to release Postgres advisory lock ${lockKey}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+            { code: 'SEQORA_POSTGRES_ADVISORY_LOCK_RELEASE_FAILED' },
+          )
+        })
       }
       client.release()
     }

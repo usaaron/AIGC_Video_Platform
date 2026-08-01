@@ -517,9 +517,9 @@ RATE_LIMIT_MAX=300
 
 AUTH_MODE=local
 AUTH_SECRET=<至少 32 位随机值>
-BOOTSTRAP_CREATOR_NAME=<创作者显示名>
-BOOTSTRAP_CREATOR_EMAIL=<空数据卷首次创建的创作者邮箱>
-BOOTSTRAP_CREATOR_PASSWORD=<唯一强密码>
+BOOTSTRAP_MEMBER_NAME=<默认 C 端用户显示名>
+BOOTSTRAP_MEMBER_EMAIL=<空数据卷首次创建的默认 C 端用户邮箱>
+BOOTSTRAP_MEMBER_PASSWORD=<唯一强密码>
 BOOTSTRAP_ADMIN_NAME=<管理员显示名>
 BOOTSTRAP_ADMIN_EMAIL=<空数据卷首次创建的管理员邮箱>
 BOOTSTRAP_ADMIN_PASSWORD=<唯一强密码>
@@ -602,12 +602,12 @@ pnpm dev:web
 
 本地 Seed 账号：
 
-| 身份       | 邮箱                      | 密码                |
-| ---------- | ------------------------- | ------------------- |
-| 普通会员   | `member@seqora.local`     | `Member123!`        |
-| 所有者     | `owner@seqora.local`      | `OwnerPassword123!` |
-| 超级管理员 | `superadmin@seqora.local` | `SuperAdmin123!`    |
-| 管理员     | `admin@seqora.local`      | `Admin123!`         |
+| 身份       | 邮箱                      | 密码                 |
+| ---------- | ------------------------- | -------------------- |
+| 普通会员   | `member@seqora.local`     | `MemberPassword123!` |
+| 所有者     | `owner@seqora.local`      | `OwnerPassword123!`  |
+| 超级管理员 | `superadmin@seqora.local` | `SuperAdmin123!`     |
+| 管理员     | `admin@seqora.local`      | `Admin123!`          |
 
 密码使用 scrypt 哈希保存，会话使用签名 HttpOnly Cookie。`BOOTSTRAP_*` 只在 `DATA_FILE` 不存在时读取，已有数据不会因环境变量变化而改密码。生产环境必须替换本地默认账号和 `AUTH_SECRET`。
 
@@ -656,7 +656,7 @@ apps/api/data/app.json
 - 主体包含 `userId`、`tenantId` 和 `roles`。
 - 路由使用稳定权限字符串，不直接依赖 UI 隐藏按钮。
 - Repository 再次按租户和用户过滤，形成纵深保护。
-- 角色分为平台身份和组织身份：`owner`、`super_admin`、`admin`、`member`、`organization_admin`、`organization_member`。`member` 是 C 端普通创作者；`admin` 是平台内部运营/客服/审核；`organization_admin` 只能管理自己组织内的组织成员和记录；`organization_member` 只能使用自己组织授权的功能。旧 `creator` 已通过 migration 统一为 `member`，不要再新增 `creator`。
+- 角色分为平台身份和组织身份：`owner`、`super_admin`、`admin`、`member`、`organization_admin`、`organization_member`。`member` 是 C 端普通用户；`admin` 是平台内部运营/客服/审核；`organization_admin` 只能管理自己组织内的组织成员和记录；`organization_member` 只能使用自己组织授权的功能。旧 `creator` 已通过 migration 统一为 `member`，不要再新增 `creator`。
 - 会员是套餐并发策略，不应继续膨胀为多个角色。
 - 生产禁止 `AUTH_MODE=demo`。
 - 生产 OIDC/JWT 必须校验签名、issuer、audience 和过期时间，不能只 decode。
@@ -877,7 +877,7 @@ pnpm check
 4. 执行 `pnpm install`，然后 `pnpm check`。
 5. 启动 `pnpm dev`。
 6. 检查 `/api/v1/health` 的 `seedance/img2/text/assetLibrary` 状态。
-7. 登录创作者账号并确认当前 Seed 数据；旧“客户全流程验收”项目当前不存在。
+7. 登录普通 member 账号并确认当前 Seed 数据；旧“客户全流程验收”项目当前不存在。
 8. 不要为验证完整预览自动重复真实生成；需要客户视频时先确认第三方费用。
 9. 修改任务、积分、权限或输出存储时必须添加测试。
 10. 用户没有明确批准时，不 commit、不 push、不改远端。
@@ -911,7 +911,7 @@ pnpm check
 - 正式 Demo 地址已切换为 `https://zjh.ai`。NameSilo 已正确委派到 Cloud DNS 的 `ns-cloud-b1~b4.googledomains.com`，Google/Cloudflare 公共 DNS 均解析到 `35.241.113.169`；HTTP 自动 308 跳转 HTTPS，健康检查返回 200，CORS 为 `https://zjh.ai`，Seedance、img2、text、assetLibrary 均为 configured。
 - 域名切换使用无密钥脚本 `deploy/switch-domain-gce.sh`，只更新 `/opt/seqora/deploy/demo.env` 的 `APP_ADDRESS`、`WEB_ORIGIN`、`PUBLIC_API_BASE_URL` 并强制重建容器。切换完成后一次性 `startup-script` 已从 GCE 实例元数据移除；本机部署凭据文件中的 URL 也已更新为 `https://zjh.ai`。
 - 源码部署包和运行数据包曾上传到临时私有 Bucket `gs://seqora-deploy-project-935680ce-9aaf-496a-bb7/releases/20260721/`；部署完成后已删除整个 Bucket，避免生产 `demo.env` 长期留在云端。运行数据包含当前项目 `app.json`、资产和生成媒体，不进入 Git。部署中修复了 `uploads/uploads` 的重复目录，完整成片 Range 请求已验证为 206、`video/mp4`、`1920 x 1080`、25.208333 秒。
-- 云端强账号凭据只保存在本机 `C:\Users\admin\Desktop\图片\seqora-deploy-credentials.txt`，禁止提交 GitHub 或发到聊天。迁移数据后的旧 `creator@seqora.local / Creator123!` 已失效，新创作者和管理员账号登录均已验证。
+- 云端强账号凭据只保存在本机 `C:\Users\admin\Desktop\图片\seqora-deploy-credentials.txt`，禁止提交 GitHub 或发到聊天。迁移数据后的旧默认 member 账号凭据已失效，新默认 C 端用户和管理员账号登录均已验证。
 - 云端浏览器验收：登录成功、4 个项目存在、《星渊越界》存在、Provider 状态正常、完整成片直接播放 `readyState=4`。当前项目后来扩展为 8 个分镜，旧 5 镜完整成片仍可从最近生成任务打开；成片页对当前 8 镜显示待重新生成是正确的一致性保护。
 - 代码侧新增可复用部署脚本：`deploy/package.ps1`、`deploy/credential-patch.mjs`、`deploy/bootstrap-gce.sh`。脚本排除运行数据和密钥，部署前必须重新生成包并校验 SHA-256。
 - 本次本地最终检查：`pnpm check` 通过，125 项测试通过，API/Web/shared 构建通过。当前工作树仍有大量未提交改动，未执行 commit、push 或 reset。
@@ -929,7 +929,7 @@ pnpm check
 ## 24. 2026-07-21 账号改密与模块化 CI/CD
 
 - 已增加登录账号自助改密：前端入口位于“项目设置 -> 账号安全”，调用 `PUT /api/v1/auth/password`。服务端校验当前密码，新密码至少 12 位且不能与当前密码相同，继续使用 scrypt 哈希持久化；错误当前密码不会清除有效会话。
-- 截至 2026-07-21，云端首次账号仍由 `/opt/seqora/deploy/demo.env` 的 `BOOTSTRAP_CREATOR_*` 与 `BOOTSTRAP_ADMIN_*` 创建，且仅在空 `seqora_data` 卷首次启动时生效。修改这些变量不能修改现有账号；现有账号必须登录后自助改密。当时还没有忘记密码和管理员强制重置功能。
+- 截至 2026-07-21，云端首次账号仍由 `/opt/seqora/deploy/demo.env` 的 `BOOTSTRAP_MEMBER_*` 与 `BOOTSTRAP_ADMIN_*` 创建，且仅在空 `seqora_data` 卷首次启动时生效。修改这些变量不能修改现有账号；现有账号必须登录后自助改密。当时还没有忘记密码和管理员强制重置功能。
 - 真实云端账号凭据仍只保存在本机忽略文件 `C:\Users\admin\Desktop\图片\seqora-deploy-credentials.txt`，禁止提交、打印到日志或复制进本文。改密后应同步更新该本机凭据记录。
 - `compose.demo.yml` 现在通过 `API_IMAGE` 和 `WEB_IMAGE` 独立选择镜像，同时保留本地 `build`。服务器私有 `deploy/release.env` 保存当前镜像引用，并被 Git 忽略。
 - `.github/workflows/ci.yml` 在完整 Push 范围内判断 API/Web 变化，并把经过检查的 `release-plan.env` 作为短期 Artifact 交给 `.github/workflows/deploy.yml`。只改 `apps/web` 时仅发布 Web，只改 `apps/api` 时仅发布 API；`packages/*`、锁文件、Compose 或发布脚本变化会发布两端；纯文档变化不发布。
@@ -964,3 +964,11 @@ pnpm check
 - Admin Console API 已统一：`GET /api/v1/admin/console` 返回 overview、用户、租户、membership、账单账户、账单流水、session 和审计日志；同时保留分项列表、账号启停、管理员充值/调账和后台撤销 session API。
 - CI `database` job 起 Postgres 和 Redis，执行 migration，并运行 `postgres.test.ts`、`auth/routes.test.ts`、`accountManagement/routes.test.ts`、`billing/creditLedger.test.ts`、`config.test.ts` 和 `core/jobs/bullMqQueue.test.ts`。分支保护应同时要求 `CI / quality` 和 `CI / database`。
 - 仍未完成：支付/订阅回调、邮件/短信投递、队列监控和死信处理、Worker 横向扩缩容与恢复演练、数据导出/删除、音频和正式成片交付链路。
+
+## 28. 2026-08-01 Stripe 沙箱支付闭环
+
+- 真实支付沙箱已按 Stripe test mode 接入：创作端账单页只创建 checkout session 并跳转 Stripe 托管支付页，前端不再允许自助修改套餐权益。
+- API 新增 `GET /billing/payment/configuration`、`POST /billing/checkout/subscription`、`POST /billing/checkout/credits` 和 `POST /billing/webhooks/stripe`；Stripe webhook 校验签名并使用原始 body。
+- Postgres 新增 `billing_payment_sessions` 和 `billing_payment_reconciliation_items`；后台 `GET /admin/billing/reconciliation` 与 `/admin/console.billingPaymentReconciliation` 可查询支付对账。
+- Stripe event 映射：`checkout.session.completed` 处理订阅开通或积分充值，`invoice.paid` 处理续费，`customer.subscription.deleted` 处理取消，`charge.refunded` 处理积分退款扣回。所有入账仍通过 DB billing ledger 幂等处理。
+- 正式生产仍需补 Stripe 正式价格和 webhook endpoint、订阅状态补偿任务、退款余额不足运营规则、发票/税务、支付失败通知和 failed reconciliation 告警。详细流程见 `docs/BILLING_PAYMENTS.md`。

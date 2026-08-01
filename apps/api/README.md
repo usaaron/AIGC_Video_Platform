@@ -77,14 +77,15 @@ Route -> Service -> Repository / Provider -> Database / Store / External API
 - `GET /auth/sessions`、`DELETE /auth/sessions/:sessionId`
 - `POST /organizations`、`POST /organizations/:organizationId/switch`
 - `PATCH /organizations/:organizationId`、`DELETE /organizations/:organizationId`
-- `POST /organizations/:organizationId/owner-transfer`、`POST /organizations/:organizationId/leave`
+- `POST /organizations/:organizationId/admin-transfer`、`POST /organizations/:organizationId/leave`
+- 旧 `organization-admin-transfer` 路径仅保留兼容并返回 `Deprecation: true`，不再新增业务调用
 - `GET /organizations/:organizationId/members`、`POST /organizations/:organizationId/users`
 - `PATCH /organizations/:organizationId/members/:userId/roles`、`DELETE /organizations/:organizationId/members/:userId`
-- `/workspaces/*`、`/tenants/:tenantId/*` 保留为兼容入口，新代码优先使用 `/organizations/*`
-- `GET /billing/summary`、`POST /billing/webhooks/:provider`；`PUT /billing/plan` 仅保留为禁止前端自助改套餐的兼容拦截
+- `/workspaces/*`、`/tenants/:tenantId/*` 保留为兼容入口并返回 `Deprecation: true`，新代码必须使用 `/organizations/*`
+- `GET /billing/summary`、`GET /billing/payment/configuration`、`POST /billing/checkout/subscription`、`POST /billing/checkout/credits`、`POST /billing/webhooks/stripe`；`PUT /billing/plan` 仅保留为禁止前端自助改套餐的兼容拦截，`POST /billing/webhooks/:provider` 仅保留为内部兼容入口
 - `GET /admin/console`、`GET /admin/users`、`GET /admin/organizations`、`GET /admin/memberships`
-- `/admin/tenants/*` 保留为兼容入口，新代码优先使用 `/admin/organizations/*`
-- `GET /admin/billing/accounts`、`GET /admin/billing/ledger`
+- `/admin/tenants/*` 保留为兼容入口并返回 `Deprecation: true`，新代码必须使用 `/admin/organizations/*`
+- `GET /admin/billing/accounts`、`GET /admin/billing/ledger`、`GET /admin/billing/reconciliation`
 - `GET /admin/sessions`、`DELETE /admin/sessions/:sessionId`
 - `GET /admin/audit-logs`
 - `GET /projects/:projectId/ai-jobs`、`GET /ai-jobs/:jobId`

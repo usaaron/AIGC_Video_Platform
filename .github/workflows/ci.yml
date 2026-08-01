@@ -56,6 +56,9 @@ jobs:
       - name: Lint source
         run: pnpm lint
 
+      - name: Reject deprecated organization API usage
+        run: pnpm check:organization-api
+
       - name: Run unit tests
         run: pnpm test
 

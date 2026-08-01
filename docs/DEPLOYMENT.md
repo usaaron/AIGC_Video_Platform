@@ -115,7 +115,7 @@ curl --fail https://studio.example.com/api/v1/health
 上线前逐项确认：
 
 1. 域名 HTTPS 正常，HTTP 自动跳转 HTTPS，公网无法访问 `:8787`。
-2. 默认 `Member123!`、`Admin123!` 无法登录，测试账号使用唯一强密码。
+2. 默认 `MemberPassword123!`、`Admin123!` 无法登录，测试账号使用唯一强密码。
 3. 登录页没有预填账号、默认密码或管理员切换入口；未登录访问项目 API 返回 `401`。
 4. Provider Key 只在 `deploy/demo.env` 或 Secret Manager，Web 构建和 Git 中没有 Key。
 5. GCS Bucket 非公开，上传图片和生成视频只能登录后通过 API 读取。
