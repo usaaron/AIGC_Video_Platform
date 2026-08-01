@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import { planSchema } from './account.js'
-import { ledgerEntrySchema } from './billing.js'
+import {
+  billingReconciliationAlertListSchema,
+  billingReconciliationAlertSchema,
+  ledgerEntrySchema,
+} from './billing.js'
 import { roleSchema } from './auth.js'
 
 export const adminOverviewSchema = z.object({
@@ -158,6 +162,10 @@ export const adminBillingPaymentReconciliationItemSchema = z.object({
   createdAt: z.string().datetime(),
 })
 
+export const adminBillingReconciliationAlertSchema = billingReconciliationAlertSchema
+
+export const adminBillingReconciliationAlertListSchema = billingReconciliationAlertListSchema
+
 export const adminUserListSchema = z.object({
   items: z.array(adminUserSchema),
   meta: adminListMetaSchema,
@@ -229,6 +237,7 @@ export const adminConsoleSchema = z.object({
   billingAccounts: adminBillingAccountListSchema,
   billingLedgerEntries: adminBillingLedgerEntryListSchema,
   billingPaymentReconciliation: adminBillingPaymentReconciliationListSchema,
+  billingReconciliationAlerts: adminBillingReconciliationAlertListSchema,
   sessions: adminSessionListSchema,
   auditLogs: adminAuditLogEntryListSchema,
   generatedAt: z.string().datetime(),
@@ -246,6 +255,8 @@ export type AdminBillingLedgerEntry = z.infer<typeof adminBillingLedgerEntrySche
 export type AdminBillingPaymentReconciliationItem = z.infer<
   typeof adminBillingPaymentReconciliationItemSchema
 >
+export type AdminBillingReconciliationAlert = z.infer<typeof adminBillingReconciliationAlertSchema>
+export type AdminBillingReconciliationAlertList = z.infer<typeof adminBillingReconciliationAlertListSchema>
 export type AdminSession = z.infer<typeof adminSessionSchema>
 export type AdminAuditLogEntry = z.infer<typeof adminAuditLogEntrySchema>
 export type AdminUserList = z.infer<typeof adminUserListSchema>

@@ -6,6 +6,8 @@ import type {
   AdminBillingAccountList,
   AdminBillingLedgerEntry,
   AdminBillingLedgerEntryList,
+  AdminBillingReconciliationAlert,
+  AdminBillingReconciliationAlertList,
   AdminBillingPaymentReconciliationItem,
   AdminBillingPaymentReconciliationList,
   AdminMembership,
@@ -24,6 +26,8 @@ import type {
   Plan,
   Principal,
   Role,
+  BillingReconciliationAlertSeverity,
+  BillingReconciliationAlertStatus,
 } from '@seqora/contracts'
 import { ROLES } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
@@ -56,6 +60,8 @@ export type AdminListOptions = {
   actorUserId?: string | undefined
   sessionStatus?: AdminSessionStatus | undefined
   paymentStatus?: 'processed' | 'ignored' | 'failed' | undefined
+  alertStatus?: BillingReconciliationAlertStatus | undefined
+  alertSeverity?: BillingReconciliationAlertSeverity | undefined
   limit: number
   offset: number
 }
@@ -320,6 +326,53 @@ export class AdminRepository {
     )
   }
 
+  async listBillingReconciliationAlerts(
+    options: AdminListOptions,
+  ): Promise<AdminBillingReconciliationAlertList> {
+    const filter = buildBillingReconciliationAlertFilter(options)
+    const total = await this.database.query<{ total: number }>(
+      `
+      SELECT count(*)::int AS total
+      FROM billing_reconciliation_alerts a
+      ${filter.where}
+      `,
+      filter.params,
+    )
+    const paging = normalizePaging(options)
+    const rows = await this.database.query<BillingReconciliationAlertRow>(
+      `
+      SELECT
+        a.id,
+        a.provider,
+        a.provider_event_id,
+        a.event_type,
+        a.alert_type,
+        a.severity,
+        a.status,
+        a.payment_session_id,
+        a.reconciliation_item_id,
+        a.tenant_id,
+        a.user_id,
+        a.membership_id,
+        a.message,
+        a.metadata,
+        a.notified_at,
+        a.acknowledged_by_user_id,
+        a.acknowledged_at,
+        a.resolved_at,
+        a.created_at,
+        a.updated_at
+      FROM billing_reconciliation_alerts a
+      ${filter.where}
+      ORDER BY a.created_at DESC, a.id DESC
+      LIMIT $${filter.params.length + 1}
+      OFFSET $${filter.params.length + 2}
+      `,
+      [...filter.params, paging.limit, paging.offset],
+    )
+    return listResult(rows.rows.map(toAdminBillingReconciliationAlert), total.rows[0]?.total ?? 0, paging)
+  }
+
   async listSessions(
     options: AdminListOptions,
     currentSessionId: string | null = null,
@@ -428,6 +481,50 @@ export class AdminRepository {
       )
       const revokedRow = revoked.rows[0]
       return revokedRow ? toAdminSession(revokedRow, null) : null
+    })
+  }
+
+  async updateBillingReconciliationAlert(
+    principal: Principal,
+    alertId: string,
+    input: {
+      status: BillingReconciliationAlertStatus
+      message?: string
+      metadata?: Record<string, unknown>
+    },
+  ): Promise<AdminBillingReconciliationAlert | null> {
+    return this.database.transaction(async (client) => {
+      const alert = await client.query<BillingReconciliationAlertRow>(
+        `
+        SELECT *
+        FROM billing_reconciliation_alerts
+        WHERE id = $1
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [alertId],
+      )
+      const row = alert.rows[0]
+      if (!row) return null
+      if (!isPlatformAdmin(principal) && row.tenant_id !== principal.tenantId) {
+        throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot update an alert from another workspace')
+      }
+      const updated = await client.query<BillingReconciliationAlertRow>(
+        `
+        UPDATE billing_reconciliation_alerts
+        SET status = $2,
+            acknowledged_by_user_id = CASE WHEN $2 = 'acknowledged' THEN $3 ELSE acknowledged_by_user_id END,
+            acknowledged_at = CASE WHEN $2 = 'acknowledged' THEN COALESCE(acknowledged_at, now()) ELSE acknowledged_at END,
+            resolved_at = CASE WHEN $2 = 'resolved' THEN COALESCE(resolved_at, now()) ELSE resolved_at END,
+            message = COALESCE($4, message),
+            metadata = metadata || $5::jsonb,
+            updated_at = now()
+        WHERE id = $1
+        RETURNING *
+        `,
+        [alertId, input.status, principal.userId, input.message ?? null, JSON.stringify(input.metadata ?? {})],
+      )
+      return updated.rows[0] ? toAdminBillingReconciliationAlert(updated.rows[0]) : null
     })
   }
 
@@ -788,6 +885,29 @@ type AdminBillingPaymentReconciliationRow = {
   created_at: Date | string
 }
 
+type BillingReconciliationAlertRow = {
+  id: string
+  provider: string
+  provider_event_id: string
+  event_type: string
+  alert_type: string
+  severity: BillingReconciliationAlertSeverity
+  status: BillingReconciliationAlertStatus
+  payment_session_id: string | null
+  reconciliation_item_id: string | null
+  tenant_id: string | null
+  user_id: string | null
+  membership_id: string | null
+  message: string
+  metadata: Record<string, unknown> | string
+  notified_at: Date | string | null
+  acknowledged_by_user_id: string | null
+  acknowledged_at: Date | string | null
+  resolved_at: Date | string | null
+  created_at: Date | string
+  updated_at: Date | string
+}
+
 type AdminSessionRow = {
   session_id: string
   membership_id: string
@@ -900,6 +1020,26 @@ function buildPaymentReconciliationFilter(options: AdminListOptions): Filter {
   if (options.q?.trim()) {
     builder.add(
       '(lower(r.id) LIKE ? OR lower(r.provider_event_id) LIKE ? OR lower(r.event_type) LIKE ? OR lower(r.message) LIKE ?)',
+      search(options.q),
+      search(options.q),
+      search(options.q),
+      search(options.q),
+    )
+  }
+  return builder.build()
+}
+
+function buildBillingReconciliationAlertFilter(options: AdminListOptions): Filter {
+  const builder = new FilterBuilder()
+  if (options.membershipId) builder.add('a.membership_id = ?', options.membershipId)
+  if (options.tenantId) builder.add('a.tenant_id = ?', options.tenantId)
+  if (options.userId) builder.add('a.user_id = ?', options.userId)
+  if (options.alertStatus) builder.add('a.status = ?', options.alertStatus)
+  if (options.alertSeverity) builder.add('a.severity = ?', options.alertSeverity)
+  if (options.q?.trim()) {
+    builder.add(
+      '(lower(a.id) LIKE ? OR lower(a.provider_event_id) LIKE ? OR lower(a.event_type) LIKE ? OR lower(a.alert_type) LIKE ? OR lower(a.message) LIKE ?)',
+      search(options.q),
       search(options.q),
       search(options.q),
       search(options.q),
@@ -1220,6 +1360,34 @@ function toAdminBillingPaymentReconciliationItem(
     message: row.message,
     metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
     createdAt: toIso(row.created_at),
+  }
+}
+
+function toAdminBillingReconciliationAlert(
+  row: BillingReconciliationAlertRow,
+): AdminBillingReconciliationAlert {
+  return {
+    id: row.id,
+    provider: row.provider,
+    providerEventId: row.provider_event_id,
+    eventType: row.event_type,
+    paymentSessionId: row.payment_session_id,
+    reconciliationItemId: row.reconciliation_item_id,
+    tenantId: row.tenant_id,
+    organizationId: row.tenant_id,
+    userId: row.user_id,
+    membershipId: row.membership_id,
+    alertType: row.alert_type,
+    severity: row.severity,
+    status: row.status,
+    message: row.message,
+    metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
+    notifiedAt: row.notified_at ? toIso(row.notified_at) : null,
+    acknowledgedByUserId: row.acknowledged_by_user_id,
+    acknowledgedAt: row.acknowledged_at ? toIso(row.acknowledged_at) : null,
+    resolvedAt: row.resolved_at ? toIso(row.resolved_at) : null,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
   }
 }
 

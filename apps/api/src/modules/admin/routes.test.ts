@@ -3,7 +3,9 @@ import { rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { buildApp } from '../../app.js'
 import { loadConfig, type AppConfig } from '../../config.js'
+import { AccountDatabase } from '../../infra/postgres.js'
 import { startPostgresAuthFixture, type PostgresAuthFixture } from '../../testing/postgresAuth.js'
+import { BillingPaymentRepository } from '../billing/paymentRepository.js'
 
 let app: Awaited<ReturnType<typeof buildApp>> | undefined
 let authDatabase: PostgresAuthFixture | undefined
@@ -859,6 +861,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
       },
     })
     expect(ownerCreatesCrossTenantAdmin.statusCode).toBe(201)
+    await verifyEmailAddress('enterprise-admin@example.com')
     const crossTenantAdmin = await login('enterprise-admin@example.com', 'EnterpriseAdmin123!')
     const crossTenantAdminCookie = cookieValue(crossTenantAdmin)
 
@@ -975,6 +978,299 @@ describe('admin console api', { timeout: 30_000 }, () => {
     })
   })
 
+  it('scopes tenant admins and organization admins to their own organization records', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const owner = await login('owner@seqora.local', 'OwnerPassword123!')
+    const superAdmin = await login('superadmin@seqora.local', 'SuperAdmin123!')
+    const admin = await login('admin@seqora.local', 'Admin123!')
+    const member = await login('member@seqora.local', 'MemberPassword123!', {
+      'user-agent': 'SeedMemberScopedDevice/1.0',
+    })
+    const ownerCookie = cookieValue(owner)
+    const superAdminCookie = cookieValue(superAdmin)
+    const adminCookie = cookieValue(admin)
+    const memberCookie = cookieValue(member)
+
+    const organization = await createWorkspaceFromCurrentSession(ownerCookie, 'Scoped Enterprise Organization')
+    const organizationAdmin = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/organizations/${organization.tenantId}/users`,
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'scoped-organization-admin@example.com',
+        name: 'Scoped Organization Admin',
+        password: 'ScopedOrganizationAdmin123!',
+        role: 'organization_admin',
+      },
+    })
+    expect(organizationAdmin.statusCode).toBe(201)
+    const organizationAdminUserId = organizationAdmin.json().userId as string
+
+    const organizationMember = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/organizations/${organization.tenantId}/users`,
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'scoped-organization-member@example.com',
+        name: 'Scoped Organization Member',
+        password: 'ScopedOrganizationMember123!',
+        role: 'organization_member',
+      },
+    })
+    expect(organizationMember.statusCode).toBe(201)
+    const organizationMemberUserId = organizationMember.json().userId as string
+    const organizationMemberMembershipId = organizationMember.json().id as string
+
+    await verifyEmailAddress('scoped-organization-admin@example.com')
+    await verifyEmailAddress('scoped-organization-member@example.com')
+
+    const organizationAdminLogin = await login(
+      'scoped-organization-admin@example.com',
+      'ScopedOrganizationAdmin123!',
+      { 'user-agent': 'ScopedOrganizationAdminDevice/1.0' },
+    )
+    expect(organizationAdminLogin.statusCode).toBe(200)
+    const organizationAdminCookie = cookieValue(organizationAdminLogin)
+
+    const organizationMemberLogin = await login(
+      'scoped-organization-member@example.com',
+      'ScopedOrganizationMember123!',
+      { 'user-agent': 'ScopedOrganizationMemberDevice/1.0' },
+    )
+    expect(organizationMemberLogin.statusCode).toBe(200)
+
+    const ownerAdjustsOrganizationBilling = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/billing/memberships/${organizationMemberMembershipId}/adjustments`,
+      headers: { cookie: ownerCookie },
+      payload: { amount: 12, reason: 'Scoped organization fixture credit' },
+    })
+    expect(ownerAdjustsOrganizationBilling.statusCode).toBe(200)
+
+    const seedAlertId = await createBillingReconciliationAlert({
+      providerEventId: 'evt_seed_scope_alert',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-member',
+      membershipId: 'membership-tenant-seqora-demo-user-member',
+      message: 'Seed organization payment needs review',
+    })
+    const organizationAlertId = await createBillingReconciliationAlert({
+      providerEventId: 'evt_organization_scope_alert',
+      tenantId: organization.tenantId,
+      userId: organizationMemberUserId,
+      membershipId: organizationMemberMembershipId,
+      message: 'Scoped organization payment needs review',
+    })
+
+    const memberReadsAlerts = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/billing/reconciliation-alerts',
+      headers: { cookie: memberCookie },
+    })
+    expect(memberReadsAlerts.statusCode).toBe(403)
+
+    const organizationAdminConsole = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/console?tenantId=tenant-seqora-demo&limit=100',
+      headers: { cookie: organizationAdminCookie },
+    })
+    expect(organizationAdminConsole.statusCode).toBe(200)
+    const scopedSnapshot = organizationAdminConsole.json()
+    expect(scopedSnapshot.organizations.items.map((item: { id: string }) => item.id)).toEqual([
+      organization.tenantId,
+    ])
+    expect(scopedSnapshot.users.items.map((item: { id: string }) => item.id)).toContain(
+      organizationMemberUserId,
+    )
+    expect(scopedSnapshot.users.items.map((item: { id: string }) => item.id)).not.toContain('user-member')
+    expect(
+      scopedSnapshot.billingLedgerEntries.items.map((item: { membershipId: string }) => item.membershipId),
+    ).toContain(organizationMemberMembershipId)
+    expect(scopedSnapshot.sessions.items.map((item: { userId: string }) => item.userId)).toContain(
+      organizationMemberUserId,
+    )
+    expect(scopedSnapshot.sessions.items.map((item: { userId: string }) => item.userId)).not.toContain(
+      'user-member',
+    )
+    expect(scopedSnapshot.billingReconciliationAlerts.items.map((item: { id: string }) => item.id)).toContain(
+      organizationAlertId,
+    )
+    expect(
+      scopedSnapshot.billingReconciliationAlerts.items.map((item: { id: string }) => item.id),
+    ).not.toContain(seedAlertId)
+
+    const organizationAdminListsUsers = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/users?tenantId=tenant-seqora-demo&limit=100`,
+      headers: { cookie: organizationAdminCookie },
+    })
+    expect(organizationAdminListsUsers.statusCode).toBe(200)
+    expect(organizationAdminListsUsers.json().items.map((item: { id: string }) => item.id)).toContain(
+      organizationAdminUserId,
+    )
+    expect(organizationAdminListsUsers.json().items.map((item: { id: string }) => item.id)).not.toContain(
+      'user-member',
+    )
+
+    const organizationAdminListsBilling = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/billing/accounts?tenantId=tenant-seqora-demo&limit=100`,
+      headers: { cookie: organizationAdminCookie },
+    })
+    expect(organizationAdminListsBilling.statusCode).toBe(200)
+    expect(
+      organizationAdminListsBilling.json().items.map((item: { membershipId: string }) => item.membershipId),
+    ).toContain(organizationMemberMembershipId)
+    expect(
+      organizationAdminListsBilling.json().items.map((item: { membershipId: string }) => item.membershipId),
+    ).not.toContain('membership-tenant-seqora-demo-user-member')
+
+    const adminListsOrganizationAlerts = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/billing/reconciliation-alerts?tenantId=${organization.tenantId}&limit=100`,
+      headers: { cookie: adminCookie },
+    })
+    expect(adminListsOrganizationAlerts.statusCode).toBe(200)
+    expect(adminListsOrganizationAlerts.json().items.map((item: { id: string }) => item.id)).not.toContain(
+      organizationAlertId,
+    )
+    expect(adminListsOrganizationAlerts.json().items.map((item: { id: string }) => item.id)).toContain(
+      seedAlertId,
+    )
+
+    const adminUpdatesOrganizationAlert = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/billing/reconciliation-alerts/${organizationAlertId}`,
+      headers: { cookie: adminCookie },
+      payload: { status: 'acknowledged', message: 'Wrong organization acknowledgement' },
+    })
+    expect(adminUpdatesOrganizationAlert.statusCode).toBe(403)
+    expect(adminUpdatesOrganizationAlert.json()).toMatchObject({
+      error: { code: 'TENANT_SCOPE_MISMATCH' },
+    })
+
+    const organizationAdminUpdatesSeedAlert = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/billing/reconciliation-alerts/${seedAlertId}`,
+      headers: { cookie: organizationAdminCookie },
+      payload: { status: 'acknowledged', message: 'Wrong seed acknowledgement' },
+    })
+    expect(organizationAdminUpdatesSeedAlert.statusCode).toBe(403)
+    expect(organizationAdminUpdatesSeedAlert.json()).toMatchObject({
+      error: { code: 'TENANT_SCOPE_MISMATCH' },
+    })
+
+    const organizationAdminUpdatesOwnAlert = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/billing/reconciliation-alerts/${organizationAlertId}`,
+      headers: { cookie: organizationAdminCookie },
+      payload: { status: 'acknowledged', message: 'Organization admin is reviewing' },
+    })
+    expect(organizationAdminUpdatesOwnAlert.statusCode).toBe(200)
+    expect(organizationAdminUpdatesOwnAlert.json()).toMatchObject({
+      id: organizationAlertId,
+      status: 'acknowledged',
+      acknowledgedByUserId: organizationAdminUserId,
+      message: 'Organization admin is reviewing',
+    })
+
+    const ownerReadsOrganizationAlerts = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/billing/reconciliation-alerts?tenantId=${organization.tenantId}&limit=100`,
+      headers: { cookie: ownerCookie },
+    })
+    expect(ownerReadsOrganizationAlerts.statusCode).toBe(200)
+    expect(ownerReadsOrganizationAlerts.json().items.map((item: { id: string }) => item.id)).toContain(
+      organizationAlertId,
+    )
+
+    const superAdminResolvesOrganizationAlert = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/billing/reconciliation-alerts/${organizationAlertId}`,
+      headers: { cookie: superAdminCookie },
+      payload: { status: 'resolved', message: 'Platform review completed' },
+    })
+    expect(superAdminResolvesOrganizationAlert.statusCode).toBe(200)
+    expect(superAdminResolvesOrganizationAlert.json()).toMatchObject({
+      id: organizationAlertId,
+      status: 'resolved',
+      message: 'Platform review completed',
+      resolvedAt: expect.any(String),
+    })
+
+    const ownerReadsOrganizationMemberSessions = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/sessions?userId=${organizationMemberUserId}&status=active`,
+      headers: { cookie: ownerCookie },
+    })
+    expect(ownerReadsOrganizationMemberSessions.statusCode).toBe(200)
+    const organizationMemberSessionId =
+      ownerReadsOrganizationMemberSessions.json().items[0]?.sessionId as string | undefined
+    expect(organizationMemberSessionId).toEqual(expect.any(String))
+
+    const ownerReadsSeedMemberSessions = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/sessions?userId=user-member&status=active',
+      headers: { cookie: ownerCookie },
+    })
+    expect(ownerReadsSeedMemberSessions.statusCode).toBe(200)
+    const seedMemberSessionId = ownerReadsSeedMemberSessions.json().items[0]?.sessionId as string | undefined
+    expect(seedMemberSessionId).toEqual(expect.any(String))
+
+    const organizationAdminRevokesSeedSession = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/sessions/${seedMemberSessionId}`,
+      headers: { cookie: organizationAdminCookie },
+    })
+    expect(organizationAdminRevokesSeedSession.statusCode).toBe(403)
+    expect(organizationAdminRevokesSeedSession.json()).toMatchObject({
+      error: { code: 'TENANT_SCOPE_MISMATCH' },
+    })
+
+    const adminRevokesOrganizationSession = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/sessions/${organizationMemberSessionId}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(adminRevokesOrganizationSession.statusCode).toBe(403)
+    expect(adminRevokesOrganizationSession.json()).toMatchObject({
+      error: { code: 'TENANT_SCOPE_MISMATCH' },
+    })
+
+    const organizationAdminRevokesOwnOrganizationSession = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/sessions/${organizationMemberSessionId}`,
+      headers: { cookie: organizationAdminCookie },
+    })
+    expect(organizationAdminRevokesOwnOrganizationSession.statusCode).toBe(204)
+
+    const organizationAdminRenamesSeedOrganization = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/admin/organizations/tenant-seqora-demo',
+      headers: { cookie: organizationAdminCookie },
+      payload: { name: 'Illegal Seed Rename' },
+    })
+    expect(organizationAdminRenamesSeedOrganization.statusCode).toBe(403)
+    expect(organizationAdminRenamesSeedOrganization.json()).toMatchObject({
+      error: { code: 'TENANT_SCOPE_MISMATCH' },
+    })
+
+    const organizationAdminResetsSeedMemberPassword = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/admin/users/user-member/password',
+      headers: { cookie: organizationAdminCookie },
+      payload: {
+        newPassword: 'IllegalSeedReset123!',
+        requireChange: true,
+        revokeSessions: true,
+      },
+    })
+    expect(organizationAdminResetsSeedMemberPassword.statusCode).toBe(403)
+    expect(organizationAdminResetsSeedMemberPassword.json()).toMatchObject({
+      error: { code: 'TENANT_SCOPE_MISMATCH' },
+    })
+  })
+
   it('denies non-admin accounts from admin console APIs', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const member = await login('member@seqora.local', 'MemberPassword123!')
@@ -1038,6 +1334,61 @@ async function createWorkspaceFromCurrentSession(
   })
   expect(response.statusCode).toBe(201)
   return { tenantId: response.json().workspace.id as string }
+}
+
+async function verifyEmailAddress(email: string): Promise<void> {
+  if (!app) throw new Error('App is not ready')
+  const request = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/email-verification/request',
+    payload: { email },
+  })
+  expect(request.statusCode).toBe(202)
+  const token = request.json().verificationToken as string | undefined
+  expect(token).toEqual(expect.any(String))
+  if (!token) throw new Error(`Expected verification token for ${email}`)
+
+  const verified = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/email-verification/verify',
+    payload: { token },
+  })
+  expect(verified.statusCode).toBe(204)
+}
+
+async function createBillingReconciliationAlert(input: {
+  providerEventId: string
+  tenantId: string
+  userId: string
+  membershipId: string
+  message: string
+}): Promise<string> {
+  return await withDatabase(async (database) => {
+    const repository = new BillingPaymentRepository(database)
+    const alert = await repository.recordReconciliationAlert({
+      provider: 'stripe',
+      providerEventId: input.providerEventId,
+      eventType: 'invoice.payment_failed',
+      alertType: 'invoice.payment_failed',
+      severity: 'critical',
+      tenantId: input.tenantId,
+      userId: input.userId,
+      membershipId: input.membershipId,
+      message: input.message,
+      metadata: { testFixture: true },
+    })
+    return alert.id
+  })
+}
+
+async function withDatabase<T>(operation: (database: AccountDatabase) => Promise<T>): Promise<T> {
+  if (!authDatabase) throw new Error('Postgres auth fixture is not ready')
+  const database = new AccountDatabase(authDatabase.connectionString)
+  try {
+    return await operation(database)
+  } finally {
+    await database.close()
+  }
 }
 
 function cookieValue(response: { cookies: Array<{ name: string; value: string }> }): string {

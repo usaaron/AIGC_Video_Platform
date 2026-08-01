@@ -10,6 +10,7 @@ import {
   roleSchema,
   adminTransferOrganizationAdminSchema,
   updateMembershipRolesSchema,
+  updateOrganizationSchema,
   updateWorkspaceSchema,
   type AdminConsole,
   type AdminOverview,
@@ -30,6 +31,7 @@ import type { CreditLedger } from '../billing/creditLedger.js'
 import type { AdminListOptions, AdminRepository } from './repository.js'
 
 const billingMembershipParams = z.object({ membershipId: z.string().min(1).max(512) })
+const billingAlertParams = z.object({ alertId: z.string().min(1).max(512) })
 const adminTenantParams = z.object({ tenantId: z.string().min(1).max(256) })
 const adminUserParams = z.object({ userId: z.string().min(1).max(256) })
 const adminSessionParams = z.object({ sessionId: z.string().min(1).max(128) })
@@ -45,6 +47,8 @@ const listQuery = z.object({
   resourceType: z.string().min(1).max(120).optional(),
   actorUserId: z.string().min(1).max(256).optional(),
   paymentStatus: z.enum(['processed', 'ignored', 'failed']).optional(),
+  alertStatus: z.enum(['open', 'acknowledged', 'resolved']).optional(),
+  alertSeverity: z.enum(['warning', 'critical']).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 })
@@ -85,36 +89,39 @@ export async function registerAdminRoutes(
         users,
         tenants,
         memberships,
-        billingAccounts,
-        billingLedgerEntries,
-        billingPaymentReconciliation,
-        sessions,
-        auditLogs,
-      ] = await Promise.all([
-        readAdminOverview(store, ledger, repository, request.principal!),
-        repository.listUsers(options),
-        repository.listTenants(options),
-        repository.listMemberships(options),
-        repository.listBillingAccounts(options),
-        repository.listBillingLedgerEntries(options),
-        repository.listBillingPaymentReconciliation(options),
-        repository.listSessions(options, currentSessionId),
-        repository.listAuditLogEntries(options),
-      ])
-      const snapshot: AdminConsole = {
-        overview,
+      billingAccounts,
+      billingLedgerEntries,
+      billingPaymentReconciliation,
+      billingReconciliationAlerts,
+      sessions,
+      auditLogs,
+    ] = await Promise.all([
+      readAdminOverview(store, ledger, repository, request.principal!),
+      repository.listUsers(options),
+      repository.listTenants(options),
+      repository.listMemberships(options),
+      repository.listBillingAccounts(options),
+      repository.listBillingLedgerEntries(options),
+      repository.listBillingPaymentReconciliation(options),
+      repository.listBillingReconciliationAlerts(options),
+      repository.listSessions(options, currentSessionId),
+      repository.listAuditLogEntries(options),
+    ])
+    const snapshot: AdminConsole = {
+      overview,
         users,
         tenants,
         organizations: tenants,
         memberships,
-        billingAccounts,
-        billingLedgerEntries,
-        billingPaymentReconciliation,
-        sessions,
-        auditLogs,
-        generatedAt: new Date().toISOString(),
-      }
-      return snapshot
+      billingAccounts,
+      billingLedgerEntries,
+      billingPaymentReconciliation,
+      billingReconciliationAlerts,
+      sessions,
+      auditLogs,
+      generatedAt: new Date().toISOString(),
+    }
+    return snapshot
     },
   )
 
@@ -223,10 +230,10 @@ export async function registerAdminRoutes(
     async (request, reply) => {
       const { tenantId } = parse(adminTenantParams, request.params)
       reply.header('Cache-Control', 'no-store')
-      return await requireAccountManagementService(accountManagementService).adminUpdateWorkspace(
+      return await requireAccountManagementService(accountManagementService).adminUpdateOrganization(
         request.principal!,
         tenantId,
-        parse(updateWorkspaceSchema, request.body),
+        parse(updateOrganizationSchema, request.body),
         sessionMetadataFromRequest(request),
       )
     },
@@ -252,7 +259,7 @@ export async function registerAdminRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(adminTenantParams, request.params)
-      const workspace = await requireAccountManagementService(accountManagementService).adminDisableWorkspace(
+      const workspace = await requireAccountManagementService(accountManagementService).adminDisableOrganization(
         request.principal!,
         tenantId,
         sessionMetadataFromRequest(request),
@@ -324,7 +331,7 @@ export async function registerAdminRoutes(
     },
     async (request, reply) => {
       const { tenantId } = parse(adminTenantParams, request.params)
-      const member = await requireAccountManagementService(accountManagementService).adminCreateTenantUser(
+      const member = await requireAccountManagementService(accountManagementService).adminCreateOrganizationUser(
         request.principal!,
         tenantId,
         parse(createTenantUserSchema, request.body),
@@ -440,6 +447,44 @@ export async function registerAdminRoutes(
       return await requireAdminRepository(adminRepository).listBillingPaymentReconciliation(
         scopeAdminOptions(request.principal!, parseListQuery(request.query)),
       )
+    },
+  )
+
+  app.get(
+    '/admin/billing/reconciliation-alerts',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_ALL) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await requireAdminRepository(adminRepository).listBillingReconciliationAlerts(
+        scopeAdminOptions(request.principal!, parseListQuery(request.query)),
+      )
+    },
+  )
+
+  app.patch(
+    '/admin/billing/reconciliation-alerts/:alertId',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_MANAGE) },
+    async (request) => {
+      const { alertId } = parse(billingAlertParams, request.params)
+      const input = parse(
+        z.object({
+          status: z.enum(['acknowledged', 'resolved']),
+          message: z.string().min(1).max(200).optional(),
+          metadata: z.record(z.string(), z.unknown()).default({}),
+        }),
+        request.body,
+      )
+      const updated = await requireAdminRepository(adminRepository).updateBillingReconciliationAlert(
+        request.principal!,
+        alertId,
+        {
+          status: input.status,
+          metadata: input.metadata,
+          ...(input.message !== undefined ? { message: input.message } : {}),
+        },
+      )
+      if (!updated) throw new AppError(404, 'ALERT_NOT_FOUND', 'Alert does not exist')
+      return updated
     },
   )
 
