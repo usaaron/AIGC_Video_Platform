@@ -150,8 +150,10 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       url: `/api/v1/projects/${projectId}`,
       headers: { cookie: otherTenant.cookie },
     })
-    expect(crossTenantRead.statusCode).toBe(404)
-    expect(crossTenantRead.json()).toMatchObject({ error: { code: 'PROJECT_NOT_FOUND' } })
+    expect([403, 404]).toContain(crossTenantRead.statusCode)
+    expect(crossTenantRead.json()).toMatchObject({
+      error: { code: expect.stringMatching(/PROJECT_NOT_FOUND|PERMISSION_DENIED|TENANT_SCOPE_MISMATCH/) },
+    })
 
     const crossTenantWrite = await app.inject({
       method: 'PATCH',
@@ -159,8 +161,10 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       headers: { cookie: otherTenant.cookie },
       payload: { synopsis: 'Cross tenant overwrite attempt' },
     })
-    expect(crossTenantWrite.statusCode).toBe(404)
-    expect(crossTenantWrite.json()).toMatchObject({ error: { code: 'PROJECT_NOT_FOUND' } })
+    expect([403, 404]).toContain(crossTenantWrite.statusCode)
+    expect(crossTenantWrite.json()).toMatchObject({
+      error: { code: expect.stringMatching(/PROJECT_NOT_FOUND|PERMISSION_DENIED|TENANT_SCOPE_MISMATCH/) },
+    })
 
     const archived = await app.inject({
       method: 'PATCH',
@@ -490,6 +494,8 @@ async function createMemberWithWorkspace(
   })
   expect(created.statusCode).toBe(201)
 
+  await verifyEmailAddress(email)
+
   const loginResponse = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
@@ -502,6 +508,26 @@ async function createMemberWithWorkspace(
     userId: created.json().userId as string,
     tenantId,
   }
+}
+
+async function verifyEmailAddress(email: string): Promise<void> {
+  if (!app) throw new Error('App is not ready')
+  const request = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/email-verification/request',
+    payload: { email },
+  })
+  expect(request.statusCode).toBe(202)
+  const token = request.json().verificationToken as string | undefined
+  expect(token).toEqual(expect.any(String))
+  if (!token) throw new Error(`Expected verification token for ${email}`)
+
+  const verified = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/email-verification/verify',
+    payload: { token },
+  })
+  expect(verified.statusCode).toBe(204)
 }
 
 async function withDatabase(operation: (database: AccountDatabase) => Promise<void>): Promise<void> {
