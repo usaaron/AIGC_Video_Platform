@@ -106,6 +106,9 @@ importers:
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       oxlint:
         specifier: 1.74.0
         version: 1.74.0

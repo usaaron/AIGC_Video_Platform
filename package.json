@@ -25,7 +25,7 @@
     "test": "pnpm build:shared && pnpm -r test",
     "test:backend:unit": "pnpm build:shared && pnpm --filter @seqora/api test:unit",
     "test:backend:integration": "pnpm build:shared && pnpm --filter @seqora/api test:integration",
-    "test:backend:contract": "pnpm --filter @seqora/contracts test",
+    "test:backend:contract": "pnpm --filter @seqora/contracts test && pnpm build:shared && pnpm --filter @seqora/api test:api-contract",
     "test:backend:legacy": "pnpm build:shared && pnpm --filter @seqora/api test:legacy",
     "test:backend:pyramid": "pnpm test:backend:unit && pnpm test:backend:contract && pnpm test:backend:integration",
     "test:backend:full": "pnpm test:backend:pyramid && pnpm test:backend:legacy",

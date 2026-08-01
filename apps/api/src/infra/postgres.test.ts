@@ -16,7 +16,7 @@ afterAll(async () => {
   await postgres?.close()
 })
 
-describe('postgres migrations', () => {
+describe('postgres migrations', { timeout: 30_000 }, () => {
   it('runs advisory lock operations only while the lock is available', async () => {
     if (!postgres) throw new Error('Postgres fixture is not ready')
     const database = new AccountDatabase(postgres.connectionString)

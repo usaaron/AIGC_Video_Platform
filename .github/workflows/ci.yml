@@ -160,5 +160,8 @@ jobs:
       - name: Apply Postgres migrations
         run: pnpm --filter @seqora/api db:migrate
 
+      - name: Run API contract tests
+        run: pnpm --filter @seqora/api test:api-contract
+
       - name: Run migration, auth, admin, billing, project, and queue integration tests
         run: pnpm --filter @seqora/api test:integration
