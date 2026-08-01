@@ -1,8 +1,10 @@
 # 组织概念迁移说明
 
-## 当前口径
+## 冻结后的口径
 
 产品和前端对用户统一使用“组织”。组织用于表达一个创作团队、B 端客户、企业客户或内部测试空间的隔离边界。
+
+更完整的术语和权限冻结说明见 [产品词汇与权限冻结](PRODUCT_VOCABULARY.md)。
 
 底层数据库和部分兼容 API 仍保留 `tenant` 命名：
 
@@ -50,6 +52,6 @@
 - 用户可见：组织、管理员、普通成员、组织管理员、组织成员。
 - API 新入口：`/organizations`、`/admin/organizations`。
 - API 兼容字段：同时返回 `organization*` 和 `tenant*`。
-- 前端业务代码：只使用 organization 命名；`tenantId`、`tenantName` 只允许作为后端兼容响应字段读取。
+- 前端业务代码：只使用 organization 命名；`tenantId`、`tenantName` 只允许作为后端兼容响应字段读取；`workspace` 只允许出现在旧兼容入口或历史代码，不再作为新文案、新页面、新接口名。
 - 后端业务代码：Route 和新方法优先使用 organization 命名；Repository、SQL、migration 和审计/队列历史字段可继续使用 `tenant*`。
 - 数据库当前事实：继续使用 `tenant*` 表和列，直到单独物理迁移完成。
