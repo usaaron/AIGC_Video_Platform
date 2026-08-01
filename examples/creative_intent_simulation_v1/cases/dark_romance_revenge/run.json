@@ -1,0 +1,30 @@
+{
+  "case_id": "dark_romance_revenge",
+  "content_spec_id": "creative-intent-sim-dark-romance-v1",
+  "draft_id": "518a58ae-539d-4cc9-99a2-ade2827d2de1",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "generation_strategy_version": "v1",
+  "prompt_ids": [
+    "prompt.story_planning.scene_causality_ab.improved",
+    "prompt.platform_optimization.scene_causality_ab.shared"
+  ],
+  "prompt_versions": [
+    "v3-scene-causality",
+    "v1-shared"
+  ],
+  "prompt_builder_version": "v0.1",
+  "llm_model_info": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "supports_structured_output": true,
+    "max_context_tokens": 128000
+  },
+  "latency_seconds": 64.457,
+  "technical_attempt": 1,
+  "generated_at": "2026-07-21T11:00:28.886096+00:00",
+  "artifacts": {
+    "prompt": "examples/creative_intent_simulation_v1/cases/dark_romance_revenge/generated_prompt.txt",
+    "draft": "examples/creative_intent_simulation_v1/cases/dark_romance_revenge/draft.json",
+    "story_qc": "examples/creative_intent_simulation_v1/cases/dark_romance_revenge/story_qc.json"
+  }
+}

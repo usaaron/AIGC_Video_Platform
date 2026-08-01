@@ -1,473 +1,162 @@
 # AI Comic Content OS
 
-AI Comic Content OS 是一个数据驱动、模块化、可扩展的 AI 漫剧内容生产系统。
+AI Comic Content OS 当前面向中国大陆漫剧市场，重点建设中文长篇故事母本与后续结构化剧本能力。系统不绑定单一发行平台，红果仅作为市场参考。
 
-当前 MVP 的唯一目标是构建一个能够持续生成高质量 AI 漫剧剧本的 `Content Planning Engine`。
+当前目标是稳定生成高质量、可控、可追踪的 `MasterScript`，而不是直接生成视频。
 
-当前主链路为：
+## Current Stage
 
-`Data Intelligence -> ContentSpec -> Knowledge Base -> Asset Retrieval -> Orchestrator -> Prompt Retrieval -> Prompt Builder -> LLMAdapter -> DraftMasterScript -> StoryQCReport -> RevisionDecision -> RevisionStrategy -> RevisionPlan -> RevisionExecutor -> Re-QC -> AcceptanceDecision -> ScriptRevisionRun -> FinalMasterScript`
+项目处于 `Capability Optimization / System Validation`。
 
-当前阶段已经从 `Build Foundation` 切换到 `Capability Optimization / System Validation`。
+当前市场开关：
 
-当前仓库已落地的首个模块是 `ContentSpec` 基础模块：
+- 默认：`SCRIPT_MARKET_PROFILE=cn_mainland`
+- 保留但关闭：`overseas_tiktok`
+- 暂停：Creative Deepening 前后端运行开关默认关闭
+- 尚未实现：完整 60 万字母本、Story Bible、故事阶段规划与 Continuity Ledger runtime
 
-- 使用 `ContentSpec` 作为内容决策到生产之间的核心中间对象
-- 使用 `FastAPI` 提供最小 API
-- 使用 `Pydantic` 完成输入输出建模与校验
-- 当前仓储为内存实现，后续可替换为 `SQLModel + PostgreSQL`
-
-当前同时已提供 `PlatformProfile` 基础模块：
-
-- 将平台规则封装为独立对象，而不是写入核心内容逻辑
-- 当前支持通过 API 创建、查询 `PlatformProfile`
-- `ContentSpec.platform_goal.platform_profile_id` 可引用如 `tiktok_v1` 这样的稳定 profile 标识
-- 创建 `ContentSpec` 前应先确保对应 `PlatformProfile` 已存在
-
-当前同时已提供 `OntologyNode` 基础模块：
-
-- 用受控 `OntologyNode` 表达统一标签节点
-- 当前支持通过 API 创建、查询 `OntologyNode`
-- 创建 `ContentSpec` 前应先确保其 `tags` 引用的 `OntologyNode` 已存在且定义一致
-
-当前同时已提供 `Knowledge Base` 基础模块：
-
-- 使用统一 `Asset` 作为当前知识库最小基础对象
-- 使用 `asset_type` 区分人物、场景、风格、剧情结构等不同资产
-- `Asset.tags` 当前统一复用受控 `TagRef`
-- 当前支持通过 API 创建、查询 `Asset`
-
-当前同时已提供 `Asset Retrieval` 基础模块：
-
-- 当前读取 `OrchestrationPlan.asset_requests`
-- 当前采用可解释的规则检索
-- 当前支持 `asset_type`、必选标签、可选标签、平台适用范围匹配
-- 当前支持通过 API 解析候选资产
-
-当前同时已提供 `MasterScript` 基础模块：
-
-- 用结构化数据表达当前阶段的最终剧本产物
-- 当前支持通过 API 查询 `MasterScript`
-- 直接创建 Final `MasterScript` 的入口当前已弃用
-- 当前只允许从包含 Draft、RevisionPlan、Revised Draft 与 Re-QC 的 `ScriptRevisionRun` 进入受控 Finalization
-- `ScriptRevisionRun` 可携带 shadow `AcceptanceDecision`，但它当前不是 Finalization 必填条件
-- Final `MasterScript` 当前会保存完整 lineage 与 Finalization Policy 版本信息
-
-当前同时已提供 Script Generation Strategy 基础占位：
-
-- `Prompt Library` 作为 `Knowledge Base` 的一部分沉淀可复用 Prompt 资产
-- `GenerationStrategy` 用于声明一次剧本生成任务采用的完整生成方案
-- `PromptBuilder` 用于根据结构化上下文组装可追踪的最终 Prompt
-- `PromptBuilder v0.2` 已加入平台无关的 Scene Goal / Conflict / Outcome 因果契约
-- `MockLLMAdapter` 作为模型无关接入占位
-- `RealLLMAdapter` 作为首次真实剧本生成验证入口，当前采用 OpenAI-compatible 结构化输出接入方式
-- `PlaceholderStoryQC` 作为草稿剧本质量检查占位
-- `RubricRevisionPlanner` 已支持 evidence-driven `RevisionDecision`、`RevisionStrategy` 与兼容 `RevisionPlan` 生成
-- `ScriptRevisionService` 通过 `RuleBasedRevisionExecutor` 执行受场景范围和保护维度约束的确定性修订
-- `RevisionAcceptanceEvaluator` 已在 Re-QC 后以 shadow mode 计算修订有效性，并将结果保存到 `ScriptRevisionRun`
-- 当前业务层只依赖 `LLMAdapter`
-
-当前说明：
-
-- `RealLLMAdapter` 已支持一个 OpenAI-compatible 接入方式
-- 真实模型当前只用于能力验证和手动 integration
-- 当前不允许把业务层绑定到单一模型供应商
-- `Story QC`、规则式 Revision 和 Acceptance 阈值当前仍属于实验性能力，不应被描述为已经专业化或生产校准完成
-- `AcceptanceDecision` 当前只用于观测和 lineage，不阻断 Finalization，也不替代 Finalization Gate
-
-当前同时已提供 `Prompt Library Foundation`：
-
-- 当前支持通过 API 创建、查询 `PromptLibraryItem`
-- `PromptLibraryItem.applicable_tags` 当前必须引用已存在的 `OntologyNode`
-- 当前先作为结构化 Prompt 资产库，不实现复杂检索与自动优化
-
-当前同时已提供 `Prompt Retrieval Foundation`：
-
-- 当前支持通过 API 按 `GenerationStrategy.prompt_ids` 解析 Prompt 资产
-- 当前 `ScriptGenerationService` 已通过 `PromptRetrievalService` 读取 Prompt
-- 当前仅支持 `exact_ids` 模式，后续可扩展标签、平台、受众匹配
-
-当前同时已提供 `Generation Strategy Foundation`：
-
-- 当前支持通过 API 创建、查询 `GenerationStrategy`
-- `GenerationStrategy.prompt_ids` 当前必须引用已存在的 `PromptLibraryItem`
-- `GenerationStrategy.applicable_tags` 当前必须引用已存在的 `OntologyNode`
-- 当前先作为结构化策略层，不实现复杂多轮编排
-
-当前同时已提供 `Script Generation Draft Integration Service`：
-
-- 当前支持通过 API 运行一次最小 Draft 联调流程
-- 当前流程会串起 `Orchestrator -> Retrieval -> Prompt Retrieval -> Prompt Builder -> LLMAdapter -> StoryQC -> RevisionPlan`
-- 当前输出包含标准化的 `DraftMasterScript`
-- 当前新生成的 `DraftMasterScript.scenes` 包含结构化 `scene_causality`，后续场景必须引用更早场景结果
-- 当前输出同时包含结构化 `RevisionPlan`
-- 当前支持单独运行 `RevisionPlan -> Script Revision -> Re-QC`
-- 当前输出仍然不是自动生成的 Final `MasterScript`
-
-当前同时已提供 `MasterScript Finalization Mapper`：
-
-- 当前支持通过 API 将完整 Revision 链 Finalize 为 Final `MasterScript`
-- 当前采用受控 Finalization Gate，而不是直接 `from-draft`
-- 当前 Finalization 会校验 Re-QC 阈值并写入 lineage
-- 当前不调用真实 LLM 做最终润色
-
-当前同时已提供 `Benchmark & Evaluation Framework`：
-
-- 固定 Benchmark 数据位于 `datasets/benchmark/`
-- 日常开发 Mock 数据位于 `datasets/mock/`
-- 当前支持 `Analysis`、`ContentSpec`、`Prompt`、`Script`、`Story QC` 评估
-- 当前支持 `Benchmark Runner` 与 Benchmark API
-- 当前 Benchmark 已接入 `RevisionPlan -> Script Revision -> Re-QC`
-- Revision Acceptance Calibration v1 提供 12 个固定合成 Ground Truth 样本和确定性离线报告
-- 当前已提供 `Prompt Evaluation` 最小闭环，可比较 Prompt 版本、`GenerationStrategy` 和重复运行稳定性
-- 当前已补充 Prompt Evaluation Explainability，强调解释“为什么变好 / 变差”，而不只输出差异摘要
-- 当前已在文档层预留 `Script Industry Knowledge` 与 `Bilingual Developer View` 边界，但它们尚未进入正式生产主链路实现
-
-当前优化优先级：
-
-1. Initial Generation Quality Improvement v1
-
-当前已完成 `Initial Generation Quality Improvement v1 Step 1 - Scene Causality`：新生成场景显式保存 Goal / Conflict / Outcome、前置场景编号与 causal link；Prompt Evaluation 可检查 GCO 完整度、跨场因果链和终场因果悬念。实现保持单次结构化 LLM 调用，不新增工作流或 Agent。旧 payload 可以整体省略新字段，Revision、Acceptance 与 Finalization Gate 行为不变。
-
-Acceptance Calibration 当前保持 `review_required` shadow 状态并结束本轮工作，不启用 Acceptance enforcement，也不继续自动调参。Scene Causality 固定三样本真实模型 A/B 已完成：Improved 在 2/3 样本中被偏好且无重大结构回退，状态为 `validated_for_next_step`；同时记录 total token 平均增加约 16% 和结尾惊喜度未稳定提升的风险，因此不基于单轮结果继续调 Prompt。
-
-Serialized Story Planning v1.1 有界复验显示长程因果、Setup/Payoff 和重复控制得到改善，但 aggregate Hook 与 Cliffhanger 仍低于 Direct，因此当前只保留为正向 Research Evidence：runtime 未批准，调优已冻结。`Character Decision Logic v1` 目前仅完成架构评审和一次性离线 A/B 设计，Character A/B 尚未启动，也没有 Character runtime、Schema 或 Prompt Builder 集成。
-
-当前新增 `Creative Brief Input Control` 文档级设计要求：
-
-`Recommended Tags + User Selected/Added/Excluded Tags + User Creative Prompt + Platform Hard Constraints -> Creative Brief Resolution -> Final ContentSpec -> Existing Script Generation`
-
-当前边界：
-
-- Data Intelligence 推荐标签只是建议，用户可以接受、移除、补充或排除
-- 用户新增标签仍必须解析到现有 `OntologyNode`，不会创建自由标签系统
-- 自由 Creative Prompt 必须先解析为结构化创作意图，不直接替代 Master Prompt
-- `ContentSpec` 继续作为标准化运行时契约
-- 当前未实现 Resolver、API、前端、持久化或 Knowledge Retrieval
-- 该设计不改变当前 `Initial Generation Quality Improvement v1` 优先级
-
-未来 Script-to-Production 兼容边界已经在文档中预留：
-
-`FinalMasterScript -> Script-to-Production Adapter -> Model-Independent Production Package -> Seedance / Other Video Model Adapter`
-
-当前只记录兼容原则，不实现 Adapter、Production Package、Seedance 调用或生产 API。Final `MasterScript` 继续保存“发生什么、为什么发生”的稳定故事语义；镜头、灯光、音频、连续性展开和模型专用 Prompt 应由未来 Adapter 派生。
-
-未来 Knowledge-Guided Generation 同样只属于设计方向：专业知识应先成为可治理、可版本化资产，再通过受控任务框架、Prompt Builder 与 `LLMAdapter` 参与原创生成。当前不实现完整 Knowledge Registry、RAG、Creative Skill Registry 或知识自动注入，当前优化优先级保持不变。
-
-当前保留两类不同信号：
-
-- `ScriptRevisionRun.improved`：旧版基于 Re-QC `overall_score` 的非下降判断
-- `ScriptRevisionRun.acceptance_decision`：面向目标维度改善、回退安全和场景对齐的 shadow 修订有效性判断
-
-二者当前不等价，也不应互相替代。
-
-当前同时已提供 `Orchestrator` 基础模块：
-
-- 用结构化 `OrchestrationPlan` 表达剧本生成前的编排结果
-- 当前支持通过 API 创建、查询 `OrchestrationPlan`
-- 创建 `OrchestrationPlan` 前应先确保对应 `ContentSpec` 已存在
-
-当前同时已提供 `Data Intelligence` 基础模块：
-
-- 使用 `RawContentRecord -> AnalysisResult -> ContentSpecDraft -> ContentSpec` 作为统一分析链路
-- 当前采用 `Manual Import First`
-- 当前支持 `ManualJSONImportAdapter` 与 `ManualCSVImportAdapter`
-- 当前支持通过 API 运行完整手工导入分析管线并产出 `ContentSpec`
-- `TikTokScraperAdapter`、`ApifyAdapter`、`RedditAdapter`、`YouTubeAdapter`、`WebtoonAdapter` 仅保留 Phase 2 扩展占位
-
-当前同时已提供 `Scheduled Data Ingestion` 基础模块：
-
-- 使用 `DataIngestionJob` 描述周期性导入任务
-- 使用 `DataIngestionRunHistory` 保存每次运行快照
-- 当前支持 `daily`、`weekly`、受限 `custom_cron`
-- 当前支持记录 `last_run_at`、`next_run_at`、`run_status`、`error_message`
-- 当前支持基于 `source_item_id` 与 `source_url` 去重
-- 当前可运行 adapter 仅包括 `manual_json` 与 `manual_csv`
-
-当前同时已提供 `Trend Intelligence` 基础模块：
-
-- 当前最小实现为 `TrendSnapshot`
-- 当前基于 `DataIngestionRunHistory` 聚合最近运行信号
-- 当前输出运行数量、导入量、去重量、标签频率与基础平均分
-
-## 目录
+当前已经跑通：
 
 ```text
-backend/app/
-tests/
-examples/
-AI_Comic_Content_OS_Docs/
+Creative Intent / Character Context
+→ ContentSpec
+→ Prompt / Static Knowledge
+→ DraftMasterScript
+→ Story QC
+→ Revision / Re-QC
+→ Acceptance Shadow
+→ Finalization
+→ FinalMasterScript
 ```
 
-## 安装
+Frontend MVP 支持本地项目、标签、角色、逐集生成和分阶段全部生成、分集编辑、AI 修改、修订、终稿与导出。阶段之间可以更新标签、角色与创作指令，再将新元素用于后续剧集。Creative Deepening 代码保留，但当前前端隐藏、后端拒绝执行。
+
+当前重要边界：
+
+- Story QC 仍是实验性 Rubric，不代表专业剧本评审结论。
+- Revision 仍以规则式受控修改为主。
+- Acceptance 当前是 shadow 信号，不阻断 Finalization；Creative Deepening 当前默认关闭。
+- 全部生成由前端按批次有界调用单集 Draft API，并保存本地批次 lineage；不等同于 Story Planning runtime、后台 Job 或完整 60 万字自动生成。
+- 项目历史当前保存在浏览器 IndexedDB；后端业务 Repository 仍是内存实现。
+- 中文界面的英文剧本对照翻译是 presentation artifact，不修改正式英文剧本。
+- Agent、动态 RAG、视频生产和统一 Script Generation Facade 尚未实现。
+
+完整实现状态见 [21_Current_Status_Checklist.md](AI_Comic_Content_OS_Docs/21_Current_Status_Checklist.md)。
+
+## Quick Start
+
+### 1. Install
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+
+cd frontend
+npm install
+cd ..
 ```
 
-## 运行 API
+### 2. Configure Real LLM (Optional)
 
 ```bash
-uvicorn app.main:app --app-dir backend --reload
+cp .env.example .env.local
 ```
 
-访问 `http://127.0.0.1:8000/docs` 查看接口文档。
+编辑 `.env.local`：
 
-## 运行测试
+```dotenv
+LLM_PROVIDER=openai_compatible
+LLM_MODEL=your-model-name
+LLM_API_KEY=your-api-key
+LLM_BASE_URL=https://your-provider.example/v1
+LLM_TIMEOUT_SECONDS=300
+LLM_MAX_RETRIES=2
+SCRIPT_MARKET_PROFILE=cn_mainland
+SCRIPT_CREATIVE_DEEPENING_ENABLED=false
+```
+
+只有需要恢复旧海外验证配置时才改为：
+
+```dotenv
+SCRIPT_MARKET_PROFILE=overseas_tiktok
+```
+
+不要提交 `.env.local` 或真实 API Key。未配置真实模型时，系统进入明确标记的 Mock 演示模式。
+
+### 3. Start Frontend And Backend
 
 ```bash
-pytest
+./start-local.sh
 ```
 
-运行端到端 smoke test：
+访问：
+
+- Frontend: `http://127.0.0.1:3000`
+- API Docs: `http://127.0.0.1:8000/docs`
+
+脚本会启动后端、初始化 Frontend MVP 所需的内存资源并启动前端。使用 `Ctrl+C` 同时停止两个服务。
+
+如果提示端口占用，先停止旧的 `uvicorn` / `next dev` 进程，再重新运行启动脚本。
+
+## Development Commands
+
+后端测试：
 
 ```bash
-pytest tests/test_e2e_content_planning_pipeline.py
+.venv/bin/pytest -q
 ```
 
-运行真实 LLM 适配器相关测试：
+前端静态验证：
 
 ```bash
-pytest tests/test_llm_adapter.py tests/test_llm_runtime.py
+cd frontend
+npm run typecheck
+npm run build
 ```
 
-运行 Prompt Evaluation 相关测试：
+仅启动 API：
 
 ```bash
-pytest tests/test_prompt_evaluation_runner.py tests/test_prompt_evaluation_api.py
+PYTHONPATH=backend:. .venv/bin/uvicorn app.main:app --reload
 ```
 
-## 运行 Benchmark
-
-运行固定 Revision Acceptance Calibration：
+后端使用内存 Repository。单独启动或重启 API 后，如需运行 Frontend MVP，请初始化开发资源：
 
 ```bash
-PYTHONPATH=backend python -m app.modules.script_engine.revision_acceptance_calibration
+.venv/bin/python scripts/bootstrap_frontend_mvp_runtime.py
 ```
 
-该命令只读取 `tests/fixtures/revision_acceptance_calibration/` 的 12 个固定合成样本，不调用 LLM。输出是一次离线结构化报告，不会修改 `RevisionPolicy` 或当前 runtime。
+## Repository Layout
 
-运行固定 Benchmark API：
-
-```bash
-uvicorn app.main:app --app-dir backend --reload
-curl -X POST http://127.0.0.1:8000/benchmarks/run \
-  -H "Content-Type: application/json" \
-  -d '{"dataset_id":"us_female_dark_romance","dataset_type":"benchmark"}'
+```text
+backend/                         FastAPI 与业务模块
+frontend/                        Next.js Creator Workspace
+tests/                           单元、API、Benchmark 与 E2E 测试
+datasets/benchmark/              固定能力基准
+datasets/mock/                   开发用 Mock 数据
+evaluation/                      Benchmark 与评估逻辑
+examples/                        示例和离线实验工件
+AI_Comic_Content_OS_Docs/        正式文档
+AI_Comic_Content_OS_Docs/Research/ 研究和实验记录
 ```
 
-当前建议优先查看返回结果中的：
-
-- `score_summary`
-- `revision_summary`
-- `highlights`
-
-当前完整端到端验证路径由 `tests/test_e2e_content_planning_pipeline.py` 覆盖：
-
-`Raw Data -> ContentSpec -> Draft -> Revision -> Re-QC -> Final MasterScript`
-
-## 运行 Prompt Evaluation
-
-运行默认 Prompt Evaluation 配置：
-
-```bash
-python scripts/run_prompt_evaluation.py
-```
-
-运行自定义配置：
-
-```bash
-python scripts/run_prompt_evaluation.py examples/prompt_evaluations/default_request.json
-```
-
-当前默认会生成：
-
-- `examples/prompt_evaluations/last_result.json`
-- `examples/prompt_evaluations/reports/prompt_eval_minimal_v1.json`
-- `examples/prompt_evaluations/reports/prompt_eval_minimal_v1.md`
-
-也可以通过 API 运行：
-
-```bash
-curl -X POST http://127.0.0.1:8000/benchmarks/prompt-evaluations/run \
-  -H "Content-Type: application/json" \
-  -d @examples/prompt_evaluations/default_request.json
-```
-
-当前支持的比较方式：
-
-- 同一个 `ContentSpec`，不同 Prompt 版本
-- 同一个 Prompt，不同 `GenerationStrategy`
-- 同一组合重复运行，观察输出稳定性
-
-当前报告还会给出：
-
-- 当前最值得保留的 Variant
-- 相对基线哪些指标真正提升
-- 哪些指标退化
-- 是否带来新的副作用
-- 下一步最值得优化的 Prompt / QC 方向
-
-当前说明：
-
-- `Prompt Evaluation` 复用现有 `Data Intelligence` 和 `ScriptGenerationService`
-- `promptfoo` 当前只作为外部评估工具边界，不进入核心业务主链路
-- 当前 `StoryQCReport` 结构与 Explainability v1 已实现，但专业评分可信度仍然是 placeholder，因此其分数只能作为实验信号
-- 当前如果使用 `MockLLMAdapter`，内容语义类检查会保留在报告中，但主要作为观察信号
-
-## 首次真实剧本生成验证
-
-默认仍使用 `MockLLMAdapter`。
-
-切换到真实适配器前请先配置：
-
-```bash
-export LLM_PROVIDER=openai_compatible
-export LLM_MODEL=your-model-name
-export LLM_API_KEY=your-api-key
-export LLM_BASE_URL=https://your-provider.example/v1
-export LLM_TIMEOUT_SECONDS=60
-export LLM_MAX_RETRIES=2
-```
-
-手动运行首次真实生成验证：
-
-```bash
-python scripts/run_real_generation_validation.py
-```
-
-生成结果会写入：
-
-- `examples/real_generation/final_master_script.json`
-- `examples/real_generation/final_master_script.md`
-- `examples/real_generation/story_qc_report.json`
-- `examples/real_generation/revision_plan.json`
-- `examples/real_generation/generated_prompt.txt`
-
-## 示例数据
-
-示例 `ContentSpec` 位于：
-
-- `examples/content_specs/tiktok_v1_revenge_romance.json`
-
-示例 `PlatformProfile` 位于：
-
-- `examples/platform_profiles/tiktok_v1.json`
-
-示例 `OntologyNode` 位于：
-
-- `examples/ontology_nodes/core_tags.json`
-
-示例 `Asset` 位于：
-
-- `examples/assets/fake_marriage_asset_library.json`
-
-示例 `MasterScript` 位于：
-
-- `examples/master_scripts/fake_marriage_episode_001.json`
-
-示例 `Revision Chain -> Final MasterScript` 请求位于：
-
-- `examples/master_scripts/finalize_request.json`
-
-示例 `Revision Chain -> Final MasterScript` 响应位于：
-
-- `examples/master_scripts/finalize_response_sample.json`
-
-示例 `OrchestrationPlan` 输入位于：
-
-- `examples/orchestrations/fake_marriage_plan_001.json`
-
-示例 `Retrieval` 请求位于：
-
-- `examples/retrieval/resolve_plan_request.json`
-
-示例 `Data Intelligence` 手工 JSON 输入位于：
-
-- `examples/data_intelligence/manual_json_trend_sample.json`
-
-示例 `Data Intelligence` 手工 CSV 输入位于：
-
-- `examples/data_intelligence/manual_csv_trend_sample.csv`
-
-固定 Benchmark 数据位于：
-
-- `datasets/benchmark/us_female_dark_romance.json`
-- `datasets/benchmark/us_werewolf_romance.json`
-- `datasets/benchmark/ceo_romance.json`
-- `datasets/benchmark/supernatural_romance.json`
-- `datasets/benchmark/revenge_drama.json`
-
-示例 `Benchmark` 请求位于：
-
-- `examples/benchmarks/run_request.json`
-
-示例 `Benchmark` 摘要结果位于：
-
-- `examples/benchmarks/result_summary_sample.json`
-
-示例 `Scheduled Ingestion Job` 位于：
-
-- `examples/scheduled_ingestion/manual_json_daily_job.json`
-
-示例 `Scheduled Ingestion Run History` 位于：
-
-- `examples/scheduled_ingestion/run_history_sample.json`
-
-示例 `Revision Plan` 请求位于：
-
-- `examples/script_engine/revision_plan_request.json`
-
-示例 `Revision Plan` 响应位于：
-
-- `examples/script_engine/revision_plan_response_sample.json`
-
-示例 `Revise Draft` 请求位于：
-
-- `examples/script_engine/revise_draft_request.json`
-
-示例 `Revise Draft` 响应位于：
-
-- `examples/script_engine/revise_draft_response_sample.json`
-
-示例 `Trend Snapshot` 请求位于：
-
-- `examples/trend_snapshots/generate_request.json`
-
-示例 `Trend Snapshot` 结果位于：
-
-- `examples/trend_snapshots/trend_snapshot_sample.json`
-
-示例 `Prompt Library` 位于：
-
-- `examples/script_engine/prompt_library_sample.json`
-
-示例 `Prompt Retrieval` 请求位于：
-
-- `examples/script_engine/prompt_retrieval_request.json`
-
-示例 `Prompt Retrieval` 响应位于：
-
-- `examples/script_engine/prompt_retrieval_response_sample.json`
-
-示例 `Generation Strategy` 位于：
-
-- `examples/script_engine/generation_strategy_sample.json`
-
-示例 `Prompt Evaluation` 请求位于：
-
-- `examples/prompt_evaluations/default_request.json`
-
-示例 `Prompt Evaluation` 运行快照位于：
-
-- `examples/prompt_evaluations/last_result.json`
-
-示例 `Script Generation Draft` 请求位于：
-
-- `examples/script_engine/generate_draft_request.json`
-
-示例 `Script Generation Draft` 响应位于：
-
-- `examples/script_engine/generate_draft_response_sample.json`
+## Documentation Map
+
+| Document | Responsibility |
+|---|---|
+| `00_AI_Engineer_Guide.md` | 工程协作与开发规则 |
+| `01_System_Design.md` | 系统架构 |
+| `02_Data_Model.md` | 数据契约 |
+| `05_API_Design.md` | API 契约 |
+| `06_Project_Structure.md` | 目录职责 |
+| `14_Script_Engine.md` | Script Engine 设计与边界 |
+| `17_MVP_Roadmap.md` | 当前阶段、优先级和 Backlog |
+| `18_PROJECT_PRINCIPLES.md` | 长期原则 |
+| `19_DECISIONS.md` | 已接受架构决策 |
+| `20_Benchmark_Evaluation.md` | Benchmark 与评估方法 |
+| `21_Current_Status_Checklist.md` | 当前实现状态与限制 |
+| `Frontend_MVP_Architecture.md` | 前端产品与技术边界 |
+| `Research/` | 尚未自动进入 Runtime 的研究证据 |
+
+文档职责以 [AI Engineer Handbook](AI_Comic_Content_OS_Docs/00_AI_Engineer_Guide.md) 为准。合作方新要求确认后，再更新 Roadmap 并重新建立验收方案。

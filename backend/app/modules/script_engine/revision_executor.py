@@ -35,6 +35,14 @@ class RevisionExecutor(ABC):
 class RuleBasedRevisionExecutor(RevisionExecutor):
     executor_version = "rule_based_revision_executor.v1"
 
+    _HOOK_MAX_LENGTH = 240
+    _SYNOPSIS_MAX_LENGTH = 500
+    _SCENE_PURPOSE_MAX_LENGTH = 240
+    _SCENE_BEAT_SUMMARY_MAX_LENGTH = 300
+    _EMOTIONAL_SHIFT_MAX_LENGTH = 120
+    _MAX_QA_NOTES = 10
+    _MAX_DIALOGUE_PROMPTS = 10
+
     _DIMENSION_TARGETS = {
         StoryQCDimension.hook_quality: RevisionTargetType.hook,
         StoryQCDimension.character_agency: RevisionTargetType.character,
@@ -84,15 +92,28 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
                 )
                 continue
 
-            modified_scene_numbers.update(
-                self._apply_action(
-                    revised,
-                    action,
-                    scene_scope,
-                    revision_flags,
-                    applied_notes,
-                )
+            before_action = revised.model_dump()
+            action_flags: dict[str, bool] = {}
+            action_notes: list[str] = []
+            action_modified_scenes = self._apply_action(
+                revised,
+                action,
+                scene_scope,
+                action_flags,
+                action_notes,
             )
+            if revised.model_dump() == before_action:
+                skipped_actions.append(
+                    self._skipped_action(
+                        action,
+                        strategy,
+                        "no_supported_deterministic_change",
+                    )
+                )
+                continue
+            modified_scene_numbers.update(action_modified_scenes)
+            revision_flags.update(action_flags)
+            applied_notes.extend(action_notes)
             applied_actions.append(action.action_id)
 
         revised.qa_notes = self._merge_unique(
@@ -101,6 +122,7 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
             + [
                 "Placeholder script revision pass completed from RevisionPlan actions.",
             ],
+            max_items=self._MAX_QA_NOTES,
         )
         revised.llm_metadata = {
             **revised.llm_metadata,
@@ -394,11 +416,12 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
         return f"revision_strategy.{strategy.target_dimension.value}.p{strategy.priority}"
 
     def _strengthen_hook(self, hook: str) -> str:
-        base = hook.strip().rstrip(".?!")
         addition = "Then someone revealed the secret the lead had buried years ago."
-        if addition.lower() in base.lower():
-            return f"{base}."
-        return f"{base}. {addition}"
+        return self._append_descriptive_sentence(
+            hook,
+            addition,
+            max_length=self._HOOK_MAX_LENGTH,
+        )
 
     def _strengthen_scene_dialogue(self, scene: DraftSceneCard) -> DraftSceneCard:
         prompts = self._merge_unique(
@@ -407,6 +430,7 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
                 "Use one line with a concrete accusation and one line with a power reversal.",
                 "Make each line short, performable and impossible to scroll past.",
             ],
+            max_items=self._MAX_DIALOGUE_PROMPTS,
         )
         return scene.model_copy(update={"dialogue_prompts": prompts})
 
@@ -414,6 +438,7 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
         updated_prompt = self._merge_unique(
             scene.dialogue_prompts,
             ["End on an unanswered reveal that forces the next episode."],
+            max_items=self._MAX_DIALOGUE_PROMPTS,
         )
         return scene.model_copy(
             update={
@@ -421,8 +446,8 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
                     scene.beat_summary,
                     "A consequential reveal shifts the power balance while one "
                     "decisive answer remains withheld",
+                    max_length=self._SCENE_BEAT_SUMMARY_MAX_LENGTH,
                 ),
-                "emotional_shift": "shock_to_suspense",
                 "dialogue_prompts": updated_prompt,
             }
         )
@@ -433,6 +458,7 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
                 "beat_summary": self._append_descriptive_sentence(
                     scene.beat_summary,
                     "The opposition raises the stakes through a concrete consequence",
+                    max_length=self._SCENE_BEAT_SUMMARY_MAX_LENGTH,
                 )
             }
         )
@@ -440,15 +466,18 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
     def _sharpen_emotion(self, scene: DraftSceneCard) -> DraftSceneCard:
         shift = scene.emotional_shift
         if "to" not in shift:
-            shift = f"{shift}_to_suspense"
+            candidate = f"{shift}_to_suspense"
+            if len(candidate) <= self._EMOTIONAL_SHIFT_MAX_LENGTH:
+                shift = candidate
         return scene.model_copy(update={"emotional_shift": shift})
 
     def _strengthen_commercial_synopsis(self, synopsis: str) -> str:
-        base = synopsis.strip().rstrip(".")
         addition = "The episode should trigger immediate sequel curiosity and comment debate."
-        if addition.lower() in base.lower():
-            return f"{base}."
-        return f"{base}. {addition}"
+        return self._append_descriptive_sentence(
+            synopsis,
+            addition,
+            max_length=self._SYNOPSIS_MAX_LENGTH,
+        )
 
     def _clarify_scene_structure(self, scene: DraftSceneCard) -> DraftSceneCard:
         return scene.model_copy(
@@ -456,30 +485,52 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
                 "beat_summary": self._append_descriptive_sentence(
                     scene.beat_summary,
                     "This beat clearly triggers the next escalation",
+                    max_length=self._SCENE_BEAT_SUMMARY_MAX_LENGTH,
                 )
             }
         )
 
     def _strengthen_character_agency(self, scene: DraftSceneCard) -> DraftSceneCard:
-        return scene.model_copy(
-            update={
-                "purpose": self._append_descriptive_sentence(
-                    scene.purpose,
-                    "The lead makes an irreversible choice",
-                )
-            }
+        if not scene.turning_point:
+            return scene
+        actions = self._merge_unique(
+            scene.character_actions,
+            [scene.turning_point],
+            max_items=10,
         )
+        return scene.model_copy(update={"character_actions": actions})
 
-    def _append_descriptive_sentence(self, base_text: str, addition: str) -> str:
-        normalized_base = base_text.strip().rstrip(".")
+    def _append_descriptive_sentence(
+        self,
+        base_text: str,
+        addition: str,
+        *,
+        max_length: int,
+    ) -> str:
+        normalized_base = base_text.strip()
         normalized_addition = addition.strip().rstrip(".")
         if not normalized_base:
-            return f"{normalized_addition}."
+            candidate = f"{normalized_addition}."
+            return candidate if len(candidate) <= max_length else base_text
         if normalized_addition.lower() in normalized_base.lower():
-            return f"{normalized_base}."
-        return f"{normalized_base}. {normalized_addition}."
+            return base_text
 
-    def _merge_unique(self, existing: list[str], additions: list[str]) -> list[str]:
+        separator = " " if normalized_base.endswith((".", "?", "!")) else ". "
+        candidate = f"{normalized_base}{separator}{normalized_addition}."
+        if len(candidate) <= max_length:
+            return candidate
+
+        # Generated drafts already satisfy their schema. Preserve their story text
+        # rather than truncating it merely to fit a deterministic revision note.
+        return base_text
+
+    def _merge_unique(
+        self,
+        existing: list[str],
+        additions: list[str],
+        *,
+        max_items: int | None = None,
+    ) -> list[str]:
         merged: list[str] = []
         seen: set[str] = set()
         for value in [*existing, *additions]:
@@ -488,4 +539,6 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
                 continue
             seen.add(normalized)
             merged.append(value)
+            if max_items is not None and len(merged) >= max_items:
+                break
         return merged

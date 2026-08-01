@@ -6,6 +6,13 @@
 
 它的职责不是直接生成剧本，而是沉淀可复用的知识与资产，供后续 `Asset Retrieval`、`Orchestrator`、`MasterScript` 使用。
 
+当前市场切换状态：
+
+- TikTok Knowledge Items 与两个 Dark Romance Bundle 保留，但随 `overseas_tiktok` 默认关闭
+- 中国大陆资料的 market applicability 可以提高，但来源 authority 与 confidence 不会因市场切换自动提高
+- 当前中国大陆 runtime 尚未声明正式 Knowledge Bundle，不得把 Research 文档直接注入 Prompt
+- 下一批知识资产优先服务长篇结构、人物长期发展、连续性、伏笔回收和漫剧改编可读性
+
 ## 长期范围
 
 长期包括：
@@ -232,6 +239,45 @@
 
 它当前仍不负责复杂多轮策略编排。
 
+## Static Creative Knowledge Bundle v1
+
+当前已实现有界、静态、阶段隔离的 Creative Knowledge 入口，用于 Draft Generation 和 Creative Deepening shadow，不是完整 Knowledge runtime。
+
+当前流程：
+
+```text
+GenerationStrategy.draft_knowledge_bundle_id
+→ StaticKnowledgeBundleCatalog 精确查找
+→ ContentSpec tag / platform 适用性校验
+→ bounded KnowledgeBundle
+→ Prompt Builder 独立知识段
+→ Draft Generation
+```
+
+Creative Deepening 使用另一条 exact-ID 路径：
+
+```text
+GenerationStrategy.deepening_knowledge_bundle_id
+→ target_stage=creative_deepening 校验
+→ bounded KnowledgeBundle
+→ dedicated Deepening Prompt
+→ shadow candidate
+```
+
+当前规则：
+
+- bundle 必须由 `GenerationStrategy` 显式声明，生成请求不能注入任意知识文本
+- 当前静态 bundle 最多包含 8 个 `knowledge_id`
+- runtime 只保留原则、application rules、limitations、anti-patterns 与 source reference 的最小投影
+- Prompt Builder 不把知识当作必须照抄的剧情模板，也不允许知识覆盖用户排除项、角色锁定字段、平台或安全约束
+- 选择结果通过 `KnowledgeSelectionTrace` 保留 selector、bundle 与 knowledge lineage
+- 未声明 bundle 时不生成知识 Prompt section，原路径保持不变
+- Draft 与 Deepening bundle 不自动复用，也不能跨阶段误用
+- 当前只有 TikTok Dark Romance 的 Draft / Deepening bundle，且随海外模式默认关闭；中国大陆 bundle 尚未通过提取、验证和 runtime promotion
+- Deepening knowledge refs 当前只支持候选生成与复现，不自动成为 Story QC 规则
+
+`Research/Knowledge_Items/` 仍是来源完整的知识资产。runtime 不读取或解析 Research Markdown，避免文档格式成为生产依赖。
+
 ## Future Knowledge-Guided Generation Compatibility
 
 未来 Script Generation 与 Script-to-Production 生成不应只依赖自由 LLM 即兴。长期概念流程为：
@@ -245,7 +291,7 @@
 → `LLMAdapter`
 → Structured Output
 
-当前只记录兼容原则，不实现完整 Knowledge Base、RAG、向量检索或 Creative Skill Registry。
+当前已实现上述静态 exact-ID Draft / Deepening bundle 的最小子集；以下长期流程仍只记录兼容原则，不代表完整 Knowledge Base、RAG、向量检索或 Creative Skill Registry 已实现。
 
 ### Creative Brief Input Compatibility
 
@@ -275,7 +321,7 @@
 - 检索结果应记录使用的 resolved tags、Prompt 意图摘要、平台版本和 `knowledge_id`
 - Knowledge Retrieval 只能辅助生成，不得覆盖 `PlatformProfile` 硬约束或用户明确排除项
 
-当前不实现上述检索，只保证未来 `CreativeBriefInput → ContentSpec` 的解析结果可以成为受治理检索输入。
+当前不实现上述动态检索。静态 v1 只使用已解析 `ContentSpec` tag / platform 做适用性校验；未来 `CreativeBriefInput → ContentSpec` 的解析结果仍可成为受治理检索输入。
 
 ### Knowledge Responsibility Chain
 

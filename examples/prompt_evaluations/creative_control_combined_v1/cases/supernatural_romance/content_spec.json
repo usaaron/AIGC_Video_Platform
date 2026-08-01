@@ -1,0 +1,52 @@
+{
+  "id": "creative-control-supernatural-romance-v1",
+  "status": "approved",
+  "title": "Bound to the Enemy",
+  "audience_goal": {
+    "summary": "US fantasy-romance viewers",
+    "priority": "primary",
+    "success_metric": "Sustain romantic tension and supernatural suspense"
+  },
+  "commercial_goal": {
+    "summary": "Create an enemies-to-allies continuation hook",
+    "priority": "primary",
+    "success_metric": "Strong completion and next-episode intent"
+  },
+  "platform_goal": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "objective": "High-retention serialized drama",
+    "target_duration_seconds": 60,
+    "target_aspect_ratio": "9:16"
+  },
+  "story_goal": "Two supernatural enemies discover that they need each other to survive an ancient threat.",
+  "quality_level": "high",
+  "budget_level": "medium",
+  "tags": [
+    {
+      "ontology_node_id": "genre.supernatural_romance",
+      "label": "Supernatural Romance",
+      "category": "Genre",
+      "confidence": 1.0
+    },
+    {
+      "ontology_node_id": "relationship.enemies_to_allies",
+      "label": "Enemies to Allies",
+      "category": "Relationship",
+      "confidence": 1.0
+    }
+  ],
+  "creative_brief": {
+    "hook": "A hunter corners a vampire just as an ancient threat marks them both.",
+    "tone": "dangerous supernatural romance",
+    "pacing": "fast pressure and reluctant cooperation",
+    "target_emotion": "fear turning into charged uncertainty",
+    "asset_constraints": [
+      "Keep violence non-graphic and platform-safe."
+    ],
+    "generation_notes": []
+  },
+  "metadata": {
+    "source": "creative_control_combined_v1",
+    "default_scene_setting": "A rain-soaked gothic district"
+  }
+}

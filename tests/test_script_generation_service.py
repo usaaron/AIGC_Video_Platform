@@ -1,12 +1,18 @@
+from copy import deepcopy
+
+import pytest
+
 from app.modules.asset.models import Asset, AssetContent, AssetType
 from app.modules.asset.repository import AssetRepository
 from app.modules.content_spec.models import (
     BudgetLevel,
+    CharacterContext,
     ContentSpec,
     CreativeBrief,
     GoalPriority,
     PlatformGoal,
     QualityLevel,
+    ResolvedCreativeContext,
     TagRef,
     TargetGoal,
 )
@@ -22,16 +28,28 @@ from app.modules.platform_profile.models import (
 )
 from app.modules.platform_profile.repository import PlatformProfileRepository
 from app.modules.retrieval.service import RetrievalService
-from app.modules.script_engine.generation_service import ScriptGenerationService
-from app.modules.script_engine.llm_adapter import LLMAdapter
+from app.modules.script_engine.generation_service import (
+    CreativeDeepeningDisabledError,
+    InvalidResolvedCreativeContextError,
+    ScriptGenerationService,
+)
+from app.modules.script_engine.llm_adapter import LLMAdapter, MockLLMAdapter
+from app.modules.script_engine.knowledge_bundle import InvalidKnowledgeBundleError
 from app.modules.script_engine.models import (
     GenerationStrategy,
     GenerationStrategyStatus,
     GenerationWorkflowStep,
+    CreativeDeepeningMode,
+    EpisodeGenerationContext,
+    EpisodeGenerationMode,
+    GenerationBatchContext,
     LLMModelInfo,
     PromptLibraryItem,
     PromptType,
     ScriptGenerationDraftRequest,
+    ScriptCreativeDeepeningRequest,
+    ScriptDraftModificationRequest,
+    ScriptDraftReviewRequest,
 )
 from app.modules.script_engine.prompt_retrieval import PromptRetrievalService
 from app.modules.script_engine.repository import (
@@ -40,7 +58,14 @@ from app.modules.script_engine.repository import (
 )
 
 
-def seed_dependencies() -> tuple[ScriptGenerationService, str]:
+def seed_dependencies(
+    *,
+    draft_knowledge_bundle_id: str | None = None,
+    deepening_mode: CreativeDeepeningMode = CreativeDeepeningMode.disabled,
+    deepening_knowledge_bundle_id: str | None = None,
+    llm_adapter: LLMAdapter | None = None,
+    creative_deepening_enabled: bool | None = None,
+) -> tuple[ScriptGenerationService, str]:
     content_spec_repository = ContentSpecRepository()
     generation_strategy_repository = GenerationStrategyRepository()
     prompt_library_repository = PromptLibraryRepository()
@@ -104,7 +129,11 @@ def seed_dependencies() -> tuple[ScriptGenerationService, str]:
     ontology_node_repository.save(
         OntologyNode(
             id="genre.romance_service_generation",
-            label="Romance",
+            label=(
+                "Dark Romance"
+                if draft_knowledge_bundle_id or deepening_knowledge_bundle_id
+                else "Romance"
+            ),
             category=OntologyCategory.genre,
             description="Romance genre.",
             aliases=[],
@@ -146,7 +175,11 @@ def seed_dependencies() -> tuple[ScriptGenerationService, str]:
         tags=[
             TagRef(
                 ontology_node_id="genre.romance_service_generation",
-                label="Romance",
+                label=(
+                    "Dark Romance"
+                    if draft_knowledge_bundle_id or deepening_knowledge_bundle_id
+                    else "Romance"
+                ),
                 category="Genre",
                 confidence=0.9,
             ),
@@ -212,6 +245,28 @@ def seed_dependencies() -> tuple[ScriptGenerationService, str]:
             evaluation_notes=["Open strong."],
         )
     )
+    deepening_prompt_ids: list[str] = []
+    if deepening_mode == CreativeDeepeningMode.shadow:
+        deepening_prompt_id = "prompt.creative_deepening.service_generation"
+        prompt_library_repository.save(
+            PromptLibraryItem(
+                id=deepening_prompt_id,
+                name="Creative Deepening Prompt",
+                prompt_type=PromptType.creative_deepening,
+                target_module="script_engine",
+                applicable_tags=["genre.romance_service_generation"],
+                target_platform="tiktok",
+                target_audience="women 18-34",
+                version="v1",
+                prompt_template=(
+                    "Deepen the supplied Draft while preserving protected story fields."
+                ),
+                input_variables=[],
+                output_schema={"type": "object"},
+                evaluation_notes=["Shadow candidate only."],
+            )
+        )
+        deepening_prompt_ids = [deepening_prompt_id]
 
     generation_strategy_repository.save(
         GenerationStrategy(
@@ -231,6 +286,10 @@ def seed_dependencies() -> tuple[ScriptGenerationService, str]:
                 )
             ],
             prompt_ids=["prompt.story_planning.service_generation"],
+            draft_knowledge_bundle_id=draft_knowledge_bundle_id,
+            deepening_mode=deepening_mode,
+            deepening_prompt_ids=deepening_prompt_ids,
+            deepening_knowledge_bundle_id=deepening_knowledge_bundle_id,
             qc_enabled=True,
             self_check_enabled=True,
             human_review_required=False,
@@ -266,6 +325,12 @@ def seed_dependencies() -> tuple[ScriptGenerationService, str]:
             ),
             orchestrator_service=orchestrator_service,
             retrieval_service=retrieval_service,
+            llm_adapter=llm_adapter,
+            creative_deepening_enabled=(
+                creative_deepening_enabled
+                if creative_deepening_enabled is not None
+                else deepening_mode == CreativeDeepeningMode.shadow
+            ),
         ),
         content_spec.id,
     )
@@ -321,6 +386,270 @@ def test_script_generation_service_generates_draft_run() -> None:
     assert result.revision_plan.content_spec_id == content_spec_id
     assert result.revision_plan.must_re_qc is True
     assert len(result.revision_plan.actions) >= 1
+    assert result.resolved_creative_context is None
+    assert "ResolvedCreativeContext:" not in result.prompt_build_result.prompt_text
+    assert result.knowledge_bundle is None
+    assert result.knowledge_selection_trace is None
+    assert "CreativeKnowledgeBundle:" not in result.prompt_build_result.prompt_text
+
+
+def test_script_generation_service_preserves_serialized_episode_context() -> None:
+    service, content_spec_id = seed_dependencies()
+    context = EpisodeGenerationContext(
+        generation_mode=EpisodeGenerationMode.sequential,
+        episode_number=2,
+        total_episodes=4,
+        previous_episode_summary="Mara exposed the false evidence and lost her ally.",
+        previous_episode_question="Who planted the evidence?",
+        episode_instruction="Force Mara to protect the suspected betrayer.",
+        project_continuity_summary=(
+            "The conspiracy line remains active. Mara distrusts Adrian but needs his access."
+        ),
+        batch_context=GenerationBatchContext(
+            batch_number=2,
+            start_episode=2,
+            end_episode=4,
+            batch_instruction="Bring a current social theme into this stage.",
+        ),
+    )
+
+    result = service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+            episode_context=context,
+        )
+    )
+
+    assert result.episode_context == context
+    assert "SerializedEpisodeContract:" in result.prompt_build_result.prompt_text
+    assert "Force Mara to protect the suspected betrayer" in result.prompt_build_result.prompt_text
+    assert "Mara distrusts Adrian but needs his access" in result.prompt_build_result.prompt_text
+    assert result.episode_context.batch_context is not None
+    assert result.episode_context.batch_context.batch_number == 2
+    assert "Bring a current social theme" in result.prompt_build_result.prompt_text
+
+
+def test_script_generation_service_reviews_and_modifies_creator_draft() -> None:
+    service, content_spec_id = seed_dependencies()
+    source_run = service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+        )
+    )
+    edited = source_run.draft_master_script.model_copy(
+        update={"hook": "Mara destroys the contract before the groom can stop her."}
+    )
+
+    reviewed = service.review_draft(
+        ScriptDraftReviewRequest(
+            source_generation_run=source_run,
+            draft_master_script=edited,
+        )
+    )
+    modified = service.modify_draft(
+        ScriptDraftModificationRequest(
+            source_generation_run=reviewed,
+            source_draft_master_script=edited,
+            instruction="Make Mara's public choice more costly.",
+        )
+    )
+
+    assert reviewed.draft_master_script.hook == edited.hook
+    assert reviewed.creative_deepening_run is None
+    assert modified.source_draft_master_script_id == edited.id
+    assert modified.instruction == "Make Mara's public choice more costly."
+    assert "UserDirectedModificationContract:" in (
+        modified.candidate_generation_run.prompt_build_result.prompt_text
+    )
+    assert modified.candidate_generation_run.story_qc_report.status.value == "placeholder"
+
+
+def test_script_generation_service_runs_explicit_bounded_deepening() -> None:
+    service, content_spec_id = seed_dependencies(
+        deepening_mode=CreativeDeepeningMode.shadow,
+    )
+    source_run = service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+        )
+    )
+
+    result = service.deepen_draft(
+        ScriptCreativeDeepeningRequest(
+            source_generation_run=source_run,
+            source_draft_master_script=source_run.draft_master_script,
+        )
+    )
+
+    assert result.source_draft_master_script_id == source_run.draft_master_script.id
+    assert result.selected_draft_master_script_id == source_run.draft_master_script.id
+    assert result.prompt_build_result is not None
+    assert result.prompt_build_result.trace.build_purpose.value == "creative_deepening"
+    assert result.candidate_valid_for_comparison is True
+    assert result.candidate_draft_master_script is not None
+    assert result.candidate_draft_master_script.id != source_run.draft_master_script.id
+    assert result.change_trace
+
+
+def test_script_generation_service_rejects_deepening_when_runtime_disabled() -> None:
+    service, content_spec_id = seed_dependencies(
+        deepening_mode=CreativeDeepeningMode.shadow,
+        creative_deepening_enabled=False,
+    )
+    source_run = service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+        )
+    )
+
+    assert source_run.creative_deepening_run is None
+    with pytest.raises(CreativeDeepeningDisabledError, match="retained but disabled"):
+        service.deepen_draft(
+            ScriptCreativeDeepeningRequest(
+                source_generation_run=source_run,
+                source_draft_master_script=source_run.draft_master_script,
+            )
+        )
+
+
+def test_script_generation_service_injects_resolved_character_context() -> None:
+    service, content_spec_id = seed_dependencies()
+    context = ResolvedCreativeContext(
+        content_spec_id=content_spec_id,
+        characters=[
+            CharacterContext(
+                character_ref="character.mara_service",
+                name="Mara",
+                role="protagonist",
+                desire="Expose the truth",
+                fear="Trusting the wrong person again",
+                belief="Powerful people hide the truth",
+                moral_boundaries=["Will not harm innocent people"],
+                locked_fields=["name", "moral_boundaries"],
+                field_sources={"belief": "ai_inferred"},
+            )
+        ],
+        excluded_tag_ids=["relationship.love_triangle"],
+        excluded_patterns=["love triangle"],
+    )
+
+    result = service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+            resolved_creative_context=context,
+        )
+    )
+
+    assert result.resolved_creative_context == context
+    prompt_text = result.prompt_build_result.prompt_text
+    assert "ResolvedCreativeContext:" in prompt_text
+    assert "Mara" in prompt_text
+    assert "Will not harm innocent people" in prompt_text
+    assert '"belief":"ai_inferred"' not in prompt_text
+    assert '"belief": "ai_inferred"' in prompt_text
+    assert "love triangle" in prompt_text
+
+
+def test_script_generation_service_rejects_mismatched_creative_context() -> None:
+    service, content_spec_id = seed_dependencies()
+    context = ResolvedCreativeContext(
+        content_spec_id="different_content_spec",
+        characters=[],
+    )
+
+    with pytest.raises(
+        InvalidResolvedCreativeContextError,
+        match="does not match",
+    ):
+        service.generate_draft(
+            ScriptGenerationDraftRequest(
+                content_spec_id=content_spec_id,
+                generation_strategy_id="strategy.tiktok.service_generation.v1",
+                output_language="en",
+                desired_scene_count=3,
+                resolved_creative_context=context,
+            )
+        )
+
+
+def test_script_generation_service_selects_and_injects_static_knowledge() -> None:
+    service, content_spec_id = seed_dependencies(
+        draft_knowledge_bundle_id="knowledge_bundle.draft.dark_romance_tiktok.v1"
+    )
+
+    result = service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+        )
+    )
+
+    assert result.knowledge_bundle is not None
+    assert result.knowledge_bundle.bundle_id == (
+        "knowledge_bundle.draft.dark_romance_tiktok.v1"
+    )
+    assert result.knowledge_selection_trace is not None
+    assert len(result.knowledge_selection_trace.selected_knowledge_refs) == 7
+    prompt_text = result.prompt_build_result.prompt_text
+    assert "CreativeKnowledgeBundle:" in prompt_text
+    assert "knowledge.conflict.progressive_cost.v1" in prompt_text
+    assert "Do not treat abuse, stalking, or coercion" in prompt_text
+
+
+def test_script_generation_service_rejects_unknown_static_knowledge_bundle() -> None:
+    service, content_spec_id = seed_dependencies(
+        draft_knowledge_bundle_id="knowledge_bundle.draft.missing.v1"
+    )
+
+    with pytest.raises(
+        InvalidKnowledgeBundleError,
+        match="not present in the static catalog",
+    ):
+        service.generate_draft(
+            ScriptGenerationDraftRequest(
+                content_spec_id=content_spec_id,
+                generation_strategy_id="strategy.tiktok.service_generation.v1",
+                output_language="en",
+                desired_scene_count=3,
+            )
+        )
+
+
+class CountingMockLLMAdapter(MockLLMAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.structured_call_count = 0
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema=None,
+    ) -> dict[str, object]:
+        self.structured_call_count += 1
+        return super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
 
 
 class StubRealScriptAdapter(LLMAdapter):
@@ -485,6 +814,50 @@ class StubRealScriptAdapter(LLMAdapter):
         )
 
 
+class ShadowDeepeningAdapter(StubRealScriptAdapter):
+    def __init__(self, *, forbidden_change: bool = False) -> None:
+        self.structured_call_count = 0
+        self._forbidden_change = forbidden_change
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema=None,
+    ) -> dict[str, object]:
+        self.structured_call_count += 1
+        payload = deepcopy(
+            super().generate_structured_output(
+                prompt,
+                strategy=strategy,
+                output_schema=output_schema,
+            )
+        )
+        if self.structured_call_count == 2:
+            scenes = payload["scenes"]
+            assert isinstance(scenes, list)
+            first_scene = scenes[0]
+            assert isinstance(first_scene, dict)
+            dialogues = first_scene["dialogues"]
+            assert isinstance(dialogues, list)
+            first_dialogue = dialogues[0]
+            assert isinstance(first_dialogue, dict)
+            first_dialogue["text"] = (
+                "Smile, bride. Run now, and every phone receives the truth before "
+                "your hand leaves mine."
+            )
+            first_scene["emotional_objective"] = (
+                "Mask panic with deliberate control while testing Damian's limit."
+            )
+            if self._forbidden_change:
+                payload["episode_goal"] = "Replace the established story with a new war."
+                payload["next_episode_question"] = (
+                    "Will an unrelated enemy destroy the city next?"
+                )
+        return payload
+
+
 def test_script_generation_service_uses_real_adapter_output_without_placeholder_fallback() -> None:
     service, content_spec_id = seed_dependencies()
     service._llm_adapter = StubRealScriptAdapter()  # noqa: SLF001
@@ -506,3 +879,86 @@ def test_script_generation_service_uses_real_adapter_output_without_placeholder_
     assert result.draft_master_script.scenes[1].scene_causality.caused_by_scene_number == 1
     assert "mock_" not in result.draft_master_script.title
     assert result.draft_master_script.next_episode_question is not None
+
+
+def test_deepening_disabled_keeps_single_generation_call() -> None:
+    adapter = CountingMockLLMAdapter()
+    service, content_spec_id = seed_dependencies(llm_adapter=adapter)
+
+    result = service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+        )
+    )
+
+    assert adapter.structured_call_count == 1
+    assert result.creative_deepening_run is None
+
+
+def test_shadow_deepening_records_candidate_trace_and_qc_comparison() -> None:
+    adapter = ShadowDeepeningAdapter()
+    service, content_spec_id = seed_dependencies(
+        deepening_mode=CreativeDeepeningMode.shadow,
+        deepening_knowledge_bundle_id=(
+            "knowledge_bundle.deepening.dark_romance_tiktok.v1"
+        ),
+        llm_adapter=adapter,
+    )
+
+    result = service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+        )
+    )
+
+    deepening = result.creative_deepening_run
+    assert adapter.structured_call_count == 2
+    assert deepening is not None
+    assert deepening.status.value == "shadow_candidate"
+    assert deepening.candidate_valid_for_comparison is True
+    assert deepening.candidate_draft_master_script is not None
+    assert deepening.selected_draft_master_script_id == result.draft_master_script.id
+    assert deepening.candidate_draft_master_script.id != result.draft_master_script.id
+    assert deepening.change_trace
+    assert deepening.knowledge_selection_trace is not None
+    assert deepening.knowledge_selection_trace.target_stage.value == (
+        "creative_deepening"
+    )
+    assert deepening.candidate_story_qc_report is not None
+    assert deepening.comparison_metadata is not None
+    assert deepening.comparison_metadata.status.value == "available"
+    assert result.revision_plan.draft_master_script_id == result.draft_master_script.id
+
+
+def test_shadow_deepening_records_forbidden_drift_without_replacement() -> None:
+    adapter = ShadowDeepeningAdapter(forbidden_change=True)
+    service, content_spec_id = seed_dependencies(
+        deepening_mode=CreativeDeepeningMode.shadow,
+        llm_adapter=adapter,
+    )
+
+    result = service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+        )
+    )
+
+    deepening = result.creative_deepening_run
+    assert deepening is not None
+    assert deepening.status.value == "rejected_preservation"
+    assert deepening.candidate_valid_for_comparison is False
+    assert any(change.change_type.value == "forbidden" for change in deepening.change_trace)
+    assert any(not check.passed for check in deepening.preservation_checks)
+    assert deepening.candidate_story_qc_report is None
+    assert deepening.comparison_metadata is not None
+    assert deepening.comparison_metadata.status.value == "unavailable"
+    assert deepening.selected_draft_master_script_id == result.draft_master_script.id

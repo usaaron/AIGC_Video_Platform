@@ -1,0 +1,304 @@
+{
+  "evaluation_id": "creative_control_combined_v1",
+  "all_passed": true,
+  "results": [
+    {
+      "case_id": "dark_romance_revenge",
+      "variant": "baseline",
+      "all_passed": true,
+      "checks": [
+        {
+          "check_name": "draft_schema_valid",
+          "passed": true,
+          "expected": "DraftMasterScript",
+          "actual": "DraftMasterScript"
+        },
+        {
+          "check_name": "scene_count",
+          "passed": true,
+          "expected": 3,
+          "actual": 3
+        },
+        {
+          "check_name": "output_language",
+          "passed": true,
+          "expected": "en",
+          "actual": "en"
+        },
+        {
+          "check_name": "scene_causality_complete",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "causal_chain_valid",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "final_cliffhanger",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        }
+      ]
+    },
+    {
+      "case_id": "dark_romance_revenge",
+      "variant": "structured_creative_control",
+      "all_passed": true,
+      "checks": [
+        {
+          "check_name": "draft_schema_valid",
+          "passed": true,
+          "expected": "DraftMasterScript",
+          "actual": "DraftMasterScript"
+        },
+        {
+          "check_name": "scene_count",
+          "passed": true,
+          "expected": 3,
+          "actual": 3
+        },
+        {
+          "check_name": "output_language",
+          "passed": true,
+          "expected": "en",
+          "actual": "en"
+        },
+        {
+          "check_name": "scene_causality_complete",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "causal_chain_valid",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "final_cliffhanger",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "specified_character_names_preserved",
+          "passed": true,
+          "expected": [
+            "adrian vale",
+            "mara voss"
+          ],
+          "actual": [
+            "adrian vale",
+            "mara voss"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "supernatural_romance",
+      "variant": "baseline",
+      "all_passed": true,
+      "checks": [
+        {
+          "check_name": "draft_schema_valid",
+          "passed": true,
+          "expected": "DraftMasterScript",
+          "actual": "DraftMasterScript"
+        },
+        {
+          "check_name": "scene_count",
+          "passed": true,
+          "expected": 3,
+          "actual": 3
+        },
+        {
+          "check_name": "output_language",
+          "passed": true,
+          "expected": "en",
+          "actual": "en"
+        },
+        {
+          "check_name": "scene_causality_complete",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "causal_chain_valid",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "final_cliffhanger",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        }
+      ]
+    },
+    {
+      "case_id": "supernatural_romance",
+      "variant": "structured_creative_control",
+      "all_passed": true,
+      "checks": [
+        {
+          "check_name": "draft_schema_valid",
+          "passed": true,
+          "expected": "DraftMasterScript",
+          "actual": "DraftMasterScript"
+        },
+        {
+          "check_name": "scene_count",
+          "passed": true,
+          "expected": 3,
+          "actual": 3
+        },
+        {
+          "check_name": "output_language",
+          "passed": true,
+          "expected": "en",
+          "actual": "en"
+        },
+        {
+          "check_name": "scene_causality_complete",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "causal_chain_valid",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "final_cliffhanger",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "specified_character_names_preserved",
+          "passed": true,
+          "expected": [
+            "lucian veyr",
+            "rhea hart"
+          ],
+          "actual": [
+            "lucian veyr",
+            "rhea hart"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "sci_fi_mystery",
+      "variant": "baseline",
+      "all_passed": true,
+      "checks": [
+        {
+          "check_name": "draft_schema_valid",
+          "passed": true,
+          "expected": "DraftMasterScript",
+          "actual": "DraftMasterScript"
+        },
+        {
+          "check_name": "scene_count",
+          "passed": true,
+          "expected": 3,
+          "actual": 3
+        },
+        {
+          "check_name": "output_language",
+          "passed": true,
+          "expected": "en",
+          "actual": "en"
+        },
+        {
+          "check_name": "scene_causality_complete",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "causal_chain_valid",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "final_cliffhanger",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        }
+      ]
+    },
+    {
+      "case_id": "sci_fi_mystery",
+      "variant": "structured_creative_control",
+      "all_passed": true,
+      "checks": [
+        {
+          "check_name": "draft_schema_valid",
+          "passed": true,
+          "expected": "DraftMasterScript",
+          "actual": "DraftMasterScript"
+        },
+        {
+          "check_name": "scene_count",
+          "passed": true,
+          "expected": 3,
+          "actual": 3
+        },
+        {
+          "check_name": "output_language",
+          "passed": true,
+          "expected": "en",
+          "actual": "en"
+        },
+        {
+          "check_name": "scene_causality_complete",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "causal_chain_valid",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "final_cliffhanger",
+          "passed": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "check_name": "specified_character_names_preserved",
+          "passed": true,
+          "expected": [
+            "aurora",
+            "lena ortiz"
+          ],
+          "actual": [
+            "aurora",
+            "lena ortiz"
+          ]
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Structural checks do not establish character or story quality.",
+    "Character beliefs, contradictions, and moral boundaries require blind semantic review."
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "case_id": "dark_romance_revenge",
+  "variant": "baseline",
+  "content_spec_id": "creative-control-dark-romance-v1",
+  "draft_id": "53ad13ee-d6a3-4048-b59c-f886e744615b",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "generation_strategy_version": "v1",
+  "prompt_ids": [
+    "prompt.story_planning.scene_causality_ab.improved",
+    "prompt.platform_optimization.scene_causality_ab.shared"
+  ],
+  "prompt_versions": [
+    "v3-scene-causality",
+    "v1-shared"
+  ],
+  "prompt_builder_version": "v0.2",
+  "llm_model_info": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "supports_structured_output": true,
+    "max_context_tokens": 128000
+  },
+  "token_usage": {
+    "prompt_tokens": 5255,
+    "completion_tokens": 2175,
+    "total_tokens": 7430
+  },
+  "latency_seconds": 58.71,
+  "technical_failures_before_success": [],
+  "successful_generations_for_variant": 1,
+  "generated_at": "2026-07-21T11:38:04.866923+00:00",
+  "artifacts": {
+    "prompt": "examples/prompt_evaluations/creative_control_combined_v1/cases/dark_romance_revenge/baseline/generated_prompt.txt",
+    "draft": "examples/prompt_evaluations/creative_control_combined_v1/cases/dark_romance_revenge/baseline/draft.json",
+    "story_qc": "examples/prompt_evaluations/creative_control_combined_v1/cases/dark_romance_revenge/baseline/story_qc.json"
+  }
+}

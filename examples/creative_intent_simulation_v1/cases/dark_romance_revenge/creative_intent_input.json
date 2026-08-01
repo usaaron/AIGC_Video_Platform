@@ -1,0 +1,34 @@
+{
+  "schema_version": "research.creative_intent.v1",
+  "case_id": "dark_romance_revenge",
+  "free_creative_prompt": "Create a dark romance revenge story where a woman exposes the powerful man who betrayed her, but discovers a deeper conspiracy.",
+  "audience_tags": ["Female 18-34", "Romance Audience", "Revenge Drama Audience"],
+  "genre_tags": ["Dark Romance", "Thriller"],
+  "theme_tags": [],
+  "story_element_tags": ["Betrayal", "Revenge", "Hidden Identity", "Public Exposure"],
+  "emotion_tags": ["Anger", "Suspense", "Hope"],
+  "trend_recommendations": [],
+  "user_constraints": [],
+  "characters": [
+    {
+      "name": "Mara",
+      "gender": "Female",
+      "role": "Protagonist",
+      "appearance": "Elegant, dark style, black hair",
+      "external_personality": ["Calm", "Intelligent", "Reserved"],
+      "desire": "Expose the truth",
+      "fear": "Trusting the wrong person again",
+      "belief": "Powerful people always hide the truth",
+      "contradiction": "Wants connection but fears vulnerability",
+      "moral_boundaries": ["Will not harm innocent people"]
+    }
+  ],
+  "relationships": [],
+  "generation_constraints": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "output_language": "en",
+    "target_duration_seconds": 60,
+    "desired_scene_count": 3,
+    "content_rating": "platform_safe"
+  }
+}

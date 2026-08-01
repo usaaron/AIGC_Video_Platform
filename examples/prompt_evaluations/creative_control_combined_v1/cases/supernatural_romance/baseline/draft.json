@@ -1,0 +1,248 @@
+{
+  "content_spec_id": "creative-control-supernatural-romance-v1",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "title": "Bound to the Enemy",
+  "logline": "When a hunter and her vampire enemy receive matching marks from an ancient threat, she must choose between finishing her hunt and trusting him to keep them both alive.",
+  "language": "en",
+  "target_audience": "US fantasy-romance viewers who enjoy enemies-to-allies tension, supernatural suspense, and fast serialized drama.",
+  "target_platform": "TikTok 9:16 vertical video",
+  "tone": "suspenseful",
+  "hook": "Mara corners vampire Lucien at blade-point—then the same burning black mark appears on both their wrists.",
+  "synopsis": "Hunter Mara Voss corners vampire Lucien Vale in a rain-soaked gothic district, but matching ancient marks interrupt her strike. After choosing to spare him, Mara discovers that distance makes the marks spread while contact stabilizes them. She arms her enemy and declares a ceasefire—just as the force that marked them seals their escape.",
+  "episode_goal": "Force Mara to choose cooperation over vengeance when an ancient mark binds her survival to Lucien's.",
+  "target_duration_seconds": 60,
+  "characters": [
+    {
+      "name": "Mara Voss",
+      "role": "Protagonist and hunter",
+      "description": "A relentless supernatural hunter who hides fear behind discipline and refuses to let destiny make her choices.",
+      "motivation": "Protect others from supernatural threats without becoming controlled by one."
+    },
+    {
+      "name": "Lucien Vale",
+      "role": "Vampire enemy turned reluctant ally",
+      "description": "A guarded vampire with sharp instincts, dangerous charm, and knowledge of old supernatural forces.",
+      "motivation": "Survive the ancient threat while keeping his freedom from hunters."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "EXT. GOTHIC STREET - NIGHT",
+      "purpose": "Deliver the immediate hook, reveal the shared mark, and show Mara choosing action over vengeance.",
+      "setting_hint": "Rain-soaked gothic street",
+      "beat_summary": "Mara traps Lucien against a rain-slick wall and raises her blade. Before she strikes, a dark mark burns onto both wrists and an unseen presence rushes toward them.",
+      "emotional_shift": "Predatory certainty to alarmed defiance",
+      "emotional_objective": "Shock viewers with a reversed power dynamic and make Mara's refusal to kill feel urgent.",
+      "character_actions": [
+        "Mara blocks Lucien's escape and levels her blade at his heart.",
+        "Lucien raises his hands but watches the darkness behind her.",
+        "Matching black marks flare on their wrists.",
+        "Mara visibly refuses to strike and pulls Lucien away from the approaching shadow."
+      ],
+      "turning_point": "Mara lowers the weapon she has spent the night trying to use and chooses to escape with her enemy.",
+      "scene_causality": {
+        "goal": "Mara wants to capture Lucien and end the confrontation on her terms.",
+        "conflict": "Mara is seconds from completing her hunt when matching supernatural marks appear and an unseen ancient force closes in.",
+        "outcome": "Mara spares Lucien and pulls him into an alley as the ancient presence reaches their position.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "One move, vampire, and this ends now.",
+        "Then you should look at your wrist.",
+        "You did this.",
+        "No. And whatever did is coming.",
+        "I am not saving you. Move."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Mara Voss",
+          "intent": "Declare victory and control",
+          "text": "One move, vampire, and this ends now."
+        },
+        {
+          "character_name": "Lucien Vale",
+          "intent": "Warn her about the greater danger",
+          "text": "Then you should look at your wrist."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Reject manipulation",
+          "text": "You did this."
+        },
+        {
+          "character_name": "Lucien Vale",
+          "intent": "Force immediate cooperation",
+          "text": "No. And whatever did is coming."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Make an active survival choice",
+          "text": "I am not saving you. Move."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 2,
+      "slug": "EXT. GOTHIC ALLEY - CONTINUOUS",
+      "purpose": "Prove that distance worsens the mark and physical contact stabilizes both enemies.",
+      "setting_hint": "Narrow alley beneath a gothic arch",
+      "beat_summary": "In the alley, Mara tries to separate from Lucien and nearly collapses as her mark darkens. Lucien grabs her hand; both marks stabilize, proving their connection is functional, not symbolic.",
+      "emotional_shift": "Defiant separation to charged uncertainty",
+      "emotional_objective": "Turn fear into intimate, unwanted dependence through a simple visual test.",
+      "character_actions": [
+        "Mara shoves Lucien away and orders him to leave.",
+        "She steps back as her mark spreads and her strength falters.",
+        "Lucien catches her before she falls.",
+        "Their joined hands make both marks retreat.",
+        "Mara regains her footing but keeps hold of him."
+      ],
+      "turning_point": "Mara tells Lucien to let go, then chooses to stop him when separation makes the mark consume her strength.",
+      "scene_causality": {
+        "goal": "Mara wants to separate from Lucien and escape the ancient threat alone.",
+        "conflict": "Mara refuses to trust Lucien, but separating from him causes the mark to spread and drains her strength.",
+        "outcome": "Their marks stabilize only when they touch, proving that neither can safely abandon the other.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Mara spared Lucien and escaped with him in Scene 1, she can test whether the matching marks connect their survival."
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "We split up. It cannot follow us both.",
+        "That mark disagrees.",
+        "Let go of me.",
+        "Gladly.",
+        "Wait.",
+        "You need me alive, hunter."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Mara Voss",
+          "intent": "Reassert independence",
+          "text": "We split up. It cannot follow us both."
+        },
+        {
+          "character_name": "Lucien Vale",
+          "intent": "Challenge her plan",
+          "text": "That mark disagrees."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Resist dependence",
+          "text": "Let go of me."
+        },
+        {
+          "character_name": "Lucien Vale",
+          "intent": "Reveal the bond through action",
+          "text": "Gladly."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Stop him after feeling the cost",
+          "text": "Wait."
+        },
+        {
+          "character_name": "Lucien Vale",
+          "intent": "Name their unwanted reality",
+          "text": "You need me alive, hunter."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 3,
+      "slug": "EXT. GOTHIC ALLEY MOUTH - NIGHT",
+      "purpose": "Make Mara actively form the alliance and end with proof that they need each other as the threat arrives.",
+      "setting_hint": "Alley mouth beneath flickering streetlights",
+      "beat_summary": "Mara tests the bond by placing Lucien's hand over her mark. A nearby shadow answers both marks. Instead of running alone, she gives Lucien her spare weapon and publicly names a temporary alliance.",
+      "emotional_shift": "Reluctant dependence to dangerous solidarity",
+      "emotional_objective": "Deliver the enemies-to-allies payoff while escalating romantic tension and immediate supernatural danger.",
+      "character_actions": [
+        "Mara deliberately presses Lucien's hand over her marked wrist.",
+        "Both marks pulse as a vast shadow crosses the alley entrance.",
+        "Mara draws a second weapon but offers it to Lucien handle-first.",
+        "Lucien accepts without breaking eye contact.",
+        "They turn together as the ancient presence blocks their only exit."
+      ],
+      "turning_point": "Mara hands Lucien a weapon and chooses him as her ally at the exact moment their unseen enemy closes the only exit.",
+      "scene_causality": {
+        "goal": "Mara wants to control the bond and form a temporary survival plan before the threat reaches them.",
+        "conflict": "Mara must arm the vampire she hunted and remain physically close to him while the ancient presence blocks their escape.",
+        "outcome": "Mara arms Lucien and declares a ceasefire just as the ancient presence traps them, forcing both enemies to face it together.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Scene 2 proves their marks stabilize through contact, Mara must choose whether to accept Lucien as an ally before the pursuing presence reaches them."
+      },
+      "cliffhanger": true,
+      "dialogue_prompts": [
+        "If I fall, do you feel it?",
+        "Every breath.",
+        "This is not trust. It is a ceasefire.",
+        "Keep holding my hand and call it whatever you want.",
+        "We survive this together. Then I decide what you are.",
+        "Decide quickly. It found us."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Mara Voss",
+          "intent": "Confirm the bond on her terms",
+          "text": "If I fall, do you feel it?"
+        },
+        {
+          "character_name": "Lucien Vale",
+          "intent": "Admit shared vulnerability",
+          "text": "Every breath."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Set boundaries for an alliance",
+          "text": "This is not trust. It is a ceasefire."
+        },
+        {
+          "character_name": "Lucien Vale",
+          "intent": "Accept while provoking romantic tension",
+          "text": "Keep holding my hand and call it whatever you want."
+        },
+        {
+          "character_name": "Mara Voss",
+          "intent": "Choose alliance against the threat",
+          "text": "We survive this together. Then I decide what you are."
+        },
+        {
+          "character_name": "Lucien Vale",
+          "intent": "Warn that the threat has arrived",
+          "text": "Decide quickly. It found us."
+        }
+      ],
+      "supporting_asset_ids": []
+    }
+  ],
+  "next_episode_question": "Can Mara and Lucien break the bond before the ancient threat reaches them—and what will staying close cost them?",
+  "qa_notes": [
+    "Draft generated by RealLLMAdapter structured output.",
+    "Story QC and revision loop must still review platform fit and consistency."
+  ],
+  "llm_metadata": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "strategy_id": "strategy.scene_causality_ab.improved.v1",
+    "usage": {
+      "prompt_tokens": 5264,
+      "completion_tokens": 1969,
+      "total_tokens": 7233,
+      "completion_tokens_details": {
+        "reasoning_tokens": 212
+      }
+    },
+    "response_id": "resp_0120301ca8969f22016a5f5aa300e88191b4222240cdc320d7",
+    "prompt_versions": [
+      "v3-scene-causality",
+      "v1-shared"
+    ],
+    "generation_strategy_version": "v1"
+  },
+  "id": "78635d1a-954f-45f1-92e8-29407d1b03d6",
+  "created_at": "2026-07-21T11:40:59.410902Z",
+  "updated_at": "2026-07-21T11:40:59.411020Z"
+}

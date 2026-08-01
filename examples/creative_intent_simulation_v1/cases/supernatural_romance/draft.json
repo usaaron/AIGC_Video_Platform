@@ -1,0 +1,236 @@
+{
+  "content_spec_id": "creative-intent-sim-supernatural-romance-v1",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "title": "The Enemy Lucian Needs",
+  "logline": "When an ancient threat traps a human hunter with her vampire enemy, she must choose between killing Lucian and joining hands with the monster she hates.",
+  "language": "en",
+  "target_audience": "Fantasy romance viewers who enjoy dangerous supernatural relationships, forbidden attraction, mystery, and survival-driven enemies-to-allies stories.",
+  "target_platform": "TikTok vertical video (9:16)",
+  "tone": "suspenseful",
+  "hook": "The Hunter raises her stake over Lucian—then he warns, \"Kill me, and the thing hunting us kills you next.\"",
+  "synopsis": "A human Hunter corners the vampire Lucian, but their confrontation awakens an ancient lethal shadow that marks them both. When separation strengthens it, the Hunter chooses to discard her stake and join hands with her enemy. Their combined power opens an escape, while her heartbeat helps Lucian retain control. They cross the threshold together, only to learn the threat now lives inside their fused bond.",
+  "episode_goal": "Force Lucian and the Hunter to prove that cooperation is their only means of survival, then trap them in a dangerous supernatural bond.",
+  "target_duration_seconds": 60,
+  "characters": [
+    {
+      "name": "Lucian",
+      "role": "Vampire enemy and reluctant protector",
+      "description": "A cold, protective vampire who guards the supernatural world behind ruthless secrecy and fears surrendering to his hunger.",
+      "motivation": "Protect his world, contain the awakened threat, and retain control without admitting he needs a human."
+    },
+    {
+      "name": "The Hunter",
+      "role": "Human protagonist and Lucian's enemy",
+      "description": "A determined human hunter who distrusts monsters but values survival and truth more than inherited hatred.",
+      "motivation": "Survive the supernatural threat, expose Lucian's secret, and remain free of his control."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "The Stake and the Shadow",
+      "purpose": "Deliver the hook, establish the enemies, and make their conflict awaken a shared lethal danger.",
+      "setting_hint": "Abandoned stone sanctuary at night",
+      "beat_summary": "The Hunter corners Lucian and prepares to strike. He warns that their fight has awakened an ancient presence. She hesitates as matching marks ignite on their wrists and a living shadow seals the exit.",
+      "emotional_shift": "Hostility to alarm",
+      "emotional_objective": "Turn murderous certainty into immediate supernatural fear.",
+      "character_actions": [
+        "The Hunter pins Lucian against a wall and raises a stake.",
+        "Lucian refuses to fight back and points toward their spreading shadows.",
+        "Matching marks flare on their wrists.",
+        "The exit slams shut as the darkness advances."
+      ],
+      "turning_point": "The Hunter sees her own shadow move independently and realizes Lucian's warning is true.",
+      "scene_causality": {
+        "goal": "The Hunter intends to kill Lucian before he can stop her.",
+        "conflict": "The Hunter believes Lucian is lying to escape execution, while the supernatural darkness closes around them.",
+        "outcome": "An ancient mark binds both enemies, the exit seals, and the advancing threat reacts to their separation.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Kill me, and the thing hunting us kills you next.",
+        "You expect me to trust a vampire?",
+        "No. I expect you to look behind you.",
+        "What did you awaken?",
+        "Not me. Us."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Lucian",
+          "intent": "Stop his enemy from making a fatal mistake",
+          "text": "Kill me, and the thing hunting us kills you next."
+        },
+        {
+          "character_name": "The Hunter",
+          "intent": "Reject his attempt to manipulate her",
+          "text": "You expect me to trust a vampire?"
+        },
+        {
+          "character_name": "Lucian",
+          "intent": "Reveal the immediate danger",
+          "text": "No. I expect you to look behind you."
+        },
+        {
+          "character_name": "The Hunter",
+          "intent": "Demand an explanation while maintaining control",
+          "text": "What did you awaken?"
+        },
+        {
+          "character_name": "Lucian",
+          "intent": "Correct her and establish shared responsibility",
+          "text": "Not me. Us."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 2,
+      "slug": "Take My Hand",
+      "purpose": "Give the protagonist decisive agency and prove that cooperation changes their odds of survival.",
+      "setting_hint": "Sealed sanctuary beneath a fractured arch",
+      "beat_summary": "Lucian claims physical contact will suppress the threat. Rather than obey blindly, the Hunter tests his claim, then visibly throws away her stake and grabs his hand when the darkness attacks.",
+      "emotional_shift": "Fear to conflicted trust",
+      "emotional_objective": "Make reluctant physical contact feel both dangerous and intimate.",
+      "character_actions": [
+        "Lucian extends his hand but keeps his fangs hidden.",
+        "The Hunter steps away to test the mark.",
+        "The shadow surges and forces her back.",
+        "She throws her stake beyond reach by choice.",
+        "She grips Lucian's hand, releasing a protective pulse of light."
+      ],
+      "turning_point": "Their joined hands release light, proving neither can survive the threat alone.",
+      "scene_causality": {
+        "goal": "The Hunter wants to verify Lucian's claim without surrendering her independence.",
+        "conflict": "The Hunter fears Lucian is using the crisis to control her, and stepping away gives the shadow enough power to strike.",
+        "outcome": "She discards her weapon and takes Lucian's hand by choice; their combined power drives the shadow back and opens a narrow escape.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Scene 1 binds them and makes separation strengthen the threat, they must test whether contact can suppress it."
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "The mark needs your pulse and my power. Take my hand.",
+        "I don't take orders from monsters.",
+        "Then die proving humans understand us.",
+        "This is my choice—not your command.",
+        "Then choose quickly."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Lucian",
+          "intent": "Secure the contact required to protect them",
+          "text": "The mark needs your pulse and my power. Take my hand."
+        },
+        {
+          "character_name": "The Hunter",
+          "intent": "Refuse submission and test his claim",
+          "text": "I don't take orders from monsters."
+        },
+        {
+          "character_name": "Lucian",
+          "intent": "Challenge her prejudice under pressure",
+          "text": "Then die proving humans understand us."
+        },
+        {
+          "character_name": "The Hunter",
+          "intent": "Choose survival on her own terms",
+          "text": "This is my choice—not your command."
+        },
+        {
+          "character_name": "Lucian",
+          "intent": "Acknowledge her agency and seal the alliance",
+          "text": "Then choose quickly."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 3,
+      "slug": "The Enemy He Needs",
+      "purpose": "Complete their first joint escape while revealing that survival now requires an ongoing bond.",
+      "setting_hint": "Sanctuary threshold before approaching dawn",
+      "beat_summary": "Still linked, they move toward the opening. Her heartbeat strains Lucian's control, but she refuses to abandon him. They cross together—only to discover the mark has fused and carried the threat inside their bond.",
+      "emotional_shift": "Conflicted trust to intimate dread",
+      "emotional_objective": "Transform dependence into forbidden attraction, then corrupt that intimacy with a larger danger.",
+      "character_actions": [
+        "Lucian leads the Hunter through the narrowing opening.",
+        "His eyes change as he hears her racing heartbeat.",
+        "The Hunter notices his slipping control but tightens her grip.",
+        "They cross the threshold together.",
+        "Their marks fuse into one symbol as a shadow moves beneath their joined hands."
+      ],
+      "turning_point": "The Hunter keeps hold of Lucian despite his warning, and he admits her heartbeat is preserving his identity.",
+      "scene_causality": {
+        "goal": "Lucian wants to guide them through the escape before his self-control fails.",
+        "conflict": "The Hunter's pulse pushes Lucian toward losing control, but releasing her would expose both of them to the advancing darkness.",
+        "outcome": "They cross together, but their marks permanently fuse and the threat enters the bond, making continued dependence unavoidable.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because their contact in Scene 2 opens an escape and suppresses the threat, they must remain linked while crossing the threshold."
+      },
+      "cliffhanger": true,
+      "dialogue_prompts": [
+        "Let go before I lose control.",
+        "If I let go, the shadow takes us. Look at me.",
+        "Your heartbeat is the only thing keeping me myself.",
+        "Then stay with me, Lucian.",
+        "We escaped the room. Not the threat. It's inside our bond."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Lucian",
+          "intent": "Protect her from his weakening control",
+          "text": "Let go before I lose control."
+        },
+        {
+          "character_name": "The Hunter",
+          "intent": "Refuse to let fear undo her decision",
+          "text": "If I let go, the shadow takes us. Look at me."
+        },
+        {
+          "character_name": "Lucian",
+          "intent": "Confess the need he despises",
+          "text": "Your heartbeat is the only thing keeping me myself."
+        },
+        {
+          "character_name": "The Hunter",
+          "intent": "Anchor him and demand mutual survival",
+          "text": "Then stay with me, Lucian."
+        },
+        {
+          "character_name": "Lucian",
+          "intent": "Reveal the bond's terrifying consequence",
+          "text": "We escaped the room. Not the threat. It's inside our bond."
+        }
+      ],
+      "supporting_asset_ids": []
+    }
+  ],
+  "next_episode_question": "Can the Hunter trust Lucian long enough to master their bond before his control breaks—or will the threat turn their growing attraction into a weapon?",
+  "qa_notes": [
+    "Draft generated by RealLLMAdapter structured output.",
+    "Story QC and revision loop must still review platform fit and consistency."
+  ],
+  "llm_metadata": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "strategy_id": "strategy.scene_causality_ab.improved.v1",
+    "usage": {
+      "prompt_tokens": 5687,
+      "completion_tokens": 2427,
+      "total_tokens": 8114,
+      "completion_tokens_details": {
+        "reasoning_tokens": 722
+      }
+    },
+    "response_id": "resp_03fc068829e98370016a5f516cd710819186e03bbb9f4343f1",
+    "prompt_versions": [
+      "v3-scene-causality",
+      "v1-shared"
+    ],
+    "generation_strategy_version": "v1"
+  },
+  "id": "ad4bdc3d-888d-47a1-a208-576a6ef7b5f0",
+  "created_at": "2026-07-21T11:01:52.079760Z",
+  "updated_at": "2026-07-21T11:01:52.079808Z"
+}

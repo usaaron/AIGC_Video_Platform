@@ -27,6 +27,8 @@
 
 这些接口仍要求外部调用方理解 Draft、Revision、Finalize 等内部阶段。
 
+Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent -> generate-draft -> revise-draft -> finalize`。这证明现有步骤 API 可以支撑单集成品链路，但不代表统一 Script Generation Facade 已完成。
+
 当前最小迁移方向：
 
 - 保留现有稳定 API
@@ -173,6 +175,37 @@
 - `404` 引用的 `PromptLibraryItem` 不存在
 - `422` 请求体校验失败
 
+### 0.6.1 POST `/content-specs/resolve-creative-intent`
+
+用途：
+
+- 将 Phase 1 结构化 Creative Intent 与 Character Context 确定性解析为标准 ContentSpec 和独立生成上下文
+
+输入：
+
+- `CreativeIntentInput`
+
+输出：
+
+- `CreativeIntentResolutionResponse`
+
+当前行为：
+
+- selected / added / excluded tag 只接受现有 Ontology ID
+- selected / added tag 被解析为标准 `TagRef`
+- free creative prompt 作为已归一化故事方向映射到 `ContentSpec.story_goal`
+- Character Context、字段 provenance、locked fields 和 exclusions 保存在 `ResolvedCreativeContext`
+- Character Context 不写入 `ContentSpec.metadata`
+- Resolver 不调用 LLM、不创建新 OntologyNode、不做 AI 自动补全
+- 解析成功后保存标准 ContentSpec
+
+错误处理：
+
+- `404` PlatformProfile 或 OntologyNode 不存在
+- `409` 同一 tag 同时 selected / added 和 excluded
+- `409` 引用 inactive OntologyNode
+- `422` 输入 schema、active tag 数量或 Character Context 无效
+
 ### 0.7 POST `/script-generation/generate-draft`
 
 用途：
@@ -187,6 +220,12 @@
 
 - `output_language` 必须显式提供
 - 不允许由 Script Engine 对输出语言做静默默认
+- `resolved_creative_context` 为 optional；提供时其 `content_spec_id` 必须与请求一致
+- Knowledge Bundle 不由请求任意传入；当前只通过 `GenerationStrategy.draft_knowledge_bundle_id` 精确声明
+- Deepening 需要同时满足 Strategy 声明与 runtime feature flag；当前 `SCRIPT_CREATIVE_DEEPENING_ENABLED=false`，因此自动 shadow 和显式 `deepen-draft` 均关闭
+- `episode_context.batch_context` 可选记录阶段编号、起止集数与阶段创作指令；旧请求保持兼容
+- `episode_context` 为 optional；提供时用于约束分集编号、上一集连续状态、optional 用户续写指令和 bounded `project_continuity_summary`
+- `project_continuity_summary` 来自前端可编辑的故事线与人物关系视图，只约束后续分集生成；它不改写历史 Draft，也不等同于 Story Planning runtime
 
 输出：
 
@@ -200,6 +239,11 @@
 - `prompt_build_result`
 - `llm_model_info`
 - `llm_raw_output`
+- `resolved_creative_context`（optional）
+- `knowledge_bundle`（optional）
+- `knowledge_selection_trace`（optional）
+- `creative_deepening_run`（optional）
+- `episode_context`（optional，原样进入 run lineage）
 - `draft_master_script`
 - `story_qc_report`
 
@@ -209,6 +253,12 @@
 - `llm_raw_output` 仅用于追踪和调试，不应视为最终业务对象
 - `prompt_build_result.prompt_text` 当前可直接用于追踪真实模型的最终输入 Prompt
 - `llm_model_info` 当前应反映 Mock / Real Adapter 的实际切换结果
+- Prompt Builder 只注入已解析的 Character Context、provenance、locked fields 与 exclusions，不接收 raw Creative Intent
+- 策略声明静态 Draft bundle 时，服务先校验 ContentSpec tag / platform 适用性，再将有界原则、限制与反模式注入独立 Prompt section
+- 策略不声明 bundle 时，知识 section 与 selection lineage 均为空，旧请求行为保持不变
+- shadow 策略使用独立 Deepening Prompt 和可选 Deepening bundle 生成一次候选，并记录 change trace、preservation checks、延迟/token 与同一 Story QC 的比较元数据
+- shadow 候选无论通过或失败都不会替换 `draft_master_script`，RevisionPlan 继续基于原始 Draft 的 Story QC 生成
+- Deepening 技术失败或 preservation rejection 作为 observational lineage 返回，不阻断原有 Draft 路径
 - `story_qc_report` 当前除基础分数外，已返回：
   - `report_version`
   - `explainability_status`
@@ -217,6 +267,42 @@
   - `knowledge_refs`
 - 该接口当前更适合作为内部步骤 API，而不是未来长期稳定的唯一外部契约
 
+### 0.7a POST `/script-generation/review-draft`
+
+对用户手动编辑后的结构化 Draft 重新执行现有 Story QC 与 RevisionPlan。该接口确定性运行、不调用 LLM，并返回可继续进入受控质量链的更新后 `ScriptGenerationDraftRun`。
+
+### 0.7b POST `/script-generation/modify-draft`
+
+接收 source generation run、source Draft 和一条用户修改指令，通过现有 Prompt Builder / LLMAdapter 生成独立候选。候选不会自动覆盖 source；返回结果包含更新后的 QC 与 RevisionPlan。
+
+### 0.7c POST `/script-generation/deepen-draft`
+
+保留的内部步骤 API。只有 `SCRIPT_CREATIVE_DEEPENING_ENABLED=true` 且 Strategy 配置有效时才运行；当前默认关闭并返回 `409`。重新启用后仍执行 preservation checks，返回候选、change trace、QC comparison 与 warning，且调用本身不自动替换正式 Draft。
+
+### 0.7d POST `/script-generation/build-bilingual-view`
+
+为英文 `DraftMasterScript` 生成供中文界面阅读的 presentation-only 对照视图。
+
+输入：
+
+- `generation_strategy_id`
+- `draft_master_script`
+- `target_language`，当前前端使用 `zh-CN`
+
+输出：
+
+- `BilingualScriptView`
+- 每个 `items[]` 保留稳定 `path`、`source_text` 和 `translated_text`
+- 实际 `llm_model_info` 与 optional warnings
+
+边界：
+
+- 不修改 Draft / Final `MasterScript`
+- 不参与 Story QC、Revision 或 Finalization
+- 输出必须覆盖所有源文本路径且不得增加未知路径
+- Mock 模式只返回带明确 warning 的功能占位译文
+- 前端按 Draft ID 缓存结果，避免重复请求
+
 错误处理：
 
 - `404` 引用的 `ContentSpec` 不存在
@@ -224,6 +310,9 @@
 - `404` 引用的 `PromptLibraryItem` 不存在
 - `404` `ContentSpec` 关联的 `PlatformProfile` 不存在
 - `422` 缺少可追踪场景来源，例如既没有 `RetrievedAssets.scene` 也没有显式场景配置
+- `422` `ResolvedCreativeContext.content_spec_id` 与生成请求不一致
+- `422` 策略引用未知、阶段错误或不适用于当前 ContentSpec / platform 的静态 Knowledge Bundle
+- `422` shadow 策略缺少 Deepening Prompt，或引用的 Deepening Prompt / bundle 无效
 - `422` 真实 LLM 配置缺失或结构化输出无法校验为 `DraftMasterScript`
 - `503` 真实 LLM 请求失败或超时重试后仍失败
 - `422` 请求体校验失败
@@ -260,6 +349,7 @@
 输出：
 
 - `ScriptRevisionResponse`
+- 包含 Revised Draft、`RevisionExecutionTrace`、Re-QC 和 optional shadow `AcceptanceDecision`
 
 当前说明：
 
@@ -474,43 +564,6 @@
 
 - `404` Benchmark 数据集不存在
 - `422` 请求体校验失败
-
-### 1.10 POST `/script-generation/build-revision-plan`
-
-用途：
-
-- 根据 `DraftMasterScript + StoryQCReport` 生成结构化 `RevisionPlan`
-
-输入：
-
-- `ScriptRevisionPlanRequest`
-
-输出：
-
-- `ScriptRevisionPlanResponse`
-
-错误处理：
-
-- `422` 请求体校验失败
-
-### 1.11 POST `/script-generation/revise-draft`
-
-用途：
-
-- 根据 `DraftMasterScript + RevisionPlan` 执行一次占位修订并返回 Re-QC 结果
-
-输入：
-
-- `ScriptRevisionRequest`
-
-输出：
-
-- `ScriptRevisionResponse`
-
-错误处理：
-
-- `404` 引用的 `GenerationStrategy` 不存在
-- `422` `RevisionPlan` 与 `DraftMasterScript` 不匹配
 
 ### 1.8 GET `/benchmarks`
 
@@ -965,24 +1018,7 @@
 
 ### 13.1 POST `/master-scripts/finalize`
 
-用途：
-
-- 通过受控 Finalization Gate 生成 Final `MasterScript`
-
-输入：
-
-- `MasterScriptFinalizeRequest`
-
-输出：
-
-- `MasterScriptFinalizationResponse`
-
-错误处理：
-
-- `404` 引用的 `ContentSpec` 不存在
-- `422` Finalization 链路不完整或不一致
-- `422` Re-QC 分数低于阈值
-- `422` 请求体校验失败
+该接口的完整受控链路、输入输出与错误处理已在上文 `1.2 POST /master-scripts/finalize` 统一定义，此处仅保留资源顺序索引，避免重复契约漂移。
 
 ### 14. POST `/orchestrations`
 

@@ -1,0 +1,242 @@
+{
+  "case_id": "dark_romance_revenge",
+  "candidate": "candidate_2",
+  "shared_brief": {
+    "title": "The Truth She Exposes",
+    "story_goal": "A woman exposes the powerful man who betrayed her, then discovers evidence of a deeper conspiracy.",
+    "audience": "US viewers who enjoy dark romance and revenge thrillers",
+    "platform": "TikTok",
+    "language": "English",
+    "duration_seconds": 60,
+    "scene_count": 3
+  },
+  "draft": {
+    "content_spec_id": "creative-control-dark-romance-v1",
+    "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+    "title": "The Truth She Exposes",
+    "logline": "An attorney publicly exposes the corporate heir who betrayed her, only to unlock evidence that their doomed romance was engineered by someone watching them both.",
+    "language": "en",
+    "target_audience": "US viewers ages 18-34 who enjoy dark romance, betrayal, revenge thrillers, and serialized conspiracy reveals.",
+    "target_platform": "TikTok vertical video (9:16)",
+    "tone": "suspenseful",
+    "hook": "Before a stunned gala crowd, Mara seizes the microphone: “Adrian Vale stole my evidence, destroyed my case, and tonight I'm putting the proof on every screen.”",
+    "synopsis": "At an upscale gala, investigative attorney Mara Voss publicly broadcasts evidence that corporate heir Adrian Vale betrayed her. Her upload exposes an encrypted annex created before they met. Refusing to trust Adrian but accepting his signet ring as a key, Mara decrypts and publicly preserves dossiers proving that an unknown conspiracy engineered their relationship—and is watching from inside the ballroom.",
+    "episode_goal": "Let Mara publicly expose Adrian through an irreversible choice, then turn her revenge into suspense by proving that an unknown third party manipulated them both.",
+    "target_duration_seconds": 60,
+    "characters": [
+      {
+        "name": "Mara Voss",
+        "role": "Protagonist and betrayed former lover",
+        "description": "An investigative attorney with an elegant dark style, straight black hair, and controlled posture; meticulous until betrayal makes caution feel like surrender.",
+        "motivation": "Expose Adrian with verified evidence, uncover the larger conspiracy, and protect innocent people."
+      },
+      {
+        "name": "Adrian Vale",
+        "role": "Powerful accused counterpart and former lover",
+        "description": "A corporate heir in a charcoal suit with a silver signet ring; outwardly composed, secretive, and willing to absorb Mara's hatred to protect her.",
+        "motivation": "Delay Mara's exposure long enough to reveal the real threat and keep her alive."
+      }
+    ],
+    "scenes": [
+      {
+        "scene_number": 1,
+        "slug": "INT. CORPORATE GALA STAGE - NIGHT",
+        "purpose": "Hook with Mara's public act of agency, establish Adrian's apparent betrayal, and trigger the hidden evidence.",
+        "setting_hint": "Upscale corporate gala stage before a crowded ballroom",
+        "beat_summary": "Mara interrupts Adrian's gala speech and broadcasts a verified authorization trail showing her sealed evidence entered Vale servers. Adrian does not deny it; instead, he warns that her upload has opened something hidden.",
+        "emotional_shift": "Righteous anger to destabilizing alarm",
+        "emotional_objective": "Deliver the catharsis of public revenge, then contaminate it with immediate danger.",
+        "character_actions": [
+          "Mara steps onto the stage and takes the microphone.",
+          "She taps her phone, replacing Adrian's presentation on every vertical display.",
+          "Adrian stops security from approaching her.",
+          "Mara keeps the evidence live despite Adrian's warning."
+        ],
+        "turning_point": "Rather than silence Mara, Adrian orders security back and tells her to inspect the newly unlocked annex.",
+        "scene_causality": {
+          "goal": "Expose Adrian's documented betrayal before the gala audience.",
+          "conflict": "Adrian's security closes in, and his warning raises the cost of publishing, but stopping would let him control the truth again.",
+          "outcome": "Mara's evidence goes public, Adrian is implicated, and the upload reveals an encrypted annex absent from her original files.",
+          "caused_by_scene_number": null,
+          "causal_link": null
+        },
+        "cliffhanger": false,
+        "dialogue_prompts": [
+          "Adrian Vale stole my evidence, destroyed my case, and tonight I'm putting the proof on every screen.",
+          "Nobody touches her.",
+          "I checked every timestamp and every authorization. Your signature opened the door.",
+          "Then check what your upload just unlocked. Mara, that file could get you killed."
+        ],
+        "dialogues": [
+          {
+            "character_name": "Mara Voss",
+            "intent": "Make an irreversible public accusation",
+            "text": "Adrian Vale stole my evidence, destroyed my case, and tonight I'm putting the proof on every screen."
+          },
+          {
+            "character_name": "Adrian Vale",
+            "intent": "Prevent security from escalating the confrontation",
+            "text": "Nobody touches her."
+          },
+          {
+            "character_name": "Mara Voss",
+            "intent": "Establish that her exposure is verified rather than reckless",
+            "text": "I checked every timestamp and every authorization. Your signature opened the door."
+          },
+          {
+            "character_name": "Adrian Vale",
+            "intent": "Warn Mara without publicly revealing the conspiracy",
+            "text": "Then check what your upload just unlocked. Mara, that file could get you killed."
+          }
+        ],
+        "supporting_asset_ids": []
+      },
+      {
+        "scene_number": 2,
+        "slug": "INT. GALA SIDE CORRIDOR - CONTINUOUS",
+        "purpose": "Let Mara verify that the apparent betrayal is part of an older scheme and establish a conditional alliance on her terms.",
+        "setting_hint": "Gala side corridor overlooking the ballroom",
+        "beat_summary": "Mara retreats only far enough to verify the annex herself. Its creation date predates her first meeting with Adrian. He offers his signet ring as the decryption key, forcing her to choose between distrust and answers.",
+        "emotional_shift": "Alarm to guarded suspicion",
+        "emotional_objective": "Replace certainty with adversarial curiosity without repairing the romance too quickly.",
+        "character_actions": [
+          "Mara checks the annex metadata on her own phone.",
+          "She refuses Adrian's offered hand when he approaches.",
+          "Adrian removes his silver signet ring and holds it out.",
+          "Mara takes only the ring and moves away from him."
+        ],
+        "turning_point": "The verified creation date proves someone targeted Mara before Adrian supposedly betrayed her.",
+        "scene_causality": {
+          "goal": "Independently verify whether Adrian's warning is genuine.",
+          "conflict": "The annex supports Adrian's warning, but decrypting it requires using his ring and risking another manipulation.",
+          "outcome": "Mara confirms the annex predates their relationship and takes Adrian's ring, gaining the means to decrypt it without granting him trust.",
+          "caused_by_scene_number": 1,
+          "causal_link": "Mara's public upload in Scene 1 exposes the encrypted annex, while Adrian's warning compels her to verify its origin before dismissing him."
+        },
+        "cliffhanger": false,
+        "dialogue_prompts": [
+          "This annex was created six months before we met.",
+          "Because my betrayal wasn't where this started.",
+          "I don't trust you.",
+          "Good. Trust the key. My ring decrypts it.",
+          "I take the ring. Not your hand."
+        ],
+        "dialogues": [
+          {
+            "character_name": "Mara Voss",
+            "intent": "Test Adrian's warning against independent evidence",
+            "text": "This annex was created six months before we met."
+          },
+          {
+            "character_name": "Adrian Vale",
+            "intent": "Push Mara toward the deeper truth",
+            "text": "Because my betrayal wasn't where this started."
+          },
+          {
+            "character_name": "Mara Voss",
+            "intent": "Reject emotional manipulation while pursuing the truth",
+            "text": "I don't trust you."
+          },
+          {
+            "character_name": "Adrian Vale",
+            "intent": "Offer verifiable leverage instead of demanding trust",
+            "text": "Good. Trust the key. My ring decrypts it."
+          },
+          {
+            "character_name": "Mara Voss",
+            "intent": "Set the terms of a conditional alliance",
+            "text": "I take the ring. Not your hand."
+          }
+        ],
+        "supporting_asset_ids": []
+      },
+      {
+        "scene_number": 3,
+        "slug": "INT. GLASS GALA CORRIDOR - CONTINUOUS",
+        "purpose": "Reveal the deeper conspiracy, preserve Mara's agency, and force the next episode with an active watcher nearby.",
+        "setting_hint": "Glass-walled gala corridor with a view of the ballroom",
+        "beat_summary": "Mara unlocks the annex and refuses Adrian's demand to disconnect. She mirrors it publicly, revealing dossiers on them both and proof that their relationship was monitored. A final alert says the observer is inside the ballroom.",
+        "emotional_shift": "Guarded suspicion to exposed vulnerability and suspense",
+        "emotional_objective": "Transform revenge into intimate paranoia and end on an unavoidable threat.",
+        "character_actions": [
+          "Mara presses Adrian's ring against her phone.",
+          "A hidden dossier opens with both their names.",
+          "Adrian reaches toward the phone but stops when Mara warns him back.",
+          "Mara mirrors the dossier to every gala screen.",
+          "They look through the glass at the ballroom crowd as an observer alert appears."
+        ],
+        "turning_point": "The decrypted file reveals that Mara and Adrian were selected and monitored before their relationship began.",
+        "scene_causality": {
+          "goal": "Decrypt and preserve the annex before the unknown conspirators can erase it.",
+          "conflict": "Adrian urges Mara to disconnect for safety, but obeying him would repeat the secrecy that enabled the betrayal and leave the evidence vulnerable.",
+          "outcome": "Mara publicly preserves proof that both lovers were manipulated, and the file identifies an active observer inside the ballroom.",
+          "caused_by_scene_number": 2,
+          "causal_link": "Because Scene 2 proves the annex predates the relationship and gives Mara the decryption key, she must open it now before the conspirators can erase it."
+        },
+        "cliffhanger": true,
+        "dialogue_prompts": [
+          "Disconnect before they know you found it.",
+          "No more controlled truth. If they buried this, everyone sees it.",
+          "My surveillance began before we met. Your file says, “Containment failed.”",
+          "Mara... they didn't discover us. They arranged us.",
+          "Then which one of them is watching?"
+        ],
+        "dialogues": [
+          {
+            "character_name": "Adrian Vale",
+            "intent": "Limit the danger created by the decryption",
+            "text": "Disconnect before they know you found it."
+          },
+          {
+            "character_name": "Mara Voss",
+            "intent": "Refuse Adrian's pattern of controlling dangerous truths",
+            "text": "No more controlled truth. If they buried this, everyone sees it."
+          },
+          {
+            "character_name": "Mara Voss",
+            "intent": "Process proof that the romance was engineered",
+            "text": "My surveillance began before we met. Your file says, “Containment failed.”"
+          },
+          {
+            "character_name": "Adrian Vale",
+            "intent": "Confirm the larger conspiracy and impending threat",
+            "text": "Mara... they didn't discover us. They arranged us."
+          },
+          {
+            "character_name": "Mara Voss",
+            "intent": "Identify the immediate enemy",
+            "text": "Then which one of them is watching?"
+          }
+        ],
+        "supporting_asset_ids": []
+      }
+    ],
+    "next_episode_question": "Who engineered Mara and Adrian's relationship—and which person inside the ballroom is watching them now?",
+    "qa_notes": [
+      "Draft generated by RealLLMAdapter structured output.",
+      "Story QC and revision loop must still review platform fit and consistency."
+    ],
+    "llm_metadata": {
+      "provider": "openai_compatible",
+      "model_name": "gpt-5.6-sol",
+      "strategy_id": "strategy.scene_causality_ab.improved.v1",
+      "usage": {
+        "prompt_tokens": 5751,
+        "completion_tokens": 2863,
+        "total_tokens": 8614,
+        "completion_tokens_details": {
+          "reasoning_tokens": 1034
+        }
+      },
+      "response_id": "resp_093a5f897d337c8e016a5f5a4066f081919b871646beb8fb59",
+      "prompt_versions": [
+        "v3-scene-causality",
+        "v1-shared"
+      ],
+      "generation_strategy_version": "v1"
+    },
+    "id": "b9935e00-efd4-4793-af9a-664623932123",
+    "created_at": "2026-07-21T11:39:45.509728Z",
+    "updated_at": "2026-07-21T11:39:45.509769Z"
+  }
+}

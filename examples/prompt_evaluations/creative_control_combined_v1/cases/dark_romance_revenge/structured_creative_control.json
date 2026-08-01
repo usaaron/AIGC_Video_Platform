@@ -1,0 +1,64 @@
+{
+  "free_creative_prompt": "Create a dark romance revenge story where a woman exposes the powerful man who betrayed her, but discovers a deeper conspiracy.",
+  "audience_intent": [
+    "Female 18-34",
+    "Romance Audience",
+    "Revenge Drama Audience"
+  ],
+  "selected_genre_tags": [
+    "Dark Romance",
+    "Thriller"
+  ],
+  "story_element_tags": [
+    "Betrayal",
+    "Revenge",
+    "Hidden Identity",
+    "Public Exposure"
+  ],
+  "emotion_tags": [
+    "Anger",
+    "Suspense",
+    "Guarded Hope"
+  ],
+  "character_profiles": [
+    {
+      "identity": {
+        "name": "Mara Voss",
+        "role": "Protagonist",
+        "gender": "Female",
+        "occupation": "Investigative attorney"
+      },
+      "appearance": "Elegant dark style, straight black hair, controlled posture",
+      "external_goal": "Expose Adrian's betrayal and identify the deeper conspiracy without harming innocent people",
+      "fear": "Trusting the wrong person and becoming vulnerable again",
+      "belief": "Powerful people always hide the truth until forced into public view",
+      "contradiction": "She wants genuine connection but treats vulnerability as a weakness",
+      "decision_pattern": "Verifies evidence, prepares leverage, then makes an irreversible public move",
+      "moral_boundary": "Will not knowingly harm or frame an innocent person"
+    },
+    {
+      "identity": {
+        "name": "Adrian Vale",
+        "role": "Counterpart",
+        "gender": "Male",
+        "occupation": "Corporate heir"
+      },
+      "appearance": "Immaculate charcoal suit, composed expression, silver signet ring",
+      "external_goal": "Stop the public exposure long enough to keep Mara alive and reveal the real conspirator",
+      "fear": "His secrecy will cause Mara's death before she understands the threat",
+      "belief": "Dangerous truth must be controlled before it can be revealed safely",
+      "contradiction": "He loves Mara but uses manipulation and secrecy to protect her",
+      "decision_pattern": "Withholds information, absorbs blame, then intervenes when Mara faces direct danger",
+      "moral_boundary": "Will not knowingly sacrifice Mara or an innocent person"
+    }
+  ],
+  "relationship_context": {
+    "participants": [
+      "Mara Voss",
+      "Adrian Vale"
+    ],
+    "relationship_type": "Former lovers divided by apparent betrayal",
+    "current_state": "Mara intends to expose Adrian publicly; Adrian accepts her hatred while concealing a larger threat",
+    "desired_relationship_direction": "Move toward adversarial uncertainty and a conditional alliance without restoring trust instantly"
+  }
+}

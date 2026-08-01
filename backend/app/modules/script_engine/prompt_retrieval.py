@@ -41,22 +41,35 @@ class PromptRetrievalService:
         self,
         generation_strategy: GenerationStrategy,
     ) -> PromptRetrievalResult:
+        return self.resolve_prompt_ids(
+            generation_strategy,
+            generation_strategy.prompt_ids,
+            retrieval_mode="exact_ids",
+        )
+
+    def resolve_prompt_ids(
+        self,
+        generation_strategy: GenerationStrategy,
+        prompt_ids: list[str],
+        *,
+        retrieval_mode: str,
+    ) -> PromptRetrievalResult:
         prompt_items = self._prompt_library_repository.list_by_ids(
-            generation_strategy.prompt_ids
+            prompt_ids
         )
         self._ensure_all_prompt_ids_resolved(
-            generation_strategy.prompt_ids,
+            prompt_ids,
             prompt_items,
         )
         return PromptRetrievalResult(
             generation_strategy_id=generation_strategy.id,
             strategy_name=generation_strategy.name,
-            prompt_ids=generation_strategy.prompt_ids,
+            prompt_ids=prompt_ids,
             prompts=prompt_items,
-            retrieval_mode="exact_ids",
+            retrieval_mode=retrieval_mode,
             notes=[
-                "Current MVP prompt retrieval uses exact GenerationStrategy.prompt_ids resolution.",
-                "Future phases may extend retrieval with tag, audience and platform matching.",
+                "Current MVP prompt retrieval uses exact strategy-declared prompt IDs.",
+                "Draft and Creative Deepening prompt sets remain purpose-scoped.",
             ],
         )
 

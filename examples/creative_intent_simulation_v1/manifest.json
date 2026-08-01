@@ -1,0 +1,145 @@
+{
+  "simulation_id": "creative_intent_input_generation_compatibility_v1",
+  "simulation_type": "bounded_non_ab_compatibility_check",
+  "status": "completed_observational_review",
+  "formal_benchmark": false,
+  "runtime_integrated": false,
+  "case_ids": [
+    "dark_romance_revenge",
+    "supernatural_romance",
+    "sci_fi_mystery"
+  ],
+  "generation_policy": {
+    "generations_per_case": 1,
+    "output_language": "en",
+    "desired_scene_count": 3,
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "prompt_builder": "current_production_builder",
+    "scene_causality": "current_production_contract",
+    "no_prompt_tuning": true
+  },
+  "mapping_policy": {
+    "free_prompt": "ContentSpec.story_goal",
+    "audience": "ContentSpec.audience_goal plus resolved Audience TagRef values",
+    "genre_theme_elements_emotion": "resolved ContentSpec.tags plus CreativeBrief fields",
+    "character": "lossy CreativeBrief.generation_notes compatibility mapping",
+    "relationship": "lossy CreativeBrief.generation_notes compatibility mapping",
+    "constraints": "PlatformGoal, request output requirements, asset constraints or generation notes",
+    "fixture_ontology": "Fixture-only OntologyNode candidates; no production ontology mutation"
+  },
+  "known_limitations": [
+    "Current ContentSpec has no formal character input field.",
+    "Current ContentSpec has no independent relationship object.",
+    "Character field locks and provenance cannot be enforced by the current runtime.",
+    "Trend recommendation source and time validity cannot be represented by TagRef.",
+    "Generation notes preserve text but lose typed semantics and weighting.",
+    "This simulation cannot prove the future Creative Intent Resolver behavior."
+  ],
+  "artifacts": {
+    "ontology_fixture": "examples/creative_intent_simulation_v1/ontology_fixture.json",
+    "cases_directory": "examples/creative_intent_simulation_v1/cases",
+    "comparison": "examples/creative_intent_simulation_v1/compatibility_report.json",
+    "report": "examples/creative_intent_simulation_v1/compatibility_report.md"
+  },
+  "started_at": "2026-07-21T10:59:24.348026+00:00",
+  "model": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000
+  },
+  "runs": {
+    "dark_romance_revenge": {
+      "case_id": "dark_romance_revenge",
+      "content_spec_id": "creative-intent-sim-dark-romance-v1",
+      "draft_id": "518a58ae-539d-4cc9-99a2-ade2827d2de1",
+      "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+      "generation_strategy_version": "v1",
+      "prompt_ids": [
+        "prompt.story_planning.scene_causality_ab.improved",
+        "prompt.platform_optimization.scene_causality_ab.shared"
+      ],
+      "prompt_versions": [
+        "v3-scene-causality",
+        "v1-shared"
+      ],
+      "prompt_builder_version": "v0.1",
+      "llm_model_info": {
+        "provider": "openai_compatible",
+        "model_name": "gpt-5.6-sol",
+        "supports_structured_output": true,
+        "max_context_tokens": 128000
+      },
+      "latency_seconds": 64.457,
+      "technical_attempt": 1,
+      "generated_at": "2026-07-21T11:00:28.886096+00:00",
+      "artifacts": {
+        "prompt": "examples/creative_intent_simulation_v1/cases/dark_romance_revenge/generated_prompt.txt",
+        "draft": "examples/creative_intent_simulation_v1/cases/dark_romance_revenge/draft.json",
+        "story_qc": "examples/creative_intent_simulation_v1/cases/dark_romance_revenge/story_qc.json"
+      }
+    },
+    "supernatural_romance": {
+      "case_id": "supernatural_romance",
+      "content_spec_id": "creative-intent-sim-supernatural-romance-v1",
+      "draft_id": "ad4bdc3d-888d-47a1-a208-576a6ef7b5f0",
+      "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+      "generation_strategy_version": "v1",
+      "prompt_ids": [
+        "prompt.story_planning.scene_causality_ab.improved",
+        "prompt.platform_optimization.scene_causality_ab.shared"
+      ],
+      "prompt_versions": [
+        "v3-scene-causality",
+        "v1-shared"
+      ],
+      "prompt_builder_version": "v0.1",
+      "llm_model_info": {
+        "provider": "openai_compatible",
+        "model_name": "gpt-5.6-sol",
+        "supports_structured_output": true,
+        "max_context_tokens": 128000
+      },
+      "latency_seconds": 53.183,
+      "technical_attempt": 1,
+      "generated_at": "2026-07-21T11:01:52.085460+00:00",
+      "artifacts": {
+        "prompt": "examples/creative_intent_simulation_v1/cases/supernatural_romance/generated_prompt.txt",
+        "draft": "examples/creative_intent_simulation_v1/cases/supernatural_romance/draft.json",
+        "story_qc": "examples/creative_intent_simulation_v1/cases/supernatural_romance/story_qc.json"
+      }
+    },
+    "sci_fi_mystery": {
+      "case_id": "sci_fi_mystery",
+      "content_spec_id": "creative-intent-sim-sci-fi-mystery-v1",
+      "draft_id": "220ca586-65fa-49cd-b488-dfc4bf8ab584",
+      "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+      "generation_strategy_version": "v1",
+      "prompt_ids": [
+        "prompt.story_planning.scene_causality_ab.improved",
+        "prompt.platform_optimization.scene_causality_ab.shared"
+      ],
+      "prompt_versions": [
+        "v3-scene-causality",
+        "v1-shared"
+      ],
+      "prompt_builder_version": "v0.1",
+      "llm_model_info": {
+        "provider": "openai_compatible",
+        "model_name": "gpt-5.6-sol",
+        "supports_structured_output": true,
+        "max_context_tokens": 128000
+      },
+      "latency_seconds": 63.438,
+      "technical_attempt": 1,
+      "generated_at": "2026-07-21T11:03:25.541845+00:00",
+      "artifacts": {
+        "prompt": "examples/creative_intent_simulation_v1/cases/sci_fi_mystery/generated_prompt.txt",
+        "draft": "examples/creative_intent_simulation_v1/cases/sci_fi_mystery/draft.json",
+        "story_qc": "examples/creative_intent_simulation_v1/cases/sci_fi_mystery/story_qc.json"
+      }
+    }
+  },
+  "completed_at": "2026-07-21T11:03:25.542963+00:00"
+}

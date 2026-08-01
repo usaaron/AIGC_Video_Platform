@@ -1,0 +1,122 @@
+{
+  "evaluation_id": "creative_control_combined_v1",
+  "review_status": "pending_blind_review",
+  "reviewer_identity_type": null,
+  "rubric_scale": "1-5",
+  "rubric": {
+    "character_consistency": "Do choices and dialogue remain consistent with the character motivation established by the draft, without arbitrary behavior changes?",
+    "character_agency": "Does the protagonist make consequential choices that cause the plot to move?",
+    "conflict_quality": "Does conflict arise from goals, beliefs, contradictions, and relationships rather than arbitrary obstruction?",
+    "emotional_progression": "Do emotional states develop through earned actions and consequences?",
+    "scene_causality": "Does each scene outcome materially create the condition for the next scene?",
+    "hook_quality": "Does the opening create immediate curiosity and dramatic pressure?",
+    "cliffhanger_quality": "Does the ending create a meaningful next question earned by the episode?"
+  },
+  "cases": {
+    "dark_romance_revenge": {
+      "candidate_1": {
+        "scores": {
+          "character_consistency": null,
+          "character_agency": null,
+          "conflict_quality": null,
+          "emotional_progression": null,
+          "scene_causality": null,
+          "hook_quality": null,
+          "cliffhanger_quality": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "candidate_2": {
+        "scores": {
+          "character_consistency": null,
+          "character_agency": null,
+          "conflict_quality": null,
+          "emotional_progression": null,
+          "scene_causality": null,
+          "hook_quality": null,
+          "cliffhanger_quality": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "preferred_candidate": null,
+      "preference_reason": null,
+      "major_structural_regression_candidate": null,
+      "comparison_evidence": [],
+      "uncertainty_notes": []
+    },
+    "supernatural_romance": {
+      "candidate_1": {
+        "scores": {
+          "character_consistency": null,
+          "character_agency": null,
+          "conflict_quality": null,
+          "emotional_progression": null,
+          "scene_causality": null,
+          "hook_quality": null,
+          "cliffhanger_quality": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "candidate_2": {
+        "scores": {
+          "character_consistency": null,
+          "character_agency": null,
+          "conflict_quality": null,
+          "emotional_progression": null,
+          "scene_causality": null,
+          "hook_quality": null,
+          "cliffhanger_quality": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "preferred_candidate": null,
+      "preference_reason": null,
+      "major_structural_regression_candidate": null,
+      "comparison_evidence": [],
+      "uncertainty_notes": []
+    },
+    "sci_fi_mystery": {
+      "candidate_1": {
+        "scores": {
+          "character_consistency": null,
+          "character_agency": null,
+          "conflict_quality": null,
+          "emotional_progression": null,
+          "scene_causality": null,
+          "hook_quality": null,
+          "cliffhanger_quality": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "candidate_2": {
+        "scores": {
+          "character_consistency": null,
+          "character_agency": null,
+          "conflict_quality": null,
+          "emotional_progression": null,
+          "scene_causality": null,
+          "hook_quality": null,
+          "cliffhanger_quality": null
+        },
+        "evidence": [],
+        "strengths": [],
+        "weaknesses": []
+      },
+      "preferred_candidate": null,
+      "preference_reason": null,
+      "major_structural_regression_candidate": null,
+      "comparison_evidence": [],
+      "uncertainty_notes": []
+    }
+  }
+}

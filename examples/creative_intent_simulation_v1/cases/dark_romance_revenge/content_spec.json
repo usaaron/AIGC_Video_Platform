@@ -1,0 +1,59 @@
+{
+  "id": "creative-intent-sim-dark-romance-v1",
+  "status": "approved",
+  "title": "The Truth Mara Exposes",
+  "audience_goal": {
+    "summary": "Female 18-34 viewers who enjoy romance and revenge drama",
+    "priority": "primary",
+    "success_metric": "Sustain curiosity and emotional investment through the final reveal"
+  },
+  "commercial_goal": {
+    "summary": "Create a sequel-driving revenge episode with a debatable conspiracy reveal",
+    "priority": "primary",
+    "success_metric": "Strong completion and continuation intent"
+  },
+  "platform_goal": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "objective": "High-retention serialized drama",
+    "target_duration_seconds": 60,
+    "target_aspect_ratio": "9:16"
+  },
+  "story_goal": "Create a dark romance revenge story where a woman exposes the powerful man who betrayed her, but discovers a deeper conspiracy.",
+  "quality_level": "high",
+  "budget_level": "medium",
+  "tags": [
+    {"ontology_node_id":"audience.female_18_34","label":"Female 18-34","category":"Audience","confidence":1.0},
+    {"ontology_node_id":"audience.romance","label":"Romance Audience","category":"Audience","confidence":1.0},
+    {"ontology_node_id":"audience.revenge_drama","label":"Revenge Drama Audience","category":"Audience","confidence":1.0},
+    {"ontology_node_id":"genre.dark_romance","label":"Dark Romance","category":"Genre","confidence":1.0},
+    {"ontology_node_id":"genre.thriller","label":"Thriller","category":"Genre","confidence":1.0},
+    {"ontology_node_id":"conflict.betrayal","label":"Betrayal","category":"Conflict","confidence":1.0},
+    {"ontology_node_id":"emotion.revenge","label":"Revenge","category":"Emotion","confidence":1.0},
+    {"ontology_node_id":"twist.hidden_identity","label":"Hidden Identity","category":"Twist","confidence":1.0},
+    {"ontology_node_id":"hook.public_exposure","label":"Public Exposure","category":"Hook","confidence":1.0},
+    {"ontology_node_id":"emotion.anger","label":"Anger","category":"Emotion","confidence":1.0},
+    {"ontology_node_id":"emotion.suspense","label":"Suspense","category":"Emotion","confidence":1.0},
+    {"ontology_node_id":"emotion.hope","label":"Hope","category":"Emotion","confidence":1.0}
+  ],
+  "creative_brief": {
+    "hook": "Mara publicly exposes the man who betrayed her and immediately uncovers evidence of a deeper conspiracy.",
+    "tone": "dark romantic thriller",
+    "pacing": "fast escalation with one consequential reveal per scene",
+    "target_emotion": "anger to suspense to guarded hope",
+    "asset_constraints": ["Keep violence non-graphic and platform-safe."],
+    "generation_notes": [
+      "The protagonist is Mara, a woman with an elegant dark style and black hair.",
+      "Mara appears calm, intelligent, and reserved.",
+      "Mara actively desires to expose the truth.",
+      "Mara fears trusting the wrong person again.",
+      "Mara believes powerful people always hide the truth.",
+      "Mara wants connection but fears vulnerability.",
+      "Mara will not harm innocent people.",
+      "Do not rename Mara or change her protagonist role."
+    ]
+  },
+  "metadata": {
+    "source": "creative_intent_simulation_v1",
+    "mapping_mode": "offline_lossy_compatibility_fixture"
+  }
+}

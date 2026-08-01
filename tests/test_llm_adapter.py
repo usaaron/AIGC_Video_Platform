@@ -283,6 +283,32 @@ def test_real_llm_adapter_raises_after_timeout_retries_are_exhausted() -> None:
         )
 
 
+def test_real_llm_adapter_reports_network_error_detail_after_retries() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("provider connection closed", request=request)
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(
+        LLMRequestError,
+        match="ConnectError: provider connection closed",
+    ):
+        adapter.generate_structured_output(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        )
+
+
 def test_real_llm_adapter_exposes_safe_provider_error_detail() -> None:
     strategy = GenerationStrategy.model_validate(build_strategy())
 

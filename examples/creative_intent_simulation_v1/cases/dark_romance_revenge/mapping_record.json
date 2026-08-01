@@ -1,0 +1,19 @@
+{
+  "case_id": "dark_romance_revenge",
+  "mapped": {
+    "free_creative_prompt": ["story_goal", "creative_brief.hook"],
+    "audience_tags": ["audience_goal", "ContentSpec.tags"],
+    "genre_theme_story_elements_emotions": ["ContentSpec.tags", "creative_brief.tone", "creative_brief.target_emotion"],
+    "character_identity_psychology_boundary": ["creative_brief.generation_notes"]
+  },
+  "losses": [
+    "Appearance, personality, desire, fear, belief, contradiction and moral boundary lose typed field identity in generation_notes.",
+    "The requested field lock is prose only and cannot be enforced.",
+    "The betrayed powerful man is not a complete user-authored Character Profile.",
+    "The relationship is implied by story_goal rather than represented as an independent object."
+  ],
+  "potential_conflicts": [
+    "Hope may weaken the requested dark thriller tone if not treated as a late emotional movement.",
+    "Public exposure is both a story element and a Hook mechanism; the resolver must choose a primary semantic role."
+  ]
+}

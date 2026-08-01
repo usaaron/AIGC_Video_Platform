@@ -1,0 +1,96 @@
+{
+  "evaluation_id": "creative_control_combined_v1",
+  "status": "generated_pending_blind_review",
+  "model": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000
+  },
+  "variants": {
+    "baseline": {
+      "average_latency_seconds": 46.238,
+      "average_prompt_tokens": 5262.0,
+      "average_completion_tokens": 1957.0,
+      "average_total_tokens": 7219.0,
+      "successful_generation_count": 3,
+      "technical_failure_count": 0
+    },
+    "structured_creative_control": {
+      "average_latency_seconds": 54.721,
+      "average_prompt_tokens": 5756.667,
+      "average_completion_tokens": 2309.0,
+      "average_total_tokens": 8065.667,
+      "successful_generation_count": 3,
+      "technical_failure_count": 0
+    }
+  },
+  "per_case": [
+    {
+      "case_id": "dark_romance_revenge",
+      "baseline": {
+        "token_usage": {
+          "prompt_tokens": 5255,
+          "completion_tokens": 2175,
+          "total_tokens": 7430
+        },
+        "latency_seconds": 58.71
+      },
+      "structured_creative_control": {
+        "token_usage": {
+          "prompt_tokens": 5751,
+          "completion_tokens": 2863,
+          "total_tokens": 8614
+        },
+        "latency_seconds": 70.631
+      },
+      "prompt_token_growth_percent": 9.439,
+      "total_token_growth_percent": 15.935
+    },
+    {
+      "case_id": "supernatural_romance",
+      "baseline": {
+        "token_usage": {
+          "prompt_tokens": 5264,
+          "completion_tokens": 1969,
+          "total_tokens": 7233
+        },
+        "latency_seconds": 43.868
+      },
+      "structured_creative_control": {
+        "token_usage": {
+          "prompt_tokens": 5761,
+          "completion_tokens": 2158,
+          "total_tokens": 7919
+        },
+        "latency_seconds": 52.06
+      },
+      "prompt_token_growth_percent": 9.441,
+      "total_token_growth_percent": 9.484
+    },
+    {
+      "case_id": "sci_fi_mystery",
+      "baseline": {
+        "token_usage": {
+          "prompt_tokens": 5267,
+          "completion_tokens": 1727,
+          "total_tokens": 6994
+        },
+        "latency_seconds": 36.137
+      },
+      "structured_creative_control": {
+        "token_usage": {
+          "prompt_tokens": 5758,
+          "completion_tokens": 1906,
+          "total_tokens": 7664
+        },
+        "latency_seconds": 41.473
+      },
+      "prompt_token_growth_percent": 9.322,
+      "total_token_growth_percent": 9.58
+    }
+  ],
+  "structured_context_prompt_token_growth_percent": 9.401,
+  "context_growth_threshold_percent": 15.0
+}

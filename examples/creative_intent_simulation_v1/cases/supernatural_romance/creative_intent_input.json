@@ -1,0 +1,38 @@
+{
+  "schema_version": "research.creative_intent.v1",
+  "case_id": "supernatural_romance",
+  "free_creative_prompt": "Create a supernatural romance about two enemies who discover they need each other to survive.",
+  "audience_tags": ["Fantasy Romance Audience"],
+  "genre_tags": ["Fantasy", "Romance"],
+  "theme_tags": [],
+  "story_element_tags": ["Vampire", "Forbidden Love", "Ancient Secret"],
+  "emotion_tags": ["Mystery", "Love", "Fear"],
+  "trend_recommendations": [],
+  "user_constraints": [],
+  "characters": [
+    {
+      "name": "Lucian",
+      "species": "Vampire",
+      "external_personality": ["Cold", "Protective", "Secretive"],
+      "desire": "Protect his world",
+      "fear": "Losing control",
+      "belief": "Humans cannot understand monsters",
+      "contradiction": "Needs human connection but rejects humans"
+    }
+  ],
+  "relationships": [
+    {
+      "from_character_ref": "Lucian",
+      "to_character_ref": "unnamed_human_enemy",
+      "current_state": "Enemies forced to depend on each other for survival",
+      "completeness": "partial_from_free_prompt"
+    }
+  ],
+  "generation_constraints": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "output_language": "en",
+    "target_duration_seconds": 60,
+    "desired_scene_count": 3,
+    "content_rating": "platform_safe"
+  }
+}

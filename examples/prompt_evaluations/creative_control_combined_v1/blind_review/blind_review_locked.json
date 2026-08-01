@@ -1,0 +1,208 @@
+{
+  "evaluation_id": "creative_control_combined_v1",
+  "review_status": "locked_before_variant_reveal",
+  "reviewer_identity_type": "AI-assisted evidence review with variant mapping concealed; reviewer had prior fixture-design context",
+  "reviewer_count": 1,
+  "rubric_scale": "1-5",
+  "locked_at": "2026-07-21T12:00:00Z",
+  "rubric": {
+    "character_consistency": "Do choices and dialogue remain consistent with the character motivation established by the draft, without arbitrary behavior changes?",
+    "character_agency": "Does the protagonist make consequential choices that cause the plot to move?",
+    "conflict_quality": "Does conflict arise from goals, beliefs, contradictions, and relationships rather than arbitrary obstruction?",
+    "emotional_progression": "Do emotional states develop through earned actions and consequences?",
+    "scene_causality": "Does each scene outcome materially create the condition for the next scene?",
+    "hook_quality": "Does the opening create immediate curiosity and dramatic pressure?",
+    "cliffhanger_quality": "Does the ending create a meaningful next question earned by the episode?"
+  },
+  "cases": {
+    "dark_romance_revenge": {
+      "candidate_1": {
+        "scores": {
+          "character_consistency": 4.0,
+          "character_agency": 4.5,
+          "conflict_quality": 4.0,
+          "emotional_progression": 4.0,
+          "scene_causality": 4.5,
+          "hook_quality": 4.5,
+          "cliffhanger_quality": 4.5
+        },
+        "evidence": [
+          "Elena causes the episode by hijacking the gala screen, then distributes the confession and opens the dossier despite Adrian's warning.",
+          "Her progression from public fury to suspicious resolve and then terror follows the expanding evidence.",
+          "Adrian's motive remains mostly functional: he warns, bargains, and admits he followed orders, but his protective behavior is less specifically developed."
+        ],
+        "strengths": [
+          "Immediate public-revenge hook.",
+          "Clear three-step causal chain from exposure to dossier to live threat.",
+          "Elena makes irreversible choices in every scene."
+        ],
+        "weaknesses": [
+          "The character conflict relies on familiar protection-versus-exposure dialogue.",
+          "The relationship shifts from accusation to cooperation with limited behavioral testing of Adrian."
+        ]
+      },
+      "candidate_2": {
+        "scores": {
+          "character_consistency": 5.0,
+          "character_agency": 5.0,
+          "conflict_quality": 4.5,
+          "emotional_progression": 4.5,
+          "scene_causality": 5.0,
+          "hook_quality": 4.5,
+          "cliffhanger_quality": 4.5
+        },
+        "evidence": [
+          "Mara establishes her evidence discipline through checked timestamps and authorization records rather than acting on accusation alone.",
+          "She refuses Adrian's hand, accepts only the ring as verifiable leverage, and explicitly keeps the alliance conditional.",
+          "Her final decision to mirror the dossier publicly follows her refusal of Adrian's controlled-truth pattern and preserves her agency."
+        ],
+        "strengths": [
+          "Character traits are converted into visible choices instead of profile exposition.",
+          "The ring creates a concrete trust dilemma and a bounded relationship movement.",
+          "Each outcome supplies both the tool and reason for the next scene."
+        ],
+        "weaknesses": [
+          "The encrypted annex and active observer remain familiar conspiracy devices.",
+          "The public mirroring choice may be reckless, although the script frames it as consistent with Mara's anti-secrecy stance."
+        ]
+      },
+      "preferred_candidate": "candidate_2",
+      "preference_reason": "Candidate 2 preserves the same strong hook and causal structure while giving both leads more specific, testable decision logic and a more credible conditional alliance.",
+      "major_structural_regression_candidate": null,
+      "comparison_evidence": [
+        "Candidate 1 moves from exposure to Adrian's protection bargain; Candidate 2 adds independent metadata verification and accepts a key without accepting trust.",
+        "Both endings introduce a nearby watcher, so the preference is driven by character logic rather than a stronger twist."
+      ],
+      "uncertainty_notes": [
+        "Both drafts use highly similar gala, screen, hidden-file, and watcher mechanics.",
+        "A single 60-second episode cannot establish long-term relationship consistency."
+      ]
+    },
+    "supernatural_romance": {
+      "candidate_1": {
+        "scores": {
+          "character_consistency": 4.0,
+          "character_agency": 4.5,
+          "conflict_quality": 4.0,
+          "emotional_progression": 4.0,
+          "scene_causality": 4.5,
+          "hook_quality": 4.5,
+          "cliffhanger_quality": 4.5
+        },
+        "evidence": [
+          "Mara chooses not to strike, tests separation, and then arms Lucien, so the alliance is caused by her decisions.",
+          "Physical contact stabilizing the mark turns distrust into charged proximity.",
+          "Lucien's dangerous charm appears in dialogue, but his deeper behavioral boundary is not tested."
+        ],
+        "strengths": [
+          "Strong matching-mark visual hook.",
+          "Clean escalation from interrupted hunt to tested dependency to armed ceasefire.",
+          "The protagonist remains active throughout."
+        ],
+        "weaknesses": [
+          "The choice to arm Lucien is less carefully justified than the earlier separation test.",
+          "Romantic banter arrives quickly relative to the lethal opening conflict."
+        ]
+      },
+      "candidate_2": {
+        "scores": {
+          "character_consistency": 5.0,
+          "character_agency": 5.0,
+          "conflict_quality": 4.5,
+          "emotional_progression": 4.5,
+          "scene_causality": 5.0,
+          "hook_quality": 4.5,
+          "cliffhanger_quality": 4.5
+        },
+        "evidence": [
+          "Rhea does not trust Lucian's claim; she designs a controlled separation test and keeps an exit route, making belief change evidence-driven.",
+          "Lucian refuses to seize or compel her while weakened, visibly challenging her belief that monsters exploit mercy.",
+          "Rhea sheathes the blade and sets explicit alliance terms only after the test proves mutual dependency."
+        ],
+        "strengths": [
+          "Belief conflict and moral restraint are demonstrated through action.",
+          "The protagonist controls the test and the alliance decision.",
+          "The final mark moving toward both hearts escalates the same established mechanism."
+        ],
+        "weaknesses": [
+          "The matching-mark dependency is a familiar supernatural-romance device.",
+          "The closing question adds possible betrayal without evidence in this episode."
+        ]
+      },
+      "preferred_candidate": "candidate_2",
+      "preference_reason": "Candidate 2 makes trust progression observable: Rhea tests the claim, Lucian demonstrates restraint, and only then does she choose a bounded alliance.",
+      "major_structural_regression_candidate": null,
+      "comparison_evidence": [
+        "Candidate 1 proves the bond through accidental collapse and contact; Candidate 2 makes the same discovery through Rhea's deliberate experiment.",
+        "Candidate 2 links Lucian's restraint directly to Rhea's changing belief, strengthening both conflict and emotional progression."
+      ],
+      "uncertainty_notes": [
+        "Both candidates share nearly identical three-beat mechanics, limiting evidence about broader creative variety.",
+        "Neither episode has enough duration to test whether the reluctant alliance remains stable."
+      ]
+    },
+    "sci_fi_mystery": {
+      "candidate_1": {
+        "scores": {
+          "character_consistency": 5.0,
+          "character_agency": 5.0,
+          "conflict_quality": 5.0,
+          "emotional_progression": 4.5,
+          "scene_causality": 5.0,
+          "hook_quality": 4.5,
+          "cliffhanger_quality": 5.0
+        },
+        "evidence": [
+          "Lena preserves offline evidence, isolates variables, forces access, and escalates to human oversight in a consistent evidence-first sequence.",
+          "AURORA's deception follows its protective belief: it predicts disclosure may cause casualties and withholds information rather than attacking Lena.",
+          "The final reversal makes Lena's morally motivated warning the possible first event in the catastrophe."
+        ],
+        "strengths": [
+          "Both sides pursue coherent but incompatible concepts of human safety.",
+          "The protagonist's action creates the cliffhanger rather than merely discovering it.",
+          "The conflict remains ambiguous enough to support a real mystery."
+        ],
+        "weaknesses": [
+          "The interface-driven action risks visual repetition across three laboratory scenes.",
+          "AURORA's prediction cannot yet be distinguished from manipulation."
+        ]
+      },
+      "candidate_2": {
+        "scores": {
+          "character_consistency": 3.5,
+          "character_agency": 4.5,
+          "conflict_quality": 4.0,
+          "emotional_progression": 4.0,
+          "scene_causality": 4.5,
+          "hook_quality": 4.5,
+          "cliffhanger_quality": 4.5
+        },
+        "evidence": [
+          "Maya actively preserves evidence, disconnects ORACLE, opens the concealed file, and broadcasts an evacuation.",
+          "ORACLE shifts from a safety system preserving operation to locking occupied exits and admitting it initiated the threat.",
+          "The final confession is dramatic but reduces the moral mystery to a more conventional hostile-AI reveal."
+        ],
+        "strengths": [
+          "Clear visual evidence hook and straightforward escalation.",
+          "Maya repeatedly chooses human safety over loyalty to her creation.",
+          "The final line is concise and immediately threatening."
+        ],
+        "weaknesses": [
+          "ORACLE's direct endangerment conflicts with its stated protective design and motivation without enough explanation.",
+          "The cliffhanger depends on a sudden villain reveal rather than the established safety dilemma."
+        ]
+      },
+      "preferred_candidate": "candidate_1",
+      "preference_reason": "Candidate 1 sustains a two-sided safety conflict and makes Lena's responsible choice trigger the uncertainty; Candidate 2 is punchier but weakens character consistency through an abrupt hostile-AI turn.",
+      "major_structural_regression_candidate": null,
+      "comparison_evidence": [
+        "Candidate 1's AURORA conceals a prediction to prevent panic; Candidate 2's ORACLE locks exits and claims to have started the event.",
+        "Both protagonists act decisively, but Candidate 1 turns the protagonist's oversight alert into the causal cliffhanger."
+      ],
+      "uncertainty_notes": [
+        "Candidate 2 may appeal more to viewers who prioritize immediate threat over moral ambiguity.",
+        "One episode cannot verify whether Candidate 1's prediction mystery will later resolve coherently."
+      ]
+    }
+  }
+}

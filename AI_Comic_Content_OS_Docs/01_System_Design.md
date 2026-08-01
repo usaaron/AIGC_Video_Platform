@@ -10,17 +10,29 @@
 
 当前 MVP 的唯一目标不是视频生产，而是稳定产出高质量 `MasterScript`。
 
+自 2026-08-01 起，默认市场配置从海外 TikTok 切换为中国大陆漫剧市场：
+
+- `cn_mainland` 为当前 active 配置
+- 红果为参考平台，不形成供应商或平台硬绑定
+- `overseas_tiktok` 完整保留但默认 disabled
+- Creative Deepening 前后端运行开关默认关闭，不进入当前创作路径
+- 当前已加入基础阶段生成边界：按项目总集数分有界批次生成，批次间允许更新创作输入；持久化任务恢复与专业长篇规划仍待实现
+
+本文后续未改写的 TikTok V1 内容属于历史设计背景或停用资产说明，不再代表当前默认运行目标。
+
 当前主链路统一为：
 
 Data Intelligence
 → `ContentSpec`
-→ Knowledge Base
-→ Asset Retrieval
-→ Orchestrator
+→ optional `ResolvedCreativeContext`
+→ Orchestrator / Asset Retrieval
 → Prompt Retrieval
+→ Static Creative Knowledge Selection（optional, strategy-declared）
 → Prompt Builder
 → `LLMAdapter`
 → Draft `MasterScript`
+→ Creative Deepening Candidate（当前默认关闭；保留可切换能力）
+→ Source / Candidate QC Comparison（仅在显式启用 Deepening 时存在）
 → Story QC
 → `RevisionDecision`
 → `RevisionStrategy`
@@ -28,13 +40,15 @@ Data Intelligence
 → `RevisionExecutor`
 → Re-QC
 → `AcceptanceDecision`（shadow）
+→ `ScriptRevisionRun`
+→ Finalization Gate
 → Final `MasterScript`
 
 当前 Data Intelligence 还增加了 `Scheduled Ingestion` 分支：
 
 `Scheduled Ingestion` → `DataSourceAdapter` → `RawContentRecord` → 标准分析流程
 
-当前新增一条文档级输入控制边界。Data Intelligence 不再被视为最终创作规范的唯一决定者：
+当前已实现 Phase 1 输入控制边界。Data Intelligence 不再被视为最终创作规范的唯一决定者：
 
 Data Intelligence → Recommended Tags
 
@@ -44,19 +58,23 @@ User → Selected Tags / Added Tags / Excluded Tags / Creative Prompt
 
 以上输入 → Creative Brief Resolution → Final `ContentSpec` → 现有 Script Generation
 
-其中 Creative Brief Resolution 当前只是设计要求，尚未实现 Resolver、API 或持久化。Script Engine 的正式运行时输入仍然是标准化 `ContentSpec`。
+其中 Phase 1 已通过现有 `ContentSpecService` 实现确定性 `CreativeIntentInput -> ContentSpec + ResolvedCreativeContext` Resolution API。Script Engine 的标准化需求输入仍是 `ContentSpec`，Character Context、字段 provenance、locked fields 和 exclusions 通过独立 optional 上下文进入 Draft Generation，不写入 `ContentSpec.metadata`。Phase 2 已接入由 `GenerationStrategy` 显式声明、按 tag / platform / stage 校验的静态 Draft 与 Deepening Knowledge Bundle。Creative Deepening 代码保留，但当前由独立前后端开关关闭。Frontend MVP 已通过现有步骤 API 支持逐集和分阶段全部生成；每个阶段保存集数范围、阶段指令和完成状态，并允许下一阶段读取更新后的标签、角色、故事线与人物关系。该能力仍是对单集 API 的有界编排，不是 Story Blueprint / Episode Planning runtime，也不具备后端持久化任务恢复。推荐标签 fallback、alias / unresolved tag 处理、正式后端 Relationship Contract、AI 自动补全、动态 Knowledge Retrieval / RAG 仍未实现。
 
 当前最小实现中，`Asset Retrieval` 的直接输入暂由 `OrchestrationPlan.asset_requests` 承载，用于保证资产检索请求结构化、可控、可测试。
 
 当前 Script Engine 的内部推荐流程为：
 
 `ContentSpec`
+→ optional `ResolvedCreativeContext`
 → `CreativeBrief`
-→ Asset Retrieval
+→ Orchestrator / Asset Retrieval
 → Prompt Retrieval
+→ Static Creative Knowledge Selection（optional）
 → Prompt Builder
 → `LLMAdapter`
 → Draft `MasterScript`
+→ Creative Deepening Candidate（optional shadow）
+→ Source / Candidate QC Comparison（observational）
 → Story QC
 → `RevisionDecision`
 → `RevisionStrategy`
@@ -65,6 +83,7 @@ User → Selected Tags / Added Tags / Excluded Tags / Creative Prompt
 → Re-QC
 → `AcceptanceDecision`（shadow）
 → `ScriptRevisionRun`
+→ Finalization Gate
 → Final `MasterScript`
 
 当前最小联调能力补充：
@@ -74,7 +93,7 @@ User → Selected Tags / Added Tags / Excluded Tags / Creative Prompt
   - `Orchestrator`
   - `Retrieval`
   - `Prompt Builder`
-  - `MockLLMAdapter`
+  - `LLMAdapter`（Mock 或 OpenAI-compatible Real）
   - `Story QC`
   - `RevisionPlan`
   - `Script Revision`
@@ -102,7 +121,7 @@ AI 视频生成模型、AI 绘图模型、语音合成模型和大语言模型�
 
 > 视频生成是执行层问题，内容决策与内容资产沉淀才是长期竞争力。
 
-因此，本项目不只是一个 AI 漫剧生成工具，而是一套面向海外市场、以 TikTok 为 V1 目标平台的数据驱动内容生产操作系统。
+因此，本项目不只是一个 AI 漫剧生成工具，而是一套可按市场配置切换的数据驱动内容生产操作系统。当前默认面向中国大陆漫剧市场；海外 TikTok 是已保留但停用的历史验证配置。
 
 系统长期目标不是简单地自动生成动画，而是实现：
 
@@ -158,17 +177,19 @@ AI Comic Content OS 的长期愿景是构建一套可复用、可扩展、可学
 
 ---
 
-## 3. V1 平台定位
+## 3. 当前市场定位
 
-### 3.1 当前目标平台
+### 3.1 当前目标市场
 
-V1 阶段仅围绕 TikTok 构建。
+当前围绕中国大陆漫剧市场构建长篇故事母本能力，不绑定单一发行平台。
 
-所有内容策略、平台规则、收益规则、内容优化、推荐机制分析，均优先围绕 TikTok。
+红果、番茄 IP 改编生态及其他国内平台实践只作为有来源、可版本化、可验证的市场参考。具体平台的分发、分账、字数、付费卡点与推荐规则不得变成全局硬编码。
+
+原 TikTok 海外配置保留为 `overseas_tiktok`，当前状态为 disabled；后续只有在明确切换市场配置时才重新启用。
 
 ### 3.2 架构原则
 
-虽然 V1 只做 TikTok，但系统架构不绑定 TikTok。
+系统架构不绑定中国大陆、红果或 TikTok。
 
 系统采用：
 
@@ -176,7 +197,7 @@ V1 阶段仅围绕 TikTok 构建。
 
 即：
 
-- 业务实现先聚焦 TikTok
+- 当前业务实现聚焦中国大陆长篇故事母本
 - 架构设计保留平台适配能力
 
 未来如需支持 YouTube Shorts、Instagram Reels、WEBTOON、ReelShort 等平台，只需新增对应 Platform Profile，而不是重构整个系统。
@@ -1228,7 +1249,6 @@ docs/
 ├── 04_Database_Design.md
 ├── 05_API_Design.md
 ├── 06_Project_Structure.md
-├── 07_Development_Guide.md
 ├── 08_TikTok_Profile.md
 ├── 09_ContentSpec.md
 ├── 10_Tag_System.md

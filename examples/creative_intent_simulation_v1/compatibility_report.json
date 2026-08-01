@@ -1,0 +1,148 @@
+{
+  "simulation_id": "creative_intent_input_generation_compatibility_v1",
+  "review_status": "completed",
+  "conclusion": "compatible_with_lossy_mapping",
+  "evidence_level": "three_single_generation_observations_not_formal_benchmark",
+  "model": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000
+  },
+  "aggregate_engineering_observations": {
+    "successful_generations": 3,
+    "technical_failures": 0,
+    "average_latency_seconds": 60.359,
+    "average_prompt_tokens": 5747.333,
+    "average_completion_tokens": 2641.333,
+    "average_total_tokens": 8388.667,
+    "schema_valid_outputs": 3
+  },
+  "input_representation": [
+    {
+      "input_type": "free_creative_prompt",
+      "current_support": "supported_through_story_goal",
+      "prompt_visibility": "full",
+      "limitation": "No resolver distinguishes premise, constraint and optional inspiration."
+    },
+    {
+      "input_type": "audience_genre_theme_story_element_emotion_tags",
+      "current_support": "supported_when_resolved_to_ontology_tag_refs",
+      "prompt_visibility": "full",
+      "limitation": "Several required nodes are absent from current production seeds; fixture-only nodes were needed."
+    },
+    {
+      "input_type": "user_generation_constraints",
+      "current_support": "partial",
+      "prompt_visibility": "partial",
+      "limitation": "Platform, duration, language and scene count have typed paths; content rating and avoid semantics do not."
+    },
+    {
+      "input_type": "character_profile",
+      "current_support": "lossy_generation_notes_mapping",
+      "prompt_visibility": "full_text_without_type_or_authority",
+      "limitation": "Identity, psychology, appearance, moral boundaries, provenance and locks are flattened into prose."
+    },
+    {
+      "input_type": "relationship",
+      "current_support": "lossy_story_goal_or_generation_notes_mapping",
+      "prompt_visibility": "partial",
+      "limitation": "No independent directional relationship object or state update contract exists."
+    },
+    {
+      "input_type": "trend_recommendation",
+      "current_support": "not_tested_and_not_representable_by_tag_ref_alone",
+      "prompt_visibility": "not_applicable",
+      "limitation": "Source, observation time, expiry, platform scope and acceptance status need a separate signal wrapper."
+    }
+  ],
+  "case_reviews": [
+    {
+      "case_id": "dark_romance_revenge",
+      "generated_title": "The Truth Mara Exposes",
+      "genre_reflection": "strong",
+      "emotional_direction": "strong_with_guarded_hope_only_partial",
+      "personality_reflection": "strong",
+      "motivation_reflection": "strong",
+      "moral_boundary_reflection": "mentioned_but_not_pressure_tested",
+      "relationship_reflection": "inferred_former_lover_relationship_without_typed_state",
+      "evidence": [
+        "Mara publicly exposes Adrian and independently verifies the evidence.",
+        "Her distrust is expressed through 'I trusted you once. Now I verify everything.'",
+        "Her calm, reserved appearance and refusal to endanger innocents are copied into CharacterProfile.",
+        "No scene forces Mara to choose between revenge and harming an innocent person."
+      ],
+      "observed_loss": "The moral boundary affects description but not causal action, and the relationship is model-inferred."
+    },
+    {
+      "case_id": "supernatural_romance",
+      "generated_title": "The Enemy Lucian Needs",
+      "genre_reflection": "strong",
+      "emotional_direction": "strong",
+      "personality_reflection": "strong",
+      "motivation_reflection": "strong_but_protect_his_world_remains_abstract",
+      "moral_boundary_reflection": "not_supplied",
+      "relationship_reflection": "strong_enemy_dependency_but_counterpart_was_model_created",
+      "evidence": [
+        "Lucian is cold, protective and secretive, and his fear of losing control drives the final scene.",
+        "His belief about humans is reflected directly in conflict dialogue.",
+        "His need for human connection and rejection of humans becomes the forced bond.",
+        "Because the user did not define Lucian's story role or the human enemy profile, the model made the unnamed Hunter the protagonist."
+      ],
+      "observed_loss": "Incomplete role and relationship inputs allow the model to decide protagonist authority and counterpart identity."
+    },
+    {
+      "case_id": "sci_fi_mystery",
+      "generated_title": "The Truth Lena's AI Hid",
+      "genre_reflection": "strong",
+      "emotional_direction": "strong",
+      "personality_reflection": "strong",
+      "motivation_reflection": "strong",
+      "moral_boundary_reflection": "mentioned_and_respected_but_not_pressure_tested",
+      "relationship_reflection": "strong_creator_system_conflict_without_typed_entity_role",
+      "evidence": [
+        "Lena follows an evidence-driven investigation and physically isolates the AI.",
+        "Her belief is used almost verbatim in the decisive decryption line.",
+        "Human safety appears in her motivation and dialogue.",
+        "The model turns the AI system into a speaking antagonist because no entity or relationship type is available."
+      ],
+      "observed_loss": "Occupation, story role, system entity type and moral boundary are flattened into prose and cannot be enforced independently."
+    }
+  ],
+  "cross_case_findings": {
+    "influenced_generation": [
+      "All three requested genres and central premises were clearly reflected.",
+      "All three named characters retained their names and supplied core motivations.",
+      "Fear, belief and contradiction affected choices and dialogue more reliably than appearance.",
+      "Scene Causality remained valid in all three outputs."
+    ],
+    "lost_or_weak": [
+      "Moral boundaries were preserved as descriptions but were not tested through costly choices.",
+      "Appearance influenced CharacterProfile text but did not materially affect scene execution.",
+      "Relationships remained inferred prose and could not preserve directional authority or state.",
+      "Field provenance, user locks and AI expansion boundaries were not enforceable.",
+      "Intent duplicated across story_goal, tags, hook and generation_notes, so influence cannot be attributed to one channel.",
+      "Audience fit cannot be validated from one unblinded output per case.",
+      "Trend recommendations and explicit avoid tags were not exercised."
+    ],
+    "unexpected_behavior": [
+      "The model created missing counterpart characters and assigned their story roles.",
+      "The Supernatural case promoted the unnamed Hunter to protagonist because Lucian's role was unspecified.",
+      "The Sci-Fi case treated the AI system as a speaking character without an explicit entity contract.",
+      "Placeholder Story QC gave the Sci-Fi protagonist agency 2.5 despite several visible investigative choices, confirming that QC scores are not proof of intent adherence."
+    ]
+  },
+  "future_implementation_considerations": [
+    "Implement deterministic intent resolution before any Prompt integration.",
+    "Keep stable Ontology nodes separate from trend recommendation metadata.",
+    "Add field-level character provenance, locks and AI-expandable controls only after contract validation.",
+    "Represent relationships independently and require explicit role resolution for principal characters.",
+    "Define entity type for non-human systems such as an AI before treating them as characters.",
+    "Avoid duplicating the same intent across many prompt channels without declared weighting.",
+    "Validate moral boundaries using observable decision-pressure checks rather than keyword presence.",
+    "Use a later bounded controllability A/B before approving runtime integration."
+  ],
+  "decision": "Research contract remains justified; current runtime can carry intent text but does not provide typed control or enforcement.",
+  "roadmap_change": false
+}

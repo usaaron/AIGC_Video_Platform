@@ -1,0 +1,55 @@
+{
+  "evaluation_id": "creative_control_combined_v1",
+  "contract_version": "creative_control_combined_evaluation.v1",
+  "generation_status": "completed",
+  "decision_status": "validated_for_runtime_design",
+  "model": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000
+  },
+  "fixed_settings": {
+    "episode_count_per_generation": 1,
+    "scene_count": 3,
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "output_language": "en",
+    "target_duration_seconds": 60,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000,
+    "successful_generations_per_case_variant": 1,
+    "total_successful_generations": 6
+  },
+  "variant_isolation": {
+    "baseline": "Unmodified current TemplatePromptBuilder v0.2 with ContentSpec only.",
+    "structured_creative_control": "Evaluation-only TemplatePromptBuilder subclass appends frozen Creative Intent, two Character Profiles, and one Relationship Context object.",
+    "identical_between_variants": [
+      "ContentSpec",
+      "model",
+      "temperature",
+      "top_p",
+      "max_tokens",
+      "platform profile",
+      "language",
+      "duration",
+      "scene count",
+      "GenerationStrategy",
+      "Prompt Library items",
+      "Scene Causality contract",
+      "output schema"
+    ]
+  },
+  "thresholds_locked_before_generation": {
+    "minimum_preferred_case_count": 2,
+    "character_consistency_average_delta_must_be_positive": true,
+    "character_agency_average_delta_must_be_positive": true,
+    "significant_score_regression_points": 1.0,
+    "maximum_average_prompt_token_growth_percent": 15.0,
+    "major_structural_regression_allowed": false
+  },
+  "started_at": "2026-07-21T11:37:06.085164+00:00",
+  "completed_at": "2026-07-21T11:44:39.179062+00:00",
+  "review_completed_at": "2026-07-21T13:54:19.251593+00:00"
+}

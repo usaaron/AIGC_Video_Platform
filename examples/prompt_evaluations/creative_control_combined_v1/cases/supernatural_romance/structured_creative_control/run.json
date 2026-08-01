@@ -1,0 +1,37 @@
+{
+  "case_id": "supernatural_romance",
+  "variant": "structured_creative_control",
+  "content_spec_id": "creative-control-supernatural-romance-v1",
+  "draft_id": "fe0b4cc0-18f6-47eb-b973-c7b4d7a351ba",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "generation_strategy_version": "v1",
+  "prompt_ids": [
+    "prompt.story_planning.scene_causality_ab.improved",
+    "prompt.platform_optimization.scene_causality_ab.shared"
+  ],
+  "prompt_versions": [
+    "v3-scene-causality",
+    "v1-shared"
+  ],
+  "prompt_builder_version": "v0.2+creative-control-eval.v1",
+  "llm_model_info": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "supports_structured_output": true,
+    "max_context_tokens": 128000
+  },
+  "token_usage": {
+    "prompt_tokens": 5761,
+    "completion_tokens": 2158,
+    "total_tokens": 7919
+  },
+  "latency_seconds": 52.06,
+  "technical_failures_before_success": [],
+  "successful_generations_for_variant": 1,
+  "generated_at": "2026-07-21T11:42:21.491008+00:00",
+  "artifacts": {
+    "prompt": "examples/prompt_evaluations/creative_control_combined_v1/cases/supernatural_romance/structured_creative_control/generated_prompt.txt",
+    "draft": "examples/prompt_evaluations/creative_control_combined_v1/cases/supernatural_romance/structured_creative_control/draft.json",
+    "story_qc": "examples/prompt_evaluations/creative_control_combined_v1/cases/supernatural_romance/structured_creative_control/story_qc.json"
+  }
+}

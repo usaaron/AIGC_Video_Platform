@@ -1,7 +1,12 @@
 from app.modules.script_engine.generation_service import (
+    CreativeDeepeningDisabledError,
     MissingContentSpecError,
     MissingGenerationStrategyError,
     ScriptGenerationService,
+)
+from app.modules.script_engine.creative_deepening import (
+    CreativeDeepeningService,
+    build_deepening_qc_comparison,
 )
 from app.modules.script_engine.llm_adapter import (
     FailingLLMAdapter,
@@ -9,14 +14,31 @@ from app.modules.script_engine.llm_adapter import (
     MockLLMAdapter,
     RealLLMAdapter,
 )
+from app.modules.script_engine.knowledge_bundle import (
+    InvalidKnowledgeBundleError,
+    StaticKnowledgeBundleCatalog,
+)
 from app.modules.script_engine.models import (
     ErrorResponse,
+    CreativeDeepeningChange,
+    CreativeDeepeningChangeType,
+    CreativeDeepeningMode,
+    CreativeDeepeningPreservationCheck,
+    CreativeDeepeningQCComparison,
+    CreativeDeepeningRequest,
+    CreativeDeepeningRun,
+    CreativeDeepeningStatus,
     GenerationStrategyCreate,
     GenerationStrategyListResponse,
     GenerationStrategyResponse,
     GenerationStrategy,
     GenerationStrategyStatus,
     GenerationWorkflowStep,
+    GenerationBatchContext,
+    KnowledgeApplicabilityConditions,
+    KnowledgeBundle,
+    KnowledgeSelectionTrace,
+    KnowledgeTargetStage,
     LLMModelInfo,
     PromptBuildContext,
     PromptBuildResult,
@@ -35,6 +57,7 @@ from app.modules.script_engine.models import (
     StoryQCCheck,
     StoryQCReport,
     StoryQCStatus,
+    StaticKnowledgeItem,
 )
 from app.modules.script_engine.prompt_builder import PromptBuilder, TemplatePromptBuilder
 from app.modules.script_engine.repository import (
@@ -57,6 +80,16 @@ from app.modules.script_engine.story_qc import PlaceholderStoryQC, StoryQC
 
 __all__ = [
     "DuplicatePromptLibraryItemError",
+    "CreativeDeepeningChange",
+    "CreativeDeepeningDisabledError",
+    "CreativeDeepeningChangeType",
+    "CreativeDeepeningMode",
+    "CreativeDeepeningPreservationCheck",
+    "CreativeDeepeningQCComparison",
+    "CreativeDeepeningRequest",
+    "CreativeDeepeningRun",
+    "CreativeDeepeningService",
+    "CreativeDeepeningStatus",
     "ErrorResponse",
     "DuplicateGenerationStrategyError",
     "GenerationStrategyCreate",
@@ -67,6 +100,12 @@ __all__ = [
     "GenerationStrategy",
     "GenerationStrategyStatus",
     "GenerationWorkflowStep",
+    "GenerationBatchContext",
+    "InvalidKnowledgeBundleError",
+    "KnowledgeApplicabilityConditions",
+    "KnowledgeBundle",
+    "KnowledgeSelectionTrace",
+    "KnowledgeTargetStage",
     "LLMAdapter",
     "FailingLLMAdapter",
     "LLMModelInfo",
@@ -101,5 +140,8 @@ __all__ = [
     "StoryQCCheck",
     "StoryQCReport",
     "StoryQCStatus",
+    "StaticKnowledgeBundleCatalog",
+    "StaticKnowledgeItem",
     "TemplatePromptBuilder",
+    "build_deepening_qc_comparison",
 ]

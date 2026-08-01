@@ -162,3 +162,52 @@ def test_placeholder_story_qc_dimension_evaluations_expose_revision_signals() ->
     assert dimensions_with_revision_signals
     assert any(item.scene_refs for item in report.dimension_evaluations)
     assert any(item.revision_signals for item in report.dimension_evaluations)
+
+
+def test_story_qc_recognizes_visible_agency_and_unresolved_cliffhanger() -> None:
+    qc = PlaceholderStoryQC()
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    report = qc.evaluate(
+        {
+            "hook": "At the microphone, Mara learns her evidence may be planted.",
+            "next_episode_question": "Will Mara expose the ally or reverse Adrian's trap?",
+            "scenes": [
+                {
+                    "scene_number": 1,
+                    "purpose": "Put the accusation under immediate pressure.",
+                    "beat_summary": "Mara stops her upload and demands proof.",
+                    "emotional_shift": "certainty_to_doubt",
+                    "turning_point": "Mara stops her own upload.",
+                    "character_actions": ["Mara demands proof before continuing."],
+                    "scene_causality": {
+                        "goal": "Mara intends to expose Adrian.",
+                        "conflict": "Her evidence may implicate the wrong person.",
+                        "outcome": "Mara stops the upload and forces Adrian to show proof.",
+                    },
+                    "cliffhanger": False,
+                },
+                {
+                    "scene_number": 2,
+                    "purpose": "Force a public moral choice.",
+                    "beat_summary": "Mara takes the microphone before revealing her intent.",
+                    "emotional_shift": "doubt_to_defiance",
+                    "turning_point": "Mara takes control of the live microphone.",
+                    "character_actions": ["Mara takes the microphone from Adrian."],
+                    "scene_causality": {
+                        "goal": "Mara wants the complete source trail.",
+                        "conflict": "Adrian demands that she name an innocent ally.",
+                        "outcome": "Mara begins speaking before her true choice is revealed.",
+                    },
+                    "cliffhanger": True,
+                },
+            ],
+        },
+        strategy=strategy,
+    )
+
+    dimensions = {item.dimension.value: item for item in report.dimension_evaluations}
+    assert dimensions["character_agency"].score == 4.0
+    assert dimensions["character_agency"].revision_signals == []
+    assert dimensions["cliffhanger_strength"].score == 5.0
+    assert dimensions["cliffhanger_strength"].revision_signals == []

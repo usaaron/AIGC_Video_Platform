@@ -29,5 +29,11 @@ build/
 dist/
 *.egg-info/
 
+# Frontend
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
 # Read-only external research repositories
 external_research/

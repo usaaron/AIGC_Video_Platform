@@ -119,6 +119,40 @@ def build_payload(profile_id: str) -> dict:
     }
 
 
+def build_creative_intent_payload(
+    profile_id: str,
+    genre_node_id: str,
+    emotion_node_id: str,
+) -> dict:
+    content_spec_payload = build_payload(profile_id)
+    return {
+        "schema_version": "v1",
+        "title": content_spec_payload["title"],
+        "audience_goal": content_spec_payload["audience_goal"],
+        "commercial_goal": content_spec_payload["commercial_goal"],
+        "platform_goal": content_spec_payload["platform_goal"],
+        "free_creative_prompt": content_spec_payload["story_goal"],
+        "quality_level": content_spec_payload["quality_level"],
+        "budget_level": content_spec_payload["budget_level"],
+        "selected_tag_ids": [genre_node_id],
+        "added_tag_ids": [emotion_node_id],
+        "excluded_patterns": ["love triangle"],
+        "creative_brief": content_spec_payload["creative_brief"],
+        "character_contexts": [
+            {
+                "character_ref": "character.mara_api",
+                "name": "Mara",
+                "role": "protagonist",
+                "desire": "Expose the truth",
+                "belief": "Powerful people hide the truth",
+                "locked_fields": ["name"],
+                "field_sources": {"belief": "ai_inferred"},
+            }
+        ],
+        "request_metadata": {"source": "api_test"},
+    }
+
+
 @pytest.mark.anyio
 async def test_create_content_spec() -> None:
     profile_id = "tiktok_v1_content_create"
@@ -280,3 +314,86 @@ async def test_create_content_spec_returns_409_for_mismatched_tag_reference() ->
             assert ontology_response.status_code == 201
         response = await client.post("/content-specs", json=payload)
     assert response.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_resolve_creative_intent_returns_content_spec_and_character_context() -> None:
+    profile_id = "tiktok_v1_creative_intent_api"
+    genre_node_id = "genre.romance_creative_intent_api"
+    emotion_node_id = "emotion.revenge_creative_intent_api"
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()),
+        base_url="http://testserver",
+    ) as client:
+        profile_response = await client.post(
+            "/platform-profiles",
+            json=build_platform_profile_payload(profile_id),
+        )
+        assert profile_response.status_code == 201
+        for node_id, label, category in (
+            (genre_node_id, "Romance", "Genre"),
+            (emotion_node_id, "Revenge", "Emotion"),
+        ):
+            response = await client.post(
+                "/ontology-nodes",
+                json=build_ontology_node_payload(node_id, label, category),
+            )
+            assert response.status_code == 201
+
+        response = await client.post(
+            "/content-specs/resolve-creative-intent",
+            json=build_creative_intent_payload(
+                profile_id,
+                genre_node_id,
+                emotion_node_id,
+            ),
+        )
+
+    assert response.status_code == 201
+    data = response.json()["data"]
+    assert data["content_spec"]["tags"][0]["ontology_node_id"] == genre_node_id
+    assert "character_contexts" not in data["content_spec"]["metadata"]
+    character = data["resolved_creative_context"]["characters"][0]
+    assert character["name"] == "Mara"
+    assert character["field_sources"]["belief"] == "ai_inferred"
+    assert character["field_sources"]["desire"] == "user_provided"
+
+
+@pytest.mark.anyio
+async def test_resolve_creative_intent_returns_409_for_tag_conflict() -> None:
+    profile_id = "tiktok_v1_creative_intent_conflict"
+    genre_node_id = "genre.romance_creative_intent_conflict"
+    emotion_node_id = "emotion.revenge_creative_intent_conflict"
+    payload = build_creative_intent_payload(
+        profile_id,
+        genre_node_id,
+        emotion_node_id,
+    )
+    payload["excluded_tag_ids"] = [genre_node_id]
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()),
+        base_url="http://testserver",
+    ) as client:
+        profile_response = await client.post(
+            "/platform-profiles",
+            json=build_platform_profile_payload(profile_id),
+        )
+        assert profile_response.status_code == 201
+        for node_id, label, category in (
+            (genre_node_id, "Romance", "Genre"),
+            (emotion_node_id, "Revenge", "Emotion"),
+        ):
+            response = await client.post(
+                "/ontology-nodes",
+                json=build_ontology_node_payload(node_id, label, category),
+            )
+            assert response.status_code == 201
+
+        response = await client.post(
+            "/content-specs/resolve-creative-intent",
+            json=payload,
+        )
+
+    assert response.status_code == 409
+    assert "select and exclude" in response.json()["detail"]

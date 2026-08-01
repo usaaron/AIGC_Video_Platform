@@ -308,6 +308,24 @@
 - 若没有更强知识引用和证据抽取能力，分数仍主要属于规则信号
 - Benchmark 第一轮重点验证“解释能力提升”，而不是宣称剧本质量结论已经专业化
 
+## Creative Deepening Shadow v1 Evaluation
+
+当前 runtime 可对同一次生成中的 source Draft 与 preservation-valid Deepening candidate 运行同一 Story QC，并在 `CreativeDeepeningQCComparison` 中记录：
+
+- source / candidate overall score 与 delta
+- 同名 Story QC dimension deltas
+- candidate Prompt、模型、知识、延迟和 token trace
+- change trace、preservation checks、结构拒绝或技术失败原因
+
+该比较是 shadow metadata，不是自动候选选择器，也不是正式质量结论。source Draft 继续进入 Revision 和 Finalization。由于 Story QC 仍为 placeholder，Deepening 是否提升对白、情绪和视觉表现必须通过固定样本、盲评或人工证据验证；不能仅根据 QC 总分启用 apply。
+
+当前尚未实现：
+
+- Deepening apply gate
+- 多 genre 固定 Benchmark 汇总
+- 人工 preference 与结构化 comparison 的联合决策
+- 对对白中隐含重大新冲突的完整语义检测
+
 ## Revision Quality Improvement v1 Evaluation
 
 `Revision Quality Improvement v1` 的验证目标，是证明修订能够针对已识别问题产生受控改善，同时避免损害原本表现良好的内容。
@@ -392,9 +410,12 @@ Revision 成功不能只依据 `overall_score` 上升。当前单次 runtime Acc
 - `RevisionExecutor`、scene scope、protected dimension 检查与 execution trace 已完成
 - `targeted_dimension_improvement`、`regression_count`、`protected_dimension_stability`、`scene_alignment_rate`、`revision_effectiveness` 已在单次 runtime Acceptance 中实现
 - `AcceptanceDecision` 已保存到 `ScriptRevisionRun` runtime lineage，且只以 shadow mode 运行
+- Character Agency 当前读取可见行动、turning point 和 scene causality 信号；Cliffhanger 当前读取结尾未解决压力与下一集问题，不再以 `suspense` 单一关键词作为强悬念结论
+- Executor 只有在 Draft 内容实际变化时记录 applied action；确定性规则无法可靠修改时必须记录 skipped action
+- 明确 `revision_required = false` 的高质量 Draft 可以经过无内容修订、Re-QC 和现有 Finalization lineage 校验
 - 跨 Benchmark 的 effectiveness 汇总、人工 Ground Truth 校准和阈值校准尚未实现
 - 数据库级 Revision lineage 持久化尚未实现
-- 现有 Benchmark、Prompt Evaluation 和 Finalization 行为保持不变
+- 现有 Benchmark 数据与 Prompt Evaluation 保持不变；Finalization 仅兼容显式 no-revision Decision，不允许绕过受控链路
 
 当前临时保留两个不等价信号：
 
@@ -538,10 +559,10 @@ PYTHONPATH=backend python -m app.modules.script_engine.revision_acceptance_calib
 
 - 固定 Benchmark 能稳定跑通
 - 每一步都有结构化评估结果
-- `RevisionPlan` 能针对 Rubric 扣分项输出可执行修订动作
+- `RevisionPlan` 能针对真实 Rubric 缺口输出可执行修订动作，或明确判断无需修订
 - `Re-QC` 分数相对原始 Draft QC 不下降
-- `RevisedDraftMasterScript` 的脚本评分相对原始 Draft 不下降
-- Final `MasterScript` 的脚本评分高于 Draft
+- 需要修订时，`RevisedDraftMasterScript` 应有可定位的目标维度改善，不能只依赖 overall score 或关键词变化
+- 无需修订时，Final `MasterScript` 可以保留 Draft 内容质量，但必须完成 Re-QC、lineage 与 Finalization Policy 校验
 
 ## 当前联调验证
 

@@ -1,0 +1,204 @@
+{
+  "evaluation_id": "creative_control_combined_v1",
+  "decision": "validated_for_runtime_design",
+  "threshold_passed": true,
+  "criteria": {
+    "structured_control_preferred_at_least_two_of_three": true,
+    "average_character_consistency_improved": true,
+    "average_character_agency_improved": true,
+    "no_significant_hook_or_cliffhanger_regression": true,
+    "context_growth_acceptable": true,
+    "no_major_structural_regression": true
+  },
+  "preferred_structured_control_count": 3,
+  "average_dimension_deltas_control_minus_baseline": {
+    "character_consistency": 1.167,
+    "character_agency": 0.5,
+    "conflict_quality": 0.667,
+    "emotional_progression": 0.5,
+    "scene_causality": 0.5,
+    "hook_quality": 0.0,
+    "cliffhanger_quality": 0.167
+  },
+  "pairwise_comparisons": [
+    {
+      "case_id": "dark_romance_revenge",
+      "baseline_candidate": "candidate_1",
+      "structured_control_candidate": "candidate_2",
+      "preferred_variant": "structured_creative_control",
+      "dimension_deltas_control_minus_baseline": {
+        "character_consistency": 1.0,
+        "character_agency": 0.5,
+        "conflict_quality": 0.5,
+        "emotional_progression": 0.5,
+        "scene_causality": 0.5,
+        "hook_quality": 0.0,
+        "cliffhanger_quality": 0.0
+      },
+      "preference_reason": "Candidate 2 preserves the same strong hook and causal structure while giving both leads more specific, testable decision logic and a more credible conditional alliance.",
+      "comparison_evidence": [
+        "Candidate 1 moves from exposure to Adrian's protection bargain; Candidate 2 adds independent metadata verification and accepts a key without accepting trust.",
+        "Both endings introduce a nearby watcher, so the preference is driven by character logic rather than a stronger twist."
+      ],
+      "uncertainty_notes": [
+        "Both drafts use highly similar gala, screen, hidden-file, and watcher mechanics.",
+        "A single 60-second episode cannot establish long-term relationship consistency."
+      ]
+    },
+    {
+      "case_id": "supernatural_romance",
+      "baseline_candidate": "candidate_1",
+      "structured_control_candidate": "candidate_2",
+      "preferred_variant": "structured_creative_control",
+      "dimension_deltas_control_minus_baseline": {
+        "character_consistency": 1.0,
+        "character_agency": 0.5,
+        "conflict_quality": 0.5,
+        "emotional_progression": 0.5,
+        "scene_causality": 0.5,
+        "hook_quality": 0.0,
+        "cliffhanger_quality": 0.0
+      },
+      "preference_reason": "Candidate 2 makes trust progression observable: Rhea tests the claim, Lucian demonstrates restraint, and only then does she choose a bounded alliance.",
+      "comparison_evidence": [
+        "Candidate 1 proves the bond through accidental collapse and contact; Candidate 2 makes the same discovery through Rhea's deliberate experiment.",
+        "Candidate 2 links Lucian's restraint directly to Rhea's changing belief, strengthening both conflict and emotional progression."
+      ],
+      "uncertainty_notes": [
+        "Both candidates share nearly identical three-beat mechanics, limiting evidence about broader creative variety.",
+        "Neither episode has enough duration to test whether the reluctant alliance remains stable."
+      ]
+    },
+    {
+      "case_id": "sci_fi_mystery",
+      "baseline_candidate": "candidate_2",
+      "structured_control_candidate": "candidate_1",
+      "preferred_variant": "structured_creative_control",
+      "dimension_deltas_control_minus_baseline": {
+        "character_consistency": 1.5,
+        "character_agency": 0.5,
+        "conflict_quality": 1.0,
+        "emotional_progression": 0.5,
+        "scene_causality": 0.5,
+        "hook_quality": 0.0,
+        "cliffhanger_quality": 0.5
+      },
+      "preference_reason": "Candidate 1 sustains a two-sided safety conflict and makes Lena's responsible choice trigger the uncertainty; Candidate 2 is punchier but weakens character consistency through an abrupt hostile-AI turn.",
+      "comparison_evidence": [
+        "Candidate 1's AURORA conceals a prediction to prevent panic; Candidate 2's ORACLE locks exits and claims to have started the event.",
+        "Both protagonists act decisively, but Candidate 1 turns the protagonist's oversight alert into the causal cliffhanger."
+      ],
+      "uncertainty_notes": [
+        "Candidate 2 may appeal more to viewers who prioritize immediate threat over moral ambiguity.",
+        "One episode cannot verify whether Candidate 1's prediction mystery will later resolve coherently."
+      ]
+    }
+  ],
+  "output_cost": {
+    "evaluation_id": "creative_control_combined_v1",
+    "status": "generated_pending_blind_review",
+    "model": {
+      "provider": "openai_compatible",
+      "model_name": "gpt-5.6-sol",
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "max_tokens": 4000
+    },
+    "variants": {
+      "baseline": {
+        "average_latency_seconds": 46.238,
+        "average_prompt_tokens": 5262.0,
+        "average_completion_tokens": 1957.0,
+        "average_total_tokens": 7219.0,
+        "successful_generation_count": 3,
+        "technical_failure_count": 0
+      },
+      "structured_creative_control": {
+        "average_latency_seconds": 54.721,
+        "average_prompt_tokens": 5756.667,
+        "average_completion_tokens": 2309.0,
+        "average_total_tokens": 8065.667,
+        "successful_generation_count": 3,
+        "technical_failure_count": 0
+      }
+    },
+    "per_case": [
+      {
+        "case_id": "dark_romance_revenge",
+        "baseline": {
+          "token_usage": {
+            "prompt_tokens": 5255,
+            "completion_tokens": 2175,
+            "total_tokens": 7430
+          },
+          "latency_seconds": 58.71
+        },
+        "structured_creative_control": {
+          "token_usage": {
+            "prompt_tokens": 5751,
+            "completion_tokens": 2863,
+            "total_tokens": 8614
+          },
+          "latency_seconds": 70.631
+        },
+        "prompt_token_growth_percent": 9.439,
+        "total_token_growth_percent": 15.935
+      },
+      {
+        "case_id": "supernatural_romance",
+        "baseline": {
+          "token_usage": {
+            "prompt_tokens": 5264,
+            "completion_tokens": 1969,
+            "total_tokens": 7233
+          },
+          "latency_seconds": 43.868
+        },
+        "structured_creative_control": {
+          "token_usage": {
+            "prompt_tokens": 5761,
+            "completion_tokens": 2158,
+            "total_tokens": 7919
+          },
+          "latency_seconds": 52.06
+        },
+        "prompt_token_growth_percent": 9.441,
+        "total_token_growth_percent": 9.484
+      },
+      {
+        "case_id": "sci_fi_mystery",
+        "baseline": {
+          "token_usage": {
+            "prompt_tokens": 5267,
+            "completion_tokens": 1727,
+            "total_tokens": 6994
+          },
+          "latency_seconds": 36.137
+        },
+        "structured_creative_control": {
+          "token_usage": {
+            "prompt_tokens": 5758,
+            "completion_tokens": 1906,
+            "total_tokens": 7664
+          },
+          "latency_seconds": 41.473
+        },
+        "prompt_token_growth_percent": 9.322,
+        "total_token_growth_percent": 9.58
+      }
+    ],
+    "structured_context_prompt_token_growth_percent": 9.401,
+    "context_growth_threshold_percent": 15.0
+  },
+  "review_provenance": {
+    "locked_review_path": "examples/prompt_evaluations/creative_control_combined_v1/blind_review/blind_review_locked.json",
+    "variant_mapping_path": "examples/prompt_evaluations/creative_control_combined_v1/blind_review/blind_key.json",
+    "reviewer_identity_type": "AI-assisted evidence review with variant mapping concealed; reviewer had prior fixture-design context"
+  },
+  "limitations": [
+    "This is one bounded generation per variant and case, not a stability study.",
+    "The blind review is an AI-assisted observational review, not professional validation.",
+    "The experiment tests context injection, not a runtime Creative Intent contract.",
+    "Current Story QC remains placeholder and is not used as the decision authority."
+  ]
+}

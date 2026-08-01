@@ -1,0 +1,63 @@
+{
+  "free_creative_prompt": "Create a supernatural romance about two enemies who discover they need each other to survive.",
+  "audience_intent": [
+    "Fantasy Romance Audience",
+    "Young Adult Supernatural Audience"
+  ],
+  "selected_genre_tags": [
+    "Fantasy",
+    "Romance"
+  ],
+  "story_element_tags": [
+    "Vampire",
+    "Forbidden Love",
+    "Ancient Secret",
+    "Forced Dependency"
+  ],
+  "emotion_tags": [
+    "Mystery",
+    "Fear",
+    "Charged Attraction"
+  ],
+  "character_profiles": [
+    {
+      "identity": {
+        "name": "Lucian Veyr",
+        "role": "Vampire counterpart",
+        "species": "Vampire",
+        "occupation": "Guardian of a hidden supernatural district"
+      },
+      "appearance": "Tall, pale, black coat, restrained predatory stillness",
+      "external_goal": "Protect the hidden supernatural district and survive the ancient threat",
+      "fear": "Losing control and proving the hunter's worst beliefs correct",
+      "belief": "Humans cannot understand monsters without trying to destroy them",
+      "contradiction": "He needs human connection but rejects humans before they can reject him",
+      "decision_pattern": "Conceals vulnerability, bargains from strength, then protects someone at personal cost",
+      "moral_boundary": "Will not feed on or enthrall an unwilling human"
+    },
+    {
+      "identity": {
+        "name": "Rhea Hart",
+        "role": "Protagonist",
+        "species": "Human",
+        "occupation": "Supernatural hunter"
+      },
+      "appearance": "Weathered leather jacket, silver-edged weapon, alert gray eyes",
+      "external_goal": "Survive the ancient threat and discover why it marked her alongside Lucian",
+      "fear": "Depending on a monster who can turn her trust into a weapon",
+      "belief": "Monsters exploit mercy unless forced to prove otherwise",
+      "contradiction": "She needs Lucian's knowledge but built her identity around hunting his kind",
+      "decision_pattern": "Tests claims with evidence, keeps an exit plan, and takes tactical risks rather than offering blind trust",
+      "moral_boundary": "Will not kill a surrendered or defenseless person"
+    }
+  ],
+  "relationship_context": {
+    "participants": [
+      "Lucian Veyr",
+      "Rhea Hart"
+    ],
+    "relationship_type": "Hunter and hunted forced into mutual dependency",
+    "current_state": "Rhea has cornered Lucian, but the same ancient mark begins killing them both",
+    "desired_relationship_direction": "Move toward a reluctant tactical alliance with attraction, without instant trust or forgiveness"
+  }
+}

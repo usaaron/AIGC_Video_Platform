@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from typing import Any
 
 from evaluation.models import StoryRubricCategory, StoryRubricResult
@@ -14,7 +15,7 @@ RUBRIC_DEFINITIONS: list[tuple[str, str, str]] = [
     ("Emotional Progression", "Scene-to-scene emotional shifts should escalate or deepen.", "Sharpen the emotional turn between scenes."),
     ("Conflict Escalation", "Later scenes should raise stakes over earlier ones.", "Increase public, relational, or status consequences in later scenes."),
     ("Dialogue Quality", "Dialogue should be specific, performable, and tension-bearing.", "Replace generic lines with concrete, high-stakes phrasing."),
-    ("TikTok Platform Fit", "The script should fit short-form pacing and replayable hooks.", "Tighten pacing and front-load the strongest beat."),
+    ("Platform Fit", "The script should follow the selected platform or market profile without importing unrelated platform assumptions.", "Align pacing and presentation with the selected profile."),
     ("Cultural Fit", "The script should read as understandable and safe for the target audience.", "Reduce ambiguous references and sharpen audience framing."),
     ("Commercial Potential", "The episode should imply sequel demand or monetizable retention.", "Strengthen episode-end curiosity and future payoff."),
     ("Cliffhanger Strength", "The ending should create a clear unresolved pressure point.", "End on a sharper unanswered reveal or power reversal."),
@@ -50,10 +51,10 @@ class StoryRubricEvaluator:
             self._score_emotional_progression(scenes),
             self._score_conflict_escalation(scenes),
             self._score_dialogue_quality(scenes, has_dialogues, revision_signals),
-            self._score_tiktok_fit(script, scenes),
+            self._score_platform_fit(script, scenes),
             self._score_cultural_fit(script),
             self._score_commercial_potential(script, scenes, revision_signals),
-            self._score_cliffhanger_strength(scenes),
+            self._score_cliffhanger_strength(script, scenes),
         ]
         total_max = sum(category.max_score for category in categories)
         total_score = sum(category.score for category in categories)
@@ -100,7 +101,40 @@ class StoryRubricEvaluator:
         return self._make_category(index=2, score=score, deduction_reasons=deductions)
 
     def _score_character_agency(self, scenes: list[dict[str, Any]]) -> StoryRubricCategory:
-        agency = any("reveal" in str(scene.get("purpose", "")).lower() or "expose" in str(scene.get("purpose", "")).lower() for scene in scenes)
+        agency_terms = {
+            "activate",
+            "activates",
+            "choose",
+            "chooses",
+            "commit",
+            "commits",
+            "confront",
+            "confronts",
+            "decide",
+            "decides",
+            "demand",
+            "demands",
+            "expose",
+            "exposes",
+            "force",
+            "forces",
+            "refuse",
+            "refuses",
+            "reject",
+            "rejects",
+            "reveal",
+            "reveals",
+            "risk",
+            "risks",
+            "stop",
+            "stops",
+            "take",
+            "takes",
+        }
+        agency = any(
+            self._scene_contains_terms(scene, agency_terms)
+            for scene in scenes
+        )
         score = 4.0 if agency else 2.5
         deductions = [] if agency else ["Protagonist choices are not visible enough."]
         return self._make_category(index=3, score=score, deduction_reasons=deductions)
@@ -135,20 +169,24 @@ class StoryRubricEvaluator:
             deductions = ["Draft uses prompts instead of final dialogue lines."]
         return self._make_category(index=6, score=score, deduction_reasons=deductions)
 
-    def _score_tiktok_fit(
+    def _score_platform_fit(
         self,
         script: Mapping[str, Any],
         scenes: list[dict[str, Any]],
     ) -> StoryRubricCategory:
         duration = int(script.get("target_duration_seconds", 0) or 0)
-        fit = duration <= 60 and bool(scenes)
+        target_platform = str(script.get("target_platform", "")).casefold()
+        if "tiktok" in target_platform:
+            fit = duration <= 60 and bool(scenes)
+        else:
+            fit = bool(scenes) and duration > 0
         score = 4.5 if fit else 2.5
-        deductions = [] if fit else ["Duration or pacing no longer looks short-form native."]
+        deductions = [] if fit else ["Duration, pacing, or scene structure does not match the selected profile."]
         return self._make_category(index=7, score=score, deduction_reasons=deductions)
 
     def _score_cultural_fit(self, script: Mapping[str, Any]) -> StoryRubricCategory:
         language = str(script.get("language", "en")).lower()
-        score = 4.0 if language in {"en", "en-us"} else 3.0
+        score = 4.0 if language in {"en", "en-us", "zh", "zh-cn", "chinese"} else 3.0
         deductions = [] if score >= 4.0 else ["Target language / audience framing is underspecified."]
         return self._make_category(index=8, score=score, deduction_reasons=deductions)
 
@@ -166,12 +204,62 @@ class StoryRubricEvaluator:
         deductions = [] if score >= 4.0 else ["Script lacks strong sequel or retention pressure."]
         return self._make_category(index=9, score=score, deduction_reasons=deductions)
 
-    def _score_cliffhanger_strength(self, scenes: list[dict[str, Any]]) -> StoryRubricCategory:
+    def _score_cliffhanger_strength(
+        self,
+        script: Mapping[str, Any],
+        scenes: list[dict[str, Any]],
+    ) -> StoryRubricCategory:
         final_scene = scenes[-1] if scenes else {}
-        strong = bool(final_scene.get("cliffhanger")) and "suspense" in str(final_scene.get("emotional_shift", "")).lower()
+        next_episode_question = str(script.get("next_episode_question", "")).strip()
+        unresolved_markers = {
+            "before",
+            "hidden",
+            "remains",
+            "unanswered",
+            "unknown",
+            "until",
+            "whether",
+            "withheld",
+        }
+        final_pressure_text = " ".join(
+            [
+                str(final_scene.get("beat_summary", "")),
+                str(final_scene.get("turning_point", "")),
+                str((final_scene.get("scene_causality") or {}).get("outcome", "")),
+            ]
+        )
+        has_unresolved_pressure = bool(next_episode_question) or bool(
+            self._tokens(final_pressure_text) & unresolved_markers
+        )
+        strong = bool(final_scene.get("cliffhanger")) and has_unresolved_pressure
         score = 5.0 if strong else 3.0 if final_scene.get("cliffhanger") else 1.5
         deductions = [] if strong else ["Final scene could end on a sharper unresolved reveal."]
         return self._make_category(index=10, score=score, deduction_reasons=deductions)
+
+    def _scene_contains_terms(
+        self,
+        scene: Mapping[str, Any],
+        terms: set[str],
+    ) -> bool:
+        causality = scene.get("scene_causality")
+        causality_text = ""
+        if isinstance(causality, Mapping):
+            causality_text = " ".join(
+                str(causality.get(field, ""))
+                for field in ("goal", "conflict", "outcome", "causal_link")
+            )
+        text = " ".join(
+            [
+                str(scene.get("purpose", "")),
+                str(scene.get("turning_point", "")),
+                causality_text,
+                *[str(action) for action in scene.get("character_actions", [])],
+            ]
+        )
+        return bool(self._tokens(text) & terms)
+
+    def _tokens(self, value: str) -> set[str]:
+        return set(re.findall(r"[a-z]+", value.casefold()))
 
     def _extract_revision_signals(self, script: Mapping[str, Any]) -> dict[str, bool]:
         metadata = script.get("llm_metadata", {})

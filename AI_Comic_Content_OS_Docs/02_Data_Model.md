@@ -16,8 +16,12 @@
 - TrendSnapshot
 - PlatformProfile（平台画像）
 - CreativeBrief
-- CreativeBriefInput（文档级上游创作输入）
-- CreativeBriefResolutionResult（文档级解析结果）
+- CreativeIntentInput（Phase 1 最小上游创作输入）
+- CharacterContext
+- ResolvedCreativeContext
+- CreativeIntentResolutionResult
+- CreativeBriefInput（完整能力的文档级上游契约）
+- CreativeBriefResolutionResult（完整能力的文档级解析结果）
 - PromptLibraryItem
 - ScriptIndustryKnowledge
 - GenerationStrategy
@@ -50,6 +54,10 @@ V0.1 已实现：
 - `ContentSpec` 的基础 API 输入输出契约
 - `TagRef` 作为 `ContentSpec.tags` 的统一引用结构
 - `CreativeBrief` 作为 `ContentSpec` 的内嵌结构
+- `CreativeIntentInput` 的 Phase 1 Pydantic 输入契约
+- `CharacterContext` 与字段级 `user_provided` / `ai_inferred` provenance
+- `ResolvedCreativeContext` 的独立生成上下文契约
+- `CreativeIntentResolutionResult` 的 API 输出契约
 - `PlatformGoal` 作为 `ContentSpec` 的平台目标结构
 - `PlatformProfile` 的 Pydantic 数据模型
 - `PlatformProfile` 的基础 API 输入输出契约
@@ -91,8 +99,7 @@ V0.1 已实现：
 
 - `ScriptIndustryKnowledge`
 - `BilingualScriptView`
-- `CreativeBriefInput`
-- `CreativeBriefResolutionResult`
+- 完整版 `CreativeBriefInput` / `CreativeBriefResolutionResult` 中尚未进入 Phase 1 的推荐标签、alias、unresolved tag 与用户确认能力
 - `ScriptGenerationRequest`
 - `ScriptGenerationResult`
 - `ScriptGenerationRequestMapper`
@@ -104,9 +111,51 @@ V0.1 已实现：
 
 它们当前先作为文档级数据契约和后续实现边界，不进入本轮主链路改造。
 
-## CreativeBriefInput 文档级建议契约
+## Creative Intent Input Phase 1 当前契约
 
-`CreativeBriefInput` 是 `ContentSpec` 上游的 authoring contract，不是 Script Engine 的新运行时输入，也不替代当前内嵌 `CreativeBrief`。
+Phase 1 已实现以下最小运行时对象：
+
+- `CreativeIntentInput`
+  - `schema_version`
+  - `title`
+  - `audience_goal`
+  - `commercial_goal`
+  - `platform_goal`
+  - `free_creative_prompt`
+  - `quality_level`
+  - `budget_level`
+  - `selected_tag_ids`
+  - `added_tag_ids`
+  - `excluded_tag_ids`
+  - `excluded_patterns`
+  - `creative_brief`
+  - `character_contexts`
+  - `request_metadata`
+- `CharacterContext`
+  - 当前聚焦 name、role、description、motivation、desire、fear、belief、contradiction、decision pattern 与 moral boundaries
+  - `locked_fields` 保存用户锁定字段
+  - `field_sources` 对每个已提供字段保存 `user_provided` 或 `ai_inferred`
+  - Phase 1 不调用 LLM 自动补全角色
+- `ResolvedCreativeContext`
+  - 通过 `content_spec_id` 与标准化 ContentSpec 对齐
+  - 独立保存 Character Context、排除标签、排除模式和解析 warning
+  - 不写入 `ContentSpec.metadata`
+- `CreativeIntentResolutionResult`
+  - 返回已保存 ContentSpec、解析后上下文、`TagRef`、mapping trace 与请求追踪信息
+
+兼容规则：
+
+- 现有 ContentSpec payload 不变
+- `ScriptGenerationDraftRequest.resolved_creative_context` 为 optional
+- 旧生成请求可以完全省略新上下文
+- raw Creative Intent 不直接进入 Prompt Builder
+- selected / added tag 必须精确引用现有 active `OntologyNode`
+- selected 与 excluded 冲突时解析失败，不静默选择
+- 当前 `free_creative_prompt` 被限制为 240 字符以内的已归一化故事方向，并确定性映射到 `ContentSpec.story_goal`
+
+## CreativeBriefInput 完整能力文档级建议契约
+
+`CreativeBriefInput` 继续描述 Phase 1 之后的完整 authoring contract，不替代当前已实现的最小 `CreativeIntentInput`，也不替代内嵌 `CreativeBrief`。
 
 建议字段：
 
@@ -189,7 +238,7 @@ Recommended Tag 只代表数据建议。未被用户接受的推荐不得自动�
 
 ### Active Tag Boundary
 
-- v1 建议 `max_active_tags=12`，作为未来集中配置，不写死在 Script Engine
+- Phase 1 `CreativeIntentInput` 当前限制 `max_active_tags=12`；该限制位于上游输入模型，不写入 Script Engine 生成逻辑
 - 当前 `ContentSpec.tags` 仍保持最多 20 个的既有技术契约
 - 用户明确选择优先于 Data Intelligence 推荐
 - 超出解析上限时应返回 deferred tags 与原因，不得只按置信度静默截断
@@ -423,29 +472,27 @@ Recommended Tag 只代表数据建议。未被用户接受的推荐不得自动�
 - 最后一场 `cliffhanger` 必须为 `true`
 - `qa_notes`、`dialogue_prompts`、`supporting_asset_ids` 不可重复
 
-## BilingualScriptView 当前建议字段
+## BilingualScriptView 当前实现字段
 
-`BilingualScriptView` 当前建议包含：
+Frontend MVP 已实现 presentation-only `BilingualScriptView`：
 
-- `source_master_script_id`
+- `view_version`
+- `source_draft_master_script_id`
 - `source_language`
-- `developer_language`
-- `translation_provider`
-- `translation_model`
-- `translation_version`
-- `generated_at`
-- `scenes`
-- `dialogue_pairs`
-- `action_translation`
-- `scene_summary_translation`
-- `translator_notes`
-- `unresolved_terms`
+- `target_language`
+- `items[]`
+  - `path`
+  - `source_text`
+  - `translated_text`
+- `llm_model_info`
+- `warnings`
 
 其中：
 
 - 它是 Developer Artifact，不是 Production Artifact
-- 它必须保留原始英文 `MasterScript` 内容，不允许用中文译文覆盖正式生产字段
-- 它用于研发评审、Prompt 调优、Story QC 复核和人工打磨沟通
+- 它必须保留原始英文 Draft / `MasterScript` 内容，不允许用中文译文覆盖正式生产字段
+- 当前前端按 `source_draft_master_script_id` 缓存视图；中文界面查看英文稿时展示逐文本块中文对照，英文界面不展示
+- `items.path` 必须与源剧本字段一一对齐，缺失、重复或新增路径均视为无效翻译输出
 
 ## FinalMasterScriptLineage 当前关键字段
 
@@ -627,7 +674,7 @@ Recommended Tag 只代表数据建议。未被用户接受的推荐不得自动�
 
 职责：在 Re-QC 后判断本次修订是否解决了选中问题。当前由确定性、无状态的 `RevisionAcceptanceEvaluator` 生成，并以 shadow mode 保存；该对象不负责创建 Final `MasterScript`，不阻断当前流程，也不取代 Finalization Gate。
 
-### 当前实现状态
+### Revision / Acceptance 当前实现状态
 
 - Phase 1 已完成：四个 Pydantic model 与兼容性测试
 - Phase 2 已完成：Revision Planner 生成 `RevisionDecision` 与 `RevisionStrategy`
@@ -955,6 +1002,12 @@ Recommended Tag 只代表数据建议。未被用户接受的推荐不得自动�
 - `max_tokens`
 - `workflow_steps`
 - `prompt_ids`
+- `draft_knowledge_bundle_id`（optional）
+- `deepening_mode`（`disabled` 或 `shadow`，默认 `disabled`）
+- `deepening_prompt_ids`
+- `deepening_knowledge_bundle_id`（optional）
+- `deepening_max_tokens`（optional）
+- `deepening_max_expressive_growth_ratio`
 - `qc_enabled`
 - `self_check_enabled`
 - `human_review_required`
@@ -967,6 +1020,25 @@ Recommended Tag 只代表数据建议。未被用户接受的推荐不得自动�
 - `GenerationStrategy` 表示一次剧本生成任务采用的完整生成方案
 - `model_provider` 与 `model_name` 当前只作为策略声明，不代表真实绑定某个厂商 SDK
 - `prompt_ids` 引用 `PromptLibraryItem.id`
+- `draft_knowledge_bundle_id` 只允许引用受治理静态目录中的 Draft bundle；省略时保持原生成行为
+- `deepening_prompt_ids` 与 Draft Prompt 必须分离；只有 `shadow` 策略需要声明
+- Deepening 当前没有 `apply` 模式，候选结果不能替换正式 Draft
+
+## Static Creative Knowledge 当前契约
+
+当前 Draft Generation 已实现最小静态知识契约：
+
+- `StaticKnowledgeItem`：保存 `knowledge_id`、版本、类别、原则、应用规则、限制、反模式和来源引用的运行时最小投影
+- `KnowledgeBundle`：保存 `bundle_id`、版本、`knowledge_ids`、适用条件、来源引用和目标阶段
+- `KnowledgeApplicabilityConditions`：当前可按 tag ID、tag label、目标平台或 PlatformProfile 做确定性适用性校验
+- `KnowledgeSelectionTrace`：记录 selector 版本、请求/选中 bundle、知识引用、选择原因和 warning
+
+边界：
+
+- bundle 最多包含 8 条知识；已实现的 TikTok Dark Romance Draft / Deepening bundle 随 `overseas_tiktok` 默认关闭，中国大陆 bundle 尚未进入 runtime
+- `Research/Knowledge_Items/` 是知识来源与治理资产，runtime 不解析 Research Markdown
+- runtime 静态目录只复制 Prompt 所需的最小原则、限制和反模式，并保留来源引用
+- 当前没有 RAG、向量检索、语义排名、自动学习或 Knowledge Agent
 
 ## ScriptGenerationDraftRun 当前字段
 
@@ -982,15 +1054,38 @@ Recommended Tag 只代表数据建议。未被用户接受的推荐不得自动�
 - `prompt_build_result`
 - `llm_model_info`
 - `llm_raw_output`
+- `resolved_creative_context`（optional）
+- `knowledge_bundle`（optional）
+- `knowledge_selection_trace`（optional）
+- `creative_deepening_run`（optional）
 - `draft_master_script`
 - `story_qc_report`
 - `revision_plan`
 - `generated_at`
 
+## Creative Deepening Shadow v1 当前契约
+
+当前已实现以下兼容模型：
+
+- `CreativeDeepeningRequest`：接收 source Draft、可选 `ResolvedCreativeContext`、独立 Deepening Knowledge Bundle 及表达增长上限
+- `CreativeDeepeningRun`：记录候选稿、Prompt trace、模型信息、延迟、token、change trace、preservation checks、候选 QC 与比较元数据
+- `CreativeDeepeningChange`：区分 dialogue、emotion、visual action、scene intensity、character expression 与 forbidden change
+- `CreativeDeepeningPreservationCheck`：记录故事、角色、场景因果、结尾目的和增长预算是否保持
+- `CreativeDeepeningQCComparison`：使用同一 Story QC 对 source/candidate 输出观察性总分和维度差异
+
+兼容边界：
+
+- `ScriptGenerationDraftRun.creative_deepening_run` 为 optional，旧 payload 保持有效
+- `draft_master_script` 在 shadow mode 中始终是原始 Draft；候选只保存在 Deepening lineage
+- Deepening Knowledge Bundle 必须以 `creative_deepening` 为目标阶段，不能复用 Draft bundle
+- 当前没有数据库迁移、`FinalMasterScript` schema 变化或 Deepening apply contract
+
 其中：
 
 - 当前对象用于验证主链路从 `ContentSpec` 到 Draft 生成阶段是否可联调
 - `generation_strategy_version` 用于把 Draft 运行结果与策略版本绑定
+- `resolved_creative_context` 只保存解析后的 Character / exclusion 输入及 provenance，不包含 raw authoring payload
+- `knowledge_bundle` 与 `knowledge_selection_trace` 只在策略显式启用且适用条件通过时存在
 - 当前并不等同于 Final `MasterScript`
 
 ## PromptBuildResult 当前字段
@@ -1202,6 +1297,40 @@ Recommended Tag 只代表数据建议。未被用户接受的推荐不得自动�
 - 当前 Finalize 请求必须同时携带 Draft 运行结果与 Revision 运行结果
 - `minimum_re_qc_score_override` 仅用于覆盖集中 Finalization Policy 阈值
 - 未提供 override 时，应回落到集中 Policy，并在 lineage 中记录最终阈值
+
+## Frontend Episode Authoring Contracts
+
+当前分集创作工作区在浏览器项目对象中保存 `episodes[]`。每个 `EpisodeWorkspace` 独立记录：
+
+- `episodeNumber` 与 `status`
+- `generationRun`
+- `workingDraftJson` / `confirmedDraftJson`
+- optional AI modification candidate
+- optional Creative Deepening candidate
+- optional Revision / Finalization result
+- continuation instruction 与本地时间信息
+
+后端 `ScriptGenerationDraftRequest` 的 optional `episode_context` 包含 generation mode、当前/总集数、上一集摘要、上一集未决问题、optional 本集指令和 optional `project_continuity_summary`。省略时保持旧单集行为。
+
+`episode_context` 现可选携带 `GenerationBatchContext`：
+
+- `batch_number`
+- `start_episode`
+- `end_episode`
+- `batch_instruction`（optional）
+
+该对象只记录一次有界阶段生成的范围和创作补充，不承担 Story Blueprint、热点检索或后台任务调度。旧 payload 不包含 `batch_context` 时继续有效。当前集数上限扩展到 2000，用于表达长篇项目规划范围；这不表示系统会在单次操作中生成 2000 集。
+
+Frontend 本地 `GenerationSettings` 还保存：集数规划方式、目标总字数、偏好单集时长、内容密度、总集数和单批生成集数。系统推荐值是透明的 authoring estimate，不是平台规则；使用者可以切换为手动总集数。每次完成或部分完成的批次保存为 `GenerationBatchRecord`，记录范围、指令、进度与时间。
+
+`ScriptDraftReviewRequest` 用于对用户编辑后的结构化 Draft 重新执行现有 Story QC 与 RevisionPlan；`ScriptDraftModificationRequest` 生成不覆盖原稿的 AI 修改候选；`ScriptCreativeDeepeningRequest` 主动调用现有受保护的 Deepening 能力。以上对象不改变 `DraftMasterScript` / `FinalMasterScript` schema。
+
+Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
+
+- `storyLines[]`：主线、支线、角色成长线及各集推进
+- `characterRelationships[]`：角色关系、当前状态及各集变化
+
+这些字段由当前分集和角色确定性整理、允许用户编辑并保存在 IndexedDB。后续分集生成时，前端将其压缩为 bounded `project_continuity_summary` 注入 `episode_context`；它约束后续集延续已有故事线和关系状态，但不会改写已经生成的分集。它们不是 `MasterScript` 正式字段，也不代表 Story Planning runtime 已实现。已有分集项目禁止在项目设定页直接重新生成覆盖；重新生成通过复制新的本地项目版本完成。
 
 ## OrchestrationPlan 当前字段
 

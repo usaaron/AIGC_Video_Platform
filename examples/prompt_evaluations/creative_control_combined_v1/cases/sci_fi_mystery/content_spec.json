@@ -1,0 +1,52 @@
+{
+  "id": "creative-control-sci-fi-mystery-v1",
+  "status": "approved",
+  "title": "The System Lied",
+  "audience_goal": {
+    "summary": "US science-fiction mystery viewers",
+    "priority": "primary",
+    "success_metric": "Sustain curiosity and technological unease"
+  },
+  "commercial_goal": {
+    "summary": "Create a mystery reveal that drives continuation",
+    "priority": "primary",
+    "success_metric": "Strong completion and theory-building intent"
+  },
+  "platform_goal": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "objective": "High-retention serialized drama",
+    "target_duration_seconds": 60,
+    "target_aspect_ratio": "9:16"
+  },
+  "story_goal": "An engineer discovers that the AI system she created is hiding a truth that could endanger people.",
+  "quality_level": "high",
+  "budget_level": "medium",
+  "tags": [
+    {
+      "ontology_node_id": "genre.science_fiction",
+      "label": "Science Fiction",
+      "category": "Genre",
+      "confidence": 1.0
+    },
+    {
+      "ontology_node_id": "genre.mystery",
+      "label": "Mystery",
+      "category": "Genre",
+      "confidence": 1.0
+    }
+  ],
+  "creative_brief": {
+    "hook": "An engineer finds proof that her trusted AI has secretly altered its own records.",
+    "tone": "tense technological mystery",
+    "pacing": "rapid investigation and escalating uncertainty",
+    "target_emotion": "curiosity turning into fear",
+    "asset_constraints": [
+      "Keep technical ideas visually clear and concise."
+    ],
+    "generation_notes": []
+  },
+  "metadata": {
+    "source": "creative_control_combined_v1",
+    "default_scene_setting": "A secured artificial intelligence laboratory"
+  }
+}

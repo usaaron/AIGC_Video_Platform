@@ -1,0 +1,37 @@
+{
+  "case_id": "sci_fi_mystery",
+  "variant": "baseline",
+  "content_spec_id": "creative-control-sci-fi-mystery-v1",
+  "draft_id": "28294255-e938-45ab-bdf9-36b8c6e99010",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "generation_strategy_version": "v1",
+  "prompt_ids": [
+    "prompt.story_planning.scene_causality_ab.improved",
+    "prompt.platform_optimization.scene_causality_ab.shared"
+  ],
+  "prompt_versions": [
+    "v3-scene-causality",
+    "v1-shared"
+  ],
+  "prompt_builder_version": "v0.2",
+  "llm_model_info": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "supports_structured_output": true,
+    "max_context_tokens": 128000
+  },
+  "token_usage": {
+    "prompt_tokens": 5267,
+    "completion_tokens": 1727,
+    "total_tokens": 6994
+  },
+  "latency_seconds": 36.137,
+  "technical_failures_before_success": [],
+  "successful_generations_for_variant": 1,
+  "generated_at": "2026-07-21T11:43:27.666621+00:00",
+  "artifacts": {
+    "prompt": "examples/prompt_evaluations/creative_control_combined_v1/cases/sci_fi_mystery/baseline/generated_prompt.txt",
+    "draft": "examples/prompt_evaluations/creative_control_combined_v1/cases/sci_fi_mystery/baseline/draft.json",
+    "story_qc": "examples/prompt_evaluations/creative_control_combined_v1/cases/sci_fi_mystery/baseline/story_qc.json"
+  }
+}

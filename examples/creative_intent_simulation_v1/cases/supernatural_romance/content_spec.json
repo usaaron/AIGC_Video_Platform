@@ -1,0 +1,56 @@
+{
+  "id": "creative-intent-sim-supernatural-romance-v1",
+  "status": "approved",
+  "title": "The Enemy Lucian Needs",
+  "audience_goal": {
+    "summary": "Fantasy romance viewers who enjoy dangerous supernatural relationships",
+    "priority": "primary",
+    "success_metric": "Sustain romantic tension, mystery and survival pressure"
+  },
+  "commercial_goal": {
+    "summary": "Create a sequel-driving enemies-to-allies supernatural episode",
+    "priority": "primary",
+    "success_metric": "Strong completion and continuation intent"
+  },
+  "platform_goal": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "objective": "High-retention serialized drama",
+    "target_duration_seconds": 60,
+    "target_aspect_ratio": "9:16"
+  },
+  "story_goal": "Create a supernatural romance about two enemies who discover they need each other to survive.",
+  "quality_level": "high",
+  "budget_level": "medium",
+  "tags": [
+    {"ontology_node_id":"audience.fantasy_romance","label":"Fantasy Romance Audience","category":"Audience","confidence":1.0},
+    {"ontology_node_id":"genre.fantasy","label":"Fantasy","category":"Genre","confidence":1.0},
+    {"ontology_node_id":"genre.romance","label":"Romance","category":"Genre","confidence":1.0},
+    {"ontology_node_id":"character.vampire","label":"Vampire","category":"Character","confidence":1.0},
+    {"ontology_node_id":"relationship.forbidden_love","label":"Forbidden Love","category":"Relationship","confidence":1.0},
+    {"ontology_node_id":"theme.ancient_secret","label":"Ancient Secret","category":"Theme","confidence":1.0},
+    {"ontology_node_id":"emotion.mystery","label":"Mystery","category":"Emotion","confidence":1.0},
+    {"ontology_node_id":"emotion.love","label":"Love","category":"Emotion","confidence":1.0},
+    {"ontology_node_id":"emotion.fear","label":"Fear","category":"Emotion","confidence":1.0}
+  ],
+  "creative_brief": {
+    "hook": "Vampire enemies learn that a lethal threat can only be survived together.",
+    "tone": "dangerous supernatural romance",
+    "pacing": "fast survival pressure with escalating reluctant dependence",
+    "target_emotion": "mystery to fear to conflicted attraction",
+    "asset_constraints": ["Keep supernatural violence non-graphic and platform-safe."],
+    "generation_notes": [
+      "Lucian is a vampire and a principal character.",
+      "Lucian appears cold, protective, and secretive.",
+      "Lucian desires to protect his world.",
+      "Lucian fears losing control.",
+      "Lucian believes humans cannot understand monsters.",
+      "Lucian needs human connection but rejects humans.",
+      "Lucian and an unnamed human enemy must depend on each other to survive.",
+      "Do not rename Lucian or change his vampire identity."
+    ]
+  },
+  "metadata": {
+    "source": "creative_intent_simulation_v1",
+    "mapping_mode": "offline_lossy_compatibility_fixture"
+  }
+}

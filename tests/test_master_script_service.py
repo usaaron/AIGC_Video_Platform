@@ -1,6 +1,7 @@
 import pytest
 
 from app.modules.master_script.models import MasterScriptFinalizeRequest
+from app.modules.content_spec.repository import ContentSpecRepository
 from app.modules.master_script.repository import MasterScriptRepository
 from app.modules.master_script.service import (
     DirectMasterScriptCreationDeprecatedError,
@@ -80,6 +81,53 @@ def test_master_script_service_rejects_direct_creation() -> None:
         match="Direct FinalMasterScript creation is deprecated",
     ):
         service.create(request)
+
+
+def test_master_script_service_restores_content_spec_from_generation_snapshot() -> None:
+    request, _ = build_finalize_request()
+    restored_repository = ContentSpecRepository()
+    service = MasterScriptService(
+        repository=MasterScriptRepository(),
+        content_spec_repository=restored_repository,
+    )
+
+    result = service.create_from_draft(request)
+
+    content_spec_id = request.script_generation_draft_run.content_spec_id
+    assert result.master_script.content_spec_id == content_spec_id
+    assert restored_repository.get(content_spec_id) is not None
+
+
+def test_master_script_service_allows_explicit_no_revision_decision() -> None:
+    request, service = build_finalize_request()
+    draft_run = request.script_generation_draft_run.model_copy(deep=True)
+    revision_run = request.script_revision_run.model_copy(deep=True)
+    no_revision_decision = revision_run.revision_plan.revision_decision.model_copy(
+        update={
+            "revision_required": False,
+            "selected_dimensions": [],
+            "deferred_dimensions": [],
+        }
+    )
+    no_revision_plan = revision_run.revision_plan.model_copy(
+        update={
+            "revision_decision": no_revision_decision,
+            "revision_strategies": [],
+            "actions": [],
+        }
+    )
+    draft_run.revision_plan = no_revision_plan
+    revision_run.revision_plan = no_revision_plan
+    request = request.model_copy(
+        update={
+            "script_generation_draft_run": draft_run,
+            "script_revision_run": revision_run,
+        }
+    )
+
+    result = service.create_from_draft(request)
+
+    assert result.master_script.id
 
 
 def test_master_script_service_rejects_finalize_below_re_qc_threshold() -> None:

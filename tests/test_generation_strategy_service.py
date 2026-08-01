@@ -120,6 +120,23 @@ def test_generation_strategy_service_rejects_missing_prompt_reference() -> None:
         service.create(GenerationStrategyCreate.model_validate(build_strategy_payload()))
 
 
+def test_generation_strategy_service_rejects_missing_deepening_prompt_reference() -> None:
+    ontology_repository = OntologyNodeRepository()
+    prompt_repository = PromptLibraryRepository()
+    seed_dependencies(ontology_repository, prompt_repository)
+    service = GenerationStrategyService(
+        repository=GenerationStrategyRepository(),
+        ontology_node_repository=ontology_repository,
+        prompt_library_repository=prompt_repository,
+    )
+    payload = build_strategy_payload()
+    payload["deepening_mode"] = "shadow"
+    payload["deepening_prompt_ids"] = ["prompt.creative_deepening.missing"]
+
+    with pytest.raises(MissingPromptLibraryItemError):
+        service.create(GenerationStrategyCreate.model_validate(payload))
+
+
 def test_generation_strategy_service_rejects_missing_ontology_reference() -> None:
     prompt_repository = PromptLibraryRepository()
     prompt_repository.save(

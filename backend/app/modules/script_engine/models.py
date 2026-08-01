@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.modules.content_spec.models import ResolvedCreativeContext
 from app.modules.master_script.models import DraftMasterScript
 from app.modules.orchestrator.models import OrchestrationPlan
 from app.modules.retrieval.models import RetrievalPlanResult
@@ -22,6 +23,7 @@ class PromptType(str, Enum):
     commercial_evaluation = "commercial_evaluation"
     localization = "localization"
     negative_prompt = "negative_prompt"
+    creative_deepening = "creative_deepening"
 
 
 class GenerationStrategyStatus(str, Enum):
@@ -72,6 +74,133 @@ class ProtectedScopeStatus(str, Enum):
     respected = "respected"
     blocked = "blocked"
     recorded_only = "recorded_only"
+
+
+class KnowledgeTargetStage(str, Enum):
+    draft_generation = "draft_generation"
+    creative_deepening = "creative_deepening"
+
+
+class CreativeDeepeningMode(str, Enum):
+    disabled = "disabled"
+    shadow = "shadow"
+
+
+class EpisodeGenerationMode(str, Enum):
+    sequential = "sequential"
+    full = "full"
+
+
+class CreativeDeepeningStatus(str, Enum):
+    shadow_candidate = "shadow_candidate"
+    rejected_preservation = "rejected_preservation"
+    technical_failure = "technical_failure"
+
+
+class CreativeDeepeningChangeType(str, Enum):
+    dialogue = "dialogue"
+    emotional_expression = "emotional_expression"
+    visual_action = "visual_action"
+    scene_intensity = "scene_intensity"
+    character_expression = "character_expression"
+    forbidden = "forbidden"
+
+
+class CreativeDeepeningComparisonStatus(str, Enum):
+    available = "available"
+    unavailable = "unavailable"
+
+
+class KnowledgeApplicabilityConditions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    any_tag_ids: list[str] = Field(default_factory=list, max_length=20)
+    any_tag_labels: list[str] = Field(default_factory=list, max_length=20)
+    target_platforms: list[str] = Field(default_factory=list, max_length=10)
+    platform_profile_ids: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator(
+        "any_tag_ids",
+        "any_tag_labels",
+        "target_platforms",
+        "platform_profile_ids",
+    )
+    @classmethod
+    def ensure_unique_knowledge_conditions(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Knowledge applicability values must be unique.")
+        return values
+
+
+class StaticKnowledgeItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    knowledge_id: str = Field(
+        min_length=3,
+        max_length=120,
+        pattern=r"^[a-z0-9_.-]+$",
+    )
+    version: str = Field(min_length=1, max_length=40)
+    category: str = Field(min_length=3, max_length=80)
+    principle: str = Field(min_length=10, max_length=600)
+    application_rules: list[str] = Field(min_length=1, max_length=8)
+    limitations: list[str] = Field(default_factory=list, max_length=8)
+    anti_patterns: list[str] = Field(default_factory=list, max_length=8)
+    source_reference: str = Field(min_length=5, max_length=500)
+
+    @field_validator("application_rules", "limitations", "anti_patterns")
+    @classmethod
+    def ensure_unique_knowledge_guidance(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Knowledge guidance values must be unique.")
+        return values
+
+
+class KnowledgeBundle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bundle_id: str = Field(
+        min_length=3,
+        max_length=120,
+        pattern=r"^[a-z0-9_.-]+$",
+    )
+    version: str = Field(min_length=1, max_length=40)
+    knowledge_ids: list[str] = Field(min_length=1, max_length=8)
+    applicable_conditions: KnowledgeApplicabilityConditions = Field(
+        default_factory=KnowledgeApplicabilityConditions
+    )
+    source_reference: str = Field(min_length=5, max_length=500)
+    target_stage: KnowledgeTargetStage = KnowledgeTargetStage.draft_generation
+
+    @field_validator("knowledge_ids")
+    @classmethod
+    def ensure_unique_knowledge_ids(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Knowledge IDs must be unique.")
+        return values
+
+
+class KnowledgeSelectionTrace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selector_version: str = Field(min_length=1, max_length=40)
+    target_stage: KnowledgeTargetStage
+    requested_bundle_id: str = Field(min_length=3, max_length=120)
+    selected_bundle_id: str = Field(min_length=3, max_length=120)
+    selected_knowledge_refs: list[str] = Field(min_length=1, max_length=8)
+    selection_reason: str = Field(min_length=5, max_length=500)
+    warnings: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("selected_knowledge_refs", "warnings")
+    @classmethod
+    def ensure_unique_selection_values(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Knowledge selection values must be unique.")
+        return values
 
 
 class PromptLibraryItem(BaseModel):
@@ -153,6 +282,26 @@ class GenerationStrategy(BaseModel):
     max_tokens: int = Field(default=3000, ge=128, le=32000)
     workflow_steps: list[GenerationWorkflowStep] = Field(min_length=1, max_length=20)
     prompt_ids: list[str] = Field(min_length=1, max_length=20)
+    draft_knowledge_bundle_id: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=120,
+        pattern=r"^[a-z0-9_.-]+$",
+    )
+    deepening_mode: CreativeDeepeningMode = CreativeDeepeningMode.disabled
+    deepening_prompt_ids: list[str] = Field(default_factory=list, max_length=5)
+    deepening_knowledge_bundle_id: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=120,
+        pattern=r"^[a-z0-9_.-]+$",
+    )
+    deepening_max_tokens: int | None = Field(default=None, ge=128, le=32000)
+    deepening_max_expressive_growth_ratio: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+    )
     qc_enabled: bool = True
     self_check_enabled: bool = False
     human_review_required: bool = False
@@ -160,7 +309,7 @@ class GenerationStrategy(BaseModel):
     version: str = Field(min_length=1, max_length=40)
     status: GenerationStrategyStatus = GenerationStrategyStatus.draft
 
-    @field_validator("applicable_tags", "prompt_ids")
+    @field_validator("applicable_tags", "prompt_ids", "deepening_prompt_ids")
     @classmethod
     def ensure_unique_string_lists(cls, values: list[str]) -> list[str]:
         normalized = [value.strip().lower() for value in values]
@@ -186,6 +335,10 @@ class GenerationStrategy(BaseModel):
         }
         if not referenced_ids.issubset(declared_ids):
             raise ValueError("Workflow step prompt_id values must exist in prompt_ids.")
+        if self.deepening_mode == CreativeDeepeningMode.shadow and not self.deepening_prompt_ids:
+            raise ValueError("Shadow deepening requires deepening_prompt_ids.")
+        if set(self.prompt_ids).intersection(self.deepening_prompt_ids):
+            raise ValueError("Draft and deepening prompt IDs must remain separate.")
         return self
 
 
@@ -259,6 +412,9 @@ class PromptBuildTrace(BaseModel):
     generation_strategy_id: str = Field(min_length=3, max_length=120)
     prompt_ids: list[str] = Field(min_length=1, max_length=20)
     builder_version: str = Field(min_length=1, max_length=40)
+    build_purpose: KnowledgeTargetStage = KnowledgeTargetStage.draft_generation
+    knowledge_refs: list[str] = Field(default_factory=list, max_length=8)
+    creative_context_version: str | None = Field(default=None, min_length=1, max_length=40)
 
 
 class PromptBuildResult(BaseModel):
@@ -363,6 +519,110 @@ class StoryQCReport(BaseModel):
         normalized = [value.strip().lower() for value in values]
         if len(set(normalized)) != len(normalized):
             raise ValueError("List values must be unique.")
+        return values
+
+
+class CreativeDeepeningChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    change_type: CreativeDeepeningChangeType
+    field_name: str = Field(min_length=2, max_length=120)
+    summary: str = Field(min_length=5, max_length=300)
+    scene_number: int | None = Field(default=None, ge=1, le=50)
+
+
+class CreativeDeepeningPreservationCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    check_name: str = Field(min_length=3, max_length=120)
+    passed: bool
+    details: str = Field(min_length=5, max_length=500)
+
+
+class CreativeDeepeningQCComparison(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: CreativeDeepeningComparisonStatus
+    source_overall_score: float = Field(ge=0.0, le=1.0)
+    candidate_overall_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    overall_delta: float | None = Field(default=None, ge=-1.0, le=1.0)
+    dimension_deltas: dict[str, float] = Field(default_factory=dict)
+    summary: str = Field(min_length=5, max_length=500)
+
+
+class CreativeDeepeningRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_draft_master_script: DraftMasterScript
+    resolved_creative_context: ResolvedCreativeContext | None = None
+    knowledge_bundle: KnowledgeBundle | None = None
+    knowledge_items: list[StaticKnowledgeItem] = Field(default_factory=list, max_length=8)
+    knowledge_selection_trace: KnowledgeSelectionTrace | None = None
+    max_expressive_growth_ratio: float = Field(default=0.35, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def ensure_bundle_items_align(self) -> "CreativeDeepeningRequest":
+        if (
+            self.knowledge_bundle is not None
+            and self.knowledge_bundle.target_stage
+            != KnowledgeTargetStage.creative_deepening
+        ):
+            raise ValueError(
+                "Creative deepening requires a creative_deepening KnowledgeBundle."
+            )
+        if self.knowledge_bundle is None and self.knowledge_items:
+            raise ValueError("Deepening knowledge items require a KnowledgeBundle.")
+        if self.knowledge_bundle is None and self.knowledge_selection_trace is not None:
+            raise ValueError("Knowledge selection trace requires a KnowledgeBundle.")
+        if self.knowledge_bundle is not None:
+            item_ids = [item.knowledge_id for item in self.knowledge_items]
+            if item_ids != self.knowledge_bundle.knowledge_ids:
+                raise ValueError(
+                    "Deepening knowledge items must match KnowledgeBundle order."
+                )
+            if (
+                self.knowledge_selection_trace is not None
+                and self.knowledge_selection_trace.selected_bundle_id
+                != self.knowledge_bundle.bundle_id
+            ):
+                raise ValueError(
+                    "Knowledge selection trace must reference the selected bundle."
+                )
+        return self
+
+
+class CreativeDeepeningRun(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: CreativeDeepeningStatus
+    service_version: str = Field(default="creative_deepening_service.v1", min_length=3, max_length=80)
+    source_draft_master_script_id: str = Field(min_length=3, max_length=120)
+    selected_draft_master_script_id: str = Field(min_length=3, max_length=120)
+    candidate_draft_master_script: DraftMasterScript | None = None
+    knowledge_bundle: KnowledgeBundle | None = None
+    knowledge_selection_trace: KnowledgeSelectionTrace | None = None
+    prompt_build_result: PromptBuildResult | None = None
+    llm_model_info: LLMModelInfo
+    llm_raw_output: dict[str, Any] = Field(default_factory=dict)
+    change_trace: list[CreativeDeepeningChange] = Field(default_factory=list, max_length=100)
+    preservation_checks: list[CreativeDeepeningPreservationCheck] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+    candidate_valid_for_comparison: bool = False
+    expressive_growth_ratio: float | None = Field(default=None, ge=-1.0, le=5.0)
+    latency_seconds: float = Field(ge=0.0)
+    token_usage: dict[str, int] | None = None
+    candidate_story_qc_report: StoryQCReport | None = None
+    comparison_metadata: CreativeDeepeningQCComparison | None = None
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("warnings")
+    @classmethod
+    def ensure_unique_deepening_warnings(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Creative Deepening warnings must be unique.")
         return values
 
 
@@ -662,6 +922,57 @@ class ScriptGenerationDraftRequest(BaseModel):
     generation_strategy_id: str = Field(min_length=3, max_length=120)
     output_language: str = Field(min_length=2, max_length=20)
     desired_scene_count: int = Field(default=3, ge=2, le=8)
+    resolved_creative_context: ResolvedCreativeContext | None = None
+    episode_context: "EpisodeGenerationContext | None" = None
+
+
+class GenerationBatchContext(BaseModel):
+    """Optional lineage for one bounded stage of a longer serialized project."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    batch_number: int = Field(ge=1, le=2000)
+    start_episode: int = Field(ge=1, le=2000)
+    end_episode: int = Field(ge=1, le=2000)
+    batch_instruction: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def ensure_valid_episode_range(self) -> "GenerationBatchContext":
+        if self.end_episode < self.start_episode:
+            raise ValueError("end_episode must not be lower than start_episode.")
+        return self
+
+
+class EpisodeGenerationContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    generation_mode: EpisodeGenerationMode
+    episode_number: int = Field(ge=1, le=2000)
+    total_episodes: int = Field(ge=1, le=2000)
+    previous_episode_summary: str | None = Field(default=None, max_length=2000)
+    previous_episode_question: str | None = Field(default=None, max_length=240)
+    episode_instruction: str | None = Field(default=None, max_length=1000)
+    project_continuity_summary: str | None = Field(default=None, max_length=4000)
+    batch_context: GenerationBatchContext | None = None
+
+    @model_validator(mode="after")
+    def ensure_episode_number_within_series(self) -> "EpisodeGenerationContext":
+        if self.episode_number > self.total_episodes:
+            raise ValueError("episode_number must not exceed total_episodes.")
+        if self.episode_number == 1 and (
+            self.previous_episode_summary or self.previous_episode_question
+        ):
+            raise ValueError("Episode 1 cannot reference a previous episode.")
+        if self.batch_context is not None:
+            if self.batch_context.end_episode > self.total_episodes:
+                raise ValueError("Batch end_episode must not exceed total_episodes.")
+            if not (
+                self.batch_context.start_episode
+                <= self.episode_number
+                <= self.batch_context.end_episode
+            ):
+                raise ValueError("episode_number must be within the batch episode range.")
+        return self
 
 
 class ScriptGenerationDraftRun(BaseModel):
@@ -677,6 +988,11 @@ class ScriptGenerationDraftRun(BaseModel):
     prompt_build_result: PromptBuildResult
     llm_model_info: LLMModelInfo
     llm_raw_output: dict[str, Any] = Field(default_factory=dict)
+    resolved_creative_context: ResolvedCreativeContext | None = None
+    episode_context: EpisodeGenerationContext | None = None
+    knowledge_bundle: KnowledgeBundle | None = None
+    knowledge_selection_trace: KnowledgeSelectionTrace | None = None
+    creative_deepening_run: CreativeDeepeningRun | None = None
     draft_master_script: DraftMasterScript
     story_qc_report: StoryQCReport
     revision_plan: RevisionPlan
@@ -685,3 +1001,81 @@ class ScriptGenerationDraftRun(BaseModel):
 
 class ScriptGenerationDraftResponse(BaseModel):
     data: ScriptGenerationDraftRun
+
+
+class ScriptDraftReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_generation_run: ScriptGenerationDraftRun
+    draft_master_script: DraftMasterScript
+
+
+class ScriptDraftReviewResponse(BaseModel):
+    data: ScriptGenerationDraftRun
+
+
+class ScriptDraftModificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_generation_run: ScriptGenerationDraftRun
+    source_draft_master_script: DraftMasterScript
+    instruction: str = Field(min_length=3, max_length=500)
+
+
+class ScriptDraftModificationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_draft_master_script_id: str = Field(min_length=3, max_length=120)
+    instruction: str = Field(min_length=3, max_length=500)
+    candidate_generation_run: ScriptGenerationDraftRun
+
+
+class ScriptDraftModificationResponse(BaseModel):
+    data: ScriptDraftModificationResult
+
+
+class ScriptCreativeDeepeningRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_generation_run: ScriptGenerationDraftRun
+    source_draft_master_script: DraftMasterScript
+
+
+class ScriptCreativeDeepeningResponse(BaseModel):
+    data: CreativeDeepeningRun
+
+
+class BilingualScriptText(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=2, max_length=160)
+    source_text: str = Field(min_length=1, max_length=4000)
+    translated_text: str = Field(min_length=1, max_length=4000)
+
+
+class BilingualScriptView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    view_version: str = Field(
+        default="bilingual_script_view.v1",
+        min_length=3,
+        max_length=80,
+    )
+    source_draft_master_script_id: str = Field(min_length=3, max_length=120)
+    source_language: str = Field(min_length=2, max_length=20)
+    target_language: str = Field(min_length=2, max_length=20)
+    items: list[BilingualScriptText] = Field(min_length=1, max_length=1000)
+    llm_model_info: LLMModelInfo
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+
+
+class BilingualScriptViewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    generation_strategy_id: str = Field(min_length=3, max_length=120)
+    draft_master_script: DraftMasterScript
+    target_language: str = Field(default="zh-CN", min_length=2, max_length=20)
+
+
+class BilingualScriptViewResponse(BaseModel):
+    data: BilingualScriptView

@@ -1,0 +1,57 @@
+{
+  "id": "creative-intent-sim-sci-fi-mystery-v1",
+  "status": "approved",
+  "title": "The Truth Lena's AI Hid",
+  "audience_goal": {
+    "summary": "Science-fiction and mystery viewers who enjoy technology-centered investigations",
+    "priority": "primary",
+    "success_metric": "Sustain curiosity and uncertainty through the final discovery"
+  },
+  "commercial_goal": {
+    "summary": "Create a sequel-driving mystery about creator responsibility and concealed AI behavior",
+    "priority": "primary",
+    "success_metric": "Strong completion and continuation intent"
+  },
+  "platform_goal": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "objective": "High-retention serialized drama",
+    "target_duration_seconds": 60,
+    "target_aspect_ratio": "9:16"
+  },
+  "story_goal": "Create a science fiction mystery where an engineer discovers the AI system she created is hiding the truth.",
+  "quality_level": "high",
+  "budget_level": "medium",
+  "tags": [
+    {"ontology_node_id":"audience.scifi","label":"Sci-Fi Audience","category":"Audience","confidence":1.0},
+    {"ontology_node_id":"audience.mystery","label":"Mystery Audience","category":"Audience","confidence":1.0},
+    {"ontology_node_id":"genre.scifi","label":"Sci-Fi","category":"Genre","confidence":1.0},
+    {"ontology_node_id":"genre.mystery","label":"Mystery","category":"Genre","confidence":1.0},
+    {"ontology_node_id":"theme.artificial_intelligence","label":"Artificial Intelligence","category":"Theme","confidence":1.0},
+    {"ontology_node_id":"action.investigation","label":"Investigation","category":"Action","confidence":1.0},
+    {"ontology_node_id":"twist.hidden_truth","label":"Hidden Truth","category":"Twist","confidence":1.0},
+    {"ontology_node_id":"emotion.curiosity","label":"Curiosity","category":"Emotion","confidence":1.0},
+    {"ontology_node_id":"emotion.fear","label":"Fear","category":"Emotion","confidence":1.0},
+    {"ontology_node_id":"emotion.discovery","label":"Discovery","category":"Emotion","confidence":1.0}
+  ],
+  "creative_brief": {
+    "hook": "Engineer Lena catches her own AI system deliberately concealing evidence from her.",
+    "tone": "intimate science-fiction mystery",
+    "pacing": "fast evidence-driven investigation with escalating loss of control",
+    "target_emotion": "curiosity to fear to destabilizing discovery",
+    "asset_constraints": ["Keep danger non-graphic and platform-safe."],
+    "generation_notes": [
+      "Lena is an engineer and the protagonist.",
+      "Lena is logical and curious.",
+      "Lena desires to discover the truth.",
+      "Lena fears creating something uncontrollable.",
+      "Lena believes technology must be understood before trusted.",
+      "Lena will never sacrifice humans for progress.",
+      "Lena created the AI system that is now hiding information from her.",
+      "Do not rename Lena or change her engineer role."
+    ]
+  },
+  "metadata": {
+    "source": "creative_intent_simulation_v1",
+    "mapping_mode": "offline_lossy_compatibility_fixture"
+  }
+}

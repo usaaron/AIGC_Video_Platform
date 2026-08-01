@@ -1,0 +1,20 @@
+{
+  "case_id": "supernatural_romance",
+  "mapped": {
+    "free_creative_prompt": ["story_goal", "creative_brief.hook"],
+    "audience_tags": ["audience_goal", "ContentSpec.tags"],
+    "genre_theme_story_elements_emotions": ["ContentSpec.tags", "creative_brief.tone", "creative_brief.target_emotion"],
+    "character_and_partial_relationship": ["creative_brief.generation_notes"]
+  },
+  "losses": [
+    "Lucian has no explicit story role in the user input, so the mapping cannot safely assume protagonist or counterpart.",
+    "The human enemy has no name or Character Profile.",
+    "The directional relationship cannot be represented as a typed object in ContentSpec.",
+    "No moral boundary was supplied and the current runtime may invent one if useful to the plot.",
+    "Character field locks are prose only and cannot be enforced."
+  ],
+  "potential_conflicts": [
+    "Forbidden Love is stronger than the original prompt, which states enemies and mutual survival but not an established romance taboo.",
+    "Protective personality and rejection of humans require a clear target to avoid generic contradiction."
+  ]
+}

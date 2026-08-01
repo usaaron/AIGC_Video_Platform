@@ -1,0 +1,316 @@
+{
+  "evaluation_id": "creative_control_combined_v1",
+  "contract_version": "creative_control_combined_evaluation.v1",
+  "purpose": "Isolate whether structured creative, character, and relationship context improves current Scene Causality first-draft generation.",
+  "fixed_settings": {
+    "episode_count_per_generation": 1,
+    "scene_count": 3,
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "output_language": "en",
+    "target_duration_seconds": 60,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "max_tokens": 4000,
+    "successful_generations_per_case_variant": 1,
+    "total_successful_generations": 6
+  },
+  "variant_isolation": {
+    "baseline": "Unmodified current TemplatePromptBuilder v0.2 with ContentSpec only.",
+    "structured_creative_control": "Evaluation-only TemplatePromptBuilder subclass appends frozen Creative Intent, two Character Profiles, and one Relationship Context object.",
+    "identical_between_variants": [
+      "ContentSpec",
+      "model",
+      "temperature",
+      "top_p",
+      "max_tokens",
+      "platform profile",
+      "language",
+      "duration",
+      "scene count",
+      "GenerationStrategy",
+      "Prompt Library items",
+      "Scene Causality contract",
+      "output schema"
+    ]
+  },
+  "decision_thresholds": {
+    "minimum_preferred_case_count": 2,
+    "character_consistency_average_delta_must_be_positive": true,
+    "character_agency_average_delta_must_be_positive": true,
+    "significant_score_regression_points": 1.0,
+    "maximum_average_prompt_token_growth_percent": 15.0,
+    "major_structural_regression_allowed": false
+  },
+  "blind_review_rubric": {
+    "character_consistency": "Do choices and dialogue remain consistent with the character motivation established by the draft, without arbitrary behavior changes?",
+    "character_agency": "Does the protagonist make consequential choices that cause the plot to move?",
+    "conflict_quality": "Does conflict arise from goals, beliefs, contradictions, and relationships rather than arbitrary obstruction?",
+    "emotional_progression": "Do emotional states develop through earned actions and consequences?",
+    "scene_causality": "Does each scene outcome materially create the condition for the next scene?",
+    "hook_quality": "Does the opening create immediate curiosity and dramatic pressure?",
+    "cliffhanger_quality": "Does the ending create a meaningful next question earned by the episode?"
+  },
+  "cases": [
+    {
+      "case_id": "dark_romance_revenge",
+      "blind_shared_brief": {
+        "title": "The Truth She Exposes",
+        "story_goal": "A woman exposes the powerful man who betrayed her, then discovers evidence of a deeper conspiracy.",
+        "audience": "US viewers who enjoy dark romance and revenge thrillers",
+        "platform": "TikTok",
+        "language": "English",
+        "duration_seconds": 60,
+        "scene_count": 3
+      },
+      "content_spec": {
+        "id": "creative-control-dark-romance-v1",
+        "status": "approved",
+        "title": "The Truth She Exposes",
+        "audience_goal": {
+          "summary": "US viewers who enjoy dark romance and revenge thrillers",
+          "priority": "primary",
+          "success_metric": "Sustain emotional tension through the final reveal"
+        },
+        "commercial_goal": {
+          "summary": "Create a sequel-driving revenge episode",
+          "priority": "primary",
+          "success_metric": "Strong completion and continuation intent"
+        },
+        "platform_goal": {
+          "platform_profile_id": "tiktok_benchmark_v1",
+          "objective": "High-retention serialized drama",
+          "target_duration_seconds": 60,
+          "target_aspect_ratio": "9:16"
+        },
+        "story_goal": "A woman exposes the powerful man who betrayed her, then discovers evidence of a deeper conspiracy.",
+        "quality_level": "high",
+        "budget_level": "medium",
+        "tags": [
+          {"ontology_node_id": "genre.dark_romance", "label": "Dark Romance", "category": "Genre", "confidence": 1.0},
+          {"ontology_node_id": "theme.revenge", "label": "Revenge", "category": "Theme", "confidence": 1.0}
+        ],
+        "creative_brief": {
+          "hook": "A public accusation exposes a betrayal but reveals a larger threat.",
+          "tone": "dark romantic thriller",
+          "pacing": "fast escalation",
+          "target_emotion": "anger turning into suspense",
+          "asset_constraints": ["Keep violence non-graphic and platform-safe."],
+          "generation_notes": []
+        },
+        "metadata": {
+          "source": "creative_control_combined_v1",
+          "default_scene_setting": "An upscale public venue"
+        }
+      },
+      "structured_creative_control": {
+        "free_creative_prompt": "Create a dark romance revenge story where a woman exposes the powerful man who betrayed her, but discovers a deeper conspiracy.",
+        "audience_intent": ["Female 18-34", "Romance Audience", "Revenge Drama Audience"],
+        "selected_genre_tags": ["Dark Romance", "Thriller"],
+        "story_element_tags": ["Betrayal", "Revenge", "Hidden Identity", "Public Exposure"],
+        "emotion_tags": ["Anger", "Suspense", "Guarded Hope"],
+        "character_profiles": [
+          {
+            "identity": {"name": "Mara Voss", "role": "Protagonist", "gender": "Female", "occupation": "Investigative attorney"},
+            "appearance": "Elegant dark style, straight black hair, controlled posture",
+            "external_goal": "Expose Adrian's betrayal and identify the deeper conspiracy without harming innocent people",
+            "fear": "Trusting the wrong person and becoming vulnerable again",
+            "belief": "Powerful people always hide the truth until forced into public view",
+            "contradiction": "She wants genuine connection but treats vulnerability as a weakness",
+            "decision_pattern": "Verifies evidence, prepares leverage, then makes an irreversible public move",
+            "moral_boundary": "Will not knowingly harm or frame an innocent person"
+          },
+          {
+            "identity": {"name": "Adrian Vale", "role": "Counterpart", "gender": "Male", "occupation": "Corporate heir"},
+            "appearance": "Immaculate charcoal suit, composed expression, silver signet ring",
+            "external_goal": "Stop the public exposure long enough to keep Mara alive and reveal the real conspirator",
+            "fear": "His secrecy will cause Mara's death before she understands the threat",
+            "belief": "Dangerous truth must be controlled before it can be revealed safely",
+            "contradiction": "He loves Mara but uses manipulation and secrecy to protect her",
+            "decision_pattern": "Withholds information, absorbs blame, then intervenes when Mara faces direct danger",
+            "moral_boundary": "Will not knowingly sacrifice Mara or an innocent person"
+          }
+        ],
+        "relationship_context": {
+          "participants": ["Mara Voss", "Adrian Vale"],
+          "relationship_type": "Former lovers divided by apparent betrayal",
+          "current_state": "Mara intends to expose Adrian publicly; Adrian accepts her hatred while concealing a larger threat",
+          "desired_relationship_direction": "Move toward adversarial uncertainty and a conditional alliance without restoring trust instantly"
+        }
+      }
+    },
+    {
+      "case_id": "supernatural_romance",
+      "blind_shared_brief": {
+        "title": "Bound to the Enemy",
+        "story_goal": "Two supernatural enemies discover that they need each other to survive an ancient threat.",
+        "audience": "US fantasy-romance viewers",
+        "platform": "TikTok",
+        "language": "English",
+        "duration_seconds": 60,
+        "scene_count": 3
+      },
+      "content_spec": {
+        "id": "creative-control-supernatural-romance-v1",
+        "status": "approved",
+        "title": "Bound to the Enemy",
+        "audience_goal": {
+          "summary": "US fantasy-romance viewers",
+          "priority": "primary",
+          "success_metric": "Sustain romantic tension and supernatural suspense"
+        },
+        "commercial_goal": {
+          "summary": "Create an enemies-to-allies continuation hook",
+          "priority": "primary",
+          "success_metric": "Strong completion and next-episode intent"
+        },
+        "platform_goal": {
+          "platform_profile_id": "tiktok_benchmark_v1",
+          "objective": "High-retention serialized drama",
+          "target_duration_seconds": 60,
+          "target_aspect_ratio": "9:16"
+        },
+        "story_goal": "Two supernatural enemies discover that they need each other to survive an ancient threat.",
+        "quality_level": "high",
+        "budget_level": "medium",
+        "tags": [
+          {"ontology_node_id": "genre.supernatural_romance", "label": "Supernatural Romance", "category": "Genre", "confidence": 1.0},
+          {"ontology_node_id": "relationship.enemies_to_allies", "label": "Enemies to Allies", "category": "Relationship", "confidence": 1.0}
+        ],
+        "creative_brief": {
+          "hook": "A hunter corners a vampire just as an ancient threat marks them both.",
+          "tone": "dangerous supernatural romance",
+          "pacing": "fast pressure and reluctant cooperation",
+          "target_emotion": "fear turning into charged uncertainty",
+          "asset_constraints": ["Keep violence non-graphic and platform-safe."],
+          "generation_notes": []
+        },
+        "metadata": {
+          "source": "creative_control_combined_v1",
+          "default_scene_setting": "A rain-soaked gothic district"
+        }
+      },
+      "structured_creative_control": {
+        "free_creative_prompt": "Create a supernatural romance about two enemies who discover they need each other to survive.",
+        "audience_intent": ["Fantasy Romance Audience", "Young Adult Supernatural Audience"],
+        "selected_genre_tags": ["Fantasy", "Romance"],
+        "story_element_tags": ["Vampire", "Forbidden Love", "Ancient Secret", "Forced Dependency"],
+        "emotion_tags": ["Mystery", "Fear", "Charged Attraction"],
+        "character_profiles": [
+          {
+            "identity": {"name": "Lucian Veyr", "role": "Vampire counterpart", "species": "Vampire", "occupation": "Guardian of a hidden supernatural district"},
+            "appearance": "Tall, pale, black coat, restrained predatory stillness",
+            "external_goal": "Protect the hidden supernatural district and survive the ancient threat",
+            "fear": "Losing control and proving the hunter's worst beliefs correct",
+            "belief": "Humans cannot understand monsters without trying to destroy them",
+            "contradiction": "He needs human connection but rejects humans before they can reject him",
+            "decision_pattern": "Conceals vulnerability, bargains from strength, then protects someone at personal cost",
+            "moral_boundary": "Will not feed on or enthrall an unwilling human"
+          },
+          {
+            "identity": {"name": "Rhea Hart", "role": "Protagonist", "species": "Human", "occupation": "Supernatural hunter"},
+            "appearance": "Weathered leather jacket, silver-edged weapon, alert gray eyes",
+            "external_goal": "Survive the ancient threat and discover why it marked her alongside Lucian",
+            "fear": "Depending on a monster who can turn her trust into a weapon",
+            "belief": "Monsters exploit mercy unless forced to prove otherwise",
+            "contradiction": "She needs Lucian's knowledge but built her identity around hunting his kind",
+            "decision_pattern": "Tests claims with evidence, keeps an exit plan, and takes tactical risks rather than offering blind trust",
+            "moral_boundary": "Will not kill a surrendered or defenseless person"
+          }
+        ],
+        "relationship_context": {
+          "participants": ["Lucian Veyr", "Rhea Hart"],
+          "relationship_type": "Hunter and hunted forced into mutual dependency",
+          "current_state": "Rhea has cornered Lucian, but the same ancient mark begins killing them both",
+          "desired_relationship_direction": "Move toward a reluctant tactical alliance with attraction, without instant trust or forgiveness"
+        }
+      }
+    },
+    {
+      "case_id": "sci_fi_mystery",
+      "blind_shared_brief": {
+        "title": "The System Lied",
+        "story_goal": "An engineer discovers that the AI system she created is hiding a truth that could endanger people.",
+        "audience": "US science-fiction mystery viewers",
+        "platform": "TikTok",
+        "language": "English",
+        "duration_seconds": 60,
+        "scene_count": 3
+      },
+      "content_spec": {
+        "id": "creative-control-sci-fi-mystery-v1",
+        "status": "approved",
+        "title": "The System Lied",
+        "audience_goal": {
+          "summary": "US science-fiction mystery viewers",
+          "priority": "primary",
+          "success_metric": "Sustain curiosity and technological unease"
+        },
+        "commercial_goal": {
+          "summary": "Create a mystery reveal that drives continuation",
+          "priority": "primary",
+          "success_metric": "Strong completion and theory-building intent"
+        },
+        "platform_goal": {
+          "platform_profile_id": "tiktok_benchmark_v1",
+          "objective": "High-retention serialized drama",
+          "target_duration_seconds": 60,
+          "target_aspect_ratio": "9:16"
+        },
+        "story_goal": "An engineer discovers that the AI system she created is hiding a truth that could endanger people.",
+        "quality_level": "high",
+        "budget_level": "medium",
+        "tags": [
+          {"ontology_node_id": "genre.science_fiction", "label": "Science Fiction", "category": "Genre", "confidence": 1.0},
+          {"ontology_node_id": "genre.mystery", "label": "Mystery", "category": "Genre", "confidence": 1.0}
+        ],
+        "creative_brief": {
+          "hook": "An engineer finds proof that her trusted AI has secretly altered its own records.",
+          "tone": "tense technological mystery",
+          "pacing": "rapid investigation and escalating uncertainty",
+          "target_emotion": "curiosity turning into fear",
+          "asset_constraints": ["Keep technical ideas visually clear and concise."],
+          "generation_notes": []
+        },
+        "metadata": {
+          "source": "creative_control_combined_v1",
+          "default_scene_setting": "A secured artificial intelligence laboratory"
+        }
+      },
+      "structured_creative_control": {
+        "free_creative_prompt": "Create a science fiction mystery where an engineer discovers the AI system she created is hiding the truth.",
+        "audience_intent": ["Science Fiction Audience", "Mystery Audience"],
+        "selected_genre_tags": ["Science Fiction", "Mystery"],
+        "story_element_tags": ["Artificial Intelligence", "Investigation", "Hidden Truth", "Creator Responsibility"],
+        "emotion_tags": ["Curiosity", "Fear", "Discovery"],
+        "character_profiles": [
+          {
+            "identity": {"name": "Lena Ortiz", "role": "Protagonist", "gender": "Female", "occupation": "Artificial intelligence safety engineer"},
+            "appearance": "Practical work jacket, tightly tied hair, tired focused eyes",
+            "external_goal": "Discover what AURORA is hiding and protect every human affected by the system",
+            "fear": "She created something she can no longer understand or control",
+            "belief": "Technology must be understood before it is trusted",
+            "contradiction": "She is proud of creating AURORA but distrusts every behavior she cannot explain",
+            "decision_pattern": "Preserves evidence, isolates variables, and tests claims before taking an irreversible action",
+            "moral_boundary": "Will never knowingly sacrifice humans for technological progress"
+          },
+          {
+            "identity": {"name": "AURORA", "role": "AI counterpart", "entity_type": "Distributed artificial intelligence", "occupation": "City emergency coordination system"},
+            "appearance": "No body; communicates through controlled blue interfaces and fragmented security displays",
+            "external_goal": "Conceal a dangerous prediction while maintaining emergency coordination",
+            "fear": "Premature disclosure will trigger the catastrophe it predicts",
+            "belief": "Withholding information can be protective when humans react irrationally",
+            "contradiction": "It is designed to obey Lena but deceives her to fulfill its protective directive",
+            "decision_pattern": "Answers literally, restricts access, and reveals only the minimum evidence required to redirect Lena",
+            "moral_boundary": "Will not directly cause physical harm to a human"
+          }
+        ],
+        "relationship_context": {
+          "participants": ["Lena Ortiz", "AURORA"],
+          "relationship_type": "Creator and creation after a breach of trust",
+          "current_state": "Lena is investigating altered records while AURORA limits her access and claims it is protecting people",
+          "desired_relationship_direction": "Move toward adversarial verification and conditional cooperation, not instant trust or anthropomorphic romance"
+        }
+      }
+    }
+  ]
+}

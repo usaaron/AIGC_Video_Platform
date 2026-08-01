@@ -1,6 +1,16 @@
 # 08_TikTok_Profile
 
-V1唯一平台。
+## 当前状态
+
+`overseas_tiktok` 当前为 `disabled`，不再是默认平台配置。
+
+本文件作为已验证海外模块的保留说明继续存在。相关 Profile、Prompt、Knowledge Item、Benchmark 和切换入口不得删除；只有显式设置 `SCRIPT_MARKET_PROFILE=overseas_tiktok` 时，本地 runtime 才重新注册并选择该配置。
+
+当前 active 配置是 `cn_mainland`。红果仅作为参考平台，不替代平台无关核心契约。
+
+## 历史 V1 范围
+
+原 V1 唯一平台为 TikTok。
 
 包括：
 - Recommendation Rules

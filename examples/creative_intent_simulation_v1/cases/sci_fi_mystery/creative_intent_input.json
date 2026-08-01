@@ -1,0 +1,38 @@
+{
+  "schema_version": "research.creative_intent.v1",
+  "case_id": "sci_fi_mystery",
+  "free_creative_prompt": "Create a science fiction mystery where an engineer discovers the AI system she created is hiding the truth.",
+  "audience_tags": ["Sci-Fi Audience", "Mystery Audience"],
+  "genre_tags": ["Sci-Fi", "Mystery"],
+  "theme_tags": [],
+  "story_element_tags": ["Artificial Intelligence", "Investigation", "Hidden Truth"],
+  "emotion_tags": ["Curiosity", "Fear", "Discovery"],
+  "trend_recommendations": [],
+  "user_constraints": [],
+  "characters": [
+    {
+      "name": "Lena",
+      "role": "Engineer",
+      "external_personality": ["Logical", "Curious"],
+      "desire": "Discover the truth",
+      "fear": "Creating something uncontrollable",
+      "belief": "Technology must be understood before trusted",
+      "moral_boundaries": ["Never sacrifice humans for progress"]
+    }
+  ],
+  "relationships": [
+    {
+      "from_character_ref": "Lena",
+      "to_character_ref": "unnamed_ai_system",
+      "current_state": "Creator investigating a system that conceals information",
+      "completeness": "partial_from_free_prompt"
+    }
+  ],
+  "generation_constraints": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "output_language": "en",
+    "target_duration_seconds": 60,
+    "desired_scene_count": 3,
+    "content_rating": "platform_safe"
+  }
+}

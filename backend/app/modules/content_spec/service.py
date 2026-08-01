@@ -1,4 +1,12 @@
-from app.modules.content_spec.models import ContentSpec, ContentSpecCreate
+from app.modules.content_spec.models import (
+    ContentSpec,
+    ContentSpecCreate,
+    CreativeIntentInput,
+    CreativeIntentMappingTrace,
+    CreativeIntentResolutionResult,
+    ResolvedCreativeContext,
+    TagRef,
+)
 from app.modules.content_spec.repository import ContentSpecRepository
 from app.modules.ontology_node.repository import OntologyNodeRepository
 from app.modules.platform_profile.repository import PlatformProfileRepository
@@ -14,6 +22,14 @@ class MissingOntologyNodeError(ValueError):
 
 class InvalidTagReferenceError(ValueError):
     """Raised when a tag reference does not match its ontology node."""
+
+
+class CreativeIntentConflictError(ValueError):
+    """Raised when explicit creative intent inputs cannot be resolved safely."""
+
+
+class InactiveOntologyNodeError(ValueError):
+    """Raised when creative intent references an inactive ontology node."""
 
 
 class ContentSpecService:
@@ -50,8 +66,124 @@ class ContentSpecService:
         content_spec = ContentSpec.model_validate(payload.model_dump())
         return self._repository.save(content_spec)
 
+    def resolve_creative_intent(
+        self,
+        payload: CreativeIntentInput,
+    ) -> CreativeIntentResolutionResult:
+        active_tag_ids = payload.selected_tag_ids + payload.added_tag_ids
+        excluded_ids = {tag_id.casefold() for tag_id in payload.excluded_tag_ids}
+        conflicts = [
+            tag_id
+            for tag_id in active_tag_ids
+            if tag_id.casefold() in excluded_ids
+        ]
+        if conflicts:
+            raise CreativeIntentConflictError(
+                "Creative intent cannot select and exclude the same tags: "
+                f"{sorted(conflicts)}."
+            )
+
+        resolved_tag_refs = [
+            self._resolve_ontology_tag(tag_id)
+            for tag_id in active_tag_ids
+        ]
+        for excluded_tag_id in payload.excluded_tag_ids:
+            self._resolve_ontology_tag(excluded_tag_id)
+
+        content_spec = self.create(
+            ContentSpecCreate(
+                title=payload.title,
+                audience_goal=payload.audience_goal,
+                commercial_goal=payload.commercial_goal,
+                platform_goal=payload.platform_goal,
+                story_goal=payload.free_creative_prompt,
+                quality_level=payload.quality_level,
+                budget_level=payload.budget_level,
+                tags=resolved_tag_refs,
+                creative_brief=payload.creative_brief,
+                metadata={
+                    "source": "creative_intent_resolution_v1",
+                    "creative_intent_schema_version": payload.schema_version,
+                },
+            )
+        )
+        resolved_context = ResolvedCreativeContext(
+            schema_version="v1",
+            content_spec_id=content_spec.id,
+            characters=payload.character_contexts,
+            excluded_tag_ids=payload.excluded_tag_ids,
+            excluded_patterns=payload.excluded_patterns,
+        )
+        mapping_trace = [
+            CreativeIntentMappingTrace(
+                source_field="free_creative_prompt",
+                target_field="content_spec.story_goal",
+                reason="The bounded v1 prompt is already a normalized story direction.",
+            ),
+            CreativeIntentMappingTrace(
+                source_field="selected_tag_ids + added_tag_ids",
+                target_field="content_spec.tags",
+                reason="Active tag IDs were resolved through the existing Ontology.",
+            ),
+            CreativeIntentMappingTrace(
+                source_field="creative_brief",
+                target_field="content_spec.creative_brief",
+                reason="The structured creative brief maps directly to the existing contract.",
+            ),
+        ]
+        if payload.character_contexts:
+            mapping_trace.append(
+                CreativeIntentMappingTrace(
+                    source_field="character_contexts",
+                    target_field="resolved_creative_context.characters",
+                    reason="Character context remains separate from ContentSpec metadata.",
+                )
+            )
+        if payload.excluded_patterns:
+            mapping_trace.append(
+                CreativeIntentMappingTrace(
+                    source_field="excluded_patterns",
+                    target_field="resolved_creative_context.excluded_patterns",
+                    reason="Excluded patterns remain explicit generation constraints.",
+                )
+            )
+        if payload.excluded_tag_ids:
+            mapping_trace.append(
+                CreativeIntentMappingTrace(
+                    source_field="excluded_tag_ids",
+                    target_field="resolved_creative_context.excluded_tag_ids",
+                    reason="Excluded Ontology tags remain explicit generation constraints.",
+                )
+            )
+
+        return CreativeIntentResolutionResult(
+            schema_version="v1",
+            content_spec=content_spec,
+            resolved_creative_context=resolved_context,
+            resolved_tag_refs=resolved_tag_refs,
+            mapping_trace=mapping_trace,
+            request_metadata=payload.request_metadata,
+        )
+
     def get(self, content_spec_id: str) -> ContentSpec | None:
         return self._repository.get(content_spec_id)
 
     def list(self) -> list[ContentSpec]:
         return self._repository.list()
+
+    def _resolve_ontology_tag(self, ontology_node_id: str) -> TagRef:
+        ontology_node = self._ontology_node_repository.get(ontology_node_id)
+        if ontology_node is None:
+            raise MissingOntologyNodeError(
+                f"OntologyNode '{ontology_node_id}' was not found."
+            )
+        if not ontology_node.is_active:
+            raise InactiveOntologyNodeError(
+                f"OntologyNode '{ontology_node_id}' is inactive."
+            )
+        return TagRef(
+            ontology_node_id=ontology_node.id,
+            label=ontology_node.label,
+            category=ontology_node.category.value,
+            confidence=1.0,
+        )

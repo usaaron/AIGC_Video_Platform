@@ -1,0 +1,249 @@
+{
+  "content_spec_id": "creative-intent-sim-dark-romance-v1",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "title": "The Truth Mara Exposes",
+  "logline": "After publicly exposing the powerful lover who betrayed her, Mara discovers his identity may be fabricated and risks a call that reveals she may have exposed the wrong man.",
+  "language": "en",
+  "target_audience": "Female viewers ages 18-34 who enjoy dark romance, betrayal, revenge, hidden identities, and serialized conspiracy thrillers.",
+  "target_platform": "TikTok vertical 9:16",
+  "tone": "suspenseful",
+  "hook": "Mara hijacks Adrian's gala livestream: \"He used my love to hide his crimes—and tonight, everyone sees the proof.\"",
+  "synopsis": "Mara hijacks her former lover Adrian's gala livestream and publishes proof that he used her name to hide secret payments. Her upload unlocks a file showing she was targeted before their romance and that Adrian's identity was recently created. Mara calls the file's hidden contact, only to see an identical man claiming she exposed the wrong brother.",
+  "episode_goal": "Have Mara publicly expose Adrian, investigate the evidence her exposure unlocks, and make a risky choice that reveals his identity may be false.",
+  "target_duration_seconds": 60,
+  "characters": [
+    {
+      "name": "Mara",
+      "role": "Protagonist and betrayed former lover",
+      "description": "Elegant and reserved, with black hair and a dark wardrobe. Mara stays calm under pressure, studies evidence carefully, and refuses to endanger innocent people.",
+      "motivation": "Expose the powerful man who betrayed her without trusting another convenient lie."
+    },
+    {
+      "name": "Adrian Vale",
+      "role": "Powerful former lover and apparent betrayer",
+      "description": "A wealthy, commanding executive whose intimate betrayal destroyed Mara's trust. He claims his worst choices concealed a more dangerous truth.",
+      "motivation": "Stop Mara from uncovering the organization behind his identity before it reaches her."
+    },
+    {
+      "name": "Unknown Caller",
+      "role": "Mysterious conspiracy contact",
+      "description": "An unseen figure who supplies evidence while manipulating Mara toward an uncertain agenda.",
+      "motivation": "Turn Mara against Adrian and draw her deeper into the conspiracy."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "INT. ADRIAN'S GALA - NIGHT",
+      "purpose": "Open with Mara's decisive public exposure and instantly reveal that Adrian's betrayal connects to something larger.",
+      "setting_hint": "Vertical-framed luxury gala stage, live audience and projection screen",
+      "beat_summary": "Mara interrupts Adrian's gala presentation and livestreams records showing he used her name to conceal secret payments. When she publishes the evidence, an unfamiliar encrypted file appears on the screen: MARA—TARGET CONFIRMED.",
+      "emotional_shift": "Controlled anger to alarmed suspicion",
+      "emotional_objective": "Deliver immediate revenge satisfaction, then disrupt it with evidence that Mara was targeted.",
+      "character_actions": [
+        "Mara steps onto the stage and takes control of the presentation.",
+        "She displays the payment records to the audience and livestream.",
+        "Adrian quietly approaches, trying to make her stop.",
+        "Mara refuses and publishes the evidence from her phone.",
+        "A new encrypted file opens without her command."
+      ],
+      "turning_point": "Mara's successful exposure unlocks a file she never uploaded, proving someone anticipated her revenge.",
+      "scene_causality": {
+        "goal": "Publicly prove Adrian exploited Mara and release the evidence before he can suppress it.",
+        "conflict": "Adrian pressures Mara to stop and warns that publishing the records will alert people more dangerous than him.",
+        "outcome": "The evidence goes public, and the upload triggers an encrypted file identifying Mara as a confirmed target.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "He used my love to hide his crimes—and tonight, everyone sees the proof.",
+        "Mara, turn it off. You don't understand who will see this.",
+        "Good. Powerful men hide the truth because no one makes them watch it surface.",
+        "Those records aren't only mine.",
+        "Then who just sent me a file marked, 'Mara—Target Confirmed'?"
+      ],
+      "dialogues": [
+        {
+          "character_name": "Mara",
+          "intent": "Expose Adrian before he can silence her",
+          "text": "He used my love to hide his crimes—and tonight, everyone sees the proof."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Stop the exposure without revealing panic",
+          "text": "Mara, turn it off. You don't understand who will see this."
+        },
+        {
+          "character_name": "Mara",
+          "intent": "Make an irreversible public choice",
+          "text": "Good. Powerful men hide the truth because no one makes them watch it surface."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Warn Mara that the danger is larger than him",
+          "text": "Those records aren't only mine."
+        },
+        {
+          "character_name": "Mara",
+          "intent": "Identify the unexpected evidence",
+          "text": "Then who just sent me a file marked, 'Mara—Target Confirmed'?"
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 2,
+      "slug": "INT. GALA SERVICE CORRIDOR - CONTINUOUS",
+      "purpose": "Let Mara independently test the new evidence and uncover that Adrian's identity and their romance may have been constructed.",
+      "setting_hint": "Narrow service corridor behind the gala ballroom",
+      "beat_summary": "Mara retreats to a service corridor and opens the file herself. Adrian insists it is bait, but its records show the Adrian Vale identity was created shortly before their relationship—and Mara was selected before they met.",
+      "emotional_shift": "Suspicion to wounded certainty",
+      "emotional_objective": "Turn romantic betrayal into a frightening question about whether the entire relationship was engineered.",
+      "character_actions": [
+        "Mara blocks the ballroom doors behind her.",
+        "She refuses to hand Adrian her phone.",
+        "She verifies the file's dated identity record and photograph.",
+        "Adrian's composure breaks when Mara finds her own name on a target list.",
+        "Mara copies the contact number before deleting the file."
+      ],
+      "turning_point": "Adrian admits his name is false, but claims his love for Mara was real.",
+      "scene_causality": {
+        "goal": "Verify the encrypted file without surrendering control to Adrian.",
+        "conflict": "Adrian calls the file manufactured bait and asks Mara to trust him despite having already deceived her.",
+        "outcome": "Mara confirms that Adrian's identity was recently created, learns she was selected before they met, and copies a hidden contact number.",
+        "caused_by_scene_number": 1,
+        "causal_link": "The encrypted target file unlocked by Mara's public upload gives her evidence to examine and forces Adrian to follow her before she opens it."
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Delete it. They built that file for you to find.",
+        "I trusted you once. Now I verify everything.",
+        "This says 'Adrian Vale' was created six months before we met.",
+        "The name is false. What I felt for you wasn't.",
+        "My name was on their list before our first date. You didn't find me. You were sent."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Prevent Mara from trusting planted evidence",
+          "text": "Delete it. They built that file for you to find."
+        },
+        {
+          "character_name": "Mara",
+          "intent": "Maintain control and test the evidence herself",
+          "text": "I trusted you once. Now I verify everything."
+        },
+        {
+          "character_name": "Mara",
+          "intent": "Force Adrian to explain his false identity",
+          "text": "This says 'Adrian Vale' was created six months before we met."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Confess partially while withholding the conspiracy",
+          "text": "The name is false. What I felt for you wasn't."
+        },
+        {
+          "character_name": "Mara",
+          "intent": "Reveal that she recognizes deliberate targeting",
+          "text": "My name was on their list before our first date. You didn't find me. You were sent."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 3,
+      "slug": "INT. GALA SERVICE CORRIDOR - MOMENTS LATER",
+      "purpose": "Reward Mara's agency with the hidden-identity reveal and end on an image that demands continuation.",
+      "setting_hint": "Service corridor, framed around Mara, Adrian, and her phone screen",
+      "beat_summary": "Refusing Adrian's demand to run, Mara calls the hidden number on speaker. A live video shows an identical man claiming to be the real Adrian—and he tells Mara the man beside her was sent to replace him.",
+      "emotional_shift": "Wounded certainty to dangerous, guarded hope",
+      "emotional_objective": "Create guarded hope that Mara's love was not entirely false while making both versions of Adrian impossible to trust.",
+      "character_actions": [
+        "Mara puts the hidden number on speaker.",
+        "Adrian reaches for the phone, but Mara steps away.",
+        "Mara activates the incoming video without lowering her gaze.",
+        "An identical man appears on-screen in a dark room.",
+        "Mara looks between the screen and the man beside her, refusing to choose yet."
+      ],
+      "turning_point": "The live caller has Adrian's face and claims the man standing beside Mara is a replacement.",
+      "scene_causality": {
+        "goal": "Call the hidden contact and force the conspiracy to identify itself on Mara's terms.",
+        "conflict": "Adrian warns the call will expose Mara's location, while the caller presents a potentially fabricated second Adrian and demands belief.",
+        "outcome": "A second, identical Adrian appears live and claims Mara exposed his replacement, leaving her trapped between two unverifiable identities.",
+        "caused_by_scene_number": 2,
+        "causal_link": "After verifying the false identity and copying the file's contact number, Mara can directly challenge the unknown people who selected her."
+      },
+      "cliffhanger": true,
+      "dialogue_prompts": [
+        "If you call them, they will know exactly where you are.",
+        "Then stay quiet while I decide who deserves my trust.",
+        "Mara, you exposed the wrong brother.",
+        "That video can be fabricated. End the call.",
+        "Look at the man beside you. He was sent to replace me.",
+        "Neither of you gets my trust. But one of you is going to give me the truth."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Protect Mara by stopping the call",
+          "text": "If you call them, they will know exactly where you are."
+        },
+        {
+          "character_name": "Mara",
+          "intent": "Choose truth over obedience",
+          "text": "Then stay quiet while I decide who deserves my trust."
+        },
+        {
+          "character_name": "Unknown Caller",
+          "intent": "Destabilize Mara's belief in Adrian",
+          "text": "Mara, you exposed the wrong brother."
+        },
+        {
+          "character_name": "Adrian Vale",
+          "intent": "Challenge the apparent reveal",
+          "text": "That video can be fabricated. End the call."
+        },
+        {
+          "character_name": "Unknown Caller",
+          "intent": "Force Mara into the next confrontation",
+          "text": "Look at the man beside you. He was sent to replace me."
+        },
+        {
+          "character_name": "Mara",
+          "intent": "Refuse both competing narratives",
+          "text": "Neither of you gets my trust. But one of you is going to give me the truth."
+        }
+      ],
+      "supporting_asset_ids": []
+    }
+  ],
+  "next_episode_question": "Is the man beside Mara an impostor, or has the conspiracy fabricated a second Adrian to make her destroy the only man she still loves?",
+  "qa_notes": [
+    "Draft generated by RealLLMAdapter structured output.",
+    "Story QC and revision loop must still review platform fit and consistency."
+  ],
+  "llm_metadata": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "strategy_id": "strategy.scene_causality_ab.improved.v1",
+    "usage": {
+      "prompt_tokens": 5831,
+      "completion_tokens": 2890,
+      "total_tokens": 8721,
+      "completion_tokens_details": {
+        "reasoning_tokens": 937
+      }
+    },
+    "response_id": "resp_0abee5670ef54288016a5f511030408191a81a52ba69db6654",
+    "prompt_versions": [
+      "v3-scene-causality",
+      "v1-shared"
+    ],
+    "generation_strategy_version": "v1"
+  },
+  "id": "518a58ae-539d-4cc9-99a2-ade2827d2de1",
+  "created_at": "2026-07-21T11:00:28.883140Z",
+  "updated_at": "2026-07-21T11:00:28.883184Z"
+}

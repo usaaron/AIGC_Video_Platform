@@ -1,0 +1,52 @@
+{
+  "id": "creative-control-dark-romance-v1",
+  "status": "approved",
+  "title": "The Truth She Exposes",
+  "audience_goal": {
+    "summary": "US viewers who enjoy dark romance and revenge thrillers",
+    "priority": "primary",
+    "success_metric": "Sustain emotional tension through the final reveal"
+  },
+  "commercial_goal": {
+    "summary": "Create a sequel-driving revenge episode",
+    "priority": "primary",
+    "success_metric": "Strong completion and continuation intent"
+  },
+  "platform_goal": {
+    "platform_profile_id": "tiktok_benchmark_v1",
+    "objective": "High-retention serialized drama",
+    "target_duration_seconds": 60,
+    "target_aspect_ratio": "9:16"
+  },
+  "story_goal": "A woman exposes the powerful man who betrayed her, then discovers evidence of a deeper conspiracy.",
+  "quality_level": "high",
+  "budget_level": "medium",
+  "tags": [
+    {
+      "ontology_node_id": "genre.dark_romance",
+      "label": "Dark Romance",
+      "category": "Genre",
+      "confidence": 1.0
+    },
+    {
+      "ontology_node_id": "theme.revenge",
+      "label": "Revenge",
+      "category": "Theme",
+      "confidence": 1.0
+    }
+  ],
+  "creative_brief": {
+    "hook": "A public accusation exposes a betrayal but reveals a larger threat.",
+    "tone": "dark romantic thriller",
+    "pacing": "fast escalation",
+    "target_emotion": "anger turning into suspense",
+    "asset_constraints": [
+      "Keep violence non-graphic and platform-safe."
+    ],
+    "generation_notes": []
+  },
+  "metadata": {
+    "source": "creative_control_combined_v1",
+    "default_scene_setting": "An upscale public venue"
+  }
+}

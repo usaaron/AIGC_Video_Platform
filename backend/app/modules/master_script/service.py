@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pydantic import ValidationError
+
+from app.modules.content_spec.models import ContentSpec
 from app.modules.content_spec.repository import ContentSpecRepository
 from app.modules.master_script.models import (
     DraftSceneCard,
@@ -59,15 +62,17 @@ class MasterScriptService:
         draft_master_script = draft_run.draft_master_script
         revised_draft_master_script = revision_run.revised_draft_master_script
 
-        if self._content_spec_repository.get(revised_draft_master_script.content_spec_id) is None:
-            raise MissingContentSpecError(
-                f"ContentSpec '{revised_draft_master_script.content_spec_id}' was not found."
-            )
-
         self._validate_finalization_chain(
             draft_run=draft_run,
             revision_run=revision_run,
         )
+        if not self._ensure_content_spec_available(
+            content_spec_id=revised_draft_master_script.content_spec_id,
+            draft_run=draft_run,
+        ):
+            raise MissingContentSpecError(
+                f"ContentSpec '{revised_draft_master_script.content_spec_id}' was not found."
+            )
         minimum_re_qc_score = (
             payload.minimum_re_qc_score_override
             if payload.minimum_re_qc_score_override is not None
@@ -138,6 +143,14 @@ class MasterScriptService:
             raise InvalidFinalizationChainError(
                 "RevisionPlan content_spec_id does not match the draft generation run."
             )
+        if draft_master_script.content_spec_id != draft_run.content_spec_id:
+            raise InvalidFinalizationChainError(
+                "DraftMasterScript content_spec_id does not match the draft generation run."
+            )
+        if revision_run.revised_draft_master_script.content_spec_id != draft_run.content_spec_id:
+            raise InvalidFinalizationChainError(
+                "Revised DraftMasterScript content_spec_id does not match the draft generation run."
+            )
         if draft_run.generation_strategy_id != revision_run.revision_plan.generation_strategy_id:
             raise InvalidFinalizationChainError(
                 "RevisionPlan generation_strategy_id does not match the draft generation run."
@@ -161,14 +174,44 @@ class MasterScriptService:
             raise InvalidFinalizationChainError(
                 "Revised DraftMasterScript must preserve the original draft identity."
             )
-        if not revision_run.revision_plan.actions:
+        revision_decision = revision_run.revision_plan.revision_decision
+        revision_was_not_required = bool(
+            revision_decision is not None
+            and revision_decision.revision_required is False
+        )
+        if not revision_run.revision_plan.actions and not revision_was_not_required:
             raise InvalidFinalizationChainError(
-                "RevisionPlan must contain at least one action before finalization."
+                "RevisionPlan must contain an action unless RevisionDecision explicitly "
+                "states that revision is not required."
             )
         if revision_run.revision_plan.must_re_qc is not True:
             raise InvalidFinalizationChainError(
                 "RevisionPlan must require Re-QC before finalization."
             )
+
+    def _ensure_content_spec_available(
+        self,
+        *,
+        content_spec_id: str,
+        draft_run,
+    ) -> bool:
+        if self._content_spec_repository.get(content_spec_id) is not None:
+            return True
+
+        snapshot_json = draft_run.prompt_build_result.rendered_variables.get(
+            "content_spec_json"
+        )
+        if not snapshot_json:
+            return False
+        try:
+            snapshot = ContentSpec.model_validate_json(snapshot_json)
+        except (ValidationError, ValueError, TypeError):
+            return False
+        if snapshot.id != content_spec_id:
+            return False
+
+        self._content_spec_repository.save(snapshot)
+        return True
 
     def _map_scene_card(
         self,

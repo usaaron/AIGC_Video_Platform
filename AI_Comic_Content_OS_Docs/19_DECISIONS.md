@@ -28,7 +28,7 @@ AI Comic Content OS 被定义为数据驱动、模块化、可扩展的 Content 
 
 ## D-002 V1 平台策略
 
-状态：Accepted
+状态：Superseded by D-020
 
 决策：
 
@@ -40,7 +40,7 @@ V1 只支持 TikTok。
 
 影响：
 
-- 当前平台知识优先围绕 TikTok 建设
+- 当时的平台知识优先围绕 TikTok 建设
 - 但平台逻辑不得硬编码到核心领域模型中
 
 ---
@@ -148,20 +148,32 @@ Raw Data
 → `AnalysisResult`
 → `ContentSpecDraft`
 → `ContentSpec`
+→ optional `ResolvedCreativeContext`
 → Retrieval / `Orchestrator`
 → Prompt Retrieval
+→ optional strategy-declared Static Creative Knowledge
 → Prompt Builder
 → `LLMAdapter`
 → `DraftMasterScript`
+→ optional Creative Deepening Shadow comparison
 → `StoryQCReport`
+→ `RevisionDecision`
+→ `RevisionStrategy`
 → `RevisionPlan`
+→ `RevisionExecutor`
 → `RevisedDraftMasterScript`
 → `ReQCReport`
+→ `AcceptanceDecision`（shadow）
+→ `ScriptRevisionRun`
+→ Finalization Gate
 → Final `MasterScript`
 
 当前说明：
 
 - 该决策编号保留，但其早期“`MasterScript` 直接进入 Shot Script / Animation Pipeline”的表述已被当前受控剧本生成链路取代
+- Creative Deepening 和 Acceptance 在当前链路中只是 shadow / observational 信号，不替代 source Draft 或 Finalization Gate
+- 后端 Draft runtime 仍以单集调用为原子步骤；Frontend 已通过 optional episode context 支持逐集与全部框架的有界顺序编排
+- 该前端编排不等同于 Story Blueprint、Episode Plan、统一多集事务或完整系列规划 runtime
 - Storyboard、Animation、Seedance、Voice、Video Composition 等能力属于后续 `Media Production Phase`
 - 它们不属于当前剧本 MVP 主链路
 
@@ -301,7 +313,7 @@ Raw Data
 
 决策：
 
-预留 `BilingualScriptView` 作为开发者审阅工件，其输入是正式 `MasterScript`，输出是中英双语视图。
+`BilingualScriptView` 已作为 presentation-only 开发者审阅工件实现。当前输入是英文 `DraftMasterScript`，输出是按稳定文本路径对齐的中英双语视图；未来可兼容 Final `MasterScript` 审阅。
 
 原因：
 
@@ -312,12 +324,13 @@ Raw Data
 
 - 它不进入 Final `MasterScript` 的正式生成主链路
 - 它应保留原文与译文并存，而不是用译文覆盖正式字段
+- 中文界面可按 Draft 缓存该工件；英文界面不请求或显示中文翻译
 
 ---
 
 ## D-015 海外适配优先于直接照搬
 
-状态：Accepted
+状态：Superseded by D-020 for the current active market; retained as the overseas-mode rule
 
 决策：
 
@@ -325,13 +338,15 @@ Raw Data
 
 原因：
 
-- 当前产品目标仍是 TikTok 出海和海外商业化
+- 作出本决策时的产品目标是 TikTok 出海和海外商业化
 - 海外平台、受众、语境与内容政策不同
 
 影响：
 
 - 后续知识调用必须结合 `PlatformProfile`、地区、语言、culture cluster、受众与商业目标做适配
 - 任何“行业最佳实践”都不能作为无条件默认值
+
+当前说明：该决策继续约束 `overseas_tiktok` 模式，但不再定义当前默认市场。
 
 ---
 
@@ -446,3 +461,58 @@ Raw Data
 - 下游变化应优先通过 Handoff Mapper 适配
 - `generate-draft`、`build-revision-plan`、`revise-draft`、`finalize` 当前保留，但应逐步视为内部步骤 API / 调试 API / 评估 API
 - 本轮不删除现有 API，也不大规模重构当前主链路
+
+---
+
+## D-020 默认市场切换为中国大陆并保留海外能力
+
+状态：Accepted
+
+决策：
+
+- 当前默认市场配置为 `cn_mainland`
+- 当前不绑定单一发行平台，红果只作为市场与产品形态参考
+- 原 `overseas_tiktok` Profile、Prompt、Knowledge、Benchmark 与代码路径完整保留，但默认 disabled
+- 本地 runtime 通过 `SCRIPT_MARKET_PROFILE` 显式切换；默认值为 `cn_mainland`
+- Creative Deepening 实现保留，但当前中国大陆配置为 disabled
+- 当前内容目标从海外短内容转向中文长篇故事母本，现有单集生成器继续作为底层有界执行能力
+
+原因：
+
+- 合作目标已切换到中国大陆漫剧市场
+- 60 万字故事母本需要长程结构、人物状态、伏笔和连续性能力，不能由连续单集摘要扩展替代
+- 删除海外能力会损失已建立的验证资产，也违背平台可替换原则
+
+影响：
+
+- 中国大陆资料提高的是市场适用度，不自动提高来源可信度；未经验证的爆款公式仍不得成为硬规则
+- 当前 Story QC 的平台维度改为通用 `Platform Fit`，中文不再被 Cultural Fit 默认降分
+- 中国大陆长篇 Knowledge Bundle、Story Bible、故事阶段规划和 Continuity Ledger 尚未实现，必须小步设计和验证
+- D-002 被本决策取代；D-015 只在重新启用海外模式时继续适用
+
+---
+
+## D-021 长篇项目采用使用者可控的有界阶段生成
+
+状态：Accepted
+
+决策：
+
+- 保留“逐集生成”和“全部生成”两个产品模式
+- 逐集模式一次生成一集；全部模式通过使用者设定的有界批次逐步完成总集数，不一次请求完整长篇
+- 总集数支持系统透明推荐和使用者手动设定；推荐值只作创作规划参考，不是平台规则
+- 每个阶段保留批次编号、起止集数、阶段指令、完成进度和时间；批次间允许更新标签、角色、关系、故事线和创作说明，更新只影响后续剧集
+- `GenerationBatchContext` 是兼容式单集请求 lineage，不是新的 Workflow Engine、热点检索器或 Story Planning runtime
+- Creative Deepening 代码保留，但由独立前后端 feature flag 统一关闭；默认 `SCRIPT_CREATIVE_DEEPENING_ENABLED=false`
+
+原因：
+
+- 内容创作者需要按更新频率生产，并把后续出现的新梗或市场元素受控融入尚未生成的内容
+- 数十万字长篇无法通过一次 LLM 调用可靠生成，必须具备暂停、审阅、补充输入和继续执行的边界
+- 当前先复用稳定单集生成能力，避免为基础批次需求提前增加调度引擎
+
+影响：
+
+- 当前批次状态和项目历史仍保存在浏览器 IndexedDB，后端 PostgreSQL 项目聚合、Generation Job 和断点恢复仍是下一阶段能力
+- 阶段生成提高了创作可控性，但不解决 Story Bible、跨阶段 Setup/Payoff、长期人物弧和专业连续性规划
+- 后续热点或 Data Intelligence 推荐必须由使用者确认后进入下一阶段输入，不得自动改写已确认剧集

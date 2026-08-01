@@ -241,8 +241,10 @@ class RealLLMAdapter(LLMAdapter):
             except httpx.HTTPError as exc:
                 last_error = exc
                 if attempt >= self._max_retries:
+                    error_detail = str(exc).strip()[:500] or "no error detail"
                     raise LLMRequestError(
-                        "LLM request failed after exhausting retries."
+                        "LLM request failed after exhausting retries: "
+                        f"{type(exc).__name__}: {error_detail}"
                     ) from exc
 
         raise LLMRequestError("LLM request failed unexpectedly.") from last_error

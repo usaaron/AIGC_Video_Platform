@@ -1,0 +1,223 @@
+{
+  "content_spec_id": "creative-control-dark-romance-v1",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "title": "The Truth She Exposes",
+  "logline": "At an elite gala, Elena exposes the powerful lover who betrayed her, only to uncover proof that he was merely an asset in a larger operation targeting her.",
+  "language": "en",
+  "target_audience": "US TikTok viewers who enjoy dark romance, female-led revenge, and serialized conspiracy thrillers.",
+  "target_platform": "TikTok vertical video (9:16)",
+  "tone": "suspenseful",
+  "hook": "Elena hijacks Adrian's gala screen: “Adrian Cross didn't break my heart. He sold it—and I have his confession.”",
+  "synopsis": "Elena hijacks an elite gala to play Adrian's confession and expose the lover who betrayed her. When the broadcast unlocks a hidden dossier, Adrian offers protection in exchange for silence. Elena refuses, secures the evidence, and discovers he was assigned to make her fall in love. Then the unseen conspirator contacts her in real time.",
+  "episode_goal": "Have Elena publicly expose Adrian through her own decisive action, then reveal that his betrayal was one piece of a larger conspiracy targeting her.",
+  "target_duration_seconds": 60,
+  "characters": [
+    {
+      "name": "Elena Vale",
+      "role": "Protagonist and betrayed lover",
+      "description": "A poised former lover who turns private heartbreak into a fearless public reckoning.",
+      "motivation": "Expose Adrian's betrayal and reclaim control of her life."
+    },
+    {
+      "name": "Adrian Cross",
+      "role": "Powerful former lover and accused betrayer",
+      "description": "A magnetic, influential man whose composure hides fear about the people above him.",
+      "motivation": "Contain Elena's exposure before it reaches a more dangerous power."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "The Accusation Goes Live",
+      "purpose": "Open with Elena's decisive exposure and reveal that Adrian fears a larger threat.",
+      "setting_hint": "Grand ballroom stage at an upscale charity gala",
+      "beat_summary": "Elena interrupts Adrian's gala speech, takes control of the main screen, and plays his recorded confession before the crowd. As the room erupts, a hidden file appears on her device.",
+      "emotional_shift": "Public fury turns into unease.",
+      "emotional_objective": "Deliver immediate revenge satisfaction, then fracture it with a warning.",
+      "character_actions": [
+        "Elena steps into the spotlight and raises her phone.",
+        "She overrides the main screen and plays Adrian's confession.",
+        "Adrian reaches for the controls, but Elena blocks him.",
+        "Elena notices a newly unlocked file labeled with her name."
+      ],
+      "turning_point": "Adrian does not deny the confession; he warns Elena that exposing him has activated something worse.",
+      "scene_causality": {
+        "goal": "Elena wants to expose Adrian's betrayal before his powerful audience can dismiss her.",
+        "conflict": "Adrian tries to shut down the display and warns that releasing the confession will put Elena in danger.",
+        "outcome": "Adrian's confession plays publicly, and the broadcast unlocks a hidden file bearing Elena's name.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Adrian Cross didn't break my heart. He sold it—and I have his confession.",
+        "Elena, turn it off. You don't know what you're exposing.",
+        "I know exactly who I'm exposing. You.",
+        "Then you just made both of us targets."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Elena Vale",
+          "intent": "Stop the scroll with a public accusation",
+          "text": "Adrian Cross didn't break my heart. He sold it—and I have his confession."
+        },
+        {
+          "character_name": "Adrian Cross",
+          "intent": "Pressure Elena into stopping",
+          "text": "Elena, turn it off. You don't know what you're exposing."
+        },
+        {
+          "character_name": "Elena Vale",
+          "intent": "Choose revenge publicly",
+          "text": "I know exactly who I'm exposing. You."
+        },
+        {
+          "character_name": "Adrian Cross",
+          "intent": "Reveal that the danger extends beyond him",
+          "text": "Then you just made both of us targets."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 2,
+      "slug": "She Refuses His Protection",
+      "purpose": "Show Elena refusing Adrian's bargain and choosing to investigate the deeper threat.",
+      "setting_hint": "Narrow private corridor behind the gala stage",
+      "beat_summary": "Adrian pulls Elena behind the stage and offers protection if she deletes the files. She refuses, sends the evidence beyond his reach, and opens the hidden file.",
+      "emotional_shift": "Romantic betrayal hardens into suspicious resolve.",
+      "emotional_objective": "Transform Elena's anger into controlled determination.",
+      "character_actions": [
+        "Adrian guides Elena into a private corridor.",
+        "He offers her his phone and demands she erase the evidence.",
+        "Elena refuses and sends copies to multiple secure contacts.",
+        "She opens the hidden file despite Adrian's warning."
+      ],
+      "turning_point": "The dossier classifies Adrian not as the mastermind, but as an expendable asset in an operation centered on Elena.",
+      "scene_causality": {
+        "goal": "Elena wants to secure the evidence and force Adrian to reveal who directed his betrayal.",
+        "conflict": "Adrian offers protection and emotional leverage, insisting the hidden file will expose Elena to the people controlling him.",
+        "outcome": "Elena distributes the confession beyond Adrian's control and opens a dossier identifying him as an asset assigned to target her.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Elena's public broadcast unlocks the hidden file and makes the confession impossible to contain, Adrian is forced to reveal that he acted under orders."
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Delete it, and I can still protect you.",
+        "Protection was the lie you used to own me.",
+        "That file isn't proof against me. It's proof I was following orders.",
+        "Then I'm done chasing the weapon. Show me who aimed it."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Adrian Cross",
+          "intent": "Contain the fallout through a desperate bargain",
+          "text": "Delete it, and I can still protect you."
+        },
+        {
+          "character_name": "Elena Vale",
+          "intent": "Reject his control",
+          "text": "Protection was the lie you used to own me."
+        },
+        {
+          "character_name": "Adrian Cross",
+          "intent": "Warn her away from the hidden truth",
+          "text": "That file isn't proof against me. It's proof I was following orders."
+        },
+        {
+          "character_name": "Elena Vale",
+          "intent": "Commit to uncovering the conspiracy",
+          "text": "Then I'm done chasing the weapon. Show me who aimed it."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 3,
+      "slug": "The Man Behind the Betrayal",
+      "purpose": "Confirm a coordinated conspiracy and end on an immediate threat that demands continuation.",
+      "setting_hint": "Shadowed service exit overlooking the gala floor",
+      "beat_summary": "Elena searches the dossier for its author while Adrian admits he never knew the mastermind's identity. A directive names Elena as the target, and an anonymous message warns her to turn around.",
+      "emotional_shift": "Suspicion becomes personal terror.",
+      "emotional_objective": "Replace revenge satisfaction with intimate, immediate dread.",
+      "character_actions": [
+        "Elena scrolls through the dossier's redacted directives.",
+        "Adrian watches the ballroom entrance with visible fear.",
+        "Elena saves the final directive to her phone.",
+        "Her screen flashes with an anonymous live message.",
+        "Elena slowly looks toward someone behind her."
+      ],
+      "turning_point": "A live message proves the hidden conspirator is nearby and has been anticipating Elena's exposure.",
+      "scene_causality": {
+        "goal": "Elena wants to identify the person who ordered Adrian to betray her.",
+        "conflict": "The mastermind's identity is redacted, Adrian claims ignorance, and an anonymous sender demonstrates real-time awareness of Elena's actions.",
+        "outcome": "Elena finds proof that her romance was a planned operation, then receives a live command from the unseen conspirator standing somewhere behind her.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Elena opens the dossier and discovers Adrian was assigned to target her, she must search its directives to identify who controlled him and why she was selected."
+      },
+      "cliffhanger": true,
+      "dialogue_prompts": [
+        "Who ordered you to make me trust you?",
+        "I never saw a face. I only received one instruction: make you fall in love.",
+        "This wasn't revenge against me. I was being prepared for something.",
+        "Elena... don't turn around.",
+        "The message says, “Adrian failed. You're ready. Turn around.”"
+      ],
+      "dialogues": [
+        {
+          "character_name": "Elena Vale",
+          "intent": "Force Adrian to identify the mastermind",
+          "text": "Who ordered you to make me trust you?"
+        },
+        {
+          "character_name": "Adrian Cross",
+          "intent": "Confess the limit of his knowledge",
+          "text": "I never saw a face. I only received one instruction: make you fall in love."
+        },
+        {
+          "character_name": "Elena Vale",
+          "intent": "Recognize the scale of the conspiracy",
+          "text": "This wasn't revenge against me. I was being prepared for something."
+        },
+        {
+          "character_name": "Adrian Cross",
+          "intent": "Alert Elena to immediate danger",
+          "text": "Elena... don't turn around."
+        },
+        {
+          "character_name": "Elena Vale",
+          "intent": "Read the threat aloud",
+          "text": "The message says, “Adrian failed. You're ready. Turn around.”"
+        }
+      ],
+      "supporting_asset_ids": []
+    }
+  ],
+  "next_episode_question": "Who ordered Adrian to target Elena—and who is standing behind her now?",
+  "qa_notes": [
+    "Draft generated by RealLLMAdapter structured output.",
+    "Story QC and revision loop must still review platform fit and consistency."
+  ],
+  "llm_metadata": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "strategy_id": "strategy.scene_causality_ab.improved.v1",
+    "usage": {
+      "prompt_tokens": 5255,
+      "completion_tokens": 2175,
+      "total_tokens": 7430,
+      "completion_tokens_details": {
+        "reasoning_tokens": 516
+      }
+    },
+    "response_id": "resp_04a75fedbfc33905016a5f59e9a2c88191891890dcedd87bd4",
+    "prompt_versions": [
+      "v3-scene-causality",
+      "v1-shared"
+    ],
+    "generation_strategy_version": "v1"
+  },
+  "id": "53ad13ee-d6a3-4048-b59c-f886e744615b",
+  "created_at": "2026-07-21T11:38:04.855088Z",
+  "updated_at": "2026-07-21T11:38:04.855134Z"
+}

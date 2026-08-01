@@ -2,6 +2,8 @@
 
 Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复用的 Final `MasterScript`。
 
+当前默认市场为 `cn_mainland`，不绑定单一发行平台，红果仅作参考。`overseas_tiktok` 能力完整保留但默认关闭。当前创作重点已转向中文长篇故事母本；现有 runtime 可把单集框架按有界阶段连续生成，但尚不能宣称已经具备专业 Story Blueprint、后端可恢复任务或自动完成 60 万字母本。
+
 ## 当前阶段产物
 
 当前阶段最终产物是：
@@ -25,12 +27,16 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 ## 当前推荐流程
 
 `ContentSpec`
+→ optional `ResolvedCreativeContext`
 → `CreativeBrief`
-→ Asset Retrieval
+→ Orchestrator / Asset Retrieval
 → Prompt Retrieval
+→ Static Creative Knowledge Selection（optional）
 → Prompt Builder
 → `LLMAdapter`
 → `DraftMasterScript`
+→ Creative Deepening Candidate（当前默认关闭）
+→ Source / Candidate Story QC Comparison（仅显式启用时）
 → `StoryQCReport`
 → `RevisionDecision`
 → `RevisionStrategy`
@@ -39,6 +45,7 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 → Re-QC
 → `AcceptanceDecision`（shadow）
 → `ScriptRevisionRun`
+→ Finalization Gate
 → Final `MasterScript`
 
 ## Script Generation Box Contract
@@ -85,6 +92,8 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 - `MasterScript` 必须是结构化输出，而不是不可控长文本
 - Story QC 的结构化报告与 Explainability v1 已实现，但专业评分可信度仍属于实验性占位能力
 - 当前所有设计优先服务于剧本质量，而不是视频生成便利性
+- Creative Deepening 的实现与 preservation contract 保留，但当前中国大陆配置为 `disabled`，不进入默认创作路径
+- 后端 Draft 调用仍以单集为单位，但已支持 optional episode continuity context；Story Blueprint、Episode Plan 与服务端全集事务仍为 Research / Backlog
 
 ## 关键组件
 
@@ -106,7 +115,7 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 
 当前 `Draft Integration Service` 的职责：
 
-- 输入 `ContentSpec + GenerationStrategy`
+- 输入 `ContentSpec + GenerationStrategy`，并可选消费 `ResolvedCreativeContext`
 - 自动调用：
   - `Orchestrator`
   - `Retrieval`
@@ -117,6 +126,61 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 - 输出结构化 Draft 运行结果
 - 当前标准草稿对象为 `DraftMasterScript`
 - `Story QC` 当前消费 `DraftMasterScript` 而不是松散原始字典
+
+### Static Creative Knowledge Bundle v1
+
+Script Generation Box v2 MVP Phase 2 已在现有 Draft 路径中接入静态 Creative Knowledge Bundle：
+
+```text
+ContentSpec + optional ResolvedCreativeContext
+→ GenerationStrategy 声明 exact Draft bundle
+→ StaticKnowledgeBundleCatalog
+→ tag / platform applicability check
+→ Prompt Builder
+→ LLMAdapter
+→ DraftMasterScript
+```
+
+当前实现边界：
+
+- `GenerationStrategy.draft_knowledge_bundle_id` 为 optional；省略时 Prompt 与生成行为保持原状
+- 只做精确 ID 选择和确定性适用性校验，不做语义检索、排名或自动推荐
+- Prompt Builder 只在 bundle 存在时注入独立 `CreativeKnowledgeUsage` / `CreativeKnowledgeBundle` 段
+- 注入内容限定为有来源的原则、应用规则、限制和反模式，不复制完整 Research 知识文件
+- bundle 与 `KnowledgeSelectionTrace` 保存在 `ScriptGenerationDraftRun`，支持后续评估与复现
+- 未知 bundle、阶段错误或条件不匹配会明确失败，不静默降级为错误知识
+- Draft Generation 与 Creative Deepening 可分别使用独立的 exact-ID 静态 bundle；二者不自动复用，Story QC 与 Revision 不消费该 bundle
+
+这仍是静态知识能力，不等于完整 Knowledge Base、Retriever、RAG 或 Creative Skill runtime。当前唯一内置 bundle 面向 TikTok Dark Romance，并随海外模式关闭；中国大陆长篇知识 bundle 尚未进入 runtime，必须先完成来源治理和固定样本验证。
+
+### Creative Deepening Shadow v1
+
+状态：实现保留，前后端 feature flag 当前默认关闭。以下内容描述已完成能力边界，不代表当前模式正在执行该步骤。重新启用必须显式设置 `SCRIPT_CREATIVE_DEEPENING_ENABLED=true`，不能仅依赖 Strategy 或市场切换。
+
+当前在既有 `ScriptGenerationService` 内提供一次、可选、策略驱动的候选深化：
+
+```text
+Source Draft
++ optional Character Context
++ optional stage-specific Knowledge Bundle
+→ dedicated Deepening Prompt
+→ existing LLMAdapter
+→ Candidate Draft
+→ deterministic preservation checks
+→ same Story QC comparison metadata
+```
+
+允许增强对白、情绪表达、可视动作、场景强度和角色表达。禁止改变 premise、角色身份、场景结构与因果、结尾和 cliffhanger purpose。change trace 与 preservation checks 会保存在 `CreativeDeepeningRun`。
+
+当前严格边界：
+
+- 只有 `disabled` 和 `shadow`；没有 `apply`
+- source Draft 始终作为 `ScriptGenerationDraftRun.draft_master_script`
+- 正式 `StoryQCReport` 与 `RevisionPlan` 始终基于 source Draft
+- candidate QC 只用于 source/candidate 观察性比较
+- 技术失败或结构漂移不会阻断既有生成路径
+- Finalization Gate、Revision、Acceptance 均未修改
+- 当前结构检查不能证明对白中不存在隐含的新重大冲突，仍需后续固定样本人工验证
 
 ### Initial Generation Quality Improvement v1 Step 1
 
@@ -166,17 +230,39 @@ Data Intelligence Recommended Tags
 → Script Generation Box
 ```
 
+Phase 1 当前状态：
+
+- 已实现最小 `CreativeIntentInput`、`CharacterContext`、`ResolvedCreativeContext` 和 `CreativeIntentResolutionResult`
+- 已新增 `POST /content-specs/resolve-creative-intent`，通过现有 `ContentSpecService` 确定性解析
+- selected / added / excluded tag 必须引用现有 active `OntologyNode`
+- Character 字段保存 `user_provided` / `ai_inferred` provenance 和 `locked_fields`
+- `ScriptGenerationDraftRequest` 可选接收 `resolved_creative_context`
+- Prompt Builder 只在上下文存在时注入已解析 Character facts、provenance、locks 与 exclusions
+- 旧 generate-draft 请求省略新字段时保持原有 Prompt 和生成流程
+
 当前边界：
 
-- `CreativeBriefInput` 是文档级 authoring contract，不是当前 Script Engine API 模型
+- 完整 `CreativeBriefInput` 的 recommendation、alias、unresolved tag 与用户确认能力仍是文档级设计
 - 当前 `CreativeBrief` 仍指 `ContentSpec.creative_brief` 的标准化运行时子结构
-- Script Engine 只消费解析完成的 `ContentSpec`，不自行决定采用哪些推荐标签
+- Script Engine 只消费解析完成的 `ContentSpec + ResolvedCreativeContext`，不自行决定采用哪些推荐标签
 - Prompt Builder 不应直接接收 unresolved tag、原始推荐列表或未经解析的自由 Prompt
 - 用户新增标签必须解析为现有 `OntologyNode`；未知标签不得在 Script Engine 中临时创建
 - 用户排除项和平台硬约束必须在进入 Script Engine 前得到明确解析
 - 重大语义冲突应要求用户确认，不能由 Script Engine 静默猜测
+- Character Context 与 exclusions 不写入 `ContentSpec.metadata`
+- Phase 1 的 Resolver 本身不实现 Relationship Context、AI 自动补全、持久化 authoring session、Knowledge Retrieval 或 Creative Deepening
 
-未来可用轻量 mapper / resolver 完成该上游解析，但本轮不实现 `CreativeBriefResolver`、新 API、前端或持久化。
+当前集成状态：
+
+- Frontend MVP 已将 Resolver、分集上下文 `generate-draft`、编辑后 `review-draft`、用户指令 `modify-draft` 和主动 `deepen-draft` 接入创作界面
+- 当前支持逐集生成与“全部生成（分阶段）”；逐集模式每次一集，全部模式每次最多生成使用者设定的有界批次，再由使用者决定何时继续下一阶段
+- 每次阶段生成通过 optional `GenerationBatchContext` 保留阶段编号、起止集数与阶段指令；批次之间可更新 Creative Intent、标签、角色和连续性信息，新输入只影响后续集数
+- 当前阶段生成仍由前端顺序调用现有单集 API，项目和任务状态保存在 IndexedDB；尚无 PostgreSQL 项目聚合、后台 Job、断点重试或 Story Blueprint / Episode Planning runtime
+- 每集保持独立编辑、确认、候选、Revision 与 Finalization 状态；确认后的手动稿先重新 QC，再允许进入受控质量链
+- Frontend 使用现有 `revise-draft` 和 `master-scripts/finalize` 步骤 API 完成受控质量链，不改变 Script Engine 契约
+- 项目与本地编辑版本存在 IndexedDB；后端仓储仍是内存级，不得宣称为 durable persistence
+
+当前 Resolver 仅支持已归一化且不超过 240 字符的 free creative prompt，并将其确定性映射为 `ContentSpec.story_goal`。更复杂的语义解析仍需后续独立验证，不允许在 Phase 1 中静默使用 LLM 推断。
 
 ## Unified Input Contract
 
@@ -397,33 +483,43 @@ Source Material
 
 ## Bilingual Developer View
 
-当前在 Script Engine / Export 设计中预留 `BilingualScriptView` 概念。
+当前已为 Frontend MVP 实现 presentation-only `BilingualScriptView`。
 
-它的输入应是正式英文 `MasterScript`，输出是供开发者审阅的中英双语工件。
+它的输入是正式英文 Draft，输出是供中文界面审阅的中英双语工件；未来也可用于 Final `MasterScript` 的开发者视图。
 
-当前推荐字段包括：
+当前实现采用稳定文本路径：
 
-- `source_master_script_id`
+- `view_version`
+- `source_draft_master_script_id`
 - `source_language`
-- `developer_language`
-- `translation_provider`
-- `translation_model`
-- `translation_version`
-- `generated_at`
-- `scenes`
-- `dialogue_pairs`
-- `action_translation`
-- `scene_summary_translation`
-- `translator_notes`
-- `unresolved_terms`
+- `target_language`
+- `items[].path`
+- `items[].source_text`
+- `items[].translated_text`
+- `llm_model_info`
+- `warnings`
 
 当前明确边界：
 
 - `BilingualScriptView` 不是新的生产主链路节点
 - 它不能替代正式 `MasterScript`
-- 每条对白必须同时保留原文和开发者语言译文
+- 中文界面查看英文稿时，每个可见剧本文本块同时保留原文和中文译文
 - 场景标题、场景目的、节拍摘要、情绪目标、动作、转折点、cliffhanger、下一集问题可以做开发者译注
-- 当前只做数据模型与导出边界预留，不在本轮新增完整翻译引擎
+- 翻译缺失任何源路径时整份视图无效；失败不影响英文源稿
+- 英文界面不请求或显示中文翻译
+
+## Frontend Project Continuity View
+
+Frontend 本地项目已支持可编辑的故事线与人物关系视图：
+
+- 主线、支线和角色成长线记录跨集推进
+- 人物关系记录当前状态与每集变化
+- 新增角色从下一次生成或 AI 操作开始参与上下文，不自动改写旧集
+- 用户可根据当前剧本刷新确定性整理结果，也可手动修改
+- 后续分集生成会消费 bounded 连续性摘要，以延续用户确认的故事线和关系状态
+- 连续性摘要不触发对已生成分集的静默重写
+
+该视图属于 authoring / continuity artifact，不进入单集 `MasterScript`，不替代 Story Blueprint / Episode Planning，也不改变 Script Generation Box 主链路。
 
 ## Production Handoff
 
@@ -539,9 +635,9 @@ Seedance Adapter 只负责把模型无关 Package 转换为 Seedance 支持的 P
 
 ## Story QC Credibility Improvement v1
 
-当前阶段进入 `Story QC Credibility Improvement v1`。
+`Story QC Credibility Improvement v1` 的 Explainability 增强已经实现；本节记录该版本的设计边界，不代表当前开发优先级。
 
-本轮目标不是立即把 `Story QC` 变成复杂评分模型，而是先提升 Explainability，让 `StoryQCReport` 能更清楚回答：
+v1 的目标不是把 `Story QC` 变成复杂评分模型，而是提升 Explainability，让 `StoryQCReport` 能更清楚回答：
 
 - 为什么得分高或低
 - 为什么被扣分
@@ -665,6 +761,7 @@ Seedance Adapter 只负责把模型无关 Package 转换为 Seedance 支持的 P
 
 - 当前已经具备盒子内部步骤的稳定基础
 - 但外部调用方仍需要理解 Draft、Revision、Finalize 等内部对象
+- Frontend MVP 当前就是一个已验证的步骤 API 编排调用方；这是当前兼容集成，不代表统一 Facade 已实现
 
 当前最小迁移方案：
 
@@ -699,7 +796,8 @@ Seedance Adapter 只负责把模型无关 Package 转换为 Seedance 支持的 P
 - controlled mode 会消费 `RevisionDecision`、`RevisionStrategy`、scene refs 和 protected dimensions
 - 缺少 Decision / Strategy 的旧计划会进入 `legacy_fallback`，保持兼容
 - 每次执行生成 `RevisionExecutionTrace`
-- 规则化修订只能写回内容描述，不允许把控制指令、提示语或编辑说明泄露到 `DraftMasterScript` / Final `MasterScript`
+- 规则化修订只能写回与当前场景已有证据一致的内容，不允许把控制指令、通用评审句或编辑说明泄露到 `DraftMasterScript` / Final `MasterScript`
+- Executor 只有在 Draft 内容真实变化时才记录 applied action；没有可靠确定性修改时记录 `no_supported_deterministic_change`
 - 当前修订后会自动重新执行一次 `Story QC`
 - 先使用 Rubric 和 Benchmark 验证质量变化
 - Final `MasterScript` 当前必须只从 `ScriptRevisionRun` Finalize
@@ -707,6 +805,7 @@ Seedance Adapter 只负责把模型无关 Package 转换为 Seedance 支持的 P
   - 原始 Draft 与 RevisionPlan 对齐
   - Re-QC 已存在
   - Re-QC 分数达到 Policy 阈值
+  - `RevisionDecision.revision_required = false` 时允许无内容修订通过受控链路；其他无动作计划仍禁止 Finalize
   - Final `MasterScript` 保存完整 lineage 与版本信息
 - 旧的直接 `from-draft` Finalize 入口应视为弃用
 
@@ -719,7 +818,7 @@ Seedance Adapter 只负责把模型无关 Package 转换为 Seedance 支持的 P
 - 证据驱动（evidence-driven）
 - 面向生产质量阈值的受控剧本打磨
 
-当前已完成数据模型、Planner、受控 `RevisionExecutor`、execution trace、Re-QC 和 Acceptance shadow integration。该闭环已具备运行时完整性，但 Story QC、规则式创意修改和 Policy 阈值尚未经过专业 Ground Truth 校准，因此仍不能描述为 production-quality Revision。现有 API 与 Finalization Gate 保持不变。
+当前已完成数据模型、Planner、受控 `RevisionExecutor`、execution trace、Re-QC 和 Acceptance shadow integration。该闭环已具备运行时完整性，但 Story QC、规则式创意修改和 Policy 阈值尚未经过专业 Ground Truth 校准，因此仍不能描述为 production-quality Revision。现有 API 保持不变；Finalization Gate 仅增加了对显式 `revision_required = false` 的无修订受控路径支持，并未开放直接 Draft Finalize。
 
 ### 当前与目标修订流程
 
@@ -784,6 +883,8 @@ v1 当前每轮最多选择 1 至 2 个维度，优先从以下 5 个 explainabi
 Revision 应优先修改有限场景和有限维度，不应默认重写整份剧本，也不应为了提高所有指标引入无必要改动。
 
 当前 Planner 会把 Strategy 映射为兼容的 `RevisionPlan.actions`，同时把完整 Decision / Strategy 保留在 `RevisionPlan`。`RuleBasedRevisionExecutor` 已强制 scene-level 修改范围和 protected dimensions，并在无法执行时记录 skipped action；当前限制在于修改本身仍是确定性规则式 patch，而不是专业创意重写。
+
+当前可信度修正还要求：Character Agency 基于可见行动、turning point 与 scene causality 证据判断；Cliffhanger 基于结尾未解决压力与下一集问题判断。不得仅通过向 `purpose` 追加通用句，或向 `emotional_shift` 写入 `suspense` 关键词制造 Re-QC 涨分。
 
 ### Bounded Revision Policy
 

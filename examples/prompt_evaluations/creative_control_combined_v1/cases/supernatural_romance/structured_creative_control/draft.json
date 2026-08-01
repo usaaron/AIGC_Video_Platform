@@ -1,0 +1,219 @@
+{
+  "content_spec_id": "creative-control-supernatural-romance-v1",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "title": "Bound to the Enemy",
+  "logline": "When an ancient mark binds a hunter to the vampire she cornered, she must test his warning and choose whether trusting her enemy is safer than killing him.",
+  "language": "en",
+  "target_audience": "US fantasy-romance and young adult supernatural viewers who enjoy enemies-to-allies tension, mystery, and charged attraction.",
+  "target_platform": "TikTok 9:16 vertical short video",
+  "tone": "suspenseful",
+  "hook": "Rhea pins Lucian beneath her silver blade—then an identical black mark burns across both their wrists.",
+  "synopsis": "Hunter Rhea Hart corners vampire guardian Lucian Veyr, only for an ancient mark to appear on them both. Rather than trust his warning, Rhea tests it and proves that distance accelerates the danger while proximity slows it. She chooses to spare Lucian and demands a tactical alliance, but their linked marks begin moving toward their hearts.",
+  "episode_goal": "Force Rhea to choose between killing her enemy and forming a tactical alliance after evidence proves their survival is supernaturally linked.",
+  "target_duration_seconds": 60,
+  "characters": [
+    {
+      "name": "Rhea Hart",
+      "role": "Protagonist and supernatural hunter",
+      "description": "A human supernatural hunter with alert gray eyes, a weathered leather jacket, and a silver-edged weapon; tactical, skeptical, and unwilling to kill a defenseless enemy.",
+      "motivation": "Survive the ancient threat and learn why it marked her alongside the vampire she hunted."
+    },
+    {
+      "name": "Lucian Veyr",
+      "role": "Vampire counterpart and reluctant ally",
+      "description": "A tall, pale vampire guardian in a black coat, outwardly controlled but afraid of becoming the monster Rhea expects him to be.",
+      "motivation": "Protect the hidden supernatural district, survive the mark, and avoid harming an unwilling human."
+    }
+  ],
+  "scenes": [
+    {
+      "scene_number": 1,
+      "slug": "EXT. GOTHIC ALLEY — NIGHT",
+      "purpose": "Deliver the scroll-stopping confrontation and bind both enemies to the same ancient threat.",
+      "setting_hint": "A narrow alley in a rain-soaked gothic district",
+      "beat_summary": "Rhea corners Lucian and raises her silver weapon, but matching marks ignite on their wrists. Lucian warns that killing him may also kill her.",
+      "emotional_shift": "Predatory certainty to shaken vigilance",
+      "emotional_objective": "Turn Rhea's certainty of victory into immediate fear and suspicion.",
+      "character_actions": [
+        "Rhea pins Lucian against a rain-slick wall with her silver-edged weapon at his chest.",
+        "Matching black marks flare across their wrists.",
+        "Lucian keeps his hands visible rather than attacking.",
+        "Rhea stops her strike but refuses to lower the weapon."
+      ],
+      "turning_point": "The mark on Rhea's wrist pulses in perfect time with Lucian's, making his warning impossible to dismiss.",
+      "scene_causality": {
+        "goal": "Rhea wants to capture Lucian and end the threat he represents.",
+        "conflict": "Rhea is ready to strike, while Lucian's warning sounds like a desperate trick until the same supernatural mark appears on them both.",
+        "outcome": "Rhea halts the killing blow after the matching marks reveal a new danger connecting them.",
+        "caused_by_scene_number": null,
+        "causal_link": null
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "Move, and this ends through your heart.",
+        "Then watch your wrist, hunter.",
+        "What did you do to me?",
+        "Nothing. But if you kill me, that mark may finish you too."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Rhea Hart",
+          "intent": "Assert control and force surrender",
+          "text": "Move, and this ends through your heart."
+        },
+        {
+          "character_name": "Lucian Veyr",
+          "intent": "Warn Rhea without appearing weak",
+          "text": "Then watch your wrist, hunter."
+        },
+        {
+          "character_name": "Rhea Hart",
+          "intent": "Reject manipulation while confronting the evidence",
+          "text": "What did you do to me?"
+        },
+        {
+          "character_name": "Lucian Veyr",
+          "intent": "Reveal their shared danger",
+          "text": "Nothing. But if you kill me, that mark may finish you too."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 2,
+      "slug": "EXT. GOTHIC ALLEY MOUTH — CONTINUOUS",
+      "purpose": "Give Rhea agency through a tactical test and prove that separation increases the shared danger.",
+      "setting_hint": "The alley mouth beneath a flickering streetlamp",
+      "beat_summary": "Rhea tests Lucian's claim by backing away instead of trusting him. The distance makes both marks spread, and Lucian refuses to grab or enthrall her even as he collapses.",
+      "emotional_shift": "Suspicion to reluctant belief",
+      "emotional_objective": "Build charged uncertainty by making Lucian's restraint as persuasive as the supernatural evidence.",
+      "character_actions": [
+        "Rhea lowers her weapon one inch and orders Lucian to stay still.",
+        "She backs toward the alley exit, keeping an escape route open.",
+        "The marks spread as distance opens between them.",
+        "Lucian drops to one knee but makes no move to seize her.",
+        "Rhea deliberately steps closer, and both marks recede."
+      ],
+      "turning_point": "Lucian remains defenseless rather than forcing Rhea closer, so she chooses to return and the marks visibly recede.",
+      "scene_causality": {
+        "goal": "Rhea wants to verify whether Lucian is controlling the mark or telling the truth.",
+        "conflict": "Rhea fears proximity to a vampire, but increasing the distance causes visible pain while Lucian's restraint challenges her belief that monsters always exploit weakness.",
+        "outcome": "Rhea proves that distance worsens the marks and proximity stabilizes them, making escape alone impossible.",
+        "caused_by_scene_number": 1,
+        "causal_link": "Because Scene 1's matching marks stop Rhea's strike but leave Lucian's claim uncertain, she conducts a controlled separation test."
+      },
+      "cliffhanger": false,
+      "dialogue_prompts": [
+        "You stay there. I walk. If nothing happens, you're lying.",
+        "Then don't go far.",
+        "It gets worse when we separate.",
+        "And better when you choose to come back."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Rhea Hart",
+          "intent": "Test Lucian's claim with evidence",
+          "text": "You stay there. I walk. If nothing happens, you're lying."
+        },
+        {
+          "character_name": "Lucian Veyr",
+          "intent": "Warn her while respecting her choice",
+          "text": "Then don't go far."
+        },
+        {
+          "character_name": "Rhea Hart",
+          "intent": "Acknowledge disturbing proof",
+          "text": "It gets worse when we separate."
+        },
+        {
+          "character_name": "Lucian Veyr",
+          "intent": "Challenge her assumptions",
+          "text": "And better when you choose to come back."
+        }
+      ],
+      "supporting_asset_ids": []
+    },
+    {
+      "scene_number": 3,
+      "slug": "EXT. GOTHIC ALLEY — MOMENTS LATER",
+      "purpose": "Complete Rhea's visible choice, establish the enemies-to-allies pact, and end on an escalating survival deadline.",
+      "setting_hint": "Under the alley streetlamp as rain closes around them",
+      "beat_summary": "With the mark spreading again, Rhea visibly chooses alliance over execution and offers Lucian her hand. Their touch stabilizes the marks—but reveals the bond is tightening toward both their hearts.",
+      "emotional_shift": "Reluctant belief to dangerous intimacy",
+      "emotional_objective": "Convert fear into a charged, reluctant alliance while preserving distrust and romantic tension.",
+      "character_actions": [
+        "Rhea looks from her weapon to Lucian's open hand.",
+        "She sheathes the silver blade in a deliberate refusal to kill him.",
+        "Rhea grips Lucian's hand and pulls him upright.",
+        "Their marks lock into the same pattern and stop spreading.",
+        "A new black line appears on each wrist, moving toward their hearts.",
+        "Neither releases the other."
+      ],
+      "turning_point": "Rhea sheathes her weapon and takes Lucian's hand; the stabilizing marks confirm that neither enemy can survive alone.",
+      "scene_causality": {
+        "goal": "Rhea wants to secure Lucian's cooperation without surrendering her boundaries or control.",
+        "conflict": "Rhea's identity as a hunter resists depending on Lucian, while the mark resumes spreading and makes delay potentially fatal to them both.",
+        "outcome": "Rhea publicly spares Lucian and forms a tactical alliance, but their synchronized marks begin advancing toward both hearts, forcing them to act together immediately.",
+        "caused_by_scene_number": 2,
+        "causal_link": "Because Scene 2 proves that separation accelerates the marks and closeness slows them, Rhea must choose cooperation instead of leaving or killing Lucian."
+      },
+      "cliffhanger": true,
+      "dialogue_prompts": [
+        "This is not trust. You help me break the mark, and I let you live.",
+        "Agreed. But stop calling it mercy. We need each other.",
+        "Need each other for what?",
+        "To survive. It's moving toward our hearts."
+      ],
+      "dialogues": [
+        {
+          "character_name": "Rhea Hart",
+          "intent": "Set strict terms for a tactical alliance",
+          "text": "This is not trust. You help me break the mark, and I let you live."
+        },
+        {
+          "character_name": "Lucian Veyr",
+          "intent": "Accept while exposing their mutual dependency",
+          "text": "Agreed. But stop calling it mercy. We need each other."
+        },
+        {
+          "character_name": "Rhea Hart",
+          "intent": "Demand the full danger",
+          "text": "Need each other for what?"
+        },
+        {
+          "character_name": "Lucian Veyr",
+          "intent": "Force immediate action",
+          "text": "To survive. It's moving toward our hearts."
+        }
+      ],
+      "supporting_asset_ids": []
+    }
+  ],
+  "next_episode_question": "Can Rhea and Lucian uncover what marked them before their lethal bond tightens—and which enemy will betray the alliance first?",
+  "qa_notes": [
+    "Draft generated by RealLLMAdapter structured output.",
+    "Story QC and revision loop must still review platform fit and consistency."
+  ],
+  "llm_metadata": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "strategy_id": "strategy.scene_causality_ab.improved.v1",
+    "usage": {
+      "prompt_tokens": 5761,
+      "completion_tokens": 2158,
+      "total_tokens": 7919,
+      "completion_tokens_details": {
+        "reasoning_tokens": 381
+      }
+    },
+    "response_id": "resp_0b29c0d46c8053d0016a5f5aee626881919d2c89ab75ee6625",
+    "prompt_versions": [
+      "v3-scene-causality",
+      "v1-shared"
+    ],
+    "generation_strategy_version": "v1"
+  },
+  "id": "fe0b4cc0-18f6-47eb-b973-c7b4d7a351ba",
+  "created_at": "2026-07-21T11:42:21.485632Z",
+  "updated_at": "2026-07-21T11:42:21.485682Z"
+}

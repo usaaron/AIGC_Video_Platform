@@ -86,7 +86,7 @@ class GenerationStrategyService:
                     f"OntologyNode '{ontology_node_id}' was not found."
                 )
 
-        for prompt_id in payload.prompt_ids:
+        for prompt_id in payload.prompt_ids + payload.deepening_prompt_ids:
             if self._prompt_library_repository.get(prompt_id) is None:
                 raise MissingPromptLibraryItemError(
                     f"PromptLibraryItem '{prompt_id}' was not found."

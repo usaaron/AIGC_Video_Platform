@@ -1,0 +1,20 @@
+{
+  "case_id": "sci_fi_mystery",
+  "mapped": {
+    "free_creative_prompt": ["story_goal", "creative_brief.hook"],
+    "audience_tags": ["audience_goal", "ContentSpec.tags"],
+    "genre_theme_story_elements_emotions": ["ContentSpec.tags", "creative_brief.tone", "creative_brief.target_emotion"],
+    "character_and_creator_system_relationship": ["creative_brief.generation_notes"]
+  },
+  "losses": [
+    "Engineer is both an occupation and story role but current CharacterProfile has only one generic role field.",
+    "The AI system may be a character, system entity or antagonist; the current input contract cannot distinguish this.",
+    "The creator-system relationship has no typed representation.",
+    "The moral boundary and name lock are prose only and cannot be enforced.",
+    "Current production ontology seeds do not contain Sci-Fi, Mystery or AI nodes; this simulation requires fixture-only nodes."
+  ],
+  "potential_conflicts": [
+    "Discovery is an emotional movement rather than a conventional emotion and should not automatically become an Emotion ontology node.",
+    "Hidden Truth is both the premise and a Twist; over-weighting it may force repetitive reveals."
+  ]
+}

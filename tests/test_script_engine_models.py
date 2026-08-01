@@ -4,6 +4,9 @@ from pydantic import ValidationError
 from app.modules.script_engine.models import (
     AcceptanceDecision,
     GenerationStrategy,
+    GenerationBatchContext,
+    EpisodeGenerationContext,
+    KnowledgeBundle,
     PromptLibraryItem,
     PromptRetrievalResult,
     RevisionDecision,
@@ -78,6 +81,77 @@ def test_prompt_library_item_rejects_duplicate_applicable_tags() -> None:
 def test_generation_strategy_accepts_valid_payload() -> None:
     model = GenerationStrategy.model_validate(build_strategy())
     assert model.workflow_steps[0].prompt_id == "prompt.story_planning.v1"
+    assert model.draft_knowledge_bundle_id is None
+    assert model.deepening_mode.value == "disabled"
+    assert model.deepening_prompt_ids == []
+
+
+def test_episode_generation_context_accepts_bounded_stage_lineage() -> None:
+    context = EpisodeGenerationContext(
+        generation_mode="full",
+        episode_number=121,
+        total_episodes=334,
+        batch_context=GenerationBatchContext(
+            batch_number=25,
+            start_episode=121,
+            end_episode=125,
+            batch_instruction="Use a newly selected topical element.",
+        ),
+    )
+
+    serialized = context.model_dump(mode="json")
+    assert serialized["batch_context"]["start_episode"] == 121
+    assert serialized["batch_context"]["end_episode"] == 125
+
+
+def test_episode_generation_context_rejects_episode_outside_stage() -> None:
+    with pytest.raises(ValidationError, match="within the batch episode range"):
+        EpisodeGenerationContext(
+            generation_mode="full",
+            episode_number=126,
+            total_episodes=334,
+            batch_context={
+                "batch_number": 25,
+                "start_episode": 121,
+                "end_episode": 125,
+            },
+        )
+
+
+def test_generation_strategy_requires_separate_prompt_for_shadow_deepening() -> None:
+    payload = build_strategy()
+    payload["deepening_mode"] = "shadow"
+
+    with pytest.raises(
+        ValidationError,
+        match="Shadow deepening requires deepening_prompt_ids",
+    ):
+        GenerationStrategy.model_validate(payload)
+
+
+def test_knowledge_bundle_contract_serializes_versioned_references() -> None:
+    bundle = KnowledgeBundle.model_validate(
+        {
+            "bundle_id": "knowledge_bundle.draft.dark_romance.v1",
+            "version": "v1",
+            "knowledge_ids": [
+                "knowledge.character.choice_reveals_character.v1",
+                "knowledge.conflict.progressive_cost.v1",
+            ],
+            "applicable_conditions": {
+                "any_tag_labels": ["Dark Romance"],
+                "target_platforms": ["tiktok"],
+            },
+            "source_reference": "Research/Creative_Knowledge_Bootstrap_v1.md",
+        }
+    )
+
+    serialized = bundle.model_dump(mode="json")
+    assert serialized["target_stage"] == "draft_generation"
+    assert serialized["applicable_conditions"]["any_tag_labels"] == [
+        "Dark Romance"
+    ]
+    assert len(serialized["knowledge_ids"]) == 2
 
 
 def test_generation_strategy_rejects_unknown_workflow_prompt_reference() -> None:

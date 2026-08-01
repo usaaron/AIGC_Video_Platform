@@ -1,0 +1,14 @@
+{
+  "dark_romance_revenge": {
+    "candidate_1": "baseline",
+    "candidate_2": "structured_creative_control"
+  },
+  "supernatural_romance": {
+    "candidate_1": "baseline",
+    "candidate_2": "structured_creative_control"
+  },
+  "sci_fi_mystery": {
+    "candidate_2": "baseline",
+    "candidate_1": "structured_creative_control"
+  }
+}

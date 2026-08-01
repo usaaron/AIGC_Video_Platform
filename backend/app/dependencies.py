@@ -1,3 +1,5 @@
+import os
+
 from app.llm_runtime import build_llm_adapter_from_env
 from app.modules.asset.repository import AssetRepository
 from app.modules.asset.service import AssetService
@@ -19,6 +21,7 @@ from app.modules.scheduled_ingestion.repository import DataIngestionJobRepositor
 from app.modules.scheduled_ingestion.service import ScheduledIngestionService
 from app.modules.script_engine.generation_service import ScriptGenerationService
 from app.modules.script_engine.llm_adapter import FailingLLMAdapter, MissingLLMConfigurationError
+from app.modules.script_engine.bilingual_view import BilingualScriptViewService
 from app.modules.script_engine.prompt_retrieval import PromptRetrievalService
 from app.modules.script_engine.revision_planner import RubricRevisionPlanner
 from app.modules.script_engine.revision_service import ScriptRevisionService
@@ -114,6 +117,29 @@ def get_script_generation_service() -> ScriptGenerationService:
         retrieval_service=get_retrieval_service(),
         llm_adapter=llm_adapter,
         revision_planner=get_revision_planner(),
+        creative_deepening_enabled=_env_flag(
+            "SCRIPT_CREATIVE_DEEPENING_ENABLED",
+            default=False,
+        ),
+    )
+
+
+def _env_flag(name: str, *, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().casefold() in {"1", "true", "yes", "on"}
+
+
+def get_bilingual_script_view_service() -> BilingualScriptViewService:
+    try:
+        llm_adapter = build_llm_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        llm_adapter = FailingLLMAdapter(exc)
+
+    return BilingualScriptViewService(
+        generation_strategy_repository=generation_strategy_repository,
+        llm_adapter=llm_adapter,
     )
 
 

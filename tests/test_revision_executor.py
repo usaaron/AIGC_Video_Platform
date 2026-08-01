@@ -83,8 +83,8 @@ def test_rule_based_executor_applies_strategy_with_scene_scope_and_trace() -> No
 
     revised = result.revised_draft_master_script
     trace = result.execution_trace
-    assert revised.scenes[0].purpose == draft.scenes[0].purpose
-    assert revised.scenes[1].purpose != draft.scenes[1].purpose
+    assert revised.scenes[0].character_actions == draft.scenes[0].character_actions
+    assert revised.scenes[1].character_actions != draft.scenes[1].character_actions
     assert revised.hook == draft.hook
     assert trace.executor_version == "rule_based_revision_executor.v1"
     assert trace.execution_mode.value == "controlled"
@@ -142,6 +142,80 @@ def test_rule_based_executor_uses_legacy_fallback_without_new_contract() -> None
         "revision.draft.revision_test.character",
         "revision.draft.revision_test.hook",
     ]
-    assert result.revised_draft_master_script.scenes[0].purpose != draft.scenes[0].purpose
-    assert result.revised_draft_master_script.scenes[1].purpose != draft.scenes[1].purpose
+    assert result.revised_draft_master_script.scenes[0].character_actions != draft.scenes[0].character_actions
+    assert result.revised_draft_master_script.scenes[1].character_actions != draft.scenes[1].character_actions
     assert result.revised_draft_master_script.hook != draft.hook
+
+
+def test_rule_based_executor_preserves_schema_limits_for_full_length_scene() -> None:
+    draft = build_draft_master_script()
+    final_scene = draft.scenes[-1]
+    final_scene_number = final_scene.scene_number
+    draft.scenes[-1] = final_scene.model_copy(
+        update={
+            "beat_summary": "A" * 300,
+            "dialogue_prompts": [f"Existing prompt {index}." for index in range(10)],
+        }
+    )
+    draft.qa_notes = [f"Existing note {index}." for index in range(10)]
+    controlled_plan = build_controlled_revision_plan()
+    cliffhanger_plan = RevisionPlan.model_validate(
+        {
+            **controlled_plan.model_dump(),
+            "revision_decision": {
+                "revision_required": True,
+                "decision_reason": "The final scene needs a stronger continuation question.",
+                "selected_dimensions": ["cliffhanger_strength"],
+                "deferred_dimensions": [],
+                "protected_dimensions": ["hook_quality"],
+                "primary_scene_refs": [final_scene_number],
+                "confidence": 0.9,
+            },
+            "revision_strategies": [
+                {
+                    "target_dimension": "cliffhanger_strength",
+                    "problem_type": "weak_continuation_question",
+                    "problem_reason": "The final reveal does not sustain enough uncertainty.",
+                    "revision_goal": "Strengthen the existing final continuation question.",
+                    "revision_method": "Sharpen the final beat without changing its purpose.",
+                    "expected_effect": "Increase next-episode motivation.",
+                    "priority": 1,
+                    "confidence": 0.9,
+                    "scene_refs": [final_scene_number],
+                    "do_not_touch": ["Preserve the opening hook."],
+                    "knowledge_refs": [],
+                }
+            ],
+            "actions": [
+                {
+                    "action_id": "revision.draft.revision_test.cliffhanger",
+                    "target_type": "cliffhanger",
+                    "priority": "high",
+                    "title": "Strengthen the cliffhanger",
+                    "rationale": "The final scene needs a stronger continuation question.",
+                    "based_on_checks": ["dimension.cliffhanger_strength"],
+                    "related_scene_numbers": [final_scene_number],
+                    "instructions": ["Sharpen the existing final beat."],
+                    "expected_impact": "Improves continuation intent without changing the ending.",
+                }
+            ],
+        }
+    )
+
+    result = RuleBasedRevisionExecutor().execute(
+        draft=draft,
+        plan=cliffhanger_plan,
+        strategies=cliffhanger_plan.revision_strategies,
+    )
+
+    revised = result.revised_draft_master_script
+    assert len(revised.scenes[-1].beat_summary) == 300
+    assert len(revised.scenes[-1].dialogue_prompts) == 10
+    assert len(revised.qa_notes) == 10
+    assert result.execution_trace.applied_actions == []
+    assert result.execution_trace.skipped_actions[0].action_id == (
+        "revision.draft.revision_test.cliffhanger"
+    )
+    assert result.execution_trace.skipped_actions[0].reason == (
+        "no_supported_deterministic_change"
+    )

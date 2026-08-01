@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -168,8 +170,12 @@ def build_prompt_library_payload(suffix: str) -> dict:
     }
 
 
-def build_generation_strategy_payload(suffix: str) -> dict:
-    return {
+def build_generation_strategy_payload(
+    suffix: str,
+    *,
+    draft_knowledge_bundle_id: str | None = None,
+) -> dict:
+    payload = {
         "id": f"strategy.tiktok.{suffix}.v1",
         "name": "TikTok Master Script Strategy",
         "target_platform": "tiktok",
@@ -202,9 +208,17 @@ def build_generation_strategy_payload(suffix: str) -> dict:
         "version": "v1",
         "status": "active",
     }
+    if draft_knowledge_bundle_id is not None:
+        payload["draft_knowledge_bundle_id"] = draft_knowledge_bundle_id
+    return payload
 
 
-async def seed_script_generation_dependencies(client: AsyncClient, suffix: str) -> tuple[str, str]:
+async def seed_script_generation_dependencies(
+    client: AsyncClient,
+    suffix: str,
+    *,
+    draft_knowledge_bundle_id: str | None = None,
+) -> tuple[str, str]:
     profile_id = f"tiktok_v1_{suffix}"
     response = await client.post(
         "/platform-profiles",
@@ -247,7 +261,10 @@ async def seed_script_generation_dependencies(client: AsyncClient, suffix: str) 
 
     response = await client.post(
         "/generation-strategies",
-        json=build_generation_strategy_payload(suffix),
+        json=build_generation_strategy_payload(
+            suffix,
+            draft_knowledge_bundle_id=draft_knowledge_bundle_id,
+        ),
     )
     assert response.status_code == 201
     generation_strategy_id = response.json()["data"]["id"]
@@ -293,6 +310,236 @@ async def test_generate_script_draft() -> None:
     assert data["revision_plan"]["content_spec_id"] == content_spec_id
     assert data["revision_plan"]["must_re_qc"] is True
     assert len(data["revision_plan"]["actions"]) >= 1
+    assert data["resolved_creative_context"] is None
+    assert "ResolvedCreativeContext:" not in data["prompt_build_result"]["prompt_text"]
+    assert data["knowledge_bundle"] is None
+    assert data["knowledge_selection_trace"] is None
+    assert "CreativeKnowledgeBundle:" not in data["prompt_build_result"]["prompt_text"]
+
+
+@pytest.mark.anyio
+async def test_build_bilingual_script_view_endpoint() -> None:
+    suffix = "bilingual_view_api"
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()),
+        base_url="http://testserver",
+    ) as client:
+        content_spec_id, generation_strategy_id = (
+            await seed_script_generation_dependencies(client, suffix)
+        )
+        generated_response = await client.post(
+            "/script-generation/generate-draft",
+            json={
+                "content_spec_id": content_spec_id,
+                "generation_strategy_id": generation_strategy_id,
+                "output_language": "en",
+                "desired_scene_count": 3,
+            },
+        )
+        assert generated_response.status_code == 200
+        draft = generated_response.json()["data"]["draft_master_script"]
+
+        response = await client.post(
+            "/script-generation/build-bilingual-view",
+            json={
+                "generation_strategy_id": generation_strategy_id,
+                "draft_master_script": draft,
+                "target_language": "zh-CN",
+            },
+        )
+
+    assert response.status_code == 200
+    view = response.json()["data"]
+    assert view["source_draft_master_script_id"] == draft["id"]
+    assert view["source_language"] == "en"
+    assert view["target_language"] == "zh-CN"
+    assert any(item["path"] == "hook" for item in view["items"])
+    assert any(
+        item["path"] == "scenes.0.beat_summary"
+        for item in view["items"]
+    )
+    assert view["warnings"]
+
+
+@pytest.mark.anyio
+async def test_episode_context_review_and_user_modification_api() -> None:
+    suffix = "episode_authoring_api"
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()),
+        base_url="http://testserver",
+    ) as client:
+        content_spec_id, generation_strategy_id = await seed_script_generation_dependencies(
+            client, suffix
+        )
+        generated_response = await client.post(
+            "/script-generation/generate-draft",
+            json={
+                "content_spec_id": content_spec_id,
+                "generation_strategy_id": generation_strategy_id,
+                "output_language": "en",
+                "desired_scene_count": 3,
+                "episode_context": {
+                    "generation_mode": "sequential",
+                    "episode_number": 2,
+                    "total_episodes": 4,
+                    "previous_episode_summary": "The heroine rejected the false confession.",
+                    "previous_episode_question": "Who forged the confession?",
+                    "episode_instruction": "Make the reluctant ally take a visible risk.",
+                    "project_continuity_summary": (
+                        "Active story line: expose the conspiracy without sacrificing "
+                        "the witness. Mara and Adrian remain distrustful allies."
+                    ),
+                    "batch_context": {
+                        "batch_number": 2,
+                        "start_episode": 2,
+                        "end_episode": 4,
+                        "batch_instruction": "Introduce a newly selected topical element.",
+                    },
+                },
+            },
+        )
+        assert generated_response.status_code == 200
+        source_run = generated_response.json()["data"]
+        edited_draft = deepcopy(source_run["draft_master_script"])
+        edited_draft["hook"] = "The reluctant ally burns his alibi to protect her."
+
+        review_response = await client.post(
+            "/script-generation/review-draft",
+            json={
+                "source_generation_run": source_run,
+                "draft_master_script": edited_draft,
+            },
+        )
+        assert review_response.status_code == 200
+        reviewed_run = review_response.json()["data"]
+
+        modification_response = await client.post(
+            "/script-generation/modify-draft",
+            json={
+                "source_generation_run": reviewed_run,
+                "source_draft_master_script": edited_draft,
+                "instruction": "Increase the cost of the ally's decision.",
+            },
+        )
+
+    assert source_run["episode_context"]["episode_number"] == 2
+    assert source_run["episode_context"]["batch_context"]["batch_number"] == 2
+    assert "SerializedEpisodeContract:" in source_run["prompt_build_result"]["prompt_text"]
+    assert "Mara and Adrian remain distrustful allies" in (
+        source_run["prompt_build_result"]["prompt_text"]
+    )
+    assert reviewed_run["draft_master_script"]["hook"] == edited_draft["hook"]
+    assert modification_response.status_code == 200
+    modification = modification_response.json()["data"]
+    assert modification["instruction"] == "Increase the cost of the ally's decision."
+    assert "UserDirectedModificationContract:" in (
+        modification["candidate_generation_run"]["prompt_build_result"]["prompt_text"]
+    )
+
+
+@pytest.mark.anyio
+async def test_generate_script_draft_rejects_unknown_static_knowledge_bundle() -> None:
+    suffix = "scriptgen_unknown_knowledge_bundle"
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()),
+        base_url="http://testserver",
+    ) as client:
+        content_spec_id, generation_strategy_id = (
+            await seed_script_generation_dependencies(
+                client,
+                suffix,
+                draft_knowledge_bundle_id="knowledge_bundle.draft.missing.v1",
+            )
+        )
+        response = await client.post(
+            "/script-generation/generate-draft",
+            json={
+                "content_spec_id": content_spec_id,
+                "generation_strategy_id": generation_strategy_id,
+                "output_language": "en",
+                "desired_scene_count": 3,
+            },
+        )
+
+    assert response.status_code == 422
+    assert "not present in the static catalog" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_generate_script_draft_accepts_resolved_character_context() -> None:
+    suffix = "scriptgen_creative_context_api"
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()),
+        base_url="http://testserver",
+    ) as client:
+        content_spec_id, generation_strategy_id = await seed_script_generation_dependencies(
+            client, suffix
+        )
+        response = await client.post(
+            "/script-generation/generate-draft",
+            json={
+                "content_spec_id": content_spec_id,
+                "generation_strategy_id": generation_strategy_id,
+                "output_language": "en",
+                "desired_scene_count": 3,
+                "resolved_creative_context": {
+                    "schema_version": "v1",
+                    "content_spec_id": content_spec_id,
+                    "characters": [
+                        {
+                            "character_ref": "character.lena_api",
+                            "name": "Lena",
+                            "role": "protagonist",
+                            "desire": "Discover the truth",
+                            "belief": "Technology must be understood before trusted",
+                            "moral_boundaries": [
+                                "Never sacrifice humans for progress"
+                            ],
+                            "locked_fields": ["name", "moral_boundaries"],
+                            "field_sources": {"belief": "ai_inferred"},
+                        }
+                    ],
+                    "excluded_patterns": ["love triangle"],
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    character = data["resolved_creative_context"]["characters"][0]
+    assert character["name"] == "Lena"
+    assert character["field_sources"]["belief"] == "ai_inferred"
+    prompt_text = data["prompt_build_result"]["prompt_text"]
+    assert "ResolvedCreativeContext:" in prompt_text
+    assert "Never sacrifice humans for progress" in prompt_text
+
+
+@pytest.mark.anyio
+async def test_generate_script_draft_rejects_mismatched_creative_context() -> None:
+    suffix = "scriptgen_creative_context_mismatch"
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()),
+        base_url="http://testserver",
+    ) as client:
+        content_spec_id, generation_strategy_id = await seed_script_generation_dependencies(
+            client, suffix
+        )
+        response = await client.post(
+            "/script-generation/generate-draft",
+            json={
+                "content_spec_id": content_spec_id,
+                "generation_strategy_id": generation_strategy_id,
+                "output_language": "en",
+                "desired_scene_count": 3,
+                "resolved_creative_context": {
+                    "content_spec_id": "different_content_spec",
+                    "characters": [],
+                },
+            },
+        )
+
+    assert response.status_code == 422
+    assert "does not match" in response.json()["detail"]
 
 
 @pytest.mark.anyio

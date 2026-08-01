@@ -5,10 +5,14 @@ from app.modules.content_spec.models import (
     ContentSpecCreate,
     ContentSpecListResponse,
     ContentSpecResponse,
+    CreativeIntentInput,
+    CreativeIntentResolutionResponse,
     ErrorResponse,
 )
 from app.modules.content_spec.service import (
     ContentSpecService,
+    CreativeIntentConflictError,
+    InactiveOntologyNodeError,
     InvalidTagReferenceError,
     MissingOntologyNodeError,
     MissingPlatformProfileError,
@@ -50,6 +54,36 @@ def create_content_spec(
         ) from exc
 
     return ContentSpecResponse(data=content_spec)
+
+
+@router.post(
+    "/resolve-creative-intent",
+    response_model=CreativeIntentResolutionResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+def resolve_creative_intent(
+    payload: CreativeIntentInput,
+    service: ContentSpecService = Depends(get_content_spec_service),
+) -> CreativeIntentResolutionResponse:
+    try:
+        result = service.resolve_creative_intent(payload)
+    except (MissingPlatformProfileError, MissingOntologyNodeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except (CreativeIntentConflictError, InactiveOntologyNodeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    return CreativeIntentResolutionResponse(data=result)
 
 
 @router.get(

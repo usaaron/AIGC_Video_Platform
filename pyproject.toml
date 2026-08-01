@@ -27,6 +27,9 @@ package-dir = {"" = "backend"}
 [tool.setuptools.packages.find]
 where = ["backend"]
 
+[tool.setuptools.package-data]
+"app.modules.script_engine" = ["static_knowledge_catalog.v1.json"]
+
 [tool.pytest.ini_options]
 pythonpath = ["backend", "."]
 testpaths = ["tests"]

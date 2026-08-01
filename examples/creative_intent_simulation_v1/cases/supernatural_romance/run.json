@@ -1,0 +1,30 @@
+{
+  "case_id": "supernatural_romance",
+  "content_spec_id": "creative-intent-sim-supernatural-romance-v1",
+  "draft_id": "ad4bdc3d-888d-47a1-a208-576a6ef7b5f0",
+  "generation_strategy_id": "strategy.scene_causality_ab.improved.v1",
+  "generation_strategy_version": "v1",
+  "prompt_ids": [
+    "prompt.story_planning.scene_causality_ab.improved",
+    "prompt.platform_optimization.scene_causality_ab.shared"
+  ],
+  "prompt_versions": [
+    "v3-scene-causality",
+    "v1-shared"
+  ],
+  "prompt_builder_version": "v0.1",
+  "llm_model_info": {
+    "provider": "openai_compatible",
+    "model_name": "gpt-5.6-sol",
+    "supports_structured_output": true,
+    "max_context_tokens": 128000
+  },
+  "latency_seconds": 53.183,
+  "technical_attempt": 1,
+  "generated_at": "2026-07-21T11:01:52.085460+00:00",
+  "artifacts": {
+    "prompt": "examples/creative_intent_simulation_v1/cases/supernatural_romance/generated_prompt.txt",
+    "draft": "examples/creative_intent_simulation_v1/cases/supernatural_romance/draft.json",
+    "story_qc": "examples/creative_intent_simulation_v1/cases/supernatural_romance/story_qc.json"
+  }
+}
