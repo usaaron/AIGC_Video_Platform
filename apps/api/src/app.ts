@@ -3,7 +3,7 @@ import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import multipart from '@fastify/multipart'
 import rateLimit from '@fastify/rate-limit'
-import Fastify, { type FastifyInstance } from 'fastify'
+import Fastify, { type FastifyBaseLogger, type FastifyInstance, type FastifyLoggerOptions } from 'fastify'
 import fastifyRawBody from 'fastify-raw-body'
 import type { AppConfig } from './config.js'
 import type { FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
@@ -29,7 +29,8 @@ import type { BillingPaymentProvider } from './modules/billing/paymentProvider.j
 
 type BuildAppOptions = RuntimeProviderOverrides & {
   config: AppConfig
-  logger?: boolean
+  logger?: boolean | FastifyLoggerOptions
+  loggerInstance?: FastifyBaseLogger
   store?: AppStore
   startWorker?: boolean
   taskDispatcher?: TaskDispatcher
@@ -41,6 +42,7 @@ type BuildAppOptions = RuntimeProviderOverrides & {
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     logger: options.logger ?? false,
+    ...(options.loggerInstance ? { loggerInstance: options.loggerInstance } : {}),
     trustProxy: options.config.TRUST_PROXY,
     bodyLimit: options.config.MAX_UPLOAD_BYTES,
     routerOptions: {

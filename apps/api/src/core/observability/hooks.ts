@@ -12,6 +12,7 @@ export function installObservabilityHooks(app: FastifyInstance): void {
   app.addHook('onRequest', async (request, reply) => {
     request.observabilityStartedAt = Date.now()
     reply.header('x-request-id', request.id)
+    reply.header('x-trace-id', request.id)
   })
   app.addHook('onResponse', async (request, reply) => {
     const context = requestLogContext(request)
@@ -39,6 +40,7 @@ export function installObservabilityHooks(app: FastifyInstance): void {
 
 export function requestLogContext(request: FastifyRequest): {
   requestId: string
+  traceId: string
   tenantId: string | null
   userId: string | null
   taskId: string | null
@@ -48,6 +50,7 @@ export function requestLogContext(request: FastifyRequest): {
   const params = objectValue(request.params)
   return {
     requestId: request.id,
+    traceId: request.id,
     tenantId: request.principal?.tenantId ?? null,
     userId: request.principal?.userId ?? null,
     taskId: stringValue(params.taskId),

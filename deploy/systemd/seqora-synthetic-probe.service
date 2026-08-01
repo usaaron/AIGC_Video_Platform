@@ -1,0 +1,9 @@
+[Unit]
+Description=Seqora synthetic probe
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/opt/seqora/deploy/monitoring.env
+ExecStart=/bin/bash /opt/seqora/deploy/monitoring/run-synthetic-probe.sh

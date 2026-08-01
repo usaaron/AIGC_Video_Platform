@@ -62,6 +62,9 @@ jobs:
       - name: Reject deprecated organization API usage
         run: pnpm check:organization-api
 
+      - name: Run API unit coverage gate
+        run: pnpm test:backend:coverage
+
       - name: Run full workspace test suite
         run: pnpm test
 

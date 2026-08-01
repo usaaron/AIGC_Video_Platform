@@ -5,7 +5,7 @@ import {
   type NovelSummaryQueueResult,
 } from '@seqora/contracts'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify'
 import { readFile, rm, stat } from 'node:fs/promises'
 import { createHmac } from 'node:crypto'
 import { resolve } from 'node:path'
@@ -114,6 +114,45 @@ const testConfig: AppConfig = {
   IMG2_QUALITY: 'low',
   TEXT_MODEL: 'gpt-5.6',
   TOKENADVENT_REQUEST_TIMEOUT_MS: 180_000,
+}
+
+type MemoryLogEntry = {
+  level: string
+  args: unknown[]
+}
+
+class MemoryLogger {
+  public readonly entries: MemoryLogEntry[] = []
+  public level = 'info'
+  public silent = false
+
+  child(): MemoryLogger {
+    return this
+  }
+
+  trace(...args: unknown[]): void {
+    this.entries.push({ level: 'trace', args })
+  }
+
+  debug(...args: unknown[]): void {
+    this.entries.push({ level: 'debug', args })
+  }
+
+  info(...args: unknown[]): void {
+    this.entries.push({ level: 'info', args })
+  }
+
+  warn(...args: unknown[]): void {
+    this.entries.push({ level: 'warn', args })
+  }
+
+  error(...args: unknown[]): void {
+    this.entries.push({ level: 'error', args })
+  }
+
+  fatal(...args: unknown[]): void {
+    this.entries.push({ level: 'fatal', args })
+  }
 }
 
 let app: FastifyInstance | undefined
@@ -852,6 +891,51 @@ describe('API authorization', () => {
         filmPreview: expect.any(Object),
       },
     })
+  })
+
+  it('prints trace ids in request logs and exposes Prometheus metrics', async () => {
+    const memoryLogger = new MemoryLogger()
+    app = await buildApp({
+      config: testConfig,
+      loggerInstance: memoryLogger as unknown as FastifyBaseLogger,
+      startWorker: false,
+    })
+
+    const readiness = await app.inject({ method: 'GET', url: '/api/v1/health/readiness' })
+    expect(readiness.statusCode).toBe(503)
+    expect(readiness.headers['x-request-id']).toEqual(expect.any(String))
+    expect(readiness.headers['x-trace-id']).toEqual(expect.any(String))
+
+    const requestLog = memoryLogger.entries.find(
+      (entry) =>
+        entry.level === 'info' &&
+        entry.args[1] === 'request completed' &&
+        typeof entry.args[0] === 'object' &&
+        entry.args[0] !== null &&
+        (entry.args[0] as Record<string, unknown>).route === '/api/v1/health/readiness',
+    )
+    expect(requestLog).toBeDefined()
+    expect(requestLog?.args[0]).toMatchObject({
+      requestId: expect.any(String),
+      traceId: expect.any(String),
+      method: 'GET',
+      route: '/api/v1/health/readiness',
+      statusCode: 503,
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/observability/metrics/prometheus',
+      headers: { 'x-demo-role': 'admin', 'x-demo-tenant-id': 'tenant-seqora-demo' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['content-type']).toContain('text/plain')
+    expect(response.body).toContain('# TYPE seqora_http_request_duration_ms_failures counter')
+    expect(response.body).toMatch(
+      /seqora_http_request_duration_ms_failures\{method="GET",route="\/api\/v1\/health\/readiness",status="5xx"\} [1-9]\d*/,
+    )
+    expect(response.body).toContain('# TYPE seqora_refunds_total counter')
   })
 
   it('proxies completed Seedance video content through the authenticated API', async () => {

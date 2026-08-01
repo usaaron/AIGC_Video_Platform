@@ -165,6 +165,11 @@ curl --fail --silent --show-error \
   --resolve "${APP_DOMAIN}:443:127.0.0.1" \
   "https://${APP_DOMAIN}/api/v1/health" >/dev/null
 
+install -m 0644 /opt/seqora/deploy/systemd/seqora-synthetic-probe.service /etc/systemd/system/seqora-synthetic-probe.service
+install -m 0644 /opt/seqora/deploy/systemd/seqora-synthetic-probe.timer /etc/systemd/system/seqora-synthetic-probe.timer
+systemctl daemon-reload
+systemctl enable --now seqora-synthetic-probe.timer
+
 docker compose --env-file deploy/demo.env -f compose.demo.yml ps
 rm -f /var/tmp/seqora-source.tgz /var/tmp/seqora-runtime.tgz /var/tmp/credentials-patch.json
 touch "$MARKER"
