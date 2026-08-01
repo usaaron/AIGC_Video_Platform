@@ -2,6 +2,7 @@ import {
   Activity,
   AlertTriangle,
   Building2,
+  Check,
   Clock,
   CreditCard,
   Filter,
@@ -25,11 +26,17 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { api } from './apiClient'
 import {
+  assignableRoleOptions,
   auditLogTone,
   buildSessionRiskRows,
+  canDisableTenant,
   canManageBilling,
+  canManageMembership,
+  canManageTenant,
   canManageUsers,
   canReadAdminConsole,
+  canTransferTenantOwner,
+  classifyWorkspace,
   filterRows,
   formatDate,
   formatSignedAmount,
@@ -44,12 +51,13 @@ import {
   summarizeBillingAdjustments,
   summarizeConsole,
   summarizeSessionRisks,
+  workspaceTypeName,
 } from './adminConsole'
 
 const tabs = [
   { id: 'overview', label: '概览', icon: Gauge },
   { id: 'users', label: '用户', icon: UsersRound },
-  { id: 'tenants', label: '租户', icon: Building2 },
+  { id: 'tenants', label: '组织', icon: Building2 },
   { id: 'memberships', label: '成员关系', icon: IdCard },
   { id: 'billing', label: '账单流水', icon: CreditCard },
   { id: 'adjustments', label: '账单调账', icon: PencilLine },
@@ -62,6 +70,8 @@ const loginInitialState = { email: '', password: '' }
 const adjustmentInitialState = { amount: '', reason: '' }
 const grantInitialState = { amount: '', reason: '' }
 const passwordInitialState = { newPassword: '', requireChange: true, revokeSessions: true }
+const createUserInitialState = { tenantId: '', email: '', name: '', password: '', role: 'member' }
+const ownerTransferInitialState = { tenantId: '', targetUserId: '', previousOwnerRole: 'admin' }
 
 export function App() {
   const [session, setSession] = useState(null)
@@ -84,8 +94,13 @@ export function App() {
   const [auditActionFilter, setAuditActionFilter] = useState('all')
   const [auditResourceFilter, setAuditResourceFilter] = useState('all')
   const [sessionRiskFilter, setSessionRiskFilter] = useState('all')
+  const [tenantTypeFilter, setTenantTypeFilter] = useState('all')
   const [passwordTarget, setPasswordTarget] = useState(null)
   const [passwordForm, setPasswordForm] = useState(passwordInitialState)
+  const [createUserOpen, setCreateUserOpen] = useState(false)
+  const [createUserForm, setCreateUserForm] = useState(createUserInitialState)
+  const [ownerTransferTarget, setOwnerTransferTarget] = useState(null)
+  const [ownerTransferForm, setOwnerTransferForm] = useState(ownerTransferInitialState)
 
   useEffect(() => {
     let cancelled = false
@@ -217,6 +232,123 @@ export function App() {
     })
   }
 
+  const openCreateUser = (tenantId = '') => {
+    const activeTenants = snapshot?.tenants?.items.filter((item) => item.status === 'active') ?? []
+    const tenant = activeTenants.find((item) => item.id === tenantId) ?? activeTenants[0]
+    const roles = assignableRoleOptions(session)
+    setCreateUserForm({
+      ...createUserInitialState,
+      tenantId: tenant?.id ?? '',
+      role: roles[0] ?? 'member',
+    })
+    setCreateUserOpen(true)
+  }
+
+  const submitCreateUser = async (event) => {
+    event.preventDefault()
+    const confirmed = window.confirm(
+      `确认创建 ${roleName(createUserForm.role)} 账号？\n\n邮箱：${createUserForm.email.trim()}\n组织：${createUserForm.tenantId}`,
+    )
+    if (!confirmed) return
+    await runAction('create-user', async () => {
+      await api.createTenantUser(createUserForm.tenantId, {
+        email: createUserForm.email.trim(),
+        name: createUserForm.name.trim(),
+        password: createUserForm.password,
+        role: createUserForm.role,
+      })
+      setCreateUserOpen(false)
+      setCreateUserForm(createUserInitialState)
+      await loadConsole()
+      setNotice('账号已创建')
+    })
+  }
+
+  const renameTenant = async (tenant) => {
+    const nextName = window.prompt('输入新的组织名称', tenant.name)
+    const name = nextName?.trim()
+    if (!name || name === tenant.name) return
+    const confirmed = window.confirm(
+      `确认重命名组织？\n\n当前名称：${tenant.name}\n新名称：${name}`,
+    )
+    if (!confirmed) return
+    await runAction(`tenant-rename:${tenant.id}`, async () => {
+      await api.updateWorkspace(tenant.id, { name })
+      await loadConsole()
+      setNotice('组织已重命名')
+    })
+  }
+
+  const disableTenant = async (tenant) => {
+    const confirmed = window.confirm(
+      `确认禁用组织 ${tenant.name}？\n\n该组织下现有 session 将失效，创作端无法继续访问。`,
+    )
+    if (!confirmed) return
+    await runAction(`tenant-disable:${tenant.id}`, async () => {
+      await api.disableWorkspace(tenant.id)
+      await loadConsole()
+      setNotice('组织已禁用')
+    })
+  }
+
+  const openOwnerTransfer = (tenant) => {
+    const candidates = ownerTransferCandidates(snapshot?.memberships?.items ?? [], tenant.id)
+    setOwnerTransferTarget(tenant)
+    setOwnerTransferForm({
+      ...ownerTransferInitialState,
+      tenantId: tenant.id,
+      targetUserId: candidates[0]?.userId ?? '',
+    })
+  }
+
+  const submitOwnerTransfer = async (event) => {
+    event.preventDefault()
+    if (!ownerTransferTarget) return
+    const target = snapshot?.memberships?.items.find(
+      (membership) =>
+        membership.tenantId === ownerTransferTarget.id &&
+        membership.userId === ownerTransferForm.targetUserId,
+    )
+    const confirmed = window.confirm(
+      `确认转让 owner？\n\n组织：${ownerTransferTarget.name}\n新 owner：${target?.name ?? ownerTransferForm.targetUserId}\n原 owner 转为：${roleName(ownerTransferForm.previousOwnerRole)}`,
+    )
+    if (!confirmed) return
+    await runAction(`tenant-transfer:${ownerTransferTarget.id}`, async () => {
+      await api.transferWorkspaceOwner(ownerTransferTarget.id, {
+        targetUserId: ownerTransferForm.targetUserId,
+        previousOwnerRole: ownerTransferForm.previousOwnerRole,
+      })
+      setOwnerTransferTarget(null)
+      setOwnerTransferForm(ownerTransferInitialState)
+      await loadConsole()
+      setNotice('Owner 已转让')
+    })
+  }
+
+  const updateMembershipRole = async (membership, role) => {
+    const confirmed = window.confirm(
+      `确认修改成员角色？\n\n成员：${membership.name}\n组织：${membership.tenantName}\n新角色：${roleName(role)}`,
+    )
+    if (!confirmed) return
+    await runAction(`member-role:${membership.id}`, async () => {
+      await api.updateMemberRoles(membership.id, [role])
+      await loadConsole()
+      setNotice('成员角色已更新')
+    })
+  }
+
+  const disableMembership = async (membership) => {
+    const confirmed = window.confirm(
+      `确认移除或禁用该成员？\n\n成员：${membership.name}\n组织：${membership.tenantName}\n角色：${membership.roles.map(roleName).join('、')}`,
+    )
+    if (!confirmed) return
+    await runAction(`member-disable:${membership.id}`, async () => {
+      await api.disableMembership(membership.id)
+      await loadConsole()
+      setNotice('成员关系已禁用')
+    })
+  }
+
   const submitPasswordReset = async (event) => {
     event.preventDefault()
     if (!passwordTarget) return
@@ -280,7 +412,7 @@ export function App() {
     const reason = adjustmentPageForm.reason.trim()
     const membershipId = membershipIdFor(target)
     const confirmed = window.confirm(
-      `确认提交账单调账？\n\n目标：${target.name}\nWorkspace：${target.tenantName}\nMembership：${membershipId}\n积分变化：${formatSignedAmount(amount)}\n原因：${reason}`,
+      `确认提交账单调账？\n\n目标：${target.name}\n组织：${target.tenantName}\nMembership：${membershipId}\n积分变化：${formatSignedAmount(amount)}\n原因：${reason}`,
     )
     if (!confirmed) return
     await runAction(`adjust-page:${membershipId}`, async () => {
@@ -295,7 +427,7 @@ export function App() {
     event.preventDefault()
     const amount = Number(grantForm.amount)
     const reason = grantForm.reason.trim()
-    const confirmed = window.confirm(`确认给当前管理员账号充值？\n\n积分：+${amount}\n原因：${reason}`)
+    const confirmed = window.confirm(`确认给当前后台账号充值？\n\n积分：+${amount}\n原因：${reason}`)
     if (!confirmed) return
     await runAction('grant', async () => {
       await api.grantCredits({ amount, reason })
@@ -395,7 +527,7 @@ export function App() {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索用户、租户、账单、session 或审计"
+                placeholder="搜索用户、组织、账单、session 或审计"
               />
             </label>
           </section>
@@ -420,11 +552,28 @@ export function App() {
                   onForcePasswordReset={forcePasswordReset}
                 />
               )}
-              {activeTab === 'tenants' && <TenantsTable tenants={filtered.tenants} />}
+              {activeTab === 'tenants' && (
+                <TenantsTable
+                  tenants={filtered.tenants}
+                  session={session}
+                  busy={busy}
+                  typeFilter={tenantTypeFilter}
+                  onTypeFilterChange={setTenantTypeFilter}
+                  onRename={renameTenant}
+                  onDisable={disableTenant}
+                  onTransferOwner={openOwnerTransfer}
+                  onCreateUser={openCreateUser}
+                />
+              )}
               {activeTab === 'memberships' && (
                 <MembershipsTable
                   memberships={filtered.memberships}
+                  session={session}
                   canAdjustBilling={canAdjustBilling}
+                  busy={busy}
+                  onCreateUser={openCreateUser}
+                  onUpdateRole={updateMembershipRole}
+                  onDisableMembership={disableMembership}
                   onAdjust={openAdjustment}
                 />
               )}
@@ -513,6 +662,28 @@ export function App() {
           onSubmit={submitPasswordReset}
         />
       )}
+      {createUserOpen && (
+        <CreateTenantUserModal
+          form={createUserForm}
+          tenants={snapshot?.tenants?.items ?? []}
+          roleOptions={assignableRoleOptions(session)}
+          busy={busy === 'create-user'}
+          onChange={setCreateUserForm}
+          onClose={() => setCreateUserOpen(false)}
+          onSubmit={submitCreateUser}
+        />
+      )}
+      {ownerTransferTarget && (
+        <OwnerTransferModal
+          tenant={ownerTransferTarget}
+          candidates={ownerTransferCandidates(snapshot?.memberships?.items ?? [], ownerTransferTarget.id)}
+          form={ownerTransferForm}
+          busy={busy === `tenant-transfer:${ownerTransferTarget.id}`}
+          onChange={setOwnerTransferForm}
+          onClose={() => setOwnerTransferTarget(null)}
+          onSubmit={submitOwnerTransfer}
+        />
+      )}
     </div>
   )
 }
@@ -534,7 +705,7 @@ function LoginScreen({ form, busy, error, onChange, onSubmit }) {
           <span className="brand-mark">序</span>
           <div>
             <strong>SEQORA Admin</strong>
-            <span>管理员控制台</span>
+            <span>管理后台</span>
           </div>
         </div>
         <label>
@@ -586,7 +757,7 @@ function DeniedScreen({ session, busy, onLogout }) {
 function OverviewPanel({ snapshot, summary, setActiveTab }) {
   const stats = [
     { label: '用户', value: summary.users, icon: UsersRound, tab: 'users' },
-    { label: '租户', value: summary.tenants, icon: Building2, tab: 'tenants' },
+    { label: '组织', value: summary.tenants, icon: Building2, tab: 'tenants' },
     { label: '成员关系', value: summary.memberships, icon: IdCard, tab: 'memberships' },
     { label: 'Session', value: summary.sessions, icon: KeyRound, tab: 'sessions' },
     { label: '账单账户', value: summary.billingAccounts, icon: CreditCard, tab: 'billing' },
@@ -631,7 +802,7 @@ function UsersTable({
             <th>状态</th>
             <th>安全</th>
             <th>角色</th>
-            <th>Membership</th>
+            <th>成员关系</th>
             <th>更新时间</th>
             <th>操作</th>
           </tr>
@@ -712,52 +883,168 @@ function UsersTable({
   )
 }
 
-function TenantsTable({ tenants }) {
+function TenantsTable({
+  tenants,
+  session,
+  busy,
+  typeFilter,
+  onTypeFilterChange,
+  onRename,
+  onDisable,
+  onTransferOwner,
+  onCreateUser,
+}) {
+  const visibleTenants =
+    typeFilter === 'all'
+      ? tenants
+      : tenants.filter((tenant) => classifyWorkspace(tenant).type === typeFilter)
+  const typeCounts = summarizeWorkspaceTypes(tenants)
+
   return (
-    <DataSection title="租户列表" count={tenants.length}>
-      <table className="data-table">
+    <DataSection title="组织列表" count={visibleTenants.length}>
+      <div className="inline-filter-bar tenant-filter-bar">
+        <label>
+          <Building2 size={14} />
+          <select value={typeFilter} onChange={(event) => onTypeFilterChange(event.target.value)}>
+            {['all', 'system', 'test', 'enterprise', 'workspace'].map((type) => (
+              <option key={type} value={type}>
+                {workspaceTypeName(type)} · {typeCounts[type] ?? 0}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <table className="data-table wide">
         <thead>
           <tr>
-            <th>Workspace</th>
+            <th>组织</th>
+            <th>类型</th>
             <th>状态</th>
             <th>成员</th>
             <th>Owner</th>
             <th>创建者</th>
             <th>更新时间</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          {tenants.map((tenant) => (
-            <tr key={tenant.id}>
-              <td>
-                <IdentityCell name={tenant.name} detail={tenant.id} />
-              </td>
-              <td>
-                <StatusBadge status={tenant.status} />
-              </td>
-              <td>
-                {tenant.activeMembershipCount} / {tenant.membershipCount}
-              </td>
-              <td>{tenant.activeOwnerCount}</td>
-              <td>{tenant.createdByEmail ?? tenant.createdByName ?? '-'}</td>
-              <td>{formatDate(tenant.updatedAt)}</td>
-            </tr>
-          ))}
-          <EmptyRow visible={!tenants.length} columns={6} />
+          {visibleTenants.map((tenant) => {
+            const workspaceType = classifyWorkspace(tenant)
+            return (
+              <tr key={tenant.id}>
+                <td>
+                  <IdentityCell name={tenant.name} detail={tenant.id} />
+                </td>
+                <td>
+                  <WorkspaceTypeBadge workspaceType={workspaceType} />
+                </td>
+                <td>
+                  <StatusBadge status={tenant.status} />
+                </td>
+                <td>
+                  {tenant.activeMembershipCount} / {tenant.membershipCount}
+                </td>
+                <td>{tenant.activeOwnerCount}</td>
+                <td>{tenant.createdByEmail ?? tenant.createdByName ?? '-'}</td>
+                <td>{formatDate(tenant.updatedAt)}</td>
+                <td>
+                  <div className="row-actions">
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={!canManageTenant(session, tenant.id) || busy === `tenant-rename:${tenant.id}`}
+                      onClick={() => onRename(tenant)}
+                    >
+                      {busy === `tenant-rename:${tenant.id}` ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <PencilLine size={14} />
+                      )}
+                      改名
+                    </button>
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={tenant.status !== 'active' || !canManageTenant(session, tenant.id)}
+                      onClick={() => onCreateUser(tenant.id)}
+                    >
+                      <Plus size={14} />
+                      添加账号
+                    </button>
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={
+                        !canTransferTenantOwner(session, tenant.id) ||
+                        tenant.activeOwnerCount < 1 ||
+                        busy === `tenant-transfer:${tenant.id}`
+                      }
+                      onClick={() => onTransferOwner(tenant)}
+                    >
+                      {busy === `tenant-transfer:${tenant.id}` ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <ShieldCheck size={14} />
+                      )}
+                      转让 owner
+                    </button>
+                    <button
+                      className="row-button danger"
+                      type="button"
+                      disabled={
+                        tenant.status !== 'active' ||
+                        !canDisableTenant(session, tenant.id) ||
+                        busy === `tenant-disable:${tenant.id}`
+                      }
+                      onClick={() => onDisable(tenant)}
+                    >
+                      {busy === `tenant-disable:${tenant.id}` ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <Power size={14} />
+                      )}
+                      禁用
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
+          <EmptyRow visible={!visibleTenants.length} columns={8} />
         </tbody>
       </table>
     </DataSection>
   )
 }
 
-function MembershipsTable({ memberships, canAdjustBilling, onAdjust }) {
+function MembershipsTable({
+  memberships,
+  session,
+  canAdjustBilling,
+  busy,
+  onCreateUser,
+  onUpdateRole,
+  onDisableMembership,
+  onAdjust,
+}) {
   return (
-    <DataSection title="Membership 查询" count={memberships.length}>
+    <DataSection title="成员关系查询" count={memberships.length}>
+      <div className="section-actions">
+        <button
+          className="row-button"
+          type="button"
+          disabled={!canManageUsers(session)}
+          onClick={() => onCreateUser()}
+        >
+          <Plus size={14} />
+          添加账号
+        </button>
+      </div>
       <table className="data-table wide">
         <thead>
           <tr>
             <th>成员</th>
-            <th>Workspace</th>
+            <th>组织</th>
             <th>状态</th>
             <th>角色</th>
             <th>套餐</th>
@@ -782,21 +1069,45 @@ function MembershipsTable({ memberships, canAdjustBilling, onAdjust }) {
                 />
               </td>
               <td>
-                <RolePills roles={membership.roles} />
+                <RoleEditor
+                  membership={membership}
+                  session={session}
+                  busy={busy === `member-role:${membership.id}`}
+                  onUpdateRole={onUpdateRole}
+                />
               </td>
               <td>{planName(membership.plan)}</td>
               <td>{membership.credits}</td>
               <td>{formatDate(membership.updatedAt)}</td>
               <td>
-                <button
-                  className="row-button"
-                  type="button"
-                  disabled={!canAdjustBilling}
-                  onClick={() => onAdjust(membership)}
-                >
-                  <PencilLine size={14} />
-                  调账
-                </button>
+                <div className="row-actions">
+                  <button
+                    className="row-button"
+                    type="button"
+                    disabled={!canAdjustBilling}
+                    onClick={() => onAdjust(membership)}
+                  >
+                    <PencilLine size={14} />
+                    调账
+                  </button>
+                  <button
+                    className="row-button danger"
+                    type="button"
+                    disabled={
+                      membership.status !== 'active' ||
+                      !canManageMembership(session, membership) ||
+                      busy === `member-disable:${membership.id}`
+                    }
+                    onClick={() => onDisableMembership(membership)}
+                  >
+                    {busy === `member-disable:${membership.id}` ? (
+                      <LoaderCircle size={14} className="spin" />
+                    ) : (
+                      <Power size={14} />
+                    )}
+                    移除
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
@@ -821,7 +1132,7 @@ function BillingPanel({ accounts, entries, canManage, onAdjust, onGrant }) {
           <thead>
             <tr>
               <th>账号</th>
-              <th>Workspace</th>
+              <th>组织</th>
               <th>套餐</th>
               <th>积分</th>
               <th>状态</th>
@@ -1017,7 +1328,7 @@ function BillingAdjustmentPage({
               <th>类型</th>
               <th>金额</th>
               <th>余额</th>
-              <th>Membership</th>
+            <th>成员关系</th>
               <th>描述</th>
               <th>Reference</th>
               <th>创建时间</th>
@@ -1052,7 +1363,7 @@ function SessionsTable({ sessions, canManage, busy, onRevoke }) {
         <thead>
           <tr>
             <th>用户</th>
-            <th>Workspace</th>
+            <th>组织</th>
             <th>状态</th>
             <th>设备</th>
             <th>IP</th>
@@ -1135,7 +1446,7 @@ function SessionRiskView({ sessions, riskFilter, canManage, busy, onRiskFilterCh
             <tr>
               <th>风险</th>
               <th>用户</th>
-              <th>Workspace</th>
+              <th>组织</th>
               <th>设备 / IP</th>
               <th>活跃数</th>
               <th>未活跃</th>
@@ -1276,7 +1587,7 @@ function AdjustmentModal({ target, form, busy, onChange, onClose, onSubmit }) {
   const amount = Number(form.amount)
   const valid = Number.isInteger(amount) && amount !== 0 && form.reason.trim().length > 0
   return (
-    <Modal title="管理员调账" onClose={onClose}>
+    <Modal title="后台调账" onClose={onClose}>
       <form className="modal-form" onSubmit={onSubmit}>
         <IdentityCell name={target.name} detail={`${target.tenantName} · ${target.email ?? target.userId}`} />
         <label>
@@ -1378,6 +1689,124 @@ function PasswordResetModal({ target, form, busy, onChange, onClose, onSubmit })
   )
 }
 
+function CreateTenantUserModal({ form, tenants, roleOptions, busy, onChange, onClose, onSubmit }) {
+  const activeTenants = tenants.filter((tenant) => tenant.status === 'active')
+  const valid =
+    form.tenantId &&
+    form.email.trim().includes('@') &&
+    form.name.trim().length > 0 &&
+    form.password.length >= 12 &&
+    roleOptions.includes(form.role)
+
+  return (
+    <Modal title="添加账号" onClose={onClose}>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <label>
+          <span>组织</span>
+          <select
+            value={form.tenantId}
+            onChange={(event) => onChange({ ...form, tenantId: event.target.value })}
+            disabled={!activeTenants.length}
+            required
+          >
+            {activeTenants.map((tenant) => (
+              <option key={tenant.id} value={tenant.id}>
+                {tenant.name} · {tenant.id}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>邮箱</span>
+          <input
+            type="email"
+            value={form.email}
+            onChange={(event) => onChange({ ...form, email: event.target.value })}
+            autoComplete="off"
+            required
+          />
+        </label>
+        <label>
+          <span>姓名</span>
+          <input
+            value={form.name}
+            onChange={(event) => onChange({ ...form, name: event.target.value })}
+            maxLength={80}
+            required
+          />
+        </label>
+        <label>
+          <span>临时密码</span>
+          <input
+            type="password"
+            value={form.password}
+            onChange={(event) => onChange({ ...form, password: event.target.value })}
+            minLength={12}
+            maxLength={128}
+            autoComplete="new-password"
+            required
+          />
+        </label>
+        <label>
+          <span>身份</span>
+          <select
+            value={form.role}
+            onChange={(event) => onChange({ ...form, role: event.target.value })}
+            required
+          >
+            {roleOptions.map((role) => (
+              <option key={role} value={role}>
+                {roleName(role)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="创建账号" />
+      </form>
+    </Modal>
+  )
+}
+
+function OwnerTransferModal({ tenant, candidates, form, busy, onChange, onClose, onSubmit }) {
+  const valid = Boolean(form.targetUserId)
+  return (
+    <Modal title="转让 owner" onClose={onClose}>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <IdentityCell name={tenant.name} detail={tenant.id} />
+        <label>
+          <span>新 owner</span>
+          <select
+            value={form.targetUserId}
+            onChange={(event) => onChange({ ...form, targetUserId: event.target.value })}
+            disabled={!candidates.length}
+            required
+          >
+            {candidates.map((membership) => (
+              <option key={membership.id} value={membership.userId}>
+                {membership.name} · {membership.email ?? membership.userId} ·{' '}
+                {membership.roles.map(roleName).join('、')}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>原 owner 转为</span>
+          <select
+            value={form.previousOwnerRole}
+            onChange={(event) => onChange({ ...form, previousOwnerRole: event.target.value })}
+          >
+            <option value="admin">管理员</option>
+            <option value="organization_admin">组织管理员</option>
+            <option value="member">普通成员</option>
+            <option value="organization_member">组织成员</option>
+          </select>
+        </label>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="确认转让" />
+      </form>
+    </Modal>
+  )
+}
+
 function Modal({ title, children, onClose }) {
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -1460,6 +1889,40 @@ function RolePills({ roles }) {
         <span key={role}>{roleName(role)}</span>
       ))}
     </div>
+  )
+}
+
+function RoleEditor({ membership, session, busy, onUpdateRole }) {
+  const options = assignableRoleOptions(session)
+  const currentRole = membership.roles[0] ?? 'member'
+  const editable = canManageMembership(session, membership) && !membership.roles.includes('owner')
+  const visibleOptions = options.includes(currentRole) ? options : [currentRole, ...options]
+
+  if (!editable || visibleOptions.length < 2) return <RolePills roles={membership.roles} />
+
+  return (
+    <label className="role-editor">
+      <select
+        value={currentRole}
+        disabled={busy}
+        onChange={(event) => onUpdateRole(membership, event.target.value)}
+      >
+        {visibleOptions.map((role) => (
+          <option key={role} value={role}>
+            {roleName(role)}
+          </option>
+        ))}
+      </select>
+      {busy ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
+    </label>
+  )
+}
+
+function WorkspaceTypeBadge({ workspaceType }) {
+  return (
+    <span className={`workspace-type-badge ${workspaceType.type}`} title={workspaceType.description}>
+      {workspaceType.label}
+    </span>
   )
 }
 
@@ -1555,4 +2018,26 @@ function uniqueValues(rows, field) {
 function compactJson(value) {
   const text = JSON.stringify(value ?? {})
   return text.length > 96 ? `${text.slice(0, 93)}...` : text
+}
+
+function ownerTransferCandidates(memberships, tenantId) {
+  return memberships.filter(
+    (membership) =>
+      membership.tenantId === tenantId &&
+      membership.status === 'active' &&
+      membership.userStatus === 'active' &&
+      !membership.roles.includes('owner'),
+  )
+}
+
+function summarizeWorkspaceTypes(tenants) {
+  return tenants.reduce(
+    (summary, tenant) => {
+      summary.all += 1
+      const type = classifyWorkspace(tenant).type
+      summary[type] = (summary[type] ?? 0) + 1
+      return summary
+    },
+    { all: 0, system: 0, test: 0, enterprise: 0, workspace: 0 },
+  )
 }

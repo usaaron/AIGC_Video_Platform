@@ -259,7 +259,8 @@ p {
 
 .search-field input,
 .login-panel input,
-.modal-form input {
+.modal-form input,
+.modal-form select {
   min-width: 0;
   border: 0;
   outline: 0;
@@ -409,6 +410,12 @@ p {
   border-radius: 6px;
   background: #fff;
   color: var(--muted);
+}
+
+.tenant-filter-bar {
+  justify-content: flex-start;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--soft-line);
 }
 
 .inline-filter-bar select,
@@ -778,6 +785,40 @@ p {
   color: #7b8379;
 }
 
+.workspace-type-badge {
+  min-width: 104px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fbfcf8;
+  color: #566057;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.workspace-type-badge.system {
+  border-color: #cbdc90;
+  background: #f3f8df;
+  color: #506417;
+}
+
+.workspace-type-badge.test {
+  border-color: #ead7a6;
+  background: #fff9ea;
+  color: #7a5b16;
+}
+
+.workspace-type-badge.enterprise {
+  border-color: #c8d7f5;
+  background: #f1f6ff;
+  color: #335b9f;
+}
+
 .status-pair {
   display: grid;
   gap: 4px;
@@ -808,6 +849,30 @@ p {
   font-size: 10px;
   font-weight: 800;
   white-space: nowrap;
+}
+
+.role-editor {
+  width: 168px;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid #d3df9f;
+  border-radius: 6px;
+  background: #f4f8e5;
+  color: #4d611b;
+}
+
+.role-editor select {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .security-badge {
@@ -1004,7 +1069,8 @@ button:disabled {
 }
 
 .login-panel input,
-.modal-form input {
+.modal-form input,
+.modal-form select {
   width: 100%;
   height: 38px;
   padding: 0 10px;

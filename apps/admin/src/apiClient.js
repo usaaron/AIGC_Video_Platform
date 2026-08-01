@@ -32,6 +32,18 @@ export const api = {
   logout: () => request('/auth/logout', emptyJsonPost()),
   session: async () => sessionSchema.parse(await request('/auth/me')),
   adminConsole: async () => adminConsoleSchema.parse(await request('/admin/console?limit=100&offset=0')),
+  updateWorkspace: (tenantId, input) =>
+    request(`/admin/organizations/${encodeURIComponent(tenantId)}`, json('PATCH', input)),
+  disableWorkspace: (tenantId) =>
+    request(`/admin/organizations/${encodeURIComponent(tenantId)}`, { method: 'DELETE' }),
+  transferWorkspaceOwner: (tenantId, input) =>
+    request(`/admin/organizations/${encodeURIComponent(tenantId)}/owner-transfer`, json('POST', input)),
+  createTenantUser: (tenantId, input) =>
+    request(`/admin/organizations/${encodeURIComponent(tenantId)}/users`, json('POST', input)),
+  updateMemberRoles: (membershipId, roles) =>
+    request(`/admin/memberships/${encodeURIComponent(membershipId)}/roles`, json('PATCH', { roles })),
+  disableMembership: (membershipId) =>
+    request(`/admin/memberships/${encodeURIComponent(membershipId)}`, { method: 'DELETE' }),
   updateUserStatus: (userId, status) =>
     request(`/admin/users/${encodeURIComponent(userId)}/status`, json('PATCH', { status })),
   updatePasswordResetRequirement: (userId, input) =>

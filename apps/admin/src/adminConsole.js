@@ -4,7 +4,9 @@ export const roleLabels = {
   owner: '所有者',
   super_admin: '超级管理员',
   admin: '管理员',
-  member: '普通会员',
+  member: '普通成员',
+  organization_admin: '组织管理员',
+  organization_member: '组织成员',
 }
 
 export const statusLabels = {
@@ -31,6 +33,14 @@ export const riskLevelLabels = {
   low: '正常',
 }
 
+export const workspaceTypeLabels = {
+  all: '全部类型',
+  system: '系统默认组织',
+  test: '测试组织',
+  enterprise: '企业组织',
+  workspace: '普通组织',
+}
+
 export function canReadAdminConsole(session) {
   return session?.permissions?.includes(PERMISSIONS.ADMIN_DASHBOARD_READ) ?? false
 }
@@ -41,6 +51,67 @@ export function canManageBilling(session) {
 
 export function canManageUsers(session) {
   return session?.permissions?.includes(PERMISSIONS.USER_MANAGE) ?? false
+}
+
+export function isOwnerSession(session) {
+  return session?.account?.roles?.includes('owner') ?? false
+}
+
+export function isPlatformAdminSession(session) {
+  const roles = session?.account?.roles ?? []
+  return roles.includes('owner') || roles.includes('super_admin')
+}
+
+export function isTenantManagerSession(session) {
+  const roles = session?.account?.roles ?? []
+  return isPlatformAdminSession(session) || roles.includes('admin') || roles.includes('organization_admin')
+}
+
+export function canManageTenant(session, tenantId) {
+  if (!canManageUsers(session)) return false
+  if (isPlatformAdminSession(session)) return true
+  return isTenantManagerSession(session) && session?.account?.tenantId === tenantId
+}
+
+export function canDisableTenant(session, tenantId) {
+  return isOwnerSession(session) && canManageTenant(session, tenantId)
+}
+
+export function canTransferTenantOwner(session, tenantId) {
+  return isOwnerSession(session) && canManageTenant(session, tenantId)
+}
+
+export function canAssignRole(session, role) {
+  if (role === 'owner' || role === 'super_admin') return isOwnerSession(session)
+  if (role === 'admin' || role === 'organization_admin') return isPlatformAdminSession(session)
+  if (role === 'organization_member') return isTenantManagerSession(session)
+  if (role === 'member') {
+    return isPlatformAdminSession(session) || session?.account?.roles?.includes('admin')
+  }
+  return false
+}
+
+export function assignableRoleOptions(session) {
+  if (isOwnerSession(session)) {
+    return ['member', 'admin', 'organization_member', 'organization_admin', 'super_admin']
+  }
+  if (isPlatformAdminSession(session)) return ['member', 'admin', 'organization_member', 'organization_admin']
+  if (session?.account?.roles?.includes('admin')) return ['member']
+  if (session?.account?.roles?.includes('organization_admin')) return ['organization_member']
+  return []
+}
+
+export function canManageMembership(session, membership) {
+  if (!canManageTenant(session, membership?.tenantId)) return false
+  if (session?.account?.id === membership?.userId) return false
+  const roles = membership?.roles ?? []
+  if (roles.includes('owner') || roles.includes('super_admin')) return isOwnerSession(session)
+  if (roles.includes('admin') || roles.includes('organization_admin')) return isPlatformAdminSession(session)
+  if (roles.includes('member')) return isPlatformAdminSession(session) || session?.account?.roles?.includes('admin')
+  if (roles.includes('organization_member')) {
+    return isPlatformAdminSession(session) || session?.account?.roles?.includes('organization_admin')
+  }
+  return false
 }
 
 export function roleName(role) {
@@ -61,6 +132,56 @@ export function ledgerTypeName(type) {
 
 export function riskLevelName(level) {
   return riskLevelLabels[level] ?? level
+}
+
+export function workspaceTypeName(type) {
+  return workspaceTypeLabels[type] ?? type
+}
+
+export function classifyWorkspace(tenant) {
+  const id = tenant?.id ?? ''
+  const name = tenant?.name ?? ''
+  const creatorEmail = tenant?.createdByEmail ?? ''
+  const normalizedName = name.trim().toLowerCase()
+  const normalizedEmail = creatorEmail.trim().toLowerCase()
+
+  if (id === 'tenant-seqora-demo' || normalizedName === 'seqora local') {
+    return {
+      type: 'system',
+      label: workspaceTypeName('system'),
+      description: '本地默认账号体系使用的主组织',
+    }
+  }
+  if (
+    normalizedName.includes('test') ||
+    normalizedName.includes('测试') ||
+    normalizedEmail.includes('test') ||
+    normalizedEmail.endsWith('@example.com') ||
+    id.includes('test')
+  ) {
+    return {
+      type: 'test',
+      label: workspaceTypeName('test'),
+      description: '由本地测试或调试流程创建',
+    }
+  }
+  if (
+    normalizedName.includes('enterprise') ||
+    normalizedName.includes('企业') ||
+    normalizedName.includes('company') ||
+    normalizedName.includes('corp')
+  ) {
+    return {
+      type: 'enterprise',
+      label: workspaceTypeName('enterprise'),
+      description: '面向 B 端客户、团队或企业组织',
+    }
+  }
+  return {
+    type: 'workspace',
+    label: workspaceTypeName('workspace'),
+    description: '普通创作组织',
+  }
 }
 
 export function formatDate(value) {
@@ -116,7 +237,9 @@ export function buildSessionRiskRows(sessions, now = new Date()) {
     .map((session) => {
       const reasons = []
       let score = 0
-      const elevated = session.roles.some((role) => ['owner', 'super_admin', 'admin'].includes(role))
+      const elevated = session.roles.some((role) =>
+        ['owner', 'super_admin', 'admin', 'organization_admin'].includes(role),
+      )
       const activeCount = activeCountsByUser.get(session.userId) ?? 0
       const lastSeenAt = session.lastSeenAt ?? session.createdAt
       const inactiveHours = hoursBetween(lastSeenAt, now)

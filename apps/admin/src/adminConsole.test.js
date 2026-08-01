@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import {
   auditLogTone,
+  assignableRoleOptions,
   buildSessionRiskRows,
+  canAssignRole,
+  canDisableTenant,
+  canManageMembership,
+  canManageTenant,
   canReadAdminConsole,
+  canTransferTenantOwner,
+  classifyWorkspace,
   filterRows,
   formatSignedAmount,
+  roleName,
   summarizeAuditLogs,
   summarizeBillingAdjustments,
   summarizeConsole,
@@ -12,10 +20,102 @@ import {
 } from './adminConsole'
 
 describe('admin console helpers', () => {
+  const ownerSession = sessionFor('user-owner', 'tenant-a', ['owner'])
+  const superAdminSession = sessionFor('user-superadmin', 'tenant-a', ['super_admin'])
+  const adminSession = sessionFor('user-admin', 'tenant-a', ['admin'])
+  const memberSession = sessionFor('user-member', 'tenant-a', ['member'], ['project.read'])
+
   it('checks admin console permission from the session', () => {
     expect(canReadAdminConsole({ permissions: ['admin.dashboard.read'] })).toBe(true)
     expect(canReadAdminConsole({ permissions: ['project.read'] })).toBe(false)
     expect(canReadAdminConsole(null)).toBe(false)
+  })
+
+  it('keeps the admin console entry hidden from ordinary members', () => {
+    expect(canReadAdminConsole(ownerSession)).toBe(true)
+    expect(canReadAdminConsole(superAdminSession)).toBe(true)
+    expect(canReadAdminConsole(adminSession)).toBe(true)
+    expect(canReadAdminConsole(memberSession)).toBe(false)
+  })
+
+  it('calculates tenant management scope from platform and tenant roles', () => {
+    expect(canManageTenant(ownerSession, 'tenant-b')).toBe(true)
+    expect(canManageTenant(superAdminSession, 'tenant-b')).toBe(true)
+    expect(canManageTenant(adminSession, 'tenant-a')).toBe(true)
+    expect(canManageTenant(adminSession, 'tenant-b')).toBe(false)
+    expect(canDisableTenant(ownerSession, 'tenant-a')).toBe(true)
+    expect(canDisableTenant(superAdminSession, 'tenant-a')).toBe(false)
+    expect(canTransferTenantOwner(ownerSession, 'tenant-a')).toBe(true)
+    expect(canTransferTenantOwner(adminSession, 'tenant-a')).toBe(false)
+  })
+
+  it('matches role assignment boundaries used by the admin console', () => {
+    const organizationAdminSession = sessionFor('user-org-admin', 'tenant-a', ['organization_admin'])
+    expect(assignableRoleOptions(ownerSession)).toEqual([
+      'member',
+      'admin',
+      'organization_member',
+      'organization_admin',
+      'super_admin',
+    ])
+    expect(assignableRoleOptions(superAdminSession)).toEqual([
+      'member',
+      'admin',
+      'organization_member',
+      'organization_admin',
+    ])
+    expect(assignableRoleOptions(adminSession)).toEqual(['member'])
+    expect(assignableRoleOptions(organizationAdminSession)).toEqual(['organization_member'])
+    expect(assignableRoleOptions(memberSession)).toEqual([])
+    expect(canAssignRole(ownerSession, 'super_admin')).toBe(true)
+    expect(canAssignRole(superAdminSession, 'super_admin')).toBe(false)
+    expect(canAssignRole(adminSession, 'admin')).toBe(false)
+    expect(canAssignRole(adminSession, 'member')).toBe(true)
+    expect(canAssignRole(adminSession, 'organization_admin')).toBe(false)
+    expect(canAssignRole(organizationAdminSession, 'organization_member')).toBe(true)
+    expect(canAssignRole(organizationAdminSession, 'member')).toBe(false)
+  })
+
+  it('uses platform and organization role names', () => {
+    expect(roleName('owner')).toBe('所有者')
+    expect(roleName('super_admin')).toBe('超级管理员')
+    expect(roleName('admin')).toBe('管理员')
+    expect(roleName('member')).toBe('普通成员')
+    expect(roleName('organization_admin')).toBe('组织管理员')
+    expect(roleName('organization_member')).toBe('组织成员')
+  })
+
+  it('limits membership management by target role and tenant scope', () => {
+    expect(canManageMembership(ownerSession, membershipFor('user-superadmin', 'tenant-b', ['super_admin']))).toBe(
+      true,
+    )
+    expect(canManageMembership(superAdminSession, membershipFor('user-owner', 'tenant-a', ['owner']))).toBe(
+      false,
+    )
+    expect(canManageMembership(superAdminSession, membershipFor('user-admin', 'tenant-b', ['admin']))).toBe(
+      true,
+    )
+    expect(canManageMembership(adminSession, membershipFor('user-admin-2', 'tenant-a', ['admin']))).toBe(
+      false,
+    )
+    expect(canManageMembership(adminSession, membershipFor('user-member-2', 'tenant-a', ['member']))).toBe(
+      true,
+    )
+    expect(
+      canManageMembership(
+        sessionFor('user-org-admin', 'tenant-a', ['organization_admin']),
+        membershipFor('user-org-member', 'tenant-a', ['organization_member']),
+      ),
+    ).toBe(true)
+    expect(
+      canManageMembership(
+        sessionFor('user-org-admin', 'tenant-a', ['organization_admin']),
+        membershipFor('user-member-2', 'tenant-a', ['member']),
+      ),
+    ).toBe(false)
+    expect(canManageMembership(adminSession, membershipFor('user-member-3', 'tenant-b', ['member']))).toBe(
+      false,
+    )
   })
 
   it('filters nested console rows', () => {
@@ -25,6 +125,30 @@ describe('admin console helpers', () => {
     ]
     expect(filterRows(rows, 'alpha')).toEqual([rows[0]])
     expect(filterRows(rows, 'member')).toEqual([rows[1]])
+  })
+
+  it('classifies organization types for the organization list filter', () => {
+    expect(classifyWorkspace({ id: 'tenant-seqora-demo', name: 'SEQORA Local' })).toMatchObject({
+      type: 'system',
+      label: '系统默认组织',
+    })
+    expect(
+      classifyWorkspace({
+        id: 'tenant-random',
+        name: 'tenant-random',
+        createdByEmail: 'backend-test@example.com',
+      }),
+    ).toMatchObject({ type: 'test', label: '测试组织' })
+    expect(
+      classifyWorkspace({
+        id: 'tenant-enterprise',
+        name: 'Enterprise Customer A',
+      }),
+    ).toMatchObject({ type: 'enterprise', label: '企业组织' })
+    expect(classifyWorkspace({ id: 'tenant-normal', name: 'Studio Team' })).toMatchObject({
+      type: 'workspace',
+      label: '普通组织',
+    })
   })
 
   it('summarizes list totals from a console snapshot', () => {
@@ -113,3 +237,14 @@ describe('admin console helpers', () => {
     ).toEqual({ adjustments: 1, grants: 1, positiveCredits: 20, negativeCredits: 8 })
   })
 })
+
+function sessionFor(userId, tenantId, roles, permissions = ['admin.dashboard.read', 'user.manage']) {
+  return {
+    account: { id: userId, tenantId, roles },
+    permissions,
+  }
+}
+
+function membershipFor(userId, tenantId, roles) {
+  return { userId, tenantId, roles }
+}
