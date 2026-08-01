@@ -4,7 +4,7 @@ import { AiJobRepository } from '../../modules/aiJobs/repository.js'
 import { AiJobRunner, type AiJobHandler } from './aiJobRunner.js'
 
 const principal = {
-  userId: 'user-creator',
+  userId: 'user-member',
   tenantId: 'tenant-seqora-demo',
   roles: ['member'],
 } as const

@@ -35,19 +35,19 @@ describe('project postgres api', { timeout: 30_000 }, () => {
   it('covers project workspace lifecycle and tenant boundaries', async () => {
     const store = new AppStore(null)
     app = await buildApp({ config: localAuthConfig(), store, startWorker: false })
-    const creatorCookie = await login('creator@seqora.local', 'Creator123!')
+    const memberCookie = await login('member@seqora.local', 'MemberPassword123!')
 
     const createdProject = await app.inject({
       method: 'POST',
       url: '/api/v1/projects',
-      headers: { cookie: creatorCookie },
+      headers: { cookie: memberCookie },
       payload: { name: 'Lifecycle Project', contentType: 'short-drama', aspectRatio: '9:16' },
     })
     expect(createdProject.statusCode).toBe(201)
     expect(createdProject.json()).toMatchObject({
       id: expect.any(String),
       tenantId: 'tenant-seqora-demo',
-      ownerId: 'user-creator',
+      ownerId: 'user-member',
       name: 'Lifecycle Project',
       status: 'draft',
     })
@@ -60,7 +60,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     const savedScript = await app.inject({
       method: 'PATCH',
       url: `/api/v1/projects/${projectId}`,
-      headers: { cookie: creatorCookie },
+      headers: { cookie: memberCookie },
       payload: { synopsis: 'Lifecycle synopsis', script },
     })
     expect(savedScript.statusCode).toBe(200)
@@ -69,7 +69,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     const createdAsset = await app.inject({
       method: 'POST',
       url: `/api/v1/projects/${projectId}/assets`,
-      headers: { cookie: creatorCookie },
+      headers: { cookie: memberCookie },
       payload: {
         kind: 'character',
         sourceMode: 'generate',
@@ -91,7 +91,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     const createdShot = await app.inject({
       method: 'POST',
       url: `/api/v1/projects/${projectId}/shots`,
-      headers: { cookie: creatorCookie },
+      headers: { cookie: memberCookie },
       payload: {
         title: 'Opening shot',
         framing: 'Wide',
@@ -106,7 +106,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     const updatedShot = await app.inject({
       method: 'PATCH',
       url: `/api/v1/projects/${projectId}/shots/${shotId}`,
-      headers: { cookie: creatorCookie },
+      headers: { cookie: memberCookie },
       payload: {
         title: 'Updated opening shot',
         duration: 6,
@@ -140,7 +140,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       expect(persisted.rows[0]).toEqual({ script, asset_count: '1', shot_count: '1' })
     })
 
-    const otherTenant = await createUserWorkspace(
+    const otherTenant = await createMemberWithWorkspace(
       'project-boundary@example.com',
       'BoundaryPassword123!',
       'Boundary Workspace',
@@ -165,7 +165,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     const archived = await app.inject({
       method: 'PATCH',
       url: `/api/v1/projects/${projectId}`,
-      headers: { cookie: creatorCookie },
+      headers: { cookie: memberCookie },
       payload: { status: 'archived' },
     })
     expect(archived.statusCode).toBe(200)
@@ -174,14 +174,14 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     const deletedAsset = await app.inject({
       method: 'DELETE',
       url: `/api/v1/projects/${projectId}/assets/${assetId}`,
-      headers: { cookie: creatorCookie },
+      headers: { cookie: memberCookie },
     })
     expect(deletedAsset.statusCode).toBe(204)
 
     const workspace = await app.inject({
       method: 'GET',
       url: `/api/v1/projects/${projectId}`,
-      headers: { cookie: creatorCookie },
+      headers: { cookie: memberCookie },
     })
     expect(workspace.statusCode).toBe(200)
     expect(workspace.json()).toMatchObject({ project: { id: projectId, status: 'archived' } })
@@ -189,7 +189,11 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     expect(workspace.json().shots).toEqual([expect.objectContaining({ id: shotId })])
 
     await withDatabase(async (database) => {
-      const deleted = await database.query<{ project_status: string; asset_count: string; shot_count: string }>(
+      const deleted = await database.query<{
+        project_status: string
+        asset_count: string
+        shot_count: string
+      }>(
         `
         SELECT
           (SELECT status FROM projects WHERE id = $1) AS project_status,
@@ -205,7 +209,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
   it('serves seed project workspace after explicit postgres import', async () => {
     const store = await importJsonWorkspaceToPostgres()
     app = await buildApp({ config: localAuthConfig(), store, startWorker: false })
-    const cookie = await login('creator@seqora.local', 'Creator123!')
+    const cookie = await login('member@seqora.local', 'MemberPassword123!')
 
     const workspace = await app.inject({
       method: 'GET',
@@ -217,7 +221,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     expect(workspace.json()).toMatchObject({
       project: {
         id: 'project-midnight-film',
-        ownerId: 'user-creator',
+        ownerId: 'user-member',
         tenantId: 'tenant-seqora-demo',
       },
       assets: expect.any(Array),
@@ -246,7 +250,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
   it('persists project, asset and shot writes in postgres while mirroring app store', async () => {
     const store = new AppStore(null)
     app = await buildApp({ config: localAuthConfig(), store, startWorker: false })
-    const cookie = await login('creator@seqora.local', 'Creator123!')
+    const cookie = await login('member@seqora.local', 'MemberPassword123!')
 
     const created = await app.inject({
       method: 'POST',
@@ -376,11 +380,13 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       expect(versions.rows[0]?.shots_snapshot).toHaveLength(3)
     })
 
+    expect(store.read((state) => state.assets.find((asset) => asset.id === assetId)?.imageUrl)).toBe(
+      '/generated/database-scene.png',
+    )
     expect(
-      store.read((state) => state.assets.find((asset) => asset.id === assetId)?.imageUrl),
-    ).toBe('/generated/database-scene.png')
-    expect(
-      store.read((state) => state.shots.filter((shot) => shot.projectId === projectId)).map((shot) => shot.order),
+      store
+        .read((state) => state.shots.filter((shot) => shot.projectId === projectId))
+        .map((shot) => shot.order),
     ).toEqual([1, 2, 3])
 
     const deletedAsset = await app.inject({
@@ -406,7 +412,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     const store = new AppStore(dataFile)
     app = await buildApp({ config: localAuthConfig({ DATA_FILE: dataFile }), store, startWorker: false })
     const before = await readFile(dataFile, 'utf8')
-    const cookie = await login('creator@seqora.local', 'Creator123!')
+    const cookie = await login('member@seqora.local', 'MemberPassword123!')
 
     const created = await app.inject({
       method: 'POST',
@@ -455,43 +461,46 @@ async function login(email: string, password: string): Promise<string> {
   return cookieValue(response)
 }
 
-async function createUserWorkspace(
+async function createMemberWithWorkspace(
   email: string,
   password: string,
   workspaceName: string,
 ): Promise<{ cookie: string; userId: string; tenantId: string }> {
   if (!app) throw new Error('App is not ready')
   const ownerCookie = await login('owner@seqora.local', 'OwnerPassword123!')
-  const invitation = await app.inject({
-    method: 'POST',
-    url: '/api/v1/tenants/tenant-seqora-demo/invitations',
-    headers: { cookie: ownerCookie },
-    payload: { email, roles: ['member'] },
-  })
-  expect(invitation.statusCode).toBe(201)
-
-  const accepted = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/invitations/accept',
-    payload: {
-      token: invitation.json().token,
-      name: email.split('@')[0],
-      password,
-    },
-  })
-  expect(accepted.statusCode).toBe(201)
-
   const workspace = await app.inject({
     method: 'POST',
-    url: '/api/v1/workspaces',
-    headers: { cookie: cookieValue(accepted) },
+    url: '/api/v1/organizations',
+    headers: { cookie: ownerCookie },
     payload: { name: workspaceName },
   })
   expect(workspace.statusCode).toBe(201)
+  const tenantId = workspace.json().workspace.id as string
+
+  const created = await app.inject({
+    method: 'POST',
+    url: `/api/v1/admin/organizations/${tenantId}/users`,
+    headers: { cookie: ownerCookie },
+    payload: {
+      name: email.split('@')[0],
+      email,
+      password,
+      role: 'member',
+    },
+  })
+  expect(created.statusCode).toBe(201)
+
+  const loginResponse = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    payload: { email, password },
+  })
+  expect(loginResponse.statusCode).toBe(200)
+  expect(loginResponse.json().account.roles).toEqual(['member'])
   return {
-    cookie: cookieValue(workspace),
-    userId: workspace.json().account.id as string,
-    tenantId: workspace.json().account.tenantId as string,
+    cookie: cookieValue(loginResponse),
+    userId: created.json().userId as string,
+    tenantId,
   }
 }
 

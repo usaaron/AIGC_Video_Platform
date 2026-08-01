@@ -7,7 +7,7 @@ import { UserRepository } from '../users/repository.js'
 import { AiJobRepository } from './repository.js'
 
 const principal = {
-  userId: 'user-creator',
+  userId: 'user-member',
   tenantId: 'tenant-seqora-demo',
   roles: ['member'],
 } as const

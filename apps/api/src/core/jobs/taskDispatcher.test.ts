@@ -19,7 +19,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       clientRequestId: 'film-compose-client',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'video',
       label: '完整成片预览',
       prompt: '',
@@ -51,7 +51,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
     const store = new AppStore(null)
     await store.initialize()
     await store.mutate((state) => {
-      state.users.find((user) => user.id === 'user-creator')!.plan = 'member'
+      state.users.find((user) => user.id === 'user-member')!.plan = 'member'
       state.tasks.unshift(...queuedVideoTasks(3))
     })
     const { provider, releaseSubmissions } = deferredVideoProvider()
@@ -181,7 +181,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
     const store = new AppStore(null)
     await store.initialize()
     await store.mutate((state) => {
-      state.users.find((user) => user.id === 'user-creator')!.plan = 'member'
+      state.users.find((user) => user.id === 'user-member')!.plan = 'member'
       state.tasks.unshift(imageTask('parallel-image-1', 'asset-image-1'))
     })
     const releases: Array<() => void> = []
@@ -491,7 +491,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       clientRequestId: 'client-video-task',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'video',
       label: '镜头 01',
       prompt: '列车穿过雨幕，镜头平稳跟随',
@@ -614,7 +614,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       clientRequestId: 'continuity-source-client',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'video',
       label: '镜头 01',
       prompt: '人物抬头',
@@ -780,7 +780,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       clientRequestId: 'official-running-client',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'video',
       label: '旧 Provider 镜头',
       prompt: '雨夜车站',
@@ -833,7 +833,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       clientRequestId: 'failed-video-client',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'video',
       label: '镜头 01',
       prompt: '雨夜车站',
@@ -909,7 +909,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       clientRequestId: 'cancelled-video-client',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'video',
       label: '镜头 01',
       prompt: '雨夜车站',
@@ -1017,7 +1017,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       clientRequestId: 'status-recovery-client',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'video',
       label: '状态恢复镜头',
       prompt: '雨夜车站',
@@ -1083,7 +1083,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       clientRequestId: 'storyboard-image-client',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'image',
       label: '分镜图 01',
       prompt: '雨夜车站大全景',
@@ -1158,7 +1158,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       clientRequestId: 'dependent-storyboard-image-client',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'image',
       label: '分镜图 01',
       prompt: '雨夜车站',
@@ -1262,7 +1262,7 @@ function queuedVideoTasks(count: number): GenerationTask[] {
       clientRequestId: `parallel-video-client-${sequence}`,
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'video',
       label: `并发镜头 ${sequence}`,
       prompt: `角色执行第 ${sequence} 个独立动作`,
@@ -1294,7 +1294,7 @@ function imageTask(id: string, assetId: string): GenerationTask {
     clientRequestId: `${id}-client`,
     projectId: 'project-midnight-film',
     tenantId: 'tenant-seqora-demo',
-    userId: 'user-creator',
+    userId: 'user-member',
     kind: 'image',
     label: id,
     prompt: '正面人物头像，纯色背景',
@@ -1362,7 +1362,7 @@ function cancelledRemoteVideoTask(
     clientRequestId: `${id}-client`,
     projectId: 'project-midnight-film',
     tenantId: 'tenant-seqora-demo',
-    userId: 'user-creator',
+    userId: 'user-member',
     kind: 'video',
     label: id,
     prompt: 'cancelled remote video',

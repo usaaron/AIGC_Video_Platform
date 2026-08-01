@@ -104,7 +104,7 @@ function taskFixture(): GenerationTask {
     clientRequestId: 'bullmq-dispatch-test',
     projectId: 'project-midnight-film',
     tenantId: 'tenant-seqora-demo',
-    userId: 'user-creator',
+    userId: 'user-member',
     kind: 'image',
     label: 'BullMQ dispatch test',
     prompt: '',

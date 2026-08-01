@@ -112,6 +112,13 @@ const taskRunner = new GenerationTaskRunner(store, {
   creditLedger,
   providerPollIntervalMs: config.VIDEO_POLL_INTERVAL_MS,
   ...(refreshProjectDomainRuntimeCache ? { beforeTick: refreshProjectDomainRuntimeCache } : {}),
+  ...(database
+    ? {
+        afterTick: async () => {
+          await generationTaskRepository.flushRuntimeCacheToDatabase()
+        },
+      }
+    : {}),
   ...(database ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database) } : {}),
   onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
 })

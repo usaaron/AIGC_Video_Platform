@@ -112,9 +112,12 @@ describe('TokenAdventImageProvider', () => {
     let attempts = 0
     const fetcher = (async () => {
       attempts += 1
-      return new Response('<html><head><title>tokenadvent.com | 524: A timeout occurred</title></head></html>', {
-        status: 524,
-      })
+      return new Response(
+        '<html><head><title>tokenadvent.com | 524: A timeout occurred</title></head></html>',
+        {
+          status: 524,
+        },
+      )
     }) as typeof fetch
     const provider = createProvider(fetcher)
 

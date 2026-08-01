@@ -104,6 +104,13 @@ export async function createRuntimeQueues(input: {
     ...(repositories.refreshProjectDomainRuntimeCache
       ? { beforeTick: repositories.refreshProjectDomainRuntimeCache }
       : {}),
+    ...(database
+      ? {
+          afterTick: async () => {
+            await repositories.generationTaskRepository.flushRuntimeCacheToDatabase()
+          },
+        }
+      : {}),
     ...(database ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database) } : {}),
     onVideoCompleted: createAutoFilmPreviewCallback(store, getGenerationService),
   })

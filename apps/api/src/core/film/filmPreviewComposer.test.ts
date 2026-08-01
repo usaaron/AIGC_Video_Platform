@@ -157,7 +157,7 @@ function task(
     clientRequestId: `client-${id}`,
     projectId: 'project-midnight-film',
     tenantId: 'tenant-seqora-demo',
-    userId: 'user-creator',
+    userId: 'user-member',
     kind: 'video',
     label: id,
     prompt: '',

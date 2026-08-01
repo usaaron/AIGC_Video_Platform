@@ -123,6 +123,24 @@ export class GenerationTaskRepository {
     this.store.replaceGenerationTaskRuntimeCache(result.rows.map(taskFromRow))
   }
 
+  async flushRuntimeCacheToDatabase(): Promise<number> {
+    if (!this.database) return 0
+
+    const tasks = this.store.read((state) => state.tasks.map(normalizeGenerationTaskLifecycle))
+    if (!tasks.length) return 0
+
+    return this.database.transaction(async (client) => {
+      let updated = 0
+      for (const task of tasks) {
+        const persisted = await updateGenerationTaskLifecycle(client, task)
+        if (!persisted) continue
+        updated += 1
+        await updateTaskResultTargets(client, persisted)
+      }
+      return updated
+    })
+  }
+
   canCreate(projectId: string, principal: Principal): boolean {
     return this.store.read((state) =>
       state.projects.some(
@@ -258,7 +276,7 @@ export class GenerationTaskRepository {
         `
         UPDATE generation_tasks
         SET metadata = metadata || jsonb_build_object('queueHiddenAt', $4::text),
-            updated_at = $4
+            updated_at = $4::timestamptz
         WHERE project_id = $1
           AND tenant_id = $2
           AND user_id = $3
@@ -744,6 +762,39 @@ async function updateGenerationTaskLifecycle(
     ],
   )
   return result.rows[0] ? taskFromRow(result.rows[0]) : null
+}
+
+async function updateTaskResultTargets(queryable: Queryable, task: GenerationTask): Promise<void> {
+  if (task.kind !== 'image' || task.status !== 'completed' || !task.resultUrl) return
+  const updatedAt = task.updatedAt
+  const assetId = metadataString(task.metadata, 'assetId')
+  if (assetId) {
+    await queryable.query(
+      `
+      UPDATE assets
+      SET image_url = $4,
+          updated_at = $5
+      WHERE id = $1
+        AND project_id = $2
+        AND tenant_id = $3
+      `,
+      [assetId, task.projectId, task.tenantId, task.resultUrl, updatedAt],
+    )
+  }
+  const shotId = metadataString(task.metadata, 'shotId')
+  if (shotId) {
+    await queryable.query(
+      `
+      UPDATE shots
+      SET image_url = $4,
+          updated_at = $5
+      WHERE id = $1
+        AND project_id = $2
+        AND tenant_id = $3
+      `,
+      [shotId, task.projectId, task.tenantId, task.resultUrl, updatedAt],
+    )
+  }
 }
 
 async function assertNoActiveShotTask(

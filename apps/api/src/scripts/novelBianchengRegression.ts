@@ -93,7 +93,7 @@ type RegressionReport = {
 const PROJECT_ID = 'project-midnight-film'
 const HEADERS = {
   'x-demo-role': 'member',
-  'x-demo-user-id': 'user-creator',
+  'x-demo-user-id': 'user-member',
   'x-demo-tenant-id': 'tenant-seqora-demo',
 }
 const DEFAULT_BIANCHENG_PATH = 'E:\\Firefox下载\\边城.txt'

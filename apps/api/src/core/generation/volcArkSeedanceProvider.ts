@@ -71,9 +71,7 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
 
     const response = await this.requestJson('/contents/generations/tasks', {
       method: 'POST',
-      ...(request.idempotencyKey
-        ? { headers: { 'Idempotency-Key': request.idempotencyKey } }
-        : {}),
+      ...(request.idempotencyKey ? { headers: { 'Idempotency-Key': request.idempotencyKey } } : {}),
       body: JSON.stringify({
         model: this.resolveModel(request.model, request.tier),
         content: [

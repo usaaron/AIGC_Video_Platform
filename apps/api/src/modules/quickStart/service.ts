@@ -268,13 +268,7 @@ export class QuickStartService {
         })
 
         if (this.creditLedger) {
-          await this.creditLedger.reserveCreditsInState(
-            state,
-            principal,
-            cost,
-            clientRequestId,
-            task.label,
-          )
+          await this.creditLedger.reserveCreditsInState(state, principal, cost, clientRequestId, task.label)
         } else {
           user.credits -= cost
           state.ledger.unshift({

@@ -33,6 +33,7 @@ type GenerationTaskRunnerOptions = {
   providerPollIntervalMs?: number
   leaseTtlMs?: number
   beforeTick?: () => Promise<void>
+  afterTick?: () => Promise<void>
   taskRunnerLock?: TaskRunnerLock | null
   onVideoCompleted?: (task: GenerationTask) => Promise<void>
 }
@@ -41,6 +42,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private timer: NodeJS.Timeout | null = null
   private tickPromise: Promise<void> | null = null
   private readonly beforeTick: (() => Promise<void>) | null
+  private readonly afterTick: (() => Promise<void>) | null
   private readonly taskRunnerLock: TaskRunnerLock
   private readonly refundService: TaskRefundService
   private readonly writeback: TaskWritebackService
@@ -63,6 +65,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const dependencyResolver = new DependencyResolver()
 
     this.beforeTick = options.beforeTick ?? null
+    this.afterTick = options.afterTick ?? null
     this.taskRunnerLock = options.taskRunnerLock ?? noopTaskRunnerLock
     this.refundService = new TaskRefundService(store, options.creditLedger ?? null)
     this.writeback = new TaskWritebackService(
@@ -140,27 +143,31 @@ export class GenerationTaskRunner implements TaskDispatcher {
 
   private async runTick(): Promise<void> {
     await this.beforeTick?.()
-    await this.providerPoller.recoverStatusParseFailures()
-    const recoveredSubmissions = await this.claimer.recoverStaleRunningTasks()
-    await this.providerPoller.reconcileCancelledRemoteTasks()
-    await this.refundService.refundTerminalTasks()
-    const hasActiveTasks = this.store.read((state) =>
-      state.tasks.some((task) => task.status === 'queued' || task.status === 'running'),
-    )
-    if (!hasActiveTasks) return
+    try {
+      await this.providerPoller.recoverStatusParseFailures()
+      const recoveredSubmissions = await this.claimer.recoverStaleRunningTasks()
+      await this.providerPoller.reconcileCancelledRemoteTasks()
+      await this.refundService.refundTerminalTasks()
+      const hasActiveTasks = this.store.read((state) =>
+        state.tasks.some((task) => task.status === 'queued' || task.status === 'running'),
+      )
+      if (!hasActiveTasks) return
 
-    const remoteTasks = await this.claimer.claimQueuedTasks()
+      const remoteTasks = await this.claimer.claimQueuedTasks()
 
-    await this.refundService.refundTerminalTasks()
-    this.scheduleRemoteExecutions([...recoveredSubmissions.video, ...remoteTasks.video], (task) =>
-      this.videoExecutor.execute(task),
-    )
-    this.scheduleRemoteExecutions([...recoveredSubmissions.image, ...remoteTasks.image], (task) =>
-      this.imageExecutor.execute(task),
-    )
+      await this.refundService.refundTerminalTasks()
+      this.scheduleRemoteExecutions([...recoveredSubmissions.video, ...remoteTasks.video], (task) =>
+        this.videoExecutor.execute(task),
+      )
+      this.scheduleRemoteExecutions([...recoveredSubmissions.image, ...remoteTasks.image], (task) =>
+        this.imageExecutor.execute(task),
+      )
 
-    await this.writeback.advanceLocalTasks()
-    await this.providerPoller.pollRemoteVideos()
+      await this.writeback.advanceLocalTasks()
+      await this.providerPoller.pollRemoteVideos()
+    } finally {
+      await this.afterTick?.()
+    }
   }
 
   private scheduleRemoteExecutions(

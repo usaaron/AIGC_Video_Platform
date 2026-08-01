@@ -40,7 +40,7 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
         clientRequestId: 'json-task-import-request',
         projectId: 'project-midnight-film',
         tenantId: 'tenant-seqora-demo',
-        userId: 'user-creator',
+        userId: 'user-member',
         kind: 'image',
         label: 'Imported JSON task',
         prompt: 'A task imported from JSON',
@@ -86,7 +86,7 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
     })
   })
 
-  it('persists tasks, charges idempotently, and keeps runtime cache from writing back to postgres', async () => {
+  it('persists tasks, charges idempotently, and flushes runtime task lifecycle to postgres', async () => {
     const store = new AppStore(null)
     app = await buildApp({
       config: localAuthConfig(),
@@ -94,7 +94,7 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
       startWorker: false,
       taskDispatcher: noopTaskDispatcher,
     })
-    const cookie = await login('creator@seqora.local', 'Creator123!')
+    const cookie = await login('member@seqora.local', 'MemberPassword123!')
 
     const createdProject = await app.inject({
       method: 'POST',
@@ -155,7 +155,7 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
       clientRequestId: 'postgres-task-create',
       projectId,
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       status: 'queued',
     })
     const taskId = createdTask.json().id as string
@@ -191,7 +191,7 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
             SELECT b.credits
             FROM billing_accounts b
             JOIN tenant_memberships m ON m.id = b.membership_id
-            WHERE m.user_id = 'user-creator' AND m.tenant_id = 'tenant-seqora-demo'
+            WHERE m.user_id = 'user-member' AND m.tenant_id = 'tenant-seqora-demo'
           ) AS credits
         `,
       )
@@ -208,7 +208,7 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
       },
     ]
 
-    await store.mutate((state) => {
+    store.mutateProjectWorkspaceRuntimeCache((state) => {
       const task = state.tasks.find((item) => item.id === taskId)!
       const asset = state.assets.find((item) => item.id === assetId)!
       const shot = state.shots.find((item) => item.id === shotId)!
@@ -268,42 +268,49 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
     })
 
     await withDatabase(async (database) => {
-      await database.query(
+      const repository = new GenerationTaskRepository(store, null, database)
+      await expect(repository.flushRuntimeCacheToDatabase()).resolves.toBeGreaterThanOrEqual(1)
+    })
+
+    await withDatabase(async (database) => {
+      const flushed = await database.query<{
+        status: string
+        progress: number
+        result_url: string | null
+        generated_outputs: unknown
+        asset_image_url: string | null
+        shot_image_url: string | null
+      }>(
         `
-        UPDATE generation_tasks
-        SET status = 'completed',
-            progress = 100,
-            result_url = $2,
-            outputs = $3::jsonb,
-            metadata = metadata || $4::jsonb,
-            updated_at = now()
-        WHERE id = $1
+        SELECT
+          t.status,
+          t.progress,
+          t.result_url,
+          t.metadata->'generatedOutputs' AS generated_outputs,
+          a.image_url AS asset_image_url,
+          s.image_url AS shot_image_url
+        FROM generation_tasks t
+        JOIN assets a ON a.id = $2
+        JOIN shots s ON s.id = $3
+        WHERE t.id = $1
         `,
-        [
-          taskId,
-          resultUrl,
-          JSON.stringify(outputs),
-          JSON.stringify({
-            providerState: 'completed',
-            generatedOutputs: [
-              {
-                view: 'single',
-                storageKey: `tenant-seqora-demo/${projectId}/generated/${taskId}-single.png`,
-                contentType: 'image/png',
-                size: 128,
-              },
-            ],
-          }),
+        [taskId, assetId, shotId],
+      )
+      expect(flushed.rows[0]).toEqual({
+        status: 'completed',
+        progress: 100,
+        result_url: resultUrl,
+        generated_outputs: [
+          {
+            view: 'single',
+            storageKey: `tenant-seqora-demo/${projectId}/generated/${taskId}-single.png`,
+            contentType: 'image/png',
+            size: 128,
+          },
         ],
-      )
-      await database.query(
-        'UPDATE assets SET image_url = $3, updated_at = now() WHERE id = $1 AND project_id = $2',
-        [assetId, projectId, resultUrl],
-      )
-      await database.query(
-        'UPDATE shots SET image_url = $3, updated_at = now() WHERE id = $1 AND project_id = $2',
-        [shotId, projectId, resultUrl],
-      )
+        asset_image_url: resultUrl,
+        shot_image_url: resultUrl,
+      })
     })
 
     const cleared = await app.inject({

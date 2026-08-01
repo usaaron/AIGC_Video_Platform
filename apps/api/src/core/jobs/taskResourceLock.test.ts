@@ -60,7 +60,7 @@ function task(overrides: Partial<GenerationTask>): GenerationTask {
     clientRequestId: 'task-client-1',
     projectId: 'project-midnight-film',
     tenantId: 'tenant-seqora-demo',
-    userId: 'user-creator',
+    userId: 'user-member',
     kind: 'video',
     label: 'Task 1',
     prompt: '',
