@@ -1,6 +1,6 @@
 # 序幕 SEQORA
 
-前后端分离的 AIGC 影视创作平台 Monorepo。创作端、API、共享契约和未来管理员端拥有独立边界，可以分别开发和部署。
+前后端分离的 AIGC 影视创作平台 Monorepo。创作端、独立管理员端、API 和共享契约拥有独立边界，可以分别开发和部署。
 
 ## 快速开始
 
@@ -28,7 +28,7 @@ pnpm dev
 
 | 身份       | 邮箱                      | 密码                |
 | ---------- | ------------------------- | ------------------- |
-| 普通成员   | `creator@seqora.local`    | `Creator123!`       |
+| 普通成员   | `member@seqora.local`     | `Member123!`        |
 | 所有者     | `owner@seqora.local`      | `OwnerPassword123!` |
 | 超级管理员 | `superadmin@seqora.local` | `SuperAdmin123!`    |
 | 管理员     | `admin@seqora.local`      | `Admin123!`         |
@@ -43,7 +43,7 @@ pnpm dev
 apps/
   web/       用户创作端，React + Vite
   api/       版本化后端 API，Fastify + TypeScript
-  admin/     独立管理员端预留边界
+  admin/     独立管理员端，集中承载平台和组织后台能力
 packages/
   contracts/ 前后端共享的 Zod 契约、角色和权限
 docs/        架构、权限、规范和部署文档
@@ -126,4 +126,4 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 - `/generation/*`：生成任务创建、查询和清理
 - `/projects/:projectId/film-preview`：创建或复用完整成片预览
 - `/billing/*`：套餐、积分余额、月度用量和 Postgres 账本摘要
-- `/admin/*`：仅 owner/admin 可访问的平台概览、统一后台查询、账号启停、账单查询/充值/调账、session 撤销和审计日志；组织管理新入口为 `/admin/organizations/*`，`/admin/tenants/*` 保留兼容
+- `/admin/*`：仅 owner、super_admin、admin、organization_admin 按权限边界访问的平台/组织后台；提供统一后台查询、账号启停、账单查询/充值/调账、session 撤销和审计日志；组织管理新入口为 `/admin/organizations/*`，`/admin/tenants/*` 保留兼容

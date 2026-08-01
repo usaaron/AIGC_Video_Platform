@@ -33,7 +33,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 创作工�
 
 ### 已确定的产品决策
 
-- 前后端分离，创作端、API、共享契约和未来管理员端保持独立边界。
+- 前后端分离，创作端、独立管理员端、API 和共享契约保持独立边界。
 - 用户界面使用中文，交互应简单、一目了然，不模仿专业剪辑软件的复杂工作台。
 - 项目级画面比例支持 `9:16`、`16:9`、`1:1`，资产和分镜默认继承项目比例。
 - 项目概览允许直接编辑故事简介；剧本快速生成、专业视觉细节补齐和专业审核使用用户当前选择的视觉方向。视觉方向后续应升级为项目级持久字段。
@@ -51,7 +51,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 创作工�
 - 一键尝鲜入口位于剧本页顶部主操作区；模型返回非法 JSON 时，服务端会尝试修复，仍失败则从剧本的角色、场景和服装字段提取最小资产计划，避免客户看到“功能无响应”。
 - 超过 2,000 个非空白字符的长剧本进入保留原稿模式，模型必须保留全部场景和剧情事实；若模型输出比原稿短超过 15%，服务端拒绝覆盖并自动保留原稿。
 - 免费版每个用户同时运行 1 个生成任务，会员版同时运行 3 个。
-- 封闭外测使用本地账号密码和签名 HttpOnly Cookie；注册入口开放但必须使用租户邀请码。生产空数据卷只创建环境变量指定的 member、owner、super_admin 和 admin 账号，默认不写入演示项目。
+- 封闭外测使用本地账号密码和签名 HttpOnly Cookie；注册入口开放但必须使用组织邀请码。生产空数据卷只创建环境变量指定的 member、owner、super_admin 和 admin 账号，默认不写入演示项目。
 - 登录前只加载认证页面，工作台和各流程页面按需拆包；前端任务轮询按运行中、空闲和后台标签页动态降频。
 - 第三方任务失败必须自动退还平台积分，退款必须幂等。
 - 管理员、权限、多租户和订阅能力预留边界，但当前只做适合三人团队的模块化单体，不提前拆微服务。
@@ -61,8 +61,8 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 创作工�
 - 真实音频生成、配音、混音和最终音轨合成。
 - 带音轨、字幕和交付参数的正式成片导出；当前只生成无声完整预览 MP4。
 - 真实支付、自动续费、发票和套餐购买。
-- PostgreSQL、Redis、消息队列、正式 OIDC、阿里云 OSS 的生产部署。
-- 完整管理员端 UI。`apps/admin` 当前只是独立边界占位。
+- 正式 OIDC/SSO、企业级组织生命周期、邮件/短信投递和完整合规流程。
+- 阿里云 OSS/CDN 或多云对象存储生产迁移；当前对象存储抽象已存在，本地/GCS 路径可用。
 
 ## 3. 当前真实完成状态
 
@@ -175,7 +175,7 @@ git diff --check
 apps/
   web/       React 创作端；登录、项目、剧本、资产、分镜、队列、成片、账单、设置
   api/       Fastify API；认证、项目、媒体、生成、计费、管理员模块
-  admin/     未来独立管理员端的边界占位
+  admin/     独立管理员端，集中承载平台和组织后台能力
 packages/
   contracts/ 前后端共享 Zod schema、类型、角色和权限
 docs/        架构、权限、Provider、部署、规范和本交接文档
@@ -604,7 +604,7 @@ pnpm dev:web
 
 | 身份       | 邮箱                      | 密码                |
 | ---------- | ------------------------- | ------------------- |
-| 普通会员   | `creator@seqora.local`    | `Creator123!`       |
+| 普通会员   | `member@seqora.local`     | `Member123!`        |
 | 所有者     | `owner@seqora.local`      | `OwnerPassword123!` |
 | 超级管理员 | `superadmin@seqora.local` | `SuperAdmin123!`    |
 | 管理员     | `admin@seqora.local`      | `Admin123!`         |
@@ -656,7 +656,7 @@ apps/api/data/app.json
 - 主体包含 `userId`、`tenantId` 和 `roles`。
 - 路由使用稳定权限字符串，不直接依赖 UI 隐藏按钮。
 - Repository 再次按租户和用户过滤，形成纵深保护。
-- 角色：`member`、`admin`、`super_admin`、`owner`；旧 `creator` 角色会由正式 migration 统一迁为 `member`。
+- 角色分为平台身份和组织身份：`owner`、`super_admin`、`admin`、`member`、`organization_admin`、`organization_member`。`member` 是 C 端普通创作者；`admin` 是平台内部运营/客服/审核；`organization_admin` 只能管理自己组织内的组织成员和记录；`organization_member` 只能使用自己组织授权的功能。旧 `creator` 已通过 migration 统一为 `member`，不要再新增 `creator`。
 - 会员是套餐并发策略，不应继续膨胀为多个角色。
 - 生产禁止 `AUTH_MODE=demo`。
 - 生产 OIDC/JWT 必须校验签名、issuer、audience 和过期时间，不能只 decode。
@@ -676,7 +676,7 @@ apps/api/data/app.json
 - 通用生成任务的 `estimatedCredits` 当前仍由前端提交，恶意客户端可以伪造低价格。上线付费前必须在后端按任务类型、模型、质量和输出数量计算价格。一键尝鲜已经使用服务端固定价格，不接受客户端报价。
 - 会员切换接口没有支付验证，只能用于 Demo。
 - 剧本生成走项目专用接口，目前不扣平台积分。
-- 计费预占、任务创建和外部调用还不是跨数据库事务。
+- 计费预占、任务创建和 Outbox 事件已经在同一个 Postgres 事务里提交；外部 Provider 调用仍在 Worker 侧异步执行，必须继续保持幂等提交、失败退款和第三方对账。
 
 ## 17. 已验证的质量状态
 
@@ -757,7 +757,7 @@ pnpm check
 
 1. 把项目视觉方向、专业审核结果、审核所基于的项目版本和“一键应用建议”记录持久化。当前 `ScriptPage.jsx` 只保存在 React state，刷新即丢失。
 2. 项目、资产、分镜、生成任务和账本已迁入 PostgreSQL；下一步继续补审核结果、媒体索引、数据导出/删除、备份恢复和跨租户审计。
-3. BullMQ/Redis 队列已接入，API 不再内联执行生成任务；下一步补 Outbox、死信/重试策略、Provider 建单幂等键，以及“平台已退款但第三方可能已扣费”的自动对账队列。
+3. BullMQ/Redis 队列和 Postgres Outbox 已接入，API 不再内联执行生成任务；下一步补死信/人工重试界面、Provider 建单幂等键，以及“平台已退款但第三方可能已扣费”的自动对账队列。
 4. 使用正式 OIDC/JWT 或成熟身份服务，增加邀请、禁用、密码重置、租户成员管理、会话撤销和管理员审计；真实订阅只由支付回调改变权益。
 5. 上传文件按魔数检测真实类型，限制图片尺寸和解码资源，加入恶意文件扫描；大文件改为直传对象存储或流式上传，不能长期使用 `toBuffer()` 全量进入 API 内存。
 6. 增加用户协议、隐私说明、素材版权授权、人物肖像授权、内容安全审核、数据导出与删除流程。未完成前不接收敏感素材或公开注册。
@@ -768,9 +768,9 @@ pnpm check
 
 1. 将 `App.jsx` 约 680 行的页面编排和轮询迁移到稳定的数据请求层，将约 4329 行的 `App.css` 按功能拆分；保持现有视觉语言，不做无目标重写。
 2. 建立桌面与 390px 手机截图回归、Provider 契约测试、数据库迁移测试、队列恢复测试和性能基线。
-3. 管理员端增加租户、账号、任务、成本、人工退款、内容处置和审计日志，不让管理员直接修改底层 JSON。
+3. 独立管理员端继续补任务排障、Provider 成本、人工退款、内容处置、组织范围筛选和审计日志详情，不让管理员直接修改底层 JSON。
 4. 媒体使用 CDN、生命周期和删除策略；生成 Worker、FFmpeg 合成 Worker 与 API 独立扩缩容，并为每个租户设置配额与公平调度。
-5. 清理过时文档。`docs/ARCHITECTURE.md` 仍写着空账本、空任务分发器和内存仓储，已与源码不符；事实应以本文和源码为准，随后同步更新其他文档。
+5. 持续清理过时文档。账号、组织、账单、项目域、AI Job 和小说域已经以 Postgres 为主路径；事实应以源码、`docs/ARCHITECTURE.md`、`docs/AUTHORIZATION.md` 和本文最新章节为准。
 
 ### 傻瓜式专业 Agent 产品蓝图
 
@@ -957,8 +957,9 @@ pnpm check
 ## 27. 2026-07-31 账号、账单和后台基线
 
 - 账号/auth 已切到 Postgres：`users`、`auth_identities`、`sessions`、`tenants`、`tenant_memberships`、`billing_accounts`、`password_reset_tokens` 和 `audit_log_entries` 由 migration 管理。dev/test 启动可自动执行 migration；production 启动只检查是否最新，部署前显式运行 `pnpm --filter @seqora/api db:migrate`。
-- 注册入口已改为邀请码准入，`/api/v1/auth/register` 必须提交邀请 token、受邀邮箱、姓名和密码，邮箱需与邀请绑定邮箱一致；无 token、过期、已使用、撤销或邮箱不匹配都会失败。账号入口包括 bootstrap 首次账号、owner/admin 主动创建用户、添加已有用户和受控租户邀请 API；生产开放邀请邮件或忘记密码前仍需接邮件/短信投递、频控和运营流程。
-- 账号管理页已具备 workspace 切换、改名、禁用、转让 owner、退出 workspace、成员列表、角色修改、禁用 membership、个人/租户 session 列表和踢下线。普通成员只能看到个人资料；owner/admin 才能看到管理员端入口；权限或状态变更操作必须二次确认。
+- 注册入口已改为邀请码准入，`/api/v1/auth/register` 必须提交邀请 token、受邀邮箱、姓名和密码，邮箱需与邀请绑定邮箱一致；无 token、过期、已使用、撤销或邮箱不匹配都会失败。账号入口包括 bootstrap 首次账号、owner/super_admin/admin 按权限主动创建用户、添加已有用户和受控组织邀请 API；生产开放邀请邮件或忘记密码前仍需接邮件/短信投递、频控和运营流程。
+- 创作端 `5173` 已去后台化：只保留个人资料、个人 session、改密和组织切换；owner、super_admin、admin、organization_admin 看到跳转独立管理员端 `5174` 的入口，member 和 organization_member 看不到后台入口。
+- 独立管理员端 `5174` 是唯一后台：集中用户、组织、membership、账单、ledger、session 风险视图、审计日志、管理员重置密码和强制改密入口。权限或状态变更操作必须二次确认。
 - Billing ledger 已迁到 Postgres，扣费、退款、grant 和 admin adjustment 在数据库事务中完成并保持幂等 reference；JSON ledger 只作为历史备份，不再作为业务来源。
 - Admin Console API 已统一：`GET /api/v1/admin/console` 返回 overview、用户、租户、membership、账单账户、账单流水、session 和审计日志；同时保留分项列表、账号启停、管理员充值/调账和后台撤销 session API。
 - CI `database` job 起 Postgres 和 Redis，执行 migration，并运行 `postgres.test.ts`、`auth/routes.test.ts`、`accountManagement/routes.test.ts`、`billing/creditLedger.test.ts`、`config.test.ts` 和 `core/jobs/bullMqQueue.test.ts`。分支保护应同时要求 `CI / quality` 和 `CI / database`。

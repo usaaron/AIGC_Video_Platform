@@ -19,7 +19,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 - 分镜按场次或动作拆分、资产匹配、尾帧承接和会员三路并发。
 - FFmpeg 按分镜顺序合成无声完整 MP4 预览。
 
-尚未完成正式音频、支付、邮件/短信投递、队列监控/告警、Worker 横向扩缩容演练和正式商用监控。账号/auth、租户 membership、session、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜和生成任务已经迁入 Postgres；生成任务触发通过 Redis/BullMQ，由独立 Worker 进程消费。当前定位是封闭客户测试和小团队联合开发。
+尚未完成正式音频、支付、邮件/短信投递、队列监控/告警、Worker 横向扩缩容演练和正式商用监控。账号/auth、组织 membership、session、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜、生成任务、通用 AI Job 和小说域数据已经迁入 Postgres；生成任务触发通过事务 Outbox 投递到 Redis/BullMQ，由独立 Worker 进程消费。当前定位是封闭客户测试和小团队联合开发。
 
 ## 2. 收到压缩包后先做什么
 
@@ -42,7 +42,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 | `pnpm build`      | 构建全部工作区              |
 | `pnpm check`      | 提交前完整检查              |
 
-本地端口：Web `5173`，API `8787`。Vite 将 `/api` 代理到本地 API。
+本地端口：创作端 `5173`，独立管理员端 `5174`，API `8787`。两个 Vite 应用都会将 `/api` 代理到本地 API。
 
 ## 3. 交接包中的敏感内容
 
@@ -63,7 +63,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 apps/
   web/        React 19 + Vite 8 创作端
   api/        Fastify 5 + TypeScript API 与 BullMQ Worker
-  admin/      未来独立管理员端边界占位；当前后台入口临时在 Web 内
+  admin/      独立管理员端，集中承载用户、组织、账单、session 和审计能力
 packages/
   contracts/  前后端共享 Zod Schema、实体、角色和权限
   prompting/  图片/视频提示词与质量规则编译
@@ -93,16 +93,18 @@ Route -> Service -> Repository / Provider -> Postgres / AppStore / 外部 API
 
 - `routes.ts`：Zod 输入校验、权限和 HTTP 映射。
 - `service.ts`：业务编排，不直接依赖页面。
-- `repository.ts`：带用户、租户和项目边界的数据读写。
+- `repository.ts`：带用户、组织和项目边界的数据读写；底层字段仍可能使用 `tenantId` 兼容命名。
 - `core/generation/`：TokenAdvent、弦序、官方方舟等 Provider 适配器。
-- `core/jobs/bullMqQueue.ts`：BullMQ/Redis 任务触发队列，API 入队，Worker 消费。
+- `core/jobs/outbox.ts`：事务 Outbox。任务记录、扣费和待投递事件在同一个 Postgres 事务内提交，relay 再投递 BullMQ。
+- `core/jobs/bullMqQueue.ts`：BullMQ/Redis 任务触发队列，Outbox relay 入队，Worker 消费。
 - `core/jobs/taskDispatcher.ts`：任务依赖、套餐并发、提交、轮询、失败和退款。
+- `modules/aiJobs`：通用 AI Job 仓储与状态查询，小说摘要队列等长耗时文本工作流通过 Worker 执行。
 - `core/film/`：下载分镜视频并调用 FFmpeg 合成完整预览。
 - `infra/postgres.ts`：Postgres migration、`schema_migrations` 和事务工具。
 - `infra/store.ts`：本地媒体索引、运行态缓存和兼容备份的 JSON 状态仓储；项目域新数据以 Postgres 为业务来源。
 - `infra/objectStorage.ts`：本地文件或 GCS 的统一对象存储接口。
-- `modules/accountManagement`：邀请码注册、workspace、成员、角色、tenant session 和受控邀请。
-- `modules/admin`：统一后台查询、账号启停、账单、session 和审计日志。
+- `modules/accountManagement`：邀请码注册、组织、成员、角色、membership、组织 session 和兼容 workspace/tenant 入口。
+- `modules/admin`：统一后台查询、账号启停、组织、membership、账单、session、审计日志和管理员重置密码。
 - `modules/billing`：Postgres ledger，扣费、退款、充值和管理员调账。
 
 新增接口时，先修改 `packages/contracts` 的 Schema，再改 API 和 Web。不要在两端复制枚举或手写不一致的请求类型。
@@ -128,10 +130,10 @@ Postgres：
 
 - `users` / `auth_identities`：账号和本地登录身份。
 - `sessions`：HttpOnly Cookie 对应的服务端 session、设备信息、撤销状态和过期时间。
-- `tenants` / `tenant_memberships`：workspace、角色、状态和主 workspace。
+- `tenants` / `tenant_memberships`：组织、角色、状态和主组织；当前仍是数据库兼容表名。
 - `billing_accounts` / `billing_ledger_entries`：套餐、余额、幂等扣费、退款、充值和调账流水。
 - `password_reset_tokens`：忘记密码 token。
-- `audit_log_entries`：账号、成员、workspace、session、账单等敏感操作审计。
+- `audit_log_entries`：账号、成员、组织、session、账单等敏感操作审计。
 - `projects` / `project_versions`：项目、比例、内容类型、简介、剧本和版本。
 - `assets`：人物、场景、物品、服装或音频及其结构化属性。
 - `shots`：顺序、景别、时长、提示词、分镜图和连续模式。
@@ -181,19 +183,19 @@ JSON `apps/api/data/app.json`：
 
 ## 10. 如何修改常见功能
 
-| 需求                   | 优先查看                                                                |
-| ---------------------- | ----------------------------------------------------------------------- |
-| 新增项目/资产/分镜字段 | `packages/contracts/src/project.ts`、项目 Repository、对应页面          |
-| 修改登录和账号         | `modules/auth/`、`AuthProvider.jsx`、`LoginPage.jsx`                    |
-| 修改积分、套餐或退款   | `modules/billing/`、`modules/generation/`、`taskDispatcher.ts`          |
-| 修改图片生成           | `core/generation/tokenAdventImageProvider.ts`、资产功能目录             |
-| 修改视频请求           | `stringXSeedanceProvider.ts`、`taskDispatcher.ts`、`packages/prompting` |
-| 修改分镜拆分           | `modules/projects/service.ts`、`StoryboardPage.jsx`                     |
-| 修改三路并发           | `videoBatchPlanner.js`、`taskDispatcher.ts`，两端测试必须同时更新       |
-| 修改完整成片           | `core/film/`、`FilmPage.jsx`、`features/film/`                          |
-| 修改 workspace/session | `modules/accountManagement/`、`AccountManagementPage.jsx`               |
-| 修改后台管理           | `modules/admin/`、`packages/contracts/src/admin.ts`                     |
-| 修改部署               | `compose.demo.yml`、`deploy/`、`docs/DEPLOYMENT.md`                     |
+| 需求                   | 优先查看                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| 新增项目/资产/分镜字段 | `packages/contracts/src/project.ts`、项目 Repository、对应页面                                |
+| 修改登录和账号         | `modules/auth/`、`AuthProvider.jsx`、`LoginPage.jsx`                                          |
+| 修改积分、套餐或退款   | `modules/billing/`、`modules/generation/`、`taskDispatcher.ts`                                |
+| 修改图片生成           | `core/generation/tokenAdventImageProvider.ts`、资产功能目录                                   |
+| 修改视频请求           | `stringXSeedanceProvider.ts`、`taskDispatcher.ts`、`packages/prompting`                       |
+| 修改分镜拆分           | `modules/projects/service.ts`、`StoryboardPage.jsx`                                           |
+| 修改三路并发           | `videoBatchPlanner.js`、`taskDispatcher.ts`，两端测试必须同时更新                             |
+| 修改完整成片           | `core/film/`、`FilmPage.jsx`、`features/film/`                                                |
+| 修改组织/session       | `modules/accountManagement/`、`apps/web/src/pages/SettingsPage.jsx`、`apps/admin/src/App.jsx` |
+| 修改后台管理           | `modules/admin/`、`packages/contracts/src/admin.ts`、`apps/admin/src/`                        |
+| 修改部署               | `compose.demo.yml`、`deploy/`、`docs/DEPLOYMENT.md`                                           |
 
 ## 11. 测试和代码规范
 
@@ -234,7 +236,7 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml ps
 
 ## 13. 当前必须知道的限制
 
-1. 项目/任务已进入 Postgres，任务触发已进入 Redis/BullMQ；商用多实例前仍要验证租户过滤、重复投递、故障恢复和 Worker 横向扩缩容。
+1. 项目/任务/AI Job 已进入 Postgres，任务触发已通过 Outbox 进入 Redis/BullMQ；商用多实例前仍要验证组织过滤、重复投递、故障恢复和 Worker 横向扩缩容。
 2. Worker 是独立进程，但队列监控、死信处理、任务恢复演练和告警还没生产化。
 3. `app.json` 仍承载本地媒体索引和兼容备份，恢复数据前必须先确认 Postgres、JSON 和对象存储三者一致。
 4. 音频、支付、邮件/短信投递和用户协议/隐私/数据删除流程尚未实现。

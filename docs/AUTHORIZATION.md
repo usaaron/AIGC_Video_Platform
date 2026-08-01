@@ -9,14 +9,14 @@
 
 ## 当前角色
 
-| 角色                  | 用途                 | 典型权限                                                    |
-| --------------------- | -------------------- | ----------------------------------------------------------- |
-| `member`              | C 端普通创作者       | 项目、资产、生成、个人账单                                  |
-| `admin`               | 平台内部管理员       | 管理 C 端普通成员和部分后台运营事项                         |
-| `organization_member` | B 端组织成员         | 使用所属组织授权的项目、资产和生成能力                      |
-| `organization_admin`  | B 端组织管理员       | 只能管理自己组织内的组织成员、session、账单记录和任务排障    |
-| `super_admin`         | 平台超级管理员       | 接近 owner 的全局运营权限，可管理管理员和普通用户            |
-| `owner`               | 系统所有者           | 全部权限和系统配置，可任命 super_admin、转让 owner           |
+| 角色                  | 用途           | 典型权限                                                  |
+| --------------------- | -------------- | --------------------------------------------------------- |
+| `member`              | C 端普通创作者 | 项目、资产、生成、个人账单                                |
+| `admin`               | 平台内部管理员 | 管理 C 端普通成员和部分后台运营事项                       |
+| `organization_member` | B 端组织成员   | 使用所属组织授权的项目、资产和生成能力                    |
+| `organization_admin`  | B 端组织管理员 | 只能管理自己组织内的组织成员、session、账单记录和任务排障 |
+| `super_admin`         | 平台超级管理员 | 接近 owner 的全局运营权限，可管理管理员和普通用户         |
+| `owner`               | 系统所有者     | 全部权限和系统配置，可任命 super_admin、转让 owner        |
 
 角色与权限映射定义在 `packages/contracts/src/permissions.ts`。会员并发不是新权限，而是套餐额度策略，避免角色数量随套餐膨胀。
 
@@ -56,9 +56,9 @@
 - 只有 owner 可以管理 owner/super_admin membership、转让组织 owner、禁用组织和撤销 owner/super_admin session。
 - 用户不能修改自己的角色、禁用自己的当前 membership，或通过后台接口撤销自己的当前 session。
 - 最后一个 active owner 不能被移除、禁用或自行退出组织。
-- 组织改名允许 owner/admin；禁用组织和转让 owner 只允许 owner。
+- 组织改名允许 owner、super_admin、admin 或当前组织的 organization_admin 按范围执行；禁用组织和转让 owner 只允许 owner。
 
-受控邀请 API 是注册准入来源。owner/admin 创建邀请后会得到一次性 token；无 token、token 过期、已使用、撤销或邮箱不匹配都会拒绝注册。
+受控邀请 API 是注册准入来源。owner、super_admin、admin 或当前组织的 organization_admin 按权限创建邀请后会得到一次性 token；无 token、token 过期、已使用、撤销或邮箱不匹配都会拒绝注册。
 
 ## 账号安全与审计
 

@@ -18,7 +18,7 @@
 - `VITE_` 前缀变量会进入浏览器构建，不能放置服务端密钥。
 - 会员权限、并发限制、积分扣减和支付回调必须在后端校验。
 - 日志不得记录完整提示词中的个人敏感信息、第三方访问令牌、Cookie、session secret 或密码重置 token。
-- 管理员端只能调用受权限保护的 API；前端隐藏入口不能替代后端 `requirePermission`、owner/admin 边界和审计日志。
+- 管理员端只能调用受权限保护的 API；前端隐藏入口不能替代后端 `requirePermission`、owner/super_admin/admin/organization_admin 边界和审计日志。
 - Postgres 备份、JSON 备份和 GCS 对象版本都可能包含用户数据，必须按私密生产数据处理；具体操作遵守 [备份与恢复流程](docs/BACKUP_RESTORE.md)。
 - 依赖升级必须通过 CI，并检查高危漏洞和破坏性版本变更。
 - 公网环境必须启用 HTTPS、唯一 `AUTH_SECRET` 和唯一首次账号密码，禁止使用仓库默认账号。
