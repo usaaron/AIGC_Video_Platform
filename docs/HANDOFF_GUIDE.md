@@ -85,6 +85,8 @@ Web 不直接访问第三方 Provider。API Key、积分、权限、并发和真
 
 API 入口是 `apps/api/src/app.ts`，配置入口是 `apps/api/src/config.ts`。
 
+后端正式业务边界见 [后端边界](BACKEND_BOUNDARIES.md)，当前固定为：Identity & Access、Organizations、Billing、Creative Projects、Jobs/Workers、Media Storage、Admin Console、Observability/Ops。
+
 每个业务模块遵守以下分层：
 
 ```text
@@ -103,9 +105,14 @@ Route -> Service -> Repository / Provider -> Postgres / AppStore / 外部 API
 - `infra/postgres.ts`：Postgres migration、`schema_migrations` 和事务工具。
 - `infra/store.ts`：本地媒体索引、运行态缓存和兼容备份的 JSON 状态仓储；项目域新数据以 Postgres 为业务来源。
 - `infra/objectStorage.ts`：本地文件或 GCS 的统一对象存储接口。
-- `modules/accountManagement`：邀请码注册、组织、成员、角色、membership、组织 session 和兼容 workspace/tenant 入口。
-- `modules/admin`：统一后台查询、账号启停、组织、membership、账单、session、审计日志和管理员重置密码。
-- `modules/billing`：Postgres ledger，扣费、退款、充值和管理员调账。
+- Identity & Access：`core/auth`、`core/email`、`modules/auth`、`modules/users`。
+- Organizations：`modules/accountManagement`，负责组织、成员、角色、membership、组织 session 和兼容 workspace/tenant 入口。
+- Billing：`modules/billing`，负责 Postgres ledger、扣费、退款、充值、管理员调账、支付和对账告警。
+- Creative Projects：`modules/projects`、`modules/novels`、`modules/quickStart`、`modules/trustedAssets`。
+- Jobs/Workers：`core/jobs`、`modules/generation`、`modules/aiJobs`、`worker.ts` 和 `runtime/queues.ts`。
+- Media Storage：`infra/objectStorage.ts`、`modules/media`、`core/media` 和 `runtime/storage.ts`。
+- Admin Console：`modules/admin`、`apps/admin` 和 `packages/contracts/src/admin.ts`。
+- Observability/Ops：`core/observability`、健康检查、CI/CD、拨测、部署和运维文档。
 
 新增接口时，先修改 `packages/contracts` 的 Schema，再改 API 和 Web。不要在两端复制枚举或手写不一致的请求类型。
 
