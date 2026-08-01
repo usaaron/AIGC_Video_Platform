@@ -56,6 +56,7 @@ pnpm test:backend:contract
 - 项目、资产、分镜、小说、生成、quick start 请求/响应 schema。
 - admin console 聚合响应 schema，包括 users、organizations、memberships、billing、session、audit log。
 - 敏感后台 mutation payload，例如管理员重置密码、强制改密、充值和调账。
+- `apps/api/src/contracts/httpContract.test.ts` 这类 API 层 HTTP 契约测试，使用 `app.inject` + JSON Schema 严格校验返回字段，覆盖正常响应、必填校验、边界值、注入字符串和重复提交。
 
 ## 一键执行
 
