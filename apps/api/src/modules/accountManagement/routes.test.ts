@@ -86,6 +86,47 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(overview.statusCode).toBe(200)
   })
 
+  it('marks tenant and workspace compatibility routes as deprecated', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const ownerLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'owner@seqora.local',
+        password: 'OwnerPassword123!',
+      },
+    })
+    const ownerCookie = cookieValue(ownerLogin)
+
+    const workspaces = await app.inject({
+      method: 'GET',
+      url: '/api/v1/workspaces',
+      headers: { cookie: ownerCookie },
+    })
+    expect(workspaces.statusCode).toBe(200)
+    expect(workspaces.headers.deprecation).toBe('true')
+    expect(workspaces.headers.link).toContain('/api/v1/organizations')
+
+    const tenantMembers = await app.inject({
+      method: 'GET',
+      url: '/api/v1/tenants/tenant-seqora-demo/members',
+      headers: { cookie: ownerCookie },
+    })
+    expect(tenantMembers.statusCode).toBe(200)
+    expect(tenantMembers.headers.deprecation).toBe('true')
+    expect(tenantMembers.headers.link).toContain('/api/v1/organizations/tenant-seqora-demo/members')
+
+    const adminTenants = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/tenants',
+      headers: { cookie: ownerCookie },
+    })
+    expect(adminTenants.statusCode).toBe(200)
+    expect(adminTenants.headers.deprecation).toBe('true')
+    expect(adminTenants.headers.link).toContain('/api/v1/admin/organizations')
+  })
+
   it('lets admins grant credits and adjust target memberships from the admin API', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
@@ -123,11 +164,11 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const adjusted = await app.inject({
       method: 'POST',
-      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-creator/adjustments',
+      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-member/adjustments',
       headers: { cookie: adminCookie },
       payload: {
         amount: 25,
-        reason: 'Creator campaign top-up',
+        reason: 'Member campaign top-up',
       },
     })
     expect(adjusted.statusCode).toBe(200)
@@ -137,18 +178,18 @@ describe('account management api', { timeout: 30_000 }, () => {
         expect.objectContaining({
           amount: 25,
           type: 'adjustment',
-          description: 'Creator campaign top-up',
+          description: 'Member campaign top-up',
         }),
       ]),
     })
 
     const corrected = await app.inject({
       method: 'POST',
-      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-creator/adjustments',
+      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-member/adjustments',
       headers: { cookie: adminCookie },
       payload: {
         amount: -10,
-        reason: 'Creator manual correction',
+        reason: 'Member manual correction',
       },
     })
     expect(corrected.statusCode).toBe(200)
@@ -158,7 +199,7 @@ describe('account management api', { timeout: 30_000 }, () => {
         expect.objectContaining({
           amount: -10,
           type: 'adjustment',
-          description: 'Creator manual correction',
+          description: 'Member manual correction',
         }),
       ]),
     })
@@ -167,20 +208,20 @@ describe('account management api', { timeout: 30_000 }, () => {
   it('denies member accounts from admin billing adjustments', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
-    const creatorLogin = await app.inject({
+    const memberLogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
       payload: {
-        email: 'creator@seqora.local',
-        password: 'Creator123!',
+        email: 'member@seqora.local',
+        password: 'MemberPassword123!',
       },
     })
-    expect(creatorLogin.statusCode).toBe(200)
+    expect(memberLogin.statusCode).toBe(200)
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-creator/adjustments',
-      headers: { cookie: cookieValue(creatorLogin) },
+      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-member/adjustments',
+      headers: { cookie: cookieValue(memberLogin) },
       payload: {
         amount: 10,
         reason: 'Unauthorized adjustment',
@@ -206,10 +247,39 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(missingInvitationCode.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
 
     const owner = await seedOwnerLogin()
+    const registrationWorkspace = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations',
+      headers: { cookie: owner.cookie },
+      payload: { name: 'Registration Workspace' },
+    })
+    expect(registrationWorkspace.statusCode).toBe(201)
+    const registrationTenantId = registrationWorkspace.json().workspace.id as string
+    const registrationAdmin = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/organizations/${registrationTenantId}/users`,
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'registration-admin@example.com',
+        name: 'Registration Admin',
+        password: 'RegistrationAdmin123!',
+        role: 'admin',
+      },
+    })
+    expect(registrationAdmin.statusCode).toBe(201)
+    const registrationAdminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'registration-admin@example.com',
+        password: 'RegistrationAdmin123!',
+      },
+    })
+    expect(registrationAdminLogin.statusCode).toBe(200)
     const invitation = await app.inject({
       method: 'POST',
-      url: '/api/v1/tenants/tenant-seqora-demo/invitations',
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${registrationTenantId}/invitations`,
+      headers: { cookie: cookieValue(registrationAdminLogin) },
       payload: {
         email: 'alice@example.com',
         roles: ['member'],
@@ -243,8 +313,8 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
     expect(register.statusCode).toBe(201)
     expect(register.json()).toMatchObject({
-      account: { email: 'alice@example.com', name: 'Alice', tenantId: 'tenant-seqora-demo' },
-      workspace: { id: 'tenant-seqora-demo', status: 'active' },
+      account: { email: 'alice@example.com', name: 'Alice', tenantId: registrationTenantId },
+      workspace: { id: registrationTenantId, status: 'active' },
     })
 
     const reusedInvitationCode = await app.inject({
@@ -297,13 +367,14 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const createWorkspace = await app.inject({
       method: 'POST',
-      url: '/api/v1/workspaces',
+      url: '/api/v1/organizations',
       headers: { cookie: reloginCookie },
       payload: { name: 'Alice Second Workspace' },
     })
 
     expect(createWorkspace.statusCode).toBe(201)
     expect(createWorkspace.json()).toMatchObject({
+      account: { roles: ['member'] },
       workspace: { name: 'Alice Second Workspace', status: 'active' },
       organization: { name: 'Alice Second Workspace', status: 'active' },
     })
@@ -316,6 +387,7 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
     expect(createOrganization.statusCode).toBe(201)
     expect(createOrganization.json()).toMatchObject({
+      account: { roles: ['member'] },
       organization: { name: 'Alice Third Organization', status: 'active' },
     })
 
@@ -381,7 +453,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const ownerCreatesSuperAdmin = await app.inject({
       method: 'POST',
-      url: '/api/v1/tenants/tenant-seqora-demo/users',
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
       headers: { cookie: owner.cookie },
       payload: {
         email: 'created-super-admin@example.com',
@@ -402,7 +474,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const superAdminCreatesAdmin = await app.inject({
       method: 'POST',
-      url: '/api/v1/tenants/tenant-seqora-demo/users',
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
       headers: { cookie: superAdminCookie },
       payload: {
         email: 'super-admin-created-admin@example.com',
@@ -421,7 +493,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const superAdminCreatesSuperAdmin = await app.inject({
       method: 'POST',
-      url: '/api/v1/tenants/tenant-seqora-demo/users',
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
       headers: { cookie: superAdminCookie },
       payload: {
         email: 'super-admin-created-super-admin@example.com',
@@ -435,7 +507,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const createdAdmin = await app.inject({
       method: 'POST',
-      url: '/api/v1/tenants/tenant-seqora-demo/users',
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
       headers: { cookie: owner.cookie },
       payload: {
         email: 'created-admin@example.com',
@@ -473,7 +545,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const duplicateAdmin = await app.inject({
       method: 'POST',
-      url: '/api/v1/tenants/tenant-seqora-demo/users',
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
       headers: { cookie: owner.cookie },
       payload: {
         email: 'created-admin@example.com',
@@ -487,7 +559,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const adminCreatesAdmin = await app.inject({
       method: 'POST',
-      url: '/api/v1/tenants/tenant-seqora-demo/users',
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
       headers: { cookie: adminCookie },
       payload: {
         email: 'admin-created-admin@example.com',
@@ -499,10 +571,17 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(adminCreatesAdmin.statusCode).toBe(403)
     expect(adminCreatesAdmin.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } })
 
+    const adminManagedTenant = await createTenantUserInFreshWorkspace(
+      'tenant-admin-for-members@example.com',
+      'TenantAdminForMembers123!',
+      'Admin Managed Workspace',
+      'admin',
+    )
+
     const adminCreatesMember = await app.inject({
       method: 'POST',
-      url: '/api/v1/tenants/tenant-seqora-demo/users',
-      headers: { cookie: adminCookie },
+      url: `/api/v1/organizations/${adminManagedTenant.tenantId}/users`,
+      headers: { cookie: adminManagedTenant.cookie },
       payload: {
         email: 'admin-created-member@example.com',
         name: 'Admin Created Member',
@@ -514,43 +593,21 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(adminCreatesMember.json()).toMatchObject({
       email: 'admin-created-member@example.com',
       roles: ['member'],
-      tenantId: 'tenant-seqora-demo',
+      tenantId: adminManagedTenant.tenantId,
     })
     const memberUserId = adminCreatesMember.json().userId as string
 
-    const ownerCreatesOrganizationAdmin = await app.inject({
-      method: 'POST',
-      url: '/api/v1/organizations/tenant-seqora-demo/users',
-      headers: { cookie: owner.cookie },
-      payload: {
-        email: 'created-org-admin@example.com',
-        name: 'Created Organization Admin',
-        password: 'CreatedOrgAdmin123!',
-        role: 'organization_admin',
-      },
-    })
-    expect(ownerCreatesOrganizationAdmin.statusCode).toBe(201)
-    expect(ownerCreatesOrganizationAdmin.json()).toMatchObject({
-      email: 'created-org-admin@example.com',
-      roles: ['organization_admin'],
-      organizationId: 'tenant-seqora-demo',
-    })
-    const organizationAdminUserId = ownerCreatesOrganizationAdmin.json().userId as string
-
-    const organizationAdminLogin = await app.inject({
-      method: 'POST',
-      url: '/api/v1/auth/login',
-      payload: {
-        email: 'created-org-admin@example.com',
-        password: 'CreatedOrgAdmin123!',
-      },
-    })
-    expect(organizationAdminLogin.statusCode).toBe(200)
-    const organizationAdminCookie = cookieValue(organizationAdminLogin)
+    const organizationAdmin = await createOrganizationAdminWorkspace(
+      'created-org-admin@example.com',
+      'CreatedOrgAdmin123!',
+      'Created Organization Workspace',
+    )
+    const organizationAdminUserId = organizationAdmin.userId
+    const organizationAdminCookie = organizationAdmin.cookie
 
     const organizationAdminCreatesMember = await app.inject({
       method: 'POST',
-      url: '/api/v1/organizations/tenant-seqora-demo/users',
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/users`,
       headers: { cookie: organizationAdminCookie },
       payload: {
         email: 'org-admin-created-member@example.com',
@@ -563,7 +620,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const organizationAdminCreatesOrganizationMember = await app.inject({
       method: 'POST',
-      url: '/api/v1/organizations/tenant-seqora-demo/users',
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/users`,
       headers: { cookie: organizationAdminCookie },
       payload: {
         email: 'org-admin-created-org-member@example.com',
@@ -575,7 +632,7 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(organizationAdminCreatesOrganizationMember.statusCode).toBe(201)
     expect(organizationAdminCreatesOrganizationMember.json()).toMatchObject({
       roles: ['organization_member'],
-      organizationId: 'tenant-seqora-demo',
+      organizationId: organizationAdmin.tenantId,
     })
     const organizationMemberUserId = organizationAdminCreatesOrganizationMember.json().userId as string
 
@@ -593,7 +650,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const adminDeletesAdmin = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/tenants/tenant-seqora-demo/members/${createdAdminUserId}`,
+      url: `/api/v1/organizations/tenant-seqora-demo/members/${createdAdminUserId}`,
       headers: { cookie: adminCookie },
     })
     expect(adminDeletesAdmin.statusCode).toBe(403)
@@ -603,7 +660,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const superAdminDeletesSuperAdmin = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/tenants/tenant-seqora-demo/members/${createdSuperAdminUserId}`,
+      url: `/api/v1/organizations/tenant-seqora-demo/members/${createdSuperAdminUserId}`,
       headers: { cookie: superAdminCookie },
     })
     expect(superAdminDeletesSuperAdmin.statusCode).toBe(403)
@@ -613,42 +670,42 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const superAdminDeletesAdmin = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/tenants/tenant-seqora-demo/members/${superAdminCreatedAdminUserId}`,
+      url: `/api/v1/organizations/tenant-seqora-demo/members/${superAdminCreatedAdminUserId}`,
       headers: { cookie: superAdminCookie },
     })
     expect(superAdminDeletesAdmin.statusCode).toBe(204)
 
     const adminDeletesMember = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/tenants/tenant-seqora-demo/members/${memberUserId}`,
-      headers: { cookie: adminCookie },
+      url: `/api/v1/organizations/${adminManagedTenant.tenantId}/members/${memberUserId}`,
+      headers: { cookie: adminManagedTenant.cookie },
     })
     expect(adminDeletesMember.statusCode).toBe(204)
 
     const adminDeletesOrganizationMember = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/organizations/tenant-seqora-demo/members/${organizationMemberUserId}`,
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members/${organizationMemberUserId}`,
       headers: { cookie: adminCookie },
     })
     expect(adminDeletesOrganizationMember.statusCode).toBe(403)
 
     const organizationAdminDeletesMember = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/organizations/tenant-seqora-demo/members/${memberUserId}`,
+      url: `/api/v1/organizations/${adminManagedTenant.tenantId}/members/${memberUserId}`,
       headers: { cookie: organizationAdminCookie },
     })
     expect(organizationAdminDeletesMember.statusCode).toBe(403)
 
     const organizationAdminDeletesOrganizationMember = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/organizations/tenant-seqora-demo/members/${organizationMemberUserId}`,
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members/${organizationMemberUserId}`,
       headers: { cookie: organizationAdminCookie },
     })
     expect(organizationAdminDeletesOrganizationMember.statusCode).toBe(204)
 
     const adminDeletesOrganizationAdmin = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/organizations/tenant-seqora-demo/members/${organizationAdminUserId}`,
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members/${organizationAdminUserId}`,
       headers: { cookie: adminCookie },
     })
     expect(adminDeletesOrganizationAdmin.statusCode).toBe(403)
@@ -662,7 +719,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const ownerDeletesAdmin = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/tenants/tenant-seqora-demo/members/${createdAdminUserId}`,
+      url: `/api/v1/organizations/tenant-seqora-demo/members/${createdAdminUserId}`,
       headers: { cookie: owner.cookie },
     })
     expect(ownerDeletesAdmin.statusCode).toBe(204)
@@ -674,40 +731,226 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
     expect(adminAfterDelete.statusCode).toBe(401)
 
-    const creatorLogin = await app.inject({
+    const defaultMemberLogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
       payload: {
-        email: 'creator@seqora.local',
-        password: 'Creator123!',
+        email: 'member@seqora.local',
+        password: 'MemberPassword123!',
       },
     })
-    expect(creatorLogin.statusCode).toBe(200)
+    expect(defaultMemberLogin.statusCode).toBe(200)
 
-    const creatorCreatesMember = await app.inject({
+    const memberCreatesMember = await app.inject({
       method: 'POST',
-      url: '/api/v1/tenants/tenant-seqora-demo/users',
-      headers: { cookie: cookieValue(creatorLogin) },
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
+      headers: { cookie: cookieValue(defaultMemberLogin) },
       payload: {
-        email: 'creator-created-member@example.com',
-        name: 'Creator Created Member',
+        email: 'member-created-member@example.com',
+        name: 'Member Created Member',
         password: 'CreatedMember123!',
         role: 'member',
       },
     })
-    expect(creatorCreatesMember.statusCode).toBe(403)
+    expect(memberCreatesMember.statusCode).toBe(403)
+  })
+
+  it('does not create a second owner when the platform owner creates a workspace', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const owner = await seedOwnerLogin()
+    const createdWorkspace = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations',
+      headers: { cookie: owner.cookie },
+      payload: { name: 'Owner Created Member Workspace' },
+    })
+
+    expect(createdWorkspace.statusCode).toBe(201)
+    expect(createdWorkspace.json()).toMatchObject({
+      account: {
+        id: 'user-owner',
+        roles: ['member'],
+      },
+      workspace: {
+        name: 'Owner Created Member Workspace',
+        status: 'active',
+      },
+    })
+    expect(createdWorkspace.json().account.roles).not.toContain('owner')
+  })
+
+  it('protects the internal system organization from business users and lifecycle changes', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const owner = await seedOwnerLogin()
+    const consoleSnapshot = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/console?limit=100',
+      headers: { cookie: owner.cookie },
+    })
+    expect(consoleSnapshot.statusCode).toBe(200)
+    expect(consoleSnapshot.json().tenants.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'tenant-seqora-demo',
+          isSystem: true,
+          status: 'active',
+        }),
+      ]),
+    )
+
+    const memberInvitation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations/tenant-seqora-demo/invitations',
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'system-member@example.com',
+        roles: ['member'],
+      },
+    })
+    expect(memberInvitation.statusCode).toBe(409)
+    expect(memberInvitation.json()).toMatchObject({
+      error: { code: 'SYSTEM_ORGANIZATION_PROTECTED' },
+    })
+
+    for (const role of ['member', 'organization_admin', 'organization_member'] as const) {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/api/v1/admin/organizations/tenant-seqora-demo/users',
+        headers: { cookie: owner.cookie },
+        payload: {
+          email: `system-${role}@example.com`,
+          name: `System ${role}`,
+          password: 'SystemProtected123!',
+          role,
+        },
+      })
+      expect(created.statusCode).toBe(409)
+      expect(created.json()).toMatchObject({
+        error: { code: 'SYSTEM_ORGANIZATION_PROTECTED' },
+      })
+    }
+
+    const internalAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/organizations/tenant-seqora-demo/users',
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'system-internal-admin@example.com',
+        name: 'System Internal Admin',
+        password: 'SystemInternalAdmin123!',
+        role: 'admin',
+      },
+    })
+    expect(internalAdmin.statusCode).toBe(201)
+    expect(internalAdmin.json()).toMatchObject({
+      email: 'system-internal-admin@example.com',
+      roles: ['admin'],
+      tenantId: 'tenant-seqora-demo',
+    })
+
+    const disabled = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/admin/organizations/tenant-seqora-demo',
+      headers: { cookie: owner.cookie },
+    })
+    expect(disabled.statusCode).toBe(409)
+    expect(disabled.json()).toMatchObject({
+      error: { code: 'SYSTEM_ORGANIZATION_PROTECTED' },
+    })
+
+    const transferred = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/organizations/tenant-seqora-demo/admin-transfer',
+      headers: { cookie: owner.cookie },
+      payload: {
+        currentOrganizationAdminUserId: 'user-missing-current-organization-admin',
+        targetUserId: 'user-missing-target-organization-admin',
+      },
+    })
+    expect(transferred.statusCode).toBe(409)
+    expect(transferred.json()).toMatchObject({
+      error: { code: 'SYSTEM_ORGANIZATION_PROTECTED' },
+    })
+  })
+
+  it('enforces global owner and super admin role limits', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const owner = await seedOwnerLogin()
+    const secondOwnerInvitation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations/tenant-seqora-demo/invitations',
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'second-owner@example.com',
+        roles: ['owner'],
+      },
+    })
+    expect(secondOwnerInvitation.statusCode).toBe(409)
+    expect(secondOwnerInvitation.json()).toMatchObject({
+      error: { code: 'OWNER_LIMIT_REACHED' },
+    })
+
+    const member = await createMemberWithWorkspace(
+      'owner-promotion-member@example.com',
+      'OwnerPromotionMember123!',
+      'Owner Promotion Workspace',
+    )
+    const promoteMemberToOwner = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/memberships/${member.membershipId}/roles`,
+      headers: { cookie: owner.cookie },
+      payload: { roles: ['owner'] },
+    })
+    expect(promoteMemberToOwner.statusCode).toBe(409)
+    expect(promoteMemberToOwner.json()).toMatchObject({
+      error: { code: 'OWNER_LIMIT_REACHED' },
+    })
+
+    for (let index = 1; index <= 4; index += 1) {
+      const createdSuperAdmin = await app.inject({
+        method: 'POST',
+        url: '/api/v1/organizations/tenant-seqora-demo/users',
+        headers: { cookie: owner.cookie },
+        payload: {
+          email: `role-limit-super-admin-${index}@example.com`,
+          name: `Role Limit Super Admin ${index}`,
+          password: `RoleLimitSuperAdmin${index}123!`,
+          role: 'super_admin',
+        },
+      })
+      expect(createdSuperAdmin.statusCode).toBe(201)
+      expect(createdSuperAdmin.json()).toMatchObject({ roles: ['super_admin'] })
+    }
+
+    const sixthSuperAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'role-limit-super-admin-6@example.com',
+        name: 'Role Limit Super Admin 6',
+        password: 'RoleLimitSuperAdmin6123!',
+        role: 'super_admin',
+      },
+    })
+    expect(sixthSuperAdmin.statusCode).toBe(409)
+    expect(sixthSuperAdmin.json()).toMatchObject({
+      error: { code: 'SUPER_ADMIN_LIMIT_REACHED' },
+    })
   })
 
   it('lists and switches workspaces for active memberships', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
-    const owner = await createUserWorkspace(
-      'workspace-owner@example.com',
-      'OwnerPassword123!',
-      'Owner Workspace',
-      ['owner'],
+    const organizationAdmin = await createOrganizationAdminWorkspace(
+      'workspace-admin@example.com',
+      'OrgAdminPassword123!',
+      'Organization Workspace',
     )
-    const member = await createUserWorkspace(
+    const member = await createMemberWithWorkspace(
       'workspace-member@example.com',
       'MemberPassword123!',
       'Member Workspace',
@@ -715,23 +958,23 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const added = await app.inject({
       method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/members`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members`,
+      headers: { cookie: organizationAdmin.cookie },
       payload: {
         email: 'workspace-member@example.com',
-        roles: ['member', 'member'],
+        roles: ['organization_member', 'organization_member'],
       },
     })
     expect(added.statusCode).toBe(201)
     expect(added.json()).toMatchObject({
-      roles: ['member'],
-      tenantId: owner.tenantId,
+      roles: ['organization_member'],
+      tenantId: organizationAdmin.tenantId,
       userId: member.userId,
     })
 
     const workspaces = await app.inject({
       method: 'GET',
-      url: '/api/v1/workspaces',
+      url: '/api/v1/organizations',
       headers: { cookie: member.cookie },
     })
     expect(workspaces.statusCode).toBe(200)
@@ -739,26 +982,29 @@ describe('account management api', { timeout: 30_000 }, () => {
       expect.arrayContaining([
         expect.objectContaining({
           workspace: expect.objectContaining({ id: member.tenantId, name: 'Member Workspace' }),
-          membership: expect.objectContaining({ roles: expect.arrayContaining(['owner']) }),
+          membership: expect.objectContaining({ roles: ['member'] }),
         }),
         expect.objectContaining({
-          workspace: expect.objectContaining({ id: owner.tenantId, name: 'Owner Workspace' }),
-          membership: expect.objectContaining({ roles: ['member'] }),
+          workspace: expect.objectContaining({
+            id: organizationAdmin.tenantId,
+            name: 'Organization Workspace',
+          }),
+          membership: expect.objectContaining({ roles: ['organization_member'] }),
         }),
       ]),
     )
 
-    const switched = await switchWorkspace(member.cookie, owner.tenantId)
+    const switched = await switchWorkspace(member.cookie, organizationAdmin.tenantId)
     expect(switched.statusCode).toBe(200)
     expect(switched.json()).toMatchObject({
       account: {
         id: member.userId,
-        tenantId: owner.tenantId,
-        roles: ['member'],
+        tenantId: organizationAdmin.tenantId,
+        roles: ['organization_member'],
       },
       workspace: {
-        id: owner.tenantId,
-        name: 'Owner Workspace',
+        id: organizationAdmin.tenantId,
+        name: 'Organization Workspace',
       },
     })
 
@@ -772,8 +1018,8 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(current.json()).toMatchObject({
       account: {
         id: member.userId,
-        tenantId: owner.tenantId,
-        roles: ['member'],
+        tenantId: organizationAdmin.tenantId,
+        roles: ['organization_member'],
       },
     })
 
@@ -787,276 +1033,197 @@ describe('account management api', { timeout: 30_000 }, () => {
       expect.arrayContaining([
         expect.objectContaining({
           userId: member.userId,
-          tenantId: owner.tenantId,
+          tenantId: organizationAdmin.tenantId,
           current: true,
         }),
       ]),
     )
   })
 
-  it('renames workspaces, transfers ownership and lets non-last owners leave', async () => {
+  it('renames organization workspaces and transfers organization administration', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
-    const owner = await createUserWorkspace(
-      'tenant-owner@example.com',
-      'OwnerPassword123!',
+    const organizationAdmin = await createOrganizationAdminWorkspace(
+      'tenant-org-admin@example.com',
+      'OrgAdminPassword123!',
       'Original Workspace',
     )
-    const target = await createUserWorkspace(
+    const target = await createMemberWithWorkspace(
       'tenant-target@example.com',
       'TargetPassword123!',
       'Target Workspace',
     )
-    const admin = await createUserWorkspace(
-      'tenant-admin@example.com',
-      'AdminPassword123!',
-      'Admin Workspace',
-    )
 
     const addTarget = await app.inject({
       method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/members`,
-      headers: { cookie: owner.cookie },
-      payload: { email: 'tenant-target@example.com', roles: ['member'] },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members`,
+      headers: { cookie: organizationAdmin.cookie },
+      payload: { email: 'tenant-target@example.com', roles: ['organization_member'] },
     })
     expect(addTarget.statusCode).toBe(201)
 
-    const addAdmin = await app.inject({
-      method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/members`,
-      headers: { cookie: owner.cookie },
-      payload: { email: 'tenant-admin@example.com', roles: ['admin'] },
-    })
-    expect(addAdmin.statusCode).toBe(201)
-
-    const adminSwitch = await switchWorkspace(admin.cookie, owner.tenantId)
-    expect(adminSwitch.statusCode).toBe(200)
-    const adminCookie = cookieValue(adminSwitch)
-
     const renamed = await app.inject({
       method: 'PATCH',
-      url: `/api/v1/workspaces/${owner.tenantId}`,
-      headers: { cookie: adminCookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}`,
+      headers: { cookie: organizationAdmin.cookie },
       payload: { name: 'Renamed Workspace' },
     })
     expect(renamed.statusCode).toBe(200)
     expect(renamed.json()).toMatchObject({
-      id: owner.tenantId,
+      id: organizationAdmin.tenantId,
       name: 'Renamed Workspace',
       status: 'active',
     })
 
-    const adminTransfersOwner = await app.inject({
+    const organizationAdminTransfer = await app.inject({
       method: 'POST',
-      url: `/api/v1/workspaces/${owner.tenantId}/owner-transfer`,
-      headers: { cookie: adminCookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/admin-transfer`,
+      headers: { cookie: organizationAdmin.cookie },
       payload: { targetUserId: target.userId },
     })
-    expect(adminTransfersOwner.statusCode).toBe(403)
-    expect(adminTransfersOwner.json()).toMatchObject({ error: { code: 'OWNER_REQUIRED' } })
-
-    const transferred = await app.inject({
-      method: 'POST',
-      url: `/api/v1/workspaces/${owner.tenantId}/owner-transfer`,
-      headers: { cookie: owner.cookie },
-      payload: { targetUserId: target.userId, previousOwnerRole: 'admin' },
-    })
-    expect(transferred.statusCode).toBe(200)
-    expect(transferred.json()).toMatchObject({
-      previousOwner: {
-        userId: owner.userId,
-        roles: ['admin'],
+    expect(organizationAdminTransfer.statusCode).toBe(200)
+    expect(organizationAdminTransfer.json()).toMatchObject({
+      previousOrganizationAdmin: {
+        userId: organizationAdmin.userId,
+        roles: ['organization_member'],
       },
-      newOwner: {
+      newOrganizationAdmin: {
         userId: target.userId,
-        roles: ['owner'],
+        roles: ['organization_admin'],
       },
     })
+    expect(organizationAdminTransfer.json()).not.toHaveProperty('owner')
+    expect(organizationAdminTransfer.headers).not.toHaveProperty('deprecation')
 
-    const previousOwnerSession = await app.inject({
-      method: 'GET',
-      url: '/api/v1/auth/me',
-      headers: { cookie: owner.cookie },
-    })
-    expect(previousOwnerSession.statusCode).toBe(200)
-    expect(previousOwnerSession.json()).toMatchObject({
-      account: { tenantId: owner.tenantId, roles: ['admin'] },
-    })
-
-    const targetSwitch = await switchWorkspace(target.cookie, owner.tenantId)
+    const targetSwitch = await switchWorkspace(target.cookie, organizationAdmin.tenantId)
     expect(targetSwitch.statusCode).toBe(200)
     expect(targetSwitch.json()).toMatchObject({
-      account: { id: target.userId, tenantId: owner.tenantId, roles: ['owner'] },
-      workspace: { id: owner.tenantId, name: 'Renamed Workspace' },
+      account: {
+        id: target.userId,
+        tenantId: organizationAdmin.tenantId,
+        roles: ['organization_admin'],
+      },
+      workspace: { id: organizationAdmin.tenantId, name: 'Renamed Workspace' },
     })
-
-    const previousOwnerLeaves = await app.inject({
-      method: 'POST',
-      url: `/api/v1/workspaces/${owner.tenantId}/leave`,
-      headers: { cookie: owner.cookie },
-    })
-    expect(previousOwnerLeaves.statusCode).toBe(200)
-    expect(previousOwnerLeaves.json()).toMatchObject({
-      account: { id: owner.userId, tenantId: 'tenant-seqora-demo', roles: ['member'] },
-      workspace: { id: 'tenant-seqora-demo' },
-    })
-
-    const switchBackAfterLeave = await switchWorkspace(cookieValue(previousOwnerLeaves), owner.tenantId)
-    expect(switchBackAfterLeave.statusCode).toBe(404)
-    expect(switchBackAfterLeave.json()).toMatchObject({ error: { code: 'WORKSPACE_NOT_FOUND' } })
-
-    const lastOwnerLeaves = await app.inject({
-      method: 'POST',
-      url: `/api/v1/workspaces/${owner.tenantId}/leave`,
-      headers: { cookie: cookieValue(targetSwitch) },
-    })
-    expect(lastOwnerLeaves.statusCode).toBe(409)
-    expect(lastOwnerLeaves.json()).toMatchObject({ error: { code: 'LAST_OWNER_CANNOT_LEAVE' } })
   })
 
-  it('disables workspaces for owners only and revokes tenant access', async () => {
+  it('keeps the legacy organization admin transfer route deprecated but functional', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
-    const owner = await createUserWorkspace(
-      'disable-owner@example.com',
-      'OwnerPassword123!',
+    const organizationAdmin = await createOrganizationAdminWorkspace(
+      'legacy-route-org-admin@example.com',
+      'LegacyRouteOrgAdmin123!',
+      'Legacy Route Workspace',
+    )
+    const target = await createMemberWithWorkspace(
+      'legacy-route-target@example.com',
+      'LegacyRouteTarget123!',
+      'Legacy Route Target Workspace',
+    )
+    const addTarget = await app.inject({
+      method: 'POST',
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members`,
+      headers: { cookie: organizationAdmin.cookie },
+      payload: { email: 'legacy-route-target@example.com', roles: ['organization_member'] },
+    })
+    expect(addTarget.statusCode).toBe(201)
+
+    const legacyTransfer = await app.inject({
+      method: 'POST',
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/organization-admin-transfer`,
+      headers: { cookie: organizationAdmin.cookie },
+      payload: { targetUserId: target.userId },
+    })
+    expect(legacyTransfer.statusCode).toBe(200)
+    expect(legacyTransfer.headers.deprecation).toBe('true')
+    expect(legacyTransfer.headers.link).toContain(
+      `/api/v1/organizations/${organizationAdmin.tenantId}/admin-transfer`,
+    )
+  })
+
+  it('keeps workspace disable as an owner-only action', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const organizationAdmin = await createOrganizationAdminWorkspace(
+      'disable-org-admin@example.com',
+      'OrgAdminPassword123!',
       'Disable Workspace',
     )
-    const admin = await createUserWorkspace(
-      'disable-admin@example.com',
-      'AdminPassword123!',
-      'Disable Admin Workspace',
-    )
 
-    const addAdmin = await app.inject({
-      method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/members`,
-      headers: { cookie: owner.cookie },
-      payload: { email: 'disable-admin@example.com', roles: ['admin'] },
-    })
-    expect(addAdmin.statusCode).toBe(201)
-    const adminSwitch = await switchWorkspace(admin.cookie, owner.tenantId)
-    expect(adminSwitch.statusCode).toBe(200)
-
-    const adminDisablesWorkspace = await app.inject({
+    const organizationAdminDisablesWorkspace = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/workspaces/${owner.tenantId}`,
-      headers: { cookie: cookieValue(adminSwitch) },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}`,
+      headers: { cookie: organizationAdmin.cookie },
     })
-    expect(adminDisablesWorkspace.statusCode).toBe(403)
-    expect(adminDisablesWorkspace.json()).toMatchObject({ error: { code: 'OWNER_REQUIRED' } })
-
-    const disabled = await app.inject({
-      method: 'DELETE',
-      url: `/api/v1/workspaces/${owner.tenantId}`,
-      headers: { cookie: owner.cookie },
-    })
-    expect(disabled.statusCode).toBe(200)
-    expect(disabled.json()).toMatchObject({
-      account: { id: owner.userId, tenantId: 'tenant-seqora-demo', roles: ['member'] },
-      workspace: { id: 'tenant-seqora-demo' },
-    })
-
-    const switchBack = await switchWorkspace(cookieValue(disabled), owner.tenantId)
-    expect(switchBack.statusCode).toBe(404)
-    expect(switchBack.json()).toMatchObject({ error: { code: 'WORKSPACE_NOT_FOUND' } })
-
-    const adminOldTenantSession = await app.inject({
-      method: 'GET',
-      url: '/api/v1/auth/me',
-      headers: { cookie: cookieValue(adminSwitch) },
-    })
-    expect(adminOldTenantSession.statusCode).toBe(401)
+    expect(organizationAdminDisablesWorkspace.statusCode).toBe(403)
+    expect(organizationAdminDisablesWorkspace.json()).toMatchObject({ error: { code: 'OWNER_REQUIRED' } })
   })
 
-  it('enforces owner boundaries for elevated memberships and tenant sessions', async () => {
+  it('enforces organization admin boundaries for memberships and tenant sessions', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
-    const owner = await createUserWorkspace(
-      'boundary-owner@example.com',
-      'OwnerPassword123!',
+    const organizationAdmin = await createOrganizationAdminWorkspace(
+      'boundary-org-admin@example.com',
+      'OrgAdminPassword123!',
       'Boundary Workspace',
-      ['owner'],
     )
-    const admin = await createUserWorkspace(
-      'boundary-admin@example.com',
-      'AdminPassword123!',
-      'Admin Workspace',
-    )
-    const member = await createUserWorkspace(
+    const organizationMember = await createMemberWithWorkspace(
       'boundary-member@example.com',
       'MemberPassword123!',
       'Member Workspace',
     )
-
-    const addAdmin = await app.inject({
-      method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/members`,
-      headers: { cookie: owner.cookie },
-      payload: {
-        email: 'boundary-admin@example.com',
-        roles: ['admin'],
-      },
-    })
-    expect(addAdmin.statusCode).toBe(201)
+    const platformMember = await createMemberWithWorkspace(
+      'boundary-platform-member@example.com',
+      'MemberPassword123!',
+      'Platform Member Workspace',
+    )
 
     const addMember = await app.inject({
       method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/members`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members`,
+      headers: { cookie: organizationAdmin.cookie },
       payload: {
         email: 'boundary-member@example.com',
-        roles: ['member'],
+        roles: ['organization_member'],
       },
     })
     expect(addMember.statusCode).toBe(201)
-
-    const adminSwitch = await switchWorkspace(admin.cookie, owner.tenantId)
-    const adminCookie = cookieValue(adminSwitch)
+    const organizationMemberSwitch = await switchWorkspace(
+      organizationMember.cookie,
+      organizationAdmin.tenantId,
+    )
+    expect(organizationMemberSwitch.statusCode).toBe(200)
 
     const selfRoleChange = await app.inject({
       method: 'PATCH',
-      url: `/api/v1/tenants/${owner.tenantId}/members/${owner.userId}/roles`,
-      headers: { cookie: owner.cookie },
-      payload: { roles: ['member'] },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members/${organizationAdmin.userId}/roles`,
+      headers: { cookie: organizationAdmin.cookie },
+      payload: { roles: ['organization_member'] },
     })
     expect(selfRoleChange.statusCode).toBe(400)
     expect(selfRoleChange.json()).toMatchObject({ error: { code: 'CANNOT_CHANGE_SELF_ROLES' } })
 
-    const demoteOwner = await app.inject({
+    const managePlatformMember = await app.inject({
       method: 'PATCH',
-      url: `/api/v1/tenants/${owner.tenantId}/members/${owner.userId}/roles`,
-      headers: { cookie: adminCookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members/${platformMember.userId}/roles`,
+      headers: { cookie: organizationAdmin.cookie },
       payload: { roles: ['member'] },
     })
-    expect(demoteOwner.statusCode).toBe(403)
-    expect(demoteOwner.json()).toMatchObject({
-      error: { code: 'ELEVATED_MEMBERSHIP_REQUIRES_OWNER' },
-    })
-
-    const disableOwner = await app.inject({
-      method: 'DELETE',
-      url: `/api/v1/tenants/${owner.tenantId}/members/${owner.userId}`,
-      headers: { cookie: adminCookie },
-    })
-    expect(disableOwner.statusCode).toBe(403)
-    expect(disableOwner.json()).toMatchObject({
-      error: { code: 'ELEVATED_MEMBERSHIP_REQUIRES_OWNER' },
-    })
+    expect(managePlatformMember.statusCode).toBe(403)
 
     const promoteMember = await app.inject({
       method: 'PATCH',
-      url: `/api/v1/tenants/${owner.tenantId}/members/${member.userId}/roles`,
-      headers: { cookie: adminCookie },
-      payload: { roles: ['admin'] },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members/${organizationMember.userId}/roles`,
+      headers: { cookie: organizationAdmin.cookie },
+      payload: { roles: ['organization_admin'] },
     })
     expect(promoteMember.statusCode).toBe(403)
     expect(promoteMember.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } })
 
     const tenantSessions = await app.inject({
       method: 'GET',
-      url: `/api/v1/tenants/${owner.tenantId}/sessions`,
-      headers: { cookie: adminCookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/sessions`,
+      headers: { cookie: organizationAdmin.cookie },
     })
     expect(tenantSessions.statusCode).toBe(200)
     const sessionList = tenantSessions.json() as Array<{
@@ -1064,25 +1231,19 @@ describe('account management api', { timeout: 30_000 }, () => {
       userId: string
       current: boolean
     }>
-    const ownerSession = sessionList.find((session) => session.userId === owner.userId)
-    const adminSession = sessionList.find((session) => session.userId === admin.userId && session.current)
-    expect(ownerSession?.sessionId).toEqual(expect.any(String))
-    expect(adminSession?.sessionId).toEqual(expect.any(String))
-
-    const revokeOwnerSession = await app.inject({
-      method: 'DELETE',
-      url: `/api/v1/tenants/${owner.tenantId}/sessions/${ownerSession?.sessionId}`,
-      headers: { cookie: adminCookie },
-    })
-    expect(revokeOwnerSession.statusCode).toBe(403)
-    expect(revokeOwnerSession.json()).toMatchObject({
-      error: { code: 'ELEVATED_SESSION_REQUIRES_OWNER' },
-    })
+    const organizationAdminSession = sessionList.find(
+      (session) => session.userId === organizationAdmin.userId && session.current,
+    )
+    const organizationMemberSession = sessionList.find(
+      (session) => session.userId === organizationMember.userId,
+    )
+    expect(organizationAdminSession?.sessionId).toEqual(expect.any(String))
+    expect(organizationMemberSession?.sessionId).toEqual(expect.any(String))
 
     const revokeOwnAdminSession = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/tenants/${owner.tenantId}/sessions/${adminSession?.sessionId}`,
-      headers: { cookie: adminCookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/sessions/${organizationAdminSession?.sessionId}`,
+      headers: { cookie: organizationAdmin.cookie },
     })
     expect(revokeOwnAdminSession.statusCode).toBe(400)
     expect(revokeOwnAdminSession.json()).toMatchObject({
@@ -1091,58 +1252,43 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const disableMember = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/tenants/${owner.tenantId}/members/${member.userId}`,
-      headers: { cookie: adminCookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members/${organizationMember.userId}`,
+      headers: { cookie: organizationAdmin.cookie },
     })
     expect(disableMember.statusCode).toBe(204)
 
     const disabledSwitch = await app.inject({
       method: 'POST',
-      url: `/api/v1/workspaces/${owner.tenantId}/switch`,
-      headers: { cookie: member.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/switch`,
+      headers: { cookie: organizationMember.cookie },
     })
     expect(disabledSwitch.statusCode).toBe(404)
     expect(disabledSwitch.json()).toMatchObject({ error: { code: 'WORKSPACE_NOT_FOUND' } })
-
-    const ownerRevokesAdmin = await app.inject({
-      method: 'DELETE',
-      url: `/api/v1/tenants/${owner.tenantId}/sessions/${adminSession?.sessionId}`,
-      headers: { cookie: owner.cookie },
-    })
-    expect(ownerRevokesAdmin.statusCode).toBe(204)
-
-    const adminAfterRevoke = await app.inject({
-      method: 'GET',
-      url: '/api/v1/auth/me',
-      headers: { cookie: adminCookie },
-    })
-    expect(adminAfterRevoke.statusCode).toBe(401)
   })
 
   it('creates, lists and revokes tenant invitations', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
-    const owner = await createUserWorkspace(
-      'invites-owner@example.com',
-      'OwnerPassword123!',
+    const organizationAdmin = await createOrganizationAdminWorkspace(
+      'invites-org-admin@example.com',
+      'OrgAdminPassword123!',
       'Owner Workspace',
-      ['owner'],
     )
 
     const createInvitation = await app.inject({
       method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/invitations`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/invitations`,
+      headers: { cookie: organizationAdmin.cookie },
       payload: {
         email: 'member@example.com',
-        roles: ['member'],
+        roles: ['organization_member'],
       },
     })
     expect(createInvitation.statusCode).toBe(201)
     expect(createInvitation.json()).toMatchObject({
       email: 'member@example.com',
-      tenantId: owner.tenantId,
-      roles: ['member'],
+      tenantId: organizationAdmin.tenantId,
+      roles: ['organization_member'],
       status: 'pending',
       token: expect.any(String),
     })
@@ -1150,11 +1296,11 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const reissuedInvitation = await app.inject({
       method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/invitations`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/invitations`,
+      headers: { cookie: organizationAdmin.cookie },
       payload: {
         email: 'member@example.com',
-        roles: ['member'],
+        roles: ['organization_member'],
       },
     })
     expect(reissuedInvitation.statusCode).toBe(201)
@@ -1180,8 +1326,8 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const invitations = await app.inject({
       method: 'GET',
-      url: `/api/v1/tenants/${owner.tenantId}/invitations`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/invitations`,
+      headers: { cookie: organizationAdmin.cookie },
     })
     expect(invitations.statusCode).toBe(200)
     expect(invitations.json()).toEqual(
@@ -1207,33 +1353,33 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(acceptInvitation.json()).toMatchObject({
       account: {
         email: 'member@example.com',
-        tenantId: owner.tenantId,
-        roles: ['member'],
+        tenantId: organizationAdmin.tenantId,
+        roles: ['organization_member'],
       },
     })
 
     const revokedAccepted = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/tenants/${owner.tenantId}/invitations/${firstInvitation.id}`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/invitations/${firstInvitation.id}`,
+      headers: { cookie: organizationAdmin.cookie },
     })
     expect(revokedAccepted.statusCode).toBe(404)
 
     const secondInvitation = await app.inject({
       method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/invitations`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/invitations`,
+      headers: { cookie: organizationAdmin.cookie },
       payload: {
         email: 'revoked@example.com',
-        roles: ['member'],
+        roles: ['organization_member'],
       },
     })
     expect(secondInvitation.statusCode).toBe(201)
 
     const revokedPending = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/tenants/${owner.tenantId}/invitations/${secondInvitation.json().id}`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/invitations/${secondInvitation.json().id}`,
+      headers: { cookie: organizationAdmin.cookie },
     })
     expect(revokedPending.statusCode).toBe(204)
 
@@ -1253,62 +1399,74 @@ describe('account management api', { timeout: 30_000 }, () => {
   it('adds registered members, updates roles and disables memberships', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
-    const owner = await createUserWorkspace('owner@example.com', 'OwnerPassword123!', 'Owner Workspace', [
-      'owner',
-    ])
-    const member = await createUserWorkspace('member@example.com', 'MemberPassword123!', 'Member Workspace')
+    const organizationAdmin = await createOrganizationAdminWorkspace(
+      'members-org-admin@example.com',
+      'OrgAdminPassword123!',
+      'Organization Workspace',
+    )
+    const member = await createMemberWithWorkspace(
+      'member@example.com',
+      'MemberPassword123!',
+      'Member Workspace',
+    )
 
     const added = await app.inject({
       method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/members`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members`,
+      headers: { cookie: organizationAdmin.cookie },
       payload: {
         email: 'member@example.com',
-        roles: ['member'],
+        roles: ['organization_member'],
       },
     })
 
     expect(added.statusCode).toBe(201)
     expect(added.json()).toMatchObject({
       email: 'member@example.com',
-      roles: ['member'],
-      tenantId: owner.tenantId,
+      roles: ['organization_member'],
+      tenantId: organizationAdmin.tenantId,
       userId: member.userId,
     })
 
     const members = await app.inject({
       method: 'GET',
-      url: `/api/v1/tenants/${owner.tenantId}/members`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members`,
+      headers: { cookie: organizationAdmin.cookie },
     })
     expect(members.statusCode).toBe(200)
     expect(members.json()).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ email: 'owner@example.com', roles: expect.arrayContaining(['owner']) }),
-        expect.objectContaining({ email: 'member@example.com', roles: expect.arrayContaining(['member']) }),
+        expect.objectContaining({
+          email: 'members-org-admin@example.com',
+          roles: expect.arrayContaining(['organization_admin']),
+        }),
+        expect.objectContaining({
+          email: 'member@example.com',
+          roles: expect.arrayContaining(['organization_member']),
+        }),
       ]),
     )
 
     const promoted = await app.inject({
       method: 'PATCH',
-      url: `/api/v1/tenants/${owner.tenantId}/members/${member.userId}/roles`,
-      headers: { cookie: owner.cookie },
-      payload: { roles: ['admin'] },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members/${member.userId}/roles`,
+      headers: { cookie: organizationAdmin.cookie },
+      payload: { roles: ['organization_member'] },
     })
     expect(promoted.statusCode).toBe(200)
-    expect(promoted.json()).toMatchObject({ roles: ['admin'] })
+    expect(promoted.json()).toMatchObject({ roles: ['organization_member'] })
 
     const disabled = await app.inject({
       method: 'DELETE',
-      url: `/api/v1/tenants/${owner.tenantId}/members/${member.userId}`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members/${member.userId}`,
+      headers: { cookie: organizationAdmin.cookie },
     })
     expect(disabled.statusCode).toBe(204)
 
     const disabledMembers = await app.inject({
       method: 'GET',
-      url: `/api/v1/tenants/${owner.tenantId}/members`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members`,
+      headers: { cookie: organizationAdmin.cookie },
     })
     expect(disabledMembers.statusCode).toBe(200)
     expect(disabledMembers.json()).toEqual(
@@ -1319,31 +1477,35 @@ describe('account management api', { timeout: 30_000 }, () => {
   it('disables accounts for the whole tenant and blocks future logins', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
-    const owner = await createUserWorkspace('owner2@example.com', 'OwnerPassword123!', 'Owner Workspace 2', [
-      'owner',
-    ])
-    const member = await createUserWorkspace(
+    const organizationAdmin = await createOrganizationAdminWorkspace(
+      'account-org-admin@example.com',
+      'OrgAdminPassword123!',
+      'Organization Workspace 2',
+    )
+    const member = await createMemberWithWorkspace(
       'member2@example.com',
       'MemberPassword123!',
       'Member Workspace 2',
     )
     const added = await app.inject({
       method: 'POST',
-      url: `/api/v1/tenants/${owner.tenantId}/members`,
-      headers: { cookie: owner.cookie },
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/members`,
+      headers: { cookie: organizationAdmin.cookie },
       payload: {
         email: 'member2@example.com',
-        roles: ['member'],
+        roles: ['organization_member'],
       },
     })
     expect(added.statusCode).toBe(201)
 
+    const owner = await seedOwnerLogin()
     const disabled = await app.inject({
-      method: 'DELETE',
-      url: `/api/v1/tenants/${owner.tenantId}/accounts/${member.userId}`,
+      method: 'PATCH',
+      url: `/api/v1/admin/users/${member.userId}/status`,
       headers: { cookie: owner.cookie },
+      payload: { status: 'disabled' },
     })
-    expect(disabled.statusCode).toBe(204)
+    expect(disabled.statusCode).toBe(200)
 
     const relogin = await app.inject({
       method: 'POST',
@@ -1367,57 +1529,54 @@ function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   })
 }
 
-async function createUserWorkspace(
+async function createMemberWithWorkspace(email: string, password: string, workspaceName: string) {
+  return await createTenantUserInFreshWorkspace(email, password, workspaceName, 'member')
+}
+
+async function createOrganizationAdminWorkspace(email: string, password: string, workspaceName: string) {
+  return await createTenantUserInFreshWorkspace(email, password, workspaceName, 'organization_admin')
+}
+
+async function createTenantUserInFreshWorkspace(
   email: string,
   password: string,
   workspaceName: string,
-  seedRoles: string[] = ['member'],
+  role: 'member' | 'admin' | 'organization_admin',
 ) {
   if (!app) throw new Error('App is not ready')
-  const accepted = await inviteAndAcceptUser(email, password, seedRoles)
+  const owner = await seedOwnerLogin()
   const workspace = await app.inject({
     method: 'POST',
-    url: '/api/v1/workspaces',
-    headers: { cookie: accepted.cookie },
+    url: '/api/v1/organizations',
+    headers: { cookie: owner.cookie },
     payload: { name: workspaceName },
   })
   expect(workspace.statusCode).toBe(201)
-  return {
-    userId: workspace.json().account.id as string,
-    tenantId: workspace.json().account.tenantId as string,
-    cookie: cookieValue(workspace),
-  }
-}
-
-async function inviteAndAcceptUser(email: string, password: string, roles: string[] = ['member']) {
-  if (!app) throw new Error('App is not ready')
-  const owner = await seedOwnerLogin()
-  const invitation = await app.inject({
+  const tenantId = workspace.json().workspace.id as string
+  const created = await app.inject({
     method: 'POST',
-    url: '/api/v1/tenants/tenant-seqora-demo/invitations',
+    url: `/api/v1/admin/organizations/${tenantId}/users`,
     headers: { cookie: owner.cookie },
     payload: {
       email,
-      roles,
-    },
-  })
-  expect(invitation.statusCode).toBe(201)
-
-  const response = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/invitations/accept',
-    payload: {
-      token: invitation.json().token,
       name: email.split('@')[0],
       password,
+      role,
     },
   })
-  expect(response.statusCode).toBe(201)
+  expect(created.statusCode).toBe(201)
+  const login = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    payload: { email, password },
+  })
+  expect(login.statusCode).toBe(200)
+  expect(login.json().account.roles).toEqual([role])
   return {
-    response,
-    userId: response.json().account.id as string,
-    tenantId: response.json().account.tenantId as string,
-    cookie: cookieValue(response),
+    userId: created.json().userId as string,
+    membershipId: created.json().id as string,
+    tenantId,
+    cookie: cookieValue(login),
   }
 }
 
@@ -1439,7 +1598,7 @@ async function switchWorkspace(cookie: string, tenantId: string) {
   if (!app) throw new Error('App is not ready')
   return await app.inject({
     method: 'POST',
-    url: `/api/v1/workspaces/${tenantId}/switch`,
+    url: `/api/v1/organizations/${tenantId}/switch`,
     headers: { cookie },
   })
 }

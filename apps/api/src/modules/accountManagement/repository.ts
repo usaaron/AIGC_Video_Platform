@@ -24,8 +24,12 @@ export type AccountWorkspace = {
 export type CreateTenantUserResult =
   { kind: 'created'; membership: Membership } | { kind: 'duplicate' } | { kind: 'tenant_missing' }
 
-export type TransferWorkspaceOwnerResult =
-  | { kind: 'transferred'; previousOwner: Membership; newOwner: Membership }
+export type TransferOrganizationAdminResult =
+  | {
+      kind: 'transferred'
+      previousOrganizationAdmin: Membership
+      newOrganizationAdmin: Membership
+    }
   | { kind: 'missing' }
   | { kind: 'target_missing' }
 
@@ -35,8 +39,7 @@ export type LeaveWorkspaceResult =
   | { kind: 'last_owner' }
 
 export type DisableWorkspaceResult =
-  | { kind: 'disabled'; workspace: Workspace; nextWorkspace: AccountWorkspace | null }
-  | { kind: 'missing' }
+  { kind: 'disabled'; workspace: Workspace; nextWorkspace: AccountWorkspace | null } | { kind: 'missing' }
 
 export class AccountManagementRepository {
   constructor(private readonly database: AccountDatabase) {}
@@ -56,6 +59,7 @@ export class AccountManagementRepository {
         [userId],
       )
       if (!user.rows.length) return null
+      const role = await readWorkspaceCreationRole(client, userId)
 
       await client.query(
         `
@@ -71,7 +75,7 @@ export class AccountManagementRepository {
         )
         VALUES ($1, $2, $3, $4, false, 'active', now(), now())
         `,
-        [membershipId, tenantId, userId, ['owner']],
+        [membershipId, tenantId, userId, [role]],
       )
       await client.query(
         `
@@ -293,6 +297,19 @@ export class AccountManagementRepository {
     }))
   }
 
+  async isSystemTenant(tenantId: string): Promise<boolean> {
+    const result = await this.database.query<{ is_system: boolean }>(
+      `
+      SELECT is_system
+      FROM tenants
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [tenantId],
+    )
+    return result.rows[0]?.is_system === true
+  }
+
   async findActiveAccountWorkspace(userId: string, tenantId: string): Promise<AccountWorkspace | null> {
     const result = await this.database.query<AccountWorkspaceRow>(
       accountWorkspaceSelectSql(`
@@ -330,14 +347,13 @@ export class AccountManagementRepository {
     return updated.rows[0] ? toWorkspaceSummary(updated.rows[0]) : null
   }
 
-  async transferWorkspaceOwner(input: {
+  async transferOrganizationAdmin(input: {
     tenantId: string
-    currentOwnerUserId: string
+    currentOrganizationAdminUserId: string
     targetUserId: string
-    previousOwnerRole: 'admin' | 'member' | 'organization_admin' | 'organization_member'
-  }): Promise<TransferWorkspaceOwnerResult> {
+  }): Promise<TransferOrganizationAdminResult> {
     return this.database.transaction(async (client) => {
-      const currentOwner = await client.query<{ id: string; roles: Role[] }>(
+      const currentOrganizationAdmin = await client.query<{ id: string; roles: Role[] }>(
         `
         SELECT m.id, m.roles
         FROM tenant_memberships m
@@ -346,13 +362,13 @@ export class AccountManagementRepository {
         WHERE m.tenant_id = $1
           AND m.user_id = $2
           AND m.status = 'active'
-          AND m.roles @> ARRAY['owner']::text[]
+          AND m.roles @> ARRAY['organization_admin']::text[]
         LIMIT 1
         FOR UPDATE OF m
         `,
-        [input.tenantId, input.currentOwnerUserId],
+        [input.tenantId, input.currentOrganizationAdminUserId],
       )
-      if (!currentOwner.rows[0]) return { kind: 'missing' }
+      if (!currentOrganizationAdmin.rows[0]) return { kind: 'missing' }
 
       const target = await client.query<{ id: string; roles: Role[] }>(
         `
@@ -363,6 +379,7 @@ export class AccountManagementRepository {
         WHERE m.tenant_id = $1
           AND m.user_id = $2
           AND m.status = 'active'
+          AND m.roles @> ARRAY['organization_member']::text[]
         LIMIT 1
         FOR UPDATE OF m
         `,
@@ -373,100 +390,43 @@ export class AccountManagementRepository {
       await client.query(
         `
         UPDATE tenant_memberships
-        SET roles = ARRAY['owner']::text[],
+        SET roles = $3,
+            updated_at = now()
+        WHERE tenant_id = $1
+          AND user_id = $2
+        `,
+        [input.tenantId, input.currentOrganizationAdminUserId, ['organization_member']],
+      )
+      await client.query(
+        `
+        UPDATE tenant_memberships
+        SET roles = ARRAY['organization_admin']::text[],
             updated_at = now()
         WHERE tenant_id = $1
           AND user_id = $2
         `,
         [input.tenantId, input.targetUserId],
       )
-      await client.query(
-        `
-        UPDATE tenant_memberships
-        SET roles = $3,
-            updated_at = now()
-        WHERE tenant_id = $1
-          AND user_id = $2
-        `,
-        [input.tenantId, input.currentOwnerUserId, [input.previousOwnerRole]],
-      )
 
-      const previousOwner = await readMembership(client, input.tenantId, input.currentOwnerUserId)
-      const newOwner = await readMembership(client, input.tenantId, input.targetUserId)
-      if (!previousOwner || !newOwner) throw new Error(`Could not read transferred owner ${input.tenantId}`)
-      return { kind: 'transferred', previousOwner, newOwner }
+      const previousOrganizationAdmin = await readMembership(
+        client,
+        input.tenantId,
+        input.currentOrganizationAdminUserId,
+      )
+      const newOrganizationAdmin = await readMembership(client, input.tenantId, input.targetUserId)
+      if (!previousOrganizationAdmin || !newOrganizationAdmin) {
+        throw new Error(`Could not read transferred organization admin ${input.tenantId}`)
+      }
+      return { kind: 'transferred', previousOrganizationAdmin, newOrganizationAdmin }
     })
   }
 
-  async transferWorkspaceOwnerByTenant(input: {
+  async transferOrganizationAdminByTenant(input: {
     tenantId: string
+    currentOrganizationAdminUserId: string
     targetUserId: string
-    previousOwnerRole: 'admin' | 'member' | 'organization_admin' | 'organization_member'
-  }): Promise<TransferWorkspaceOwnerResult> {
-    return this.database.transaction(async (client) => {
-      const currentOwner = await client.query<{ user_id: string; id: string; roles: Role[] }>(
-        `
-        SELECT m.user_id, m.id, m.roles
-        FROM tenant_memberships m
-        JOIN users u ON u.id = m.user_id AND u.status = 'active'
-        JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
-        WHERE m.tenant_id = $1
-          AND m.user_id <> $2
-          AND m.status = 'active'
-          AND m.roles @> ARRAY['owner']::text[]
-        ORDER BY m.is_primary DESC, m.created_at ASC
-        LIMIT 1
-        FOR UPDATE OF m
-        `,
-        [input.tenantId, input.targetUserId],
-      )
-      const currentOwnerUserId = currentOwner.rows[0]?.user_id
-      if (!currentOwnerUserId) return { kind: 'missing' }
-
-      const target = await client.query<{ id: string; roles: Role[] }>(
-        `
-        SELECT m.id, m.roles
-        FROM tenant_memberships m
-        JOIN users u ON u.id = m.user_id AND u.status = 'active'
-        JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
-        WHERE m.tenant_id = $1
-          AND m.user_id = $2
-          AND m.status = 'active'
-        LIMIT 1
-        FOR UPDATE OF m
-        `,
-        [input.tenantId, input.targetUserId],
-      )
-      if (!target.rows[0]) return { kind: 'target_missing' }
-
-      await client.query(
-        `
-        UPDATE tenant_memberships
-        SET roles = ARRAY['owner']::text[],
-            updated_at = now()
-        WHERE tenant_id = $1
-          AND user_id = $2
-        `,
-        [input.tenantId, input.targetUserId],
-      )
-      await client.query(
-        `
-        UPDATE tenant_memberships
-        SET roles = $3,
-            updated_at = now()
-        WHERE tenant_id = $1
-          AND user_id = $2
-        `,
-        [input.tenantId, currentOwnerUserId, [input.previousOwnerRole]],
-      )
-
-      const previousOwner = await readMembership(client, input.tenantId, currentOwnerUserId)
-      const newOwner = await readMembership(client, input.tenantId, input.targetUserId)
-      if (!previousOwner || !newOwner) {
-        throw new Error(`Could not read admin transferred owner ${input.tenantId}`)
-      }
-      return { kind: 'transferred', previousOwner, newOwner }
-    })
+  }): Promise<TransferOrganizationAdminResult> {
+    return this.transferOrganizationAdmin(input)
   }
 
   async leaveWorkspace(userId: string, tenantId: string): Promise<LeaveWorkspaceResult> {
@@ -714,6 +674,24 @@ export class AccountManagementRepository {
         AND roles @> ARRAY['owner']::text[]
       `,
       [tenantId],
+    )
+    return Number(result.rows[0]?.count ?? 0)
+  }
+
+  async countActiveUsersWithRole(
+    role: Extract<Role, 'owner' | 'super_admin'>,
+    excludeUserId?: string,
+  ): Promise<number> {
+    const result = await this.database.query<{ count: string }>(
+      `
+      SELECT count(DISTINCT m.user_id) AS count
+      FROM tenant_memberships m
+      JOIN users u ON u.id = m.user_id AND u.status = 'active'
+      WHERE m.status = 'active'
+        AND m.roles @> ARRAY[$1]::text[]
+        AND ($2::text IS NULL OR m.user_id <> $2)
+      `,
+      [role, excludeUserId ?? null],
     )
     return Number(result.rows[0]?.count ?? 0)
   }
@@ -1135,7 +1113,11 @@ async function readInvitationById(client: Queryable, invitationId: string): Prom
   return result.rows[0] ? toTenantInvitation(result.rows[0]) : null
 }
 
-async function readMembership(client: Queryable, tenantId: string, userId: string): Promise<Membership | null> {
+async function readMembership(
+  client: Queryable,
+  tenantId: string,
+  userId: string,
+): Promise<Membership | null> {
   const result = await client.query<MembershipRow>(
     membershipSelectSql('WHERE m.tenant_id = $1 AND m.user_id = $2'),
     [tenantId, userId],
@@ -1168,6 +1150,23 @@ async function readNextAccountWorkspace(
         membership: toMembership(row),
       }
     : null
+}
+
+async function readWorkspaceCreationRole(client: Queryable, userId: string): Promise<Role> {
+  const result = await client.query<{ roles: Role[] }>(
+    `
+    SELECT roles
+    FROM tenant_memberships
+    WHERE user_id = $1
+      AND status = 'active'
+    ORDER BY is_primary DESC, created_at ASC
+    LIMIT 1
+    `,
+    [userId],
+  )
+  const roles = result.rows[0]?.roles ?? []
+  if (roles.includes('organization_admin')) return 'organization_admin'
+  return 'member'
 }
 
 function toWorkspaceSummary(row: WorkspaceRow): Workspace {

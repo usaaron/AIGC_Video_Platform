@@ -37,6 +37,8 @@ type AccountSeed = {
   credits: number
 }
 
+const systemTenantId = 'tenant-seqora-demo'
+
 export class UserRepository implements AuthAccounts {
   constructor(
     private readonly store: AppStore,
@@ -74,15 +76,21 @@ export class UserRepository implements AuthAccounts {
           VALUES ($1, $2, 'local', $3, $4, $5, true, 'active', now(), 'verified', now(), now())
           ON CONFLICT (id) DO NOTHING
         `,
-          [authIdentityIdFor(userId), userId, seed.email.toLowerCase(), seed.email.toLowerCase(), seed.passwordHash],
+          [
+            authIdentityIdFor(userId),
+            userId,
+            seed.email.toLowerCase(),
+            seed.email.toLowerCase(),
+            seed.passwordHash,
+          ],
         )
         await client.query(
           `
-          INSERT INTO tenants (id, name, status, created_by_user_id, created_at, updated_at)
-          VALUES ($1, $2, 'active', $3, now(), now())
+          INSERT INTO tenants (id, name, status, created_by_user_id, is_system, created_at, updated_at)
+          VALUES ($1, $2, 'active', $3, $4, now(), now())
           ON CONFLICT (id) DO NOTHING
         `,
-          [seed.tenantId, seed.tenantId, userId],
+          [seed.tenantId, seed.tenantId, userId, seed.tenantId === systemTenantId],
         )
         await client.query(
           `
@@ -145,7 +153,8 @@ export class UserRepository implements AuthAccounts {
     if (!this.database) {
       return this.store.read(
         (state) =>
-          state.users.find((user) => user.id === id && (tenantId ? user.tenantId === tenantId : true)) ?? null,
+          state.users.find((user) => user.id === id && (tenantId ? user.tenantId === tenantId : true)) ??
+          null,
       )
     }
 
@@ -382,9 +391,7 @@ export class UserRepository implements AuthAccounts {
     })
   }
 
-  async createPasswordResetToken(
-    _input: PasswordResetTokenInput,
-  ): Promise<PasswordResetTokenResult | null> {
+  async createPasswordResetToken(_input: PasswordResetTokenInput): Promise<PasswordResetTokenResult | null> {
     return null
   }
 
@@ -493,9 +500,9 @@ async function resolveMembership(
   },
   userId: string,
   tenantId: string,
-  ): Promise<{ id: string } | null> {
-    const result = await client.query<{ id: string }>(
-      `
+): Promise<{ id: string } | null> {
+  const result = await client.query<{ id: string }>(
+    `
     SELECT m.id
     FROM tenant_memberships m
     JOIN users u ON u.id = m.user_id AND u.status = 'active'

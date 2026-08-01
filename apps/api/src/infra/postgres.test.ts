@@ -463,6 +463,141 @@ describe('postgres migrations', () => {
       await database.close()
     }
   })
+
+  it('rejects a second active owner at the database migration layer', async () => {
+    if (!postgres) throw new Error('Postgres fixture is not ready')
+    await postgres.reset()
+    const suffix = uniqueSuffix()
+    const database = new AccountDatabase(postgres.connectionString)
+    const tenantId = `tenant-role-limit-${suffix}`
+    const ownerUserId = `user-role-limit-owner-${suffix}`
+    const secondOwnerUserId = `user-role-limit-second-owner-${suffix}`
+    const ownerMembershipId = `membership-role-limit-owner-${suffix}`
+
+    try {
+      const applied = await database.query<{ name: string }>(
+        `
+        SELECT name
+        FROM schema_migrations
+        WHERE name = '017_account_role_limits.sql'
+        `,
+      )
+      expect(applied.rows).toEqual([{ name: '017_account_role_limits.sql' }])
+
+      await database.transaction(async (client) => {
+        await client.query(
+          `
+          INSERT INTO users (id, display_name, status, created_at, updated_at)
+          VALUES
+            ($1, 'Role Limit Owner', 'active', now(), now()),
+            ($2, 'Role Limit Second Owner', 'active', now(), now())
+          `,
+          [ownerUserId, secondOwnerUserId],
+        )
+        await client.query(
+          `
+          INSERT INTO tenants (id, name, status, created_by_user_id, created_at, updated_at)
+          VALUES ($1, 'Role Limit Tenant', 'active', $2, now(), now())
+          `,
+          [tenantId, ownerUserId],
+        )
+        await client.query(
+          `
+          INSERT INTO tenant_memberships (
+            id, tenant_id, user_id, roles, is_primary, status, created_at, updated_at
+          )
+          VALUES ($1, $2, $3, ARRAY['owner']::text[], true, 'active', now(), now())
+          `,
+          [ownerMembershipId, tenantId, ownerUserId],
+        )
+      })
+
+      await expect(
+        database.query(
+          `
+          INSERT INTO tenant_memberships (
+            id, tenant_id, user_id, roles, is_primary, status, created_at, updated_at
+          )
+          VALUES ($1, $2, $3, ARRAY['owner']::text[], false, 'active', now(), now())
+          `,
+          [`membership-role-limit-second-owner-${suffix}`, tenantId, secondOwnerUserId],
+        ),
+      ).rejects.toMatchObject({ code: '23514' })
+
+      const owners = await database.query<{ count: string }>(
+        `
+        SELECT count(DISTINCT m.user_id)::text AS count
+        FROM tenant_memberships m
+        JOIN users u ON u.id = m.user_id
+        WHERE m.status = 'active'
+          AND u.status = 'active'
+          AND m.roles @> ARRAY['owner']::text[]
+        `,
+      )
+      expect(owners.rows[0]).toEqual({ count: '1' })
+    } finally {
+      await database.close()
+    }
+  })
+
+  it('marks and protects the internal system organization at the database layer', async () => {
+    if (!postgres) throw new Error('Postgres fixture is not ready')
+    await postgres.reset()
+    const database = new AccountDatabase(postgres.connectionString)
+
+    try {
+      await database.query(await readProjectMigration('018_system_organizations.sql'))
+      const systemOrganization = await database.query<{
+        id: string
+        status: string
+        is_system: boolean
+      }>(
+        `
+        SELECT id, status, is_system
+        FROM tenants
+        WHERE id = 'tenant-seqora-demo'
+        `,
+      )
+      expect(systemOrganization.rows).toEqual([
+        {
+          id: 'tenant-seqora-demo',
+          status: 'active',
+          is_system: true,
+        },
+      ])
+
+      await expect(
+        database.query(
+          `
+          UPDATE tenants
+          SET status = 'disabled'
+          WHERE id = 'tenant-seqora-demo'
+          `,
+        ),
+      ).rejects.toMatchObject({ code: '23514' })
+
+      await expect(
+        database.query(
+          `
+          UPDATE tenants
+          SET is_system = false
+          WHERE id = 'tenant-seqora-demo'
+          `,
+        ),
+      ).rejects.toMatchObject({ code: '23514' })
+
+      await expect(
+        database.query(
+          `
+          DELETE FROM tenants
+          WHERE id = 'tenant-seqora-demo'
+          `,
+        ),
+      ).rejects.toMatchObject({ code: '23514' })
+    } finally {
+      await database.close()
+    }
+  })
 })
 
 async function createDatabase(migrationsPath: string): Promise<AccountDatabase> {

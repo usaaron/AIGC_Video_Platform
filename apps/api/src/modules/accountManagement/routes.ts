@@ -6,7 +6,7 @@ import {
   createWorkspaceSchema,
   PERMISSIONS,
   registerAccountSchema,
-  transferWorkspaceOwnerSchema,
+  transferOrganizationAdminSchema,
   updateMembershipRolesSchema,
   updateWorkspaceSchema,
   type AccountSession,
@@ -57,6 +57,7 @@ export async function registerAccountManagementRoutes(
   )
 
   app.post('/workspaces', { preHandler: requireAuthenticated }, async (request, reply) => {
+    markDeprecated(reply, '/organizations')
     const result = await requireService(service).createWorkspace(
       request.principal!,
       parse(createWorkspaceSchema, request.body),
@@ -74,6 +75,7 @@ export async function registerAccountManagementRoutes(
   })
 
   app.get('/workspaces', { preHandler: requireAuthenticated }, async (request, reply) => {
+    markDeprecated(reply, '/organizations')
     reply.header('Cache-Control', 'no-store')
     return await requireService(service).listWorkspaces(request.principal!)
   })
@@ -87,6 +89,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId))
       reply.header('Cache-Control', 'no-store')
       return await requireService(service).updateWorkspace(
         request.principal!,
@@ -116,6 +119,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId))
       const result = await requireService(service).disableWorkspace(
         request.principal!,
         tenantId,
@@ -145,36 +149,44 @@ export async function registerAccountManagementRoutes(
   )
 
   app.post(
-    '/workspaces/:tenantId/owner-transfer',
+    '/organizations/:tenantId/admin-transfer',
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
       reply.header('Cache-Control', 'no-store')
-      return await requireService(service).transferWorkspaceOwner(
+      return await requireService(service).transferOrganizationAdmin(
         request.principal!,
         tenantId,
-        parse(transferWorkspaceOwnerSchema, request.body),
+        parse(transferOrganizationAdminSchema, request.body),
         sessionMetadataFromRequest(request),
       )
     },
   )
-  app.post(
-    '/organizations/:tenantId/owner-transfer',
-    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
-    async (request, reply) => {
+  for (const path of [
+    '/organizations/:tenantId/organization-admin-transfer',
+    '/workspaces/:tenantId/organization-admin-transfer',
+  ]) {
+    app.post(path, { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) }, async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
-      reply.header('Cache-Control', 'no-store')
-      return await requireService(service).transferWorkspaceOwner(
+      reply
+        .header('Cache-Control', 'no-store')
+        .header('Deprecation', 'true')
+        .header(
+          'Link',
+          `</api/v1/organizations/${encodeURIComponent(tenantId)}/admin-transfer>; rel="successor-version"`,
+        )
+      return await requireService(service).transferOrganizationAdmin(
         request.principal!,
         tenantId,
-        parse(transferWorkspaceOwnerSchema, request.body),
+        parse(transferOrganizationAdminSchema, request.body),
         sessionMetadataFromRequest(request),
       )
-    },
-  )
+    })
+  }
 
   app.post('/workspaces/:tenantId/leave', { preHandler: requireAuthenticated }, async (request, reply) => {
     const { tenantId } = parse(tenantParams, request.params)
+    markDeprecated(reply, organizationSuccessor(tenantId, '/leave'))
     const result = await requireService(service).leaveWorkspace(
       request.principal!,
       tenantId,
@@ -200,6 +212,7 @@ export async function registerAccountManagementRoutes(
 
   app.post('/workspaces/:tenantId/switch', { preHandler: requireAuthenticated }, async (request, reply) => {
     const { tenantId } = parse(tenantParams, request.params)
+    markDeprecated(reply, organizationSuccessor(tenantId, '/switch'))
     const result = await requireService(service).switchWorkspace(
       request.principal!,
       tenantId,
@@ -207,21 +220,26 @@ export async function registerAccountManagementRoutes(
     )
     return sendSession(reply, result, secureCookies)
   })
-  app.post('/organizations/:tenantId/switch', { preHandler: requireAuthenticated }, async (request, reply) => {
-    const { tenantId } = parse(tenantParams, request.params)
-    const result = await requireService(service).switchWorkspace(
-      request.principal!,
-      tenantId,
-      sessionMetadataFromRequest(request),
-    )
-    return sendSession(reply, result, secureCookies)
-  })
+  app.post(
+    '/organizations/:tenantId/switch',
+    { preHandler: requireAuthenticated },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      const result = await requireService(service).switchWorkspace(
+        request.principal!,
+        tenantId,
+        sessionMetadataFromRequest(request),
+      )
+      return sendSession(reply, result, secureCookies)
+    },
+  )
 
   app.get(
     '/tenants/:tenantId/members',
     { preHandler: requirePermission(PERMISSIONS.USER_READ) },
-    async (request) => {
+    async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId, '/members'))
       return await requireService(service).listMembers(request.principal!, tenantId)
     },
   )
@@ -237,8 +255,9 @@ export async function registerAccountManagementRoutes(
   app.get(
     '/tenants/:tenantId/invitations',
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
-    async (request) => {
+    async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId, '/invitations'))
       return await requireService(service).listInvitations(request.principal!, tenantId)
     },
   )
@@ -259,6 +278,7 @@ export async function registerAccountManagementRoutes(
     },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId, '/invitations'))
       const invitation = await requireService(service).createInvitation(
         request.principal!,
         tenantId,
@@ -289,6 +309,10 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId, invitationId } = parse(invitationParams, request.params)
+      markDeprecated(
+        reply,
+        organizationSuccessor(tenantId, `/invitations/${encodeURIComponent(invitationId)}`),
+      )
       await requireService(service).revokeInvitation(request.principal!, tenantId, invitationId)
       return reply.code(204).send()
     },
@@ -311,6 +335,7 @@ export async function registerAccountManagementRoutes(
     },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId, '/members'))
       const member = await requireService(service).addMember(
         request.principal!,
         tenantId,
@@ -346,6 +371,7 @@ export async function registerAccountManagementRoutes(
     },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId, '/users'))
       const member = await requireService(service).createTenantUser(
         request.principal!,
         tenantId,
@@ -376,8 +402,9 @@ export async function registerAccountManagementRoutes(
   app.patch(
     '/tenants/:tenantId/members/:userId/roles',
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
-    async (request) => {
+    async (request, reply) => {
       const { tenantId, userId } = parse(memberParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId, `/members/${encodeURIComponent(userId)}/roles`))
       return await requireService(service).updateMembershipRoles(
         request.principal!,
         tenantId,
@@ -407,6 +434,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId, userId } = parse(memberParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId, `/members/${encodeURIComponent(userId)}`))
       await requireService(service).disableMembership(
         request.principal!,
         tenantId,
@@ -436,6 +464,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId, userId } = parse(memberParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId, `/accounts/${encodeURIComponent(userId)}`))
       await requireService(service).disableAccount(
         request.principal!,
         tenantId,
@@ -489,6 +518,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId, sessionId } = parse(tenantSessionParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId, `/sessions/${encodeURIComponent(sessionId)}`))
       await requireService(service).revokeTenantSession(
         request.principal!,
         tenantId,
@@ -518,6 +548,7 @@ export async function registerAccountManagementRoutes(
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
+      markDeprecated(reply, organizationSuccessor(tenantId, '/sessions'))
       reply.header('Cache-Control', 'no-store')
       return await requireService(service).listTenantSessions(
         request.principal!,
@@ -573,7 +604,11 @@ function sendSession(
     secure: secureCookies,
     maxAge: 60 * 60 * 24 * 7,
   })
-  const payload: AccountSession = { ...result.session, workspace: result.workspace, organization: result.workspace }
+  const payload: AccountSession = {
+    ...result.session,
+    workspace: result.workspace,
+    organization: result.workspace,
+  }
   return reply.send(payload)
 }
 
@@ -584,4 +619,13 @@ function clearSessionCookie(reply: FastifyReply, secureCookies: boolean): void {
     sameSite: 'strict',
     secure: secureCookies,
   })
+}
+
+function markDeprecated(reply: FastifyReply, successorPath: string): void {
+  reply.header('Deprecation', 'true')
+  reply.header('Link', `</api/v1${successorPath}>; rel="successor-version"`)
+}
+
+function organizationSuccessor(tenantId: string, suffix = ''): string {
+  return `/organizations/${encodeURIComponent(tenantId)}${suffix}`
 }

@@ -36,11 +36,13 @@ export const updateWorkspaceSchema = z.object({
 export const createOrganizationSchema = createWorkspaceSchema
 export const updateOrganizationSchema = updateWorkspaceSchema
 
-export const transferWorkspaceOwnerSchema = z.object({
+export const transferOrganizationAdminSchema = z.object({
   targetUserId: z.string().min(1).max(256),
-  previousOwnerRole: z.enum(['admin', 'member', 'organization_admin', 'organization_member']).default('admin'),
 })
-export const transferOrganizationOwnerSchema = transferWorkspaceOwnerSchema
+export const adminTransferOrganizationAdminSchema = z.object({
+  currentOrganizationAdminUserId: z.string().min(1).max(256),
+  targetUserId: z.string().min(1).max(256),
+})
 
 export const addTenantMemberSchema = z.object({
   email: z.string().email(),
@@ -139,10 +141,10 @@ export type CreateTenantInvitationInput = z.infer<typeof createTenantInvitationS
 export type AcceptTenantInvitationInput = z.infer<typeof acceptTenantInvitationSchema>
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>
 export type UpdateWorkspaceInput = z.infer<typeof updateWorkspaceSchema>
-export type TransferWorkspaceOwnerInput = z.infer<typeof transferWorkspaceOwnerSchema>
+export type TransferOrganizationAdminInput = z.infer<typeof transferOrganizationAdminSchema>
+export type AdminTransferOrganizationAdminInput = z.infer<typeof adminTransferOrganizationAdminSchema>
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>
-export type TransferOrganizationOwnerInput = z.infer<typeof transferOrganizationOwnerSchema>
 export type AddTenantMemberInput = z.infer<typeof addTenantMemberSchema>
 export type CreateTenantUserInput = z.infer<typeof createTenantUserSchema>
 export type UpdateMembershipRolesInput = z.infer<typeof updateMembershipRolesSchema>

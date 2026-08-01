@@ -13,7 +13,8 @@ import type {
   Session,
   SessionSummary,
   TenantInvitation,
-  TransferWorkspaceOwnerInput,
+  TransferOrganizationAdminInput,
+  AdminTransferOrganizationAdminInput,
   UpdateMembershipRolesInput,
   UpdateWorkspaceInput,
   Workspace,
@@ -37,6 +38,7 @@ import {
   issueSessionToken,
   parseIssuedSessionToken,
 } from '../../core/auth/sessionToken.js'
+import { NoopMailer, tokenUrl, type Mailer } from '../../core/email/mailer.js'
 import { AppError } from '../../core/errors.js'
 import type { AppStore } from '../../infra/store.js'
 import type { SessionMetadata } from '../auth/accounts.js'
@@ -44,6 +46,7 @@ import type { UserRepository } from '../users/repository.js'
 import { AccountManagementRepository, type AccountWorkspace } from './repository.js'
 
 const invitationLifetimeSeconds = 60 * 60 * 24 * 7
+const systemOrganizationRoles = new Set<Role>([ROLES.OWNER, ROLES.SUPER_ADMIN, ROLES.ADMIN])
 
 export class AccountManagementService {
   constructor(
@@ -51,7 +54,9 @@ export class AccountManagementService {
     private readonly users: UserRepository,
     private readonly store: AppStore,
     private readonly secret: string,
-    _webOrigin: string,
+    private readonly webOrigin: string,
+    private readonly mailer: Mailer = new NoopMailer(),
+    private readonly invitationUrl: string = `${webOrigin.replace(/\/+$/, '')}/register`,
   ) {}
 
   async createWorkspace(
@@ -96,6 +101,7 @@ export class AccountManagementService {
     this.requireTenantScope(principal, tenantId)
     this.requireTenantManager(principal)
     await this.requireCurrentAccount(principal)
+    await this.requireSystemOrganizationManagedByInternalAccount(principal, tenantId)
     const updated = await this.accounts.updateWorkspaceName(tenantId, normalizeName(input.name))
     if (!updated) {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
@@ -123,6 +129,7 @@ export class AccountManagementService {
     this.requireAdminTenantScope(principal, tenantId)
     this.requireTenantManager(principal)
     await this.requireCurrentAccount(principal)
+    await this.requireSystemOrganizationManagedByInternalAccount(principal, tenantId)
     const updated = await this.accounts.updateWorkspaceName(tenantId, normalizeName(input.name))
     if (!updated) {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
@@ -166,6 +173,7 @@ export class AccountManagementService {
     this.requireTenantScope(principal, tenantId)
     this.requireOwner(principal, 'Only owners can disable workspaces')
     await this.requireCurrentAccount(principal)
+    await this.rejectSystemOrganizationLifecycleChange(tenantId, 'System organization cannot be disabled')
     const result = await this.accounts.disableWorkspace(principal.userId, tenantId)
     if (result.kind === 'missing') {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
@@ -195,6 +203,7 @@ export class AccountManagementService {
     this.requireAdminTenantScope(principal, tenantId)
     this.requireOwner(principal, 'Only owners can disable workspaces')
     await this.requireCurrentAccount(principal)
+    await this.rejectSystemOrganizationLifecycleChange(tenantId, 'System organization cannot be disabled')
     const result = await this.accounts.disableWorkspace(principal.userId, tenantId)
     if (result.kind === 'missing') {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
@@ -216,89 +225,150 @@ export class AccountManagementService {
     return result.workspace
   }
 
-  async transferWorkspaceOwner(
+  async transferOrganizationAdmin(
     principal: Principal,
     tenantId: string,
-    input: TransferWorkspaceOwnerInput,
+    input: TransferOrganizationAdminInput,
     metadata?: SessionMetadata,
-  ): Promise<{ previousOwner: Membership; newOwner: Membership }> {
+  ): Promise<{ previousOrganizationAdmin: Membership; newOrganizationAdmin: Membership }> {
     this.requireTenantScope(principal, tenantId)
-    this.requireOwner(principal, 'Only owners can transfer workspace ownership')
-    await this.requireCurrentAccount(principal)
-    if (principal.userId === input.targetUserId) {
-      throw new AppError(400, 'CANNOT_TRANSFER_OWNER_TO_SELF', 'Cannot transfer ownership to yourself')
+    if (!principal.roles.includes(ROLES.ORGANIZATION_ADMIN)) {
+      throw new AppError(
+        403,
+        'ORGANIZATION_ADMIN_REQUIRED',
+        'Only organization administrators can transfer organization leadership',
+      )
     }
-    const result = await this.accounts.transferWorkspaceOwner({
+    await this.requireCurrentAccount(principal)
+    await this.rejectSystemOrganizationLifecycleChange(
       tenantId,
-      currentOwnerUserId: principal.userId,
+      'System organization cannot transfer organization leadership',
+    )
+    if (principal.userId === input.targetUserId) {
+      throw new AppError(
+        400,
+        'CANNOT_TRANSFER_ORGANIZATION_ADMIN_TO_SELF',
+        'Cannot transfer organization leadership to yourself',
+      )
+    }
+    const result = await this.accounts.transferOrganizationAdmin({
+      tenantId,
+      currentOrganizationAdminUserId: principal.userId,
       targetUserId: input.targetUserId,
-      previousOwnerRole: input.previousOwnerRole,
     })
     if (result.kind === 'missing') {
-      throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace owner membership does not exist')
+      throw new AppError(
+        404,
+        'ORGANIZATION_ADMIN_MEMBERSHIP_NOT_FOUND',
+        'Organization administrator membership does not exist',
+      )
     }
     if (result.kind === 'target_missing') {
-      throw new AppError(404, 'TARGET_MEMBERSHIP_NOT_FOUND', 'Target member does not exist')
+      throw new AppError(
+        404,
+        'TARGET_ORGANIZATION_MEMBER_NOT_FOUND',
+        'Target organization member does not exist',
+      )
     }
-    await this.mirrorMembership(result.previousOwner)
-    await this.mirrorMembership(result.newOwner)
+    await this.mirrorMembership(result.previousOrganizationAdmin)
+    await this.mirrorMembership(result.newOrganizationAdmin)
     await this.accounts.recordAuditLog({
       tenantId,
-      userId: result.newOwner.userId,
+      userId: result.newOrganizationAdmin.userId,
       actorUserId: principal.userId,
-      action: 'workspace.owner.transferred',
+      action: 'organization.admin.transferred',
       resourceType: 'tenant',
       resourceId: tenantId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
       metadata: {
-        previousOwnerUserId: result.previousOwner.userId,
-        newOwnerUserId: result.newOwner.userId,
-        previousOwnerRole: input.previousOwnerRole,
+        previousOrganizationAdminUserId: result.previousOrganizationAdmin.userId,
+        newOrganizationAdminUserId: result.newOrganizationAdmin.userId,
       },
     })
-    return { previousOwner: result.previousOwner, newOwner: result.newOwner }
+    return {
+      previousOrganizationAdmin: result.previousOrganizationAdmin,
+      newOrganizationAdmin: result.newOrganizationAdmin,
+    }
   }
 
-  async adminTransferWorkspaceOwner(
+  async adminTransferOrganizationAdmin(
     principal: Principal,
     tenantId: string,
-    input: TransferWorkspaceOwnerInput,
+    input: AdminTransferOrganizationAdminInput,
     metadata?: SessionMetadata,
-  ): Promise<{ previousOwner: Membership; newOwner: Membership }> {
+  ): Promise<{ previousOrganizationAdmin: Membership; newOrganizationAdmin: Membership }> {
     this.requireAdminTenantScope(principal, tenantId)
-    this.requireOwner(principal, 'Only owners can transfer workspace ownership')
+    if (!isPlatformAdmin(principal)) {
+      throw new AppError(
+        403,
+        'PLATFORM_ADMIN_REQUIRED',
+        'Only owners or super admins can transfer organization leadership',
+      )
+    }
     await this.requireCurrentAccount(principal)
-    const result = await this.accounts.transferWorkspaceOwnerByTenant({
+    await this.rejectSystemOrganizationLifecycleChange(
       tenantId,
+      'System organization cannot transfer organization leadership',
+    )
+    if (input.currentOrganizationAdminUserId === input.targetUserId) {
+      throw new AppError(
+        400,
+        'CANNOT_TRANSFER_ORGANIZATION_ADMIN_TO_SELF',
+        'Cannot transfer organization leadership to yourself',
+      )
+    }
+    const currentOrganizationAdmin = await this.requireMembership(
+      tenantId,
+      input.currentOrganizationAdminUserId,
+    )
+    if (!currentOrganizationAdmin.roles.includes(ROLES.ORGANIZATION_ADMIN)) {
+      throw new AppError(
+        409,
+        'ORGANIZATION_ADMIN_MEMBERSHIP_REQUIRED',
+        'Current organization leader must have organization_admin role',
+      )
+    }
+    const result = await this.accounts.transferOrganizationAdminByTenant({
+      tenantId,
+      currentOrganizationAdminUserId: input.currentOrganizationAdminUserId,
       targetUserId: input.targetUserId,
-      previousOwnerRole: input.previousOwnerRole,
     })
     if (result.kind === 'missing') {
-      throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace owner membership does not exist')
+      throw new AppError(
+        404,
+        'ORGANIZATION_ADMIN_MEMBERSHIP_NOT_FOUND',
+        'Organization administrator membership does not exist',
+      )
     }
     if (result.kind === 'target_missing') {
-      throw new AppError(404, 'TARGET_MEMBERSHIP_NOT_FOUND', 'Target member does not exist')
+      throw new AppError(
+        404,
+        'TARGET_ORGANIZATION_MEMBER_NOT_FOUND',
+        'Target organization member does not exist',
+      )
     }
-    await this.mirrorMembership(result.previousOwner)
-    await this.mirrorMembership(result.newOwner)
+    await this.mirrorMembership(result.previousOrganizationAdmin)
+    await this.mirrorMembership(result.newOrganizationAdmin)
     await this.accounts.recordAuditLog({
       tenantId,
-      userId: result.newOwner.userId,
+      userId: result.newOrganizationAdmin.userId,
       actorUserId: principal.userId,
-      action: 'admin.workspace.owner.transferred',
+      action: 'admin.organization.admin.transferred',
       resourceType: 'tenant',
       resourceId: tenantId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
       metadata: {
-        previousOwnerUserId: result.previousOwner.userId,
-        newOwnerUserId: result.newOwner.userId,
-        previousOwnerRole: input.previousOwnerRole,
+        previousOrganizationAdminUserId: result.previousOrganizationAdmin.userId,
+        newOrganizationAdminUserId: result.newOrganizationAdmin.userId,
         scope: 'admin_console',
       },
     })
-    return { previousOwner: result.previousOwner, newOwner: result.newOwner }
+    return {
+      previousOrganizationAdmin: result.previousOrganizationAdmin,
+      newOrganizationAdmin: result.newOrganizationAdmin,
+    }
   }
 
   async leaveWorkspace(
@@ -343,6 +413,8 @@ export class AccountManagementService {
     await this.requireCurrentAccount(principal)
     const roles = normalizeRoles(input.roles)
     this.requireAssignableRoles(principal, roles)
+    await this.requireGlobalRoleCapacity(roles)
+    await this.requireSystemOrganizationMembershipWrite(principal, tenantId, roles)
     const token = issueInvitationToken()
     const invitation = await this.accounts.createInvitation({
       tenantId,
@@ -356,6 +428,7 @@ export class AccountManagementService {
     if (!invitation) {
       throw new AppError(409, 'MEMBERSHIP_ALREADY_EXISTS', 'Account is already an active member')
     }
+    await this.sendInvitationEmail(invitation)
     return invitation
   }
 
@@ -371,6 +444,26 @@ export class AccountManagementService {
     if (!(await this.accounts.revokeInvitation(tenantId, invitationId))) {
       throw new AppError(404, 'INVITATION_NOT_FOUND', 'Invitation does not exist')
     }
+  }
+
+  private async sendInvitationEmail(invitation: CreatedTenantInvitation): Promise<void> {
+    const invitationUrl = tokenUrl(this.invitationUrl, invitation.token)
+    await this.mailer.send({
+      to: invitation.email,
+      subject: `You have been invited to ${invitation.organizationName}`,
+      text: [
+        `You have been invited to join ${invitation.organizationName}.`,
+        '',
+        invitationUrl,
+        '',
+        `This invitation expires at ${invitation.expiresAt}.`,
+      ].join('\n'),
+      html: [
+        `<p>You have been invited to join ${escapeHtml(invitation.organizationName)}.</p>`,
+        `<p><a href="${escapeHtml(invitationUrl)}">Accept invitation</a></p>`,
+        `<p>This invitation expires at ${escapeHtml(invitation.expiresAt)}.</p>`,
+      ].join(''),
+    })
   }
 
   async acceptInvitation(
@@ -410,6 +503,8 @@ export class AccountManagementService {
     if (existing && !verifyPassword(input.password, existing.passwordHash)) {
       throw new AppError(401, 'INVITATION_ACCOUNT_PASSWORD_INVALID', 'Password is incorrect')
     }
+    await this.requireGlobalRoleCapacity(invitation.roles, existing?.id)
+    await this.rejectExternalSystemOrganizationRoles(invitation.tenantId, invitation.roles)
 
     const accepted = await this.accounts.acceptInvitation({
       invitationId: invitation.id,
@@ -434,6 +529,9 @@ export class AccountManagementService {
     await this.requireCurrentAccount(principal)
     const roles = normalizeRoles(input.roles)
     this.requireAssignableRoles(principal, roles)
+    const existing = await this.users.findByEmail(normalizeEmail(input.email))
+    await this.requireGlobalRoleCapacity(roles, existing?.id)
+    await this.requireSystemOrganizationMembershipWrite(principal, tenantId, roles)
     const member = await this.accounts.addMemberByEmail({
       tenantId,
       email: normalizeEmail(input.email),
@@ -467,6 +565,8 @@ export class AccountManagementService {
     await this.requireCurrentAccount(principal)
     const roles: Role[] = [input.role]
     this.requireAssignableRoles(principal, roles)
+    await this.requireGlobalRoleCapacity(roles)
+    await this.requireSystemOrganizationMembershipWrite(principal, tenantId, roles)
     const passwordHash = hashPassword(input.password)
     const result = await this.accounts.createTenantUser({
       tenantId,
@@ -509,6 +609,8 @@ export class AccountManagementService {
     await this.requireCurrentAccount(principal)
     const roles: Role[] = [input.role]
     this.requireAssignableRoles(principal, roles)
+    await this.requireGlobalRoleCapacity(roles)
+    await this.requireSystemOrganizationMembershipWrite(principal, tenantId, roles)
     const passwordHash = hashPassword(input.password)
     const result = await this.accounts.createTenantUser({
       tenantId,
@@ -559,6 +661,8 @@ export class AccountManagementService {
     this.requireAssignableRoles(principal, roles)
     const target = await this.requireMembership(tenantId, userId)
     this.requireCanManageMembership(principal, target, 'roles')
+    await this.requireGlobalRoleCapacity(roles, userId)
+    await this.requireSystemOrganizationMembershipWrite(principal, tenantId, roles)
     if (target.roles.includes(ROLES.OWNER) && !roles.includes(ROLES.OWNER)) {
       const owners = await this.accounts.countActiveOwners(tenantId)
       if (owners <= 1) {
@@ -597,6 +701,8 @@ export class AccountManagementService {
     this.requireAssignableRoles(principal, roles)
     const target = await this.requireMembership(tenantId, userId)
     this.requireCanManageMembership(principal, target, 'roles')
+    await this.requireGlobalRoleCapacity(roles, userId)
+    await this.requireSystemOrganizationMembershipWrite(principal, tenantId, roles)
     if (target.roles.includes(ROLES.OWNER) && !roles.includes(ROLES.OWNER)) {
       const owners = await this.accounts.countActiveOwners(tenantId)
       if (owners <= 1) {
@@ -635,6 +741,7 @@ export class AccountManagementService {
       throw new AppError(400, 'CANNOT_DISABLE_SELF_MEMBERSHIP', 'Cannot disable your current membership')
     }
     const target = await this.requireMembership(tenantId, userId)
+    await this.requireSystemOrganizationManagedByInternalAccount(principal, tenantId)
     this.requireCanManageMembership(principal, target, 'disable')
     if (target.roles.includes(ROLES.OWNER)) {
       const owners = await this.accounts.countActiveOwners(tenantId)
@@ -672,6 +779,7 @@ export class AccountManagementService {
       throw new AppError(400, 'CANNOT_DISABLE_SELF_MEMBERSHIP', 'Cannot disable your current membership')
     }
     const target = await this.requireMembership(tenantId, userId)
+    await this.requireSystemOrganizationManagedByInternalAccount(principal, tenantId)
     this.requireCanManageMembership(principal, target, 'disable')
     if (target.roles.includes(ROLES.OWNER)) {
       const owners = await this.accounts.countActiveOwners(tenantId)
@@ -814,6 +922,56 @@ export class AccountManagementService {
     return account ? this.users.toAccount(account) : null
   }
 
+  private async requireSystemOrganizationManagedByInternalAccount(
+    principal: Principal,
+    tenantId: string,
+  ): Promise<void> {
+    if (!(await this.accounts.isSystemTenant(tenantId))) return
+    if (hasSystemOrganizationRole(principal.roles)) return
+    throw new AppError(
+      403,
+      'SYSTEM_ORGANIZATION_PROTECTED',
+      'System organization is reserved for platform internal accounts',
+    )
+  }
+
+  private async requireSystemOrganizationMembershipWrite(
+    principal: Principal,
+    tenantId: string,
+    roles: Role[],
+  ): Promise<void> {
+    if (!(await this.accounts.isSystemTenant(tenantId))) return
+    if (!hasSystemOrganizationRole(principal.roles)) {
+      throw new AppError(
+        403,
+        'SYSTEM_ORGANIZATION_PROTECTED',
+        'System organization is reserved for platform internal accounts',
+      )
+    }
+    if (!roles.every(isSystemOrganizationRole)) {
+      throw new AppError(
+        409,
+        'SYSTEM_ORGANIZATION_PROTECTED',
+        'System organization only allows owner, super_admin, and admin memberships',
+      )
+    }
+  }
+
+  private async rejectExternalSystemOrganizationRoles(tenantId: string, roles: Role[]): Promise<void> {
+    if (!(await this.accounts.isSystemTenant(tenantId))) return
+    if (roles.every(isSystemOrganizationRole)) return
+    throw new AppError(
+      409,
+      'SYSTEM_ORGANIZATION_PROTECTED',
+      'System organization only allows owner, super_admin, and admin memberships',
+    )
+  }
+
+  private async rejectSystemOrganizationLifecycleChange(tenantId: string, message: string): Promise<void> {
+    if (!(await this.accounts.isSystemTenant(tenantId))) return
+    throw new AppError(409, 'SYSTEM_ORGANIZATION_PROTECTED', message)
+  }
+
   private async issueSession(
     created: AccountWorkspace,
     metadata?: SessionMetadata,
@@ -910,6 +1068,25 @@ export class AccountManagementService {
     throw new AppError(403, 'PERMISSION_DENIED', 'Only owners or administrators can manage workspaces')
   }
 
+  private async requireGlobalRoleCapacity(roles: Role[], targetUserId?: string): Promise<void> {
+    if (roles.includes(ROLES.OWNER)) {
+      const owners = await this.accounts.countActiveUsersWithRole(ROLES.OWNER, targetUserId)
+      if (owners >= 1) {
+        throw new AppError(409, 'OWNER_LIMIT_REACHED', 'Only one active owner account is allowed')
+      }
+    }
+    if (roles.includes(ROLES.SUPER_ADMIN)) {
+      const superAdmins = await this.accounts.countActiveUsersWithRole(ROLES.SUPER_ADMIN, targetUserId)
+      if (superAdmins >= 5) {
+        throw new AppError(
+          409,
+          'SUPER_ADMIN_LIMIT_REACHED',
+          'At most five active super admin accounts are allowed',
+        )
+      }
+    }
+  }
+
   private requireOwner(principal: Principal, message: string): void {
     if (isOwner(principal)) return
     throw new AppError(403, 'OWNER_REQUIRED', message)
@@ -932,11 +1109,7 @@ export class AccountManagementService {
       throw new AppError(400, code, message)
     }
     if (isOwner(principal)) return
-    if (
-      isPlatformAdmin(principal) &&
-      !hasOwnerRole(target.roles) &&
-      !hasSuperAdminRole(target.roles)
-    ) {
+    if (isPlatformAdmin(principal) && !hasOwnerRole(target.roles) && !hasSuperAdminRole(target.roles)) {
       return
     }
     if (hasOwnerRole(target.roles) || hasSuperAdminRole(target.roles)) {
@@ -984,11 +1157,7 @@ export class AccountManagementService {
       throw new AppError(400, 'CANNOT_REVOKE_SELF_SESSION', 'Use the current account session API to sign out')
     }
     if (isOwner(principal)) return
-    if (
-      isPlatformAdmin(principal) &&
-      !hasOwnerRole(target.roles) &&
-      !hasSuperAdminRole(target.roles)
-    ) {
+    if (isPlatformAdmin(principal) && !hasOwnerRole(target.roles) && !hasSuperAdminRole(target.roles)) {
       return
     }
     if (hasOwnerRole(target.roles) || hasSuperAdminRole(target.roles)) {
@@ -1090,12 +1259,28 @@ function normalizeRoles(roles: Role[]): Role[] {
   return [...new Set(roles)]
 }
 
+function isSystemOrganizationRole(role: Role): boolean {
+  return systemOrganizationRoles.has(role)
+}
+
+function hasSystemOrganizationRole(roles: readonly Role[]): boolean {
+  return roles.some(isSystemOrganizationRole)
+}
+
 function issueInvitationToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
 function hashInvitationToken(token: string): string {
   return createHash('sha256').update(token).digest('base64url')
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }
 
 function currentSessionIdFromToken(token: string | undefined, secret: string): string | null {
