@@ -6,6 +6,7 @@ from app.api.routes.content_specs import router as content_spec_router
 from app.api.routes.data_intelligence import router as data_intelligence_router
 from app.api.routes.generation_strategies import router as generation_strategy_router
 from app.api.routes.master_scripts import router as master_script_router
+from app.api.routes.story_projects import router as story_project_router
 from app.api.routes.ontology_nodes import router as ontology_node_router
 from app.api.routes.orchestrations import router as orchestration_router
 from app.api.routes.platform_profiles import router as platform_profile_router
@@ -29,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(data_intelligence_router)
     app.include_router(generation_strategy_router)
     app.include_router(master_script_router)
+    app.include_router(story_project_router)
     app.include_router(ontology_node_router)
     app.include_router(orchestration_router)
     app.include_router(platform_profile_router)

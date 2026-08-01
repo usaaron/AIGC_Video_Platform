@@ -4,7 +4,9 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Any
 
+from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine
@@ -57,6 +59,16 @@ def create_database_runtime(
         if database_url in {"sqlite://", "sqlite:///:memory:"}:
             engine_options["poolclass"] = StaticPool
 
-    return DatabaseRuntime(
-        engine=create_engine(database_url, **engine_options),
-    )
+    engine = create_engine(database_url, **engine_options)
+    if engine.dialect.name == "sqlite":
+        event.listen(engine, "connect", _set_sqlite_foreign_keys)
+    return DatabaseRuntime(engine=engine)
+
+
+def _set_sqlite_foreign_keys(
+    dbapi_connection: Any,
+    _connection_record: Any,
+) -> None:
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()

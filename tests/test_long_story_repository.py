@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 
 import pytest
-from sqlmodel import SQLModel
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import SQLModel, Session
 
 from app.database import (
     DatabaseConfigurationError,
@@ -16,8 +17,10 @@ from app.modules.script_engine.long_story_models import (
     GenerationJobStatus,
     StoryBible,
     StoryProject,
+    StoryProjectStatus,
     StoryStagePlan,
 )
+from app.modules.script_engine.long_story_persistence import StoryProjectRecord
 from app.modules.script_engine.long_story_repository import (
     LongStoryPersistenceConflictError,
     LongStoryRepository,
@@ -177,10 +180,56 @@ def test_project_rejects_stale_revision(database_runtime) -> None:
             repository.save_project(build_project(title="Stale overwrite"))
 
 
+def test_project_rejects_invalid_status_transition(database_runtime) -> None:
+    with database_runtime.session() as session:
+        LongStoryRepository(session).save_project(build_project())
+
+    invalid = build_project(revision=2).model_copy(
+        update={"status": StoryProjectStatus.completed}
+    )
+    with database_runtime.session() as session:
+        with pytest.raises(LongStoryPersistenceConflictError, match="transition"):
+            LongStoryRepository(session).save_project(invalid)
+
+
+def test_project_atomic_revision_prevents_concurrent_lost_update(tmp_path) -> None:
+    runtime = create_database_runtime(f"sqlite:///{tmp_path / 'concurrency.db'}")
+    SQLModel.metadata.create_all(runtime.engine)
+    with runtime.session() as session:
+        LongStoryRepository(session).save_project(build_project())
+
+    first_session = Session(runtime.engine)
+    stale_session = Session(runtime.engine)
+    try:
+        assert LongStoryRepository(first_session).get_project(
+            "story_project.mainland_demo"
+        ) is not None
+        stale_record = stale_session.get(
+            StoryProjectRecord,
+            "story_project.mainland_demo",
+        )
+        assert stale_record is not None
+
+        LongStoryRepository(first_session).save_project(
+            build_project(title="First committed update", revision=2)
+        )
+        first_session.commit()
+
+        with pytest.raises(LongStoryPersistenceConflictError, match="concurrently"):
+            LongStoryRepository(stale_session).save_project(
+                build_project(title="Concurrent stale update", revision=2)
+            )
+    finally:
+        first_session.close()
+        stale_session.close()
+        runtime.engine.dispose()
+
+
 def test_repository_lists_stage_and_episode_plans_in_order(database_runtime) -> None:
     with database_runtime.session() as session:
         repository = LongStoryRepository(session)
         repository.save_project(build_project())
+        repository.save_story_bible(build_story_bible())
         repository.save_story_stage(build_stage())
         repository.save_episode_plan(build_episode_plan(2))
         repository.save_episode_plan(build_episode_plan(1))
@@ -201,6 +250,7 @@ def test_repository_returns_latest_continuity_snapshot(database_runtime) -> None
     with database_runtime.session() as session:
         repository = LongStoryRepository(session)
         repository.save_project(build_project())
+        repository.save_story_bible(build_story_bible())
         repository.save_continuity_ledger(
             ContinuityLedger(
                 ledger_id="continuity.mainland_demo",
@@ -231,6 +281,12 @@ def test_repository_returns_latest_continuity_snapshot(database_runtime) -> None
         assert latest is not None
         assert latest.version == 2
         assert latest.through_episode_number == 5
+
+
+def test_sqlite_tests_enforce_production_foreign_key_semantics(database_runtime) -> None:
+    with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
+        with database_runtime.session() as session:
+            LongStoryRepository(session).save_story_stage(build_stage())
 
 
 def test_batch_and_job_checkpoint_support_state_progression(database_runtime) -> None:

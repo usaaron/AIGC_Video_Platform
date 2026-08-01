@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
+from sqlalchemy import func, update
 from sqlmodel import Session, col, select
 
 from app.modules.script_engine.long_story_models import (
@@ -14,6 +15,7 @@ from app.modules.script_engine.long_story_models import (
     GenerationJobStatus,
     StoryBible,
     StoryProject,
+    StoryProjectStatus,
     StoryStagePlan,
 )
 from app.modules.script_engine.long_story_persistence import (
@@ -73,14 +75,48 @@ class LongStoryRepository:
                 raise LongStoryPersistenceConflictError(
                     "Story Project revision is stale or skips a version."
                 )
-            for field_name, value in values.items():
-                setattr(record, field_name, value)
+            current = StoryProject.model_validate(record.payload)
+            self._ensure_project_transition(current.status, project.status)
+            self._apply_optimistic_update(
+                StoryProjectRecord,
+                StoryProjectRecord.project_id == project.project_id,
+                StoryProjectRecord.revision == record.revision,
+                values,
+                "Story Project",
+            )
         self._session.flush()
         return project
 
     def get_project(self, project_id: str) -> StoryProject | None:
         record = self._session.get(StoryProjectRecord, project_id)
         return self._from_payload(StoryProject, record)
+
+    def get_project_for_update(self, project_id: str) -> StoryProject | None:
+        record = self._session.exec(
+            select(StoryProjectRecord)
+            .where(StoryProjectRecord.project_id == project_id)
+            .with_for_update()
+        ).first()
+        return self._from_payload(StoryProject, record)
+
+    def list_projects(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[StoryProject]:
+        records = self._session.exec(
+            select(StoryProjectRecord)
+            .order_by(col(StoryProjectRecord.updated_at).desc())
+            .offset(offset)
+            .limit(limit)
+        ).all()
+        return [StoryProject.model_validate(record.payload) for record in records]
+
+    def count_projects(self) -> int:
+        return self._session.exec(
+            select(func.count()).select_from(StoryProjectRecord)
+        ).one()
 
     def save_story_bible(self, story_bible: StoryBible) -> StoryBible:
         record = StoryBibleVersionRecord(
@@ -155,6 +191,25 @@ class LongStoryRepository:
         ).all()
         return [StoryStagePlan.model_validate(record.payload) for record in records]
 
+    def get_story_stage(
+        self,
+        stage_id: str,
+        *,
+        version: int | None = None,
+    ) -> StoryStagePlan | None:
+        if version is not None:
+            record = self._session.get(
+                StoryStagePlanVersionRecord,
+                (stage_id, version),
+            )
+        else:
+            record = self._session.exec(
+                select(StoryStagePlanVersionRecord)
+                .where(StoryStagePlanVersionRecord.stage_id == stage_id)
+                .order_by(col(StoryStagePlanVersionRecord.version).desc())
+            ).first()
+        return self._from_payload(StoryStagePlan, record)
+
     def save_episode_plan(self, episode_plan: EpisodePlan) -> EpisodePlan:
         record = EpisodePlanVersionRecord(
             episode_plan_id=episode_plan.episode_plan_id,
@@ -203,6 +258,25 @@ class LongStoryRepository:
             )
         ).all()
         return [EpisodePlan.model_validate(record.payload) for record in records]
+
+    def get_episode_plan(
+        self,
+        episode_plan_id: str,
+        *,
+        version: int | None = None,
+    ) -> EpisodePlan | None:
+        if version is not None:
+            record = self._session.get(
+                EpisodePlanVersionRecord,
+                (episode_plan_id, version),
+            )
+        else:
+            record = self._session.exec(
+                select(EpisodePlanVersionRecord)
+                .where(EpisodePlanVersionRecord.episode_plan_id == episode_plan_id)
+                .order_by(col(EpisodePlanVersionRecord.version).desc())
+            ).first()
+        return self._from_payload(EpisodePlan, record)
 
     def save_continuity_ledger(self, ledger: ContinuityLedger) -> ContinuityLedger:
         record = ContinuityLedgerVersionRecord(
@@ -285,8 +359,13 @@ class LongStoryRepository:
                     raise LongStoryPersistenceConflictError(
                         f"Generation batch cannot change {field_name}."
                     )
-            for field_name, value in values.items():
-                setattr(record, field_name, value)
+            self._apply_optimistic_update(
+                GenerationBatchPlanRecord,
+                GenerationBatchPlanRecord.batch_id == batch.batch_id,
+                GenerationBatchPlanRecord.revision == current.revision,
+                values,
+                "Generation batch",
+            )
         self._session.flush()
         return batch
 
@@ -339,8 +418,13 @@ class LongStoryRepository:
                 raise LongStoryPersistenceConflictError(
                     "Completed generation episodes cannot be removed."
                 )
-            for field_name, value in values.items():
-                setattr(record, field_name, value)
+            self._apply_optimistic_update(
+                GenerationJobCheckpointRecord,
+                GenerationJobCheckpointRecord.job_id == checkpoint.job_id,
+                GenerationJobCheckpointRecord.revision == current.revision,
+                values,
+                "Generation job",
+            )
         self._session.flush()
         return checkpoint
 
@@ -364,6 +448,52 @@ class LongStoryRepository:
             return
         self._session.add(record)
         self._session.flush()
+
+    def _apply_optimistic_update(
+        self,
+        record_type: type[Any],
+        identity_condition: Any,
+        revision_condition: Any,
+        values: dict[str, Any],
+        label: str,
+    ) -> None:
+        result = self._session.execute(
+            update(record_type)
+            .where(identity_condition, revision_condition)
+            .values(**values)
+        )
+        if result.rowcount != 1:
+            raise LongStoryPersistenceConflictError(
+                f"{label} was updated concurrently; reload before retrying."
+            )
+        self._session.flush()
+
+    @staticmethod
+    def _ensure_project_transition(
+        current: StoryProjectStatus,
+        target: StoryProjectStatus,
+    ) -> None:
+        allowed = {
+            StoryProjectStatus.planning: {
+                StoryProjectStatus.generating,
+                StoryProjectStatus.archived,
+            },
+            StoryProjectStatus.generating: {
+                StoryProjectStatus.review,
+                StoryProjectStatus.archived,
+            },
+            StoryProjectStatus.review: {
+                StoryProjectStatus.generating,
+                StoryProjectStatus.completed,
+                StoryProjectStatus.archived,
+            },
+            StoryProjectStatus.completed: {StoryProjectStatus.archived},
+            StoryProjectStatus.archived: set(),
+        }
+        if target != current and target not in allowed[current]:
+            raise LongStoryPersistenceConflictError(
+                f"Invalid Story Project transition: {current.value} -> {target.value}."
+            )
 
     @staticmethod
     def _ensure_batch_transition(

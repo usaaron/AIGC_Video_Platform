@@ -29,6 +29,8 @@
 
 Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent -> generate-draft -> revise-draft -> finalize`。这证明现有步骤 API 可以支撑单集成品链路，但不代表统一 Script Generation Facade 已完成。
 
+长篇规划当前另有一组版本化资源 API，用于保存人工可审阅的 Project / Story Bible / Stage / Episode Plan。它们是 Script Generation Box 的上游规划资源，不是新的生成 Engine，也不自动调用 LLM。
+
 当前最小迁移方向：
 
 - 保留现有稳定 API
@@ -1063,6 +1065,63 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 
 - `404` 对应对象不存在
 
+## 长篇规划资源 API
+
+以下接口已接入 PostgreSQL persistence foundation。生产运行前必须配置 `DATABASE_URL` 并执行 Alembic migration；未配置时返回 `503`。
+
+### PUT `/story-projects/{project_id}`
+
+- 幂等创建或按 optimistic `revision` 更新 `StoryProject`
+- Path ID 必须与 payload 一致
+- 新对象必须从 revision 1 开始；更新必须基于当前 revision + 1
+- stale write、非法状态迁移或无效 active Story Bible 返回 `409`
+
+### GET `/story-projects`
+
+- 分页列出项目，支持 `limit` 与 `offset`
+- 返回 `data`、`total`、`limit` 与 `offset`
+
+### GET `/story-projects/{project_id}`
+
+- 获取单个持久化项目
+- 不存在时返回 `404`
+
+### PUT `/story-projects/{project_id}/story-bibles/{story_bible_id}/versions/{version}`
+
+- 保存 immutable `StoryBible` version
+- 同一 ID / version 的相同 payload 可幂等重放，不同 payload 不允许覆盖
+- `content_spec_id` 必须与所属 Project 一致
+
+### GET `/story-projects/{project_id}/story-bibles/{story_bible_id}`
+
+- 默认读取最新版本，也可通过 `version` 查询指定版本
+
+### PUT `/story-projects/{project_id}/stages/{stage_id}/versions/{version}`
+
+- 保存 immutable `StoryStagePlan` version
+- Stage 必须引用同一 Project 的 Story Bible，集数范围不得超过 Project
+
+### GET `/story-projects/{project_id}/stages`
+
+- 按阶段编号与版本列出 Stage Plan
+
+### PUT `/story-projects/{project_id}/episode-plans/{episode_plan_id}/versions/{version}`
+
+- 保存 immutable `EpisodePlan` version
+- Episode、Stage、Story Bible 必须属于同一 Project，集号必须处于 Stage 范围内
+
+### GET `/story-projects/{project_id}/episode-plans`
+
+- 可按 `start_episode` / `end_episode` 读取分集计划
+- 当前返回规划版本，不返回 Draft / Revised / Final episode artifact
+
+当前边界：
+
+- Frontend 尚未调用这些接口，浏览器项目仍以 IndexedDB 为当前事实源
+- 尚未开放 Continuity Ledger、Generation Batch / Job 的公共写接口
+- 尚未实现权限、租户、后台 worker、自动规划或长篇生成 facade
+- 这些接口不改变现有单集 Draft、Story QC、Revision、Acceptance 或 Finalization 行为
+
 ## 设计说明
 
 - API 当前已实现 `Data Intelligence`、`ContentSpec`、`PlatformProfile`、`OntologyNode`、`MasterScript` 与 `OrchestrationPlan` 六个最小闭环
@@ -1075,5 +1134,5 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 - `ContentSpec` 创建时会校验引用的 `OntologyNode` 是否已存在且定义一致
 - `MasterScript` 创建时会校验引用的 `ContentSpec` 是否已存在
 - `OrchestrationPlan` 创建时会校验引用的 `ContentSpec` 是否已存在
-- 当前仓储为内存实现，用于先稳定接口契约
-- 后续切换 PostgreSQL 时，应保持 API 契约稳定
+- 现有 ContentSpec、Prompt、Script Generation 等历史仓储仍以进程内实现为主
+- 长篇规划资源已使用 PostgreSQL persistence foundation；Frontend 与 episode artifact 迁移仍待后续完成

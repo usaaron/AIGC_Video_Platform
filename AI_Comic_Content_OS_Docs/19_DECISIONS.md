@@ -542,7 +542,7 @@ Raw Data
 
 影响：
 
-- 当前已完成 schema、migration 和事务型 Repository foundation，但现有 API、Frontend 和后台 Job 尚未接入，不得宣称用户项目已经服务端持久化
+- 当前已完成 schema、migration、事务型 Repository，以及 Project / Story Bible / Stage / Episode Plan 资源 API；Frontend 和后台 Job 尚未接入，不得宣称现有浏览器项目已经自动服务端持久化
 - Application Use Cases 必须负责权限边界、事务范围和领域对象协调；API 不得直接操作 SQLModel Record
 - 前端 IndexedDB 迁移必须在服务端 API 稳定后单独设计并验证，不允许静默丢失或覆盖本地项目
 - 本决策不引入新的 Engine，也不改变现有单集生成、Story QC、Revision 或 Finalization 行为

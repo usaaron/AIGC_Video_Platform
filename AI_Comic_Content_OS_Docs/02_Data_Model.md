@@ -1334,7 +1334,7 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 
 ## Long-Story Planning Contracts v1
 
-当前已在 `script_engine/long_story_models.py` 实现长篇核心的版本化 Pydantic 契约。它们为后续 PostgreSQL、规划与可恢复批次提供稳定边界，但尚未接入 API、Prompt Builder 或生成运行时。
+当前已在 `script_engine/long_story_models.py` 实现长篇核心的版本化 Pydantic 契约。Project / Story Bible / Stage / Episode Plan 已接入持久化 Application Service 与版本化资源 API；它们仍未接入 Prompt Builder、自动规划或生成运行时。
 
 ### `StoryProject`
 
@@ -1441,13 +1441,13 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 - PostgreSQL 使用 JSONB；SQLite 测试使用 JSON compatibility variant。
 - 时间列使用 timezone-aware 类型。
 
-当前持久化仅完成 schema、migration 与 Repository foundation；尚未连接现有 API、Frontend、Draft / Final episode artifacts 或后台 worker。
+当前持久化已完成 schema、migration、Repository，以及 Project / Story Bible / Stage / Episode Plan 的 Application Service 与资源 API。尚未连接 Frontend、Draft / Final episode artifacts、Continuity 自动更新或后台 worker。
 
 ### Compatibility Boundary
 
-- 未修改 `ContentSpec`、`DraftMasterScript`、Final `MasterScript` 或现有 API contract。
-- 未启用 Story Planning LLM call、Continuity 自动抽取或 API persistence integration。
-- `StoryBible` / `StoryStagePlan` / `EpisodePlan` 进入生成上下文前，仍需后续 mapper、Application Use Case 和固定样本验证。
+- 未修改 `ContentSpec`、`DraftMasterScript`、Final `MasterScript` 或现有生成步骤 API contract。
+- 未启用 Story Planning LLM call、Continuity 自动抽取或生成运行时 persistence integration。
+- `StoryBible` / `StoryStagePlan` / `EpisodePlan` 进入生成上下文前，仍需后续 mapper 和固定样本验证。
 - 新契约不代表完整 60 万字 runtime 已经完成。
 
 ## OrchestrationPlan 当前字段

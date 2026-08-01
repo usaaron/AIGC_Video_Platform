@@ -1,5 +1,14 @@
 import os
+from functools import lru_cache
 
+from fastapi import HTTPException, status
+
+from app.database import (
+    DatabaseConfigurationError,
+    DatabaseRuntime,
+    create_database_runtime,
+    database_url_from_env,
+)
 from app.llm_runtime import build_llm_adapter_from_env
 from app.modules.asset.repository import AssetRepository
 from app.modules.asset.service import AssetService
@@ -21,6 +30,7 @@ from app.modules.scheduled_ingestion.repository import DataIngestionJobRepositor
 from app.modules.scheduled_ingestion.service import ScheduledIngestionService
 from app.modules.script_engine.generation_service import ScriptGenerationService
 from app.modules.script_engine.llm_adapter import FailingLLMAdapter, MissingLLMConfigurationError
+from app.modules.script_engine.long_story_service import LongStoryService
 from app.modules.script_engine.bilingual_view import BilingualScriptViewService
 from app.modules.script_engine.prompt_retrieval import PromptRetrievalService
 from app.modules.script_engine.revision_planner import RubricRevisionPlanner
@@ -62,6 +72,27 @@ benchmark_result_repository = BenchmarkResultRepository()
 benchmark_runner = BenchmarkRunner()
 prompt_evaluation_result_repository = PromptEvaluationResultRepository()
 prompt_evaluation_runner = PromptEvaluationRunner()
+
+
+@lru_cache(maxsize=1)
+def get_long_story_database_runtime() -> DatabaseRuntime:
+    database_url = database_url_from_env()
+    if database_url is None:
+        raise DatabaseConfigurationError(
+            "DATABASE_URL is required for durable PostgreSQL persistence."
+        )
+    return create_database_runtime(database_url)
+
+
+def get_long_story_service() -> LongStoryService:
+    try:
+        runtime = get_long_story_database_runtime()
+    except DatabaseConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    return LongStoryService(runtime)
 
 
 def get_platform_profile_service() -> PlatformProfileService:

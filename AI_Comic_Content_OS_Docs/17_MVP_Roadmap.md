@@ -49,11 +49,12 @@
 
 1. 已完成第一轮长篇 contract foundation：`StoryProject`、`StoryBible`、`StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、bounded batch / checkpoint models。
 2. 已完成 PostgreSQL / JSONB schema、Alembic migration、事务型 Repository、immutable version 与 optimistic revision foundation。
-3. 下一步实现 Project / Story Bible / Stage / Episode Plan 的 Application Use Cases 和 API，再迁移 Frontend IndexedDB 项目。
-4. 随后实现人工批准、Episode Artifact 持久化和后台 Job 安全恢复，不直接改变当前单集生成主链路。
-5. 用当前有界阶段生成验证批次间新增元素、连续性和人工确认，不直接从零运行完整 60 万字。
-6. 扩充并治理中国大陆长篇创作与漫剧改编知识资产。
-7. 在长篇结构稳定后，再决定 Creative Deepening、Agent 和 DDD-lite 的进入时点。
+3. 已完成 Project / Story Bible / Stage / Episode Plan 的 Application Service 与版本化资源 API；现有 Frontend 尚未迁移。
+4. 下一步迁移 Frontend 项目元数据与规划对象，并设计 IndexedDB 到服务端的显式同步 / 冲突处理。
+5. 随后实现人工批准、Episode Artifact 持久化和后台 Job 安全恢复，不直接改变当前单集生成主链路。
+6. 用当前有界阶段生成验证批次间新增元素、连续性和人工确认，不直接从零运行完整 60 万字。
+7. 扩充并治理中国大陆长篇创作与漫剧改编知识资产。
+8. 在长篇结构稳定后，再决定 Creative Deepening、Agent 和 DDD-lite 的进入时点。
 
 ## Near-Term Candidates
 

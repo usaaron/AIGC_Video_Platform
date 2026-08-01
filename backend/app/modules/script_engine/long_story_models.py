@@ -585,3 +585,38 @@ class GenerationJobCheckpoint(BaseModel):
         if self.status == GenerationJobStatus.failed and not self.last_error:
             raise ValueError("Failed generation job requires last_error.")
         return self
+
+
+class StoryProjectResponse(BaseModel):
+    data: StoryProject
+
+
+class StoryProjectListResponse(BaseModel):
+    data: list[StoryProject]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+
+
+class StoryBibleResponse(BaseModel):
+    data: StoryBible
+
+
+class StoryStagePlanResponse(BaseModel):
+    data: StoryStagePlan
+
+
+class StoryStagePlanListResponse(BaseModel):
+    data: list[StoryStagePlan]
+
+
+class EpisodePlanResponse(BaseModel):
+    data: EpisodePlan
+
+
+class EpisodePlanListResponse(BaseModel):
+    data: list[EpisodePlan]
+
+
+class LongStoryErrorResponse(BaseModel):
+    detail: str
