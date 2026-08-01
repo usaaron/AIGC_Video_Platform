@@ -146,6 +146,9 @@ sudo /opt/seqora/deploy/update-release.sh web \
 
 ## 当前边界
 
+- `.github/workflows/security.yml` 提供定时/手动的依赖扫描、OWASP Dependency-Check 和 SonarQube 入口。
+- `pnpm security:audit` 是轻量级供应链门禁，适合普通 PR。
+- `pnpm perf:k6:smoke` 和 `pnpm perf:k6:breakpoint` 只用于预发或专门压测环境。
 - CI/CD 文件已经就绪，但在 Artifact Registry、Workload Identity Federation、GitHub Environment 和 IAM 未完成前，自动部署不会成功。
 - 当前单实例更新会短暂重建目标容器，不是零停机。Web 通常为数秒，API 更新期间新请求可能短暂失败。
 - API 已使用 Postgres 承载账号/auth/session/组织 membership、账单 ledger、项目、资产、分镜、生成任务、AI Job 和小说域数据；任务触发通过 Postgres Outbox 投递 Redis/BullMQ，由独立 Worker 进程消费。更新 API 前会备份 Postgres 与 JSON 兼容数据；客户规模扩大前应补齐队列监控、重复投递验证、Worker 横向扩缩容演练和运行中任务恢复演练。
