@@ -123,6 +123,8 @@ describe('postgres migrations', () => {
         assets_table: string | null
         shots_table: string | null
         generation_tasks_table: string | null
+        ai_jobs_table: string | null
+        outbox_events_table: string | null
         media_objects_table: string | null
       }>(
         `
@@ -132,6 +134,8 @@ describe('postgres migrations', () => {
           to_regclass('public.assets')::text AS assets_table,
           to_regclass('public.shots')::text AS shots_table,
           to_regclass('public.generation_tasks')::text AS generation_tasks_table,
+          to_regclass('public.ai_jobs')::text AS ai_jobs_table,
+          to_regclass('public.outbox_events')::text AS outbox_events_table,
           to_regclass('public.media_objects')::text AS media_objects_table
         `,
       )
@@ -141,6 +145,8 @@ describe('postgres migrations', () => {
         assets_table: 'assets',
         shots_table: 'shots',
         generation_tasks_table: 'generation_tasks',
+        ai_jobs_table: 'ai_jobs',
+        outbox_events_table: 'outbox_events',
         media_objects_table: 'media_objects',
       })
 
@@ -150,6 +156,7 @@ describe('postgres migrations', () => {
       const assetId = `asset-${uniqueSuffix()}`
       const shotId = `shot-${uniqueSuffix()}`
       const taskId = `task-${uniqueSuffix()}`
+      const aiJobId = `ai-job-${uniqueSuffix()}`
       const mediaId = `media-${uniqueSuffix()}`
       const versionId = `version-${uniqueSuffix()}`
       const membershipId = `membership-${tenantId}-${userId}`
@@ -275,6 +282,22 @@ describe('postgres migrations', () => {
         )
         await client.query(
           `
+          INSERT INTO ai_jobs (
+            id, client_request_id, project_id, tenant_id, user_id, membership_id, kind, label,
+            provider, input, output, status, cost_credits, attempts, max_attempts,
+            lease_owner_id, lease_token, lease_acquired_at, lease_heartbeat_at, lease_expires_at,
+            error, refunded_at, created_at, updated_at
+          )
+          VALUES (
+            $1, 'ai-client-request-1', $2, $3, $4, $5, 'novel.summaryQueueBatch', 'AI job label',
+            'text', '{"queueId":"queue-1"}'::jsonb, NULL, 'queued', 4, 0, 3,
+            NULL, NULL, NULL, NULL, NULL, NULL, NULL, now(), now()
+          )
+          `,
+          [aiJobId, projectId, tenantId, userId, membershipId],
+        )
+        await client.query(
+          `
           INSERT INTO media_objects (
             id, project_id, tenant_id, created_by_user_id, generation_task_id, asset_id, shot_id,
             media_type, purpose, name, content_type, size_bytes, storage_driver, storage_key, bucket,
@@ -297,6 +320,7 @@ describe('postgres migrations', () => {
         asset_count: string
         shot_count: string
         task_count: string
+        ai_job_count: string
         media_count: string
       }>(
         `
@@ -306,6 +330,7 @@ describe('postgres migrations', () => {
           (SELECT count(*)::text FROM assets WHERE project_id = $1) AS asset_count,
           (SELECT count(*)::text FROM shots WHERE project_id = $1) AS shot_count,
           (SELECT count(*)::text FROM generation_tasks WHERE project_id = $1) AS task_count,
+          (SELECT count(*)::text FROM ai_jobs WHERE project_id = $1) AS ai_job_count,
           (SELECT count(*)::text FROM media_objects WHERE project_id = $1) AS media_count
         `,
         [projectId],
@@ -316,6 +341,7 @@ describe('postgres migrations', () => {
         asset_count: '1',
         shot_count: '1',
         task_count: '1',
+        ai_job_count: '1',
         media_count: '1',
       })
 

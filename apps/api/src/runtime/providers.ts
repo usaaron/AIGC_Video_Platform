@@ -1,4 +1,5 @@
 import type { AppConfig } from '../config.js'
+import { observeProviderCall } from '../core/observability/metrics.js'
 import type { AssetLibraryProvider } from '../core/generation/volcArkAssetLibraryProvider.js'
 import { VolcArkAssetLibraryProvider } from '../core/generation/volcArkAssetLibraryProvider.js'
 import { DeepSeekTextProvider } from '../core/generation/deepSeekTextProvider.js'
@@ -11,6 +12,37 @@ import { TokenAdventTextProvider } from '../core/generation/tokenAdventTextProvi
 import type { VideoGenerationProvider, VideoProviderName } from '../core/generation/videoProvider.js'
 import { StringXSeedanceProvider } from '../core/generation/stringXSeedanceProvider.js'
 import { VolcArkSeedanceProvider } from '../core/generation/volcArkSeedanceProvider.js'
+
+export type RuntimeProviderOverrides = {
+  videoProvider?: VideoGenerationProvider | null
+  imageProvider?: ImageGenerationProvider | null
+  textProvider?: TextGenerationProvider | null
+  assetLibraryProvider?: AssetLibraryProvider | null
+}
+
+export type RuntimeProviders = {
+  videoProvider: VideoGenerationProvider | null
+  imageProvider: ImageGenerationProvider | null
+  textProvider: TextGenerationProvider | null
+  assetLibraryProvider: AssetLibraryProvider | null
+}
+
+export function createRuntimeProviders(
+  config: AppConfig,
+  overrides: RuntimeProviderOverrides = {},
+): RuntimeProviders {
+  return {
+    videoProvider:
+      overrides.videoProvider === undefined ? createVideoProvider(config) : overrides.videoProvider,
+    imageProvider:
+      overrides.imageProvider === undefined ? createImageProvider(config) : overrides.imageProvider,
+    textProvider: overrides.textProvider === undefined ? createTextProvider(config) : overrides.textProvider,
+    assetLibraryProvider:
+      overrides.assetLibraryProvider === undefined
+        ? createAssetLibraryProvider(config)
+        : overrides.assetLibraryProvider,
+  }
+}
 
 export function createVideoProvider(config: AppConfig): VideoGenerationProvider | null {
   if (config.VIDEO_PROVIDER === 'stringx') {
@@ -110,21 +142,27 @@ class RoutedTextProvider implements TextGenerationProvider {
     const requestedModel = (request.model || this.defaultModel).trim()
     if (isGptModel(requestedModel)) {
       if (!this.gptProvider) throw modelNotConfigured(requestedModel)
-      return this.gptProvider.generate({ ...request, model: requestedModel })
+      return observeProviderCall({ provider: 'tokenadvent-gpt', operation: 'text.generate' }, () =>
+        this.gptProvider!.generate({ ...request, model: requestedModel }),
+      )
     }
     if (isDeepSeekModel(requestedModel)) {
       if (!this.deepSeekProvider) throw modelNotConfigured(requestedModel)
-      return this.deepSeekProvider.generate({
-        ...request,
-        model: isDeepSeekPublicAlias(requestedModel) ? this.deepSeekModel : requestedModel,
-      })
+      return observeProviderCall({ provider: 'deepseek-v3', operation: 'text.generate' }, () =>
+        this.deepSeekProvider!.generate({
+          ...request,
+          model: isDeepSeekPublicAlias(requestedModel) ? this.deepSeekModel : requestedModel,
+        }),
+      )
     }
     if (isRehdasuModel(requestedModel)) {
       if (!this.rehdasuProvider) throw modelNotConfigured(requestedModel)
-      return this.rehdasuProvider.generate({
-        ...request,
-        model: isRehdasuPublicAlias(requestedModel) ? this.rehdasuModel : requestedModel,
-      })
+      return observeProviderCall({ provider: 'rehdasu', operation: 'text.generate' }, () =>
+        this.rehdasuProvider!.generate({
+          ...request,
+          model: isRehdasuPublicAlias(requestedModel) ? this.rehdasuModel : requestedModel,
+        }),
+      )
     }
     throw new TextGenerationProviderError(`文本模型 ${requestedModel} 尚未接入`)
   }

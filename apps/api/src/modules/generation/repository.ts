@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto'
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
+import type { OutboxRepository } from '../../core/jobs/outbox.js'
 import { normalizeGenerationTaskLifecycle, releaseGenerationTaskLease } from '../../core/jobs/taskLease.js'
 import { cancellationResourceLockForTask } from '../../core/jobs/taskResourceLock.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
-import type { AppState, AppStore, ProjectDomainRuntimeSnapshot } from '../../infra/store.js'
+import type { AppState, AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
 
 type Queryable = {
@@ -87,6 +88,7 @@ export class GenerationTaskRepository {
     private readonly store: AppStore,
     private readonly creditLedger: CreditLedger | null = null,
     private readonly database: AccountDatabase | null = null,
+    private readonly outbox: OutboxRepository | null = null,
   ) {}
 
   async importFromStore(): Promise<GenerationTaskImportResult> {
@@ -119,15 +121,6 @@ export class GenerationTaskRepository {
       `,
     )
     this.store.replaceGenerationTaskRuntimeCache(result.rows.map(taskFromRow))
-  }
-
-  async persistRuntimeSnapshot(snapshot: Pick<ProjectDomainRuntimeSnapshot, 'tasks'>): Promise<void> {
-    if (!this.database) return
-    await this.database.transaction(async (client) => {
-      for (const task of snapshot.tasks) {
-        await upsertTaskRuntime(client, task)
-      }
-    })
   }
 
   canCreate(projectId: string, principal: Principal): boolean {
@@ -259,6 +252,29 @@ export class GenerationTaskRepository {
   }
 
   async clearCompleted(projectId: string, principal: Principal): Promise<number> {
+    if (this.database) {
+      const now = new Date().toISOString()
+      const result = await this.database.query<GenerationTaskRow>(
+        `
+        UPDATE generation_tasks
+        SET metadata = metadata || jsonb_build_object('queueHiddenAt', $4::text),
+            updated_at = $4
+        WHERE project_id = $1
+          AND tenant_id = $2
+          AND user_id = $3
+          AND status IN ('completed', 'failed', 'cancelled')
+          AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
+        RETURNING ${generationTaskColumns}
+        `,
+        [projectId, principal.tenantId, principal.userId, now],
+      )
+      const tasks = result.rows.map(taskFromRow)
+      for (const task of tasks) {
+        await this.mirrorTask(task, null)
+      }
+      return tasks.length
+    }
+
     return this.store.mutate((state) => {
       const now = new Date().toISOString()
       const terminalTasks = state.tasks.filter(
@@ -283,6 +299,26 @@ export class GenerationTaskRepository {
     outcome: 'not_found' | 'paused' | 'already_paused' | 'not_pausable'
     task: GenerationTask | null
   }> {
+    if (this.database) {
+      const result = await this.database.transaction(async (client) => {
+        const task = await findControlledTaskInDatabase(client, taskId, principal)
+        if (!task) return { outcome: 'not_found' as const, task: null }
+        if (task.status === 'paused') return { outcome: 'already_paused' as const, task }
+        if (task.status !== 'queued' || typeof task.metadata.queueHiddenAt === 'string') {
+          return { outcome: 'not_pausable' as const, task }
+        }
+        const now = new Date().toISOString()
+        task.status = 'paused'
+        task.metadata = { ...task.metadata, pausedAt: now }
+        releaseGenerationTaskLease(task)
+        task.updatedAt = now
+        const updated = await updateGenerationTaskLifecycle(client, task)
+        return { outcome: 'paused' as const, task: updated ?? task }
+      })
+      if (result.task) await this.mirrorTask(result.task, null)
+      return result
+    }
+
     return this.store.mutate((state) => {
       const task = findControlledTask(state.tasks, taskId, principal)
       if (!task) return { outcome: 'not_found' as const, task: null }
@@ -303,6 +339,29 @@ export class GenerationTaskRepository {
     taskId: string,
     principal: Principal,
   ): Promise<{ outcome: 'not_found' | 'resumed' | 'not_resumable'; task: GenerationTask | null }> {
+    if (this.database) {
+      const result = await this.database.transaction(async (client) => {
+        const task = await findControlledTaskInDatabase(client, taskId, principal)
+        if (!task) return { outcome: 'not_found' as const, task: null }
+        if (task.status !== 'paused' || typeof task.metadata.queueHiddenAt === 'string') {
+          return { outcome: 'not_resumable' as const, task }
+        }
+        const now = new Date().toISOString()
+        const { pausedAt: _pausedAt, ...metadata } = task.metadata
+        task.status = 'queued'
+        task.progress = 0
+        task.error = null
+        task.metadata = { ...metadata, resumedAt: now }
+        releaseGenerationTaskLease(task)
+        task.updatedAt = now
+        const updated = await updateGenerationTaskLifecycle(client, task)
+        await this.outbox?.enqueueGenerationTaskDispatch(client, updated ?? task)
+        return { outcome: 'resumed' as const, task: updated ?? task }
+      })
+      if (result.task) await this.mirrorTask(result.task, null)
+      return result
+    }
+
     return this.store.mutate((state) => {
       const task = findControlledTask(state.tasks, taskId, principal)
       if (!task) return { outcome: 'not_found' as const, task: null }
@@ -329,6 +388,51 @@ export class GenerationTaskRepository {
     task: GenerationTask | null
     refund: boolean
   }> {
+    if (this.database) {
+      const result = await this.database.transaction(async (client) => {
+        const task = await findControlledTaskInDatabase(client, taskId, principal)
+        if (!task) return { outcome: 'not_found' as const, task: null, refund: false }
+        if (typeof task.metadata.queueHiddenAt === 'string') {
+          return { outcome: 'already_deleted' as const, task, refund: false }
+        }
+
+        const now = new Date().toISOString()
+        if (task.status === 'running') {
+          const lock = cancellationResourceLockForTask(task)
+          task.status = 'cancelled'
+          task.progress = 100
+          task.error = null
+          task.metadata = {
+            ...task.metadata,
+            cancelResourceLockKind: lock.kind,
+            cancelResourceLockKey: lock.key,
+            providerCancelRequestedAt: now,
+            cancelledAt: now,
+            deletedAt: now,
+            queueHiddenAt: now,
+          }
+          releaseGenerationTaskLease(task)
+          task.updatedAt = now
+          const updated = await updateGenerationTaskLifecycle(client, task)
+          return { outcome: 'deleted' as const, task: updated ?? task, refund: false }
+        }
+
+        const refund = task.status === 'queued' || task.status === 'paused'
+        if (task.status === 'queued') {
+          task.status = 'paused'
+          task.progress = 0
+          task.metadata = { ...task.metadata, pausedAt: now }
+        }
+        task.metadata = { ...task.metadata, queueHiddenAt: now, deletedAt: now }
+        releaseGenerationTaskLease(task)
+        task.updatedAt = now
+        const updated = await updateGenerationTaskLifecycle(client, task)
+        return { outcome: 'deleted' as const, task: updated ?? task, refund }
+      })
+      if (result.task) await this.mirrorTask(result.task, null)
+      return result
+    }
+
     return this.store.mutate((state) => {
       const task = findControlledTask(state.tasks, taskId, principal)
       if (!task) return { outcome: 'not_found' as const, task: null, refund: false }
@@ -379,7 +483,10 @@ export class GenerationTaskRepository {
   ): Promise<GenerationTask> {
     const created = await this.database!.transaction(async (client) => {
       const replayed = await findTaskByClientRequest(client, input.clientRequestId, principal)
-      if (replayed) return { task: replayed, credits: null }
+      if (replayed) {
+        await this.outbox?.enqueueGenerationTaskDispatch(client, replayed)
+        return { task: replayed, credits: null }
+      }
 
       await assertNoActiveShotTask(client, input, principal)
       const membership = await resolveMembershipForTask(client, principal, chargeCredits)
@@ -392,11 +499,17 @@ export class GenerationTaskRepository {
       const inserted = await insertCreatedTask(client, task, membership.id)
       if (!inserted) {
         const existing = await findTaskByClientRequest(client, input.clientRequestId, principal)
-        if (existing) return { task: existing, credits: null }
+        if (existing) {
+          await this.outbox?.enqueueGenerationTaskDispatch(client, existing)
+          return { task: existing, credits: null }
+        }
         throw new AppError(409, 'TASK_CONFLICT', 'Generation task already exists')
       }
 
-      if (!chargeCredits || input.estimatedCredits <= 0) return { task: inserted, credits: null }
+      if (!chargeCredits || input.estimatedCredits <= 0) {
+        await this.outbox?.enqueueGenerationTaskDispatch(client, inserted)
+        return { task: inserted, credits: null }
+      }
       if (membership.credits === null || membership.credits < input.estimatedCredits) {
         throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
       }
@@ -443,6 +556,7 @@ export class GenerationTaskRepository {
           now,
         ],
       )
+      await this.outbox?.enqueueGenerationTaskDispatch(client, inserted)
       return { task: inserted, credits: nextCredits }
     })
 
@@ -563,6 +677,71 @@ async function findTaskByClientRequest(
     LIMIT 1
     `,
     [principal.tenantId, principal.userId, clientRequestId],
+  )
+  return result.rows[0] ? taskFromRow(result.rows[0]) : null
+}
+
+async function findControlledTaskInDatabase(
+  queryable: Queryable,
+  taskId: string,
+  principal: Principal,
+): Promise<GenerationTask | null> {
+  const result = await queryable.query<GenerationTaskRow>(
+    `
+    SELECT ${generationTaskColumns}
+    FROM generation_tasks
+    WHERE id = $1
+      AND tenant_id = $2
+      AND ($3::boolean OR user_id = $4)
+    LIMIT 1
+    FOR UPDATE
+    `,
+    [taskId, principal.tenantId, canReadAllTenantContent(principal), principal.userId],
+  )
+  return result.rows[0] ? taskFromRow(result.rows[0]) : null
+}
+
+async function updateGenerationTaskLifecycle(
+  queryable: Queryable,
+  task: GenerationTask,
+): Promise<GenerationTask | null> {
+  const result = await queryable.query<GenerationTaskRow>(
+    `
+    UPDATE generation_tasks
+    SET metadata = $2::jsonb,
+        status = $3,
+        progress = $4,
+        attempts = $5,
+        max_attempts = $6,
+        lease_owner_id = $7,
+        lease_token = $8,
+        lease_acquired_at = $9,
+        lease_heartbeat_at = $10,
+        lease_expires_at = $11,
+        result_url = $12,
+        outputs = $13::jsonb,
+        error = $14,
+        updated_at = $15
+    WHERE id = $1
+    RETURNING ${generationTaskColumns}
+    `,
+    [
+      task.id,
+      JSON.stringify(task.metadata),
+      task.status,
+      task.progress,
+      task.attempts ?? 0,
+      task.maxAttempts ?? null,
+      task.leaseOwnerId ?? null,
+      task.leaseToken ?? null,
+      task.leaseAcquiredAt ?? null,
+      task.leaseHeartbeatAt ?? null,
+      task.leaseExpiresAt ?? null,
+      task.resultUrl,
+      JSON.stringify(task.outputs),
+      task.error,
+      task.updatedAt,
+    ],
   )
   return result.rows[0] ? taskFromRow(result.rows[0]) : null
 }
@@ -744,85 +923,6 @@ async function insertTaskFromStore(client: PoolClient, task: GenerationTask): Pr
     taskInsertParams(normalizeGenerationTaskLifecycle(task), membership?.id ?? null),
   )
   return (result.rowCount ?? 0) > 0
-}
-
-async function upsertTaskRuntime(client: PoolClient, task: GenerationTask): Promise<void> {
-  const membership = await resolveMembershipForTask(
-    client,
-    { userId: task.userId, tenantId: task.tenantId, roles: [] },
-    false,
-  )
-  await client.query(
-    `
-    INSERT INTO generation_tasks (
-      id,
-      client_request_id,
-      project_id,
-      tenant_id,
-      user_id,
-      membership_id,
-      kind,
-      label,
-      prompt,
-      negative_prompt,
-      provider,
-      model,
-      tier,
-      metadata,
-      status,
-      progress,
-      estimated_credits,
-      attempts,
-      max_attempts,
-      lease_owner_id,
-      lease_token,
-      lease_acquired_at,
-      lease_heartbeat_at,
-      lease_expires_at,
-      result_url,
-      outputs,
-      error,
-      created_at,
-      updated_at
-    )
-    SELECT
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-      $11, $12, $13, $14::jsonb, $15, $16, $17, $18, $19,
-      $20, $21, $22, $23, $24, $25, $26::jsonb, $27, $28, $29
-    WHERE EXISTS (SELECT 1 FROM projects WHERE id = $3 AND tenant_id = $4)
-      AND EXISTS (SELECT 1 FROM users WHERE id = $5)
-    ON CONFLICT (id) DO UPDATE
-    SET
-      client_request_id = EXCLUDED.client_request_id,
-      project_id = EXCLUDED.project_id,
-      tenant_id = EXCLUDED.tenant_id,
-      user_id = EXCLUDED.user_id,
-      membership_id = EXCLUDED.membership_id,
-      kind = EXCLUDED.kind,
-      label = EXCLUDED.label,
-      prompt = EXCLUDED.prompt,
-      negative_prompt = EXCLUDED.negative_prompt,
-      provider = EXCLUDED.provider,
-      model = EXCLUDED.model,
-      tier = EXCLUDED.tier,
-      metadata = EXCLUDED.metadata,
-      status = EXCLUDED.status,
-      progress = EXCLUDED.progress,
-      estimated_credits = EXCLUDED.estimated_credits,
-      attempts = EXCLUDED.attempts,
-      max_attempts = EXCLUDED.max_attempts,
-      lease_owner_id = EXCLUDED.lease_owner_id,
-      lease_token = EXCLUDED.lease_token,
-      lease_acquired_at = EXCLUDED.lease_acquired_at,
-      lease_heartbeat_at = EXCLUDED.lease_heartbeat_at,
-      lease_expires_at = EXCLUDED.lease_expires_at,
-      result_url = EXCLUDED.result_url,
-      outputs = EXCLUDED.outputs,
-      error = EXCLUDED.error,
-      updated_at = EXCLUDED.updated_at
-    `,
-    taskInsertParams(normalizeGenerationTaskLifecycle(task), membership?.id ?? null),
-  )
 }
 
 function taskInsertParams(task: GenerationTask, membershipId: string | null): unknown[] {

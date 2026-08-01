@@ -377,7 +377,11 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
   it('retries an interrupted remote submission with the same idempotency key after restart', async () => {
     const provider: VideoGenerationProvider = {
-      submit: vi.fn(async () => ({ providerTaskId: 'remote-recovered-submission', status: 'queued', progress: 0 })),
+      submit: vi.fn(async () => ({
+        providerTaskId: 'remote-recovered-submission',
+        status: 'queued',
+        progress: 0,
+      })),
       getStatus: vi.fn(),
       getContent: vi.fn(),
     }

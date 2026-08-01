@@ -1,4 +1,9 @@
-import { NOVEL_IMPORT_MAX_FILE_BYTES, type GenerationTask } from '@seqora/contracts'
+import {
+  type AiJob,
+  NOVEL_IMPORT_MAX_FILE_BYTES,
+  type GenerationTask,
+  type NovelSummaryQueueResult,
+} from '@seqora/contracts'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { readFile, rm, stat } from 'node:fs/promises'
@@ -13,7 +18,7 @@ import type { ImageGenerationProvider } from './core/generation/imageProvider.js
 import { TextGenerationProviderError, type TextGenerationProvider } from './core/generation/textProvider.js'
 import type { AssetLibraryProvider, ProviderPortrait } from './core/generation/volcArkAssetLibraryProvider.js'
 import type { FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
-import { GenerationTaskRunner } from './core/jobs/taskDispatcher.js'
+import { GenerationTaskRunner, noopTaskDispatcher } from './core/jobs/taskDispatcher.js'
 import { createPublicMediaToken } from './core/media/publicMediaToken.js'
 import { AppStore, defaultAssetAttributes } from './infra/store.js'
 import { AccountDatabase } from './infra/postgres.js'
@@ -177,6 +182,28 @@ describe('API authorization', () => {
     expect(response.json()).toMatchObject({
       providers: { seedance: 'configured' },
       providerNames: { seedance: 'stringx-seedance', img2: 'local-mock' },
+      readiness: {
+        database: { status: 'disabled' },
+        redis: { status: 'disabled' },
+        queue: { driver: 'inline', name: 'seqora-generation-test' },
+        worker: { status: 'missing' },
+      },
+    })
+    expect(response.headers['x-request-id']).toEqual(expect.any(String))
+  })
+
+  it('returns readiness failures from the dedicated readiness endpoint', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+
+    const response = await app.inject({ method: 'GET', url: '/api/v1/health/readiness' })
+
+    expect(response.statusCode).toBe(503)
+    expect(response.json()).toMatchObject({
+      ready: false,
+      database: { status: 'disabled' },
+      redis: { status: 'disabled' },
+      queue: { status: 'ready', driver: 'inline' },
+      worker: { status: 'missing' },
     })
   })
 
@@ -773,6 +800,43 @@ describe('API authorization', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({ users: 4, activeTasks: 0 })
+  })
+
+  it('protects observability metrics and returns operational counters to admins', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+
+    const denied = await app.inject({
+      method: 'GET',
+      url: '/api/v1/observability/metrics',
+      headers: { 'x-demo-role': 'member' },
+    })
+    expect(denied.statusCode).toBe(403)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/observability/metrics',
+      headers: { 'x-demo-role': 'admin', 'x-demo-tenant-id': 'tenant-seqora-demo' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      metrics: {
+        process: { pid: expect.any(Number), uptimeSeconds: expect.any(Number) },
+        http: expect.any(Object),
+        queue: expect.any(Object),
+        tasks: expect.any(Object),
+        aiJobs: expect.any(Object),
+        providers: expect.any(Object),
+        refunds: expect.any(Object),
+        filmPreview: expect.any(Object),
+      },
+      daily: {
+        creditsConsumed: expect.any(Number),
+        generationTasks: expect.any(Object),
+        aiJobs: expect.any(Object),
+        filmPreview: expect.any(Object),
+      },
+    })
   })
 
   it('proxies completed Seedance video content through the authenticated API', async () => {
@@ -1808,6 +1872,85 @@ describe('API authorization', () => {
     expect(generate).not.toHaveBeenCalled()
   })
 
+  it('enqueues novel summary queue batches as AI jobs without calling the text provider', async () => {
+    const generate = vi.fn(async () => novelChapterSummariesJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      taskDispatcher: noopTaskDispatcher,
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue`,
+      headers,
+      payload: {
+        clientRequestId: 'summary-queue-worker-create',
+        batchSize: 2,
+        maxAttempts: 2,
+      },
+    })
+    const queueId = created.json().queue.id
+
+    const run = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/run-batch`,
+      headers,
+      payload: { clientRequestId: 'summary-queue-worker-run', batchSize: 2 },
+    })
+    const repeated = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/run-batch`,
+      headers,
+      payload: { clientRequestId: 'summary-queue-worker-run-again', batchSize: 2 },
+    })
+    const taskList = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film/ai-jobs',
+      headers,
+    })
+    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+
+    expect(run.statusCode, run.body).toBe(200)
+    expect(run.json()).toMatchObject({
+      processedItemIds: [],
+      failedItemIds: [],
+      task: expect.objectContaining({
+        kind: 'novel.summaryQueueBatch',
+        provider: 'text',
+        status: 'queued',
+        costCredits: 4,
+        input: expect.objectContaining({
+          documentId: imported.document.id,
+          queueId,
+          batchSize: 2,
+          pendingItemIds: [created.json().items[0].id, created.json().items[1].id],
+        }),
+      }),
+    })
+    expect(repeated.statusCode, repeated.body).toBe(200)
+    expect(repeated.json().task.id).toBe(run.json().task.id)
+    expect(taskList.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: run.json().task.id,
+          kind: 'novel.summaryQueueBatch',
+          provider: 'text',
+          status: 'queued',
+        }),
+      ]),
+    )
+    expect(taskList.json().filter((task: AiJob) => task.kind === 'novel.summaryQueueBatch')).toHaveLength(1)
+    expect(billing.json().entries.filter((entry: { amount: number }) => entry.amount === -4)).toHaveLength(1)
+    expect(generate).not.toHaveBeenCalled()
+  })
+
   it('runs novel summary queue batches and supports pause, retry and skip', async () => {
     const generate = vi
       .fn()
@@ -1860,6 +2003,40 @@ describe('API authorization', () => {
       headers,
       payload: { clientRequestId: 'summary-queue-run-batch', batchSize: 2 },
     })
+
+    let queueAfterRun: NovelSummaryQueueResult | null = null
+    await vi.waitFor(async () => {
+      const response = await app!.inject({
+        method: 'GET',
+        url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue`,
+        headers,
+      })
+      queueAfterRun = response.json()
+      expect(queueAfterRun).toMatchObject({
+        queue: {
+          status: 'failed',
+          completedCount: 1,
+          failedCount: 1,
+        },
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            id: firstItemId,
+            status: 'completed',
+            attempts: 1,
+            result: expect.objectContaining({
+              summary: expect.stringContaining('林夏收到匿名来信'),
+            }),
+          }),
+          expect.objectContaining({
+            id: secondItemId,
+            status: 'failed',
+            attempts: 1,
+            errorMessage: 'provider down',
+          }),
+        ]),
+      })
+    })
+
     const summariesAfterRun = await app.inject({
       method: 'GET',
       url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries`,
@@ -1883,29 +2060,16 @@ describe('API authorization', () => {
     expect(resumed.json().queue.status).toBe('queued')
     expect(run.statusCode, run.body).toBe(200)
     expect(run.json()).toMatchObject({
-      processedItemIds: [firstItemId],
-      failedItemIds: [secondItemId],
-      queue: {
-        status: 'failed',
-        completedCount: 1,
-        failedCount: 1,
-      },
-      items: expect.arrayContaining([
-        expect.objectContaining({
-          id: firstItemId,
-          status: 'completed',
-          attempts: 1,
-          result: expect.objectContaining({
-            summary: expect.stringContaining('林夏收到匿名来信'),
-          }),
+      processedItemIds: [],
+      failedItemIds: [],
+      task: expect.objectContaining({
+        kind: 'novel.summaryQueueBatch',
+        provider: 'text',
+        input: expect.objectContaining({
+          documentId: imported.document.id,
+          queueId,
         }),
-        expect.objectContaining({
-          id: secondItemId,
-          status: 'failed',
-          attempts: 1,
-          errorMessage: 'provider down',
-        }),
-      ]),
+      }),
     })
     expect(summariesAfterRun.json().summaries).toHaveLength(0)
     expect(retried.json()).toMatchObject({
@@ -1950,6 +2114,21 @@ describe('API authorization', () => {
       headers,
       payload: { clientRequestId: 'summary-queue-commit-run', batchSize: 2 },
     })
+
+    let queueAfterRun: NovelSummaryQueueResult | null = null
+    await vi.waitFor(async () => {
+      const response = await app!.inject({
+        method: 'GET',
+        url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue`,
+        headers,
+      })
+      queueAfterRun = response.json()
+      expect(queueAfterRun.queue).toMatchObject({
+        status: 'completed',
+        completedCount: 2,
+      })
+    })
+
     const committed = await app.inject({
       method: 'POST',
       url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/commit-results`,
@@ -1972,12 +2151,17 @@ describe('API authorization', () => {
       url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/story-bible`,
       headers,
     })
+    const committedItemIds = queueAfterRun!.items.map((item) => item.id)
 
     expect(run.statusCode, run.body).toBe(200)
-    expect(run.json().queue.completedCount).toBe(2)
+    expect(run.json()).toMatchObject({
+      processedItemIds: [],
+      failedItemIds: [],
+      task: expect.objectContaining({ kind: 'novel.summaryQueueBatch', provider: 'text' }),
+    })
     expect(committed.statusCode, committed.body).toBe(200)
     expect(committed.json()).toMatchObject({
-      committedItemIds: run.json().processedItemIds,
+      committedItemIds,
       skippedItemIds: [],
       summaryCount: 2,
       missingSummaryCount: 0,
@@ -1989,7 +2173,7 @@ describe('API authorization', () => {
       ]),
       items: expect.arrayContaining([
         expect.objectContaining({
-          id: run.json().processedItemIds[0],
+          id: committedItemIds[0],
           summaryId: expect.any(String),
         }),
       ]),
@@ -3735,7 +3919,11 @@ describe('local authentication', () => {
   })
 
   it('persists project, asset, task and billing mutations', async () => {
-    app = await buildApp({ config: localAuthConfig(), store: await importedProjectStore(), startWorker: false })
+    app = await buildApp({
+      config: localAuthConfig(),
+      store: await importedProjectStore(),
+      startWorker: false,
+    })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
@@ -3840,8 +4028,111 @@ describe('local authentication', () => {
     expect(billing.json()).toMatchObject({ credits: 280 })
   })
 
+  it('persists novel metadata in Postgres and source text in object storage', async () => {
+    app = await buildApp({
+      config: localAuthConfig(),
+      store: await importedProjectStore(),
+      startWorker: false,
+    })
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+    })
+    const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
+    const headers = { cookie: `seqora_session=${sessionCookie?.value}` }
+    const hiddenTail = '不可公开的长尾正文'
+    const content = [
+      '第一章 河岸',
+      '黄昏时，河岸的灯亮了。翠翠听见渡船靠岸，风从水面吹来。',
+      '',
+      '第二章 山雨',
+      `山雨落下，老船夫收起竹篙。${'山路'.repeat(1700)}${hiddenTail}`,
+    ].join('\n')
+
+    const imported = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers,
+      payload: {
+        clientRequestId: 'postgres-novel-import',
+        name: '河岸故事',
+        format: 'txt',
+        content,
+        splitOptions: { mode: 'heading', targetChars: 3000, overlapChars: 0 },
+      },
+    })
+
+    expect(imported.statusCode, imported.body).toBe(201)
+    expect(imported.json()).toMatchObject({
+      document: {
+        projectId: 'project-midnight-film',
+        name: '河岸故事',
+        chapterCount: 2,
+      },
+      chapters: expect.arrayContaining([
+        expect.objectContaining({ title: '第一章 河岸', preview: expect.any(String) }),
+      ]),
+    })
+    expect(imported.body).not.toContain(hiddenTail)
+
+    const database = new AccountDatabase(authDatabase!.connectionString)
+    try {
+      const documentRows = await database.query<{
+        content_storage_key: string
+        content_sha256: string
+      }>(
+        `
+        SELECT content_storage_key, content_sha256
+        FROM novel_documents
+        WHERE id = $1
+        `,
+        [imported.json().document.id],
+      )
+      expect(documentRows.rows[0]).toMatchObject({
+        content_storage_key: expect.stringContaining('/novels/'),
+        content_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      })
+      const chapterRows = await database.query<{ table_name: string | null }>(
+        "SELECT to_regclass('public.novel_chapters')::text AS table_name",
+      )
+      expect(chapterRows.rows[0]?.table_name).toBe('novel_chapters')
+      const stored = await new LocalObjectStorage(testConfig.UPLOAD_DIR).get(
+        documentRows.rows[0]!.content_storage_key,
+      )
+      expect(stored.toString('utf8')).toBe(content)
+    } finally {
+      await database.close()
+    }
+
+    await app.close()
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const relogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+    })
+    const reloadedCookie = relogin.cookies.find((item) => item.name === 'seqora_session')
+    const reloaded = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}`,
+      headers: { cookie: `seqora_session=${reloadedCookie?.value}` },
+    })
+
+    expect(reloaded.statusCode, reloaded.body).toBe(200)
+    expect(reloaded.json()).toMatchObject({
+      document: { name: '河岸故事', chapterCount: 2 },
+      chapters: expect.arrayContaining([expect.objectContaining({ title: '第二章 山雨' })]),
+    })
+    expect(reloaded.body).not.toContain(hiddenTail)
+  })
+
   it('uploads and serves authenticated project media', async () => {
-    app = await buildApp({ config: localAuthConfig(), store: await importedProjectStore(), startWorker: false })
+    app = await buildApp({
+      config: localAuthConfig(),
+      store: await importedProjectStore(),
+      startWorker: false,
+    })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',

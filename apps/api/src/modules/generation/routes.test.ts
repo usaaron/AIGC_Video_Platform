@@ -86,7 +86,7 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
     })
   })
 
-  it('persists tasks, charges idempotently, and syncs runtime writeback to postgres', async () => {
+  it('persists tasks, charges idempotently, and keeps runtime cache from writing back to postgres', async () => {
     const store = new AppStore(null)
     app = await buildApp({
       config: localAuthConfig(),
@@ -198,6 +198,16 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
       expect(persisted.rows[0]).toEqual({ task_count: '1', ledger_count: '1', credits: 281 })
     })
 
+    const resultUrl = `/api/v1/generation/tasks/${taskId}/outputs/single`
+    const outputs = [
+      {
+        id: `${taskId}-single`,
+        url: resultUrl,
+        mediaType: 'image',
+        view: 'single',
+      },
+    ]
+
     await store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)!
       const asset = state.assets.find((item) => item.id === assetId)!
@@ -205,15 +215,8 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
       const now = new Date().toISOString()
       task.status = 'completed'
       task.progress = 100
-      task.resultUrl = `/api/v1/generation/tasks/${taskId}/outputs/single`
-      task.outputs = [
-        {
-          id: `${taskId}-single`,
-          url: task.resultUrl,
-          mediaType: 'image',
-          view: 'single',
-        },
-      ]
+      task.resultUrl = resultUrl
+      task.outputs = outputs
       task.metadata = {
         ...task.metadata,
         providerState: 'completed',
@@ -227,14 +230,14 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
         ],
       }
       task.updatedAt = now
-      asset.imageUrl = task.resultUrl
+      asset.imageUrl = resultUrl
       asset.updatedAt = now
-      shot.imageUrl = task.resultUrl
+      shot.imageUrl = resultUrl
       shot.updatedAt = now
     })
 
     await withDatabase(async (database) => {
-      const writeback = await database.query<{
+      const unchanged = await database.query<{
         status: string
         progress: number
         result_url: string | null
@@ -255,13 +258,52 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
         `,
         [taskId, assetId, shotId],
       )
-      expect(writeback.rows[0]).toEqual({
-        status: 'completed',
-        progress: 100,
-        result_url: `/api/v1/generation/tasks/${taskId}/outputs/single`,
-        asset_image_url: `/api/v1/generation/tasks/${taskId}/outputs/single`,
-        shot_image_url: `/api/v1/generation/tasks/${taskId}/outputs/single`,
+      expect(unchanged.rows[0]).toEqual({
+        status: 'queued',
+        progress: 0,
+        result_url: null,
+        asset_image_url: null,
+        shot_image_url: null,
       })
+    })
+
+    await withDatabase(async (database) => {
+      await database.query(
+        `
+        UPDATE generation_tasks
+        SET status = 'completed',
+            progress = 100,
+            result_url = $2,
+            outputs = $3::jsonb,
+            metadata = metadata || $4::jsonb,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [
+          taskId,
+          resultUrl,
+          JSON.stringify(outputs),
+          JSON.stringify({
+            providerState: 'completed',
+            generatedOutputs: [
+              {
+                view: 'single',
+                storageKey: `tenant-seqora-demo/${projectId}/generated/${taskId}-single.png`,
+                contentType: 'image/png',
+                size: 128,
+              },
+            ],
+          }),
+        ],
+      )
+      await database.query(
+        'UPDATE assets SET image_url = $3, updated_at = now() WHERE id = $1 AND project_id = $2',
+        [assetId, projectId, resultUrl],
+      )
+      await database.query(
+        'UPDATE shots SET image_url = $3, updated_at = now() WHERE id = $1 AND project_id = $2',
+        [shotId, projectId, resultUrl],
+      )
     })
 
     const cleared = await app.inject({

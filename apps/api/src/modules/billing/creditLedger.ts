@@ -9,6 +9,7 @@ import type {
 import { randomUUID } from 'node:crypto'
 import { isPlatformAdmin, isTenantManager } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
+import { observabilityMetrics } from '../../core/observability/metrics.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
 import type { UserRepository } from '../users/repository.js'
@@ -92,10 +93,7 @@ export interface CreditLedger {
   consumedCreditsSince(startIso: string, tenantId?: string): Promise<number>
   updatePlan(principal: Principal, plan: Plan): Promise<BillingSummary>
   updatePlanInState(state: AppState, principal: Principal, plan: Plan): Promise<BillingSummary>
-  processBillingWebhook(
-    provider: string,
-    payload: BillingWebhookEvent,
-  ): Promise<BillingWebhookProcessResult>
+  processBillingWebhook(provider: string, payload: BillingWebhookEvent): Promise<BillingWebhookProcessResult>
 }
 
 export class StoreCreditLedger implements CreditLedger {
@@ -233,6 +231,7 @@ export class StoreCreditLedger implements CreditLedger {
       })
       if (!recorded) return
       user.credits = recorded.balance
+      observabilityMetrics.recordRefund({ tenantId: principal.tenantId, amount: Math.abs(debit.amount) })
       return
     }
 
@@ -254,6 +253,7 @@ export class StoreCreditLedger implements CreditLedger {
       description,
       createdAt: new Date().toISOString(),
     })
+    observabilityMetrics.recordRefund({ tenantId: principal.tenantId, amount })
   }
 
   async refundGeneration(task: GenerationTask, description = `${task.label} deleted refund`): Promise<void> {
@@ -290,6 +290,7 @@ export class StoreCreditLedger implements CreditLedger {
       if (!recorded) return
       user.credits = recorded.balance
       markTaskRefunded(state, task.id, now)
+      observabilityMetrics.recordRefund({ tenantId: task.tenantId, amount })
       return
     }
 
@@ -312,6 +313,7 @@ export class StoreCreditLedger implements CreditLedger {
       createdAt: now,
     })
     markTaskRefunded(state, task.id, now)
+    observabilityMetrics.recordRefund({ tenantId: task.tenantId, amount })
   }
 
   async grantCredits(principal: Principal, amount: number, reason: string): Promise<BillingSummary> {

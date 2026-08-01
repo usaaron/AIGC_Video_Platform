@@ -1,7 +1,14 @@
 import 'dotenv/config'
 import { resolve } from 'node:path'
-import { createBullMqGenerationWorker, type BullMqGenerationWorker } from './core/jobs/bullMqQueue.js'
+import {
+  createBullMqGenerationWorker,
+  createBullMqTaskDispatcher,
+  type BullMqGenerationWorker,
+  type BullMqTaskDispatcher,
+} from './core/jobs/bullMqQueue.js'
+import { OutboxRelay, OutboxRepository } from './core/jobs/outbox.js'
 import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
+import { AiJobRunner } from './core/jobs/aiJobRunner.js'
 import { GenerationTaskRunner, noopTaskDispatcher } from './core/jobs/taskDispatcher.js'
 import { PostgresAdvisoryTaskRunnerLock } from './core/jobs/taskRunnerLock.js'
 import { FilmPreviewComposer } from './core/film/filmPreviewComposer.js'
@@ -10,11 +17,19 @@ import { AccountDatabase } from './infra/postgres.js'
 import { AppStore } from './infra/store.js'
 import { createObjectStorage } from './infra/objectStorage.js'
 import { StoreCreditLedger } from './modules/billing/creditLedger.js'
+import { AiJobRepository } from './modules/aiJobs/repository.js'
 import { GenerationTaskRepository } from './modules/generation/repository.js'
 import { GenerationService } from './modules/generation/service.js'
+import { NovelRepository } from './modules/novels/repository.js'
+import { NovelService } from './modules/novels/service.js'
 import { ProjectRepository } from './modules/projects/repository.js'
 import { UserRepository } from './modules/users/repository.js'
-import { createImageProvider, createVideoProvider, videoProviderName } from './runtime/providers.js'
+import {
+  createImageProvider,
+  createTextProvider,
+  createVideoProvider,
+  videoProviderName,
+} from './runtime/providers.js'
 
 const config = loadConfig()
 const store = new AppStore(
@@ -52,20 +67,20 @@ await projectRepository.refreshRuntimeCacheFromDatabase()
 const objectStorage = createObjectStorage(config)
 const videoProvider = createVideoProvider(config)
 const imageProvider = createImageProvider(config)
+const textProvider = createTextProvider(config)
 const creditLedger = new StoreCreditLedger(store, users, false, database)
 await creditLedger.bootstrapFromStore()
-const generationTaskRepository = new GenerationTaskRepository(store, creditLedger, database)
+const outboxRepository =
+  database && config.TASK_QUEUE_DRIVER === 'bullmq' ? new OutboxRepository(database) : null
+const generationTaskRepository = new GenerationTaskRepository(store, creditLedger, database, outboxRepository)
 await generationTaskRepository.refreshRuntimeCacheFromDatabase()
-if (database) {
-  store.setProjectDomainRuntimePersister(async (snapshot) => {
-    await projectRepository.persistRuntimeSnapshot(snapshot)
-    await generationTaskRepository.persistRuntimeSnapshot(snapshot)
-  })
-}
+const aiJobRepository = new AiJobRepository(store, creditLedger, database, outboxRepository)
+await aiJobRepository.refreshRuntimeCacheFromDatabase()
 const refreshProjectDomainRuntimeCache = database
   ? async () => {
       await projectRepository.refreshRuntimeCacheFromDatabase()
       await generationTaskRepository.refreshRuntimeCacheFromDatabase()
+      await aiJobRepository.refreshRuntimeCacheFromDatabase()
     }
   : null
 const filmPreviewComposer =
@@ -82,6 +97,13 @@ const filmPreviewComposer =
 await filmPreviewComposer?.recoverInterrupted()
 
 let generationService: GenerationService | null = null
+const novelService = new NovelService(
+  new NovelRepository(store, database, objectStorage),
+  textProvider,
+  creditLedger,
+  aiJobRepository,
+  noopTaskDispatcher,
+)
 const taskRunner = new GenerationTaskRunner(store, {
   videoProvider,
   videoProviderName: videoProviderName(config),
@@ -93,6 +115,14 @@ const taskRunner = new GenerationTaskRunner(store, {
   ...(database ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database) } : {}),
   onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
 })
+const aiJobRunner = new AiJobRunner(aiJobRepository, {
+  concurrency: config.TASK_QUEUE_WORKER_CONCURRENCY,
+  ...(refreshProjectDomainRuntimeCache ? { beforeTick: refreshProjectDomainRuntimeCache } : {}),
+  ...(database
+    ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database, 'seqora:ai-job-runner') }
+    : {}),
+  handler: novelService,
+})
 generationService = new GenerationService(
   generationTaskRepository,
   noopTaskDispatcher,
@@ -103,15 +133,35 @@ generationService = new GenerationService(
 )
 
 let queueWorker: BullMqGenerationWorker | null = null
+let outboxDispatcher: BullMqTaskDispatcher | null = null
+let outboxRelay: OutboxRelay | null = null
 if (config.TASK_QUEUE_DRIVER === 'bullmq') {
   await taskRunner.recoverInterrupted()
-  queueWorker = createBullMqGenerationWorker(config, taskRunner)
+  await aiJobRunner.recoverInterrupted()
+  if (outboxRepository) {
+    outboxDispatcher = createBullMqTaskDispatcher(config)
+    await outboxDispatcher.waitUntilReady()
+    outboxRelay = new OutboxRelay(outboxRepository, outboxDispatcher, {
+      ownerId: `worker-outbox-relay-${process.pid}`,
+      intervalMs: 1_000,
+      leaseTtlMs: 60_000,
+      batchSize: 50,
+    })
+    outboxRelay.start()
+  }
+  queueWorker = createBullMqGenerationWorker(config, {
+    async tick() {
+      await taskRunner.tick()
+      await aiJobRunner.tick()
+    },
+  })
   await queueWorker.start()
   process.stdout.write(
     `[worker] BullMQ worker listening on ${config.TASK_QUEUE_NAME} (${config.REDIS_URL})\n`,
   )
 } else if (config.TASK_QUEUE_DRIVER === 'inline') {
   taskRunner.start()
+  aiJobRunner.start()
   process.stdout.write('[worker] inline task runner started\n')
 } else {
   process.stdout.write('[worker] task queue disabled\n')
@@ -120,7 +170,10 @@ if (config.TASK_QUEUE_DRIVER === 'bullmq') {
 const shutdown = async (signal: string) => {
   process.stdout.write(`[worker] shutting down on ${signal}\n`)
   taskRunner.stop()
+  aiJobRunner.stop()
+  outboxRelay?.stop()
   await queueWorker?.close().catch(() => {})
+  await outboxDispatcher?.close().catch(() => {})
   if (database) {
     await database.close().catch(() => {})
   }

@@ -9,6 +9,7 @@ import { pipeline } from 'node:stream/promises'
 import type { VideoGenerationProvider, VideoProviderName } from '../generation/videoProvider.js'
 import type { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
+import { observabilityMetrics, observeProviderCall } from '../observability/metrics.js'
 import {
   claimGenerationTaskLease,
   generationTaskLeaseMatches,
@@ -81,6 +82,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
   }
 
   private async compose(taskId: string, leaseToken: string): Promise<void> {
+    const startedAt = Date.now()
     let temporaryDirectory: string | null = null
     try {
       const task = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
@@ -125,7 +127,15 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
           return
         }
         const inputPath = join(temporaryDirectory, `shot-${String(index + 1).padStart(3, '0')}.mp4`)
-        const content = await this.videoProvider.getContent(String(source.metadata.providerTaskId))
+        const content = await observeProviderCall(
+          {
+            provider: this.videoProviderName,
+            operation: 'video.getContent',
+            tenantId: task.tenantId,
+            taskId,
+          },
+          () => this.videoProvider.getContent(String(source.metadata.providerTaskId)),
+        )
         await pipeline(content.stream, createWriteStream(inputPath))
         inputPaths.push(inputPath)
         await this.updateProgress(taskId, 5 + Math.round(((index + 1) / sourceTasks.length) * 40), leaseToken)
@@ -181,6 +191,33 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         task.updatedAt = new Date().toISOString()
       })
     } finally {
+      const finalTask = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
+      if (finalTask?.status === 'completed' || finalTask?.status === 'failed') {
+        const durationMs = Date.now() - startedAt
+        const ok = finalTask.status === 'completed'
+        const error = finalTask.error ? new Error(finalTask.error) : undefined
+        observabilityMetrics.recordFilmPreview({
+          tenantId: finalTask.tenantId,
+          taskId: finalTask.id,
+          durationMs,
+          ok,
+          error,
+        })
+        observabilityMetrics.recordTaskTerminal({
+          kind: `${finalTask.kind}:${finalTask.provider}`,
+          tenantId: finalTask.tenantId,
+          taskId: finalTask.id,
+          status: finalTask.status,
+        })
+        observabilityMetrics.recordTaskExecution({
+          kind: `${finalTask.kind}:${finalTask.provider}`,
+          tenantId: finalTask.tenantId,
+          taskId: finalTask.id,
+          durationMs,
+          ok,
+          error,
+        })
+      }
       if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true })
     }
   }

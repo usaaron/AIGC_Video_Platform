@@ -5,8 +5,11 @@ import { promisify } from 'node:util'
 import { Redis } from 'ioredis'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { loadConfig } from '../../config.js'
-import type { GenerationTaskRunner } from './taskDispatcher.js'
-import { createBullMqGenerationWorker, createBullMqTaskDispatcher } from './bullMqQueue.js'
+import {
+  createBullMqGenerationWorker,
+  createBullMqTaskDispatcher,
+  type TaskQueueRunner,
+} from './bullMqQueue.js'
 
 const execFileAsync = promisify(execFile)
 const redisImage = 'redis:7-alpine'
@@ -29,7 +32,7 @@ describe('BullMQ task queue', { timeout: 60_000 }, () => {
       REDIS_URL: redisUrl,
     })
     const tick = vi.fn(async () => {})
-    const worker = createBullMqGenerationWorker(config, { tick } as unknown as GenerationTaskRunner)
+    const worker = createBullMqGenerationWorker(config, { tick } as unknown as TaskQueueRunner)
     const dispatcher = createBullMqTaskDispatcher(config)
 
     try {

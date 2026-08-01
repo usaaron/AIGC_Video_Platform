@@ -46,11 +46,11 @@ export class GenerationResultWriteback {
     leaseOwnerId: string,
     leaseToken: string,
     descriptors: GeneratedOutputDescriptor[],
-  ): Promise<void> {
-    await this.store.mutate((state) => {
+  ): Promise<GenerationTask | null> {
+    return this.store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
-      if (!task || task.status !== 'running') return
-      if (!generationTaskLeaseMatches(task, leaseOwnerId, leaseToken)) return
+      if (!task || task.status !== 'running') return null
+      if (!generationTaskLeaseMatches(task, leaseOwnerId, leaseToken)) return null
       task.status = 'completed'
       task.progress = 100
       task.error = null
@@ -77,6 +77,7 @@ export class GenerationResultWriteback {
         shot.imageUrl = task.resultUrl
         shot.updatedAt = task.updatedAt
       }
+      return task
     })
   }
 
