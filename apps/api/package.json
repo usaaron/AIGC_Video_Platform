@@ -10,6 +10,7 @@
     "start:worker": "node dist/worker.js",
     "build": "tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "db:migrate": "tsx src/scripts/dbMigrate.ts",
+    "accounts:init": "tsx src/scripts/initProductionAccounts.ts",
     "db:import-json": "tsx src/scripts/importJsonToPostgres.ts",
     "lint": "oxlint src",
     "lint:fix": "oxlint src --fix",

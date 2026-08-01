@@ -73,7 +73,9 @@ export async function registerAuthRoutes(
       const parsed = requestPasswordResetSchema.safeParse(request.body)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
       reply.header('Cache-Control', 'no-store')
-      return reply.code(202).send(await service.requestPasswordReset(parsed.data, sessionMetadataFromRequest(request)))
+      return reply
+        .code(202)
+        .send(await service.requestPasswordReset(parsed.data, sessionMetadataFromRequest(request)))
     },
   )
 

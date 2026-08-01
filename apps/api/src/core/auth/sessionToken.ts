@@ -54,7 +54,10 @@ export function verifySessionToken(token: string, secret: string): LegacySession
   return payload
 }
 
-export function issueSessionToken(secret: string, lifetimeSeconds = 60 * 60 * 24 * 7): {
+export function issueSessionToken(
+  secret: string,
+  lifetimeSeconds = 60 * 60 * 24 * 7,
+): {
   token: string
   payload: IssuedSessionPayload
 } {

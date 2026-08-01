@@ -83,9 +83,9 @@ export type AppState = {
 }
 
 export type BootstrapUsers = {
-  creatorName?: string
-  creatorEmail: string
-  creatorPassword: string
+  memberName?: string
+  memberEmail: string
+  memberPassword: string
   ownerName?: string
   ownerEmail: string
   ownerPassword: string
@@ -98,9 +98,9 @@ export type BootstrapUsers = {
 }
 
 const developmentBootstrapUsers: BootstrapUsers = {
-  creatorName: '林夏',
-  creatorEmail: 'creator@seqora.local',
-  creatorPassword: 'Creator123!',
+  memberName: '默认 C 端用户',
+  memberEmail: 'member@seqora.local',
+  memberPassword: 'MemberPassword123!',
   ownerName: '平台所有者',
   ownerEmail: 'owner@seqora.local',
   ownerPassword: 'OwnerPassword123!',
@@ -384,7 +384,7 @@ async function renameWithRetry(source: string, destination: string): Promise<voi
 function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean): AppState {
   const now = new Date().toISOString()
   const tenantId = 'tenant-seqora-demo'
-  const creatorId = 'user-creator'
+  const memberId = 'user-member'
   const ownerId = 'user-owner'
   const superAdminId = 'user-super-admin'
   const projectId = 'project-midnight-film'
@@ -392,10 +392,10 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
   return {
     users: [
       {
-        id: creatorId,
-        email: bootstrapUsers.creatorEmail.toLowerCase(),
-        name: bootstrapUsers.creatorName ?? '创作者',
-        passwordHash: hashPassword(bootstrapUsers.creatorPassword),
+        id: memberId,
+        email: bootstrapUsers.memberEmail.toLowerCase(),
+        name: bootstrapUsers.memberName ?? '默认 C 端用户',
+        passwordHash: hashPassword(bootstrapUsers.memberPassword),
         tenantId,
         roles: ['member'],
         plan: 'free',
@@ -441,7 +441,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
           {
             id: projectId,
             tenantId,
-            ownerId: creatorId,
+            ownerId: memberId,
             name: '午夜胶片',
             contentType: 'short-drama',
             aspectRatio: '9:16',
@@ -469,7 +469,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
     ledger: [
       {
         id: 'ledger-initial',
-        userId: creatorId,
+        userId: memberId,
         tenantId,
         amount: 286,
         balance: 286,
@@ -705,7 +705,14 @@ function normalizeState(input: Partial<AppState>): AppState {
 }
 
 function normalizeStoredRoles(roles: readonly unknown[]): Role[] {
-  const allowed = new Set(['member', 'admin', 'organization_admin', 'organization_member', 'super_admin', 'owner'])
+  const allowed = new Set([
+    'member',
+    'admin',
+    'organization_admin',
+    'organization_member',
+    'super_admin',
+    'owner',
+  ])
   const normalized = roles.flatMap((role) => (String(role) === 'creator' ? ['member'] : [String(role)]))
   return [...new Set(normalized.filter((role) => allowed.has(role)))].map((role) => role as Role)
 }

@@ -2,11 +2,7 @@ import { roleSchema, type Principal } from '@seqora/contracts'
 import type { FastifyRequest } from 'fastify'
 import type { AppConfig } from '../../config.js'
 import type { AuthAccounts } from '../../modules/auth/accounts.js'
-import {
-  hashSessionSecret,
-  parseIssuedSessionToken,
-  verifySessionToken,
-} from './sessionToken.js'
+import { hashSessionSecret, parseIssuedSessionToken, verifySessionToken } from './sessionToken.js'
 
 export const SESSION_COOKIE = 'seqora_session'
 
@@ -22,7 +18,10 @@ class DemoAuthProvider implements AuthProvider {
     return {
       userId: getHeader(request, 'x-demo-user-id') ?? 'demo-user',
       tenantId: getHeader(request, 'x-demo-tenant-id') ?? 'demo-tenant',
-      organizationId: getHeader(request, 'x-demo-organization-id') ?? getHeader(request, 'x-demo-tenant-id') ?? 'demo-tenant',
+      organizationId:
+        getHeader(request, 'x-demo-organization-id') ??
+        getHeader(request, 'x-demo-tenant-id') ??
+        'demo-tenant',
       roles: [role],
       passwordResetRequired: false,
     }

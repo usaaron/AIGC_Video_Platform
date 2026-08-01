@@ -30,8 +30,8 @@ describe('AppStore mutation queue', () => {
     const store = new AppStore(
       null,
       {
-        creatorEmail: 'tester@example.com',
-        creatorPassword: 'UniqueCreatorPassword123!',
+        memberEmail: 'tester@example.com',
+        memberPassword: 'UniqueMemberPassword123!',
         ownerEmail: 'owner@example.com',
         ownerPassword: 'UniqueOwnerPassword123!',
         superAdminEmail: 'superadmin@example.com',

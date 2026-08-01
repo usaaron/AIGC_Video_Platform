@@ -16,6 +16,7 @@ import {
   issueSessionToken,
   parseIssuedSessionToken,
 } from '../../core/auth/sessionToken.js'
+import { NoopMailer, tokenUrl, type Mailer } from '../../core/email/mailer.js'
 import { AppError } from '../../core/errors.js'
 import type { AuthAccounts, SessionMetadata } from './accounts.js'
 
@@ -23,6 +24,8 @@ const passwordResetLifetimeSeconds = 60 * 30
 
 type AuthServiceOptions = {
   exposePasswordResetTokens?: boolean
+  mailer?: Mailer
+  passwordResetUrl?: string
 }
 
 export class AuthService {
@@ -159,6 +162,9 @@ export class AuthService {
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
     })
+    if (created) {
+      await this.sendPasswordResetEmail(input.email.toLowerCase(), token, created.expiresAt, metadata)
+    }
     if (created && this.options.exposePasswordResetTokens) {
       return { ok: true, resetToken: token, expiresAt: created.expiresAt }
     }
@@ -178,6 +184,53 @@ export class AuthService {
         'PASSWORD_RESET_TOKEN_INVALID',
         'Password reset token is invalid, expired or already used',
       )
+    }
+  }
+
+  private async sendPasswordResetEmail(
+    email: string,
+    token: string,
+    expiresAt: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
+    const resetUrl = tokenUrl(this.options.passwordResetUrl ?? '', token)
+    const text = [
+      'Reset your Seqora password using the link below.',
+      '',
+      resetUrl,
+      '',
+      `This link expires at ${expiresAt}.`,
+      'If you did not request this change, you can ignore this email.',
+    ].join('\n')
+    try {
+      await (this.options.mailer ?? new NoopMailer()).send({
+        to: email,
+        subject: 'Reset your Seqora password',
+        text,
+        html: [
+          '<p>Reset your Seqora password using the link below.</p>',
+          `<p><a href="${escapeHtml(resetUrl)}">Reset password</a></p>`,
+          `<p>This link expires at ${escapeHtml(expiresAt)}.</p>`,
+          '<p>If you did not request this change, you can ignore this email.</p>',
+        ].join(''),
+      })
+    } catch (error) {
+      await this.users.recordAuditLog({
+        tenantId: null,
+        userId: null,
+        actorUserId: null,
+        action: 'auth.email.delivery_failed',
+        resourceType: 'email',
+        resourceId: null,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: {
+          purpose: 'password_reset',
+          emailHash: hashAuditValue(email),
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      })
+      throw new AppError(502, 'EMAIL_DELIVERY_FAILED', 'Could not send password reset email')
     }
   }
 
@@ -212,4 +265,12 @@ function hashPasswordResetToken(token: string): string {
 
 function hashAuditValue(value: string): string {
   return createHash('sha256').update(value).digest('base64url')
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }

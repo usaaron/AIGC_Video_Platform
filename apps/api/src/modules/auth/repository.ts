@@ -164,9 +164,7 @@ export class AuthRepository implements AuthAccounts {
     })
   }
 
-  async createPasswordResetToken(
-    input: PasswordResetTokenInput,
-  ): Promise<PasswordResetTokenResult | null> {
+  async createPasswordResetToken(input: PasswordResetTokenInput): Promise<PasswordResetTokenResult | null> {
     return this.database.transaction(async (client) => {
       const account = await client.query<PasswordResetAccountRow>(
         `

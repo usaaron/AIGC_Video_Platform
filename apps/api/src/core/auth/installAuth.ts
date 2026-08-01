@@ -13,7 +13,10 @@ export function installAuth(app: FastifyInstance, provider: AuthProvider): void 
   app.decorateRequest('principal', null)
   app.addHook('onRequest', async (request) => {
     request.principal = await provider.resolvePrincipal(request)
-    if (request.principal?.passwordResetRequired && !isPasswordResetAllowedRequest(request.method, request.url)) {
+    if (
+      request.principal?.passwordResetRequired &&
+      !isPasswordResetAllowedRequest(request.method, request.url)
+    ) {
       throw new AppError(403, 'PASSWORD_RESET_REQUIRED', 'Password reset is required before continuing')
     }
   })

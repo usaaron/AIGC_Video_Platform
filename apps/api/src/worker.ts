@@ -35,9 +35,9 @@ const config = loadConfig()
 const store = new AppStore(
   config.DATA_FILE === ':memory:' ? null : resolve(config.DATA_FILE),
   {
-    creatorName: config.BOOTSTRAP_CREATOR_NAME,
-    creatorEmail: config.BOOTSTRAP_CREATOR_EMAIL,
-    creatorPassword: config.BOOTSTRAP_CREATOR_PASSWORD,
+    memberName: config.BOOTSTRAP_MEMBER_NAME,
+    memberEmail: config.BOOTSTRAP_MEMBER_EMAIL,
+    memberPassword: config.BOOTSTRAP_MEMBER_PASSWORD,
     ownerName: config.BOOTSTRAP_OWNER_NAME,
     ownerEmail: config.BOOTSTRAP_OWNER_EMAIL,
     ownerPassword: config.BOOTSTRAP_OWNER_PASSWORD,

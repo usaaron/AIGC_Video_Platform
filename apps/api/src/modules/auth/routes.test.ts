@@ -34,19 +34,19 @@ afterAll(async () => {
 describe('auth security api', { timeout: 30_000 }, () => {
   it('records session device info and supports password reset with session revocation', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
-    const creator = await login('creator@seqora.local', 'Creator123!', chromeWindowsUserAgent)
-    expect(creator.statusCode).toBe(200)
-    const creatorCookie = cookieValue(creator)
+    const member = await login('member@seqora.local', 'MemberPassword123!', chromeWindowsUserAgent)
+    expect(member.statusCode).toBe(200)
+    const memberCookie = cookieValue(member)
 
     const sessions = await app.inject({
       method: 'GET',
       url: '/api/v1/auth/sessions',
-      headers: { cookie: creatorCookie },
+      headers: { cookie: memberCookie },
     })
     expect(sessions.statusCode).toBe(200)
     expect(sessions.json()).toEqual([
       expect.objectContaining({
-        userId: 'user-creator',
+        userId: 'user-member',
         current: true,
         userAgent: chromeWindowsUserAgent,
         deviceLabel: 'Chrome on Windows',
@@ -67,7 +67,7 @@ describe('auth security api', { timeout: 30_000 }, () => {
       method: 'POST',
       url: '/api/v1/auth/password/reset-request',
       headers: { 'user-agent': firefoxMacUserAgent },
-      payload: { email: 'creator@seqora.local' },
+      payload: { email: 'member@seqora.local' },
     })
     expect(resetRequest.statusCode).toBe(202)
     const resetBody = resetRequest.json() as { resetToken?: string; expiresAt?: string; ok: true }
@@ -83,27 +83,27 @@ describe('auth security api', { timeout: 30_000 }, () => {
       method: 'POST',
       url: '/api/v1/auth/password/reset',
       headers: { 'user-agent': firefoxMacUserAgent },
-      payload: { token: resetToken, newPassword: 'CreatorNewPassword123!' },
+      payload: { token: resetToken, newPassword: 'MemberNewPassword123!' },
     })
     expect(reset.statusCode).toBe(204)
 
     const oldSession = await app.inject({
       method: 'GET',
       url: '/api/v1/auth/me',
-      headers: { cookie: creatorCookie },
+      headers: { cookie: memberCookie },
     })
     expect(oldSession.statusCode).toBe(401)
 
-    const oldPassword = await login('creator@seqora.local', 'Creator123!', chromeWindowsUserAgent)
+    const oldPassword = await login('member@seqora.local', 'MemberPassword123!', chromeWindowsUserAgent)
     expect(oldPassword.statusCode).toBe(401)
 
-    const newPassword = await login('creator@seqora.local', 'CreatorNewPassword123!', chromeWindowsUserAgent)
+    const newPassword = await login('member@seqora.local', 'MemberNewPassword123!', chromeWindowsUserAgent)
     expect(newPassword.statusCode).toBe(200)
 
     const reusedToken = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/password/reset',
-      payload: { token: resetToken, newPassword: 'AnotherCreatorPassword123!' },
+      payload: { token: resetToken, newPassword: 'AnotherMemberPassword123!' },
     })
     expect(reusedToken.statusCode).toBe(400)
     expect(reusedToken.json()).toMatchObject({
@@ -113,7 +113,7 @@ describe('auth security api', { timeout: 30_000 }, () => {
     const admin = await login('superadmin@seqora.local', 'SuperAdmin123!', chromeWindowsUserAgent)
     const audit = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/audit-logs?action=auth.password_reset.completed&userId=user-creator',
+      url: '/api/v1/admin/audit-logs?action=auth.password_reset.completed&userId=user-member',
       headers: { cookie: cookieValue(admin) },
     })
     expect(audit.statusCode).toBe(200)
@@ -122,8 +122,8 @@ describe('auth security api', { timeout: 30_000 }, () => {
       items: [
         expect.objectContaining({
           action: 'auth.password_reset.completed',
-          userId: 'user-creator',
-          actorUserId: 'user-creator',
+          userId: 'user-member',
+          actorUserId: 'user-member',
           resourceType: 'auth_identity',
           userAgent: firefoxMacUserAgent,
         }),
@@ -133,12 +133,12 @@ describe('auth security api', { timeout: 30_000 }, () => {
 
   it('denies audit log access to ordinary members', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
-    const creator = await login('creator@seqora.local', 'Creator123!', chromeWindowsUserAgent)
+    const member = await login('member@seqora.local', 'MemberPassword123!', chromeWindowsUserAgent)
 
     const audit = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/audit-logs',
-      headers: { cookie: cookieValue(creator) },
+      headers: { cookie: cookieValue(member) },
     })
     expect(audit.statusCode).toBe(403)
   })

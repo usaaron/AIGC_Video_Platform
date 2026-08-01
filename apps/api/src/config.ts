@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 const developmentAuthSecret = 'seqora-development-secret-change-me'
-const developmentCreatorPassword = 'Creator123!'
+const developmentMemberPassword = 'MemberPassword123!'
 const developmentOwnerPassword = 'OwnerPassword123!'
 const developmentSuperAdminPassword = 'SuperAdmin123!'
 const developmentAdminPassword = 'Admin123!'
@@ -31,10 +31,24 @@ const configSchema = z
     AUTH_MODE: z.enum(['local', 'demo', 'oidc']).default('local'),
     AUTH_SECRET: z.string().min(32).default(developmentAuthSecret),
     BILLING_WEBHOOK_SECRET: z.string().min(32).default(developmentBillingWebhookSecret),
+    EMAIL_PROVIDER: z.enum(['none', 'console', 'resend']).default('console'),
+    EMAIL_FROM: z.string().min(1).max(256).default('Seqora <no-reply@seqora.local>'),
+    EMAIL_REPLY_TO: z.union([z.literal(''), z.string().email()]).default(''),
+    RESEND_API_KEY: z.string().default(''),
+    AUTH_PASSWORD_RESET_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    AUTH_INVITATION_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    PAYMENT_PROVIDER: z.enum(['none', 'stripe']).default('none'),
+    BILLING_SUCCESS_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    BILLING_CANCEL_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    STRIPE_SECRET_KEY: z.string().default(''),
+    STRIPE_WEBHOOK_SECRET: z.string().default(''),
+    STRIPE_MEMBER_PRICE_ID: z.string().default(''),
+    STRIPE_CREDIT_PRICE_ID: z.string().default(''),
+    STRIPE_CREDIT_PACK_CREDITS: z.coerce.number().int().positive().max(1_000_000).default(100),
     DATABASE_URL: z.union([z.literal(''), z.string().min(1)]).default(''),
-    BOOTSTRAP_CREATOR_NAME: z.string().min(1).max(80).default('林夏'),
-    BOOTSTRAP_CREATOR_EMAIL: z.string().email().default('creator@seqora.local'),
-    BOOTSTRAP_CREATOR_PASSWORD: z.string().min(12).max(128).default(developmentCreatorPassword),
+    BOOTSTRAP_MEMBER_NAME: z.string().min(1).max(80).default('默认 C 端用户'),
+    BOOTSTRAP_MEMBER_EMAIL: z.string().email().default('member@seqora.local'),
+    BOOTSTRAP_MEMBER_PASSWORD: z.string().min(12).max(128).default(developmentMemberPassword),
     BOOTSTRAP_OWNER_NAME: z.string().min(1).max(80).default('平台所有者'),
     BOOTSTRAP_OWNER_EMAIL: z.string().email().default('owner@seqora.local'),
     BOOTSTRAP_OWNER_PASSWORD: z.string().min(12).max(128).default(developmentOwnerPassword),
@@ -44,6 +58,7 @@ const configSchema = z
     BOOTSTRAP_ADMIN_NAME: z.string().min(1).max(80).default('平台管理员'),
     BOOTSTRAP_ADMIN_EMAIL: z.string().email().default('admin@seqora.local'),
     BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).max(128).default(developmentAdminPassword),
+    BOOTSTRAP_ACCOUNTS_ON_START: booleanFromEnvironment.default(true),
     BOOTSTRAP_DEMO_WORKSPACE: booleanFromEnvironment.default(true),
     DATA_FILE: z.string().default('./data/app.json'),
     STORAGE_DRIVER: z.enum(['local', 'gcs']).default('local'),
@@ -104,7 +119,10 @@ const configSchema = z
         message: 'A unique AUTH_SECRET is required in production',
       })
     }
-    if (config.NODE_ENV === 'production' && config.BILLING_WEBHOOK_SECRET === developmentBillingWebhookSecret) {
+    if (
+      config.NODE_ENV === 'production' &&
+      config.BILLING_WEBHOOK_SECRET === developmentBillingWebhookSecret
+    ) {
       context.addIssue({
         code: 'custom',
         path: ['BILLING_WEBHOOK_SECRET'],
@@ -118,6 +136,20 @@ const configSchema = z
         message: 'HTTPS WEB_ORIGIN is required in production',
       })
     }
+    if (config.NODE_ENV === 'production' && config.EMAIL_PROVIDER !== 'resend') {
+      context.addIssue({
+        code: 'custom',
+        path: ['EMAIL_PROVIDER'],
+        message: 'EMAIL_PROVIDER=resend is required in production',
+      })
+    }
+    if (config.EMAIL_PROVIDER === 'resend' && !config.RESEND_API_KEY) {
+      context.addIssue({
+        code: 'custom',
+        path: ['RESEND_API_KEY'],
+        message: 'RESEND_API_KEY is required when EMAIL_PROVIDER=resend',
+      })
+    }
     if (config.TASK_QUEUE_DRIVER === 'bullmq' && !config.REDIS_URL) {
       context.addIssue({
         code: 'custom',
@@ -125,11 +157,33 @@ const configSchema = z
         message: 'REDIS_URL is required when TASK_QUEUE_DRIVER=bullmq',
       })
     }
-    if (config.NODE_ENV === 'production') {
-      if (config.BOOTSTRAP_CREATOR_PASSWORD === developmentCreatorPassword) {
+    if (config.PAYMENT_PROVIDER === 'stripe' && !config.DATABASE_URL) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DATABASE_URL'],
+        message: 'DATABASE_URL is required when PAYMENT_PROVIDER=stripe',
+      })
+    }
+    if (config.PAYMENT_PROVIDER === 'stripe') {
+      for (const key of [
+        'STRIPE_SECRET_KEY',
+        'STRIPE_WEBHOOK_SECRET',
+        'STRIPE_MEMBER_PRICE_ID',
+        'STRIPE_CREDIT_PRICE_ID',
+      ] as const) {
+        if (config[key]) continue
         context.addIssue({
           code: 'custom',
-          path: ['BOOTSTRAP_CREATOR_PASSWORD'],
+          path: [key],
+          message: `${key} is required when PAYMENT_PROVIDER=stripe`,
+        })
+      }
+    }
+    if (config.NODE_ENV === 'production') {
+      if (config.BOOTSTRAP_MEMBER_PASSWORD === developmentMemberPassword) {
+        context.addIssue({
+          code: 'custom',
+          path: ['BOOTSTRAP_MEMBER_PASSWORD'],
           message: 'Unique bootstrap passwords are required in production',
         })
       }
@@ -155,21 +209,21 @@ const configSchema = z
         })
       }
     }
-    if (config.BOOTSTRAP_CREATOR_EMAIL === config.BOOTSTRAP_ADMIN_EMAIL) {
+    if (config.BOOTSTRAP_MEMBER_EMAIL === config.BOOTSTRAP_ADMIN_EMAIL) {
       context.addIssue({
         code: 'custom',
         path: ['BOOTSTRAP_ADMIN_EMAIL'],
         message: 'Bootstrap accounts must use different email addresses',
       })
     }
-    if (config.BOOTSTRAP_CREATOR_EMAIL === config.BOOTSTRAP_OWNER_EMAIL) {
+    if (config.BOOTSTRAP_MEMBER_EMAIL === config.BOOTSTRAP_OWNER_EMAIL) {
       context.addIssue({
         code: 'custom',
         path: ['BOOTSTRAP_OWNER_EMAIL'],
         message: 'Bootstrap accounts must use different email addresses',
       })
     }
-    if (config.BOOTSTRAP_CREATOR_EMAIL === config.BOOTSTRAP_SUPER_ADMIN_EMAIL) {
+    if (config.BOOTSTRAP_MEMBER_EMAIL === config.BOOTSTRAP_SUPER_ADMIN_EMAIL) {
       context.addIssue({
         code: 'custom',
         path: ['BOOTSTRAP_SUPER_ADMIN_EMAIL'],
@@ -269,13 +323,23 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
       : environment.NODE_ENV === 'production'
         ? ''
         : developmentDatabaseUrl,
-    BOOTSTRAP_CREATOR_NAME:
-      environment.BOOTSTRAP_CREATOR_NAME ?? (environment.NODE_ENV === 'production' ? '创作者' : '林夏'),
+    BOOTSTRAP_MEMBER_NAME:
+      environment.BOOTSTRAP_MEMBER_NAME ??
+      (environment.NODE_ENV === 'production' ? '默认 C 端用户' : '默认成员'),
     BOOTSTRAP_SUPER_ADMIN_NAME:
       environment.BOOTSTRAP_SUPER_ADMIN_NAME ??
       (environment.NODE_ENV === 'production' ? '超级管理员' : '超级管理员'),
     BOOTSTRAP_DEMO_WORKSPACE:
       environment.BOOTSTRAP_DEMO_WORKSPACE ?? (environment.NODE_ENV === 'production' ? 'false' : 'true'),
+    BOOTSTRAP_ACCOUNTS_ON_START:
+      environment.BOOTSTRAP_ACCOUNTS_ON_START ??
+      (environment.NODE_ENV === 'production' ? 'false' : 'true'),
+    AUTH_PASSWORD_RESET_URL:
+      environment.AUTH_PASSWORD_RESET_URL ??
+      `${(environment.WEB_ORIGIN ?? 'http://localhost:5173').replace(/\/+$/, '')}/reset-password`,
+    AUTH_INVITATION_URL:
+      environment.AUTH_INVITATION_URL ??
+      `${(environment.WEB_ORIGIN ?? 'http://localhost:5173').replace(/\/+$/, '')}/register`,
     VIDEO_POLL_INTERVAL_MS: environment.VIDEO_POLL_INTERVAL_MS || environment.ARK_POLL_INTERVAL_MS,
     DEEPSEEK_API_KEY: environment.DEEPSEEK_API_KEY || environment.STRINGX_API_KEY,
     STRINGX_SEEDANCE_MINI_MODEL: environment.STRINGX_SEEDANCE_MINI_MODEL || environment.STRINGX_VIDEO_MODEL,

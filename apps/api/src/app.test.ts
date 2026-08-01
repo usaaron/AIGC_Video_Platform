@@ -43,9 +43,23 @@ const testConfig: AppConfig = {
   AUTH_MODE: 'demo',
   AUTH_SECRET: 'test-secret-with-at-least-32-characters',
   BILLING_WEBHOOK_SECRET: 'test-billing-webhook-secret-32-chars',
-  BOOTSTRAP_CREATOR_NAME: '林夏',
-  BOOTSTRAP_CREATOR_EMAIL: 'creator@seqora.local',
-  BOOTSTRAP_CREATOR_PASSWORD: 'Creator123!',
+  EMAIL_PROVIDER: 'console',
+  EMAIL_FROM: 'Seqora <no-reply@seqora.local>',
+  EMAIL_REPLY_TO: '',
+  RESEND_API_KEY: '',
+  AUTH_PASSWORD_RESET_URL: 'http://localhost:5173/reset-password',
+  AUTH_INVITATION_URL: 'http://localhost:5173/register',
+  PAYMENT_PROVIDER: 'none',
+  BILLING_SUCCESS_URL: '',
+  BILLING_CANCEL_URL: '',
+  STRIPE_SECRET_KEY: '',
+  STRIPE_WEBHOOK_SECRET: '',
+  STRIPE_MEMBER_PRICE_ID: '',
+  STRIPE_CREDIT_PRICE_ID: '',
+  STRIPE_CREDIT_PACK_CREDITS: 100,
+  BOOTSTRAP_MEMBER_NAME: '默认 C 端用户',
+  BOOTSTRAP_MEMBER_EMAIL: 'member@seqora.local',
+  BOOTSTRAP_MEMBER_PASSWORD: 'MemberPassword123!',
   BOOTSTRAP_OWNER_NAME: '平台所有者',
   BOOTSTRAP_OWNER_EMAIL: 'owner@seqora.local',
   BOOTSTRAP_OWNER_PASSWORD: 'OwnerPassword123!',
@@ -55,6 +69,7 @@ const testConfig: AppConfig = {
   BOOTSTRAP_ADMIN_NAME: '平台管理员',
   BOOTSTRAP_ADMIN_EMAIL: 'admin@seqora.local',
   BOOTSTRAP_ADMIN_PASSWORD: 'Admin123!',
+  BOOTSTRAP_ACCOUNTS_ON_START: true,
   BOOTSTRAP_DEMO_WORKSPACE: true,
   DATA_FILE: ':memory:',
   STORAGE_DRIVER: 'local',
@@ -124,7 +139,7 @@ describe('API authorization', () => {
       url: '/api/v1/projects',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: { name: 'CG 展示片', contentType: 'animation', aspectRatio: '16:9' },
@@ -148,7 +163,7 @@ describe('API authorization', () => {
       url: '/api/v1/projects/project-midnight-film/shots',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -226,7 +241,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const whitelist = await app.inject({
@@ -329,7 +344,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const created = await app.inject({
@@ -381,7 +396,7 @@ describe('API authorization', () => {
       url: '/api/v1/projects/project-midnight-film',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
     })
@@ -396,14 +411,14 @@ describe('API authorization', () => {
     )
   })
 
-  it('allows creators to submit generation tasks', async () => {
+  it('allows members to submit generation tasks', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const response = await app.inject({
       method: 'POST',
       url: '/api/v1/generation/tasks',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -424,7 +439,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, store, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
@@ -521,7 +536,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, store, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
@@ -663,7 +678,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, store, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const created = await app.inject({
@@ -720,7 +735,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, store, videoProvider, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
@@ -861,7 +876,7 @@ describe('API authorization', () => {
       clientRequestId: 'completed-video-client',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'video',
       label: '已完成镜头',
       prompt: '雨夜车站',
@@ -885,7 +900,7 @@ describe('API authorization', () => {
       url: task.resultUrl!,
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
         range: 'bytes=0-12',
       },
@@ -907,7 +922,7 @@ describe('API authorization', () => {
       url: task.resultUrl!,
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
     })
@@ -924,7 +939,7 @@ describe('API authorization', () => {
       url: '/api/v1/projects/project-midnight-film/generation/tasks/completed',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
     })
@@ -936,7 +951,7 @@ describe('API authorization', () => {
       url: task.resultUrl!,
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
     })
@@ -953,7 +968,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({
@@ -1082,7 +1097,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
@@ -1182,7 +1197,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
@@ -1256,7 +1271,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({
@@ -1333,7 +1348,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const payload = {
@@ -1405,7 +1420,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const payload = {
@@ -1446,7 +1461,7 @@ describe('API authorization', () => {
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -1484,7 +1499,7 @@ describe('API authorization', () => {
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -1536,7 +1551,7 @@ describe('API authorization', () => {
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -1576,7 +1591,7 @@ describe('API authorization', () => {
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -1594,7 +1609,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await app.inject({
@@ -1668,7 +1683,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await app.inject({
@@ -1758,7 +1773,7 @@ describe('API authorization', () => {
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -1800,7 +1815,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -1882,7 +1897,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -1963,7 +1978,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2094,7 +2109,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2196,7 +2211,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2268,7 +2283,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2302,7 +2317,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2338,7 +2353,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2410,7 +2425,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2456,7 +2471,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2512,7 +2527,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2608,7 +2623,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2654,7 +2669,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2703,7 +2718,7 @@ describe('API authorization', () => {
       url: '/api/v1/projects/project-midnight-film/script/generate',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -2749,7 +2764,7 @@ describe('API authorization', () => {
       url: '/api/v1/projects/project-midnight-film/script/generate',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: { draft: longSource, clientRequestId: 'long-script-preserve' },
@@ -2766,7 +2781,7 @@ describe('API authorization', () => {
       url: '/api/v1/billing/summary',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
     })
@@ -2790,7 +2805,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const existing =
@@ -2862,7 +2877,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
@@ -2905,7 +2920,7 @@ describe('API authorization', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({
@@ -2944,7 +2959,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
@@ -3011,12 +3026,12 @@ describe('API authorization', () => {
     const generate = vi.fn(async () => '不应调用')
     app = await buildApp({ config: testConfig, store, textProvider: { generate }, startWorker: false })
     await store.mutate((state) => {
-      const user = state.users.find((item) => item.id === 'user-creator')!
+      const user = state.users.find((item) => item.id === 'user-member')!
       user.credits = 2
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
@@ -3036,7 +3051,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
@@ -3070,7 +3085,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const script = Array.from({ length: 10 }, (_, index) => `剧本段落 ${index + 1}`).join('\n')
@@ -3112,7 +3127,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const workspace = await app.inject({
@@ -3156,7 +3171,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const scene = (number: number) =>
@@ -3224,7 +3239,7 @@ describe('API authorization', () => {
     app = await buildApp({ config: testConfig, imageProvider, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const created = await app.inject({
@@ -3296,7 +3311,7 @@ describe('film preview composition', () => {
         clientRequestId: `preview-source-client-${index + 1}`,
         projectId: shot.projectId,
         tenantId: shot.tenantId,
-        userId: 'user-creator',
+        userId: 'user-member',
         kind: 'video',
         label: `${shot.title}视频`,
         prompt: shot.prompt,
@@ -3318,7 +3333,7 @@ describe('film preview composition', () => {
     })
     const headers = {
       'x-demo-role': 'member',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
@@ -3365,7 +3380,7 @@ describe('film preview composition', () => {
         clientRequestId: `partial-preview-client-${index + 1}`,
         projectId: shot.projectId,
         tenantId: shot.tenantId,
-        userId: 'user-creator',
+        userId: 'user-member',
         kind: 'video',
         label: `${shot.title}视频`,
         prompt: shot.prompt,
@@ -3390,7 +3405,7 @@ describe('film preview composition', () => {
       url: '/api/v1/projects/project-midnight-film/film-preview',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: { mode: 'partial' },
@@ -3432,7 +3447,7 @@ describe('film preview composition', () => {
         clientRequestId: 'range-preview-client',
         projectId: 'project-midnight-film',
         tenantId: 'tenant-seqora-demo',
-        userId: 'user-creator',
+        userId: 'user-member',
         kind: 'video',
         label: '完整预览',
         prompt: '',
@@ -3456,7 +3471,7 @@ describe('film preview composition', () => {
       url: '/api/v1/generation/tasks/range-preview/content',
       headers: {
         'x-demo-role': 'member',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
         range: 'bytes=2-5',
       },
@@ -3472,7 +3487,7 @@ describe('film preview composition', () => {
 describe('one-click quick start', () => {
   const headers = {
     'x-demo-role': 'member',
-    'x-demo-user-id': 'user-creator',
+    'x-demo-user-id': 'user-member',
     'x-demo-tenant-id': 'tenant-seqora-demo',
   }
   const imageProvider: ImageGenerationProvider = {
@@ -3545,7 +3560,7 @@ describe('one-click quick start', () => {
       ],
       replayed: false,
     })
-    expect(store.read((state) => state.users.find((user) => user.id === 'user-creator')!.credits)).toBe(270)
+    expect(store.read((state) => state.users.find((user) => user.id === 'user-member')!.credits)).toBe(270)
 
     const replayed = await app.inject({
       method: 'POST',
@@ -3558,7 +3573,7 @@ describe('one-click quick start', () => {
     expect(
       store.read((state) => state.assets.filter((asset) => asset.projectId === 'project-midnight-film')),
     ).toHaveLength(7)
-    expect(store.read((state) => state.users.find((user) => user.id === 'user-creator')!.credits)).toBe(270)
+    expect(store.read((state) => state.users.find((user) => user.id === 'user-member')!.credits)).toBe(270)
 
     const replanned = await app.inject({
       method: 'POST',
@@ -3587,7 +3602,7 @@ describe('one-click quick start', () => {
       headers,
     })
     await store.mutate((state) => {
-      state.users.find((user) => user.id === 'user-creator')!.credits = 5
+      state.users.find((user) => user.id === 'user-member')!.credits = 5
     })
 
     const response = await app.inject({
@@ -3704,8 +3719,8 @@ describe('local authentication', () => {
   it('uses deployment-provided bootstrap credentials for an empty store', async () => {
     app = await buildApp({
       config: localAuthConfig({
-        BOOTSTRAP_CREATOR_EMAIL: 'tester@example.com',
-        BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
+        BOOTSTRAP_MEMBER_EMAIL: 'tester@example.com',
+        BOOTSTRAP_MEMBER_PASSWORD: 'UniqueMemberPassword123!',
       }),
       startWorker: false,
     })
@@ -3713,14 +3728,14 @@ describe('local authentication', () => {
     const oldCredentials = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     expect(oldCredentials.statusCode).toBe(401)
 
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'tester@example.com', password: 'UniqueCreatorPassword123!' },
+      payload: { email: 'tester@example.com', password: 'UniqueMemberPassword123!' },
     })
     expect(login.statusCode).toBe(200)
     expect(login.json()).toMatchObject({ account: { email: 'tester@example.com' } })
@@ -3748,11 +3763,11 @@ describe('local authentication', () => {
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
 
     expect(login.statusCode).toBe(200)
-    expect(login.json()).toMatchObject({ account: { email: 'creator@seqora.local', plan: 'free' } })
+    expect(login.json()).toMatchObject({ account: { email: 'member@seqora.local', plan: 'free' } })
     const cookie = login.cookies.find((item) => item.name === 'seqora_session')
     expect(cookie?.httpOnly).toBe(true)
     expect(cookie?.sameSite).toBe('Strict')
@@ -3764,7 +3779,7 @@ describe('local authentication', () => {
       headers: { cookie: `seqora_session=${cookie?.value}` },
     })
     expect(me.statusCode).toBe(200)
-    expect(me.json()).toMatchObject({ account: { name: '林夏' } })
+    expect(me.json()).toMatchObject({ account: { name: '默认 C 端用户' } })
 
     const logout = await app.inject({
       method: 'POST',
@@ -3779,14 +3794,14 @@ describe('local authentication', () => {
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
     const sessionHeaders = { cookie: `seqora_session=${sessionCookie?.value}` }
     const subscriptionPayload = {
       eventId: 'evt-subscription-activated-1',
       type: 'subscription.activated',
-      membershipId: 'membership-tenant-seqora-demo-user-creator',
+      membershipId: 'membership-tenant-seqora-demo-user-member',
       occurredAt: '2026-07-01T00:00:00.000Z',
       metadata: { subscriptionId: 'sub_1' },
     }
@@ -3826,7 +3841,7 @@ describe('local authentication', () => {
       eventId: 'evt-credits-purchased-1',
       type: 'credits.purchased',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       credits: 120,
       referenceId: 'payment-order-1',
       description: 'Credit purchase',
@@ -3878,7 +3893,7 @@ describe('local authentication', () => {
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
     const headers = { cookie: `seqora_session=${sessionCookie?.value}` }
@@ -3898,7 +3913,7 @@ describe('local authentication', () => {
       method: 'PUT',
       url: '/api/v1/auth/password',
       headers,
-      payload: { currentPassword: 'Creator123!', newPassword: 'ReplacementPassword123!' },
+      payload: { currentPassword: 'MemberPassword123!', newPassword: 'ReplacementPassword123!' },
     })
     expect(changed.statusCode).toBe(204)
     expect(changed.headers['cache-control']).toBe('no-store')
@@ -3906,14 +3921,14 @@ describe('local authentication', () => {
     const oldLogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     expect(oldLogin.statusCode).toBe(401)
 
     const newLogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'ReplacementPassword123!' },
+      payload: { email: 'member@seqora.local', password: 'ReplacementPassword123!' },
     })
     expect(newLogin.statusCode).toBe(200)
   })
@@ -3927,7 +3942,7 @@ describe('local authentication', () => {
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
     const headers = { cookie: `seqora_session=${sessionCookie?.value}` }
@@ -4037,7 +4052,7 @@ describe('local authentication', () => {
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
     const headers = { cookie: `seqora_session=${sessionCookie?.value}` }
@@ -4110,7 +4125,7 @@ describe('local authentication', () => {
     const relogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     const reloadedCookie = relogin.cookies.find((item) => item.name === 'seqora_session')
     const reloaded = await app.inject({
@@ -4125,7 +4140,7 @@ describe('local authentication', () => {
       chapters: expect.arrayContaining([expect.objectContaining({ title: '第二章 山雨' })]),
     })
     expect(reloaded.body).not.toContain(hiddenTail)
-  })
+  }, 30_000)
 
   it('uploads and serves authenticated project media', async () => {
     app = await buildApp({
@@ -4136,7 +4151,7 @@ describe('local authentication', () => {
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
     const cookie = `seqora_session=${sessionCookie?.value}`
@@ -4206,7 +4221,7 @@ describe('local authentication', () => {
 localNovelRegression('local novel fixture regression', () => {
   const headers = {
     'x-demo-role': 'member',
-    'x-demo-user-id': 'user-creator',
+    'x-demo-user-id': 'user-member',
     'x-demo-tenant-id': 'tenant-seqora-demo',
   }
 
