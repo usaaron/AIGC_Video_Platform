@@ -59,6 +59,24 @@ describe('TokenAdventTextProvider', () => {
     expect(capturedAuthorization).toBe('Bearer alternate-key')
   })
 
+  it('requests JSON output and retries without JSON mode when a relay rejects it', async () => {
+    const capturedBodies: Array<Record<string, unknown>> = []
+    const provider = createProvider((async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      if (capturedBodies.length === 1) {
+        return Response.json({ error: { message: 'response_format unsupported' } }, { status: 400 })
+      }
+      return Response.json({ choices: [{ message: { content: '{"summary":"ok","assets":[]}' } }] })
+    }) as typeof fetch)
+
+    await expect(
+      provider.generate({ systemPrompt: 'test', userPrompt: 'test', responseFormat: 'json' }),
+    ).resolves.toBe('{"summary":"ok","assets":[]}')
+    expect(capturedBodies).toHaveLength(2)
+    expect(capturedBodies[0]).toMatchObject({ response_format: { type: 'json_object' } })
+    expect(capturedBodies[1]).not.toHaveProperty('response_format')
+  })
+
   it('accepts GLM-style text part arrays in non-stream responses', async () => {
     const provider = createProvider(async () =>
       Response.json({

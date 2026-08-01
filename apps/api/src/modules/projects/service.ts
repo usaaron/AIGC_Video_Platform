@@ -22,6 +22,7 @@ import {
   scriptAssetSuggestionsContentSchema,
   scriptReviewContentSchema,
 } from '@seqora/contracts'
+import { jsonrepair } from 'jsonrepair'
 import { z } from 'zod'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
@@ -99,6 +100,7 @@ export class ProjectService {
           systemPrompt: SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
           userPrompt: `${projectContext}\n\n剧本：\n${headExcerpt(source, 30_000)}`,
           maxOutputTokens: SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS,
+          responseFormat: 'json',
           model,
         })
         result = parseProviderJson(
@@ -2097,29 +2099,87 @@ function parseProviderJson<T>(
   errorMessage: string,
   normalize: (value: unknown) => unknown = (value) => value,
 ): T {
+  for (const candidate of providerJsonCandidates(raw)) {
+    try {
+      const result = schema.safeParse(normalize(parseJsonCandidate(candidate)))
+      if (result.success) return result.data
+    } catch {
+      // Continue through the remaining fenced, balanced, and repaired candidates.
+    }
+  }
+  throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', errorMessage)
+}
+
+function providerJsonCandidates(raw: string): string[] {
   const text = raw
     .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-  const starts = [text.indexOf('{'), text.indexOf('[')].filter((index) => index >= 0)
-  const start = starts.length ? Math.min(...starts) : -1
-  const end = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'))
-  if (start < 0 || end < start) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', errorMessage)
-  try {
-    return schema.parse(normalize(JSON.parse(text.slice(start, end + 1))))
-  } catch {
-    throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', errorMessage)
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .trim()
+  const candidates: string[] = [text]
+  for (const match of text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    if (match[1]) candidates.push(match[1].trim())
   }
+
+  for (const source of [...candidates]) {
+    for (let index = 0; index < source.length; index += 1) {
+      if (source[index] !== '{' && source[index] !== '[') continue
+      const balanced = balancedJsonSlice(source, index)
+      if (balanced) candidates.push(balanced)
+      candidates.push(source.slice(index).trim())
+      if (candidates.length >= 24) break
+    }
+    if (candidates.length >= 24) break
+  }
+
+  return [...new Set(candidates.filter(Boolean))]
+}
+
+function balancedJsonSlice(text: string, start: number): string | null {
+  const stack: string[] = []
+  let inString = false
+  let escaped = false
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      continue
+    }
+    if (character === '"') {
+      inString = true
+      continue
+    }
+    if (character === '{' || character === '[') stack.push(character)
+    if (character === '}' || character === ']') {
+      const expected = character === '}' ? '{' : '['
+      if (stack.pop() !== expected) return null
+      if (!stack.length) return text.slice(start, index + 1)
+    }
+  }
+  return null
+}
+
+function parseJsonCandidate(candidate: string): unknown {
+  let value: unknown = JSON.parse(jsonrepair(candidate))
+  for (let depth = 0; depth < 3 && typeof value === 'string'; depth += 1) {
+    const nested = value.trim()
+    if (!nested.startsWith('{') && !nested.startsWith('[')) break
+    value = JSON.parse(jsonrepair(nested))
+  }
+  return value
 }
 
 function normalizeScriptAssetSuggestionPayload(value: unknown): unknown {
   let root: unknown = value
+  let inheritedSummary: unknown
   for (let depth = 0; depth < 5; depth += 1) {
     const record = asRecord(root)
-    if (record && ('summary' in record || 'assets' in record || hasAssetCategory(record))) break
+    inheritedSummary ??= record?.summary ?? record?.['总结'] ?? record?.['概述'] ?? record?.['资产概述']
+    if (record && hasAssetCollection(record)) break
     const nested =
       record &&
-      ['data', 'result', 'output', 'response', 'payload']
+      ['data', 'result', 'output', 'response', 'payload', 'content']
         .map((key) => record[key])
         .find((candidate) => candidate !== undefined && candidate !== null)
     if (nested !== undefined) {
@@ -2133,12 +2193,18 @@ function normalizeScriptAssetSuggestionPayload(value: unknown): unknown {
   const rootRecord = asRecord(root)
   if (!rootRecord) return value
 
-  const assetContainer = asRecord(rootRecord.assets)
+  const assetValue =
+    rootRecord.assets ??
+    rootRecord.suggestions ??
+    rootRecord['资产'] ??
+    rootRecord['资产建议'] ??
+    rootRecord['建议资产']
+  const assetContainer = asRecord(assetValue)
   const categorizedEntries = Object.entries(assetContainer || rootRecord).filter(
     ([key, entry]) => normalizeScriptAssetKind(key) && Array.isArray(entry),
   )
-  const rawAssets: unknown[] = Array.isArray(rootRecord.assets)
-    ? rootRecord.assets
+  const rawAssets: unknown[] = Array.isArray(assetValue)
+    ? assetValue
     : categorizedEntries.flatMap(([key, entry]) =>
         (entry as unknown[]).map((item) => {
           const itemRecord = asRecord(item)
@@ -2151,7 +2217,15 @@ function normalizeScriptAssetSuggestionPayload(value: unknown): unknown {
     .slice(0, 16)
 
   return {
-    summary: textValue(rootRecord.summary, '已根据剧本提取可复用的人物、场景、物品和服装。', 700),
+    summary: textValue(
+      rootRecord.summary ??
+        rootRecord['总结'] ??
+        rootRecord['概述'] ??
+        rootRecord['资产概述'] ??
+        inheritedSummary,
+      '已根据剧本提取可复用的人物、场景、物品和服装。',
+      700,
+    ),
     assets,
   }
 }
@@ -2159,7 +2233,9 @@ function normalizeScriptAssetSuggestionPayload(value: unknown): unknown {
 function normalizeProviderAssetSuggestion(value: unknown): Record<string, unknown> | null {
   const source = asRecord(value)
   if (!source) return null
-  const kind = normalizeScriptAssetKind(source.kind ?? source.type)
+  const kind = normalizeScriptAssetKind(
+    source.kind ?? source.type ?? source.assetType ?? source.category ?? source['类型'] ?? source['资产类型'],
+  )
   if (!kind) return null
   const attributes = asRecord(source.attributes ?? source.properties ?? source.details)
   const read = (key: string) => attributes?.[key] ?? source[key]
@@ -2189,12 +2265,18 @@ function normalizeProviderAssetSuggestion(value: unknown): Record<string, unknow
       source.prompt ??
         source.visualPrompt ??
         source.generationPrompt ??
+        source.visual_prompt ??
+        source.generation_prompt ??
         source['提示词'] ??
         source.description,
       name,
       5_000,
     ),
-    negativePrompt: textValue(source.negativePrompt ?? source['负面提示词'], '', 2_000),
+    negativePrompt: textValue(
+      source.negativePrompt ?? source.negative_prompt ?? source['负面提示词'],
+      '',
+      2_000,
+    ),
     reason: textValue(source.reason ?? source.why ?? source['原因'], '根据剧本核心实体建立可复用资产。', 500),
     priority: normalizePriority(source.priority ?? source.importance ?? source['优先级']),
     attributes: normalizeScriptAssetAttributes(kind, read),
@@ -2203,6 +2285,13 @@ function normalizeProviderAssetSuggestion(value: unknown): Record<string, unknow
 
 function hasAssetCategory(value: Record<string, unknown>): boolean {
   return Object.keys(value).some((key) => normalizeScriptAssetKind(key) && Array.isArray(value[key]))
+}
+
+function hasAssetCollection(value: Record<string, unknown>): boolean {
+  return (
+    ['assets', 'suggestions', '资产', '资产建议', '建议资产'].some((key) => key in value) ||
+    hasAssetCategory(value)
+  )
 }
 
 function assetSuggestionWarning(error: unknown): string {
@@ -2217,11 +2306,30 @@ function assetSuggestionWarning(error: unknown): string {
 
 function normalizeScriptAssetKind(value: unknown): ScriptAssetKind | null {
   if (typeof value !== 'string') return null
-  const normalized = value.trim().toLowerCase()
-  if (['character', 'characters', '人物', '角色'].includes(normalized)) return 'character'
-  if (['scene', 'scenes', '场景', '地点', '地方'].includes(normalized)) return 'scene'
-  if (['prop', 'props', '物品', '道具'].includes(normalized)) return 'prop'
-  if (['costume', 'costumes', '服装', '衣装'].includes(normalized)) return 'costume'
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '')
+  if (
+    [
+      'character',
+      'characters',
+      'person',
+      'people',
+      '人物',
+      '角色',
+      '人物角色',
+      '人物资产',
+      '角色资产',
+    ].includes(normalized)
+  )
+    return 'character'
+  if (['scene', 'scenes', 'location', 'locations', '场景', '地点', '地方', '场景资产'].includes(normalized))
+    return 'scene'
+  if (['prop', 'props', 'item', 'items', '物品', '道具', '物品资产', '道具资产'].includes(normalized))
+    return 'prop'
+  if (['costume', 'costumes', 'outfit', 'outfits', '服装', '衣装', '服装资产'].includes(normalized))
+    return 'costume'
   return null
 }
 

@@ -76,6 +76,7 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         clientRequestId: task.clientRequestId,
         script: task.metadata.script,
         direction: task.metadata.direction,
+        model: task.model ?? task.metadata.model,
       })
       return service.suggestScriptAssets(
         task.projectId,

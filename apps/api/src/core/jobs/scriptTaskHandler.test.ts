@@ -27,7 +27,7 @@ describe('createScriptTaskHandler', () => {
       prompt: '',
       negativePrompt: '',
       provider: 'text',
-      model: null,
+      model: 'glm-5.2-fast',
       metadata: {
         generationStage: 'script-asset-suggestions',
         scriptOperation: 'suggest-assets',
@@ -57,7 +57,7 @@ describe('createScriptTaskHandler', () => {
       task.metadata.script,
       task.metadata.direction,
       { userId: 'user-creator', tenantId: 'tenant-seqora-demo', roles: ['creator'] },
-      'glm-5.2',
+      'glm-5.2-fast',
     )
     expect(result).toMatchObject({ summary: '建议先建立主角和核心场景', assets: [] })
   })

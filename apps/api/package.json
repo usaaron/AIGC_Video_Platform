@@ -27,6 +27,7 @@
     "@seqora/prompting": "workspace:*",
     "dotenv": "17.4.2",
     "fastify": "5.10.0",
+    "jsonrepair": "3.15.0",
     "zod": "4.3.6"
   },
   "devDependencies": {

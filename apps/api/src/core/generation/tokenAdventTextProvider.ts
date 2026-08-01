@@ -39,7 +39,26 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
 
   private async generateOnce(request: TextGenerationRequest): Promise<string> {
     const model = this.resolveModel(request.model)
-    const response = await this.fetcher(`${this.baseUrl}/v1/chat/completions`, {
+    let response = await this.requestCompletion(request, model, true)
+    if (!response.ok && response.status === 400 && request.responseFormat === 'json') {
+      response = await this.requestCompletion(request, model, false)
+    }
+    if (!response.ok) throw await textProviderError(response)
+
+    if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
+      return readCompletionStream(response.body, this.options.requestTimeoutMs)
+    }
+    const content = completionText(await response.json())
+    if (!content) throw new InvalidTextResponseError()
+    return content.trim()
+  }
+
+  private requestCompletion(
+    request: TextGenerationRequest,
+    model: string,
+    includeResponseFormat: boolean,
+  ): Promise<Response> {
+    return this.fetcher(`${this.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.resolveApiKey(model)}`,
@@ -52,18 +71,13 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
           { role: 'user', content: request.userPrompt },
         ],
         ...(request.maxOutputTokens ? { max_completion_tokens: request.maxOutputTokens } : {}),
+        ...(includeResponseFormat && request.responseFormat === 'json'
+          ? { response_format: { type: 'json_object' } }
+          : {}),
         stream: true,
       }),
       signal: AbortSignal.timeout(this.options.requestTimeoutMs),
     })
-    if (!response.ok) throw await textProviderError(response)
-
-    if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
-      return readCompletionStream(response.body, this.options.requestTimeoutMs)
-    }
-    const content = completionText(await response.json())
-    if (!content) throw new InvalidTextResponseError()
-    return content.trim()
   }
 
   private resolveModel(model: string | null | undefined): string {

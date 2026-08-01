@@ -972,6 +972,7 @@ describe('API authorization', () => {
       systemPrompt: expect.stringContaining('资产制片'),
       userPrompt: expect.stringContaining('已有资产'),
       maxOutputTokens: 6_000,
+      responseFormat: 'json',
     })
   })
 
@@ -1028,6 +1029,59 @@ describe('API authorization', () => {
             background: 'transparent',
           }),
         }),
+      ]),
+    })
+  })
+
+  it('repairs truncated Chinese asset suggestion JSON instead of discarding the model result', async () => {
+    const generate = vi.fn(
+      async () => `<think>先分析剧本实体。</think>\n\`\`\`json\n{
+      "概述": "已识别核心人物与主要地点。",
+      "资产建议": {
+        "人物资产": [{
+          "名称": "林夏",
+          "设定": "贯穿主线的年轻女主角。",
+          "提示词": "林夏，年轻女性，影视 CG 风格人物设定。",
+          "原因": "主角需要跨镜头保持一致。",
+          "优先级": "5",
+          "attributes": { "gender": "female" }
+        },],
+        "场景资产": [{
+          "名称": "旧码头",
+          "设定": "故事反复出现的临河旧码头。",
+          "提示词": "旧码头，无人空场，影视 CG 风格。",
+          "原因": "核心剧情地点。",
+          "优先级": 4,
+          "attributes": { "sceneType": "street" }
+        }]
+    `,
+    )
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        script: '场次：1｜场景：旧码头｜角色：林夏｜剧情：林夏独自等待渡船。',
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      summary: '已识别核心人物与主要地点。',
+      warnings: [],
+      assets: expect.arrayContaining([
+        expect.objectContaining({ kind: 'character', name: '林夏', priority: 5 }),
+        expect.objectContaining({ kind: 'scene', name: '旧码头', priority: 4 }),
       ]),
     })
   })
