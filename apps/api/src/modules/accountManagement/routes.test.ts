@@ -267,6 +267,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       },
     })
     expect(registrationAdmin.statusCode).toBe(201)
+    await verifyEmailAddress('registration-admin@example.com')
     const registrationAdminLogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
@@ -316,6 +317,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       account: { email: 'alice@example.com', name: 'Alice', tenantId: registrationTenantId },
       workspace: { id: registrationTenantId, status: 'active' },
     })
+    await verifyEmailAddress('alice@example.com')
 
     const reusedInvitationCode = await app.inject({
       method: 'POST',
@@ -525,6 +527,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       status: 'active',
     })
     const createdAdminUserId = createdAdmin.json().userId as string
+    await verifyEmailAddress('created-admin@example.com')
 
     const createdAdminLogin = await app.inject({
       method: 'POST',
@@ -596,6 +599,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       tenantId: adminManagedTenant.tenantId,
     })
     const memberUserId = adminCreatesMember.json().userId as string
+    await verifyEmailAddress('admin-created-member@example.com')
 
     const organizationAdmin = await createOrganizationAdminWorkspace(
       'created-org-admin@example.com',
@@ -1521,6 +1525,7 @@ function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return loadConfig({
     NODE_ENV: 'test',
     AUTH_MODE: 'local',
+    EMAIL_PROVIDER: 'none',
     DATABASE_URL: authDatabase.connectionString,
     DATA_FILE: ':memory:',
     STORAGE_DRIVER: 'local',
@@ -1565,6 +1570,7 @@ async function createTenantUserInFreshWorkspace(
     },
   })
   expect(created.statusCode).toBe(201)
+  await verifyEmailAddress(email)
   const login = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
@@ -1578,6 +1584,26 @@ async function createTenantUserInFreshWorkspace(
     tenantId,
     cookie: cookieValue(login),
   }
+}
+
+async function verifyEmailAddress(email: string): Promise<void> {
+  if (!app) throw new Error('App is not ready')
+  const request = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/email-verification/request',
+    payload: { email },
+  })
+  expect(request.statusCode).toBe(202)
+  const token = request.json().verificationToken as string | undefined
+  expect(token).toEqual(expect.any(String))
+  if (!token) throw new Error(`Expected verification token for ${email}`)
+
+  const verified = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/email-verification/verify',
+    payload: { token },
+  })
+  expect(verified.statusCode).toBe(204)
 }
 
 async function seedOwnerLogin() {
