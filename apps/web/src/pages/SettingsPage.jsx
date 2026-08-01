@@ -1,11 +1,18 @@
-import { KeyRound, LoaderCircle, LogOut, Save, UserRound } from 'lucide-react'
-import { useState } from 'react'
+import { Check, ExternalLink, KeyRound, LoaderCircle, LogOut, RefreshCw, Save, UserRound } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { PageHeader } from '../components/ui'
 
 export function SettingsPage({
   project,
   account,
   canEditProject = false,
+  canOpenAdminConsole = false,
+  adminConsoleUrl,
+  workspaces = [],
+  sessions = [],
+  onLoadAccountScope,
+  onSwitchWorkspace,
+  onRevokeSession,
   onSave,
   onChangePassword,
   onLogout,
@@ -18,6 +25,28 @@ export function SettingsPage({
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordState, setPasswordState] = useState({ status: 'idle', message: '' })
+  const [accountBusy, setAccountBusy] = useState('')
+  const [accountMessage, setAccountMessage] = useState({ status: 'idle', message: '' })
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      if (!onLoadAccountScope) return
+      setAccountBusy('load')
+      setAccountMessage({ status: 'idle', message: '' })
+      try {
+        await onLoadAccountScope()
+      } catch (error) {
+        if (!cancelled) setAccountMessage({ status: 'error', message: error.message })
+      } finally {
+        if (!cancelled) setAccountBusy('')
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [account.tenantId, onLoadAccountScope])
 
   const changePassword = async (event) => {
     event.preventDefault()
@@ -37,9 +66,59 @@ export function SettingsPage({
     }
   }
 
+  const switchWorkspace = async (tenantId) => {
+    if (tenantId === account.tenantId || !onSwitchWorkspace) return
+    setAccountBusy(`workspace:${tenantId}`)
+    setAccountMessage({ status: 'idle', message: '' })
+    try {
+      await onSwitchWorkspace(tenantId)
+      setAccountMessage({ status: 'success', message: '组织已切换' })
+    } catch (error) {
+      setAccountMessage({ status: 'error', message: error.message })
+    } finally {
+      setAccountBusy('')
+    }
+  }
+
+  const revokeSession = async (session) => {
+    if (session.current || !onRevokeSession) return
+    const confirmed = window.confirm(
+      `确认撤销这个登录 session？\n\n设备：${session.deviceLabel ?? deviceLabel(session)}\n创建时间：${formatDate(session.createdAt)}`,
+    )
+    if (!confirmed) return
+    setAccountBusy(`session:${session.sessionId}`)
+    setAccountMessage({ status: 'idle', message: '' })
+    try {
+      await onRevokeSession(session.sessionId)
+      setAccountMessage({ status: 'success', message: 'Session 已撤销' })
+    } catch (error) {
+      setAccountMessage({ status: 'error', message: error.message })
+    } finally {
+      setAccountBusy('')
+    }
+  }
+
+  const refreshAccountScope = async () => {
+    if (!onLoadAccountScope) return
+    setAccountBusy('load')
+    setAccountMessage({ status: 'idle', message: '' })
+    try {
+      await onLoadAccountScope()
+    } catch (error) {
+      setAccountMessage({ status: 'error', message: error.message })
+    } finally {
+      setAccountBusy('')
+    }
+  }
+
   return (
     <div className="page settings-page">
       <PageHeader eyebrow="账号" title="个人资料" description="查看当前登录账号，并管理自己的登录安全。">
+        {canOpenAdminConsole && (
+          <a className="button primary" href={adminConsoleUrl} target="_blank" rel="noreferrer">
+            <ExternalLink size={16} /> 管理后台
+          </a>
+        )}
         {canEditCurrentProject && (
           <button className="button primary" onClick={() => onSave({ name, synopsis, status })}>
             <Save size={16} /> 保存设置
@@ -69,7 +148,7 @@ export function SettingsPage({
             </label>
           </section>
         )}
-        <aside className="account-section">
+        <section className="account-section">
           <span className="account-avatar">
             <UserRound size={22} />
           </span>
@@ -85,6 +164,15 @@ export function SettingsPage({
               <dd>{account.id}</dd>
             </div>
           </dl>
+          {canOpenAdminConsole && (
+            <a className="admin-console-card" href={adminConsoleUrl} target="_blank" rel="noreferrer">
+              <ExternalLink size={17} />
+              <div>
+                <strong>管理后台</strong>
+                <span>用户、组织、账单、审计和 session 风险统一在 5174 管理</span>
+              </div>
+            </a>
+          )}
           <form className="password-form" onSubmit={changePassword}>
             <div className="password-form-heading">
               <KeyRound size={16} />
@@ -142,8 +230,129 @@ export function SettingsPage({
           <button className="button secondary full" onClick={onLogout}>
             <LogOut size={16} /> 退出登录
           </button>
-        </aside>
+        </section>
+        <section className="account-self-management">
+          <div className="self-management-head">
+            <div>
+              <h2>组织与 Session</h2>
+              <p>切换当前创作组织，并管理自己的登录设备。</p>
+            </div>
+            <button
+              className="button secondary"
+              type="button"
+              onClick={refreshAccountScope}
+              disabled={accountBusy === 'load'}
+            >
+              {accountBusy === 'load' ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}
+              刷新
+            </button>
+          </div>
+          {accountMessage.message && (
+            <p className={`account-self-message ${accountMessage.status}`} role="status">
+              {accountMessage.message}
+            </p>
+          )}
+          <div className="self-management-grid">
+            <div className="self-panel">
+              <h3>组织切换</h3>
+              <div className="workspace-switch-list self">
+                {workspaces.map((item) => (
+                  <button
+                    key={item.workspace.id}
+                    type="button"
+                    className={item.workspace.id === account.tenantId ? 'active' : ''}
+                    disabled={
+                      item.workspace.id === account.tenantId ||
+                      accountBusy === `workspace:${item.workspace.id}`
+                    }
+                    onClick={() => switchWorkspace(item.workspace.id)}
+                  >
+                    <div>
+                      <strong>{item.workspace.name}</strong>
+                      <span>{item.membership.roles.map(roleName).join('、')}</span>
+                    </div>
+                    {item.workspace.id === account.tenantId ? (
+                      <Check size={16} />
+                    ) : accountBusy === `workspace:${item.workspace.id}` ? (
+                      <LoaderCircle size={16} className="spin" />
+                    ) : (
+                      <span>切换</span>
+                    )}
+                  </button>
+                ))}
+                {!workspaces.length && <p className="panel-empty">暂无可切换组织。</p>}
+              </div>
+            </div>
+            <div className="self-panel">
+              <h3>我的 Session</h3>
+              <div className="self-session-list">
+                {sessions.map((session) => (
+                  <article
+                    key={session.sessionId}
+                    className={session.revokedAt ? 'session-row revoked' : 'session-row'}
+                  >
+                    <div>
+                      <strong>{session.current ? '当前 session' : shortId(session.sessionId)}</strong>
+                      <span>{deviceLabel(session)}</span>
+                      <small>
+                        {formatDate(session.createdAt)} 创建 ·{' '}
+                        {session.lastSeenAt ? formatDate(session.lastSeenAt) : '未记录活跃'}
+                      </small>
+                    </div>
+                    <button
+                      className="button secondary"
+                      type="button"
+                      disabled={
+                        session.current ||
+                        Boolean(session.revokedAt) ||
+                        accountBusy === `session:${session.sessionId}`
+                      }
+                      onClick={() => revokeSession(session)}
+                    >
+                      {accountBusy === `session:${session.sessionId}` ? (
+                        <LoaderCircle size={15} className="spin" />
+                      ) : (
+                        <LogOut size={15} />
+                      )}
+                      {session.revokedAt ? '已撤销' : session.current ? '当前' : '撤销'}
+                    </button>
+                  </article>
+                ))}
+                {!sessions.length && <p className="panel-empty">暂无 session。</p>}
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   )
+}
+
+function roleName(role) {
+  return (
+    {
+      owner: '所有者',
+      super_admin: '超级管理员',
+      admin: '管理员',
+      member: '普通成员',
+      organization_admin: '组织管理员',
+      organization_member: '组织成员',
+    }[role] ?? role
+  )
+}
+
+function shortId(id) {
+  return id.length > 14 ? `${id.slice(0, 8)}...${id.slice(-4)}` : id
+}
+
+function formatDate(value) {
+  return new Date(value).toLocaleString('zh-CN', { hour12: false })
+}
+
+function deviceLabel(session) {
+  if (session.deviceLabel) return session.deviceLabel
+  if (session.userAgent?.includes('Chrome')) return 'Chrome'
+  if (session.userAgent?.includes('Firefox')) return 'Firefox'
+  if (session.userAgent?.includes('Safari')) return 'Safari'
+  return session.ipAddress ?? '未记录设备'
 }

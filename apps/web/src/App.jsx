@@ -1,10 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Check, LoaderCircle, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
 import { IconButton } from './components/ui'
 import { useAuth } from './components/AuthProvider'
-import { canEditProjectSettings, canOpenAccountAdmin } from './features/account/access'
+import { canEditProjectSettings, canOpenAccountAdmin, getAdminConsoleUrl } from './features/account/access'
 import { api } from './services/apiClient'
 import {
   selectShotAssetReferences,
@@ -29,11 +29,6 @@ const ACTIVE_TASK_POLL_MS = 2_500
 const IDLE_TASK_POLL_MS = 12_000
 const BACKGROUND_TASK_POLL_MS = 30_000
 
-const AdminPage = lazyNamed(() => import('./pages/AdminPage'), 'AdminPage')
-const AccountManagementPage = lazyNamed(
-  () => import('./pages/AccountManagementPage'),
-  'AccountManagementPage',
-)
 const AssetsPage = lazyNamed(() => import('./pages/AssetsPage'), 'AssetsPage')
 const BillingPage = lazyNamed(() => import('./pages/BillingPage'), 'BillingPage')
 const FilmPage = lazyNamed(() => import('./pages/FilmPage'), 'FilmPage')
@@ -48,6 +43,8 @@ function App() {
   const [activeStep, setActiveStep] = useState('overview')
   const [projects, setProjects] = useState([])
   const [workspace, setWorkspace] = useState(null)
+  const [workspaces, setWorkspaces] = useState([])
+  const [ownSessions, setOwnSessions] = useState([])
   const [tasks, setTasks] = useState([])
   const [billing, setBilling] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -57,12 +54,20 @@ function App() {
   const [toast, setToast] = useState('')
   const [currentShot, setCurrentShot] = useState(0)
 
-  const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
   const canOpenAdminAccounts = canOpenAccountAdmin(session)
+  const canUseCreativeWorkspace = session.permissions.includes('project.write')
   const canManageProjectSettings = canEditProjectSettings(session)
+  const adminConsoleUrl = getAdminConsoleUrl()
 
   useEffect(() => {
-    if (adminOnly) return
+    if (!canUseCreativeWorkspace) {
+      setProjects([])
+      setWorkspace(null)
+      setTasks([])
+      setBilling({ plan: session.account.plan, credits: session.account.credits, concurrency: 0 })
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setWorkspace(null)
     setTasks([])
@@ -74,7 +79,7 @@ function App() {
       })
       .catch((error) => setToast(error.message))
       .finally(() => setLoading(false))
-  }, [adminOnly, session.account.tenantId])
+  }, [canUseCreativeWorkspace, session.account.tenantId, session.account.plan, session.account.credits])
 
   useEffect(() => {
     if (!workspace?.project.id) return undefined
@@ -131,26 +136,8 @@ function App() {
   }, [toast])
 
   useEffect(() => {
-    if (activeStep === 'accounts' && !canOpenAdminAccounts) setActiveStep('settings')
-  }, [activeStep, canOpenAdminAccounts])
-
-  useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [activeStep])
-
-  if (adminOnly)
-    return (
-      <Suspense fallback={<WorkspaceLoading fullPage />}>
-        <AdminPage />
-      </Suspense>
-    )
-  if (loading || !billing)
-    return (
-      <div className="app-loading">
-        <LoaderCircle size={24} className="spin" />
-        <p>正在加载项目…</p>
-      </div>
-    )
 
   const project = workspace?.project
 
@@ -166,6 +153,38 @@ function App() {
     setBilling(next)
     await refreshSession()
   }
+
+  const refreshAccountScope = useCallback(async () => {
+    const [nextWorkspaces, nextSessions] = await Promise.all([api.workspaces(), api.authSessions()])
+    setWorkspaces(nextWorkspaces)
+    setOwnSessions(nextSessions)
+  }, [])
+
+  const switchAccountWorkspace = useCallback(async (tenantId) => {
+    await api.switchWorkspace(tenantId)
+    const nextSession = await refreshSession()
+    setProjects([])
+    setWorkspace(null)
+    setTasks([])
+    if (nextSession.permissions.includes('billing.read.self')) setBilling(await api.billing())
+    else setBilling({ plan: nextSession.account.plan, credits: nextSession.account.credits, concurrency: 0 })
+    await refreshAccountScope()
+    setToast('组织已切换')
+  }, [refreshAccountScope, refreshSession])
+
+  const revokeOwnSession = useCallback(async (sessionId) => {
+    await api.revokeAuthSession(sessionId)
+    await refreshAccountScope()
+    setToast('Session 已撤销')
+  }, [refreshAccountScope])
+
+  if (loading || !billing)
+    return (
+      <div className="app-loading">
+        <LoaderCircle size={24} className="spin" />
+        <p>正在加载项目…</p>
+      </div>
+    )
 
   const createJob = async (label, type = '图片', cost = 6, options = {}) => {
     if (!project) return
@@ -197,7 +216,7 @@ function App() {
   }
 
   const navigateTo = (id) => {
-    setActiveStep(id === 'accounts' && !canOpenAdminAccounts ? 'settings' : id)
+    setActiveStep(id)
     setMobileNav(false)
   }
 
@@ -362,27 +381,22 @@ function App() {
         project={project}
         account={session.account}
         canEditProject={canManageProjectSettings}
+        canOpenAdminConsole={canOpenAdminAccounts}
+        adminConsoleUrl={adminConsoleUrl}
+        workspaces={workspaces}
+        sessions={ownSessions}
+        onLoadAccountScope={refreshAccountScope}
+        onSwitchWorkspace={switchAccountWorkspace}
+        onRevokeSession={revokeOwnSession}
         onSave={updateProject}
         onChangePassword={(input) => api.changePassword(input)}
         onLogout={logout}
       />
     )
 
-    if (activeStep === 'accounts') {
-      if (!canOpenAdminAccounts) return settingsPage
-      return (
-        <AccountManagementPage
-          onWorkspaceChanged={async () => {
-            setProjects([])
-            setWorkspace(null)
-            setTasks([])
-            setBilling(await api.billing())
-          }}
-        />
-      )
-    }
-
     if (activeStep === 'settings') return settingsPage
+
+    if (!canUseCreativeWorkspace) return settingsPage
 
     if (!project) {
       return (
@@ -802,8 +816,9 @@ function App() {
         billing={billing}
         account={session.account}
         runningJobs={runningJobs}
+        creativeEnabled={canUseCreativeWorkspace}
         onOpenNav={() => setMobileNav(true)}
-        onProjectClick={() => setProjectMenuOpen(true)}
+        onProjectClick={() => canUseCreativeWorkspace && setProjectMenuOpen(true)}
         onCreditsClick={() => navigateTo('billing')}
         onPlanClick={() => navigateTo('billing')}
         onAccountClick={() => navigateTo('settings')}
@@ -814,6 +829,8 @@ function App() {
         billing={billing}
         assetCount={workspace?.assets.length ?? 0}
         canOpenAdminAccounts={canOpenAdminAccounts}
+        adminConsoleUrl={adminConsoleUrl}
+        creativeEnabled={canUseCreativeWorkspace}
         onNavigate={navigateTo}
         onClose={() => setMobileNav(false)}
       />
@@ -826,7 +843,7 @@ function App() {
       {newProjectOpen && (
         <NewProjectModal onClose={() => setNewProjectOpen(false)} onCreate={createProject} />
       )}
-      {projectMenuOpen && (
+      {projectMenuOpen && canUseCreativeWorkspace && (
         <ProjectMenu
           projects={projects}
           currentId={project?.id}

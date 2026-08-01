@@ -36,6 +36,7 @@ export function AppHeader({
   billing,
   account,
   runningJobs,
+  creativeEnabled = true,
   onOpenNav,
   onProjectClick,
   onCreditsClick,
@@ -55,25 +56,36 @@ export function AppHeader({
           序幕 <span>SEQORA</span>
         </div>
       </div>
-      <button className="project-switcher" onClick={onProjectClick}>
-        <FolderKanban size={16} />
-        <span>{projectName}</span>
-        <ChevronDown size={15} />
-      </button>
-      <div className="top-actions">
-        <div className="queue-indicator">
-          <StatusDot status={runningJobs.length ? 'running' : 'completed'} />
-          {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '生成服务正常'}
+      {creativeEnabled ? (
+        <button className="project-switcher" onClick={onProjectClick}>
+          <FolderKanban size={16} />
+          <span>{projectName}</span>
+          <ChevronDown size={15} />
+        </button>
+      ) : (
+        <div className="project-switcher static">
+          <UserRound size={16} />
+          <span>个人资料</span>
         </div>
-        <button className="credit-button" onClick={onCreditsClick}>
-          <Zap size={15} fill="currentColor" /> {billing?.credits ?? 0} 积分
-        </button>
-        <button
-          className={`plan-button ${billing?.plan === 'member' ? 'is-member' : ''}`}
-          onClick={onPlanClick}
-        >
-          <Crown size={15} /> {billing?.plan === 'member' ? '创作会员' : '免费版'}
-        </button>
+      )}
+      <div className="top-actions">
+        {creativeEnabled && (
+          <>
+            <div className="queue-indicator">
+              <StatusDot status={runningJobs.length ? 'running' : 'completed'} />
+              {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '生成服务正常'}
+            </div>
+            <button className="credit-button" onClick={onCreditsClick}>
+              <Zap size={15} fill="currentColor" /> {billing?.credits ?? 0} 积分
+            </button>
+            <button
+              className={`plan-button ${billing?.plan === 'member' ? 'is-member' : ''}`}
+              onClick={onPlanClick}
+            >
+              <Crown size={15} /> {billing?.plan === 'member' ? '创作会员' : '免费版'}
+            </button>
+          </>
+        )}
         <button className="avatar" onClick={onAccountClick} title="账号设置">
           {account?.name?.slice(0, 1) ?? '用'}
         </button>
@@ -88,6 +100,8 @@ export function AppSidebar({
   billing,
   assetCount,
   canOpenAdminAccounts = false,
+  adminConsoleUrl,
+  creativeEnabled = true,
   onNavigate,
   onClose,
 }) {
@@ -106,35 +120,40 @@ export function AppSidebar({
           <X size={19} />
         </IconButton>
       </div>
-      <div className="sidebar-label">创作流程</div>
+      <div className="sidebar-label">{creativeEnabled ? '创作流程' : '账号'}</div>
       <nav>
-        {STEPS.map((step, index) => {
-          const Icon = step.icon
-          return (
-            <button
-              key={step.id}
-              className={`nav-item ${activeStep === step.id ? 'active' : ''}`}
-              onClick={() => onNavigate(step.id)}
-            >
-              <span className={`nav-index ${index < activeIndex ? 'done' : ''}`}>
-                {index < activeIndex ? <Check size={12} /> : index + 1}
-              </span>
-              <Icon size={17} />
-              <span>{step.label}</span>
-            </button>
-          )
-        })}
+        {creativeEnabled &&
+          STEPS.map((step, index) => {
+            const Icon = step.icon
+            return (
+              <button
+                key={step.id}
+                className={`nav-item ${activeStep === step.id ? 'active' : ''}`}
+                onClick={() => onNavigate(step.id)}
+              >
+                <span className={`nav-index ${index < activeIndex ? 'done' : ''}`}>
+                  {index < activeIndex ? <Check size={12} /> : index + 1}
+                </span>
+                <Icon size={17} />
+                <span>{step.label}</span>
+              </button>
+            )
+          })}
       </nav>
       <div className="sidebar-spacer" />
-      <button className="sidebar-link" onClick={() => onNavigate('assets')}>
-        <PackageOpen size={17} /> 资产库 <span>{assetCount}</span>
-      </button>
-      <button
-        className={`sidebar-link ${activeStep === 'billing' ? 'active' : ''}`}
-        onClick={() => onNavigate('billing')}
-      >
-        <CircleDollarSign size={17} /> 积分账单
-      </button>
+      {creativeEnabled && (
+        <>
+          <button className="sidebar-link" onClick={() => onNavigate('assets')}>
+            <PackageOpen size={17} /> 资产库 <span>{assetCount}</span>
+          </button>
+          <button
+            className={`sidebar-link ${activeStep === 'billing' ? 'active' : ''}`}
+            onClick={() => onNavigate('billing')}
+          >
+            <CircleDollarSign size={17} /> 积分账单
+          </button>
+        </>
+      )}
       <button
         className={`sidebar-link ${activeStep === 'settings' ? 'active' : ''}`}
         onClick={() => onNavigate('settings')}
@@ -142,32 +161,31 @@ export function AppSidebar({
         <UserRound size={17} /> 个人资料
       </button>
       {canOpenAdminAccounts && (
+        <a className="sidebar-link" href={adminConsoleUrl} target="_blank" rel="noreferrer">
+          <UserCog size={17} /> 管理后台
+        </a>
+      )}
+      {creativeEnabled && (
         <button
-          className={`sidebar-link ${activeStep === 'accounts' ? 'active' : ''}`}
-          onClick={() => onNavigate('accounts')}
+          type="button"
+          className="usage-box"
+          onClick={() => onNavigate('billing')}
+          style={{ '--usage-progress': `${usagePercent}%` }}
         >
-          <UserCog size={17} /> 管理员端
+          <div>
+            <span>可用积分</span>
+            <strong>{billing?.credits ?? 0} 积分</strong>
+          </div>
+          <div className="usage-track">
+            <span />
+          </div>
+          <small>
+            本月已用 {usage?.netCredits ?? 0} · {usage?.generationCount ?? 0} 次计费
+            {usage?.refundedCredits ? ` · 已退 ${usage.refundedCredits} 积分` : ''}
+            {usage?.includedCredits ? ` · 月度 ${usage.includedCredits}` : ' · 按量使用'}
+          </small>
         </button>
       )}
-      <button
-        type="button"
-        className="usage-box"
-        onClick={() => onNavigate('billing')}
-        style={{ '--usage-progress': `${usagePercent}%` }}
-      >
-        <div>
-          <span>可用积分</span>
-          <strong>{billing?.credits ?? 0} 积分</strong>
-        </div>
-        <div className="usage-track">
-          <span />
-        </div>
-        <small>
-          本月已用 {usage?.netCredits ?? 0} · {usage?.generationCount ?? 0} 次计费
-          {usage?.refundedCredits ? ` · 已退 ${usage.refundedCredits} 积分` : ''}
-          {usage?.includedCredits ? ` · 月度 ${usage.includedCredits}` : ' · 按量使用'}
-        </small>
-      </button>
     </aside>
   )
 }

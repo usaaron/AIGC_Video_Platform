@@ -131,152 +131,44 @@ describe('api client', () => {
     )
   })
 
-  it('calls workspace, member and session account management endpoints', async () => {
+  it('calls organization switching and self-session account endpoints', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(Response.json([]))
       .mockResolvedValueOnce(
-        Response.json({ account: { tenantId: 'tenant-2' }, workspace: { id: 'tenant-2' } }),
+        Response.json({
+          account: { tenantId: 'tenant-2', organizationId: 'tenant-2' },
+          workspace: { id: 'tenant-2' },
+          organization: { id: 'tenant-2' },
+        }),
       )
-      .mockResolvedValueOnce(Response.json([]))
-      .mockResolvedValueOnce(Response.json({ userId: 'user-2', roles: ['member'] }))
-      .mockResolvedValueOnce(Response.json({ userId: 'user-1', roles: ['admin'] }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(Response.json([]))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(Response.json([]))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchMock)
 
     await api.workspaces()
     await api.switchWorkspace('tenant-2')
-    await api.tenantMembers('tenant-2')
-    await api.createTenantUser('tenant-2', {
-      email: 'new-member@example.com',
-      name: 'New Member',
-      password: 'NewMember123!',
-      role: 'member',
-    })
-    await api.updateMemberRoles('tenant-2', 'user-1', ['admin'])
-    await api.disableMember('tenant-2', 'user-1')
     await api.authSessions()
     await api.revokeAuthSession('session-1')
-    await api.tenantSessions('tenant-2')
-    await api.revokeTenantSession('tenant-2', 'session-2')
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      '/api/v1/workspaces',
+      '/api/v1/organizations',
       expect.objectContaining({ credentials: 'include' }),
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      '/api/v1/workspaces/tenant-2/switch',
+      '/api/v1/organizations/tenant-2/switch',
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      '/api/v1/tenants/tenant-2/members',
-      expect.objectContaining({ credentials: 'include' }),
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      '/api/v1/tenants/tenant-2/users',
-      expect.objectContaining({
-        method: 'POST',
-        credentials: 'include',
-        body: JSON.stringify({
-          email: 'new-member@example.com',
-          name: 'New Member',
-          password: 'NewMember123!',
-          role: 'member',
-        }),
-      }),
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      '/api/v1/tenants/tenant-2/members/user-1/roles',
-      expect.objectContaining({
-        method: 'PATCH',
-        credentials: 'include',
-        body: JSON.stringify({ roles: ['admin'] }),
-      }),
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      '/api/v1/tenants/tenant-2/members/user-1',
-      expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      7,
       '/api/v1/auth/sessions',
       expect.objectContaining({ credentials: 'include' }),
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
-      8,
-      '/api/v1/auth/sessions/session-1',
-      expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      9,
-      '/api/v1/tenants/tenant-2/sessions',
-      expect.objectContaining({ credentials: 'include' }),
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      10,
-      '/api/v1/tenants/tenant-2/sessions/session-2',
-      expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
-    )
-  })
-
-  it('calls tenant workspace management endpoints', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json({ id: 'tenant-2', name: 'Renamed Workspace' }))
-      .mockResolvedValueOnce(
-        Response.json({
-          previousOwner: { userId: 'user-owner', roles: ['admin'] },
-          newOwner: { userId: 'user-next-owner', roles: ['owner'] },
-        }),
-      )
-      .mockResolvedValueOnce(Response.json({ account: { tenantId: 'tenant-1' } }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
-    vi.stubGlobal('fetch', fetchMock)
-
-    await api.updateWorkspace('tenant-2', { name: 'Renamed Workspace' })
-    await api.transferWorkspaceOwner('tenant-2', {
-      targetUserId: 'user-next-owner',
-      previousOwnerRole: 'admin',
-    })
-    await api.leaveWorkspace('tenant-2')
-    await api.disableWorkspace('tenant-2')
-
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      '/api/v1/workspaces/tenant-2',
-      expect.objectContaining({
-        method: 'PATCH',
-        credentials: 'include',
-        body: JSON.stringify({ name: 'Renamed Workspace' }),
-      }),
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      '/api/v1/workspaces/tenant-2/owner-transfer',
-      expect.objectContaining({
-        method: 'POST',
-        credentials: 'include',
-        body: JSON.stringify({ targetUserId: 'user-next-owner', previousOwnerRole: 'admin' }),
-      }),
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      '/api/v1/workspaces/tenant-2/leave',
-      expect.objectContaining({ method: 'POST', credentials: 'include', body: JSON.stringify({}) }),
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
       4,
-      '/api/v1/workspaces/tenant-2',
+      '/api/v1/auth/sessions/session-1',
       expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
     )
   })
