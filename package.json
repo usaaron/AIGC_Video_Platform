@@ -37,6 +37,8 @@
     "perf:k6:breakpoint": "node scripts/perf/run-k6.mjs breakpoint",
     "regression:novel:biancheng": "pnpm --filter @seqora/api regression:novel:biancheng",
     "regression:novel:biancheng:live": "pnpm --filter @seqora/api regression:novel:biancheng:live",
+    "preprod:anonymize:check": "pnpm --filter @seqora/api db:anonymize-preprod:check",
+    "preprod:anonymize": "pnpm --filter @seqora/api db:anonymize-preprod",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "check": "pnpm format:check && pnpm lint && pnpm test && pnpm build"

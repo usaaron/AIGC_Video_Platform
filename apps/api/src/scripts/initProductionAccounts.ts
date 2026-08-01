@@ -1,8 +1,13 @@
 import 'dotenv/config'
-import type { Plan, Role } from '@seqora/contracts'
 import { loadConfig } from '../config.js'
 import { hashPassword } from '../core/auth/password.js'
 import { AccountDatabase } from '../infra/postgres.js'
+import {
+  bootstrapIdentityId,
+  bootstrapMembershipId,
+  createBootstrapAccounts,
+  systemTenantId,
+} from './bootstrapAccounts.js'
 
 const config = loadConfig()
 
@@ -11,47 +16,8 @@ if (!config.DATABASE_URL) {
 }
 
 const database = new AccountDatabase(config.DATABASE_URL)
-const systemTenantId = 'tenant-seqora-demo'
 const now = new Date().toISOString()
-
-const bootstrapAccounts: BootstrapAccount[] = [
-  {
-    id: 'user-member',
-    name: config.BOOTSTRAP_MEMBER_NAME,
-    email: config.BOOTSTRAP_MEMBER_EMAIL,
-    password: config.BOOTSTRAP_MEMBER_PASSWORD,
-    roles: ['member'],
-    plan: 'free',
-    credits: 286,
-  },
-  {
-    id: 'user-owner',
-    name: config.BOOTSTRAP_OWNER_NAME,
-    email: config.BOOTSTRAP_OWNER_EMAIL,
-    password: config.BOOTSTRAP_OWNER_PASSWORD,
-    roles: ['owner'],
-    plan: 'member',
-    credits: 1_000,
-  },
-  {
-    id: 'user-super-admin',
-    name: config.BOOTSTRAP_SUPER_ADMIN_NAME,
-    email: config.BOOTSTRAP_SUPER_ADMIN_EMAIL,
-    password: config.BOOTSTRAP_SUPER_ADMIN_PASSWORD,
-    roles: ['super_admin'],
-    plan: 'member',
-    credits: 1_000,
-  },
-  {
-    id: 'user-admin',
-    name: config.BOOTSTRAP_ADMIN_NAME,
-    email: config.BOOTSTRAP_ADMIN_EMAIL,
-    password: config.BOOTSTRAP_ADMIN_PASSWORD,
-    roles: ['admin'],
-    plan: 'member',
-    credits: 1_000,
-  },
-]
+const bootstrapAccounts = createBootstrapAccounts(config)
 
 try {
   await database.ensureLatestMigrations()
@@ -67,7 +33,7 @@ try {
 
     for (const account of bootstrapAccounts) {
       const normalizedEmail = account.email.toLowerCase()
-      const membershipId = membershipIdFor(account.id, systemTenantId)
+      const membershipId = bootstrapMembershipId(account.id)
       await client.query(
         `
         INSERT INTO users (id, display_name, status, created_at, updated_at)
@@ -95,7 +61,7 @@ try {
         VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', $5, 'verified', $5, $5)
         ON CONFLICT (id) DO NOTHING
         `,
-        [authIdentityIdFor(account.id), account.id, normalizedEmail, hashPassword(account.password), now],
+        [bootstrapIdentityId(account.id), account.id, normalizedEmail, hashPassword(account.password), now],
       )
       await client.query(
         `
@@ -150,7 +116,7 @@ try {
         'ledger-initial',
         systemTenantId,
         memberAccount.id,
-        membershipIdFor(memberAccount.id, systemTenantId),
+        bootstrapMembershipId(memberAccount.id),
         memberAccount.credits,
         now,
       ],
@@ -159,22 +125,4 @@ try {
   process.stdout.write('[accounts:init] bootstrap accounts are initialized\n')
 } finally {
   await database.close()
-}
-
-type BootstrapAccount = {
-  id: string
-  name: string
-  email: string
-  password: string
-  roles: Role[]
-  plan: Plan
-  credits: number
-}
-
-function membershipIdFor(userId: string, tenantId: string): string {
-  return `membership-${tenantId}-${userId}`
-}
-
-function authIdentityIdFor(userId: string): string {
-  return `identity-${userId}`
 }

@@ -6,9 +6,11 @@ import { loadConfig, type AppConfig } from '../config.js'
 import { parseIssuedSessionToken } from '../core/auth/sessionToken.js'
 import { AccountDatabase } from '../infra/postgres.js'
 import { startPostgresAuthFixture, type PostgresAuthFixture } from '../testing/postgresAuth.js'
+import { createTestDataFactory } from '../testing/testDataFactory.js'
 
 let app: Awaited<ReturnType<typeof buildApp>> | undefined
 let authDatabase: PostgresAuthFixture | undefined
+const dataFactory = createTestDataFactory('security')
 
 beforeAll(async () => {
   authDatabase = await startPostgresAuthFixture()
@@ -89,18 +91,18 @@ describe('HTTP security controls', { timeout: 45_000 }, () => {
 
   it('blocks horizontal cross-organization access for organization admins', async () => {
     const alpha = await createOrganizationAdminWorkspace(
-      'security-alpha-admin@example.com',
+      dataFactory.email('security-alpha-admin'),
       'SecurityAlphaAdmin123!',
-      'Security Alpha Organization',
+      dataFactory.tenantName('Alpha Organization'),
     )
     const beta = await createOrganizationAdminWorkspace(
-      'security-beta-admin@example.com',
+      dataFactory.email('security-beta-admin'),
       'SecurityBetaAdmin123!',
-      'Security Beta Organization',
+      dataFactory.tenantName('Beta Organization'),
     )
     const betaMember = await createTenantUser(
       beta.tenantId,
-      'security-beta-member@example.com',
+      dataFactory.email('security-beta-member'),
       'SecurityBetaMember123!',
       'organization_member',
     )
