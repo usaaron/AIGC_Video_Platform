@@ -1,0 +1,17 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: seqora-postgres-io-latency
+  namespace: seqora-chaos
+spec:
+  action: latency
+  mode: all
+  selector:
+    namespaces:
+      - seqora-prod
+    labelSelectors:
+      app.kubernetes.io/name: postgres
+  volumePath: /var/lib/postgresql/data
+  delay: 200ms
+  percent: 50
+  duration: 5m
