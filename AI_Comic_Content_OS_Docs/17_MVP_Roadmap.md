@@ -47,11 +47,12 @@
 
 当前默认顺序：
 
-1. 定义 60 万字故事母本的项目规格、Story Bible、故事阶段计划、人物与世界设定边界。
-2. 将项目、剧集、批次、版本和 Generation Checkpoint 持久化到 PostgreSQL，并支持安全恢复。
-3. 用当前有界阶段生成验证批次间新增元素、连续性和人工确认，不直接从零运行完整 60 万字。
-4. 扩充并治理中国大陆长篇创作与漫剧改编知识资产。
-5. 在长篇结构稳定后，再决定 Creative Deepening、Agent 和 DDD-lite 的进入时点。
+1. 已完成第一轮长篇 contract foundation：`StoryProject`、`StoryBible`、`StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、bounded batch / checkpoint models。
+2. 下一步将项目、Story Bible、规划、剧集、批次、版本和 Generation Checkpoint 持久化到 PostgreSQL，并支持安全恢复。
+3. 在持久化边界稳定后，实现人工批准与有界规划用例，不直接改变当前单集生成主链路。
+4. 用当前有界阶段生成验证批次间新增元素、连续性和人工确认，不直接从零运行完整 60 万字。
+5. 扩充并治理中国大陆长篇创作与漫剧改编知识资产。
+6. 在长篇结构稳定后，再决定 Creative Deepening、Agent 和 DDD-lite 的进入时点。
 
 ## Near-Term Candidates
 
@@ -71,13 +72,13 @@ Agent 是合作方需求，但不预设为多 Agent。默认候选是单一 Crea
 
 以下已有研究尚未获得 runtime 批准：
 
-- Serialized Story Blueprint / Episode Plan
+- Serialized Story Planning runtime（基础契约已实现；规划生成与运行时接入未批准）
 - Character Decision Logic runtime
 - 动态 Creative Knowledge Retrieval / RAG
 - Creative Skill Registry
 - 自动 Prompt 学习或自动知识更新
 - Acceptance enforcement 与多轮 Revision loop
-- 60 万字故事母本完整 runtime、故事阶段规划与 Continuity Ledger
+- 60 万字故事母本完整 runtime、自动故事阶段规划与 Continuity Ledger 更新
 
 Research 结论不得直接写入 Prompt、Schema 或业务规则。
 

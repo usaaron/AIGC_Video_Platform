@@ -1332,6 +1332,98 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 
 这些字段由当前分集和角色确定性整理、允许用户编辑并保存在 IndexedDB。后续分集生成时，前端将其压缩为 bounded `project_continuity_summary` 注入 `episode_context`；它约束后续集延续已有故事线和关系状态，但不会改写已经生成的分集。它们不是 `MasterScript` 正式字段，也不代表 Story Planning runtime 已实现。已有分集项目禁止在项目设定页直接重新生成覆盖；重新生成通过复制新的本地项目版本完成。
 
+## Long-Story Planning Contracts v1
+
+当前已在 `script_engine/long_story_models.py` 实现长篇核心的版本化 Pydantic 契约。它们为后续 PostgreSQL、规划与可恢复批次提供稳定边界，但尚未接入 API、Prompt Builder 或生成运行时。
+
+### `StoryProject`
+
+整部长篇作品的聚合入口，当前包含：
+
+- `schema_version`
+- `project_id`
+- `title`
+- `content_spec_id`
+- `output_language`
+- `target_total_characters`
+- `planned_episode_count`
+- `default_batch_size`
+- `status`
+- optional `active_story_bible_version`
+- 创建与更新时间
+
+默认目标字数为 600,000、默认批次为 5 集，但二者是产品默认值而非行业硬规则。批次大小不得超过计划总集数。
+
+### `StoryBible`
+
+`StoryBible` 是经过人工审阅的长篇事实源，不包含场景正文、对白或镜头指令。当前包含：
+
+- 核心前提、系列目标、主题、核心冲突和结局方向
+- 世界规则、角色引用和 `CharacterArcTarget`
+- `StoryBibleRelationship`
+- 主线、支线和人物弧 `StoryLinePlan`
+- 重大 Setup / Payoff 引用
+- locked facts 与 avoid patterns
+- version、draft / approved / superseded 状态及批准时间
+
+所有人物弧、关系和故事线必须引用已声明角色；approved 状态必须有 `approved_at`。
+
+### `StoryStagePlan`
+
+故事阶段只负责把长篇方向分解为可管理的集数区间，并不改变最终按“集”交付的产品形式。它包含：
+
+- 阶段编号与起止集数
+- 阶段目标、入口状态、核心冲突和关键转折
+- 人物弧移动
+- Setup / Payoff 引用
+- 出口状态与人工批准状态
+
+### `EpisodePlan`
+
+`EpisodePlan` 回答“这一集为什么存在”，而不是提前写正文。当前要求：
+
+- episode goal
+- entry state
+- central conflict
+- protagonist decision
+- optional reveal
+- emotional movement
+- setup / payoff refs
+- exit state
+- cliffhanger
+- character refs 与 continuity requirements
+
+`entry_state → protagonist_decision → exit_state` 为后续连续性验证提供结构化依据。
+
+### `ContinuityLedger`
+
+`ContinuityLedger` 保存截至某一集的紧凑当前状态，不复制全部历史正文。它包含：
+
+- 人物当前目标、情绪、已知信息与约束
+- 人物关系当前状态
+- 各故事线当前状态
+- canonical facts 与 lock
+- `SetupPayoffRecord` 生命周期
+- 时间线事件
+- 最近分集的 entry / exit / consequences 摘要
+- 连续性警告
+
+账本中的已发生事件不得晚于 `through_episode_number`；同类 ID 必须唯一；已回收伏笔必须具有合法的建立集和回收集。
+
+### Batch And Checkpoint
+
+- `GenerationBatchPlan`：保存一次有界批次的集数范围、对应 Episode Plan、阶段引用、补充指令和状态。
+- `GenerationJobCheckpoint`：保存 queued / running / paused / completed / partial / failed 技术状态、已完成集、失败集、尝试次数和最后错误。
+
+这些对象只定义未来可恢复执行的数据边界。当前 Frontend `GenerationBatchRecord` 和 `GenerationBatchContext` 继续工作，旧请求不需要提供任何新对象。
+
+### Compatibility Boundary
+
+- 未修改 `ContentSpec`、`DraftMasterScript`、Final `MasterScript` 或现有 API contract。
+- 未启用 Story Planning LLM call、Continuity 自动抽取或 PostgreSQL persistence。
+- `StoryBible` / `StoryStagePlan` / `EpisodePlan` 进入生成上下文前，仍需后续 mapper、持久化和固定样本验证。
+- 新契约不代表完整 60 万字 runtime 已经完成。
+
 ## OrchestrationPlan 当前字段
 
 `OrchestrationPlan` 当前包含：

@@ -262,6 +262,33 @@ Phase 1 当前状态：
 - Frontend 使用现有 `revise-draft` 和 `master-scripts/finalize` 步骤 API 完成受控质量链，不改变 Script Engine 契约
 - 项目与本地编辑版本存在 IndexedDB；后端仓储仍是内存级，不得宣称为 durable persistence
 
+### Long-Story Contract Foundation
+
+当前已实现 `StoryProject`、`StoryBible`、`StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、`GenerationBatchPlan` 和 `GenerationJobCheckpoint` 的版本化模型与校验。
+
+建议的未来内部链路保持：
+
+```text
+Creative Intent / ContentSpec
+→ Human-reviewed StoryBible
+→ Human-reviewed StoryStagePlan
+→ EpisodePlan
+→ Existing Episode Draft Generation
+→ ContinuityLedger update
+→ Next bounded batch
+```
+
+职责边界：
+
+- `StoryBible` 固定整部故事事实、人物和长期方向。
+- `StoryStagePlan` 定义一个集数区间的结构责任，不产生正文。
+- `EpisodePlan` 定义单集目标、决定、状态变化和悬念。
+- 当前 Draft Generation 仍负责写具体单集场景与对白。
+- `ContinuityLedger` 保存紧凑已发生状态，不替代历史剧本或 Story QC。
+- `GenerationJobCheckpoint` 只表达技术恢复状态，不评价内容质量。
+
+当前只完成 contract foundation。尚未实现 API、Repository、PostgreSQL 映射、规划生成、人工批准工作流、自动账本更新、后台 Job 或 Prompt 注入，因此现有运行链路行为不变。
+
 当前 Resolver 仅支持已归一化且不超过 240 字符的 free creative prompt，并将其确定性映射为 `ContentSpec.story_goal`。更复杂的语义解析仍需后续独立验证，不允许在 Phase 1 中静默使用 LLM 推断。
 
 ## Unified Input Contract

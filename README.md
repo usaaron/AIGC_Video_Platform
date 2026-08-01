@@ -13,7 +13,8 @@ AI Comic Content OS 当前面向中国大陆漫剧市场，重点建设中文长
 - 默认：`SCRIPT_MARKET_PROFILE=cn_mainland`
 - 保留但关闭：`overseas_tiktok`
 - 暂停：Creative Deepening 前后端运行开关默认关闭
-- 尚未实现：完整 60 万字母本、Story Bible、故事阶段规划与 Continuity Ledger runtime
+- 已完成契约、尚未接入 runtime：Story Project、Story Bible、故事阶段、Episode Plan、Continuity Ledger 与可恢复批次检查点
+- 尚未实现：完整 60 万字母本、PostgreSQL 持久化、自动规划、连续性更新和后台可恢复生成
 
 当前已经跑通：
 

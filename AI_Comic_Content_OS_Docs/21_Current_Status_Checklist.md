@@ -6,13 +6,40 @@
 
 状态更新时间：2026-08-01。
 
+## Branch Registry
+
+本节是当前活跃 Git 分支职责的权威登记。具体提交历史与远程同步状态仍以 `git log`、`git branch -vv` 和 GitHub 为准。
+
+### `main`
+
+- 职责：保存进入中国大陆长篇方向前的稳定 Script Generation 研究与能力基线。
+- 当前稳定研究基线：`5b760e5`，tag 为 `script-generation-research-checkpoint-v1.1.0`。
+- 主要内容：Generation Pipeline v1、Scene Causality、Story QC Explainability、Prompt Evaluation Explainability、受控 Revision / Re-QC / Acceptance Shadow、Creative Intent / Knowledge / Story Planning 等研究与验证资产。
+- 不包含：`feature/cn-mainland-staged-generation` 中新增的中国大陆默认市场切换、长篇分阶段生成 UI 与 batch context、Deepening 默认关闭收口。
+- 当前状态：本地稳定研究基线；尚未把当前功能分支合并回 `main`。
+- 同步提示：当前本地 `main` 相对本地记录的 `origin/main` 领先 6 个提交；这只是仓库同步状态，不代表这些提交已进入远程稳定主线。
+
+### `feature/cn-mainland-staged-generation`
+
+- 职责：承载中国大陆漫剧市场切换与长篇分阶段生成的最小兼容实现。
+- 基于：本地 `main` 的 `script-generation-research-checkpoint-v1.1.0` 基线。
+- 已推送功能基线：`7bd4350`，commit 为 `feat: add mainland creator workflow and staged generation`。
+- 主要内容：默认 `cn_mainland` market profile、保留但关闭 `overseas_tiktok`、红果 reference-only 定位、逐集与有界阶段生成、批次 lineage、后续阶段可选新元素指令、长篇参数估算、Creative Deepening 前后端默认关闭。
+- 当前增量：长篇 Contract Foundation，包括 Story Project、Story Bible、故事阶段、Episode Plan、Continuity Ledger 与可恢复批次/任务检查点模型；尚未接入运行时。
+- 明确边界：仍通过现有单集 Draft API 编排，不等同于 Story Blueprint、Episode Planning、PostgreSQL 持久化、后台长任务或完整 60 万字自动生成 runtime。
+- 验证状态：当前增量后端全量 `241 passed, 1 skipped`，前端 typecheck/build 通过；提交前继续执行 `git diff --check`。
+- 远程状态：已推送并跟踪 `origin/feature/cn-mainland-staged-generation`。
+- 合并状态：尚未合并到 `main`；应在合作方需求确认和新版手工验收完成后再决定是否合并并建立新版本 tag。
+
+新增分支时必须追加登记；分支合并或关闭后保留简短历史状态，避免后续开发者误判能力所在分支。
+
 ## Active Market And Capability Flags
 
 - `SCRIPT_MARKET_PROFILE=cn_mainland`：当前默认
 - `overseas_tiktok`：实现与资产保留，默认关闭，可显式切换
 - 红果：reference only，不是硬绑定平台
 - Creative Deepening：实现保留，前端和后端 runtime feature flag 默认关闭
-- 长篇故事母本：当前目标；Story Bible、故事阶段规划、Continuity Ledger 与 60 万字完整 runtime 尚未实现
+- 长篇故事母本：当前目标；Story Bible、故事阶段、Episode Plan、Continuity Ledger 与 batch checkpoint 契约已实现，规划/持久化/生成 runtime 尚未接入
 
 ## Current Runtime Flow
 
@@ -64,6 +91,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - Scene Goal / Conflict / Outcome 与跨场 causal link
 - 结构化 `DraftMasterScript`
 - optional episode context，包括上一集状态、本集指令和项目连续性摘要
+- 长篇 Contract Foundation：`StoryProject`、`StoryBible`、人物弧/关系/故事线、`StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、`GenerationBatchPlan`、`GenerationJobCheckpoint`
 
 ### Quality Loop
 
@@ -129,8 +157,12 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 ## Not Implemented
 
 - 后端持久化的 Script Project / Episode / Version 聚合
+- 长篇契约的 API、Repository、PostgreSQL 映射与迁移
+- Story Bible / Story Stage / Episode Plan 的生成、人工批准和 Prompt 注入
+- Continuity Ledger 的自动提取、更新与冲突检查
+- 后台 Generation Job 执行、暂停、恢复和断点重试
 - Authentication、权限、协作和云同步
-- Story Blueprint / Episode Plan runtime
+- Story Planning runtime
 - Character Decision Logic runtime
 - 动态 Knowledge Retrieval、RAG、向量库和 Skill Registry
 - 自动 Prompt 优化或自主学习
@@ -152,7 +184,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 
 最近一次代码变更后的记录：
 
-- 后端全量测试：`225 passed, 1 skipped`
+- 后端全量测试：`241 passed, 1 skipped`
 - 前端 TypeScript：通过
 - 前端 production build：通过
 - `git diff --check`：通过

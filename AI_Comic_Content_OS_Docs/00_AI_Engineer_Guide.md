@@ -149,6 +149,16 @@ Capability Development
 
 没有稳定基线时，不进行大范围能力重构。架构重构应采用小步迁移和兼容入口，不同时重写 API、前端和核心运行链路。
 
+### Branch Management
+
+- `main` 只承载已经确认可作为共同开发起点的稳定基线，不直接堆叠未经验证的大范围能力变化。
+- 较大的市场切换、能力优化或兼容迁移应使用语义清晰的 feature branch，并保持对稳定基线可追踪。
+- 每个活跃分支必须在 `21_Current_Status_Checklist.md` 的 Branch Registry 中记录：分支目的、包含能力、基线关系、验证状态、是否允许合并以及未完成事项。
+- 分支说明记录能力边界，不复制提交日志；精确代码历史仍以 Git commit / tag 为准。
+- 新建、合并、冻结或删除分支时必须同步 Branch Registry，已经失效的分支记录应标记 closed / merged，不静默删除历史语义。
+- feature branch 合并回 `main` 前，必须完成验证、文档同步和明确 commit；重要能力阶段还应建立 version tag。
+- 不把本地领先、远程存在或已经 push 等 Git 状态混同为“已经进入稳定主线”。只有完成审核并合并到 `main` 的能力才属于正式主线。
+
 ## Data Intelligence Rules
 
 - 数据必须经过 `DataSourceAdapter`，不允许来源逻辑直接侵入分析流程。
