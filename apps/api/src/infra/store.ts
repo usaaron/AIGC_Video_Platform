@@ -1,4 +1,5 @@
 import type {
+  AiJob,
   Asset,
   GenerationTask,
   LedgerEntry,
@@ -20,6 +21,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, open as openFile, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { hashPassword } from '../core/auth/password.js'
+import { normalizeAiJobLifecycle } from '../core/jobs/aiJobLease.js'
 import { normalizeGenerationTaskLifecycle } from '../core/jobs/taskLease.js'
 
 export type StoredUser = {
@@ -68,6 +70,7 @@ export type AppState = {
   assets: Asset[]
   shots: Shot[]
   tasks: GenerationTask[]
+  aiJobs: AiJob[]
   ledger: LedgerEntry[]
   media: StoredMedia[]
   novelDocuments: StoredNovelDocument[]
@@ -78,10 +81,6 @@ export type AppState = {
   novelBoundaries: StoredNovelBoundary[]
   novelStoryBibles: StoredNovelStoryBible[]
 }
-
-export type ProjectDomainRuntimeSnapshot = Pick<AppState, 'projects' | 'assets' | 'shots' | 'tasks'>
-
-export type ProjectDomainRuntimePersister = (snapshot: ProjectDomainRuntimeSnapshot) => Promise<void>
 
 export type BootstrapUsers = {
   creatorName?: string
@@ -121,7 +120,8 @@ export class AppStore {
   private projectWorkspacePersistenceBackup: Pick<AppState, 'projects' | 'assets' | 'shots'> | null = null
   private generationTaskRuntimeCache: Pick<AppState, 'tasks'> | null = null
   private generationTaskPersistenceBackup: Pick<AppState, 'tasks'> | null = null
-  private projectDomainRuntimePersister: ProjectDomainRuntimePersister | null = null
+  private aiJobRuntimeCache: Pick<AppState, 'aiJobs'> | null = null
+  private aiJobPersistenceBackup: Pick<AppState, 'aiJobs'> | null = null
 
   constructor(
     private readonly filePath: string | null,
@@ -152,6 +152,7 @@ export class AppStore {
     this.reloadFromDiskSync()
     this.applyProjectWorkspaceRuntimeCache()
     this.applyGenerationTaskRuntimeCache()
+    this.applyAiJobRuntimeCache()
     return structuredClone(reader(this.state))
   }
 
@@ -183,16 +184,22 @@ export class AppStore {
     this.applyGenerationTaskRuntimeCache()
   }
 
-  setProjectDomainRuntimePersister(persister: ProjectDomainRuntimePersister | null): void {
-    this.projectDomainRuntimePersister = persister
+  replaceAiJobRuntimeCache(aiJobs: AiJob[]): void {
+    if (!this.aiJobPersistenceBackup) {
+      this.aiJobPersistenceBackup = structuredClone({ aiJobs: this.state.aiJobs })
+    }
+    this.aiJobRuntimeCache = structuredClone({ aiJobs })
+    this.applyAiJobRuntimeCache()
   }
 
   mutateProjectWorkspaceRuntimeCache<T>(mutator: (state: AppState) => T): T {
     this.applyProjectWorkspaceRuntimeCache()
     this.applyGenerationTaskRuntimeCache()
+    this.applyAiJobRuntimeCache()
     const result = mutator(this.state)
     this.captureProjectWorkspaceRuntimeCache()
     this.captureGenerationTaskRuntimeCache()
+    this.captureAiJobRuntimeCache()
     return structuredClone(result)
   }
 
@@ -203,12 +210,13 @@ export class AppStore {
         await this.reloadFromDisk()
         this.applyProjectWorkspaceRuntimeCache()
         this.applyGenerationTaskRuntimeCache()
+        this.applyAiJobRuntimeCache()
         const snapshot = structuredClone(this.state)
         try {
           result = await mutator(this.state)
-          this.captureProjectWorkspaceRuntimeCache()
-          this.captureGenerationTaskRuntimeCache()
-          await this.flushProjectDomainRuntimePersistence()
+          this.applyProjectWorkspaceRuntimeCache()
+          this.applyGenerationTaskRuntimeCache()
+          this.applyAiJobRuntimeCache()
           await this.persist()
         } catch (error) {
           this.state = snapshot
@@ -244,6 +252,7 @@ export class AppStore {
       )
       this.applyProjectWorkspaceRuntimeCache()
       this.applyGenerationTaskRuntimeCache()
+      this.applyAiJobRuntimeCache()
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
@@ -256,6 +265,7 @@ export class AppStore {
     )
     this.applyProjectWorkspaceRuntimeCache()
     this.applyGenerationTaskRuntimeCache()
+    this.applyAiJobRuntimeCache()
   }
 
   private applyProjectWorkspaceRuntimeCache(): void {
@@ -268,6 +278,11 @@ export class AppStore {
   private applyGenerationTaskRuntimeCache(): void {
     if (!this.generationTaskRuntimeCache) return
     this.state.tasks = structuredClone(this.generationTaskRuntimeCache.tasks)
+  }
+
+  private applyAiJobRuntimeCache(): void {
+    if (!this.aiJobRuntimeCache) return
+    this.state.aiJobs = structuredClone(this.aiJobRuntimeCache.aiJobs)
   }
 
   private captureProjectWorkspaceRuntimeCache(): void {
@@ -284,21 +299,18 @@ export class AppStore {
     this.generationTaskRuntimeCache = structuredClone({ tasks: this.state.tasks })
   }
 
-  private async flushProjectDomainRuntimePersistence(): Promise<void> {
-    if (!this.projectDomainRuntimePersister) return
-    if (!this.projectWorkspaceRuntimeCache && !this.generationTaskRuntimeCache) return
-    await this.projectDomainRuntimePersister(
-      structuredClone({
-        projects: this.state.projects,
-        assets: this.state.assets,
-        shots: this.state.shots,
-        tasks: this.state.tasks,
-      }),
-    )
+  private captureAiJobRuntimeCache(): void {
+    if (!this.aiJobRuntimeCache) return
+    this.aiJobRuntimeCache = structuredClone({ aiJobs: this.state.aiJobs })
   }
 
   private stateForPersistence(): AppState {
-    if (!this.projectWorkspacePersistenceBackup && !this.generationTaskPersistenceBackup) return this.state
+    if (
+      !this.projectWorkspacePersistenceBackup &&
+      !this.generationTaskPersistenceBackup &&
+      !this.aiJobPersistenceBackup
+    )
+      return this.state
     const persisted = {
       ...this.state,
     }
@@ -309,6 +321,9 @@ export class AppStore {
     }
     if (this.generationTaskPersistenceBackup) {
       persisted.tasks = structuredClone(this.generationTaskPersistenceBackup.tasks)
+    }
+    if (this.aiJobPersistenceBackup) {
+      persisted.aiJobs = structuredClone(this.aiJobPersistenceBackup.aiJobs)
     }
     return persisted
   }
@@ -442,6 +457,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
     assets: demoWorkspace ? seedAssets(projectId, tenantId, now) : [],
     shots: demoWorkspace ? seedShots(projectId, tenantId, now) : [],
     tasks: [],
+    aiJobs: [],
     media: [],
     novelDocuments: [],
     novelChapters: [],
@@ -675,6 +691,7 @@ function normalizeState(input: Partial<AppState>): AppState {
       continuityNote: shot.continuityNote ?? '',
     })),
     tasks: tasks.map((task) => normalizeGenerationTaskLifecycle(task)),
+    aiJobs: (input.aiJobs ?? []).map((job) => normalizeAiJobLifecycle(job)),
     ledger: input.ledger ?? [],
     media: input.media ?? [],
     novelDocuments: input.novelDocuments ?? [],
@@ -688,7 +705,7 @@ function normalizeState(input: Partial<AppState>): AppState {
 }
 
 function normalizeStoredRoles(roles: readonly unknown[]): Role[] {
-  const allowed = new Set(['member', 'admin', 'super_admin', 'owner'])
+  const allowed = new Set(['member', 'admin', 'organization_admin', 'organization_member', 'super_admin', 'owner'])
   const normalized = roles.flatMap((role) => (String(role) === 'creator' ? ['member'] : [String(role)]))
   return [...new Set(normalized.filter((role) => allowed.has(role)))].map((role) => role as Role)
 }

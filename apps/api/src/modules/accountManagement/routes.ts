@@ -64,14 +64,40 @@ export async function registerAccountManagementRoutes(
     )
     return sendSession(reply.code(201), result, secureCookies)
   })
+  app.post('/organizations', { preHandler: requireAuthenticated }, async (request, reply) => {
+    const result = await requireService(service).createWorkspace(
+      request.principal!,
+      parse(createWorkspaceSchema, request.body),
+      sessionMetadataFromRequest(request),
+    )
+    return sendSession(reply.code(201), result, secureCookies)
+  })
 
   app.get('/workspaces', { preHandler: requireAuthenticated }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    return await requireService(service).listWorkspaces(request.principal!)
+  })
+  app.get('/organizations', { preHandler: requireAuthenticated }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
     return await requireService(service).listWorkspaces(request.principal!)
   })
 
   app.patch(
     '/workspaces/:tenantId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireService(service).updateWorkspace(
+        request.principal!,
+        tenantId,
+        parse(updateWorkspaceSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+  app.patch(
+    '/organizations/:tenantId',
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
@@ -101,9 +127,39 @@ export async function registerAccountManagementRoutes(
       return reply.code(204).send()
     },
   )
+  app.delete(
+    '/organizations/:tenantId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      const result = await requireService(service).disableWorkspace(
+        request.principal!,
+        tenantId,
+        sessionMetadataFromRequest(request),
+      )
+      reply.header('Cache-Control', 'no-store')
+      if (result) return sendSession(reply, result, secureCookies)
+      clearSessionCookie(reply, secureCookies)
+      return reply.code(204).send()
+    },
+  )
 
   app.post(
     '/workspaces/:tenantId/owner-transfer',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireService(service).transferWorkspaceOwner(
+        request.principal!,
+        tenantId,
+        parse(transferWorkspaceOwnerSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+  app.post(
+    '/organizations/:tenantId/owner-transfer',
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
@@ -129,8 +185,29 @@ export async function registerAccountManagementRoutes(
     clearSessionCookie(reply, secureCookies)
     return reply.code(204).send()
   })
+  app.post('/organizations/:tenantId/leave', { preHandler: requireAuthenticated }, async (request, reply) => {
+    const { tenantId } = parse(tenantParams, request.params)
+    const result = await requireService(service).leaveWorkspace(
+      request.principal!,
+      tenantId,
+      sessionMetadataFromRequest(request),
+    )
+    reply.header('Cache-Control', 'no-store')
+    if (result) return sendSession(reply, result, secureCookies)
+    clearSessionCookie(reply, secureCookies)
+    return reply.code(204).send()
+  })
 
   app.post('/workspaces/:tenantId/switch', { preHandler: requireAuthenticated }, async (request, reply) => {
+    const { tenantId } = parse(tenantParams, request.params)
+    const result = await requireService(service).switchWorkspace(
+      request.principal!,
+      tenantId,
+      sessionMetadataFromRequest(request),
+    )
+    return sendSession(reply, result, secureCookies)
+  })
+  app.post('/organizations/:tenantId/switch', { preHandler: requireAuthenticated }, async (request, reply) => {
     const { tenantId } = parse(tenantParams, request.params)
     const result = await requireService(service).switchWorkspace(
       request.principal!,
@@ -148,6 +225,14 @@ export async function registerAccountManagementRoutes(
       return await requireService(service).listMembers(request.principal!, tenantId)
     },
   )
+  app.get(
+    '/organizations/:tenantId/members',
+    { preHandler: requirePermission(PERMISSIONS.USER_READ) },
+    async (request) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      return await requireService(service).listMembers(request.principal!, tenantId)
+    },
+  )
 
   app.get(
     '/tenants/:tenantId/invitations',
@@ -157,9 +242,33 @@ export async function registerAccountManagementRoutes(
       return await requireService(service).listInvitations(request.principal!, tenantId)
     },
   )
+  app.get(
+    '/organizations/:tenantId/invitations',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      return await requireService(service).listInvitations(request.principal!, tenantId)
+    },
+  )
 
   app.post(
     '/tenants/:tenantId/invitations',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      const invitation = await requireService(service).createInvitation(
+        request.principal!,
+        tenantId,
+        parse(createTenantInvitationSchema, request.body),
+      )
+      return reply.code(201).send(invitation)
+    },
+  )
+  app.post(
+    '/organizations/:tenantId/invitations',
     {
       config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
       preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
@@ -184,9 +293,35 @@ export async function registerAccountManagementRoutes(
       return reply.code(204).send()
     },
   )
+  app.delete(
+    '/organizations/:tenantId/invitations/:invitationId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId, invitationId } = parse(invitationParams, request.params)
+      await requireService(service).revokeInvitation(request.principal!, tenantId, invitationId)
+      return reply.code(204).send()
+    },
+  )
 
   app.post(
     '/tenants/:tenantId/members',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      const member = await requireService(service).addMember(
+        request.principal!,
+        tenantId,
+        parse(addTenantMemberSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+      return reply.code(201).send(member)
+    },
+  )
+  app.post(
+    '/organizations/:tenantId/members',
     {
       config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
       preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
@@ -220,9 +355,40 @@ export async function registerAccountManagementRoutes(
       return reply.code(201).send(member)
     },
   )
+  app.post(
+    '/organizations/:tenantId/users',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      const member = await requireService(service).createTenantUser(
+        request.principal!,
+        tenantId,
+        parse(createTenantUserSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+      return reply.code(201).send(member)
+    },
+  )
 
   app.patch(
     '/tenants/:tenantId/members/:userId/roles',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request) => {
+      const { tenantId, userId } = parse(memberParams, request.params)
+      return await requireService(service).updateMembershipRoles(
+        request.principal!,
+        tenantId,
+        userId,
+        parse(updateMembershipRolesSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+  app.patch(
+    '/organizations/:tenantId/members/:userId/roles',
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request) => {
       const { tenantId, userId } = parse(memberParams, request.params)
@@ -250,9 +416,37 @@ export async function registerAccountManagementRoutes(
       return reply.code(204).send()
     },
   )
+  app.delete(
+    '/organizations/:tenantId/members/:userId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId, userId } = parse(memberParams, request.params)
+      await requireService(service).disableMembership(
+        request.principal!,
+        tenantId,
+        userId,
+        sessionMetadataFromRequest(request),
+      )
+      return reply.code(204).send()
+    },
+  )
 
   app.delete(
     '/tenants/:tenantId/accounts/:userId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId, userId } = parse(memberParams, request.params)
+      await requireService(service).disableAccount(
+        request.principal!,
+        tenantId,
+        userId,
+        sessionMetadataFromRequest(request),
+      )
+      return reply.code(204).send()
+    },
+  )
+  app.delete(
+    '/organizations/:tenantId/accounts/:userId',
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId, userId } = parse(memberParams, request.params)
@@ -304,9 +498,36 @@ export async function registerAccountManagementRoutes(
       return reply.code(204).send()
     },
   )
+  app.delete(
+    '/organizations/:tenantId/sessions/:sessionId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId, sessionId } = parse(tenantSessionParams, request.params)
+      await requireService(service).revokeTenantSession(
+        request.principal!,
+        tenantId,
+        sessionId,
+        sessionMetadataFromRequest(request),
+      )
+      return reply.code(204).send()
+    },
+  )
 
   app.get(
     '/tenants/:tenantId/sessions',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireService(service).listTenantSessions(
+        request.principal!,
+        tenantId,
+        request.cookies[SESSION_COOKIE],
+      )
+    },
+  )
+  app.get(
+    '/organizations/:tenantId/sessions',
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
     async (request, reply) => {
       const { tenantId } = parse(tenantParams, request.params)
@@ -352,7 +573,7 @@ function sendSession(
     secure: secureCookies,
     maxAge: 60 * 60 * 24 * 7,
   })
-  const payload: AccountSession = { ...result.session, workspace: result.workspace }
+  const payload: AccountSession = { ...result.session, workspace: result.workspace, organization: result.workspace }
   return reply.send(payload)
 }
 

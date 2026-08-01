@@ -467,6 +467,7 @@ export class UserRepository implements AuthAccounts {
       email: user.email,
       name: user.name,
       tenantId: user.tenantId,
+      organizationId: user.tenantId,
       roles: user.roles,
       plan: user.plan,
       credits: user.credits,

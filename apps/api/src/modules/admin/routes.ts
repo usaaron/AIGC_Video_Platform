@@ -5,8 +5,12 @@ import {
   adminPasswordResetRequirementUpdateSchema,
   adminSessionStatusSchema,
   adminSetUserPasswordSchema,
+  createTenantUserSchema,
   PERMISSIONS,
   roleSchema,
+  transferWorkspaceOwnerSchema,
+  updateMembershipRolesSchema,
+  updateWorkspaceSchema,
   type AdminConsole,
   type AdminOverview,
   type Principal,
@@ -21,10 +25,12 @@ import { parseIssuedSessionToken } from '../../core/auth/sessionToken.js'
 import { isPlatformAdmin } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
 import type { AppStore } from '../../infra/store.js'
+import type { AccountManagementService } from '../accountManagement/service.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
 import type { AdminListOptions, AdminRepository } from './repository.js'
 
 const billingMembershipParams = z.object({ membershipId: z.string().min(1).max(512) })
+const adminTenantParams = z.object({ tenantId: z.string().min(1).max(256) })
 const adminUserParams = z.object({ userId: z.string().min(1).max(256) })
 const adminSessionParams = z.object({ sessionId: z.string().min(1).max(128) })
 const listQuery = z.object({
@@ -53,6 +59,7 @@ export async function registerAdminRoutes(
   store: AppStore,
   ledger: CreditLedger | null = null,
   adminRepository: AdminRepository | null = null,
+  accountManagementService: AccountManagementService | null = null,
   authSecret?: string,
 ): Promise<void> {
   app.get(
@@ -95,6 +102,7 @@ export async function registerAdminRoutes(
         overview,
         users,
         tenants,
+        organizations: tenants,
         memberships,
         billingAccounts,
         billingLedgerEntries,
@@ -178,6 +186,138 @@ export async function registerAdminRoutes(
       )
     },
   )
+  app.get(
+    '/admin/organizations',
+    { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await requireAdminRepository(adminRepository).listTenants(
+        scopeAdminOptions(request.principal!, parseListQuery(request.query)),
+      )
+    },
+  )
+
+  app.patch(
+    '/admin/tenants/:tenantId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireAccountManagementService(accountManagementService).adminUpdateWorkspace(
+        request.principal!,
+        tenantId,
+        parse(updateWorkspaceSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+  app.patch(
+    '/admin/organizations/:tenantId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireAccountManagementService(accountManagementService).adminUpdateWorkspace(
+        request.principal!,
+        tenantId,
+        parse(updateWorkspaceSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+
+  app.delete(
+    '/admin/tenants/:tenantId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      const workspace = await requireAccountManagementService(accountManagementService).adminDisableWorkspace(
+        request.principal!,
+        tenantId,
+        sessionMetadataFromRequest(request),
+      )
+      reply.header('Cache-Control', 'no-store')
+      return workspace
+    },
+  )
+  app.delete(
+    '/admin/organizations/:tenantId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      const workspace = await requireAccountManagementService(accountManagementService).adminDisableWorkspace(
+        request.principal!,
+        tenantId,
+        sessionMetadataFromRequest(request),
+      )
+      reply.header('Cache-Control', 'no-store')
+      return workspace
+    },
+  )
+
+  app.post(
+    '/admin/tenants/:tenantId/owner-transfer',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireAccountManagementService(accountManagementService).adminTransferWorkspaceOwner(
+        request.principal!,
+        tenantId,
+        parse(transferWorkspaceOwnerSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+  app.post(
+    '/admin/organizations/:tenantId/owner-transfer',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireAccountManagementService(accountManagementService).adminTransferWorkspaceOwner(
+        request.principal!,
+        tenantId,
+        parse(transferWorkspaceOwnerSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+
+  app.post(
+    '/admin/tenants/:tenantId/users',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      const member = await requireAccountManagementService(accountManagementService).adminCreateTenantUser(
+        request.principal!,
+        tenantId,
+        parse(createTenantUserSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+      return reply.code(201).send(member)
+    },
+  )
+  app.post(
+    '/admin/organizations/:tenantId/users',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      const member = await requireAccountManagementService(accountManagementService).adminCreateTenantUser(
+        request.principal!,
+        tenantId,
+        parse(createTenantUserSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+      return reply.code(201).send(member)
+    },
+  )
 
   app.get(
     '/admin/memberships',
@@ -187,6 +327,47 @@ export async function registerAdminRoutes(
       return await requireAdminRepository(adminRepository).listMemberships(
         scopeAdminOptions(request.principal!, parseListQuery(request.query)),
       )
+    },
+  )
+
+  app.patch(
+    '/admin/memberships/:membershipId/roles',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { membershipId } = parse(billingMembershipParams, request.params)
+      const detail = await requireAdminRepository(adminRepository).findMembership(membershipId)
+      if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+      if (!isPlatformAdmin(request.principal!) && detail.membership.tenantId !== request.principal!.tenantId) {
+        throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot manage another workspace membership')
+      }
+      reply.header('Cache-Control', 'no-store')
+      return await requireAccountManagementService(accountManagementService).adminUpdateMembershipRoles(
+        request.principal!,
+        detail.membership.tenantId,
+        detail.membership.userId,
+        parse(updateMembershipRolesSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+
+  app.delete(
+    '/admin/memberships/:membershipId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { membershipId } = parse(billingMembershipParams, request.params)
+      const detail = await requireAdminRepository(adminRepository).findMembership(membershipId)
+      if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+      if (!isPlatformAdmin(request.principal!) && detail.membership.tenantId !== request.principal!.tenantId) {
+        throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot manage another workspace membership')
+      }
+      await requireAccountManagementService(accountManagementService).adminDisableMembership(
+        request.principal!,
+        detail.membership.tenantId,
+        detail.membership.userId,
+        sessionMetadataFromRequest(request),
+      )
+      return reply.code(204).send()
     },
   )
 
@@ -328,6 +509,15 @@ function requireAdminRepository(adminRepository: AdminRepository | null): AdminR
     throw new AppError(503, 'ACCOUNT_DATABASE_REQUIRED', 'Postgres account database is required')
   }
   return adminRepository
+}
+
+function requireAccountManagementService(
+  accountManagementService: AccountManagementService | null,
+): AccountManagementService {
+  if (!accountManagementService) {
+    throw new AppError(503, 'ACCOUNT_DATABASE_REQUIRED', 'Postgres account database is required')
+  }
+  return accountManagementService
 }
 
 function parseListQuery(value: unknown): AdminListOptions {

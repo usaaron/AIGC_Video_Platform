@@ -22,6 +22,7 @@ class DemoAuthProvider implements AuthProvider {
     return {
       userId: getHeader(request, 'x-demo-user-id') ?? 'demo-user',
       tenantId: getHeader(request, 'x-demo-tenant-id') ?? 'demo-tenant',
+      organizationId: getHeader(request, 'x-demo-organization-id') ?? getHeader(request, 'x-demo-tenant-id') ?? 'demo-tenant',
       roles: [role],
       passwordResetRequired: false,
     }
@@ -53,6 +54,7 @@ class LocalAuthProvider implements AuthProvider {
       return {
         userId: session.userId,
         tenantId: session.tenantId,
+        organizationId: session.organizationId ?? session.tenantId,
         roles: session.roles,
         passwordResetRequired: session.passwordResetRequired,
       }
@@ -65,6 +67,7 @@ class LocalAuthProvider implements AuthProvider {
       ? {
           userId: user.id,
           tenantId: user.tenantId,
+          organizationId: user.organizationId ?? user.tenantId,
           roles: user.roles,
           passwordResetRequired: user.passwordResetRequired,
         }

@@ -288,6 +288,7 @@ export class AccountManagementRepository {
     )
     return result.rows.map((row) => ({
       workspace: toWorkspace(row),
+      organization: toWorkspace(row),
       membership: toMembership(row),
     }))
   }
@@ -333,7 +334,7 @@ export class AccountManagementRepository {
     tenantId: string
     currentOwnerUserId: string
     targetUserId: string
-    previousOwnerRole: 'admin' | 'member'
+    previousOwnerRole: 'admin' | 'member' | 'organization_admin' | 'organization_member'
   }): Promise<TransferWorkspaceOwnerResult> {
     return this.database.transaction(async (client) => {
       const currentOwner = await client.query<{ id: string; roles: Role[] }>(
@@ -393,6 +394,77 @@ export class AccountManagementRepository {
       const previousOwner = await readMembership(client, input.tenantId, input.currentOwnerUserId)
       const newOwner = await readMembership(client, input.tenantId, input.targetUserId)
       if (!previousOwner || !newOwner) throw new Error(`Could not read transferred owner ${input.tenantId}`)
+      return { kind: 'transferred', previousOwner, newOwner }
+    })
+  }
+
+  async transferWorkspaceOwnerByTenant(input: {
+    tenantId: string
+    targetUserId: string
+    previousOwnerRole: 'admin' | 'member' | 'organization_admin' | 'organization_member'
+  }): Promise<TransferWorkspaceOwnerResult> {
+    return this.database.transaction(async (client) => {
+      const currentOwner = await client.query<{ user_id: string; id: string; roles: Role[] }>(
+        `
+        SELECT m.user_id, m.id, m.roles
+        FROM tenant_memberships m
+        JOIN users u ON u.id = m.user_id AND u.status = 'active'
+        JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
+        WHERE m.tenant_id = $1
+          AND m.user_id <> $2
+          AND m.status = 'active'
+          AND m.roles @> ARRAY['owner']::text[]
+        ORDER BY m.is_primary DESC, m.created_at ASC
+        LIMIT 1
+        FOR UPDATE OF m
+        `,
+        [input.tenantId, input.targetUserId],
+      )
+      const currentOwnerUserId = currentOwner.rows[0]?.user_id
+      if (!currentOwnerUserId) return { kind: 'missing' }
+
+      const target = await client.query<{ id: string; roles: Role[] }>(
+        `
+        SELECT m.id, m.roles
+        FROM tenant_memberships m
+        JOIN users u ON u.id = m.user_id AND u.status = 'active'
+        JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
+        WHERE m.tenant_id = $1
+          AND m.user_id = $2
+          AND m.status = 'active'
+        LIMIT 1
+        FOR UPDATE OF m
+        `,
+        [input.tenantId, input.targetUserId],
+      )
+      if (!target.rows[0]) return { kind: 'target_missing' }
+
+      await client.query(
+        `
+        UPDATE tenant_memberships
+        SET roles = ARRAY['owner']::text[],
+            updated_at = now()
+        WHERE tenant_id = $1
+          AND user_id = $2
+        `,
+        [input.tenantId, input.targetUserId],
+      )
+      await client.query(
+        `
+        UPDATE tenant_memberships
+        SET roles = $3,
+            updated_at = now()
+        WHERE tenant_id = $1
+          AND user_id = $2
+        `,
+        [input.tenantId, currentOwnerUserId, [input.previousOwnerRole]],
+      )
+
+      const previousOwner = await readMembership(client, input.tenantId, currentOwnerUserId)
+      const newOwner = await readMembership(client, input.tenantId, input.targetUserId)
+      if (!previousOwner || !newOwner) {
+        throw new Error(`Could not read admin transferred owner ${input.tenantId}`)
+      }
       return { kind: 'transferred', previousOwner, newOwner }
     })
   }
@@ -1125,6 +1197,7 @@ function toAccountWorkspaceAccount(row: AccountWorkspaceRow): AuthAccount {
     name: row.name,
     passwordHash: row.password_hash ?? '',
     tenantId: row.tenant_id,
+    organizationId: row.tenant_id,
     roles: row.roles,
     plan: row.plan,
     credits: row.credits,
@@ -1137,6 +1210,8 @@ function toMembership(row: MembershipRow): Membership {
     id: row.membership_id,
     tenantId: row.tenant_id,
     tenantName: row.tenant_name,
+    organizationId: row.tenant_id,
+    organizationName: row.tenant_name,
     userId: row.id,
     email: row.email,
     name: row.name,
@@ -1153,6 +1228,8 @@ function toTenantInvitation(row: TenantInvitationRow): TenantInvitation {
     id: row.invitation_id,
     tenantId: row.tenant_id,
     tenantName: row.tenant_name,
+    organizationId: row.tenant_id,
+    organizationName: row.tenant_name,
     email: row.email,
     roles: row.roles,
     status: row.invitation_status,
@@ -1171,6 +1248,8 @@ function toSessionSummary(row: SessionRow, currentSessionId: string | null): Ses
     userId: row.user_id,
     tenantId: row.tenant_id,
     tenantName: row.tenant_name,
+    organizationId: row.tenant_id,
+    organizationName: row.tenant_name,
     roles: row.roles,
     createdAt: toIso(row.created_at),
     lastSeenAt: row.last_seen_at ? toIso(row.last_seen_at) : null,

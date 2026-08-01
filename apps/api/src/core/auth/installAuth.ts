@@ -23,6 +23,7 @@ function isPasswordResetAllowedRequest(method: string, url: string): boolean {
   if (method === 'OPTIONS') return true
   const path = url.split('?', 1)[0]
   if (path === '/api/v1/health') return true
+  if (path === '/api/v1/health/readiness') return true
   if (path === '/api/v1/auth/me') return true
   if (path === '/api/v1/auth/logout') return true
   if (path === '/api/v1/auth/login') return true

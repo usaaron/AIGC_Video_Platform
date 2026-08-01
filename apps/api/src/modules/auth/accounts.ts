@@ -6,6 +6,7 @@ export type AuthAccount = {
   name: string
   passwordHash: string
   tenantId: string
+  organizationId?: string
   roles: Role[]
   plan: Plan
   credits: number
@@ -16,6 +17,7 @@ export type AuthSession = {
   sessionId: string
   userId: string
   tenantId: string
+  organizationId?: string
   roles: Role[]
   passwordResetRequired: boolean
   tokenSecretHash: string

@@ -28,6 +28,7 @@ import { randomUUID } from 'node:crypto'
 import {
   hasAdminRole,
   hasElevatedRole,
+  hasOrganizationAdminRole,
   hasOwnerRole,
   hasSuperAdminRole,
   isOwner,
@@ -212,6 +213,8 @@ export class AdminRepository {
         membershipId: membership.id,
         tenantId: membership.tenantId,
         tenantName: membership.tenantName,
+        organizationId: membership.organizationId,
+        organizationName: membership.organizationName,
         userId: membership.userId,
         email: membership.email,
         name: membership.name,
@@ -848,7 +851,20 @@ function buildSessionFilter(options: AdminListOptions): Filter {
 
 function buildAuditFilter(options: AdminListOptions): Filter {
   const builder = new FilterBuilder()
-  if (options.tenantId) builder.add('e.tenant_id = ?', options.tenantId)
+  if (options.tenantId) {
+    builder.add(
+      `(e.tenant_id = ? OR (
+        e.tenant_id IS NULL
+        AND e.user_id IN (
+          SELECT m.user_id
+          FROM tenant_memberships m
+          WHERE m.tenant_id = ?
+        )
+      ))`,
+      options.tenantId,
+      options.tenantId,
+    )
+  }
   if (options.userId) builder.add('e.user_id = ?', options.userId)
   if (options.actorUserId) builder.add('e.actor_user_id = ?', options.actorUserId)
   if (options.action) builder.add('e.action = ?', options.action)
@@ -1039,6 +1055,9 @@ function toAdminMembership(row: AdminMembershipRow): AdminMembership {
     tenantId: row.tenant_id,
     tenantName: row.tenant_name,
     tenantStatus: row.tenant_status,
+    organizationId: row.tenant_id,
+    organizationName: row.tenant_name,
+    organizationStatus: row.tenant_status,
     userId: row.user_id,
     email: row.email,
     name: row.name,
@@ -1058,6 +1077,8 @@ function toAdminBillingAccount(row: AdminMembershipRow): AdminBillingAccount {
     membershipId: row.id,
     tenantId: row.tenant_id,
     tenantName: row.tenant_name,
+    organizationId: row.tenant_id,
+    organizationName: row.tenant_name,
     userId: row.user_id,
     email: row.email,
     name: row.name,
@@ -1097,6 +1118,9 @@ function toAdminSession(row: AdminSessionRow, currentSessionId: string | null): 
     tenantId: row.tenant_id,
     tenantName: row.tenant_name,
     tenantStatus: row.tenant_status,
+    organizationId: row.tenant_id,
+    organizationName: row.tenant_name,
+    organizationStatus: row.tenant_status,
     userId: row.user_id,
     email: row.email,
     name: row.name,
@@ -1119,6 +1143,7 @@ function toAdminAuditLogEntry(row: AdminAuditLogEntryRow): AdminAuditLogEntry {
   return {
     id: row.id,
     tenantId: row.tenant_id,
+    organizationId: row.tenant_id,
     userId: row.user_id,
     actorUserId: row.actor_user_id,
     action: row.action,
@@ -1136,10 +1161,15 @@ function search(value: string): string {
 }
 
 function canManageElevatedRoles(principal: Principal, roles: Role[]): boolean {
+  if (principal.roles.includes(ROLES.ADMIN) && roles.includes(ROLES.ORGANIZATION_MEMBER)) return false
+  if (principal.roles.includes(ROLES.ORGANIZATION_ADMIN) && roles.includes(ROLES.MEMBER)) return false
   if (!hasElevatedRole(roles)) return true
   if (isOwner(principal)) return true
   return (
-    isPlatformAdmin(principal) && hasAdminRole(roles) && !hasOwnerRole(roles) && !hasSuperAdminRole(roles)
+    isPlatformAdmin(principal) &&
+    (hasAdminRole(roles) || hasOrganizationAdminRole(roles)) &&
+    !hasOwnerRole(roles) &&
+    !hasSuperAdminRole(roles)
   )
 }
 
@@ -1228,6 +1258,26 @@ function assertCanManageAccountPassword(
         403,
         'ELEVATED_ACCOUNT_REQUIRES_PLATFORM_ADMIN',
         'Only owners or super admins can reset elevated account passwords',
+      )
+    }
+    if (
+      principal.roles.includes(ROLES.ADMIN) &&
+      memberships.some((membership) => membership.roles.includes(ROLES.ORGANIZATION_MEMBER))
+    ) {
+      throw new AppError(
+        403,
+        'ORGANIZATION_MEMBER_REQUIRES_ORGANIZATION_ADMIN',
+        'Only organization administrators can manage organization member accounts',
+      )
+    }
+    if (
+      principal.roles.includes(ROLES.ORGANIZATION_ADMIN) &&
+      memberships.some((membership) => membership.roles.includes(ROLES.MEMBER))
+    ) {
+      throw new AppError(
+        403,
+        'PLATFORM_MEMBER_REQUIRES_PLATFORM_ADMIN',
+        'Only platform administrators can manage member accounts',
       )
     }
     return

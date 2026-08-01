@@ -21,11 +21,15 @@ describe('role permissions', () => {
     expect(ROLE_PERMISSIONS.member).not.toContain(PERMISSIONS.ADMIN_DASHBOARD_READ)
     expect(ROLE_PERMISSIONS.member).not.toContain(PERMISSIONS.BILLING_MANAGE)
     expect(ROLE_PERMISSIONS.member).not.toContain(PERMISSIONS.USER_MANAGE)
+    expect(ROLE_PERMISSIONS.organization_member).toEqual(ROLE_PERMISSIONS.member)
   })
 
   it('allows admins to inspect operations without changing system configuration', () => {
     expect(ROLE_PERMISSIONS.admin).toContain(PERMISSIONS.ADMIN_DASHBOARD_READ)
     expect(ROLE_PERMISSIONS.admin).toContain(PERMISSIONS.BILLING_MANAGE)
     expect(ROLE_PERMISSIONS.admin).not.toContain(PERMISSIONS.SYSTEM_CONFIG_MANAGE)
+    expect(ROLE_PERMISSIONS.organization_admin).toContain(PERMISSIONS.ADMIN_DASHBOARD_READ)
+    expect(ROLE_PERMISSIONS.organization_admin).toContain(PERMISSIONS.USER_MANAGE)
+    expect(ROLE_PERMISSIONS.organization_admin).not.toContain(PERMISSIONS.SYSTEM_CONFIG_MANAGE)
   })
 })

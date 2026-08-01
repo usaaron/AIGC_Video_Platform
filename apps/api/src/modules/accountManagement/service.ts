@@ -25,6 +25,7 @@ import { permissionsFor } from '../../core/auth/authorization.js'
 import { hashPassword, verifyPassword } from '../../core/auth/password.js'
 import {
   hasAdminRole,
+  hasOrganizationAdminRole,
   hasOwnerRole,
   hasSuperAdminRole,
   isOwner,
@@ -113,6 +114,33 @@ export class AccountManagementService {
     return updated
   }
 
+  async adminUpdateWorkspace(
+    principal: Principal,
+    tenantId: string,
+    input: UpdateWorkspaceInput,
+    metadata?: SessionMetadata,
+  ): Promise<Workspace> {
+    this.requireAdminTenantScope(principal, tenantId)
+    this.requireTenantManager(principal)
+    await this.requireCurrentAccount(principal)
+    const updated = await this.accounts.updateWorkspaceName(tenantId, normalizeName(input.name))
+    if (!updated) {
+      throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
+    }
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: principal.userId,
+      actorUserId: principal.userId,
+      action: 'admin.workspace.updated',
+      resourceType: 'tenant',
+      resourceId: tenantId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { name: updated.name, scope: 'admin_console' },
+    })
+    return updated
+  }
+
   async switchWorkspace(
     principal: Principal,
     tenantId: string,
@@ -159,6 +187,35 @@ export class AccountManagementService {
     return result.nextWorkspace ? await this.issueSession(result.nextWorkspace, metadata) : null
   }
 
+  async adminDisableWorkspace(
+    principal: Principal,
+    tenantId: string,
+    metadata?: SessionMetadata,
+  ): Promise<Workspace> {
+    this.requireAdminTenantScope(principal, tenantId)
+    this.requireOwner(principal, 'Only owners can disable workspaces')
+    await this.requireCurrentAccount(principal)
+    const result = await this.accounts.disableWorkspace(principal.userId, tenantId)
+    if (result.kind === 'missing') {
+      throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
+    }
+    await this.store.mutate((state) => {
+      state.users = state.users.filter((item) => item.tenantId !== tenantId)
+    })
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: principal.userId,
+      actorUserId: principal.userId,
+      action: 'admin.workspace.disabled',
+      resourceType: 'tenant',
+      resourceId: tenantId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { name: result.workspace.name, scope: 'admin_console' },
+    })
+    return result.workspace
+  }
+
   async transferWorkspaceOwner(
     principal: Principal,
     tenantId: string,
@@ -198,6 +255,47 @@ export class AccountManagementService {
         previousOwnerUserId: result.previousOwner.userId,
         newOwnerUserId: result.newOwner.userId,
         previousOwnerRole: input.previousOwnerRole,
+      },
+    })
+    return { previousOwner: result.previousOwner, newOwner: result.newOwner }
+  }
+
+  async adminTransferWorkspaceOwner(
+    principal: Principal,
+    tenantId: string,
+    input: TransferWorkspaceOwnerInput,
+    metadata?: SessionMetadata,
+  ): Promise<{ previousOwner: Membership; newOwner: Membership }> {
+    this.requireAdminTenantScope(principal, tenantId)
+    this.requireOwner(principal, 'Only owners can transfer workspace ownership')
+    await this.requireCurrentAccount(principal)
+    const result = await this.accounts.transferWorkspaceOwnerByTenant({
+      tenantId,
+      targetUserId: input.targetUserId,
+      previousOwnerRole: input.previousOwnerRole,
+    })
+    if (result.kind === 'missing') {
+      throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace owner membership does not exist')
+    }
+    if (result.kind === 'target_missing') {
+      throw new AppError(404, 'TARGET_MEMBERSHIP_NOT_FOUND', 'Target member does not exist')
+    }
+    await this.mirrorMembership(result.previousOwner)
+    await this.mirrorMembership(result.newOwner)
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: result.newOwner.userId,
+      actorUserId: principal.userId,
+      action: 'admin.workspace.owner.transferred',
+      resourceType: 'tenant',
+      resourceId: tenantId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: {
+        previousOwnerUserId: result.previousOwner.userId,
+        newOwnerUserId: result.newOwner.userId,
+        previousOwnerRole: input.previousOwnerRole,
+        scope: 'admin_console',
       },
     })
     return { previousOwner: result.previousOwner, newOwner: result.newOwner }
@@ -401,6 +499,49 @@ export class AccountManagementService {
     return result.membership
   }
 
+  async adminCreateTenantUser(
+    principal: Principal,
+    tenantId: string,
+    input: CreateTenantUserInput,
+    metadata?: SessionMetadata,
+  ): Promise<Membership> {
+    this.requireAdminTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    const roles: Role[] = [input.role]
+    this.requireAssignableRoles(principal, roles)
+    const passwordHash = hashPassword(input.password)
+    const result = await this.accounts.createTenantUser({
+      tenantId,
+      email: normalizeEmail(input.email),
+      name: normalizeName(input.name),
+      passwordHash,
+      roles,
+    })
+    if (result.kind === 'duplicate') {
+      throw new AppError(409, 'ACCOUNT_ALREADY_EXISTS', 'A local account already exists for this email')
+    }
+    if (result.kind === 'tenant_missing') {
+      throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
+    }
+    await this.mirrorMembership(result.membership, passwordHash)
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: result.membership.userId,
+      actorUserId: principal.userId,
+      action: 'admin.account.created',
+      resourceType: 'user',
+      resourceId: result.membership.userId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: {
+        membershipId: result.membership.id,
+        roles: result.membership.roles,
+        scope: 'admin_console',
+      },
+    })
+    return result.membership
+  }
+
   async listMembers(principal: Principal, tenantId: string): Promise<Membership[]> {
     this.requireTenantScope(principal, tenantId)
     return await this.accounts.listMembers(tenantId)
@@ -444,6 +585,45 @@ export class AccountManagementService {
     return updated
   }
 
+  async adminUpdateMembershipRoles(
+    principal: Principal,
+    tenantId: string,
+    userId: string,
+    input: UpdateMembershipRolesInput,
+    metadata?: SessionMetadata,
+  ): Promise<Membership> {
+    this.requireAdminTenantScope(principal, tenantId)
+    const roles = normalizeRoles(input.roles)
+    this.requireAssignableRoles(principal, roles)
+    const target = await this.requireMembership(tenantId, userId)
+    this.requireCanManageMembership(principal, target, 'roles')
+    if (target.roles.includes(ROLES.OWNER) && !roles.includes(ROLES.OWNER)) {
+      const owners = await this.accounts.countActiveOwners(tenantId)
+      if (owners <= 1) {
+        throw new AppError(409, 'LAST_OWNER_CANNOT_BE_REMOVED', 'The last owner cannot be removed')
+      }
+    }
+    const updated = await this.accounts.updateMembershipRoles(tenantId, userId, roles)
+    if (!updated) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+    await this.mirrorMembership(updated)
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId,
+      actorUserId: principal.userId,
+      action: 'admin.membership.roles.updated',
+      resourceType: 'tenant_membership',
+      resourceId: updated.id,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: {
+        previousRoles: target.roles,
+        roles: updated.roles,
+        scope: 'admin_console',
+      },
+    })
+    return updated
+  }
+
   async disableMembership(
     principal: Principal,
     tenantId: string,
@@ -478,6 +658,43 @@ export class AccountManagementService {
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
       metadata: { roles: target.roles },
+    })
+  }
+
+  async adminDisableMembership(
+    principal: Principal,
+    tenantId: string,
+    userId: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
+    this.requireAdminTenantScope(principal, tenantId)
+    if (principal.userId === userId) {
+      throw new AppError(400, 'CANNOT_DISABLE_SELF_MEMBERSHIP', 'Cannot disable your current membership')
+    }
+    const target = await this.requireMembership(tenantId, userId)
+    this.requireCanManageMembership(principal, target, 'disable')
+    if (target.roles.includes(ROLES.OWNER)) {
+      const owners = await this.accounts.countActiveOwners(tenantId)
+      if (owners <= 1) {
+        throw new AppError(409, 'LAST_OWNER_CANNOT_BE_DISABLED', 'The last owner cannot be disabled')
+      }
+    }
+    if (!(await this.accounts.disableMembership(tenantId, userId))) {
+      throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+    }
+    await this.store.mutate((state) => {
+      state.users = state.users.filter((item) => !(item.id === userId && item.tenantId === tenantId))
+    })
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId,
+      actorUserId: principal.userId,
+      action: 'admin.membership.disabled',
+      resourceType: 'tenant_membership',
+      resourceId: target.id,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: { roles: target.roles, scope: 'admin_console' },
     })
   }
 
@@ -650,6 +867,11 @@ export class AccountManagementService {
     }
   }
 
+  private requireAdminTenantScope(principal: Principal, tenantId: string): void {
+    if (isPlatformAdmin(principal)) return
+    this.requireTenantScope(principal, tenantId)
+  }
+
   private requireAssignableRoles(principal: Principal, roles: Role[]): void {
     if (roles.includes(ROLES.OWNER) && !isOwner(principal)) {
       throw new AppError(403, 'PERMISSION_DENIED', 'Only owners can assign owner role')
@@ -659,6 +881,27 @@ export class AccountManagementService {
     }
     if (roles.includes(ROLES.ADMIN) && !isPlatformAdmin(principal)) {
       throw new AppError(403, 'PERMISSION_DENIED', 'Only owners or super admins can assign admin role')
+    }
+    if (roles.includes(ROLES.ORGANIZATION_ADMIN) && !isPlatformAdmin(principal)) {
+      throw new AppError(
+        403,
+        'PERMISSION_DENIED',
+        'Only owners or super admins can assign organization admin role',
+      )
+    }
+    if (
+      roles.includes(ROLES.ORGANIZATION_MEMBER) &&
+      !isPlatformAdmin(principal) &&
+      !principal.roles.includes(ROLES.ORGANIZATION_ADMIN)
+    ) {
+      throw new AppError(403, 'PERMISSION_DENIED', 'Only administrators can assign organization member role')
+    }
+    if (
+      roles.includes(ROLES.MEMBER) &&
+      !isPlatformAdmin(principal) &&
+      !principal.roles.includes(ROLES.ADMIN)
+    ) {
+      throw new AppError(403, 'PERMISSION_DENIED', 'Only platform administrators can assign member role')
     }
   }
 
@@ -689,7 +932,13 @@ export class AccountManagementService {
       throw new AppError(400, code, message)
     }
     if (isOwner(principal)) return
-    if (isPlatformAdmin(principal) && !hasOwnerRole(target.roles) && !hasSuperAdminRole(target.roles)) return
+    if (
+      isPlatformAdmin(principal) &&
+      !hasOwnerRole(target.roles) &&
+      !hasSuperAdminRole(target.roles)
+    ) {
+      return
+    }
     if (hasOwnerRole(target.roles) || hasSuperAdminRole(target.roles)) {
       throw new AppError(
         403,
@@ -704,6 +953,27 @@ export class AccountManagementService {
         'Only owners or super admins can manage admin memberships',
       )
     }
+    if (principal.roles.includes(ROLES.ORGANIZATION_ADMIN) && target.roles.includes(ROLES.MEMBER)) {
+      throw new AppError(
+        403,
+        'PLATFORM_MEMBER_REQUIRES_PLATFORM_ADMIN',
+        'Only platform administrators can manage member memberships',
+      )
+    }
+    if (principal.roles.includes(ROLES.ADMIN) && target.roles.includes(ROLES.ORGANIZATION_MEMBER)) {
+      throw new AppError(
+        403,
+        'ORGANIZATION_MEMBER_REQUIRES_ORGANIZATION_ADMIN',
+        'Only organization administrators can manage organization member memberships',
+      )
+    }
+    if (hasOrganizationAdminRole(target.roles)) {
+      throw new AppError(
+        403,
+        'ELEVATED_MEMBERSHIP_REQUIRES_PLATFORM_ADMIN',
+        'Only owners or super admins can manage organization admin memberships',
+      )
+    }
   }
 
   private requireCanManageSession(principal: Principal, target: SessionSummary): void {
@@ -714,7 +984,13 @@ export class AccountManagementService {
       throw new AppError(400, 'CANNOT_REVOKE_SELF_SESSION', 'Use the current account session API to sign out')
     }
     if (isOwner(principal)) return
-    if (isPlatformAdmin(principal) && !hasOwnerRole(target.roles) && !hasSuperAdminRole(target.roles)) return
+    if (
+      isPlatformAdmin(principal) &&
+      !hasOwnerRole(target.roles) &&
+      !hasSuperAdminRole(target.roles)
+    ) {
+      return
+    }
     if (hasOwnerRole(target.roles) || hasSuperAdminRole(target.roles)) {
       throw new AppError(
         403,
@@ -727,6 +1003,27 @@ export class AccountManagementService {
         403,
         'ELEVATED_SESSION_REQUIRES_PLATFORM_ADMIN',
         'Only owners or super admins can revoke admin sessions',
+      )
+    }
+    if (principal.roles.includes(ROLES.ORGANIZATION_ADMIN) && target.roles.includes(ROLES.MEMBER)) {
+      throw new AppError(
+        403,
+        'PLATFORM_MEMBER_REQUIRES_PLATFORM_ADMIN',
+        'Only platform administrators can revoke member sessions',
+      )
+    }
+    if (principal.roles.includes(ROLES.ADMIN) && target.roles.includes(ROLES.ORGANIZATION_MEMBER)) {
+      throw new AppError(
+        403,
+        'ORGANIZATION_MEMBER_REQUIRES_ORGANIZATION_ADMIN',
+        'Only organization administrators can revoke organization member sessions',
+      )
+    }
+    if (hasOrganizationAdminRole(target.roles)) {
+      throw new AppError(
+        403,
+        'ELEVATED_SESSION_REQUIRES_PLATFORM_ADMIN',
+        'Only owners or super admins can revoke organization admin sessions',
       )
     }
   }

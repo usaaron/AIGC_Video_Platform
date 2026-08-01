@@ -13,6 +13,7 @@ export const adminOverviewSchema = z.object({
 export const adminAccountStatusSchema = z.enum(['active', 'disabled'])
 export const adminMembershipStatusSchema = z.enum(['active', 'disabled'])
 export const adminTenantStatusSchema = z.enum(['active', 'disabled'])
+export const adminOrganizationStatusSchema = adminTenantStatusSchema
 export const adminSessionStatusSchema = z.enum(['active', 'revoked', 'expired'])
 
 export const adminListMetaSchema = z.object({
@@ -53,6 +54,9 @@ export const adminMembershipSchema = z.object({
   tenantId: z.string().min(1),
   tenantName: z.string().min(1).max(80),
   tenantStatus: adminTenantStatusSchema,
+  organizationId: z.string().min(1),
+  organizationName: z.string().min(1).max(80),
+  organizationStatus: adminOrganizationStatusSchema,
   userId: z.string().min(1),
   email: z.string().email().nullable(),
   name: z.string().min(1).max(80),
@@ -70,6 +74,8 @@ export const adminBillingAccountSchema = z.object({
   membershipId: z.string().min(1),
   tenantId: z.string().min(1),
   tenantName: z.string().min(1).max(80),
+  organizationId: z.string().min(1),
+  organizationName: z.string().min(1).max(80),
   userId: z.string().min(1),
   email: z.string().email().nullable(),
   name: z.string().min(1).max(80),
@@ -95,6 +101,9 @@ export const adminSessionSchema = z.object({
   tenantId: z.string().min(1),
   tenantName: z.string().min(1).max(80),
   tenantStatus: adminTenantStatusSchema,
+  organizationId: z.string().min(1),
+  organizationName: z.string().min(1).max(80),
+  organizationStatus: adminOrganizationStatusSchema,
   userId: z.string().min(1),
   email: z.string().email().nullable(),
   name: z.string().min(1).max(80),
@@ -115,6 +124,7 @@ export const adminSessionSchema = z.object({
 export const adminAuditLogEntrySchema = z.object({
   id: z.string().min(1),
   tenantId: z.string().min(1).nullable(),
+  organizationId: z.string().min(1).nullable(),
   userId: z.string().min(1).nullable(),
   actorUserId: z.string().min(1).nullable(),
   action: z.string().min(1),
@@ -135,6 +145,7 @@ export const adminTenantListSchema = z.object({
   items: z.array(adminTenantSchema),
   meta: adminListMetaSchema,
 })
+export const adminOrganizationListSchema = adminTenantListSchema
 
 export const adminMembershipListSchema = z.object({
   items: z.array(adminMembershipSchema),
@@ -186,6 +197,7 @@ export const adminConsoleSchema = z.object({
   overview: adminOverviewSchema,
   users: adminUserListSchema,
   tenants: adminTenantListSchema,
+  organizations: adminOrganizationListSchema,
   memberships: adminMembershipListSchema,
   billingAccounts: adminBillingAccountListSchema,
   billingLedgerEntries: adminBillingLedgerEntryListSchema,
@@ -199,6 +211,7 @@ export type AdminAccountStatus = z.infer<typeof adminAccountStatusSchema>
 export type AdminSessionStatus = z.infer<typeof adminSessionStatusSchema>
 export type AdminUser = z.infer<typeof adminUserSchema>
 export type AdminTenant = z.infer<typeof adminTenantSchema>
+export type AdminOrganization = z.infer<typeof adminTenantSchema>
 export type AdminMembership = z.infer<typeof adminMembershipSchema>
 export type AdminBillingAccount = z.infer<typeof adminBillingAccountSchema>
 export type AdminBillingLedgerEntry = z.infer<typeof adminBillingLedgerEntrySchema>
@@ -206,6 +219,7 @@ export type AdminSession = z.infer<typeof adminSessionSchema>
 export type AdminAuditLogEntry = z.infer<typeof adminAuditLogEntrySchema>
 export type AdminUserList = z.infer<typeof adminUserListSchema>
 export type AdminTenantList = z.infer<typeof adminTenantListSchema>
+export type AdminOrganizationList = z.infer<typeof adminOrganizationListSchema>
 export type AdminMembershipList = z.infer<typeof adminMembershipListSchema>
 export type AdminMembershipDetail = z.infer<typeof adminMembershipDetailSchema>
 export type AdminBillingAccountList = z.infer<typeof adminBillingAccountListSchema>

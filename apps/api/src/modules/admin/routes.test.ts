@@ -59,9 +59,15 @@ describe('admin console api', { timeout: 30_000 }, () => {
       tenants: {
         items: [expect.objectContaining({ id: 'tenant-seqora-demo', status: 'active' })],
       },
+      organizations: {
+        items: [expect.objectContaining({ id: 'tenant-seqora-demo', status: 'active' })],
+      },
       memberships: {
         items: expect.arrayContaining([
-          expect.objectContaining({ id: 'membership-tenant-seqora-demo-user-admin' }),
+          expect.objectContaining({
+            id: 'membership-tenant-seqora-demo-user-admin',
+            organizationId: 'tenant-seqora-demo',
+          }),
         ]),
       },
       billingAccounts: {
@@ -130,6 +136,23 @@ describe('admin console api', { timeout: 30_000 }, () => {
     })
     expect(tenants.statusCode).toBe(200)
     expect(tenants.json()).toMatchObject({
+      items: [
+        expect.objectContaining({
+          id: 'tenant-seqora-demo',
+          status: 'active',
+          activeMembershipCount: 4,
+          activeOwnerCount: 1,
+        }),
+      ],
+    })
+
+    const organizations = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/organizations?q=seqora',
+      headers: { cookie: adminCookie },
+    })
+    expect(organizations.statusCode).toBe(200)
+    expect(organizations.json()).toMatchObject({
       items: [
         expect.objectContaining({
           id: 'tenant-seqora-demo',
@@ -634,6 +657,255 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(adminLoginAfterEnable.statusCode).toBe(200)
   })
 
+  it('manages workspaces and memberships through admin console APIs', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const owner = await login('owner@seqora.local', 'OwnerPassword123!')
+    const ownerCookie = cookieValue(owner)
+
+    const renamed = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/admin/tenants/tenant-seqora-demo',
+      headers: { cookie: ownerCookie },
+      payload: { name: 'Seqora Commercial Workspace' },
+    })
+    expect(renamed.statusCode).toBe(200)
+    expect(renamed.json()).toMatchObject({
+      id: 'tenant-seqora-demo',
+      name: 'Seqora Commercial Workspace',
+    })
+
+    const createdMember = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/tenants/tenant-seqora-demo/users',
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'console-member@example.com',
+        name: 'Console Member',
+        password: 'ConsoleMember123!',
+        role: 'member',
+      },
+    })
+    expect(createdMember.statusCode).toBe(201)
+    expect(createdMember.json()).toMatchObject({
+      email: 'console-member@example.com',
+      roles: ['member'],
+      tenantId: 'tenant-seqora-demo',
+    })
+    const membershipId = createdMember.json().id as string
+    const userId = createdMember.json().userId as string
+
+    const promoted = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/memberships/${membershipId}/roles`,
+      headers: { cookie: ownerCookie },
+      payload: { roles: ['admin'] },
+    })
+    expect(promoted.statusCode).toBe(200)
+    expect(promoted.json()).toMatchObject({ id: membershipId, roles: ['admin'] })
+
+    const demoted = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/memberships/${membershipId}/roles`,
+      headers: { cookie: ownerCookie },
+      payload: { roles: ['member'] },
+    })
+    expect(demoted.statusCode).toBe(200)
+    expect(demoted.json()).toMatchObject({ id: membershipId, roles: ['member'] })
+
+    const disabled = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/memberships/${membershipId}`,
+      headers: { cookie: ownerCookie },
+    })
+    expect(disabled.statusCode).toBe(204)
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/memberships/${membershipId}`,
+      headers: { cookie: ownerCookie },
+    })
+    expect(detail.statusCode).toBe(200)
+    expect(detail.json()).toMatchObject({
+      membership: expect.objectContaining({ id: membershipId, userId, status: 'disabled' }),
+    })
+
+    const audit = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/audit-logs?userId=${userId}`,
+      headers: { cookie: ownerCookie },
+    })
+    expect(audit.statusCode).toBe(200)
+    expect(audit.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'admin.account.created',
+          metadata: expect.objectContaining({ scope: 'admin_console' }),
+        }),
+        expect.objectContaining({
+          action: 'admin.membership.roles.updated',
+          metadata: expect.objectContaining({ scope: 'admin_console' }),
+        }),
+        expect.objectContaining({
+          action: 'admin.membership.disabled',
+          metadata: expect.objectContaining({ scope: 'admin_console' }),
+        }),
+      ]),
+    )
+  })
+
+  it('enforces admin console workspace and membership role boundaries', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const owner = await login('owner@seqora.local', 'OwnerPassword123!')
+    const superAdmin = await login('superadmin@seqora.local', 'SuperAdmin123!')
+    const admin = await login('admin@seqora.local', 'Admin123!')
+    const ownerCookie = cookieValue(owner)
+    const superAdminCookie = cookieValue(superAdmin)
+    const adminCookie = cookieValue(admin)
+
+    const adminCreatesAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/tenants/tenant-seqora-demo/users',
+      headers: { cookie: adminCookie },
+      payload: {
+        email: 'admin-created-admin@example.com',
+        name: 'Admin Created Admin',
+        password: 'AdminCreatedAdmin123!',
+        role: 'admin',
+      },
+    })
+    expect(adminCreatesAdmin.statusCode).toBe(403)
+
+    const superAdminCreatesSuperAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/tenants/tenant-seqora-demo/users',
+      headers: { cookie: superAdminCookie },
+      payload: {
+        email: 'superadmin-created-superadmin@example.com',
+        name: 'Super Created Super',
+        password: 'SuperCreatedSuper123!',
+        role: 'super_admin',
+      },
+    })
+    expect(superAdminCreatesSuperAdmin.statusCode).toBe(403)
+
+    const ownerCreatesSuperAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/tenants/tenant-seqora-demo/users',
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'owner-created-superadmin@example.com',
+        name: 'Owner Created Super',
+        password: 'OwnerCreatedSuper123!',
+        role: 'super_admin',
+      },
+    })
+    expect(ownerCreatesSuperAdmin.statusCode).toBe(201)
+    expect(ownerCreatesSuperAdmin.json()).toMatchObject({ roles: ['super_admin'] })
+
+    const superAdminMembershipId = ownerCreatesSuperAdmin.json().id as string
+    const adminChangesSuperAdmin = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/memberships/${superAdminMembershipId}/roles`,
+      headers: { cookie: adminCookie },
+      payload: { roles: ['member'] },
+    })
+    expect(adminChangesSuperAdmin.statusCode).toBe(403)
+
+    const superAdminChangesSuperAdmin = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/memberships/${superAdminMembershipId}/roles`,
+      headers: { cookie: superAdminCookie },
+      payload: { roles: ['admin'] },
+    })
+    expect(superAdminChangesSuperAdmin.statusCode).toBe(403)
+
+    const ownerChangesSuperAdmin = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/memberships/${superAdminMembershipId}/roles`,
+      headers: { cookie: ownerCookie },
+      payload: { roles: ['admin'] },
+    })
+    expect(ownerChangesSuperAdmin.statusCode).toBe(200)
+    expect(ownerChangesSuperAdmin.json()).toMatchObject({ roles: ['admin'] })
+
+    const crossTenant = await createWorkspaceFromCurrentSession(ownerCookie, 'Enterprise Workspace')
+    const ownerCreatesCrossTenantMember = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/tenants/${crossTenant.tenantId}/users`,
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'enterprise-member@example.com',
+        name: 'Enterprise Member',
+        password: 'EnterpriseMember123!',
+        role: 'member',
+      },
+    })
+    expect(ownerCreatesCrossTenantMember.statusCode).toBe(201)
+    const crossTenantMembershipId = ownerCreatesCrossTenantMember.json().id as string
+    const crossTenantUserId = ownerCreatesCrossTenantMember.json().userId as string
+    await login('enterprise-member@example.com', 'EnterpriseMember123!', {
+      'user-agent': 'EnterpriseMemberDevice/1.0',
+    })
+
+    const scopedConsole = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/console?limit=100',
+      headers: { cookie: adminCookie },
+    })
+    expect(scopedConsole.statusCode).toBe(200)
+    const scopedSnapshot = scopedConsole.json()
+    expect(scopedSnapshot.tenants.items.map((item: { id: string }) => item.id)).toEqual([
+      'tenant-seqora-demo',
+    ])
+    expect(
+      scopedSnapshot.users.items.map((item: { id: string }) => item.id),
+    ).not.toContain(crossTenantUserId)
+    expect(
+      scopedSnapshot.memberships.items.map((item: { id: string }) => item.id),
+    ).not.toContain(crossTenantMembershipId)
+    expect(
+      scopedSnapshot.billingAccounts.items.map((item: { membershipId: string }) => item.membershipId),
+    ).not.toContain(crossTenantMembershipId)
+    expect(
+      scopedSnapshot.sessions.items.map((item: { userId: string }) => item.userId),
+    ).not.toContain(crossTenantUserId)
+
+    const adminReadsCrossTenant = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/memberships/${crossTenantMembershipId}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(adminReadsCrossTenant.statusCode).toBe(403)
+    expect(adminReadsCrossTenant.json()).toMatchObject({
+      error: { code: 'TENANT_SCOPE_MISMATCH' },
+    })
+
+    const adminRenamesCrossTenant = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/tenants/${crossTenant.tenantId}`,
+      headers: { cookie: adminCookie },
+      payload: { name: 'Illegal Rename' },
+    })
+    expect(adminRenamesCrossTenant.statusCode).toBe(403)
+
+    const adminAdjustsCrossTenantBilling = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/billing/memberships/${crossTenantMembershipId}/adjustments`,
+      headers: { cookie: adminCookie },
+      payload: { amount: 5, reason: 'Illegal cross-tenant adjustment' },
+    })
+    expect([403, 404]).toContain(adminAdjustsCrossTenantBilling.statusCode)
+
+    const superAdminTransfersOwner = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/tenants/tenant-seqora-demo/owner-transfer',
+      headers: { cookie: superAdminCookie },
+      payload: { targetUserId: 'user-admin', previousOwnerRole: 'admin' },
+    })
+    expect(superAdminTransfersOwner.statusCode).toBe(403)
+    expect(superAdminTransfersOwner.json()).toMatchObject({ error: { code: 'OWNER_REQUIRED' } })
+  })
+
   it('denies non-admin accounts from admin console APIs', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const creator = await login('creator@seqora.local', 'Creator123!')
@@ -682,6 +954,18 @@ async function login(email: string, password: string, headers?: Record<string, s
     headers,
     payload: { email, password },
   })
+}
+
+async function createWorkspaceFromCurrentSession(cookie: string, name: string): Promise<{ tenantId: string }> {
+  if (!app) throw new Error('App is not ready')
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/workspaces',
+    headers: { cookie },
+    payload: { name },
+  })
+  expect(response.statusCode).toBe(201)
+  return { tenantId: response.json().workspace.id as string }
 }
 
 function cookieValue(response: { cookies: Array<{ name: string; value: string }> }): string {

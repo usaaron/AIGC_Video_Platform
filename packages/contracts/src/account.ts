@@ -8,6 +8,7 @@ export const accountSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(80),
   tenantId: z.string().min(1),
+  organizationId: z.string().min(1).optional(),
   roles: z.array(roleSchema).min(1),
   plan: planSchema,
   credits: z.number().int().nonnegative(),

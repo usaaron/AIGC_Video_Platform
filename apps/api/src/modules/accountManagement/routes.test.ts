@@ -305,6 +305,51 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(createWorkspace.statusCode).toBe(201)
     expect(createWorkspace.json()).toMatchObject({
       workspace: { name: 'Alice Second Workspace', status: 'active' },
+      organization: { name: 'Alice Second Workspace', status: 'active' },
+    })
+
+    const createOrganization = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations',
+      headers: { cookie: reloginCookie },
+      payload: { name: 'Alice Third Organization' },
+    })
+    expect(createOrganization.statusCode).toBe(201)
+    expect(createOrganization.json()).toMatchObject({
+      organization: { name: 'Alice Third Organization', status: 'active' },
+    })
+
+    const organizations = await app.inject({
+      method: 'GET',
+      url: '/api/v1/organizations',
+      headers: { cookie: cookieValue(createOrganization) },
+    })
+    expect(organizations.statusCode).toBe(200)
+    expect(organizations.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workspace: expect.objectContaining({ name: 'Alice Third Organization' }),
+          organization: expect.objectContaining({ name: 'Alice Third Organization' }),
+          membership: expect.objectContaining({
+            organizationId: createOrganization.json().organization.id,
+            organizationName: 'Alice Third Organization',
+          }),
+        }),
+      ]),
+    )
+
+    const switchedOrganization = await app.inject({
+      method: 'POST',
+      url: `/api/v1/organizations/${createWorkspace.json().organization.id}/switch`,
+      headers: { cookie: cookieValue(createOrganization) },
+    })
+    expect(switchedOrganization.statusCode).toBe(200)
+    expect(switchedOrganization.json()).toMatchObject({
+      account: {
+        tenantId: createWorkspace.json().organization.id,
+        organizationId: createWorkspace.json().organization.id,
+      },
+      organization: { id: createWorkspace.json().organization.id },
     })
   })
 
@@ -473,6 +518,67 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
     const memberUserId = adminCreatesMember.json().userId as string
 
+    const ownerCreatesOrganizationAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'created-org-admin@example.com',
+        name: 'Created Organization Admin',
+        password: 'CreatedOrgAdmin123!',
+        role: 'organization_admin',
+      },
+    })
+    expect(ownerCreatesOrganizationAdmin.statusCode).toBe(201)
+    expect(ownerCreatesOrganizationAdmin.json()).toMatchObject({
+      email: 'created-org-admin@example.com',
+      roles: ['organization_admin'],
+      organizationId: 'tenant-seqora-demo',
+    })
+    const organizationAdminUserId = ownerCreatesOrganizationAdmin.json().userId as string
+
+    const organizationAdminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'created-org-admin@example.com',
+        password: 'CreatedOrgAdmin123!',
+      },
+    })
+    expect(organizationAdminLogin.statusCode).toBe(200)
+    const organizationAdminCookie = cookieValue(organizationAdminLogin)
+
+    const organizationAdminCreatesMember = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
+      headers: { cookie: organizationAdminCookie },
+      payload: {
+        email: 'org-admin-created-member@example.com',
+        name: 'Org Admin Created Member',
+        password: 'OrgAdminCreatedMember123!',
+        role: 'member',
+      },
+    })
+    expect(organizationAdminCreatesMember.statusCode).toBe(403)
+
+    const organizationAdminCreatesOrganizationMember = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
+      headers: { cookie: organizationAdminCookie },
+      payload: {
+        email: 'org-admin-created-org-member@example.com',
+        name: 'Org Admin Created Org Member',
+        password: 'OrgAdminCreatedOrgMember123!',
+        role: 'organization_member',
+      },
+    })
+    expect(organizationAdminCreatesOrganizationMember.statusCode).toBe(201)
+    expect(organizationAdminCreatesOrganizationMember.json()).toMatchObject({
+      roles: ['organization_member'],
+      organizationId: 'tenant-seqora-demo',
+    })
+    const organizationMemberUserId = organizationAdminCreatesOrganizationMember.json().userId as string
+
     const memberLogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
@@ -518,6 +624,34 @@ describe('account management api', { timeout: 30_000 }, () => {
       headers: { cookie: adminCookie },
     })
     expect(adminDeletesMember.statusCode).toBe(204)
+
+    const adminDeletesOrganizationMember = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/organizations/tenant-seqora-demo/members/${organizationMemberUserId}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(adminDeletesOrganizationMember.statusCode).toBe(403)
+
+    const organizationAdminDeletesMember = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/organizations/tenant-seqora-demo/members/${memberUserId}`,
+      headers: { cookie: organizationAdminCookie },
+    })
+    expect(organizationAdminDeletesMember.statusCode).toBe(403)
+
+    const organizationAdminDeletesOrganizationMember = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/organizations/tenant-seqora-demo/members/${organizationMemberUserId}`,
+      headers: { cookie: organizationAdminCookie },
+    })
+    expect(organizationAdminDeletesOrganizationMember.statusCode).toBe(204)
+
+    const adminDeletesOrganizationAdmin = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/organizations/tenant-seqora-demo/members/${organizationAdminUserId}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(adminDeletesOrganizationAdmin.statusCode).toBe(403)
 
     const memberAfterDelete = await app.inject({
       method: 'GET',

@@ -13,7 +13,7 @@ export function isPlatformAdmin(principal: Principal): boolean {
 }
 
 export function isTenantAdmin(principal: Principal): boolean {
-  return principal.roles.includes(ROLES.ADMIN)
+  return principal.roles.includes(ROLES.ADMIN) || principal.roles.includes(ROLES.ORGANIZATION_ADMIN)
 }
 
 export function isTenantManager(principal: Principal): boolean {
@@ -25,7 +25,12 @@ export function canReadAllTenantContent(principal: Principal): boolean {
 }
 
 export function hasElevatedRole(roles: readonly Role[]): boolean {
-  return roles.includes(ROLES.OWNER) || roles.includes(ROLES.SUPER_ADMIN) || roles.includes(ROLES.ADMIN)
+  return (
+    roles.includes(ROLES.OWNER) ||
+    roles.includes(ROLES.SUPER_ADMIN) ||
+    roles.includes(ROLES.ADMIN) ||
+    roles.includes(ROLES.ORGANIZATION_ADMIN)
+  )
 }
 
 export function hasOwnerRole(roles: readonly Role[]): boolean {
@@ -38,4 +43,8 @@ export function hasSuperAdminRole(roles: readonly Role[]): boolean {
 
 export function hasAdminRole(roles: readonly Role[]): boolean {
   return roles.includes(ROLES.ADMIN)
+}
+
+export function hasOrganizationAdminRole(roles: readonly Role[]): boolean {
+  return roles.includes(ROLES.ORGANIZATION_ADMIN)
 }

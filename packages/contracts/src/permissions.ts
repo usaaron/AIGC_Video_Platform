@@ -19,6 +19,8 @@ export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS]
 export const ROLES = {
   MEMBER: 'member',
   ADMIN: 'admin',
+  ORGANIZATION_ADMIN: 'organization_admin',
+  ORGANIZATION_MEMBER: 'organization_member',
   SUPER_ADMIN: 'super_admin',
   OWNER: 'owner',
 } as const
@@ -46,9 +48,25 @@ const adminPermissions = [
   PERMISSIONS.ADMIN_DASHBOARD_READ,
 ] as const
 
+const organizationAdminPermissions = [
+  PERMISSIONS.PROJECT_READ,
+  PERMISSIONS.PROJECT_WRITE,
+  PERMISSIONS.GENERATION_TASK_CREATE,
+  PERMISSIONS.GENERATION_TASK_READ,
+  PERMISSIONS.ASSET_READ,
+  PERMISSIONS.ASSET_WRITE,
+  PERMISSIONS.BILLING_READ_ALL,
+  PERMISSIONS.BILLING_MANAGE,
+  PERMISSIONS.USER_READ,
+  PERMISSIONS.USER_MANAGE,
+  PERMISSIONS.ADMIN_DASHBOARD_READ,
+] as const
+
 export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
   member: memberPermissions,
   admin: adminPermissions,
+  organization_admin: organizationAdminPermissions,
+  organization_member: memberPermissions,
   super_admin: Object.values(PERMISSIONS).filter(
     (permission) => permission !== PERMISSIONS.SYSTEM_CONFIG_MANAGE,
   ),
