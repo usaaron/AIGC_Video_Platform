@@ -20,6 +20,7 @@ pnpm test:backend:unit
 - 文本、图片、视频 Provider 请求归一化和错误处理。
 - 任务 runner、outbox relay、资源锁、幂等重试。
 - 媒体 token、影片预览、脚本/小说处理等核心领域逻辑。
+- 需要唯一值的测试数据统一走 `apps/api/src/testing/testDataFactory.ts`，避免邮箱、组织名和 reference id 撞车。
 
 ### 2. 集成测试
 
@@ -39,6 +40,8 @@ pnpm test:backend:integration
 - billing ledger 扣费、退款、grant、adjustment、Stripe sandbox webhook 和对账。
 - project、asset、shot、generation task 的 Postgres 持久化和跨组织隔离。
 - BullMQ 通过 Redis 投递任务到 Worker。
+- 每个集成测试文件都使用独立 Postgres fixture，并在 `beforeEach` 里 reset，避免测试之间共享状态。
+- 预发布匿名化脚本通过 Postgres fixture 验证 dry-run、系统组织保护、保留账号保护和创作域脱敏。
 
 ### 3. 契约测试
 
@@ -85,6 +88,13 @@ pnpm test
 - `quality` job：格式、Lint、组织 API 废弃调用检查、完整 workspace 测试和构建。
 - `database` job：启动 Postgres 16 和 Redis 7，执行 `pnpm --filter @seqora/api db:migrate`，然后运行 `pnpm --filter @seqora/api test:integration`。
 - migration 文件进入主分支后只允许新增版本，不允许修改旧 migration；CI 通过 append-only 检查阻断。
+
+## 数据与环境
+
+- 本地优先跑单元和契约测试。
+- CI 跑全量集成和安全专项。
+- 预发布跑全量回归和压测，且应使用 `pnpm preprod:anonymize:check` + `pnpm preprod:anonymize` 处理后的生产快照。
+- 生产只做迁移和显式初始化，不依赖测试 bootstrap。
 
 ## 后续优化
 

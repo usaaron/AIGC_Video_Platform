@@ -112,6 +112,17 @@ curl --fail https://studio.example.com/api/v1/health
 
 ## 外测上线门槛
 
+## 预发布刷新
+
+预发布环境用来跑全量回归、压测和脏数据兼容性验证。推荐流程是：
+
+1. 从最新生产备份恢复数据库和对象存储快照。
+2. 执行 `pnpm preprod:anonymize:check`，先验证系统组织和保留账号不会被误删。
+3. 执行 `pnpm preprod:anonymize`，清掉会话、邀请、重置 token、验证 token，并把账号、组织、账单、审计、项目、资产、分镜、生成任务、媒体对象、小说摘要和 AI job 敏感字段匿名化。
+4. 保留少量可控的 owner / super_admin / admin / member 登录账号，用于手工回归。
+5. 跑 `pnpm test:backend:full` 和 `pnpm perf:k6:smoke`，必要时再加 `pnpm perf:k6:breakpoint`。
+6. 只有预发布回归和压测都通过，才把同一批迁移和代码推到生产。
+
 上线前逐项确认：
 
 1. 域名 HTTPS 正常，HTTP 自动跳转 HTTPS，公网无法访问 `:8787`。
