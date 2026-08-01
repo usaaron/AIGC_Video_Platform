@@ -5,7 +5,7 @@
 ## 日常流程
 
 1. 功能分支提交 Pull Request。
-2. `.github/workflows/ci.yml` 执行格式、Lint、测试和构建；其中 `database` job 会起 Postgres 和 Redis、执行 migration，并运行 auth/account/billing/queue 集成测试；`.github/workflows/containers.yml` 验证两个容器可以构建。
+2. `.github/workflows/ci.yml` 执行格式、Lint、测试和构建；其中 `database` job 会起 Postgres 和 Redis、执行 migration，并运行 auth/account/billing/project/admin/queue 集成测试。后端测试分层和运行方式见 [BACKEND_TESTING.md](BACKEND_TESTING.md)；`.github/workflows/containers.yml` 验证两个容器可以构建。
 3. Review 通过后合并到 `main`。
 4. CI 根据本次完整 Push 的文件变化生成发布清单。
 5. `.github/workflows/deploy.yml` 使用 Workload Identity Federation 获取短期 Google 凭据，推送不可变 Commit SHA 镜像，并通过 IAP SSH 更新 GCE。
