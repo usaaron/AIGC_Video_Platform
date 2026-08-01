@@ -6875,6 +6875,24 @@
 .plan-summary p {
   color: #6f7568;
 }
+.billing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.billing-actions .button {
+  min-width: 112px;
+}
+.payment-notice {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 9px;
+}
 .ledger-panel {
   margin-top: 14px;
   padding: 20px;
@@ -8190,6 +8208,14 @@
   }
   .plan-summary {
     grid-column: 1 / -1;
+    grid-template-columns: 45px 1fr;
+  }
+  .billing-actions {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+  .billing-actions .button {
+    flex: 1 1 160px;
   }
   .admin-stats {
     grid-template-columns: 1fr;

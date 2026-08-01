@@ -29,6 +29,9 @@ async function request(path, options = {}) {
 
 const json = (method, body) => ({ method, body: JSON.stringify(body) })
 const emptyJsonPost = () => json('POST', {})
+const organizations = () => request('/organizations')
+const switchOrganization = (organizationId) =>
+  request(`/organizations/${encodeURIComponent(organizationId)}/switch`, emptyJsonPost())
 
 const upload = (file) => {
   const body = new FormData()
@@ -64,8 +67,8 @@ export const api = {
   logout: () => request('/auth/logout', emptyJsonPost()),
   session: () => request('/auth/me'),
   changePassword: (input) => request('/auth/password', json('PUT', input)),
-  workspaces: () => request('/organizations'),
-  switchWorkspace: (tenantId) => request(`/organizations/${tenantId}/switch`, emptyJsonPost()),
+  organizations,
+  switchOrganization,
   authSessions: () => request('/auth/sessions'),
   revokeAuthSession: (sessionId) => request(`/auth/sessions/${sessionId}`, { method: 'DELETE' }),
   projects: () => request('/projects'),
@@ -179,5 +182,8 @@ export const api = {
   clearTasks: (projectId) =>
     request(`/projects/${projectId}/generation/tasks/completed`, { method: 'DELETE' }),
   billing: () => request('/billing/summary'),
+  billingPaymentConfiguration: () => request('/billing/payment/configuration'),
+  createMemberSubscriptionCheckout: () => request('/billing/checkout/subscription', emptyJsonPost()),
+  createCreditCheckout: (input = {}) => request('/billing/checkout/credits', json('POST', input)),
   adminOverview: () => request('/admin/overview'),
 }

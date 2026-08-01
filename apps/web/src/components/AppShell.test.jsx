@@ -15,11 +15,7 @@ const sidebarProps = {
 describe('app shell account entry', () => {
   it('hides the admin console link from ordinary members', () => {
     const html = renderToStaticMarkup(
-      <AppSidebar
-        {...sidebarProps}
-        canOpenAdminAccounts={false}
-        adminConsoleUrl="http://localhost:5174/"
-      />,
+      <AppSidebar {...sidebarProps} canOpenAdminAccounts={false} adminConsoleUrl="http://localhost:5174/" />,
     )
 
     expect(html).not.toContain('管理后台')
@@ -28,11 +24,7 @@ describe('app shell account entry', () => {
 
   it('shows the admin console link for elevated account managers', () => {
     const html = renderToStaticMarkup(
-      <AppSidebar
-        {...sidebarProps}
-        canOpenAdminAccounts
-        adminConsoleUrl="http://localhost:5174/"
-      />,
+      <AppSidebar {...sidebarProps} canOpenAdminAccounts adminConsoleUrl="http://localhost:5174/" />,
     )
 
     expect(html).toContain('管理后台')

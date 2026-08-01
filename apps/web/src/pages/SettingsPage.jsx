@@ -8,10 +8,10 @@ export function SettingsPage({
   canEditProject = false,
   canOpenAdminConsole = false,
   adminConsoleUrl,
-  workspaces = [],
+  organizations = [],
   sessions = [],
   onLoadAccountScope,
-  onSwitchWorkspace,
+  onSwitchOrganization,
   onRevokeSession,
   onSave,
   onChangePassword,
@@ -66,12 +66,17 @@ export function SettingsPage({
     }
   }
 
-  const switchWorkspace = async (tenantId) => {
-    if (tenantId === account.tenantId || !onSwitchWorkspace) return
-    setAccountBusy(`workspace:${tenantId}`)
+  const switchOrganization = async (organizationId) => {
+    if (
+      organizationId === account.organizationId ||
+      organizationId === account.tenantId ||
+      !onSwitchOrganization
+    )
+      return
+    setAccountBusy(`organization:${organizationId}`)
     setAccountMessage({ status: 'idle', message: '' })
     try {
-      await onSwitchWorkspace(tenantId)
+      await onSwitchOrganization(organizationId)
       setAccountMessage({ status: 'success', message: '组织已切换' })
     } catch (error) {
       setAccountMessage({ status: 'error', message: error.message })
@@ -256,31 +261,36 @@ export function SettingsPage({
             <div className="self-panel">
               <h3>组织切换</h3>
               <div className="workspace-switch-list self">
-                {workspaces.map((item) => (
-                  <button
-                    key={item.workspace.id}
-                    type="button"
-                    className={item.workspace.id === account.tenantId ? 'active' : ''}
-                    disabled={
-                      item.workspace.id === account.tenantId ||
-                      accountBusy === `workspace:${item.workspace.id}`
-                    }
-                    onClick={() => switchWorkspace(item.workspace.id)}
-                  >
-                    <div>
-                      <strong>{item.workspace.name}</strong>
-                      <span>{item.membership.roles.map(roleName).join('、')}</span>
-                    </div>
-                    {item.workspace.id === account.tenantId ? (
-                      <Check size={16} />
-                    ) : accountBusy === `workspace:${item.workspace.id}` ? (
-                      <LoaderCircle size={16} className="spin" />
-                    ) : (
-                      <span>切换</span>
-                    )}
-                  </button>
-                ))}
-                {!workspaces.length && <p className="panel-empty">暂无可切换组织。</p>}
+                {organizations.map((item) => {
+                  const organization = item.organization ?? item.workspace
+                  const organizationId = organization.id
+                  const currentOrganizationId = account.organizationId ?? account.tenantId
+                  return (
+                    <button
+                      key={organizationId}
+                      type="button"
+                      className={organizationId === currentOrganizationId ? 'active' : ''}
+                      disabled={
+                        organizationId === currentOrganizationId ||
+                        accountBusy === `organization:${organizationId}`
+                      }
+                      onClick={() => switchOrganization(organizationId)}
+                    >
+                      <div>
+                        <strong>{organization.name}</strong>
+                        <span>{item.membership.roles.map(roleName).join('、')}</span>
+                      </div>
+                      {organizationId === currentOrganizationId ? (
+                        <Check size={16} />
+                      ) : accountBusy === `organization:${organizationId}` ? (
+                        <LoaderCircle size={16} className="spin" />
+                      ) : (
+                        <span>切换</span>
+                      )}
+                    </button>
+                  )
+                })}
+                {!organizations.length && <p className="panel-empty">暂无可切换组织。</p>}
               </div>
             </div>
             <div className="self-panel">

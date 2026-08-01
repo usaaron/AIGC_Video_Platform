@@ -1,14 +1,63 @@
-import { CalendarClock, Check, Crown, Gauge, ReceiptText, Zap } from 'lucide-react'
+import { CalendarClock, Check, Crown, Gauge, LoaderCircle, ReceiptText, Zap } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { PageHeader } from '../components/ui'
+import { api } from '../services/apiClient'
 
 export function BillingPage({ billing }) {
   const member = billing.plan === 'member'
+  const [paymentConfig, setPaymentConfig] = useState(null)
+  const [paymentBusy, setPaymentBusy] = useState('')
+  const [paymentMessage, setPaymentMessage] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .billingPaymentConfiguration()
+      .then((configuration) => {
+        if (!cancelled) setPaymentConfig(configuration)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setPaymentConfig({
+            provider: null,
+            enabled: false,
+            memberSubscriptionEnabled: false,
+            creditPurchaseEnabled: false,
+            creditPackCredits: null,
+          })
+          setPaymentMessage(error.message)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const paymentEnabled = paymentConfig?.enabled === true
+  const subscribeEnabled = paymentEnabled && paymentConfig.memberSubscriptionEnabled && !member
+  const creditPurchaseEnabled = paymentEnabled && paymentConfig.creditPurchaseEnabled
+
+  const startCheckout = async (type) => {
+    setPaymentBusy(type)
+    setPaymentMessage('')
+    try {
+      const checkout =
+        type === 'subscription'
+          ? await api.createMemberSubscriptionCheckout()
+          : await api.createCreditCheckout({ credits: paymentConfig?.creditPackCredits ?? undefined })
+      window.location.assign(checkout.url)
+    } catch (error) {
+      setPaymentMessage(error.message)
+      setPaymentBusy('')
+    }
+  }
+
   return (
     <div className="page billing-page">
       <PageHeader
-        eyebrow="账户 · 积分"
+        eyebrow="账户 / 积分"
         title="用量与套餐"
-        description="每次生成都进入积分账本，会员只提升并发与月度额度。"
+        description="每次生成都会进入积分账本；订阅、充值和退款由支付回调自动入账。"
       />
       <section className="billing-summary">
         <div>
@@ -51,11 +100,35 @@ export function BillingPage({ billing }) {
               。
             </p>
           </div>
-          <button className="button primary" disabled>
-            {member ? '会员已开通' : '联系管理员开通'}
-          </button>
+          <div className="billing-actions">
+            <button
+              className="button primary"
+              disabled={!subscribeEnabled || paymentBusy === 'subscription'}
+              onClick={() => startCheckout('subscription')}
+            >
+              {paymentBusy === 'subscription' ? (
+                <LoaderCircle size={15} className="spin" />
+              ) : (
+                <Crown size={15} />
+              )}
+              {member ? '会员已开通' : '订阅会员'}
+            </button>
+            <button
+              className="button"
+              disabled={!creditPurchaseEnabled || paymentBusy === 'credits'}
+              onClick={() => startCheckout('credits')}
+            >
+              {paymentBusy === 'credits' ? <LoaderCircle size={15} className="spin" /> : <Zap size={15} />}
+              充值 {paymentConfig?.creditPackCredits ?? '-'} 积分
+            </button>
+          </div>
         </div>
       </section>
+      {paymentMessage && <p className="payment-notice">{paymentMessage}</p>}
+      {!paymentConfig && <p className="payment-notice">正在读取支付配置...</p>}
+      {paymentConfig && !paymentEnabled && (
+        <p className="payment-notice">当前环境未启用支付沙箱，订阅和充值入口暂不可用。</p>
+      )}
       <section className="ledger-panel">
         <div className="panel-head">
           <div>

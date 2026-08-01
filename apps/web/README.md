@@ -22,7 +22,7 @@ pnpm --filter @seqora/web dev
 
 后台管理能力统一放在 `apps/admin`：
 
-- 组织改名、禁用、转让 owner、退出组织。
+- 组织改名、禁用、更换组织负责人、退出组织。
 - 成员列表、创建组织用户、添加已有用户、角色修改、禁用 membership。
 - 组织 session 列表和踢下线。
 

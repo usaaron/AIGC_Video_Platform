@@ -378,7 +378,7 @@ export function ScriptPage({
       <PageHeader
         eyebrow="剧本工作台"
         title={`《${project.name}》剧本`}
-        description="写作和制作准备集中在同一个工作区。"
+        description="写作和制作准备集中在同一个项目中。"
       >
         <input ref={fileInput} className="hidden-input" type="file" accept=".txt,.md" onChange={upload} />
         <button className="button secondary" disabled={busy} onClick={() => fileInput.current?.click()}>
@@ -402,7 +402,7 @@ export function ScriptPage({
       </PageHeader>
 
       <div className="script-setup-row">
-        <section className="script-section-nav" aria-label="剧本工作区小项">
+        <section className="script-section-nav" aria-label="剧本制作分区">
           {SCRIPT_SECTIONS.map(({ id, label, description, icon: Icon }) => (
             <button
               type="button"

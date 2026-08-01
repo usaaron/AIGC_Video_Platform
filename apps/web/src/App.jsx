@@ -43,7 +43,7 @@ function App() {
   const [activeStep, setActiveStep] = useState('overview')
   const [projects, setProjects] = useState([])
   const [workspace, setWorkspace] = useState(null)
-  const [workspaces, setWorkspaces] = useState([])
+  const [organizations, setOrganizations] = useState([])
   const [ownSessions, setOwnSessions] = useState([])
   const [tasks, setTasks] = useState([])
   const [billing, setBilling] = useState(null)
@@ -155,28 +155,35 @@ function App() {
   }
 
   const refreshAccountScope = useCallback(async () => {
-    const [nextWorkspaces, nextSessions] = await Promise.all([api.workspaces(), api.authSessions()])
-    setWorkspaces(nextWorkspaces)
+    const [nextOrganizations, nextSessions] = await Promise.all([api.organizations(), api.authSessions()])
+    setOrganizations(nextOrganizations)
     setOwnSessions(nextSessions)
   }, [])
 
-  const switchAccountWorkspace = useCallback(async (tenantId) => {
-    await api.switchWorkspace(tenantId)
-    const nextSession = await refreshSession()
-    setProjects([])
-    setWorkspace(null)
-    setTasks([])
-    if (nextSession.permissions.includes('billing.read.self')) setBilling(await api.billing())
-    else setBilling({ plan: nextSession.account.plan, credits: nextSession.account.credits, concurrency: 0 })
-    await refreshAccountScope()
-    setToast('组织已切换')
-  }, [refreshAccountScope, refreshSession])
+  const switchAccountOrganization = useCallback(
+    async (organizationId) => {
+      await api.switchOrganization(organizationId)
+      const nextSession = await refreshSession()
+      setProjects([])
+      setWorkspace(null)
+      setTasks([])
+      if (nextSession.permissions.includes('billing.read.self')) setBilling(await api.billing())
+      else
+        setBilling({ plan: nextSession.account.plan, credits: nextSession.account.credits, concurrency: 0 })
+      await refreshAccountScope()
+      setToast('组织已切换')
+    },
+    [refreshAccountScope, refreshSession],
+  )
 
-  const revokeOwnSession = useCallback(async (sessionId) => {
-    await api.revokeAuthSession(sessionId)
-    await refreshAccountScope()
-    setToast('Session 已撤销')
-  }, [refreshAccountScope])
+  const revokeOwnSession = useCallback(
+    async (sessionId) => {
+      await api.revokeAuthSession(sessionId)
+      await refreshAccountScope()
+      setToast('Session 已撤销')
+    },
+    [refreshAccountScope],
+  )
 
   if (loading || !billing)
     return (
@@ -383,10 +390,10 @@ function App() {
         canEditProject={canManageProjectSettings}
         canOpenAdminConsole={canOpenAdminAccounts}
         adminConsoleUrl={adminConsoleUrl}
-        workspaces={workspaces}
+        organizations={organizations}
         sessions={ownSessions}
         onLoadAccountScope={refreshAccountScope}
-        onSwitchWorkspace={switchAccountWorkspace}
+        onSwitchOrganization={switchAccountOrganization}
         onRevokeSession={revokeOwnSession}
         onSave={updateProject}
         onChangePassword={(input) => api.changePassword(input)}
