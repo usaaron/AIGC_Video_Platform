@@ -26,20 +26,23 @@ async function request(path, options = {}) {
 
 const json = (method, body) => ({ method, body: JSON.stringify(body) })
 const emptyJsonPost = () => json('POST', {})
+const updateOrganization = (organizationId, input) =>
+  request(`/admin/organizations/${encodeURIComponent(organizationId)}`, json('PATCH', input))
+const disableOrganization = (organizationId) =>
+  request(`/admin/organizations/${encodeURIComponent(organizationId)}`, { method: 'DELETE' })
+const createOrganizationUser = (organizationId, input) =>
+  request(`/admin/organizations/${encodeURIComponent(organizationId)}/users`, json('POST', input))
 
 export const api = {
   login: async (input) => sessionSchema.parse(await request('/auth/login', json('POST', input))),
   logout: () => request('/auth/logout', emptyJsonPost()),
   session: async () => sessionSchema.parse(await request('/auth/me')),
   adminConsole: async () => adminConsoleSchema.parse(await request('/admin/console?limit=100&offset=0')),
-  updateWorkspace: (tenantId, input) =>
-    request(`/admin/organizations/${encodeURIComponent(tenantId)}`, json('PATCH', input)),
-  disableWorkspace: (tenantId) =>
-    request(`/admin/organizations/${encodeURIComponent(tenantId)}`, { method: 'DELETE' }),
-  transferWorkspaceOwner: (tenantId, input) =>
-    request(`/admin/organizations/${encodeURIComponent(tenantId)}/owner-transfer`, json('POST', input)),
-  createTenantUser: (tenantId, input) =>
-    request(`/admin/organizations/${encodeURIComponent(tenantId)}/users`, json('POST', input)),
+  updateOrganization,
+  disableOrganization,
+  transferOrganizationAdmin: (organizationId, input) =>
+    request(`/admin/organizations/${encodeURIComponent(organizationId)}/admin-transfer`, json('POST', input)),
+  createOrganizationUser,
   updateMemberRoles: (membershipId, roles) =>
     request(`/admin/memberships/${encodeURIComponent(membershipId)}/roles`, json('PATCH', { roles })),
   disableMembership: (membershipId) =>
@@ -47,10 +50,7 @@ export const api = {
   updateUserStatus: (userId, status) =>
     request(`/admin/users/${encodeURIComponent(userId)}/status`, json('PATCH', { status })),
   updatePasswordResetRequirement: (userId, input) =>
-    request(
-      `/admin/users/${encodeURIComponent(userId)}/password-reset-requirement`,
-      json('PATCH', input),
-    ),
+    request(`/admin/users/${encodeURIComponent(userId)}/password-reset-requirement`, json('PATCH', input)),
   setUserPassword: (userId, input) =>
     request(`/admin/users/${encodeURIComponent(userId)}/password`, json('PUT', input)),
   revokeSession: (sessionId) =>

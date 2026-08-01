@@ -3,13 +3,14 @@ import {
   auditLogTone,
   assignableRoleOptions,
   buildSessionRiskRows,
+  canCreateOrganizationUser,
   canAssignRole,
-  canDisableTenant,
+  canDisableOrganization,
   canManageMembership,
-  canManageTenant,
+  canManageOrganization,
   canReadAdminConsole,
-  canTransferTenantOwner,
-  classifyWorkspace,
+  canTransferOrganizationAdmin,
+  classifyOrganization,
   filterRows,
   formatSignedAmount,
   roleName,
@@ -38,15 +39,34 @@ describe('admin console helpers', () => {
     expect(canReadAdminConsole(memberSession)).toBe(false)
   })
 
-  it('calculates tenant management scope from platform and tenant roles', () => {
-    expect(canManageTenant(ownerSession, 'tenant-b')).toBe(true)
-    expect(canManageTenant(superAdminSession, 'tenant-b')).toBe(true)
-    expect(canManageTenant(adminSession, 'tenant-a')).toBe(true)
-    expect(canManageTenant(adminSession, 'tenant-b')).toBe(false)
-    expect(canDisableTenant(ownerSession, 'tenant-a')).toBe(true)
-    expect(canDisableTenant(superAdminSession, 'tenant-a')).toBe(false)
-    expect(canTransferTenantOwner(ownerSession, 'tenant-a')).toBe(true)
-    expect(canTransferTenantOwner(adminSession, 'tenant-a')).toBe(false)
+  it('calculates organization management scope from platform and organization roles', () => {
+    expect(canManageOrganization(ownerSession, 'tenant-b')).toBe(true)
+    expect(canManageOrganization(superAdminSession, 'tenant-b')).toBe(true)
+    expect(canManageOrganization(adminSession, 'tenant-a')).toBe(true)
+    expect(canManageOrganization(adminSession, 'tenant-b')).toBe(false)
+    expect(canDisableOrganization(ownerSession, 'tenant-a')).toBe(true)
+    expect(canDisableOrganization(superAdminSession, 'tenant-a')).toBe(false)
+    expect(canTransferOrganizationAdmin(ownerSession, 'tenant-a')).toBe(true)
+    expect(canTransferOrganizationAdmin(superAdminSession, 'tenant-a')).toBe(true)
+    expect(canTransferOrganizationAdmin(adminSession, 'tenant-a')).toBe(false)
+  })
+
+  it('protects system organizations in the admin console helpers', () => {
+    const systemOrganization = { id: 'tenant-seqora-demo', name: 'Seqora Local', isSystem: true }
+    const organizationAdminSession = sessionFor('user-org-admin', 'tenant-seqora-demo', [
+      'organization_admin',
+    ])
+
+    expect(canManageOrganization(organizationAdminSession, systemOrganization)).toBe(false)
+    expect(canDisableOrganization(ownerSession, systemOrganization)).toBe(false)
+    expect(canTransferOrganizationAdmin(ownerSession, systemOrganization)).toBe(false)
+    expect(assignableRoleOptions(ownerSession, systemOrganization)).toEqual(['admin', 'super_admin'])
+    expect(assignableRoleOptions(superAdminSession, systemOrganization)).toEqual(['admin'])
+    expect(assignableRoleOptions(adminSession, systemOrganization)).toEqual([])
+    expect(canCreateOrganizationUser(ownerSession, systemOrganization)).toBe(true)
+    expect(canCreateOrganizationUser(adminSession, systemOrganization)).toBe(false)
+    expect(canAssignRole(ownerSession, 'member', systemOrganization)).toBe(false)
+    expect(canAssignRole(ownerSession, 'admin', systemOrganization)).toBe(true)
   })
 
   it('matches role assignment boundaries used by the admin console', () => {
@@ -85,10 +105,10 @@ describe('admin console helpers', () => {
     expect(roleName('organization_member')).toBe('组织成员')
   })
 
-  it('limits membership management by target role and tenant scope', () => {
-    expect(canManageMembership(ownerSession, membershipFor('user-superadmin', 'tenant-b', ['super_admin']))).toBe(
-      true,
-    )
+  it('limits membership management by target role and organization scope', () => {
+    expect(
+      canManageMembership(ownerSession, membershipFor('user-superadmin', 'tenant-b', ['super_admin'])),
+    ).toBe(true)
     expect(canManageMembership(superAdminSession, membershipFor('user-owner', 'tenant-a', ['owner']))).toBe(
       false,
     )
@@ -128,25 +148,25 @@ describe('admin console helpers', () => {
   })
 
   it('classifies organization types for the organization list filter', () => {
-    expect(classifyWorkspace({ id: 'tenant-seqora-demo', name: 'SEQORA Local' })).toMatchObject({
+    expect(classifyOrganization({ id: 'tenant-seqora-demo', name: 'SEQORA Local' })).toMatchObject({
       type: 'system',
-      label: '系统默认组织',
+      label: '系统组织',
     })
     expect(
-      classifyWorkspace({
+      classifyOrganization({
         id: 'tenant-random',
         name: 'tenant-random',
         createdByEmail: 'backend-test@example.com',
       }),
     ).toMatchObject({ type: 'test', label: '测试组织' })
     expect(
-      classifyWorkspace({
+      classifyOrganization({
         id: 'tenant-enterprise',
         name: 'Enterprise Customer A',
       }),
     ).toMatchObject({ type: 'enterprise', label: '企业组织' })
-    expect(classifyWorkspace({ id: 'tenant-normal', name: 'Studio Team' })).toMatchObject({
-      type: 'workspace',
+    expect(classifyOrganization({ id: 'tenant-normal', name: 'Studio Team' })).toMatchObject({
+      type: 'standard',
       label: '普通组织',
     })
   })
@@ -156,18 +176,21 @@ describe('admin console helpers', () => {
       summarizeConsole({
         overview: { users: 1 },
         users: { meta: { total: 4 } },
-        tenants: { meta: { total: 2 } },
+        organizations: { meta: { total: 2 } },
         memberships: { meta: { total: 5 } },
         sessions: { meta: { total: 6 } },
         billingAccounts: { meta: { total: 3 } },
+        billingPaymentReconciliation: { meta: { total: 7 } },
         auditLogs: { meta: { total: 9 } },
       }),
     ).toEqual({
       users: 4,
+      organizations: 2,
       tenants: 2,
       memberships: 5,
       sessions: 6,
       billingAccounts: 3,
+      paymentReconciliation: 7,
       auditLogs: 9,
     })
   })

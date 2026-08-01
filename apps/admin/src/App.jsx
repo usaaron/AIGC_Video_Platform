@@ -29,14 +29,15 @@ import {
   assignableRoleOptions,
   auditLogTone,
   buildSessionRiskRows,
-  canDisableTenant,
+  canCreateOrganizationUser,
+  canDisableOrganization,
   canManageBilling,
   canManageMembership,
-  canManageTenant,
+  canManageOrganization,
   canManageUsers,
   canReadAdminConsole,
-  canTransferTenantOwner,
-  classifyWorkspace,
+  canTransferOrganizationAdmin,
+  classifyOrganization,
   filterRows,
   formatDate,
   formatSignedAmount,
@@ -51,13 +52,13 @@ import {
   summarizeBillingAdjustments,
   summarizeConsole,
   summarizeSessionRisks,
-  workspaceTypeName,
+  organizationTypeName,
 } from './adminConsole'
 
 const tabs = [
   { id: 'overview', label: '概览', icon: Gauge },
   { id: 'users', label: '用户', icon: UsersRound },
-  { id: 'tenants', label: '组织', icon: Building2 },
+  { id: 'organizations', label: '组织', icon: Building2 },
   { id: 'memberships', label: '成员关系', icon: IdCard },
   { id: 'billing', label: '账单流水', icon: CreditCard },
   { id: 'adjustments', label: '账单调账', icon: PencilLine },
@@ -70,8 +71,12 @@ const loginInitialState = { email: '', password: '' }
 const adjustmentInitialState = { amount: '', reason: '' }
 const grantInitialState = { amount: '', reason: '' }
 const passwordInitialState = { newPassword: '', requireChange: true, revokeSessions: true }
-const createUserInitialState = { tenantId: '', email: '', name: '', password: '', role: 'member' }
-const ownerTransferInitialState = { tenantId: '', targetUserId: '', previousOwnerRole: 'admin' }
+const createUserInitialState = { organizationId: '', email: '', name: '', password: '', role: 'member' }
+const organizationAdminTransferInitialState = {
+  organizationId: '',
+  currentOrganizationAdminUserId: '',
+  targetUserId: '',
+}
 
 export function App() {
   const [session, setSession] = useState(null)
@@ -94,13 +99,15 @@ export function App() {
   const [auditActionFilter, setAuditActionFilter] = useState('all')
   const [auditResourceFilter, setAuditResourceFilter] = useState('all')
   const [sessionRiskFilter, setSessionRiskFilter] = useState('all')
-  const [tenantTypeFilter, setTenantTypeFilter] = useState('all')
+  const [organizationTypeFilter, setOrganizationTypeFilter] = useState('all')
   const [passwordTarget, setPasswordTarget] = useState(null)
   const [passwordForm, setPasswordForm] = useState(passwordInitialState)
   const [createUserOpen, setCreateUserOpen] = useState(false)
   const [createUserForm, setCreateUserForm] = useState(createUserInitialState)
-  const [ownerTransferTarget, setOwnerTransferTarget] = useState(null)
-  const [ownerTransferForm, setOwnerTransferForm] = useState(ownerTransferInitialState)
+  const [organizationAdminTransferTarget, setOrganizationAdminTransferTarget] = useState(null)
+  const [organizationAdminTransferForm, setOrganizationAdminTransferForm] = useState(
+    organizationAdminTransferInitialState,
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -163,18 +170,31 @@ export function App() {
 
   const filtered = useMemo(() => {
     if (!snapshot) return null
+    const organizationItems = snapshot.organizations?.items ?? snapshot.tenants.items
     return {
       users: filterRows(snapshot.users.items, query),
-      tenants: filterRows(snapshot.tenants.items, query),
+      organizations: filterRows(organizationItems, query),
       memberships: filterRows(snapshot.memberships.items, query),
       billingAccounts: filterRows(snapshot.billingAccounts.items, query),
       billingLedgerEntries: filterRows(snapshot.billingLedgerEntries.items, query),
+      billingPaymentReconciliation: filterRows(snapshot.billingPaymentReconciliation?.items ?? [], query),
       sessions: filterRows(snapshot.sessions.items, query),
       auditLogs: filterRows(snapshot.auditLogs.items, query),
     }
   }, [snapshot, query])
 
   const summary = useMemo(() => summarizeConsole(snapshot), [snapshot])
+  const createUserOrganization = useMemo(
+    () =>
+      (snapshot?.organizations?.items ?? snapshot?.tenants?.items ?? []).find(
+        (organization) => organization.id === createUserForm.organizationId,
+      ) ?? null,
+    [snapshot, createUserForm.organizationId],
+  )
+  const createUserRoleOptions = useMemo(
+    () => assignableRoleOptions(session, createUserOrganization),
+    [session, createUserOrganization],
+  )
 
   const login = async (event) => {
     event.preventDefault()
@@ -232,13 +252,20 @@ export function App() {
     })
   }
 
-  const openCreateUser = (tenantId = '') => {
-    const activeTenants = snapshot?.tenants?.items.filter((item) => item.status === 'active') ?? []
-    const tenant = activeTenants.find((item) => item.id === tenantId) ?? activeTenants[0]
-    const roles = assignableRoleOptions(session)
+  const openCreateUser = (organizationId = '') => {
+    const activeOrganizations = (snapshot?.organizations?.items ?? snapshot?.tenants?.items ?? []).filter(
+      (item) => item.status === 'active' && canCreateOrganizationUser(session, item),
+    )
+    const organization =
+      activeOrganizations.find((item) => item.id === organizationId) ?? activeOrganizations[0]
+    const roles = assignableRoleOptions(session, organization)
+    if (!organization || !roles.length) {
+      setNotice('该组织不允许添加当前身份可分配的账号')
+      return
+    }
     setCreateUserForm({
       ...createUserInitialState,
-      tenantId: tenant?.id ?? '',
+      organizationId: organization?.id ?? '',
       role: roles[0] ?? 'member',
     })
     setCreateUserOpen(true)
@@ -247,11 +274,11 @@ export function App() {
   const submitCreateUser = async (event) => {
     event.preventDefault()
     const confirmed = window.confirm(
-      `确认创建 ${roleName(createUserForm.role)} 账号？\n\n邮箱：${createUserForm.email.trim()}\n组织：${createUserForm.tenantId}`,
+      `确认创建 ${roleName(createUserForm.role)} 账号？\n\n邮箱：${createUserForm.email.trim()}\n组织：${createUserForm.organizationId}`,
     )
     if (!confirmed) return
     await runAction('create-user', async () => {
-      await api.createTenantUser(createUserForm.tenantId, {
+      await api.createOrganizationUser(createUserForm.organizationId, {
         email: createUserForm.email.trim(),
         name: createUserForm.name.trim(),
         password: createUserForm.password,
@@ -264,64 +291,78 @@ export function App() {
     })
   }
 
-  const renameTenant = async (tenant) => {
-    const nextName = window.prompt('输入新的组织名称', tenant.name)
+  const renameOrganization = async (organization) => {
+    const nextName = window.prompt('输入新的组织名称', organization.name)
     const name = nextName?.trim()
-    if (!name || name === tenant.name) return
-    const confirmed = window.confirm(
-      `确认重命名组织？\n\n当前名称：${tenant.name}\n新名称：${name}`,
-    )
+    if (!name || name === organization.name) return
+    const confirmed = window.confirm(`确认重命名组织？\n\n当前名称：${organization.name}\n新名称：${name}`)
     if (!confirmed) return
-    await runAction(`tenant-rename:${tenant.id}`, async () => {
-      await api.updateWorkspace(tenant.id, { name })
+    await runAction(`organization-rename:${organization.id}`, async () => {
+      await api.updateOrganization(organization.id, { name })
       await loadConsole()
       setNotice('组织已重命名')
     })
   }
 
-  const disableTenant = async (tenant) => {
+  const disableOrganization = async (organization) => {
     const confirmed = window.confirm(
-      `确认禁用组织 ${tenant.name}？\n\n该组织下现有 session 将失效，创作端无法继续访问。`,
+      `确认禁用组织 ${organization.name}？\n\n该组织下现有 session 将失效，创作端无法继续访问。`,
     )
     if (!confirmed) return
-    await runAction(`tenant-disable:${tenant.id}`, async () => {
-      await api.disableWorkspace(tenant.id)
+    await runAction(`organization-disable:${organization.id}`, async () => {
+      await api.disableOrganization(organization.id)
       await loadConsole()
       setNotice('组织已禁用')
     })
   }
 
-  const openOwnerTransfer = (tenant) => {
-    const candidates = ownerTransferCandidates(snapshot?.memberships?.items ?? [], tenant.id)
-    setOwnerTransferTarget(tenant)
-    setOwnerTransferForm({
-      ...ownerTransferInitialState,
-      tenantId: tenant.id,
+  const openOrganizationAdminTransfer = (organization) => {
+    const candidates = organizationAdminTransferCandidates(
+      snapshot?.memberships?.items ?? [],
+      organization.id,
+    )
+    setOrganizationAdminTransferTarget(organization)
+    setOrganizationAdminTransferForm({
+      ...organizationAdminTransferInitialState,
+      organizationId: organization.id,
+      currentOrganizationAdminUserId:
+        snapshot?.memberships?.items.find(
+          (membership) =>
+            membership.tenantId === organization.id &&
+            membership.status === 'active' &&
+            membership.userStatus === 'active' &&
+            membership.roles.includes('organization_admin'),
+        )?.userId ?? '',
       targetUserId: candidates[0]?.userId ?? '',
     })
   }
 
-  const submitOwnerTransfer = async (event) => {
+  const submitOrganizationAdminTransfer = async (event) => {
     event.preventDefault()
-    if (!ownerTransferTarget) return
+    if (!organizationAdminTransferTarget) return
     const target = snapshot?.memberships?.items.find(
       (membership) =>
-        membership.tenantId === ownerTransferTarget.id &&
-        membership.userId === ownerTransferForm.targetUserId,
+        membership.tenantId === organizationAdminTransferTarget.id &&
+        membership.userId === organizationAdminTransferForm.targetUserId,
+    )
+    const current = snapshot?.memberships?.items.find(
+      (membership) =>
+        membership.tenantId === organizationAdminTransferTarget.id &&
+        membership.userId === organizationAdminTransferForm.currentOrganizationAdminUserId,
     )
     const confirmed = window.confirm(
-      `确认转让 owner？\n\n组织：${ownerTransferTarget.name}\n新 owner：${target?.name ?? ownerTransferForm.targetUserId}\n原 owner 转为：${roleName(ownerTransferForm.previousOwnerRole)}`,
+      `确认更换组织负责人？\n\n组织：${organizationAdminTransferTarget.name}\n当前负责人：${current?.name ?? organizationAdminTransferForm.currentOrganizationAdminUserId}\n新负责人：${target?.name ?? organizationAdminTransferForm.targetUserId}\n当前负责人将降为组织成员`,
     )
     if (!confirmed) return
-    await runAction(`tenant-transfer:${ownerTransferTarget.id}`, async () => {
-      await api.transferWorkspaceOwner(ownerTransferTarget.id, {
-        targetUserId: ownerTransferForm.targetUserId,
-        previousOwnerRole: ownerTransferForm.previousOwnerRole,
+    await runAction(`organization-admin-change:${organizationAdminTransferTarget.id}`, async () => {
+      await api.transferOrganizationAdmin(organizationAdminTransferTarget.id, {
+        currentOrganizationAdminUserId: organizationAdminTransferForm.currentOrganizationAdminUserId,
+        targetUserId: organizationAdminTransferForm.targetUserId,
       })
-      setOwnerTransferTarget(null)
-      setOwnerTransferForm(ownerTransferInitialState)
+      setOrganizationAdminTransferTarget(null)
+      setOrganizationAdminTransferForm(organizationAdminTransferInitialState)
       await loadConsole()
-      setNotice('Owner 已转让')
+      setNotice('组织负责人已更换')
     })
   }
 
@@ -477,7 +518,7 @@ export function App() {
           <span className="brand-mark">序</span>
           <div>
             <strong>SEQORA Admin</strong>
-            <span>{session.account.tenantId}</span>
+            <span>组织 {session.account.organizationId ?? session.account.tenantId}</span>
           </div>
         </div>
         <div className="topbar-actions">
@@ -552,16 +593,16 @@ export function App() {
                   onForcePasswordReset={forcePasswordReset}
                 />
               )}
-              {activeTab === 'tenants' && (
-                <TenantsTable
-                  tenants={filtered.tenants}
+              {activeTab === 'organizations' && (
+                <OrganizationsTable
+                  organizations={filtered.organizations}
                   session={session}
                   busy={busy}
-                  typeFilter={tenantTypeFilter}
-                  onTypeFilterChange={setTenantTypeFilter}
-                  onRename={renameTenant}
-                  onDisable={disableTenant}
-                  onTransferOwner={openOwnerTransfer}
+                  typeFilter={organizationTypeFilter}
+                  onTypeFilterChange={setOrganizationTypeFilter}
+                  onRename={renameOrganization}
+                  onDisable={disableOrganization}
+                  onTransferOrganizationAdmin={openOrganizationAdminTransfer}
                   onCreateUser={openCreateUser}
                 />
               )}
@@ -581,6 +622,7 @@ export function App() {
                 <BillingPanel
                   accounts={filtered.billingAccounts}
                   entries={filtered.billingLedgerEntries}
+                  reconciliation={filtered.billingPaymentReconciliation}
                   canManage={canAdjustBilling}
                   onAdjust={openAdjustment}
                   onGrant={() => setGrantOpen(true)}
@@ -663,25 +705,27 @@ export function App() {
         />
       )}
       {createUserOpen && (
-        <CreateTenantUserModal
+        <CreateOrganizationUserModal
           form={createUserForm}
-          tenants={snapshot?.tenants?.items ?? []}
-          roleOptions={assignableRoleOptions(session)}
+          organizations={(snapshot?.organizations?.items ?? snapshot?.tenants?.items ?? []).filter(
+            (organization) => canCreateOrganizationUser(session, organization),
+          )}
+          roleOptions={createUserRoleOptions}
           busy={busy === 'create-user'}
           onChange={setCreateUserForm}
           onClose={() => setCreateUserOpen(false)}
           onSubmit={submitCreateUser}
         />
       )}
-      {ownerTransferTarget && (
-        <OwnerTransferModal
-          tenant={ownerTransferTarget}
-          candidates={ownerTransferCandidates(snapshot?.memberships?.items ?? [], ownerTransferTarget.id)}
-          form={ownerTransferForm}
-          busy={busy === `tenant-transfer:${ownerTransferTarget.id}`}
-          onChange={setOwnerTransferForm}
-          onClose={() => setOwnerTransferTarget(null)}
-          onSubmit={submitOwnerTransfer}
+      {organizationAdminTransferTarget && (
+        <OrganizationAdminTransferModal
+          organization={organizationAdminTransferTarget}
+          memberships={snapshot?.memberships?.items ?? []}
+          form={organizationAdminTransferForm}
+          busy={busy === `organization-admin-change:${organizationAdminTransferTarget.id}`}
+          onChange={setOrganizationAdminTransferForm}
+          onClose={() => setOrganizationAdminTransferTarget(null)}
+          onSubmit={submitOrganizationAdminTransfer}
         />
       )}
     </div>
@@ -757,7 +801,7 @@ function DeniedScreen({ session, busy, onLogout }) {
 function OverviewPanel({ snapshot, summary, setActiveTab }) {
   const stats = [
     { label: '用户', value: summary.users, icon: UsersRound, tab: 'users' },
-    { label: '组织', value: summary.tenants, icon: Building2, tab: 'tenants' },
+    { label: '组织', value: summary.organizations, icon: Building2, tab: 'organizations' },
     { label: '成员关系', value: summary.memberships, icon: IdCard, tab: 'memberships' },
     { label: 'Session', value: summary.sessions, icon: KeyRound, tab: 'sessions' },
     { label: '账单账户', value: summary.billingAccounts, icon: CreditCard, tab: 'billing' },
@@ -883,32 +927,32 @@ function UsersTable({
   )
 }
 
-function TenantsTable({
-  tenants,
+function OrganizationsTable({
+  organizations,
   session,
   busy,
   typeFilter,
   onTypeFilterChange,
   onRename,
   onDisable,
-  onTransferOwner,
+  onTransferOrganizationAdmin,
   onCreateUser,
 }) {
-  const visibleTenants =
+  const visibleOrganizations =
     typeFilter === 'all'
-      ? tenants
-      : tenants.filter((tenant) => classifyWorkspace(tenant).type === typeFilter)
-  const typeCounts = summarizeWorkspaceTypes(tenants)
+      ? organizations
+      : organizations.filter((organization) => classifyOrganization(organization).type === typeFilter)
+  const typeCounts = summarizeOrganizationTypes(organizations)
 
   return (
-    <DataSection title="组织列表" count={visibleTenants.length}>
-      <div className="inline-filter-bar tenant-filter-bar">
+    <DataSection title="组织列表" count={visibleOrganizations.length}>
+      <div className="inline-filter-bar organization-filter-bar">
         <label>
           <Building2 size={14} />
           <select value={typeFilter} onChange={(event) => onTypeFilterChange(event.target.value)}>
-            {['all', 'system', 'test', 'enterprise', 'workspace'].map((type) => (
+            {['all', 'system', 'test', 'enterprise', 'standard'].map((type) => (
               <option key={type} value={type}>
-                {workspaceTypeName(type)} · {typeCounts[type] ?? 0}
+                {organizationTypeName(type)} · {typeCounts[type] ?? 0}
               </option>
             ))}
           </select>
@@ -921,41 +965,44 @@ function TenantsTable({
             <th>类型</th>
             <th>状态</th>
             <th>成员</th>
-            <th>Owner</th>
+            <th>组织管理员</th>
             <th>创建者</th>
             <th>更新时间</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          {visibleTenants.map((tenant) => {
-            const workspaceType = classifyWorkspace(tenant)
+          {visibleOrganizations.map((organization) => {
+            const organizationType = classifyOrganization(organization)
             return (
-              <tr key={tenant.id}>
+              <tr key={organization.id}>
                 <td>
-                  <IdentityCell name={tenant.name} detail={tenant.id} />
+                  <IdentityCell name={organization.name} detail={organization.id} />
                 </td>
                 <td>
-                  <WorkspaceTypeBadge workspaceType={workspaceType} />
+                  <OrganizationTypeBadge organizationType={organizationType} />
                 </td>
                 <td>
-                  <StatusBadge status={tenant.status} />
+                  <StatusBadge status={organization.status} />
                 </td>
                 <td>
-                  {tenant.activeMembershipCount} / {tenant.membershipCount}
+                  {organization.activeMembershipCount} / {organization.membershipCount}
                 </td>
-                <td>{tenant.activeOwnerCount}</td>
-                <td>{tenant.createdByEmail ?? tenant.createdByName ?? '-'}</td>
-                <td>{formatDate(tenant.updatedAt)}</td>
+                <td>{organization.activeOrganizationAdminCount}</td>
+                <td>{organization.createdByEmail ?? organization.createdByName ?? '-'}</td>
+                <td>{formatDate(organization.updatedAt)}</td>
                 <td>
                   <div className="row-actions">
                     <button
                       className="row-button"
                       type="button"
-                      disabled={!canManageTenant(session, tenant.id) || busy === `tenant-rename:${tenant.id}`}
-                      onClick={() => onRename(tenant)}
+                      disabled={
+                        !canManageOrganization(session, organization) ||
+                        busy === `organization-rename:${organization.id}`
+                      }
+                      onClick={() => onRename(organization)}
                     >
-                      {busy === `tenant-rename:${tenant.id}` ? (
+                      {busy === `organization-rename:${organization.id}` ? (
                         <LoaderCircle size={14} className="spin" />
                       ) : (
                         <PencilLine size={14} />
@@ -965,8 +1012,10 @@ function TenantsTable({
                     <button
                       className="row-button"
                       type="button"
-                      disabled={tenant.status !== 'active' || !canManageTenant(session, tenant.id)}
-                      onClick={() => onCreateUser(tenant.id)}
+                      disabled={
+                        organization.status !== 'active' || !canCreateOrganizationUser(session, organization)
+                      }
+                      onClick={() => onCreateUser(organization.id)}
                     >
                       <Plus size={14} />
                       添加账号
@@ -975,30 +1024,30 @@ function TenantsTable({
                       className="row-button"
                       type="button"
                       disabled={
-                        !canTransferTenantOwner(session, tenant.id) ||
-                        tenant.activeOwnerCount < 1 ||
-                        busy === `tenant-transfer:${tenant.id}`
+                        !canTransferOrganizationAdmin(session, organization) ||
+                        organization.activeOrganizationAdminCount < 1 ||
+                        busy === `organization-admin-change:${organization.id}`
                       }
-                      onClick={() => onTransferOwner(tenant)}
+                      onClick={() => onTransferOrganizationAdmin(organization)}
                     >
-                      {busy === `tenant-transfer:${tenant.id}` ? (
+                      {busy === `organization-admin-change:${organization.id}` ? (
                         <LoaderCircle size={14} className="spin" />
                       ) : (
                         <ShieldCheck size={14} />
                       )}
-                      转让 owner
+                      更换组织负责人
                     </button>
                     <button
                       className="row-button danger"
                       type="button"
                       disabled={
-                        tenant.status !== 'active' ||
-                        !canDisableTenant(session, tenant.id) ||
-                        busy === `tenant-disable:${tenant.id}`
+                        organization.status !== 'active' ||
+                        !canDisableOrganization(session, organization) ||
+                        busy === `organization-disable:${organization.id}`
                       }
-                      onClick={() => onDisable(tenant)}
+                      onClick={() => onDisable(organization)}
                     >
-                      {busy === `tenant-disable:${tenant.id}` ? (
+                      {busy === `organization-disable:${organization.id}` ? (
                         <LoaderCircle size={14} className="spin" />
                       ) : (
                         <Power size={14} />
@@ -1010,7 +1059,7 @@ function TenantsTable({
               </tr>
             )
           })}
-          <EmptyRow visible={!visibleTenants.length} columns={8} />
+          <EmptyRow visible={!visibleOrganizations.length} columns={8} />
         </tbody>
       </table>
     </DataSection>
@@ -1118,7 +1167,7 @@ function MembershipsTable({
   )
 }
 
-function BillingPanel({ accounts, entries, canManage, onAdjust, onGrant }) {
+function BillingPanel({ accounts, entries, reconciliation, canManage, onAdjust, onGrant }) {
   return (
     <div className="stack">
       <DataSection title="账单账户" count={accounts.length}>
@@ -1197,6 +1246,47 @@ function BillingPanel({ accounts, entries, canManage, onAdjust, onGrant }) {
               </tr>
             ))}
             <EmptyRow visible={!entries.length} columns={6} />
+          </tbody>
+        </table>
+      </DataSection>
+
+      <DataSection title="支付对账" count={reconciliation.length}>
+        <table className="data-table wide">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>事件</th>
+              <th>状态</th>
+              <th>积分</th>
+              <th>Membership</th>
+              <th>Ledger</th>
+              <th>消息</th>
+              <th>创建时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reconciliation.map((item) => (
+              <tr key={item.id}>
+                <td>{item.provider}</td>
+                <td>
+                  <div className="stacked-cell">
+                    <strong>{item.eventType}</strong>
+                    <small>{shortId(item.providerEventId)}</small>
+                  </div>
+                </td>
+                <td>
+                  <PaymentStatusBadge status={item.status} />
+                </td>
+                <td className={(item.amount ?? 0) >= 0 ? 'amount positive' : 'amount negative'}>
+                  {item.amount === null ? '-' : formatSignedAmount(item.amount)}
+                </td>
+                <td>{shortId(item.membershipId)}</td>
+                <td>{shortId(item.ledgerEntryId)}</td>
+                <td>{item.message}</td>
+                <td>{formatDate(item.createdAt)}</td>
+              </tr>
+            ))}
+            <EmptyRow visible={!reconciliation.length} columns={8} />
           </tbody>
         </table>
       </DataSection>
@@ -1328,7 +1418,7 @@ function BillingAdjustmentPage({
               <th>类型</th>
               <th>金额</th>
               <th>余额</th>
-            <th>成员关系</th>
+              <th>成员关系</th>
               <th>描述</th>
               <th>Reference</th>
               <th>创建时间</th>
@@ -1689,10 +1779,18 @@ function PasswordResetModal({ target, form, busy, onChange, onClose, onSubmit })
   )
 }
 
-function CreateTenantUserModal({ form, tenants, roleOptions, busy, onChange, onClose, onSubmit }) {
-  const activeTenants = tenants.filter((tenant) => tenant.status === 'active')
+function CreateOrganizationUserModal({
+  form,
+  organizations,
+  roleOptions,
+  busy,
+  onChange,
+  onClose,
+  onSubmit,
+}) {
+  const activeOrganizations = organizations.filter((organization) => organization.status === 'active')
   const valid =
-    form.tenantId &&
+    form.organizationId &&
     form.email.trim().includes('@') &&
     form.name.trim().length > 0 &&
     form.password.length >= 12 &&
@@ -1704,14 +1802,14 @@ function CreateTenantUserModal({ form, tenants, roleOptions, busy, onChange, onC
         <label>
           <span>组织</span>
           <select
-            value={form.tenantId}
-            onChange={(event) => onChange({ ...form, tenantId: event.target.value })}
-            disabled={!activeTenants.length}
+            value={form.organizationId}
+            onChange={(event) => onChange({ ...form, organizationId: event.target.value })}
+            disabled={!activeOrganizations.length}
             required
           >
-            {activeTenants.map((tenant) => (
-              <option key={tenant.id} value={tenant.id}>
-                {tenant.name} · {tenant.id}
+            {activeOrganizations.map((organization) => (
+              <option key={organization.id} value={organization.id}>
+                {organization.name} · {organization.id}
               </option>
             ))}
           </select>
@@ -1767,14 +1865,42 @@ function CreateTenantUserModal({ form, tenants, roleOptions, busy, onChange, onC
   )
 }
 
-function OwnerTransferModal({ tenant, candidates, form, busy, onChange, onClose, onSubmit }) {
-  const valid = Boolean(form.targetUserId)
+function OrganizationAdminTransferModal({
+  organization,
+  memberships,
+  form,
+  busy,
+  onChange,
+  onClose,
+  onSubmit,
+}) {
+  const candidates = organizationAdminTransferCandidates(memberships, organization.id)
+  const current = memberships.find(
+    (membership) =>
+      membership.tenantId === organization.id && membership.userId === form.currentOrganizationAdminUserId,
+  )
+  const valid = Boolean(form.currentOrganizationAdminUserId && form.targetUserId)
   return (
-    <Modal title="转让 owner" onClose={onClose}>
+    <Modal title="更换组织负责人" onClose={onClose}>
       <form className="modal-form" onSubmit={onSubmit}>
-        <IdentityCell name={tenant.name} detail={tenant.id} />
+        <IdentityCell name={organization.name} detail={organization.id} />
         <label>
-          <span>新 owner</span>
+          <span>当前负责人</span>
+          <select
+            value={form.currentOrganizationAdminUserId}
+            onChange={(event) => onChange({ ...form, currentOrganizationAdminUserId: event.target.value })}
+            disabled={!current}
+            required
+          >
+            {current && (
+              <option value={current.userId}>
+                {current.name} · {current.email ?? current.userId}
+              </option>
+            )}
+          </select>
+        </label>
+        <label>
+          <span>新负责人</span>
           <select
             value={form.targetUserId}
             onChange={(event) => onChange({ ...form, targetUserId: event.target.value })}
@@ -1783,25 +1909,13 @@ function OwnerTransferModal({ tenant, candidates, form, busy, onChange, onClose,
           >
             {candidates.map((membership) => (
               <option key={membership.id} value={membership.userId}>
-                {membership.name} · {membership.email ?? membership.userId} ·{' '}
-                {membership.roles.map(roleName).join('、')}
+                {membership.name} · {membership.email ?? membership.userId}
               </option>
             ))}
           </select>
         </label>
-        <label>
-          <span>原 owner 转为</span>
-          <select
-            value={form.previousOwnerRole}
-            onChange={(event) => onChange({ ...form, previousOwnerRole: event.target.value })}
-          >
-            <option value="admin">管理员</option>
-            <option value="organization_admin">组织管理员</option>
-            <option value="member">普通成员</option>
-            <option value="organization_member">组织成员</option>
-          </select>
-        </label>
-        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="确认转让" />
+        <p className="modal-hint">当前负责人将降为组织成员，平台所有者不会变化。</p>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="确认更换" />
       </form>
     </Modal>
   )
@@ -1865,6 +1979,15 @@ function StatusBadge({ status }) {
   return <span className={`status-badge ${status}`}>{statusName(status)}</span>
 }
 
+function PaymentStatusBadge({ status }) {
+  const labels = {
+    processed: '已处理',
+    ignored: '已忽略',
+    failed: '失败',
+  }
+  return <span className={`payment-status-badge ${status}`}>{labels[status] ?? status}</span>
+}
+
 function PasswordResetBadge({ required }) {
   return (
     <span className={required ? 'security-badge required' : 'security-badge'}>
@@ -1893,7 +2016,7 @@ function RolePills({ roles }) {
 }
 
 function RoleEditor({ membership, session, busy, onUpdateRole }) {
-  const options = assignableRoleOptions(session)
+  const options = assignableRoleOptions(session, membership)
   const currentRole = membership.roles[0] ?? 'member'
   const editable = canManageMembership(session, membership) && !membership.roles.includes('owner')
   const visibleOptions = options.includes(currentRole) ? options : [currentRole, ...options]
@@ -1918,10 +2041,10 @@ function RoleEditor({ membership, session, busy, onUpdateRole }) {
   )
 }
 
-function WorkspaceTypeBadge({ workspaceType }) {
+function OrganizationTypeBadge({ organizationType }) {
   return (
-    <span className={`workspace-type-badge ${workspaceType.type}`} title={workspaceType.description}>
-      {workspaceType.label}
+    <span className={`organization-type-badge ${organizationType.type}`} title={organizationType.description}>
+      {organizationType.label}
     </span>
   )
 }
@@ -1941,7 +2064,8 @@ function tabCount(tabId, summary) {
   const counts = {
     overview: '',
     users: summary.users,
-    tenants: summary.tenants,
+    organizations: summary.organizations,
+    tenants: summary.organizations,
     memberships: summary.memberships,
     billing: summary.billingAccounts,
     adjustments: summary.billingAccounts,
@@ -2020,24 +2144,24 @@ function compactJson(value) {
   return text.length > 96 ? `${text.slice(0, 93)}...` : text
 }
 
-function ownerTransferCandidates(memberships, tenantId) {
+function organizationAdminTransferCandidates(memberships, tenantId) {
   return memberships.filter(
     (membership) =>
       membership.tenantId === tenantId &&
       membership.status === 'active' &&
       membership.userStatus === 'active' &&
-      !membership.roles.includes('owner'),
+      membership.roles.includes('organization_member'),
   )
 }
 
-function summarizeWorkspaceTypes(tenants) {
-  return tenants.reduce(
-    (summary, tenant) => {
+function summarizeOrganizationTypes(organizations) {
+  return organizations.reduce(
+    (summary, organization) => {
       summary.all += 1
-      const type = classifyWorkspace(tenant).type
+      const type = classifyOrganization(organization).type
       summary[type] = (summary[type] ?? 0) + 1
       return summary
     },
-    { all: 0, system: 0, test: 0, enterprise: 0, workspace: 0 },
+    { all: 0, system: 0, test: 0, enterprise: 0, standard: 0 },
   )
 }

@@ -33,13 +33,15 @@ export const riskLevelLabels = {
   low: '正常',
 }
 
-export const workspaceTypeLabels = {
+export const organizationTypeLabels = {
   all: '全部类型',
-  system: '系统默认组织',
+  system: '系统组织',
   test: '测试组织',
   enterprise: '企业组织',
-  workspace: '普通组织',
+  standard: '普通组织',
 }
+
+const systemOrganizationRoles = new Set(['owner', 'super_admin', 'admin'])
 
 export function canReadAdminConsole(session) {
   return session?.permissions?.includes(PERMISSIONS.ADMIN_DASHBOARD_READ) ?? false
@@ -62,52 +64,73 @@ export function isPlatformAdminSession(session) {
   return roles.includes('owner') || roles.includes('super_admin')
 }
 
-export function isTenantManagerSession(session) {
+export function isPlatformInternalSession(session) {
+  const roles = session?.account?.roles ?? []
+  return roles.some((role) => systemOrganizationRoles.has(role))
+}
+
+export function isOrganizationManagerSession(session) {
   const roles = session?.account?.roles ?? []
   return isPlatformAdminSession(session) || roles.includes('admin') || roles.includes('organization_admin')
 }
 
-export function canManageTenant(session, tenantId) {
+export function canManageOrganization(session, organization) {
   if (!canManageUsers(session)) return false
+  const organizationId = organizationIdFor(organization)
+  if (isSystemOrganization(organization) && !isPlatformInternalSession(session)) return false
   if (isPlatformAdminSession(session)) return true
-  return isTenantManagerSession(session) && session?.account?.tenantId === tenantId
+  return isOrganizationManagerSession(session) && session?.account?.tenantId === organizationId
 }
 
-export function canDisableTenant(session, tenantId) {
-  return isOwnerSession(session) && canManageTenant(session, tenantId)
+export function canDisableOrganization(session, organization) {
+  if (isSystemOrganization(organization)) return false
+  return isOwnerSession(session) && canManageOrganization(session, organization)
 }
 
-export function canTransferTenantOwner(session, tenantId) {
-  return isOwnerSession(session) && canManageTenant(session, tenantId)
+export function canTransferOrganizationAdmin(session, organization) {
+  if (isSystemOrganization(organization)) return false
+  return isPlatformAdminSession(session) && canManageOrganization(session, organization)
 }
 
-export function canAssignRole(session, role) {
+export function canAssignRole(session, role, organization) {
+  if (isSystemOrganization(organization) && !systemOrganizationRoles.has(role)) return false
   if (role === 'owner' || role === 'super_admin') return isOwnerSession(session)
   if (role === 'admin' || role === 'organization_admin') return isPlatformAdminSession(session)
-  if (role === 'organization_member') return isTenantManagerSession(session)
+  if (role === 'organization_member') return isOrganizationManagerSession(session)
   if (role === 'member') {
     return isPlatformAdminSession(session) || session?.account?.roles?.includes('admin')
   }
   return false
 }
 
-export function assignableRoleOptions(session) {
+export function assignableRoleOptions(session, organization) {
+  const filterSystemRoles = (roles) =>
+    isSystemOrganization(organization) ? roles.filter((role) => systemOrganizationRoles.has(role)) : roles
   if (isOwnerSession(session)) {
-    return ['member', 'admin', 'organization_member', 'organization_admin', 'super_admin']
+    return filterSystemRoles(['member', 'admin', 'organization_member', 'organization_admin', 'super_admin'])
   }
-  if (isPlatformAdminSession(session)) return ['member', 'admin', 'organization_member', 'organization_admin']
-  if (session?.account?.roles?.includes('admin')) return ['member']
-  if (session?.account?.roles?.includes('organization_admin')) return ['organization_member']
+  if (isPlatformAdminSession(session))
+    return filterSystemRoles(['member', 'admin', 'organization_member', 'organization_admin'])
+  if (session?.account?.roles?.includes('admin')) return filterSystemRoles(['member'])
+  if (session?.account?.roles?.includes('organization_admin'))
+    return filterSystemRoles(['organization_member'])
   return []
 }
 
+export function canCreateOrganizationUser(session, organization) {
+  return (
+    canManageOrganization(session, organization) && assignableRoleOptions(session, organization).length > 0
+  )
+}
+
 export function canManageMembership(session, membership) {
-  if (!canManageTenant(session, membership?.tenantId)) return false
+  if (!canManageOrganization(session, membership)) return false
   if (session?.account?.id === membership?.userId) return false
   const roles = membership?.roles ?? []
   if (roles.includes('owner') || roles.includes('super_admin')) return isOwnerSession(session)
   if (roles.includes('admin') || roles.includes('organization_admin')) return isPlatformAdminSession(session)
-  if (roles.includes('member')) return isPlatformAdminSession(session) || session?.account?.roles?.includes('admin')
+  if (roles.includes('member'))
+    return isPlatformAdminSession(session) || session?.account?.roles?.includes('admin')
   if (roles.includes('organization_member')) {
     return isPlatformAdminSession(session) || session?.account?.roles?.includes('organization_admin')
   }
@@ -134,22 +157,22 @@ export function riskLevelName(level) {
   return riskLevelLabels[level] ?? level
 }
 
-export function workspaceTypeName(type) {
-  return workspaceTypeLabels[type] ?? type
+export function organizationTypeName(type) {
+  return organizationTypeLabels[type] ?? type
 }
 
-export function classifyWorkspace(tenant) {
-  const id = tenant?.id ?? ''
-  const name = tenant?.name ?? ''
-  const creatorEmail = tenant?.createdByEmail ?? ''
+export function classifyOrganization(organization) {
+  const id = organization?.id ?? ''
+  const name = organization?.name ?? ''
+  const createdByEmail = organization?.createdByEmail ?? ''
   const normalizedName = name.trim().toLowerCase()
-  const normalizedEmail = creatorEmail.trim().toLowerCase()
+  const normalizedEmail = createdByEmail.trim().toLowerCase()
 
-  if (id === 'tenant-seqora-demo' || normalizedName === 'seqora local') {
+  if (isSystemOrganization(organization) || normalizedName === 'seqora local') {
     return {
       type: 'system',
-      label: workspaceTypeName('system'),
-      description: '本地默认账号体系使用的主组织',
+      label: organizationTypeName('system'),
+      description: '平台内部使用，不作为企业业务组织',
     }
   }
   if (
@@ -161,7 +184,7 @@ export function classifyWorkspace(tenant) {
   ) {
     return {
       type: 'test',
-      label: workspaceTypeName('test'),
+      label: organizationTypeName('test'),
       description: '由本地测试或调试流程创建',
     }
   }
@@ -173,15 +196,27 @@ export function classifyWorkspace(tenant) {
   ) {
     return {
       type: 'enterprise',
-      label: workspaceTypeName('enterprise'),
+      label: organizationTypeName('enterprise'),
       description: '面向 B 端客户、团队或企业组织',
     }
   }
   return {
-    type: 'workspace',
-    label: workspaceTypeName('workspace'),
+    type: 'standard',
+    label: organizationTypeName('standard'),
     description: '普通创作组织',
   }
+}
+
+export function isSystemOrganization(organization) {
+  if (!organization) return false
+  if (typeof organization === 'string') return organization === 'tenant-seqora-demo'
+  const id = organization.id ?? organization.tenantId
+  return organization.isSystem === true || id === 'tenant-seqora-demo'
+}
+
+function organizationIdFor(organization) {
+  if (typeof organization === 'string') return organization
+  return organization?.id ?? organization?.tenantId ?? ''
 }
 
 export function formatDate(value) {
@@ -212,12 +247,15 @@ export function rowMatches(value, query) {
 }
 
 export function summarizeConsole(snapshot) {
+  const organizationTotal = snapshot?.organizations?.meta?.total ?? snapshot?.tenants?.meta?.total ?? 0
   return {
     users: snapshot?.users?.meta?.total ?? snapshot?.overview?.users ?? 0,
-    tenants: snapshot?.tenants?.meta?.total ?? 0,
+    organizations: organizationTotal,
+    tenants: organizationTotal,
     memberships: snapshot?.memberships?.meta?.total ?? 0,
     sessions: snapshot?.sessions?.meta?.total ?? 0,
     billingAccounts: snapshot?.billingAccounts?.meta?.total ?? 0,
+    paymentReconciliation: snapshot?.billingPaymentReconciliation?.meta?.total ?? 0,
     auditLogs: snapshot?.auditLogs?.meta?.total ?? 0,
   }
 }
