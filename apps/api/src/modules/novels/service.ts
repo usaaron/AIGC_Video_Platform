@@ -1,4 +1,5 @@
 import type {
+  AiJob,
   CommitNovelSummaryQueueResultsRequest,
   CreateNovelSummaryQueueRequest,
   DetectNovelBoundariesRequest,
@@ -48,6 +49,9 @@ import {
 import { createHash } from 'node:crypto'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
+import type { AiJobExecutionResult, AiJobHandler } from '../../core/jobs/aiJobRunner.js'
+import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
+import type { AiJobRepository } from '../aiJobs/repository.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
 import type { NovelRepository } from './repository.js'
 
@@ -145,30 +149,38 @@ const NOVEL_STORY_BIBLE_MAX_TOKENS = 6_000
 const NOVEL_ASSET_SUGGESTIONS_MAX_TOKENS = 6_000
 const STORY_OVERVIEW_SUMMARY_CHAR_LIMIT = 420
 const STORY_OVERVIEW_FACT_CHAR_LIMIT = 120
+const AI_JOB_TEXT_PROVIDER = 'text'
+const NOVEL_SUMMARY_QUEUE_BATCH_JOB_KIND = 'novel.summaryQueueBatch'
 const MOJIBAKE_PATTERN = /锟斤拷|銆|鐨|涓|锛|鈥|妗|绔|浠|珨|腔|衄|饒|欴|[ÃÂâ]/gu
 const REPLACEMENT_PATTERN = /\uFFFD/gu
 
-export class NovelService {
+export class NovelService implements AiJobHandler {
   constructor(
     private readonly repository: NovelRepository,
     private readonly textProvider: TextGenerationProvider | null = null,
     private readonly creditLedger: CreditLedger | null = null,
+    private readonly aiJobs: AiJobRepository | null = null,
+    private readonly aiJobDispatcher: TaskDispatcher | null = null,
   ) {}
 
-  list(projectId: string, principal: Principal) {
-    const documents = this.repository.list(projectId, principal)
+  async list(projectId: string, principal: Principal) {
+    const documents = await this.repository.list(projectId, principal)
     if (!documents) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权访问')
     return documents
   }
 
-  detail(projectId: string, documentId: string, principal: Principal) {
-    const detail = this.repository.detail(projectId, documentId, principal)
+  async detail(projectId: string, documentId: string, principal: Principal) {
+    const detail = await this.repository.detail(projectId, documentId, principal)
     if (!detail) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权访问')
     return detail
   }
 
-  boundaries(projectId: string, documentId: string, principal: Principal): NovelBoundaryDetectionResult {
-    const result = this.repository.boundaries(projectId, documentId, principal)
+  async boundaries(
+    projectId: string,
+    documentId: string,
+    principal: Principal,
+  ): Promise<NovelBoundaryDetectionResult> {
+    const result = await this.repository.boundaries(projectId, documentId, principal)
     if (!result) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权访问边界识别结果')
     return result
   }
@@ -179,7 +191,7 @@ export class NovelService {
     input: DetectNovelBoundariesRequest,
     principal: Principal,
   ): Promise<NovelBoundaryDetectionResult> {
-    const source = this.repository.boundaryDetectionSource(projectId, documentId, principal)
+    const source = await this.repository.boundaryDetectionSource(projectId, documentId, principal)
     if (!source) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权检测边界')
     const warnings: string[] = []
     const drafts = detectBoundaryDrafts(source.chapters).slice(0, input.maxBoundaries)
@@ -205,7 +217,7 @@ export class NovelService {
     clientRequestId: string,
     principal: Principal,
   ): Promise<NovelBoundaryNotesResult> {
-    const current = this.repository.boundaries(projectId, documentId, principal)
+    const current = await this.repository.boundaries(projectId, documentId, principal)
     if (!current) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成边界说明')
     const selected = selectBoundariesForNotes(current.boundaries, input)
     if (!selected.length) {
@@ -259,9 +271,13 @@ export class NovelService {
     )
   }
 
-  summaries(projectId: string, documentId: string, principal: Principal): NovelChapterSummariesResult {
-    const detail = this.detail(projectId, documentId, principal)
-    const summaries = this.repository.summaries(projectId, documentId, principal)
+  async summaries(
+    projectId: string,
+    documentId: string,
+    principal: Principal,
+  ): Promise<NovelChapterSummariesResult> {
+    const detail = await this.detail(projectId, documentId, principal)
+    const summaries = await this.repository.summaries(projectId, documentId, principal)
     if (!summaries) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权访问')
     return {
       document: detail.document,
@@ -271,8 +287,12 @@ export class NovelService {
     }
   }
 
-  summaryQueue(projectId: string, documentId: string, principal: Principal): NovelSummaryQueueResult {
-    const result = this.repository.summaryQueue(projectId, documentId, principal)
+  async summaryQueue(
+    projectId: string,
+    documentId: string,
+    principal: Principal,
+  ): Promise<NovelSummaryQueueResult> {
+    const result = await this.repository.summaryQueue(projectId, documentId, principal)
     if (!result) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权访问摘要队列')
     return result
   }
@@ -296,6 +316,17 @@ export class NovelService {
     clientRequestId: string,
     principal: Principal,
   ): Promise<NovelSummaryQueueBatchResult> {
+    if (this.aiJobs && this.aiJobDispatcher) {
+      return this.enqueueSummaryQueueBatchTask(
+        projectId,
+        documentId,
+        queueId,
+        input,
+        clientRequestId,
+        principal,
+      )
+    }
+
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     return this.runBillableNovelOperation(
       principal,
@@ -306,13 +337,145 @@ export class NovelService {
     )
   }
 
+  canHandle(job: AiJob): boolean {
+    return job.kind === NOVEL_SUMMARY_QUEUE_BATCH_JOB_KIND
+  }
+
+  async execute(job: AiJob): Promise<AiJobExecutionResult> {
+    if (!this.canHandle(job)) throw new AppError(400, 'AI_JOB_UNSUPPORTED', '不支持的 AI 任务类型')
+    if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
+    const documentId = stringMetadata(job.input.documentId)
+    const queueId = stringMetadata(job.input.queueId)
+    if (!documentId || !queueId) {
+      throw new AppError(400, 'AI_JOB_INPUT_INVALID', 'AI 任务缺少小说摘要队列输入')
+    }
+    const batchSize = numberMetadata(job.input.batchSize)
+    const result = await this.runSummaryQueueBatchInternal(
+      job.projectId,
+      documentId,
+      queueId,
+      batchSize ? { batchSize } : {},
+      { userId: job.userId, tenantId: job.tenantId, roles: [] },
+    )
+    return {
+      output: {
+        aiOperationCompletedAt: result.queue?.updatedAt ?? new Date().toISOString(),
+        novelDocumentId: documentId,
+        novelSummaryQueueId: queueId,
+        processedItemIds: result.processedItemIds,
+        failedItemIds: result.failedItemIds,
+        warningCount: result.warnings.length,
+      },
+    }
+  }
+
+  private async enqueueSummaryQueueBatchTask(
+    projectId: string,
+    documentId: string,
+    queueId: string,
+    input: RunNovelSummaryQueueBatchRequest,
+    clientRequestId: string,
+    principal: Principal,
+  ): Promise<NovelSummaryQueueBatchResult> {
+    const source = await this.repository.summaryQueueSource(projectId, documentId, queueId, principal)
+    if (!source) throw new AppError(404, 'NOVEL_SUMMARY_QUEUE_NOT_FOUND', '摘要队列不存在或无权访问')
+    if (source.queue.status === 'paused') {
+      throw new AppError(409, 'NOVEL_SUMMARY_QUEUE_PAUSED', '摘要队列已暂停，请先恢复后再处理')
+    }
+    if (['completed', 'cancelled'].includes(source.queue.status)) {
+      throw new AppError(409, 'NOVEL_SUMMARY_QUEUE_TERMINAL', '摘要队列已结束，不能继续处理')
+    }
+
+    const batchSize = Math.min(input.batchSize ?? source.queue.batchSize, 24)
+    const pendingItemIds = source.items
+      .filter((item) => item.status === 'pending')
+      .sort((left, right) => left.order - right.order)
+      .slice(0, batchSize)
+      .map((item) => item.id)
+    const latest = await this.repository.summaryQueue(projectId, documentId, principal)
+    if (!latest) throw new AppError(404, 'NOVEL_SUMMARY_QUEUE_NOT_FOUND', '摘要队列不存在或无权访问')
+
+    const activeTask = await this.findActiveSummaryQueueBatchTask(projectId, documentId, queueId, principal)
+    if (activeTask) {
+      if (activeTask.status === 'queued') await this.aiJobDispatcher!.dispatch(activeTask)
+      return {
+        ...latest,
+        processedItemIds: [],
+        failedItemIds: [],
+        task: activeTask,
+        warnings: [`已有后台 AI 任务 ${activeTask.id} 正在处理该摘要队列`],
+      }
+    }
+
+    if (!pendingItemIds.length) {
+      return {
+        ...latest,
+        processedItemIds: [],
+        failedItemIds: [],
+        warnings: ['当前摘要队列没有待处理条目'],
+      }
+    }
+
+    const task = await this.aiJobs!.createWithCharge(
+      {
+        clientRequestId: `novel-summary-queue-${queueId}-${clientRequestId}`,
+        projectId,
+        kind: NOVEL_SUMMARY_QUEUE_BATCH_JOB_KIND,
+        label: `${source.document.name} · 章节摘要队列`,
+        provider: AI_JOB_TEXT_PROVIDER,
+        costCredits: NOVEL_OPERATION_CREDITS.chapterSummaryBatch,
+        maxAttempts: 3,
+        input: {
+          documentId,
+          queueId,
+          batchSize,
+          pendingItemIds,
+        },
+      },
+      principal,
+    )
+    await this.aiJobDispatcher!.dispatch(task)
+    return {
+      ...latest,
+      processedItemIds: [],
+      failedItemIds: [],
+      task,
+      warnings: [`已创建后台 AI 任务 ${task.id}，摘要结果会由 Worker 写回`],
+    }
+  }
+
+  private async findActiveSummaryQueueBatchTask(
+    projectId: string,
+    documentId: string,
+    queueId: string,
+    principal: Principal,
+  ): Promise<AiJob | null> {
+    if (!this.aiJobs) return null
+    const tasks = await this.aiJobs.listByProject(projectId, principal)
+    return (
+      tasks
+        .filter(
+          (task) =>
+            task.kind === NOVEL_SUMMARY_QUEUE_BATCH_JOB_KIND &&
+            task.input.documentId === documentId &&
+            task.input.queueId === queueId &&
+            ['queued', 'running', 'paused'].includes(task.status),
+        )
+        .sort((left, right) => {
+          const createdAt = right.createdAt.localeCompare(left.createdAt)
+          if (createdAt !== 0) return createdAt
+          return right.id.localeCompare(left.id)
+        })[0] ?? null
+    )
+  }
+
   async pauseSummaryQueue(
     projectId: string,
     documentId: string,
     queueId: string,
     principal: Principal,
   ): Promise<NovelSummaryQueueResult> {
-    const source = this.repository.summaryQueueSource(projectId, documentId, queueId, principal)
+    const source = await this.repository.summaryQueueSource(projectId, documentId, queueId, principal)
     if (!source) throw new AppError(404, 'NOVEL_SUMMARY_QUEUE_NOT_FOUND', '摘要队列不存在或无权访问')
     if (['completed', 'cancelled'].includes(source.queue.status)) {
       throw new AppError(409, 'NOVEL_SUMMARY_QUEUE_TERMINAL', '摘要队列已结束，不能暂停')
@@ -394,7 +557,7 @@ export class NovelService {
     input: RunNovelSummaryQueueBatchRequest,
     principal: Principal,
   ): Promise<NovelSummaryQueueBatchResult> {
-    const source = this.repository.summaryQueueSource(projectId, documentId, queueId, principal)
+    const source = await this.repository.summaryQueueSource(projectId, documentId, queueId, principal)
     if (!source) throw new AppError(404, 'NOVEL_SUMMARY_QUEUE_NOT_FOUND', '摘要队列不存在或无权访问')
     if (source.queue.status === 'paused') {
       throw new AppError(409, 'NOVEL_SUMMARY_QUEUE_PAUSED', '摘要队列已暂停，请先恢复后再处理')
@@ -463,7 +626,7 @@ export class NovelService {
       }
     }
 
-    const latest = this.repository.summaryQueue(projectId, documentId, principal)
+    const latest = await this.repository.summaryQueue(projectId, documentId, principal)
     if (!latest) throw new AppError(404, 'NOVEL_SUMMARY_QUEUE_NOT_FOUND', '摘要队列不存在或无权访问')
     return {
       ...latest,
@@ -477,6 +640,7 @@ export class NovelService {
     novelName: string,
     chapter: SummarySourceChapter,
   ): Promise<NovelSummaryQueueItemResult> {
+    if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const response = await this.textProvider!.generate({
       systemPrompt: NOVEL_CHAPTER_SUMMARY_SYSTEM_PROMPT,
       userPrompt: chapterSummaryPrompt(novelName, [chapter]),
@@ -498,12 +662,16 @@ export class NovelService {
     }
   }
 
-  storyBible(projectId: string, documentId: string, principal: Principal): NovelStoryBibleReadResult {
-    const detail = this.detail(projectId, documentId, principal)
-    const summaries = this.repository.summaries(projectId, documentId, principal)
+  async storyBible(
+    projectId: string,
+    documentId: string,
+    principal: Principal,
+  ): Promise<NovelStoryBibleReadResult> {
+    const detail = await this.detail(projectId, documentId, principal)
+    const summaries = await this.repository.summaries(projectId, documentId, principal)
     if (!summaries) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权访问')
     return {
-      storyBible: this.repository.storyBible(projectId, documentId, principal),
+      storyBible: await this.repository.storyBible(projectId, documentId, principal),
       summaryCount: summaries.length,
       chapterCount: detail.document.chapterCount,
       missingSummaryCount: Math.max(0, detail.document.chapterCount - summaries.length),
@@ -555,7 +723,7 @@ export class NovelService {
     clientRequestId: string,
     principal: Principal,
   ): Promise<GenerateNovelChapterSummariesResult> {
-    const source = this.repository.sourceForGeneration(projectId, documentId, principal)
+    const source = await this.repository.sourceForGeneration(projectId, documentId, principal)
     if (!source) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成摘要')
     const selectedChapters = selectChaptersForSummary(source.chapters, source.summaries, input)
     if (!selectedChapters.length) {
@@ -641,7 +809,7 @@ export class NovelService {
     clientRequestId: string,
     principal: Principal,
   ): Promise<NovelStoryBibleResult> {
-    const source = this.repository.sourceForGeneration(projectId, documentId, principal)
+    const source = await this.repository.sourceForGeneration(projectId, documentId, principal)
     if (!source) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成故事概要')
     const selectedSummaries = selectSummariesForStoryBible(source.summaries, input.summaryLimit)
     const missingSummaryCount = Math.max(0, source.document.chapterCount - source.summaries.length)
@@ -701,7 +869,7 @@ export class NovelService {
     _clientRequestId: string,
     principal: Principal,
   ): Promise<NovelAssetSuggestionsResult> {
-    const source = this.repository.sourceForGeneration(projectId, documentId, principal)
+    const source = await this.repository.sourceForGeneration(projectId, documentId, principal)
     if (!source) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成资产建议')
     if (!source.summaries.length) {
       throw new AppError(409, 'NOVEL_SUMMARIES_REQUIRED', '请先生成至少一批章节概要，再生成小说资产建议')
@@ -745,7 +913,7 @@ export class NovelService {
     clientRequestId: string,
     principal: Principal,
   ): Promise<NovelChapterAdaptationResult> {
-    const source = this.repository.sourceForGeneration(projectId, documentId, principal)
+    const source = await this.repository.sourceForGeneration(projectId, documentId, principal)
     if (!source) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成章节改编剧本')
     const selectedChapters = selectChaptersForAdaptation(source.chapters, input)
     if (selectedChapters.length !== new Set(input.chapterIds).size) {
@@ -2148,6 +2316,14 @@ function chapterAdaptationWarnings(
 
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : '章节摘要生成失败'
+}
+
+function stringMetadata(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function numberMetadata(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : null
 }
 
 function parseChapterSummariesProviderJson(raw: string) {

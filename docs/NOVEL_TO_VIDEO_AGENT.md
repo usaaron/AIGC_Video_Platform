@@ -1,6 +1,6 @@
 # 小说到 AI 视频 Agent 方案
 
-> 状态更新时间：2026-07-25
+> 状态更新时间：2026-07-31
 
 本文记录长篇小说改编成 AI 视频剧本的阶段方案。后续每完成一个阶段，先检查项目内与本方案相关的代码、交互和测试状态，再给出下一步建议。
 
@@ -45,17 +45,19 @@
 
 - 新增小说导入 contracts：请求、文档、章节和导入结果。
 - API 新增 `/api/v1/projects/:projectId/novels`、`/novels/:documentId`、`/novels/import`。
-- 当前 MVP 仍写入现有 AppStore JSON，后续生产底座应把正文移入对象存储，章节索引移入 PostgreSQL。
+- 小说域已迁移到 Postgres + ObjectStorage 主路径：`novel_documents`、`novel_chapters`、`novel_boundaries`、`novel_summary_queues`、`novel_summary_queue_items`、`novel_chapter_summaries` 和 `novel_story_bibles` 保存元数据与可恢复任务状态；正文只写入对象存储，数据库保存 storage key、SHA-256、offset 和章节元数据。
+- JSON Store 仅保留无数据库/无对象存储时的本地兼容回退，以及通过 `db:import-json` 执行迁移时的历史输入和备份。
 - 剧本页新增“小说改编”面板，展示上传文件、作品名称、切分统计、章节预览和已导入记录。
 
 ## 当前第二步实现范围
 
 - 新增章节摘要和故事概要 contracts：请求、结果、摘要条目、人物、地点、时间线、关键道具、伏笔和世界观规则。
 - API 新增 `/summaries`、`/summaries/generate`、`/story-bible`、`/story-bible/generate`，按项目和小说文档隔离读取。
-- 章节摘要按批推进，默认每批处理少量未摘要章节，避免一次性把长篇小说正文送入文本 Provider。
+- 章节摘要按批推进，默认每批处理少量未摘要章节，避免一次性把长篇小说正文送入文本 Provider。摘要队列的 `run-batch` 已改为创建 `ai_jobs.kind = novel.summaryQueueBatch` 的后台任务；API 立即返回任务记录，Worker 调用文本 Provider 后写回队列条目。
 - 全书故事概要只基于已完成的章节摘要生成；摘要未完成时返回明确错误，防止事实源不完整。
 - 剧本页新增“章节摘要 / 故事概要”面板，展示摘要进度、下一批生成、故事概要生成和关键内容预览。
 - 章节正文仍只在服务端内部用于摘要生成，前端和公开接口不直接返回正文内容。
+- 仍待迁入 Worker 的同步文本入口：直接章节摘要 `/summaries/generate`、边界说明生成、Story Bible 生成、小说章节改编和资产建议。后续应继续沿用 `ai_jobs.kind` 区分具体操作，并复用 `ai_jobs` 的扣费、重试、暂停、恢复和失败退款。
 
 ## 验收样本策略
 

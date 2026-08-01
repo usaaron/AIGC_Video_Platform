@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { aiJobSchema } from './aiJob.js'
 import { scriptAssetSuggestionsContentSchema, textModelSchema } from './project.js'
 
 export const novelSourceFormatSchema = z.enum(['txt', 'markdown'])
@@ -209,6 +210,7 @@ export const runNovelSummaryQueueBatchRequestSchema = z.object({
 export const novelSummaryQueueBatchResultSchema = novelSummaryQueueResultSchema.extend({
   processedItemIds: z.array(z.string().min(1)).max(24),
   failedItemIds: z.array(z.string().min(1)).max(24),
+  task: aiJobSchema.nullable().optional(),
   warnings: z.array(z.string().min(1).max(500)).default([]),
 })
 

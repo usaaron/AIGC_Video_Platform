@@ -4,9 +4,11 @@ import { access, copyFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { loadConfig } from '../config.js'
 import { AccountDatabase } from '../infra/postgres.js'
+import { createObjectStorage } from '../infra/objectStorage.js'
 import { AppStore } from '../infra/store.js'
 import { StoreCreditLedger } from '../modules/billing/creditLedger.js'
 import { GenerationTaskRepository } from '../modules/generation/repository.js'
+import { NovelRepository } from '../modules/novels/repository.js'
 import { ProjectRepository } from '../modules/projects/repository.js'
 import { UserRepository } from '../modules/users/repository.js'
 
@@ -55,18 +57,15 @@ try {
   const users = new UserRepository(store, database)
   await users.bootstrapFromStore()
 
-  const creditLedger = new StoreCreditLedger(
-    store,
-    users,
-    config.NODE_ENV !== 'production',
-    database,
-  )
+  const creditLedger = new StoreCreditLedger(store, users, config.NODE_ENV !== 'production', database)
   await creditLedger.bootstrapFromStore()
 
   const projects = new ProjectRepository(store, database)
   const projectResult = await projects.importFromStore()
   const generationTasks = new GenerationTaskRepository(store, creditLedger, database)
   const taskResult = await generationTasks.importFromStore()
+  const novels = new NovelRepository(store, database, createObjectStorage(config))
+  const novelResult = await novels.importFromStore()
 
   process.stdout.write(
     [
@@ -78,6 +77,13 @@ try {
       `  assets: inserted ${projectResult.assets.inserted}, skipped ${projectResult.assets.skipped}`,
       `  shots: inserted ${projectResult.shots.inserted}, skipped ${projectResult.shots.skipped}`,
       `  generation_tasks: inserted ${taskResult.tasks.inserted}, skipped ${taskResult.tasks.skipped}`,
+      `  novel_documents: inserted ${novelResult.documents.inserted}, skipped ${novelResult.documents.skipped}`,
+      `  novel_chapters: inserted ${novelResult.chapters.inserted}, skipped ${novelResult.chapters.skipped}`,
+      `  novel_boundaries: inserted ${novelResult.boundaries.inserted}, skipped ${novelResult.boundaries.skipped}`,
+      `  novel_chapter_summaries: inserted ${novelResult.summaries.inserted}, skipped ${novelResult.summaries.skipped}`,
+      `  novel_summary_queues: inserted ${novelResult.summaryQueues.inserted}, skipped ${novelResult.summaryQueues.skipped}`,
+      `  novel_summary_queue_items: inserted ${novelResult.summaryQueueItems.inserted}, skipped ${novelResult.summaryQueueItems.skipped}`,
+      `  novel_story_bibles: inserted ${novelResult.storyBibles.inserted}, skipped ${novelResult.storyBibles.skipped}`,
     ].join('\n') + '\n',
   )
 } finally {
@@ -85,5 +91,8 @@ try {
 }
 
 function timestampForFile(): string {
-  return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
+  return new Date()
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}Z$/, 'Z')
 }

@@ -16,13 +16,10 @@ import { randomUUID } from 'node:crypto'
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
-import type { AppState, AppStore, ProjectDomainRuntimeSnapshot } from '../../infra/store.js'
+import type { AppState, AppStore } from '../../infra/store.js'
 
 type Queryable = {
-  query<T extends QueryResultRow = QueryResultRow>(
-    text: string,
-    params?: unknown[],
-  ): Promise<QueryResult<T>>
+  query<T extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<T>>
 }
 
 type ProjectRow = QueryResultRow & {
@@ -1057,21 +1054,6 @@ export class ProjectRepository {
     })
   }
 
-  async persistRuntimeSnapshot(snapshot: Pick<ProjectDomainRuntimeSnapshot, 'projects' | 'assets' | 'shots'>): Promise<void> {
-    if (!this.database) return
-    await this.database.transaction(async (client) => {
-      for (const project of snapshot.projects) {
-        await upsertProjectRuntime(client, project)
-      }
-      for (const asset of snapshot.assets) {
-        await upsertAssetRuntime(client, asset)
-      }
-      for (const shot of snapshot.shots) {
-        await upsertShotRuntime(client, shot)
-      }
-    })
-  }
-
   private async mirrorProject(project: Project): Promise<void> {
     this.store.mutateProjectWorkspaceRuntimeCache((state) => upsertProject(state, project))
   }
@@ -1223,156 +1205,17 @@ async function insertShotFromStore(client: PoolClient, shot: Shot): Promise<bool
   return (result.rowCount ?? 0) > 0
 }
 
-async function upsertProjectRuntime(client: PoolClient, project: Project): Promise<void> {
-  await client.query(
-    `
-    INSERT INTO projects (
-      id,
-      tenant_id,
-      owner_user_id,
-      name,
-      content_type,
-      aspect_ratio,
-      status,
-      synopsis,
-      script,
-      version,
-      created_at,
-      updated_at
-    )
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-    WHERE EXISTS (SELECT 1 FROM tenants WHERE id = $2)
-      AND EXISTS (SELECT 1 FROM users WHERE id = $3)
-    ON CONFLICT (id) DO UPDATE
-    SET
-      tenant_id = EXCLUDED.tenant_id,
-      owner_user_id = EXCLUDED.owner_user_id,
-      name = EXCLUDED.name,
-      content_type = EXCLUDED.content_type,
-      aspect_ratio = EXCLUDED.aspect_ratio,
-      status = EXCLUDED.status,
-      synopsis = EXCLUDED.synopsis,
-      script = EXCLUDED.script,
-      version = EXCLUDED.version,
-      updated_at = EXCLUDED.updated_at
-    `,
-    [
-      project.id,
-      project.tenantId,
-      project.ownerId,
-      project.name,
-      project.contentType,
-      project.aspectRatio,
-      project.status,
-      project.synopsis,
-      project.script,
-      project.version,
-      project.createdAt,
-      project.updatedAt,
-    ],
-  )
-}
-
-async function upsertAssetRuntime(client: PoolClient, asset: Asset): Promise<void> {
-  await client.query(
-    `
-    INSERT INTO assets (
-      id,
-      project_id,
-      tenant_id,
-      kind,
-      source_mode,
-      name,
-      description,
-      prompt,
-      prompt_mode,
-      custom_prompt_mode,
-      custom_prompt,
-      negative_prompt,
-      reference_items,
-      attributes,
-      image_url,
-      status,
-      created_at,
-      updated_at
-    )
-    SELECT
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-      $13::jsonb, $14::jsonb, $15, $16, $17, $18
-    WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
-    ON CONFLICT (id) DO UPDATE
-    SET
-      project_id = EXCLUDED.project_id,
-      tenant_id = EXCLUDED.tenant_id,
-      kind = EXCLUDED.kind,
-      source_mode = EXCLUDED.source_mode,
-      name = EXCLUDED.name,
-      description = EXCLUDED.description,
-      prompt = EXCLUDED.prompt,
-      prompt_mode = EXCLUDED.prompt_mode,
-      custom_prompt_mode = EXCLUDED.custom_prompt_mode,
-      custom_prompt = EXCLUDED.custom_prompt,
-      negative_prompt = EXCLUDED.negative_prompt,
-      reference_items = EXCLUDED.reference_items,
-      attributes = EXCLUDED.attributes,
-      image_url = EXCLUDED.image_url,
-      status = EXCLUDED.status,
-      updated_at = EXCLUDED.updated_at
-    `,
-    assetInsertParams(asset),
-  )
-}
-
-async function upsertShotRuntime(client: PoolClient, shot: Shot): Promise<void> {
-  await client.query(
-    `
-    INSERT INTO shots (
-      id,
-      project_id,
-      tenant_id,
-      shot_order,
-      title,
-      framing,
-      duration_seconds,
-      prompt,
-      negative_prompt,
-      image_url,
-      continuity_mode,
-      continuity_note,
-      created_at,
-      updated_at
-    )
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-    WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
-    ON CONFLICT (id) DO UPDATE
-    SET
-      project_id = EXCLUDED.project_id,
-      tenant_id = EXCLUDED.tenant_id,
-      shot_order = EXCLUDED.shot_order,
-      title = EXCLUDED.title,
-      framing = EXCLUDED.framing,
-      duration_seconds = EXCLUDED.duration_seconds,
-      prompt = EXCLUDED.prompt,
-      negative_prompt = EXCLUDED.negative_prompt,
-      image_url = EXCLUDED.image_url,
-      continuity_mode = EXCLUDED.continuity_mode,
-      continuity_note = EXCLUDED.continuity_note,
-      updated_at = EXCLUDED.updated_at
-    `,
-    shotInsertParams(shot),
-  )
-}
-
 async function touchProject(
   queryable: Queryable,
   projectId: string,
   tenantId: string,
   updatedAt: string,
 ): Promise<void> {
-  await queryable.query(
-    'UPDATE projects SET updated_at = $3 WHERE id = $1 AND tenant_id = $2',
-    [projectId, tenantId, updatedAt],
-  )
+  await queryable.query('UPDATE projects SET updated_at = $3 WHERE id = $1 AND tenant_id = $2', [
+    projectId,
+    tenantId,
+    updatedAt,
+  ])
 }
 
 function assetInsertParams(asset: Asset): unknown[] {
@@ -1418,7 +1261,9 @@ function shotInsertParams(shot: Shot): unknown[] {
 }
 
 function upsertProject(state: AppState, project: Project): void {
-  const index = state.projects.findIndex((item) => item.id === project.id && item.tenantId === project.tenantId)
+  const index = state.projects.findIndex(
+    (item) => item.id === project.id && item.tenantId === project.tenantId,
+  )
   if (index >= 0) {
     state.projects[index] = project
   } else {
