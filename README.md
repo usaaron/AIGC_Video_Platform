@@ -28,14 +28,14 @@ pnpm dev
 
 | 身份       | 邮箱                      | 密码                |
 | ---------- | ------------------------- | ------------------- |
-| 普通会员   | `creator@seqora.local`    | `Creator123!`       |
+| 普通成员   | `creator@seqora.local`    | `Creator123!`       |
 | 所有者     | `owner@seqora.local`      | `OwnerPassword123!` |
 | 超级管理员 | `superadmin@seqora.local` | `SuperAdmin123!`    |
 | 管理员     | `admin@seqora.local`      | `Admin123!`         |
 
-认证使用经 `scrypt` 哈希的本地账号密码和签名 HttpOnly 会话 Cookie。账号、身份、会话、租户 membership、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜和生成任务写入 Postgres；任务触发队列使用 BullMQ/Redis；本地媒体索引仍由 `apps/api/data/app.json` 与对象存储承载。`app.json` 已被 Git 忽略；删除它只会重置本地 Demo/兼容备份数据，Postgres 账号和项目域数据需清理数据库或重建卷。
+认证使用经 `scrypt` 哈希的本地账号密码和签名 HttpOnly 会话 Cookie。产品上统一称为“组织”；底层 Postgres 仍以 `tenants`、`tenant_memberships` 等表承载组织边界。账号、身份、会话、组织 membership、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜和生成任务写入 Postgres；任务触发队列使用 BullMQ/Redis；本地媒体索引仍由 `apps/api/data/app.json` 与对象存储承载。`app.json` 已被 Git 忽略；删除它只会重置本地 Demo/兼容备份数据，Postgres 账号和项目域数据需清理数据库或重建卷。
 
-已有账号登录后在“项目设置 -> 账号安全”修改密码；新密码至少 12 位。当前注册入口开放但必须提交租户邀请码，邮箱需与邀请绑定邮箱一致；没有邀请码不能自助注册。owner 可任命超级管理员；owner/super_admin 可管理管理员和普通会员；普通 admin 仅管理当前 workspace 的普通会员。密码重置 API 已具备后端能力；生产正式开放前还需要接入邮件/短信投递与运营流程。云端首次账号由服务器 `deploy/demo.env` 的 `BOOTSTRAP_*` 设置，并且只在空数据卷第一次启动时生效。不要把真实密码写进仓库。
+已有账号登录后在“项目设置 -> 账号安全”修改密码；新密码至少 12 位。当前注册入口开放但必须提交组织邀请码，邮箱需与邀请绑定邮箱一致；没有邀请码不能自助注册。正式身份分为 owner、super_admin、admin、member、organization_admin、organization_member：`member` 是 C 端普通创作者，`admin` 是平台内部管理员，`organization_admin` 和 `organization_member` 用于 B 端组织。密码重置 API 已具备后端能力；生产正式开放前还需要接入邮件/短信投递与运营流程。云端首次账号由服务器 `deploy/demo.env` 的 `BOOTSTRAP_*` 设置，并且只在空数据卷第一次启动时生效。不要把真实密码写进仓库。
 
 ## 仓库结构
 
@@ -81,6 +81,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 - [代码规范](docs/CODE_STYLE.md)
 - [部署边界](docs/DEPLOYMENT.md)
 - [备份与恢复流程](docs/BACKUP_RESTORE.md)
+- [组织概念迁移说明](docs/ORGANIZATION_MIGRATION.md)
 - [CI/CD 与模块化发布](docs/CICD.md)
 - [参与开发](CONTRIBUTING.md)
 - [第三方素材说明](THIRD_PARTY_NOTICES.md)
@@ -101,14 +102,14 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 - 服务端生成队列、单任务暂停/继续/软删除、免费用户单任务并发、会员三任务并发、积分扣减、失败或删除等待任务自动退款与流水
 - 管理概览、用户和任务统计，以及服务端管理员权限校验
 - Postgres migration 体系、`schema_migrations` 执行记录、dev/test 自动迁移、production 启动只检查 migration 是否最新
-- Postgres 账号体系：`users`、`auth_identities`、`sessions`、`tenant_memberships`、`billing_accounts`、密码重置 token 和审计日志
-- Workspace 管理：切换、改名、禁用、转让 owner、退出 workspace
-- 账号管理页：只有 owner/admin 看到管理员端入口；普通成员只看到个人资料；变更权限、禁用和踢下线操作均要求二次确认
-- 独立 `apps/admin` 管理员端：通过 `/api/v1/auth/me` 鉴权，首屏消费 `/api/v1/admin/console`，展示用户、租户、membership、账单、session 和审计日志
-- Admin Console API：统一查询用户、租户、membership、账单账户、账单流水、session 和审计日志；支持账号启停、管理员充值/调账、撤销 session
+- Postgres 账号体系：`users`、`auth_identities`、`sessions`、`tenant_memberships`、`billing_accounts`、密码重置 token 和审计日志；`tenant*` 是当前数据库兼容命名，对外产品概念统一为组织
+- 组织管理：切换、改名、禁用、转让 owner、退出组织
+- 账号管理页：只有 owner/super_admin/admin/organization_admin 看到管理员端入口；普通成员和组织成员只看到个人资料；变更权限、禁用和踢下线操作均要求二次确认
+- 独立 `apps/admin` 管理员端：通过 `/api/v1/auth/me` 鉴权，首屏消费 `/api/v1/admin/console`，展示用户、组织、membership、账单、session 和审计日志
+- Admin Console API：统一查询用户、组织、membership、账单账户、账单流水、session 和审计日志；支持账号启停、管理员充值/调账、撤销 session
 - DB billing ledger：幂等扣费、退款、充值和管理员调账在 Postgres 事务中完成，JSON ledger 仅保留为历史备份
 
-当前版本已将账号/auth/租户/账单账本、项目、资产、分镜和生成任务迁入 Postgres；API 进程负责 HTTP 和业务编排，任务触发通过 BullMQ/Redis 进入 `apps/api/src/worker.ts` 执行。JSON store 仅保留本地媒体索引、Demo 兼容和迁移备份用途。下一步生产化重点是价格/套餐闭环、支付订阅、正式监控告警和 Worker 横向扩缩容验证。
+当前版本已将账号/auth/组织边界/账单账本、项目、资产、分镜和生成任务迁入 Postgres；API 进程负责 HTTP 和业务编排，任务触发通过 BullMQ/Redis 进入 `apps/api/src/worker.ts` 执行。JSON store 仅保留本地媒体索引、Demo 兼容和迁移备份用途。下一步生产化重点是价格/套餐闭环、支付订阅、正式监控告警和 Worker 横向扩缩容验证。
 
 ## API 范围
 
@@ -116,12 +117,13 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 
 - `/auth/*`：登录、退出、当前会话、修改密码、忘记密码请求、密码重置、个人 session 列表和撤销
 - `/auth/register`：邀请码注册，必须提交邀请 token、受邀邮箱、姓名和密码；`/auth/invitations/accept` 保留为兼容的邀请接受入口
-- `/workspaces/*`：创建、切换、改名、禁用、转让 owner、退出 workspace
-- `/tenants/:tenantId/*`：成员、角色、禁用 membership、创建租户用户、邀请和租户 session 管理
+- `/organizations/*`：创建、切换、改名、禁用、转让 owner、退出组织
+- `/organizations/:organizationId/*`：成员、角色、禁用 membership、创建组织用户、邀请和组织 session 管理
+- `/workspaces/*`、`/tenants/:tenantId/*`：旧兼容入口，新代码优先使用 `/organizations/*`
 - `/projects/*`：项目、版本、剧本、资产和分镜
 - `/projects/:projectId/script/generate`、`/script/enrich`、`/script/asset-suggestions`：剧本生成、AI 扩写和资产建议
 - `/projects/:projectId/media`、`/media/*`：媒体上传与读取
 - `/generation/*`：生成任务创建、查询和清理
 - `/projects/:projectId/film-preview`：创建或复用完整成片预览
 - `/billing/*`：套餐、积分余额、月度用量和 Postgres 账本摘要
-- `/admin/*`：仅 owner/admin 可访问的平台概览、统一后台查询、账号启停、账单查询/充值/调账、session 撤销和审计日志
+- `/admin/*`：仅 owner/admin 可访问的平台概览、统一后台查询、账号启停、账单查询/充值/调账、session 撤销和审计日志；组织管理新入口为 `/admin/organizations/*`，`/admin/tenants/*` 保留兼容

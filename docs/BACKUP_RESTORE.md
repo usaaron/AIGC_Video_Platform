@@ -1,10 +1,10 @@
 # 备份与恢复流程
 
-本文定义单机 Demo/封闭外测环境的完整备份恢复流程。当前商用化前的事实边界是：账号/auth、租户、账单 ledger、项目、资产、分镜和生成任务以 Postgres 为主数据源；`app.json` 只保留本地媒体索引、JSON 历史、兼容状态和迁移备份；媒体对象存储在私有 GCS Bucket 或本地 `uploads` 目录。
+本文定义单机 Demo/封闭外测环境的完整备份恢复流程。当前商用化前的事实边界是：账号/auth、组织、账单 ledger、项目、资产、分镜和生成任务以 Postgres 为主数据源；`app.json` 只保留本地媒体索引、JSON 历史、兼容状态和迁移备份；媒体对象存储在私有 GCS Bucket 或本地 `uploads` 目录。
 
 ## 备份对象
 
-- Postgres：必须备份。包含账号、session、tenant membership、billing accounts、billing ledger、审计日志、项目、项目版本、资产、分镜、生成任务和媒体对象索引。
+- Postgres：必须备份。包含账号、session、组织 membership、billing accounts、billing ledger、审计日志、项目、项目版本、资产、分镜、生成任务和媒体对象索引。当前表/列仍保留 `tenant*` 兼容命名。
 - JSON 历史：必须备份。`/var/lib/seqora/app.json` 是迁移前历史和 Demo 兼容来源，不能作为新业务主源，但恢复排障时需要保留。
 - 本地 uploads：当 `STORAGE_DRIVER=local` 或历史数据还引用本地文件时必须备份。脚本会把 `/var/lib/seqora/uploads` 打包为 `json/uploads.tgz`。
 - GCS 对象版本：必须至少导出版本清单。数据库和 JSON 只保存对象引用，不包含真实图片、视频和尾帧文件。
@@ -106,7 +106,7 @@ sudo /opt/seqora/deploy/restore-gcs-version.sh --yes \
 
 命令等价于把 `gs://bucket/object#GENERATION` 复制回 `gs://bucket/object`，新的 live version 会获得新的 generation。若 Bucket 启用了对象版本控制，被替换掉的 live version 会成为新的 noncurrent version。
 
-批量恢复 GCS 前必须先做 dry-run 清单评审：列出要恢复的对象、generation、所属 tenant/project、恢复原因和操作者。不要用递归覆盖命令批量回滚整个 Bucket，除非已经在隔离环境完整演练并获得业务确认。
+批量恢复 GCS 前必须先做 dry-run 清单评审：列出要恢复的对象、generation、所属组织/project、恢复原因和操作者。不要用递归覆盖命令批量回滚整个 Bucket，除非已经在隔离环境完整演练并获得业务确认。
 
 ## 演练与保留策略
 
@@ -122,7 +122,7 @@ sudo /opt/seqora/deploy/restore-gcs-version.sh --yes \
 1. `https://<APP_ADDRESS>/api/v1/health` 返回正常。
 2. owner、super_admin、admin、member 至少各登录一次。
 3. `/api/v1/billing/summary` 能读到 Postgres ledger 汇总。
-4. 项目列表、剧本、资产、分镜可以读取，跨租户数据不可见。
+4. 项目列表、剧本、资产、分镜可以读取，跨组织数据不可见。
 5. 一个历史媒体对象能正常通过 API 读取或签名跳转。
 6. Redis/BullMQ Worker 能接收新任务；历史运行中任务按业务策略重试、取消或标记失败。
 7. 管理员端审计日志能看到恢复后的关键账号和账单记录。

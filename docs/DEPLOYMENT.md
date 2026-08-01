@@ -8,10 +8,10 @@
 
 - 公网只展示登录页；除 `/api/v1/health` 和 `/api/v1/auth/login` 外，项目、媒体、任务、账单和管理 API 都要求有效账号会话。
 - 当前开放邀请码注册，不支持无邀请码自助注册。账号可由 `deploy/demo.env` 的 `BOOTSTRAP_*` 变量在空数据卷首次启动时创建，也可由 owner/super_admin/admin 在账号管理页按权限边界受控创建/邀请。
-- 受控租户邀请 API 是注册准入来源，密码重置 API 已有后端能力；生产面向用户开放前，必须先接入邮件/短信投递、频控、运营审核和告警。
+- 受控组织邀请 API 是注册准入来源，密码重置 API 已有后端能力；生产面向用户开放前，必须先接入邮件/短信投递、频控、运营审核和告警。
 - member 账号进入创作工作台；owner/super_admin/admin 可以看到账号管理入口，显示名由 `BOOTSTRAP_*_NAME` 设置。四类首次账号必须使用不同邮箱和强密码，不要向客户提供管理员、super_admin 或 owner 账号。
 - `BOOTSTRAP_DEMO_WORKSPACE=false` 时新云端账号从空项目列表开始，不会出现本地开发的“午夜胶片”样例。
-- 同一 workspace 的多位成员会看到同一批项目和账单权益。需要客户间强隔离时，为每个客户创建独立 workspace；项目域数据已写入 Postgres，正式多实例商用前仍要验证所有查询的租户条件、Redis 队列恢复和 Worker 横向扩缩容。
+- 同一组织的多位成员会看到同一批项目和账单权益。需要客户间强隔离时，为每个客户创建独立组织；项目域数据已写入 Postgres，正式多实例商用前仍要验证所有查询的组织范围条件、Redis 队列恢复和 Worker 横向扩缩容。
 - `BOOTSTRAP_*` 只在账号库为空时生效，修改环境变量不会改掉已有账号密码。已有账号登录后可在“项目设置 -> 账号安全”修改自己的密码；忘记密码 API 在生产开放前需要接邮件/短信投递。
 
 ## 独立部署单元
@@ -56,7 +56,7 @@ chmod 600 deploy/demo.env
 - 2 vCPU / 4GB 机器先保留 `API_MEMORY_LIMIT=1536m`、`API_NODE_HEAP_MB=768`、`WORKER_MEMORY_LIMIT=1536m`、`WORKER_NODE_HEAP_MB=768`、`WEB_MEMORY_LIMIT=192m`；发生 OOM 时优先升级内存，不要移除所有上限。
 - 保持 `VIDEO_PROVIDER=stringx`，填写私有 `GCS_BUCKET`、`STRINGX_API_KEY`、默认中文文本模型需要的 `REHDASU_API_KEY` 和图片生成需要的 `TOKENADVENT_API_KEY`；只有选择 DeepSeek V3 时才需要 `DEEPSEEK_API_KEY`（可复用 `STRINGX_API_KEY`）。
 - 生产启动会强制检查当前视频 Provider 密钥、当前文本模型对应密钥和 TokenAdvent GPT Image 2 密钥，缺少时直接停止，不允许静默使用 Mock 结果。
-- 要测试可信人像，再填写弦序 MaaS 素材库专用 `VOLC_ACCESS_KEY`、`VOLC_SECRET_KEY` 和与 StringX Token 同租户、同项目的 `VOLC_ARK_PROJECT_NAME`。StringX Bearer Token 不能代替素材库 AK/SK。
+- 要测试可信人像，再填写弦序 MaaS 素材库专用 `VOLC_ACCESS_KEY`、`VOLC_SECRET_KEY` 和与 StringX Token 同组织、同项目的 `VOLC_ARK_PROJECT_NAME`。StringX Bearer Token 不能代替素材库 AK/SK。
 - 可选填写 `ASSET_LIBRARY_CONSOLE_URL`，人物编辑器会跳转到弦序私域素材库；不再硬编码火山控制台地址。
 - `ARK_API_*` 只用于官方火山回滚，默认全弦序链路不读取这些变量。
 - 不要把 `deploy/demo.env`、服务账号 JSON 或任何 Key 提交到 Git。
@@ -129,7 +129,7 @@ curl --fail https://studio.example.com/api/v1/health
 
 1. 禁止 Demo Header；当前 local auth 可用于封闭外测，企业 SSO 再接 OIDC/JWT。
 2. 验证 Redis/BullMQ 队列在生产故障恢复、重复投递、横向扩缩容和监控告警下的行为。
-3. 持续审计项目、资产、分镜和生成任务查询的租户条件，并保留 JSON 备份到 Postgres 的回滚方案。
+3. 持续审计项目、资产、分镜和生成任务查询的组织范围条件，并保留 JSON 备份到 Postgres 的回滚方案。
 4. 支付和订阅只能由服务端回调改变权益；前端不得自助伪造套餐和积分。
 5. 接入邮件/短信投递后再开放忘记密码和邀请/注册相关用户流程。
 6. 增加监控、告警、备份恢复演练、密钥轮换和数据导出/删除流程。
