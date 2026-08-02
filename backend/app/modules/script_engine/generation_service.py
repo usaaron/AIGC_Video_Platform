@@ -102,7 +102,7 @@ class ScriptGenerationService:
         self._prompt_retrieval_service = prompt_retrieval_service
         self._orchestrator_service = orchestrator_service
         self._retrieval_service = retrieval_service
-        self._prompt_builder = prompt_builder or TemplatePromptBuilder(builder_version="v0.1")
+        self._prompt_builder = prompt_builder or TemplatePromptBuilder(builder_version="v0.3")
         self._llm_adapter = llm_adapter or MockLLMAdapter()
         self._story_qc = story_qc or PlaceholderStoryQC()
         self._revision_planner = revision_planner or RubricRevisionPlanner()
@@ -184,6 +184,7 @@ class ScriptGenerationService:
                 generation_strategy=generation_strategy,
                 retrieval_result=retrieval_result,
                 desired_scene_count=payload.desired_scene_count,
+                target_script_body_characters=payload.target_script_body_characters,
                 output_language=payload.output_language,
                 resolved_creative_context=payload.resolved_creative_context,
                 knowledge_bundle=knowledge_bundle,
@@ -543,6 +544,7 @@ class ScriptGenerationService:
         generation_strategy: GenerationStrategy,
         retrieval_result: RetrievalPlanResult,
         desired_scene_count: int,
+        target_script_body_characters: int | None = None,
         output_language: str,
         resolved_creative_context: ResolvedCreativeContext | None,
         knowledge_bundle: KnowledgeBundle | None,
@@ -629,6 +631,10 @@ class ScriptGenerationService:
             ),
             "output_json_schema": output_schema,
         }
+        if target_script_body_characters is not None:
+            extra_variables["target_script_body_characters"] = str(
+                target_script_body_characters
+            )
         if resolved_creative_context is not None:
             extra_variables["resolved_creative_context_json"] = json.dumps(
                 resolved_creative_context.model_dump(mode="json"),

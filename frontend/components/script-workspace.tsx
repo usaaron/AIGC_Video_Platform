@@ -339,7 +339,11 @@ export function ScriptWorkspace() {
     const orderedExistingEpisodes = currentProject.episodes
       .slice()
       .sort((left, right) => left.episodeNumber - right.episodeNumber);
-    const batchRange = nextBatchRange(orderedExistingEpisodes.length, currentProject.generationSettings);
+    const batchRange = nextBatchRange(
+      orderedExistingEpisodes.length,
+      currentProject.generationSettings,
+      { generatedBodyCharacters: seriesTextMetrics.scriptBodyCharacters },
+    );
     if (!batchRange) {
       setMessage(t("workspace.seriesComplete"));
       return;
@@ -376,7 +380,7 @@ export function ScriptWorkspace() {
         const run = await generateSingleEpisode({ ...currentProject, ...continuity }, {
           generationMode: currentProject.generationSettings.mode,
           episodeNumber,
-          totalEpisodes: currentProject.generationSettings.episodeCount,
+          totalEpisodes: batchRange.totalEpisodes,
           previousEpisode,
           episodeInstruction: episodeNumber === batchRange.startEpisode
             ? optionalInstruction
@@ -543,7 +547,7 @@ export function ScriptWorkspace() {
           text_metrics: seriesTextMetrics,
           episodes: ordered,
         }, null, 2)
-      : `# ${currentProject.title}\n\n## 长篇字数统计\n\n- 已生成：${numberFormatter.format(seriesTextMetrics.generatedEpisodes)} / ${numberFormatter.format(seriesTextMetrics.plannedEpisodes)} 集\n- 结构稿有效字符：${numberFormatter.format(seriesTextMetrics.totalCharacters)} / ${numberFormatter.format(seriesTextMetrics.targetCharacters)}\n- 动作与对白正文：${numberFormatter.format(seriesTextMetrics.scriptBodyCharacters)}\n- 当前集均：${numberFormatter.format(seriesTextMetrics.averageCharactersPerEpisode)}\n- 达标所需集均：${numberFormatter.format(seriesTextMetrics.requiredAverageCharactersPerEpisode)}\n- 统计口径：字母、数字与中文字符，不含空格和标点\n\n${ordered.map((item) => toMarkdown(item.draft, item.episodeNumber)).join("\n\n---\n\n")}`;
+      : `# ${currentProject.title}\n\n## 长篇字数统计\n\n- 已生成：${numberFormatter.format(seriesTextMetrics.generatedEpisodes)} / ${numberFormatter.format(seriesTextMetrics.plannedEpisodes)} 集\n- 动作与对白正文：${numberFormatter.format(seriesTextMetrics.scriptBodyCharacters)} / ${numberFormatter.format(seriesTextMetrics.targetCharacters)}\n- 结构稿辅助文本（含正文）：${numberFormatter.format(seriesTextMetrics.totalCharacters)}\n- 当前正文集均：${numberFormatter.format(seriesTextMetrics.averageCharactersPerEpisode)}\n- 达标所需正文集均：${numberFormatter.format(seriesTextMetrics.requiredAverageCharactersPerEpisode)}\n- 统计口径：60 万目标只计可视动作与对白中的字母、数字和中文字符，不计规划字段、空格、标点和 JSON 格式符号\n\n${ordered.map((item) => toMarkdown(item.draft, item.episodeNumber)).join("\n\n---\n\n")}`;
     downloadFile(
       content,
       `${safeFilename(currentProject.title)}-full-script.${format === "json" ? "json" : "md"}`,
@@ -575,14 +579,14 @@ export function ScriptWorkspace() {
           <span style={{ width: `${Math.min(100, progressPercent)}%` }} />
         </div>
         <div className="story-length-metrics">
-          <div><span>{t("workspace.length.total")}</span><strong>{numberFormatter.format(seriesTextMetrics.totalCharacters)}</strong><small>{t("workspace.length.target").replace("{target}", numberFormatter.format(seriesTextMetrics.targetCharacters))}</small></div>
-          <div><span>{t("workspace.length.body")}</span><strong>{numberFormatter.format(seriesTextMetrics.scriptBodyCharacters)}</strong><small>{t("workspace.length.bodyHelp")}</small></div>
+          <div><span>{t("workspace.length.total")}</span><strong>{numberFormatter.format(seriesTextMetrics.scriptBodyCharacters)}</strong><small>{t("workspace.length.target").replace("{target}", numberFormatter.format(seriesTextMetrics.targetCharacters))}</small></div>
+          <div><span>{t("workspace.length.body")}</span><strong>{numberFormatter.format(seriesTextMetrics.totalCharacters)}</strong><small>{t("workspace.length.bodyHelp")}</small></div>
           <div><span>{t("workspace.length.average")}</span><strong>{numberFormatter.format(seriesTextMetrics.averageCharactersPerEpisode)}</strong><small>{t("workspace.length.requiredAverage").replace("{required}", numberFormatter.format(seriesTextMetrics.requiredAverageCharactersPerEpisode))}</small></div>
           <div><span>{t("workspace.length.projection")}</span><strong>{numberFormatter.format(seriesTextMetrics.projectedCharactersAtPlannedEpisodes)}</strong><small>{projectedSummary}</small></div>
         </div>
         <div className="story-length-current">
           <span>{t("workspace.length.currentEpisode").replace("{episode}", String(currentEpisode.episodeNumber))}</span>
-          <strong>{numberFormatter.format(displayedTextMetrics.totalCharacters)}</strong>
+          <strong>{numberFormatter.format(displayedTextMetrics.scriptBodyCharacters)}</strong>
           <small>{t("workspace.length.currentBreakdown")
             .replace("{actions}", numberFormatter.format(displayedTextMetrics.actionCharacters))
             .replace("{dialogue}", numberFormatter.format(displayedTextMetrics.dialogueCharacters))}</small>

@@ -13,6 +13,7 @@ from app.modules.script_engine.models import (
     RevisionPlan,
     RevisionPolicy,
     RevisionStrategy,
+    ScriptGenerationDraftRequest,
     ScriptRevisionRun,
     StoryQCReport,
 )
@@ -115,6 +116,31 @@ def test_episode_generation_context_rejects_episode_outside_stage() -> None:
                 "start_episode": 121,
                 "end_episode": 125,
             },
+        )
+
+
+def test_generation_request_keeps_body_target_optional_and_bounded() -> None:
+    legacy = ScriptGenerationDraftRequest(
+        content_spec_id="content_spec_001",
+        generation_strategy_id="strategy.mainland.v1",
+        output_language="zh",
+    )
+    targeted = ScriptGenerationDraftRequest(
+        content_spec_id="content_spec_001",
+        generation_strategy_id="strategy.mainland.v1",
+        output_language="zh",
+        target_script_body_characters=1797,
+    )
+
+    assert legacy.target_script_body_characters is None
+    assert targeted.target_script_body_characters == 1797
+
+    with pytest.raises(ValidationError, match="greater than or equal to 300"):
+        ScriptGenerationDraftRequest(
+            content_spec_id="content_spec_001",
+            generation_strategy_id="strategy.mainland.v1",
+            output_language="zh",
+            target_script_body_characters=299,
         )
 
 

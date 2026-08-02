@@ -922,6 +922,14 @@ class ScriptGenerationDraftRequest(BaseModel):
     generation_strategy_id: str = Field(min_length=3, max_length=120)
     output_language: str = Field(min_length=2, max_length=20)
     desired_scene_count: int = Field(default=3, ge=2, le=8)
+    target_script_body_characters: int | None = Field(
+        default=None,
+        ge=300,
+        le=10_000,
+        description=(
+            "Optional effective-character budget for visible actions and dialogue only."
+        ),
+    )
     resolved_creative_context: ResolvedCreativeContext | None = None
     episode_context: "EpisodeGenerationContext | None" = None
 

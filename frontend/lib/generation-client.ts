@@ -1,5 +1,6 @@
 import { apiRequest } from "@/lib/api-client";
 import { buildContinuityGenerationSummary } from "@/lib/continuity";
+import { targetScriptBodyCharacters } from "@/lib/generation-planning";
 import { getTag } from "@/lib/tag-catalog";
 import type {
   BilingualScriptView,
@@ -194,6 +195,9 @@ export async function generateSingleEpisode(
       generation_strategy_id: strategy.id,
       output_language: isMainlandChina ? "zh" : project.generationSettings.outputLanguage,
       desired_scene_count: project.generationSettings.sceneCount,
+      target_script_body_characters: isMainlandChina
+        ? targetScriptBodyCharacters(project.generationSettings)
+        : null,
       resolved_creative_context: resolution.data.resolved_creative_context,
       episode_context: episode ? {
         generation_mode: episode.generationMode,

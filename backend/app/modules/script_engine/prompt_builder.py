@@ -33,7 +33,7 @@ class PromptBuilder(ABC):
 
 
 class TemplatePromptBuilder(PromptBuilder):
-    def __init__(self, *, builder_version: str = "v0.2") -> None:
+    def __init__(self, *, builder_version: str = "v0.3") -> None:
         self._builder_version = builder_version
 
     def build_master_prompt(
@@ -128,6 +128,30 @@ class TemplatePromptBuilder(PromptBuilder):
             ("SceneCausalityContract", self._build_scene_causality_contract()),
             ("OutputJsonSchema", rendered_variables.get("output_json_schema", "{}")),
         ]
+        target_script_body_characters = rendered_variables.get(
+            "target_script_body_characters"
+        )
+        if target_script_body_characters:
+            duration_index = next(
+                index
+                for index, (key, _) in enumerate(context_fields)
+                if key == "TargetDurationSeconds"
+            )
+            context_fields.insert(
+                duration_index + 1,
+                (
+                    "ScriptBodyLengthContract",
+                    "Aim for 90%-110% of TargetScriptBodyCharacters across only "
+                    "character_actions and dialogues.text. Distribute useful dramatic "
+                    "content across scenes. Do not pad with repetition, exposition, extra "
+                    "speaker labels, planning fields, or redundant dialogue. Preserve scene "
+                    "causality and stop at the requested episode boundary.",
+                ),
+            )
+            context_fields.insert(
+                duration_index + 2,
+                ("TargetScriptBodyCharacters", target_script_body_characters),
+            )
         resolved_creative_context = rendered_variables.get(
             "resolved_creative_context_json"
         )

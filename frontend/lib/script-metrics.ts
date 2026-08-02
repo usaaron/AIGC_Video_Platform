@@ -91,7 +91,7 @@ export function calculateSeriesTextMetrics(
   const normalizedTarget = Math.max(0, Math.round(targetCharacters));
   const normalizedPlannedEpisodes = Math.max(1, Math.round(plannedEpisodes));
   const averageCharactersPerEpisode = drafts.length
-    ? Math.round(aggregate.totalCharacters / drafts.length)
+    ? Math.round(aggregate.scriptBodyCharacters / drafts.length)
     : 0;
 
   return {
@@ -99,8 +99,10 @@ export function calculateSeriesTextMetrics(
     generatedEpisodes: drafts.length,
     plannedEpisodes: normalizedPlannedEpisodes,
     targetCharacters: normalizedTarget,
-    remainingCharacters: Math.max(0, normalizedTarget - aggregate.totalCharacters),
-    progressRatio: normalizedTarget > 0 ? aggregate.totalCharacters / normalizedTarget : 0,
+    remainingCharacters: Math.max(0, normalizedTarget - aggregate.scriptBodyCharacters),
+    progressRatio: normalizedTarget > 0
+      ? aggregate.scriptBodyCharacters / normalizedTarget
+      : 0,
     averageCharactersPerEpisode,
     requiredAverageCharactersPerEpisode: normalizedTarget > 0
       ? Math.ceil(normalizedTarget / normalizedPlannedEpisodes)

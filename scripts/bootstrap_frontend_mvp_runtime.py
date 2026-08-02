@@ -253,6 +253,7 @@ def _build_mainland_prompt_library_payload(suffix: str) -> list[dict[str, Any]]:
                 "output_language",
                 "desired_scene_count",
                 "target_duration_seconds",
+                "target_script_body_characters",
                 "output_json_schema",
             ],
             "output_schema": {"type": "object"},

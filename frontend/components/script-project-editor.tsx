@@ -317,7 +317,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
         }, {
           generationMode: draft.generationSettings.mode,
           episodeNumber,
-          totalEpisodes: draft.generationSettings.episodeCount,
+          totalEpisodes: batchRange.totalEpisodes,
           previousEpisode,
           batch: {
             batchNumber,

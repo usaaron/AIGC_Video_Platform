@@ -2,7 +2,7 @@ import {
   DEFAULT_GENERATION_SETTINGS,
   type GenerationSettings,
   type StoryDensity,
-} from "@/lib/types";
+} from "./types.ts";
 
 const MAX_EPISODES = 2000;
 
@@ -55,14 +55,47 @@ export function normalizeGenerationSettings(
 export function nextBatchRange(
   generatedEpisodeCount: number,
   settings: GenerationSettings,
-): { startEpisode: number; endEpisode: number } | null {
+  progress: { generatedBodyCharacters?: number } = {},
+): { startEpisode: number; endEpisode: number; totalEpisodes: number } | null {
+  const generatedBodyCharacters = Math.max(
+    0,
+    Math.round(progress.generatedBodyCharacters ?? 0),
+  );
+  if (
+    settings.episodeCountMode === "recommended"
+    && generatedEpisodeCount > 0
+    && generatedBodyCharacters >= settings.targetTotalCharacters
+  ) {
+    return null;
+  }
+
+  const observedAverage = generatedEpisodeCount > 0
+    ? generatedBodyCharacters / generatedEpisodeCount
+    : 0;
+  const observedEpisodesToTarget = observedAverage > 0
+    ? Math.ceil(settings.targetTotalCharacters / observedAverage)
+    : settings.episodeCount;
+  const totalEpisodes = settings.episodeCountMode === "recommended"
+    ? clampInteger(Math.max(settings.episodeCount, observedEpisodesToTarget), 1, MAX_EPISODES)
+    : settings.episodeCount;
   const startEpisode = generatedEpisodeCount + 1;
-  if (startEpisode > settings.episodeCount) return null;
+  if (startEpisode > totalEpisodes) return null;
   const requestedCount = settings.mode === "sequential" ? 1 : settings.batchSize;
   return {
     startEpisode,
-    endEpisode: Math.min(settings.episodeCount, startEpisode + requestedCount - 1),
+    endEpisode: Math.min(totalEpisodes, startEpisode + requestedCount - 1),
+    totalEpisodes,
   };
+}
+
+export function targetScriptBodyCharacters(
+  settings: Pick<GenerationSettings, "targetTotalCharacters" | "episodeCount">,
+): number {
+  return clampInteger(
+    Math.ceil(settings.targetTotalCharacters / Math.max(1, settings.episodeCount)),
+    300,
+    10_000,
+  );
 }
 
 function clampInteger(value: number, minimum: number, maximum: number): number {

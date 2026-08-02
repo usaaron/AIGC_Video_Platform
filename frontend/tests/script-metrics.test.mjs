@@ -6,6 +6,7 @@ import {
   calculateSeriesTextMetrics,
   countEffectiveCharacters,
 } from "../lib/script-metrics.ts";
+import { nextBatchRange } from "../lib/generation-planning.ts";
 
 function buildDraft() {
   return {
@@ -45,7 +46,51 @@ test("draft metrics keep action and dialogue counts explainable", () => {
 test("series metrics project a 600k target from the observed episode average", () => {
   const metrics = calculateSeriesTextMetrics([buildDraft()], 600_000, 334);
   assert.equal(metrics.requiredAverageCharactersPerEpisode, 1797);
-  assert.equal(metrics.projectedCharactersAtPlannedEpisodes, 10_020);
-  assert.equal(metrics.estimatedEpisodesToTarget, 20_000);
-  assert.equal(metrics.remainingCharacters, 599_970);
+  assert.equal(metrics.projectedCharactersAtPlannedEpisodes, 2672);
+  assert.equal(metrics.estimatedEpisodesToTarget, 75_000);
+  assert.equal(metrics.remainingCharacters, 599_992);
+});
+
+test("recommended episode planning extends to the observed body requirement", () => {
+  const settings = {
+    mode: "full",
+    episodeCountMode: "recommended",
+    episodeCount: 334,
+    targetTotalCharacters: 600_000,
+    preferredEpisodeDurationMinutes: 3,
+    storyDensity: "balanced",
+    batchSize: 5,
+    outputLanguage: "zh",
+    sceneCount: 3,
+    customInstructions: "",
+  };
+
+  assert.deepEqual(
+    nextBatchRange(334, settings, { generatedBodyCharacters: 557_780 }),
+    { startEpisode: 335, endEpisode: 339, totalEpisodes: 360 },
+  );
+  assert.equal(
+    nextBatchRange(360, settings, { generatedBodyCharacters: 600_000 }),
+    null,
+  );
+});
+
+test("custom episode planning stops at the user-defined episode count", () => {
+  const settings = {
+    mode: "sequential",
+    episodeCountMode: "custom",
+    episodeCount: 334,
+    targetTotalCharacters: 600_000,
+    preferredEpisodeDurationMinutes: 3,
+    storyDensity: "balanced",
+    batchSize: 5,
+    outputLanguage: "zh",
+    sceneCount: 3,
+    customInstructions: "",
+  };
+
+  assert.equal(
+    nextBatchRange(334, settings, { generatedBodyCharacters: 557_780 }),
+    null,
+  );
 });

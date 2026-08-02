@@ -147,6 +147,7 @@ Phase 1 已实现以下最小运行时对象：
 
 - 现有 ContentSpec payload 不变
 - `ScriptGenerationDraftRequest.resolved_creative_context` 为 optional
+- `ScriptGenerationDraftRequest.target_script_body_characters` 为 optional，限制为 300-10000；它表示单集可视动作与对白正文的有效字符预算，不包含梗概、人物说明或 Scene Causality 规划字段
 - 旧生成请求可以完全省略新上下文
 - raw Creative Intent 不直接进入 Prompt Builder
 - selected / added tag 必须精确引用现有 active `OntologyNode`
@@ -1310,7 +1311,7 @@ Frontend MVP 已实现 presentation-only `BilingualScriptView`：
 - optional Revision / Finalization result
 - continuation instruction 与本地时间信息
 
-后端 `ScriptGenerationDraftRequest` 的 optional `episode_context` 包含 generation mode、当前/总集数、上一集摘要、上一集未决问题、optional 本集指令和 optional `project_continuity_summary`。省略时保持旧单集行为。
+后端 `ScriptGenerationDraftRequest` 的 optional `episode_context` 包含 generation mode、当前/总集数、上一集摘要、上一集未决问题、optional 本集指令和 optional `project_continuity_summary`。请求还可单独提供 optional `target_script_body_characters`，用于声明本集动作与对白正文预算。两者省略时均保持旧单集行为。
 
 `episode_context` 现可选携带 `GenerationBatchContext`：
 
@@ -1321,7 +1322,7 @@ Frontend MVP 已实现 presentation-only `BilingualScriptView`：
 
 该对象只记录一次有界阶段生成的范围和创作补充，不承担 Story Blueprint、热点检索或后台任务调度。旧 payload 不包含 `batch_context` 时继续有效。当前集数上限扩展到 2000，用于表达长篇项目规划范围；这不表示系统会在单次操作中生成 2000 集。
 
-Frontend 本地 `GenerationSettings` 还保存：集数规划方式、目标总字数、偏好单集时长、内容密度、总集数和单批生成集数。系统推荐值是透明的 authoring estimate，不是平台规则；使用者可以切换为手动总集数。每次完成或部分完成的批次保存为 `GenerationBatchRecord`，记录范围、指令、进度与时间。
+Frontend 本地 `GenerationSettings` 还保存：集数规划方式、目标总字数、偏好单集时长、内容密度、总集数和单批生成集数。系统推荐值是透明的 authoring estimate，不是平台规则；生成后会以动作与对白正文的实际集均重新估算达标集数，并只通过后续有界批次延长到总目标。使用者切换为手动总集数后，系统严格按该集数停止，不因字数不足自动延长。每次完成或部分完成的批次保存为 `GenerationBatchRecord`，记录范围、指令、进度与时间。
 
 `ScriptDraftReviewRequest` 用于对用户编辑后的结构化 Draft 重新执行现有 Story QC 与 RevisionPlan；`ScriptDraftModificationRequest` 生成不覆盖原稿的 AI 修改候选；`ScriptCreativeDeepeningRequest` 主动调用现有受保护的 Deepening 能力。以上对象不改变 `DraftMasterScript` / `FinalMasterScript` schema。
 

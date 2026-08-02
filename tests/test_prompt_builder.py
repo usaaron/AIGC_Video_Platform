@@ -204,3 +204,32 @@ def test_template_prompt_builder_injects_bounded_knowledge_bundle() -> None:
     assert "Reveal character through consequential choices" in result.prompt_text
     assert "Do not make every choice irreversible" in result.prompt_text
     assert "Do not state agency without an action" in result.prompt_text
+
+
+def test_template_prompt_builder_injects_bounded_script_body_target() -> None:
+    builder = TemplatePromptBuilder(builder_version="v0.3-test")
+    prompt = PromptLibraryItem.model_validate(build_prompt_item())
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    context = PromptBuildContext.model_validate(
+        {
+            "content_spec_id": "content_spec_001",
+            "content_spec_title": "Long-form body target",
+            "creative_brief_summary": "Sustain a causal serialized episode.",
+            "platform_profile_id": "mainland_v1",
+            "audience_profile_summary": "Mainland serialized comic audience",
+            "commercial_goal_summary": "Build a durable long-form story",
+            "generation_strategy_id": strategy.id,
+            "extra_variables": {"target_script_body_characters": "1797"},
+        }
+    )
+
+    result = builder.build_master_prompt(
+        prompts=[prompt],
+        context=context,
+        strategy=strategy,
+    )
+
+    assert "ScriptBodyLengthContract:" in result.prompt_text
+    assert "TargetScriptBodyCharacters: 1797" in result.prompt_text
+    assert "character_actions and dialogues.text" in result.prompt_text
+    assert "Do not pad with repetition" in result.prompt_text

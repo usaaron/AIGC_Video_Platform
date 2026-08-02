@@ -241,6 +241,8 @@ Phase 1 当前状态：
 - selected / added / excluded tag 必须引用现有 active `OntologyNode`
 - Character 字段保存 `user_provided` / `ai_inferred` provenance 和 `locked_fields`
 - `ScriptGenerationDraftRequest` 可选接收 `resolved_creative_context`
+- `ScriptGenerationDraftRequest` 可选接收 `target_script_body_characters`，将长篇总正文目标分解为单集动作与对白预算
+- Frontend 的系统推荐集数模式根据已生成正文集均动态延长后续有界批次，累计正文达标后停止；手动集数模式不自动延长，且两种模式都不在单次请求中生成整部长篇
 - Prompt Builder 只在上下文存在时注入已解析 Character facts、provenance、locks 与 exclusions
 - 旧 generate-draft 请求省略新字段时保持原有 Prompt 和生成流程
 
@@ -400,6 +402,7 @@ Creative Intent / ContentSpec
   - `output_language`
   - `desired_scene_count`
   - `target_duration_seconds`
+  - optional `target_script_body_characters`；只约束 `character_actions` 与 `dialogues.text`，不允许用梗概、规划字段、重复对白或无效解说凑数
   - Hook / Cliffhanger / Character Agency / Cultural Fit 约束
   - Scene Goal / Conflict / Outcome 与跨场因果链约束
   - 输出 JSON Schema

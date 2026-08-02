@@ -91,6 +91,8 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - Scene Goal / Conflict / Outcome 与跨场 causal link
 - 结构化 `DraftMasterScript`
 - optional episode context，包括上一集状态、本集指令和项目连续性摘要
+- optional 单集正文预算：中国大陆长篇前端按“总正文目标 ÷ 计划集数”传入 `target_script_body_characters`，Prompt Builder v0.3 将其限定为动作与对白预算，省略时保持旧行为
+- 系统推荐集数会按已生成动作与对白正文的实际集均重新估算达标集数，并以有界批次继续到目标；手动集数严格按使用者设定停止，动态估算受 2000 集硬上限保护
 - 长篇 Contract Foundation：`StoryProject`、`StoryBible`、人物弧/关系/故事线、`StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、`GenerationBatchPlan`、`GenerationJobCheckpoint`
 - 长篇 Persistence Foundation：SQLModel tables、PostgreSQL JSONB、Psycopg 3、Alembic migration、事务 Session、版本不可覆盖、stale write 与非法状态倒退保护
 - 长篇 Planning API：Project 分页与 optimistic update、Story Bible / Stage / Episode Plan immutable version 写入和读取、跨资源归属与集数范围校验
@@ -126,7 +128,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - 确认稿、修订稿和终稿 Episode Artifact 里程碑上报；失败不覆盖或删除本地稿件
 - Creative Input、系统标签、“我的标签”和 Character Builder
 - 逐集生成与有界阶段生成，包含本地批次 lineage 和 optional 阶段指令
-- 长篇字数验收仪表：实时统计已生成结构稿、动作与对白正文、当前集、集均产量、60 万字目标进度、达标所需集均和按当前集均的完结投影；整部 Markdown / JSON 导出保留同口径统计
+- 长篇字数验收仪表：以动作与对白正文作为 60 万字目标口径，单独显示结构稿辅助文本、当前集、正文集均产量、目标进度、达标所需集均和按当前正文集均的完结投影；整部 Markdown / JSON 导出保留同口径统计
 - 分集切换、结构化编辑、保存、确认和 AI 修改；Deepening 入口当前隐藏
 - Framework / Modification / Revised / Final 版本视图；历史 Deepening 数据仍可兼容读取
 - 单集与整部 Markdown / JSON 导出
@@ -184,7 +186,8 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - Frontend 项目数据先保存在 IndexedDB，并在 PostgreSQL 可用时同步 Project + Workspace Snapshot；远端新版本可恢复到本地，版本冲突只提示不自动覆盖。
 - Workspace Snapshot 是当前兼容恢复边界，不代表 Draft / Revised / Final episode 已成为独立、可查询的服务端领域版本。
 - “全部生成”是前端按有界批次逐集调用，不等同于一次生成完整系列规划；批次尚不具备后端持久化或断点任务恢复。
-- 长篇字数仪表是验收与容量投影工具，不是后台 60 万字生成 Job；当前“结构稿有效字符”统计字母、数字与中文字符，不含空格、标点和 JSON 格式符号。
+- 长篇字数仪表是验收与容量投影工具，不是后台 60 万字生成 Job；60 万目标只计动作与对白中的字母、数字与中文字符，不将梗概、人物说明、Goal / Conflict / Outcome 等规划字段凑入正文字数。
+- 系统推荐集数模式可以在前端继续追加有界批次直到正文目标，但仍需要使用者触发下一阶段；当前没有无人值守后台 Job，也未把 60 万字一次性锁定为单个 LLM 请求。
 - 故事线和人物关系是本地 authoring / continuity artifact，不是 Final `MasterScript` 字段。
 - Bilingual View 是开发者 / 中文用户审阅工件，不进入目标语言正式剧本。
 - Static Knowledge 只在 Strategy 明确声明并通过适用性校验时注入。
@@ -195,7 +198,8 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 
 最近一次代码变更后的记录：
 
-- 后端全量测试：`267 passed, 1 skipped`
+- 后端全量测试：`269 passed, 1 skipped`
+- 前端正文计数与推荐集数调度测试：`5 passed`
 - 长篇模型、Repository、migration、Planning API、Workspace Snapshot 与 Episode Artifact 定向测试：`38 passed`
 - 前端 TypeScript：通过
 - 前端 production build：通过
@@ -217,6 +221,15 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - 前端 TypeScript 与 production build 通过；由于执行环境不能接管用户当前 Chrome / Next dev 会话，本轮未替代人工完成浏览器按钮级验收
 
 该记录是当前 Project + Workspace Snapshot + 内容里程碑 Artifact 的验证快照，不代表后台任务、编辑过程细粒度历史或全部旧 Repository 已完成持久化接入，也不代表 60 万字长篇已完成端到端生产验收。
+
+### 600K Script Body Calibration - 2026-08-02
+
+- 60 万字目标口径固定为 `character_actions + dialogues.text` 的有效中文、字母和数字字符；不计梗概、人物说明、Scene Causality、标点和 JSON 格式。
+- 旧真实样本正文分别约 643 和 630 字，按 334 集只能投影约 21.2 万字，确认旧 Prompt 无法支撑真实 60 万正文。
+- Prompt Builder v0.3 接收 `target_script_body_characters=1797` 后，固定样本首次生成 1505 字正文，HTTP 200，耗时约 125 秒；较 643 字旧样本提升约 134%，但按 334 集仅投影 502,670 字。
+- 第二次有依据校准请求目标为 2150，实际生成 1670 字正文，HTTP 200，耗时约 378 秒；没有发现明显重复灌水，按 334 集投影 557,780 字，按当前集均达到 60 万需要约 360 集。
+- 因真实模型不会严格命中字符预算，系统推荐集数不再把 334 视为硬停止点：在 334 集仅有 557,780 字时，下一批范围为 335-339，动态估算总集数为 360；累计达到 600,000 后停止。手动 334 集仍保持硬停止。
+- 当前结论：单集正文扩展和基于实际产量的有界续写调度已得到真实样本支持；完整 60 万字作品尚未实际生成，因此不能宣称全量质量、成本、连续性和失败恢复已经验收。
 
 ## Current Hold
 

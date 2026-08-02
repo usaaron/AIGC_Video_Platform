@@ -419,12 +419,14 @@ def test_script_generation_service_preserves_serialized_episode_context() -> Non
             generation_strategy_id="strategy.tiktok.service_generation.v1",
             output_language="en",
             desired_scene_count=3,
+            target_script_body_characters=1797,
             episode_context=context,
         )
     )
 
     assert result.episode_context == context
     assert "SerializedEpisodeContract:" in result.prompt_build_result.prompt_text
+    assert "TargetScriptBodyCharacters: 1797" in result.prompt_build_result.prompt_text
     assert "Force Mara to protect the suspected betrayer" in result.prompt_build_result.prompt_text
     assert "Mara distrusts Adrian but needs his access" in result.prompt_build_result.prompt_text
     assert result.episode_context.batch_context is not None

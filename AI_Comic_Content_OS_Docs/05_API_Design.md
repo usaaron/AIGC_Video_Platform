@@ -222,6 +222,8 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 
 - `output_language` 必须显式提供
 - 不允许由 Script Engine 对输出语言做静默默认
+- `target_script_body_characters` 为 optional，可用于声明 300-10000 之间的单集动作与对白正文目标；当前它是 Prompt 长度预算，不是失败即拒绝的 Schema Gate
+- 省略 `target_script_body_characters` 时保持旧 Prompt 长度行为，不破坏旧 API 调用方
 - `resolved_creative_context` 为 optional；提供时其 `content_spec_id` 必须与请求一致
 - Knowledge Bundle 不由请求任意传入；当前只通过 `GenerationStrategy.draft_knowledge_bundle_id` 精确声明
 - Deepening 需要同时满足 Strategy 声明与 runtime feature flag；当前 `SCRIPT_CREATIVE_DEEPENING_ENABLED=false`，因此自动 shadow 和显式 `deepen-draft` 均关闭
