@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, inspect
 EXPECTED_LONG_STORY_TABLES = {
     "alembic_version",
     "continuity_ledger_versions",
+    "episode_artifact_versions",
     "episode_plan_versions",
     "generation_batches",
     "generation_job_checkpoints",

@@ -4,6 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.dependencies import get_long_story_service
 from app.modules.script_engine.long_story_models import (
+    EpisodeArtifactCreate,
+    EpisodeArtifactKind,
+    EpisodeArtifactListResponse,
+    EpisodeArtifactResponse,
     EpisodePlan,
     EpisodePlanListResponse,
     EpisodePlanResponse,
@@ -163,6 +167,88 @@ def get_story_project_workspace(
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
     return StoryProjectWorkspaceResponse(data=snapshot)
+
+
+@router.post(
+    "/{project_id}/episodes/{episode_number}/artifacts",
+    response_model=EpisodeArtifactResponse,
+    responses={
+        404: {"model": LongStoryErrorResponse},
+        409: {"model": LongStoryErrorResponse},
+        413: {"model": LongStoryErrorResponse},
+    },
+)
+def save_episode_artifact(
+    project_id: str,
+    episode_number: int,
+    payload: EpisodeArtifactCreate,
+    service: LongStoryService = Depends(get_long_story_service),
+) -> EpisodeArtifactResponse:
+    if (
+        payload.story_project_id != project_id
+        or payload.episode_number != episode_number
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Episode Artifact path identity must match its payload identity.",
+        )
+    try:
+        artifact = service.save_episode_artifact(payload)
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    except LongStoryPayloadTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(exc),
+        ) from exc
+    except (LongStoryPersistenceConflictError, LongStoryReferenceError) as exc:
+        _raise_conflict(exc)
+    return EpisodeArtifactResponse(data=artifact)
+
+
+@router.get(
+    "/{project_id}/episodes/{episode_number}/artifacts",
+    response_model=EpisodeArtifactListResponse,
+    responses={404: {"model": LongStoryErrorResponse}},
+)
+def list_episode_artifacts(
+    project_id: str,
+    episode_number: int,
+    artifact_kind: EpisodeArtifactKind | None = Query(default=None),
+    service: LongStoryService = Depends(get_long_story_service),
+) -> EpisodeArtifactListResponse:
+    try:
+        artifacts = service.list_episode_artifacts(
+            project_id,
+            episode_number=episode_number,
+            artifact_kind=artifact_kind,
+        )
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    return EpisodeArtifactListResponse(data=artifacts)
+
+
+@router.get(
+    "/{project_id}/episodes/{episode_number}/artifacts/{artifact_id}",
+    response_model=EpisodeArtifactResponse,
+    responses={404: {"model": LongStoryErrorResponse}},
+)
+def get_episode_artifact(
+    project_id: str,
+    episode_number: int,
+    artifact_id: str,
+    service: LongStoryService = Depends(get_long_story_service),
+) -> EpisodeArtifactResponse:
+    try:
+        artifact = service.get_episode_artifact(project_id, artifact_id)
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    if artifact.episode_number != episode_number:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Episode Artifact '{artifact_id}' was not found in episode {episode_number}.",
+        )
+    return EpisodeArtifactResponse(data=artifact)
 
 
 @router.put(

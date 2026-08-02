@@ -68,6 +68,12 @@ class GenerationJobStatus(str, Enum):
     failed = "failed"
 
 
+class EpisodeArtifactKind(str, Enum):
+    draft = "draft"
+    revised = "revised"
+    final = "final"
+
+
 class StoryProject(BaseModel):
     """Versioned aggregate contract for one serialized story project."""
 
@@ -657,3 +663,58 @@ class StoryProjectWorkspaceSnapshot(StoryProjectWorkspaceSave):
 
 class StoryProjectWorkspaceResponse(BaseModel):
     data: StoryProjectWorkspaceSnapshot
+
+
+class EpisodeArtifactCreate(BaseModel):
+    """Immutable episode milestone submitted by an authoring client."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(default="v1", pattern=r"^v\d+$")
+    artifact_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    story_project_id: str = Field(
+        min_length=3,
+        max_length=120,
+        pattern=IDENTIFIER_PATTERN,
+    )
+    episode_number: int = Field(ge=1, le=2_000)
+    artifact_kind: EpisodeArtifactKind
+    content_schema_version: str = Field(min_length=2, max_length=80)
+    content_payload: dict[str, Any]
+    source_artifact_id: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=120,
+        pattern=IDENTIFIER_PATTERN,
+    )
+    lineage_refs: dict[str, str] = Field(default_factory=dict)
+    client_instance_id: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=120,
+        pattern=IDENTIFIER_PATTERN,
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("lineage_refs")
+    @classmethod
+    def validate_lineage_refs(cls, value: dict[str, str]) -> dict[str, str]:
+        if len(value) > 30:
+            raise ValueError("Episode Artifact lineage_refs cannot exceed 30 entries.")
+        if any(not key.strip() or not item.strip() for key, item in value.items()):
+            raise ValueError("Episode Artifact lineage_refs cannot contain blank values.")
+        return value
+
+
+class EpisodeArtifact(EpisodeArtifactCreate):
+    artifact_version: int = Field(ge=1)
+    payload_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
+    payload_size_bytes: int = Field(ge=2, le=5_000_000)
+
+
+class EpisodeArtifactResponse(BaseModel):
+    data: EpisodeArtifact
+
+
+class EpisodeArtifactListResponse(BaseModel):
+    data: list[EpisodeArtifact]

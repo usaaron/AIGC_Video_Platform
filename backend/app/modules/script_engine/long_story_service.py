@@ -10,6 +10,9 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import DatabaseRuntime
 from app.modules.script_engine.long_story_models import (
+    EpisodeArtifact,
+    EpisodeArtifactCreate,
+    EpisodeArtifactKind,
     EpisodePlan,
     StoryBible,
     StoryProject,
@@ -152,6 +155,109 @@ class LongStoryService:
                     f"Workspace snapshot for Story Project '{project_id}' was not found."
                 )
             return snapshot
+
+        return self._run(operation)
+
+    def save_episode_artifact(
+        self,
+        payload: EpisodeArtifactCreate,
+    ) -> EpisodeArtifact:
+        encoded_payload = json.dumps(
+            payload.content_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        payload_size = len(encoded_payload)
+        if payload_size > 5_000_000:
+            raise LongStoryPayloadTooLargeError(
+                "Episode Artifact content exceeds the 5 MB payload limit."
+            )
+
+        def operation(repository: LongStoryRepository) -> EpisodeArtifact:
+            project = self._require_project(
+                repository,
+                payload.story_project_id,
+                for_update=True,
+            )
+            if payload.episode_number > project.planned_episode_count:
+                raise LongStoryReferenceError(
+                    "Episode Artifact number exceeds the Story Project episode count."
+                )
+            existing = repository.get_episode_artifact(payload.artifact_id)
+            if existing is not None:
+                existing_create = EpisodeArtifactCreate.model_validate(
+                    existing.model_dump(
+                        exclude={
+                            "artifact_version",
+                            "payload_checksum",
+                            "payload_size_bytes",
+                        }
+                    )
+                )
+                if existing_create != payload:
+                    raise LongStoryPersistenceConflictError(
+                        "Episode Artifact ID already exists with different content."
+                    )
+                return existing
+            if payload.source_artifact_id is not None:
+                source = repository.get_episode_artifact(payload.source_artifact_id)
+                if source is None:
+                    raise LongStoryReferenceError(
+                        "Episode Artifact source_artifact_id was not found."
+                    )
+                if (
+                    source.story_project_id != payload.story_project_id
+                    or source.episode_number != payload.episode_number
+                ):
+                    raise LongStoryReferenceError(
+                        "Episode Artifact source must belong to the same project and episode."
+                    )
+            artifact = EpisodeArtifact(
+                **payload.model_dump(),
+                artifact_version=repository.next_episode_artifact_version(
+                    payload.story_project_id,
+                    payload.episode_number,
+                    payload.artifact_kind,
+                ),
+                payload_checksum=hashlib.sha256(encoded_payload).hexdigest(),
+                payload_size_bytes=payload_size,
+            )
+            return repository.save_episode_artifact(artifact)
+
+        return self._run(operation)
+
+    def get_episode_artifact(
+        self,
+        story_project_id: str,
+        artifact_id: str,
+    ) -> EpisodeArtifact:
+        def operation(repository: LongStoryRepository) -> EpisodeArtifact:
+            self._require_project(repository, story_project_id)
+            artifact = repository.get_episode_artifact(artifact_id)
+            if artifact is None or artifact.story_project_id != story_project_id:
+                raise LongStoryNotFoundError(
+                    f"Episode Artifact '{artifact_id}' was not found in "
+                    f"Story Project '{story_project_id}'."
+                )
+            return artifact
+
+        return self._run(operation)
+
+    def list_episode_artifacts(
+        self,
+        story_project_id: str,
+        *,
+        episode_number: int | None = None,
+        artifact_kind: EpisodeArtifactKind | None = None,
+    ) -> list[EpisodeArtifact]:
+        def operation(repository: LongStoryRepository) -> list[EpisodeArtifact]:
+            self._require_project(repository, story_project_id)
+            return repository.list_episode_artifacts(
+                story_project_id,
+                episode_number=episode_number,
+                artifact_kind=artifact_kind,
+            )
 
         return self._run(operation)
 

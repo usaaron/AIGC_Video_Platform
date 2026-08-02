@@ -1102,6 +1102,20 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 
 - 恢复最新 Frontend authoring snapshot；项目或快照不存在时返回 `404`
 
+### POST `/story-projects/{project_id}/episodes/{episode_number}/artifacts`
+
+- 保存 `draft / revised / final` 不可变内容里程碑，版本号由服务端在项目事务锁内分配
+- `artifact_id` 相同且 payload 相同可幂等重放；不同 payload 返回 `409`
+- optional source artifact 必须属于同一项目和同一集；超过 5 MB 返回 `413`
+
+### GET `/story-projects/{project_id}/episodes/{episode_number}/artifacts`
+
+- 按版本顺序列出该集 Artifact，可通过 `artifact_kind` 筛选
+
+### GET `/story-projects/{project_id}/episodes/{episode_number}/artifacts/{artifact_id}`
+
+- 读取单个不可变 Artifact；项目、集号或 ID 不匹配返回 `404`
+
 ### PUT `/story-projects/{project_id}/story-bibles/{story_bible_id}/versions/{version}`
 
 - 保存 immutable `StoryBible` version
@@ -1133,7 +1147,7 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 
 当前边界：
 
-- Frontend 已调用 Project 与 Workspace Snapshot 接口，并保留 IndexedDB 作为即时本地缓存和服务不可用时的离线回退
+- Frontend 已调用 Project、Workspace Snapshot 与 Episode Artifact 接口，并保留 IndexedDB 作为即时本地缓存和服务不可用时的离线回退
 - 合并以 `updated_at` 比较并使用 revision 防止 lost update；冲突只报告，不静默覆盖
 - 尚未开放 Continuity Ledger、Generation Batch / Job 的公共写接口
 - 尚未实现权限、租户、后台 worker、自动规划或长篇生成 facade
@@ -1152,4 +1166,4 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 - `MasterScript` 创建时会校验引用的 `ContentSpec` 是否已存在
 - `OrchestrationPlan` 创建时会校验引用的 `ContentSpec` 是否已存在
 - 现有 ContentSpec、Prompt、Script Generation 等历史仓储仍以进程内实现为主
-- 长篇规划资源与 Frontend Workspace Snapshot 已使用 PostgreSQL persistence foundation；独立 episode artifact 迁移仍待后续完成
+- 长篇规划资源、Frontend Workspace Snapshot 与确认/修订/终稿 Episode Artifact 已使用 PostgreSQL persistence foundation；编辑过程细粒度历史仍由 Workspace Snapshot 承载

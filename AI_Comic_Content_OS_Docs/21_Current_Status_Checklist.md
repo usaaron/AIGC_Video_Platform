@@ -25,9 +25,9 @@
 - 基于：本地 `main` 的 `script-generation-research-checkpoint-v1.1.0` 基线。
 - 已推送规划 API 基线：`2cdc79c`，commit 为 `feat: add persistent long story planning API`；持久化基线为 `0f6b2ec`，长篇契约基线为 `e5fdf81`。
 - 主要内容：默认 `cn_mainland` market profile、保留但关闭 `overseas_tiktok`、红果 reference-only 定位、逐集与有界阶段生成、批次 lineage、后续阶段可选新元素指令、长篇参数估算、Creative Deepening 前后端默认关闭。
-- 当前增量：长篇 Contract Foundation、PostgreSQL/JSONB schema、Alembic migration、事务型 Repository、原子 optimistic revision、Project / Workspace Snapshot / Story Bible / Stage / Episode Plan 资源 API，以及 Frontend 本地优先同步、恢复、冲突提示和软删除。
+- 当前增量：长篇 Contract Foundation、PostgreSQL/JSONB schema、Alembic migration、事务型 Repository、原子 optimistic revision、Project / Workspace Snapshot / Episode Artifact / Story Bible / Stage / Episode Plan 资源 API，以及 Frontend 本地优先同步、恢复、冲突提示、软删除和内容里程碑上报。
 - 明确边界：仍通过现有单集 Draft API 编排；规划资源 API 不等同于自动 Story Blueprint / Episode Planning，也不等同于后台长任务或完整 60 万字自动生成 runtime。
-- 验证状态：Workspace Snapshot 定向测试 `34 passed`，后端全量 `263 passed, 1 skipped`，前端 typecheck/build 通过。
+- 验证状态：Workspace / Episode Artifact 定向测试 `38 passed`，后端全量 `267 passed, 1 skipped`，前端 typecheck/build 通过。
 - 远程状态：已推送并跟踪 `origin/feature/cn-mainland-staged-generation`。
 - 合并状态：尚未合并到 `main`；应在合作方需求确认和新版手工验收完成后再决定是否合并并建立新版本 tag。
 
@@ -95,6 +95,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - 长篇 Persistence Foundation：SQLModel tables、PostgreSQL JSONB、Psycopg 3、Alembic migration、事务 Session、版本不可覆盖、stale write 与非法状态倒退保护
 - 长篇 Planning API：Project 分页与 optimistic update、Story Bible / Stage / Episode Plan immutable version 写入和读取、跨资源归属与集数范围校验
 - Frontend Workspace Persistence：Project 可在 ContentSpec 解析前创建；完整工作区使用 10 MB 上限的 JSONB snapshot、checksum、独立 revision 和 client lineage 保存
+- Episode Artifact Persistence：确认 draft、规则 revised 和 final 使用服务端分配版本的 immutable JSONB artifact，保留 checksum、source artifact 与 bounded lineage
 
 ### Quality Loop
 
@@ -120,6 +121,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - Next.js 中英文创作界面
 - IndexedDB 本地优先项目、角色、分集和版本快照
 - PostgreSQL Project + Workspace Snapshot 同步、跨浏览器恢复、updated-at 合并、显式 revision conflict 和版本保护软删除
+- 确认稿、修订稿和终稿 Episode Artifact 里程碑上报；失败不覆盖或删除本地稿件
 - Creative Input、系统标签、“我的标签”和 Character Builder
 - 逐集生成与有界阶段生成，包含本地批次 lineage 和 optional 阶段指令
 - 分集切换、结构化编辑、保存、确认和 AI 修改；Deepening 入口当前隐藏
@@ -161,8 +163,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 ## Not Implemented
 
 - Frontend 对 Story Bible / Stage / Episode Plan 结构化编辑与人工批准 API 的接入
-- 服务端 Episode Draft / Revised / Final 版本聚合与 API
-- Episode Draft / Revised / Final artifact 的服务端版本持久化
+- Episode Artifact 审计/恢复 UI 和编辑过程细粒度版本
 - Story Bible / Story Stage / Episode Plan 的生成、人工批准和 Prompt 注入
 - Continuity Ledger 的自动提取、更新与冲突检查
 - 后台 Generation Job 执行、暂停、恢复和断点重试
@@ -190,15 +191,15 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 
 最近一次代码变更后的记录：
 
-- 后端全量测试：`263 passed, 1 skipped`
-- 长篇模型、Repository、migration、Planning API 与 Workspace Snapshot 定向测试：`34 passed`
+- 后端全量测试：`267 passed, 1 skipped`
+- 长篇模型、Repository、migration、Planning API、Workspace Snapshot 与 Episode Artifact 定向测试：`38 passed`
 - 前端 TypeScript：通过
 - 前端 production build：通过
 - `git diff --check`：通过
 - Alembic upgrade / check / downgrade / re-upgrade：通过 SQLite 自动化验证
 - 真实 PostgreSQL 集成：本轮未运行，进入 CI / 部署环境验证阶段后补充
 
-该记录是当前 Project + Workspace Snapshot 持久化接入的验证快照，不代表正式 Episode Artifact、后台任务或全部历史 Repository 已完成持久化接入。
+该记录是当前 Project + Workspace Snapshot + 内容里程碑 Artifact 的验证快照，不代表后台任务、编辑过程细粒度历史或全部旧 Repository 已完成持久化接入。
 
 ## Current Hold
 

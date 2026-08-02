@@ -57,7 +57,7 @@ The frontend currently orchestrates existing step APIs. This makes the product u
 - Authentication-scoped or multi-user project ownership and collaboration.
 - Character CRUD independent of `CreativeIntentInput`.
 - Draft update or version persistence.
-- Independent Draft / Revised / Final episode artifact persistence; current server persistence is a project-level workspace snapshot.
+- Fine-grained edit history and Artifact audit/restore UI; confirmed Draft / Revised / Final milestones are persisted independently.
 - Story Blueprint or Episode Planning runtime.
 - Server-side multi-episode transaction/facade; current Full mode is bounded frontend orchestration.
 - Trending-tag recommendations from Data Intelligence.
@@ -83,7 +83,7 @@ Current repositories are in memory. Backend restart can invalidate stored Conten
 - Story Blueprint / Episode Planning runtime.
 - Creative Deepening UI and backend execution while the feature flag remains disabled.
 - Deepen All as one server transaction.
-- Server-side normalized episode artifact history beyond the current workspace snapshot.
+- Fine-grained server-side editing history beyond the current milestone artifacts and workspace snapshot.
 
 ### Explicitly Excluded
 
@@ -699,7 +699,7 @@ Implemented:
 Still pending:
 
 - browser-level automated interaction coverage;
-- normalized server-side Draft / Revised / Final episode artifact versions;
+- Artifact audit/restore UI and fine-grained intermediate editing versions;
 - standalone re-QC for locally edited Drafts;
 - multi-episode planning and generation.
 

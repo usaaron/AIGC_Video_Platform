@@ -167,7 +167,7 @@ Capability Development
 - Story Bible、Story Stage、Episode Plan 和 Continuity Ledger 版本一经写入不得原地覆盖，新内容必须提升 version。
 - Project、Batch 和 Job 等可变对象使用 revision 做 optimistic concurrency，禁止静默 last-write-wins。
 - Migration 必须验证 upgrade、downgrade 和 metadata drift；Alembic autogenerate 结果必须人工审阅。
-- Frontend Project + Workspace Snapshot 已接入 PostgreSQL 时，可声明为“服务端可恢复工作区”；在 Episode Artifact、历史 Repository 与后台 Job 全部迁移前，不得宣称整个生产链路已经完整 durable。
+- Frontend Project + Workspace Snapshot 已接入 PostgreSQL，确认/修订/终稿已有 Episode Artifact；在编辑过程细粒度历史、旧 Repository 与后台 Job 全部迁移前，不得宣称整个生产链路已经完整 durable。
 
 ## Data Intelligence Rules
 

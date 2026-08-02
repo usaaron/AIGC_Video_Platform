@@ -16,7 +16,8 @@ AI Comic Content OS 当前面向中国大陆漫剧市场，重点建设中文长
 - 已完成基础：Story Project、Story Bible、故事阶段、Episode Plan、Continuity Ledger、批次检查点契约，以及 PostgreSQL / JSONB schema、Alembic migration 和事务型 Repository
 - 已接入后端资源 API：Story Project、Frontend Workspace Snapshot、Story Bible、故事阶段和 Episode Plan 的版本化保存与读取
 - Frontend 已采用 IndexedDB 本地优先 + PostgreSQL Workspace Snapshot 服务端同步；冲突不静默覆盖，删除使用版本保护的服务端软归档
-- 尚未接入 runtime：自动规划、正式 Episode Artifact 映射、连续性自动更新和后台可恢复执行
+- 已接入 Episode Artifact 里程碑：确认稿、规则修订稿和终稿按不可变服务端版本保存并保留来源 lineage
+- 尚未接入 runtime：自动规划、编辑过程的细粒度版本、连续性自动更新和后台可恢复执行
 - 尚未实现：完整 60 万字母本自动生成
 
 当前已经跑通：
@@ -41,7 +42,7 @@ Frontend MVP 支持本地项目、标签、角色、逐集生成和分阶段全�
 - Revision 仍以规则式受控修改为主。
 - Acceptance 当前是 shadow 信号，不阻断 Finalization；Creative Deepening 当前默认关闭。
 - 全部生成由前端按批次有界调用单集 Draft API，并保存本地批次 lineage；不等同于 Story Planning runtime、后台 Job 或完整 60 万字自动生成。
-- 项目工作区先保存到浏览器 IndexedDB，并在配置 PostgreSQL 时同步完整版本化 Workspace Snapshot。没有数据库或服务暂时不可用时可继续本地编辑，但同步冲突必须人工处理。
+- 项目工作区先保存到浏览器 IndexedDB，并在配置 PostgreSQL 时同步完整版本化 Workspace Snapshot；确认稿、修订稿和终稿另存不可变 Episode Artifact。没有数据库或服务暂时不可用时可继续本地编辑，但同步冲突必须人工处理。
 - 中文界面的英文剧本对照翻译是 presentation artifact，不修改正式英文剧本。
 - Agent、动态 RAG、视频生产和统一 Script Generation Facade 尚未实现。
 

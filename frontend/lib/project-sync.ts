@@ -1,5 +1,7 @@
 import { ApiError, apiRequest } from "@/lib/api-client";
 import type {
+  EpisodeArtifactKind,
+  EpisodeArtifactReference,
   ProjectServerSyncState,
   ScriptProject,
 } from "@/lib/types";
@@ -31,6 +33,16 @@ interface WorkspaceResponse {
     revision: number;
     workspace_payload: Record<string, unknown>;
     updated_at: string;
+  };
+}
+
+interface EpisodeArtifactResponse {
+  data: {
+    artifact_id: string;
+    artifact_kind: EpisodeArtifactKind;
+    artifact_version: number;
+    payload_checksum: string;
+    created_at: string;
   };
 }
 
@@ -241,6 +253,60 @@ export async function archiveProjectOnServer(
         error instanceof Error ? error.message : "Server persistence is unavailable.",
       ),
     };
+  }
+}
+
+export async function saveEpisodeArtifactOnServer(args: {
+  project: ScriptProject;
+  episodeNumber: number;
+  artifactKind: EpisodeArtifactKind;
+  contentSchemaVersion: string;
+  contentPayload: Record<string, unknown>;
+  lineageRefs?: Record<string, string>;
+  sourceArtifactId?: string;
+}): Promise<EpisodeArtifactReference | null> {
+  const pendingSync = syncQueues.get(args.project.id);
+  const syncState = pendingSync
+    ? await pendingSync.catch(() => localOnlyState())
+    : args.project.serverSync;
+  if (syncState?.status !== "synced") return null;
+
+  const artifactId = [
+    "artifact",
+    args.project.id,
+    `episode_${String(args.episodeNumber).padStart(4, "0")}`,
+    args.artifactKind,
+    crypto.randomUUID(),
+  ].join(".");
+  try {
+    const response = await apiRequest<EpisodeArtifactResponse>(
+      `/story-projects/${args.project.id}/episodes/${args.episodeNumber}/artifacts`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          schema_version: "v1",
+          artifact_id: artifactId,
+          story_project_id: args.project.id,
+          episode_number: args.episodeNumber,
+          artifact_kind: args.artifactKind,
+          content_schema_version: args.contentSchemaVersion,
+          content_payload: args.contentPayload,
+          source_artifact_id: args.sourceArtifactId,
+          lineage_refs: args.lineageRefs ?? {},
+          client_instance_id: getClientInstanceId(),
+          created_at: new Date().toISOString(),
+        }),
+      },
+    );
+    return {
+      artifactId: response.data.artifact_id,
+      artifactKind: response.data.artifact_kind,
+      artifactVersion: response.data.artifact_version,
+      payloadChecksum: response.data.payload_checksum,
+      createdAt: response.data.created_at,
+    };
+  } catch {
+    return null;
   }
 }
 

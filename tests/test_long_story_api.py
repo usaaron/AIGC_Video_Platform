@@ -287,6 +287,74 @@ async def test_workspace_snapshot_api_restores_full_frontend_payload(
 
 
 @pytest.mark.anyio
+async def test_episode_artifact_api_assigns_immutable_versions_and_lineage(
+    long_story_app,
+) -> None:
+    app, runtime = long_story_app
+    first_payload = {
+        "artifact_id": "artifact.api_demo.episode_001.draft.initial",
+        "story_project_id": "story_project.api_demo",
+        "episode_number": 1,
+        "artifact_kind": "draft",
+        "content_schema_version": "draft_master_script.v1",
+        "content_payload": {"title": "Episode 1", "scenes": []},
+        "lineage_refs": {"generation_run_id": "generation.run.api_demo.001"},
+        "client_instance_id": "client.browser_one",
+        "created_at": NOW.isoformat(),
+    }
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project().model_dump(mode="json"),
+        )
+        first = await client.post(
+            "/story-projects/story_project.api_demo/episodes/1/artifacts",
+            json=first_payload,
+        )
+        replay = await client.post(
+            "/story-projects/story_project.api_demo/episodes/1/artifacts",
+            json=first_payload,
+        )
+        second = await client.post(
+            "/story-projects/story_project.api_demo/episodes/1/artifacts",
+            json={
+                **first_payload,
+                "artifact_id": "artifact.api_demo.episode_001.draft.confirmed",
+                "content_payload": {"title": "Episode 1 Confirmed", "scenes": []},
+                "source_artifact_id": first_payload["artifact_id"],
+            },
+        )
+        listed = await client.get(
+            "/story-projects/story_project.api_demo/episodes/1/artifacts?"
+            "artifact_kind=draft"
+        )
+
+    assert first.status_code == 200
+    assert replay.json()["data"]["artifact_version"] == 1
+    assert second.json()["data"]["artifact_version"] == 2
+    assert second.json()["data"]["source_artifact_id"] == first_payload["artifact_id"]
+    assert [item["artifact_version"] for item in listed.json()["data"]] == [1, 2]
+
+    restarted_app = create_app()
+    restarted_app.dependency_overrides[get_long_story_service] = (
+        lambda: LongStoryService(runtime)
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=restarted_app),
+        base_url="http://testserver",
+    ) as client:
+        restored = await client.get(
+            "/story-projects/story_project.api_demo/episodes/1/artifacts/"
+            "artifact.api_demo.episode_001.draft.confirmed"
+        )
+    assert restored.status_code == 200
+    assert restored.json()["data"]["payload_checksum"]
+
+
+@pytest.mark.anyio
 async def test_episode_plan_must_stay_inside_its_stage(long_story_app) -> None:
     app, _runtime = long_story_app
     async with AsyncClient(

@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from app.modules.script_engine.long_story_models import (
     ContinuityLedger,
+    EpisodeArtifactCreate,
     EpisodePlan,
     GenerationBatchPlan,
     GenerationJobCheckpoint,
@@ -327,4 +328,35 @@ def test_generation_job_checkpoint_rejects_conflicting_episode_status() -> None:
             status="partial",
             completed_episode_numbers=[1, 2],
             failed_episode_numbers=[2],
+        )
+
+
+def test_episode_artifact_create_serializes_bounded_lineage() -> None:
+    artifact = EpisodeArtifactCreate(
+        artifact_id="artifact.episode_001.draft.initial",
+        story_project_id="story_project.mainland_demo",
+        episode_number=1,
+        artifact_kind="draft",
+        content_schema_version="draft_master_script.v1",
+        content_payload={"title": "Episode 1", "scenes": []},
+        lineage_refs={"generation_run_id": "generation.run.001"},
+        client_instance_id="client.browser_one",
+    )
+
+    serialized = artifact.model_dump(mode="json")
+    assert serialized["artifact_kind"] == "draft"
+    assert serialized["content_payload"]["title"] == "Episode 1"
+    assert serialized["lineage_refs"]["generation_run_id"] == "generation.run.001"
+
+
+def test_episode_artifact_rejects_excessive_lineage() -> None:
+    with pytest.raises(ValidationError, match="cannot exceed 30"):
+        EpisodeArtifactCreate(
+            artifact_id="artifact.episode_001.draft.invalid",
+            story_project_id="story_project.mainland_demo",
+            episode_number=1,
+            artifact_kind="draft",
+            content_schema_version="draft_master_script.v1",
+            content_payload={"title": "Episode 1"},
+            lineage_refs={f"key_{index}": "value" for index in range(31)},
         )

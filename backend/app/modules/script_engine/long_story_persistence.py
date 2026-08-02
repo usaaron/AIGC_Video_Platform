@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKeyConstraint,
     Index,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
@@ -302,6 +303,60 @@ class StoryProjectWorkspaceSnapshotRecord(SQLModel, table=True):
     payload_checksum: str = Field(max_length=64)
     payload_size_bytes: int
     updated_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    payload: dict[str, Any] = Field(sa_column=_json_payload_column())
+
+
+class EpisodeArtifactVersionRecord(SQLModel, table=True):
+    __tablename__ = "episode_artifact_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "story_project_id",
+            "episode_number",
+            "artifact_kind",
+            "artifact_version",
+            name="uq_episode_artifact_version",
+        ),
+        Index(
+            "ix_episode_artifact_project_episode",
+            "story_project_id",
+            "episode_number",
+        ),
+        CheckConstraint("artifact_version >= 1", name="ck_episode_artifact_version"),
+        CheckConstraint(
+            "episode_number BETWEEN 1 AND 2000",
+            name="ck_episode_artifact_episode_number",
+        ),
+        CheckConstraint(
+            "artifact_kind IN ('draft', 'revised', 'final')",
+            name="ck_episode_artifact_kind",
+        ),
+        CheckConstraint(
+            "payload_size_bytes BETWEEN 2 AND 5000000",
+            name="ck_episode_artifact_payload_size",
+        ),
+    )
+
+    artifact_id: str = Field(primary_key=True, max_length=120)
+    story_project_id: str = Field(
+        foreign_key="story_projects.project_id",
+        max_length=120,
+    )
+    episode_number: int
+    artifact_kind: str = Field(max_length=20)
+    artifact_version: int
+    schema_version: str = Field(max_length=20)
+    content_schema_version: str = Field(max_length=80)
+    source_artifact_id: str | None = Field(
+        default=None,
+        foreign_key="episode_artifact_versions.artifact_id",
+        max_length=120,
+    )
+    client_instance_id: str | None = Field(default=None, max_length=120)
+    payload_checksum: str = Field(max_length=64)
+    payload_size_bytes: int
+    created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False)
     )
     payload: dict[str, Any] = Field(sa_column=_json_payload_column())

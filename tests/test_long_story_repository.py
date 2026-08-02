@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -11,6 +13,7 @@ from app.database import (
 )
 from app.modules.script_engine.long_story_models import (
     ContinuityLedger,
+    EpisodeArtifact,
     EpisodePlan,
     GenerationBatchPlan,
     GenerationJobCheckpoint,
@@ -117,6 +120,32 @@ def build_episode_plan(episode_number: int) -> EpisodePlan:
         exit_state="Mara gains one verified fact and one more dangerous question.",
         cliffhanger="A hidden record identifies someone Mara trusted.",
         character_refs=["character.mara", "character.adrian"],
+    )
+
+
+def build_episode_artifact(
+    *,
+    artifact_id: str = "artifact.mainland_demo.episode_001.draft.initial",
+    version: int = 1,
+    title: str = "Episode 1",
+) -> EpisodeArtifact:
+    content = {"title": title, "scenes": []}
+    encoded = json.dumps(
+        content,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return EpisodeArtifact(
+        artifact_id=artifact_id,
+        story_project_id="story_project.mainland_demo",
+        episode_number=1,
+        artifact_kind="draft",
+        artifact_version=version,
+        content_schema_version="draft_master_script.v1",
+        content_payload=content,
+        payload_checksum=hashlib.sha256(encoded).hexdigest(),
+        payload_size_bytes=len(encoded),
+        created_at=NOW,
     )
 
 
@@ -323,6 +352,37 @@ def test_repository_lists_stage_and_episode_plans_in_order(database_runtime) -> 
         )
         assert [stage.stage_number for stage in stages] == [1]
         assert [episode.episode_number for episode in episodes] == [1, 2]
+
+
+def test_episode_artifact_versions_are_immutable_and_ordered(database_runtime) -> None:
+    first = build_episode_artifact()
+    second = build_episode_artifact(
+        artifact_id="artifact.mainland_demo.episode_001.draft.confirmed",
+        version=2,
+        title="Episode 1 Confirmed",
+    )
+    with database_runtime.session() as session:
+        repository = LongStoryRepository(session)
+        repository.save_project(build_project())
+        repository.save_episode_artifact(first)
+        repository.save_episode_artifact(second)
+
+    with database_runtime.session() as session:
+        repository = LongStoryRepository(session)
+        artifacts = repository.list_episode_artifacts(
+            "story_project.mainland_demo",
+            episode_number=1,
+        )
+        assert [artifact.artifact_version for artifact in artifacts] == [1, 2]
+        assert repository.next_episode_artifact_version(
+            "story_project.mainland_demo",
+            1,
+            first.artifact_kind,
+        ) == 3
+        with pytest.raises(LongStoryPersistenceConflictError, match="cannot be overwritten"):
+            repository.save_episode_artifact(
+                first.model_copy(update={"content_payload": {"title": "Overwrite"}})
+            )
 
 
 def test_repository_returns_latest_continuity_snapshot(database_runtime) -> None:

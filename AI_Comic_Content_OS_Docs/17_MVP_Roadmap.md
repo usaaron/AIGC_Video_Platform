@@ -51,10 +51,11 @@
 2. 已完成 PostgreSQL / JSONB schema、Alembic migration、事务型 Repository、immutable version 与 optimistic revision foundation。
 3. 已完成 Project / Story Bible / Stage / Episode Plan 的 Application Service 与版本化资源 API。
 4. 已完成 Frontend Project + Workspace Snapshot 的 IndexedDB 本地优先同步、服务端恢复、冲突报告和版本保护软删除。
-5. 下一步实现 Story Bible / Stage 的人工批准切片、Episode Artifact 正式版本持久化和后台 Job 安全恢复，不直接改变当前单集生成主链路。
-6. 用当前有界阶段生成验证批次间新增元素、连续性和人工确认，不直接从零运行完整 60 万字。
-7. 扩充并治理中国大陆长篇创作与漫剧改编知识资产。
-8. 在长篇结构稳定后，再决定 Creative Deepening、Agent 和 DDD-lite 的进入时点。
+5. 已完成确认 Draft / Revised / Final Episode Artifact 的不可变版本持久化和前端里程碑写入。
+6. 下一步实现 Story Bible / Stage 的人工批准切片和后台 Job 安全恢复，不直接改变当前单集生成主链路。
+7. 用当前有界阶段生成验证批次间新增元素、连续性和人工确认，不直接从零运行完整 60 万字。
+8. 扩充并治理中国大陆长篇创作与漫剧改编知识资产。
+9. 在长篇结构稳定后，再决定 Creative Deepening、Agent 和 DDD-lite 的进入时点。
 
 ## Near-Term Candidates
 
@@ -91,7 +92,7 @@ Research 结论不得直接写入 Prompt、Schema 或业务规则。
 - `ScriptGenerationWorkflowService` / Facade / `generate_script()`
 - Ontology alias 与 unresolved tag 人工确认
 - Relationship authoring 的正式后端契约
-- 分集 Draft / Revised / Final 独立版本对象与 durable persistence（Project Workspace Snapshot 已完成）
+- 编辑过程的细粒度历史、Artifact 审计 UI 与批量恢复（确认 Draft / Revised / Final Artifact 已完成）
 - Knowledge-aware QC / Revision / Evaluation
 - Feedback Learning Expansion
 - Cost / Quality Optimization

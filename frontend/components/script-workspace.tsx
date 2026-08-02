@@ -16,6 +16,7 @@ import {
 import { nextBatchRange } from "@/lib/generation-planning";
 import { synchronizeContinuity } from "@/lib/continuity";
 import { completeScriptQualityLoop } from "@/lib/quality-loop-client";
+import { saveEpisodeArtifactOnServer } from "@/lib/project-sync";
 import type {
   BilingualScriptView,
   EpisodeWorkspace,
@@ -157,6 +158,17 @@ export function ScriptWorkspace() {
     try {
       const reviewedRun = await reviewEpisodeDraft(currentEpisode.generationRun, draft);
       const draftJson = JSON.stringify(reviewedRun.draft_master_script, null, 2);
+      const artifactRef = await saveEpisodeArtifactOnServer({
+        project: currentProject,
+        episodeNumber: currentEpisode.episodeNumber,
+        artifactKind: "draft",
+        contentSchemaVersion: "draft_master_script.v1",
+        contentPayload: reviewedRun.draft_master_script,
+        lineageRefs: {
+          draft_master_script_id: reviewedRun.draft_master_script.id,
+          generation_strategy_id: reviewedRun.generation_strategy_id,
+        },
+      });
       const legacyPatch = currentEpisode.episodeNumber === 1 ? {
         generationRun: reviewedRun,
         workingDraftJson: draftJson,
@@ -174,11 +186,16 @@ export function ScriptWorkspace() {
         deepeningRun: undefined,
         revisionRun: undefined,
         finalizationResult: undefined,
+        artifactRefs: artifactRef
+          ? { ...currentEpisode.artifactRefs, draft: artifactRef }
+          : currentEpisode.artifactRefs,
         confirmedAt: new Date().toISOString(),
       }, legacyPatch);
       setEditingDraft(null);
       setSelectedVersion("framework");
-      setMessage(t("workspace.confirmed"));
+      setMessage(artifactRef
+        ? t("workspace.confirmed")
+        : `${t("workspace.confirmed")} ${t("workspace.artifactSaveWarning")}`);
     } catch (error) {
       setMessage(formatWorkflowError(error, t, "workspace.confirmFailed"));
     } finally {
@@ -399,6 +416,28 @@ export function ScriptWorkspace() {
     setMessage(null);
     try {
       const result = await completeScriptQualityLoop(currentEpisode.generationRun);
+      const revisedArtifact = await saveEpisodeArtifactOnServer({
+        project: currentProject,
+        episodeNumber: currentEpisode.episodeNumber,
+        artifactKind: "revised",
+        contentSchemaVersion: "revised_draft_master_script.v1",
+        contentPayload: result.revisionRun.revised_draft_master_script,
+        sourceArtifactId: currentEpisode.artifactRefs?.draft?.artifactId,
+        lineageRefs: {
+          revised_draft_master_script_id: result.revisionRun.revised_draft_master_script.id,
+        },
+      });
+      const finalArtifact = await saveEpisodeArtifactOnServer({
+        project: currentProject,
+        episodeNumber: currentEpisode.episodeNumber,
+        artifactKind: "final",
+        contentSchemaVersion: "final_master_script.v1",
+        contentPayload: result.finalizationResult.master_script,
+        sourceArtifactId: revisedArtifact?.artifactId,
+        lineageRefs: {
+          final_master_script_id: result.finalizationResult.master_script.id,
+        },
+      });
       const allEpisodesFinal = currentProject.episodes.every((item) => (
         item.episodeNumber === currentEpisode.episodeNumber || item.status === "final"
       ));
@@ -406,6 +445,11 @@ export function ScriptWorkspace() {
         status: "final",
         revisionRun: result.revisionRun,
         finalizationResult: result.finalizationResult,
+        artifactRefs: {
+          ...currentEpisode.artifactRefs,
+          ...(revisedArtifact ? { revised: revisedArtifact } : {}),
+          ...(finalArtifact ? { final: finalArtifact } : {}),
+        },
       }, {
         status: allEpisodesFinal ? "final" : "draft",
         ...(currentEpisode.episodeNumber === 1 ? {
@@ -414,7 +458,9 @@ export function ScriptWorkspace() {
         } : {}),
       });
       setSelectedVersion("final");
-      setMessage(t("workspace.qualityComplete"));
+      setMessage(revisedArtifact && finalArtifact
+        ? t("workspace.qualityComplete")
+        : `${t("workspace.qualityComplete")} ${t("workspace.artifactSaveWarning")}`);
     } catch (error) {
       setMessage(formatWorkflowError(error, t, "workspace.qualityFailed"));
     } finally {

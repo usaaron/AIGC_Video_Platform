@@ -8,6 +8,8 @@ from sqlmodel import Session, col, select
 
 from app.modules.script_engine.long_story_models import (
     ContinuityLedger,
+    EpisodeArtifact,
+    EpisodeArtifactKind,
     EpisodePlan,
     GenerationBatchPlan,
     GenerationBatchStatus,
@@ -21,6 +23,7 @@ from app.modules.script_engine.long_story_models import (
 )
 from app.modules.script_engine.long_story_persistence import (
     ContinuityLedgerVersionRecord,
+    EpisodeArtifactVersionRecord,
     EpisodePlanVersionRecord,
     GenerationBatchPlanRecord,
     GenerationJobCheckpointRecord,
@@ -183,6 +186,93 @@ class LongStoryRepository:
         if record is None:
             return None
         return self._workspace_from_record(record)
+
+    def save_episode_artifact(self, artifact: EpisodeArtifact) -> EpisodeArtifact:
+        payload = artifact.model_dump(mode="json")
+        existing = self._session.get(
+            EpisodeArtifactVersionRecord,
+            artifact.artifact_id,
+        )
+        if existing is not None:
+            if existing.payload != payload:
+                raise LongStoryPersistenceConflictError(
+                    "Episode Artifact ID already exists and cannot be overwritten."
+                )
+            return artifact
+        expected_version = self.next_episode_artifact_version(
+            artifact.story_project_id,
+            artifact.episode_number,
+            artifact.artifact_kind,
+        )
+        if artifact.artifact_version != expected_version:
+            raise LongStoryPersistenceConflictError(
+                "Episode Artifact version is stale or skips a version."
+            )
+        self._session.add(
+            EpisodeArtifactVersionRecord(
+                artifact_id=artifact.artifact_id,
+                story_project_id=artifact.story_project_id,
+                episode_number=artifact.episode_number,
+                artifact_kind=artifact.artifact_kind.value,
+                artifact_version=artifact.artifact_version,
+                schema_version=artifact.schema_version,
+                content_schema_version=artifact.content_schema_version,
+                source_artifact_id=artifact.source_artifact_id,
+                client_instance_id=artifact.client_instance_id,
+                payload_checksum=artifact.payload_checksum,
+                payload_size_bytes=artifact.payload_size_bytes,
+                created_at=artifact.created_at,
+                payload=payload,
+            )
+        )
+        self._session.flush()
+        return artifact
+
+    def get_episode_artifact(self, artifact_id: str) -> EpisodeArtifact | None:
+        record = self._session.get(EpisodeArtifactVersionRecord, artifact_id)
+        return self._from_payload(EpisodeArtifact, record)
+
+    def next_episode_artifact_version(
+        self,
+        story_project_id: str,
+        episode_number: int,
+        artifact_kind: EpisodeArtifactKind,
+    ) -> int:
+        latest = self._session.exec(
+            select(func.max(EpisodeArtifactVersionRecord.artifact_version)).where(
+                EpisodeArtifactVersionRecord.story_project_id == story_project_id,
+                EpisodeArtifactVersionRecord.episode_number == episode_number,
+                EpisodeArtifactVersionRecord.artifact_kind == artifact_kind.value,
+            )
+        ).one()
+        return (latest or 0) + 1
+
+    def list_episode_artifacts(
+        self,
+        story_project_id: str,
+        *,
+        episode_number: int | None = None,
+        artifact_kind: EpisodeArtifactKind | None = None,
+    ) -> list[EpisodeArtifact]:
+        statement = select(EpisodeArtifactVersionRecord).where(
+            EpisodeArtifactVersionRecord.story_project_id == story_project_id
+        )
+        if episode_number is not None:
+            statement = statement.where(
+                EpisodeArtifactVersionRecord.episode_number == episode_number
+            )
+        if artifact_kind is not None:
+            statement = statement.where(
+                EpisodeArtifactVersionRecord.artifact_kind == artifact_kind.value
+            )
+        records = self._session.exec(
+            statement.order_by(
+                col(EpisodeArtifactVersionRecord.episode_number),
+                col(EpisodeArtifactVersionRecord.artifact_kind),
+                col(EpisodeArtifactVersionRecord.artifact_version),
+            )
+        ).all()
+        return [EpisodeArtifact.model_validate(record.payload) for record in records]
 
     def save_story_bible(self, story_bible: StoryBible) -> StoryBible:
         record = StoryBibleVersionRecord(

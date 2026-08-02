@@ -127,11 +127,22 @@ export interface EpisodeWorkspace {
   deepeningRun?: CreativeDeepeningRun;
   revisionRun?: ScriptRevisionRun;
   finalizationResult?: MasterScriptFinalizationResult;
+  artifactRefs?: Partial<Record<EpisodeArtifactKind, EpisodeArtifactReference>>;
   bilingualViews?: Record<string, BilingualScriptView>;
   continuationInstruction?: string;
   confirmedAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type EpisodeArtifactKind = "draft" | "revised" | "final";
+
+export interface EpisodeArtifactReference {
+  artifactId: string;
+  artifactKind: EpisodeArtifactKind;
+  artifactVersion: number;
+  payloadChecksum: string;
+  createdAt: string;
 }
 
 export type StoryLineType = "main" | "subplot" | "character_arc";

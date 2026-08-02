@@ -16,7 +16,7 @@
 - 红果为参考平台，不形成供应商或平台硬绑定
 - `overseas_tiktok` 完整保留但默认 disabled
 - Creative Deepening 前后端运行开关默认关闭，不进入当前创作路径
-- 当前已加入基础阶段生成边界：按项目总集数分有界批次生成，批次间允许更新创作输入；PostgreSQL/JSONB schema、migration、Repository、长篇规划资源 API 和 Frontend Workspace Snapshot 同步已实现，但正式 Episode Artifact、后台任务恢复与专业长篇规划仍待实现
+- 当前已加入基础阶段生成边界：按项目总集数分有界批次生成，批次间允许更新创作输入；PostgreSQL/JSONB schema、migration、Repository、长篇规划资源 API、Frontend Workspace Snapshot 同步和确认/修订/终稿 Episode Artifact 已实现，但后台任务恢复与专业长篇规划仍待实现
 
 本文后续未改写的 TikTok V1 内容属于历史设计背景或停用资产说明，不再代表当前默认运行目标。
 
@@ -58,7 +58,7 @@ User → Selected Tags / Added Tags / Excluded Tags / Creative Prompt
 
 以上输入 → Creative Brief Resolution → Final `ContentSpec` → 现有 Script Generation
 
-其中 Phase 1 已通过现有 `ContentSpecService` 实现确定性 `CreativeIntentInput -> ContentSpec + ResolvedCreativeContext` Resolution API。Script Engine 的标准化需求输入仍是 `ContentSpec`，Character Context、字段 provenance、locked fields 和 exclusions 通过独立 optional 上下文进入 Draft Generation，不写入 `ContentSpec.metadata`。Phase 2 已接入由 `GenerationStrategy` 显式声明、按 tag / platform / stage 校验的静态 Draft 与 Deepening Knowledge Bundle。Creative Deepening 代码保留，但当前由独立前后端开关关闭。Frontend MVP 已通过现有步骤 API 支持逐集和分阶段全部生成；每个阶段保存集数范围、阶段指令和完成状态，并允许下一阶段读取更新后的标签、角色、故事线与人物关系。该能力仍是对单集 API 的有界编排，不是 Story Blueprint / Episode Planning runtime。后端已建立 PostgreSQL 长篇 schema、Alembic migration、事务型 Repository和版本化资源 API；Frontend 采用 IndexedDB 本地优先并同步完整 Workspace Snapshot，服务端版本冲突不会静默覆盖。正式 Episode Artifact、推荐标签 fallback、alias / unresolved tag、正式后端 Relationship Contract、AI 自动补全、动态 Knowledge Retrieval / RAG 仍未实现。
+其中 Phase 1 已通过现有 `ContentSpecService` 实现确定性 `CreativeIntentInput -> ContentSpec + ResolvedCreativeContext` Resolution API。Script Engine 的标准化需求输入仍是 `ContentSpec`，Character Context、字段 provenance、locked fields 和 exclusions 通过独立 optional 上下文进入 Draft Generation，不写入 `ContentSpec.metadata`。Phase 2 已接入由 `GenerationStrategy` 显式声明、按 tag / platform / stage 校验的静态 Draft 与 Deepening Knowledge Bundle。Creative Deepening 代码保留，但当前由独立前后端开关关闭。Frontend MVP 已通过现有步骤 API 支持逐集和分阶段全部生成；每个阶段保存集数范围、阶段指令和完成状态，并允许下一阶段读取更新后的标签、角色、故事线与人物关系。该能力仍是对单集 API 的有界编排，不是 Story Blueprint / Episode Planning runtime。后端已建立 PostgreSQL 长篇 schema、Alembic migration、事务型 Repository和版本化资源 API；Frontend 采用 IndexedDB 本地优先并同步完整 Workspace Snapshot，确认/修订/终稿另存不可变 Episode Artifact，服务端版本冲突不会静默覆盖。推荐标签 fallback、alias / unresolved tag、正式后端 Relationship Contract、AI 自动补全、动态 Knowledge Retrieval / RAG 仍未实现。
 
 当前最小实现中，`Asset Retrieval` 的直接输入暂由 `OrchestrationPlan.asset_requests` 承载，用于保证资产检索请求结构化、可控、可测试。
 
