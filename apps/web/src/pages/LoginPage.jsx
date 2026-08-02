@@ -16,11 +16,15 @@ import './LoginPage.css'
 
 export function LoginPage() {
   const { login, register } = useAuth()
-  const [mode, setMode] = useState('login')
+  const searchParams = new URLSearchParams(window.location.search)
+  const initialInvitationToken = searchParams.get('token')?.trim() ?? ''
+  const initialMode =
+    window.location.pathname === '/register' || initialInvitationToken ? 'register' : 'login'
+  const [mode, setMode] = useState(initialMode)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
-  const [token, setToken] = useState('')
+  const [token, setToken] = useState(initialInvitationToken)
   const [visible, setVisible] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -49,7 +53,7 @@ export function LoginPage() {
         await login({ email: email.trim(), password })
       }
     } catch (requestError) {
-      setError(authErrorMessage(requestError, isRegistering))
+      setError(authErrorMessage(requestError, isRegistering, isForgotPassword))
     } finally {
       setSubmitting(false)
     }
@@ -192,7 +196,8 @@ export function LoginPage() {
               <LoaderCircle size={18} className="spin" />
             ) : (
               <>
-                {isForgotPassword ? '发送重置邮件' : isRegistering ? '创建账号' : '进入工作台'} <ArrowRight size={17} />
+                {isForgotPassword ? '发送重置邮件' : isRegistering ? '创建账号' : '进入工作台'}{' '}
+                <ArrowRight size={17} />
               </>
             )}
           </button>
@@ -207,7 +212,11 @@ export function LoginPage() {
           )}
           <p className="login-access-note">
             <LockKeyhole size={14} />{' '}
-            {isForgotPassword ? '重置邮件会发送到已注册邮箱' : isRegistering ? '仅限持有邀请码的受邀邮箱' : '仅限已开通账号'}
+            {isForgotPassword
+              ? '重置邮件会发送到已注册邮箱'
+              : isRegistering
+                ? '仅限持有邀请码的受邀邮箱'
+                : '仅限已开通账号'}
           </p>
         </form>
       </section>
@@ -215,7 +224,7 @@ export function LoginPage() {
   )
 }
 
-function authErrorMessage(error, isRegistering) {
+function authErrorMessage(error, isRegistering, isForgotPassword) {
   switch (error?.code) {
     case 'INVALID_CREDENTIALS':
       return '邮箱或密码错误'
@@ -228,7 +237,11 @@ function authErrorMessage(error, isRegistering) {
     case 'INVITATION_EMAIL_MISMATCH':
       return '邮箱与邀请码绑定的受邀邮箱不一致'
     case 'VALIDATION_ERROR':
-      return isRegistering ? '请检查邀请码、邮箱和密码，密码至少 12 位。' : isForgotPassword ? '请检查邮箱格式。' : '请检查邮箱和密码。'
+      return isRegistering
+        ? '请检查邀请码、邮箱和密码，密码至少 12 位。'
+        : isForgotPassword
+          ? '请检查邮箱格式。'
+          : '请检查邮箱和密码。'
     default:
       return error?.message || '请求失败，请稍后重试'
   }
