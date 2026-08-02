@@ -109,7 +109,7 @@ jobs:
 
       - name: Publish API image
         if: steps.changes.outputs.api == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/api.Dockerfile
@@ -125,7 +125,7 @@ jobs:
 
       - name: Publish Web image
         if: steps.changes.outputs.web == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/web.Dockerfile
