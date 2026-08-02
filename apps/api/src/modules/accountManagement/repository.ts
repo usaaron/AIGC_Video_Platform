@@ -46,6 +46,13 @@ export type SaveRegistrationCodeResult =
   | { kind: 'cooldown' }
   | { kind: 'invitation_unavailable' }
 
+export type ClaimInvitationEmailResult =
+  | { kind: 'claimed'; invitation: TenantInvitation }
+  | { kind: 'email_mismatch' }
+  | { kind: 'email_already_pending' }
+  | { kind: 'membership_exists' }
+  | { kind: 'invitation_unavailable' }
+
 export type VerifiedRegistrationResult =
   | { kind: 'accepted'; workspace: AccountWorkspace }
   | {
@@ -108,7 +115,7 @@ export class AccountManagementRepository {
 
   async createInvitation(input: {
     tenantId: string
-    email: string
+    email: string | null
     roles: Role[]
     invitedByUserId: string
     token: string
@@ -116,55 +123,60 @@ export class AccountManagementRepository {
     expiresAt: string
   }): Promise<CreatedTenantInvitation | null> {
     return this.database.transaction(async (client) => {
-      const activeMember = await client.query<{ id: string }>(
-        `
-        SELECT m.id
-        FROM tenant_memberships m
-        JOIN auth_identities ai ON ai.user_id = m.user_id
-        JOIN users u ON u.id = m.user_id AND u.status = 'active'
-        WHERE m.tenant_id = $1
-          AND lower(ai.email) = lower($2)
-          AND ai.provider = 'local'
-          AND ai.status = 'active'
-          AND m.status = 'active'
-        LIMIT 1
-        `,
-        [input.tenantId, input.email],
-      )
-      if (activeMember.rows.length) return null
-
-      const updated = await client.query<{ id: string }>(
-        `
-        UPDATE tenant_invitations
-        SET roles = $3,
-            invited_by_user_id = $4,
-            token_secret_hash = $5,
-            expires_at = $6,
-            accepted_at = NULL,
-            revoked_at = NULL,
-            updated_at = now()
-        WHERE tenant_id = $1
-          AND lower(email) = lower($2)
-          AND status = 'pending'
-        RETURNING id
-        `,
-        [
-          input.tenantId,
-          input.email,
-          input.roles,
-          input.invitedByUserId,
-          input.tokenSecretHash,
-          input.expiresAt,
-        ],
-      )
-      const invitationId = updated.rows[0]?.id ?? `invitation-${randomUUID()}`
-      if (updated.rows.length) {
-        await client.query(
-          `DELETE FROM registration_email_codes WHERE invitation_id = $1`,
-          [invitationId],
+      let invitationId = `invitation-${randomUUID()}`
+      let reissued = false
+      if (input.email) {
+        const activeMember = await client.query<{ id: string }>(
+          `
+          SELECT m.id
+          FROM tenant_memberships m
+          JOIN auth_identities ai ON ai.user_id = m.user_id
+          JOIN users u ON u.id = m.user_id AND u.status = 'active'
+          WHERE m.tenant_id = $1
+            AND lower(ai.email) = lower($2)
+            AND ai.provider = 'local'
+            AND ai.status = 'active'
+            AND m.status = 'active'
+          LIMIT 1
+          `,
+          [input.tenantId, input.email],
         )
+        if (activeMember.rows.length) return null
+
+        const updated = await client.query<{ id: string }>(
+          `
+          UPDATE tenant_invitations
+          SET roles = $3,
+              invited_by_user_id = $4,
+              token_secret_hash = $5,
+              expires_at = $6,
+              accepted_at = NULL,
+              revoked_at = NULL,
+              updated_at = now()
+          WHERE tenant_id = $1
+            AND lower(email) = lower($2)
+            AND status = 'pending'
+          RETURNING id
+          `,
+          [
+            input.tenantId,
+            input.email,
+            input.roles,
+            input.invitedByUserId,
+            input.tokenSecretHash,
+            input.expiresAt,
+          ],
+        )
+        if (updated.rows[0]) {
+          invitationId = updated.rows[0].id
+          reissued = true
+          await client.query(
+            `DELETE FROM registration_email_codes WHERE invitation_id = $1`,
+            [invitationId],
+          )
+        }
       }
-      if (!updated.rows.length) {
+      if (!reissued) {
         await client.query(
           `
           INSERT INTO tenant_invitations (
@@ -204,6 +216,76 @@ export class AccountManagementRepository {
       [tokenSecretHash],
     )
     return result.rows[0] ? toTenantInvitation(result.rows[0]) : null
+  }
+
+  async claimInvitationEmail(
+    tokenSecretHash: string,
+    email: string,
+  ): Promise<ClaimInvitationEmailResult> {
+    return this.database.transaction(async (client) => {
+      const result = await client.query<TenantInvitationRow>(
+        invitationSelectSql('WHERE i.token_secret_hash = $1 LIMIT 1 FOR UPDATE OF i'),
+        [tokenSecretHash],
+      )
+      const row = result.rows[0]
+      if (!row) return { kind: 'invitation_unavailable' }
+      const invitation = toTenantInvitation(row)
+      if (invitation.status !== 'pending') return { kind: 'invitation_unavailable' }
+      if (row.email) {
+        return row.email.toLowerCase() === email.toLowerCase()
+          ? { kind: 'claimed', invitation }
+          : { kind: 'email_mismatch' }
+      }
+
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `registration-invitation:${row.tenant_id}:${email.toLowerCase()}`,
+      ])
+      const activeMember = await client.query<{ id: string }>(
+        `
+        SELECT m.id
+        FROM tenant_memberships m
+        JOIN auth_identities ai ON ai.user_id = m.user_id
+        JOIN users u ON u.id = m.user_id AND u.status = 'active'
+        WHERE m.tenant_id = $1
+          AND lower(ai.email) = lower($2)
+          AND ai.provider = 'local'
+          AND ai.status = 'active'
+          AND m.status = 'active'
+        LIMIT 1
+        `,
+        [row.tenant_id, email],
+      )
+      if (activeMember.rows.length) return { kind: 'membership_exists' }
+
+      const pendingInvitation = await client.query<{ id: string }>(
+        `
+        SELECT id
+        FROM tenant_invitations
+        WHERE tenant_id = $1
+          AND lower(email) = lower($2)
+          AND status = 'pending'
+          AND id <> $3
+        LIMIT 1
+        `,
+        [row.tenant_id, email, row.invitation_id],
+      )
+      if (pendingInvitation.rows.length) return { kind: 'email_already_pending' }
+
+      await client.query(
+        `
+        UPDATE tenant_invitations
+        SET email = $2,
+            updated_at = now()
+        WHERE id = $1
+          AND email IS NULL
+        `,
+        [row.invitation_id, email],
+      )
+      const claimed = await readInvitationById(client, row.invitation_id)
+      return claimed
+        ? { kind: 'claimed', invitation: claimed }
+        : { kind: 'invitation_unavailable' }
+    })
   }
 
   async saveRegistrationCode(input: {
@@ -390,6 +472,7 @@ export class AccountManagementRepository {
     },
     emailVerified: boolean,
   ): Promise<AccountWorkspace> {
+    if (!row.email) throw new Error('Invitation email must be claimed before acceptance')
     const userId = input.existingUserId ?? `user-${randomUUID()}`
     if (!input.existingUserId) {
       await client.query(
@@ -1193,7 +1276,7 @@ type TenantInvitationRow = {
   invitation_id: string
   tenant_id: string
   tenant_name: string
-  email: string
+  email: string | null
   roles: Role[]
   invitation_status: TenantInvitation['status']
   invited_by_user_id: string

@@ -557,6 +557,123 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
   })
 
+  it('claims one-time registration codes on first email use and allows duplicate display names', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const organizationAdmin = await createOrganizationAdminWorkspace(
+      'open-invite-admin@example.com',
+      'OpenInviteAdmin123!',
+      'Open Invitation Workspace',
+    )
+    const createOpenInvitation = async () =>
+      await app!.inject({
+        method: 'POST',
+        url: `/api/v1/organizations/${organizationAdmin.tenantId}/invitations`,
+        headers: { cookie: organizationAdmin.cookie },
+        payload: { roles: ['organization_member'] },
+      })
+
+    const firstInvitation = await createOpenInvitation()
+    expect(firstInvitation.statusCode).toBe(201)
+    expect(firstInvitation.json()).toMatchObject({
+      email: null,
+      roles: ['organization_member'],
+      status: 'pending',
+      token: expect.any(String),
+    })
+    const firstToken = firstInvitation.json().token as string
+
+    const directAcceptance = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/invitations/accept',
+      payload: {
+        token: firstToken,
+        name: 'Shared Name',
+        password: 'SharedPassword123!',
+      },
+    })
+    expect(directAcceptance.statusCode).toBe(400)
+    expect(directAcceptance.json()).toMatchObject({ error: { code: 'INVITATION_EMAIL_REQUIRED' } })
+
+    const firstCodeRequest = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/registration-code/request',
+      payload: { token: firstToken, email: 'open-first@example.com' },
+    })
+    expect(firstCodeRequest.statusCode).toBe(202)
+    const firstVerificationCode = firstCodeRequest.json().registrationCode as string
+    expect(firstVerificationCode).toMatch(/^\d{6}$/)
+
+    const differentEmailRequest = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/registration-code/request',
+      payload: { token: firstToken, email: 'open-other@example.com' },
+    })
+    expect(differentEmailRequest.statusCode).toBe(400)
+    expect(differentEmailRequest.json()).toMatchObject({
+      error: { code: 'INVITATION_EMAIL_MISMATCH' },
+    })
+
+    const firstRegistration = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: firstToken,
+        name: 'Shared Name',
+        email: 'open-first@example.com',
+        password: 'SharedPassword123!',
+        verificationCode: firstVerificationCode,
+      },
+    })
+    expect(firstRegistration.statusCode).toBe(201)
+    expect(firstRegistration.json()).toMatchObject({
+      account: { email: 'open-first@example.com', name: 'Shared Name', emailVerified: true },
+    })
+
+    const reusedInvitation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: firstToken,
+        name: 'Another Name',
+        email: 'open-first@example.com',
+        password: 'SharedPassword123!',
+        verificationCode: firstVerificationCode,
+      },
+    })
+    expect(reusedInvitation.statusCode).toBe(409)
+    expect(reusedInvitation.json()).toMatchObject({ error: { code: 'INVITATION_NOT_PENDING' } })
+
+    const secondInvitation = await createOpenInvitation()
+    expect(secondInvitation.statusCode).toBe(201)
+    expect(secondInvitation.json()).toMatchObject({ email: null, token: expect.any(String) })
+    expect(secondInvitation.json().token).not.toBe(firstToken)
+
+    const secondToken = secondInvitation.json().token as string
+    const secondCodeRequest = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/registration-code/request',
+      payload: { token: secondToken, email: 'open-second@example.com' },
+    })
+    expect(secondCodeRequest.statusCode).toBe(202)
+
+    const secondRegistration = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: secondToken,
+        name: 'Shared Name',
+        email: 'open-second@example.com',
+        password: 'SecondPassword123!',
+        verificationCode: secondCodeRequest.json().registrationCode,
+      },
+    })
+    expect(secondRegistration.statusCode).toBe(201)
+    expect(secondRegistration.json()).toMatchObject({
+      account: { email: 'open-second@example.com', name: 'Shared Name', emailVerified: true },
+    })
+  })
+
   it('creates tenant users directly and enforces owner/admin role boundaries', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 

@@ -28,7 +28,7 @@ export const requestRegistrationCodeResultSchema = z.object({
 })
 
 export const createTenantInvitationSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().optional(),
   roles: z.array(roleSchema).min(1),
 })
 
@@ -134,7 +134,7 @@ export const tenantInvitationSchema = z.object({
   tenantName: z.string().min(1).max(80),
   organizationId: z.string().min(1),
   organizationName: z.string().min(1).max(80),
-  email: z.string().email(),
+  email: z.string().email().nullable(),
   roles: z.array(roleSchema).min(1),
   status: tenantInvitationStatusSchema,
   invitedByUserId: z.string().min(1),

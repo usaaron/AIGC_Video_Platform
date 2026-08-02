@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { changePasswordSchema, passwordSchema, resetPasswordSchema } from './account.js'
-import { registerAccountSchema } from './accountManagement.js'
+import {
+  createTenantInvitationSchema,
+  registerAccountSchema,
+  tenantInvitationSchema,
+} from './accountManagement.js'
 
 describe('account password contracts', () => {
   it('accepts eight-character passwords across registration and password updates', () => {
@@ -30,5 +34,31 @@ describe('account password contracts', () => {
 
   it('rejects passwords shorter than eight characters', () => {
     expect(passwordSchema.safeParse('1234567').success).toBe(false)
+  })
+
+  it('allows one-time registration invitations without a pre-bound email', () => {
+    expect(
+      createTenantInvitationSchema.safeParse({
+        roles: ['member'],
+      }).success,
+    ).toBe(true)
+    expect(
+      tenantInvitationSchema.safeParse({
+        id: 'invitation-open',
+        tenantId: 'tenant-a',
+        tenantName: 'Organization A',
+        organizationId: 'tenant-a',
+        organizationName: 'Organization A',
+        email: null,
+        roles: ['member'],
+        status: 'pending',
+        invitedByUserId: 'user-admin',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        acceptedAt: null,
+        revokedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }).success,
+    ).toBe(true)
   })
 })

@@ -55,6 +55,7 @@ import { AccountManagementRepository, type AccountWorkspace } from './repository
 const invitationLifetimeSeconds = 60 * 60 * 24 * 7
 const registrationCodeLifetimeSeconds = 10 * 60
 const registrationCodeResendSeconds = 60
+const openInvitationRoles = new Set<Role>([ROLES.MEMBER, ROLES.ORGANIZATION_MEMBER])
 const systemOrganizationRoles = new Set<Role>([ROLES.OWNER, ROLES.SUPER_ADMIN, ROLES.ADMIN])
 type RequestEmailVerification = (input: { email: string }, metadata?: SessionMetadata) => Promise<unknown>
 
@@ -487,12 +488,20 @@ export class AccountManagementService {
     await this.requireCurrentAccount(principal)
     const roles = normalizeRoles(input.roles)
     this.requireAssignableRoles(principal, roles)
+    const email = input.email ? normalizeEmail(input.email) : null
+    if (!email && roles.some((role) => !openInvitationRoles.has(role))) {
+      throw new AppError(
+        400,
+        'OPEN_INVITATION_ROLE_NOT_ALLOWED',
+        'Open registration codes can only grant member roles',
+      )
+    }
     await this.requireGlobalRoleCapacity(roles)
     await this.requireSystemOrganizationMembershipWrite(principal, tenantId, roles)
     const token = issueInvitationToken()
     const invitation = await this.accounts.createInvitation({
       tenantId,
-      email: normalizeEmail(input.email),
+      email,
       roles,
       invitedByUserId: principal.userId,
       token,
@@ -502,7 +511,7 @@ export class AccountManagementService {
     if (!invitation) {
       throw new AppError(409, 'MEMBERSHIP_ALREADY_EXISTS', 'Account is already an active member')
     }
-    await this.sendInvitationEmail(invitation)
+    if (invitation.email) await this.sendInvitationEmail(invitation)
     return invitation
   }
 
@@ -521,6 +530,7 @@ export class AccountManagementService {
   }
 
   private async sendInvitationEmail(invitation: CreatedTenantInvitation): Promise<void> {
+    if (!invitation.email) return
     const invitationUrl = tokenUrl(this.invitationUrl, invitation.token)
     await this.mailer.send({
       to: invitation.email,
@@ -554,11 +564,25 @@ export class AccountManagementService {
     metadata?: SessionMetadata,
   ): Promise<RequestRegistrationCodeResult> {
     const tokenSecretHash = hashInvitationToken(input.token)
-    const invitation = await this.requirePendingInvitation(tokenSecretHash)
     const email = normalizeEmail(input.email)
-    if (email !== normalizeEmail(invitation.email)) {
+    const claim = await this.accounts.claimInvitationEmail(tokenSecretHash, email)
+    if (claim.kind === 'invitation_unavailable') {
+      return await this.throwInvitationUnavailable(tokenSecretHash)
+    }
+    if (claim.kind === 'email_mismatch') {
       throw new AppError(400, 'INVITATION_EMAIL_MISMATCH', 'Invitation code does not match this email')
     }
+    if (claim.kind === 'email_already_pending') {
+      throw new AppError(
+        409,
+        'INVITATION_EMAIL_ALREADY_PENDING',
+        'This email already has a pending invitation',
+      )
+    }
+    if (claim.kind === 'membership_exists') {
+      throw new AppError(409, 'MEMBERSHIP_ALREADY_EXISTS', 'Account is already an active member')
+    }
+    const invitation = claim.invitation
 
     const code = randomInt(0, 1_000_000).toString().padStart(6, '0')
     const codeSecretHash = hashRegistrationCode(
@@ -622,6 +646,9 @@ export class AccountManagementService {
     const tokenSecretHash = hashInvitationToken(input.token)
     const invitation = await this.requirePendingInvitation(tokenSecretHash)
     const email = normalizeEmail(input.email)
+    if (!invitation.email) {
+      throw new AppError(400, 'REGISTRATION_CODE_REQUIRED', 'Request an email verification code first')
+    }
     if (email !== normalizeEmail(invitation.email)) {
       throw new AppError(400, 'INVITATION_EMAIL_MISMATCH', 'Invitation code does not match this email')
     }
@@ -675,6 +702,13 @@ export class AccountManagementService {
     if (invitation.status !== 'pending') {
       throw new AppError(409, 'INVITATION_NOT_PENDING', 'Invitation is no longer pending')
     }
+    if (!invitation.email) {
+      throw new AppError(
+        400,
+        'INVITATION_EMAIL_REQUIRED',
+        'Open registration codes must verify an email before acceptance',
+      )
+    }
     return invitation
   }
 
@@ -697,6 +731,13 @@ export class AccountManagementService {
     }
     if (invitation.status !== 'pending') {
       throw new AppError(409, 'INVITATION_NOT_PENDING', 'Invitation is no longer pending')
+    }
+    if (!invitation.email) {
+      throw new AppError(
+        400,
+        'INVITATION_EMAIL_REQUIRED',
+        'Open registration codes must verify an email before acceptance',
+      )
     }
     if (input.email && normalizeEmail(input.email) !== normalizeEmail(invitation.email)) {
       throw new AppError(400, 'INVITATION_EMAIL_MISMATCH', 'Invitation code does not match this email')

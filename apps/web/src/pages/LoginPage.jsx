@@ -314,7 +314,7 @@ export function LoginPage() {
             {isForgotPassword
               ? '重置邮件会发送到已注册邮箱'
               : isRegistering
-                ? '仅限持有邀请码的受邀邮箱'
+                ? '邀请码将在首次发送验证码时绑定当前邮箱'
                 : '仅限已开通账号'}
           </p>
         </form>
@@ -343,6 +343,10 @@ export function authErrorMessage(error, { isRegistering = false, isForgotPasswor
       return '邀请码已过期'
     case 'INVITATION_EMAIL_MISMATCH':
       return '邮箱与邀请码绑定的受邀邮箱不一致'
+    case 'INVITATION_EMAIL_ALREADY_PENDING':
+      return '该邮箱已有待使用的邀请码，请使用原邀请码或联系管理员撤销'
+    case 'MEMBERSHIP_ALREADY_EXISTS':
+      return '该邮箱已经加入当前组织，请直接登录'
     case 'REGISTRATION_CODE_COOLDOWN':
       return '验证码发送过于频繁，请稍后再试'
     case 'REGISTRATION_CODE_REQUIRED':
