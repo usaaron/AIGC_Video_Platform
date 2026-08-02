@@ -195,7 +195,7 @@ jobs:
 
       - name: Set up Node.js for synthetic probe
         if: steps.changes.outputs.api == 'true' || steps.changes.outputs.web == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
