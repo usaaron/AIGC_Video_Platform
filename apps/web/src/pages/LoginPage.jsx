@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Aperture,
   ArrowRight,
@@ -7,6 +7,7 @@ import {
   LoaderCircle,
   LockKeyhole,
   Mail,
+  ShieldCheck,
   Ticket,
   UserPlus,
 } from 'lucide-react'
@@ -24,6 +25,9 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [token, setToken] = useState(registrationEntry.token)
+  const [verificationCode, setVerificationCode] = useState('')
+  const [codeSent, setCodeSent] = useState(false)
+  const [resendSeconds, setResendSeconds] = useState(0)
   const [visible, setVisible] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -31,6 +35,31 @@ export function LoginPage() {
 
   const isRegistering = mode === 'register'
   const isForgotPassword = mode === 'forgot'
+
+  useEffect(() => {
+    if (resendSeconds <= 0) return undefined
+    const timer = window.setInterval(() => {
+      setResendSeconds((seconds) => Math.max(0, seconds - 1))
+    }, 1_000)
+    return () => window.clearInterval(timer)
+  }, [resendSeconds])
+
+  const resetRegistrationCode = () => {
+    setCodeSent(false)
+    setVerificationCode('')
+    setResendSeconds(0)
+    setSuccess('')
+  }
+
+  const requestRegistrationCode = async () => {
+    const result = await api.requestRegistrationCode({
+      token: token.trim(),
+      email: email.trim(),
+    })
+    setCodeSent(true)
+    setResendSeconds(result.resendAfterSeconds)
+    setSuccess(`验证码已发送至 ${email.trim()}，10 分钟内有效。`)
+  }
 
   const submit = async (event) => {
     event.preventDefault()
@@ -42,12 +71,17 @@ export function LoginPage() {
         await api.requestPasswordReset({ email: email.trim() })
         setSuccess('如果邮箱已开通账号，密码重置邮件会发送到该邮箱。')
       } else if (isRegistering) {
-        await register({
-          token: token.trim(),
-          name: name.trim(),
-          email: email.trim(),
-          password,
-        })
+        if (!codeSent) {
+          await requestRegistrationCode()
+        } else {
+          await register({
+            token: token.trim(),
+            name: name.trim(),
+            email: email.trim(),
+            password,
+            verificationCode,
+          })
+        }
       } else {
         if (password.trim().toUpperCase() === 'RESET REQUIRED') {
           throw new LoginInputError(
@@ -67,6 +101,20 @@ export function LoginPage() {
     setMode(nextMode)
     setError('')
     setSuccess('')
+    if (nextMode !== 'register') resetRegistrationCode()
+  }
+
+  const resendRegistrationCode = async () => {
+    setSubmitting(true)
+    setError('')
+    setSuccess('')
+    try {
+      await requestRegistrationCode()
+    } catch (requestError) {
+      setError(authErrorMessage(requestError, { isRegistering: true }))
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -90,12 +138,14 @@ export function LoginPage() {
         <form onSubmit={submit} className="login-form">
           <div className="login-heading">
             <span className="eyebrow">创作工作台</span>
-            <h2>{isForgotPassword ? '找回密码' : isRegistering ? '邀请码注册' : '欢迎回来'}</h2>
+            <h2>{isForgotPassword ? '找回密码' : isRegistering ? '验证邮箱并注册' : '欢迎回来'}</h2>
             <p>
               {isForgotPassword
                 ? '输入账号邮箱，系统会发送密码重置链接。'
                 : isRegistering
-                  ? '使用受邀邮箱和邀请码创建账号。'
+                  ? codeSent
+                    ? '填写邮箱收到的 6 位验证码，完成账号创建。'
+                    : '先验证受邀邮箱，再设置你的账号信息。'
                   : '登录后继续你的项目。'}
             </p>
           </div>
@@ -130,13 +180,67 @@ export function LoginPage() {
                   <input
                     type="text"
                     value={token}
-                    onChange={(event) => setToken(event.target.value)}
-                    autoComplete="one-time-code"
+                    onChange={(event) => {
+                      setToken(event.target.value)
+                      resetRegistrationCode()
+                    }}
+                    autoComplete="off"
                     placeholder="请输入邀请码"
                     required
                   />
                 </div>
               </label>
+            </>
+          )}
+
+          <label>
+            <span>邮箱</span>
+            <div className="login-input">
+              <Mail size={17} />
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => {
+                  setEmail(event.target.value)
+                  if (isRegistering) resetRegistrationCode()
+                }}
+                autoComplete="email"
+                placeholder="请输入账号邮箱"
+                autoFocus
+                required
+              />
+            </div>
+          </label>
+          {isRegistering && codeSent && (
+            <>
+              <label>
+                <span>邮箱验证码</span>
+                <div className="login-input registration-code-input">
+                  <ShieldCheck size={17} />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={verificationCode}
+                    onChange={(event) =>
+                      setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))
+                    }
+                    autoComplete="one-time-code"
+                    placeholder="6 位验证码"
+                    maxLength={6}
+                    pattern="[0-9]{6}"
+                    required
+                    autoFocus
+                  />
+                </div>
+              </label>
+              <button
+                className="login-code-resend"
+                type="button"
+                disabled={submitting || resendSeconds > 0}
+                onClick={resendRegistrationCode}
+              >
+                {resendSeconds > 0 ? `${resendSeconds} 秒后可重新发送` : '重新发送验证码'}
+              </button>
               <label>
                 <span>用户名</span>
                 <div className="login-input">
@@ -153,23 +257,7 @@ export function LoginPage() {
               </label>
             </>
           )}
-
-          <label>
-            <span>邮箱</span>
-            <div className="login-input">
-              <Mail size={17} />
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="email"
-                placeholder="请输入账号邮箱"
-                autoFocus
-                required
-              />
-            </div>
-          </label>
-          {!isForgotPassword && (
+          {!isForgotPassword && (!isRegistering || codeSent) && (
             <label>
               <span>密码</span>
               <div className="login-input">
@@ -200,7 +288,13 @@ export function LoginPage() {
               <LoaderCircle size={18} className="spin" />
             ) : (
               <>
-                {isForgotPassword ? '发送重置邮件' : isRegistering ? '创建账号' : '进入工作台'}{' '}
+                {isForgotPassword
+                  ? '发送重置邮件'
+                  : isRegistering
+                    ? codeSent
+                      ? '验证并创建账号'
+                      : '发送邮箱验证码'
+                    : '进入工作台'}{' '}
                 <ArrowRight size={17} />
               </>
             )}
@@ -248,9 +342,21 @@ export function authErrorMessage(error, { isRegistering = false, isForgotPasswor
       return '邀请码已过期'
     case 'INVITATION_EMAIL_MISMATCH':
       return '邮箱与邀请码绑定的受邀邮箱不一致'
+    case 'REGISTRATION_CODE_COOLDOWN':
+      return '验证码发送过于频繁，请稍后再试'
+    case 'REGISTRATION_CODE_REQUIRED':
+      return '请先发送邮箱验证码'
+    case 'REGISTRATION_CODE_EXPIRED':
+      return '验证码已过期，请重新发送'
+    case 'REGISTRATION_CODE_INVALID':
+      return '验证码错误，请检查后重试'
+    case 'REGISTRATION_CODE_LOCKED':
+      return '验证码错误次数过多，请重新发送验证码'
+    case 'REGISTRATION_CODE_USED':
+      return '验证码已被使用，请重新发送'
     case 'VALIDATION_ERROR':
       return isRegistering
-        ? '请检查邀请码、邮箱和密码，密码至少 12 位。'
+        ? '请检查邀请码、邮箱、6 位验证码和密码，密码至少 12 位。'
         : isForgotPassword
           ? '请检查邮箱格式。'
           : '请检查邮箱和密码。'

@@ -18,6 +18,15 @@ describe('login guidance', () => {
     expect(authErrorMessage({ code: 'INVALID_CREDENTIALS' })).toBe('邮箱或密码错误')
   })
 
+  it('explains registration-code failures', () => {
+    expect(authErrorMessage({ code: 'REGISTRATION_CODE_INVALID' }, { isRegistering: true })).toBe(
+      '验证码错误，请检查后重试',
+    )
+    expect(authErrorMessage({ code: 'REGISTRATION_CODE_EXPIRED' }, { isRegistering: true })).toBe(
+      '验证码已过期，请重新发送',
+    )
+  })
+
   it('explains when the API cannot be reached', () => {
     expect(authErrorMessage(new TypeError('Failed to fetch'))).toBe(
       '无法连接登录服务，请确认 API 已启动后重试',

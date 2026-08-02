@@ -179,6 +179,7 @@ export function createRuntimeServices(input: {
         mailer,
         config.AUTH_INVITATION_URL,
         (input, metadata) => authService.requestEmailVerification(input, metadata),
+        config.NODE_ENV !== 'production',
       )
     : null
   const generationService = new GenerationService(

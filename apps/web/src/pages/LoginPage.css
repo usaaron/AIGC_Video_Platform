@@ -139,6 +139,28 @@
   margin-bottom: 17px;
 }
 
+.login-code-resend {
+  display: block;
+  margin: -10px 0 15px auto;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: #647330;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.login-code-resend:disabled {
+  color: #9ba096;
+  cursor: not-allowed;
+}
+
+.registration-code-input input {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.18em;
+}
+
 .login-form > label > span {
   display: block;
   margin-bottom: 7px;

@@ -12,6 +12,8 @@ import type {
   OrganizationMembership,
   Principal,
   RegisterAccountInput,
+  RequestRegistrationCodeInput,
+  RequestRegistrationCodeResult,
   Role,
   Session,
   SessionSummary,
@@ -25,7 +27,7 @@ import type {
   WorkspaceMembership,
 } from '@seqora/contracts'
 import { ROLES } from '@seqora/contracts'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto'
 import { permissionsFor } from '../../core/auth/authorization.js'
 import { hashPassword, verifyPassword } from '../../core/auth/password.js'
 import {
@@ -51,6 +53,8 @@ import type { UserRepository } from '../users/repository.js'
 import { AccountManagementRepository, type AccountWorkspace } from './repository.js'
 
 const invitationLifetimeSeconds = 60 * 60 * 24 * 7
+const registrationCodeLifetimeSeconds = 10 * 60
+const registrationCodeResendSeconds = 60
 const systemOrganizationRoles = new Set<Role>([ROLES.OWNER, ROLES.SUPER_ADMIN, ROLES.ADMIN])
 type RequestEmailVerification = (input: { email: string }, metadata?: SessionMetadata) => Promise<unknown>
 
@@ -64,6 +68,7 @@ export class AccountManagementService {
     private readonly mailer: Mailer = new NoopMailer(),
     private readonly invitationUrl: string = `${webOrigin.replace(/\/+$/, '')}/register`,
     private readonly requestEmailVerification?: RequestEmailVerification,
+    private readonly exposeRegistrationCodes = false,
   ) {}
 
   async createWorkspace(
@@ -544,11 +549,138 @@ export class AccountManagementService {
     return await this.acceptInvitationToken(input, metadata)
   }
 
+  async requestRegistrationCode(
+    input: RequestRegistrationCodeInput,
+    metadata?: SessionMetadata,
+  ): Promise<RequestRegistrationCodeResult> {
+    const tokenSecretHash = hashInvitationToken(input.token)
+    const invitation = await this.requirePendingInvitation(tokenSecretHash)
+    const email = normalizeEmail(input.email)
+    if (email !== normalizeEmail(invitation.email)) {
+      throw new AppError(400, 'INVITATION_EMAIL_MISMATCH', 'Invitation code does not match this email')
+    }
+
+    const code = randomInt(0, 1_000_000).toString().padStart(6, '0')
+    const codeSecretHash = hashRegistrationCode(
+      this.secret,
+      invitation.id,
+      tokenSecretHash,
+      email,
+      code,
+    )
+    const result = await this.accounts.saveRegistrationCode({
+      invitationId: invitation.id,
+      tokenSecretHash,
+      email,
+      codeSecretHash,
+      expiresAt: new Date(Date.now() + registrationCodeLifetimeSeconds * 1_000).toISOString(),
+      requestedIp: metadata?.ipAddress ?? null,
+      requestedUserAgent: metadata?.userAgent ?? null,
+    })
+    if (result.kind === 'cooldown') {
+      throw new AppError(
+        429,
+        'REGISTRATION_CODE_COOLDOWN',
+        `Please wait ${registrationCodeResendSeconds} seconds before requesting another code`,
+      )
+    }
+    if (result.kind === 'invitation_unavailable') {
+      return await this.throwInvitationUnavailable(tokenSecretHash)
+    }
+
+    await this.mailer.send({
+      to: email,
+      subject: '序幕注册验证码',
+      text: [
+        `你的序幕注册验证码是：${code}`,
+        '',
+        `验证码将在 ${Math.floor(registrationCodeLifetimeSeconds / 60)} 分钟后失效。`,
+        '如果不是你本人操作，请忽略这封邮件。',
+      ].join('\n'),
+      html: [
+        '<p>你的序幕注册验证码是：</p>',
+        `<p style="font-size:24px;font-weight:700;letter-spacing:6px">${code}</p>`,
+        `<p>验证码将在 ${Math.floor(registrationCodeLifetimeSeconds / 60)} 分钟后失效。</p>`,
+        '<p>如果不是你本人操作，请忽略这封邮件。</p>',
+      ].join(''),
+      purpose: 'registration_code',
+      idempotencyKey: `registration-code:${codeSecretHash}`,
+    })
+
+    return {
+      ok: true,
+      expiresAt: result.expiresAt,
+      resendAfterSeconds: registrationCodeResendSeconds,
+      ...(this.exposeRegistrationCodes ? { registrationCode: code } : {}),
+    }
+  }
+
   async registerAccount(
     input: RegisterAccountInput,
     metadata?: SessionMetadata,
   ): Promise<{ session: Session; token: string; workspace: Workspace }> {
-    return await this.acceptInvitationToken(input, metadata)
+    const tokenSecretHash = hashInvitationToken(input.token)
+    const invitation = await this.requirePendingInvitation(tokenSecretHash)
+    const email = normalizeEmail(input.email)
+    if (email !== normalizeEmail(invitation.email)) {
+      throw new AppError(400, 'INVITATION_EMAIL_MISMATCH', 'Invitation code does not match this email')
+    }
+
+    const existing = await this.users.findByEmail(invitation.email)
+    if (existing && !verifyPassword(input.password, existing.passwordHash)) {
+      throw new AppError(401, 'INVITATION_ACCOUNT_PASSWORD_INVALID', 'Password is incorrect')
+    }
+    await this.requireGlobalRoleCapacity(invitation.roles, existing?.id)
+    await this.rejectExternalSystemOrganizationRoles(invitation.tenantId, invitation.roles)
+
+    const accepted = await this.accounts.registerVerifiedInvitation({
+      invitationId: invitation.id,
+      tokenSecretHash,
+      verificationCodeHash: hashRegistrationCode(
+        this.secret,
+        invitation.id,
+        tokenSecretHash,
+        email,
+        input.verificationCode,
+      ),
+      name: normalizeName(input.name),
+      passwordHash: hashPassword(input.password),
+      ...(existing ? { existingUserId: existing.id } : {}),
+    })
+    if (accepted.kind !== 'accepted') {
+      if (accepted.kind === 'invitation_unavailable') {
+        return await this.throwInvitationUnavailable(tokenSecretHash)
+      }
+      const errors = {
+        code_missing: [400, 'REGISTRATION_CODE_REQUIRED', 'Request an email verification code first'],
+        code_expired: [410, 'REGISTRATION_CODE_EXPIRED', 'Registration code has expired'],
+        code_invalid: [400, 'REGISTRATION_CODE_INVALID', 'Registration code is incorrect'],
+        code_locked: [429, 'REGISTRATION_CODE_LOCKED', 'Too many incorrect attempts; request a new code'],
+        code_used: [409, 'REGISTRATION_CODE_USED', 'Registration code has already been used'],
+      } as const
+      const [status, code, message] = errors[accepted.kind]
+      throw new AppError(status, code, message)
+    }
+    return await this.issueSession(accepted.workspace, metadata)
+  }
+
+  private async requirePendingInvitation(tokenSecretHash: string): Promise<TenantInvitation> {
+    const invitation = await this.accounts.findInvitationByTokenHash(tokenSecretHash)
+    if (!invitation) {
+      throw new AppError(404, 'INVITATION_NOT_FOUND', 'Invitation does not exist')
+    }
+    if (invitation.status === 'expired') {
+      throw new AppError(410, 'INVITATION_EXPIRED', 'Invitation has expired')
+    }
+    if (invitation.status !== 'pending') {
+      throw new AppError(409, 'INVITATION_NOT_PENDING', 'Invitation is no longer pending')
+    }
+    return invitation
+  }
+
+  private async throwInvitationUnavailable(tokenSecretHash: string): Promise<never> {
+    await this.requirePendingInvitation(tokenSecretHash)
+    throw new AppError(409, 'INVITATION_NOT_PENDING', 'Invitation is no longer pending')
   }
 
   private async acceptInvitationToken(
@@ -1473,6 +1605,18 @@ function issueInvitationToken(): string {
 
 function hashInvitationToken(token: string): string {
   return createHash('sha256').update(token).digest('base64url')
+}
+
+function hashRegistrationCode(
+  secret: string,
+  invitationId: string,
+  invitationTokenHash: string,
+  email: string,
+  code: string,
+): string {
+  return createHmac('sha256', secret)
+    .update(`${invitationId}\u0000${invitationTokenHash}\u0000${normalizeEmail(email)}\u0000${code}`)
+    .digest('base64url')
 }
 
 function escapeHtml(value: string): string {

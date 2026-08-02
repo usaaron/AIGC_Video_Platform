@@ -65,6 +65,7 @@ export const api = {
   health: () => request('/health'),
   login: (input) => request('/auth/login', json('POST', input)),
   register: (input) => request('/auth/register', json('POST', input)),
+  requestRegistrationCode: (input) => request('/auth/registration-code/request', json('POST', input)),
   requestEmailVerification: (input) => request('/auth/email-verification/request', json('POST', input)),
   verifyEmail: (input) => request('/auth/email-verification/verify', json('POST', input)),
   requestPasswordReset: (input) => request('/auth/password/reset-request', json('POST', input)),

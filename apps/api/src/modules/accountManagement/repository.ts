@@ -41,6 +41,23 @@ export type LeaveWorkspaceResult =
 export type DisableWorkspaceResult =
   { kind: 'disabled'; workspace: Workspace; nextWorkspace: AccountWorkspace | null } | { kind: 'missing' }
 
+export type SaveRegistrationCodeResult =
+  | { kind: 'created'; expiresAt: string }
+  | { kind: 'cooldown' }
+  | { kind: 'invitation_unavailable' }
+
+export type VerifiedRegistrationResult =
+  | { kind: 'accepted'; workspace: AccountWorkspace }
+  | {
+      kind:
+        | 'invitation_unavailable'
+        | 'code_missing'
+        | 'code_expired'
+        | 'code_invalid'
+        | 'code_locked'
+        | 'code_used'
+    }
+
 export class AccountManagementRepository {
   constructor(private readonly database: AccountDatabase) {}
 
@@ -141,6 +158,12 @@ export class AccountManagementRepository {
         ],
       )
       const invitationId = updated.rows[0]?.id ?? `invitation-${randomUUID()}`
+      if (updated.rows.length) {
+        await client.query(
+          `DELETE FROM registration_email_codes WHERE invitation_id = $1`,
+          [invitationId],
+        )
+      }
       if (!updated.rows.length) {
         await client.query(
           `
@@ -183,6 +206,68 @@ export class AccountManagementRepository {
     return result.rows[0] ? toTenantInvitation(result.rows[0]) : null
   }
 
+  async saveRegistrationCode(input: {
+    invitationId: string
+    tokenSecretHash: string
+    email: string
+    codeSecretHash: string
+    expiresAt: string
+    requestedIp: string | null
+    requestedUserAgent: string | null
+  }): Promise<SaveRegistrationCodeResult> {
+    return this.database.transaction(async (client) => {
+      const invitation = await client.query<{ id: string }>(
+        `
+        SELECT id
+        FROM tenant_invitations
+        WHERE id = $1
+          AND token_secret_hash = $2
+          AND lower(email) = lower($3)
+          AND status = 'pending'
+          AND expires_at > now()
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [input.invitationId, input.tokenSecretHash, input.email],
+      )
+      if (!invitation.rows.length) return { kind: 'invitation_unavailable' }
+
+      const saved = await client.query<{ expires_at: Date | string }>(
+        `
+        INSERT INTO registration_email_codes (
+          invitation_id, email, code_secret_hash, expires_at, attempts, sent_at, consumed_at,
+          requested_ip, requested_user_agent, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, 0, now(), NULL, $5, $6, now(), now())
+        ON CONFLICT (invitation_id)
+        DO UPDATE SET email = EXCLUDED.email,
+                      code_secret_hash = EXCLUDED.code_secret_hash,
+                      expires_at = EXCLUDED.expires_at,
+                      attempts = 0,
+                      sent_at = now(),
+                      consumed_at = NULL,
+                      requested_ip = EXCLUDED.requested_ip,
+                      requested_user_agent = EXCLUDED.requested_user_agent,
+                      updated_at = now()
+        WHERE registration_email_codes.consumed_at IS NOT NULL
+           OR registration_email_codes.expires_at <= now()
+           OR registration_email_codes.sent_at <= now() - interval '60 seconds'
+        RETURNING expires_at
+        `,
+        [
+          input.invitationId,
+          input.email,
+          input.codeSecretHash,
+          input.expiresAt,
+          input.requestedIp,
+          input.requestedUserAgent,
+        ],
+      )
+      const expiresAt = saved.rows[0]?.expires_at
+      return expiresAt ? { kind: 'created', expiresAt: toIso(expiresAt) } : { kind: 'cooldown' }
+    })
+  }
+
   async revokeInvitation(tenantId: string, invitationId: string): Promise<boolean> {
     const result = await this.database.query(
       `
@@ -221,62 +306,164 @@ export class AccountManagementRepository {
       const row = invitation.rows[0]
       if (!row) return null
 
-      const userId = input.existingUserId ?? `user-${randomUUID()}`
-      if (!input.existingUserId) {
+      return await this.persistAcceptedInvitation(client, row, input, false)
+    })
+  }
+
+  async registerVerifiedInvitation(input: {
+    invitationId: string
+    tokenSecretHash: string
+    verificationCodeHash: string
+    name: string
+    passwordHash: string
+    existingUserId?: string
+  }): Promise<VerifiedRegistrationResult> {
+    return this.database.transaction(async (client) => {
+      const invitation = await client.query<TenantInvitationRow>(
+        invitationSelectSql(`
+          WHERE i.id = $1
+            AND i.token_secret_hash = $2
+            AND i.status = 'pending'
+            AND i.expires_at > now()
+          LIMIT 1
+          FOR UPDATE OF i
+        `),
+        [input.invitationId, input.tokenSecretHash],
+      )
+      const row = invitation.rows[0]
+      if (!row) return { kind: 'invitation_unavailable' }
+
+      const challenge = await client.query<RegistrationCodeRow>(
+        `
+        SELECT
+          code_secret_hash = $2 AS code_matches,
+          expires_at,
+          attempts,
+          consumed_at
+        FROM registration_email_codes
+        WHERE invitation_id = $1
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [input.invitationId, input.verificationCodeHash],
+      )
+      const code = challenge.rows[0]
+      if (!code) return { kind: 'code_missing' }
+      if (code.consumed_at) return { kind: 'code_used' }
+      if (new Date(code.expires_at).getTime() <= Date.now()) return { kind: 'code_expired' }
+      if (code.attempts >= 5) return { kind: 'code_locked' }
+      if (!code.code_matches) {
+        const attempts = code.attempts + 1
         await client.query(
           `
-          INSERT INTO users (id, display_name, status, created_at, updated_at)
-          VALUES ($1, $2, 'active', now(), now())
+          UPDATE registration_email_codes
+          SET attempts = $2,
+              updated_at = now()
+          WHERE invitation_id = $1
           `,
-          [userId, input.name],
+          [input.invitationId, attempts],
         )
-        await client.query(
-          `
-          INSERT INTO auth_identities (
-            id, user_id, provider, provider_subject, email, password_hash, is_primary, status,
-            email_verified_at, email_verification_status, created_at, updated_at
-          )
-          VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', NULL, 'unverified', now(), now())
-          `,
-          [authIdentityIdFor(userId), userId, row.email, input.passwordHash],
-        )
+        return { kind: attempts >= 5 ? 'code_locked' : 'code_invalid' }
       }
 
-      const membershipId = membershipIdFor(userId, row.tenant_id)
+      const workspace = await this.persistAcceptedInvitation(client, row, input, true)
       await client.query(
         `
-        INSERT INTO tenant_memberships (
-          id, tenant_id, user_id, roles, is_primary, status, created_at, updated_at
-        )
-        VALUES ($1, $2, $3, $4, false, 'active', now(), now())
-        ON CONFLICT (tenant_id, user_id)
-        DO UPDATE SET roles = EXCLUDED.roles,
-                      status = 'active',
-                      updated_at = now()
-        `,
-        [membershipId, row.tenant_id, userId, row.roles],
-      )
-      await client.query(
-        `
-        INSERT INTO billing_accounts (membership_id, plan, credits, created_at, updated_at)
-        VALUES ($1, $2, $3, now(), now())
-        ON CONFLICT (membership_id) DO NOTHING
-        `,
-        [membershipId, defaultPlan, defaultCredits],
-      )
-      await client.query(
-        `
-        UPDATE tenant_invitations
-        SET status = 'accepted',
-            accepted_at = now(),
+        UPDATE registration_email_codes
+        SET consumed_at = now(),
             updated_at = now()
-        WHERE id = $1
+        WHERE invitation_id = $1
         `,
-        [row.invitation_id],
+        [input.invitationId],
       )
-
-      return this.readAccountWorkspace(client, userId, row.tenant_id)
+      return { kind: 'accepted', workspace }
     })
+  }
+
+  private async persistAcceptedInvitation(
+    client: Queryable,
+    row: TenantInvitationRow,
+    input: {
+      name: string
+      passwordHash: string
+      existingUserId?: string
+    },
+    emailVerified: boolean,
+  ): Promise<AccountWorkspace> {
+    const userId = input.existingUserId ?? `user-${randomUUID()}`
+    if (!input.existingUserId) {
+      await client.query(
+        `
+        INSERT INTO users (id, display_name, status, created_at, updated_at)
+        VALUES ($1, $2, 'active', now(), now())
+        `,
+        [userId, input.name],
+      )
+      await client.query(
+        `
+        INSERT INTO auth_identities (
+          id, user_id, provider, provider_subject, email, password_hash, is_primary, status,
+          email_verified_at, email_verification_status, created_at, updated_at
+        )
+        VALUES (
+          $1, $2, 'local', $3, $3, $4, true, 'active',
+          CASE WHEN $5::boolean THEN now() ELSE NULL END,
+          CASE WHEN $5::boolean THEN 'verified' ELSE 'unverified' END,
+          now(), now()
+        )
+        `,
+        [authIdentityIdFor(userId), userId, row.email, input.passwordHash, emailVerified],
+      )
+    } else if (emailVerified) {
+      await client.query(
+        `
+        UPDATE auth_identities
+        SET email_verified_at = COALESCE(email_verified_at, now()),
+            email_verification_status = 'verified',
+            updated_at = now()
+        WHERE user_id = $1
+          AND provider = 'local'
+          AND lower(email) = lower($2)
+          AND status = 'active'
+        `,
+        [userId, row.email],
+      )
+    }
+
+    const membershipId = membershipIdFor(userId, row.tenant_id)
+    await client.query(
+      `
+      INSERT INTO tenant_memberships (
+        id, tenant_id, user_id, roles, is_primary, status, created_at, updated_at
+      )
+      VALUES ($1, $2, $3, $4, false, 'active', now(), now())
+      ON CONFLICT (tenant_id, user_id)
+      DO UPDATE SET roles = EXCLUDED.roles,
+                    status = 'active',
+                    updated_at = now()
+      `,
+      [membershipId, row.tenant_id, userId, row.roles],
+    )
+    await client.query(
+      `
+      INSERT INTO billing_accounts (membership_id, plan, credits, created_at, updated_at)
+      VALUES ($1, $2, $3, now(), now())
+      ON CONFLICT (membership_id) DO NOTHING
+      `,
+      [membershipId, defaultPlan, defaultCredits],
+    )
+    await client.query(
+      `
+      UPDATE tenant_invitations
+      SET status = 'accepted',
+          accepted_at = now(),
+          updated_at = now()
+      WHERE id = $1
+      `,
+      [row.invitation_id],
+    )
+
+    return await this.readAccountWorkspace(client, userId, row.tenant_id)
   }
 
   async listUserWorkspaces(userId: string): Promise<WorkspaceMembership[]> {
@@ -993,6 +1180,13 @@ type SessionRow = {
   ip_address: string | null
   user_agent: string | null
   device_label: string | null
+}
+
+type RegistrationCodeRow = {
+  code_matches: boolean
+  expires_at: Date | string
+  attempts: number
+  consumed_at: Date | string | null
 }
 
 type TenantInvitationRow = {

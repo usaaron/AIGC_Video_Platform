@@ -5,7 +5,12 @@ export type EmailMessage = {
   subject: string
   text: string
   html?: string
-  purpose?: 'email_verification' | 'password_reset' | 'invitation' | 'billing_reconciliation_alert'
+  purpose?:
+    | 'registration_code'
+    | 'email_verification'
+    | 'password_reset'
+    | 'invitation'
+    | 'billing_reconciliation_alert'
   idempotencyKey?: string
 }
 

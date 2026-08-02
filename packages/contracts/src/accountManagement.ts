@@ -12,6 +12,19 @@ export const registerAccountSchema = z.object({
   name: z.string().min(1).max(80),
   email: z.string().email(),
   password: z.string().min(12).max(128),
+  verificationCode: z.string().regex(/^\d{6}$/),
+})
+
+export const requestRegistrationCodeSchema = z.object({
+  token: z.string().min(32).max(256),
+  email: z.string().email(),
+})
+
+export const requestRegistrationCodeResultSchema = z.object({
+  ok: z.literal(true),
+  expiresAt: z.string().datetime(),
+  resendAfterSeconds: z.number().int().positive(),
+  registrationCode: z.string().regex(/^\d{6}$/).optional(),
 })
 
 export const createTenantInvitationSchema = z.object({
@@ -137,6 +150,8 @@ export const createdTenantInvitationSchema = tenantInvitationSchema.extend({
 })
 
 export type RegisterAccountInput = z.infer<typeof registerAccountSchema>
+export type RequestRegistrationCodeInput = z.infer<typeof requestRegistrationCodeSchema>
+export type RequestRegistrationCodeResult = z.infer<typeof requestRegistrationCodeResultSchema>
 export type CreateTenantInvitationInput = z.infer<typeof createTenantInvitationSchema>
 export type AcceptTenantInvitationInput = z.infer<typeof acceptTenantInvitationSchema>
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>
