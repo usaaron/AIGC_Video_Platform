@@ -820,6 +820,9 @@ function normalizeScriptAssetSuggestion(
         ].filter(Boolean)
     const profileSummary = profileFacts.length ? `角色背景：${profileFacts.join('，')}。` : ''
     const basePrompt = animal ? stripHumanProfileTerms(namedSuggestion.prompt) : namedSuggestion.prompt
+    const description = namedSuggestion.description.includes(namedSuggestion.name)
+      ? namedSuggestion.description
+      : `${namedSuggestion.name}；${namedSuggestion.description}`
     const subjectProfile = animal
       ? [
           '动物角色',
@@ -839,7 +842,7 @@ function normalizeScriptAssetSuggestion(
         ]
     return {
       ...namedSuggestion,
-      description: appendAssetProfile(namedSuggestion.description, profileSummary),
+      description: appendAssetProfile(description, profileSummary),
       prompt: composeAssetPrompt([
         stylePrompt,
         ...subjectProfile,
@@ -892,6 +895,12 @@ function normalizeScriptAssetSuggestion(
   }
 
   if (namedSuggestion.kind === 'prop') {
+    const propContext = [
+      namedSuggestion.name,
+      namedSuggestion.description,
+      namedSuggestion.prompt,
+      sourceContext,
+    ].join('，')
     return {
       ...namedSuggestion,
       prompt: composeAssetPrompt([
@@ -903,6 +912,7 @@ function normalizeScriptAssetSuggestion(
       negativePrompt: composeAssetNegativePrompt(namedSuggestion.negativePrompt, PROP_ASSET_NEGATIVE_PROMPT),
       attributes: {
         ...namedSuggestion.attributes,
+        condition: inferPropCondition(propContext, namedSuggestion.attributes.condition),
         visualStyle: projectVisualStyle || 'cinematic-cg',
         background: 'transparent',
       },
@@ -1001,7 +1011,7 @@ function fallbackAssetSuggestions(
           eyeColor: 'unspecified',
           hairColor: 'unspecified',
           species: subjectType === 'animal' ? name : '',
-          anthropomorphic: subjectType === 'animal',
+          anthropomorphic: false,
           visualStyle,
           framing: 'full',
           bodyType: ageGroup === 'senior' ? 'balanced' : 'balanced',
@@ -1562,6 +1572,16 @@ function inferPropMaterial(
   return 'mixed'
 }
 
+function inferPropCondition(
+  text: string,
+  fallback: 'new' | 'used' | 'aged' | 'damaged',
+): 'new' | 'used' | 'aged' | 'damaged' {
+  if (/破损|损坏|断裂|残缺|碎裂/u.test(text)) return 'damaged'
+  if (/年久|陈旧|老旧|锈蚀|腐朽/u.test(text)) return 'aged'
+  if (/旧|使用痕迹|磨损|划痕/u.test(text)) return 'used'
+  return fallback
+}
+
 function inferCostumeCategory(
   name: string,
 ): 'daily' | 'formal' | 'professional' | 'uniform' | 'ancient' | 'ceremonial' | 'fantasy' | 'armor' {
@@ -1916,7 +1936,7 @@ function ensureActionBeatDensity(
   fields: Partial<Record<(typeof SHOT_FIELD_NAMES)[number], string>>,
   isWebSeries: boolean,
 ): string[] {
-  if (!isWebSeries || beats.length >= 2) return beats
+  if (!isWebSeries || beats.length >= 2 || Object.keys(fields).length < 2) return beats
   const base = beats[0] || fields.剧情 || '角色推进当前目标'
   const roles = String(fields.角色 || '画面内角色')
     .split(/[，,；;、]/u)

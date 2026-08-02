@@ -21,7 +21,7 @@ describe('createScriptTaskHandler', () => {
       clientRequestId: 'script-asset-suggestions-client',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'text',
       label: '资产建议',
       prompt: '',
@@ -56,7 +56,7 @@ describe('createScriptTaskHandler', () => {
       task.projectId,
       task.metadata.script,
       task.metadata.direction,
-      { userId: 'user-creator', tenantId: 'tenant-seqora-demo', roles: ['creator'] },
+      { userId: 'user-member', tenantId: 'tenant-seqora-demo', roles: ['member'] },
       'glm-5.2-fast',
     )
     expect(result).toMatchObject({ summary: '建议先建立主角和核心场景', assets: [] })

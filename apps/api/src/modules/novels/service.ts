@@ -1911,33 +1911,48 @@ function novelEntitySeeds(
 
 function novelCharacterSuggestion(seed: NovelCharacterSeed): ScriptAssetSuggestion {
   const text = `${seed.name} ${seed.role} ${seed.description} ${seed.visualNotes}`
-  const gender = inferNovelCharacterGender(text)
-  const ageGroup = inferNovelCharacterAge(text)
-  const identityTags = novelCharacterIdentityTags(text)
-  const profile = [
-    gender === 'male' ? '男性' : gender === 'female' ? '女性' : '',
-    ageLabel(ageGroup),
-    ...identityTags,
-  ].filter(Boolean)
+  const evidence = novelCharacterOwnEvidence(seed.name, text)
+  const subjectType = inferNovelCharacterSubjectType(evidence)
+  const animal = subjectType === 'animal'
+  const gender = animal ? 'unspecified' : inferNovelCharacterGender(seed.name, evidence)
+  const exactAge = animal ? null : inferNovelCharacterExactAge(evidence)
+  const ageGroup = animal
+    ? 'young'
+    : exactAge
+      ? novelAgeGroupFromExactAge(exactAge)
+      : inferNovelCharacterAge(evidence)
+  const identityTags = animal
+    ? novelAnimalIdentityTags(evidence)
+    : novelCharacterIdentityTags(evidence, seed.name)
+  const profile = animal
+    ? ['动物角色', ...identityTags]
+    : [
+        gender === 'male' ? '男性' : gender === 'female' ? '女性' : '',
+        exactAge ? `${exactAge}岁` : ageLabel(ageGroup),
+        ...identityTags,
+      ].filter(Boolean)
+  const subjectPrompt = animal
+    ? `${seed.name}/${identityTags[0] || '动物角色'}，自然动物形态，保留明确物种特征`
+    : `${seed.name}，${profile.join('，')}`
   return {
     kind: 'character',
     name: seed.name,
     description: `${seed.name}，${profile.join('，') || seed.role}。${seed.description}`,
-    prompt: `${seed.name}，${profile.join('，')}，${seed.visualNotes || seed.description}，中文 AI 视频人物设定，全身完整，面部清晰，造型稳定，符合小说事实源。`,
+    prompt: `${subjectPrompt}，${seed.visualNotes || seed.description}，中文 AI 视频人物设定，全身完整，面部清晰，造型稳定，符合小说事实源。`,
     negativePrompt: '',
     reason: '小说事实源中的核心人物，后续镜头需要保持身份、年龄、职业和外观一致。',
     priority: 5,
     attributes: {
       type: 'character',
-      subjectType: 'human',
+      subjectType,
       gender,
       ageGroup,
-      exactAge: null,
+      exactAge,
       ethnicity: 'unspecified',
       skinTone: 'unspecified',
       eyeColor: 'unspecified',
       hairColor: 'unspecified',
-      species: '',
+      species: animal ? seed.name : '',
       anthropomorphic: false,
       visualStyle: 'cinematic-cg',
       framing: 'full',
@@ -2008,8 +2023,8 @@ function novelPropSuggestion(seed: NovelEntitySeed): ScriptAssetSuggestion {
 
 function novelCostumeSuggestion(seed: NovelCharacterSeed): ScriptAssetSuggestion {
   const text = `${seed.name} ${seed.role} ${seed.description} ${seed.visualNotes}`
-  const gender = inferNovelCharacterGender(text)
-  const identityTags = novelCharacterIdentityTags(text)
+  const gender = inferNovelCharacterGender(seed.name, text)
+  const identityTags = novelCharacterIdentityTags(text, seed.name)
   return {
     kind: 'costume',
     name: `${seed.name}常用服装`,
@@ -2031,10 +2046,31 @@ function novelCostumeSuggestion(seed: NovelCharacterSeed): ScriptAssetSuggestion
   }
 }
 
-function inferNovelCharacterGender(text: string): 'male' | 'female' | 'unspecified' {
+function inferNovelCharacterGender(name: string, text: string): 'male' | 'female' | 'unspecified' {
+  if (text.includes(`${name}：男性`) || text.includes(`${name}:男性`)) return 'male'
+  if (text.includes(`${name}：女性`) || text.includes(`${name}:女性`)) return 'female'
   if (/老船夫|船夫|祖父|爷爷|爷|爹|父亲|男人|男性|哥哥|弟弟|少爷|他\b/u.test(text)) return 'male'
   if (/翠翠|女性|少女|姑娘|女孩|母亲|娘|妻|小姐|她\b/u.test(text)) return 'female'
   return 'unspecified'
+}
+
+function inferNovelCharacterSubjectType(text: string): 'human' | 'animal' {
+  return /黄狗|家犬|狗|犬|猫|狼|虎|豹|狐|熊|鹿|兔|鸟|鹰|马|妖兽|灵兽/u.test(text) ? 'animal' : 'human'
+}
+
+function novelAnimalIdentityTags(text: string): string[] {
+  if (/黄狗|家犬|狗|犬/u.test(text)) return ['家犬']
+  if (/猫/u.test(text)) return ['猫科动物']
+  if (/马/u.test(text)) return ['马匹']
+  return ['动物角色']
+}
+
+function novelCharacterOwnEvidence(name: string, text: string): string {
+  const clauses = text
+    .split(/[；;\n]/u)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.includes(name))
+  return clauses.length ? clauses.join('；') : text
 }
 
 function inferNovelCharacterAge(text: string): 'child' | 'teen' | 'young' | 'middle' | 'senior' {
@@ -2045,11 +2081,63 @@ function inferNovelCharacterAge(text: string): 'child' | 'teen' | 'young' | 'mid
   return 'young'
 }
 
-function novelCharacterIdentityTags(text: string): string[] {
+function inferNovelCharacterExactAge(text: string): number | null {
+  const token = text.match(/([0-9零〇一二三四五六七八九十百两]{1,4})\s*岁/u)?.[1]
+  if (!token) return null
+  const parsed = /^\d+$/u.test(token) ? Number(token) : parseNovelChineseNumber(token)
+  return Number.isFinite(parsed) && parsed >= 1 && parsed <= 120 ? parsed : null
+}
+
+function novelAgeGroupFromExactAge(age: number): 'child' | 'teen' | 'young' | 'middle' | 'senior' {
+  if (age < 13) return 'child'
+  if (age <= 18) return 'teen'
+  if (age < 30) return 'young'
+  if (age < 50) return 'middle'
+  return 'senior'
+}
+
+function parseNovelChineseNumber(value: string): number {
+  const digits: Record<string, number> = {
+    零: 0,
+    〇: 0,
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  }
+  let total = 0
+  let current = 0
+  let hasUnit = false
+  for (const character of value) {
+    if (character === '百') {
+      total += (current || 1) * 100
+      current = 0
+      hasUnit = true
+    } else if (character === '十') {
+      total += (current || 1) * 10
+      current = 0
+      hasUnit = true
+    } else if (digits[character] !== undefined) {
+      current = digits[character]
+    } else {
+      return Number.NaN
+    }
+  }
+  return hasUnit ? total + current : current
+}
+
+function novelCharacterIdentityTags(text: string, name: string): string[] {
   const tags: string[] = []
-  if (/船夫|摆渡|渡船|渡口/u.test(text)) tags.push('船夫/摆渡人')
-  if (/祖父|爷爷|爷/u.test(text)) tags.push('祖父')
+  if (/船夫|摆渡/u.test(name) || /船夫[/／]摆渡人|摆渡老人/u.test(text)) tags.push('船夫/摆渡人')
+  if (/祖父|爷爷/u.test(name) || /的祖父|是祖父|担任祖父/u.test(text)) tags.push('祖父')
   if (/外孙女|孙女/u.test(text)) tags.push('外孙女')
+  if (/翠翠|少女|姑娘/u.test(name)) tags.push('湘西少女')
   if (/导演/u.test(text)) tags.push('导演')
   if (/药师|医生/u.test(text)) tags.push('医者')
   if (/剑客|武侠|门派/u.test(text)) tags.push('武侠人物')
