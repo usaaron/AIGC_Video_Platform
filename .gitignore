@@ -17,6 +17,7 @@ logs/
 apps/api/data/
 local-fixtures/
 /deploy/demo.env
+/deploy/monitoring.env
 /deploy/release.env
 /backups/
 *.log

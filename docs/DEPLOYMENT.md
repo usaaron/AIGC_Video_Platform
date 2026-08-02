@@ -81,6 +81,12 @@ Production account initialization is explicit. API and Worker startup must keep
 environment or when intentionally repairing missing bootstrap accounts. See
 [Production Initialization Runbook](PRODUCTION_INITIALIZATION.md).
 
+Synthetic monitoring is configured separately from `deploy/demo.env`. Create
+`/opt/seqora/deploy/monitoring.env` from `deploy/monitoring.env.example` and use a dedicated
+synthetic monitoring account. The VM systemd timer runs the read-only probe every minute. GitHub
+post-deploy gates run both the read-only probe and the write-path probe; the write-path probe
+requires `SYNTHETIC_ORGANIZATION_ID` to point at a dedicated non-system synthetic organization.
+
 `deploy/demo.env` 会完整注入 Postgres、Redis、API 和 Worker 容器；Web 容器只接收 `APP_ADDRESS`，不会获得模型密钥或数据库连接串。API 镜像内置 FFmpeg 并以非 root 用户运行，Worker 复用同一镜像执行 `dist/worker.js`。
 
 生产部署和升级时先显式执行 migration，再启动新 API：

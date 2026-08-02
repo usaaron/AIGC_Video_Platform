@@ -199,11 +199,25 @@ jobs:
         with:
           node-version: 22
 
-      - name: Run post-deploy synthetic probe
+      - name: Run post-deploy read-only synthetic probe
         if: steps.changes.outputs.api == 'true' || steps.changes.outputs.web == 'true'
         env:
           SYNTHETIC_BASE_URL: ${{ vars.SYNTHETIC_BASE_URL }}
           SYNTHETIC_EMAIL: ${{ secrets.SYNTHETIC_EMAIL }}
           SYNTHETIC_PASSWORD: ${{ secrets.SYNTHETIC_PASSWORD }}
+          SYNTHETIC_PROBE_MODE: readonly
+          SYNTHETIC_REQUIRE_ALERT_WEBHOOK: true
+          SYNTHETIC_ALERT_WEBHOOK_URL: ${{ secrets.SYNTHETIC_ALERT_WEBHOOK_URL }}
+        run: node scripts/monitoring/synthetic-probe.mjs
+
+      - name: Run post-deploy write-path synthetic probe
+        if: steps.changes.outputs.api == 'true' || steps.changes.outputs.web == 'true'
+        env:
+          SYNTHETIC_BASE_URL: ${{ vars.SYNTHETIC_BASE_URL }}
+          SYNTHETIC_EMAIL: ${{ secrets.SYNTHETIC_EMAIL }}
+          SYNTHETIC_PASSWORD: ${{ secrets.SYNTHETIC_PASSWORD }}
+          SYNTHETIC_ORGANIZATION_ID: ${{ vars.SYNTHETIC_ORGANIZATION_ID }}
+          SYNTHETIC_PROBE_MODE: write
+          SYNTHETIC_REQUIRE_ALERT_WEBHOOK: true
           SYNTHETIC_ALERT_WEBHOOK_URL: ${{ secrets.SYNTHETIC_ALERT_WEBHOOK_URL }}
         run: node scripts/monitoring/synthetic-probe.mjs

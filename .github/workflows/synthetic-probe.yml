@@ -25,10 +25,12 @@ jobs:
         with:
           node-version: 22
 
-      - name: Run synthetic production probe
+      - name: Run synthetic production read-only probe
         env:
           SYNTHETIC_BASE_URL: ${{ vars.SYNTHETIC_BASE_URL }}
           SYNTHETIC_EMAIL: ${{ secrets.SYNTHETIC_EMAIL }}
           SYNTHETIC_PASSWORD: ${{ secrets.SYNTHETIC_PASSWORD }}
+          SYNTHETIC_PROBE_MODE: readonly
+          SYNTHETIC_REQUIRE_ALERT_WEBHOOK: true
           SYNTHETIC_ALERT_WEBHOOK_URL: ${{ secrets.SYNTHETIC_ALERT_WEBHOOK_URL }}
         run: node scripts/monitoring/synthetic-probe.mjs
