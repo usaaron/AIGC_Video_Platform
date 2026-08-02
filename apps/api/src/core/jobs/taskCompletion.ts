@@ -36,7 +36,14 @@ export function createAutoFilmPreviewCallback(
       )
     })
     if (allShotsReady) {
-      await service.createFilmPreview(task.projectId, principal, 'full', false, traceIdFromGenerationTask(task))
+      await service.createFilmPreview(
+        task.projectId,
+        principal,
+        'full',
+        false,
+        null,
+        traceIdFromGenerationTask(task),
+      )
     }
   }
 }

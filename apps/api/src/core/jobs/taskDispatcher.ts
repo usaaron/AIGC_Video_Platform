@@ -28,7 +28,10 @@ export type TaskDispatchContext = {
 }
 
 export const noopTaskDispatcher: TaskDispatcher = {
-  async dispatch(_task?: { id: string; tenantId: string; updatedAt: string }, _context?: TaskDispatchContext) {},
+  async dispatch(
+    _task?: { id: string; tenantId: string; updatedAt: string },
+    _context?: TaskDispatchContext,
+  ) {},
 }
 
 type GenerationTaskRunnerOptions = {
@@ -137,9 +140,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   async tick(context?: TaskDispatchContext): Promise<void> {
     if (this.tickPromise) return this.tickPromise
 
-    const tickPromise = this.taskRunnerLock
-      .runExclusive(() => this.runTick(context))
-      .then(() => undefined)
+    const tickPromise = this.taskRunnerLock.runExclusive(() => this.runTick(context)).then(() => undefined)
     this.tickPromise = tickPromise
 
     try {

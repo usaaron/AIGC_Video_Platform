@@ -40,8 +40,7 @@ describe('BullMQ task queue', { timeout: 60_000 }, () => {
       await waitFor(() => tick.mock.calls.length > 0)
       expect(
         tick.mock.calls.some(
-          ([context]) =>
-            context?.traceId === 'trace-bullmq-dispatch' && context?.reason === 'task-dispatch',
+          ([context]) => context?.traceId === 'trace-bullmq-dispatch' && context?.reason === 'task-dispatch',
         ),
       ).toBe(true)
     } finally {

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
-  Aperture,
   ArrowRight,
+  Bell,
   BookOpenText,
   Check,
   ChevronDown,
@@ -9,17 +9,20 @@ import {
   Clapperboard,
   Crown,
   FolderKanban,
+  FolderOpen,
   Layers3,
   LayoutDashboard,
   Menu,
   PackageOpen,
+  RefreshCw,
+  Settings,
   UserCog,
-  UserRound,
   UsersRound,
   WandSparkles,
   X,
   Zap,
 } from 'lucide-react'
+import { BrandMark } from './BrandMark'
 import { IconButton, StatusDot } from './ui'
 
 const STEPS = [
@@ -36,56 +39,120 @@ export function AppHeader({
   billing,
   account,
   runningJobs,
-  creativeEnabled = true,
+  notifications = [],
   onOpenNav,
   onProjectClick,
   onCreditsClick,
   onPlanClick,
   onAccountClick,
+  onNotificationOpen,
+  onNotificationRetry,
+  onNotificationRead,
 }) {
+  const [notificationOpen, setNotificationOpen] = useState(false)
+  const unread = notifications.filter((item) => !item.read)
+  const hasUnreadFailure = unread.some((item) => item.status === 'failed')
+  const hasUnreadSuccess = unread.some((item) => item.status === 'completed')
   return (
     <header className="topbar">
       <div className="brand-block">
         <button className="mobile-menu" onClick={onOpenNav} aria-label="打开导航">
           <Menu size={21} />
         </button>
-        <div className="brand-mark">
-          <Aperture size={20} />
-        </div>
+        <BrandMark />
         <div className="brand-name">
           序幕 <span>SEQORA</span>
         </div>
       </div>
-      {creativeEnabled ? (
-        <button className="project-switcher" onClick={onProjectClick}>
-          <FolderKanban size={16} />
-          <span>{projectName}</span>
-          <ChevronDown size={15} />
-        </button>
-      ) : (
-        <div className="project-switcher static">
-          <UserRound size={16} />
-          <span>个人资料</span>
-        </div>
-      )}
+      <button className="project-switcher" onClick={onProjectClick}>
+        <FolderKanban size={16} />
+        <span>{projectName}</span>
+        <ChevronDown size={15} />
+      </button>
       <div className="top-actions">
-        {creativeEnabled && (
-          <>
-            <div className="queue-indicator">
-              <StatusDot status={runningJobs.length ? 'running' : 'completed'} />
-              {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '生成服务正常'}
+        <div className="queue-indicator">
+          <StatusDot status={runningJobs.length ? 'running' : 'completed'} />
+          {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '生成服务正常'}
+        </div>
+        <div
+          className="notification-center"
+          onMouseEnter={() => setNotificationOpen(true)}
+          onMouseLeave={() => setNotificationOpen(false)}
+        >
+          <button
+            type="button"
+            className={`notification-trigger ${unread.length ? 'has-unread' : ''}`}
+            aria-label={`消息中心，${unread.length} 条未读`}
+            aria-expanded={notificationOpen}
+            onClick={() => setNotificationOpen((current) => !current)}
+          >
+            <Bell size={17} />
+            {(hasUnreadFailure || hasUnreadSuccess) && (
+              <span className="notification-trigger-dots" aria-hidden="true">
+                {hasUnreadFailure && <i className="failed" />}
+                {hasUnreadSuccess && <i className="completed" />}
+              </span>
+            )}
+          </button>
+          {notificationOpen && (
+            <div className="notification-popover">
+              <header>
+                <div>
+                  <strong>消息中心</strong>
+                  <span>{unread.length ? `${unread.length} 条未读` : '任务状态已同步'}</span>
+                </div>
+              </header>
+              <div className="notification-list">
+                {notifications.length ? (
+                  notifications.slice(0, 10).map((notification) => (
+                    <article
+                      key={notification.id}
+                      className={`${notification.status} ${notification.read ? 'read' : 'unread'}`}
+                      onMouseEnter={() => onNotificationRead?.(notification.id)}
+                    >
+                      <span className="notification-status-dot" />
+                      <button
+                        type="button"
+                        className="notification-preview"
+                        onClick={() => void onNotificationOpen?.(notification)}
+                      >
+                        <strong>
+                          {notification.title} · {notification.label}
+                        </strong>
+                        <span>{notification.projectName}</span>
+                        <small>{notification.message}</small>
+                      </button>
+                      {notification.status === 'failed' && (
+                        <button
+                          type="button"
+                          className="notification-retry"
+                          title="使用原参数重试"
+                          onClick={() => void onNotificationRetry?.(notification)}
+                        >
+                          <RefreshCw size={14} />
+                        </button>
+                      )}
+                    </article>
+                  ))
+                ) : (
+                  <div className="notification-empty">
+                    <Bell size={18} />
+                    <span>暂无生成消息</span>
+                  </div>
+                )}
+              </div>
             </div>
-            <button className="credit-button" onClick={onCreditsClick}>
-              <Zap size={15} fill="currentColor" /> {billing?.credits ?? 0} 积分
-            </button>
-            <button
-              className={`plan-button ${billing?.plan === 'member' ? 'is-member' : ''}`}
-              onClick={onPlanClick}
-            >
-              <Crown size={15} /> {billing?.plan === 'member' ? '创作会员' : '免费版'}
-            </button>
-          </>
-        )}
+          )}
+        </div>
+        <button className="credit-button" onClick={onCreditsClick}>
+          <Zap size={15} fill="currentColor" /> {billing?.credits ?? 0} 积分
+        </button>
+        <button
+          className={`plan-button ${billing?.plan === 'member' ? 'is-member' : ''}`}
+          onClick={onPlanClick}
+        >
+          <Crown size={15} /> {billing?.plan === 'member' ? '创作会员' : '免费版'}
+        </button>
         <button className="avatar" onClick={onAccountClick} title="账号设置">
           {account?.name?.slice(0, 1) ?? '用'}
         </button>
@@ -101,7 +168,6 @@ export function AppSidebar({
   assetCount,
   canOpenAdminAccounts = false,
   adminConsoleUrl,
-  creativeEnabled = true,
   onNavigate,
   onClose,
 }) {
@@ -120,72 +186,72 @@ export function AppSidebar({
           <X size={19} />
         </IconButton>
       </div>
-      <div className="sidebar-label">{creativeEnabled ? '创作流程' : '账号'}</div>
+      <button
+        className={`sidebar-home ${activeStep === 'home' ? 'active' : ''}`}
+        onClick={() => onNavigate('home')}
+      >
+        <FolderOpen size={17} />
+        <span>项目库</span>
+      </button>
+      <div className="sidebar-label">创作流程</div>
       <nav>
-        {creativeEnabled &&
-          STEPS.map((step, index) => {
-            const Icon = step.icon
-            return (
-              <button
-                key={step.id}
-                className={`nav-item ${activeStep === step.id ? 'active' : ''}`}
-                onClick={() => onNavigate(step.id)}
-              >
-                <span className={`nav-index ${index < activeIndex ? 'done' : ''}`}>
-                  {index < activeIndex ? <Check size={12} /> : index + 1}
-                </span>
-                <Icon size={17} />
-                <span>{step.label}</span>
-              </button>
-            )
-          })}
+        {STEPS.map((step, index) => {
+          const Icon = step.icon
+          return (
+            <button
+              key={step.id}
+              className={`nav-item ${activeStep === step.id ? 'active' : ''}`}
+              onClick={() => onNavigate(step.id)}
+            >
+              <span className={`nav-index ${index < activeIndex ? 'done' : ''}`}>
+                {index < activeIndex ? <Check size={12} /> : index + 1}
+              </span>
+              <Icon size={17} />
+              <span>{step.label}</span>
+            </button>
+          )
+        })}
       </nav>
       <div className="sidebar-spacer" />
-      {creativeEnabled && (
-        <>
-          <button className="sidebar-link" onClick={() => onNavigate('assets')}>
-            <PackageOpen size={17} /> 资产库 <span>{assetCount}</span>
-          </button>
-          <button
-            className={`sidebar-link ${activeStep === 'billing' ? 'active' : ''}`}
-            onClick={() => onNavigate('billing')}
-          >
-            <CircleDollarSign size={17} /> 积分账单
-          </button>
-        </>
-      )}
+      <button className="sidebar-link" onClick={() => onNavigate('assets')}>
+        <PackageOpen size={17} /> 资产库 <span>{assetCount}</span>
+      </button>
+      <button
+        className={`sidebar-link ${activeStep === 'billing' ? 'active' : ''}`}
+        onClick={() => onNavigate('billing')}
+      >
+        <CircleDollarSign size={17} /> 积分账单
+      </button>
       <button
         className={`sidebar-link ${activeStep === 'settings' ? 'active' : ''}`}
         onClick={() => onNavigate('settings')}
       >
-        <UserRound size={17} /> 个人资料
+        <Settings size={17} /> 项目设置
       </button>
       {canOpenAdminAccounts && (
         <a className="sidebar-link" href={adminConsoleUrl} target="_blank" rel="noreferrer">
           <UserCog size={17} /> 管理后台
         </a>
       )}
-      {creativeEnabled && (
-        <button
-          type="button"
-          className="usage-box"
-          onClick={() => onNavigate('billing')}
-          style={{ '--usage-progress': `${usagePercent}%` }}
-        >
-          <div>
-            <span>可用积分</span>
-            <strong>{billing?.credits ?? 0} 积分</strong>
-          </div>
-          <div className="usage-track">
-            <span />
-          </div>
-          <small>
-            本月已用 {usage?.netCredits ?? 0} · {usage?.generationCount ?? 0} 次计费
-            {usage?.refundedCredits ? ` · 已退 ${usage.refundedCredits} 积分` : ''}
-            {usage?.includedCredits ? ` · 月度 ${usage.includedCredits}` : ' · 按量使用'}
-          </small>
-        </button>
-      )}
+      <button
+        type="button"
+        className="usage-box"
+        onClick={() => onNavigate('billing')}
+        style={{ '--usage-progress': `${usagePercent}%` }}
+      >
+        <div>
+          <span>可用积分</span>
+          <strong>{billing?.credits ?? 0} 积分</strong>
+        </div>
+        <div className="usage-track">
+          <span />
+        </div>
+        <small>
+          本月已用 {usage?.netCredits ?? 0} · {usage?.generationCount ?? 0} 次计费
+          {usage?.refundedCredits ? ` · 已退 ${usage.refundedCredits} 积分` : ''}
+          {usage?.includedCredits ? ` · 月度 ${usage.includedCredits}` : ' · 按量使用'}
+        </small>
+      </button>
     </aside>
   )
 }
@@ -193,7 +259,18 @@ export function AppSidebar({
 export function NewProjectModal({ onClose, onCreate }) {
   const [name, setName] = useState('未命名影片')
   const [contentType, setContentType] = useState('short-drama')
+  const [visualStyle, setVisualStyle] = useState('cinematic-cg')
   const [aspectRatio, setAspectRatio] = useState('9:16')
+  const contentTypes = [
+    ['short-drama', '网剧', '连续剧情与分集钩子'],
+    ['advertisement', '广告', '产品或品牌传播'],
+    ['animation', '短片', '完整独立叙事'],
+  ]
+  const visualStyles = [
+    ['cinematic-cg', 'CG风', '影视化三维质感'],
+    ['photorealistic', '仿真人', '真人摄影与真实材质'],
+    ['chinese-2d', '2D风', '二维动画与插画表现'],
+  ]
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -216,15 +293,41 @@ export function NewProjectModal({ onClose, onCreate }) {
           onChange={(event) => setName(event.target.value)}
           id="new-project-name"
         />
-        <div className="field-grid">
-          <label>
-            <span>内容类型</span>
-            <select value={contentType} onChange={(event) => setContentType(event.target.value)}>
-              <option value="short-drama">短剧</option>
-              <option value="advertisement">广告</option>
-              <option value="animation">动画短片</option>
-            </select>
-          </label>
+        <section className="new-project-choice-group">
+          <span>内容类型</span>
+          <div className="new-project-choice-grid" role="group" aria-label="内容类型">
+            {contentTypes.map(([value, label, description]) => (
+              <button
+                type="button"
+                key={value}
+                className={contentType === value ? 'active' : ''}
+                aria-pressed={contentType === value}
+                onClick={() => setContentType(value)}
+              >
+                <strong>{label}</strong>
+                <small>{description}</small>
+              </button>
+            ))}
+          </div>
+        </section>
+        <section className="new-project-choice-group">
+          <span>项目视觉风格</span>
+          <div className="new-project-choice-grid visual-style-grid" role="group" aria-label="项目视觉风格">
+            {visualStyles.map(([value, label, description]) => (
+              <button
+                type="button"
+                key={value}
+                className={visualStyle === value ? 'active' : ''}
+                aria-pressed={visualStyle === value}
+                onClick={() => setVisualStyle(value)}
+              >
+                <strong>{label}</strong>
+                <small>{description}</small>
+              </button>
+            ))}
+          </div>
+        </section>
+        <div className="field-grid new-project-ratio">
           <label>
             <span>画面比例</span>
             <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>
@@ -240,7 +343,15 @@ export function NewProjectModal({ onClose, onCreate }) {
           </button>
           <button
             className="button primary"
-            onClick={() => onCreate({ name: name || '未命名影片', contentType, aspectRatio })}
+            onClick={() =>
+              onCreate({
+                name: name || '未命名影片',
+                contentType,
+                visualStyle,
+                aspectRatio,
+                episodeDurationSeconds: contentType === 'short-drama' ? 60 : 30,
+              })
+            }
           >
             创建并写剧本 <ArrowRight size={16} />
           </button>

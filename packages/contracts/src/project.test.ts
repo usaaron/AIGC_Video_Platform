@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  autoSplitShotsRequestSchema,
   createAssetSchema,
   createShotSchema,
   enrichScriptRequestSchema,
@@ -7,6 +8,8 @@ import {
   generateScriptRequestSchema,
   generateShotsRequestSchema,
   scriptAssetSuggestionsResultSchema,
+  reviewScriptRequestSchema,
+  scriptReviewResultSchema,
   updateAssetSchema,
   updateShotSchema,
 } from './project.js'
@@ -73,7 +76,14 @@ describe('asset contracts', () => {
 
 describe('shot contracts', () => {
   it('stores a bounded continuity context and defaults it for older clients', () => {
-    expect(createShotSchema.parse({ title: 'Shot 01' }).continuityNote).toBe('')
+    expect(createShotSchema.parse({ title: 'Shot 01' })).toMatchObject({
+      continuityMode: 'continue',
+      continuityNote: '',
+      episodeBreakBefore: false,
+      episodeNumber: 1,
+      episodeTitle: '主故事',
+      episodeKind: 'standard',
+    })
     expect(updateShotSchema.parse({ continuityNote: 'previous action continues' })).toEqual({
       continuityNote: 'previous action continues',
     })
@@ -91,7 +101,10 @@ describe('script workflow contracts', () => {
       draft: 'story draft',
       mode: 'quick',
       segment: { goal: '', targetMinutes: 5 },
+      productionMode: 'short-video',
+      episodeMinutes: 1,
       model: 'glm-5.2',
+      revisionNote: '',
       direction: {
         style: 'auto',
         composition: 'auto',
@@ -104,20 +117,44 @@ describe('script workflow contracts', () => {
       generateScriptAssetSuggestionsRequestSchema.parse({ script: 'scene: river crossing' }),
     ).toMatchObject({
       script: 'scene: river crossing',
-      model: 'glm-5.2',
       direction: expect.objectContaining({ style: 'auto' }),
+    })
+    expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' }).direction).toMatchObject({
+      style: 'auto',
+      composition: 'auto',
+      lighting: 'auto',
+      camera: 'auto',
+      focus: 'balanced',
     })
     expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
       model: 'glm-5.2',
-      direction: {
-        style: 'auto',
-        composition: 'auto',
-        lighting: 'auto',
-        camera: 'auto',
-        focus: 'balanced',
-      },
+      revisionNote: '',
     })
-    expect(generateShotsRequestSchema.parse({})).toMatchObject({ maxShots: 8, mode: 'scene' })
+    expect(reviewScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
+      model: 'glm-5.2',
+    })
+    expect(generateShotsRequestSchema.parse({})).toMatchObject({
+      maxShots: 8,
+      mode: 'scene',
+      episodeDurationSeconds: 60,
+    })
+    expect(autoSplitShotsRequestSchema.parse({})).toEqual({ episodeDurationSeconds: 60 })
+    expect(autoSplitShotsRequestSchema.parse({ episodeDurationSeconds: 300 })).toEqual({
+      episodeDurationSeconds: 300,
+    })
+    expect(generateShotsRequestSchema.parse({ episodeDurationSeconds: 90 })).toMatchObject({
+      episodeDurationSeconds: 90,
+    })
+    expect(autoSplitShotsRequestSchema.parse({ episodeDurationSeconds: 90 })).toEqual({
+      episodeDurationSeconds: 90,
+    })
+    expect(
+      generateScriptRequestSchema.parse({
+        draft: 'web series',
+        productionMode: 'web-series',
+        episodeMinutes: 5,
+      }),
+    ).toMatchObject({ productionMode: 'web-series', episodeMinutes: 5 })
     expect(generateShotsRequestSchema.parse({ mode: 'beat', maxShots: 36 })).toMatchObject({
       maxShots: 36,
       mode: 'beat',
@@ -129,6 +166,21 @@ describe('script workflow contracts', () => {
       scriptAssetSuggestionsResultSchema.safeParse({
         summary: 'Suggestions',
         assets: [],
+        generatedAt: new Date().toISOString(),
+      }).success,
+    ).toBe(true)
+  })
+
+  it('validates structured professional review results', () => {
+    const dimensions = ['plot', 'character', 'dialogue', 'style', 'composition', 'lighting', 'camera'].map(
+      (key) => ({ key, score: 80, finding: 'clear issue', suggestion: 'provide a concrete fix' }),
+    )
+    expect(
+      scriptReviewResultSchema.safeParse({
+        score: 80,
+        verdict: 'production ready',
+        dimensions,
+        priorityActions: ['strengthen character goal'],
         generatedAt: new Date().toISOString(),
       }).success,
     ).toBe(true)

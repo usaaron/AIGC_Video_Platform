@@ -1,5 +1,6 @@
 param(
-  [string]$OutputRoot = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'seqora-deployment')
+  [string]$OutputRoot = (Join-Path ([System.IO.Path]::GetTempPath()) 'seqora-deployment'),
+  [switch]$IncludeRuntimeData
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,7 +32,9 @@ if (Test-Path -LiteralPath $runtimeStage) {
   }
   Remove-Item -LiteralPath $resolvedRuntimeStage -Recurse -Force
 }
-New-Item -ItemType Directory -Path $runtimeStage -Force | Out-Null
+if ($IncludeRuntimeData) {
+  New-Item -ItemType Directory -Path $runtimeStage -Force | Out-Null
+}
 
 $paths = @(git -C $repo ls-files --cached --others --exclude-standard)
 $copiedFiles = 0
@@ -58,7 +61,8 @@ $buildInfo = @(
   "BuiltAt=$(Get-Date -Format o)",
   "SourceBranch=$(git -C $repo branch --show-current)",
   "SourceCommit=$(git -C $repo rev-parse HEAD)",
-  "IncludedFiles=$copiedFiles"
+  "IncludedFiles=$copiedFiles",
+  "RuntimeDataIncluded=$([bool]$IncludeRuntimeData)"
 )
 [System.IO.File]::WriteAllLines(
   (Join-Path $stage 'DEPLOY_BUILD.txt'),
@@ -77,15 +81,22 @@ if ($LASTEXITCODE -ne 0) {
   throw 'Source archive failed.'
 }
 
-$runtimeSource = Join-Path $repo 'apps\api\data'
-Copy-Item -LiteralPath (Join-Path $runtimeSource 'app.json') -Destination $runtimeStage -Force
-Copy-Item -LiteralPath (Join-Path $runtimeSource 'uploads') -Destination (Join-Path $runtimeStage 'uploads') -Recurse -Force
-tar -czf $runtimeArchive -C $runtimeStage .
-if ($LASTEXITCODE -ne 0) {
-  throw 'Runtime archive failed.'
+if ($IncludeRuntimeData) {
+  $runtimeSource = Join-Path $repo 'apps\api\data'
+  Copy-Item -LiteralPath (Join-Path $runtimeSource 'app.json') -Destination $runtimeStage -Force
+  Copy-Item -LiteralPath (Join-Path $runtimeSource 'uploads') -Destination (Join-Path $runtimeStage 'uploads') -Recurse -Force
+  tar -czf $runtimeArchive -C $runtimeStage .
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Runtime archive failed.'
+  }
 }
 
-@($sourceArchive, $runtimeArchive) | ForEach-Object {
+$archives = @($sourceArchive)
+if ($IncludeRuntimeData) {
+  $archives += $runtimeArchive
+}
+
+$archives | ForEach-Object {
   $file = Get-Item -LiteralPath $_
   $hash = Get-FileHash -LiteralPath $_ -Algorithm SHA256
   [pscustomobject]@{

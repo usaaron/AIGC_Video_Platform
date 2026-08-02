@@ -10,7 +10,8 @@ export function canOpenAccountAdmin(session) {
 export function getAdminConsoleUrl(path = '') {
   const base = import.meta.env?.VITE_ADMIN_CONSOLE_URL || defaultAdminConsoleUrl
   const normalizedBase = base.endsWith('/') ? base : `${base}/`
-  return new URL(path, normalizedBase).toString()
+  if (/^[a-z][a-z\d+.-]*:/i.test(normalizedBase)) return new URL(path, normalizedBase).toString()
+  return `${normalizedBase}${path.replace(/^\/+/, '')}`
 }
 
 export function canEditProjectSettings(session) {

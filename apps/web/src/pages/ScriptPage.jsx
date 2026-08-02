@@ -2,146 +2,67 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ArrowRight,
   BadgeCheck,
-  Camera,
+  BookOpenText,
   Clapperboard,
-  Clock3,
-  Image,
-  Lightbulb,
+  CircleHelp,
   LoaderCircle,
-  MessageSquare,
-  PanelRightClose,
-  PanelRightOpen,
   Save,
   Sparkles,
   Upload,
-  UserRound,
 } from 'lucide-react'
-import { IconButton, PageHeader } from '../components/ui'
+import { PageHeader } from '../components/ui'
+import { BrandMark } from '../components/BrandMark'
 import { AssetEditor } from '../features/assets/AssetEditor'
+import { AssetAwareTextarea, AssetShortcutBar } from '../features/assets/AssetShortcutBar'
 import { NovelImportPanel } from '../features/novel/NovelImportPanel'
-import { QuickStartModal } from '../features/quickStart/QuickStartModal'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../features/script/AssetSuggestionsPanel'
-import {
-  restoreScriptAssetSuggestionsCache,
-  saveScriptAssetSuggestionsCache,
-} from '../features/script/assetSuggestionCache'
-import { DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
+import { LongFormStudioPlaceholder } from '../features/script/LongFormStudioPlaceholder'
+import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
-const DEFAULT_TEXT_MODEL = 'glm-5.2'
-const TEXT_MODEL_OPTIONS = [
-  { value: 'glm-5.2', label: 'GLM 5.2' },
-  { value: 'glm-5.2-fast', label: 'GLM 5.2 Fast' },
-  { value: 'kimi-k3', label: 'Kimi K3' },
-  { value: 'kimi-k3-thinking', label: 'Kimi K3 Thinking' },
-  { value: 'gpt-5.6', label: '序幕-SEQORA 5.6' },
-  { value: 'gpt-5.5', label: '序幕-SEQORA 5.5' },
-  { value: 'gpt-5.4', label: '序幕-SEQORA 5.4' },
-  { value: 'deepseekV3', label: 'DeepSeek V3' },
-]
-
-const DIRECTION_FIELDS = [
-  {
-    key: 'style',
-    label: '视觉风格',
-    icon: Sparkles,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['photorealistic', '仿真人电影感'],
-      ['cinematic-cg', '电影级 CG'],
-      ['chinese-3d', '国漫三维'],
-      ['chinese-2d', '国漫二维'],
-      ['anime', '日系动画'],
-      ['storybook', '绘本风格'],
-    ],
-  },
-  {
-    key: 'composition',
-    label: '构图',
-    icon: Image,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['rule-of-thirds', '三分法'],
-      ['centered', '中心构图'],
-      ['symmetry', '对称构图'],
-      ['negative-space', '留白构图'],
-      ['dynamic', '动态斜线'],
-    ],
-  },
-  {
-    key: 'lighting',
-    label: '光影',
-    icon: Lightbulb,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['natural-soft', '自然柔光'],
-      ['high-contrast', '高反差硬光'],
-      ['low-key', '低调暗光'],
-      ['backlight', '逆光轮廓光'],
-      ['neon', '霓虹彩光'],
-    ],
-  },
-  {
-    key: 'camera',
-    label: '运镜',
-    icon: Camera,
-    options: [
-      ['auto', 'AI 自动匹配'],
-      ['restrained', '克制稳定'],
-      ['immersive', '沉浸跟随'],
-      ['dynamic', '动态动作'],
-      ['documentary', '纪录片手持'],
-      ['suspense', '悬疑压迫'],
-    ],
-  },
-]
-
-const FOCUS_OPTIONS = [
-  ['balanced', '均衡'],
-  ['scene', '场景'],
-  ['character', '角色'],
-  ['dialogue', '对白'],
-]
-
-const INSERT_BLOCKS = [
-  {
-    key: 'scene',
-    label: '场景卡',
-    icon: Image,
-    value: '场景：地点｜内/外｜时间｜天气\n画面：环境主体、空间层次、关键道具\n视觉：构图｜光影｜运镜\n',
-  },
-  {
-    key: 'character',
-    label: '角色卡',
-    icon: UserRound,
-    value: '角色：姓名｜身份｜当前目标\n外观：服装、状态、关键识别特征\n动作：起势、过程、结束｜情绪：\n',
-  },
-  {
-    key: 'dialogue',
-    label: '对白段',
-    icon: MessageSquare,
-    value: '对白：\n角色名（情绪/动作）：台词\n反应：对方的表情、视线或动作\n',
-  },
+const SCRIPT_MODEL_OPTIONS = [
+  ['seqora-5.6', 'GPT 5.6（当前中转）'],
+  ['gpt-5.6-terra', 'GPT 5.6 Terra'],
+  ['kimi-k3', 'Kimi K3'],
+  ['glm-5.2', 'GLM 5.2'],
+  ['glm-5.2-fast', 'GLM 5.2 Fast'],
 ]
 
 const SCRIPT_SECTIONS = [
   {
     id: 'writing',
-    label: '剧本编写',
+    label: '短剧本编写（建议小于1万字时使用）',
     description: '输入、保存和检查',
     icon: Clapperboard,
   },
   {
     id: 'novel',
     label: '小说上传与章节',
-    description: '导入长文本，切分章节并生成概要',
+    description: '长文本导入与章节改编',
+    status: '开发中',
     icon: Upload,
+  },
+  {
+    id: 'long-form',
+    label: '长剧本创作',
+    description: '大纲、人物与世界设定',
+    status: '开发中',
+    icon: BookOpenText,
   },
 ]
 
+function looksLikeDevelopedScript(value) {
+  const source = value.trim()
+  return source.length >= 300 || /(?:场景|场次|剧情|角色)[：:]/.test(source)
+}
+
 export function ScriptPage({
   project,
+  assets = [],
   billing,
+  tasks = [],
   onSave,
+  onGenerate,
+  onGenerateSegment,
   onImportNovel,
   onPreviewNovelSplit,
   onListNovels,
@@ -150,91 +71,183 @@ export function ScriptPage({
   onGenerateNovelSummaries,
   onGetNovelStoryBible,
   onGenerateNovelStoryBible,
-  onGenerateNovelChapterAdaptation,
   onSuggestNovelAssets,
+  onGenerateNovelChapterAdaptation,
   onSuggestAssets,
-  onEnrich,
   onCreateAsset,
   onUpload,
-  onPlanQuickStart,
-  onExecuteQuickStart,
+  onCancelTask,
+  onUpdateEpisodeDuration,
   onNext,
 }) {
+  const productionMode = project.contentType === 'short-drama' ? 'web-series' : 'short-video'
+  const defaultEpisodeSeconds = project.episodeDurationSeconds || (productionMode === 'web-series' ? 60 : 30)
   const [script, setScript] = useState(project.script)
+  const [direction] = useState(DEFAULT_SCRIPT_DIRECTION)
+  const [scriptModel, setScriptModel] = useState(DEFAULT_SCRIPT_MODEL)
+  const [revisionNote, setRevisionNote] = useState('')
+  const [episodeDurationSeconds, setEpisodeDurationSeconds] = useState(defaultEpisodeSeconds)
+  const [segmentGoal, setSegmentGoal] = useState('')
+  const [segmentDurationSeconds, setSegmentDurationSeconds] = useState(defaultEpisodeSeconds)
   const [saved, setSaved] = useState(true)
+  const [generating, setGenerating] = useState(false)
+  const [generationPhase, setGenerationPhase] = useState('idle')
+  const [generationSeconds, setGenerationSeconds] = useState(0)
+  const [generationWarnings, setGenerationWarnings] = useState([])
   const [saving, setSaving] = useState(false)
-  const [enriching, setEnriching] = useState(false)
-  const [enrichWarnings, setEnrichWarnings] = useState([])
-  const [textModel, setTextModel] = useState(DEFAULT_TEXT_MODEL)
-  const [direction, setDirection] = useState(DEFAULT_SCRIPT_DIRECTION)
-  const [inspectorOpen, setInspectorOpen] = useState(true)
+  const [hasGeneratedScript, setHasGeneratedScript] = useState(() => looksLikeDevelopedScript(project.script))
   const [activeScriptSection, setActiveScriptSection] = useState('writing')
+  const [longFormSource, setLongFormSource] = useState('short-script')
+  const [longFormDraft, setLongFormDraft] = useState('')
   const [error, setError] = useState('')
-  const [quickStartOpen, setQuickStartOpen] = useState(false)
-  const [quickStartState, setQuickStartState] = useState('idle')
-  const [quickStartPlan, setQuickStartPlan] = useState(null)
-  const [quickStartResult, setQuickStartResult] = useState(null)
-  const [quickStartError, setQuickStartError] = useState('')
   const [assetSuggestionStatus, setAssetSuggestionStatus] = useState('idle')
   const [assetSuggestionResult, setAssetSuggestionResult] = useState(null)
   const [assetSuggestionError, setAssetSuggestionError] = useState('')
   const [creatingAssetKeys, setCreatingAssetKeys] = useState(() => new Set())
   const [createdAssetKeys, setCreatedAssetKeys] = useState(() => new Set())
   const [suggestedAssetEditor, setSuggestedAssetEditor] = useState(null)
+  const [stoppingTaskId, setStoppingTaskId] = useState(null)
   const fileInput = useRef(null)
   const textArea = useRef(null)
   const count = script.replace(/\s/g, '').length
   const paragraphCount = script.split(/\n+/).filter(Boolean).length
-  const characterCount = script.trim() ? Math.max(1, new Set(script.match(/角色：[^，。]+/g) || []).size) : 0
-  const suggestedShots = script.trim() ? Math.min(12, Math.max(1, paragraphCount)) : 0
   const estimatedMinutes = script.trim() ? Math.max(1, Math.ceil(count / 120)) : 0
-  const busy = saving || enriching || quickStartState === 'starting'
+  const assetSuggestionFingerprint = scriptSuggestionFingerprint(script)
+  const latestAssetSuggestionTask = [...tasks]
+    .filter(
+      (task) =>
+        task.kind === 'text' &&
+        task.metadata?.scriptOperation === 'suggest-assets' &&
+        task.metadata?.sourceScriptFingerprint === assetSuggestionFingerprint,
+    )
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0]
+  const activeScriptTasks = tasks.filter(
+    (task) =>
+      task.kind === 'text' &&
+      String(task.metadata?.generationStage || '').startsWith('script-') &&
+      task.metadata?.scriptOperation !== 'suggest-assets' &&
+      ['queued', 'paused', 'running'].includes(task.status),
+  )
+  const activeScriptTask = activeScriptTasks[0]
+  const activeGenerateTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'generate')
+  const activeRevisionTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'revise')
+  const activeSegmentTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'segment')
+  const busy = generating || saving || Boolean(activeScriptTask)
+
+  const stopScriptTask = async (task, label) => {
+    if (!task || !onCancelTask || stoppingTaskId) return
+    if (!window.confirm(`当前${label}正在生成，停止后本次结果不会写回。确定停止吗？`)) return
+    setStoppingTaskId(task.id)
+    setError('')
+    try {
+      await onCancelTask(task.id)
+      setGenerationWarnings([`已停止${label}。你可以切换模型后重新尝试。`])
+    } catch (stopError) {
+      setError(stopError.message)
+    } finally {
+      setStoppingTaskId(null)
+    }
+  }
 
   useEffect(() => {
-    const cachedAssetSuggestions = restoreScriptAssetSuggestionsCache(project.id, project.script)
-    const nextScript = cachedAssetSuggestions?.sourceScript ?? project.script
-    setScript(nextScript)
-    setSaved(nextScript === project.script)
-    setEnrichWarnings([])
+    setScript(project.script)
+    setEpisodeDurationSeconds(defaultEpisodeSeconds)
+    setSegmentDurationSeconds(defaultEpisodeSeconds)
+    setRevisionNote('')
+    setSaved(true)
     setError('')
-    setTextModel(cachedAssetSuggestions?.model || DEFAULT_TEXT_MODEL)
-    setDirection(cachedAssetSuggestions?.direction || DEFAULT_SCRIPT_DIRECTION)
-    setAssetSuggestionStatus(cachedAssetSuggestions?.result ? 'ready' : 'idle')
-    setAssetSuggestionResult(cachedAssetSuggestions?.result || null)
+    setHasGeneratedScript(looksLikeDevelopedScript(project.script))
+    setAssetSuggestionStatus('idle')
+    setAssetSuggestionResult(null)
+    setAssetSuggestionError('')
+  }, [project.id, project.script, defaultEpisodeSeconds])
+
+  useEffect(() => {
+    setLongFormSource('short-script')
+    setLongFormDraft('')
+  }, [project.id])
+
+  useEffect(() => {
+    if (!generating) return undefined
+    const startedAt = Date.now()
+    setGenerationSeconds(0)
+    const timer = window.setInterval(() => {
+      setGenerationSeconds(Math.floor((Date.now() - startedAt) / 1_000))
+    }, 1_000)
+    return () => window.clearInterval(timer)
+  }, [generating])
+
+  useEffect(() => {
+    setAssetSuggestionStatus('idle')
+    setAssetSuggestionResult(null)
     setAssetSuggestionError('')
     setCreatingAssetKeys(new Set())
-    setCreatedAssetKeys(cachedAssetSuggestions?.createdKeys || new Set())
-  }, [project.id, project.script])
+    setCreatedAssetKeys(new Set())
+  }, [project.id])
 
   useEffect(() => {
-    setQuickStartOpen(false)
-    setQuickStartState('idle')
-    setQuickStartPlan(null)
-    setQuickStartResult(null)
-    setQuickStartError('')
-  }, [project.id])
+    if (!latestAssetSuggestionTask) return
+    if (['queued', 'paused', 'running'].includes(latestAssetSuggestionTask.status)) {
+      setAssetSuggestionStatus('suggesting')
+      setAssetSuggestionError('')
+      return
+    }
+    if (latestAssetSuggestionTask.status === 'completed') {
+      const result = latestAssetSuggestionTask.metadata?.textResult
+      if (isAssetSuggestionResult(result)) {
+        setAssetSuggestionResult(result)
+        setAssetSuggestionError('')
+        setAssetSuggestionStatus('ready')
+      } else {
+        setAssetSuggestionResult(null)
+        setAssetSuggestionError('资产建议任务已完成，但没有返回有效结果，请重新分析。')
+        setAssetSuggestionStatus('ready')
+      }
+      return
+    }
+    if (latestAssetSuggestionTask.status === 'failed') {
+      setAssetSuggestionResult(null)
+      setAssetSuggestionError(latestAssetSuggestionTask.error || '资产建议生成失败，请重试。')
+      setAssetSuggestionStatus('ready')
+    }
+  }, [latestAssetSuggestionTask])
 
   const update = (value) => {
     setScript(value)
     setSaved(false)
-    setEnrichWarnings([])
     setAssetSuggestionStatus('idle')
+    setAssetSuggestionResult(null)
     setAssetSuggestionError('')
+  }
+
+  const commitEpisodeDuration = async () => {
+    if (productionMode !== 'web-series') return
+    const next = Math.min(300, Math.max(30, Math.round(Number(episodeDurationSeconds) || 60)))
+    setEpisodeDurationSeconds(next)
+    setSegmentDurationSeconds(next)
+    if (next === project.episodeDurationSeconds || !onUpdateEpisodeDuration) return
+    try {
+      await onUpdateEpisodeDuration(next)
+    } catch (durationError) {
+      setError(durationError.message)
+    }
   }
 
   const suggestAssetsForScript = async (value) => {
     const source = value.trim()
     if (!source) return
     setAssetSuggestionStatus('suggesting')
+    setAssetSuggestionResult(null)
     setAssetSuggestionError('')
     try {
-      const result = await onSuggestAssets(source, direction, textModel)
-      setAssetSuggestionResult(result)
+      const task = await onSuggestAssets(source, direction, scriptSuggestionFingerprint(source), scriptModel)
+      if (!isQueuedTextTask(task)) {
+        setAssetSuggestionResult(task)
+        setAssetSuggestionStatus('ready')
+      }
       setCreatedAssetKeys(new Set())
-      saveScriptAssetSuggestionsCache(project.id, source, direction, textModel, result, [])
     } catch (suggestError) {
       setAssetSuggestionError(suggestError.message)
-    } finally {
       setAssetSuggestionStatus('ready')
     }
   }
@@ -262,6 +275,7 @@ export function ScriptPage({
       setScript(nextScript)
       await onSave(nextScript)
       setSaved(true)
+      setHasGeneratedScript(looksLikeDevelopedScript(nextScript))
       setActiveScriptSection('writing')
       void suggestAssetsForScript(nextScript)
       requestAnimationFrame(() => textArea.current?.focus())
@@ -274,21 +288,6 @@ export function ScriptPage({
     }
   }
 
-  const insert = (value) => {
-    const element = textArea.current
-    const start = element?.selectionStart ?? script.length
-    const end = element?.selectionEnd ?? script.length
-    const prefix =
-      script && start === 0 ? '' : script && !script.endsWith('\n') && start === script.length ? '\n\n' : ''
-    const next = `${script.slice(0, start)}${prefix}${value}${script.slice(end)}`
-    update(next)
-    requestAnimationFrame(() => {
-      element?.focus()
-      const cursor = start + prefix.length + value.length
-      element?.setSelectionRange(cursor, cursor)
-    })
-  }
-
   const upload = async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -299,6 +298,104 @@ export function ScriptPage({
       setError(uploadError.message)
     }
     event.target.value = ''
+  }
+
+  const readGenerationResult = (result) => {
+    const generatedScript = typeof result === 'string' ? result : result?.script
+    if (!generatedScript?.trim()) throw new Error('模型没有返回有效剧本')
+    return {
+      script: generatedScript,
+      warnings: typeof result === 'string' ? [] : result?.warnings || [],
+    }
+  }
+
+  const expand = async (intent = 'generate') => {
+    if (intent === 'revise' && !revisionNote.trim()) {
+      setError('请先填写希望修改或补充的内容')
+      return
+    }
+    if (billing.credits < SCRIPT_OPERATION_CREDITS.generate) {
+      setError(`快速生成剧本需要 ${SCRIPT_OPERATION_CREDITS.generate} 积分，当前剩余 ${billing.credits} 积分`)
+      return
+    }
+    setGenerating(true)
+    setGenerationPhase('quick')
+    setGenerationWarnings([])
+    setError('')
+    try {
+      const result = await onGenerate(
+        script,
+        direction,
+        productionMode,
+        episodeDurationSeconds,
+        scriptModel,
+        intent === 'revise' ? revisionNote : '',
+        setGenerationPhase,
+      )
+      if (isQueuedTextTask(result)) {
+        setGenerationWarnings(['剧本已进入后台生成，可离开当前页面；完成或失败后会在右上角通知。'])
+        return
+      }
+      const next = readGenerationResult(result)
+      setScript(next.script)
+      setHasGeneratedScript(true)
+      setGenerationWarnings(next.warnings)
+      setSaved(true)
+      void suggestAssetsForScript(next.script)
+    } catch (generationError) {
+      setError(generationError.message)
+    } finally {
+      setGenerating(false)
+      setGenerationPhase('idle')
+    }
+  }
+
+  const generateSegment = async () => {
+    if (!script.trim() && !project.synopsis.trim()) {
+      setError('请先填写故事简介或已有剧本段落')
+      return
+    }
+    if (billing.credits < SCRIPT_OPERATION_CREDITS.generate) {
+      setError(`生成下一段需要 ${SCRIPT_OPERATION_CREDITS.generate} 积分，当前剩余 ${billing.credits} 积分`)
+      return
+    }
+    setGenerating(true)
+    setGenerationPhase('segment')
+    setGenerationWarnings([])
+    setError('')
+    try {
+      const result = await onGenerateSegment(
+        script,
+        direction,
+        {
+          goal: segmentGoal,
+          targetSeconds: segmentDurationSeconds,
+          targetMinutes: Math.max(1, Math.ceil(segmentDurationSeconds / 60)),
+        },
+        productionMode,
+        episodeDurationSeconds,
+        scriptModel,
+        revisionNote,
+        setGenerationPhase,
+      )
+      if (isQueuedTextTask(result)) {
+        setGenerationWarnings(['续写任务已进入后台，可继续浏览其他页面。'])
+        setSegmentGoal('')
+        return
+      }
+      const next = readGenerationResult(result)
+      setScript(next.script)
+      setHasGeneratedScript(true)
+      setGenerationWarnings(next.warnings)
+      setSaved(true)
+      setSegmentGoal('')
+      void suggestAssetsForScript(next.script)
+    } catch (generationError) {
+      setError(generationError.message)
+    } finally {
+      setGenerating(false)
+      setGenerationPhase('idle')
+    }
   }
 
   const save = async () => {
@@ -320,54 +417,6 @@ export function ScriptPage({
     }
   }
 
-  const enrich = async () => {
-    if (!script.trim()) {
-      setError('请先填写剧本内容')
-      return
-    }
-    if (billing.credits < SCRIPT_OPERATION_CREDITS.enrich) {
-      setError(`AI 扩写需要 ${SCRIPT_OPERATION_CREDITS.enrich} 积分，当前剩余 ${billing.credits} 积分`)
-      return
-    }
-    setEnriching(true)
-    setError('')
-    setEnrichWarnings([])
-    try {
-      const result = await onEnrich(script, direction, textModel)
-      const nextScript = result.script?.trim()
-      if (!nextScript) throw new Error('AI 扩写结果为空')
-      setScript(nextScript)
-      setSaved(true)
-      setEnrichWarnings(result.warnings || [])
-      void suggestAssetsForScript(nextScript)
-      requestAnimationFrame(() => textArea.current?.focus())
-    } catch (enrichError) {
-      setError(enrichError.message)
-    } finally {
-      setEnriching(false)
-    }
-  }
-
-  const openQuickStart = async () => {
-    if (!script.trim()) {
-      setError('请先填写剧本内容')
-      return
-    }
-    setQuickStartOpen(true)
-    setQuickStartState('analyzing')
-    setQuickStartPlan(null)
-    setQuickStartResult(null)
-    setQuickStartError('')
-    try {
-      if (!saved && !(await save())) throw new Error('剧本保存失败')
-      setQuickStartPlan(await onPlanQuickStart(textModel))
-      setQuickStartState('ready')
-    } catch (quickError) {
-      setQuickStartError(quickError.message)
-      setQuickStartState('error')
-    }
-  }
-
   const continueToAssets = async () => {
     if (!saved && !(await save())) return
     onNext()
@@ -378,7 +427,7 @@ export function ScriptPage({
       <PageHeader
         eyebrow="剧本工作台"
         title={`《${project.name}》剧本`}
-        description="写作和制作准备集中在同一个项目中。"
+        description="从一句想法生成可进入分镜的场次剧本。"
       >
         <input ref={fileInput} className="hidden-input" type="file" accept=".txt,.md" onChange={upload} />
         <button className="button secondary" disabled={busy} onClick={() => fileInput.current?.click()}>
@@ -386,60 +435,41 @@ export function ScriptPage({
         </button>
         <button
           className="button primary"
-          disabled={busy || saved || !script.trim()}
+          disabled={saving || saved || !script.trim()}
           onClick={() => void save()}
         >
           {saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
           {saving ? '保存中' : saved ? '已保存' : '保存剧本'}
         </button>
-        <button
-          className="button quick-start-trigger"
-          disabled={busy || !script.trim()}
-          onClick={() => void openQuickStart()}
-        >
-          <Sparkles size={16} /> 一键尝鲜
-        </button>
       </PageHeader>
 
-      <div className="script-setup-row">
-        <section className="script-section-nav" aria-label="剧本制作分区">
-          {SCRIPT_SECTIONS.map(({ id, label, description, icon: Icon }) => (
-            <button
-              type="button"
-              key={id}
-              className={activeScriptSection === id ? 'active' : ''}
-              aria-pressed={activeScriptSection === id}
-              onClick={() => setActiveScriptSection(id)}
-            >
-              <Icon size={18} />
-              <span>
-                <strong>{label}</strong>
-                <small>{description}</small>
-              </span>
-            </button>
-          ))}
-        </section>
-
-        <div className="script-model-bar">
-          <label className="script-model-field">
-            <span>文本模型</span>
-            <select value={textModel} disabled={busy} onChange={(event) => setTextModel(event.target.value)}>
-              {TEXT_MODEL_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </div>
+      <section className="script-section-nav" aria-label="剧本工作区小项">
+        {SCRIPT_SECTIONS.map(({ id, label, description, status, icon: Icon }) => (
+          <button
+            type="button"
+            key={id}
+            className={activeScriptSection === id ? 'active' : ''}
+            aria-pressed={activeScriptSection === id}
+            onClick={() => setActiveScriptSection(id)}
+          >
+            <Icon size={18} />
+            <span>
+              <strong>
+                {label}
+                {status && <em>{status}</em>}
+              </strong>
+              <small>{description}</small>
+            </span>
+          </button>
+        ))}
+      </section>
 
       {activeScriptSection === 'novel' && (
         <section className="script-section-panel script-novel-section" aria-label="小说上传与章节">
           <NovelImportPanel
             project={project}
-            textModel={textModel}
             disabled={busy}
+            developmentOnly
             onImportNovel={onImportNovel}
             onPreviewNovelSplit={onPreviewNovelSplit}
             onListNovels={onListNovels}
@@ -449,157 +479,353 @@ export function ScriptPage({
             onGetNovelStoryBible={onGetNovelStoryBible}
             onGenerateNovelStoryBible={onGenerateNovelStoryBible}
             onSuggestNovelAssets={onSuggestNovelAssets}
-            aspectRatio={project.aspectRatio}
             onGenerateChapterAdaptation={onGenerateNovelChapterAdaptation}
             onCreateAsset={onCreateAsset}
             onUpload={onUpload}
+            aspectRatio={project.aspectRatio}
             onUseAdaptedScript={useAdaptedNovelScript}
           />
         </section>
       )}
 
+      {activeScriptSection === 'long-form' && (
+        <LongFormStudioPlaceholder
+          source={longFormSource}
+          value={longFormDraft}
+          shortScript={script}
+          onSourceChange={setLongFormSource}
+          onChange={setLongFormDraft}
+          onSyncShortScript={() => {
+            setLongFormSource('short-script')
+            setLongFormDraft(script)
+          }}
+        />
+      )}
+
       {activeScriptSection === 'writing' && (
-        <div className="script-writing-stack">
-          <section className="script-direction-bar" aria-label="AI 扩写方向">
-            <div className="script-direction-title">
-              <span className="direction-symbol">
-                <Sparkles size={17} />
-              </span>
-              <div>
-                <span className="eyebrow">AI 扩写方向</span>
-                <strong>选择扩写重点，再补齐画面语言和剧情衔接</strong>
+        <>
+          <section className="script-direction-bar script-generation-console" aria-label="剧本生成设置">
+            <header className="script-generation-head">
+              <div className="script-direction-title">
+                <span className="direction-symbol">
+                  <Sparkles size={17} />
+                </span>
+                <div>
+                  <span className="eyebrow">AI 编剧</span>
+                  <strong>
+                    {hasGeneratedScript ? '当前剧本可以重新生成或继续精修' : '从想法生成可直接拆分的场次剧本'}
+                  </strong>
+                </div>
               </div>
-            </div>
-            <div className="script-direction-controls">
-              {DIRECTION_FIELDS.map(({ key, label, icon: Icon, options }) => (
-                <label key={key}>
-                  <span>
-                    <Icon size={13} /> {label}
+              <div className="script-generation-summary">
+                <strong>{count.toLocaleString()} 字</strong>
+                <span>
+                  {productionMode === 'web-series'
+                    ? `${formatEpisodeDuration(episodeDurationSeconds)} / 集`
+                    : '15～30 秒短片'}
+                </span>
+              </div>
+            </header>
+
+            <div className="script-generation-controls">
+              <section className="script-format-strip" aria-label="剧本节奏">
+                <div className="script-format-identity">
+                  <span className="direction-symbol">
+                    <Clapperboard size={17} />
                   </span>
-                  <select
-                    value={direction[key]}
-                    disabled={busy}
-                    onChange={(event) => {
-                      setDirection((current) => ({ ...current, [key]: event.target.value }))
-                    }}
-                  >
-                    {options.map(([value, optionLabel]) => (
+                  <div>
+                    <span className="eyebrow">项目节奏已锁定</span>
+                    <strong>{productionMode === 'web-series' ? '网剧模式' : '短视频模式'}</strong>
+                  </div>
+                </div>
+                <span className="script-format-note">
+                  {productionMode === 'web-series'
+                    ? '每集结尾自动保留钩子，分镜将承接同一集时长。'
+                    : '以 15～30 秒为单位，快速确认故事骨架。'}
+                </span>
+                {productionMode === 'web-series' && (
+                  <label className="script-episode-seconds">
+                    <span>每集时长</span>
+                    <span className="script-seconds-input">
+                      <input
+                        aria-label="每集时长（秒）"
+                        type="number"
+                        min="30"
+                        max="300"
+                        step="1"
+                        value={episodeDurationSeconds}
+                        onChange={(event) => setEpisodeDurationSeconds(Number(event.target.value) || 0)}
+                        onBlur={() => void commitEpisodeDuration()}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') void commitEpisodeDuration()
+                        }}
+                      />
+                      <em>秒</em>
+                    </span>
+                  </label>
+                )}
+                <span className="script-format-source">由新建影片的内容类型决定</span>
+              </section>
+
+              <section className="script-setting-block script-model-card" aria-label="生成模型">
+                <div className="script-setting-label">
+                  <strong>生成模型</strong>
+                  <small>当前 Provider</small>
+                </div>
+                <label className="script-control-field">
+                  <select value={scriptModel} onChange={(event) => setScriptModel(event.target.value)}>
+                    {SCRIPT_MODEL_OPTIONS.map(([value, label]) => (
                       <option key={value} value={value}>
-                        {optionLabel}
+                        {label}
                       </option>
                     ))}
                   </select>
                 </label>
-              ))}
-            </div>
-            <div className="script-direction-footer">
-              <div className="direction-focus" role="group" aria-label="扩写重点">
-                <span>扩写重点</span>
-                {FOCUS_OPTIONS.map(([value, label]) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={direction.focus === value ? 'active' : ''}
-                    aria-pressed={direction.focus === value}
-                    disabled={busy}
-                    onClick={() => {
-                      setDirection((current) => ({ ...current, focus: value }))
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
+              </section>
+
+              <div className="script-primary-generation">
+                <button
+                  type="button"
+                  className={`button primary direction-generate-button ${
+                    activeGenerateTask || (generating && generationPhase !== 'segment') ? 'is-generating' : ''
+                  }`}
+                  disabled={
+                    saving ||
+                    (Boolean(activeScriptTask) && !activeGenerateTask) ||
+                    (generating && !activeGenerateTask) ||
+                    Boolean(stoppingTaskId)
+                  }
+                  onClick={() =>
+                    activeGenerateTask
+                      ? void stopScriptTask(activeGenerateTask, '智能生成')
+                      : void expand('generate')
+                  }
+                >
+                  {activeGenerateTask || (generating && generationPhase !== 'segment') ? (
+                    <LoaderCircle size={16} className="spin" />
+                  ) : (
+                    <Sparkles size={16} />
+                  )}
+                  {stoppingTaskId === activeGenerateTask?.id
+                    ? '正在停止'
+                    : activeGenerateTask
+                      ? '智能生成中 · 点击停止'
+                      : generating && generationPhase !== 'segment'
+                        ? '正在智能生成'
+                        : `智能生成 · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
+                </button>
+                <span className="script-primary-generation-note">剧情结构 · 光影 · 运镜 · 台词</span>
               </div>
-              <button
-                className="button direction-detail-button"
-                disabled={busy || !script.trim()}
-                onClick={() => void enrich()}
-              >
-                {enriching ? <LoaderCircle size={16} className="spin" /> : <Clapperboard size={16} />}
-                {enriching ? '正在扩写' : `AI 扩写 · ${SCRIPT_OPERATION_CREDITS.enrich} 积分`}
-              </button>
             </div>
           </section>
 
-          <div className={`script-workspace ${inspectorOpen ? 'with-inspector' : 'without-inspector'}`}>
-            <section className="script-document" aria-busy={enriching}>
+          {generationWarnings.length > 0 && (
+            <div className="script-generation-note" role="status">
+              <Sparkles size={15} />
+              <span>{generationWarnings.slice(0, 2).join('；')}</span>
+            </div>
+          )}
+
+          {activeScriptTask && (
+            <div className="script-background-task" role="status" aria-live="polite">
+              <BrandMark spin />
+              <div>
+                <strong>{activeScriptTask.label}</strong>
+                <span>
+                  {activeScriptTask.status === 'running'
+                    ? `序幕正在生成 · ${scriptTaskStage(activeScriptTask)}`
+                    : activeScriptTask.status === 'paused'
+                      ? '任务已暂停，可前往生成队列继续'
+                      : '已提交模型，正在等待执行'}
+                </span>
+              </div>
+              <small>后台运行中，可以离开本页</small>
+            </div>
+          )}
+
+          <div className={`script-workspace ${hasGeneratedScript ? 'with-revision-tools' : 'full-width'}`}>
+            <section className="script-document" aria-busy={generating}>
               <div className="script-document-toolbar">
-                <div className="script-block-actions" role="group" aria-label="插入剧本结构">
-                  {INSERT_BLOCKS.map(({ key, label, icon: Icon, value }) => (
-                    <button className="format-button" key={key} disabled={busy} onClick={() => insert(value)}>
-                      <Icon size={14} /> {label}
-                    </button>
-                  ))}
-                </div>
+                <span className="script-document-toolbar-label">当前剧本正文</span>
                 <div className="script-document-status">
                   <span className={saved ? 'saved' : 'unsaved'}>
                     <BadgeCheck size={14} /> {saved ? '已同步' : '未保存'}
                   </span>
-                  <IconButton
-                    label={inspectorOpen ? '收起剧本检查' : '打开剧本检查'}
-                    type="button"
-                    onClick={() => setInspectorOpen((current) => !current)}
-                  >
-                    {inspectorOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
-                  </IconButton>
                 </div>
               </div>
               <div className="script-textarea-wrap">
-                <textarea
-                  ref={textArea}
+                <AssetAwareTextarea
+                  inputRef={textArea}
+                  assets={assets}
+                  tasks={tasks}
                   value={script}
                   onChange={(event) => update(event.target.value)}
-                  placeholder="写下故事内容，或插入场景、角色和对白结构……"
+                  placeholder="写下故事/想法,或导入小说/文本,系统会根据项目已创建的资产/项目概览等信息自动切分章节并生成剧本内容。"
                 />
-                {enriching && (
-                  <div className="script-processing-overlay" role="status">
-                    <LoaderCircle size={22} className="spin" />
-                    <strong>AI 正在扩写剧本</strong>
-                    <span>会补齐风格、构图、光影、运镜和衔接，并写回当前剧本。</span>
+                {generating && (
+                  <div className="script-processing-overlay" role="status" aria-live="polite">
+                    <LoaderCircle size={25} className="spin" />
+                    <strong>
+                      {generationPhase === 'segment'
+                        ? productionMode === 'web-series'
+                          ? '正在承接钩子续写下一集'
+                          : '正在续写下一段'
+                        : productionMode === 'web-series'
+                          ? '正在编排网剧冲突与结尾钩子'
+                          : '正在整理快速剧本'}
+                    </strong>
+                    <span>已等待 {generationSeconds} 秒 · 完成后自动保存并刷新，无需手动操作</span>
                   </div>
                 )}
               </div>
+              <AssetShortcutBar
+                assets={assets}
+                tasks={tasks}
+                value={script}
+                onChange={update}
+                inputRef={textArea}
+              />
               <div className="script-document-footer">
                 <span>{count} 字</span>
                 <span>{paragraphCount} 段</span>
                 <span>约 {estimatedMinutes} 分钟</span>
-                <button disabled={busy || saved || !script.trim()} onClick={() => void save()}>
+                <button disabled={saving || saved || !script.trim()} onClick={() => void save()}>
                   {saving ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />}
                   {saving ? '保存中' : saved ? '已保存' : '保存'}
                 </button>
               </div>
             </section>
 
-            {inspectorOpen && (
-              <aside className="script-inspector">
-                <div className="script-inspector-head">
+            {hasGeneratedScript && (
+              <aside className="script-revision-panel" aria-label="剧本后续编辑">
+                <header className="script-revision-panel-head">
                   <div>
-                    <span className="eyebrow">制作概况</span>
-                    <h2>剧本概况</h2>
+                    <span className="eyebrow">后续编辑</span>
+                    <h2>完善当前剧本</h2>
                   </div>
-                </div>
-                <div className="script-metrics">
-                  <div>
-                    <UserRound size={15} />
-                    <span>主要角色</span>
-                    <strong>{characterCount}</strong>
+                  <ScriptHelp label="后续编辑说明">
+                    改写会根据意见重写当前内容；追加只在末尾续写新场次，不会覆盖已有剧本。
+                  </ScriptHelp>
+                </header>
+
+                <section className="script-revision-tool">
+                  <div className="script-revision-tool-title">
+                    <strong>按要求改写</strong>
+                    <ScriptHelp label="剧本改写说明">
+                      根据你的修改意见重写当前剧本，保留已有故事和资产设定。
+                    </ScriptHelp>
                   </div>
-                  <div>
-                    <Image size={15} />
-                    <span>有效段落</span>
-                    <strong>{paragraphCount}</strong>
+                  <textarea
+                    value={revisionNote}
+                    rows={4}
+                    maxLength={2_000}
+                    placeholder="例如：保留人物关系，减少对白；加强结尾悬念"
+                    onChange={(event) => setRevisionNote(event.target.value)}
+                  />
+                  <span className="script-revision-panel-count">{revisionNote.length} / 2000</span>
+                  <div className="script-revision-buttons">
+                    <button
+                      type="button"
+                      className={`button primary ${
+                        activeRevisionTask ||
+                        (generating && generationPhase !== 'segment' && revisionNote.trim())
+                          ? 'is-generating'
+                          : ''
+                      }`}
+                      disabled={
+                        saving ||
+                        (!revisionNote.trim() && !activeRevisionTask) ||
+                        (Boolean(activeScriptTask) && !activeRevisionTask) ||
+                        (generating && !activeRevisionTask) ||
+                        Boolean(stoppingTaskId)
+                      }
+                      onClick={() =>
+                        activeRevisionTask
+                          ? void stopScriptTask(activeRevisionTask, '剧本改写')
+                          : void expand('revise')
+                      }
+                    >
+                      {activeRevisionTask || (generating && generationPhase !== 'segment') ? (
+                        <LoaderCircle size={15} className="spin" />
+                      ) : (
+                        <Sparkles size={15} />
+                      )}
+                      {stoppingTaskId === activeRevisionTask?.id
+                        ? '正在停止'
+                        : activeRevisionTask
+                          ? '改写中 · 点击停止'
+                          : generating && generationPhase !== 'segment'
+                            ? '正在改写'
+                            : `按要求改写 · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
+                    </button>
                   </div>
-                  <div>
-                    <Clapperboard size={15} />
-                    <span>建议镜头</span>
-                    <strong>{suggestedShots}</strong>
+                </section>
+
+                <section className="script-revision-tool script-append-tool">
+                  <div className="script-revision-tool-title">
+                    <strong>剧本追加</strong>
+                    <ScriptHelp label="剧本追加说明">
+                      读取末尾场次以及前两场连续性，只追加下一段或下一集；网剧模式会承接上一集钩子。
+                    </ScriptHelp>
                   </div>
-                  <div>
-                    <Clock3 size={15} />
-                    <span>文本时长</span>
-                    <strong>{estimatedMinutes}m</strong>
-                  </div>
-                </div>
+                  <textarea
+                    value={segmentGoal}
+                    rows={3}
+                    maxLength={500}
+                    placeholder="下一段要发生什么（可选）"
+                    onChange={(event) => setSegmentGoal(event.target.value)}
+                  />
+                  <label className="script-append-duration">
+                    <span>目标时长</span>
+                    <select
+                      value={segmentDurationSeconds}
+                      onChange={(event) => setSegmentDurationSeconds(Number(event.target.value))}
+                    >
+                      {(productionMode === 'web-series' ? [30, 60, 90, 120, 180, 240, 300] : [15, 30]).map(
+                        (seconds) => (
+                          <option key={seconds} value={seconds}>
+                            {formatEpisodeDuration(seconds)}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className={`button ${
+                      activeSegmentTask || (generating && generationPhase === 'segment')
+                        ? 'is-generating'
+                        : ''
+                    }`}
+                    disabled={
+                      saving ||
+                      (Boolean(activeScriptTask) && !activeSegmentTask) ||
+                      (generating && !activeSegmentTask) ||
+                      Boolean(stoppingTaskId)
+                    }
+                    onClick={() =>
+                      activeSegmentTask
+                        ? void stopScriptTask(
+                            activeSegmentTask,
+                            productionMode === 'web-series' ? '下一集追加' : '剧本追加',
+                          )
+                        : void generateSegment()
+                    }
+                  >
+                    {activeSegmentTask || generationPhase === 'segment' ? (
+                      <LoaderCircle size={15} className="spin" />
+                    ) : (
+                      <ArrowRight size={15} />
+                    )}
+                    {stoppingTaskId === activeSegmentTask?.id
+                      ? '正在停止'
+                      : activeSegmentTask
+                        ? '追加中 · 点击停止'
+                        : generationPhase === 'segment'
+                          ? '正在追加'
+                          : `${productionMode === 'web-series' ? '追加下一集' : '追加下一段'} · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
+                  </button>
+                </section>
               </aside>
             )}
           </div>
@@ -613,14 +839,6 @@ export function ScriptPage({
             onRefresh={() => void suggestAssetsForScript(script)}
             onInspect={openSuggestedAssetEditor}
           />
-
-          {enrichWarnings.length > 0 && (
-            <div className="script-enrich-warnings" role="status">
-              {enrichWarnings.slice(0, 3).map((warning) => (
-                <span key={warning}>{warning}</span>
-              ))}
-            </div>
-          )}
 
           {error && (
             <p className="operation-error" role="alert">
@@ -644,7 +862,7 @@ export function ScriptPage({
               </button>
             </div>
           </section>
-        </div>
+        </>
       )}
 
       {suggestedAssetEditor && (
@@ -657,55 +875,66 @@ export function ScriptPage({
           onClose={() => setSuggestedAssetEditor(null)}
           onSave={async (input) => {
             const created = await onCreateAsset(input)
-            setCreatedAssetKeys((current) => {
-              const next = new Set(current).add(suggestedAssetEditor.suggestionKey)
-              saveScriptAssetSuggestionsCache(
-                project.id,
-                script,
-                direction,
-                textModel,
-                assetSuggestionResult,
-                next,
-              )
-              return next
-            })
+            setCreatedAssetKeys((current) => new Set(current).add(suggestedAssetEditor.suggestionKey))
             setSuggestedAssetEditor(null)
             return created
           }}
         />
       )}
-
-      {quickStartOpen && (
-        <QuickStartModal
-          state={quickStartState}
-          plan={quickStartPlan}
-          result={quickStartResult}
-          error={quickStartError}
-          credits={billing.credits}
-          onClose={() => quickStartState !== 'starting' && setQuickStartOpen(false)}
-          onRetry={() => void openQuickStart()}
-          onStart={async () => {
-            setQuickStartState('starting')
-            setQuickStartError('')
-            try {
-              const result = await onExecuteQuickStart({
-                clientRequestId: crypto.randomUUID(),
-                sourceScriptHash: quickStartPlan.sourceScriptHash,
-                assets: quickStartPlan.assets,
-              })
-              setQuickStartResult(result)
-              setQuickStartState('complete')
-            } catch (quickError) {
-              setQuickStartError(quickError.message)
-              setQuickStartState('ready')
-            }
-          }}
-          onViewAssets={() => {
-            setQuickStartOpen(false)
-            onNext()
-          }}
-        />
-      )}
     </div>
   )
+}
+
+function ScriptHelp({ label, children }) {
+  return (
+    <span className="script-inline-help" tabIndex={0} aria-label={label}>
+      <CircleHelp size={14} />
+      <span role="tooltip">{children}</span>
+    </span>
+  )
+}
+
+function formatEpisodeDuration(seconds) {
+  const value = Math.max(0, Math.round(Number(seconds) || 0))
+  if (value >= 60) {
+    const minutes = Math.floor(value / 60)
+    const remainder = value % 60
+    return remainder ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`
+  }
+  return `${value} 秒`
+}
+
+function isQueuedTextTask(result) {
+  return Boolean(result?.kind === 'text' && ['queued', 'running', 'paused'].includes(result.status))
+}
+
+function isAssetSuggestionResult(value) {
+  return Boolean(
+    value && typeof value === 'object' && typeof value.summary === 'string' && Array.isArray(value.assets),
+  )
+}
+
+function scriptSuggestionFingerprint(value) {
+  let hash = 2166136261
+  for (const character of value.trim()) {
+    hash ^= character.codePointAt(0) || 0
+    hash = Math.imul(hash, 16777619)
+  }
+  return `${value.trim().length}:${(hash >>> 0).toString(16)}`
+}
+
+function scriptTaskOperation(task) {
+  if (task?.metadata?.mode === 'segment') return 'segment'
+  if (task?.metadata?.scriptOperation === 'enrich') return 'enrich'
+  if (task?.metadata?.scriptOperation === 'generate' && String(task.metadata?.revisionNote || '').trim()) {
+    return 'revise'
+  }
+  return 'generate'
+}
+
+function scriptTaskStage(task) {
+  const elapsedSeconds = Math.max(0, (Date.now() - Date.parse(task.updatedAt || task.createdAt)) / 1_000)
+  if (elapsedSeconds < 4) return '整理项目与资产上下文'
+  if (elapsedSeconds < 10) return '调用编剧模型'
+  return '撰写并校验剧本结构'
 }

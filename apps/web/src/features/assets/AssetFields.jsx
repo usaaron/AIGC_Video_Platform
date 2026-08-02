@@ -1,5 +1,6 @@
-import { Check } from 'lucide-react'
-import { OPTIONS, VISUAL_STYLES } from './assetOptions'
+import { Check, ChevronDown, SlidersHorizontal } from 'lucide-react'
+import { useState } from 'react'
+import { OPTIONS } from './assetOptions'
 
 export function AssetFields({ attributes, characterStage = 'face', onChange }) {
   const update = (key, value) => onChange({ ...attributes, [key]: value })
@@ -18,22 +19,19 @@ export function AssetFields({ attributes, characterStage = 'face', onChange }) {
 }
 
 function CharacterFields({ value, stage, update }) {
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   if (stage === 'turnaround') return null
   if (stage === 'body') {
     return (
       <>
-        <ChoiceField
-          label="体型"
-          value={value.bodyType}
-          options={OPTIONS.bodyType}
-          onChange={(next) => update('bodyType', next)}
-        />
-        <ChoiceField
-          label="背景"
-          value={value.background}
-          options={OPTIONS.background}
-          onChange={(next) => update('background', next)}
-        />
+        {value.subjectType === 'human' && (
+          <ChoiceField
+            label="体型"
+            value={value.bodyType}
+            options={OPTIONS.bodyType}
+            onChange={(next) => update('bodyType', next)}
+          />
+        )}
       </>
     )
   }
@@ -46,31 +44,37 @@ function CharacterFields({ value, stage, update }) {
         options={OPTIONS.subjectType}
         onChange={(next) => update('subjectType', next)}
       />
-      <ChoiceField
-        className="character-gender-field"
-        label="性别"
-        value={value.gender}
-        options={OPTIONS.gender}
-        onChange={(next) => update('gender', next)}
-      />
-      <ChoiceField
-        className="character-age-field"
-        label="年龄段"
-        value={value.ageGroup}
-        options={OPTIONS.ageGroup}
-        onChange={(next) => update('ageGroup', next)}
-      />
+      {value.subjectType === 'human' && (
+        <ChoiceField
+          className="character-gender-field"
+          label="性别"
+          value={value.gender}
+          options={OPTIONS.gender}
+          onChange={(next) => update('gender', next)}
+        />
+      )}
+      {value.subjectType === 'human' && (
+        <ChoiceField
+          className="character-age-field"
+          label="年龄段"
+          value={value.ageGroup}
+          options={OPTIONS.ageGroup}
+          onChange={(next) => update('ageGroup', next)}
+        />
+      )}
       <div className="asset-inline-fields">
-        <label>
-          <span>具体年龄（可选）</span>
-          <input
-            type="number"
-            min="1"
-            max="120"
-            value={value.exactAge ?? ''}
-            onChange={(event) => update('exactAge', event.target.value ? Number(event.target.value) : null)}
-          />
-        </label>
+        {value.subjectType === 'human' && (
+          <label>
+            <span>具体年龄（可选）</span>
+            <input
+              type="number"
+              min="1"
+              max="120"
+              value={value.exactAge ?? ''}
+              onChange={(event) => update('exactAge', event.target.value ? Number(event.target.value) : null)}
+            />
+          </label>
+        )}
         {value.subjectType === 'animal' && (
           <label>
             <span>动物物种</span>
@@ -90,7 +94,53 @@ function CharacterFields({ value, stage, update }) {
           onChange={(next) => update('anthropomorphic', next)}
         />
       )}
-      <VisualStyle value={value.visualStyle} onChange={(next) => update('visualStyle', next)} />
+      {value.subjectType === 'human' && (
+        <section className={`character-advanced-settings ${advancedOpen ? 'open' : ''}`}>
+          <button
+            type="button"
+            className="character-advanced-trigger"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen((current) => !current)}
+          >
+            <span>
+              <SlidersHorizontal size={15} />
+              <span>
+                <strong>高级外观设置</strong>
+                <small>人种、肤色、瞳孔与头发颜色</small>
+              </span>
+            </span>
+            <ChevronDown size={16} />
+          </button>
+          {advancedOpen && (
+            <div className="character-advanced-grid">
+              <SelectField
+                label="人种"
+                value={value.ethnicity || 'unspecified'}
+                options={OPTIONS.ethnicity}
+                onChange={(next) => update('ethnicity', next)}
+              />
+              <SelectField
+                label="肤色"
+                value={value.skinTone || 'unspecified'}
+                options={OPTIONS.skinTone}
+                onChange={(next) => update('skinTone', next)}
+              />
+              <SelectField
+                label="瞳孔颜色"
+                value={value.eyeColor || 'unspecified'}
+                options={OPTIONS.eyeColor}
+                onChange={(next) => update('eyeColor', next)}
+              />
+              <SelectField
+                label="头发颜色"
+                value={value.hairColor || 'unspecified'}
+                options={OPTIONS.hairColor}
+                onChange={(next) => update('hairColor', next)}
+              />
+            </div>
+          )}
+        </section>
+      )}
     </>
   )
 }
@@ -140,21 +190,6 @@ function SceneFields({ value, update }) {
         options={OPTIONS.camera}
         onChange={(next) => update('camera', next)}
       />
-      <VisualStyle value={value.visualStyle} onChange={(next) => update('visualStyle', next)} />
-      <div className="asset-toggle-grid">
-        <ToggleField
-          label="空场景"
-          description="画面中不生成人物"
-          checked={value.emptyScene}
-          onChange={(next) => update('emptyScene', next)}
-        />
-        <ToggleField
-          label="预留表演区域"
-          description="为人物走位和镜头运动保留空间"
-          checked={value.activitySpace}
-          onChange={(next) => update('activitySpace', next)}
-        />
-      </div>
     </>
   )
 }
@@ -192,7 +227,6 @@ function PropFields({ value, update }) {
         options={OPTIONS.background}
         onChange={(next) => update('background', next)}
       />
-      <VisualStyle value={value.visualStyle} onChange={(next) => update('visualStyle', next)} />
     </>
   )
 }
@@ -230,7 +264,6 @@ function CostumeFields({ value, update }) {
         options={OPTIONS.presentation}
         onChange={(next) => update('presentation', next)}
       />
-      <VisualStyle value={value.visualStyle} onChange={(next) => update('visualStyle', next)} />
       <ToggleField
         label="服装三视图"
         description="生成正面、背面和细节三张独立图片"
@@ -312,18 +345,6 @@ function AudioFields({ value, update }) {
   )
 }
 
-function VisualStyle({ value, onChange }) {
-  return (
-    <ChoiceField
-      className="visual-style-field"
-      label="视觉风格"
-      value={value}
-      options={VISUAL_STYLES}
-      onChange={onChange}
-    />
-  )
-}
-
 function ChoiceField({ className = '', label, value, options, onChange }) {
   return (
     <fieldset className={`asset-choice-field ${className}`}>
@@ -342,6 +363,21 @@ function ChoiceField({ className = '', label, value, options, onChange }) {
         ))}
       </div>
     </fieldset>
+  )
+}
+
+function SelectField({ label, value, options, onChange }) {
+  return (
+    <label>
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map(([optionValue, optionLabel]) => (
+          <option value={optionValue} key={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
 

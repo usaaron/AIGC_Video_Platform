@@ -22,10 +22,12 @@ export async function registerQuickStartRoutes(
       config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
       preHandler: requirePermission(PERMISSIONS.PROJECT_READ),
     },
-    (request) => {
-      const input = parse(quickStartPlanRequestSchema, request.body ?? {})
-      return service.plan(parse(projectParams, request.params).projectId, request.principal!, input.model)
-    },
+    (request) =>
+      service.plan(
+        parse(projectParams, request.params).projectId,
+        request.principal!,
+        parse(quickStartPlanRequestSchema, request.body ?? {}).model,
+      ),
   )
   app.post(
     '/projects/:projectId/quick-start/execute',

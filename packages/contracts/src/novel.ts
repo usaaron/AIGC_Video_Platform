@@ -111,7 +111,6 @@ export const generateNovelChapterSummariesRequestSchema = z.object({
   batchSize: z.number().int().min(1).max(24).default(4),
   chapterIds: z.array(z.string().min(1).max(128)).min(1).max(24).optional(),
   force: z.boolean().default(false),
-  model: textModelSchema.default('glm-5.2'),
 })
 
 export const novelSummaryQueueStatusSchema = z.enum([
@@ -299,7 +298,6 @@ export const generateNovelBoundaryNotesRequestSchema = z.object({
   batchSize: z.number().int().min(1).max(24).default(8),
   boundaryIds: z.array(z.string().min(1).max(128)).min(1).max(24).optional(),
   force: z.boolean().default(false),
-  model: textModelSchema.default('glm-5.2'),
 })
 
 export const novelBoundaryNoteContentItemSchema = z.object({
@@ -405,7 +403,6 @@ export const generateNovelAssetSuggestionsRequestSchema = z.object({
 })
 
 export const novelChapterAdaptationModeSchema = z.enum(['scene', 'opening', 'summary'])
-
 export const novelChapterAdaptationSourcesSchema = z
   .object({
     storyBible: z.boolean().optional(),

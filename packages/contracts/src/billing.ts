@@ -4,6 +4,8 @@ import { planSchema } from './account.js'
 export const SCRIPT_OPERATION_CREDITS = {
   generate: 3,
   enrich: 5,
+  suggestAssets: 1,
+  review: 3,
 } as const
 
 export const NOVEL_OPERATION_CREDITS = {
@@ -37,6 +39,7 @@ export const billingSummarySchema = z.object({
   plan: planSchema,
   credits: z.number().int().nonnegative(),
   concurrency: z.number().int().positive(),
+  unlimitedConcurrency: z.boolean().default(false),
   planSelfServiceEnabled: z.boolean(),
   monthlyUsage: monthlyUsageSchema,
   entries: z.array(ledgerEntrySchema),

@@ -636,6 +636,10 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
       gender: 'female',
       ageGroup: 'young',
       exactAge: null,
+      ethnicity: 'unspecified',
+      skinTone: 'unspecified',
+      eyeColor: 'unspecified',
+      hairColor: 'unspecified',
       species: '',
       anthropomorphic: false,
       visualStyle: 'cinematic-cg',
@@ -651,6 +655,8 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
       legStretch: false,
       turnaround: false,
       turnaroundLayout: 'sheet',
+      appearanceVariants: [],
+      activeAppearanceVariantId: null,
     }
   }
   if (kind === 'scene') {
@@ -725,6 +731,10 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
     imageUrl: imageUrl as string | null,
     continuityMode: 'independent' as const,
     continuityNote: '',
+    episodeBreakBefore: false,
+    episodeNumber: 1,
+    episodeTitle: '主故事',
+    episodeKind: 'standard' as const,
     createdAt: now,
     updatedAt: now,
   }))
@@ -789,6 +799,10 @@ function normalizeState(
       negativePrompt: shot.negativePrompt ?? '',
       continuityMode: shot.continuityMode ?? 'independent',
       continuityNote: shot.continuityNote ?? '',
+      episodeBreakBefore: shot.episodeBreakBefore ?? false,
+      episodeNumber: shot.episodeNumber ?? 1,
+      episodeTitle: shot.episodeTitle ?? '主故事',
+      episodeKind: shot.episodeKind ?? 'standard',
     })),
     tasks: tasks.map((task) => normalizeGenerationTaskLifecycle(task)),
     aiJobs: (input.aiJobs ?? []).map((job) => normalizeAiJobLifecycle(job)),

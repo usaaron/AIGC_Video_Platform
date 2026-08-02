@@ -688,6 +688,7 @@ function buildSummaryFromEntries(
     plan,
     credits,
     concurrency: plan === 'member' ? 3 : 1,
+    unlimitedConcurrency: false,
     planSelfServiceEnabled,
     monthlyUsage: {
       periodStart,

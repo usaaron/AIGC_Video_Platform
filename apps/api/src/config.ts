@@ -322,16 +322,18 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     ...environment,
     TASK_QUEUE_DRIVER:
       environment.TASK_QUEUE_DRIVER ?? (environment.NODE_ENV === 'test' ? 'inline' : 'bullmq'),
-    REDIS_URL: environment.REDIS_URL?.trim()
-      ? environment.REDIS_URL
-      : environment.NODE_ENV === 'production'
-        ? ''
-        : environment.REDIS_URL,
-    DATABASE_URL: environment.DATABASE_URL?.trim()
-      ? environment.DATABASE_URL
-      : environment.NODE_ENV === 'production'
-        ? ''
-        : developmentDatabaseUrl,
+    REDIS_URL:
+      environment.REDIS_URL !== undefined
+        ? environment.REDIS_URL.trim()
+        : environment.NODE_ENV === 'production'
+          ? ''
+          : undefined,
+    DATABASE_URL:
+      environment.DATABASE_URL !== undefined
+        ? environment.DATABASE_URL.trim()
+        : environment.NODE_ENV === 'production'
+          ? ''
+          : developmentDatabaseUrl,
     BOOTSTRAP_MEMBER_NAME:
       environment.BOOTSTRAP_MEMBER_NAME ??
       (environment.NODE_ENV === 'production' ? '默认 C 端用户' : '默认成员'),

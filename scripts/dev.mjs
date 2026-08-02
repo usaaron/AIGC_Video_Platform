@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { platform } from 'node:os'
 
@@ -10,13 +10,33 @@ const children = new Set()
 let shuttingDown = false
 
 await runBlocking('build:shared', ['build:shared'])
-await runBlocking('dev:db', ['dev:db'])
+const dockerReady = commandExists('docker') && spawnSync('docker', ['info'], { stdio: 'ignore' }).status === 0
+const configuredDatabase = Boolean(process.env.DATABASE_URL?.trim())
+const configuredRedis = Boolean(process.env.REDIS_URL?.trim())
+const inlineQueue = !dockerReady && !configuredRedis
+
+if (dockerReady) {
+  await runBlocking('dev:db', ['dev:db'])
+  process.stdout.write('[dev] PostgreSQL + Redis: Docker local mode\n')
+} else if (configuredDatabase) {
+  process.stdout.write('[dev] PostgreSQL: configured external database\n')
+} else {
+  process.stdout.write(
+    '[dev] Docker not found; using JSON storage + inline queue. Login works, invitation registration requires PostgreSQL.\n',
+  )
+}
 
 const tasks = [
   ['web', ['--filter', '@seqora/web', 'dev']],
+  ['admin', ['--filter', '@seqora/admin', 'dev']],
   ['api', ['--filter', '@seqora/api', 'dev']],
-  ['worker', ['--filter', '@seqora/api', 'dev:worker']],
 ]
+
+if (inlineQueue) {
+  process.stdout.write('[dev] Worker: inline queue mode; generation jobs run inside the API process\n')
+} else {
+  tasks.push(['worker', ['--filter', '@seqora/api', 'dev:worker']])
+}
 
 for (const [name, args] of tasks) {
   startLongRunning(name, args)
@@ -27,7 +47,7 @@ process.on('SIGTERM', () => shutdown(0))
 
 function runBlocking(name, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(pnpmCommand, args, { stdio: 'inherit', windowsHide: false, shell: isWindows })
+    const child = spawnPnpm(args, { stdio: 'inherit', windowsHide: false })
     child.on('error', reject)
     child.on('exit', (code, signal) => {
       if (code === 0) {
@@ -40,10 +60,9 @@ function runBlocking(name, args) {
 }
 
 function startLongRunning(name, args) {
-  const child = spawn(pnpmCommand, args, {
+  const child = spawnPnpm(args, {
     stdio: 'inherit',
     windowsHide: false,
-    shell: isWindows,
     env: devEnvironment(name),
   })
   children.add(child)
@@ -60,13 +79,34 @@ function startLongRunning(name, args) {
   })
 }
 
+function spawnPnpm(args, options) {
+  if (!isWindows) return spawn(pnpmCommand, args, options)
+  const command = [pnpmCommand, ...args].map(quoteWindowsArgument).join(' ')
+  return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command], options)
+}
+
+function quoteWindowsArgument(value) {
+  if (/^[A-Za-z0-9_@./:+-]+$/.test(value)) return value
+  return `"${value.replaceAll('"', '\\"')}"`
+}
+
 function devEnvironment(name) {
   if (name !== 'api' && name !== 'worker') return process.env
   return {
     ...process.env,
     DATA_FILE: devDataFile,
     UPLOAD_DIR: devUploadDir,
+    ...(!dockerReady && !configuredDatabase ? { DATABASE_URL: '' } : {}),
+    ...(!dockerReady && !configuredRedis ? { REDIS_URL: '', TASK_QUEUE_DRIVER: 'inline' } : {}),
   }
+}
+
+function commandExists(command) {
+  const probe = spawnSync(isWindows ? 'where.exe' : 'which', [command], {
+    stdio: 'ignore',
+    windowsHide: true,
+  })
+  return probe.status === 0
 }
 
 function shutdown(code) {

@@ -31,7 +31,10 @@ type CoveragePolicy = {
 const metrics: CoverageMetric[] = ['lines', 'statements', 'branches', 'functions']
 const currentDirectory = dirname(fileURLToPath(import.meta.url))
 const packageRoot = resolve(currentDirectory, '../..')
-const summaryPath = resolve(process.cwd(), process.env.COVERAGE_SUMMARY_PATH ?? 'coverage/coverage-summary.json')
+const summaryPath = resolve(
+  process.cwd(),
+  process.env.COVERAGE_SUMMARY_PATH ?? 'coverage/coverage-summary.json',
+)
 const baselinePath = resolve(packageRoot, process.env.COVERAGE_BASELINE_PATH ?? 'coverage-baseline.json')
 const policyPath = resolve(packageRoot, process.env.COVERAGE_POLICY_PATH ?? 'coverage-policy.json')
 

@@ -9,7 +9,11 @@ import {
 import { OutboxRelay, OutboxRepository } from './core/jobs/outbox.js'
 import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
 import { AiJobRunner } from './core/jobs/aiJobRunner.js'
-import { GenerationTaskRunner, noopTaskDispatcher, type TaskDispatchContext } from './core/jobs/taskDispatcher.js'
+import {
+  GenerationTaskRunner,
+  noopTaskDispatcher,
+  type TaskDispatchContext,
+} from './core/jobs/taskDispatcher.js'
 import { PostgresAdvisoryTaskRunnerLock } from './core/jobs/taskRunnerLock.js'
 import { FilmPreviewComposer } from './core/film/filmPreviewComposer.js'
 import { loadConfig } from './config.js'

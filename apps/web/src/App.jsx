@@ -1,10 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Check, LoaderCircle, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
 import { IconButton } from './components/ui'
 import { useAuth } from './components/AuthProvider'
-import { canEditProjectSettings, canOpenAccountAdmin, getAdminConsoleUrl } from './features/account/access'
+import { canOpenAccountAdmin, getAdminConsoleUrl } from './features/account/access'
 import { api } from './services/apiClient'
 import {
   selectShotAssetReferences,
@@ -21,10 +21,14 @@ import {
   normalizedVideoDuration,
   VIDEO_PROMPT_VERSION,
 } from '@seqora/prompting'
+import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
+import { compileCharacterStagePrompt } from './features/assets/promptCompiler'
 
 const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const videoResolutions = new Set(['480p', '720p', '1080p', '4k'])
 const activeTaskStatuses = new Set(['queued', 'paused', 'running'])
+const terminalTaskStatuses = new Set(['completed', 'failed'])
+const TASK_STATUS_CACHE_KEY = 'seqora:task-status-cache'
 const ACTIVE_TASK_POLL_MS = 2_500
 const IDLE_TASK_POLL_MS = 12_000
 const BACKGROUND_TASK_POLL_MS = 30_000
@@ -34,53 +38,48 @@ const BillingPage = lazyNamed(() => import('./pages/BillingPage'), 'BillingPage'
 const FilmPage = lazyNamed(() => import('./pages/FilmPage'), 'FilmPage')
 const GenerationPage = lazyNamed(() => import('./pages/GenerationPage'), 'GenerationPage')
 const OverviewPage = lazyNamed(() => import('./pages/OverviewPage'), 'OverviewPage')
+const ProjectHomePage = lazyNamed(() => import('./pages/ProjectHomePage'), 'ProjectHomePage')
 const ScriptPage = lazyNamed(() => import('./pages/ScriptPage'), 'ScriptPage')
 const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage')
 const StoryboardPage = lazyNamed(() => import('./pages/StoryboardPage'), 'StoryboardPage')
 
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
-  const [activeStep, setActiveStep] = useState('overview')
+  const [activeStep, setActiveStep] = useState('home')
   const [projects, setProjects] = useState([])
   const [workspace, setWorkspace] = useState(null)
-  const [organizations, setOrganizations] = useState([])
-  const [ownSessions, setOwnSessions] = useState([])
   const [tasks, setTasks] = useState([])
   const [billing, setBilling] = useState(null)
+  const [providerHealth, setProviderHealth] = useState(null)
   const [loading, setLoading] = useState(true)
   const [mobileNav, setMobileNav] = useState(false)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const [toast, setToast] = useState('')
   const [currentShot, setCurrentShot] = useState(0)
+  const [recentTasks, setRecentTasks] = useState([])
+  const [recentTasksLoaded, setRecentTasksLoaded] = useState(false)
+  const [notifications, setNotifications] = useState([])
+  const [notificationPopups, setNotificationPopups] = useState([])
+  const taskStatusesRef = useRef(readTaskStatusCache())
+  const notificationHistoryReadyRef = useRef(false)
 
+  const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
   const canOpenAdminAccounts = canOpenAccountAdmin(session)
-  const canUseCreativeWorkspace =
-    session.account.emailVerified !== false && session.permissions.includes('project.write')
-  const canManageProjectSettings = canEditProjectSettings(session)
   const adminConsoleUrl = getAdminConsoleUrl()
 
   useEffect(() => {
-    if (!canUseCreativeWorkspace) {
-      setProjects([])
-      setWorkspace(null)
-      setTasks([])
-      setBilling({ plan: session.account.plan, credits: session.account.credits, concurrency: 0 })
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    setWorkspace(null)
-    setTasks([])
-    Promise.all([api.projects(), api.billing()])
-      .then(async ([projectList, billingSummary]) => {
+    if (adminOnly) return
+    Promise.all([api.projects(), api.billing(), api.health().catch(() => null)])
+      .then(async ([projectList, billingSummary, health]) => {
         setProjects(projectList)
         setBilling(billingSummary)
+        setProviderHealth(health)
         if (projectList[0]) setWorkspace(await api.project(projectList[0].id))
       })
       .catch((error) => setToast(error.message))
       .finally(() => setLoading(false))
-  }, [canUseCreativeWorkspace, session.account.tenantId, session.account.plan, session.account.credits])
+  }, [adminOnly])
 
   useEffect(() => {
     if (!workspace?.project.id) return undefined
@@ -97,15 +96,20 @@ function App() {
       requestInFlight = true
       let nextDelay = IDLE_TASK_POLL_MS
       try {
-        const [nextTasks, nextWorkspace, nextBilling] = await Promise.all([
+        const [nextTasks, nextWorkspace, nextBilling, nextProjects, nextRecentTasks] = await Promise.all([
           api.tasks(workspace.project.id),
           api.project(workspace.project.id),
           api.billing(),
+          api.projects(),
+          api.recentTasks(),
         ])
         if (cancelled) return
         setTasks(nextTasks)
         setWorkspace(nextWorkspace)
         setBilling(nextBilling)
+        setProjects(nextProjects)
+        setRecentTasks(nextRecentTasks)
+        setRecentTasksLoaded(true)
         nextDelay = nextTasks.some((task) => activeTaskStatuses.has(task.status))
           ? ACTIVE_TASK_POLL_MS
           : IDLE_TASK_POLL_MS
@@ -131,6 +135,64 @@ function App() {
   }, [workspace?.project.id])
 
   useEffect(() => {
+    if (!recentTasksLoaded) return
+    if (!recentTasks.length) {
+      taskStatusesRef.current = {}
+      window.localStorage.setItem(TASK_STATUS_CACHE_KEY, '{}')
+      setNotifications([])
+      notificationHistoryReadyRef.current = true
+      return
+    }
+    const previousStatuses = taskStatusesRef.current
+    const nextStatuses = {}
+    const recentIds = new Set(recentTasks.map((task) => task.id))
+    const now = Date.now()
+    const newlyFinished = []
+
+    for (const task of recentTasks) {
+      nextStatuses[task.id] = task.status
+      const previousStatus = previousStatuses[task.id]
+      const changedFromActive =
+        activeTaskStatuses.has(previousStatus) && terminalTaskStatuses.has(task.status)
+      const justCompletedUnseen =
+        notificationHistoryReadyRef.current &&
+        !previousStatus &&
+        terminalTaskStatuses.has(task.status) &&
+        now - Date.parse(task.updatedAt) < 60_000
+      if (changedFromActive || justCompletedUnseen) newlyFinished.push(task)
+    }
+
+    taskStatusesRef.current = nextStatuses
+    window.localStorage.setItem(TASK_STATUS_CACHE_KEY, JSON.stringify(nextStatuses))
+    setNotifications((current) => {
+      const byId = new Map(current.filter((item) => recentIds.has(item.id)).map((item) => [item.id, item]))
+      for (const task of recentTasks.filter((item) => terminalTaskStatuses.has(item.status)).slice(0, 30)) {
+        const existing = byId.get(task.id)
+        const isNew = newlyFinished.some((item) => item.id === task.id)
+        byId.set(task.id, createNotification(task, projects, isNew ? false : (existing?.read ?? true)))
+      }
+      return [...byId.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    })
+    if (newlyFinished.length) {
+      const popups = newlyFinished.map((task) => ({
+        ...createNotification(task, projects, false),
+        expiresAt: now + 15_000,
+      }))
+      setNotificationPopups((current) => [...popups, ...current].slice(0, 4))
+    }
+    notificationHistoryReadyRef.current = true
+  }, [projects, recentTasks, recentTasksLoaded])
+
+  useEffect(() => {
+    if (!notificationPopups.length) return undefined
+    const timer = window.setInterval(() => {
+      const now = Date.now()
+      setNotificationPopups((current) => current.filter((item) => item.expiresAt > now))
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [notificationPopups.length])
+
+  useEffect(() => {
     if (!toast) return undefined
     const timer = window.setTimeout(() => setToast(''), 2_800)
     return () => window.clearTimeout(timer)
@@ -139,6 +201,23 @@ function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [activeStep])
+
+  if (adminOnly)
+    return (
+      <div className="app-loading">
+        <p>此账号使用独立管理后台</p>
+        <a className="button primary" href={adminConsoleUrl}>
+          进入管理后台
+        </a>
+      </div>
+    )
+  if (loading || !billing)
+    return (
+      <div className="app-loading">
+        <LoaderCircle size={24} className="spin" />
+        <p>正在加载项目…</p>
+      </div>
+    )
 
   const project = workspace?.project
 
@@ -155,45 +234,6 @@ function App() {
     await refreshSession()
   }
 
-  const refreshAccountScope = useCallback(async () => {
-    const [nextOrganizations, nextSessions] = await Promise.all([api.organizations(), api.authSessions()])
-    setOrganizations(nextOrganizations)
-    setOwnSessions(nextSessions)
-  }, [])
-
-  const switchAccountOrganization = useCallback(
-    async (organizationId) => {
-      await api.switchOrganization(organizationId)
-      const nextSession = await refreshSession()
-      setProjects([])
-      setWorkspace(null)
-      setTasks([])
-      if (nextSession.permissions.includes('billing.read.self')) setBilling(await api.billing())
-      else
-        setBilling({ plan: nextSession.account.plan, credits: nextSession.account.credits, concurrency: 0 })
-      await refreshAccountScope()
-      setToast('组织已切换')
-    },
-    [refreshAccountScope, refreshSession],
-  )
-
-  const revokeOwnSession = useCallback(
-    async (sessionId) => {
-      await api.revokeAuthSession(sessionId)
-      await refreshAccountScope()
-      setToast('Session 已撤销')
-    },
-    [refreshAccountScope],
-  )
-
-  if (loading || !billing)
-    return (
-      <div className="app-loading">
-        <LoaderCircle size={24} className="spin" />
-        <p>正在加载项目…</p>
-      </div>
-    )
-
   const createJob = async (label, type = '图片', cost = 6, options = {}) => {
     if (!project) return
     try {
@@ -208,8 +248,12 @@ function App() {
         prompt: options.prompt,
         negativePrompt: options.negativePrompt,
         provider,
-        model: kind === 'video' ? undefined : kind === 'image' ? 'img2-default' : undefined,
-        tier: options.tier ?? (kind === 'video' ? 'fast' : undefined),
+        model:
+          kind === 'video'
+            ? 'doubao-seedance-2-0-260128'
+            : kind === 'image'
+              ? options.model || 'img2-default'
+              : undefined,
         estimatedCredits: cost,
         metadata: options.metadata,
       })
@@ -223,9 +267,115 @@ function App() {
     }
   }
 
+  const createCharacterFaceJob = (asset, model, label = '面部大头照') =>
+    createJob(`${asset.name} · ${label}`, '图片', 4, {
+      prompt: compileCharacterStagePrompt(asset, '1:1', 'face'),
+      model,
+      negativePrompt: asset.negativePrompt,
+      metadata: {
+        assetId: asset.id,
+        assetKind: asset.kind,
+        generationStage: 'face',
+        aspectRatio: '1:1',
+        sourceMode: asset.sourceMode,
+        references: asset.references,
+        attributes: asset.attributes,
+      },
+    })
+
+  const createTrustedPortraitJob = async (assetId, assetName = '人物') => {
+    if (!project) return null
+    const task = await api.createTask({
+      clientRequestId: crypto.randomUUID(),
+      projectId: project.id,
+      kind: 'text',
+      label: `${assetName || '人物'} · 创建 AI 人像资源`,
+      provider: 'asset-library',
+      estimatedCredits: 1,
+      metadata: {
+        generationStage: 'trusted-portrait',
+        trustedAssetOperation: 'register-virtual',
+        assetId,
+      },
+    })
+    setTasks(await api.tasks(project.id))
+    await refreshBilling()
+    setToast('AI 人像资源已进入后台任务，完成后会自动同步状态')
+    return task
+  }
+
+  const createScriptJob = async (label, operation, input) => {
+    if (!project) return null
+    try {
+      const generationStage =
+        operation === 'enrich'
+          ? 'script-enrich'
+          : operation === 'suggest-assets'
+            ? 'script-asset-suggestions'
+            : 'script-generate'
+      const task = await api.createTask({
+        clientRequestId: crypto.randomUUID(),
+        projectId: project.id,
+        kind: 'text',
+        label,
+        provider: 'text',
+        model: input.model,
+        estimatedCredits:
+          operation === 'enrich'
+            ? SCRIPT_OPERATION_CREDITS.enrich
+            : operation === 'suggest-assets'
+              ? SCRIPT_OPERATION_CREDITS.suggestAssets
+              : SCRIPT_OPERATION_CREDITS.generate,
+        metadata: {
+          generationStage,
+          scriptOperation: operation,
+          billingMode: 'prepaid',
+          ...input,
+        },
+      })
+      setTasks(await api.tasks(project.id))
+      await refreshBilling()
+      setToast(`${label}已提交后台生成`)
+      return task
+    } catch (error) {
+      setToast(error.message)
+      throw error
+    }
+  }
+
   const navigateTo = (id) => {
     setActiveStep(id)
     setMobileNav(false)
+    if (id === 'home') {
+      void api
+        .projects()
+        .then(setProjects)
+        .catch((error) => setToast(error.message))
+    }
+  }
+
+  const markNotificationRead = (notificationId) => {
+    setNotifications((current) =>
+      current.map((item) => (item.id === notificationId ? { ...item, read: true } : item)),
+    )
+  }
+
+  const openNotification = async (notification) => {
+    markNotificationRead(notification.id)
+    await refreshWorkspace(notification.projectId)
+    setTasks(await api.tasks(notification.projectId))
+    navigateTo(notification.target)
+  }
+
+  const retryNotification = async (notification) => {
+    try {
+      const created = await api.createTask(retryTaskInput(notification.task))
+      markNotificationRead(notification.id)
+      if (project?.id === created.projectId) setTasks(await api.tasks(created.projectId))
+      setToast(`${created.label}已重新提交`)
+    } catch (error) {
+      setToast(error.message)
+    }
   }
 
   const createProject = async (input) => {
@@ -252,6 +402,20 @@ function App() {
 
   const createStoryboardImage = (shot) => {
     const references = selectShotAssetReferences(workspace.assets, shot)
+    const generationReferences = [
+      ...(shot.imageUrl
+        ? [
+            {
+              id: `shot-reference-${shot.id}`,
+              url: shot.imageUrl,
+              name: `${shot.title}-reference.png`,
+              assetName: '镜头参考图',
+              assetKind: 'shot-reference',
+            },
+          ]
+        : []),
+      ...references,
+    ].slice(0, 4)
     const referencePrompt = references.length
       ? `参考项目资产：${references.map((reference) => reference.assetName).join('、')}，严格保持人物身份、服装、场景和关键物品一致`
       : ''
@@ -270,7 +434,7 @@ function App() {
         shotId: shot.id,
         generationStage: 'storyboard',
         aspectRatio: project.aspectRatio,
-        references,
+        references: generationReferences,
         referenceAssetIds: references.map((reference) => reference.id),
       },
     })
@@ -293,7 +457,7 @@ function App() {
     const previousShot = shotIndex > 0 ? orderedShots[shotIndex - 1] : null
     let sourceTask = continuitySourceTask
     if (continuityMode === 'continue' && previousShot && !sourceTask) {
-      sourceTask = latestVideoTaskFor(tasks, previousShot.id, true)
+      sourceTask = latestVideoTaskFor(tasks, previousShot, true)
       if (!sourceTask && !chain.includes(previousShot.id)) {
         sourceTask = await createStoryboardVideo(previousShot, {
           resolution,
@@ -311,22 +475,22 @@ function App() {
       setToast('上一镜头虽已完成，但尾帧提取失败；请重新生成上一镜头后再继续')
       return null
     }
-    const existingImageTask = tasks.find(
+    const imageTasks = tasks.filter(
       (task) =>
         task.kind === 'image' &&
         task.metadata?.shotId === shot.id &&
         task.status !== 'failed' &&
         task.status !== 'cancelled',
     )
+    const existingImageTask =
+      imageTasks.find((task) => task.id === shot.selectedImageTaskId) || imageTasks[0] || null
     const manualImageUrl =
       shot.imageUrl && !shot.imageUrl.startsWith('/api/v1/generation/tasks/') ? shot.imageUrl : null
     const currentImageTask = taskUsesAssetReferences(existingImageTask, references) ? existingImageTask : null
-    const imageTask = currentImageTask
+    const completedImageTask = currentImageTask?.status === 'completed' ? currentImageTask : null
     const completedImageUrl =
-      manualImageUrl ||
-      (currentImageTask?.status === 'completed' ? currentImageTask.resultUrl || shot.imageUrl : null)
-    const storyboardImageUrl =
-      completedImageUrl || (imageTask ? `/api/v1/generation/tasks/${imageTask.id}/outputs/single` : null)
+      manualImageUrl || (completedImageTask ? completedImageTask.resultUrl || shot.imageUrl : null)
+    const storyboardImageUrl = completedImageUrl
     const images = selectVideoReferenceImages(storyboardImageUrl, references)
     const selectedResolution = videoResolutions.has(resolution) ? resolution : '720p'
     const videoPrompt = compileStoryboardVideoPrompt({
@@ -337,20 +501,20 @@ function App() {
       references,
       continuityMode,
     })
-    const dependencyIds = [
-      imageTask && imageTask.status !== 'completed' ? imageTask.id : null,
-      sourceTask && sourceTask.status !== 'completed' ? sourceTask.id : null,
-    ].filter(Boolean)
+    const dependencyIds = [sourceTask && sourceTask.status !== 'completed' ? sourceTask.id : null].filter(
+      Boolean,
+    )
     return createJob(`镜头 ${String(shot.order).padStart(2, '0')} · ${shot.title}`, '视频', 18, {
       prompt: videoPrompt,
       negativePrompt: shot.negativePrompt,
       metadata: {
         shotId: shot.id,
-        duration: normalizedVideoDuration(shot.duration),
+        duration: normalizedVideoDuration(shot.duration, project.contentType === 'short-drama' ? 3 : 4),
         requestedDuration: shot.duration,
         aspectRatio: project.aspectRatio,
         resolution: selectedResolution,
-        generateAudio: false,
+        // Seedance 负责输出镜头内的对白、画外音和现场声；成片合成会继续保留音轨。
+        generateAudio: true,
         watermark: false,
         returnLastFrame: true,
         continuityMode,
@@ -383,30 +547,36 @@ function App() {
   }
 
   const renderContent = () => {
-    const settingsPage = (
-      <SettingsPage
-        key={project?.id ?? 'profile'}
-        project={project}
-        account={session.account}
-        canEditProject={canManageProjectSettings}
-        canOpenAdminConsole={canOpenAdminAccounts}
-        adminConsoleUrl={adminConsoleUrl}
-        organizations={organizations}
-        sessions={ownSessions}
-        onLoadAccountScope={refreshAccountScope}
-        onSwitchOrganization={switchAccountOrganization}
-        onRevokeSession={revokeOwnSession}
-        onSave={updateProject}
-        onChangePassword={(input) => api.changePassword(input)}
-        onRequestEmailVerification={() => api.requestEmailVerification({ email: session.account.email })}
-        onLogout={logout}
-      />
-    )
-
-    if (activeStep === 'settings') return settingsPage
-
-    if (!canUseCreativeWorkspace) return settingsPage
-
+    if (activeStep === 'home') {
+      return (
+        <ProjectHomePage
+          projects={projects}
+          onCreate={() => setNewProjectOpen(true)}
+          onOpen={async (projectId) => {
+            await refreshWorkspace(projectId)
+            setTasks(await api.tasks(projectId))
+            navigateTo('overview')
+          }}
+          onRename={async (projectId, name) => {
+            await api.updateProject(projectId, { name })
+            if (project?.id === projectId) await refreshWorkspace(projectId)
+            else setProjects(await api.projects())
+            setToast('项目名称已更新')
+          }}
+          onDelete={async (projectId) => {
+            await api.deleteProject(projectId)
+            const nextProjects = await api.projects()
+            setProjects(nextProjects)
+            if (project?.id === projectId) {
+              const nextWorkspace = nextProjects[0] ? await api.project(nextProjects[0].id) : null
+              setWorkspace(nextWorkspace)
+              setTasks(nextProjects[0] ? await api.tasks(nextProjects[0].id) : [])
+            }
+            setToast('项目已删除并归档')
+          }}
+        />
+      )
+    }
     if (!project) {
       return (
         <div className="page empty-workspace">
@@ -439,11 +609,66 @@ function App() {
       script: (
         <ScriptPage
           project={project}
+          assets={workspace.assets}
           billing={billing}
+          tasks={tasks}
           onSave={async (script) => {
             await api.updateProject(project.id, { script })
             await refreshWorkspace()
             setToast('剧本已保存')
+          }}
+          onUpdateEpisodeDuration={async (episodeDurationSeconds) => {
+            await api.updateProject(project.id, { episodeDurationSeconds })
+            await refreshWorkspace()
+            setToast(`已设置每集 ${episodeDurationSeconds} 秒，分镜会沿用该时长`)
+          }}
+          onGenerate={async (
+            draft,
+            direction,
+            productionMode,
+            episodeDurationSeconds,
+            model,
+            revisionNote,
+            setPhase,
+          ) => {
+            setPhase?.('submitting')
+            return createScriptJob(productionMode === 'web-series' ? '网剧剧本' : '快速剧本', 'generate', {
+              draft,
+              direction,
+              mode: 'quick',
+              productionMode,
+              episodeDurationSeconds,
+              episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
+              model,
+              revisionNote,
+            })
+          }}
+          onGenerateSegment={async (
+            draft,
+            direction,
+            segment,
+            productionMode,
+            episodeDurationSeconds,
+            model,
+            revisionNote,
+            setPhase,
+          ) => {
+            setPhase?.('submitting')
+            return createScriptJob(
+              productionMode === 'web-series' ? '续写下一集' : '续写下一段',
+              'generate',
+              {
+                draft,
+                direction,
+                mode: 'segment',
+                segment,
+                productionMode,
+                episodeDurationSeconds,
+                episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
+                model,
+                revisionNote,
+              },
+            )
           }}
           onImportNovel={async (input) => {
             const result = await api.importNovel(project.id, input)
@@ -476,6 +701,11 @@ function App() {
               await refreshBilling().catch(() => {})
             }
           }}
+          onSuggestNovelAssets={async (documentId, input) => {
+            const result = await api.suggestNovelAssets(project.id, documentId, input)
+            setToast('小说资产建议已生成')
+            return result
+          }}
           onGenerateNovelChapterAdaptation={async (documentId, input) => {
             try {
               const result = await api.generateNovelChapterAdaptation(project.id, documentId, input)
@@ -485,50 +715,24 @@ function App() {
               await refreshBilling().catch(() => {})
             }
           }}
-          onSuggestNovelAssets={async (documentId, input) => {
-            try {
-              const result = await api.suggestNovelAssets(project.id, documentId, input)
-              setToast('小说资产建议已生成')
-              return result
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
-          }}
-          onSuggestAssets={(script, direction, model) =>
-            api.suggestScriptAssets(project.id, script, direction, undefined, model)
+          onSuggestAssets={(script, direction, sourceScriptFingerprint, model) =>
+            createScriptJob('资产建议', 'suggest-assets', {
+              script,
+              direction,
+              sourceScriptFingerprint,
+              model,
+            })
           }
-          onEnrich={async (script, direction, model) => {
-            try {
-              const result = await api.enrichScript(project.id, script, direction, undefined, model)
-              await refreshWorkspace()
-              setToast('AI 扩写已写入剧本')
-              return result
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
-          }}
           onCreateAsset={async (input) => {
             const created = await api.createAsset(project.id, input)
             await refreshWorkspace()
             setToast(`已加入资产：${created.name}`)
             return created
           }}
-          onPlanQuickStart={(model) => api.planQuickStart(project.id, model)}
-          onExecuteQuickStart={async (input) => {
-            const result = await api.executeQuickStart(project.id, input)
-            const [nextWorkspace, nextTasks, nextBilling, nextProjects] = await Promise.all([
-              api.project(project.id),
-              api.tasks(project.id),
-              api.billing(),
-              api.projects(),
-            ])
-            setWorkspace(nextWorkspace)
-            setTasks(nextTasks)
-            setBilling(nextBilling)
-            setProjects(nextProjects)
-            await refreshSession()
-            setToast(`已创建 ${result.createdAssets.length} 项尝鲜资产`)
-            return result
+          onCancelTask={async (taskId) => {
+            await api.deleteTask(taskId)
+            setTasks(await api.tasks(project.id))
+            setToast('已停止剧本生成，可以切换模型后重试')
           }}
           onNext={() => navigateTo('assets')}
         />
@@ -538,6 +742,7 @@ function App() {
           project={project}
           assets={workspace.assets}
           tasks={tasks}
+          imageModels={providerHealth?.imageModels}
           concurrency={billing.concurrency}
           billing={billing}
           onCreate={async (input) => {
@@ -560,11 +765,7 @@ function App() {
           onUpload={(file) => api.uploadMedia(project.id, file)}
           onGetTrustedConfiguration={() => api.trustedAssetConfiguration()}
           onListTrustedPortraits={(groupType) => api.trustedPortraits(groupType)}
-          onRegisterVirtualPortrait={async (assetId) => {
-            const updated = await api.registerVirtualPortrait(project.id, assetId)
-            await refreshWorkspace()
-            return updated
-          }}
+          onRegisterVirtualPortrait={createTrustedPortraitJob}
           onBindTrustedPortrait={async (assetId, providerAssetId) => {
             const updated = await api.bindTrustedPortrait(project.id, assetId, providerAssetId)
             await refreshWorkspace()
@@ -575,7 +776,7 @@ function App() {
             await refreshWorkspace()
             return updated
           }}
-          onGenerateStage={(asset, stage, prompt) => {
+          onGenerateStage={(asset, stage, prompt, model) => {
             const references =
               stage === 'face'
                 ? asset.references
@@ -586,6 +787,7 @@ function App() {
             const costs = { face: 4, body: 6, turnaround: 18 }
             return createJob(`${asset.name} · ${labels[stage]}`, '图片', costs[stage], {
               prompt,
+              model,
               negativePrompt: asset.negativePrompt,
               metadata: {
                 assetId: asset.id,
@@ -601,13 +803,15 @@ function App() {
               },
             })
           }}
-          onGenerate={(asset) => {
+          onGenerate={(asset, model) => {
             if (asset.sourceMode === 'import') {
               setToast('直接导入资产已使用原图，不会创建 Img2 任务')
               return null
             }
+            if (asset.kind === 'character') return createCharacterFaceJob(asset, model, '重新生成面部大头照')
             return createJob(`${asset.name} · 重新生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
               prompt: asset.prompt,
+              model,
               negativePrompt: asset.negativePrompt,
               metadata: {
                 assetId: asset.id,
@@ -620,25 +824,28 @@ function App() {
               },
             })
           }}
-          onGenerateAll={(selectedAssets) =>
+          onGenerateAll={(selectedAssets, model) =>
             Promise.all(
               selectedAssets
                 .filter((asset) => asset.sourceMode === 'generate')
                 .map((asset) =>
-                  createJob(`${asset.name} · 资产生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
-                    prompt: asset.prompt,
-                    negativePrompt: asset.negativePrompt,
-                    metadata: {
-                      assetId: asset.id,
-                      assetKind: asset.kind,
-                      aspectRatio: project.aspectRatio,
-                      sourceMode: asset.sourceMode,
-                      references: asset.references,
-                      attributes: asset.attributes,
-                      turnaround:
-                        asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
-                    },
-                  }),
+                  asset.kind === 'character'
+                    ? createCharacterFaceJob(asset, model)
+                    : createJob(`${asset.name} · 资产生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
+                        prompt: asset.prompt,
+                        model,
+                        negativePrompt: asset.negativePrompt,
+                        metadata: {
+                          assetId: asset.id,
+                          assetKind: asset.kind,
+                          aspectRatio: project.aspectRatio,
+                          sourceMode: asset.sourceMode,
+                          references: asset.references,
+                          attributes: asset.attributes,
+                          turnaround:
+                            asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
+                        },
+                      }),
                 ),
             )
           }
@@ -647,17 +854,31 @@ function App() {
       ),
       storyboard: (
         <StoryboardPage
+          project={project}
           shots={workspace.shots}
           assets={workspace.assets}
           tasks={tasks}
+          episodeDurationSeconds={project.episodeDurationSeconds}
+          onUpdateEpisodeDuration={async (episodeDurationSeconds) => {
+            await api.updateProject(project.id, { episodeDurationSeconds })
+            await refreshWorkspace()
+            setToast(`已同步分镜每集 ${episodeDurationSeconds} 秒设置`)
+          }}
           concurrency={billing.concurrency}
-          onRegenerate={async (mode = 'scene') => {
+          unlimitedConcurrency={billing.unlimitedConcurrency}
+          onRegenerate={async (mode = 'scene', episodeDurationSeconds = 60) => {
             await api.generateShots(project.id, {
-              maxShots: mode === 'beat' ? 36 : 8,
+              maxShots: project.contentType === 'short-drama' ? 120 : 48,
               mode,
+              episodeDurationSeconds,
             })
             await refreshWorkspace()
-            setToast(mode === 'beat' ? '已按动作节拍细拆分镜' : '已按场次重新拆分分镜')
+            setToast(mode === 'beat' ? '已按动作节拍细拆分镜' : '已按场次智能生成并自动拆分动作镜头')
+          }}
+          onAutoSplitEpisodes={async (episodeDurationSeconds) => {
+            await api.autoSplitShotEpisodes(project.id, { episodeDurationSeconds })
+            await refreshWorkspace()
+            setToast(`已按每集约 ${episodeDurationSeconds} 秒完成分集`)
           }}
           onCreate={async (input) => {
             await api.createShot(project.id, input)
@@ -668,6 +889,7 @@ function App() {
             await refreshWorkspace()
             setToast('分镜已更新')
           }}
+          onUpload={(file) => api.uploadMedia(project.id, file)}
           onGenerateImage={createStoryboardImage}
           onGenerateVideo={createStoryboardVideo}
           onGenerateAllVideos={async (shotsToGenerate, resolution, mode = 'parallel') => {
@@ -732,8 +954,10 @@ function App() {
               const laneCount = Math.min(plan.immediateLaneCount, created)
               setToast(
                 mode === 'parallel'
-                  ? `已创建 ${created} 个视频任务，${laneCount} 路并发执行`
-                  : `已按原衔接关系创建 ${created} 个视频任务`,
+                  ? `已创建 ${created} 个视频任务，${laneCount} 路安全并发执行`
+                  : mode === 'independent'
+                    ? `已创建 ${created} 个独立视频任务，全部并发提交`
+                    : `已按尾帧承接关系创建 ${created} 个视频任务`,
               )
             }
           }}
@@ -795,9 +1019,9 @@ function App() {
             setToast(`版本 v${saved.version} 已保存`)
           }}
           onEdit={() => navigateTo('storyboard')}
-          onComposePreview={async (mode = 'full') => {
+          onComposePreview={async (mode = 'full', episodeNumber = null) => {
             try {
-              const task = await api.createFilmPreview(project.id, mode)
+              const task = await api.createFilmPreview(project.id, mode, false, episodeNumber)
               setTasks(await api.tasks(project.id))
               const target = mode === 'partial' ? '已完成片段' : '完整预览'
               setToast(task.status === 'completed' ? `${target}已是最新版本` : `${target}正在后台合成`)
@@ -810,8 +1034,29 @@ function App() {
           onExport={() => exportProject(workspace, tasks)}
         />
       ),
-      billing: <BillingPage billing={billing} />,
-      settings: settingsPage,
+      billing: (
+        <BillingPage
+          billing={billing}
+          onPlanChange={async (plan) => {
+            setBilling(await api.updatePlan(plan))
+            await refreshSession()
+            setToast(plan === 'member' ? '会员已开通，赠送 500 积分' : '已切换为免费版')
+          }}
+        />
+      ),
+      settings: (
+        <SettingsPage
+          key={project.id}
+          project={project}
+          account={session.account}
+          canEditProject={session.permissions.includes('project.write')}
+          canOpenAdminConsole={canOpenAdminAccounts}
+          adminConsoleUrl={adminConsoleUrl}
+          onSave={updateProject}
+          onChangePassword={(input) => api.changePassword(input)}
+          onLogout={logout}
+        />
+      ),
     }
     return pages[activeStep] || pages.overview
   }
@@ -821,13 +1066,16 @@ function App() {
   return (
     <div className="app-shell">
       <AppHeader
-        projectName={project?.name || '选择项目'}
+        projectName={activeStep === 'home' ? '项目库' : project?.name || '选择项目'}
         billing={billing}
         account={session.account}
         runningJobs={runningJobs}
-        creativeEnabled={canUseCreativeWorkspace}
+        notifications={notifications}
+        onNotificationOpen={openNotification}
+        onNotificationRetry={retryNotification}
+        onNotificationRead={markNotificationRead}
         onOpenNav={() => setMobileNav(true)}
-        onProjectClick={() => canUseCreativeWorkspace && setProjectMenuOpen(true)}
+        onProjectClick={() => setProjectMenuOpen(true)}
         onCreditsClick={() => navigateTo('billing')}
         onPlanClick={() => navigateTo('billing')}
         onAccountClick={() => navigateTo('settings')}
@@ -839,7 +1087,6 @@ function App() {
         assetCount={workspace?.assets.length ?? 0}
         canOpenAdminAccounts={canOpenAdminAccounts}
         adminConsoleUrl={adminConsoleUrl}
-        creativeEnabled={canUseCreativeWorkspace}
         onNavigate={navigateTo}
         onClose={() => setMobileNav(false)}
       />
@@ -852,7 +1099,7 @@ function App() {
       {newProjectOpen && (
         <NewProjectModal onClose={() => setNewProjectOpen(false)} onCreate={createProject} />
       )}
-      {projectMenuOpen && canUseCreativeWorkspace && (
+      {projectMenuOpen && (
         <ProjectMenu
           projects={projects}
           currentId={project?.id}
@@ -867,6 +1114,25 @@ function App() {
             setNewProjectOpen(true)
           }}
         />
+      )}
+      {notificationPopups.length > 0 && (
+        <div className="notification-toast-stack" aria-live="polite">
+          {notificationPopups.map((notification) => (
+            <button
+              key={notification.id}
+              className={`notification-toast ${notification.status}`}
+              onClick={() => void openNotification(notification)}
+            >
+              <span className="notification-status-dot" />
+              <span>
+                <strong>{notification.title}</strong>
+                <small>
+                  {notification.projectName} · {notification.label}
+                </small>
+              </span>
+            </button>
+          ))}
+        </div>
       )}
       {toast && (
         <div className="toast">
@@ -890,7 +1156,17 @@ function WorkspaceLoading({ fullPage = false }) {
   )
 }
 
-function latestVideoTaskFor(tasks, shotId, needsLastFrame = false) {
+function latestVideoTaskFor(tasks, shotOrId, needsLastFrame = false) {
+  const shotId = typeof shotOrId === 'string' ? shotOrId : shotOrId.id
+  const selectedVideoTaskId = typeof shotOrId === 'string' ? null : shotOrId.selectedVideoTaskId
+  const selected = tasks.find(
+    (task) =>
+      task.id === selectedVideoTaskId &&
+      task.kind === 'video' &&
+      task.metadata?.shotId === shotId &&
+      task.status === 'completed' &&
+      (!needsLastFrame || hasLastFrame(task)),
+  )
   return (
     tasks.find(
       (task) =>
@@ -899,6 +1175,7 @@ function latestVideoTaskFor(tasks, shotId, needsLastFrame = false) {
         task.status !== 'cancelled' &&
         (task.status === 'queued' || task.status === 'paused' || task.status === 'running'),
     ) ||
+    selected ||
     tasks.find(
       (task) =>
         task.kind === 'video' &&
@@ -961,6 +1238,62 @@ function exportProject(workspace, tasks) {
   anchor.download = `${workspace.project.name}-项目包.json`
   anchor.click()
   URL.revokeObjectURL(url)
+}
+
+function readTaskStatusCache() {
+  try {
+    return JSON.parse(window.localStorage.getItem(TASK_STATUS_CACHE_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function createNotification(task, projects, read) {
+  const projectName = projects.find((item) => item.id === task.projectId)?.name || '项目'
+  const status = task.status === 'failed' ? 'failed' : 'completed'
+  const isTrustedPortraitTask = task.metadata?.generationStage === 'trusted-portrait'
+  return {
+    id: task.id,
+    task,
+    projectId: task.projectId,
+    projectName,
+    label: task.label,
+    status,
+    title: status === 'failed' ? (isTrustedPortraitTask ? '人像资源创建失败' : '生成失败') : '生成完成',
+    message: status === 'failed' ? task.error || '任务执行失败，请查看详情后重试。' : '生成结果已经保存。',
+    target: isTrustedPortraitTask ? 'assets' : task.kind === 'text' ? 'script' : 'generate',
+    updatedAt: task.updatedAt,
+    read,
+  }
+}
+
+function retryTaskInput(task) {
+  const {
+    providerName: _providerName,
+    providerState: _providerState,
+    providerTaskId: _providerTaskId,
+    providerPolledAt: _providerPolledAt,
+    providerPollErrors: _providerPollErrors,
+    generatedOutputs: _generatedOutputs,
+    queueHiddenAt: _queueHiddenAt,
+    completedAt: _completedAt,
+    failedAt: _failedAt,
+    textResult: _textResult,
+    ...metadata
+  } = task.metadata || {}
+  return {
+    clientRequestId: crypto.randomUUID(),
+    projectId: task.projectId,
+    kind: task.kind,
+    label: task.label,
+    prompt: task.prompt,
+    negativePrompt: task.negativePrompt,
+    provider: task.provider,
+    model: task.model || undefined,
+    estimatedCredits: task.estimatedCredits,
+    maxAttempts: task.maxAttempts,
+    metadata,
+  }
 }
 
 export default App

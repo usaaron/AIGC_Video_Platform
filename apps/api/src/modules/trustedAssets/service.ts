@@ -1,4 +1,5 @@
 import type { Asset, Principal, TrustedPortrait } from '@seqora/contracts'
+import { randomUUID } from 'node:crypto'
 import type {
   AssetLibraryProvider,
   PortraitGroupType,
@@ -99,14 +100,17 @@ export class TrustedAssetService {
     }
     const token = createPublicMediaToken(source, this.authSecret, Date.now() + SOURCE_URL_TTL_MS)
     const sourceUrl = `${this.publicApiBaseUrl}/api/v1/trusted-assets/source/${token}`
+    const retryingFailedPortrait = current?.groupType === 'AIGC' && current.status === 'failed'
+    const retrySuffix = retryingFailedPortrait ? `-${randomUUID().slice(0, 8)}` : ''
     const groupId =
-      current?.groupType === 'AIGC'
+      current?.groupType === 'AIGC' && !retryingFailedPortrait
         ? current.groupId
         : await this.callProvider(() =>
-            provider.createVirtualGroup(asset.name, asset.description || 'AIGC 人物形象'),
+            provider.createVirtualGroup(`${asset.name}${retrySuffix}`, asset.description || 'AIGC 人物形象'),
           )
+    const portraitName = `${asset.name}-面部基准${retrySuffix}`
     const portrait = await this.callProvider(() =>
-      provider.createVirtualAsset(groupId, `${asset.name}-面部基准`, sourceUrl),
+      provider.createVirtualAsset(groupId, portraitName, sourceUrl),
     )
     return this.savePortrait(asset, portrait, 'ai-virtual', principal)
   }

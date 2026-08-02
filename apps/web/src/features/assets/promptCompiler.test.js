@@ -44,27 +44,6 @@ describe('asset prompt compiler', () => {
     ).toBe('完全自定义内容')
   })
 
-  it('preserves fixed face-stage constraints when character suggestions add prompt text', () => {
-    const asset = {
-      name: '翠翠',
-      description: '十三岁湘西少女',
-      sourceMode: 'generate',
-      promptMode: 'advanced',
-      customPromptMode: 'replace',
-      customPrompt: '天真敏捷，青山绿水间长大，朴素衣着，清澈眼神，带一点戒备感',
-      attributes: createDefaultAttributes('character'),
-    }
-
-    const facePrompt = compileCharacterStagePrompt(asset, '9:16', 'face')
-
-    expect(facePrompt).toContain('人物面部大头照')
-    expect(facePrompt).toContain('头部和肩部完整入镜')
-    expect(facePrompt).toContain('正面平视镜头')
-    expect(facePrompt).toContain('不出现手部')
-    expect(facePrompt).toContain('画面比例1:1')
-    expect(facePrompt).toContain('天真敏捷')
-  })
-
   it('uses dedicated ratios and constraints for character workflow stages', () => {
     const asset = {
       name: '林夏',
@@ -93,5 +72,93 @@ describe('asset prompt compiler', () => {
 
     expect(compileCharacterStagePrompt(asset, '1:1', 'face')).toContain('严格保持导入参考图')
     expect(compileAssetPrompt(asset, '9:16')).toContain('严格保持参考图')
+  })
+
+  it('keeps character outputs transparent and free of lighting effects', () => {
+    const asset = {
+      name: '角色',
+      description: '',
+      sourceMode: 'generate',
+      promptMode: 'standard',
+      customPromptMode: 'append',
+      customPrompt: '',
+      attributes: createDefaultAttributes('character'),
+    }
+
+    const prompt = compileAssetPrompt(asset, '9:16')
+    expect(prompt).toContain('Alpha通道')
+    expect(prompt).toContain('无光影效果')
+    expect(prompt).toContain('无投影')
+  })
+
+  it('injects advanced human appearance settings into the prompt', () => {
+    const attributes = createDefaultAttributes('character')
+    Object.assign(attributes, {
+      ethnicity: 'east-asian',
+      skinTone: 'tan',
+      eyeColor: 'amber',
+      hairColor: 'white',
+    })
+    const prompt = compileAssetPrompt(
+      {
+        name: '角色',
+        description: '',
+        sourceMode: 'generate',
+        promptMode: 'standard',
+        customPrompt: '',
+        attributes,
+      },
+      '9:16',
+    )
+
+    expect(prompt).toContain('东亚族裔特征')
+    expect(prompt).toContain('小麦肤色')
+    expect(prompt).toContain('琥珀色瞳孔')
+    expect(prompt).toContain('白色头发')
+  })
+
+  it('does not inject human gender or age into animal prompts', () => {
+    const attributes = createDefaultAttributes('character')
+    Object.assign(attributes, {
+      subjectType: 'animal',
+      species: '雪豹',
+      gender: 'female',
+      ageGroup: 'young',
+      exactAge: 22,
+    })
+    const asset = {
+      name: '雪山守卫',
+      description: '',
+      sourceMode: 'generate',
+      promptMode: 'standard',
+      customPrompt: '',
+      attributes,
+    }
+
+    const prompt = compileCharacterStagePrompt(asset, '1:1', 'face')
+    expect(prompt).toContain('动物角色，雪豹')
+    expect(prompt).toContain('禁止人类形态')
+    expect(prompt).not.toContain('女性')
+    expect(prompt).not.toContain('青年')
+    expect(prompt).not.toContain('22岁')
+  })
+
+  it('always reserves an empty stage for scene production', () => {
+    const attributes = createDefaultAttributes('scene')
+    Object.assign(attributes, { emptyScene: false, activitySpace: false })
+    const prompt = compileAssetPrompt(
+      {
+        name: '青云宗山门',
+        description: '',
+        sourceMode: 'generate',
+        promptMode: 'standard',
+        customPrompt: '',
+        attributes,
+      },
+      '16:9',
+    )
+
+    expect(prompt).toContain('空场景，不出现人物')
+    expect(prompt).toContain('预留人物表演和镜头运动空间')
   })
 })

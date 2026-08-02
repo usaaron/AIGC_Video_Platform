@@ -53,10 +53,7 @@ import { AccountManagementRepository, type AccountWorkspace } from './repository
 const invitationLifetimeSeconds = 60 * 60 * 24 * 7
 const systemTenantId = 'tenant-seqora-demo'
 const systemOrganizationRoles = new Set<Role>([ROLES.OWNER, ROLES.SUPER_ADMIN, ROLES.ADMIN])
-type RequestEmailVerification = (
-  input: { email: string },
-  metadata?: SessionMetadata,
-) => Promise<unknown>
+type RequestEmailVerification = (input: { email: string }, metadata?: SessionMetadata) => Promise<unknown>
 
 export class AccountManagementService {
   constructor(
@@ -799,7 +796,6 @@ export class AccountManagementService {
         roles: result.membership.roles,
       }),
     })
-    await this.requestVerificationEmail(result.membership.email, metadata)
     return result.membership
   }
 
@@ -854,7 +850,6 @@ export class AccountManagementService {
         scope: 'admin_console',
       }),
     })
-    await this.requestVerificationEmail(result.membership.email, metadata)
     return result.membership
   }
 

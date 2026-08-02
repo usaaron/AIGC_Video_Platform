@@ -1,10 +1,21 @@
-import { LoaderCircle, MapPinned, Package, Plus, RefreshCcw, Shirt, Sparkles, UserRound } from 'lucide-react'
+import { useState } from 'react'
+import {
+  LoaderCircle,
+  MapPinned,
+  Package,
+  Pencil,
+  Plus,
+  RefreshCcw,
+  Shirt,
+  Sparkles,
+  UserRound,
+} from 'lucide-react'
 import { optionLabel } from '../assets/assetOptions'
 
 const KIND_META = {
-  character: { label: '角色', icon: UserRound },
+  character: { label: '人物', icon: UserRound },
   scene: { label: '场景', icon: MapPinned },
-  prop: { label: '道具', icon: Package },
+  prop: { label: '物品', icon: Package },
   costume: { label: '服装', icon: Shirt },
 }
 
@@ -24,14 +35,16 @@ export function AssetSuggestionsPanel({
 }) {
   const assets = result?.assets || []
   const grouped = groupAssets(assets)
+  const [editingKeys, setEditingKeys] = useState(() => new Set())
+  const [editedPrompts, setEditedPrompts] = useState({})
   const isSuggesting = status === 'suggesting'
   const hasResult = Boolean(result)
   const labels = {
     eyebrow: '资产建议',
-    title: '从剧本提取角色、场景、道具、服装',
-    refresh: hasResult ? '重新分析当前剧本' : '生成资产建议',
-    loading: '正在分析剧本中的核心资产',
-    empty: '生成或应用剧本后会自动分析，也可以手动从当前文本重新生成建议。',
+    title: '从剧本提取人物、场景、物品、服装',
+    refresh: hasResult ? '重新分析当前剧本' : '后台生成资产建议',
+    loading: '资产建议正在后台生成，完成后会自动显示',
+    empty: '提交后会在后台分析剧本，即使离开当前页面也会继续生成。',
     ...copy,
   }
 
@@ -93,6 +106,8 @@ export function AssetSuggestionsPanel({
                         const key = assetSuggestionKey(asset)
                         const isCreating = creatingKeys.has(key)
                         const isCreated = createdKeys.has(key)
+                        const isEditing = editingKeys.has(key)
+                        const promptValue = editedPrompts[key] ?? asset.prompt ?? ''
                         return (
                           <article className="script-asset-suggestion-card" key={key}>
                             <div className="script-asset-suggestion-card-top">
@@ -114,42 +129,79 @@ export function AssetSuggestionsPanel({
                                 <span>{asset.prompt}</span>
                               </div>
                             )}
+                            {isEditing && (
+                              <label className="script-asset-suggestion-edit">
+                                <span>写入前编辑提示词</span>
+                                <textarea
+                                  value={promptValue}
+                                  rows={5}
+                                  onChange={(event) =>
+                                    setEditedPrompts((current) => ({ ...current, [key]: event.target.value }))
+                                  }
+                                  placeholder="补充这个资产的外观、材质、动作限制和生成要求"
+                                />
+                              </label>
+                            )}
                             <small>{asset.reason}</small>
-                            <button
-                              type="button"
-                              className="button secondary"
-                              disabled={disabled || isCreated || (!onInspect && isCreating)}
-                              onClick={() => {
-                                if (onInspect) {
-                                  onInspect(asset)
-                                  return
+                            <div className="script-asset-suggestion-actions">
+                              <button
+                                type="button"
+                                className="button secondary"
+                                disabled={disabled || isCreated}
+                                onClick={() =>
+                                  setEditingKeys((current) => {
+                                    const next = new Set(current)
+                                    if (next.has(key)) next.delete(key)
+                                    else next.add(key)
+                                    return next
+                                  })
                                 }
-                                void onCreate(asset)
-                              }}
-                            >
-                              {onInspect ? (
-                                isCreated ? (
+                              >
+                                <Pencil size={14} />
+                                {isEditing ? '收起编辑' : '编辑提示词'}
+                              </button>
+                              <button
+                                type="button"
+                                className="button primary"
+                                disabled={disabled || isCreated || (!onInspect && isCreating)}
+                                onClick={() => {
+                                  const nextAsset = { ...asset, prompt: promptValue }
+                                  if (onInspect) {
+                                    onInspect(nextAsset)
+                                    return
+                                  }
+                                  void onCreate(nextAsset)
+                                }}
+                              >
+                                {onInspect ? (
+                                  isCreated ? (
+                                    <Sparkles size={14} />
+                                  ) : (
+                                    <Plus size={14} />
+                                  )
+                                ) : isCreating ? (
+                                  <LoaderCircle size={14} className="spin" />
+                                ) : isCreated ? (
                                   <Sparkles size={14} />
                                 ) : (
                                   <Plus size={14} />
-                                )
-                              ) : isCreating ? (
-                                <LoaderCircle size={14} className="spin" />
-                              ) : isCreated ? (
-                                <Sparkles size={14} />
-                              ) : (
-                                <Plus size={14} />
-                              )}
-                              {onInspect
-                                ? isCreated
-                                  ? '已审阅并保存'
-                                  : '先审阅写入'
-                                : isCreating
-                                  ? '正在加入'
-                                  : isCreated
-                                    ? '已加入资产库'
-                                    : '加入资产库'}
-                            </button>
+                                )}
+                                {onInspect
+                                  ? isCreated
+                                    ? '已审阅并保存'
+                                    : '先审阅后写入'
+                                  : isCreating
+                                    ? '正在加入'
+                                    : isCreated
+                                      ? '已加入资产库'
+                                      : '加入资产库'}
+                              </button>
+                            </div>
+                            {isEditing && (
+                              <small className="script-asset-suggestion-edit-hint">
+                                保存前仍可在资产编辑器中继续修改名称、属性和提示词。
+                              </small>
+                            )}
                           </article>
                         )
                       })}
@@ -180,16 +232,19 @@ function buildSuggestionFacts(asset) {
   if (asset.kind === 'character') {
     if (attributes.subjectType === 'animal') {
       return [
-        { label: '类型', value: '动物角色' },
-        { label: '物种', value: attributes.species || asset.name || '未指定' },
-        { label: '形态', value: attributes.anthropomorphic ? '拟人化' : '自然动物' },
-        { label: '身份', value: asset.description || asset.reason || '未补充' },
+        { label: '类型', value: '动物' },
+        { label: '物种', value: attributes.species || asset.name },
+        { label: '形态', value: attributes.anthropomorphic ? '拟人化动物' : '自然动物' },
+        { label: '用途', value: '面部与形象一致性资产' },
       ]
     }
     return [
       {
         label: '性别',
-        value: optionLabel('gender', attributes.gender || 'unspecified'),
+        value:
+          attributes.subjectType === 'animal'
+            ? '动物'
+            : optionLabel('gender', attributes.gender || 'unspecified'),
       },
       { label: '年龄段', value: optionLabel('ageGroup', attributes.ageGroup || 'young') },
       { label: '精确年龄', value: attributes.exactAge ? String(attributes.exactAge) : '未指定' },

@@ -422,6 +422,121 @@ describe('TrustedAssetService', () => {
       },
     })
   })
+
+  it('uses a fresh group and unique name when retrying a failed AIGC registration', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const storage = new MemoryStorage()
+    await storage.put('tenant/project/retry-face.png', Buffer.from('retry-face'), 'image/png')
+    const now = new Date().toISOString()
+    await store.mutate((state) => {
+      state.media.push({
+        id: 'retry-face-media',
+        projectId: 'project-midnight-film',
+        tenantId: 'tenant-seqora-demo',
+        kind: 'image',
+        name: 'retry-face.png',
+        contentType: 'image/png',
+        size: 10,
+        storageKey: 'tenant/project/retry-face.png',
+        createdAt: now,
+      })
+      state.assets.push({
+        id: 'character-retry',
+        projectId: 'project-midnight-film',
+        tenantId: 'tenant-seqora-demo',
+        kind: 'character',
+        sourceMode: 'generate',
+        name: '可重试人物',
+        description: '',
+        prompt: '',
+        promptMode: 'standard',
+        customPromptMode: 'append',
+        customPrompt: '',
+        negativePrompt: '',
+        references: [],
+        attributes: {
+          ...defaultAssetAttributes('character'),
+          faceStatus: 'approved',
+          faceReference: {
+            id: 'retry-face-media',
+            url: '/api/v1/media/retry-face-media',
+            name: 'retry-face.png',
+          },
+          trustedPortrait: {
+            assetId: 'asset-failed-before',
+            groupId: 'group-failed-before',
+            groupType: 'AIGC',
+            name: '可重试人物-面部基准',
+            status: 'failed',
+            previewUrl: null,
+            errorCode: 'DUPLICATE_NAME',
+            errorMessage: '资源名称重复',
+            checkedAt: now,
+          },
+        },
+        imageUrl: '/api/v1/media/retry-face-media',
+        status: 'draft',
+        createdAt: now,
+        updatedAt: now,
+      })
+    })
+
+    let createdGroupName = ''
+    let createdAssetGroupId = ''
+    let createdAssetName = ''
+    const provider: AssetLibraryProvider = {
+      createVirtualGroup: async (name) => {
+        createdGroupName = name
+        return 'group-retry-new'
+      },
+      createVirtualAsset: async (groupId, name) => {
+        createdAssetGroupId = groupId
+        createdAssetName = name
+        return {
+          assetId: 'asset-retry-new',
+          groupId,
+          groupType: 'AIGC',
+          name,
+          assetType: 'Image',
+          status: 'processing',
+          previewUrl: null,
+          errorCode: null,
+          errorMessage: null,
+        }
+      },
+      getPortrait: async () => {
+        throw new Error('not used')
+      },
+      listPortraits: async () => [],
+      listAuthorizedPortraits: async () => [],
+    }
+    const service = new TrustedAssetService(
+      store,
+      provider,
+      storage,
+      'test-secret-with-at-least-32-characters',
+      'https://api.example.com',
+      'default',
+    )
+
+    const updated = await service.registerVirtual('project-midnight-film', 'character-retry', {
+      userId: 'user-member',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['member'],
+    })
+
+    expect(createdGroupName).toMatch(/^可重试人物-/u)
+    expect(createdAssetGroupId).toBe('group-retry-new')
+    expect(createdAssetName).toMatch(/^可重试人物-面部基准-/u)
+    expect(updated.attributes).toMatchObject({
+      trustedPortrait: {
+        assetId: 'asset-retry-new',
+        groupId: 'group-retry-new',
+        status: 'processing',
+      },
+    })
+  })
 })
 
 class MemoryStorage implements ObjectStorage {

@@ -187,7 +187,6 @@ describe('novel contracts', () => {
     expect(generateNovelChapterSummariesRequestSchema.parse({})).toMatchObject({
       batchSize: 4,
       force: false,
-      model: 'glm-5.2',
     })
     expect(generateNovelChapterSummariesRequestSchema.parse({ batchSize: 24 }).batchSize).toBe(24)
     expect(generateNovelChapterSummariesRequestSchema.safeParse({ batchSize: 25 }).success).toBe(false)
@@ -205,7 +204,6 @@ describe('novel contracts', () => {
     expect(generateNovelBoundaryNotesRequestSchema.parse({})).toMatchObject({
       batchSize: 8,
       force: false,
-      model: 'glm-5.2',
     })
     expect(
       novelChapterSummariesResultSchema.safeParse({
@@ -448,19 +446,8 @@ describe('novel contracts', () => {
         ],
       }).success,
     ).toBe(true)
-    expect(generateNovelStoryBibleRequestSchema.parse({})).toEqual({
-      force: false,
-      model: 'glm-5.2',
-    })
-    expect(generateNovelStoryBibleRequestSchema.parse({ summaryLimit: 24 })).toEqual({
-      force: false,
-      summaryLimit: 24,
-      model: 'glm-5.2',
-    })
-    expect(generateNovelAssetSuggestionsRequestSchema.parse({})).toEqual({
-      maxAssets: 12,
-      model: 'glm-5.2',
-    })
+    expect(generateNovelStoryBibleRequestSchema.parse({})).toEqual({ force: false, model: 'glm-5.2' })
+    expect(generateNovelAssetSuggestionsRequestSchema.parse({})).toEqual({ maxAssets: 12, model: 'glm-5.2' })
     expect(
       novelAssetSuggestionsResultSchema.safeParse({
         summary: '已从小说事实源提取核心人物和场景建议。',
@@ -504,36 +491,15 @@ describe('novel contracts', () => {
     expect(
       generateNovelChapterAdaptationRequestSchema.parse({
         chapterIds: ['chapter-1'],
-        sourceOptions: {
-          storyBible: true,
-          chapterSummaries: true,
-          chapterContent: false,
-        },
       }),
     ).toMatchObject({
       chapterIds: ['chapter-1'],
       targetSeconds: 60,
       mode: 'scene',
-      model: 'glm-5.2',
-      sourceOptions: {
-        storyBible: true,
-        chapterSummaries: true,
-        chapterContent: false,
-      },
     })
     expect(
       generateNovelChapterAdaptationRequestSchema.safeParse({
         chapterIds: ['1', '2', '3', '4', '5', '6', '7'],
-      }).success,
-    ).toBe(false)
-    expect(
-      generateNovelChapterAdaptationRequestSchema.safeParse({
-        chapterIds: ['chapter-1'],
-        sourceOptions: {
-          storyBible: false,
-          chapterSummaries: false,
-          chapterContent: false,
-        },
       }).success,
     ).toBe(false)
     expect(

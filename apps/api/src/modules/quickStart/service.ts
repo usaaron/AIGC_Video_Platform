@@ -7,6 +7,7 @@ import type {
   QuickStartEstimate,
   QuickStartExecutionResult,
   QuickStartPlan,
+  ScriptModel,
 } from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -111,7 +112,11 @@ export class QuickStartService {
     private readonly creditLedger: CreditLedger | null = null,
   ) {}
 
-  async plan(projectId: string, principal: Principal, model?: string): Promise<QuickStartPlan> {
+  async plan(
+    projectId: string,
+    principal: Principal,
+    model: ScriptModel = 'glm-5.2',
+  ): Promise<QuickStartPlan> {
     const context = this.projectContext(projectId, principal)
     const script = context.project.script.trim()
     if (!script) throw new AppError(400, 'SCRIPT_REQUIRED', '请先保存剧本再使用一键尝鲜')
@@ -337,7 +342,7 @@ export class QuickStartService {
   private async generateAnalysis(
     userPrompt: string,
     sourceScript: string,
-    model?: string,
+    model: ScriptModel,
   ): Promise<ProviderAnalysis> {
     const first = await this.textProvider!.generate({
       systemPrompt: QUICK_START_SYSTEM_PROMPT,
@@ -429,6 +434,10 @@ function proposalsFor(analysis: ProviderAnalysis): QuickStartAssetProposal[] {
         gender: character.gender,
         ageGroup: character.ageGroup,
         exactAge: null,
+        ethnicity: 'unspecified',
+        skinTone: 'unspecified',
+        eyeColor: 'unspecified',
+        hairColor: 'unspecified',
         species: character.subjectType === 'animal' ? character.species : '',
         anthropomorphic: character.subjectType === 'animal' && character.anthropomorphic,
         visualStyle,
@@ -444,6 +453,8 @@ function proposalsFor(analysis: ProviderAnalysis): QuickStartAssetProposal[] {
         legStretch: false,
         turnaround: false,
         turnaroundLayout: 'sheet',
+        appearanceVariants: [],
+        activeAppearanceVariantId: null,
       },
     })),
     ...analysis.costumes.map((costume): QuickStartAssetProposal => ({

@@ -57,4 +57,14 @@ describe('compileQualityRules', () => {
     expect(result.negativePrompt).toContain('保持产品结构、包装、材质和指定品牌标识准确')
     expect(result.negativePrompt).toContain('未经指定的水印、文字、logo')
   })
+
+  it('keeps prop and costume generations free of human body fragments', () => {
+    const prop = compileQualityRules({ mediaKind: 'image', assetKind: 'prop' })
+    const costume = compileQualityRules({ mediaKind: 'image', assetKind: 'costume' })
+
+    expect(prop.presetIds).toContain('prop-isolated')
+    expect(prop.negativePrompt).toContain('不要人物、人体、手、手指')
+    expect(costume.presetIds).toContain('costume-isolated')
+    expect(costume.negativePrompt).toContain('不要人物、人体、脸、手')
+  })
 })

@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import { generationTaskSchema } from './generation.js'
 import {
+  DEFAULT_SCRIPT_MODEL,
   assetSchema,
   characterAttributesSchema,
   costumeAttributesSchema,
   sceneAttributesSchema,
-  textModelSchema,
+  scriptModelSchema,
 } from './project.js'
 
 const proposalBaseSchema = z.object({
@@ -49,7 +50,7 @@ export const quickStartPlanSchema = z.object({
 })
 
 export const quickStartPlanRequestSchema = z.object({
-  model: textModelSchema.default('glm-5.2'),
+  model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
 })
 
 export const executeQuickStartRequestSchema = z.object({

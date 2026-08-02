@@ -14,7 +14,7 @@ const COMMON_BIGRAMS = new Set([
   '场景',
 ])
 
-export function selectShotAssetReferences(assets, shot, limit = 3) {
+export function selectShotAssetReferences(assets, shot, limit = 6) {
   const shotText = normalize(`${shot.title || ''}${shot.prompt || ''}`)
   const candidates = assets
     .filter((asset) => asset.kind !== 'audio' && referenceUrl(asset))

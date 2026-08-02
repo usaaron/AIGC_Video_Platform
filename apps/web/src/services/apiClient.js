@@ -62,6 +62,7 @@ export async function waitForProjectScriptUpdate(
 }
 
 export const api = {
+  health: () => request('/health'),
   login: (input) => request('/auth/login', json('POST', input)),
   register: (input) => request('/auth/register', json('POST', input)),
   requestEmailVerification: (input) => request('/auth/email-verification/request', json('POST', input)),
@@ -79,6 +80,7 @@ export const api = {
   project: (id) => request(`/projects/${id}`),
   createProject: (input) => request('/projects', json('POST', input)),
   updateProject: (id, input) => request(`/projects/${id}`, json('PATCH', input)),
+  deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
   novels: (id) => request(`/projects/${id}/novels`),
   novel: (id, documentId) => request(`/projects/${id}/novels/${documentId}`),
   previewNovelSplit: (id, input) => request(`/projects/${id}/novels/preview-split`, json('POST', input)),
@@ -95,19 +97,17 @@ export const api = {
   runNovelSummaryQueueBatch: (id, documentId, queueId, input = {}) =>
     request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/run-batch`, json('POST', input)),
   pauseNovelSummaryQueue: (id, documentId, queueId) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/pause`, emptyJsonPost()),
+    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/pause`, { method: 'POST' }),
   resumeNovelSummaryQueue: (id, documentId, queueId) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/resume`, emptyJsonPost()),
+    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/resume`, { method: 'POST' }),
   retryNovelSummaryQueueItem: (id, documentId, queueId, itemId) =>
-    request(
-      `/projects/${id}/novels/${documentId}/summary-queue/${queueId}/items/${itemId}/retry`,
-      emptyJsonPost(),
-    ),
+    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/items/${itemId}/retry`, {
+      method: 'POST',
+    }),
   skipNovelSummaryQueueItem: (id, documentId, queueId, itemId) =>
-    request(
-      `/projects/${id}/novels/${documentId}/summary-queue/${queueId}/items/${itemId}/skip`,
-      emptyJsonPost(),
-    ),
+    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/items/${itemId}/skip`, {
+      method: 'POST',
+    }),
   commitNovelSummaryQueueResults: (id, documentId, queueId, input = {}) =>
     request(
       `/projects/${id}/novels/${documentId}/summary-queue/${queueId}/commit-results`,
@@ -122,37 +122,65 @@ export const api = {
     request(`/projects/${id}/novels/${documentId}/asset-suggestions`, json('POST', input)),
   generateNovelChapterAdaptation: (id, documentId, input = {}) =>
     request(`/projects/${id}/novels/${documentId}/adapt-script`, json('POST', input)),
-  suggestScriptAssets: (id, script, direction, clientRequestId = crypto.randomUUID(), model) =>
-    request(
+  suggestScriptAssets: (
+    id,
+    script,
+    direction,
+    modelOrClientRequestId,
+    clientRequestId = crypto.randomUUID(),
+  ) => {
+    const modelValues = new Set([
+      'seqora-5.6',
+      'seqora-op-5',
+      'kimi-3',
+      'deepseek-v3',
+      'qwen3.8',
+      'gpt-5.6-terra',
+      'kimi-k3',
+      'glm-5.2',
+      'glm-5.2-fast',
+    ])
+    const hasModel = modelValues.has(modelOrClientRequestId)
+    return request(
       `/projects/${id}/script/asset-suggestions`,
-      json('POST', { clientRequestId, script, direction, ...(model ? { model } : {}) }),
-    ),
-  generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID(), model) =>
-    request(
-      `/projects/${id}/script/generate`,
-      json('POST', { clientRequestId, draft, direction, ...(model ? { model } : {}) }),
-    ),
-  generateScriptSegment: (id, draft, direction, segment, clientRequestId = crypto.randomUUID(), model) =>
-    request(
-      `/projects/${id}/script/generate`,
       json('POST', {
-        clientRequestId,
-        draft,
+        clientRequestId: hasModel ? clientRequestId : modelOrClientRequestId || crypto.randomUUID(),
+        script,
         direction,
-        mode: 'segment',
-        segment,
-        ...(model ? { model } : {}),
+        ...(hasModel ? { model: modelOrClientRequestId } : {}),
       }),
+    )
+  },
+  generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID(), options = {}) =>
+    request(
+      `/projects/${id}/script/generate`,
+      json('POST', { clientRequestId, draft, direction, ...options }),
     ),
-  enrichScript: (id, script, direction, clientRequestId = crypto.randomUUID(), model) =>
+  generateScriptSegment: (
+    id,
+    draft,
+    direction,
+    segment,
+    clientRequestId = crypto.randomUUID(),
+    options = {},
+  ) =>
+    request(
+      `/projects/${id}/script/generate`,
+      json('POST', { clientRequestId, draft, direction, mode: 'segment', segment, ...options }),
+    ),
+  enrichScript: (id, script, direction, clientRequestId = crypto.randomUUID(), options = {}) =>
     request(
       `/projects/${id}/script/enrich`,
-      json('POST', { clientRequestId, script, direction, ...(model ? { model } : {}) }),
+      json('POST', { clientRequestId, script, direction, ...options }),
     ),
-  planQuickStart: (id, model) =>
-    request(`/projects/${id}/quick-start/plan`, json('POST', model ? { model } : {})),
+  reviewScript: (id, script, direction, clientRequestId = crypto.randomUUID(), options = {}) =>
+    request(
+      `/projects/${id}/script/review`,
+      json('POST', { clientRequestId, script, direction, ...options }),
+    ),
+  planQuickStart: (id, model) => request(`/projects/${id}/quick-start/plan`, json('POST', { model })),
   executeQuickStart: (id, input) => request(`/projects/${id}/quick-start/execute`, json('POST', input)),
-  saveVersion: (id) => request(`/projects/${id}/versions`, emptyJsonPost()),
+  saveVersion: (id) => request(`/projects/${id}/versions`, { method: 'POST' }),
   createAsset: (projectId, input) => request(`/projects/${projectId}/assets`, json('POST', input)),
   updateAsset: (projectId, assetId, input) =>
     request(`/projects/${projectId}/assets/${assetId}`, json('PATCH', input)),
@@ -162,30 +190,34 @@ export const api = {
   trustedPortraits: (groupType) =>
     request(`/trusted-assets/portraits?groupType=${encodeURIComponent(groupType)}`),
   registerVirtualPortrait: (projectId, assetId) =>
-    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/register`, emptyJsonPost()),
+    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/register`, { method: 'POST' }),
   bindTrustedPortrait: (projectId, assetId, providerAssetId) =>
     request(
       `/projects/${projectId}/assets/${assetId}/trusted-portrait/bind`,
       json('POST', { providerAssetId }),
     ),
   refreshTrustedPortrait: (projectId, assetId) =>
-    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/refresh`, emptyJsonPost()),
+    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/refresh`, { method: 'POST' }),
   uploadMedia: (projectId, file) => request(`/projects/${projectId}/media`, upload(file)),
   createShot: (projectId, input) => request(`/projects/${projectId}/shots`, json('POST', input)),
   updateShot: (projectId, shotId, input) =>
     request(`/projects/${projectId}/shots/${shotId}`, json('PATCH', input)),
   generateShots: (projectId, input = {}) =>
     request(`/projects/${projectId}/shots/generate`, json('POST', input)),
+  autoSplitShotEpisodes: (projectId, input) =>
+    request(`/projects/${projectId}/shots/auto-episodes`, json('POST', input)),
   tasks: (projectId) => request(`/projects/${projectId}/generation/tasks`),
+  recentTasks: () => request('/generation/tasks/recent'),
   createTask: (input) => request('/generation/tasks', json('POST', input)),
-  createFilmPreview: (projectId, mode = 'full', force = false) =>
-    request(`/projects/${projectId}/film-preview`, json('POST', { mode, force })),
-  pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, emptyJsonPost()),
-  resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, emptyJsonPost()),
+  createFilmPreview: (projectId, mode = 'full', force = false, episodeNumber = null) =>
+    request(`/projects/${projectId}/film-preview`, json('POST', { mode, force, episodeNumber })),
+  pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, { method: 'POST' }),
+  resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, { method: 'POST' }),
   deleteTask: (taskId) => request(`/generation/tasks/${taskId}`, { method: 'DELETE' }),
   clearTasks: (projectId) =>
     request(`/projects/${projectId}/generation/tasks/completed`, { method: 'DELETE' }),
   billing: () => request('/billing/summary'),
+  updatePlan: (plan) => request('/billing/plan', json('PUT', { plan })),
   billingPaymentConfiguration: () => request('/billing/payment/configuration'),
   createMemberSubscriptionCheckout: () => request('/billing/checkout/subscription', emptyJsonPost()),
   createCreditCheckout: (input = {}) => request('/billing/checkout/credits', json('POST', input)),

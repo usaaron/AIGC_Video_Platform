@@ -29,9 +29,20 @@ export function renderPrometheusMetrics(snapshot: ObservabilitySnapshot): string
 
   emitCounter(lines, declaredFamilies, 'seqora_refunds_total', snapshot.refunds.count)
   emitCounter(lines, declaredFamilies, 'seqora_refunded_credits_total', snapshot.refunds.credits)
-  emitCounterMap(lines, declaredFamilies, 'seqora_refunds_by_tenant_total', snapshot.refunds.byTenant, 'tenantId')
+  emitCounterMap(
+    lines,
+    declaredFamilies,
+    'seqora_refunds_by_tenant_total',
+    snapshot.refunds.byTenant,
+    'tenantId',
+  )
 
-  emitDurationMap(lines, declaredFamilies, 'seqora_film_preview_execution_duration_ms', snapshot.filmPreview.executions)
+  emitDurationMap(
+    lines,
+    declaredFamilies,
+    'seqora_film_preview_execution_duration_ms',
+    snapshot.filmPreview.executions,
+  )
 
   return lines.join('\n') + '\n'
 }
@@ -77,12 +88,7 @@ function emitDurationMap(
   }
 }
 
-function emitGauge(
-  lines: string[],
-  declaredFamilies: Set<string>,
-  metricName: string,
-  value: number,
-): void {
+function emitGauge(lines: string[], declaredFamilies: Set<string>, metricName: string, value: number): void {
   emitSample(lines, declaredFamilies, metricName, {}, value, 'gauge')
 }
 
@@ -155,5 +161,8 @@ function parseMetricKey(key: string): { name: string; labels: PrometheusLabels }
 
 function splitLabelEntries(value: string): string[] {
   if (!value) return []
-  return value.split(',').map((entry) => entry.trim()).filter(Boolean)
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
 }

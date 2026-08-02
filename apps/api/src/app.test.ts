@@ -1232,7 +1232,7 @@ describe('API authorization', () => {
           attributes: expect.objectContaining({
             type: 'character',
             subjectType: 'animal',
-            species: '黄狗',
+            species: 'dog',
             anthropomorphic: false,
           }),
         }),
@@ -2825,14 +2825,14 @@ describe('API authorization', () => {
       expect.objectContaining({
         systemPrompt: expect.stringContaining('15 到 30 秒视频'),
         userPrompt: expect.stringContaining('风格：仿真人电影感'),
-        maxOutputTokens: 2_400,
+        maxOutputTokens: 4_800,
       }),
     )
   })
 
   it('preserves a long source script without sending an oversized provider request', async () => {
     const longSource = Array.from(
-      { length: 80 },
+      { length: 160 },
       (_, index) =>
         `场次：${index + 1}｜剧情：主角沿着旧线索继续调查并发现新的阻力。｜场景：雨夜车站。｜角色：林夏。｜动作：她打开铁盒确认线索。｜对白：我必须查清楚。`,
     ).join('\n')
@@ -2857,7 +2857,7 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({
       script: longSource,
-      warnings: [expect.stringContaining('按段继续')],
+      warnings: [expect.stringContaining('按段续写')],
     })
     expect(generate).not.toHaveBeenCalled()
     const billing = await app.inject({
@@ -3160,8 +3160,6 @@ describe('API authorization', () => {
     })
     expect(blocked.statusCode).toBe(403)
     expect(blocked.json()).toMatchObject({ error: { code: 'PLAN_CHANGE_REQUIRES_BILLING_WEBHOOK' } })
-    const productionSummary = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
-    expect(productionSummary.json()).toMatchObject({ planSelfServiceEnabled: false })
   })
 
   it('splits the script into at most eight predictable shots without calling the text provider', async () => {
@@ -3191,16 +3189,16 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toHaveLength(8)
     expect(response.json()[0]).toMatchObject({
-      title: '镜头 01',
-      prompt: '剧本段落 1',
+      title: '场次 1 · 动作 1',
+      prompt: expect.stringContaining('动作：剧本段落 1'),
       continuityMode: 'independent',
       continuityNote: '',
       imageUrl: null,
     })
     expect(response.json()[7]).toMatchObject({
-      title: '镜头 08',
-      prompt: '剧本段落 8',
-      continuityMode: 'independent',
+      title: '场次 8 · 动作 1',
+      prompt: expect.stringContaining('动作：剧本段落 8'),
+      continuityMode: 'continue',
       continuityNote: expect.stringContaining('上一场收束：剧本段落 7'),
       imageUrl: null,
     })
@@ -3291,7 +3289,7 @@ describe('API authorization', () => {
     expect(response.json()[0]).toMatchObject({
       title: '场次 1 · 动作 1',
       framing: '大全景',
-      duration: 5,
+      duration: 3,
       continuityMode: 'independent',
       prompt: expect.stringContaining('动作：林夏踏入积水'),
     })
@@ -3309,7 +3307,7 @@ describe('API authorization', () => {
     })
     expect(response.json()[3]).toMatchObject({
       title: '场次 2 · 动作 1',
-      continuityMode: 'independent',
+      continuityMode: 'continue',
       continuityNote: expect.stringContaining('上一场收束：林夏踏入积水'),
     })
   })

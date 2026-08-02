@@ -34,10 +34,25 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const admin = await login('admin@seqora.local', 'Admin123!', {
       'user-agent': 'ConsoleAdminBrowser/1.0',
     })
-    await login('member@seqora.local', 'MemberPassword123!', {
+    const member = await login('member@seqora.local', 'MemberPassword123!', {
       'user-agent': 'MemberDevice/1.0',
     })
     const adminCookie = cookieValue(admin)
+
+    const anonymousAccess = await app.inject({ method: 'GET', url: '/api/v1/admin/access' })
+    expect(anonymousAccess.statusCode).toBe(401)
+    const memberAccess = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/access',
+      headers: { cookie: cookieValue(member) },
+    })
+    expect(memberAccess.statusCode).toBe(403)
+    const adminAccess = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/access',
+      headers: { cookie: adminCookie },
+    })
+    expect(adminAccess.statusCode).toBe(204)
 
     const snapshot = await app.inject({
       method: 'GET',
@@ -1207,7 +1222,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(ownerCreatesCrossTenantMember.statusCode).toBe(201)
     const crossTenantMembershipId = ownerCreatesCrossTenantMember.json().id as string
     const crossTenantUserId = ownerCreatesCrossTenantMember.json().userId as string
-    await login('enterprise-member@example.com', 'EnterpriseMember123!', {
+    await activateProvisionedAccount('enterprise-member@example.com', 'EnterpriseMember123!', {
       'user-agent': 'EnterpriseMemberDevice/1.0',
     })
     const ownerCreatesCrossTenantAdmin = await app.inject({
@@ -1222,8 +1237,10 @@ describe('admin console api', { timeout: 30_000 }, () => {
       },
     })
     expect(ownerCreatesCrossTenantAdmin.statusCode).toBe(201)
-    await verifyEmailAddress('enterprise-admin@example.com')
-    const crossTenantAdmin = await login('enterprise-admin@example.com', 'EnterpriseAdmin123!')
+    const crossTenantAdmin = await activateProvisionedAccount(
+      'enterprise-admin@example.com',
+      'EnterpriseAdmin123!',
+    )
     const crossTenantAdminCookie = cookieValue(crossTenantAdmin)
 
     const scopedConsole = await app.inject({
@@ -1352,7 +1369,10 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const adminCookie = cookieValue(admin)
     const memberCookie = cookieValue(member)
 
-    const organization = await createWorkspaceFromCurrentSession(ownerCookie, 'Scoped Enterprise Organization')
+    const organization = await createWorkspaceFromCurrentSession(
+      ownerCookie,
+      'Scoped Enterprise Organization',
+    )
     const organizationAdmin = await app.inject({
       method: 'POST',
       url: `/api/v1/admin/organizations/${organization.tenantId}/users`,
@@ -1382,10 +1402,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const organizationMemberUserId = organizationMember.json().userId as string
     const organizationMemberMembershipId = organizationMember.json().id as string
 
-    await verifyEmailAddress('scoped-organization-admin@example.com')
-    await verifyEmailAddress('scoped-organization-member@example.com')
-
-    const organizationAdminLogin = await login(
+    const organizationAdminLogin = await activateProvisionedAccount(
       'scoped-organization-admin@example.com',
       'ScopedOrganizationAdmin123!',
       { 'user-agent': 'ScopedOrganizationAdminDevice/1.0' },
@@ -1393,7 +1410,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(organizationAdminLogin.statusCode).toBe(200)
     const organizationAdminCookie = cookieValue(organizationAdminLogin)
 
-    const organizationMemberLogin = await login(
+    const organizationMemberLogin = await activateProvisionedAccount(
       'scoped-organization-member@example.com',
       'ScopedOrganizationMember123!',
       { 'user-agent': 'ScopedOrganizationMemberDevice/1.0' },
@@ -1565,8 +1582,8 @@ describe('admin console api', { timeout: 30_000 }, () => {
       headers: { cookie: ownerCookie },
     })
     expect(ownerReadsOrganizationMemberSessions.statusCode).toBe(200)
-    const organizationMemberSessionId =
-      ownerReadsOrganizationMemberSessions.json().items[0]?.sessionId as string | undefined
+    const organizationMemberSessionId = ownerReadsOrganizationMemberSessions.json().items[0]?.sessionId as
+      string | undefined
     expect(organizationMemberSessionId).toEqual(expect.any(String))
 
     const ownerReadsSeedMemberSessions = await app.inject({
@@ -1682,6 +1699,44 @@ async function login(email: string, password: string, headers?: Record<string, s
   })
 }
 
+async function activateProvisionedAccount(
+  email: string,
+  temporaryPassword: string,
+  headers?: Record<string, string>,
+) {
+  if (!app) throw new Error('App is not ready')
+  const initialLogin = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    remoteAddress: '10.0.0.2',
+    headers,
+    payload: { email, password: temporaryPassword },
+  })
+  expect(initialLogin.statusCode).toBe(200)
+  expect(initialLogin.json()).toMatchObject({ account: { passwordResetRequired: true } })
+
+  const newPassword = `Ready-${temporaryPassword}`
+  const changed = await app.inject({
+    method: 'PUT',
+    url: '/api/v1/auth/password',
+    remoteAddress: '10.0.0.2',
+    headers: { cookie: cookieValue(initialLogin), ...headers },
+    payload: { currentPassword: temporaryPassword, newPassword },
+  })
+  expect(changed.statusCode).toBe(204)
+
+  const readyLogin = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    remoteAddress: '10.0.0.2',
+    headers,
+    payload: { email, password: newPassword },
+  })
+  expect(readyLogin.statusCode).toBe(200)
+  expect(readyLogin.json()).toMatchObject({ account: { passwordResetRequired: false } })
+  return readyLogin
+}
+
 async function createWorkspaceFromCurrentSession(
   cookie: string,
   name: string,
@@ -1695,26 +1750,6 @@ async function createWorkspaceFromCurrentSession(
   })
   expect(response.statusCode).toBe(201)
   return { tenantId: response.json().workspace.id as string }
-}
-
-async function verifyEmailAddress(email: string): Promise<void> {
-  if (!app) throw new Error('App is not ready')
-  const request = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/email-verification/request',
-    payload: { email },
-  })
-  expect(request.statusCode).toBe(202)
-  const token = request.json().verificationToken as string | undefined
-  expect(token).toEqual(expect.any(String))
-  if (!token) throw new Error(`Expected verification token for ${email}`)
-
-  const verified = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/email-verification/verify',
-    payload: { token },
-  })
-  expect(verified.statusCode).toBe(204)
 }
 
 async function createBillingReconciliationAlert(input: {

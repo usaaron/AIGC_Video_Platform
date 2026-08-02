@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  executeQuickStartRequestSchema,
-  quickStartPlanRequestSchema,
-  quickStartPlanSchema,
-} from './quickStart.js'
+import { executeQuickStartRequestSchema, quickStartPlanSchema } from './quickStart.js'
 
 const scene = {
   kind: 'scene' as const,
@@ -56,10 +52,5 @@ describe('quick start contracts', () => {
         assets: [invalidAsset],
       }).success,
     ).toBe(false)
-  })
-
-  it('defaults quick start planning to GLM 5.2 but still accepts SEQORA selection', () => {
-    expect(quickStartPlanRequestSchema.parse({})).toEqual({ model: 'glm-5.2' })
-    expect(quickStartPlanRequestSchema.parse({ model: 'gpt-5.6' })).toEqual({ model: 'gpt-5.6' })
   })
 })

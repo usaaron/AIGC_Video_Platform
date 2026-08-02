@@ -6,6 +6,7 @@ import type {
   Principal,
   Plan,
   Project,
+  ProjectGenerationSummary,
   ProjectWorkspace,
   Shot,
   UpdateAsset,
@@ -71,6 +72,10 @@ type ShotRow = QueryResultRow & {
   image_url: string | null
   continuity_mode: Shot['continuityMode']
   continuity_note: string
+  episode_break_before: boolean
+  episode_number: number | string
+  episode_title: string
+  episode_kind: Shot['episodeKind']
   created_at: Date | string
   updated_at: Date | string
 }
@@ -124,6 +129,10 @@ const shotColumns = `
   image_url,
   continuity_mode,
   continuity_note,
+  episode_break_before,
+  episode_number,
+  episode_title,
+  episode_kind,
   created_at,
   updated_at
 `
@@ -206,12 +215,19 @@ export class ProjectRepository {
       SELECT ${projectColumns}
       FROM projects
       WHERE tenant_id = $1
+        AND status <> 'archived'
         AND ($2::boolean OR owner_user_id = $3)
       ORDER BY updated_at DESC
       `,
       [principal.tenantId, canReadAll, principal.userId],
     )
-    return result.rows.map(projectFromRow)
+    return this.store.read((state) =>
+      result.rows.map(projectFromRow).map((project) => ({
+        ...project,
+        previewUrl: projectPreviewUrl(project.id, state),
+        generationSummary: projectGenerationSummary(project.id, state),
+      })),
+    )
   }
 
   async workspace(projectId: string, principal: Principal): Promise<ProjectWorkspace | null> {
@@ -344,6 +360,36 @@ export class ProjectRepository {
     const project = result.rows[0] ? projectFromRow(result.rows[0]) : null
     if (project) await this.mirrorProject(project)
     return project
+  }
+
+  async archive(projectId: string, principal: Principal): Promise<boolean> {
+    if (!this.database) {
+      return this.store.mutate((state) => {
+        const project = state.projects.find(
+          (item) =>
+            item.id === projectId &&
+            item.tenantId === principal.tenantId &&
+            item.ownerId === principal.userId,
+        )
+        if (!project) return false
+        project.status = 'archived'
+        project.updatedAt = new Date().toISOString()
+        return true
+      })
+    }
+
+    const updatedAt = new Date().toISOString()
+    const result = await this.database.query(
+      `
+      UPDATE projects
+      SET status = 'archived', updated_at = $4
+      WHERE id = $1 AND tenant_id = $2 AND owner_user_id = $3
+      `,
+      [projectId, principal.tenantId, principal.userId, updatedAt],
+    )
+    if ((result.rowCount ?? 0) === 0) return false
+    await this.refreshRuntimeCacheFromDatabase()
+    return true
   }
 
   async saveVersion(projectId: string, principal: Principal): Promise<Project | null> {
@@ -639,10 +685,14 @@ export class ProjectRepository {
           image_url,
           continuity_mode,
           continuity_note,
+          episode_break_before,
+          episode_number,
+          episode_title,
+          episode_kind,
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         RETURNING ${shotColumns}
         `,
         shotInsertParams(shot),
@@ -690,6 +740,10 @@ export class ProjectRepository {
         imageUrl: input.imageUrl === undefined ? current.imageUrl : input.imageUrl,
         continuityMode: input.continuityMode ?? current.continuityMode,
         continuityNote: input.continuityNote ?? current.continuityNote,
+        episodeBreakBefore: input.episodeBreakBefore ?? current.episodeBreakBefore,
+        episodeNumber: input.episodeNumber ?? current.episodeNumber,
+        episodeTitle: input.episodeTitle ?? current.episodeTitle,
+        episodeKind: input.episodeKind ?? current.episodeKind,
         updatedAt: new Date().toISOString(),
       }
       const updatedResult = await client.query<ShotRow>(
@@ -702,10 +756,14 @@ export class ProjectRepository {
           duration_seconds = $7,
           prompt = $8,
           negative_prompt = $9,
-          image_url = $10,
-          continuity_mode = $11,
-          continuity_note = $12,
-          updated_at = $13
+           image_url = $10,
+           continuity_mode = $11,
+           continuity_note = $12,
+           episode_break_before = $13,
+           episode_number = $14,
+           episode_title = $15,
+           episode_kind = $16,
+           updated_at = $17
         WHERE id = $1 AND project_id = $2 AND tenant_id = $3
         RETURNING ${shotColumns}
         `,
@@ -722,6 +780,10 @@ export class ProjectRepository {
           updated.imageUrl,
           updated.continuityMode,
           updated.continuityNote,
+          updated.episodeBreakBefore,
+          updated.episodeNumber,
+          updated.episodeTitle,
+          updated.episodeKind,
           updated.updatedAt,
         ],
       )
@@ -770,12 +832,16 @@ export class ProjectRepository {
             prompt,
             negative_prompt,
             image_url,
-            continuity_mode,
-            continuity_note,
-            created_at,
-            updated_at
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+           continuity_mode,
+           continuity_note,
+           episode_break_before,
+           episode_number,
+           episode_title,
+           episode_kind,
+           created_at,
+           updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
           RETURNING ${shotColumns}
           `,
           shotInsertParams(shot),
@@ -790,12 +856,62 @@ export class ProjectRepository {
     return result
   }
 
+  async updateShotEpisodes(
+    projectId: string,
+    updates: Array<Pick<Shot, 'id' | 'episodeNumber' | 'episodeTitle' | 'episodeKind'>>,
+    principal: Principal,
+  ): Promise<Shot[] | null> {
+    if (!this.database) {
+      const result = await this.updateShotEpisodesInStore(projectId, updates, principal)
+      if (result) await this.mirrorReplacedShots(projectId, result)
+      return result
+    }
+
+    const result = await this.database.transaction(async (client) => {
+      const project = await this.findWritableProject(client, projectId, principal, true)
+      if (!project) return null
+      const now = new Date().toISOString()
+      for (const update of updates) {
+        await client.query(
+          `
+          UPDATE shots
+          SET episode_number = $4, episode_title = $5, episode_kind = $6, updated_at = $7
+          WHERE id = $1 AND project_id = $2 AND tenant_id = $3
+          `,
+          [
+            update.id,
+            projectId,
+            principal.tenantId,
+            update.episodeNumber,
+            update.episodeTitle,
+            update.episodeKind,
+            now,
+          ],
+        )
+      }
+      await touchProject(client, projectId, principal.tenantId, now)
+      const shots = await client.query<ShotRow>(
+        `SELECT ${shotColumns} FROM shots WHERE project_id = $1 AND tenant_id = $2 ORDER BY shot_order ASC`,
+        [projectId, principal.tenantId],
+      )
+      return shots.rows.map(shotFromRow)
+    })
+    if (result) await this.mirrorReplacedShots(projectId, result)
+    return result
+  }
+
   private listFromStore(principal: Principal): Project[] {
     const canReadAll = canReadAllTenantContent(principal)
     return this.store.read((state) =>
       state.projects
         .filter((project) => project.tenantId === principal.tenantId)
+        .filter((project) => project.status !== 'archived')
         .filter((project) => canReadAll || project.ownerId === principal.userId)
+        .map((project) => ({
+          ...project,
+          previewUrl: projectPreviewUrl(project.id, state),
+          generationSummary: projectGenerationSummary(project.id, state),
+        }))
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     )
   }
@@ -1002,6 +1118,34 @@ export class ProjectRepository {
     })
   }
 
+  private async updateShotEpisodesInStore(
+    projectId: string,
+    updates: Array<Pick<Shot, 'id' | 'episodeNumber' | 'episodeTitle' | 'episodeKind'>>,
+    principal: Principal,
+  ): Promise<Shot[] | null> {
+    return this.store.mutate((state) => {
+      const project = state.projects.find(
+        (item) =>
+          item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
+      )
+      if (!project) return null
+      const changes = new Map(updates.map((update) => [update.id, update]))
+      const now = new Date().toISOString()
+      for (const shot of state.shots) {
+        const update = changes.get(shot.id)
+        if (!update || shot.projectId !== projectId || shot.tenantId !== principal.tenantId) continue
+        shot.episodeNumber = update.episodeNumber
+        shot.episodeTitle = update.episodeTitle
+        shot.episodeKind = update.episodeKind
+        shot.updatedAt = now
+      }
+      project.updatedAt = now
+      return state.shots
+        .filter((shot) => shot.projectId === projectId && shot.tenantId === principal.tenantId)
+        .sort((left, right) => left.order - right.order)
+    })
+  }
+
   private async findReadableProject(
     queryable: Queryable,
     projectId: string,
@@ -1192,10 +1336,14 @@ async function insertShotFromStore(client: PoolClient, shot: Shot): Promise<bool
       image_url,
       continuity_mode,
       continuity_note,
+      episode_break_before,
+      episode_number,
+      episode_title,
+      episode_kind,
       created_at,
       updated_at
     )
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
     WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
     ON CONFLICT (id) DO NOTHING
     RETURNING id
@@ -1255,6 +1403,10 @@ function shotInsertParams(shot: Shot): unknown[] {
     shot.imageUrl,
     shot.continuityMode,
     shot.continuityNote,
+    shot.episodeBreakBefore,
+    shot.episodeNumber,
+    shot.episodeTitle,
+    shot.episodeKind,
     shot.createdAt,
     shot.updatedAt,
   ]
@@ -1291,6 +1443,75 @@ function upsertShot(state: AppState, shot: Shot): void {
   } else {
     state.shots.push(shot)
   }
+}
+
+export function projectPreviewUrl(
+  projectId: string,
+  state: Pick<AppState, 'tasks' | 'shots' | 'assets'>,
+): string | null {
+  const completedVideoFrame = state.tasks
+    .filter((task) => task.projectId === projectId && task.kind === 'video' && task.status === 'completed')
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .flatMap((task) => task.outputs)
+    .find((output) => output.mediaType === 'image' && output.view === 'last-frame')
+  if (completedVideoFrame?.url) return completedVideoFrame.url
+
+  const storyboardImage = state.tasks
+    .filter((task) => task.projectId === projectId && task.kind === 'image' && task.status === 'completed')
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .flatMap((task) => task.outputs)
+    .find((output) => output.mediaType === 'image' && output.view === 'single')
+  if (storyboardImage?.url) return storyboardImage.url
+
+  const shotImage = state.shots
+    .filter((shot) => shot.projectId === projectId && shot.imageUrl)
+    .sort((left, right) => left.order - right.order)
+    .find((shot) => shot.imageUrl)?.imageUrl
+  if (shotImage) return shotImage
+
+  const asset = state.assets
+    .filter((item) => item.projectId === projectId && item.kind !== 'audio')
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .find((item) => assetPreviewUrl(item))
+  return asset ? assetPreviewUrl(asset) : null
+}
+
+export function projectGenerationSummary(
+  projectId: string,
+  state: Pick<AppState, 'tasks'>,
+): ProjectGenerationSummary {
+  const relevantStatuses = new Set(['queued', 'paused', 'running', 'failed'])
+  const tasks = state.tasks
+    .filter(
+      (task) =>
+        task.projectId === projectId &&
+        relevantStatuses.has(task.status) &&
+        typeof task.metadata?.queueHiddenAt !== 'string',
+    )
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+
+  return {
+    queued: tasks.filter((task) => task.status === 'queued').length,
+    paused: tasks.filter((task) => task.status === 'paused').length,
+    running: tasks.filter((task) => task.status === 'running').length,
+    failed: tasks.filter((task) => task.status === 'failed').length,
+    latest: tasks.slice(0, 3).map((task) => ({
+      id: task.id,
+      label: task.label,
+      kind: task.kind,
+      status: task.status as 'queued' | 'paused' | 'running' | 'failed',
+      progress: task.progress,
+      updatedAt: task.updatedAt,
+    })),
+  }
+}
+
+function assetPreviewUrl(asset: Asset): string | null {
+  if (asset.imageUrl) return asset.imageUrl
+  const attributes = asset.attributes as Record<string, unknown>
+  const faceReference = attributes.faceReference as { url?: unknown } | null | undefined
+  if (typeof faceReference?.url === 'string') return faceReference.url
+  return asset.references?.[0]?.url ?? null
 }
 
 function projectFromRow(row: ProjectRow): Project {
@@ -1347,6 +1568,10 @@ function shotFromRow(row: ShotRow): Shot {
     imageUrl: row.image_url,
     continuityMode: row.continuity_mode,
     continuityNote: row.continuity_note,
+    episodeBreakBefore: row.episode_break_before,
+    episodeNumber: Number(row.episode_number),
+    episodeTitle: row.episode_title,
+    episodeKind: row.episode_kind,
     createdAt: isoString(row.created_at),
     updatedAt: isoString(row.updated_at),
   }

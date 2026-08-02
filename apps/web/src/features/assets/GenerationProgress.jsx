@@ -1,19 +1,18 @@
-import { AlertCircle, CheckCircle2, CircleDot, LoaderCircle, Sparkles } from 'lucide-react'
+import { AlertCircle, CheckCircle2, CircleDot } from 'lucide-react'
+import { BrandMark } from '../../components/BrandMark'
 
 const PHASES = [
   { id: 'request', label: '发起申请', detail: '已加入生成队列' },
   { id: 'model', label: '调用模型', detail: '正在连接 Img2' },
   { id: 'produce', label: '生产中', detail: '模型正在绘制资产' },
 ]
-const QUEUED_STALE_MS = 15 * 60 * 1000
 
 export function GenerationProgress({ task, busy = false, compact = false }) {
   const phase = resolvePhase(task, busy)
   const failed = task?.status === 'failed' || task?.status === 'cancelled'
-  const staleQueued = isStaleQueuedTask(task)
   const completed = task?.status === 'completed'
 
-  if (failed || staleQueued) {
+  if (failed) {
     return (
       <div
         className={`generation-progress ${compact ? 'compact' : ''} failed`}
@@ -22,8 +21,8 @@ export function GenerationProgress({ task, busy = false, compact = false }) {
       >
         <AlertCircle size={compact ? 14 : 20} />
         <div>
-          <strong>{statusTitle(task, staleQueued)}</strong>
-          {!compact && <span>{statusDetail(task, staleQueued)}</span>}
+          <strong>{task.status === 'cancelled' ? '生成已取消' : '生成失败'}</strong>
+          {!compact && <span>{task.error || '可返回资产卡片重新生成'}</span>}
         </div>
       </div>
     )
@@ -36,7 +35,11 @@ export function GenerationProgress({ task, busy = false, compact = false }) {
       aria-live="polite"
     >
       <div className="generation-progress-head">
-        {completed ? <CheckCircle2 size={compact ? 14 : 20} /> : <Sparkles size={compact ? 14 : 18} />}
+        {completed ? (
+          <CheckCircle2 size={compact ? 14 : 20} />
+        ) : (
+          <BrandMark className="generation-progress-brand" size={compact ? 12 : 18} spin />
+        )}
         <div>
           <strong>{completed ? '资产已生成' : PHASES[phase].label}</strong>
           {!compact && <span>{completed ? '可以预览并确认资产' : phaseDetail(task, busy, phase)}</span>}
@@ -56,7 +59,6 @@ export function GenerationProgress({ task, busy = false, compact = false }) {
           ))}
         </div>
       )}
-      {!completed && task?.status === 'running' && <LoaderCircle size={compact ? 13 : 16} className="spin" />}
     </div>
   )
 }
@@ -77,31 +79,4 @@ function phaseDetail(task, busy, phase) {
   if (task?.status === 'paused') return '任务已暂停，可在生成队列恢复'
   if (task?.status === 'queued') return '等待可用并发资源'
   return PHASES[phase].detail
-}
-
-function isStaleQueuedTask(task) {
-  if (task?.status !== 'queued') return false
-  const updatedAt = Date.parse(task.updatedAt || task.createdAt || '')
-  return Number.isFinite(updatedAt) && Date.now() - updatedAt > QUEUED_STALE_MS
-}
-
-function statusTitle(task, staleQueued) {
-  if (staleQueued) return '队列状态已过期'
-  return task.status === 'cancelled' ? '生成已取消' : '生成失败'
-}
-
-function statusDetail(task, staleQueued) {
-  if (staleQueued) return '任务长时间未被 Worker 认领，请重启本地服务或重新提交'
-  return readableTaskError(task.error) || '可返回资产卡片重新生成'
-}
-
-function readableTaskError(error) {
-  if (!error) return ''
-  if (/aborted due to timeout|timed out|timeout/i.test(error)) {
-    return '第三方图片生成请求超时，本次图片没有生成成功；请稍后重试，或降低质量/减少参考图后再试'
-  }
-  if (/524:\s*A timeout occurred/i.test(error) || /TokenAdvent 图片请求失败 \(524\)/.test(error)) {
-    return '上游图片服务超时（524），本次图片没有生成成功；请稍后重试，或降低质量/减少参考图后再试'
-  }
-  return error
 }

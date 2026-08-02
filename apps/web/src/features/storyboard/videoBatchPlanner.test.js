@@ -47,6 +47,29 @@ describe('planVideoBatch', () => {
     expect(plan.immediateLaneCount).toBe(1)
   })
 
+  it('turns every shot into its own lane for explicit independent generation', () => {
+    const plan = planVideoBatch(shots(4), 'independent', 100)
+
+    expect(plan.lanes.map((lane) => lane.map((shot) => shot.id))).toEqual([
+      ['shot-1'],
+      ['shot-2'],
+      ['shot-3'],
+      ['shot-4'],
+    ])
+    expect(plan.lanes.flat().map((shot) => shot.continuityMode)).toEqual([
+      'independent',
+      'independent',
+      'independent',
+      'independent',
+    ])
+    expect(plan.continuityUpdates).toEqual([
+      { shotId: 'shot-2', continuityMode: 'independent' },
+      { shotId: 'shot-3', continuityMode: 'independent' },
+      { shotId: 'shot-4', continuityMode: 'independent' },
+    ])
+    expect(plan.immediateLaneCount).toBe(4)
+  })
+
   it('respects the free-plan single lane limit', () => {
     const plan = planVideoBatch(shots(4), 'parallel', 1)
 

@@ -33,7 +33,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 创作工�
 
 ### 已确定的产品决策
 
-- 前后端分离，创作端、独立管理员端、API 和共享契约保持独立边界。
+- 前后端分离，创作端、API、共享契约和未来管理员端保持独立边界。
 - 用户界面使用中文，交互应简单、一目了然，不模仿专业剪辑软件的复杂工作台。
 - 项目级画面比例支持 `9:16`、`16:9`、`1:1`，资产和分镜默认继承项目比例。
 - 项目概览允许直接编辑故事简介；剧本快速生成、专业视觉细节补齐和专业审核使用用户当前选择的视觉方向。视觉方向后续应升级为项目级持久字段。
@@ -51,7 +51,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 创作工�
 - 一键尝鲜入口位于剧本页顶部主操作区；模型返回非法 JSON 时，服务端会尝试修复，仍失败则从剧本的角色、场景和服装字段提取最小资产计划，避免客户看到“功能无响应”。
 - 超过 2,000 个非空白字符的长剧本进入保留原稿模式，模型必须保留全部场景和剧情事实；若模型输出比原稿短超过 15%，服务端拒绝覆盖并自动保留原稿。
 - 免费版每个用户同时运行 1 个生成任务，会员版同时运行 3 个。
-- 封闭外测使用本地账号密码和签名 HttpOnly Cookie；注册入口开放但必须使用组织邀请码。生产空数据卷只创建环境变量指定的 member、owner、super_admin 和 admin 账号，默认不写入演示项目。
+- 封闭外测使用本地账号密码和签名 HttpOnly Cookie，不开放注册；生产空数据卷只创建环境变量指定的创作者和管理员账号，默认不写入演示项目。
 - 登录前只加载认证页面，工作台和各流程页面按需拆包；前端任务轮询按运行中、空闲和后台标签页动态降频。
 - 第三方任务失败必须自动退还平台积分，退款必须幂等。
 - 管理员、权限、多租户和订阅能力预留边界，但当前只做适合三人团队的模块化单体，不提前拆微服务。
@@ -61,8 +61,8 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 创作工�
 - 真实音频生成、配音、混音和最终音轨合成。
 - 带音轨、字幕和交付参数的正式成片导出；当前只生成无声完整预览 MP4。
 - 真实支付、自动续费、发票和套餐购买。
-- 正式 OIDC/SSO、企业级组织生命周期、邮件/短信投递和完整合规流程。
-- 阿里云 OSS/CDN 或多云对象存储生产迁移；当前对象存储抽象已存在，本地/GCS 路径可用。
+- PostgreSQL、Redis、消息队列、正式 OIDC、阿里云 OSS 的生产部署。
+- 完整管理员端 UI。`apps/admin` 当前只是独立边界占位。
 
 ## 3. 当前真实完成状态
 
@@ -175,7 +175,7 @@ git diff --check
 apps/
   web/       React 创作端；登录、项目、剧本、资产、分镜、队列、成片、账单、设置
   api/       Fastify API；认证、项目、媒体、生成、计费、管理员模块
-  admin/     独立管理员端，集中承载平台和组织后台能力
+  admin/     未来独立管理员端的边界占位
 packages/
   contracts/ 前后端共享 Zod schema、类型、角色和权限
 docs/        架构、权限、Provider、部署、规范和本交接文档
@@ -307,7 +307,7 @@ queued -> running -> completed
 
 默认模型：
 
-- 文本：`glm-5.2`（2026-07-27 已通过 Rehdasu `/v1/chat/completions` 验证可用；SEQORA 5.4/5.5/5.6、DeepSeek V3、Kimi K3 仍保留为可选模型）
+- 文本：`gpt-5.6`（2026-07-23 已通过 TokenAdvent 模型列表确认可用）
 - 图片：`gpt-image-2`
 - 图片质量：`low`
 
@@ -378,9 +378,9 @@ queued -> running -> completed
 - `.env.example` 只能保留空值和变量说明。
 - 真实调用会产生外部费用。测试时先做一段剧本、少量低质量图片和一个 5 秒视频。
 
-## 9. BullMQ Worker 与 GenerationTaskRunner 工作方式
+## 9. GenerationTaskRunner 工作方式
 
-生产默认路径是 API 将生成任务触发写入 Redis/BullMQ，`apps/api/src/worker.ts` 作为独立进程消费队列并调用 `GenerationTaskRunner.tick()`；`TASK_QUEUE_DRIVER=inline` 只用于测试或临时本地回退。`GenerationTaskRunner` 在每次 tick 中执行：
+`GenerationTaskRunner` 是当前进程内 Worker，每 900ms 执行一次 tick：
 
 1. 补偿历史失败但尚未退款的任务。
 2. 按用户套餐计算可用并发：免费 1、会员 3。
@@ -517,9 +517,9 @@ RATE_LIMIT_MAX=300
 
 AUTH_MODE=local
 AUTH_SECRET=<至少 32 位随机值>
-BOOTSTRAP_MEMBER_NAME=<默认 C 端用户显示名>
-BOOTSTRAP_MEMBER_EMAIL=<空数据卷首次创建的默认 C 端用户邮箱>
-BOOTSTRAP_MEMBER_PASSWORD=<唯一强密码>
+BOOTSTRAP_CREATOR_NAME=<创作者显示名>
+BOOTSTRAP_CREATOR_EMAIL=<空数据卷首次创建的创作者邮箱>
+BOOTSTRAP_CREATOR_PASSWORD=<唯一强密码>
 BOOTSTRAP_ADMIN_NAME=<管理员显示名>
 BOOTSTRAP_ADMIN_EMAIL=<空数据卷首次创建的管理员邮箱>
 BOOTSTRAP_ADMIN_PASSWORD=<唯一强密码>
@@ -561,11 +561,8 @@ TOKENADVENT_BASE_URL=https://tokenadvent.com
 TOKENADVENT_API_KEY=<从密码管理器或部署 Secret 注入>
 IMG2_MODEL=gpt-image-2
 IMG2_QUALITY=low
-REHDASU_BASE_URL=https://tokenadvent.com
-REHDASU_API_KEY=<从密码管理器或部署 Secret 注入>
-REHDASU_MODEL=glm-5.2
-REHDASU_CHAT_COMPLETIONS_PATH=/v1/chat/completions
-TEXT_MODEL=glm-5.2
+TEXT_MODEL=gpt-5.6
+TEXT_API_KEY=<可选：Kimi/GLM 模型中转密钥；GPT 和图片继续使用 TOKENADVENT_API_KEY>
 TOKENADVENT_REQUEST_TIMEOUT_MS=180000
 ```
 
@@ -602,12 +599,10 @@ pnpm dev:web
 
 本地 Seed 账号：
 
-| 身份       | 邮箱                      | 密码                 |
-| ---------- | ------------------------- | -------------------- |
-| 普通会员   | `member@seqora.local`     | `MemberPassword123!` |
-| 所有者     | `owner@seqora.local`      | `OwnerPassword123!`  |
-| 超级管理员 | `superadmin@seqora.local` | `SuperAdmin123!`     |
-| 管理员     | `admin@seqora.local`      | `Admin123!`          |
+| 身份   | 邮箱                   | 密码          |
+| ------ | ---------------------- | ------------- |
+| 创作者 | `creator@seqora.local` | `Creator123!` |
+| 管理员 | `admin@seqora.local`   | `Admin123!`   |
 
 密码使用 scrypt 哈希保存，会话使用签名 HttpOnly Cookie。`BOOTSTRAP_*` 只在 `DATA_FILE` 不存在时读取，已有数据不会因环境变量变化而改密码。生产环境必须替换本地默认账号和 `AUTH_SECRET`。
 
@@ -656,7 +651,7 @@ apps/api/data/app.json
 - 主体包含 `userId`、`tenantId` 和 `roles`。
 - 路由使用稳定权限字符串，不直接依赖 UI 隐藏按钮。
 - Repository 再次按租户和用户过滤，形成纵深保护。
-- 角色分为平台身份和组织身份：`owner`、`super_admin`、`admin`、`member`、`organization_admin`、`organization_member`。`member` 是 C 端普通用户；`admin` 是平台内部运营/客服/审核；`organization_admin` 只能管理自己组织内的组织成员和记录；`organization_member` 只能使用自己组织授权的功能。旧 `creator` 已通过 migration 统一为 `member`，不要再新增 `creator`。
+- 角色：`creator`、`member`、`admin`、`owner`。
 - 会员是套餐并发策略，不应继续膨胀为多个角色。
 - 生产禁止 `AUTH_MODE=demo`。
 - 生产 OIDC/JWT 必须校验签名、issuer、audience 和过期时间，不能只 decode。
@@ -676,7 +671,7 @@ apps/api/data/app.json
 - 通用生成任务的 `estimatedCredits` 当前仍由前端提交，恶意客户端可以伪造低价格。上线付费前必须在后端按任务类型、模型、质量和输出数量计算价格。一键尝鲜已经使用服务端固定价格，不接受客户端报价。
 - 会员切换接口没有支付验证，只能用于 Demo。
 - 剧本生成走项目专用接口，目前不扣平台积分。
-- 计费预占、任务创建和 Outbox 事件已经在同一个 Postgres 事务里提交；外部 Provider 调用仍在 Worker 侧异步执行，必须继续保持幂等提交、失败退款和第三方对账。
+- 计费预占、任务创建和外部调用还不是跨数据库事务。
 
 ## 17. 已验证的质量状态
 
@@ -756,8 +751,8 @@ pnpm check
 ### P1：收费前必须完成
 
 1. 把项目视觉方向、专业审核结果、审核所基于的项目版本和“一键应用建议”记录持久化。当前 `ScriptPage.jsx` 只保存在 React state，刷新即丢失。
-2. 项目、资产、分镜、生成任务和账本已迁入 PostgreSQL；下一步继续补审核结果、媒体索引、数据导出/删除、备份恢复和跨租户审计。
-3. BullMQ/Redis 队列和 Postgres Outbox 已接入，API 不再内联执行生成任务；下一步补死信/人工重试界面、Provider 建单幂等键，以及“平台已退款但第三方可能已扣费”的自动对账队列。
+2. 把 JSON AppStore 换成 PostgreSQL，给项目、资产、分镜、任务、账本、审核结果和媒体建立迁移、索引、软删除、版本与备份策略。
+3. 把进程内 Worker 换成持久队列。任务创建、积分预占和 Outbox 必须在一个数据库事务中提交；Provider 建单使用幂等键，并建立“平台已退款但第三方可能已扣费”的自动对账队列。
 4. 使用正式 OIDC/JWT 或成熟身份服务，增加邀请、禁用、密码重置、租户成员管理、会话撤销和管理员审计；真实订阅只由支付回调改变权益。
 5. 上传文件按魔数检测真实类型，限制图片尺寸和解码资源，加入恶意文件扫描；大文件改为直传对象存储或流式上传，不能长期使用 `toBuffer()` 全量进入 API 内存。
 6. 增加用户协议、隐私说明、素材版权授权、人物肖像授权、内容安全审核、数据导出与删除流程。未完成前不接收敏感素材或公开注册。
@@ -768,9 +763,9 @@ pnpm check
 
 1. 将 `App.jsx` 约 680 行的页面编排和轮询迁移到稳定的数据请求层，将约 4329 行的 `App.css` 按功能拆分；保持现有视觉语言，不做无目标重写。
 2. 建立桌面与 390px 手机截图回归、Provider 契约测试、数据库迁移测试、队列恢复测试和性能基线。
-3. 独立管理员端继续补任务排障、Provider 成本、人工退款、内容处置、组织范围筛选和审计日志详情，不让管理员直接修改底层 JSON。
+3. 管理员端增加租户、账号、任务、成本、人工退款、内容处置和审计日志，不让管理员直接修改底层 JSON。
 4. 媒体使用 CDN、生命周期和删除策略；生成 Worker、FFmpeg 合成 Worker 与 API 独立扩缩容，并为每个租户设置配额与公平调度。
-5. 持续清理过时文档。账号、组织、账单、项目域、AI Job 和小说域已经以 Postgres 为主路径；事实应以源码、`docs/ARCHITECTURE.md`、`docs/AUTHORIZATION.md` 和本文最新章节为准。
+5. 清理过时文档。`docs/ARCHITECTURE.md` 仍写着空账本、空任务分发器和内存仓储，已与源码不符；事实应以本文和源码为准，随后同步更新其他文档。
 
 ### 傻瓜式专业 Agent 产品蓝图
 
@@ -877,7 +872,7 @@ pnpm check
 4. 执行 `pnpm install`，然后 `pnpm check`。
 5. 启动 `pnpm dev`。
 6. 检查 `/api/v1/health` 的 `seedance/img2/text/assetLibrary` 状态。
-7. 登录普通 member 账号并确认当前 Seed 数据；旧“客户全流程验收”项目当前不存在。
+7. 登录创作者账号并确认当前 Seed 数据；旧“客户全流程验收”项目当前不存在。
 8. 不要为验证完整预览自动重复真实生成；需要客户视频时先确认第三方费用。
 9. 修改任务、积分、权限或输出存储时必须添加测试。
 10. 用户没有明确批准时，不 commit、不 push、不改远端。
@@ -911,9 +906,9 @@ pnpm check
 - 正式 Demo 地址已切换为 `https://zjh.ai`。NameSilo 已正确委派到 Cloud DNS 的 `ns-cloud-b1~b4.googledomains.com`，Google/Cloudflare 公共 DNS 均解析到 `35.241.113.169`；HTTP 自动 308 跳转 HTTPS，健康检查返回 200，CORS 为 `https://zjh.ai`，Seedance、img2、text、assetLibrary 均为 configured。
 - 域名切换使用无密钥脚本 `deploy/switch-domain-gce.sh`，只更新 `/opt/seqora/deploy/demo.env` 的 `APP_ADDRESS`、`WEB_ORIGIN`、`PUBLIC_API_BASE_URL` 并强制重建容器。切换完成后一次性 `startup-script` 已从 GCE 实例元数据移除；本机部署凭据文件中的 URL 也已更新为 `https://zjh.ai`。
 - 源码部署包和运行数据包曾上传到临时私有 Bucket `gs://seqora-deploy-project-935680ce-9aaf-496a-bb7/releases/20260721/`；部署完成后已删除整个 Bucket，避免生产 `demo.env` 长期留在云端。运行数据包含当前项目 `app.json`、资产和生成媒体，不进入 Git。部署中修复了 `uploads/uploads` 的重复目录，完整成片 Range 请求已验证为 206、`video/mp4`、`1920 x 1080`、25.208333 秒。
-- 云端强账号凭据只保存在本机 `C:\Users\admin\Desktop\图片\seqora-deploy-credentials.txt`，禁止提交 GitHub 或发到聊天。迁移数据后的旧默认 member 账号凭据已失效，新默认 C 端用户和管理员账号登录均已验证。
+- 云端强账号凭据只保存在本机 `C:\Users\admin\Desktop\图片\seqora-deploy-credentials.txt`，禁止提交 GitHub 或发到聊天。迁移数据后的旧 `creator@seqora.local / Creator123!` 已失效，新创作者和管理员账号登录均已验证。
 - 云端浏览器验收：登录成功、4 个项目存在、《星渊越界》存在、Provider 状态正常、完整成片直接播放 `readyState=4`。当前项目后来扩展为 8 个分镜，旧 5 镜完整成片仍可从最近生成任务打开；成片页对当前 8 镜显示待重新生成是正确的一致性保护。
-- 代码侧新增可复用部署脚本：`deploy/package.ps1`、`deploy/credential-patch.mjs`、`deploy/bootstrap-gce.sh`。脚本排除运行数据和密钥，部署前必须重新生成包并校验 SHA-256。
+- 代码侧新增可复用部署脚本：`deploy/package.ps1`、`deploy/credential-patch.mjs`、`deploy/bootstrap-gce.sh`。运行数据与源码分包；生产 `demo.env` 只允许经 SSH/SCP 私密传输，部署后必须清理临时归档，部署前必须重新生成包并校验 SHA-256。
 - 本次本地最终检查：`pnpm check` 通过，125 项测试通过，API/Web/shared 构建通过。当前工作树仍有大量未提交改动，未执行 commit、push 或 reset。
 
 ## 23. 2026-07-21 本地用量与资产来源重构
@@ -929,7 +924,7 @@ pnpm check
 ## 24. 2026-07-21 账号改密与模块化 CI/CD
 
 - 已增加登录账号自助改密：前端入口位于“项目设置 -> 账号安全”，调用 `PUT /api/v1/auth/password`。服务端校验当前密码，新密码至少 12 位且不能与当前密码相同，继续使用 scrypt 哈希持久化；错误当前密码不会清除有效会话。
-- 截至 2026-07-21，云端首次账号仍由 `/opt/seqora/deploy/demo.env` 的 `BOOTSTRAP_MEMBER_*` 与 `BOOTSTRAP_ADMIN_*` 创建，且仅在空 `seqora_data` 卷首次启动时生效。修改这些变量不能修改现有账号；现有账号必须登录后自助改密。当时还没有忘记密码和管理员强制重置功能。
+- 云端首次账号仍由 `/opt/seqora/deploy/demo.env` 的 `BOOTSTRAP_CREATOR_*` 与 `BOOTSTRAP_ADMIN_*` 创建，且仅在空 `seqora_data` 卷首次启动时生效。修改这些变量不能修改现有账号；现有账号必须登录后自助改密。当前没有忘记密码和管理员强制重置功能。
 - 真实云端账号凭据仍只保存在本机忽略文件 `C:\Users\admin\Desktop\图片\seqora-deploy-credentials.txt`，禁止提交、打印到日志或复制进本文。改密后应同步更新该本机凭据记录。
 - `compose.demo.yml` 现在通过 `API_IMAGE` 和 `WEB_IMAGE` 独立选择镜像，同时保留本地 `build`。服务器私有 `deploy/release.env` 保存当前镜像引用，并被 Git 忽略。
 - `.github/workflows/ci.yml` 在完整 Push 范围内判断 API/Web 变化，并把经过检查的 `release-plan.env` 作为短期 Artifact 交给 `.github/workflows/deploy.yml`。只改 `apps/web` 时仅发布 Web，只改 `apps/api` 时仅发布 API；`packages/*`、锁文件、Compose 或发布脚本变化会发布两端；纯文档变化不发布。
@@ -944,7 +939,7 @@ pnpm check
 - 剧本页“一键尝鲜”真实流程为：自动保存当前剧本 -> 文本模型提取最多 1-2 个主要人物、1-2 套服装、1-2 个场景 -> 跳过同类型同名已有资产 -> 展示服务端积分/时间/并发报价 -> 用户确认后原子创建资产、扣积分并加入 Img2 队列 -> 前端刷新项目、任务、账单和会话。分析异常会先修复 JSON，再使用剧本字段提取兜底；没有新资产时不执行重复生成和扣费。
 - 本地浏览器只执行了真实尝鲜“分析计划”，没有点击最终生成：当前项目已有主要人物，因此计划返回 0 个人物、1 套服装、2 个场景，共 3 个任务和 18 积分报价。弹窗能清楚显示“分析完成”和待确认扣费状态，证明按钮、保存、Provider、计划接口和 UI 已闭环。
 - 分镜契约新增 `continuityNote`，旧项目读取时默认空字符串。按场次拆分会提取上一场末尾最多 320 字和本场开头最多 180 字；动作级细拆会优先提取上一镜动作。备注同时进入分镜图片与 Seedance 视频提示词，也可在分镜编辑器手工修改。不要把上一整场原文重复发送给每个镜头；真实 `last-frame -> first_frame` 仍是连续模式的第一优先级，文本上下文只补充人物位置、动作方向、服装、物品和光线状态。
-- Rehdasu 实时模型列表已确认包含 `glm-5.2`、`glm-5.2-fast`、`kimi-k3`、`kimi-k3-thinking`；当前实测 `glm-5.2` 和 `kimi-k3` 可用，`glm-5.2-fast` 与 `kimi-k3-thinking` 返回 503。默认中文文本模型已切换为 `glm-5.2`，但上游排队、输出长度和 JSON 修复仍可能影响耗时，不能承诺固定响应秒数。
+- TokenAdvent 实时模型列表已确认包含 `gpt-5.6`，本地、默认配置和部署示例均由 `gpt-5.4` 切换到 `gpt-5.6`。该切换减少了本次尝鲜等待，但上游排队、输出长度和 JSON 修复仍可能影响耗时，不能承诺固定响应秒数。
 - 本次 `pnpm check` 全部通过：API 92 项、Web 45 项、Contracts 12 项、Prompting 8 项，共 157 项测试；格式、lint、TypeScript 和生产构建均成功。桌面与 `390 x 844` 移动端无横向溢出，浏览器控制台无错误。
 
 ## 26. 2026-07-23 云端源码更新
@@ -954,21 +949,12 @@ pnpm check
 - 云端验证通过：`https://zjh.ai/` 返回 200，`/api/v1/health` 返回 200，未登录 `/api/v1/auth/me` 返回 401，`/api/v1/trusted-assets/configuration` 返回 `virtualRegistrationReady=true`；API 容器 healthy，Web 容器 running，8787 未直接暴露公网。
 - 云端当前配置确认：`PUBLIC_API_BASE_URL=https://zjh.ai`、`VIDEO_PROVIDER=stringx`、`TEXT_MODEL=gpt-5.6-terra`。本机 gcloud OAuth 刷新曾超时，本次使用已配置的 `seqoradeploy` SSH 密钥完成发布，不影响云端服务。
 
-## 27. 2026-07-31 账号、账单和后台基线
+## 27. 2026-07-27 新 GCE 轻量迁移
 
-- 账号/auth 已切到 Postgres：`users`、`auth_identities`、`sessions`、`tenants`、`tenant_memberships`、`billing_accounts`、`password_reset_tokens` 和 `audit_log_entries` 由 migration 管理。dev/test 启动可自动执行 migration；production 启动只检查是否最新，部署前显式运行 `pnpm --filter @seqora/api db:migrate`。
-- 注册入口已改为邀请码准入，`/api/v1/auth/register` 必须提交邀请 token、受邀邮箱、姓名和密码，邮箱需与邀请绑定邮箱一致；无 token、过期、已使用、撤销或邮箱不匹配都会失败。账号入口包括 bootstrap 首次账号、owner/super_admin/admin 按权限主动创建用户、添加已有用户和受控组织邀请 API；生产开放邀请邮件或忘记密码前仍需接邮件/短信投递、频控和运营流程。
-- 创作端 `5173` 已去后台化：只保留个人资料、个人 session、改密和组织切换；owner、super_admin、admin、organization_admin 看到跳转独立管理员端 `5174` 的入口，member 和 organization_member 看不到后台入口。
-- 独立管理员端 `5174` 是唯一后台：集中用户、组织、membership、账单、ledger、session 风险视图、审计日志、管理员重置密码和强制改密入口。权限或状态变更操作必须二次确认。
-- Billing ledger 已迁到 Postgres，扣费、退款、grant 和 admin adjustment 在数据库事务中完成并保持幂等 reference；JSON ledger 只作为历史备份，不再作为业务来源。
-- Admin Console API 已统一：`GET /api/v1/admin/console` 返回 overview、用户、租户、membership、账单账户、账单流水、session 和审计日志；同时保留分项列表、账号启停、管理员充值/调账和后台撤销 session API。
-- CI `database` job 起 Postgres 和 Redis，执行 migration，并运行 `postgres.test.ts`、`auth/routes.test.ts`、`accountManagement/routes.test.ts`、`billing/creditLedger.test.ts`、`config.test.ts` 和 `core/jobs/bullMqQueue.test.ts`。分支保护应同时要求 `CI / quality` 和 `CI / database`。
-- 仍未完成：支付/订阅回调、邮件/短信投递、队列监控和死信处理、Worker 横向扩缩容与恢复演练、数据导出/删除、音频和正式成片交付链路。
-
-## 28. 2026-08-01 Stripe 沙箱支付闭环
-
-- 真实支付沙箱已按 Stripe test mode 接入：创作端账单页只创建 checkout session 并跳转 Stripe 托管支付页，前端不再允许自助修改套餐权益。
-- API 新增 `GET /billing/payment/configuration`、`POST /billing/checkout/subscription`、`POST /billing/checkout/credits` 和 `POST /billing/webhooks/stripe`；Stripe webhook 校验签名并使用原始 body。
-- Postgres 新增 `billing_payment_sessions` 和 `billing_payment_reconciliation_items`；后台 `GET /admin/billing/reconciliation` 与 `/admin/console.billingPaymentReconciliation` 可查询支付对账。
-- Stripe event 映射：`checkout.session.completed` 处理订阅开通或积分充值，`invoice.paid` 处理续费，`customer.subscription.deleted` 处理取消，`charge.refunded` 处理积分退款扣回。所有入账仍通过 DB billing ledger 幂等处理。
-- 正式生产仍需补 Stripe 正式价格和 webhook endpoint、订阅状态补偿任务、退款余额不足运营规则、发票/税务、支付失败通知和 failed reconciliation 告警。详细流程见 `docs/BILLING_PAYMENTS.md`。
+- 新实例为 `instance-20260726-112218`，项目 `project-b3b9bf9e-3c8b-4fbc-9cc`，区域 `asia-east2-b`，规格 `n2d-standard-4`，约 4 vCPU、16GB 内存、250GB 系统盘。公网地址 `34.92.246.97` 已提升为区域静态地址 `seqora-prod-ip`。
+- 新增 `seqora-web` 网络标签和 `seqora-allow-web` 防火墙规则，只开放 TCP 80/443 与 UDP 443；API 的 8787 仍只在 Docker 网络内暴露。Docker Engine、Buildx 和 Compose Plugin 使用 Docker 官方 Debian 仓库安装。
+- `deploy/package.ps1` 默认不再生成约 391MB 的本地运行数据包，只有传入 `-IncludeRuntimeData` 才迁移 `apps/api/data`。本次实际源码归档为 1.16MB，新服务器使用全新 `seqora_data` 卷，未迁移旧服务器项目、素材或任务。
+- `.dockerignore` 排除生产 `demo.env`、本地数据、依赖、构建产物、测试和文档；API/Web Dockerfile 使用过滤后的工作区依赖与 BuildKit pnpm 缓存。首次 API/Web 构建约 93 秒，后续依赖未变化时可复用缓存。
+- 新机生产资源限制为 API 3 CPU、4GB 内存、2GB Node 堆，Web/Caddy 0.5 CPU、256MB 内存。空闲实测 API 约 87MB、Web 约 16MB，服务器仍保留充足空间给 FFmpeg 和并发任务。
+- `zjh.ai` 已切换解析至 `34.92.246.97`，Google DNS 与 Cloudflare DNS 均返回新地址；Caddy 已取得正式证书。公网首页和 `/api/v1/health` 返回 200，未登录 `/api/v1/auth/me` 返回 401，Seedance、Img2、文本和弦序 MaaS 素材库均显示 configured。
+- 旧实例未被停止或修改，可在确认新机业务流程、账号和新数据卷无误后再单独下线。新机初始化脚本为 `deploy/bootstrap-fresh-gce.sh`，生产临时源码归档会在成功部署后从服务器删除。

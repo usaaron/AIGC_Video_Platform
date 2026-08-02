@@ -243,7 +243,6 @@ export class NovelService implements AiJobHandler {
           systemPrompt: NOVEL_BOUNDARY_NOTE_SYSTEM_PROMPT,
           userPrompt: boundaryNotesPrompt(current.document.name, selected),
           maxOutputTokens: Math.min(6_000, Math.max(1_200, selected.length * 320)),
-          model: input.model,
         })
         const parsed = parseBoundaryNotesProviderJson(response)
         const drafts = parsed.notes
@@ -758,7 +757,6 @@ export class NovelService implements AiJobHandler {
           systemPrompt: NOVEL_CHAPTER_SUMMARY_SYSTEM_PROMPT,
           userPrompt: chapterSummaryPrompt(source.document.name, selectedChapters),
           maxOutputTokens: chapterSummaryMaxTokens(selectedChapters.length),
-          model: input.model,
         })
         const parsed = parseChapterSummariesProviderJson(response)
         const drafts = parsed.summaries
@@ -850,7 +848,6 @@ export class NovelService implements AiJobHandler {
           systemPrompt: NOVEL_STORY_BIBLE_SYSTEM_PROMPT,
           userPrompt: storyBiblePrompt(source.document.name, selectedSummaries, source.document.chapterCount),
           maxOutputTokens: NOVEL_STORY_BIBLE_MAX_TOKENS,
-          model: input.model,
         })
         const parsed = parseStoryBibleProviderJson(response)
         const storyBible = await this.repository.saveStoryBible(
@@ -896,7 +893,6 @@ export class NovelService implements AiJobHandler {
           systemPrompt: NOVEL_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
           userPrompt: novelAssetSuggestionsPrompt(source, input.maxAssets),
           maxOutputTokens: NOVEL_ASSET_SUGGESTIONS_MAX_TOKENS,
-          model: input.model,
         })
         result = scriptAssetSuggestionsContentSchema.parse(
           parseProviderJsonValue(response, '小说资产建议结果格式错误'),
@@ -962,7 +958,6 @@ export class NovelService implements AiJobHandler {
             input,
           ),
           maxOutputTokens: NOVEL_CHAPTER_ADAPTATION_MAX_TOKENS,
-          model: input.model,
         })
         const script = normalizeAdaptedScript(response)
         if (!script) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', '章节改编剧本为空')
@@ -1839,9 +1834,7 @@ function fallbackNovelAssetSuggestions(
     source.summaries.flatMap((summary) => summary.keyProps),
     5,
   )
-  const costumes = characters
-    .filter((character) => inferNovelCharacterSubjectType(character.name) === 'human')
-    .slice(0, 3)
+  const costumes = characters.slice(0, 3)
   const assets: ScriptAssetSuggestion[] = [
     ...characters.map(novelCharacterSuggestion),
     ...locations.map(novelSceneSuggestion),
@@ -1917,33 +1910,37 @@ function novelEntitySeeds(
 }
 
 function novelCharacterSuggestion(seed: NovelCharacterSeed): ScriptAssetSuggestion {
-  const nameAndRole = `${seed.name} ${seed.role}`
-  const text = `${nameAndRole} ${seed.description} ${seed.visualNotes}`
-  const subjectType = inferNovelCharacterSubjectType(nameAndRole)
-  const gender = subjectType === 'animal' ? 'unspecified' : inferNovelCharacterGender(nameAndRole, text)
-  const exactAge = subjectType === 'animal' ? null : inferNovelCharacterExactAge(text)
-  const ageGroup = subjectType === 'animal' ? 'young' : inferNovelCharacterAge(nameAndRole, text, exactAge)
-  const identityTags = novelCharacterIdentityTags(seed.name, nameAndRole, text, subjectType)
-  const profile =
-    subjectType === 'animal'
-      ? ['动物角色', ...identityTags].filter(Boolean)
-      : [
-          gender === 'male' ? '男性' : gender === 'female' ? '女性' : '',
-          exactAge ? `${exactAge}岁` : ageLabel(ageGroup),
-          ...identityTags,
-        ].filter(Boolean)
+  const text = `${seed.name} ${seed.role} ${seed.description} ${seed.visualNotes}`
+  const evidence = novelCharacterOwnEvidence(seed.name, text)
+  const subjectType = inferNovelCharacterSubjectType(evidence)
+  const animal = subjectType === 'animal'
+  const gender = animal ? 'unspecified' : inferNovelCharacterGender(seed.name, evidence)
+  const exactAge = animal ? null : inferNovelCharacterExactAge(evidence)
+  const ageGroup = animal
+    ? 'young'
+    : exactAge
+      ? novelAgeGroupFromExactAge(exactAge)
+      : inferNovelCharacterAge(evidence)
+  const identityTags = animal
+    ? novelAnimalIdentityTags(evidence)
+    : novelCharacterIdentityTags(evidence, seed.name)
+  const profile = animal
+    ? ['动物角色', ...identityTags]
+    : [
+        gender === 'male' ? '男性' : gender === 'female' ? '女性' : '',
+        exactAge ? `${exactAge}岁` : ageLabel(ageGroup),
+        ...identityTags,
+      ].filter(Boolean)
+  const subjectPrompt = animal
+    ? `${seed.name}/${identityTags[0] || '动物角色'}，自然动物形态，保留明确物种特征`
+    : `${seed.name}，${profile.join('，')}`
   return {
     kind: 'character',
     name: seed.name,
     description: `${seed.name}，${profile.join('，') || seed.role}。${seed.description}`,
-    prompt: `${seed.name}，${profile.join('，')}，${seed.visualNotes || seed.description}，中文 AI 视频角色设定，${
-      subjectType === 'animal' ? '形体特征清晰' : '全身完整，面部清晰'
-    }，造型稳定，符合小说事实源。`,
+    prompt: `${subjectPrompt}，${seed.visualNotes || seed.description}，中文 AI 视频人物设定，全身完整，面部清晰，造型稳定，符合小说事实源。`,
     negativePrompt: '',
-    reason:
-      subjectType === 'animal'
-        ? '小说事实源中的核心动物角色，后续镜头需要保持物种、体态和行为特征一致。'
-        : '小说事实源中的核心人物，后续镜头需要保持身份、年龄、职业和外观一致。',
+    reason: '小说事实源中的核心人物，后续镜头需要保持身份、年龄、职业和外观一致。',
     priority: 5,
     attributes: {
       type: 'character',
@@ -1951,7 +1948,11 @@ function novelCharacterSuggestion(seed: NovelCharacterSeed): ScriptAssetSuggesti
       gender,
       ageGroup,
       exactAge,
-      species: subjectType === 'animal' ? animalSpecies(seed.name, text) : '',
+      ethnicity: 'unspecified',
+      skinTone: 'unspecified',
+      eyeColor: 'unspecified',
+      hairColor: 'unspecified',
+      species: animal ? seed.name : '',
       anthropomorphic: false,
       visualStyle: 'cinematic-cg',
       framing: 'full',
@@ -1966,6 +1967,8 @@ function novelCharacterSuggestion(seed: NovelCharacterSeed): ScriptAssetSuggesti
       legStretch: false,
       turnaround: false,
       turnaroundLayout: 'sheet',
+      appearanceVariants: [],
+      activeAppearanceVariantId: null,
     },
   }
 }
@@ -2019,10 +2022,9 @@ function novelPropSuggestion(seed: NovelEntitySeed): ScriptAssetSuggestion {
 }
 
 function novelCostumeSuggestion(seed: NovelCharacterSeed): ScriptAssetSuggestion {
-  const nameAndRole = `${seed.name} ${seed.role}`
-  const text = `${nameAndRole} ${seed.description} ${seed.visualNotes}`
-  const gender = inferNovelCharacterGender(nameAndRole, text)
-  const identityTags = novelCharacterIdentityTags(seed.name, nameAndRole, text, 'human')
+  const text = `${seed.name} ${seed.role} ${seed.description} ${seed.visualNotes}`
+  const gender = inferNovelCharacterGender(seed.name, text)
+  const identityTags = novelCharacterIdentityTags(text, seed.name)
   return {
     kind: 'costume',
     name: `${seed.name}常用服装`,
@@ -2044,56 +2046,58 @@ function novelCostumeSuggestion(seed: NovelCharacterSeed): ScriptAssetSuggestion
   }
 }
 
-function inferNovelCharacterSubjectType(text: string): 'human' | 'animal' {
-  return /黄狗|狗|犬|猫|马|牛|羊|鸟|鸡|鸭|鹅|虎|狼|鹿/u.test(text) ? 'animal' : 'human'
-}
-
-function inferNovelCharacterGender(nameAndRole: string, fullText: string): 'male' | 'female' | 'unspecified' {
-  if (/翠翠|母亲|女儿|外孙女|孙女|女性|少女|姑娘|女孩|娘|妻|小姐/u.test(nameAndRole)) return 'female'
-  if (/老船夫|船夫|祖父|爷爷|爷|爹|父亲|男人|男性|哥哥|弟弟|少爷|军人/u.test(nameAndRole)) {
-    return 'male'
-  }
-  if (/女性|少女|姑娘|女孩|母亲|娘|妻|小姐|她\b/u.test(fullText)) return 'female'
-  if (/男性|男人|父亲|哥哥|弟弟|少爷|军人|他\b/u.test(fullText)) return 'male'
+function inferNovelCharacterGender(name: string, text: string): 'male' | 'female' | 'unspecified' {
+  if (text.includes(`${name}：男性`) || text.includes(`${name}:男性`)) return 'male'
+  if (text.includes(`${name}：女性`) || text.includes(`${name}:女性`)) return 'female'
+  if (/老船夫|船夫|祖父|爷爷|爷|爹|父亲|男人|男性|哥哥|弟弟|少爷|他\b/u.test(text)) return 'male'
+  if (/翠翠|女性|少女|姑娘|女孩|母亲|娘|妻|小姐|她\b/u.test(text)) return 'female'
   return 'unspecified'
 }
 
-function inferNovelCharacterAge(
-  nameAndRole: string,
-  fullText: string,
-  exactAge: number | null,
-): 'child' | 'teen' | 'young' | 'middle' | 'senior' {
-  if (exactAge) {
-    if (exactAge <= 12) return 'child'
-    if (exactAge <= 18) return 'teen'
-    if (exactAge <= 35) return 'young'
-    if (exactAge <= 55) return 'middle'
-    return 'senior'
-  }
-  if (/老|年迈|祖父|爷爷|爷|老人|老船夫|老年|晚年/u.test(nameAndRole)) return 'senior'
-  if (/儿童|孩子|小孩|幼/u.test(nameAndRole)) return 'child'
-  if (/少年|少女|十几/u.test(nameAndRole)) return 'teen'
-  if (/中年/u.test(nameAndRole)) return 'middle'
-  if (/儿童|孩子|小孩|幼/u.test(fullText)) return 'child'
-  if (/少年|少女|十几/u.test(fullText)) return 'teen'
-  if (/中年/u.test(fullText)) return 'middle'
+function inferNovelCharacterSubjectType(text: string): 'human' | 'animal' {
+  return /黄狗|家犬|狗|犬|猫|狼|虎|豹|狐|熊|鹿|兔|鸟|鹰|马|妖兽|灵兽/u.test(text) ? 'animal' : 'human'
+}
+
+function novelAnimalIdentityTags(text: string): string[] {
+  if (/黄狗|家犬|狗|犬/u.test(text)) return ['家犬']
+  if (/猫/u.test(text)) return ['猫科动物']
+  if (/马/u.test(text)) return ['马匹']
+  return ['动物角色']
+}
+
+function novelCharacterOwnEvidence(name: string, text: string): string {
+  const clauses = text
+    .split(/[；;\n]/u)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.includes(name))
+  return clauses.length ? clauses.join('；') : text
+}
+
+function inferNovelCharacterAge(text: string): 'child' | 'teen' | 'young' | 'middle' | 'senior' {
+  if (/老|年迈|祖父|爷爷|爷|老人|老船夫|老年|晚年/u.test(text)) return 'senior'
+  if (/儿童|孩子|小孩|幼/u.test(text)) return 'child'
+  if (/少年|少女|十几/u.test(text)) return 'teen'
+  if (/中年/u.test(text)) return 'middle'
   return 'young'
 }
 
 function inferNovelCharacterExactAge(text: string): number | null {
-  const digitMatch = text.match(/(\d{1,3})岁/u)
-  if (digitMatch) return normalizeNovelAge(Number(digitMatch[1]))
-  const chineseMatch = text.match(/([零〇一二三四五六七八九十百两]{1,8})岁/u)
-  if (!chineseMatch) return null
-  return normalizeNovelAge(parseNovelChineseAge(chineseMatch[1] || ''))
+  const token = text.match(/([0-9零〇一二三四五六七八九十百两]{1,4})\s*岁/u)?.[1]
+  if (!token) return null
+  const parsed = /^\d+$/u.test(token) ? Number(token) : parseNovelChineseNumber(token)
+  return Number.isFinite(parsed) && parsed >= 1 && parsed <= 120 ? parsed : null
 }
 
-function normalizeNovelAge(value: number): number | null {
-  return Number.isInteger(value) && value >= 1 && value <= 120 ? value : null
+function novelAgeGroupFromExactAge(age: number): 'child' | 'teen' | 'young' | 'middle' | 'senior' {
+  if (age < 13) return 'child'
+  if (age <= 18) return 'teen'
+  if (age < 30) return 'young'
+  if (age < 50) return 'middle'
+  return 'senior'
 }
 
-function parseNovelChineseAge(value: string): number {
-  const digitMap: Record<string, number> = {
+function parseNovelChineseNumber(value: string): number {
+  const digits: Record<string, number> = {
     零: 0,
     〇: 0,
     一: 1,
@@ -2110,56 +2114,34 @@ function parseNovelChineseAge(value: string): number {
   let total = 0
   let current = 0
   let hasUnit = false
-  for (const char of value.trim()) {
-    if (char === '百') {
+  for (const character of value) {
+    if (character === '百') {
       total += (current || 1) * 100
       current = 0
       hasUnit = true
-      continue
-    }
-    if (char === '十') {
+    } else if (character === '十') {
       total += (current || 1) * 10
       current = 0
       hasUnit = true
-      continue
+    } else if (digits[character] !== undefined) {
+      current = digits[character]
+    } else {
+      return Number.NaN
     }
-    const digit = digitMap[char]
-    if (digit === undefined) return NaN
-    current = digit
   }
   return hasUnit ? total + current : current
 }
 
-function novelCharacterIdentityTags(
-  name: string,
-  nameAndRole: string,
-  fullText: string,
-  subjectType: 'human' | 'animal',
-): string[] {
-  const text = `${nameAndRole} ${fullText}`
+function novelCharacterIdentityTags(text: string, name: string): string[] {
   const tags: string[] = []
-  if (subjectType === 'animal') {
-    if (/黄狗|狗|犬/u.test(text)) tags.push('黄狗/家犬')
-    return [...new Set(tags)].slice(0, 4)
-  }
-  if (/老船夫|船夫|摆渡|守渡|渡口船夫/u.test(nameAndRole)) tags.push('船夫/摆渡人')
-  if (/祖父|爷爷|爷/u.test(nameAndRole)) tags.push('祖父')
-  if (name === '翠翠' || /湘西少女|少女|姑娘|女孩|外孙女|孙女/u.test(nameAndRole)) {
-    tags.push('湘西少女')
-  }
-  if (/外孙女|孙女/u.test(nameAndRole)) tags.push('外孙女')
+  if (/船夫|摆渡/u.test(name) || /船夫[/／]摆渡人|摆渡老人/u.test(text)) tags.push('船夫/摆渡人')
+  if (/祖父|爷爷/u.test(name) || /的祖父|是祖父|担任祖父/u.test(text)) tags.push('祖父')
+  if (/外孙女|孙女/u.test(text)) tags.push('外孙女')
+  if (/翠翠|少女|姑娘/u.test(name)) tags.push('湘西少女')
   if (/导演/u.test(text)) tags.push('导演')
   if (/药师|医生/u.test(text)) tags.push('医者')
   if (/剑客|武侠|门派/u.test(text)) tags.push('武侠人物')
   return [...new Set(tags)].slice(0, 4)
-}
-
-function animalSpecies(name: string, text: string): string {
-  if (/黄狗|狗|犬/u.test(`${name} ${text}`)) return '黄狗'
-  if (/猫/u.test(`${name} ${text}`)) return '猫'
-  if (/马/u.test(`${name} ${text}`)) return '马'
-  if (/牛/u.test(`${name} ${text}`)) return '牛'
-  return '动物'
 }
 
 function ageLabel(ageGroup: 'child' | 'teen' | 'young' | 'middle' | 'senior'): string {

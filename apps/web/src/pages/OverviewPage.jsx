@@ -2,6 +2,7 @@ import { ArrowRight, BadgeCheck, Check, Crown, LoaderCircle, Pencil, Play, Plus,
 import { useState } from 'react'
 import { normalizedVideoDuration } from '@seqora/prompting'
 import { IconButton, JobRow, PageHeader, StatusDot } from '../components/ui'
+import { getAssetPreviewUrl } from '../features/assets/assetPreview'
 import { projectRatioMode } from '../features/film/projectRatio'
 
 export function OverviewPage({
@@ -19,8 +20,16 @@ export function OverviewPage({
   const completed = jobs.filter((job) => job.status === 'completed').length
   const completedVideos = jobs.filter((job) => job.kind === 'video' && job.status === 'completed').length
   const running = jobs.filter((job) => job.status === 'running')
-  const totalDuration = shots.reduce((sum, shot) => sum + normalizedVideoDuration(shot.duration), 0)
+  const shotMinDuration = project?.contentType === 'short-drama' ? 3 : 4
+  const totalDuration = shots.reduce(
+    (sum, shot) => sum + normalizedVideoDuration(shot.duration, shotMinDuration),
+    0,
+  )
   const ratioMode = projectRatioMode(project.aspectRatio)
+  const projectPreview =
+    project.previewUrl ||
+    shots.find((shot) => shot.imageUrl)?.imageUrl ||
+    assets.map(getAssetPreviewUrl).find(Boolean)
   const progress = Math.min(
     100,
     Math.round(
@@ -53,7 +62,8 @@ export function OverviewPage({
               <StatusDot status="running" /> {project.status === 'producing' ? '制作中' : '草稿'}
             </span>
             <span>
-              {project.aspectRatio} · {project.contentType === 'short-drama' ? '短剧' : '视频项目'}
+              {project.aspectRatio} · {contentTypeLabel(project.contentType)} ·{' '}
+              {visualStyleLabel(project.visualStyle)}
             </span>
           </div>
           <div className="synopsis-display">
@@ -96,7 +106,7 @@ export function OverviewPage({
           onClick={() => setActiveStep('film')}
           aria-label="预览成片"
         >
-          <img src={shots[0]?.imageUrl || '/demo/station.jpg'} alt="项目预览" />
+          <img src={projectPreview || '/demo/station.jpg'} alt="项目预览" />
           <span className="preview-play">
             <Play size={21} fill="currentColor" />
           </span>
@@ -195,6 +205,25 @@ export function OverviewPage({
         />
       )}
     </div>
+  )
+}
+
+function contentTypeLabel(value) {
+  if (value === 'advertisement') return '广告'
+  if (value === 'animation') return '短片'
+  return '网剧'
+}
+
+function visualStyleLabel(value) {
+  return (
+    {
+      photorealistic: '仿真人',
+      'cinematic-cg': 'CG风',
+      'chinese-2d': '2D风',
+      'chinese-3d': '3D国漫风',
+      anime: '日漫风',
+      storybook: '绘本风',
+    }[value || 'cinematic-cg'] || 'CG风'
   )
 }
 

@@ -494,13 +494,7 @@ async function createMemberWithWorkspace(
   })
   expect(created.statusCode).toBe(201)
 
-  await verifyEmailAddress(email)
-
-  const loginResponse = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/login',
-    payload: { email, password },
-  })
+  const loginResponse = await activateProvisionedAccount(email, password)
   expect(loginResponse.statusCode).toBe(200)
   expect(loginResponse.json().account.roles).toEqual(['member'])
   return {
@@ -510,24 +504,36 @@ async function createMemberWithWorkspace(
   }
 }
 
-async function verifyEmailAddress(email: string): Promise<void> {
+async function activateProvisionedAccount(email: string, temporaryPassword: string) {
   if (!app) throw new Error('App is not ready')
-  const request = await app.inject({
+  const initialLogin = await app.inject({
     method: 'POST',
-    url: '/api/v1/auth/email-verification/request',
-    payload: { email },
+    url: '/api/v1/auth/login',
+    remoteAddress: '10.0.0.2',
+    payload: { email, password: temporaryPassword },
   })
-  expect(request.statusCode).toBe(202)
-  const token = request.json().verificationToken as string | undefined
-  expect(token).toEqual(expect.any(String))
-  if (!token) throw new Error(`Expected verification token for ${email}`)
+  expect(initialLogin.statusCode).toBe(200)
+  expect(initialLogin.json()).toMatchObject({ account: { passwordResetRequired: true } })
 
-  const verified = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/email-verification/verify',
-    payload: { token },
+  const newPassword = `Ready-${temporaryPassword}`
+  const changed = await app.inject({
+    method: 'PUT',
+    url: '/api/v1/auth/password',
+    remoteAddress: '10.0.0.2',
+    headers: { cookie: cookieValue(initialLogin) },
+    payload: { currentPassword: temporaryPassword, newPassword },
   })
-  expect(verified.statusCode).toBe(204)
+  expect(changed.statusCode).toBe(204)
+
+  const readyLogin = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    remoteAddress: '10.0.0.2',
+    payload: { email, password: newPassword },
+  })
+  expect(readyLogin.statusCode).toBe(200)
+  expect(readyLogin.json()).toMatchObject({ account: { passwordResetRequired: false } })
+  return readyLogin
 }
 
 async function withDatabase(operation: (database: AccountDatabase) => Promise<void>): Promise<void> {

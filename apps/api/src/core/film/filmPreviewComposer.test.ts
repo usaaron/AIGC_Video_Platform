@@ -12,6 +12,14 @@ describe('FilmPreviewComposer', () => {
     const store = new AppStore(null)
     await store.initialize()
     const sources = [sourceTask('source-1', 'provider-1'), sourceTask('source-2', 'provider-2')]
+    sources[1].metadata.generatedOutputs = [
+      {
+        view: 'single',
+        storageKey: 'cached/source-2.mp4',
+        contentType: 'video/mp4',
+        size: 21,
+      },
+    ]
     const preview = previewTask(sources.map((task) => task.id))
     await store.mutate((state) => {
       state.tasks.unshift(preview, ...sources)
@@ -33,7 +41,7 @@ describe('FilmPreviewComposer', () => {
         contentRange: null,
       })),
     }
-    const stored = new Map<string, Buffer>()
+    const stored = new Map<string, Buffer>([['cached/source-2.mp4', Buffer.from('cached-video-source-2')]])
     const storage: ObjectStorage = {
       put: vi.fn(async (key, content) => {
         stored.set(key, content)
@@ -50,7 +58,7 @@ describe('FilmPreviewComposer', () => {
       storage,
       'ffmpeg',
       60_000,
-      'stringx-seedance',
+      'aideos-seedance',
       async (inputPaths, outputPath, nextTarget) => {
         expect(inputPaths).toHaveLength(2)
         target = nextTarget
@@ -77,7 +85,7 @@ describe('FilmPreviewComposer', () => {
 
     const completed = store.read((state) => state.tasks.find((task) => task.id === preview.id)!)
     expect(target).toEqual({ width: 1080, height: 1920 })
-    expect(provider.getContent).toHaveBeenCalledTimes(2)
+    expect(provider.getContent).toHaveBeenCalledTimes(1)
     expect(completed).toMatchObject({
       progress: 100,
       resultUrl: `/api/v1/generation/tasks/${preview.id}/content`,

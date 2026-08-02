@@ -1,7 +1,11 @@
 export function getAssetPreviewUrl(asset) {
   if (asset.kind === 'audio') return null
   if (asset.kind === 'character') {
+    const activeVariant = (asset.attributes?.appearanceVariants || []).find(
+      (variant) => variant.id === asset.attributes?.activeAppearanceVariantId,
+    )
     return (
+      activeVariant?.bodyReference?.url ||
       asset.attributes?.bodyReference?.url ||
       asset.imageUrl ||
       asset.attributes?.faceReference?.url ||

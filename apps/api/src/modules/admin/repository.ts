@@ -552,7 +552,13 @@ export class AdminRepository {
         WHERE id = $1
         RETURNING *
         `,
-        [alertId, input.status, principal.userId, input.message ?? null, JSON.stringify(input.metadata ?? {})],
+        [
+          alertId,
+          input.status,
+          principal.userId,
+          input.message ?? null,
+          JSON.stringify(input.metadata ?? {}),
+        ],
       )
       return updated.rows[0] ? toAdminBillingReconciliationAlert(updated.rows[0]) : null
     })

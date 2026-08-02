@@ -551,7 +551,7 @@ export class VideoTaskExecutor {
         }
       }
       const compiledPrompt = compileStoryboardVideoPrompt({
-        project,
+        project: { ...project, visualStyle: project.visualStyle ?? 'cinematic-cg' },
         shot,
         shots,
         assets,

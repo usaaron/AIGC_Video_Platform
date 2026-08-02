@@ -7,7 +7,10 @@ export function PasswordResetPage() {
   const token = useMemo(() => new URLSearchParams(window.location.search).get('token') ?? '', [])
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [state, setState] = useState({ status: token ? 'idle' : 'error', message: token ? '' : '重置链接缺少 token。' })
+  const [state, setState] = useState({
+    status: token ? 'idle' : 'error',
+    message: token ? '' : '重置链接缺少 token。',
+  })
 
   const submit = async (event) => {
     event.preventDefault()

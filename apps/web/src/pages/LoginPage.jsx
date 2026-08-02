@@ -50,10 +50,15 @@ export function LoginPage() {
           password,
         })
       } else {
+        if (password.trim().toUpperCase() === 'RESET REQUIRED') {
+          throw new LoginInputError(
+            '“RESET REQUIRED”是账号状态，不是登录密码。请让管理员在用户列表中点击“重置临时密码”。',
+          )
+        }
         await login({ email: email.trim(), password })
       }
     } catch (requestError) {
-      setError(authErrorMessage(requestError, isRegistering, isForgotPassword))
+      setError(authErrorMessage(requestError, { isRegistering, isForgotPassword }))
     } finally {
       setSubmitting(false)
     }
@@ -134,7 +139,7 @@ export function LoginPage() {
                 </div>
               </label>
               <label>
-                <span>姓名</span>
+                <span>用户名</span>
                 <div className="login-input">
                   <UserPlus size={17} />
                   <input
@@ -142,7 +147,7 @@ export function LoginPage() {
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                     autoComplete="name"
-                    placeholder="请输入姓名"
+                    placeholder="请输入用户名"
                     required
                   />
                 </div>
@@ -224,7 +229,10 @@ export function LoginPage() {
   )
 }
 
-function authErrorMessage(error, isRegistering, isForgotPassword) {
+class LoginInputError extends Error {}
+
+export function authErrorMessage(error, { isRegistering = false, isForgotPassword = false } = {}) {
+  if (error instanceof LoginInputError) return error.message
   switch (error?.code) {
     case 'INVALID_CREDENTIALS':
       return '邮箱或密码错误'
@@ -242,7 +250,12 @@ function authErrorMessage(error, isRegistering, isForgotPassword) {
         : isForgotPassword
           ? '请检查邮箱格式。'
           : '请检查邮箱和密码。'
+    case 'SERVICE_UNAVAILABLE':
+      return '登录服务暂时不可用，请稍后重试'
     default:
+      if (error?.status >= 500 || error?.name === 'TypeError') {
+        return '无法连接登录服务，请确认 API 已启动后重试'
+      }
       return error?.message || '请求失败，请稍后重试'
   }
 }

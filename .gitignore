@@ -5,6 +5,7 @@ node_modules/
 dist/
 coverage/
 .vite/
+artifacts/
 apps/web/src/assets/hero.png
 
 # Local environment files. Keep the documented example in Git.

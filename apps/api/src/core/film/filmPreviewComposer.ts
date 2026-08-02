@@ -2,7 +2,7 @@ import type { GenerationTask } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
@@ -127,16 +127,21 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
           return
         }
         const inputPath = join(temporaryDirectory, `shot-${String(index + 1).padStart(3, '0')}.mp4`)
-        const content = await observeProviderCall(
-          {
-            provider: this.videoProviderName,
-            operation: 'video.getContent',
-            tenantId: task.tenantId,
-            taskId,
-          },
-          () => this.videoProvider.getContent(String(source.metadata.providerTaskId)),
-        )
-        await pipeline(content.stream, createWriteStream(inputPath))
+        const cachedOutput = cachedVideoOutput(source)
+        if (cachedOutput) {
+          await writeFile(inputPath, await this.objectStorage.get(cachedOutput.storageKey))
+        } else {
+          const content = await observeProviderCall(
+            {
+              provider: this.videoProviderName,
+              operation: 'video.getContent',
+              tenantId: task.tenantId,
+              taskId,
+            },
+            () => this.videoProvider.getContent(String(source.metadata.providerTaskId)),
+          )
+          await pipeline(content.stream, createWriteStream(inputPath))
+        }
         inputPaths.push(inputPath)
         await this.updateProgress(taskId, 5 + Math.round(((index + 1) / sourceTasks.length) * 40), leaseToken)
       }
@@ -232,6 +237,18 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       task.updatedAt = new Date().toISOString()
     })
   }
+}
+
+function cachedVideoOutput(task: GenerationTask): { storageKey: string } | null {
+  if (!Array.isArray(task.metadata.generatedOutputs)) return null
+  const output = task.metadata.generatedOutputs.find(
+    (value) =>
+      value !== null &&
+      typeof value === 'object' &&
+      (value as { view?: unknown }).view === 'single' &&
+      typeof (value as { storageKey?: unknown }).storageKey === 'string',
+  )
+  return output ? { storageKey: (output as { storageKey: string }).storageKey } : null
 }
 
 export async function runFfmpegComposition(

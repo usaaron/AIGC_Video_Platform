@@ -19,6 +19,20 @@ describe('film preview task selection', () => {
     expect(sourceVideoTaskIds(sourceTasks.slice(0, 1), shots)).toEqual([])
   })
 
+  it('uses the shot-selected video version when a previous draw is restored', () => {
+    const older = shotTask('video-old', 'shot-1')
+    older.updatedAt = '2026-07-22T10:00:00.000Z'
+    const newer = shotTask('video-new', 'shot-1')
+    newer.updatedAt = '2026-07-23T10:00:00.000Z'
+    const shot = { id: 'shot-1', selectedVideoTaskId: 'video-old' }
+
+    expect(completedShotVideoTask([newer, older], shot)?.id).toBe('video-old')
+    expect(sourceVideoTaskIds([newer, older, ...sourceTasks.slice(1)], [shot, shots[1]])).toEqual([
+      'video-old',
+      'video-2',
+    ])
+  })
+
   it('keeps partial and full preview tasks separate', () => {
     const full = previewTask('preview-full', ['video-1', 'video-2'])
     const partial = previewTask('preview-partial', ['video-1'], 'partial')

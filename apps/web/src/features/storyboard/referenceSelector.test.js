@@ -33,6 +33,7 @@ describe('selectShotAssetReferences', () => {
       'character-lin',
       'prop-film',
       'scene-station',
+      'costume-lin',
     ])
   })
 

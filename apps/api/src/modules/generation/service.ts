@@ -55,6 +55,10 @@ export class GenerationService {
     return this.repository.listByProject(projectId, principal)
   }
 
+  listRecentTasks(principal: Principal): Promise<GenerationTask[]> {
+    return Promise.resolve(this.repository.listRecent(principal))
+  }
+
   clearCompleted(projectId: string, principal: Principal): Promise<number> {
     return this.repository.clearCompleted(projectId, principal)
   }
@@ -64,6 +68,7 @@ export class GenerationService {
     principal: Principal,
     mode: FilmPreviewMode = 'full',
     force = false,
+    episodeNumber: number | null = null,
     traceId?: string | null,
   ): Promise<GenerationTask> {
     if (!this.repository.canCreate(projectId, principal)) {
@@ -72,7 +77,7 @@ export class GenerationService {
     if (!this.filmPreviewComposer) {
       throw new AppError(503, 'FILM_PREVIEW_UNAVAILABLE', '完整预览合成服务尚未配置')
     }
-    const plan = this.repository.filmPreviewPlan(projectId, principal)
+    const plan = this.repository.filmPreviewPlan(projectId, principal, episodeNumber)
     if (!plan || !plan.shots.length) throw new AppError(400, 'SHOTS_REQUIRED', '项目还没有可合成的分镜')
     const missing = plan.sources.filter((source) => !source.task).map((source) => source.shot.title)
     if (mode === 'full' && missing.length) {
@@ -108,8 +113,8 @@ export class GenerationService {
         kind: 'video',
         label:
           mode === 'partial'
-            ? `${plan.project.name} · 前 ${selectedShots.length} 镜片段预览`
-            : `${plan.project.name} · 完整成片预览`,
+            ? `${plan.project.name} · ${episodeNumber ? `第 ${episodeNumber} 集 · ` : ''}前 ${selectedShots.length} 镜片段预览`
+            : `${plan.project.name} · ${episodeNumber ? `第 ${episodeNumber} 集` : '全部剧集'}成片预览`,
         prompt: '',
         provider: 'local-compose',
         estimatedCredits: 0,
@@ -124,6 +129,9 @@ export class GenerationService {
           totalShotCount: plan.shots.length,
           duration: selectedShots.reduce((total, shot) => total + shot.duration, 0),
           providerState: 'queued',
+          episodeNumber,
+          episodeNumbers: [...new Set(selectedShots.map((shot) => shot.episodeNumber))],
+          projectVersion: plan.project.version,
         },
       },
       principal,
@@ -179,6 +187,23 @@ export class GenerationService {
     }
     if (task.provider !== 'seedance') {
       throw new AppError(400, 'VIDEO_CONTENT_UNAVAILABLE', '该任务没有可播放的视频内容')
+    }
+    const cachedVideo = Array.isArray(task.metadata.generatedOutputs)
+      ? task.metadata.generatedOutputs.find(
+          (item) =>
+            item &&
+            typeof item === 'object' &&
+            (item as { view?: unknown }).view === 'single' &&
+            typeof (item as { storageKey?: unknown }).storageKey === 'string' &&
+            typeof (item as { contentType?: unknown }).contentType === 'string' &&
+            String((item as { contentType: string }).contentType).startsWith('video/'),
+        )
+      : null
+    if (cachedVideo && this.objectStorage) {
+      return bufferVideoContent(
+        await this.objectStorage.get((cachedVideo as { storageKey: string }).storageKey),
+        range,
+      )
     }
     if (!this.videoProvider) {
       throw new AppError(503, 'SEEDANCE_NOT_CONFIGURED', 'Seedance 服务尚未配置')

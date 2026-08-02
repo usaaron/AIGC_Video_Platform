@@ -13,11 +13,11 @@ import {
   Sparkles,
   UsersRound,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ImagePreviewModal } from '../components/ImagePreviewModal'
 import { IconButton, PageHeader } from '../components/ui'
 import { AssetEditor } from '../features/assets/AssetEditor'
-import { ASSET_TABS } from '../features/assets/assetOptions'
+import { ASSET_TABS, IMAGE_MODEL_OPTIONS } from '../features/assets/assetOptions'
 import { GenerationProgress } from '../features/assets/GenerationProgress'
 import { getAssetPreviewUrl } from '../features/assets/assetPreview'
 import { summarizeAsset } from '../features/assets/promptCompiler'
@@ -28,6 +28,7 @@ export function AssetsPage({
   project,
   assets,
   tasks,
+  imageModels,
   billing,
   onCreate,
   onUpdate,
@@ -49,11 +50,19 @@ export function AssetsPage({
   const [preview, setPreview] = useState(null)
   const [busyAssetId, setBusyAssetId] = useState(null)
   const [batchGenerating, setBatchGenerating] = useState(false)
+  const [imageModel, setImageModel] = useState('img2-default')
+  const nanoBananaConfigured = imageModels?.nanoBanana === 'configured'
   const filtered = assets.filter(
     (asset) => asset.kind === tab && asset.name.toLowerCase().includes(search.toLowerCase()),
   )
   const generatable = filtered.filter((asset) => asset.sourceMode === 'generate' && asset.kind !== 'audio')
   const tabLabel = ASSET_TABS.find(([kind]) => kind === tab)?.[1]
+
+  useEffect(() => {
+    if (!editing?.id) return
+    const updated = assets.find((asset) => asset.id === editing.id)
+    if (updated && updated.updatedAt !== editing.updatedAt) setEditing(updated)
+  }, [assets, editing?.id, editing?.updatedAt])
 
   return (
     <div className="page assets-page">
@@ -75,7 +84,7 @@ export function AssetsPage({
             onClick={async () => {
               setBatchGenerating(true)
               try {
-                await onGenerateAll(generatable)
+                await onGenerateAll(generatable, imageModel)
               } finally {
                 setBatchGenerating(false)
               }
@@ -107,6 +116,26 @@ export function AssetsPage({
           <Gauge size={15} />
           {billing.plan === 'member' ? '会员模式：最多同时生成 3 项' : '免费模式：任务按顺序逐个生成'}
         </div>
+        <label className="asset-model-select">
+          <span>图片模型</span>
+          <select
+            value={imageModel}
+            onChange={(event) => {
+              if (event.target.value === 'nano-banana' && !nanoBananaConfigured) return
+              setImageModel(event.target.value)
+            }}
+          >
+            {IMAGE_MODEL_OPTIONS.map(([value, label]) => (
+              <option key={value} value={value} disabled={value === 'nano-banana' && !nanoBananaConfigured}>
+                {label}
+                {value === 'nano-banana' && !nanoBananaConfigured ? '（未配置）' : ''}
+              </option>
+            ))}
+          </select>
+          <small>
+            {nanoBananaConfigured ? '已连接独立 Nano Banana 上游' : 'Nano Banana 需配置真实上游后可用'}
+          </small>
+        </label>
       </div>
 
       <div className="asset-grid">
@@ -115,11 +144,14 @@ export function AssetsPage({
             asset={asset}
             key={asset.id}
             onEdit={() => setEditing(asset)}
-            task={taskForAssetCard(tasks, asset.id)}
+            task={tasks.find(
+              (task) =>
+                task.metadata?.assetId === asset.id && ['queued', 'paused', 'running'].includes(task.status),
+            )}
             onGenerate={async () => {
               setBusyAssetId(asset.id)
               try {
-                await onGenerate(asset)
+                await onGenerate(asset, imageModel)
               } finally {
                 setBusyAssetId(null)
               }
@@ -152,6 +184,7 @@ export function AssetsPage({
           key={editing.id || `new-${editing.kind}`}
           asset={editing}
           aspectRatio={project.aspectRatio}
+          projectVisualStyle={project.visualStyle}
           tasks={tasks}
           onUpload={onUpload}
           onClose={() => setEditing(null)}
@@ -171,13 +204,13 @@ export function AssetsPage({
             return updated
           }}
           onGenerateStage={onGenerateStage}
-          onGenerateAsset={onGenerate}
+          onGenerateAsset={(asset, model = imageModel) => onGenerate(asset, model)}
+          imageModel={imageModel}
           onGetTrustedConfiguration={onGetTrustedConfiguration}
           onListTrustedPortraits={onListTrustedPortraits}
-          onRegisterVirtualPortrait={async (assetId) => {
-            const updated = await onRegisterVirtualPortrait(assetId)
-            if (updated) setEditing(updated)
-            return updated
+          onRegisterVirtualPortrait={async (assetId, assetName) => {
+            // 注册接口返回的是后台任务，不是资产；资产状态由项目轮询同步。
+            return onRegisterVirtualPortrait(assetId, assetName)
           }}
           onBindTrustedPortrait={async (assetId, providerAssetId) => {
             const updated = await onBindTrustedPortrait(assetId, providerAssetId)
@@ -285,26 +318,4 @@ function characterStatus(asset) {
   if (asset.attributes?.faceStatus !== 'approved') return '待确认面部'
   if (asset.attributes?.bodyStatus !== 'approved') return '面部已确认'
   return '全身已确认'
-}
-
-function taskForAssetCard(tasks, assetId) {
-  return (
-    tasks
-      .filter(
-        (task) =>
-          task.metadata?.assetId === assetId &&
-          ['queued', 'paused', 'running', 'failed', 'cancelled'].includes(task.status) &&
-          typeof task.metadata?.queueHiddenAt !== 'string',
-      )
-      .sort(newestTaskFirst)[0] || null
-  )
-}
-
-function newestTaskFirst(left, right) {
-  return taskTime(right) - taskTime(left)
-}
-
-function taskTime(task) {
-  const value = Date.parse(task.updatedAt || task.createdAt || '')
-  return Number.isFinite(value) ? value : 0
 }

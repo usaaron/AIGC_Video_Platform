@@ -371,7 +371,9 @@ export class BillingPaymentRepository {
     return result.rows[0]!.id
   }
 
-  async recordReconciliationAlert(input: BillingPaymentReconciliationAlertInput): Promise<BillingReconciliationAlert> {
+  async recordReconciliationAlert(
+    input: BillingPaymentReconciliationAlertInput,
+  ): Promise<BillingReconciliationAlert> {
     const result = await this.database.query<BillingReconciliationAlertRow>(
       `
       INSERT INTO billing_reconciliation_alerts (
@@ -498,11 +500,7 @@ export class BillingPaymentRepository {
   }
 }
 
-function billingReconciliationAlertId(
-  provider: string,
-  providerEventId: string,
-  alertType: string,
-): string {
+function billingReconciliationAlertId(provider: string, providerEventId: string, alertType: string): string {
   return `billing-alert-${provider}-${providerEventId}-${alertType}`
 }
 

@@ -10,6 +10,7 @@ export type ImageGenerationRequest = {
   taskId: string
   idempotencyKey?: string
   assetId: string
+  model?: string | null
   aspectRatio: string
   prompt: string
   negativePrompt: string
