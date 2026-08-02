@@ -113,16 +113,21 @@ echo "$DEPLOY_SA_EMAIL"
 | -------------------------------- | ------------------------------------------------- |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | 上一步输出的完整 Provider Name                    |
 | `GCP_SERVICE_ACCOUNT`            | `seqora-github-deploy@...iam.gserviceaccount.com` |
+| `SYNTHETIC_EMAIL`                | Dedicated synthetic monitoring account email      |
+| `SYNTHETIC_PASSWORD`             | Dedicated synthetic monitoring account password   |
+| `SYNTHETIC_ALERT_WEBHOOK_URL`    | Alert webhook used by production probe failures   |
 
 添加 Variables：
 
-| 名称                           | 当前值                           |
-| ------------------------------ | -------------------------------- |
-| `GCP_PROJECT_ID`               | `project-935680ce-9aaf-496a-bb7` |
-| `GCP_REGION`                   | `asia-east2`                     |
-| `ARTIFACT_REGISTRY_REPOSITORY` | `seqora`                         |
-| `GCE_INSTANCE`                 | `instance-20260719-184241`       |
-| `GCE_ZONE`                     | `asia-east2-c`                   |
+| 名称                           | 当前值                                         |
+| ------------------------------ | ---------------------------------------------- |
+| `GCP_PROJECT_ID`               | `project-935680ce-9aaf-496a-bb7`               |
+| `GCP_REGION`                   | `asia-east2`                                   |
+| `ARTIFACT_REGISTRY_REPOSITORY` | `seqora`                                       |
+| `GCE_INSTANCE`                 | `instance-20260719-184241`                     |
+| `GCE_ZONE`                     | `asia-east2-c`                                 |
+| `SYNTHETIC_BASE_URL`           | `https://studio.example.com`                   |
+| `SYNTHETIC_ORGANIZATION_ID`    | Dedicated non-system synthetic organization id |
 
 在 `Settings -> Branches` 保护 `main`：要求 `CI / quality`、`CI / database` 通过、至少一位 Review、禁止强推。三人协作时采用短功能分支和小 PR，避免多人直接覆盖 `main`。
 

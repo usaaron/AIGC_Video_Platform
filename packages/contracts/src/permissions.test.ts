@@ -2,6 +2,92 @@ import { describe, expect, it } from 'vitest'
 import { PERMISSIONS, ROLE_PERMISSIONS, ROLES } from './permissions.js'
 
 describe('role permissions', () => {
+  it('freezes the formal account role set', () => {
+    expect(Object.values(ROLES)).toEqual([
+      'member',
+      'admin',
+      'organization_admin',
+      'organization_member',
+      'super_admin',
+      'owner',
+    ])
+  })
+
+  it('freezes the role permission matrix', () => {
+    expect(ROLE_PERMISSIONS).toEqual({
+      member: [
+        PERMISSIONS.PROJECT_READ,
+        PERMISSIONS.PROJECT_WRITE,
+        PERMISSIONS.GENERATION_TASK_CREATE,
+        PERMISSIONS.GENERATION_TASK_READ,
+        PERMISSIONS.ASSET_READ,
+        PERMISSIONS.ASSET_WRITE,
+        PERMISSIONS.BILLING_READ_SELF,
+      ],
+      admin: [
+        PERMISSIONS.PROJECT_READ,
+        PERMISSIONS.GENERATION_TASK_READ,
+        PERMISSIONS.ASSET_READ,
+        PERMISSIONS.BILLING_READ_ALL,
+        PERMISSIONS.BILLING_MANAGE,
+        PERMISSIONS.USER_READ,
+        PERMISSIONS.USER_MANAGE,
+        PERMISSIONS.ADMIN_DASHBOARD_READ,
+      ],
+      organization_admin: [
+        PERMISSIONS.PROJECT_READ,
+        PERMISSIONS.PROJECT_WRITE,
+        PERMISSIONS.GENERATION_TASK_CREATE,
+        PERMISSIONS.GENERATION_TASK_READ,
+        PERMISSIONS.ASSET_READ,
+        PERMISSIONS.ASSET_WRITE,
+        PERMISSIONS.BILLING_READ_ALL,
+        PERMISSIONS.BILLING_MANAGE,
+        PERMISSIONS.USER_READ,
+        PERMISSIONS.USER_MANAGE,
+        PERMISSIONS.ADMIN_DASHBOARD_READ,
+      ],
+      organization_member: [
+        PERMISSIONS.PROJECT_READ,
+        PERMISSIONS.PROJECT_WRITE,
+        PERMISSIONS.GENERATION_TASK_CREATE,
+        PERMISSIONS.GENERATION_TASK_READ,
+        PERMISSIONS.ASSET_READ,
+        PERMISSIONS.ASSET_WRITE,
+        PERMISSIONS.BILLING_READ_SELF,
+      ],
+      super_admin: [
+        PERMISSIONS.PROJECT_READ,
+        PERMISSIONS.PROJECT_WRITE,
+        PERMISSIONS.GENERATION_TASK_CREATE,
+        PERMISSIONS.GENERATION_TASK_READ,
+        PERMISSIONS.ASSET_READ,
+        PERMISSIONS.ASSET_WRITE,
+        PERMISSIONS.BILLING_READ_SELF,
+        PERMISSIONS.BILLING_READ_ALL,
+        PERMISSIONS.BILLING_MANAGE,
+        PERMISSIONS.USER_READ,
+        PERMISSIONS.USER_MANAGE,
+        PERMISSIONS.ADMIN_DASHBOARD_READ,
+      ],
+      owner: [
+        PERMISSIONS.PROJECT_READ,
+        PERMISSIONS.PROJECT_WRITE,
+        PERMISSIONS.GENERATION_TASK_CREATE,
+        PERMISSIONS.GENERATION_TASK_READ,
+        PERMISSIONS.ASSET_READ,
+        PERMISSIONS.ASSET_WRITE,
+        PERMISSIONS.BILLING_READ_SELF,
+        PERMISSIONS.BILLING_READ_ALL,
+        PERMISSIONS.BILLING_MANAGE,
+        PERMISSIONS.USER_READ,
+        PERMISSIONS.USER_MANAGE,
+        PERMISSIONS.ADMIN_DASHBOARD_READ,
+        PERMISSIONS.SYSTEM_CONFIG_MANAGE,
+      ],
+    })
+  })
+
   it('grants owners every declared permission', () => {
     expect(new Set(ROLE_PERMISSIONS.owner)).toEqual(new Set(Object.values(PERMISSIONS)))
   })

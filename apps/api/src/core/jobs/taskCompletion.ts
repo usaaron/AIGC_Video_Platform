@@ -1,6 +1,7 @@
 import type { GenerationTask } from '@seqora/contracts'
 import type { AppStore } from '../../infra/store.js'
 import type { GenerationService } from '../../modules/generation/service.js'
+import { traceIdFromGenerationTask } from '../observability/trace.js'
 
 export function createAutoFilmPreviewCallback(
   store: AppStore,
@@ -34,6 +35,8 @@ export function createAutoFilmPreviewCallback(
         )
       )
     })
-    if (allShotsReady) await service.createFilmPreview(task.projectId, principal, 'full')
+    if (allShotsReady) {
+      await service.createFilmPreview(task.projectId, principal, 'full', false, null, traceIdFromGenerationTask(task))
+    }
   }
 }

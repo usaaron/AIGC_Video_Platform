@@ -31,6 +31,7 @@ export type SessionMetadata = {
   ipAddress: string | null
   userAgent: string | null
   deviceLabel: string | null
+  traceId?: string | null | undefined
 }
 
 export type PasswordResetTokenInput = {

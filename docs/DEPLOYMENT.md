@@ -7,12 +7,12 @@
 ## 封闭外测登录边界
 
 - 公网只展示登录页；除 `/api/v1/health` 和 `/api/v1/auth/login` 外，项目、媒体、任务、账单和管理 API 都要求有效账号会话。
-- 当前开放邀请码注册，不支持无邀请码自助注册。账号可由 `deploy/demo.env` 的 `BOOTSTRAP_*` 变量在空数据卷首次启动时创建，也可由 owner/super_admin/admin 在账号管理页按权限边界受控创建/邀请。
+- 当前开放邀请码注册，不支持无邀请码自助注册。首批账号由 `deploy/demo.env` 的 `BOOTSTRAP_*` 变量提供输入，并且必须在 `db:migrate` 后显式执行 `accounts:init` 创建；API/Worker 生产启动不会自动 bootstrap。后续账号可由 owner/super_admin/admin 在账号管理页按权限边界受控创建/邀请。
 - 受控组织邀请 API 是注册准入来源，密码重置 API 已有后端能力；生产面向用户开放前，必须先接入邮件/短信投递、频控、运营审核和告警。
 - member 账号进入创作工作台；owner/super_admin/admin 可以看到账号管理入口，显示名由 `BOOTSTRAP_*_NAME` 设置。四类首次账号必须使用不同邮箱和强密码，不要向客户提供管理员、super_admin 或 owner 账号。
-- `BOOTSTRAP_DEMO_WORKSPACE=false` 时新云端账号从空项目列表开始，不会出现本地开发的“午夜胶片”样例。
+- `BOOTSTRAP_DEMO_WORKSPACE` 仅允许 dev/test 使用；生产环境会直接拒绝该配置，云端账号从空项目列表开始，不会出现本地开发的“午夜胶片”样例。
 - 同一组织的多位成员会看到同一批项目和账单权益。需要客户间强隔离时，为每个客户创建独立组织；项目域数据已写入 Postgres，正式多实例商用前仍要验证所有查询的组织范围条件、Redis 队列恢复和 Worker 横向扩缩容。
-- `BOOTSTRAP_*` 只在账号库为空时生效，修改环境变量不会改掉已有账号密码。已有账号登录后可在“项目设置 -> 账号安全”修改自己的密码；忘记密码 API 在生产开放前需要接邮件/短信投递。
+- `BOOTSTRAP_*` 只供显式 `accounts:init` 使用，命令是幂等插入，不会覆盖已有账号密码。已有账号登录后可在“项目设置 -> 账号安全”修改自己的密码；忘记密码 API 在生产开放前需要接邮件/短信投递。
 
 ## 独立部署单元
 
@@ -50,8 +50,8 @@ chmod 600 deploy/demo.env
 
 - `APP_ADDRESS`、`WEB_ORIGIN` 和 `PUBLIC_API_BASE_URL` 使用同一个真实 HTTPS 域名。
 - `AUTH_SECRET` 使用 `openssl rand -base64 48` 生成。
-- 四组 `BOOTSTRAP_*` 邮箱和密码必须唯一：member、owner、super_admin、admin；只在空账号库首次启动时生效。
-- 保持 `BOOTSTRAP_DEMO_WORKSPACE=false`，让客户登录后创建自己的第一个项目。
+- 四组 `BOOTSTRAP_*` 邮箱和密码必须唯一：member、owner、super_admin、admin；只供显式 `accounts:init` 使用，生产启动不会自动创建账号。
+- 生产环境不要启用 `BOOTSTRAP_DEMO_WORKSPACE`；客户登录后直接从空项目列表创建自己的第一个项目。
 - 保持 `TASK_QUEUE_DRIVER=bullmq` 和 `REDIS_URL=redis://redis:6379`，除非已经接入托管 Redis 或云队列适配器。
 - 2 vCPU / 4GB 机器先保留 `API_MEMORY_LIMIT=1536m`、`API_NODE_HEAP_MB=768`、`WORKER_MEMORY_LIMIT=1536m`、`WORKER_NODE_HEAP_MB=768`、`WEB_MEMORY_LIMIT=192m`；发生 OOM 时优先升级内存，不要移除所有上限。
 - 保持 `VIDEO_PROVIDER=stringx`，填写私有 `GCS_BUCKET`、`STRINGX_API_KEY`、默认中文文本模型需要的 `REHDASU_API_KEY` 和图片生成需要的 `TOKENADVENT_API_KEY`；只有选择 DeepSeek V3 时才需要 `DEEPSEEK_API_KEY`（可复用 `STRINGX_API_KEY`）。
@@ -68,10 +68,24 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml config
 docker compose --env-file deploy/demo.env -f compose.demo.yml build api
 docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
   node dist/scripts/dbMigrate.js
+docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
+  node dist/scripts/initProductionAccounts.js
 docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
 docker compose --env-file deploy/demo.env -f compose.demo.yml ps
 curl --fail https://studio.example.com/api/v1/health
 ```
+
+Production account initialization is explicit. API and Worker startup must keep
+`BOOTSTRAP_ACCOUNTS_ON_START=false`; run
+`node dist/scripts/initProductionAccounts.js` only after `dbMigrate.js` on a new
+environment or when intentionally repairing missing bootstrap accounts. See
+[Production Initialization Runbook](PRODUCTION_INITIALIZATION.md).
+
+Synthetic monitoring is configured separately from `deploy/demo.env`. Create
+`/opt/seqora/deploy/monitoring.env` from `deploy/monitoring.env.example` and use a dedicated
+synthetic monitoring account. The VM systemd timer runs the read-only probe every minute. GitHub
+post-deploy gates run both the read-only probe and the write-path probe; the write-path probe
+requires `SYNTHETIC_ORGANIZATION_ID` to point at a dedicated non-system synthetic organization.
 
 `deploy/demo.env` 会完整注入 Postgres、Redis、API 和 Worker 容器；Web 容器只接收 `APP_ADDRESS`，不会获得模型密钥或数据库连接串。API 镜像内置 FFmpeg 并以非 root 用户运行，Worker 复用同一镜像执行 `dist/worker.js`。
 

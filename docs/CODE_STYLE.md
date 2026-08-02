@@ -26,6 +26,7 @@
 
 ## 后端 TypeScript
 
+- 新增后端能力前，先在 [后端边界](BACKEND_BOUNDARIES.md) 中确定主边界。
 - Route 只做输入校验、权限声明和 HTTP 映射，不直接访问数据库。
 - Service 编排领域操作，只依赖接口；Repository 和外部 Provider 实现接口。
 - 所有外部输入使用 `@seqora/contracts` 中的 Zod Schema 校验。

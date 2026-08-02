@@ -9,7 +9,7 @@ import {
 import { OutboxRelay, OutboxRepository } from './core/jobs/outbox.js'
 import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
 import { AiJobRunner } from './core/jobs/aiJobRunner.js'
-import { GenerationTaskRunner, noopTaskDispatcher } from './core/jobs/taskDispatcher.js'
+import { GenerationTaskRunner, noopTaskDispatcher, type TaskDispatchContext } from './core/jobs/taskDispatcher.js'
 import { PostgresAdvisoryTaskRunnerLock } from './core/jobs/taskRunnerLock.js'
 import { FilmPreviewComposer } from './core/film/filmPreviewComposer.js'
 import { loadConfig } from './config.js'
@@ -49,6 +49,8 @@ const store = new AppStore(
     adminPassword: config.BOOTSTRAP_ADMIN_PASSWORD,
   },
   config.BOOTSTRAP_DEMO_WORKSPACE,
+  config.NODE_ENV !== 'production',
+  config.NODE_ENV !== 'production',
 )
 await store.initialize()
 const database = config.DATABASE_URL ? new AccountDatabase(config.DATABASE_URL) : null
@@ -60,7 +62,9 @@ if (database) {
   }
 }
 const users = new UserRepository(store, database)
-await users.bootstrapFromStore()
+if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
+  await users.bootstrapFromStore()
+}
 const projectRepository = new ProjectRepository(store, database)
 await projectRepository.refreshRuntimeCacheFromDatabase()
 
@@ -69,7 +73,9 @@ const videoProvider = createVideoProvider(config)
 const imageProvider = createImageProvider(config)
 const textProvider = createTextProvider(config)
 const creditLedger = new StoreCreditLedger(store, users, false, database)
-await creditLedger.bootstrapFromStore()
+if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
+  await creditLedger.bootstrapFromStore()
+}
 const outboxRepository =
   database && config.TASK_QUEUE_DRIVER === 'bullmq' ? new OutboxRepository(database) : null
 const generationTaskRepository = new GenerationTaskRepository(store, creditLedger, database, outboxRepository)
@@ -157,9 +163,9 @@ if (config.TASK_QUEUE_DRIVER === 'bullmq') {
     outboxRelay.start()
   }
   queueWorker = createBullMqGenerationWorker(config, {
-    async tick() {
-      await taskRunner.tick()
-      await aiJobRunner.tick()
+    async tick(context?: TaskDispatchContext & { reason?: string }) {
+      await taskRunner.tick(context)
+      await aiJobRunner.tick(context)
     },
   })
   await queueWorker.start()

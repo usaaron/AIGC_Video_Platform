@@ -41,6 +41,7 @@ describe('AiJobRepository postgres lifecycle', { timeout: 30_000 }, () => {
           costCredits: 0,
         },
         principal,
+        { traceId: 'trace-ai-job-claim' },
       )
 
       const claimed = await repository.claimReadyJobs({
@@ -61,6 +62,7 @@ describe('AiJobRepository postgres lifecycle', { timeout: 30_000 }, () => {
         attempts: 1,
         leaseOwnerId: 'worker-a',
         leaseToken: expect.any(String),
+        input: { queueId: 'queue-1', traceId: 'trace-ai-job-claim' },
       })
       expect(duplicateClaim).toEqual([])
 
@@ -95,6 +97,7 @@ describe('AiJobRepository postgres lifecycle', { timeout: 30_000 }, () => {
           costCredits: 4,
         },
         principal,
+        { traceId: 'trace-ai-job-failure' },
       )
       const [claimed] = await repository.claimReadyJobs({
         ownerId: 'worker-a',

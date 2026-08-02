@@ -17,11 +17,18 @@ import {
 import { noopTaskRunnerLock, type TaskRunnerLock } from './taskRunnerLock.js'
 
 export interface TaskDispatcher {
-  dispatch(task: { id: string; tenantId: string; updatedAt: string }): Promise<void>
+  dispatch(
+    task: { id: string; tenantId: string; updatedAt: string },
+    context?: TaskDispatchContext,
+  ): Promise<void>
+}
+
+export type TaskDispatchContext = {
+  traceId?: string | null
 }
 
 export const noopTaskDispatcher: TaskDispatcher = {
-  async dispatch() {},
+  async dispatch(_task?: { id: string; tenantId: string; updatedAt: string }, _context?: TaskDispatchContext) {},
 }
 
 type GenerationTaskRunnerOptions = {
@@ -120,14 +127,19 @@ export class GenerationTaskRunner implements TaskDispatcher {
     this.timer = null
   }
 
-  async dispatch(_task: { id: string; tenantId: string; updatedAt: string }): Promise<void> {
-    void this.tick().catch(() => {})
+  async dispatch(
+    _task: { id: string; tenantId: string; updatedAt: string },
+    context?: TaskDispatchContext,
+  ): Promise<void> {
+    void this.tick(context).catch(() => {})
   }
 
-  async tick(): Promise<void> {
+  async tick(context?: TaskDispatchContext): Promise<void> {
     if (this.tickPromise) return this.tickPromise
 
-    const tickPromise = this.taskRunnerLock.runExclusive(() => this.runTick()).then(() => undefined)
+    const tickPromise = this.taskRunnerLock
+      .runExclusive(() => this.runTick(context))
+      .then(() => undefined)
     this.tickPromise = tickPromise
 
     try {
@@ -141,7 +153,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     await this.tick()
   }
 
-  private async runTick(): Promise<void> {
+  private async runTick(_context?: TaskDispatchContext): Promise<void> {
     await this.beforeTick?.()
     try {
       await this.providerPoller.recoverStatusParseFailures()

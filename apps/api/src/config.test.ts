@@ -66,6 +66,15 @@ describe('production configuration', () => {
     ).toThrow('REDIS_URL is required when TASK_QUEUE_DRIVER=bullmq')
   })
 
+  it('forbids startup account bootstrap in production', () => {
+    expect(() =>
+      loadConfig({
+        ...productionConfig(),
+        BOOTSTRAP_ACCOUNTS_ON_START: 'true',
+      }),
+    ).toThrow('BOOTSTRAP_ACCOUNTS_ON_START is forbidden in production')
+  })
+
   it('requires real email delivery in production', () => {
     expect(() => loadConfig({ ...productionConfig(), EMAIL_PROVIDER: 'console' })).toThrow(
       'EMAIL_PROVIDER=resend is required in production',
@@ -89,14 +98,13 @@ describe('production configuration', () => {
     })
   })
 
-  it('keeps the sample workspace opt-in for production', () => {
-    const production = {
-      ...productionConfig(),
-      TOKENADVENT_API_KEY: 'production-text-image-token',
-      REHDASU_API_KEY: 'production-text-token',
-      BOOTSTRAP_DEMO_WORKSPACE: 'true',
-    }
-    expect(loadConfig(production).BOOTSTRAP_DEMO_WORKSPACE).toBe(true)
+  it('forbids demo workspace bootstrap in production', () => {
+    expect(() =>
+      loadConfig({
+        ...productionConfig(),
+        BOOTSTRAP_DEMO_WORKSPACE: 'true',
+      }),
+    ).toThrow('BOOTSTRAP_DEMO_WORKSPACE is forbidden in production')
   })
 
   it('rejects missing production text and image credentials', () => {
@@ -128,12 +136,6 @@ function productionConfig(overrides: Record<string, string> = {}): Record<string
     EMAIL_PROVIDER: 'resend',
     EMAIL_FROM: 'Seqora <no-reply@example.com>',
     RESEND_API_KEY: 'resend-production-token',
-    BOOTSTRAP_MEMBER_PASSWORD: 'UniqueMemberPassword123!',
-    BOOTSTRAP_OWNER_EMAIL: 'owner@example.com',
-    BOOTSTRAP_OWNER_PASSWORD: 'UniqueOwnerPassword123!',
-    BOOTSTRAP_SUPER_ADMIN_EMAIL: 'superadmin@example.com',
-    BOOTSTRAP_SUPER_ADMIN_PASSWORD: 'UniqueSuperAdminPassword123!',
-    BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
     STRINGX_API_KEY: 'production-video-token',
     TOKENADVENT_API_KEY: 'production-image-token',
     REHDASU_API_KEY: 'production-text-token',

@@ -13,6 +13,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
+import { traceIdFromGenerationTask, traceMetadata } from '../../core/observability/trace.js'
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
 import { normalizeGenerationTaskLifecycle } from '../../core/jobs/taskLease.js'
 import type { AppStore } from '../../infra/store.js'
@@ -144,6 +145,7 @@ export class QuickStartService {
     projectId: string,
     input: ExecuteQuickStartRequest,
     principal: Principal,
+    traceId?: string | null,
   ): Promise<QuickStartExecutionResult> {
     if (!this.imageProviderAvailable) {
       throw new AppError(503, 'IMAGE_PROVIDER_NOT_CONFIGURED', '图片生成服务尚未配置')
@@ -250,18 +252,21 @@ export class QuickStartService {
           negativePrompt: asset.negativePrompt,
           provider: 'img2',
           model: 'img2-default',
-          metadata: {
-            assetId: asset.id,
-            assetKind: asset.kind,
-            generationStage: asset.kind === 'character' ? 'face' : 'asset',
-            aspectRatio: asset.kind === 'character' ? '1:1' : project.aspectRatio,
-            sourceMode: 'generate',
-            references: [],
-            attributes: asset.attributes,
-            turnaround: false,
-            quickStartBatchId: batchId,
-            quickStartRequestId: input.clientRequestId,
-          },
+          metadata: traceMetadata(
+            {
+              assetId: asset.id,
+              assetKind: asset.kind,
+              generationStage: asset.kind === 'character' ? 'face' : 'asset',
+              aspectRatio: asset.kind === 'character' ? '1:1' : project.aspectRatio,
+              sourceMode: 'generate',
+              references: [],
+              attributes: asset.attributes,
+              turnaround: false,
+              quickStartBatchId: batchId,
+              quickStartRequestId: input.clientRequestId,
+            },
+            traceId,
+          ),
           status: 'queued',
           progress: 0,
           estimatedCredits: cost,
@@ -304,7 +309,11 @@ export class QuickStartService {
       }
     })
 
-    await Promise.allSettled(result.tasks.map((task) => this.dispatcher.dispatch(task)))
+    await Promise.allSettled(
+      result.tasks.map((task) =>
+        this.dispatcher.dispatch(task, { traceId: traceId ?? traceIdFromGenerationTask(task) }),
+      ),
+    )
     return result
   }
 

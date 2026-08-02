@@ -23,6 +23,7 @@
 
 角色集合已冻结为这 6 种。新增能力应通过权限映射和组织边界扩展，不要再引入新的对外角色名。
 详细术语冻结见 [产品词汇与权限冻结](PRODUCT_VOCABULARY.md)。
+正式权限矩阵见 [PERMISSION_MATRIX.md](PERMISSION_MATRIX.md)。
 
 ## 当前认证实现
 

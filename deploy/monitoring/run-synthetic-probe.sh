@@ -10,18 +10,20 @@ DEMO_ENV="${ROOT}/deploy/demo.env"
 }
 
 app_domain="$(sed -n 's/^APP_ADDRESS=//p' "$DEMO_ENV" | tail -n 1)"
-email="$(sed -n 's/^BOOTSTRAP_MEMBER_EMAIL=//p' "$DEMO_ENV" | tail -n 1)"
-password="$(sed -n 's/^BOOTSTRAP_MEMBER_PASSWORD=//p' "$DEMO_ENV" | tail -n 1)"
+base_url="${SYNTHETIC_BASE_URL:-https://${app_domain}}"
+email="${SYNTHETIC_EMAIL:-$(sed -n 's/^BOOTSTRAP_MEMBER_EMAIL=//p' "$DEMO_ENV" | tail -n 1)}"
+password="${SYNTHETIC_PASSWORD:-$(sed -n 's/^BOOTSTRAP_MEMBER_PASSWORD=//p' "$DEMO_ENV" | tail -n 1)}"
 
-[[ -n "$app_domain" && -n "$email" && -n "$password" ]] || {
+[[ -n "$base_url" && -n "$email" && -n "$password" ]] || {
   echo 'Synthetic probe env is incomplete.'
   exit 65
 }
 
 docker run --rm \
-  -e SYNTHETIC_BASE_URL="https://${app_domain}" \
+  -e SYNTHETIC_BASE_URL="$base_url" \
   -e SYNTHETIC_EMAIL="$email" \
   -e SYNTHETIC_PASSWORD="$password" \
+  -e SYNTHETIC_PROBE_MODE=readonly \
   -e SYNTHETIC_TIMEOUT_MS="${SYNTHETIC_TIMEOUT_MS:-10000}" \
   -e SYNTHETIC_ALERT_WEBHOOK_URL="${SYNTHETIC_ALERT_WEBHOOK_URL:-}" \
   -v "${ROOT}:/work" \

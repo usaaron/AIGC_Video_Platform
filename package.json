@@ -37,6 +37,8 @@
     "perf:k6:smoke": "node scripts/perf/run-k6.mjs smoke",
     "perf:k6:breakpoint": "node scripts/perf/run-k6.mjs breakpoint",
     "probe:synthetic": "node scripts/monitoring/synthetic-probe.mjs",
+    "probe:synthetic:write": "node scripts/monitoring/synthetic-probe.mjs --mode write",
+    "probe:synthetic:all": "node scripts/monitoring/synthetic-probe.mjs --mode all",
     "regression:novel:biancheng": "pnpm --filter @seqora/api regression:novel:biancheng",
     "regression:novel:biancheng:live": "pnpm --filter @seqora/api regression:novel:biancheng:live",
     "preprod:anonymize:check": "pnpm --filter @seqora/api db:anonymize-preprod:check",

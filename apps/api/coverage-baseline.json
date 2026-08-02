@@ -2,7 +2,6 @@
   "version": 1,
   "generatedAt": "2026-08-01T21:51:40.000Z",
   "source": "pnpm --filter @seqora/api test:unit:coverage",
-  "maxDropPercent": 5,
   "totals": {
     "lines": 52.6,
     "statements": 49.19,

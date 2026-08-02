@@ -36,10 +36,21 @@ flowchart LR
 
 所有外部接口使用 `/api/v1` 前缀。模块拥有自己的路由、服务和仓储接口；路由只处理协议与校验，服务编排业务，适配器处理数据库和外部系统。
 
+后端业务边界正式分为 8 个，详细职责和禁止跨界规则见 [后端边界](BACKEND_BOUNDARIES.md)：
+
+- Identity & Access
+- Organizations
+- Billing
+- Creative Projects
+- Jobs/Workers
+- Media Storage
+- Admin Console
+- Observability/Ops
+
 ```text
 apps/api/src/
-  core/          认证、错误、任务分发等跨模块能力
-  modules/       auth、generation、billing、admin 等业务模块
+  core/          认证、错误、任务、媒体、可观测性等跨模块能力
+  modules/       8 个后端边界的业务模块和兼容模块
   infra/         Postgres migration、JSON Store、对象存储
   app.ts         依赖装配与路由注册
   server.ts      进程启动和优雅退出

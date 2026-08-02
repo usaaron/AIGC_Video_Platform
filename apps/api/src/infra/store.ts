@@ -130,6 +130,8 @@ export class AppStore {
     private readonly filePath: string | null,
     private readonly bootstrapUsers: BootstrapUsers = developmentBootstrapUsers,
     private readonly bootstrapDemoWorkspace = true,
+    private readonly bootstrapOnMissingFile = true,
+    private readonly normalizeLegacyRoleAliases = true,
   ) {
     this.lockPath = filePath ? `${filePath}.lock` : null
   }
@@ -138,7 +140,9 @@ export class AppStore {
     if (this.filePath) {
       try {
         this.state = removeLegacyDemoCharacters(
-          normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>),
+          normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>, {
+            normalizeLegacyRoleAliases: this.normalizeLegacyRoleAliases,
+          }),
         )
         return
       } catch (error) {
@@ -147,7 +151,9 @@ export class AppStore {
       }
     }
 
-    this.state = removeLegacyDemoCharacters(createSeedState(this.bootstrapUsers, this.bootstrapDemoWorkspace))
+    this.state = this.bootstrapOnMissingFile
+      ? removeLegacyDemoCharacters(createSeedState(this.bootstrapUsers, this.bootstrapDemoWorkspace))
+      : createEmptyState()
     await this.persist()
   }
 
@@ -287,7 +293,9 @@ export class AppStore {
     if (!this.filePath) return
     try {
       this.state = removeLegacyDemoCharacters(
-        normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>),
+        normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>, {
+          normalizeLegacyRoleAliases: this.normalizeLegacyRoleAliases,
+        }),
       )
       this.applyAccountRuntimeCache()
       this.applyProjectWorkspaceRuntimeCache()
@@ -301,7 +309,9 @@ export class AppStore {
   private reloadFromDiskSync(): void {
     if (!this.filePath || !existsSync(this.filePath)) return
     this.state = removeLegacyDemoCharacters(
-      normalizeState(JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppState>),
+      normalizeState(JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppState>, {
+        normalizeLegacyRoleAliases: this.normalizeLegacyRoleAliases,
+      }),
     )
     this.applyAccountRuntimeCache()
     this.applyProjectWorkspaceRuntimeCache()
@@ -545,6 +555,26 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
   }
 }
 
+function createEmptyState(): AppState {
+  return {
+    users: [],
+    projects: [],
+    assets: [],
+    shots: [],
+    tasks: [],
+    aiJobs: [],
+    ledger: [],
+    media: [],
+    novelDocuments: [],
+    novelChapters: [],
+    novelChapterSummaries: [],
+    novelSummaryQueues: [],
+    novelSummaryQueueItems: [],
+    novelBoundaries: [],
+    novelStoryBibles: [],
+  }
+}
+
 function seedAssets(projectId: string, tenantId: string, now: string): Asset[] {
   return [
     [
@@ -710,10 +740,16 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
   }))
 }
 
-function normalizeState(input: Partial<AppState>): AppState {
+function normalizeState(
+  input: Partial<AppState>,
+  options: { normalizeLegacyRoleAliases?: boolean } = {},
+): AppState {
   const users = (input.users ?? []).map((user) => ({
     ...user,
-    roles: normalizeStoredRoles((user as { roles?: readonly unknown[] }).roles ?? []),
+    roles: normalizeStoredRoles(
+      (user as { roles?: readonly unknown[] }).roles ?? [],
+      options.normalizeLegacyRoleAliases ?? true,
+    ),
   }))
   const assets = (input.assets ?? []).map((stored) => {
     const legacy = stored as Omit<Partial<Asset>, 'kind'> & {
@@ -782,7 +818,7 @@ function normalizeState(input: Partial<AppState>): AppState {
   }
 }
 
-function normalizeStoredRoles(roles: readonly unknown[]): Role[] {
+function normalizeStoredRoles(roles: readonly unknown[], normalizeLegacyRoleAliases: boolean): Role[] {
   const allowed = new Set([
     'member',
     'admin',
@@ -791,7 +827,9 @@ function normalizeStoredRoles(roles: readonly unknown[]): Role[] {
     'super_admin',
     'owner',
   ])
-  const normalized = roles.flatMap((role) => (String(role) === 'creator' ? ['member'] : [String(role)]))
+  const normalized = roles.flatMap((role) =>
+    normalizeLegacyRoleAliases && String(role) === 'creator' ? ['member'] : [String(role)],
+  )
   return [...new Set(normalized.filter((role) => allowed.has(role)))].map((role) => role as Role)
 }
 
