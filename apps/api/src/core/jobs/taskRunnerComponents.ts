@@ -367,6 +367,17 @@ export class TaskWritebackService {
     })
   }
 
+  async renewLocalTaskLease(taskId: string, leaseToken: string): Promise<void> {
+    await this.store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === taskId)
+      if (!task || task.status !== 'running') return
+      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
+      const now = new Date()
+      renewGenerationTaskLease(task, this.leaseOwnerId, leaseToken, this.leaseTtlMs, now)
+      task.updatedAt = now.toISOString()
+    })
+  }
+
   async failTask(taskId: string, error: string, leaseToken?: string): Promise<void> {
     await this.store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)

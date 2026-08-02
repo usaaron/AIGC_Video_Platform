@@ -64,6 +64,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly providerPoller: ProviderPoller
   private readonly localTaskHandler: LocalGenerationTaskHandler | null
   private readonly activeExecutions = new Set<string>()
+  private readonly leaseTtlMs: number
 
   constructor(
     private readonly store: AppStore,
@@ -74,6 +75,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const imageProvider = options.imageProvider ?? null
     const objectStorage = options.objectStorage ?? null
     const leaseTtlMs = options.leaseTtlMs ?? 120_000
+    this.leaseTtlMs = leaseTtlMs
     const leaseOwnerId = `generation-task-runner-${process.pid}-${randomUUID()}`
     const dependencyResolver = new DependencyResolver()
 
@@ -182,7 +184,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
       const localTasks = [...recoveredSubmissions.local, ...remoteTasks.local].filter((task) =>
         this.localTaskHandler?.canHandle(task),
       )
-      this.scheduleRemoteExecutions(localTasks, (task) => this.executeLocalTask(task))
+      this.scheduleRemoteExecutions(localTasks, (task) => this.executeLocalTask(task), false)
 
       await this.writeback.advanceLocalTasks((task) => this.localTaskHandler?.canHandle(task) ?? false)
       await this.providerPoller.pollRemoteVideos()
@@ -194,11 +196,13 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private scheduleRemoteExecutions(
     tasks: GenerationTask[],
     execute: (task: GenerationTask) => Promise<void>,
+    withHeartbeat = true,
   ): void {
     for (const task of tasks) {
       if (this.activeExecutions.has(task.id)) continue
       this.activeExecutions.add(task.id)
-      void this.writeback.runWithHeartbeat(task, execute).finally(() => {
+      const execution = withHeartbeat ? this.writeback.runWithHeartbeat(task, execute) : execute(task)
+      void execution.finally(() => {
         this.activeExecutions.delete(task.id)
       })
     }
@@ -208,15 +212,53 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const leaseToken = task.leaseToken
     const handler = this.localTaskHandler
     if (!leaseToken || !handler) return
+    const stopHeartbeat = this.startLocalTaskHeartbeat(task.id, leaseToken)
     try {
       const result = await handler.execute(task)
-      await this.writeback.completeLocalTask(task.id, leaseToken, result)
+      await this.runLocalTaskMutation(() => this.writeback.completeLocalTask(task.id, leaseToken, result))
     } catch (error) {
-      await this.writeback.failTask(task.id, localTaskError(error), leaseToken)
+      await this.runLocalTaskMutation(() =>
+        this.writeback.failTask(task.id, localTaskError(error), leaseToken),
+      )
+    } finally {
+      stopHeartbeat()
     }
+  }
+
+  private startLocalTaskHeartbeat(taskId: string, leaseToken: string): () => void {
+    let heartbeatRunning = false
+    const heartbeat = async () => {
+      if (heartbeatRunning) return
+      heartbeatRunning = true
+      try {
+        await this.runLocalTaskMutation(() => this.writeback.renewLocalTaskLease(taskId, leaseToken))
+      } finally {
+        heartbeatRunning = false
+      }
+    }
+    const timer = setInterval(() => void heartbeat(), Math.max(1_000, Math.floor(this.leaseTtlMs / 3)))
+    timer.unref?.()
+    return () => clearInterval(timer)
+  }
+
+  private async runLocalTaskMutation(operation: () => Promise<void>): Promise<void> {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const acquired = await this.taskRunnerLock.runExclusive(async () => {
+        await this.beforeTick?.()
+        await operation()
+        await this.afterTick?.()
+      })
+      if (acquired) return
+      await delay(100)
+    }
+    throw new Error('Timed out while persisting local generation task state')
   }
 }
 
 function localTaskError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
