@@ -245,6 +245,7 @@ sudo docker compose --env-file deploy/demo.env -f compose.demo.yml restart worke
 
 - 不开放公网 `8787`、Postgres 或 Redis。
 - 不关闭 `/admin/` 的 Caddy `forward_auth`，也不只依赖前端隐藏。
+- 不关闭 Caddy `strict_sni_host`；TLS SNI 与 HTTP Host 不一致的请求必须返回 `421`，不能提供创作端或管理员端内容。
 - 不把 GCS Bucket 改成公开。
 - 不在 `VITE_*`、源码、文档或 GitHub Artifact 中放服务端密钥。
 - 不删除生产卷、不运行 `down -v`、不直接覆盖生产数据库。
