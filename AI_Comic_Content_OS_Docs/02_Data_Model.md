@@ -221,7 +221,7 @@ Recommended Tag 只代表数据建议。未被用户接受的推荐不得自动�
 - `requires_user_resolution`
 - `mapping_trace`
 - `content_spec_draft_id`
-- `content_spec_id`
+- optional `content_spec_id`（项目可先创建，Creative Intent 完成解析后再绑定）
 
 当前建议的确定性优先级：
 
@@ -1431,6 +1431,7 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 - `continuity_ledger_versions`
 - `generation_batches`
 - `generation_job_checkpoints`
+- `story_project_workspace_snapshots`
 
 设计采用关系索引字段 + JSONB immutable snapshot：
 
@@ -1441,7 +1442,9 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 - PostgreSQL 使用 JSONB；SQLite 测试使用 JSON compatibility variant。
 - 时间列使用 timezone-aware 类型。
 
-当前持久化已完成 schema、migration、Repository，以及 Project / Story Bible / Stage / Episode Plan 的 Application Service 与资源 API。尚未连接 Frontend、Draft / Final episode artifacts、Continuity 自动更新或后台 worker。
+`StoryProjectWorkspaceSnapshot` 是 Frontend authoring aggregate 的兼容持久化边界，包含 `project_id`、单调递增 `revision`、payload schema version、client instance、完整 workspace JSONB、SHA-256 checksum、payload size 与更新时间。它不替代正式 Story Bible / Episode Plan / Episode Artifact 领域模型；当前单条 payload 限制为 10 MB，stale revision 返回冲突。
+
+当前持久化已完成 schema、migration、Repository，以及 Project / Workspace Snapshot / Story Bible / Stage / Episode Plan 的 Application Service 与资源 API。Frontend 已进行本地优先双写与服务端恢复；尚未把 Draft / Revised / Final episode artifacts 映射为独立服务端版本对象，也未实现 Continuity 自动更新或后台 worker。
 
 ### Compatibility Boundary
 

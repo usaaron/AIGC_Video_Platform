@@ -18,6 +18,7 @@ from app.modules.script_engine.long_story_models import (
     StoryBible,
     StoryProject,
     StoryProjectStatus,
+    StoryProjectWorkspaceSnapshot,
     StoryStagePlan,
 )
 from app.modules.script_engine.long_story_persistence import StoryProjectRecord
@@ -184,12 +185,36 @@ def test_project_rejects_invalid_status_transition(database_runtime) -> None:
     with database_runtime.session() as session:
         LongStoryRepository(session).save_project(build_project())
 
-    invalid = build_project(revision=2).model_copy(
+    completed = build_project(revision=2).model_copy(
         update={"status": StoryProjectStatus.completed}
+    )
+    with database_runtime.session() as session:
+        LongStoryRepository(session).save_project(completed)
+
+    invalid = build_project(revision=3).model_copy(
+        update={"status": StoryProjectStatus.generating}
     )
     with database_runtime.session() as session:
         with pytest.raises(LongStoryPersistenceConflictError, match="transition"):
             LongStoryRepository(session).save_project(invalid)
+
+
+def test_archived_projects_are_excluded_from_default_listing(database_runtime) -> None:
+    with database_runtime.session() as session:
+        repository = LongStoryRepository(session)
+        repository.save_project(build_project())
+        repository.save_project(
+            build_project(revision=2).model_copy(
+                update={"status": StoryProjectStatus.archived}
+            )
+        )
+
+    with database_runtime.session() as session:
+        repository = LongStoryRepository(session)
+        assert repository.list_projects() == []
+        assert repository.count_projects() == 0
+        assert len(repository.list_projects(include_archived=True)) == 1
+        assert repository.count_projects(include_archived=True) == 1
 
 
 def test_project_atomic_revision_prevents_concurrent_lost_update(tmp_path) -> None:
@@ -223,6 +248,60 @@ def test_project_atomic_revision_prevents_concurrent_lost_update(tmp_path) -> No
         first_session.close()
         stale_session.close()
         runtime.engine.dispose()
+
+
+def test_workspace_snapshot_is_durable_and_revision_controlled(database_runtime) -> None:
+    initial = StoryProjectWorkspaceSnapshot(
+        project_id="story_project.mainland_demo",
+        revision=1,
+        client_instance_id="client.browser_one",
+        workspace_payload={
+            "id": "story_project.mainland_demo",
+            "title": "The Price of Truth",
+            "characters": [],
+            "episodes": [],
+        },
+        updated_at=NOW,
+        payload_checksum="a" * 64,
+        payload_size_bytes=100,
+    )
+    with database_runtime.session() as session:
+        repository = LongStoryRepository(session)
+        repository.save_project(build_project())
+        repository.save_workspace_snapshot(initial)
+
+    updated = initial.model_copy(
+        update={
+            "revision": 2,
+            "workspace_payload": {
+                **initial.workspace_payload,
+                "title": "The Cost of Truth",
+            },
+            "payload_checksum": "b" * 64,
+        }
+    )
+    with database_runtime.session() as session:
+        LongStoryRepository(session).save_workspace_snapshot(updated)
+
+    with database_runtime.session() as session:
+        saved = LongStoryRepository(session).get_workspace_snapshot(
+            "story_project.mainland_demo"
+        )
+        assert saved is not None
+        assert saved.revision == 2
+        assert saved.workspace_payload["title"] == "The Cost of Truth"
+
+        with pytest.raises(LongStoryPersistenceConflictError, match="revision"):
+            LongStoryRepository(session).save_workspace_snapshot(
+                initial.model_copy(
+                    update={
+                        "workspace_payload": {
+                            **initial.workspace_payload,
+                            "title": "Stale overwrite",
+                        }
+                    }
+                )
+            )
 
 
 def test_repository_lists_stage_and_episode_plans_in_order(database_runtime) -> None:

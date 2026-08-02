@@ -49,9 +49,9 @@
 
 1. 已完成第一轮长篇 contract foundation：`StoryProject`、`StoryBible`、`StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、bounded batch / checkpoint models。
 2. 已完成 PostgreSQL / JSONB schema、Alembic migration、事务型 Repository、immutable version 与 optimistic revision foundation。
-3. 已完成 Project / Story Bible / Stage / Episode Plan 的 Application Service 与版本化资源 API；现有 Frontend 尚未迁移。
-4. 下一步迁移 Frontend 项目元数据与规划对象，并设计 IndexedDB 到服务端的显式同步 / 冲突处理。
-5. 随后实现人工批准、Episode Artifact 持久化和后台 Job 安全恢复，不直接改变当前单集生成主链路。
+3. 已完成 Project / Story Bible / Stage / Episode Plan 的 Application Service 与版本化资源 API。
+4. 已完成 Frontend Project + Workspace Snapshot 的 IndexedDB 本地优先同步、服务端恢复、冲突报告和版本保护软删除。
+5. 下一步实现 Story Bible / Stage 的人工批准切片、Episode Artifact 正式版本持久化和后台 Job 安全恢复，不直接改变当前单集生成主链路。
 6. 用当前有界阶段生成验证批次间新增元素、连续性和人工确认，不直接从零运行完整 60 万字。
 7. 扩充并治理中国大陆长篇创作与漫剧改编知识资产。
 8. 在长篇结构稳定后，再决定 Creative Deepening、Agent 和 DDD-lite 的进入时点。
@@ -91,7 +91,7 @@ Research 结论不得直接写入 Prompt、Schema 或业务规则。
 - `ScriptGenerationWorkflowService` / Facade / `generate_script()`
 - Ontology alias 与 unresolved tag 人工确认
 - Relationship authoring 的正式后端契约
-- 项目、分集和版本的 durable persistence
+- 分集 Draft / Revised / Final 独立版本对象与 durable persistence（Project Workspace Snapshot 已完成）
 - Knowledge-aware QC / Revision / Evaluation
 - Feedback Learning Expansion
 - Cost / Quality Optimization

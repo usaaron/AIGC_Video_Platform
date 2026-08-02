@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import TypeVar
 
 from sqlalchemy.exc import IntegrityError
@@ -10,6 +13,9 @@ from app.modules.script_engine.long_story_models import (
     EpisodePlan,
     StoryBible,
     StoryProject,
+    StoryProjectStatus,
+    StoryProjectWorkspaceSave,
+    StoryProjectWorkspaceSnapshot,
     StoryStagePlan,
 )
 from app.modules.script_engine.long_story_repository import (
@@ -27,6 +33,10 @@ class LongStoryNotFoundError(LookupError):
 
 
 class LongStoryReferenceError(ValueError):
+    pass
+
+
+class LongStoryPayloadTooLargeError(ValueError):
     pass
 
 
@@ -61,13 +71,89 @@ class LongStoryService:
         *,
         limit: int = 50,
         offset: int = 0,
+        include_archived: bool = False,
     ) -> tuple[list[StoryProject], int]:
         return self._run(
             lambda repository: (
-                repository.list_projects(limit=limit, offset=offset),
-                repository.count_projects(),
+                repository.list_projects(
+                    limit=limit,
+                    offset=offset,
+                    include_archived=include_archived,
+                ),
+                repository.count_projects(include_archived=include_archived),
             )
         )
+
+    def archive_project(
+        self,
+        project_id: str,
+        *,
+        expected_revision: int,
+    ) -> StoryProject:
+        def operation(repository: LongStoryRepository) -> StoryProject:
+            project = self._require_project(repository, project_id, for_update=True)
+            if project.revision != expected_revision:
+                raise LongStoryPersistenceConflictError(
+                    "Story Project revision is stale; reload before archiving."
+                )
+            if project.status == StoryProjectStatus.archived:
+                return project
+            archived = project.model_copy(
+                update={
+                    "revision": project.revision + 1,
+                    "status": StoryProjectStatus.archived,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            )
+            return repository.save_project(archived)
+
+        return self._run(operation)
+
+    def save_workspace_snapshot(
+        self,
+        payload: StoryProjectWorkspaceSave,
+    ) -> StoryProjectWorkspaceSnapshot:
+        encoded_payload = json.dumps(
+            payload.workspace_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        payload_size = len(encoded_payload)
+        if payload_size > 10_000_000:
+            raise LongStoryPayloadTooLargeError(
+                "Workspace snapshot exceeds the 10 MB payload limit."
+            )
+        snapshot = StoryProjectWorkspaceSnapshot(
+            **payload.model_dump(),
+            payload_checksum=hashlib.sha256(encoded_payload).hexdigest(),
+            payload_size_bytes=payload_size,
+        )
+
+        def operation(
+            repository: LongStoryRepository,
+        ) -> StoryProjectWorkspaceSnapshot:
+            self._require_project(repository, payload.project_id, for_update=True)
+            return repository.save_workspace_snapshot(snapshot)
+
+        return self._run(operation)
+
+    def get_workspace_snapshot(
+        self,
+        project_id: str,
+    ) -> StoryProjectWorkspaceSnapshot:
+        def operation(
+            repository: LongStoryRepository,
+        ) -> StoryProjectWorkspaceSnapshot:
+            self._require_project(repository, project_id)
+            snapshot = repository.get_workspace_snapshot(project_id)
+            if snapshot is None:
+                raise LongStoryNotFoundError(
+                    f"Workspace snapshot for Story Project '{project_id}' was not found."
+                )
+            return snapshot
+
+        return self._run(operation)
 
     def save_story_bible(self, story_bible: StoryBible) -> StoryBible:
         def operation(repository: LongStoryRepository) -> StoryBible:

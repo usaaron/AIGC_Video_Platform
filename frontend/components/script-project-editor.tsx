@@ -139,6 +139,19 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
   const primaryTag = allAvailableTags.find((tag) => tag.id === draft.selectedTagIds[0])
     ?? getTag(draft.selectedTagIds[0] ?? "");
   const resolvedGenerationPrompt = buildResolvedPrompt(draft, allAvailableTags, locale).slice(0, 240);
+  const syncStatus = project?.serverSync?.status;
+  const isSaving = saveState === "saving" || syncStatus === "syncing";
+  const saveLabel = mode === "create"
+    ? t("editor.notSaved")
+    : isSaving
+      ? t("editor.saving")
+      : syncStatus === "synced"
+        ? t("editor.savedServer")
+        : syncStatus === "conflict"
+          ? t("editor.syncConflict")
+          : syncStatus === "unavailable"
+            ? t("editor.savedOffline")
+            : t("editor.saved");
 
   useEffect(() => {
     if (
@@ -352,6 +365,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
           finalizationResult: undefined,
           workingDraftJson: generatedEpisodes[0].workingDraftJson,
           hasLocalDraftEdits: false,
+          contentSpecId: firstRun.content_spec_id ?? project.contentSpecId,
           status: "draft",
           ...(draft.titleSource === "user" ? {} : {
             title: firstRun.draft_master_script.title,
@@ -388,8 +402,8 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
         <header className="creator-header">
           <div className="creator-breadcrumb"><span>{t("nav.myScripts")}</span><i>/</i><strong>{mode === "create" ? t("editor.newScript") : draft.title}</strong></div>
           <div className="autosave-state">
-            <span className={saveState === "saving" ? "is-saving" : ""} />
-            {mode === "create" ? t("editor.notSaved") : saveState === "saving" ? t("editor.saving") : t("editor.saved")}
+            <span className={isSaving ? "is-saving" : ""} />
+            {saveLabel}
           </div>
         </header>
 

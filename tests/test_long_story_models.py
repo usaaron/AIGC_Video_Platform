@@ -11,6 +11,7 @@ from app.modules.script_engine.long_story_models import (
     SetupPayoffRecord,
     StoryBible,
     StoryProject,
+    StoryProjectWorkspaceSave,
     StoryStagePlan,
 )
 
@@ -78,6 +79,25 @@ def test_story_project_uses_long_form_defaults_and_serializes() -> None:
     assert serialized["target_total_characters"] == 600_000
     assert serialized["default_batch_size"] == 5
     assert serialized["status"] == "planning"
+
+
+def test_story_project_can_exist_before_content_spec_resolution() -> None:
+    project = StoryProject(
+        project_id="story_project.pre_content_spec",
+        title="Unresolved Story Project",
+        planned_episode_count=60,
+    )
+
+    assert project.content_spec_id is None
+
+
+def test_workspace_snapshot_input_requires_matching_project_identity() -> None:
+    with pytest.raises(ValidationError, match="workspace_payload.id"):
+        StoryProjectWorkspaceSave(
+            project_id="story_project.workspace",
+            client_instance_id="client.browser_one",
+            workspace_payload={"id": "story_project.other"},
+        )
 
 
 def test_story_project_rejects_batch_larger_than_series() -> None:

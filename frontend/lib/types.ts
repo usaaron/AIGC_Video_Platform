@@ -63,7 +63,9 @@ export interface ScriptProject {
   activeEpisodeNumber: number;
   storyLines: ProjectStoryLine[];
   characterRelationships: CharacterRelationship[];
+  contentSpecId?: string;
   sourceProjectId?: string;
+  serverSync?: ProjectServerSyncState;
   // Legacy single-episode fields remain readable during local project migration.
   generationRun?: ScriptGenerationRun;
   revisionRun?: ScriptRevisionRun;
@@ -73,6 +75,21 @@ export interface ScriptProject {
   status: ProjectStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ProjectServerSyncStatus =
+  | "local_only"
+  | "syncing"
+  | "synced"
+  | "conflict"
+  | "unavailable";
+
+export interface ProjectServerSyncState {
+  status: ProjectServerSyncStatus;
+  projectRevision: number;
+  workspaceRevision: number;
+  lastSyncedAt?: string;
+  error?: string;
 }
 
 export type GenerationBatchStatus = "completed" | "partial" | "failed";
@@ -211,6 +228,7 @@ export interface BilingualScriptView {
 }
 
 export interface ScriptGenerationRun {
+  content_spec_id?: string;
   generation_strategy_id: string;
   generation_strategy_version: string;
   draft_master_script: GeneratedDraft;

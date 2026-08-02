@@ -10,7 +10,7 @@ import { useProjects } from "@/providers/project-provider";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { storageError } = useProjects();
+  const { projects, storageError } = useProjects();
   const { t } = useLocale();
 
   return (
@@ -30,6 +30,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <LanguageToggle compact />
         </header>
         {storageError ? <div className="storage-alert">{storageError}</div> : null}
+        {projects.some((project) => project.serverSync?.status === "conflict") ? (
+          <div className="storage-alert">{t("nav.syncConflict")}</div>
+        ) : null}
         {children}
       </div>
     </div>

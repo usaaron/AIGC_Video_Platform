@@ -13,6 +13,8 @@ from app.modules.script_engine.long_story_models import (
     StoryProject,
     StoryProjectListResponse,
     StoryProjectResponse,
+    StoryProjectWorkspaceResponse,
+    StoryProjectWorkspaceSave,
     StoryStagePlan,
     StoryStagePlanListResponse,
     StoryStagePlanResponse,
@@ -22,6 +24,7 @@ from app.modules.script_engine.long_story_repository import (
 )
 from app.modules.script_engine.long_story_service import (
     LongStoryNotFoundError,
+    LongStoryPayloadTooLargeError,
     LongStoryReferenceError,
     LongStoryService,
 )
@@ -56,9 +59,14 @@ def save_story_project(
 def list_story_projects(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    include_archived: bool = Query(default=False),
     service: LongStoryService = Depends(get_long_story_service),
 ) -> StoryProjectListResponse:
-    projects, total = service.list_projects(limit=limit, offset=offset)
+    projects, total = service.list_projects(
+        limit=limit,
+        offset=offset,
+        include_archived=include_archived,
+    )
     return StoryProjectListResponse(
         data=projects,
         total=total,
@@ -81,6 +89,80 @@ def get_story_project(
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
     return StoryProjectResponse(data=project)
+
+
+@router.delete(
+    "/{project_id}",
+    response_model=StoryProjectResponse,
+    responses={
+        404: {"model": LongStoryErrorResponse},
+        409: {"model": LongStoryErrorResponse},
+    },
+)
+def archive_story_project(
+    project_id: str,
+    expected_revision: int = Query(ge=1),
+    service: LongStoryService = Depends(get_long_story_service),
+) -> StoryProjectResponse:
+    try:
+        project = service.archive_project(
+            project_id,
+            expected_revision=expected_revision,
+        )
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
+    return StoryProjectResponse(data=project)
+
+
+@router.put(
+    "/{project_id}/workspace",
+    response_model=StoryProjectWorkspaceResponse,
+    responses={
+        404: {"model": LongStoryErrorResponse},
+        409: {"model": LongStoryErrorResponse},
+        413: {"model": LongStoryErrorResponse},
+    },
+)
+def save_story_project_workspace(
+    project_id: str,
+    payload: StoryProjectWorkspaceSave,
+    service: LongStoryService = Depends(get_long_story_service),
+) -> StoryProjectWorkspaceResponse:
+    if payload.project_id != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Workspace path ID must match payload project_id.",
+        )
+    try:
+        snapshot = service.save_workspace_snapshot(payload)
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    except LongStoryPayloadTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(exc),
+        ) from exc
+    except (LongStoryPersistenceConflictError, LongStoryReferenceError) as exc:
+        _raise_conflict(exc)
+    return StoryProjectWorkspaceResponse(data=snapshot)
+
+
+@router.get(
+    "/{project_id}/workspace",
+    response_model=StoryProjectWorkspaceResponse,
+    responses={404: {"model": LongStoryErrorResponse}},
+)
+def get_story_project_workspace(
+    project_id: str,
+    service: LongStoryService = Depends(get_long_story_service),
+) -> StoryProjectWorkspaceResponse:
+    try:
+        snapshot = service.get_workspace_snapshot(project_id)
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    return StoryProjectWorkspaceResponse(data=snapshot)
 
 
 @router.put(

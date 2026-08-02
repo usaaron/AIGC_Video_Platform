@@ -16,6 +16,7 @@ from app.modules.script_engine.long_story_models import (
     StoryBible,
     StoryProject,
     StoryProjectStatus,
+    StoryProjectWorkspaceSnapshot,
     StoryStagePlan,
 )
 from app.modules.script_engine.long_story_persistence import (
@@ -25,6 +26,7 @@ from app.modules.script_engine.long_story_persistence import (
     GenerationJobCheckpointRecord,
     StoryBibleVersionRecord,
     StoryProjectRecord,
+    StoryProjectWorkspaceSnapshotRecord,
     StoryStagePlanVersionRecord,
 )
 
@@ -104,19 +106,83 @@ class LongStoryRepository:
         *,
         limit: int = 50,
         offset: int = 0,
+        include_archived: bool = False,
     ) -> list[StoryProject]:
+        statement = select(StoryProjectRecord)
+        if not include_archived:
+            statement = statement.where(
+                StoryProjectRecord.status != StoryProjectStatus.archived.value
+            )
         records = self._session.exec(
-            select(StoryProjectRecord)
-            .order_by(col(StoryProjectRecord.updated_at).desc())
+            statement.order_by(col(StoryProjectRecord.updated_at).desc())
             .offset(offset)
             .limit(limit)
         ).all()
         return [StoryProject.model_validate(record.payload) for record in records]
 
-    def count_projects(self) -> int:
-        return self._session.exec(
-            select(func.count()).select_from(StoryProjectRecord)
-        ).one()
+    def count_projects(self, *, include_archived: bool = False) -> int:
+        statement = select(func.count()).select_from(StoryProjectRecord)
+        if not include_archived:
+            statement = statement.where(
+                StoryProjectRecord.status != StoryProjectStatus.archived.value
+            )
+        return self._session.exec(statement).one()
+
+    def save_workspace_snapshot(
+        self,
+        snapshot: StoryProjectWorkspaceSnapshot,
+    ) -> StoryProjectWorkspaceSnapshot:
+        record = self._session.get(
+            StoryProjectWorkspaceSnapshotRecord,
+            snapshot.project_id,
+        )
+        values = {
+            "schema_version": snapshot.schema_version,
+            "revision": snapshot.revision,
+            "payload_schema_version": snapshot.payload_schema_version,
+            "client_instance_id": snapshot.client_instance_id,
+            "payload_checksum": snapshot.payload_checksum,
+            "payload_size_bytes": snapshot.payload_size_bytes,
+            "updated_at": snapshot.updated_at,
+            "payload": snapshot.workspace_payload,
+        }
+        if record is None:
+            if snapshot.revision != 1:
+                raise LongStoryPersistenceConflictError(
+                    "New workspace snapshot must start at revision 1."
+                )
+            self._session.add(
+                StoryProjectWorkspaceSnapshotRecord(
+                    project_id=snapshot.project_id,
+                    **values,
+                )
+            )
+        else:
+            current = self._workspace_from_record(record)
+            if snapshot.revision == current.revision and snapshot == current:
+                return snapshot
+            if snapshot.revision != current.revision + 1:
+                raise LongStoryPersistenceConflictError(
+                    "Workspace snapshot revision is stale or skips a version."
+                )
+            self._apply_optimistic_update(
+                StoryProjectWorkspaceSnapshotRecord,
+                StoryProjectWorkspaceSnapshotRecord.project_id == snapshot.project_id,
+                StoryProjectWorkspaceSnapshotRecord.revision == current.revision,
+                values,
+                "Workspace snapshot",
+            )
+        self._session.flush()
+        return snapshot
+
+    def get_workspace_snapshot(
+        self,
+        project_id: str,
+    ) -> StoryProjectWorkspaceSnapshot | None:
+        record = self._session.get(StoryProjectWorkspaceSnapshotRecord, project_id)
+        if record is None:
+            return None
+        return self._workspace_from_record(record)
 
     def save_story_bible(self, story_bible: StoryBible) -> StoryBible:
         record = StoryBibleVersionRecord(
@@ -469,6 +535,22 @@ class LongStoryRepository:
         self._session.flush()
 
     @staticmethod
+    def _workspace_from_record(
+        record: StoryProjectWorkspaceSnapshotRecord,
+    ) -> StoryProjectWorkspaceSnapshot:
+        return StoryProjectWorkspaceSnapshot(
+            schema_version=record.schema_version,
+            project_id=record.project_id,
+            revision=record.revision,
+            payload_schema_version=record.payload_schema_version,
+            client_instance_id=record.client_instance_id,
+            workspace_payload=record.payload,
+            updated_at=record.updated_at,
+            payload_checksum=record.payload_checksum,
+            payload_size_bytes=record.payload_size_bytes,
+        )
+
+    @staticmethod
     def _ensure_project_transition(
         current: StoryProjectStatus,
         target: StoryProjectStatus,
@@ -476,10 +558,13 @@ class LongStoryRepository:
         allowed = {
             StoryProjectStatus.planning: {
                 StoryProjectStatus.generating,
+                StoryProjectStatus.review,
+                StoryProjectStatus.completed,
                 StoryProjectStatus.archived,
             },
             StoryProjectStatus.generating: {
                 StoryProjectStatus.review,
+                StoryProjectStatus.completed,
                 StoryProjectStatus.archived,
             },
             StoryProjectStatus.review: {

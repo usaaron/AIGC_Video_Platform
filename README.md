@@ -14,8 +14,9 @@ AI Comic Content OS 当前面向中国大陆漫剧市场，重点建设中文长
 - 保留但关闭：`overseas_tiktok`
 - 暂停：Creative Deepening 前后端运行开关默认关闭
 - 已完成基础：Story Project、Story Bible、故事阶段、Episode Plan、Continuity Ledger、批次检查点契约，以及 PostgreSQL / JSONB schema、Alembic migration 和事务型 Repository
-- 已接入后端资源 API：Story Project、Story Bible、故事阶段和 Episode Plan 的版本化保存与读取
-- 尚未接入 runtime：Frontend、自动规划、生成上下文映射、连续性更新和后台可恢复执行
+- 已接入后端资源 API：Story Project、Frontend Workspace Snapshot、Story Bible、故事阶段和 Episode Plan 的版本化保存与读取
+- Frontend 已采用 IndexedDB 本地优先 + PostgreSQL Workspace Snapshot 服务端同步；冲突不静默覆盖，删除使用版本保护的服务端软归档
+- 尚未接入 runtime：自动规划、正式 Episode Artifact 映射、连续性自动更新和后台可恢复执行
 - 尚未实现：完整 60 万字母本自动生成
 
 当前已经跑通：
@@ -40,7 +41,7 @@ Frontend MVP 支持本地项目、标签、角色、逐集生成和分阶段全�
 - Revision 仍以规则式受控修改为主。
 - Acceptance 当前是 shadow 信号，不阻断 Finalization；Creative Deepening 当前默认关闭。
 - 全部生成由前端按批次有界调用单集 Draft API，并保存本地批次 lineage；不等同于 Story Planning runtime、后台 Job 或完整 60 万字自动生成。
-- 项目历史当前仍保存在浏览器 IndexedDB；长篇 PostgreSQL 规划资源 API 已建立，但当前页面尚未迁移到它。
+- 项目工作区先保存到浏览器 IndexedDB，并在配置 PostgreSQL 时同步完整版本化 Workspace Snapshot。没有数据库或服务暂时不可用时可继续本地编辑，但同步冲突必须人工处理。
 - 中文界面的英文剧本对照翻译是 presentation artifact，不修改正式英文剧本。
 - Agent、动态 RAG、视频生产和统一 Script Generation Facade 尚未实现。
 
@@ -101,7 +102,7 @@ SCRIPT_MARKET_PROFILE=overseas_tiktok
 
 脚本会启动后端、初始化 Frontend MVP 所需的内存资源并启动前端。使用 `Ctrl+C` 同时停止两个服务。
 
-`start-local.sh` 当前不会自动执行数据库迁移，也不会把 IndexedDB 项目迁移到 PostgreSQL。配置并迁移数据库后可调用长篇规划资源 API，但当前 Frontend 尚未调用这些接口。
+配置 `DATABASE_URL` 时，`start-local.sh` 会先执行 `alembic upgrade head`，Frontend 随后同步项目元数据与完整工作区快照。未配置数据库时明确进入 IndexedDB 本地模式，不会伪装为云端持久化。生产发布仍应在独立 release step 中显式执行 migration。
 
 如果提示端口占用，先停止旧的 `uvicorn` / `next dev` 进程，再重新运行启动脚本。
 
@@ -137,7 +138,7 @@ npm run build
 PYTHONPATH=backend:. .venv/bin/uvicorn app.main:app --reload
 ```
 
-后端使用内存 Repository。单独启动或重启 API 后，如需运行 Frontend MVP，请初始化开发资源：
+ContentSpec、Prompt 和部分历史能力仍使用进程内 Repository。单独启动或重启 API 后，如需运行 Frontend MVP，请初始化开发资源：
 
 ```bash
 .venv/bin/python scripts/bootstrap_frontend_mvp_runtime.py

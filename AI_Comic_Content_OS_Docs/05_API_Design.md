@@ -1078,13 +1078,29 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 
 ### GET `/story-projects`
 
-- 分页列出项目，支持 `limit` 与 `offset`
+- 分页列出未归档项目，支持 `limit` 与 `offset`
+- `include_archived=true` 仅用于显式审计读取
 - 返回 `data`、`total`、`limit` 与 `offset`
 
 ### GET `/story-projects/{project_id}`
 
 - 获取单个持久化项目
 - 不存在时返回 `404`
+
+### DELETE `/story-projects/{project_id}`
+
+- 通过 `expected_revision` 执行版本保护的软归档，不物理删除数据
+- stale revision 返回 `409`；归档项目默认不再出现在列表中
+
+### PUT `/story-projects/{project_id}/workspace`
+
+- 保存 Frontend 完整工作区 JSONB snapshot，要求 workspace payload ID 与项目 ID 一致
+- 使用独立单调递增 workspace revision；同 revision 相同 payload 可幂等重放，不同 payload 返回 `409`
+- 服务端记录 payload schema、client instance、checksum 和字节数；超过 10 MB 返回 `413`
+
+### GET `/story-projects/{project_id}/workspace`
+
+- 恢复最新 Frontend authoring snapshot；项目或快照不存在时返回 `404`
 
 ### PUT `/story-projects/{project_id}/story-bibles/{story_bible_id}/versions/{version}`
 
@@ -1117,7 +1133,8 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 
 当前边界：
 
-- Frontend 尚未调用这些接口，浏览器项目仍以 IndexedDB 为当前事实源
+- Frontend 已调用 Project 与 Workspace Snapshot 接口，并保留 IndexedDB 作为即时本地缓存和服务不可用时的离线回退
+- 合并以 `updated_at` 比较并使用 revision 防止 lost update；冲突只报告，不静默覆盖
 - 尚未开放 Continuity Ledger、Generation Batch / Job 的公共写接口
 - 尚未实现权限、租户、后台 worker、自动规划或长篇生成 facade
 - 这些接口不改变现有单集 Draft、Story QC、Revision、Acceptance 或 Finalization 行为
@@ -1135,4 +1152,4 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 - `MasterScript` 创建时会校验引用的 `ContentSpec` 是否已存在
 - `OrchestrationPlan` 创建时会校验引用的 `ContentSpec` 是否已存在
 - 现有 ContentSpec、Prompt、Script Generation 等历史仓储仍以进程内实现为主
-- 长篇规划资源已使用 PostgreSQL persistence foundation；Frontend 与 episode artifact 迁移仍待后续完成
+- 长篇规划资源与 Frontend Workspace Snapshot 已使用 PostgreSQL persistence foundation；独立 episode artifact 迁移仍待后续完成

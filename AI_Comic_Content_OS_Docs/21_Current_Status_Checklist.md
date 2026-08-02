@@ -4,7 +4,7 @@
 
 本文件是“当前已经实现什么、哪些仍是实验性、哪些尚未实现”的唯一状态来源。它不维护路线图、运行教程或详细 API 字段。
 
-状态更新时间：2026-08-01。
+状态更新时间：2026-08-02。
 
 ## Branch Registry
 
@@ -23,11 +23,11 @@
 
 - 职责：承载中国大陆漫剧市场切换与长篇分阶段生成的最小兼容实现。
 - 基于：本地 `main` 的 `script-generation-research-checkpoint-v1.1.0` 基线。
-- 已推送持久化基线：`0f6b2ec`，commit 为 `feat: add PostgreSQL long story persistence foundation`；长篇契约基线为 `e5fdf81`。
+- 已推送规划 API 基线：`2cdc79c`，commit 为 `feat: add persistent long story planning API`；持久化基线为 `0f6b2ec`，长篇契约基线为 `e5fdf81`。
 - 主要内容：默认 `cn_mainland` market profile、保留但关闭 `overseas_tiktok`、红果 reference-only 定位、逐集与有界阶段生成、批次 lineage、后续阶段可选新元素指令、长篇参数估算、Creative Deepening 前后端默认关闭。
-- 当前增量：长篇 Contract Foundation、PostgreSQL/JSONB schema、Alembic migration、事务型 Repository、原子 optimistic revision，以及 Project / Story Bible / Stage / Episode Plan 资源 API；尚未接入 Frontend 和生成 runtime。
+- 当前增量：长篇 Contract Foundation、PostgreSQL/JSONB schema、Alembic migration、事务型 Repository、原子 optimistic revision、Project / Workspace Snapshot / Story Bible / Stage / Episode Plan 资源 API，以及 Frontend 本地优先同步、恢复、冲突提示和软删除。
 - 明确边界：仍通过现有单集 Draft API 编排；规划资源 API 不等同于自动 Story Blueprint / Episode Planning，也不等同于后台长任务或完整 60 万字自动生成 runtime。
-- 验证状态：当前增量后端全量 `257 passed, 1 skipped`，长篇模型 / Repository / migration / Planning API 定向 `28 passed`，前端 typecheck/build 通过。
+- 验证状态：Workspace Snapshot 定向测试 `34 passed`，后端全量 `263 passed, 1 skipped`，前端 typecheck/build 通过。
 - 远程状态：已推送并跟踪 `origin/feature/cn-mainland-staged-generation`。
 - 合并状态：尚未合并到 `main`；应在合作方需求确认和新版手工验收完成后再决定是否合并并建立新版本 tag。
 
@@ -39,7 +39,7 @@
 - `overseas_tiktok`：实现与资产保留，默认关闭，可显式切换
 - 红果：reference only，不是硬绑定平台
 - Creative Deepening：实现保留，前端和后端 runtime feature flag 默认关闭
-- 长篇故事母本：当前目标；Story Bible、故事阶段、Episode Plan、Continuity Ledger 与 batch checkpoint 契约已实现，前四类规划资源具备后端持久化 API；自动规划与生成 runtime 尚未接入
+- 长篇故事母本：当前目标；Story Bible、故事阶段、Episode Plan、Continuity Ledger 与 batch checkpoint 契约已实现，Project / Workspace Snapshot / Story Bible / Stage / Episode Plan 具备后端持久化 API；自动规划与生成 runtime 尚未接入
 
 ## Current Runtime Flow
 
@@ -94,6 +94,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - 长篇 Contract Foundation：`StoryProject`、`StoryBible`、人物弧/关系/故事线、`StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、`GenerationBatchPlan`、`GenerationJobCheckpoint`
 - 长篇 Persistence Foundation：SQLModel tables、PostgreSQL JSONB、Psycopg 3、Alembic migration、事务 Session、版本不可覆盖、stale write 与非法状态倒退保护
 - 长篇 Planning API：Project 分页与 optimistic update、Story Bible / Stage / Episode Plan immutable version 写入和读取、跨资源归属与集数范围校验
+- Frontend Workspace Persistence：Project 可在 ContentSpec 解析前创建；完整工作区使用 10 MB 上限的 JSONB snapshot、checksum、独立 revision 和 client lineage 保存
 
 ### Quality Loop
 
@@ -117,7 +118,8 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 ### Frontend MVP
 
 - Next.js 中英文创作界面
-- IndexedDB 本地项目、角色、分集和版本快照
+- IndexedDB 本地优先项目、角色、分集和版本快照
+- PostgreSQL Project + Workspace Snapshot 同步、跨浏览器恢复、updated-at 合并、显式 revision conflict 和版本保护软删除
 - Creative Input、系统标签、“我的标签”和 Character Builder
 - 逐集生成与有界阶段生成，包含本地批次 lineage 和 optional 阶段指令
 - 分集切换、结构化编辑、保存、确认和 AI 修改；Deepening 入口当前隐藏
@@ -158,13 +160,13 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 
 ## Not Implemented
 
-- Frontend 对长篇 Project / Story Bible / Stage / Episode Plan API 的接入与冲突处理
+- Frontend 对 Story Bible / Stage / Episode Plan 结构化编辑与人工批准 API 的接入
 - 服务端 Episode Draft / Revised / Final 版本聚合与 API
 - Episode Draft / Revised / Final artifact 的服务端版本持久化
 - Story Bible / Story Stage / Episode Plan 的生成、人工批准和 Prompt 注入
 - Continuity Ledger 的自动提取、更新与冲突检查
 - 后台 Generation Job 执行、暂停、恢复和断点重试
-- Authentication、权限、协作和云同步
+- Authentication、权限、多用户协作和账户级云空间（单用户工作区服务端同步已实现）
 - Story Planning runtime
 - Character Decision Logic runtime
 - 动态 Knowledge Retrieval、RAG、向量库和 Skill Registry
@@ -175,7 +177,8 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 
 ## Important Boundaries
 
-- Frontend 项目数据当前仍保存在浏览器 IndexedDB；后端规划 API 已可持久化独立长篇资源，但当前页面尚未调用，因此浏览器项目不会自动迁移或恢复。
+- Frontend 项目数据先保存在 IndexedDB，并在 PostgreSQL 可用时同步 Project + Workspace Snapshot；远端新版本可恢复到本地，版本冲突只提示不自动覆盖。
+- Workspace Snapshot 是当前兼容恢复边界，不代表 Draft / Revised / Final episode 已成为独立、可查询的服务端领域版本。
 - “全部生成”是前端按有界批次逐集调用，不等同于一次生成完整系列规划；批次尚不具备后端持久化或断点任务恢复。
 - 故事线和人物关系是本地 authoring / continuity artifact，不是 Final `MasterScript` 字段。
 - Bilingual View 是开发者 / 中文用户审阅工件，不进入目标语言正式剧本。
@@ -187,15 +190,15 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 
 最近一次代码变更后的记录：
 
-- 后端全量测试：`257 passed, 1 skipped`
-- 长篇模型、Repository、migration 与 Planning API 定向测试：`28 passed`
+- 后端全量测试：`263 passed, 1 skipped`
+- 长篇模型、Repository、migration、Planning API 与 Workspace Snapshot 定向测试：`34 passed`
 - 前端 TypeScript：通过
 - 前端 production build：通过
 - `git diff --check`：通过
 - Alembic upgrade / check / downgrade / re-upgrade：通过 SQLite 自动化验证
 - 真实 PostgreSQL 集成：本轮未运行，进入 CI / 部署环境验证阶段后补充
 
-该记录是当前持久化 foundation 的验证快照，不代表 API、Frontend 或后台任务已经完成持久化接入。
+该记录是当前 Project + Workspace Snapshot 持久化接入的验证快照，不代表正式 Episode Artifact、后台任务或全部历史 Repository 已完成持久化接入。
 
 ## Current Hold
 

@@ -208,7 +208,10 @@ export async function generateSingleEpisode(
       } : null,
     }),
   });
-  return generated.data;
+  return {
+    ...generated.data,
+    content_spec_id: resolution.data.content_spec.id,
+  };
 }
 
 export async function reviewEpisodeDraft(

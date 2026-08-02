@@ -82,6 +82,11 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
           activeEpisodeNumber: project.activeEpisodeNumber ?? 1,
           storyLines: project.storyLines ?? [],
           characterRelationships: project.characterRelationships ?? [],
+          serverSync: project.serverSync ?? {
+            status: "local_only" as const,
+            projectRevision: 0,
+            workspaceRevision: 0,
+          },
           characters: (project.characters ?? []).map((character) => ({
             ...character,
             role: character.role ?? "",

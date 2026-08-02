@@ -19,7 +19,7 @@ interface ProjectSidebarProps {
 export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { projects, isReady, deleteProject } = useProjects();
+  const { projects, isReady, deleteProject, serverPersistenceAvailable } = useProjects();
   const { locale, t } = useLocale();
   const [search, setSearch] = useState("");
   const visibleProjects = projects.filter((project) => project.title.toLowerCase().includes(search.trim().toLowerCase()));
@@ -82,10 +82,10 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
                     </span>
                     <span className={`status-dot status-${project.status}`} />
                   </Link>
-                  <button aria-label={`${t("nav.delete")} ${project.title}`} className="project-delete-button" onClick={() => {
+                  <button aria-label={`${t("nav.delete")} ${project.title}`} className="project-delete-button" onClick={async () => {
                     if (!window.confirm(t("nav.deleteConfirm"))) return;
-                    deleteProject(project.id);
-                    if (active) router.push("/");
+                    const deleted = await deleteProject(project.id);
+                    if (deleted && active) router.push("/");
                   }} type="button"><TrashIcon /></button>
                 </div>
               );
@@ -98,8 +98,12 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
           <div className="local-mode-badge">
             <span className="local-mode-dot" />
             <span>
-              <strong>{t("nav.localWorkspace")}</strong>
-              <small>{t("nav.savedBrowser")}</small>
+              <strong>{serverPersistenceAvailable ? t("nav.cloudWorkspace") : t("nav.localWorkspace")}</strong>
+              <small>{serverPersistenceAvailable === true
+                ? t("nav.syncedServer")
+                : serverPersistenceAvailable === false
+                  ? t("nav.syncUnavailable")
+                  : t("nav.savedBrowser")}</small>
             </span>
           </div>
         </div>

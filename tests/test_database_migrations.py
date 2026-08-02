@@ -11,6 +11,7 @@ EXPECTED_LONG_STORY_TABLES = {
     "generation_job_checkpoints",
     "story_bible_versions",
     "story_projects",
+    "story_project_workspace_snapshots",
     "story_stage_plan_versions",
 }
 
@@ -26,7 +27,12 @@ def test_long_story_migration_upgrades_without_metadata_drift(
 
     command.upgrade(config, "head")
     engine = create_engine(database_url)
-    assert set(inspect(engine).get_table_names()) == EXPECTED_LONG_STORY_TABLES
+    inspector = inspect(engine)
+    assert set(inspector.get_table_names()) == EXPECTED_LONG_STORY_TABLES
+    project_columns = {
+        column["name"]: column for column in inspector.get_columns("story_projects")
+    }
+    assert project_columns["content_spec_id"]["nullable"] is True
     engine.dispose()
 
     command.check(config)

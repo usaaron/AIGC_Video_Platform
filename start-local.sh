@@ -59,6 +59,16 @@ if [[ ! -d "$ROOT_DIR/frontend/node_modules" ]]; then
   exit 1
 fi
 
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  echo "Applying database migrations"
+  (
+    cd "$ROOT_DIR"
+    PYTHONPATH=backend:. .venv/bin/alembic upgrade head
+  )
+else
+  echo "DATABASE_URL is not configured. Projects will remain browser-local until server persistence is available."
+fi
+
 port_in_use() {
   lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
 }

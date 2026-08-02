@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -76,7 +77,7 @@ class StoryProject(BaseModel):
     project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     revision: int = Field(default=1, ge=1)
     title: str = Field(min_length=2, max_length=160)
-    content_spec_id: str = Field(min_length=3, max_length=120)
+    content_spec_id: str | None = Field(default=None, min_length=3, max_length=120)
     output_language: str = Field(default="zh", min_length=2, max_length=20)
     target_total_characters: int = Field(default=600_000, ge=1_000, le=2_000_000)
     planned_episode_count: int = Field(ge=1, le=2_000)
@@ -620,3 +621,39 @@ class EpisodePlanListResponse(BaseModel):
 
 class LongStoryErrorResponse(BaseModel):
     detail: str
+
+
+class StoryProjectWorkspaceSave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(default="v1", pattern=r"^v\d+$")
+    project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    revision: int = Field(default=1, ge=1)
+    payload_schema_version: str = Field(
+        default="frontend.script_project.v1",
+        min_length=3,
+        max_length=80,
+    )
+    client_instance_id: str = Field(
+        min_length=3,
+        max_length=120,
+        pattern=IDENTIFIER_PATTERN,
+    )
+    workspace_payload: dict[str, Any]
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @model_validator(mode="after")
+    def validate_workspace_identity(self) -> "StoryProjectWorkspaceSave":
+        payload_project_id = self.workspace_payload.get("id")
+        if payload_project_id != self.project_id:
+            raise ValueError("workspace_payload.id must match project_id.")
+        return self
+
+
+class StoryProjectWorkspaceSnapshot(StoryProjectWorkspaceSave):
+    payload_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
+    payload_size_bytes: int = Field(ge=2, le=10_000_000)
+
+
+class StoryProjectWorkspaceResponse(BaseModel):
+    data: StoryProjectWorkspaceSnapshot

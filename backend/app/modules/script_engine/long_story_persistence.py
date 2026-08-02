@@ -44,7 +44,7 @@ class StoryProjectRecord(SQLModel, table=True):
     project_id: str = Field(primary_key=True, max_length=120)
     schema_version: str = Field(max_length=20)
     revision: int
-    content_spec_id: str = Field(index=True, max_length=120)
+    content_spec_id: str | None = Field(default=None, index=True, max_length=120)
     title: str = Field(max_length=160)
     output_language: str = Field(max_length=20)
     target_total_characters: int
@@ -275,5 +275,33 @@ class GenerationJobCheckpointRecord(SQLModel, table=True):
     checkpointed_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    payload: dict[str, Any] = Field(sa_column=_json_payload_column())
+
+
+class StoryProjectWorkspaceSnapshotRecord(SQLModel, table=True):
+    __tablename__ = "story_project_workspace_snapshots"
+    __table_args__ = (
+        Index("ix_story_workspace_updated", "updated_at"),
+        CheckConstraint("revision >= 1", name="ck_story_workspace_revision"),
+        CheckConstraint(
+            "payload_size_bytes BETWEEN 2 AND 10000000",
+            name="ck_story_workspace_payload_size",
+        ),
+    )
+
+    project_id: str = Field(
+        primary_key=True,
+        foreign_key="story_projects.project_id",
+        max_length=120,
+    )
+    schema_version: str = Field(max_length=20)
+    revision: int
+    payload_schema_version: str = Field(max_length=80)
+    client_instance_id: str = Field(max_length=120)
+    payload_checksum: str = Field(max_length=64)
+    payload_size_bytes: int
+    updated_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
     )
     payload: dict[str, Any] = Field(sa_column=_json_payload_column())

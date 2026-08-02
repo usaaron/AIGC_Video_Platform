@@ -542,7 +542,7 @@ Raw Data
 
 影响：
 
-- 当前已完成 schema、migration、事务型 Repository，以及 Project / Story Bible / Stage / Episode Plan 资源 API；Frontend 和后台 Job 尚未接入，不得宣称现有浏览器项目已经自动服务端持久化
+- 当前已完成 schema、migration、事务型 Repository、Project / Story Bible / Stage / Episode Plan 资源 API，以及 Frontend Project + Workspace Snapshot 同步；后台 Job 和正式 Episode Artifact 尚未接入
 - Application Use Cases 必须负责权限边界、事务范围和领域对象协调；API 不得直接操作 SQLModel Record
-- 前端 IndexedDB 迁移必须在服务端 API 稳定后单独设计并验证，不允许静默丢失或覆盖本地项目
+- Frontend 采用 IndexedDB 本地优先 + PostgreSQL Workspace Snapshot：revision 冲突必须显式报告，不允许静默覆盖；删除采用服务端软归档，失败时不得假装成功
 - 本决策不引入新的 Engine，也不改变现有单集生成、Story QC、Revision 或 Finalization 行为

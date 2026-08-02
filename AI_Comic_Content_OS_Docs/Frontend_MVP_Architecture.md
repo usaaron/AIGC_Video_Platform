@@ -28,13 +28,13 @@ Phase 1 is implemented under `frontend/` with Next.js App Router and TypeScript:
 - the editorial application shell and responsive project sidebar;
 - home and project-authoring routes;
 - local project create, select and rename behavior;
-- IndexedDB persistence for project metadata, Creative Input, selected tags and Character Drafts;
+- IndexedDB local-first persistence plus versioned PostgreSQL Workspace Snapshot sync;
 - active backend Ontology tag loading with an explicitly labeled local-authoring fallback;
 - dedicated local character create/edit routes plus character-card delete actions;
 - English/Chinese UI switching with browser-local preference and stable language-neutral project data;
 - a typed API client and same-origin backend proxy.
 
-The frontend connects Creative Intent Resolution, episode-context Draft Generation, edit review, AI modification candidates, controlled Revision and Finalization through a same-origin Next.js proxy. Projects store `episodes[]` and stage records in IndexedDB. Sequential mode generates one confirmed episode at a time. Full mode is executed through bounded batches; users may update inputs and add an optional stage instruction before continuing. Creative Deepening code is retained but hidden and blocked by the current frontend/backend feature flag. This is not a Story Planning runtime and does not claim series-level blueprint quality.
+The frontend connects Creative Intent Resolution, episode-context Draft Generation, edit review, AI modification candidates, controlled Revision and Finalization through a same-origin Next.js proxy. Projects save immediately to IndexedDB and, when PostgreSQL is configured, synchronize a versioned complete Workspace Snapshot. Sequential mode generates one confirmed episode at a time. Full mode is executed through bounded batches; users may update inputs and add an optional stage instruction before continuing. Creative Deepening code is retained but hidden and blocked by the current frontend/backend feature flag. This is not a Story Planning runtime and does not claim series-level blueprint quality.
 
 The frontend currently orchestrates existing step APIs. This makes the product usable but does not mean `ScriptGenerationFacade`, formal `ScriptGenerationRequest / Result`, or `generate_script()` has been implemented.
 
@@ -54,10 +54,10 @@ The frontend currently orchestrates existing step APIs. This makes the product u
 
 ### 2.2 Not Available As Backend Product APIs
 
-- Project aggregate, project rename, project delete or project history persistence.
+- Authentication-scoped or multi-user project ownership and collaboration.
 - Character CRUD independent of `CreativeIntentInput`.
 - Draft update or version persistence.
-- Durable backend project/episode persistence; authoring state remains browser-local.
+- Independent Draft / Revised / Final episode artifact persistence; current server persistence is a project-level workspace snapshot.
 - Story Blueprint or Episode Planning runtime.
 - Server-side multi-episode transaction/facade; current Full mode is bounded frontend orchestration.
 - Trending-tag recommendations from Data Intelligence.
@@ -83,7 +83,7 @@ Current repositories are in memory. Backend restart can invalidate stored Conten
 - Story Blueprint / Episode Planning runtime.
 - Creative Deepening UI and backend execution while the feature flag remains disabled.
 - Deepen All as one server transaction.
-- Server-side project/version persistence.
+- Server-side normalized episode artifact history beyond the current workspace snapshot.
 
 ### Explicitly Excluded
 
@@ -426,7 +426,7 @@ App
 
 Use four distinct state classes.
 
-### 7.1 Local Project State
+### 7.1 Local-First Project State
 
 Persist the complete project record in IndexedDB. UI language preference may use
 localStorage, but generated script content must not depend on localStorage.
@@ -449,11 +449,12 @@ newer multi-episode or edited snapshot. At application startup, project records 
 migrated when necessary and ordered by `updatedAt`. Home and sidebar links open projects
 with generated episodes directly in the script workspace.
 
-This persistence is durable only for the same browser profile and origin. Clearing site
-data, using private browsing or opening a different host/port creates a different local
-workspace. A backend restart can expire temporary ContentSpec lineage, but locally stored
-scripts remain readable and exportable; AI modification, Deepening and Finalization require
-regeneration when that lineage is unavailable.
+When PostgreSQL is configured, the complete record is also synchronized as a versioned
+`StoryProjectWorkspaceSnapshot`. Startup merges local and remote copies by `updatedAt`;
+optimistic project/workspace revisions reject stale writes instead of silently selecting a
+winner. IndexedDB remains the immediate cache and offline fallback. A backend restart can
+still expire temporary ContentSpec lineage, so restored scripts remain readable and
+exportable while later generation actions may require lineage regeneration.
 
 ### 7.2 Server Resource State
 
@@ -465,6 +466,7 @@ Use a query/cache layer for:
 - ContentSpec resolution mutation;
 - generation, revision and finalization mutations;
 - finalized MasterScript retrieval.
+- Story Project and Workspace Snapshot synchronization, restore and soft archive.
 
 Do not duplicate server request state into a global UI store. Cache keys should include resource IDs and strategy versions.
 
@@ -673,7 +675,7 @@ Do not label mock suggestions as trending market intelligence.
 
 - Keyboard navigation for all tag chips, tabs and modal actions.
 - Visible focus states and non-color status indicators.
-- Autosave indicator for local IndexedDB state.
+- Autosave indicator distinguishes server-synced, local/offline and conflict states.
 - Confirmation before deleting a project or character.
 - Generation cancellation affects only UI waiting; do not claim provider cancellation unless supported.
 - Preserve form state on API errors.
@@ -688,15 +690,16 @@ Implemented:
 2. Ontology-driven Creative Input and Character Builder.
 3. Creative Intent API adapter and resolution preview.
 4. Single-episode Draft generation and editable workspace.
-5. Deepening shadow tab and comparison visualization.
+5. Deepening shadow tab and comparison code retained but hidden while the feature flag is disabled.
 6. Local editing, version snapshots and export.
 7. Controlled Revision, Re-QC, Acceptance shadow display and Finalization flow.
 8. Responsive bilingual UI, frontend type checking and production build validation.
+9. Local-first Project + Workspace Snapshot server synchronization, recovery, conflict reporting and revision-protected soft deletion.
 
 Still pending:
 
 - browser-level automated interaction coverage;
-- durable backend project/version persistence;
+- normalized server-side Draft / Revised / Final episode artifact versions;
 - standalone re-QC for locally edited Drafts;
 - multi-episode planning and generation.
 

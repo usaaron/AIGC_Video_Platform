@@ -191,6 +191,102 @@ async def test_long_story_api_rejects_stale_project_revision(long_story_app) -> 
 
 
 @pytest.mark.anyio
+async def test_story_project_archive_is_revision_safe_and_hidden_by_default(
+    long_story_app,
+) -> None:
+    app, _runtime = long_story_app
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project().model_dump(mode="json"),
+        )
+        stale = await client.delete(
+            "/story-projects/story_project.api_demo?expected_revision=2"
+        )
+        archived = await client.delete(
+            "/story-projects/story_project.api_demo?expected_revision=1"
+        )
+        visible = await client.get("/story-projects")
+        including_archived = await client.get(
+            "/story-projects?include_archived=true"
+        )
+
+    assert stale.status_code == 409
+    assert archived.status_code == 200
+    assert archived.json()["data"]["status"] == "archived"
+    assert archived.json()["data"]["revision"] == 2
+    assert visible.json()["total"] == 0
+    assert including_archived.json()["total"] == 1
+
+
+@pytest.mark.anyio
+async def test_workspace_snapshot_api_restores_full_frontend_payload(
+    long_story_app,
+) -> None:
+    app, runtime = long_story_app
+    workspace_payload = {
+        "id": "story_project.api_demo",
+        "title": "The Price of Truth",
+        "selectedTagIds": ["genre.dark_romance"],
+        "characters": [{"id": "character.mara", "name": "Mara"}],
+        "episodes": [{"episodeNumber": 1, "status": "framework"}],
+        "updatedAt": NOW.isoformat(),
+    }
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project().model_dump(mode="json"),
+        )
+        created = await client.put(
+            "/story-projects/story_project.api_demo/workspace",
+            json={
+                "project_id": "story_project.api_demo",
+                "revision": 1,
+                "client_instance_id": "client.browser_one",
+                "workspace_payload": workspace_payload,
+                "updated_at": NOW.isoformat(),
+            },
+        )
+        assert created.status_code == 200
+        assert created.json()["data"]["payload_size_bytes"] > 2
+        assert len(created.json()["data"]["payload_checksum"]) == 64
+
+    restarted_app = create_app()
+    restarted_app.dependency_overrides[get_long_story_service] = (
+        lambda: LongStoryService(runtime)
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=restarted_app),
+        base_url="http://testserver",
+    ) as client:
+        restored = await client.get(
+            "/story-projects/story_project.api_demo/workspace"
+        )
+        stale = await client.put(
+            "/story-projects/story_project.api_demo/workspace",
+            json={
+                "project_id": "story_project.api_demo",
+                "revision": 1,
+                "client_instance_id": "client.browser_two",
+                "workspace_payload": {
+                    **workspace_payload,
+                    "title": "Stale overwrite",
+                },
+                "updated_at": NOW.isoformat(),
+            },
+        )
+    assert restored.status_code == 200
+    assert restored.json()["data"]["workspace_payload"] == workspace_payload
+    assert stale.status_code == 409
+
+
+@pytest.mark.anyio
 async def test_episode_plan_must_stay_inside_its_stage(long_story_app) -> None:
     app, _runtime = long_story_app
     async with AsyncClient(
