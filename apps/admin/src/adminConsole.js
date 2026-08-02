@@ -92,6 +92,37 @@ export function canTransferOrganizationAdmin(session, organization) {
   return isPlatformAdminSession(session) && canManageOrganization(session, organization)
 }
 
+export function canCreateOrganization(session) {
+  return canManageUsers(session) && isPlatformAdminSession(session)
+}
+
+export function addExistingOrganizationMemberRoleOptions(session, organization) {
+  const roles = assignableRoleOptions(session, organization)
+  if (isSystemOrganization(organization)) return roles
+  return roles.filter((role) => role === 'organization_admin' || role === 'organization_member')
+}
+
+export function canAddExistingOrganizationMember(session, organization) {
+  return (
+    organization?.status === 'active' &&
+    canManageOrganization(session, organization) &&
+    addExistingOrganizationMemberRoleOptions(session, organization).length > 0
+  )
+}
+
+export function canLeaveOrganization(session, organization, memberships = []) {
+  const organizationId = organizationIdFor(organization)
+  if (!organizationId || isSystemOrganization(organization) || organization?.status !== 'active') return false
+  if (session?.account?.tenantId !== organizationId) return false
+  if (!memberships.length) return true
+  return memberships.some(
+    (membership) =>
+      organizationIdFor(membership) === organizationId &&
+      membership.userId === session?.account?.id &&
+      (membership.status === 'active' || membership.membershipStatus === 'active'),
+  )
+}
+
 export function canAssignRole(session, role, organization) {
   if (isSystemOrganization(organization) && !systemOrganizationRoles.has(role)) return false
   if (role === 'owner' || role === 'super_admin') return isOwnerSession(session)
@@ -256,6 +287,7 @@ export function summarizeConsole(snapshot) {
     sessions: snapshot?.sessions?.meta?.total ?? 0,
     billingAccounts: snapshot?.billingAccounts?.meta?.total ?? 0,
     paymentReconciliation: snapshot?.billingPaymentReconciliation?.meta?.total ?? 0,
+    reconciliationAlerts: snapshot?.billingReconciliationAlerts?.meta?.total ?? 0,
     auditLogs: snapshot?.auditLogs?.meta?.total ?? 0,
   }
 }
