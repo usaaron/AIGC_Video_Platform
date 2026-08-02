@@ -264,6 +264,20 @@
   font-size: 9px;
 }
 
+.login-error button {
+  display: block;
+  margin-top: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .login-success {
   display: flex;
   align-items: center;

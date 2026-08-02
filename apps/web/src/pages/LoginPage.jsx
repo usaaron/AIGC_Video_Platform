@@ -31,6 +31,7 @@ export function LoginPage() {
   const [visible, setVisible] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [errorCode, setErrorCode] = useState('')
   const [success, setSuccess] = useState('')
 
   const isRegistering = mode === 'register'
@@ -65,6 +66,7 @@ export function LoginPage() {
     event.preventDefault()
     setSubmitting(true)
     setError('')
+    setErrorCode('')
     setSuccess('')
     try {
       if (isForgotPassword) {
@@ -91,6 +93,7 @@ export function LoginPage() {
         await login({ email: email.trim(), password })
       }
     } catch (requestError) {
+      setErrorCode(requestError?.code ?? '')
       setError(authErrorMessage(requestError, { isRegistering, isForgotPassword }))
     } finally {
       setSubmitting(false)
@@ -100,6 +103,7 @@ export function LoginPage() {
   const switchMode = (nextMode) => {
     setMode(nextMode)
     setError('')
+    setErrorCode('')
     setSuccess('')
     if (nextMode !== 'register') resetRegistrationCode()
   }
@@ -107,6 +111,7 @@ export function LoginPage() {
   const resendRegistrationCode = async () => {
     setSubmitting(true)
     setError('')
+    setErrorCode('')
     setSuccess('')
     try {
       await requestRegistrationCode()
@@ -282,7 +287,16 @@ export function LoginPage() {
               </div>
             </label>
           )}
-          {error && <div className="login-error">{error}</div>}
+          {error && (
+            <div className="login-error">
+              <span>{error}</span>
+              {errorCode === 'INVITATION_ACCOUNT_PASSWORD_INVALID' && (
+                <button type="button" onClick={() => switchMode('forgot')}>
+                  重置已有账号密码
+                </button>
+              )}
+            </div>
+          )}
           {success && <div className="login-success">{success}</div>}
           <button className="login-submit" disabled={submitting}>
             {submitting ? (
@@ -345,6 +359,8 @@ export function authErrorMessage(error, { isRegistering = false, isForgotPasswor
       return '邮箱与邀请码绑定的受邀邮箱不一致'
     case 'INVITATION_EMAIL_ALREADY_PENDING':
       return '该邮箱已有待使用的邀请码，请使用原邀请码或联系管理员撤销'
+    case 'INVITATION_ACCOUNT_PASSWORD_INVALID':
+      return '该邮箱已有账号。这里需要输入原登录密码；如果忘记密码，请先重置密码。'
     case 'MEMBERSHIP_ALREADY_EXISTS':
       return '该邮箱已经加入当前组织，请直接登录'
     case 'REGISTRATION_CODE_COOLDOWN':
