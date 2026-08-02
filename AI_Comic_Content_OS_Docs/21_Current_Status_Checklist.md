@@ -118,7 +118,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 
 ### Frontend MVP
 
-- Next.js 中英文创作界面
+- Next.js 中国大陆中文创作界面；海外双语能力保留但当前关闭
 - IndexedDB 本地优先项目、角色、分集和版本快照
 - PostgreSQL Project + Workspace Snapshot 同步、跨浏览器恢复、updated-at 合并、显式 revision conflict 和版本保护软删除
 - 项目级市场来源隔离：中国大陆前端只显示 `cn_mainland` 项目；海外/TikTok 与来源不明项目在 UI 和直接路由中隐藏但底层数据不删除
@@ -130,7 +130,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - Framework / Modification / Revised / Final 版本视图；历史 Deepening 数据仍可兼容读取
 - 单集与整部 Markdown / JSON 导出
 - 已有分集覆盖保护和复制新生成版本
-- 英文稿的 presentation-only 中文对照视图；英文源稿不被覆盖
+- presentation-only 中英对照实现保留；当前大陆前端不展示海外英文项目或语言入口
 - 可编辑故事线、角色成长线和人物关系状态
 - 后续分集消费 bounded 连续性摘要，不自动改写历史集
 
@@ -199,7 +199,18 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - 前端 production build：通过
 - `git diff --check`：通过
 - Alembic upgrade / check / downgrade / re-upgrade：通过 SQLite 自动化验证
-- 真实 PostgreSQL 集成：本轮未运行，进入 CI / 部署环境验证阶段后补充
+- 真实 PostgreSQL 集成：已使用本地 PostgreSQL 完成 migration、Workspace Snapshot 写入/读回、进程重启后恢复和版本保护软归档
+
+### Mainland China MVP Acceptance - 2026-08-02
+
+- 独立验收 runtime 只注册 `cn_mainland_comic_drama_v1`、大陆 Strategy 和两个中文 Prompt；未注册海外/TikTok Strategy，Creative Deepening 为 `disabled`
+- OpenAI-compatible 真实模型完成 1 次中文单集生成：HTTP 200，耗时约 271 秒，3 个场景，12 条对白，14 条动作
+- Scene Causality 验收全部通过：每场 Goal / Conflict / Outcome 完整，Goal 与 Outcome 不同，场景 2/3 具有前序因果引用，最终场景提供 cliffhanger 和 next episode question
+- 用户锁定角色 `苏晚`、`顾沉舟` 被保留；生成正文未发现 TikTok、livestream、Mara、Adrian 等海外模板残留
+- Story QC Explainability 正常输出 5 个维度；其中 `character_agency=2.5/5` 暴露真实质量缺口，因此本轮结论是“主链路通过”，不是“专业质量通过”
+- 约 88 KB Frontend Workspace Snapshot 成功写入 PostgreSQL，checksum 长度 64；后端进程重启后读回内容、市场来源和标题一致
+- 验收项目已按 expected revision 软归档，不出现在正常项目列表
+- 前端 TypeScript 与 production build 通过；由于执行环境不能接管用户当前 Chrome / Next dev 会话，本轮未替代人工完成浏览器按钮级验收
 
 该记录是当前 Project + Workspace Snapshot + 内容里程碑 Artifact 的验证快照，不代表后台任务、编辑过程细粒度历史或全部旧 Repository 已完成持久化接入。
 
