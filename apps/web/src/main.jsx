@@ -33,13 +33,7 @@ function Root() {
     )
   }
   if (session?.account.emailVerified === false) {
-    return (
-      <EmailVerificationPendingPage
-        account={session.account}
-        onRefresh={refresh}
-        onLogout={logout}
-      />
-    )
+    return <EmailVerificationPendingPage account={session.account} onRefresh={refresh} onLogout={logout} />
   }
   return session ? (
     <Suspense

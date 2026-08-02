@@ -1,11 +1,30 @@
 # SEQORA 项目开发记忆与接手手册
 
-> 最后更新：2026-07-23
+> 最后更新：2026-08-03
 > 仓库：`usaaron/AIGC_Video_Platform`
 > 本地目录：`C:\Users\admin\Desktop\图片\aigc-studio-demo`
-> 当前目标：先把除音频外的创作全流程做成客户可真实测试的 Demo，再逐步替换为生产基础设施。
+> 当前目标：稳定封闭客户测试，补齐服务端定价、带音轨完整成片、邮件运维告警和可恢复 Agent 编排。
 
-这份文档是项目的长期开发记忆。新的开发者或新的 AI 会话应先阅读本文，再查看 `git status`、`.env.example` 和相关源码。文档只记录环境变量名称，**绝不记录真实 API Key、Cookie、云凭据或用户上传内容**。
+这份文档是按时间累积的长期开发记忆。**从“历史记录”开始的旧章节保留当时语境，其中使用“当前”“已完成”的句子只代表记录日期，不能覆盖 2026-08-03 快照。** 新开发者或新 Agent 必须先读根目录 `AGENTS.md`、`docs/CURRENT_STATE.md`、`docs/HANDOFF_GUIDE.md` 和目标模块代码，再按需查本文。文档只记录环境变量名称，**绝不记录真实 API Key、Cookie、云凭据或用户上传内容**。
+
+## 2026-08-03 当前快照（覆盖下方历史表述）
+
+- 生产站点是 `https://zjh.ai`；GCP project `project-b3b9bf9e-3c8b-4fbc-9cc`，实例 `instance-20260726-112218`，zone `asia-east2-b`，部署根目录 `/opt/seqora`。
+- 生产运行 Postgres、Redis/BullMQ、独立 API、独立 Worker 和 Web/Caddy，媒体使用私有 GCS。`/opt/seqora` 是源码包目录且没有 `.git`，不得在服务器使用 `git pull`。
+- 管理员端已经部署在 `/admin/`，Caddy `forward_auth` 与 `/api/v1/admin/*` 后端权限同时校验。
+- 注册已开放：每个账号使用一个 8 位数字邀请码，邮箱收到 6 位验证码后注册。普通密码最少 8 位；生产 bootstrap 密码仍要求至少 12 位。显示名允许重复，规范化邮箱唯一。
+- 生产邮件已接 Resend，覆盖注册验证码、邮箱验证、邀请和密码重置。已有邮箱加入新组织时必须输入原账号密码，忘记密码先重置。
+- 正式用户主流程是项目库 -> 智能生成/改写剧本 -> 资产建议/定稿 -> 分镜/分集 -> Seedance 队列 -> 分集/完整预览。
+- 项目库“对话一句成片、图片大师、剧本大师”、小说/长剧本 UI 仍是待开发；Quick Start API 和旧弹窗仍在仓库，但当前正式 UI 没有一键尝鲜入口。
+- 剧本和资产建议通过后台 `text` 任务运行。默认文本模型是 `glm-5.2`，Kimi/GLM 使用 `REHDASU_API_KEY`；不要继续使用已废弃的 `TEXT_API_KEY` 说法。
+- 图片只实现 TokenAdvent GPT Image 2。Nano Banana 是禁用占位，不能写成已接入。
+- 视频与可信人像全走弦序的两套接口：Seedance 使用 Bearer Token，MaaS 素材库使用同租户 AK/SK。分镜图片不是生成视频的前置条件。
+- 网剧镜头按 3 到 15 秒，其他内容按 4 到 15 秒；有效并发为免费 1、会员 3。旧 Demo 不限并发变量没有接到账单摘要，不生效。
+- 单镜头会请求 Seedance 音频；完整成片 FFmpeg 当前使用 `-an`，因此完整预览无声，不是正式交付母版。
+- 生成任务、积分、暂停/取消、退款和消息提示已进入真实链路，但通用任务 `estimatedCredits` 仍可能来自客户端，是扩大外测前 P0。
+- 任何开发先查 contracts、migration、Service、Repository 和真实 UI；下方历史记录只用于理解决策来源与事故背景。
+
+## 历史记录
 
 ## 1. 一句话产品定义
 
@@ -561,9 +580,14 @@ TOKENADVENT_BASE_URL=https://tokenadvent.com
 TOKENADVENT_API_KEY=<从密码管理器或部署 Secret 注入>
 IMG2_MODEL=gpt-image-2
 IMG2_QUALITY=low
-TEXT_MODEL=gpt-5.6
-TEXT_API_KEY=<可选：Kimi/GLM 模型中转密钥；GPT 和图片继续使用 TOKENADVENT_API_KEY>
+TEXT_MODEL=glm-5.2
 TOKENADVENT_REQUEST_TIMEOUT_MS=180000
+
+REHDASU_BASE_URL=https://tokenadvent.com
+REHDASU_API_KEY=<Kimi/GLM 文本路由密钥>
+REHDASU_MODEL=glm-5.2
+REHDASU_CHAT_COMPLETIONS_PATH=/v1/chat/completions
+REHDASU_REQUEST_TIMEOUT_MS=180000
 ```
 
 Web 可选变量：

@@ -28,12 +28,9 @@ describe('login guidance', () => {
   })
 
   it('explains that an invited existing account needs its original password', () => {
-    expect(
-      authErrorMessage(
-        { code: 'INVITATION_ACCOUNT_PASSWORD_INVALID' },
-        { isRegistering: true },
-      ),
-    ).toBe('该邮箱已有账号。这里需要输入原登录密码；如果忘记密码，请先重置密码。')
+    expect(authErrorMessage({ code: 'INVITATION_ACCOUNT_PASSWORD_INVALID' }, { isRegistering: true })).toBe(
+      '该邮箱已有账号。这里需要输入原登录密码；如果忘记密码，请先重置密码。',
+    )
   })
 
   it('explains when the API cannot be reached', () => {

@@ -591,13 +591,7 @@ export class AccountManagementService {
     const invitation = claim.invitation
 
     const code = randomInt(0, 1_000_000).toString().padStart(6, '0')
-    const codeSecretHash = hashRegistrationCode(
-      this.secret,
-      invitation.id,
-      tokenSecretHash,
-      email,
-      code,
-    )
+    const codeSecretHash = hashRegistrationCode(this.secret, invitation.id, tokenSecretHash, email, code)
     const result = await this.accounts.saveRegistrationCode({
       invitationId: invitation.id,
       tokenSecretHash,

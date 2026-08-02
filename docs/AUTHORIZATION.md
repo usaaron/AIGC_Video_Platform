@@ -31,6 +31,8 @@
 
 `AUTH_MODE=demo` 只允许开发/测试使用 header 模拟主体。生产环境禁止 `AUTH_MODE=demo`。`AUTH_MODE=oidc` 是预留方向，接入前必须完成签名、issuer、audience、过期时间和撤销策略校验。
 
+普通注册、登录、改密和重置密码的契约下限为 8 位；生产 bootstrap 密码仍要求至少 12 位。显示名允许重复，规范化邮箱是账号唯一标识。
+
 账号相关正式表：
 
 - `users`
@@ -53,7 +55,9 @@
 
 ## 账号与组织边界
 
-- 注册入口开放但必须使用组织邀请码：`POST /api/v1/auth/register` 要求提交邀请 token、受邀邮箱、姓名和密码；邮箱必须匹配邀请绑定邮箱。
+- 注册入口开放但必须使用组织邀请码：新邀请码固定为 8 位数字，数据库只保存哈希。用户先调用 `POST /api/v1/auth/registration-code/request` 提交邀请码和邮箱，再使用 6 位验证码调用 `POST /api/v1/auth/register`。
+- 开放邀请码可在创建时不绑定邮箱，第一次成功请求验证码会原子绑定邮箱；后续换邮箱会被拒绝。验证码 10 分钟有效，存在重发冷却、错误尝试上限和 IP 频控。
+- 已存在邮箱接受新组织邀请时复用原账号，不创建重复用户。注册页密码用于验证原账号；忘记密码时先完成密码重置，再返回注册流程。
 - owner 可任命或移除 super_admin；owner/super_admin 可创建或移除平台 admin 和 organization_admin。
 - 全平台最多只能有 1 个 active owner 账号、5 个 active super_admin 账号；数据库通过 `017_account_role_limits.sql` 的触发器兜底，API 在创建邀请、接受邀请、创建用户、添加成员和修改角色前先返回清晰的业务错误。
 - 平台 admin 面向 C 端运营，可创建普通 member、修改普通 member、禁用普通 member membership 和查看自己授权范围内的 session。
@@ -64,7 +68,7 @@
 - 最后一个 active owner 不能被移除、禁用或自行退出组织。
 - 组织改名允许 owner、super_admin、admin 或当前组织的 organization_admin 按范围执行；禁用组织只允许 owner；组织负责人更换只允许 owner/super_admin。
 
-受控邀请 API 是注册准入来源。owner、super_admin、admin 或当前组织的 organization_admin 按权限创建邀请后会得到一次性 token；无 token、token 过期、已使用、撤销或邮箱不匹配都会拒绝注册。
+受控邀请 API 是注册准入来源。owner、super_admin、admin 或当前组织的 organization_admin 按权限创建邀请后会得到一次性 8 位邀请码；一个账号需要一个邀请码。无邀请码、过期、已使用、撤销、邮箱不匹配或 membership 已存在都会拒绝注册。历史 32 位以上 token 只保留兼容解析，不再新签发。
 
 ## 账号安全与审计
 
@@ -72,7 +76,8 @@
 
 - 登录、退出和 session 恢复。
 - 自助改密，改密后撤销当前组织下已有 session。
-- 忘记密码请求和密码重置 token；非生产测试环境可返回 token，生产环境需要接邮件/短信投递后才能对用户开放。
+- Resend 邮件投递：注册验证码、邮箱验证、邀请和密码重置。生产环境不在响应中返回 token 或验证码。
+- 忘记密码请求和密码重置 token；请求始终返回统一成功文案，避免泄露邮箱是否存在。
 - 个人 session 列表与撤销。
 - 组织 session 列表与管理员踢下线。
 - Admin Console session 查询和撤销。

@@ -6,10 +6,7 @@ export const workspaceStatusSchema = z.enum(['active', 'disabled'])
 export const organizationStatusSchema = workspaceStatusSchema
 export const membershipStatusSchema = z.enum(['active', 'disabled'])
 export const tenantInvitationStatusSchema = z.enum(['pending', 'accepted', 'revoked', 'expired'])
-const invitationTokenSchema = z.union([
-  z.string().regex(/^\d{8}$/),
-  z.string().min(32).max(256),
-])
+const invitationTokenSchema = z.union([z.string().regex(/^\d{8}$/), z.string().min(32).max(256)])
 
 export const registerAccountSchema = z.object({
   token: invitationTokenSchema,
@@ -28,7 +25,10 @@ export const requestRegistrationCodeResultSchema = z.object({
   ok: z.literal(true),
   expiresAt: z.string().datetime(),
   resendAfterSeconds: z.number().int().positive(),
-  registrationCode: z.string().regex(/^\d{6}$/).optional(),
+  registrationCode: z
+    .string()
+    .regex(/^\d{6}$/)
+    .optional(),
 })
 
 export const createTenantInvitationSchema = z.object({

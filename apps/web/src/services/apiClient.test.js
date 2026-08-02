@@ -56,11 +56,14 @@ describe('api client', () => {
 
   it('requests an email code before invitation registration', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      Response.json({
-        ok: true,
-        expiresAt: '2026-08-03T12:10:00.000Z',
-        resendAfterSeconds: 60,
-      }, { status: 202 }),
+      Response.json(
+        {
+          ok: true,
+          expiresAt: '2026-08-03T12:10:00.000Z',
+          resendAfterSeconds: 60,
+        },
+        { status: 202 },
+      ),
     )
     vi.stubGlobal('fetch', fetchMock)
 

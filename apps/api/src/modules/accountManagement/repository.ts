@@ -42,9 +42,7 @@ export type DisableWorkspaceResult =
   { kind: 'disabled'; workspace: Workspace; nextWorkspace: AccountWorkspace | null } | { kind: 'missing' }
 
 export type SaveRegistrationCodeResult =
-  | { kind: 'created'; expiresAt: string }
-  | { kind: 'cooldown' }
-  | { kind: 'invitation_unavailable' }
+  { kind: 'created'; expiresAt: string } | { kind: 'cooldown' } | { kind: 'invitation_unavailable' }
 
 export type ClaimInvitationEmailResult =
   | { kind: 'claimed'; invitation: TenantInvitation }
@@ -176,10 +174,9 @@ export class AccountManagementRepository {
           if (updated.rows[0]) {
             invitationId = updated.rows[0].id
             reissued = true
-            await client.query(
-              `DELETE FROM registration_email_codes WHERE invitation_id = $1`,
-              [invitationId],
-            )
+            await client.query(`DELETE FROM registration_email_codes WHERE invitation_id = $1`, [
+              invitationId,
+            ])
           }
         }
         if (!reissued) {
@@ -231,10 +228,7 @@ export class AccountManagementRepository {
     return result.rows[0] ? toTenantInvitation(result.rows[0]) : null
   }
 
-  async claimInvitationEmail(
-    tokenSecretHash: string,
-    email: string,
-  ): Promise<ClaimInvitationEmailResult> {
+  async claimInvitationEmail(tokenSecretHash: string, email: string): Promise<ClaimInvitationEmailResult> {
     return this.database.transaction(async (client) => {
       const result = await client.query<TenantInvitationRow>(
         invitationSelectSql('WHERE i.token_secret_hash = $1 LIMIT 1 FOR UPDATE OF i'),
@@ -295,9 +289,7 @@ export class AccountManagementRepository {
         [row.invitation_id, email],
       )
       const claimed = await readInvitationById(client, row.invitation_id)
-      return claimed
-        ? { kind: 'claimed', invitation: claimed }
-        : { kind: 'invitation_unavailable' }
+      return claimed ? { kind: 'claimed', invitation: claimed } : { kind: 'invitation_unavailable' }
     })
   }
 

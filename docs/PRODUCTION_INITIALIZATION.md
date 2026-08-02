@@ -18,6 +18,10 @@
 
 - `NODE_ENV=production`
 - `DATABASE_URL`
+- `EMAIL_PROVIDER=resend`
+- `EMAIL_FROM`（必须是 Resend 已验证的生产发件域名）
+- `RESEND_API_KEY`
+- `AUTH_PASSWORD_RESET_URL` / `AUTH_EMAIL_VERIFICATION_URL` / `AUTH_INVITATION_URL`
 - `BOOTSTRAP_ACCOUNTS_ON_START=false`
 - `BOOTSTRAP_DEMO_WORKSPACE=false`
 - `BOOTSTRAP_MEMBER_EMAIL` / `BOOTSTRAP_MEMBER_PASSWORD`
@@ -57,16 +61,16 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
 
 ```bash
 docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
-curl --fail https://studio.example.com/api/v1/health
+curl --fail https://zjh.ai/api/v1/health
 ```
 
 5. 初始化后检查。
 
 ```bash
-curl --fail https://studio.example.com/api/v1/health/readiness
+curl --fail https://zjh.ai/api/v1/health/readiness
 ```
 
-用 owner 账号登录 `apps/admin`，确认：
+用 owner 账号登录 `https://zjh.ai/admin/`，确认：
 
 - 只有 1 个 owner。
 - super_admin 数量不超过 5。

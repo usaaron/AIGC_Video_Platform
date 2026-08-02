@@ -1,6 +1,8 @@
 # CI/CD 与模块化发布
 
-当前推荐链路是：GitHub `main` -> CI 检查 -> Artifact Registry 镜像 -> GCE 单模块更新。Web 和 API 是两个独立镜像；只改前端时不重启 API，只改后端时不重启 Web，共享契约、锁文件或 Compose 变化会同时发布两端。
+> 当前状态（2026-08-03）：工作流和发布脚本已经进入仓库，但当前生产 `/opt/seqora` 是**不含 `.git` 的源码包部署目录**。在 GitHub `production` Environment、WIF、Artifact Registry 和最近一次成功的生产工作流没有逐项验收前，不能把自动发布写成已启用能力。当前已验证的发布方式见 [生产运维手册](OPERATIONS_RUNBOOK.md)。
+
+目标链路是：GitHub `main` -> CI 检查 -> Artifact Registry 镜像 -> GCE 单模块更新。Web 和 API 是两个独立镜像；只改前端时不重启 API，只改后端时不重启 Web，共享契约、锁文件或 Compose 变化会同时发布两端。
 
 ## 日常流程
 
@@ -18,11 +20,11 @@
 以下命令由 Google Cloud 项目管理员在 Cloud Shell 执行。资源名可以调整，但调整后 GitHub Variables 必须一致。
 
 ```bash
-export PROJECT_ID='project-935680ce-9aaf-496a-bb7'
+export PROJECT_ID='project-b3b9bf9e-3c8b-4fbc-9cc'
 export REGION='asia-east2'
 export REPOSITORY='seqora'
-export INSTANCE='instance-20260719-184241'
-export ZONE='asia-east2-c'
+export INSTANCE='instance-20260726-112218'
+export ZONE='asia-east2-b'
 export GITHUB_REPOSITORY='usaaron/AIGC_Video_Platform'
 export POOL='github-actions'
 export PROVIDER='github'
@@ -121,19 +123,19 @@ echo "$DEPLOY_SA_EMAIL"
 
 | 名称                           | 当前值                                         |
 | ------------------------------ | ---------------------------------------------- |
-| `GCP_PROJECT_ID`               | `project-935680ce-9aaf-496a-bb7`               |
+| `GCP_PROJECT_ID`               | `project-b3b9bf9e-3c8b-4fbc-9cc`               |
 | `GCP_REGION`                   | `asia-east2`                                   |
 | `ARTIFACT_REGISTRY_REPOSITORY` | `seqora`                                       |
-| `GCE_INSTANCE`                 | `instance-20260719-184241`                     |
-| `GCE_ZONE`                     | `asia-east2-c`                                 |
-| `SYNTHETIC_BASE_URL`           | `https://studio.example.com`                   |
+| `GCE_INSTANCE`                 | `instance-20260726-112218`                     |
+| `GCE_ZONE`                     | `asia-east2-b`                                 |
+| `SYNTHETIC_BASE_URL`           | `https://zjh.ai`                               |
 | `SYNTHETIC_ORGANIZATION_ID`    | Dedicated non-system synthetic organization id |
 
 在 `Settings -> Branches` 保护 `main`：要求 `CI / quality`、`CI / database` 通过、至少一位 Review、禁止强推。三人协作时采用短功能分支和小 PR，避免多人直接覆盖 `main`。
 
 ## 手动发布与回滚
 
-正常情况下合并 `main` 后自动发布。需要重发时进入 `Actions -> Deploy Production -> Run workflow`：
+完成本页一次性配置并验证至少一次成功发布后，合并 `main` 才能视为自动发布。需要重发时进入 `Actions -> Deploy Production -> Run workflow`：
 
 - `api`：只发布 API。
 - `web`：只发布 Web。
@@ -148,6 +150,8 @@ sudo /opt/seqora/deploy/update-release.sh api \
 sudo /opt/seqora/deploy/update-release.sh web \
   asia-east2-docker.pkg.dev/PROJECT/seqora/seqora-web:COMMIT_SHA
 ```
+
+当前生产尚未切到上述镜像链路。源码包发布必须使用 `deploy/package.ps1` 和 `deploy/update-source.sh`，不能在 `/opt/seqora` 执行 `git pull`；完整命令见 [生产运维手册](OPERATIONS_RUNBOOK.md)。
 
 ## 当前边界
 

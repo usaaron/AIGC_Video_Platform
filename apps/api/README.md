@@ -24,7 +24,7 @@ pnpm --filter @seqora/api dev
 
 - Postgres：账号、身份、session、组织 membership、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜、图片/视频生成任务、通用 AI Job，以及小说文档/章节索引、边界检查、摘要队列、章节摘要和故事圣经。当前数据库表仍保留 `tenant*` 兼容命名，对外产品概念统一为组织。
 - Outbox：`outbox_events` 与任务记录、扣费写入同一个 Postgres 事务；relay 投递 BullMQ，成功后标记 `sent`，失败按 `next_attempt_at` 退避重试，避免 DB 成功但 Redis 入队失败。
-- Redis/BullMQ：任务触发队列；生产路径由 Outbox relay 入队，`src/worker.ts` 作为独立消费者执行。视频/图片生成使用 `generation_tasks`，小说/剧本/资产建议等长耗时文本或工作流使用 `ai_jobs`。
+- Redis/BullMQ：任务触发队列；生产路径由 Outbox relay 入队，`src/worker.ts` 作为独立消费者执行。视频、图片、当前剧本生成/续写和资产建议使用 `generation_tasks`（文本任务为 `kind=text`）；小说摘要等通用工作流使用 `ai_jobs`。
 - JSON `DATA_FILE`：本地媒体索引、Demo 兼容状态、历史小说数据和迁移备份。配置 DB + ObjectStorage 后，小说域不再把 JSON Store 作为写入源。
 - ObjectStorage：上传媒体、生成图片、生成视频、尾帧、完整成片预览和小说正文；Postgres 只保存正文的 storage key、SHA-256、offset 与章节元数据。
 
@@ -64,11 +64,11 @@ Migration 文件位于 `src/infra/migrations`。进入主分支后只能新增�
 Route -> Service -> Repository / Provider -> Database / Store / External API
 ```
 
-- `modules/auth`：登录、退出、会话解析、自助改密、忘记密码和密码重置。
-- `modules/accountManagement`：邀请码注册、受控邀请、组织、成员、角色、membership、组织 session。
+- `modules/auth`：登录、退出、会话解析、自助改密、忘记密码、邮箱验证和密码重置。
+- `modules/accountManagement`：8 位邀请码、6 位注册验证码、受控邀请、组织、成员、角色、membership、组织 session。
 - `modules/admin`：统一 Admin Console API、用户/组织/membership/账单/session/审计查询、账号启停、后台充值/调账。
 - `modules/billing`：Postgres billing ledger，幂等扣费、退款、grant 和 adjustment。
-- `modules/generation`：任务创建、查询、暂停、恢复、删除、输出读取。
+- `modules/generation`：图片/视频/文本任务创建、查询、暂停、恢复、删除、输出读取。
 - `modules/aiJobs`：通用 AI Job 查询和仓储；`ai_jobs` 保存 `kind`、`input`、`output`、`provider`、`cost_credits`、状态、lease 和幂等 `client_request_id`。
 - `modules/novels`：小说导入、章节索引、边界检查、摘要队列、章节摘要和故事圣经；Postgres/ObjectStorage 是主路径，JSON Store 只做本地兼容回退。摘要队列批处理已通过 `ai_jobs.kind = novel.summaryQueueBatch` 接入 Worker。
 - `core/jobs`：事务 Outbox、BullMQ 任务分发、任务依赖、并发、Provider 轮询、AI Job handler、失败退款和写回。
@@ -80,7 +80,8 @@ Route -> Service -> Repository / Provider -> Database / Store / External API
 ## 关键 API
 
 - `POST /auth/login`、`POST /auth/logout`、`GET /auth/me`
-- `POST /auth/register`、`POST /auth/invitations/accept`
+- `POST /auth/registration-code/request`、`POST /auth/register`；`POST /auth/invitations/accept` 是兼容入口
+- `POST /auth/email-verification/request`、`POST /auth/email-verification/verify`
 - `PUT /auth/password`、`POST /auth/password/reset-request`、`POST /auth/password/reset`
 - `GET /auth/sessions`、`DELETE /auth/sessions/:sessionId`
 - `POST /organizations`、`POST /organizations/:organizationId/switch`
@@ -105,4 +106,4 @@ pnpm --filter @seqora/api test
 pnpm --filter @seqora/api exec vitest run src/infra/postgres.test.ts src/modules/auth/routes.test.ts src/modules/accountManagement/routes.test.ts src/modules/billing/creditLedger.test.ts src/config.test.ts src/core/jobs/bullMqQueue.test.ts
 ```
 
-第二条命令等价于 CI database job 的核心测试范围：起 Postgres 和 Redis、跑 migration、验证 auth/account/billing 集成行为以及 BullMQ 任务分发。
+第二条命令等价于 CI database job 的核心测试范围：起 Postgres 和 Redis、跑 migration、验证 auth/account/billing 集成行为以及 BullMQ 任务分发。本机必须安装并启动 Docker；没有 Docker 时会统一报 `spawn docker ENOENT`，可先运行不依赖容器的单测与 `pnpm build`，完整门禁留到 CI 或有 Docker 的开发机。
