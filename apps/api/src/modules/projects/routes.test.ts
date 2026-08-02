@@ -494,11 +494,7 @@ async function createMemberWithWorkspace(
   })
   expect(created.statusCode).toBe(201)
 
-  const loginResponse = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/login',
-    payload: { email, password },
-  })
+  const loginResponse = await activateProvisionedAccount(email, password)
   expect(loginResponse.statusCode).toBe(200)
   expect(loginResponse.json().account.roles).toEqual(['member'])
   return {
@@ -506,6 +502,38 @@ async function createMemberWithWorkspace(
     userId: created.json().userId as string,
     tenantId,
   }
+}
+
+async function activateProvisionedAccount(email: string, temporaryPassword: string) {
+  if (!app) throw new Error('App is not ready')
+  const initialLogin = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    remoteAddress: '10.0.0.2',
+    payload: { email, password: temporaryPassword },
+  })
+  expect(initialLogin.statusCode).toBe(200)
+  expect(initialLogin.json()).toMatchObject({ account: { passwordResetRequired: true } })
+
+  const newPassword = `Ready-${temporaryPassword}`
+  const changed = await app.inject({
+    method: 'PUT',
+    url: '/api/v1/auth/password',
+    remoteAddress: '10.0.0.2',
+    headers: { cookie: cookieValue(initialLogin) },
+    payload: { currentPassword: temporaryPassword, newPassword },
+  })
+  expect(changed.statusCode).toBe(204)
+
+  const readyLogin = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    remoteAddress: '10.0.0.2',
+    payload: { email, password: newPassword },
+  })
+  expect(readyLogin.statusCode).toBe(200)
+  expect(readyLogin.json()).toMatchObject({ account: { passwordResetRequired: false } })
+  return readyLogin
 }
 
 async function withDatabase(operation: (database: AccountDatabase) => Promise<void>): Promise<void> {

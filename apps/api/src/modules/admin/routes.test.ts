@@ -861,7 +861,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(ownerCreatesCrossTenantMember.statusCode).toBe(201)
     const crossTenantMembershipId = ownerCreatesCrossTenantMember.json().id as string
     const crossTenantUserId = ownerCreatesCrossTenantMember.json().userId as string
-    await login('enterprise-member@example.com', 'EnterpriseMember123!', {
+    await activateProvisionedAccount('enterprise-member@example.com', 'EnterpriseMember123!', {
       'user-agent': 'EnterpriseMemberDevice/1.0',
     })
     const ownerCreatesCrossTenantAdmin = await app.inject({
@@ -876,7 +876,10 @@ describe('admin console api', { timeout: 30_000 }, () => {
       },
     })
     expect(ownerCreatesCrossTenantAdmin.statusCode).toBe(201)
-    const crossTenantAdmin = await login('enterprise-admin@example.com', 'EnterpriseAdmin123!')
+    const crossTenantAdmin = await activateProvisionedAccount(
+      'enterprise-admin@example.com',
+      'EnterpriseAdmin123!',
+    )
     const crossTenantAdminCookie = cookieValue(crossTenantAdmin)
 
     const scopedConsole = await app.inject({
@@ -1038,7 +1041,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const organizationMemberUserId = organizationMember.json().userId as string
     const organizationMemberMembershipId = organizationMember.json().id as string
 
-    const organizationAdminLogin = await login(
+    const organizationAdminLogin = await activateProvisionedAccount(
       'scoped-organization-admin@example.com',
       'ScopedOrganizationAdmin123!',
       { 'user-agent': 'ScopedOrganizationAdminDevice/1.0' },
@@ -1046,7 +1049,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(organizationAdminLogin.statusCode).toBe(200)
     const organizationAdminCookie = cookieValue(organizationAdminLogin)
 
-    const organizationMemberLogin = await login(
+    const organizationMemberLogin = await activateProvisionedAccount(
       'scoped-organization-member@example.com',
       'ScopedOrganizationMember123!',
       { 'user-agent': 'ScopedOrganizationMemberDevice/1.0' },
@@ -1333,6 +1336,44 @@ async function login(email: string, password: string, headers?: Record<string, s
     headers,
     payload: { email, password },
   })
+}
+
+async function activateProvisionedAccount(
+  email: string,
+  temporaryPassword: string,
+  headers?: Record<string, string>,
+) {
+  if (!app) throw new Error('App is not ready')
+  const initialLogin = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    remoteAddress: '10.0.0.2',
+    headers,
+    payload: { email, password: temporaryPassword },
+  })
+  expect(initialLogin.statusCode).toBe(200)
+  expect(initialLogin.json()).toMatchObject({ account: { passwordResetRequired: true } })
+
+  const newPassword = `Ready-${temporaryPassword}`
+  const changed = await app.inject({
+    method: 'PUT',
+    url: '/api/v1/auth/password',
+    remoteAddress: '10.0.0.2',
+    headers: { cookie: cookieValue(initialLogin), ...headers },
+    payload: { currentPassword: temporaryPassword, newPassword },
+  })
+  expect(changed.statusCode).toBe(204)
+
+  const readyLogin = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    remoteAddress: '10.0.0.2',
+    headers,
+    payload: { email, password: newPassword },
+  })
+  expect(readyLogin.statusCode).toBe(200)
+  expect(readyLogin.json()).toMatchObject({ account: { passwordResetRequired: false } })
+  return readyLogin
 }
 
 async function createWorkspaceFromCurrentSession(

@@ -368,14 +368,10 @@ describe('account management api', { timeout: 30_000 }, () => {
       },
     })
     expect(registrationAdmin.statusCode).toBe(201)
-    const registrationAdminLogin = await app.inject({
-      method: 'POST',
-      url: '/api/v1/auth/login',
-      payload: {
-        email: 'registration-admin@example.com',
-        password: 'RegistrationAdmin123!',
-      },
-    })
+    const registrationAdminLogin = await activateProvisionedAccount(
+      'registration-admin@example.com',
+      'RegistrationAdmin123!',
+    )
     expect(registrationAdminLogin.statusCode).toBe(200)
     const invitation = await app.inject({
       method: 'POST',
@@ -627,14 +623,10 @@ describe('account management api', { timeout: 30_000 }, () => {
       status: 'active',
     })
     const createdAdminUserId = createdAdmin.json().userId as string
-    const createdAdminLogin = await app.inject({
-      method: 'POST',
-      url: '/api/v1/auth/login',
-      payload: {
-        email: 'created-admin@example.com',
-        password: 'CreatedAdmin123!',
-      },
-    })
+    const createdAdminLogin = await activateProvisionedAccount(
+      'created-admin@example.com',
+      'CreatedAdmin123!',
+    )
     expect(createdAdminLogin.statusCode).toBe(200)
     expect(createdAdminLogin.json()).toMatchObject({
       account: {
@@ -736,14 +728,10 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
     const organizationMemberUserId = organizationAdminCreatesOrganizationMember.json().userId as string
 
-    const memberLogin = await app.inject({
-      method: 'POST',
-      url: '/api/v1/auth/login',
-      payload: {
-        email: 'admin-created-member@example.com',
-        password: 'CreatedMember123!',
-      },
-    })
+    const memberLogin = await activateProvisionedAccount(
+      'admin-created-member@example.com',
+      'CreatedMember123!',
+    )
     expect(memberLogin.statusCode).toBe(200)
     expect(memberLogin.json()).toMatchObject({ account: { roles: ['member'] } })
     const memberCookie = cookieValue(memberLogin)
@@ -1610,7 +1598,7 @@ describe('account management api', { timeout: 30_000 }, () => {
     const relogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'member2@example.com', password: 'MemberPassword123!' },
+      payload: { email: 'member2@example.com', password: 'Ready-MemberPassword123!' },
     })
     expect(relogin.statusCode).toBe(401)
   })
@@ -1666,11 +1654,7 @@ async function createTenantUserInFreshWorkspace(
     },
   })
   expect(created.statusCode).toBe(201)
-  const login = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/login',
-    payload: { email, password },
-  })
+  const login = await activateProvisionedAccount(email, password)
   expect(login.statusCode).toBe(200)
   expect(login.json().account.roles).toEqual([role])
   return {
@@ -1679,6 +1663,38 @@ async function createTenantUserInFreshWorkspace(
     tenantId,
     cookie: cookieValue(login),
   }
+}
+
+async function activateProvisionedAccount(email: string, temporaryPassword: string) {
+  if (!app) throw new Error('App is not ready')
+  const initialLogin = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    remoteAddress: '10.0.0.2',
+    payload: { email, password: temporaryPassword },
+  })
+  expect(initialLogin.statusCode).toBe(200)
+  expect(initialLogin.json()).toMatchObject({ account: { passwordResetRequired: true } })
+
+  const newPassword = `Ready-${temporaryPassword}`
+  const changed = await app.inject({
+    method: 'PUT',
+    url: '/api/v1/auth/password',
+    remoteAddress: '10.0.0.2',
+    headers: { cookie: cookieValue(initialLogin) },
+    payload: { currentPassword: temporaryPassword, newPassword },
+  })
+  expect(changed.statusCode).toBe(204)
+
+  const readyLogin = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    remoteAddress: '10.0.0.2',
+    payload: { email, password: newPassword },
+  })
+  expect(readyLogin.statusCode).toBe(200)
+  expect(readyLogin.json()).toMatchObject({ account: { passwordResetRequired: false } })
+  return readyLogin
 }
 
 async function verifyEmailAddress(email: string): Promise<void> {
