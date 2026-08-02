@@ -36,6 +36,8 @@ Phase 1 is implemented under `frontend/` with Next.js App Router and TypeScript:
 
 The frontend connects Creative Intent Resolution, episode-context Draft Generation, edit review, AI modification candidates, controlled Revision and Finalization through a same-origin Next.js proxy. Projects save immediately to IndexedDB and, when PostgreSQL is configured, synchronize a versioned complete Workspace Snapshot. Sequential mode generates one confirmed episode at a time. Full mode is executed through bounded batches; users may update inputs and add an optional stage instruction before continuing. Creative Deepening code is retained but hidden and blocked by the current frontend/backend feature flag. This is not a Story Planning runtime and does not claim series-level blueprint quality.
 
+Every project records its market profile. Projects retained from a disabled or unknown market remain readable, exportable and deletable, but generation and quality-loop mutations are blocked when the active runtime profile differs. The user can duplicate the creative inputs into a new project version bound to the current market; the frontend must never silently rewrite or continue an old project with a different Prompt / Strategy lineage.
+
 The frontend currently orchestrates existing step APIs. This makes the product usable but does not mean `ScriptGenerationFacade`, formal `ScriptGenerationRequest / Result`, or `generate_script()` has been implemented.
 
 ## 2. Backend Capability Assessment

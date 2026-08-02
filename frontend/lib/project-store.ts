@@ -1,4 +1,4 @@
-import type { ScriptProject } from "@/lib/types";
+import type { ProjectMarketProfile, ScriptProject } from "@/lib/types";
 import { normalizeGenerationSettings } from "@/lib/generation-planning";
 
 const DATABASE_NAME = "ai-comic-content-os";
@@ -66,6 +66,7 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
             : [];
         return {
           ...project,
+          marketProfile: project.marketProfile ?? inferProjectMarketProfile(project),
           customTags: project.customTags ?? [],
           episodes,
           generationBatches: project.generationBatches ?? (episodes.length ? [{
@@ -101,6 +102,17 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
   } finally {
     database.close();
   }
+}
+
+export function inferProjectMarketProfile(
+  project: Partial<ScriptProject>,
+): ProjectMarketProfile {
+  const strategyId = project.generationRun?.generation_strategy_id
+    ?? project.episodes?.[0]?.generationRun?.generation_strategy_id
+    ?? "";
+  if (strategyId.includes("cn_mainland")) return "cn_mainland";
+  if (strategyId.includes("tiktok")) return "overseas_tiktok";
+  return "legacy_unknown";
 }
 
 async function writeStoredProject(project: ScriptProject): Promise<void> {

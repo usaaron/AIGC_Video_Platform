@@ -1,4 +1,5 @@
 import { ApiError, apiRequest } from "@/lib/api-client";
+import { inferProjectMarketProfile } from "@/lib/project-store";
 import type {
   EpisodeArtifactKind,
   EpisodeArtifactReference,
@@ -94,6 +95,7 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
         lastSyncedProjectUpdates.set(remoteProject.project_id, payload.updatedAt);
         const restored: ScriptProject = {
           ...payload,
+          marketProfile: payload.marketProfile ?? inferProjectMarketProfile(payload),
           contentSpecId: remoteProject.content_spec_id ?? undefined,
           serverSync: {
             status: "synced",

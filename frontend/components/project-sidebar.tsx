@@ -78,7 +78,7 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
                     <span className="project-history-icon"><ScriptIcon /></span>
                     <span className="project-history-copy">
                       <strong>{project.title}</strong>
-                      <small>{primaryTag ? getLocalizedTagLabel(primaryTag, locale) : t("nav.storyIdea")} · {project.episodes.length} {t("workspace.episodes")} · {formatRelativeTime(project.updatedAt, locale)}</small>
+                      <small>{t(`market.${project.marketProfile}`)} · {primaryTag ? getLocalizedTagLabel(primaryTag, locale) : t("nav.storyIdea")} · {project.episodes.length} {t("workspace.episodes")} · {formatRelativeTime(project.updatedAt, locale)}</small>
                     </span>
                     <span className={`status-dot status-${project.status}`} />
                   </Link>

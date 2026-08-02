@@ -18,7 +18,12 @@ import {
   loadServerProjects,
   queueProjectServerSync,
 } from "@/lib/project-sync";
-import { DEFAULT_GENERATION_SETTINGS, type ProjectDraft, type ScriptProject } from "@/lib/types";
+import {
+  CURRENT_MARKET_PROFILE,
+  DEFAULT_GENERATION_SETTINGS,
+  type ProjectDraft,
+  type ScriptProject,
+} from "@/lib/types";
 
 interface ProjectContextValue {
   projects: ScriptProject[];
@@ -81,6 +86,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const project: ScriptProject = {
       id: crypto.randomUUID(),
       ...draft,
+      marketProfile: CURRENT_MARKET_PROFILE,
       generationSettings: draft.generationSettings ?? DEFAULT_GENERATION_SETTINGS,
       episodes: [],
       generationBatches: [],

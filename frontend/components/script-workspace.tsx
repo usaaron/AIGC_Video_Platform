@@ -17,6 +17,7 @@ import { nextBatchRange } from "@/lib/generation-planning";
 import { synchronizeContinuity } from "@/lib/continuity";
 import { completeScriptQualityLoop } from "@/lib/quality-loop-client";
 import { saveEpisodeArtifactOnServer } from "@/lib/project-sync";
+import { CURRENT_MARKET_PROFILE } from "@/lib/types";
 import type {
   BilingualScriptView,
   EpisodeWorkspace,
@@ -107,6 +108,13 @@ export function ScriptWorkspace() {
           ? finalDraft
           : frameworkDraft;
   const isConfirmed = ["confirmed", "deepened", "final"].includes(currentEpisode.status);
+  const marketMismatch = currentProject.marketProfile !== CURRENT_MARKET_PROFILE;
+
+  function blockCrossMarketMutation(): boolean {
+    if (!marketMismatch) return false;
+    setMessage(t("workspace.marketMismatch"));
+    return true;
+  }
 
   function replaceEpisode(patch: Partial<EpisodeWorkspace>, projectPatch: Record<string, unknown> = {}) {
     const now = new Date().toISOString();
@@ -153,6 +161,7 @@ export function ScriptWorkspace() {
   }
 
   async function confirmDraft(draft: GeneratedDraft = editingDraft ?? frameworkDraft) {
+    if (blockCrossMarketMutation()) return;
     setBusyAction("confirm");
     setMessage(null);
     try {
@@ -204,6 +213,7 @@ export function ScriptWorkspace() {
   }
 
   async function requestModification() {
+    if (blockCrossMarketMutation()) return;
     if (!instruction.trim()) return;
     setBusyAction("modify");
     setMessage(null);
@@ -245,6 +255,7 @@ export function ScriptWorkspace() {
   }
 
   async function requestDeepening() {
+    if (blockCrossMarketMutation()) return;
     if (!isConfirmed) return;
     setBusyAction("deepen");
     setMessage(null);
@@ -290,6 +301,7 @@ export function ScriptWorkspace() {
   }
 
   async function generateNextStage(optionalInstruction = "") {
+    if (blockCrossMarketMutation()) return;
     const orderedExistingEpisodes = currentProject.episodes
       .slice()
       .sort((left, right) => left.episodeNumber - right.episodeNumber);
@@ -411,6 +423,7 @@ export function ScriptWorkspace() {
   }
 
   async function finalizeEpisode() {
+    if (blockCrossMarketMutation()) return;
     if (!isConfirmed) return;
     setBusyAction("finalize");
     setMessage(null);
@@ -519,6 +532,10 @@ export function ScriptWorkspace() {
         <button aria-pressed={workspaceView === "script"} onClick={() => setWorkspaceView("script")} type="button">{t("workspace.scriptView")}</button>
         <button aria-pressed={workspaceView === "continuity"} onClick={() => setWorkspaceView("continuity")} type="button">{t("workspace.continuityView")}</button>
       </nav>
+
+      {marketMismatch ? (
+        <div className="storage-alert">{t("workspace.marketMismatch")}</div>
+      ) : null}
 
       {workspaceView === "continuity" ? (
         <ProjectContinuityPanel

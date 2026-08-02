@@ -9,6 +9,7 @@ import type {
   ScriptGenerationRun,
   ScriptProject,
 } from "@/lib/types";
+import { CURRENT_MARKET_PROFILE } from "@/lib/types";
 
 interface ApiList<T> { data: T[] }
 interface OntologyNode { id: string; label: string; category: string; is_active: boolean }
@@ -72,6 +73,15 @@ export async function generateSingleEpisode(
   ) ?? profilesResponse.data[0];
   if (!platform) throw new Error("Backend has no PlatformProfile. Initialize runtime resources first.");
   const isMainlandChina = platform.metadata?.market_profile === "cn_mainland";
+  const projectMarketProfile = project.marketProfile ?? "legacy_unknown";
+  if (
+    projectMarketProfile !== CURRENT_MARKET_PROFILE
+    || platform.metadata?.market_profile !== CURRENT_MARKET_PROFILE
+  ) {
+    throw new Error(
+      "This project belongs to a different market profile. Duplicate it as a new version before generating new episodes.",
+    );
+  }
   const platformName = platform.platform_name.trim().toLowerCase();
   const selectedTagIds = new Set(systemTagIds);
   const platformStrategies = strategiesResponse.data.filter((item) => (

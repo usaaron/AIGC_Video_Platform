@@ -4,6 +4,8 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 
 当前默认市场为 `cn_mainland`，不绑定单一发行平台，红果仅作参考。`overseas_tiktok` 能力完整保留但默认关闭。当前创作重点已转向中文长篇故事母本；现有 runtime 可把单集框架按有界阶段连续生成，但尚不能宣称已经具备专业 Story Blueprint、后端可恢复任务或自动完成 60 万字母本。
 
+市场切换不重写历史项目。Frontend 根据项目 `marketProfile` 与既有 Generation Strategy 识别来源；非当前市场项目仅保留查看、导出和删除能力，不能调用续写、AI 修改、审核或 Finalization。用户需要继续创作时，应复制为绑定当前市场的新版本，从而保持 Prompt、Strategy 和产物 lineage 一致。
+
 ## 当前阶段产物
 
 当前阶段最终产物是：

@@ -1,6 +1,13 @@
 export type ProjectStatus = "idea" | "generating" | "draft" | "finalizing" | "deepened" | "final";
 
 export type ProjectTitleSource = "derived" | "user" | "generated";
+export type ProjectMarketProfile = "cn_mainland" | "overseas_tiktok" | "legacy_unknown";
+
+export const CURRENT_MARKET_PROFILE: Exclude<ProjectMarketProfile, "legacy_unknown"> = (
+  process.env.NEXT_PUBLIC_SCRIPT_MARKET_PROFILE === "overseas_tiktok"
+    ? "overseas_tiktok"
+    : "cn_mainland"
+);
 
 export interface CharacterDraft {
   id: string;
@@ -53,6 +60,7 @@ export interface ScriptProject {
   id: string;
   title: string;
   titleSource: ProjectTitleSource;
+  marketProfile: ProjectMarketProfile;
   creativePrompt: string;
   selectedTagIds: string[];
   customTags: CustomTagDraft[];
