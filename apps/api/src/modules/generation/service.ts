@@ -56,7 +56,7 @@ export class GenerationService {
   }
 
   listRecentTasks(principal: Principal): Promise<GenerationTask[]> {
-    return Promise.resolve(this.repository.listRecent(principal))
+    return this.repository.listRecent(principal)
   }
 
   clearCompleted(projectId: string, principal: Principal): Promise<number> {
