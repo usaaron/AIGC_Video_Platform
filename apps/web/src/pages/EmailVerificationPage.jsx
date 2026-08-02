@@ -1,11 +1,9 @@
 import { CheckCircle2, LoaderCircle, MailCheck, XCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useAuth } from '../components/AuthProvider'
 import { api } from '../services/apiClient'
 import './LoginPage.css'
 
 export function EmailVerificationPage() {
-  const { refresh } = useAuth()
   const [state, setState] = useState({ status: 'checking', message: '正在验证邮箱...' })
 
   useEffect(() => {
@@ -17,8 +15,7 @@ export function EmailVerificationPage() {
     let cancelled = false
     api
       .verifyEmail({ token })
-      .then(async () => {
-        await refresh().catch(() => {})
+      .then(() => {
         if (!cancelled) setState({ status: 'success', message: '邮箱已验证，可以继续使用工作台。' })
       })
       .catch((error) => {
@@ -27,7 +24,7 @@ export function EmailVerificationPage() {
     return () => {
       cancelled = true
     }
-  }, [refresh])
+  }, [])
 
   const success = state.status === 'success'
   const checking = state.status === 'checking'

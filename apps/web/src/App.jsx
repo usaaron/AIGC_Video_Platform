@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Check, LoaderCircle, X } from 'lucide-react'
+import { Check, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
 import { IconButton } from './components/ui'
@@ -52,6 +52,8 @@ function App() {
   const [billing, setBilling] = useState(null)
   const [providerHealth, setProviderHealth] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [mobileNav, setMobileNav] = useState(false)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
@@ -70,6 +72,8 @@ function App() {
 
   useEffect(() => {
     if (adminOnly) return
+    setLoading(true)
+    setLoadError('')
     Promise.all([api.projects(), api.billing(), api.health().catch(() => null)])
       .then(async ([projectList, billingSummary, health]) => {
         setProjects(projectList)
@@ -77,9 +81,12 @@ function App() {
         setProviderHealth(health)
         if (projectList[0]) setWorkspace(await api.project(projectList[0].id))
       })
-      .catch((error) => setToast(error.message))
+      .catch((error) => {
+        setLoadError(error.message || '无法加载项目和积分信息。')
+        setToast(error.message)
+      })
       .finally(() => setLoading(false))
-  }, [adminOnly])
+  }, [adminOnly, loadAttempt])
 
   useEffect(() => {
     if (!workspace?.project.id) return undefined
@@ -211,11 +218,21 @@ function App() {
         </a>
       </div>
     )
-  if (loading || !billing)
+  if (loading)
     return (
       <div className="app-loading">
         <LoaderCircle size={24} className="spin" />
         <p>正在加载项目…</p>
+      </div>
+    )
+  if (loadError || !billing)
+    return (
+      <div className="app-loading">
+        <X size={24} />
+        <p>{loadError || '项目和积分信息暂时不可用。'}</p>
+        <button className="button primary" type="button" onClick={() => setLoadAttempt((value) => value + 1)}>
+          <RefreshCw size={16} /> 重新加载
+        </button>
       </div>
     )
 

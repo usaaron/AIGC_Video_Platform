@@ -202,6 +202,28 @@
   opacity: 0.65;
 }
 
+.login-secondary-button {
+  width: 100%;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #d3d8ce;
+  border-radius: 6px;
+  background: #f7f8f5;
+  color: #394036;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.login-secondary-button:disabled,
+.login-link-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .login-error {
   margin-bottom: 12px;
   padding: 9px 11px;
@@ -282,6 +304,92 @@
   border-top: 1px solid var(--line);
   color: #7b8277;
   font-size: 9px;
+}
+
+.auth-result {
+  display: grid;
+  gap: 16px;
+}
+
+.auth-result .login-heading {
+  margin-bottom: 0;
+}
+
+.auth-result-icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #f0f4e7;
+  color: #6f8236;
+}
+
+.auth-result-icon.success {
+  background: #edf6ea;
+  color: #4d773f;
+}
+
+.auth-result-icon.error {
+  background: #fff0ed;
+  color: #a74330;
+}
+
+.verification-pending-email {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 13px;
+  border: 1px solid #d9ddd5;
+  border-radius: 6px;
+  background: #f8f9f6;
+  color: #2e342c;
+  overflow-wrap: anywhere;
+}
+
+.verification-pending-email svg {
+  flex: 0 0 auto;
+  color: #7d9135;
+}
+
+.verification-pending-email strong {
+  font-size: 11px;
+}
+
+.verification-pending-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid #cbd8bd;
+  border-radius: 5px;
+  background: #f4f8ef;
+  color: #476036;
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.verification-pending-status svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.verification-pending-actions {
+  display: grid;
+  gap: 9px;
+}
+
+.verification-pending-actions .login-submit,
+.verification-pending-actions .login-link-button {
+  margin-top: 0;
+}
+
+.verification-pending-actions .login-link-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
 }
 
 @media (max-width: 760px) {
