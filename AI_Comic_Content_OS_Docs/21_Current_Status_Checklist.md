@@ -204,15 +204,17 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 ### Mainland China MVP Acceptance - 2026-08-02
 
 - 独立验收 runtime 只注册 `cn_mainland_comic_drama_v1`、大陆 Strategy 和两个中文 Prompt；未注册海外/TikTok Strategy，Creative Deepening 为 `disabled`
-- OpenAI-compatible 真实模型完成 1 次中文单集生成：HTTP 200，耗时约 271 秒，3 个场景，12 条对白，14 条动作
+- OpenAI-compatible 真实模型完成连续 2 集中文生成：两次均为 HTTP 200；第 1 集耗时约 271 秒，第 2 集耗时约 58 秒；合计 6 个场景、20 条对白、26 条动作
 - Scene Causality 验收全部通过：每场 Goal / Conflict / Outcome 完整，Goal 与 Outcome 不同，场景 2/3 具有前序因果引用，最终场景提供 cliffhanger 和 next episode question
+- 逐集连续性验收通过：第 2 集直接承接第 1 集的诱饵访问记录，由苏晚主动设计三份标记副本验证嫌疑人，并将“账户权限提前调用”作为新的下集问题；未重置冲突、未重复第 1 集揭露、未提前公布幕后主谋
 - 用户锁定角色 `苏晚`、`顾沉舟` 被保留；生成正文未发现 TikTok、livestream、Mara、Adrian 等海外模板残留
-- Story QC Explainability 正常输出 5 个维度；其中 `character_agency=2.5/5` 暴露真实质量缺口，因此本轮结论是“主链路通过”，不是“专业质量通过”
+- Story QC Explainability 两集均正常输出 5 个维度，但都评为 `character_agency=2.5/5`；第 2 集已有苏晚拒绝盲目扣人、主动设计分层诱饵、限制顾沉舟信息范围等明确选择，该分数与文本证据不充分一致，暴露的是 Story QC 可信度缺口，不宜直接当作生成质量事实
+- 发现一项输出规范缺口：第 2 集内容连续，但标题未稳定包含“第2集”；后续应将集号视为结构化展示信息，不应仅依赖模型自由命名
 - 约 88 KB Frontend Workspace Snapshot 成功写入 PostgreSQL，checksum 长度 64；后端进程重启后读回内容、市场来源和标题一致
 - 验收项目已按 expected revision 软归档，不出现在正常项目列表
 - 前端 TypeScript 与 production build 通过；由于执行环境不能接管用户当前 Chrome / Next dev 会话，本轮未替代人工完成浏览器按钮级验收
 
-该记录是当前 Project + Workspace Snapshot + 内容里程碑 Artifact 的验证快照，不代表后台任务、编辑过程细粒度历史或全部旧 Repository 已完成持久化接入。
+该记录是当前 Project + Workspace Snapshot + 内容里程碑 Artifact 的验证快照，不代表后台任务、编辑过程细粒度历史或全部旧 Repository 已完成持久化接入，也不代表 60 万字长篇已完成端到端生产验收。
 
 ## Current Hold
 
