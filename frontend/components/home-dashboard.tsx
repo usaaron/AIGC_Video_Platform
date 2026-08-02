@@ -17,7 +17,6 @@ export function HomeDashboard() {
     <main className="home-page">
       <section className="home-hero page-reveal">
         <div className="eyebrow"><span /> {t("home.eyebrow")}</div>
-        <h1>{t("home.titleLead")}<br /><em>{t("home.titleEmphasis")}</em></h1>
         <p>{t("home.description")}</p>
         <Link className="primary-action" href="/projects/new">
           <PlusIcon />
