@@ -248,11 +248,18 @@ Phase 1 当前状态：
 
 当前边界：
 
+- 当前 `cn_mainland` bootstrap 提供大陆题材、剧情元素、关系冲突、情绪体验和目标受众标签；`overseas_tiktok` 目录保留但不会与大陆 runtime 同时注册
+- 前端“灵感推荐”是静态、有界且需要用户主动选择的策划入口，不是实时趋势数据；真实热门标签仍应由未来 Data Intelligence 提供证据
+- “我的标签”作为用户自定义创作关键词进入 generation notes，不会静默创建 `OntologyNode`，也不能替代系统标签对 `ContentSpec` 的受控分类
+- 输入规则是 Prompt 与有效标签至少提供一项、Character optional；当前已支持 Prompt-only 与受控 Ontology Tag-only，Tag-only Story Goal 由后端透明派生并保留 provenance；confirmed CustomTagContext-only 尚未实现
+- 标签未来先通过 source-grounded Tag Context 形成可审阅 Story Synopsis / Story Direction，再进入 Story Bible 根方向和递归长篇规划；标签库不直接承担 60 万字扩写
+- 自定义标签未来建立 project-scoped `CustomTagContext` 并由用户确认，不允许仅凭标签名称创建公共 Ontology 或伪造知识来源
+- 前端最多激活 12 个标签；旧 `element.*` 标签在项目加载时迁移到正式 `theme.* / relationship.*` ID
 - 完整 `CreativeBriefInput` 的 recommendation、alias、unresolved tag 与用户确认能力仍是文档级设计
 - 当前 `CreativeBrief` 仍指 `ContentSpec.creative_brief` 的标准化运行时子结构
 - Script Engine 只消费解析完成的 `ContentSpec + ResolvedCreativeContext`，不自行决定采用哪些推荐标签
 - Prompt Builder 不应直接接收 unresolved tag、原始推荐列表或未经解析的自由 Prompt
-- 用户新增标签必须解析为现有 `OntologyNode`；未知标签不得在 Script Engine 中临时创建
+- 当前用户新增标签仅作为 generation notes；未来可解析为现有 `OntologyNode` 或已确认的 project-scoped `CustomTagContext`，但未知标签不得在 Script Engine 中静默创建公共节点
 - 用户排除项和平台硬约束必须在进入 Script Engine 前得到明确解析
 - 重大语义冲突应要求用户确认，不能由 Script Engine 静默猜测
 - Character Context 与 exclusions 不写入 `ContentSpec.metadata`
@@ -270,14 +277,15 @@ Phase 1 当前状态：
 
 ### Long-Story Contract Foundation
 
-当前已实现 `StoryProject`、`StoryBible`、`StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、`GenerationBatchPlan` 和 `GenerationJobCheckpoint` 的版本化模型与校验。
+当前已实现 `StoryProject`、`StoryBible`、level-free `StoryPlanNode`、兼容 `StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、`GenerationBatchPlan` 和 `GenerationJobCheckpoint` 的版本化模型与校验。
 
 建议的未来内部链路保持：
 
 ```text
 Creative Intent / ContentSpec
 → Human-reviewed StoryBible
-→ Human-reviewed StoryStagePlan
+→ Recursive StoryPlanNode decomposition
+→ Human-reviewed episode-ready leaf nodes
 → EpisodePlan
 → Existing Episode Draft Generation
 → ContinuityLedger update
@@ -287,23 +295,26 @@ Creative Intent / ContentSpec
 职责边界：
 
 - `StoryBible` 固定整部故事事实、人物和长期方向。
-- `StoryStagePlan` 定义一个集数区间的结构责任，不产生正文。
+- `StoryPlanNode` 递归表达任意深度的叙事片段；节点只有父子、同级顺序和因果前驱，不固定为卷、章或单元。拆分决策属于节点本身，各分支可以在不同深度停止，系统不得为了树形整齐而强制所有兄弟分支等深。
+- 未来系统可以根据叙事复杂度建议子节点数量和停止位置，但使用者必须能够编辑、批准、继续展开或将节点标记为 episode-ready；自动建议不取代创作控制。
+- 默认审核节奏为 Story Bible 根方向确认、关键递归节点确认和 episode-ready 叶子进入 Episode Plan 前确认；单集逐一确认可以作为可选工作方式，不强制成为整部长篇的唯一流程。
+- `StoryStagePlan` 作为旧单层阶段契约继续兼容，但不限制新规划树的拆分深度。
 - `EpisodePlan` 定义单集目标、决定、状态变化和悬念。
 - 当前 Draft Generation 仍负责写具体单集场景与对白。
 - `ContinuityLedger` 保存紧凑已发生状态，不替代历史剧本或 Story QC。
 - `GenerationJobCheckpoint` 只表达技术恢复状态，不评价内容质量。
 
-当前已完成 contract foundation、SQLModel / PostgreSQL + JSONB mapping、Alembic migration、事务型 Repository，以及 Project / Workspace Snapshot / Episode Artifact / Story Bible / Stage / Episode Plan 的 Application Service 和资源 API。Frontend 已接入本地优先同步、恢复、冲突提示、版本保护软删除及确认/修订/终稿里程碑上报；尚未实现规划生成、完整人工批准工作流、自动账本更新、后台 Job executor 或 Prompt 注入，因此现有生成质量链行为不变。
+当前已完成 contract foundation、SQLModel / PostgreSQL + JSONB mapping、Alembic migration、事务型 Repository，以及 Project / Workspace Snapshot / Episode Artifact / Story Bible / Story Plan Node / Stage / Episode Plan 的 Application Service 和资源 API。递归节点 API 已校验唯一根节点、父子边界、同级顺序、前驱引用和 expansion lifecycle，并允许不同分支使用不同拆分深度。Frontend 已接入本地优先同步、恢复、冲突提示、版本保护软删除及确认/修订/终稿里程碑上报；尚未实现自动拆树、叶子到 EpisodePlan 映射、规划审核 UI、自动账本更新、后台 Job executor 或 Prompt 注入，因此现有生成质量链行为不变。
 
 持久化规则：
 
 - PostgreSQL 是生产目标；SQLite 只运行 Repository 与 migration tests。
-- Story Bible / Stage / Episode Plan / Ledger 采用 immutable version snapshot。
+- Story Bible / Story Plan Node / Stage / Episode Plan / Ledger 采用 immutable version snapshot。
 - Project / Batch / Job 使用 optimistic revision，Repository 拒绝 stale write。
 - Batch / Job 状态必须按显式状态机推进，completed 不允许倒退。
 - 当前 migration 可完成 upgrade、downgrade，并通过 Alembic metadata drift check。
 - 资源 API 使用幂等 PUT、immutable version、分页 Project list 和明确的 404 / 409 / 503 语义。
-- Application Service 校验 Project、Story Bible、Stage 与 Episode Plan 的归属和集数范围；API 不直接操作 SQLModel Record。
+- Application Service 校验 Project、Story Bible、Story Plan Node、Stage 与 Episode Plan 的归属和范围；API 不直接操作 SQLModel Record。
 
 当前 Resolver 仅支持已归一化且不超过 240 字符的 free creative prompt，并将其确定性映射为 `ContentSpec.story_goal`。更复杂的语义解析仍需后续独立验证，不允许在 Phase 1 中静默使用 LLM 推断。
 
@@ -563,7 +574,21 @@ Frontend 本地项目已支持可编辑的故事线与人物关系视图：
 - 后续分集生成会消费 bounded 连续性摘要，以延续用户确认的故事线和关系状态
 - 连续性摘要不触发对已生成分集的静默重写
 
-该视图属于 authoring / continuity artifact，不进入单集 `MasterScript`，不替代 Story Blueprint / Episode Planning，也不改变 Script Generation Box 主链路。
+由于项目创建时人物输入可为空，关系网不是一次性静态设定。人物、关系和故事线可以在规划与剧本生成过程中逐渐被发现和完善。目标流程只从用户确认的规划、确认分集或显式人工编辑提取 continuity delta；未确认 Draft、被拒候选和 shadow artifact 不得直接成为后续生成事实。
+
+目标可视化与修改策略：
+
+- 人物关系网以角色节点和方向性关系边展示，可参考游戏人物关系图的直观浏览方式；关系类型、当前状态、历史变化和 locked 状态来自现有 Story Bible / Continuity facts，不建立第二份事实源。
+- 主线、支线和人物成长线以树枝式视图展示，并关联递归 Story Plan Node、Setup / Payoff 与分集推进；这是辅助检阅视角，不替代规划树。
+- 用户修改关系或故事线后，系统应先做 impact analysis，再决定 future-only、创建分支、重规划未确认范围或显式历史再生成。
+- 默认策略为 prospective-only：只影响明确生效点之后尚未生成的内容。任何历史重写都必须显式选择、创建新版本并保留 lineage。
+- 新增角色默认从后续 Story Plan Node / Episode 生效，不伪造其在历史剧集中的存在。
+- 关系边可点击进入关系详情，查看关系方向、状态、详细说明、关键事件、证据分集和变化时间线；人物节点可点击进入人物简介、动机、约束、首次出现位置和历史变化。
+- 关系网与故事线不合并为单一领域对象，但在统一 Story Map / Continuity Workspace 中交叉展示。关系边可引用推动它变化的故事线，故事线可引用参与人物和关系变化。
+- 后续生成只消费与当前规划节点/分集相关的 bounded continuity slice，包括活跃人物、相关关系、未完成故事线、近期变化和 Setup / Payoff，不把全量关系网和全部历史塞入 Prompt。
+- 每次确认规划节点或分集后生成 proposed continuity delta；进入正式后续约束前必须保留 provenance、evidence、effective point 和确认状态。
+
+该视图属于 authoring / continuity artifact，不进入单集 `MasterScript`，不替代 Story Blueprint / Episode Planning，也不改变 Script Generation Box 主链路。它既是检阅界面，也是长篇上下文压缩和连续性约束的来源，但必须通过受控 Context Mapper 进入生成上下文。
 
 ## Production Handoff
 

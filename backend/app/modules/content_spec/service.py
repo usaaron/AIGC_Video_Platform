@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from app.modules.content_spec.models import (
     ContentSpec,
     ContentSpecCreate,
@@ -90,13 +92,21 @@ class ContentSpecService:
         for excluded_tag_id in payload.excluded_tag_ids:
             self._resolve_ontology_tag(excluded_tag_id)
 
+        user_story_goal = payload.free_creative_prompt.strip()
+        story_goal = user_story_goal or self._derive_story_goal_from_tags(
+            resolved_tag_refs
+        )
+        story_goal_source = (
+            "user_provided" if user_story_goal else "system_derived_from_tags"
+        )
+
         content_spec = self.create(
             ContentSpecCreate(
                 title=payload.title,
                 audience_goal=payload.audience_goal,
                 commercial_goal=payload.commercial_goal,
                 platform_goal=payload.platform_goal,
-                story_goal=payload.free_creative_prompt,
+                story_goal=story_goal,
                 quality_level=payload.quality_level,
                 budget_level=payload.budget_level,
                 tags=resolved_tag_refs,
@@ -104,6 +114,7 @@ class ContentSpecService:
                 metadata={
                     "source": "creative_intent_resolution_v1",
                     "creative_intent_schema_version": payload.schema_version,
+                    "story_goal_source": story_goal_source,
                 },
             )
         )
@@ -116,21 +127,41 @@ class ContentSpecService:
         )
         mapping_trace = [
             CreativeIntentMappingTrace(
-                source_field="free_creative_prompt",
-                target_field="content_spec.story_goal",
-                reason="The bounded v1 prompt is already a normalized story direction.",
-            ),
-            CreativeIntentMappingTrace(
-                source_field="selected_tag_ids + added_tag_ids",
-                target_field="content_spec.tags",
-                reason="Active tag IDs were resolved through the existing Ontology.",
-            ),
-            CreativeIntentMappingTrace(
                 source_field="creative_brief",
                 target_field="content_spec.creative_brief",
                 reason="The structured creative brief maps directly to the existing contract.",
             ),
         ]
+        if user_story_goal:
+            mapping_trace.insert(
+                0,
+                CreativeIntentMappingTrace(
+                    source_field="free_creative_prompt",
+                    target_field="content_spec.story_goal",
+                    reason="The user prompt remains the normalized story direction.",
+                ),
+            )
+        else:
+            mapping_trace.insert(
+                0,
+                CreativeIntentMappingTrace(
+                    source_field="selected_tag_ids + added_tag_ids",
+                    target_field="content_spec.story_goal",
+                    reason=(
+                        "The story direction was derived transparently from user-selected "
+                        "Ontology tags because no free prompt was provided."
+                    ),
+                ),
+            )
+        if resolved_tag_refs:
+            mapping_trace.insert(
+                1,
+                CreativeIntentMappingTrace(
+                    source_field="selected_tag_ids + added_tag_ids",
+                    target_field="content_spec.tags",
+                    reason="Active tag IDs were resolved through the existing Ontology.",
+                ),
+            )
         if payload.character_contexts:
             mapping_trace.append(
                 CreativeIntentMappingTrace(
@@ -187,3 +218,8 @@ class ContentSpecService:
             category=ontology_node.category.value,
             confidence=1.0,
         )
+
+    @staticmethod
+    def _derive_story_goal_from_tags(tags: list[TagRef]) -> str:
+        labels = "、".join(tag.label for tag in tags)
+        return f"以用户选择的创作标签为核心形成故事方向：{labels}。"

@@ -1,0 +1,1071 @@
+{
+  "data": {
+    "content_spec_id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+    "generation_strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+    "generation_strategy_version": "v1",
+    "orchestration_plan": {
+      "id": "e402350a-c8ac-4d03-91c6-911f6f940c35",
+      "content_spec_id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+      "platform_profile_id": "cn_mainland_comic_drama_v1",
+      "title": "订婚宴迷局：六十万字长篇验收",
+      "creative_hook": "从订婚宴即将公开证据的临界时刻开场。",
+      "episode_goal": "订婚宴上，调查记者苏晚准备公开顾氏集团掩盖矿难的证据，却发现未婚夫顾沉舟早已知道真相。她必须在复仇、保护无辜证人和追查幕后主使之间作出不可逆选择。",
+      "target_duration_seconds": 180,
+      "desired_scene_count": 3,
+      "asset_requests": [
+        {
+          "request_id": "characters_core",
+          "asset_type": "character",
+          "reason": "Retrieve reusable character assets aligned with primary story tags.",
+          "required_tag_ids": [
+            "genre.dark_romance",
+            "theme.revenge"
+          ],
+          "optional_tag_ids": [],
+          "limit": 3
+        },
+        {
+          "request_id": "scenes_supporting",
+          "asset_type": "scene",
+          "reason": "Retrieve environment assets that support the episode hook and pacing.",
+          "required_tag_ids": [
+            "genre.dark_romance"
+          ],
+          "optional_tag_ids": [
+            "theme.revenge",
+            "theme.hidden_identity"
+          ],
+          "limit": 3
+        }
+      ],
+      "script_constraints": [
+        {
+          "source": "creative_brief",
+          "rule": "Open with the hook: 从订婚宴即将公开证据的临界时刻开场。",
+          "priority": "high"
+        },
+        {
+          "source": "platform_goal",
+          "rule": "Keep pacing aligned with a 180 second short-form episode.",
+          "priority": "high"
+        },
+        {
+          "source": "platform_profile",
+          "rule": "Respect platform best practice: Build a coherent story foundation before adapting it into production episodes.",
+          "priority": "medium"
+        }
+      ],
+      "scene_blueprints": [
+        {
+          "scene_number": 1,
+          "purpose": "Establish the hook and the public-facing conflict immediately.",
+          "target_emotion": "持续期待",
+          "recommended_focus": "hook"
+        },
+        {
+          "scene_number": 2,
+          "purpose": "Increase pressure on the protagonist and sharpen the episode goal.",
+          "target_emotion": "持续期待",
+          "recommended_focus": "conflict"
+        },
+        {
+          "scene_number": 3,
+          "purpose": "Escalate the conflict and land the cliffhanger ending.",
+          "target_emotion": "suspense",
+          "recommended_focus": "cliffhanger"
+        }
+      ],
+      "status": "ready",
+      "blocking_issues": [],
+      "created_at": "2026-08-02T15:12:50.643062Z",
+      "updated_at": "2026-08-02T15:12:50.643067Z"
+    },
+    "retrieval_result": {
+      "plan_id": "e402350a-c8ac-4d03-91c6-911f6f940c35",
+      "content_spec_id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+      "platform_profile_id": "cn_mainland_comic_drama_v1",
+      "status": "partial",
+      "resolved_requests": [
+        {
+          "request_id": "characters_core",
+          "asset_type": "character",
+          "reason": "Retrieve reusable character assets aligned with primary story tags.",
+          "required_tag_ids": [
+            "genre.dark_romance",
+            "theme.revenge"
+          ],
+          "optional_tag_ids": [],
+          "candidates": []
+        },
+        {
+          "request_id": "scenes_supporting",
+          "asset_type": "scene",
+          "reason": "Retrieve environment assets that support the episode hook and pacing.",
+          "required_tag_ids": [
+            "genre.dark_romance"
+          ],
+          "optional_tag_ids": [
+            "theme.revenge",
+            "theme.hidden_identity"
+          ],
+          "candidates": [
+            {
+              "asset_id": "scene.frontend_mvp_genre_dark_romance",
+              "asset_type": "scene",
+              "title": "Adaptable Dark Romance Story Setting",
+              "summary": "A generic scene-setting source for local frontend generation validation.",
+              "matched_required_tag_ids": [
+                "genre.dark_romance"
+              ],
+              "matched_optional_tag_ids": [],
+              "score": 0.75,
+              "rationale": [
+                "Matched all 1 required tags.",
+                "Asset is explicitly scoped to the target platform profile."
+              ]
+            }
+          ]
+        }
+      ],
+      "unresolved_request_ids": [
+        "characters_core"
+      ],
+      "notes": [
+        "Resolved 1 of 2 asset requests.",
+        "Current retrieval uses deterministic rule-based matching on asset type and controlled tags."
+      ],
+      "generated_at": "2026-08-02T15:12:50.643616Z"
+    },
+    "prompt_retrieval_result": {
+      "generation_strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+      "strategy_name": "Mainland China General Story Foundation Strategy",
+      "prompt_ids": [
+        "prompt.story_planning.frontend_mvp_cn",
+        "prompt.mainland_serialization.frontend_mvp_cn"
+      ],
+      "prompts": [
+        {
+          "id": "prompt.story_planning.frontend_mvp_cn",
+          "name": "China Mainland Story Foundation Prompt",
+          "prompt_type": "story_planning",
+          "target_module": "script_engine",
+          "applicable_tags": [],
+          "target_platform": "mainland_china",
+          "target_audience": "Mainland China serialized comic-drama audience",
+          "version": "v1",
+          "prompt_template": "根据结构化创作意图生成中文连载故事的单集框架。优先保持人物动机、关系、世界规则和前后状态一致；每个场景必须包含明确目标、有效阻力和改变故事状态的结果，后续场景应由此前结果推动。不得套用 TikTok、海外短视频或固定付费卡点规则，不得擅自改变用户锁定的人物设定。",
+          "input_variables": [
+            "content_spec_json",
+            "creative_brief_json",
+            "platform_profile_json",
+            "retrieved_assets_json",
+            "generation_strategy_json",
+            "output_language",
+            "desired_scene_count",
+            "target_duration_seconds",
+            "target_script_body_characters",
+            "output_json_schema"
+          ],
+          "output_schema": {
+            "type": "object"
+          },
+          "evaluation_notes": [
+            "Current runtime still generates bounded episode frameworks, not a complete 600,000-character manuscript.",
+            "Prefer continuity and consequential character choices over disconnected short-form shocks.",
+            "Hongguo is a market reference, not a hard platform contract."
+          ],
+          "created_at": "2026-08-02T14:49:26.328550Z",
+          "updated_at": "2026-08-02T14:49:26.328555Z"
+        },
+        {
+          "id": "prompt.mainland_serialization.frontend_mvp_cn",
+          "name": "Mainland China Serialization Prompt",
+          "prompt_type": "commercial_evaluation",
+          "target_module": "script_engine",
+          "applicable_tags": [],
+          "target_platform": "mainland_china",
+          "target_audience": "Mainland China serialized comic-drama audience",
+          "version": "v1",
+          "prompt_template": "检查本集是否推进主线或人物关系、是否留下可追踪的后续责任，并避免重复冲突、空转场景和无依据反转。只使用当前输入提供的题材、人物和约束，不把特定平台爆款公式当作强制结构。",
+          "input_variables": [
+            "content_spec_json",
+            "platform_constraints",
+            "hook_requirement",
+            "cliffhanger_requirement",
+            "cultural_fit_requirement"
+          ],
+          "output_schema": {
+            "type": "object"
+          },
+          "evaluation_notes": [
+            "This is a bounded generation instruction, not professional mainland-market validation.",
+            "Long-form planning and continuity ledger remain pending capabilities."
+          ],
+          "created_at": "2026-08-02T14:49:26.330979Z",
+          "updated_at": "2026-08-02T14:49:26.330983Z"
+        }
+      ],
+      "retrieval_mode": "exact_ids",
+      "notes": [
+        "Current MVP prompt retrieval uses exact strategy-declared prompt IDs.",
+        "Draft and Creative Deepening prompt sets remain purpose-scoped."
+      ],
+      "resolved_at": "2026-08-02T15:12:50.643682Z"
+    },
+    "selected_prompt_ids": [
+      "prompt.story_planning.frontend_mvp_cn",
+      "prompt.mainland_serialization.frontend_mvp_cn"
+    ],
+    "prompt_build_result": {
+      "prompt_text": "[story_planning:prompt.story_planning.frontend_mvp_cn]\n根据结构化创作意图生成中文连载故事的单集框架。优先保持人物动机、关系、世界规则和前后状态一致；每个场景必须包含明确目标、有效阻力和改变故事状态的结果，后续场景应由此前结果推动。不得套用 TikTok、海外短视频或固定付费卡点规则，不得擅自改变用户锁定的人物设定。\n\n[commercial_evaluation:prompt.mainland_serialization.frontend_mvp_cn]\n检查本集是否推进主线或人物关系、是否留下可追踪的后续责任，并避免重复冲突、空转场景和无依据反转。只使用当前输入提供的题材、人物和约束，不把特定平台爆款公式当作强制结构。\n\n[structured_context]\nReturn only valid JSON that satisfies OutputJsonSchema.\nSerializedEpisodeContract: Write only the requested episode. Treat previous episode state as established continuity, not optional inspiration. The new episode must begin from its consequences, advance the series conflict, avoid repeating resolved beats, and end with a question or payoff appropriate to its position in the requested episode count. An optional episode instruction may shape this episode but must not contradict locked character facts. When a project continuity summary is supplied, preserve its active story lines and relationship states without treating it as permission to repeat earlier scenes.\nEpisodeContext: {\"generation_mode\": \"full\", \"episode_number\": 1, \"total_episodes\": 334, \"previous_episode_summary\": null, \"previous_episode_question\": null, \"episode_instruction\": \"\\u5efa\\u7acb\\u82cf\\u665a\\u51c6\\u5907\\u516c\\u5f00\\u77ff\\u96be\\u8bc1\\u636e\\u7684\\u6838\\u5fc3\\u77db\\u76fe\\uff0c\\u8ba9\\u5979\\u4f5c\\u51fa\\u4e3b\\u52a8\\u9009\\u62e9\\uff1b\\u7ed3\\u5c3e\\u7559\\u4e0b\\u8bc1\\u636e\\u6765\\u6e90\\u88ab\\u64cd\\u63a7\\u7684\\u60ac\\u5ff5\\uff0c\\u4e0d\\u89e3\\u51b3\\u4e3b\\u7ebf\\u3002\", \"project_continuity_summary\": \"\\u957f\\u7bc7\\u4e3b\\u7ebf\\uff1a\\u82cf\\u665a\\u8ffd\\u67e5\\u59d0\\u59d0\\u6b7b\\u4ea1\\u4e0e\\u987e\\u6c0f\\u77ff\\u96be\\uff1b\\u987e\\u6c89\\u821f\\u8868\\u9762\\u963b\\u6b62\\u3001\\u6697\\u4e2d\\u8c03\\u67e5\\u7236\\u4eb2\\uff1b\\u4e24\\u4eba\\u5728\\u4e0d\\u4fe1\\u4efb\\u4e2d\\u88ab\\u8feb\\u5408\\u4f5c\\u3002\\u82cf\\u665a\\u4e0d\\u727a\\u7272\\u65e0\\u8f9c\\u8005\\uff0c\\u987e\\u6c89\\u821f\\u4e0d\\u80fd\\u66ff\\u82cf\\u665a\\u51b3\\u5b9a\\u771f\\u76f8\\u5982\\u4f55\\u516c\\u5f00\\u3002\\u4e0d\\u5f97\\u63d0\\u524d\\u63ed\\u6653\\u6700\\u7ec8\\u5e55\\u540e\\u4e3b\\u4f7f\\u3002\", \"batch_context\": {\"batch_number\": 1, \"start_episode\": 1, \"end_episode\": 5, \"batch_instruction\": \"\\u627f\\u63a5\\u65e2\\u6709\\u72b6\\u6001\\u5e76\\u63a8\\u8fdb\\u8bc1\\u636e\\u3001\\u5173\\u7cfb\\u6216\\u98ce\\u9669\\u4e2d\\u7684\\u81f3\\u5c11\\u4e00\\u9879\\uff1b\\u4e0d\\u5f97\\u91cd\\u7f6e\\u51b2\\u7a81\\u3001\\u91cd\\u590d\\u4e0a\\u4e00\\u96c6\\u63ed\\u9732\\u6216\\u89e3\\u51b3\\u957f\\u7bc7\\u4e3b\\u7ebf\\u3002\"}}\nContentSpec: {\"title\": \"\\u8ba2\\u5a5a\\u5bb4\\u8ff7\\u5c40\\uff1a\\u516d\\u5341\\u4e07\\u5b57\\u957f\\u7bc7\\u9a8c\\u6536\", \"audience_goal\": {\"summary\": \"\\u4e2d\\u56fd\\u5927\\u9646\\u5973\\u6027\\u5411\\u60ac\\u7591\\u60c5\\u611f\\u4e0e\\u590d\\u4ec7\\u8fde\\u8f7d\\u53d7\\u4f17\", \"priority\": \"primary\", \"success_metric\": \"\\u6301\\u7eed\\u9605\\u8bfb\\u3001\\u4eba\\u7269\\u5173\\u7cfb\\u6295\\u5165\\u4e0e\\u9636\\u6bb5\\u6027\\u8ffd\\u66f4\\u610f\\u613f\"}, \"commercial_goal\": {\"summary\": \"\\u5efa\\u7acb\\u53ef\\u6301\\u7eed\\u5c55\\u5f00\\u5e76\\u53ef\\u6539\\u7f16\\u4e3a\\u6f2b\\u5267\\u7684\\u516d\\u5341\\u4e07\\u5b57\\u957f\\u7bc7\\u6545\\u4e8b\\u6bcd\\u672c\", \"priority\": \"primary\", \"success_metric\": \"\\u8fde\\u7eed\\u6027\\u3001\\u4eba\\u7269\\u7a33\\u5b9a\\u6027\\u3001\\u4f0f\\u7b14\\u56de\\u6536\\u4e0e\\u957f\\u671f\\u8ffd\\u8bfb\\u52a8\\u529b\"}, \"platform_goal\": {\"platform_profile_id\": \"cn_mainland_comic_drama_v1\", \"objective\": \"\\u751f\\u6210\\u9762\\u5411\\u4e2d\\u56fd\\u5927\\u9646\\u5e02\\u573a\\u53c2\\u8003\\u7684\\u4e2d\\u6587\\u957f\\u7bc7\\u8fde\\u8f7d\\u6545\\u4e8b\", \"target_duration_seconds\": 180, \"target_aspect_ratio\": \"9:16\"}, \"story_goal\": \"\\u8ba2\\u5a5a\\u5bb4\\u4e0a\\uff0c\\u8c03\\u67e5\\u8bb0\\u8005\\u82cf\\u665a\\u51c6\\u5907\\u516c\\u5f00\\u987e\\u6c0f\\u96c6\\u56e2\\u63a9\\u76d6\\u77ff\\u96be\\u7684\\u8bc1\\u636e\\uff0c\\u5374\\u53d1\\u73b0\\u672a\\u5a5a\\u592b\\u987e\\u6c89\\u821f\\u65e9\\u5df2\\u77e5\\u9053\\u771f\\u76f8\\u3002\\u5979\\u5fc5\\u987b\\u5728\\u590d\\u4ec7\\u3001\\u4fdd\\u62a4\\u65e0\\u8f9c\\u8bc1\\u4eba\\u548c\\u8ffd\\u67e5\\u5e55\\u540e\\u4e3b\\u4f7f\\u4e4b\\u95f4\\u4f5c\\u51fa\\u4e0d\\u53ef\\u9006\\u9009\\u62e9\\u3002\", \"quality_level\": \"high\", \"budget_level\": \"medium\", \"tags\": [{\"ontology_node_id\": \"genre.dark_romance\", \"label\": \"Dark Romance\", \"category\": \"Genre\", \"confidence\": 1.0}, {\"ontology_node_id\": \"theme.revenge\", \"label\": \"Revenge\", \"category\": \"Theme\", \"confidence\": 1.0}, {\"ontology_node_id\": \"theme.hidden_identity\", \"label\": \"Hidden Identity\", \"category\": \"Theme\", \"confidence\": 1.0}, {\"ontology_node_id\": \"emotion.suspense\", \"label\": \"Suspense\", \"category\": \"Emotion\", \"confidence\": 1.0}, {\"ontology_node_id\": \"audience.romance\", \"label\": \"Romance Audience\", \"category\": \"Audience\", \"confidence\": 1.0}, {\"ontology_node_id\": \"hook.immediate_conflict\", \"label\": \"Immediate Conflict\", \"category\": \"Hook\", \"confidence\": 1.0}, {\"ontology_node_id\": \"cliffhanger.unanswered_threat\", \"label\": \"Unanswered Threat\", \"category\": \"Cliffhanger\", \"confidence\": 1.0}], \"creative_brief\": {\"hook\": \"\\u4ece\\u8ba2\\u5a5a\\u5bb4\\u5373\\u5c06\\u516c\\u5f00\\u8bc1\\u636e\\u7684\\u4e34\\u754c\\u65f6\\u523b\\u5f00\\u573a\\u3002\", \"tone\": \"suspenseful\", \"pacing\": \"\\u6709\\u63a8\\u8fdb\\u4f46\\u4e0d\\u8fc7\\u5ea6\\u538b\\u7f29\", \"target_emotion\": \"\\u6301\\u7eed\\u671f\\u5f85\", \"asset_constraints\": [], \"generation_notes\": [\"\\u8fd9\\u662f\\u957f\\u7bc7\\u8fde\\u8f7d\\uff0c\\u4e0d\\u5f97\\u63d0\\u524d\\u89e3\\u51b3\\u77ff\\u96be\\u5e55\\u540e\\u4e3b\\u7ebf\\u3002\", \"\\u6bcf\\u96c6\\u5fc5\\u987b\\u8ba9\\u82cf\\u665a\\u4f5c\\u51fa\\u53ef\\u89c1\\u9009\\u62e9\\uff0c\\u5e76\\u7559\\u4e0b\\u53ef\\u627f\\u63a5\\u7684\\u72b6\\u6001\\u53d8\\u5316\\u3002\"]}, \"metadata\": {\"source\": \"creative_intent_resolution_v1\", \"creative_intent_schema_version\": \"v1\"}, \"id\": \"433630d5-15d6-4dbf-ae46-290d11f615bb\", \"status\": \"draft\", \"created_at\": \"2026-08-02T14:54:12.455675Z\", \"updated_at\": \"2026-08-02T14:54:12.455716Z\"}\nCreativeBrief: {\"hook\": \"\\u4ece\\u8ba2\\u5a5a\\u5bb4\\u5373\\u5c06\\u516c\\u5f00\\u8bc1\\u636e\\u7684\\u4e34\\u754c\\u65f6\\u523b\\u5f00\\u573a\\u3002\", \"tone\": \"suspenseful\", \"pacing\": \"\\u6709\\u63a8\\u8fdb\\u4f46\\u4e0d\\u8fc7\\u5ea6\\u538b\\u7f29\", \"target_emotion\": \"\\u6301\\u7eed\\u671f\\u5f85\", \"asset_constraints\": [], \"generation_notes\": [\"\\u8fd9\\u662f\\u957f\\u7bc7\\u8fde\\u8f7d\\uff0c\\u4e0d\\u5f97\\u63d0\\u524d\\u89e3\\u51b3\\u77ff\\u96be\\u5e55\\u540e\\u4e3b\\u7ebf\\u3002\", \"\\u6bcf\\u96c6\\u5fc5\\u987b\\u8ba9\\u82cf\\u665a\\u4f5c\\u51fa\\u53ef\\u89c1\\u9009\\u62e9\\uff0c\\u5e76\\u7559\\u4e0b\\u53ef\\u627f\\u63a5\\u7684\\u72b6\\u6001\\u53d8\\u5316\\u3002\"]}\nCreativeContextUsage: Treat resolved character fields and exclusions as bounded creative constraints. Preserve locked fields. Express character motivation, belief, contradiction, decision pattern, and moral boundaries through visible choices and consequences. Field provenance is lineage, not dialogue or story exposition.\nResolvedCreativeContext: {\"schema_version\": \"v1\", \"content_spec_id\": \"433630d5-15d6-4dbf-ae46-290d11f615bb\", \"characters\": [{\"character_ref\": \"character.su_wan\", \"name\": \"\\u82cf\\u665a\", \"role\": \"\\u5973\\u4e3b\\u89d2\\u3001\\u8c03\\u67e5\\u8bb0\\u8005\", \"description\": \"28\\u5c81\\uff0c\\u51b7\\u9759\\u654f\\u9510\\uff0c\\u56e0\\u59d0\\u59d0\\u6b7b\\u4e8e\\u88ab\\u63a9\\u76d6\\u7684\\u77ff\\u96be\\u800c\\u8ffd\\u67e5\\u987e\\u6c0f\\uff1b\\u6e34\\u671b\\u516c\\u5f00\\u771f\\u76f8\\uff0c\\u5bb3\\u6015\\u518d\\u6b21\\u4fe1\\u9519\\u4eba\\uff0c\\u5e95\\u7ebf\\u662f\\u4e0d\\u727a\\u7272\\u65e0\\u8f9c\\u8005\\u3002\", \"motivation\": null, \"desire\": null, \"fear\": null, \"belief\": null, \"contradiction\": null, \"decision_pattern\": null, \"moral_boundaries\": [], \"locked_fields\": [\"name\", \"role\", \"description\"], \"field_sources\": {\"name\": \"user_provided\", \"role\": \"user_provided\", \"description\": \"user_provided\"}}, {\"character_ref\": \"character.gu_chenzhou\", \"name\": \"\\u987e\\u6c89\\u821f\", \"role\": \"\\u7537\\u4e3b\\u89d2\\u3001\\u987e\\u6c0f\\u7ee7\\u627f\\u4eba\", \"description\": \"30\\u5c81\\uff0c\\u514b\\u5236\\u5f3a\\u52bf\\uff0c\\u8868\\u9762\\u963b\\u6b62\\u82cf\\u665a\\u66dd\\u5149\\uff0c\\u5b9e\\u9645\\u5728\\u8c03\\u67e5\\u7236\\u4eb2\\uff1b\\u6e34\\u671b\\u7ec8\\u6b62\\u5bb6\\u65cf\\u7f6a\\u6076\\uff0c\\u4f46\\u6050\\u60e7\\u771f\\u76f8\\u6bc1\\u6389\\u6240\\u6709\\u4eb2\\u8fd1\\u7684\\u4eba\\u3002\", \"motivation\": null, \"desire\": null, \"fear\": null, \"belief\": null, \"contradiction\": null, \"decision_pattern\": null, \"moral_boundaries\": [], \"locked_fields\": [\"name\", \"role\", \"description\"], \"field_sources\": {\"name\": \"user_provided\", \"role\": \"user_provided\", \"description\": \"user_provided\"}}], \"excluded_tag_ids\": [], \"excluded_patterns\": [\"\\u6d77\\u5916\\u5e73\\u53f0\\u672f\\u8bed\", \"\\u76f4\\u64ad\\u5e26\\u8d27\", \"\\u79d8\\u5bc6\\u7ee7\\u627f\\u4eba\\u6377\\u5f84\"], \"resolution_warnings\": []}\nPlatformProfile: {\"id\": \"cn_mainland_comic_drama_v1\", \"platform_name\": \"Mainland China Comic Drama\", \"version\": \"v1\", \"content_mode\": \"longform_story_to_comic_drama\", \"primary_regions\": [\"CN\"], \"supported_aspect_ratios\": [\"9:16\", \"16:9\"], \"recommendation_rules\": [{\"code\": \"serialized_continuity\", \"title\": \"Serialized Continuity\", \"summary\": \"Prioritize coherent long-form progression and recoverable setup/payoff.\"}], \"creator_rewards\": [{\"code\": \"platform_neutral\", \"title\": \"Platform Neutral\", \"summary\": \"Do not assume one distributor's monetization or release rules.\"}], \"ai_policies\": [{\"code\": \"ai_provenance\", \"title\": \"AI Provenance Readiness\", \"summary\": \"Preserve source and AI-generation lineage for later review and disclosure.\"}], \"community_guidelines\": [{\"code\": \"mainland_review\", \"title\": \"Mainland Content Review\", \"summary\": \"Keep content suitable for applicable mainland China review and filing workflows.\"}], \"best_practices\": [{\"code\": \"source_story_first\", \"title\": \"Source Story First\", \"summary\": \"Build a coherent story foundation before adapting it into production episodes.\"}], \"publishing_strategy\": {\"recommended_posts_per_day\": 1, \"preferred_time_windows\": [\"platform_defined\"], \"notes\": [\"Reference profile only; publishing cadence is selected by the eventual platform.\"]}, \"metadata\": {\"source\": \"frontend_mvp_runtime_bootstrap\", \"market_profile\": \"cn_mainland\", \"runtime_status\": \"active\", \"reference_platforms\": [\"hongguo\"], \"platform_binding\": \"none\"}, \"created_at\": \"2026-08-02T14:49:26.224994Z\", \"updated_at\": \"2026-08-02T14:49:26.225005Z\"}\nRetrievedAssets: [{\"request_id\": \"characters_core\", \"asset_type\": \"character\", \"candidates\": []}, {\"request_id\": \"scenes_supporting\", \"asset_type\": \"scene\", \"candidates\": [{\"asset_id\": \"scene.frontend_mvp_genre_dark_romance\", \"asset_type\": \"scene\", \"score\": 0.75, \"title\": \"Adaptable Dark Romance Story Setting\", \"matched_required_tag_ids\": [\"genre.dark_romance\"], \"matched_optional_tag_ids\": []}]}]\nGenerationStrategy: {\"id\": \"strategy.cn_mainland.frontend_mvp.general.v1\", \"name\": \"Mainland China General Story Foundation Strategy\", \"target_platform\": \"mainland china comic drama\", \"target_content_type\": \"serialized_ai_comic_source_story\", \"applicable_tags\": [], \"model_provider\": \"mock\", \"model_name\": \"mock-script-generator\", \"temperature\": 0.6, \"top_p\": 0.9, \"max_tokens\": 6000, \"workflow_steps\": [{\"step_order\": 1, \"name\": \"story_foundation\", \"description\": \"Generate a causally connected Chinese episode framework.\", \"prompt_id\": \"prompt.story_planning.frontend_mvp_cn\", \"multi_turn_enabled\": false, \"structured_output_required\": true}, {\"step_order\": 2, \"name\": \"mainland_serialization_check\", \"description\": \"Preserve continuity and avoid unsupported platform formulas.\", \"prompt_id\": \"prompt.mainland_serialization.frontend_mvp_cn\", \"multi_turn_enabled\": false, \"structured_output_required\": true}], \"prompt_ids\": [\"prompt.story_planning.frontend_mvp_cn\", \"prompt.mainland_serialization.frontend_mvp_cn\"], \"draft_knowledge_bundle_id\": null, \"deepening_mode\": \"disabled\", \"deepening_prompt_ids\": [], \"deepening_knowledge_bundle_id\": null, \"deepening_max_tokens\": null, \"deepening_max_expressive_growth_ratio\": 0.35, \"qc_enabled\": true, \"self_check_enabled\": true, \"human_review_required\": true, \"output_schema\": {\"type\": \"object\"}, \"version\": \"v1\", \"status\": \"active\"}\nOutputLanguage: zh\nDesiredSceneCount: 3\nTargetDurationSeconds: 180\nScriptBodyLengthContract: Aim for 90%-110% of TargetScriptBodyCharacters across only character_actions and dialogues.text. Distribute useful dramatic content across scenes. Do not pad with repetition, exposition, extra speaker labels, planning fields, or redundant dialogue. Preserve scene causality and stop at the requested episode boundary.\nTargetScriptBodyCharacters: 1797\nHookRequirement: 从订婚宴即将公开证据的临界时刻开场。\nCliffhangerRequirement: 订婚宴上，调查记者苏晚准备公开顾氏集团掩盖矿难的证据，却发现未婚夫顾沉舟早已知道真相。她必须在复仇、保护无辜证人和追查幕后主使之间作出不可逆选择。\nCharacterAgencyRequirement: The protagonist must make a visible choice, refusal, or public move.\nCulturalFitRequirement: Write for 中国大陆女性向悬疑情感与复仇连载受众 in zh with clear, export-ready language.\nPlatformConstraints: {\"platform_name\": \"Mainland China Comic Drama\", \"best_practices\": [\"Build a coherent story foundation before adapting it into production episodes.\"], \"recommendation_rules\": [\"Prioritize coherent long-form progression and recoverable setup/payoff.\"], \"ai_policies\": [\"Preserve source and AI-generation lineage for later review and disclosure.\"]}\nSceneCausalityContract: Use one embedded scene plan before drafting. For every scene, populate scene_causality.goal with the focal character's immediate objective, scene_causality.conflict with the obstacle or increased cost, and scene_causality.outcome with the concrete state change at scene end. The outcome must not restate the goal. The first scene uses null for caused_by_scene_number and causal_link. Every later scene must reference an earlier scene number and explain in causal_link how that earlier outcome forces or enables the current scene. The final outcome must create the requested cliffhanger or payoff. Do not introduce plot details that are not supported by the supplied context.\nOutputJsonSchema: {\"$defs\": {\"CharacterProfile\": {\"additionalProperties\": false, \"properties\": {\"name\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Name\", \"type\": \"string\"}, \"role\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Role\", \"type\": \"string\"}, \"description\": {\"maxLength\": 300, \"minLength\": 10, \"title\": \"Description\", \"type\": \"string\"}, \"motivation\": {\"maxLength\": 200, \"minLength\": 5, \"title\": \"Motivation\", \"type\": \"string\"}}, \"required\": [\"name\", \"role\", \"description\", \"motivation\"], \"title\": \"CharacterProfile\", \"type\": \"object\"}, \"DialogueLine\": {\"additionalProperties\": false, \"properties\": {\"character_name\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Character Name\", \"type\": \"string\"}, \"intent\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Intent\", \"type\": \"string\"}, \"text\": {\"maxLength\": 280, \"minLength\": 3, \"title\": \"Text\", \"type\": \"string\"}}, \"required\": [\"character_name\", \"intent\", \"text\"], \"title\": \"DialogueLine\", \"type\": \"object\"}, \"LLMGeneratedSceneCard\": {\"additionalProperties\": false, \"properties\": {\"scene_number\": {\"maximum\": 50, \"minimum\": 1, \"title\": \"Scene Number\", \"type\": \"integer\"}, \"slug\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Slug\", \"type\": \"string\"}, \"purpose\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Purpose\", \"type\": \"string\"}, \"setting\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Setting\", \"type\": \"string\"}, \"beat_summary\": {\"maxLength\": 300, \"minLength\": 5, \"title\": \"Beat Summary\", \"type\": \"string\"}, \"emotional_shift\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Emotional Shift\", \"type\": \"string\"}, \"emotional_objective\": {\"maxLength\": 160, \"minLength\": 3, \"title\": \"Emotional Objective\", \"type\": \"string\"}, \"character_actions\": {\"items\": {\"type\": \"string\"}, \"maxItems\": 10, \"minItems\": 1, \"title\": \"Character Actions\", \"type\": \"array\"}, \"turning_point\": {\"maxLength\": 240, \"minLength\": 3, \"title\": \"Turning Point\", \"type\": \"string\"}, \"scene_causality\": {\"$ref\": \"#/$defs/SceneCausality\"}, \"cliffhanger\": {\"default\": false, \"title\": \"Cliffhanger\", \"type\": \"boolean\"}, \"dialogues\": {\"items\": {\"$ref\": \"#/$defs/DialogueLine\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Dialogues\", \"type\": \"array\"}}, \"required\": [\"scene_number\", \"slug\", \"purpose\", \"setting\", \"beat_summary\", \"emotional_shift\", \"emotional_objective\", \"character_actions\", \"turning_point\", \"scene_causality\", \"dialogues\"], \"title\": \"LLMGeneratedSceneCard\", \"type\": \"object\"}, \"SceneCausality\": {\"additionalProperties\": false, \"properties\": {\"goal\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Goal\", \"type\": \"string\"}, \"conflict\": {\"maxLength\": 300, \"minLength\": 5, \"title\": \"Conflict\", \"type\": \"string\"}, \"outcome\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Outcome\", \"type\": \"string\"}, \"caused_by_scene_number\": {\"anyOf\": [{\"maximum\": 50, \"minimum\": 1, \"type\": \"integer\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Caused By Scene Number\"}, \"causal_link\": {\"anyOf\": [{\"maxLength\": 240, \"minLength\": 5, \"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Causal Link\"}}, \"required\": [\"goal\", \"conflict\", \"outcome\"], \"title\": \"SceneCausality\", \"type\": \"object\"}, \"ScriptTone\": {\"enum\": [\"intense\", \"melodramatic\", \"suspenseful\", \"emotional\"], \"title\": \"ScriptTone\", \"type\": \"string\"}}, \"additionalProperties\": false, \"properties\": {\"title\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Title\", \"type\": \"string\"}, \"logline\": {\"maxLength\": 240, \"minLength\": 10, \"title\": \"Logline\", \"type\": \"string\"}, \"synopsis\": {\"maxLength\": 500, \"minLength\": 10, \"title\": \"Synopsis\", \"type\": \"string\"}, \"hook\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Hook\", \"type\": \"string\"}, \"target_audience\": {\"maxLength\": 200, \"minLength\": 3, \"title\": \"Target Audience\", \"type\": \"string\"}, \"target_platform\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Target Platform\", \"type\": \"string\"}, \"language\": {\"maxLength\": 20, \"minLength\": 2, \"title\": \"Language\", \"type\": \"string\"}, \"tone\": {\"$ref\": \"#/$defs/ScriptTone\"}, \"episode_goal\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Episode Goal\", \"type\": \"string\"}, \"target_duration_seconds\": {\"maximum\": 600, \"minimum\": 5, \"title\": \"Target Duration Seconds\", \"type\": \"integer\"}, \"characters\": {\"items\": {\"$ref\": \"#/$defs/CharacterProfile\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Characters\", \"type\": \"array\"}, \"scenes\": {\"items\": {\"$ref\": \"#/$defs/LLMGeneratedSceneCard\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Scenes\", \"type\": \"array\"}, \"next_episode_question\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Next Episode Question\", \"type\": \"string\"}}, \"required\": [\"title\", \"logline\", \"synopsis\", \"hook\", \"target_audience\", \"target_platform\", \"language\", \"tone\", \"episode_goal\", \"target_duration_seconds\", \"characters\", \"scenes\", \"next_episode_question\"], \"title\": \"LLMGeneratedDraftMasterScript\", \"type\": \"object\"}",
+      "rendered_variables": {
+        "content_spec_id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+        "content_spec_title": "订婚宴迷局：六十万字长篇验收",
+        "creative_brief_summary": "从订婚宴即将公开证据的临界时刻开场。",
+        "platform_profile_id": "cn_mainland_comic_drama_v1",
+        "audience_profile_summary": "中国大陆女性向悬疑情感与复仇连载受众",
+        "commercial_goal_summary": "建立可持续展开并可改编为漫剧的六十万字长篇故事母本",
+        "retrieved_asset_ids": "scene.frontend_mvp_genre_dark_romance",
+        "generation_strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+        "content_spec_json": "{\"title\": \"\\u8ba2\\u5a5a\\u5bb4\\u8ff7\\u5c40\\uff1a\\u516d\\u5341\\u4e07\\u5b57\\u957f\\u7bc7\\u9a8c\\u6536\", \"audience_goal\": {\"summary\": \"\\u4e2d\\u56fd\\u5927\\u9646\\u5973\\u6027\\u5411\\u60ac\\u7591\\u60c5\\u611f\\u4e0e\\u590d\\u4ec7\\u8fde\\u8f7d\\u53d7\\u4f17\", \"priority\": \"primary\", \"success_metric\": \"\\u6301\\u7eed\\u9605\\u8bfb\\u3001\\u4eba\\u7269\\u5173\\u7cfb\\u6295\\u5165\\u4e0e\\u9636\\u6bb5\\u6027\\u8ffd\\u66f4\\u610f\\u613f\"}, \"commercial_goal\": {\"summary\": \"\\u5efa\\u7acb\\u53ef\\u6301\\u7eed\\u5c55\\u5f00\\u5e76\\u53ef\\u6539\\u7f16\\u4e3a\\u6f2b\\u5267\\u7684\\u516d\\u5341\\u4e07\\u5b57\\u957f\\u7bc7\\u6545\\u4e8b\\u6bcd\\u672c\", \"priority\": \"primary\", \"success_metric\": \"\\u8fde\\u7eed\\u6027\\u3001\\u4eba\\u7269\\u7a33\\u5b9a\\u6027\\u3001\\u4f0f\\u7b14\\u56de\\u6536\\u4e0e\\u957f\\u671f\\u8ffd\\u8bfb\\u52a8\\u529b\"}, \"platform_goal\": {\"platform_profile_id\": \"cn_mainland_comic_drama_v1\", \"objective\": \"\\u751f\\u6210\\u9762\\u5411\\u4e2d\\u56fd\\u5927\\u9646\\u5e02\\u573a\\u53c2\\u8003\\u7684\\u4e2d\\u6587\\u957f\\u7bc7\\u8fde\\u8f7d\\u6545\\u4e8b\", \"target_duration_seconds\": 180, \"target_aspect_ratio\": \"9:16\"}, \"story_goal\": \"\\u8ba2\\u5a5a\\u5bb4\\u4e0a\\uff0c\\u8c03\\u67e5\\u8bb0\\u8005\\u82cf\\u665a\\u51c6\\u5907\\u516c\\u5f00\\u987e\\u6c0f\\u96c6\\u56e2\\u63a9\\u76d6\\u77ff\\u96be\\u7684\\u8bc1\\u636e\\uff0c\\u5374\\u53d1\\u73b0\\u672a\\u5a5a\\u592b\\u987e\\u6c89\\u821f\\u65e9\\u5df2\\u77e5\\u9053\\u771f\\u76f8\\u3002\\u5979\\u5fc5\\u987b\\u5728\\u590d\\u4ec7\\u3001\\u4fdd\\u62a4\\u65e0\\u8f9c\\u8bc1\\u4eba\\u548c\\u8ffd\\u67e5\\u5e55\\u540e\\u4e3b\\u4f7f\\u4e4b\\u95f4\\u4f5c\\u51fa\\u4e0d\\u53ef\\u9006\\u9009\\u62e9\\u3002\", \"quality_level\": \"high\", \"budget_level\": \"medium\", \"tags\": [{\"ontology_node_id\": \"genre.dark_romance\", \"label\": \"Dark Romance\", \"category\": \"Genre\", \"confidence\": 1.0}, {\"ontology_node_id\": \"theme.revenge\", \"label\": \"Revenge\", \"category\": \"Theme\", \"confidence\": 1.0}, {\"ontology_node_id\": \"theme.hidden_identity\", \"label\": \"Hidden Identity\", \"category\": \"Theme\", \"confidence\": 1.0}, {\"ontology_node_id\": \"emotion.suspense\", \"label\": \"Suspense\", \"category\": \"Emotion\", \"confidence\": 1.0}, {\"ontology_node_id\": \"audience.romance\", \"label\": \"Romance Audience\", \"category\": \"Audience\", \"confidence\": 1.0}, {\"ontology_node_id\": \"hook.immediate_conflict\", \"label\": \"Immediate Conflict\", \"category\": \"Hook\", \"confidence\": 1.0}, {\"ontology_node_id\": \"cliffhanger.unanswered_threat\", \"label\": \"Unanswered Threat\", \"category\": \"Cliffhanger\", \"confidence\": 1.0}], \"creative_brief\": {\"hook\": \"\\u4ece\\u8ba2\\u5a5a\\u5bb4\\u5373\\u5c06\\u516c\\u5f00\\u8bc1\\u636e\\u7684\\u4e34\\u754c\\u65f6\\u523b\\u5f00\\u573a\\u3002\", \"tone\": \"suspenseful\", \"pacing\": \"\\u6709\\u63a8\\u8fdb\\u4f46\\u4e0d\\u8fc7\\u5ea6\\u538b\\u7f29\", \"target_emotion\": \"\\u6301\\u7eed\\u671f\\u5f85\", \"asset_constraints\": [], \"generation_notes\": [\"\\u8fd9\\u662f\\u957f\\u7bc7\\u8fde\\u8f7d\\uff0c\\u4e0d\\u5f97\\u63d0\\u524d\\u89e3\\u51b3\\u77ff\\u96be\\u5e55\\u540e\\u4e3b\\u7ebf\\u3002\", \"\\u6bcf\\u96c6\\u5fc5\\u987b\\u8ba9\\u82cf\\u665a\\u4f5c\\u51fa\\u53ef\\u89c1\\u9009\\u62e9\\uff0c\\u5e76\\u7559\\u4e0b\\u53ef\\u627f\\u63a5\\u7684\\u72b6\\u6001\\u53d8\\u5316\\u3002\"]}, \"metadata\": {\"source\": \"creative_intent_resolution_v1\", \"creative_intent_schema_version\": \"v1\"}, \"id\": \"433630d5-15d6-4dbf-ae46-290d11f615bb\", \"status\": \"draft\", \"created_at\": \"2026-08-02T14:54:12.455675Z\", \"updated_at\": \"2026-08-02T14:54:12.455716Z\"}",
+        "creative_brief_json": "{\"hook\": \"\\u4ece\\u8ba2\\u5a5a\\u5bb4\\u5373\\u5c06\\u516c\\u5f00\\u8bc1\\u636e\\u7684\\u4e34\\u754c\\u65f6\\u523b\\u5f00\\u573a\\u3002\", \"tone\": \"suspenseful\", \"pacing\": \"\\u6709\\u63a8\\u8fdb\\u4f46\\u4e0d\\u8fc7\\u5ea6\\u538b\\u7f29\", \"target_emotion\": \"\\u6301\\u7eed\\u671f\\u5f85\", \"asset_constraints\": [], \"generation_notes\": [\"\\u8fd9\\u662f\\u957f\\u7bc7\\u8fde\\u8f7d\\uff0c\\u4e0d\\u5f97\\u63d0\\u524d\\u89e3\\u51b3\\u77ff\\u96be\\u5e55\\u540e\\u4e3b\\u7ebf\\u3002\", \"\\u6bcf\\u96c6\\u5fc5\\u987b\\u8ba9\\u82cf\\u665a\\u4f5c\\u51fa\\u53ef\\u89c1\\u9009\\u62e9\\uff0c\\u5e76\\u7559\\u4e0b\\u53ef\\u627f\\u63a5\\u7684\\u72b6\\u6001\\u53d8\\u5316\\u3002\"]}",
+        "platform_profile_json": "{\"id\": \"cn_mainland_comic_drama_v1\", \"platform_name\": \"Mainland China Comic Drama\", \"version\": \"v1\", \"content_mode\": \"longform_story_to_comic_drama\", \"primary_regions\": [\"CN\"], \"supported_aspect_ratios\": [\"9:16\", \"16:9\"], \"recommendation_rules\": [{\"code\": \"serialized_continuity\", \"title\": \"Serialized Continuity\", \"summary\": \"Prioritize coherent long-form progression and recoverable setup/payoff.\"}], \"creator_rewards\": [{\"code\": \"platform_neutral\", \"title\": \"Platform Neutral\", \"summary\": \"Do not assume one distributor's monetization or release rules.\"}], \"ai_policies\": [{\"code\": \"ai_provenance\", \"title\": \"AI Provenance Readiness\", \"summary\": \"Preserve source and AI-generation lineage for later review and disclosure.\"}], \"community_guidelines\": [{\"code\": \"mainland_review\", \"title\": \"Mainland Content Review\", \"summary\": \"Keep content suitable for applicable mainland China review and filing workflows.\"}], \"best_practices\": [{\"code\": \"source_story_first\", \"title\": \"Source Story First\", \"summary\": \"Build a coherent story foundation before adapting it into production episodes.\"}], \"publishing_strategy\": {\"recommended_posts_per_day\": 1, \"preferred_time_windows\": [\"platform_defined\"], \"notes\": [\"Reference profile only; publishing cadence is selected by the eventual platform.\"]}, \"metadata\": {\"source\": \"frontend_mvp_runtime_bootstrap\", \"market_profile\": \"cn_mainland\", \"runtime_status\": \"active\", \"reference_platforms\": [\"hongguo\"], \"platform_binding\": \"none\"}, \"created_at\": \"2026-08-02T14:49:26.224994Z\", \"updated_at\": \"2026-08-02T14:49:26.225005Z\"}",
+        "retrieved_assets_json": "[{\"request_id\": \"characters_core\", \"asset_type\": \"character\", \"candidates\": []}, {\"request_id\": \"scenes_supporting\", \"asset_type\": \"scene\", \"candidates\": [{\"asset_id\": \"scene.frontend_mvp_genre_dark_romance\", \"asset_type\": \"scene\", \"score\": 0.75, \"title\": \"Adaptable Dark Romance Story Setting\", \"matched_required_tag_ids\": [\"genre.dark_romance\"], \"matched_optional_tag_ids\": []}]}]",
+        "generation_strategy_json": "{\"id\": \"strategy.cn_mainland.frontend_mvp.general.v1\", \"name\": \"Mainland China General Story Foundation Strategy\", \"target_platform\": \"mainland china comic drama\", \"target_content_type\": \"serialized_ai_comic_source_story\", \"applicable_tags\": [], \"model_provider\": \"mock\", \"model_name\": \"mock-script-generator\", \"temperature\": 0.6, \"top_p\": 0.9, \"max_tokens\": 6000, \"workflow_steps\": [{\"step_order\": 1, \"name\": \"story_foundation\", \"description\": \"Generate a causally connected Chinese episode framework.\", \"prompt_id\": \"prompt.story_planning.frontend_mvp_cn\", \"multi_turn_enabled\": false, \"structured_output_required\": true}, {\"step_order\": 2, \"name\": \"mainland_serialization_check\", \"description\": \"Preserve continuity and avoid unsupported platform formulas.\", \"prompt_id\": \"prompt.mainland_serialization.frontend_mvp_cn\", \"multi_turn_enabled\": false, \"structured_output_required\": true}], \"prompt_ids\": [\"prompt.story_planning.frontend_mvp_cn\", \"prompt.mainland_serialization.frontend_mvp_cn\"], \"draft_knowledge_bundle_id\": null, \"deepening_mode\": \"disabled\", \"deepening_prompt_ids\": [], \"deepening_knowledge_bundle_id\": null, \"deepening_max_tokens\": null, \"deepening_max_expressive_growth_ratio\": 0.35, \"qc_enabled\": true, \"self_check_enabled\": true, \"human_review_required\": true, \"output_schema\": {\"type\": \"object\"}, \"version\": \"v1\", \"status\": \"active\"}",
+        "output_language": "zh",
+        "desired_scene_count": "3",
+        "target_duration_seconds": "180",
+        "hook_requirement": "从订婚宴即将公开证据的临界时刻开场。",
+        "cliffhanger_requirement": "订婚宴上，调查记者苏晚准备公开顾氏集团掩盖矿难的证据，却发现未婚夫顾沉舟早已知道真相。她必须在复仇、保护无辜证人和追查幕后主使之间作出不可逆选择。",
+        "character_agency_requirement": "The protagonist must make a visible choice, refusal, or public move.",
+        "cultural_fit_requirement": "Write for 中国大陆女性向悬疑情感与复仇连载受众 in zh with clear, export-ready language.",
+        "platform_constraints": "{\"platform_name\": \"Mainland China Comic Drama\", \"best_practices\": [\"Build a coherent story foundation before adapting it into production episodes.\"], \"recommendation_rules\": [\"Prioritize coherent long-form progression and recoverable setup/payoff.\"], \"ai_policies\": [\"Preserve source and AI-generation lineage for later review and disclosure.\"]}",
+        "output_json_schema": "{\"$defs\": {\"CharacterProfile\": {\"additionalProperties\": false, \"properties\": {\"name\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Name\", \"type\": \"string\"}, \"role\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Role\", \"type\": \"string\"}, \"description\": {\"maxLength\": 300, \"minLength\": 10, \"title\": \"Description\", \"type\": \"string\"}, \"motivation\": {\"maxLength\": 200, \"minLength\": 5, \"title\": \"Motivation\", \"type\": \"string\"}}, \"required\": [\"name\", \"role\", \"description\", \"motivation\"], \"title\": \"CharacterProfile\", \"type\": \"object\"}, \"DialogueLine\": {\"additionalProperties\": false, \"properties\": {\"character_name\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Character Name\", \"type\": \"string\"}, \"intent\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Intent\", \"type\": \"string\"}, \"text\": {\"maxLength\": 280, \"minLength\": 3, \"title\": \"Text\", \"type\": \"string\"}}, \"required\": [\"character_name\", \"intent\", \"text\"], \"title\": \"DialogueLine\", \"type\": \"object\"}, \"LLMGeneratedSceneCard\": {\"additionalProperties\": false, \"properties\": {\"scene_number\": {\"maximum\": 50, \"minimum\": 1, \"title\": \"Scene Number\", \"type\": \"integer\"}, \"slug\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Slug\", \"type\": \"string\"}, \"purpose\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Purpose\", \"type\": \"string\"}, \"setting\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Setting\", \"type\": \"string\"}, \"beat_summary\": {\"maxLength\": 300, \"minLength\": 5, \"title\": \"Beat Summary\", \"type\": \"string\"}, \"emotional_shift\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Emotional Shift\", \"type\": \"string\"}, \"emotional_objective\": {\"maxLength\": 160, \"minLength\": 3, \"title\": \"Emotional Objective\", \"type\": \"string\"}, \"character_actions\": {\"items\": {\"type\": \"string\"}, \"maxItems\": 10, \"minItems\": 1, \"title\": \"Character Actions\", \"type\": \"array\"}, \"turning_point\": {\"maxLength\": 240, \"minLength\": 3, \"title\": \"Turning Point\", \"type\": \"string\"}, \"scene_causality\": {\"$ref\": \"#/$defs/SceneCausality\"}, \"cliffhanger\": {\"default\": false, \"title\": \"Cliffhanger\", \"type\": \"boolean\"}, \"dialogues\": {\"items\": {\"$ref\": \"#/$defs/DialogueLine\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Dialogues\", \"type\": \"array\"}}, \"required\": [\"scene_number\", \"slug\", \"purpose\", \"setting\", \"beat_summary\", \"emotional_shift\", \"emotional_objective\", \"character_actions\", \"turning_point\", \"scene_causality\", \"dialogues\"], \"title\": \"LLMGeneratedSceneCard\", \"type\": \"object\"}, \"SceneCausality\": {\"additionalProperties\": false, \"properties\": {\"goal\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Goal\", \"type\": \"string\"}, \"conflict\": {\"maxLength\": 300, \"minLength\": 5, \"title\": \"Conflict\", \"type\": \"string\"}, \"outcome\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Outcome\", \"type\": \"string\"}, \"caused_by_scene_number\": {\"anyOf\": [{\"maximum\": 50, \"minimum\": 1, \"type\": \"integer\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Caused By Scene Number\"}, \"causal_link\": {\"anyOf\": [{\"maxLength\": 240, \"minLength\": 5, \"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Causal Link\"}}, \"required\": [\"goal\", \"conflict\", \"outcome\"], \"title\": \"SceneCausality\", \"type\": \"object\"}, \"ScriptTone\": {\"enum\": [\"intense\", \"melodramatic\", \"suspenseful\", \"emotional\"], \"title\": \"ScriptTone\", \"type\": \"string\"}}, \"additionalProperties\": false, \"properties\": {\"title\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Title\", \"type\": \"string\"}, \"logline\": {\"maxLength\": 240, \"minLength\": 10, \"title\": \"Logline\", \"type\": \"string\"}, \"synopsis\": {\"maxLength\": 500, \"minLength\": 10, \"title\": \"Synopsis\", \"type\": \"string\"}, \"hook\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Hook\", \"type\": \"string\"}, \"target_audience\": {\"maxLength\": 200, \"minLength\": 3, \"title\": \"Target Audience\", \"type\": \"string\"}, \"target_platform\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Target Platform\", \"type\": \"string\"}, \"language\": {\"maxLength\": 20, \"minLength\": 2, \"title\": \"Language\", \"type\": \"string\"}, \"tone\": {\"$ref\": \"#/$defs/ScriptTone\"}, \"episode_goal\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Episode Goal\", \"type\": \"string\"}, \"target_duration_seconds\": {\"maximum\": 600, \"minimum\": 5, \"title\": \"Target Duration Seconds\", \"type\": \"integer\"}, \"characters\": {\"items\": {\"$ref\": \"#/$defs/CharacterProfile\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Characters\", \"type\": \"array\"}, \"scenes\": {\"items\": {\"$ref\": \"#/$defs/LLMGeneratedSceneCard\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Scenes\", \"type\": \"array\"}, \"next_episode_question\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Next Episode Question\", \"type\": \"string\"}}, \"required\": [\"title\", \"logline\", \"synopsis\", \"hook\", \"target_audience\", \"target_platform\", \"language\", \"tone\", \"episode_goal\", \"target_duration_seconds\", \"characters\", \"scenes\", \"next_episode_question\"], \"title\": \"LLMGeneratedDraftMasterScript\", \"type\": \"object\"}",
+        "target_script_body_characters": "1797",
+        "resolved_creative_context_json": "{\"schema_version\": \"v1\", \"content_spec_id\": \"433630d5-15d6-4dbf-ae46-290d11f615bb\", \"characters\": [{\"character_ref\": \"character.su_wan\", \"name\": \"\\u82cf\\u665a\", \"role\": \"\\u5973\\u4e3b\\u89d2\\u3001\\u8c03\\u67e5\\u8bb0\\u8005\", \"description\": \"28\\u5c81\\uff0c\\u51b7\\u9759\\u654f\\u9510\\uff0c\\u56e0\\u59d0\\u59d0\\u6b7b\\u4e8e\\u88ab\\u63a9\\u76d6\\u7684\\u77ff\\u96be\\u800c\\u8ffd\\u67e5\\u987e\\u6c0f\\uff1b\\u6e34\\u671b\\u516c\\u5f00\\u771f\\u76f8\\uff0c\\u5bb3\\u6015\\u518d\\u6b21\\u4fe1\\u9519\\u4eba\\uff0c\\u5e95\\u7ebf\\u662f\\u4e0d\\u727a\\u7272\\u65e0\\u8f9c\\u8005\\u3002\", \"motivation\": null, \"desire\": null, \"fear\": null, \"belief\": null, \"contradiction\": null, \"decision_pattern\": null, \"moral_boundaries\": [], \"locked_fields\": [\"name\", \"role\", \"description\"], \"field_sources\": {\"name\": \"user_provided\", \"role\": \"user_provided\", \"description\": \"user_provided\"}}, {\"character_ref\": \"character.gu_chenzhou\", \"name\": \"\\u987e\\u6c89\\u821f\", \"role\": \"\\u7537\\u4e3b\\u89d2\\u3001\\u987e\\u6c0f\\u7ee7\\u627f\\u4eba\", \"description\": \"30\\u5c81\\uff0c\\u514b\\u5236\\u5f3a\\u52bf\\uff0c\\u8868\\u9762\\u963b\\u6b62\\u82cf\\u665a\\u66dd\\u5149\\uff0c\\u5b9e\\u9645\\u5728\\u8c03\\u67e5\\u7236\\u4eb2\\uff1b\\u6e34\\u671b\\u7ec8\\u6b62\\u5bb6\\u65cf\\u7f6a\\u6076\\uff0c\\u4f46\\u6050\\u60e7\\u771f\\u76f8\\u6bc1\\u6389\\u6240\\u6709\\u4eb2\\u8fd1\\u7684\\u4eba\\u3002\", \"motivation\": null, \"desire\": null, \"fear\": null, \"belief\": null, \"contradiction\": null, \"decision_pattern\": null, \"moral_boundaries\": [], \"locked_fields\": [\"name\", \"role\", \"description\"], \"field_sources\": {\"name\": \"user_provided\", \"role\": \"user_provided\", \"description\": \"user_provided\"}}], \"excluded_tag_ids\": [], \"excluded_patterns\": [\"\\u6d77\\u5916\\u5e73\\u53f0\\u672f\\u8bed\", \"\\u76f4\\u64ad\\u5e26\\u8d27\", \"\\u79d8\\u5bc6\\u7ee7\\u627f\\u4eba\\u6377\\u5f84\"], \"resolution_warnings\": []}",
+        "episode_context_json": "{\"generation_mode\": \"full\", \"episode_number\": 1, \"total_episodes\": 334, \"previous_episode_summary\": null, \"previous_episode_question\": null, \"episode_instruction\": \"\\u5efa\\u7acb\\u82cf\\u665a\\u51c6\\u5907\\u516c\\u5f00\\u77ff\\u96be\\u8bc1\\u636e\\u7684\\u6838\\u5fc3\\u77db\\u76fe\\uff0c\\u8ba9\\u5979\\u4f5c\\u51fa\\u4e3b\\u52a8\\u9009\\u62e9\\uff1b\\u7ed3\\u5c3e\\u7559\\u4e0b\\u8bc1\\u636e\\u6765\\u6e90\\u88ab\\u64cd\\u63a7\\u7684\\u60ac\\u5ff5\\uff0c\\u4e0d\\u89e3\\u51b3\\u4e3b\\u7ebf\\u3002\", \"project_continuity_summary\": \"\\u957f\\u7bc7\\u4e3b\\u7ebf\\uff1a\\u82cf\\u665a\\u8ffd\\u67e5\\u59d0\\u59d0\\u6b7b\\u4ea1\\u4e0e\\u987e\\u6c0f\\u77ff\\u96be\\uff1b\\u987e\\u6c89\\u821f\\u8868\\u9762\\u963b\\u6b62\\u3001\\u6697\\u4e2d\\u8c03\\u67e5\\u7236\\u4eb2\\uff1b\\u4e24\\u4eba\\u5728\\u4e0d\\u4fe1\\u4efb\\u4e2d\\u88ab\\u8feb\\u5408\\u4f5c\\u3002\\u82cf\\u665a\\u4e0d\\u727a\\u7272\\u65e0\\u8f9c\\u8005\\uff0c\\u987e\\u6c89\\u821f\\u4e0d\\u80fd\\u66ff\\u82cf\\u665a\\u51b3\\u5b9a\\u771f\\u76f8\\u5982\\u4f55\\u516c\\u5f00\\u3002\\u4e0d\\u5f97\\u63d0\\u524d\\u63ed\\u6653\\u6700\\u7ec8\\u5e55\\u540e\\u4e3b\\u4f7f\\u3002\", \"batch_context\": {\"batch_number\": 1, \"start_episode\": 1, \"end_episode\": 5, \"batch_instruction\": \"\\u627f\\u63a5\\u65e2\\u6709\\u72b6\\u6001\\u5e76\\u63a8\\u8fdb\\u8bc1\\u636e\\u3001\\u5173\\u7cfb\\u6216\\u98ce\\u9669\\u4e2d\\u7684\\u81f3\\u5c11\\u4e00\\u9879\\uff1b\\u4e0d\\u5f97\\u91cd\\u7f6e\\u51b2\\u7a81\\u3001\\u91cd\\u590d\\u4e0a\\u4e00\\u96c6\\u63ed\\u9732\\u6216\\u89e3\\u51b3\\u957f\\u7bc7\\u4e3b\\u7ebf\\u3002\"}}"
+      },
+      "trace": {
+        "generation_strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+        "prompt_ids": [
+          "prompt.story_planning.frontend_mvp_cn",
+          "prompt.mainland_serialization.frontend_mvp_cn"
+        ],
+        "builder_version": "v0.3",
+        "build_purpose": "draft_generation",
+        "knowledge_refs": [],
+        "creative_context_version": "v1"
+      },
+      "created_at": "2026-08-02T15:12:50.649226Z"
+    },
+    "llm_model_info": {
+      "provider": "openai_compatible",
+      "model_name": "gpt-5.6-sol",
+      "supports_structured_output": true,
+      "max_context_tokens": 128000
+    },
+    "llm_raw_output": {
+      "characters": [
+        {
+          "description": "28岁，冷静敏锐，因姐姐死于被掩盖的矿难而追查顾氏；渴望公开真相，害怕再次信错人，底线是不牺牲无辜者。",
+          "motivation": "查清姐姐之死并公开矿难真相，同时确保无辜证人不因自己的复仇受到伤害。",
+          "name": "苏晚",
+          "role": "女主角、调查记者"
+        },
+        {
+          "description": "30岁，克制强势，表面阻止苏晚曝光，实际在调查父亲；渴望终止家族罪恶，但恐惧真相毁掉所有亲近的人。",
+          "motivation": "暗中查清父亲与矿难的关系、终止家族罪恶，并尽可能控制真相公开造成的连带伤害。",
+          "name": "顾沉舟",
+          "role": "男主角、顾氏继承人"
+        }
+      ],
+      "episode_goal": "建立苏晚公开矿难证据与保护无辜证人之间的核心矛盾，让她主动改变曝光方式，并揭示顾沉舟早已知情及证据来源遭操控的风险。",
+      "hook": "订婚宴祝词即将开始，苏晚已把矿难材料接入主屏，只差按下发送键，顾沉舟却准确说出了证据中不该被任何人知道的内容。",
+      "language": "中文",
+      "logline": "苏晚试图在订婚宴上曝光顾氏掩盖矿难的证据，却因顾沉舟揭露文件藏有证人名单而被迫重选战场，最终公开挑战顾氏，却发现证据源头已被人改写。",
+      "next_episode_question": "是谁在苏晚持有存储盘期间改写了证据追踪记录，又为何故意把来源指向顾沉舟的私人办公室？",
+      "scenes": [
+        {
+          "beat_summary": "苏晚准备借订婚宴主屏公开矿难材料，顾沉舟没有夺走她的决定权，而是指出附件藏有未脱敏证人名单。面对曝光倒计时，苏晚主动暂停发送。",
+          "character_actions": [
+            "宴会厅灯光转暗，主持人请两位新人登台。苏晚站在侧幕，掌心压着连接主控台的存储盘；大屏预览页不是订婚照片，而是矿井伤亡表、内部批示和被删改的事故日期。她把自动发送设为十分钟后，准备让材料同时出现在所有来宾眼前。",
+            "顾沉舟越过等候敬酒的人群，停在她身侧。他没有碰存储盘，只低声报出附件编号和其中一名证人的页码。苏晚的手指僵在发送键上：这些文件从未给他看过，而他不仅知道矿难，还知道她今晚的计划。",
+            "顾沉舟调出主屏预览的隐藏表格。被折叠的单元格里并非财务数据，而是证人与家属的真实姓名、住址及联络方式。主持人的倒数声从台上传来，苏晚拔下连接线，亲手中止公开，却没有把存储盘交给顾沉舟。"
+          ],
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "顾沉舟",
+              "intent": "警告公开原文件将伤及证人",
+              "text": "先别按。附件七第十三页后面藏着名单。你要揭顾氏的罪，我不拦；但这份文件一旦上屏，最先被找到的不是该负责的人。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "逼问顾沉舟为何知情",
+              "text": "你连页码都记得。顾沉舟，你不是刚发现我要做什么，你早就知道那场矿难，也早就知道顾氏掩盖了死亡人数。"
+            },
+            {
+              "character_name": "顾沉舟",
+              "intent": "承认部分事实并争取核验时间",
+              "text": "是，我知道掩盖存在，也在查它从谁手里开始。但我不能替你决定要不要公开。你只需要先看清，今晚有人希望你把证人一起推出去。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "保留主动权并设定边界",
+              "text": "我暂停，不是因为信你，是因为名单上的人没有义务替我的复仇送命。存储盘还在我手里，你只有十分钟证明自己。"
+            }
+          ],
+          "emotional_objective": "让苏晚从即将复仇的决绝转为警觉，并以保护无辜者为由主动暂停。",
+          "emotional_shift": "决绝曝光转为震惊戒备",
+          "purpose": "在临界时刻建立曝光代价，揭示顾沉舟早已知情，同时让苏晚作出第一次可见选择。",
+          "scene_causality": {
+            "causal_link": null,
+            "caused_by_scene_number": null,
+            "conflict": "公开倒计时已经启动，顾沉舟的阻止既可能是保护证人的警告，也可能是顾氏继承人为拖延曝光而设下的圈套。",
+            "goal": "苏晚要在订婚宴主屏上公开顾氏掩盖矿难的证据。",
+            "outcome": "苏晚发现材料夹带未脱敏证人名单，主动拔线暂停发送，并限定顾沉舟在十分钟内解释其知情程度。"
+          },
+          "scene_number": 1,
+          "setting": "顾氏酒店订婚宴宴会厅侧幕与主控台",
+          "slug": "内景·订婚宴侧幕·夜",
+          "turning_point": "顾沉舟准确指出隐藏名单的页码，证明他早已接触矿难真相。"
+        },
+        {
+          "beat_summary": "苏晚利用短暂空档核验文件，顾沉舟拿出自己调查所得的同版报告。两份材料相互印证，却也暴露匿名来源刻意夹带证人信息，苏晚拒绝交出证据，决定自行重组公开内容。",
+          "character_actions": [
+            "两人进入与宴会厅相连的休息室。苏晚反锁门，将存储盘接入不联网的备用电脑，逐项展开隐藏内容。名单中的信息精确到临时住址，甚至标注了谁愿意作证；这已经超出事故调查资料应有的范围。",
+            "顾沉舟从随身文件夹取出一份只保留编号的旧报告，放在桌角后退开。他的版本同样记录了事故日期被改写，却没有证人住址。苏晚对照两份文件，确认核心记录能够互证，但自己收到的版本经过二次拼接。",
+            "自动发送只剩四分钟。顾沉舟提出先冻结全部材料，苏晚却删除发送队列中的原始附件，重新建立只包含可核验事实与遮蔽编号的公开页。她把备份盘贴身收好，明确拒绝让顾家接管证据。"
+          ],
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "苏晚",
+              "intent": "确认顾沉舟调查的真实范围",
+              "text": "这份报告的形成时间早于我姐姐出事。你从那时就知道，为什么直到今天还站在顾氏继承人的位置上？"
+            },
+            {
+              "character_name": "顾沉舟",
+              "intent": "解释隐忍但不要求苏晚服从",
+              "text": "因为一份报告只能证明有人改过记录，不能证明命令从哪里来。我留在这里，是为了找到能承担法律责任的人，不是替顾家洗掉这场矿难。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "指出两人信任裂痕",
+              "text": "你隐瞒真相，我收到的证据又被人塞进名单。现在我既不能信匿名来源，也不能因为你说在调查，就把姐姐的死交给你处理。"
+            },
+            {
+              "character_name": "顾沉舟",
+              "intent": "尊重苏晚决定并提醒风险",
+              "text": "那就由你决定。但只要你公开顾氏改过记录，对方就会知道我们手里还有另一份报告。今晚之后，你和名单上的人都会被盯上。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "作出兼顾追查与保护的方案",
+              "text": "原件不公开，名单不交人。我只公布已经交叉核验的事实，逼顾氏回应，也逼那个给我假善意的人露出下一步。代价由我承担，不由证人承担。"
+            }
+          ],
+          "emotional_objective": "加深苏晚对顾沉舟的复杂判断：他既是隐瞒者，也是掌握另一条证据链的潜在合作者。",
+          "emotional_shift": "敌意逼问转为有限度并肩",
+          "purpose": "验证证据存在拼接痕迹，推进两人的不信任合作，并形成苏晚可执行且符合底线的新方案。",
+          "scene_causality": {
+            "causal_link": "场景一暴露隐藏证人名单并启动十分钟限时，迫使苏晚与顾沉舟在宴会继续前核验材料、判断是否仍能公开。",
+            "caused_by_scene_number": 1,
+            "conflict": "顾沉舟掌握同版内部报告却长期隐瞒，苏晚无法判断他是在调查还是控制损失；与此同时，曝光窗口即将关闭。",
+            "goal": "苏晚要核验证据是否被污染，并在不交出控制权的前提下决定新的公开方式。",
+            "outcome": "苏晚确认匿名材料被二次拼接，删除含证人信息的发送附件，决定仅公开可交叉核验的事实并保留原始证据。"
+          },
+          "scene_number": 2,
+          "setting": "宴会厅相连的私人休息室",
+          "slug": "内景·宴会休息室·夜",
+          "turning_point": "苏晚确认核心事故记录真实，但证人名单是后来被人有意拼入的诱饵。"
+        },
+        {
+          "beat_summary": "苏晚回到宴会厅，公开暂停订婚流程并要求顾氏回应矿难记录被改写一事。她保护了证人，却也主动把自己置于风险中心；随后，证据追踪记录竟在离线状态下发生变化。",
+          "character_actions": [
+            "宴会厅重新亮起，宾客以为插曲已经结束。苏晚独自走上台，没有播放原始文件，而是切换到她刚制作的对照页：同一矿井事故在两份顾氏内部记录中出现不同日期和人数，所有姓名均被遮蔽。",
+            "顾沉舟站在台下，没有夺过话筒，也没有示意主控关屏。苏晚摘下订婚戒指放在讲台上，宣布在矿难记录得到独立核查之前暂停订婚；她同时声明自己保留完整材料，将依法提交核验，不公开任何证人身份。",
+            "现场陷入骚动。苏晚拔下始终未联网的存储盘，电脑却弹出新的校验提示：文件追踪记录刚刚被改写，最初的匿名来源地址消失，替换成顾沉舟私人办公室的内部终端。她看向台下的顾沉舟，他也第一次失去镇定。"
+          ],
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "苏晚",
+              "intent": "公开推动调查并保护证人",
+              "text": "今晚我要公布的，不是谁的姓名，而是一个事实：同一场矿难，在顾氏内部留下了两套不同记录。死亡不能因为一份改过的日期，就被当作没有发生。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "作出不可逆的公开选择",
+              "text": "从现在起，订婚暂停。我不会交出完整证据，也不会拿无辜者的安全换取轰动。顾氏必须说明记录为何被改，相关材料也必须接受独立核验。"
+            },
+            {
+              "character_name": "顾沉舟",
+              "intent": "公开承担回应责任且不替苏晚决断",
+              "text": "顾氏会保全现有档案，我本人接受核查。苏晚公开到什么程度，由她决定；任何人不得以顾氏名义接触材料中可能涉及的证人与家属。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "质问突变的证据来源",
+              "text": "存储盘从未联网，追踪记录却在一分钟前被改了。现在它显示，文件是从你的办公室发出的。顾沉舟，到底是谁想让我把你当成源头？"
+            }
+          ],
+          "emotional_objective": "让苏晚以公开行动赢得主动，却立刻面对更深一层的证据操控与信任危机。",
+          "emotional_shift": "克制结盟转为公开决裂后的共同惊疑",
+          "purpose": "完成苏晚保护证人、推进矿难追查的公开选择，改变订婚与顾氏舆论状态，并留下证据来源遭操控的悬念。",
+          "scene_causality": {
+            "causal_link": "场景二确认原始材料夹带证人信息，苏晚只能重组可公开内容；顾沉舟的另一份报告则使她具备公开质疑顾氏记录的依据。",
+            "caused_by_scene_number": 2,
+            "conflict": "苏晚若公开质疑顾氏，将失去订婚带来的掩护并惊动操控证据的人；若继续沉默，矿难主线便会再次被压下。",
+            "goal": "苏晚要在不暴露证人的前提下公开推动矿难核查，并明确自己与顾氏的立场边界。",
+            "outcome": "苏晚公开暂停订婚并要求核查顾氏记录，随后发现离线证据的来源记录被实时改写，且矛头被刻意引向顾沉舟。"
+          },
+          "scene_number": 3,
+          "setting": "顾氏酒店订婚宴主舞台",
+          "slug": "内景·订婚宴主舞台·夜",
+          "turning_point": "苏晚公开暂停订婚后，证据来源被异常改写为顾沉舟的私人办公室。"
+        }
+      ],
+      "synopsis": "订婚宴上，苏晚准备公开顾氏掩盖矿难的材料，却被顾沉舟指出文件中藏有未脱敏证人名单。她主动暂停发送并核验材料，发现核心事故记录真实，但匿名来源曾二次拼接文件。面对顾沉舟的隐瞒与公开窗口的关闭，苏晚拒绝交出证据，改为公布已核验事实，暂停订婚并要求顾氏接受调查。就在她保护证人、主动推进主线后，离线存储盘的来源记录竟被改写，并指向顾沉舟的办公室。",
+      "target_audience": "中国大陆女性向悬疑情感、复仇与长篇连载受众",
+      "target_duration_seconds": 180,
+      "target_platform": "中国大陆漫剧及长篇连载改编",
+      "title": "第一集：被改写的证据",
+      "tone": "suspenseful",
+      "_meta": {
+        "provider": "openai_compatible",
+        "model_name": "gpt-5.6-sol",
+        "strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+        "usage": {
+          "prompt_tokens": 7157,
+          "completion_tokens": 4590,
+          "total_tokens": 11747,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 918
+          }
+        },
+        "response_id": "resp_016b7efe65183f8d016a6f5e7438588191bad39b124ef90bc3"
+      }
+    },
+    "resolved_creative_context": {
+      "schema_version": "v1",
+      "content_spec_id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+      "characters": [
+        {
+          "character_ref": "character.su_wan",
+          "name": "苏晚",
+          "role": "女主角、调查记者",
+          "description": "28岁，冷静敏锐，因姐姐死于被掩盖的矿难而追查顾氏；渴望公开真相，害怕再次信错人，底线是不牺牲无辜者。",
+          "motivation": null,
+          "desire": null,
+          "fear": null,
+          "belief": null,
+          "contradiction": null,
+          "decision_pattern": null,
+          "moral_boundaries": [],
+          "locked_fields": [
+            "name",
+            "role",
+            "description"
+          ],
+          "field_sources": {
+            "name": "user_provided",
+            "role": "user_provided",
+            "description": "user_provided"
+          }
+        },
+        {
+          "character_ref": "character.gu_chenzhou",
+          "name": "顾沉舟",
+          "role": "男主角、顾氏继承人",
+          "description": "30岁，克制强势，表面阻止苏晚曝光，实际在调查父亲；渴望终止家族罪恶，但恐惧真相毁掉所有亲近的人。",
+          "motivation": null,
+          "desire": null,
+          "fear": null,
+          "belief": null,
+          "contradiction": null,
+          "decision_pattern": null,
+          "moral_boundaries": [],
+          "locked_fields": [
+            "name",
+            "role",
+            "description"
+          ],
+          "field_sources": {
+            "name": "user_provided",
+            "role": "user_provided",
+            "description": "user_provided"
+          }
+        }
+      ],
+      "excluded_tag_ids": [],
+      "excluded_patterns": [
+        "海外平台术语",
+        "直播带货",
+        "秘密继承人捷径"
+      ],
+      "resolution_warnings": []
+    },
+    "episode_context": {
+      "generation_mode": "full",
+      "episode_number": 1,
+      "total_episodes": 334,
+      "previous_episode_summary": null,
+      "previous_episode_question": null,
+      "episode_instruction": "建立苏晚准备公开矿难证据的核心矛盾，让她作出主动选择；结尾留下证据来源被操控的悬念，不解决主线。",
+      "project_continuity_summary": "长篇主线：苏晚追查姐姐死亡与顾氏矿难；顾沉舟表面阻止、暗中调查父亲；两人在不信任中被迫合作。苏晚不牺牲无辜者，顾沉舟不能替苏晚决定真相如何公开。不得提前揭晓最终幕后主使。",
+      "batch_context": {
+        "batch_number": 1,
+        "start_episode": 1,
+        "end_episode": 5,
+        "batch_instruction": "承接既有状态并推进证据、关系或风险中的至少一项；不得重置冲突、重复上一集揭露或解决长篇主线。"
+      }
+    },
+    "knowledge_bundle": null,
+    "knowledge_selection_trace": null,
+    "creative_deepening_run": null,
+    "draft_master_script": {
+      "content_spec_id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+      "generation_strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+      "title": "第一集：被改写的证据",
+      "logline": "苏晚试图在订婚宴上曝光顾氏掩盖矿难的证据，却因顾沉舟揭露文件藏有证人名单而被迫重选战场，最终公开挑战顾氏，却发现证据源头已被人改写。",
+      "language": "中文",
+      "target_audience": "中国大陆女性向悬疑情感、复仇与长篇连载受众",
+      "target_platform": "中国大陆漫剧及长篇连载改编",
+      "tone": "suspenseful",
+      "hook": "订婚宴祝词即将开始，苏晚已把矿难材料接入主屏，只差按下发送键，顾沉舟却准确说出了证据中不该被任何人知道的内容。",
+      "synopsis": "订婚宴上，苏晚准备公开顾氏掩盖矿难的材料，却被顾沉舟指出文件中藏有未脱敏证人名单。她主动暂停发送并核验材料，发现核心事故记录真实，但匿名来源曾二次拼接文件。面对顾沉舟的隐瞒与公开窗口的关闭，苏晚拒绝交出证据，改为公布已核验事实，暂停订婚并要求顾氏接受调查。就在她保护证人、主动推进主线后，离线存储盘的来源记录竟被改写，并指向顾沉舟的办公室。",
+      "episode_goal": "建立苏晚公开矿难证据与保护无辜证人之间的核心矛盾，让她主动改变曝光方式，并揭示顾沉舟早已知情及证据来源遭操控的风险。",
+      "target_duration_seconds": 180,
+      "characters": [
+        {
+          "name": "苏晚",
+          "role": "女主角、调查记者",
+          "description": "28岁，冷静敏锐，因姐姐死于被掩盖的矿难而追查顾氏；渴望公开真相，害怕再次信错人，底线是不牺牲无辜者。",
+          "motivation": "查清姐姐之死并公开矿难真相，同时确保无辜证人不因自己的复仇受到伤害。"
+        },
+        {
+          "name": "顾沉舟",
+          "role": "男主角、顾氏继承人",
+          "description": "30岁，克制强势，表面阻止苏晚曝光，实际在调查父亲；渴望终止家族罪恶，但恐惧真相毁掉所有亲近的人。",
+          "motivation": "暗中查清父亲与矿难的关系、终止家族罪恶，并尽可能控制真相公开造成的连带伤害。"
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "内景·订婚宴侧幕·夜",
+          "purpose": "在临界时刻建立曝光代价，揭示顾沉舟早已知情，同时让苏晚作出第一次可见选择。",
+          "setting_hint": "顾氏酒店订婚宴宴会厅侧幕与主控台",
+          "beat_summary": "苏晚准备借订婚宴主屏公开矿难材料，顾沉舟没有夺走她的决定权，而是指出附件藏有未脱敏证人名单。面对曝光倒计时，苏晚主动暂停发送。",
+          "emotional_shift": "决绝曝光转为震惊戒备",
+          "emotional_objective": "让苏晚从即将复仇的决绝转为警觉，并以保护无辜者为由主动暂停。",
+          "character_actions": [
+            "宴会厅灯光转暗，主持人请两位新人登台。苏晚站在侧幕，掌心压着连接主控台的存储盘；大屏预览页不是订婚照片，而是矿井伤亡表、内部批示和被删改的事故日期。她把自动发送设为十分钟后，准备让材料同时出现在所有来宾眼前。",
+            "顾沉舟越过等候敬酒的人群，停在她身侧。他没有碰存储盘，只低声报出附件编号和其中一名证人的页码。苏晚的手指僵在发送键上：这些文件从未给他看过，而他不仅知道矿难，还知道她今晚的计划。",
+            "顾沉舟调出主屏预览的隐藏表格。被折叠的单元格里并非财务数据，而是证人与家属的真实姓名、住址及联络方式。主持人的倒数声从台上传来，苏晚拔下连接线，亲手中止公开，却没有把存储盘交给顾沉舟。"
+          ],
+          "turning_point": "顾沉舟准确指出隐藏名单的页码，证明他早已接触矿难真相。",
+          "scene_causality": {
+            "goal": "苏晚要在订婚宴主屏上公开顾氏掩盖矿难的证据。",
+            "conflict": "公开倒计时已经启动，顾沉舟的阻止既可能是保护证人的警告，也可能是顾氏继承人为拖延曝光而设下的圈套。",
+            "outcome": "苏晚发现材料夹带未脱敏证人名单，主动拔线暂停发送，并限定顾沉舟在十分钟内解释其知情程度。",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogue_prompts": [
+            "先别按。附件七第十三页后面藏着名单。你要揭顾氏的罪，我不拦；但这份文件一旦上屏，最先被找到的不是该负责的人。",
+            "你连页码都记得。顾沉舟，你不是刚发现我要做什么，你早就知道那场矿难，也早就知道顾氏掩盖了死亡人数。",
+            "是，我知道掩盖存在，也在查它从谁手里开始。但我不能替你决定要不要公开。你只需要先看清，今晚有人希望你把证人一起推出去。",
+            "我暂停，不是因为信你，是因为名单上的人没有义务替我的复仇送命。存储盘还在我手里，你只有十分钟证明自己。"
+          ],
+          "dialogues": [
+            {
+              "character_name": "顾沉舟",
+              "intent": "警告公开原文件将伤及证人",
+              "text": "先别按。附件七第十三页后面藏着名单。你要揭顾氏的罪，我不拦；但这份文件一旦上屏，最先被找到的不是该负责的人。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "逼问顾沉舟为何知情",
+              "text": "你连页码都记得。顾沉舟，你不是刚发现我要做什么，你早就知道那场矿难，也早就知道顾氏掩盖了死亡人数。"
+            },
+            {
+              "character_name": "顾沉舟",
+              "intent": "承认部分事实并争取核验时间",
+              "text": "是，我知道掩盖存在，也在查它从谁手里开始。但我不能替你决定要不要公开。你只需要先看清，今晚有人希望你把证人一起推出去。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "保留主动权并设定边界",
+              "text": "我暂停，不是因为信你，是因为名单上的人没有义务替我的复仇送命。存储盘还在我手里，你只有十分钟证明自己。"
+            }
+          ],
+          "supporting_asset_ids": []
+        },
+        {
+          "scene_number": 2,
+          "slug": "内景·宴会休息室·夜",
+          "purpose": "验证证据存在拼接痕迹，推进两人的不信任合作，并形成苏晚可执行且符合底线的新方案。",
+          "setting_hint": "宴会厅相连的私人休息室",
+          "beat_summary": "苏晚利用短暂空档核验文件，顾沉舟拿出自己调查所得的同版报告。两份材料相互印证，却也暴露匿名来源刻意夹带证人信息，苏晚拒绝交出证据，决定自行重组公开内容。",
+          "emotional_shift": "敌意逼问转为有限度并肩",
+          "emotional_objective": "加深苏晚对顾沉舟的复杂判断：他既是隐瞒者，也是掌握另一条证据链的潜在合作者。",
+          "character_actions": [
+            "两人进入与宴会厅相连的休息室。苏晚反锁门，将存储盘接入不联网的备用电脑，逐项展开隐藏内容。名单中的信息精确到临时住址，甚至标注了谁愿意作证；这已经超出事故调查资料应有的范围。",
+            "顾沉舟从随身文件夹取出一份只保留编号的旧报告，放在桌角后退开。他的版本同样记录了事故日期被改写，却没有证人住址。苏晚对照两份文件，确认核心记录能够互证，但自己收到的版本经过二次拼接。",
+            "自动发送只剩四分钟。顾沉舟提出先冻结全部材料，苏晚却删除发送队列中的原始附件，重新建立只包含可核验事实与遮蔽编号的公开页。她把备份盘贴身收好，明确拒绝让顾家接管证据。"
+          ],
+          "turning_point": "苏晚确认核心事故记录真实，但证人名单是后来被人有意拼入的诱饵。",
+          "scene_causality": {
+            "goal": "苏晚要核验证据是否被污染，并在不交出控制权的前提下决定新的公开方式。",
+            "conflict": "顾沉舟掌握同版内部报告却长期隐瞒，苏晚无法判断他是在调查还是控制损失；与此同时，曝光窗口即将关闭。",
+            "outcome": "苏晚确认匿名材料被二次拼接，删除含证人信息的发送附件，决定仅公开可交叉核验的事实并保留原始证据。",
+            "caused_by_scene_number": 1,
+            "causal_link": "场景一暴露隐藏证人名单并启动十分钟限时，迫使苏晚与顾沉舟在宴会继续前核验材料、判断是否仍能公开。"
+          },
+          "cliffhanger": false,
+          "dialogue_prompts": [
+            "这份报告的形成时间早于我姐姐出事。你从那时就知道，为什么直到今天还站在顾氏继承人的位置上？",
+            "因为一份报告只能证明有人改过记录，不能证明命令从哪里来。我留在这里，是为了找到能承担法律责任的人，不是替顾家洗掉这场矿难。",
+            "你隐瞒真相，我收到的证据又被人塞进名单。现在我既不能信匿名来源，也不能因为你说在调查，就把姐姐的死交给你处理。",
+            "那就由你决定。但只要你公开顾氏改过记录，对方就会知道我们手里还有另一份报告。今晚之后，你和名单上的人都会被盯上。",
+            "原件不公开，名单不交人。我只公布已经交叉核验的事实，逼顾氏回应，也逼那个给我假善意的人露出下一步。代价由我承担，不由证人承担。"
+          ],
+          "dialogues": [
+            {
+              "character_name": "苏晚",
+              "intent": "确认顾沉舟调查的真实范围",
+              "text": "这份报告的形成时间早于我姐姐出事。你从那时就知道，为什么直到今天还站在顾氏继承人的位置上？"
+            },
+            {
+              "character_name": "顾沉舟",
+              "intent": "解释隐忍但不要求苏晚服从",
+              "text": "因为一份报告只能证明有人改过记录，不能证明命令从哪里来。我留在这里，是为了找到能承担法律责任的人，不是替顾家洗掉这场矿难。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "指出两人信任裂痕",
+              "text": "你隐瞒真相，我收到的证据又被人塞进名单。现在我既不能信匿名来源，也不能因为你说在调查，就把姐姐的死交给你处理。"
+            },
+            {
+              "character_name": "顾沉舟",
+              "intent": "尊重苏晚决定并提醒风险",
+              "text": "那就由你决定。但只要你公开顾氏改过记录，对方就会知道我们手里还有另一份报告。今晚之后，你和名单上的人都会被盯上。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "作出兼顾追查与保护的方案",
+              "text": "原件不公开，名单不交人。我只公布已经交叉核验的事实，逼顾氏回应，也逼那个给我假善意的人露出下一步。代价由我承担，不由证人承担。"
+            }
+          ],
+          "supporting_asset_ids": []
+        },
+        {
+          "scene_number": 3,
+          "slug": "内景·订婚宴主舞台·夜",
+          "purpose": "完成苏晚保护证人、推进矿难追查的公开选择，改变订婚与顾氏舆论状态，并留下证据来源遭操控的悬念。",
+          "setting_hint": "顾氏酒店订婚宴主舞台",
+          "beat_summary": "苏晚回到宴会厅，公开暂停订婚流程并要求顾氏回应矿难记录被改写一事。她保护了证人，却也主动把自己置于风险中心；随后，证据追踪记录竟在离线状态下发生变化。",
+          "emotional_shift": "克制结盟转为公开决裂后的共同惊疑",
+          "emotional_objective": "让苏晚以公开行动赢得主动，却立刻面对更深一层的证据操控与信任危机。",
+          "character_actions": [
+            "宴会厅重新亮起，宾客以为插曲已经结束。苏晚独自走上台，没有播放原始文件，而是切换到她刚制作的对照页：同一矿井事故在两份顾氏内部记录中出现不同日期和人数，所有姓名均被遮蔽。",
+            "顾沉舟站在台下，没有夺过话筒，也没有示意主控关屏。苏晚摘下订婚戒指放在讲台上，宣布在矿难记录得到独立核查之前暂停订婚；她同时声明自己保留完整材料，将依法提交核验，不公开任何证人身份。",
+            "现场陷入骚动。苏晚拔下始终未联网的存储盘，电脑却弹出新的校验提示：文件追踪记录刚刚被改写，最初的匿名来源地址消失，替换成顾沉舟私人办公室的内部终端。她看向台下的顾沉舟，他也第一次失去镇定。"
+          ],
+          "turning_point": "苏晚公开暂停订婚后，证据来源被异常改写为顾沉舟的私人办公室。",
+          "scene_causality": {
+            "goal": "苏晚要在不暴露证人的前提下公开推动矿难核查，并明确自己与顾氏的立场边界。",
+            "conflict": "苏晚若公开质疑顾氏，将失去订婚带来的掩护并惊动操控证据的人；若继续沉默，矿难主线便会再次被压下。",
+            "outcome": "苏晚公开暂停订婚并要求核查顾氏记录，随后发现离线证据的来源记录被实时改写，且矛头被刻意引向顾沉舟。",
+            "caused_by_scene_number": 2,
+            "causal_link": "场景二确认原始材料夹带证人信息，苏晚只能重组可公开内容；顾沉舟的另一份报告则使她具备公开质疑顾氏记录的依据。"
+          },
+          "cliffhanger": true,
+          "dialogue_prompts": [
+            "今晚我要公布的，不是谁的姓名，而是一个事实：同一场矿难，在顾氏内部留下了两套不同记录。死亡不能因为一份改过的日期，就被当作没有发生。",
+            "从现在起，订婚暂停。我不会交出完整证据，也不会拿无辜者的安全换取轰动。顾氏必须说明记录为何被改，相关材料也必须接受独立核验。",
+            "顾氏会保全现有档案，我本人接受核查。苏晚公开到什么程度，由她决定；任何人不得以顾氏名义接触材料中可能涉及的证人与家属。",
+            "存储盘从未联网，追踪记录却在一分钟前被改了。现在它显示，文件是从你的办公室发出的。顾沉舟，到底是谁想让我把你当成源头？"
+          ],
+          "dialogues": [
+            {
+              "character_name": "苏晚",
+              "intent": "公开推动调查并保护证人",
+              "text": "今晚我要公布的，不是谁的姓名，而是一个事实：同一场矿难，在顾氏内部留下了两套不同记录。死亡不能因为一份改过的日期，就被当作没有发生。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "作出不可逆的公开选择",
+              "text": "从现在起，订婚暂停。我不会交出完整证据，也不会拿无辜者的安全换取轰动。顾氏必须说明记录为何被改，相关材料也必须接受独立核验。"
+            },
+            {
+              "character_name": "顾沉舟",
+              "intent": "公开承担回应责任且不替苏晚决断",
+              "text": "顾氏会保全现有档案，我本人接受核查。苏晚公开到什么程度，由她决定；任何人不得以顾氏名义接触材料中可能涉及的证人与家属。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "质问突变的证据来源",
+              "text": "存储盘从未联网，追踪记录却在一分钟前被改了。现在它显示，文件是从你的办公室发出的。顾沉舟，到底是谁想让我把你当成源头？"
+            }
+          ],
+          "supporting_asset_ids": []
+        }
+      ],
+      "next_episode_question": "是谁在苏晚持有存储盘期间改写了证据追踪记录，又为何故意把来源指向顾沉舟的私人办公室？",
+      "qa_notes": [
+        "Draft generated by RealLLMAdapter structured output.",
+        "Story QC and revision loop must still review platform fit and consistency."
+      ],
+      "llm_metadata": {
+        "provider": "openai_compatible",
+        "model_name": "gpt-5.6-sol",
+        "strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+        "usage": {
+          "prompt_tokens": 7157,
+          "completion_tokens": 4590,
+          "total_tokens": 11747,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 918
+          }
+        },
+        "response_id": "resp_016b7efe65183f8d016a6f5e7438588191bad39b124ef90bc3",
+        "prompt_versions": [
+          "v1",
+          "v1"
+        ],
+        "generation_strategy_version": "v1"
+      },
+      "id": "e91d34ef-3fee-415e-9789-b3d02c54d331",
+      "created_at": "2026-08-02T15:14:54.713608Z",
+      "updated_at": "2026-08-02T15:14:54.713613Z"
+    },
+    "story_qc_report": {
+      "overall_score": 0.909,
+      "status": "placeholder",
+      "checks": [
+        {
+          "check_name": "hook_present",
+          "passed": true,
+          "score": 1.0,
+          "note": "Rubric-aligned check for hook presence."
+        },
+        {
+          "check_name": "scenes_present",
+          "passed": true,
+          "score": 1.0,
+          "note": "Rubric-aligned check for scene structure presence."
+        },
+        {
+          "check_name": "strategy_qc_enabled",
+          "passed": true,
+          "score": 0.8,
+          "note": "Rubric-aligned check for strategy QC configuration."
+        },
+        {
+          "check_name": "rubric_score",
+          "passed": true,
+          "score": 0.836,
+          "note": "Story quality rubric aggregate score."
+        }
+      ],
+      "recommended_actions": [
+        "Use the story rubric deductions and suggestions to build a revision plan."
+      ],
+      "rubric_overall_score": 0.836,
+      "rubric_categories": [
+        {
+          "category_name": "Hook",
+          "score": 5.0,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Strengthen the opening reveal or contradiction."
+          ]
+        },
+        {
+          "category_name": "Narrative Logic",
+          "score": 4.5,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Clarify why each scene triggers the next escalation."
+          ]
+        },
+        {
+          "category_name": "Character Consistency",
+          "score": 4.0,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Align dialogue and actions with the character objective."
+          ]
+        },
+        {
+          "category_name": "Character Agency",
+          "score": 2.5,
+          "max_score": 5,
+          "deduction_reasons": [
+            "Protagonist choices are not visible enough."
+          ],
+          "revision_suggestions": [
+            "Add an explicit choice or refusal beat for the protagonist."
+          ]
+        },
+        {
+          "category_name": "Emotional Progression",
+          "score": 4.5,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Sharpen the emotional turn between scenes."
+          ]
+        },
+        {
+          "category_name": "Conflict Escalation",
+          "score": 4.5,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Increase public, relational, or status consequences in later scenes."
+          ]
+        },
+        {
+          "category_name": "Dialogue Quality",
+          "score": 4.0,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Replace generic lines with concrete, high-stakes phrasing."
+          ]
+        },
+        {
+          "category_name": "Platform Fit",
+          "score": 4.5,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Align pacing and presentation with the selected profile."
+          ]
+        },
+        {
+          "category_name": "Cultural Fit",
+          "score": 3.0,
+          "max_score": 5,
+          "deduction_reasons": [
+            "Target language / audience framing is underspecified."
+          ],
+          "revision_suggestions": [
+            "Reduce ambiguous references and sharpen audience framing."
+          ]
+        },
+        {
+          "category_name": "Commercial Potential",
+          "score": 4.5,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Strengthen episode-end curiosity and future payoff."
+          ]
+        },
+        {
+          "category_name": "Cliffhanger Strength",
+          "score": 5.0,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "End on a sharper unanswered reveal or power reversal."
+          ]
+        }
+      ],
+      "report_version": "story_qc_report.v1",
+      "explainability_status": "partial",
+      "dimension_evaluations": [
+        {
+          "dimension": "hook_quality",
+          "score": 5.0,
+          "summary": "Opening hook establishes a clear contradiction and viewing question.",
+          "score_reason": "The current score is driven by whether the draft hook is specific and whether the opening scene establishes immediate pressure.",
+          "deduction_reasons": [],
+          "scene_refs": [
+            1
+          ],
+          "evidence": [
+            "Hook: 订婚宴祝词即将开始，苏晚已把矿难材料接入主屏，只差按下发送键，顾沉舟却准确说出了证据中不该被任何人知道的内容。",
+            "Scene 1 purpose: 在临界时刻建立曝光代价，揭示顾沉舟早已知情，同时让苏晚作出第一次可见选择。"
+          ],
+          "revision_signals": []
+        },
+        {
+          "dimension": "character_agency",
+          "score": 2.5,
+          "summary": "The protagonist is present, but their agency is not explicit enough yet.",
+          "score_reason": "The current score reflects whether the protagonist initiates, refuses, exposes, or otherwise changes the scene outcome through visible action.",
+          "deduction_reasons": [
+            "Protagonist choices are not visible enough."
+          ],
+          "scene_refs": [
+            1
+          ],
+          "evidence": [],
+          "revision_signals": [
+            "show_protagonist_choice",
+            "increase_visible_action_risk"
+          ]
+        },
+        {
+          "dimension": "conflict_escalation",
+          "score": 4.5,
+          "summary": "The scenes build toward a stronger public or relational threat by the ending.",
+          "score_reason": "The current score reflects whether later scenes meaningfully raise pressure over earlier scenes and whether the episode ends under stronger threat than it began.",
+          "deduction_reasons": [],
+          "scene_refs": [
+            1,
+            2,
+            3
+          ],
+          "evidence": [
+            "Scene 1 purpose: 在临界时刻建立曝光代价，揭示顾沉舟早已知情，同时让苏晚作出第一次可见选择。",
+            "Scene 2 purpose: 验证证据存在拼接痕迹，推进两人的不信任合作，并形成苏晚可执行且符合底线的新方案。",
+            "Scene 3 purpose: 完成苏晚保护证人、推进矿难追查的公开选择，改变订婚与顾氏舆论状态，并留下证据来源遭操控的悬念。",
+            "Final scene cliffhanger: True"
+          ],
+          "revision_signals": []
+        },
+        {
+          "dimension": "emotional_payoff",
+          "score": 4.5,
+          "summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+          "score_reason": "The current score reflects whether emotional shifts change across scenes and whether turning points deliver a satisfying escalation or reversal.",
+          "deduction_reasons": [],
+          "scene_refs": [
+            1,
+            2,
+            3
+          ],
+          "evidence": [
+            "Scene 1 emotional shift: 决绝曝光转为震惊戒备",
+            "Scene 2 emotional shift: 敌意逼问转为有限度并肩",
+            "Scene 3 emotional shift: 克制结盟转为公开决裂后的共同惊疑",
+            "Scene 1 turning point: 顾沉舟准确指出隐藏名单的页码，证明他早已接触矿难真相。",
+            "Scene 2 turning point: 苏晚确认核心事故记录真实，但证人名单是后来被人有意拼入的诱饵。",
+            "Scene 3 turning point: 苏晚公开暂停订婚后，证据来源被异常改写为顾沉舟的私人办公室。"
+          ],
+          "revision_signals": []
+        },
+        {
+          "dimension": "cliffhanger_strength",
+          "score": 5.0,
+          "summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+          "score_reason": "The current score reflects whether the last scene ends with unresolved pressure, suspense, or a reversal strong enough to create immediate next-episode demand.",
+          "deduction_reasons": [],
+          "scene_refs": [
+            3
+          ],
+          "evidence": [
+            "Final scene turning point: 苏晚公开暂停订婚后，证据来源被异常改写为顾沉舟的私人办公室。",
+            "Final emotional shift: 克制结盟转为公开决裂后的共同惊疑",
+            "Next episode question: 是谁在苏晚持有存储盘期间改写了证据追踪记录，又为何故意把来源指向顾沉舟的私人办公室？"
+          ],
+          "revision_signals": []
+        }
+      ],
+      "evidence_summary": [
+        "hook_quality: Hook: 订婚宴祝词即将开始，苏晚已把矿难材料接入主屏，只差按下发送键，顾沉舟却准确说出了证据中不该被任何人知道的内容。",
+        "character_agency: Protagonist choices are not visible enough.",
+        "conflict_escalation: Scene 1 purpose: 在临界时刻建立曝光代价，揭示顾沉舟早已知情，同时让苏晚作出第一次可见选择。",
+        "emotional_payoff: Scene 1 emotional shift: 决绝曝光转为震惊戒备",
+        "cliffhanger_strength: Final scene turning point: 苏晚公开暂停订婚后，证据来源被异常改写为顾沉舟的私人办公室。"
+      ],
+      "knowledge_refs": [],
+      "created_at": "2026-08-02T15:14:54.720117Z"
+    },
+    "revision_plan": {
+      "draft_master_script_id": "e91d34ef-3fee-415e-9789-b3d02c54d331",
+      "content_spec_id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+      "generation_strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+      "story_qc_status": "placeholder",
+      "overall_priority": "high",
+      "focus_summary": "Strengthen character agency",
+      "revision_decision": {
+        "revision_required": true,
+        "decision_reason": "Selected character_agency as the highest-impact evidence-backed revision targets.",
+        "selected_dimensions": [
+          "character_agency"
+        ],
+        "deferred_dimensions": [],
+        "protected_dimensions": [
+          "hook_quality",
+          "conflict_escalation",
+          "emotional_payoff",
+          "cliffhanger_strength"
+        ],
+        "primary_scene_refs": [
+          1
+        ],
+        "confidence": 0.85
+      },
+      "revision_strategies": [
+        {
+          "target_dimension": "character_agency",
+          "problem_type": "show_protagonist_choice",
+          "problem_reason": "Protagonist choices are not visible enough.",
+          "revision_goal": "Give the protagonist an active choice with visible consequences.",
+          "revision_method": "Replace a reactive beat in Scene 1 with an irreversible protagonist decision.",
+          "expected_effect": "Improves protagonist agency through a visible, consequential choice.",
+          "priority": 1,
+          "confidence": 0.85,
+          "scene_refs": [
+            1
+          ],
+          "do_not_touch": [
+            "Preserve hook_quality while applying the targeted revision.",
+            "Preserve conflict_escalation while applying the targeted revision.",
+            "Preserve emotional_payoff while applying the targeted revision.",
+            "Preserve cliffhanger_strength while applying the targeted revision."
+          ],
+          "knowledge_refs": []
+        }
+      ],
+      "actions": [
+        {
+          "action_id": "revision.e91d34ef-3fee-415e-9789-b3d02c54d331.character",
+          "target_type": "character",
+          "priority": "high",
+          "title": "Strengthen character agency",
+          "rationale": "Protagonist choices are not visible enough.",
+          "based_on_checks": [
+            "dimension.character_agency"
+          ],
+          "related_scene_numbers": [
+            1
+          ],
+          "instructions": [
+            "Give the protagonist an active choice with visible consequences.",
+            "Replace a reactive beat in Scene 1 with an irreversible protagonist decision.",
+            "Preserve hook_quality while applying the targeted revision."
+          ],
+          "expected_impact": "Improves protagonist agency through a visible, consequential choice."
+        }
+      ],
+      "must_re_qc": true,
+      "notes": [
+        "RevisionDecision: Selected character_agency as the highest-impact evidence-backed revision targets.",
+        "Generated 1 evidence-driven revision strategies.",
+        "After revisions, run Story QC again before promoting to Final MasterScript.",
+        "Protected dimensions: hook_quality, conflict_escalation, emotional_payoff, cliffhanger_strength."
+      ],
+      "created_at": "2026-08-02T15:14:54.723349Z"
+    },
+    "generated_at": "2026-08-02T15:14:54.723645Z"
+  }
+}

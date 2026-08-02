@@ -141,6 +141,10 @@ export function TagSelector({
         </button>
       </div>
 
+      {activeCategory === "Trending" ? (
+        <div className="inline-notice">{t("tags.recommendationDisclaimer")}</div>
+      ) : null}
+
       <div className="tag-options">
         {visibleTags.length === 0 ? (
           <div className="no-tag-results">{t(activeCategory === "My Tags" ? "tags.myTagsEmpty" : "tags.noResults")}</div>

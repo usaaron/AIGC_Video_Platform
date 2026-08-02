@@ -1,0 +1,62 @@
+{
+  "evaluation_id": "cn_longform_600k_acceptance_v1",
+  "generated_at": "2026-08-02T16:08:13.863480+00:00",
+  "completed_episodes": 1,
+  "target_total_characters": 600000,
+  "script_body_characters": 1416,
+  "average_script_body_characters": 1416,
+  "estimated_episodes_to_target": 424,
+  "projected_characters_at_estimated_episodes": 600384,
+  "total_tokens": 11747,
+  "total_latency_seconds": 1242.297,
+  "structural_pass": true,
+  "duplicate_synopsis_pairs": [],
+  "repeated_dialogues": [],
+  "technical_failures": [
+    {
+      "episode_number": 2,
+      "error_type": "HTTPStatusError",
+      "error": "Server error '503 Service Unavailable' for url 'http://127.0.0.1:8011/script-generation/generate-draft'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/503",
+      "latency_seconds": 1055.797,
+      "started_at": "2026-08-02T15:47:23.225168+00:00",
+      "failed_at": "2026-08-02T16:04:58.965968+00:00",
+      "status_code": 503,
+      "response": {
+        "detail": "LLM request failed with status 524 after retries: <!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n\n<title>rehdasu.cn | 524: A timeout occurred</title>\n<meta charset=\"UTF-8\" />\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />\n<meta http-equiv=\"X-UA-Compati"
+      }
+    }
+  ],
+  "gate_status": "blocked_provider",
+  "episode_metrics": [
+    {
+      "episode_number": 1,
+      "title": "第一集：被改写的证据",
+      "script_body_characters": 1416,
+      "action_characters": 748,
+      "dialogue_characters": 668,
+      "action_count": 9,
+      "dialogue_count": 13,
+      "scene_count": 3,
+      "scene_causality_complete": true,
+      "later_scenes_reference_prior_cause": true,
+      "final_cliffhanger": true,
+      "next_episode_question_present": true,
+      "locked_characters_preserved": true,
+      "qc_overall_score": 0.909,
+      "qc_status": "placeholder",
+      "qc_dimension_scores": {
+        "hook_quality": 5.0,
+        "character_agency": 2.5,
+        "conflict_escalation": 4.5,
+        "emotional_payoff": 4.5,
+        "cliffhanger_strength": 5.0
+      },
+      "prompt_tokens": 7157,
+      "completion_tokens": 4590,
+      "total_tokens": 11747,
+      "latency_seconds": 1242.297,
+      "started_at": "2026-08-02T14:54:12.458575+00:00",
+      "completed_at": "2026-08-02T15:14:54.749327+00:00"
+    }
+  ]
+}

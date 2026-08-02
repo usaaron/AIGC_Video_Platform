@@ -231,7 +231,7 @@ async def test_create_content_spec_returns_422_for_invalid_payload() -> None:
     payload = build_payload(profile_id)
     payload["tags"][0]["ontology_node_id"] = drama_node_id
     payload["tags"][1]["ontology_node_id"] = hook_node_id
-    payload["tags"] = []
+    payload["story_goal"] = ""
 
     async with AsyncClient(
         transport=ASGITransport(app=create_app()),

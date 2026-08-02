@@ -1,0 +1,22 @@
+{
+  "checkpoint_version": "cn_longform_acceptance.v1",
+  "updated_at": "2026-08-02T16:04:58.970294+00:00",
+  "requested_episodes": 5,
+  "completed_episode_numbers": [
+    1
+  ],
+  "next_episode_number": 2,
+  "failed_episode_number": 2,
+  "last_failure": {
+    "episode_number": 2,
+    "error_type": "HTTPStatusError",
+    "error": "Server error '503 Service Unavailable' for url 'http://127.0.0.1:8011/script-generation/generate-draft'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/503",
+    "latency_seconds": 1055.797,
+    "started_at": "2026-08-02T15:47:23.225168+00:00",
+    "failed_at": "2026-08-02T16:04:58.965968+00:00",
+    "status_code": 503,
+    "response": {
+      "detail": "LLM request failed with status 524 after retries: <!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n\n<title>rehdasu.cn | 524: A timeout occurred</title>\n<meta charset=\"UTF-8\" />\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />\n<meta http-equiv=\"X-UA-Compati"
+    }
+  }
+}

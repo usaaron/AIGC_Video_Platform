@@ -10,6 +10,7 @@ from app.main import create_app
 from app.modules.script_engine.long_story_models import (
     EpisodePlan,
     StoryBible,
+    StoryPlanNode,
     StoryProject,
     StoryStagePlan,
 )
@@ -72,6 +73,42 @@ def build_stage() -> StoryStagePlan:
         central_conflict="Adrian claims that the evidence was planted for her.",
         key_turns=["The payment timestamp predates Adrian's authority."],
         exit_state="Mara and Adrian hold complementary evidence but remain adversaries.",
+    )
+
+
+def build_story_plan_node(
+    *,
+    node_id: str = "story_plan.api_demo.root",
+    parent_node_id: str | None = None,
+    predecessor_node_id: str | None = None,
+    sequence_order: int = 1,
+    planned_start_episode: int | None = None,
+    planned_end_episode: int | None = None,
+    expansion_status: str = "unexpanded",
+) -> StoryPlanNode:
+    return StoryPlanNode(
+        node_id=node_id,
+        story_project_id="story_project.api_demo",
+        story_bible_id="story_bible.api_demo",
+        story_bible_version=1,
+        parent_node_id=parent_node_id,
+        parent_node_version=1 if parent_node_id else None,
+        predecessor_node_id=predecessor_node_id,
+        predecessor_node_version=1 if predecessor_node_id else None,
+        sequence_order=sequence_order,
+        title="The Evidence Returns",
+        narrative_purpose="Move the investigation from accusation to verified proof.",
+        synopsis="Mara discovers that her strongest evidence was altered and traces its source.",
+        entry_state="Mara trusts one suspicious payment record.",
+        central_conflict="Public revenge would destroy her access to reliable evidence.",
+        turning_points=["The timestamp predates Adrian's authority."],
+        emotional_direction="Certainty becomes controlled doubt.",
+        exit_state="Mara obtains one verified fact and a more dangerous lead.",
+        character_refs=["character.mara", "character.adrian"],
+        story_line_refs=["storyline.hidden_ledger"],
+        planned_start_episode=planned_start_episode,
+        planned_end_episode=planned_end_episode,
+        expansion_status=expansion_status,
     )
 
 
@@ -164,6 +201,185 @@ async def test_long_story_planning_api_persists_complete_planning_slice(
         persisted = await client.get("/story-projects/story_project.api_demo")
     assert persisted.status_code == 200
     assert persisted.json()["data"]["title"] == "The Price of Truth"
+
+
+@pytest.mark.anyio
+async def test_story_plan_node_api_persists_a_level_free_recursive_tree(
+    long_story_app,
+) -> None:
+    app, _runtime = long_story_app
+    root = build_story_plan_node(
+        planned_start_episode=1,
+        planned_end_episode=60,
+        expansion_status="expanded",
+    )
+    first = build_story_plan_node(
+        node_id="story_plan.api_demo.first",
+        parent_node_id=root.node_id,
+        planned_start_episode=1,
+        planned_end_episode=8,
+    )
+    second = build_story_plan_node(
+        node_id="story_plan.api_demo.second",
+        parent_node_id=root.node_id,
+        predecessor_node_id=first.node_id,
+        sequence_order=2,
+        planned_start_episode=9,
+        planned_end_episode=20,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project().model_dump(mode="json"),
+        )
+        await client.put(
+            "/story-projects/story_project.api_demo/story-bibles/"
+            "story_bible.api_demo/versions/1",
+            json=build_story_bible().model_dump(mode="json"),
+        )
+        for node in (root, first, second):
+            response = await client.put(
+                f"/story-projects/story_project.api_demo/plan-nodes/"
+                f"{node.node_id}/versions/{node.version}",
+                json=node.model_dump(mode="json"),
+            )
+            assert response.status_code == 200
+
+        roots = await client.get(
+            "/story-projects/story_project.api_demo/plan-nodes?roots_only=true"
+        )
+        children = await client.get(
+            "/story-projects/story_project.api_demo/plan-nodes?"
+            f"parent_node_id={root.node_id}"
+        )
+        fetched = await client.get(
+            f"/story-projects/story_project.api_demo/plan-nodes/{second.node_id}"
+        )
+
+    assert [node["node_id"] for node in roots.json()["data"]] == [root.node_id]
+    assert [node["node_id"] for node in children.json()["data"]] == [
+        first.node_id,
+        second.node_id,
+    ]
+    assert fetched.json()["data"]["predecessor_node_id"] == first.node_id
+
+
+@pytest.mark.anyio
+async def test_story_plan_node_api_rejects_unlinked_non_first_child(
+    long_story_app,
+) -> None:
+    app, _runtime = long_story_app
+    root = build_story_plan_node(
+        planned_start_episode=1,
+        planned_end_episode=60,
+        expansion_status="expanded",
+    )
+    invalid = build_story_plan_node(
+        node_id="story_plan.api_demo.unlinked",
+        parent_node_id=root.node_id,
+        sequence_order=2,
+        planned_start_episode=9,
+        planned_end_episode=20,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project().model_dump(mode="json"),
+        )
+        await client.put(
+            "/story-projects/story_project.api_demo/story-bibles/"
+            "story_bible.api_demo/versions/1",
+            json=build_story_bible().model_dump(mode="json"),
+        )
+        await client.put(
+            f"/story-projects/story_project.api_demo/plan-nodes/"
+            f"{root.node_id}/versions/1",
+            json=root.model_dump(mode="json"),
+        )
+        response = await client.put(
+            f"/story-projects/story_project.api_demo/plan-nodes/"
+            f"{invalid.node_id}/versions/1",
+            json=invalid.model_dump(mode="json"),
+        )
+
+    assert response.status_code == 409
+    assert "predecessor" in response.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_story_plan_tree_allows_branch_specific_decomposition_depth(
+    long_story_app,
+) -> None:
+    app, _runtime = long_story_app
+    root = build_story_plan_node(
+        planned_start_episode=1,
+        planned_end_episode=60,
+        expansion_status="expanded",
+    )
+    shallow_leaf = build_story_plan_node(
+        node_id="story_plan.api_demo.shallow_leaf",
+        parent_node_id=root.node_id,
+        planned_start_episode=1,
+        planned_end_episode=4,
+        expansion_status="episode_ready",
+    )
+    deep_branch = build_story_plan_node(
+        node_id="story_plan.api_demo.deep_branch",
+        parent_node_id=root.node_id,
+        predecessor_node_id=shallow_leaf.node_id,
+        sequence_order=2,
+        planned_start_episode=5,
+        planned_end_episode=30,
+        expansion_status="expanded",
+    )
+    deep_leaf = build_story_plan_node(
+        node_id="story_plan.api_demo.deep_leaf",
+        parent_node_id=deep_branch.node_id,
+        planned_start_episode=5,
+        planned_end_episode=10,
+        expansion_status="episode_ready",
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project().model_dump(mode="json"),
+        )
+        await client.put(
+            "/story-projects/story_project.api_demo/story-bibles/"
+            "story_bible.api_demo/versions/1",
+            json=build_story_bible().model_dump(mode="json"),
+        )
+        for node in (root, shallow_leaf, deep_branch, deep_leaf):
+            response = await client.put(
+                f"/story-projects/story_project.api_demo/plan-nodes/"
+                f"{node.node_id}/versions/1",
+                json=node.model_dump(mode="json"),
+            )
+            assert response.status_code == 200
+
+        root_children = await client.get(
+            "/story-projects/story_project.api_demo/plan-nodes?"
+            f"parent_node_id={root.node_id}"
+        )
+        deep_children = await client.get(
+            "/story-projects/story_project.api_demo/plan-nodes?"
+            f"parent_node_id={deep_branch.node_id}"
+        )
+
+    assert root_children.json()["data"][0]["expansion_status"] == "episode_ready"
+    assert root_children.json()["data"][1]["expansion_status"] == "expanded"
+    assert [node["node_id"] for node in deep_children.json()["data"]] == [
+        deep_leaf.node_id
+    ]
 
 
 @pytest.mark.anyio

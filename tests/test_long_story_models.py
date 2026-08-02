@@ -11,6 +11,7 @@ from app.modules.script_engine.long_story_models import (
     GenerationJobCheckpoint,
     SetupPayoffRecord,
     StoryBible,
+    StoryPlanNode,
     StoryProject,
     StoryProjectWorkspaceSave,
     StoryStagePlan,
@@ -65,6 +66,29 @@ def build_story_bible() -> dict:
         "major_setup_payoff_refs": ["setup_payoff.black_ledger"],
         "locked_facts": ["Mara will not knowingly frame an innocent person."],
     }
+
+
+def build_story_plan_node(**updates) -> StoryPlanNode:
+    payload = {
+        "node_id": "story_plan.mainland_demo.root",
+        "story_project_id": "story_project.mainland_demo",
+        "story_bible_id": "story_bible.mainland_demo.v1",
+        "story_bible_version": 1,
+        "title": "真相与代价",
+        "narrative_purpose": "建立整部故事的追查方向与最终选择。",
+        "synopsis": "女主从一份伪造账目出发，逐层追查控制城市资源的利益网络。",
+        "entry_state": "女主失去工作，只掌握一份来源可疑的账目。",
+        "central_conflict": "越接近证据源头，越可能伤害她想保护的无辜者。",
+        "turning_points": ["账目被证明经过篡改。", "盟友与阴谋核心存在血缘关系。"],
+        "emotional_direction": "孤立与愤怒逐步转向克制合作。",
+        "exit_state": "女主公开完整证据，并拒绝以牺牲无辜者换取胜利。",
+        "character_refs": ["character.mara", "character.adrian"],
+        "story_line_refs": ["storyline.financial_conspiracy"],
+        "estimated_episode_count": 360,
+        "estimated_script_body_characters": 600_000,
+    }
+    payload.update(updates)
+    return StoryPlanNode.model_validate(payload)
 
 
 def test_story_project_uses_long_form_defaults_and_serializes() -> None:
@@ -359,4 +383,50 @@ def test_episode_artifact_rejects_excessive_lineage() -> None:
             content_schema_version="draft_master_script.v1",
             content_payload={"title": "Episode 1"},
             lineage_refs={f"key_{index}": "value" for index in range(31)},
+        )
+
+
+def test_story_plan_node_supports_level_free_recursive_decomposition() -> None:
+    root = build_story_plan_node()
+    child = build_story_plan_node(
+        node_id="story_plan.mainland_demo.truth_returns",
+        parent_node_id=root.node_id,
+        parent_node_version=root.version,
+        title="旧证据重现",
+        narrative_purpose="迫使女主验证证据，而不是立即公开复仇。",
+        synopsis="女主在公开证据前发现时间戳冲突，被迫追查账目真正来源。",
+        entry_state="女主相信现有账目足以指控对手。",
+        central_conflict="公开指控能制造声势，却可能毁掉后续取证资格。",
+        turning_points=["对手指出时间戳矛盾。"],
+        emotional_direction="确定转为克制怀疑。",
+        exit_state="女主暂停公开指控，取得第一条可验证线索。",
+        estimated_episode_count=8,
+        estimated_script_body_characters=14_000,
+        planned_start_episode=1,
+        planned_end_episode=8,
+    )
+
+    assert root.parent_node_id is None
+    assert child.parent_node_id == root.node_id
+    assert "depth" not in child.model_dump()
+    assert "node_type" not in child.model_dump()
+
+
+def test_story_plan_node_requires_complete_relationship_pairs() -> None:
+    with pytest.raises(ValidationError, match="parent_node_id and parent_node_version"):
+        build_story_plan_node(
+            node_id="story_plan.mainland_demo.invalid_child",
+            parent_node_id="story_plan.mainland_demo.root",
+        )
+
+    with pytest.raises(ValidationError, match="planned_start_episode"):
+        build_story_plan_node(planned_start_episode=1)
+
+
+def test_non_root_story_plan_node_cannot_reference_itself() -> None:
+    with pytest.raises(ValidationError, match="own parent"):
+        build_story_plan_node(
+            node_id="story_plan.mainland_demo.loop",
+            parent_node_id="story_plan.mainland_demo.loop",
+            parent_node_version=1,
         )

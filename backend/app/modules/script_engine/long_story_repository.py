@@ -16,6 +16,7 @@ from app.modules.script_engine.long_story_models import (
     GenerationJobCheckpoint,
     GenerationJobStatus,
     StoryBible,
+    StoryPlanNode,
     StoryProject,
     StoryProjectStatus,
     StoryProjectWorkspaceSnapshot,
@@ -28,6 +29,7 @@ from app.modules.script_engine.long_story_persistence import (
     GenerationBatchPlanRecord,
     GenerationJobCheckpointRecord,
     StoryBibleVersionRecord,
+    StoryPlanNodeVersionRecord,
     StoryProjectRecord,
     StoryProjectWorkspaceSnapshotRecord,
     StoryStagePlanVersionRecord,
@@ -312,6 +314,80 @@ class LongStoryRepository:
                 .order_by(col(StoryBibleVersionRecord.version).desc())
             ).first()
         return self._from_payload(StoryBible, record)
+
+    def save_story_plan_node(self, node: StoryPlanNode) -> StoryPlanNode:
+        record = StoryPlanNodeVersionRecord(
+            node_id=node.node_id,
+            version=node.version,
+            story_project_id=node.story_project_id,
+            story_bible_id=node.story_bible_id,
+            story_bible_version=node.story_bible_version,
+            schema_version=node.schema_version,
+            parent_node_id=node.parent_node_id,
+            parent_node_version=node.parent_node_version,
+            predecessor_node_id=node.predecessor_node_id,
+            predecessor_node_version=node.predecessor_node_version,
+            sequence_order=node.sequence_order,
+            planned_start_episode=node.planned_start_episode,
+            planned_end_episode=node.planned_end_episode,
+            expansion_status=node.expansion_status.value,
+            status=node.status.value,
+            created_at=node.created_at,
+            approved_at=node.approved_at,
+            payload=node.model_dump(mode="json"),
+        )
+        self._save_immutable(
+            StoryPlanNodeVersionRecord,
+            (node.node_id, node.version),
+            record,
+            "Story Plan Node version",
+        )
+        return node
+
+    def get_story_plan_node(
+        self,
+        node_id: str,
+        *,
+        version: int | None = None,
+    ) -> StoryPlanNode | None:
+        if version is not None:
+            record = self._session.get(
+                StoryPlanNodeVersionRecord,
+                (node_id, version),
+            )
+        else:
+            record = self._session.exec(
+                select(StoryPlanNodeVersionRecord)
+                .where(StoryPlanNodeVersionRecord.node_id == node_id)
+                .order_by(col(StoryPlanNodeVersionRecord.version).desc())
+            ).first()
+        return self._from_payload(StoryPlanNode, record)
+
+    def list_story_plan_nodes(
+        self,
+        story_project_id: str,
+        *,
+        parent_node_id: str | None = None,
+        roots_only: bool = False,
+    ) -> list[StoryPlanNode]:
+        statement = select(StoryPlanNodeVersionRecord).where(
+            StoryPlanNodeVersionRecord.story_project_id == story_project_id
+        )
+        if roots_only:
+            statement = statement.where(
+                StoryPlanNodeVersionRecord.parent_node_id.is_(None)
+            )
+        elif parent_node_id is not None:
+            statement = statement.where(
+                StoryPlanNodeVersionRecord.parent_node_id == parent_node_id
+            )
+        records = self._session.exec(
+            statement.order_by(
+                StoryPlanNodeVersionRecord.sequence_order,
+                StoryPlanNodeVersionRecord.version,
+            )
+        ).all()
+        return [StoryPlanNode.model_validate(record.payload) for record in records]
 
     def save_story_stage(self, stage: StoryStagePlan) -> StoryStagePlan:
         record = StoryStagePlanVersionRecord(

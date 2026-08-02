@@ -180,8 +180,8 @@ The page uses four ordered document sections and a sticky generation summary.
 
 - Large optional story-idea textarea.
 - Live character count against the backend 240-character free-prompt limit.
-- Project remains invalid when prompt, tags and characters are all empty.
-- Current backend requires at least one selected/added tag, so the UI must guide the user to select a tag before Resolve.
+- Target product rule: Creative Prompt and effective tags cannot both be empty; characters are optional.
+- Current compatibility limitation: the backend still requires at least one selected/added Ontology tag and a non-empty `free_creative_prompt`. The UI currently guides the user to select a system tag and composes a visible fallback prompt. This is not the final contract.
 - `Custom Instructions` map to `CreativeBrief.generation_notes`, not directly to the Master Prompt.
 
 The user-facing prompt can be empty, but the current backend contract requires `free_creative_prompt` to contain 5-240 characters. When the user provides tags/characters but no prompt, the frontend mapper may compose a deterministic one-sentence intent from selected genre/elements and the protagonist goal. This sentence must be shown in `Resolution Preview` and confirmed by the user; it must never be inserted silently.
@@ -380,6 +380,13 @@ Version numbering belongs to the local project UX and must not overwrite backend
 - 英文界面不显示中文译文
 - 工作区提供“分集剧本”和“故事线与人物关系”两个项目视图
 - 故事线与关系网是可编辑 continuity artifact，不是 Story Planning runtime
+- 目标人物关系网使用角色节点和方向性关系边，直观展示关系类型、当前状态和跨集变化；目标故事线视图使用主线/支线/人物弧分支并关联规划节点与分集推进
+- 人物节点可点击进入人物详情页/侧栏，查看简介、设定、动机、首次出现位置和变化历史；关系连线可点击进入关系详情，查看方向、关系说明、成立原因、关键事件、证据集数和状态变化
+- 人物输入在创建项目时可为空；生成过程中新出现的人物、关系和支线先显示为待确认更新，确认后才成为后续生成约束
+- 关系网与故事线在统一“故事地图”入口中切换或联动展示，但不合并底层对象；关系详情可以跳转到相关故事线，故事线可以筛选参与人物与关系变化
+- 修改默认只对明确生效点之后的未生成内容生效；已有分集不得自动同步改写。未来先展示影响范围，再允许 future-only、创建项目分支、重规划未确认内容或显式历史再生成
+
+为避免长篇上下文无限增长，Frontend 不直接把完整关系网和全部故事线发送给模型。未来由后端 Context Mapper 根据当前规划节点/分集选择相关人物、关系、活跃支线、近期变化和未兑现伏笔；UI 应允许用户预览本次生成实际采用的 continuity slice。
 
 ## 6. Component Hierarchy
 
@@ -399,7 +406,7 @@ App
 │   ├── CreativeInputEditor
 │   ├── TagSelector
 │   │   ├── TagCategoryTabs
-│   │   ├── TagSearch
+│   │   ├── AddCustomTagDialog
 │   │   ├── TagChip
 │   │   ├── SelectedTagTray
 │   │   └── SuggestedTagPanel
@@ -697,7 +704,7 @@ Implemented:
 5. Deepening shadow tab and comparison code retained but hidden while the feature flag is disabled.
 6. Local editing, version snapshots and export.
 7. Controlled Revision, Re-QC, Acceptance shadow display and Finalization flow.
-8. Responsive bilingual UI, frontend type checking and production build validation.
+8. Responsive UI and retained bilingual capability; current `cn_mainland` mode fixes the interface/output to Chinese and hides the language switch.
 9. Local-first Project + Workspace Snapshot server synchronization, recovery, conflict reporting and revision-protected soft deletion.
 
 Still pending:
@@ -705,7 +712,8 @@ Still pending:
 - browser-level automated interaction coverage;
 - Artifact audit/restore UI and fine-grained intermediate editing versions;
 - standalone re-QC for locally edited Drafts;
-- multi-episode planning and generation.
+- Story Bible / recursive Story Plan / Episode Plan authoring and approval UI;
+- backend durable generation jobs and resumable multi-episode execution. Current sequential and bounded staged generation already reuse the single-episode API from the frontend.
 
 Do not start with multi-episode orchestration or a frontend-specific backend facade.
 
@@ -718,6 +726,9 @@ Do not start with multi-episode orchestration or a frontend-specific backend fac
 - Standalone Deepening request and an evidence-approved apply decision.
 - Story Blueprint, Episode Plans and sequential/full generation.
 - Real trending recommendations from Data Intelligence.
+- Source-grounded Tag Knowledge Profile previews and provenance.
+- Project-scoped CustomTagContext interpretation and confirmation before an unknown tag affects synopsis generation.
+- Prompt-only, controlled-tag-only and confirmed-custom-tag-only Creative Intent resolution.
 - Knowledge suggestion explanations and bundle coverage across genres.
 - Production handoff adapters after FinalMasterScript.
 

@@ -22,7 +22,7 @@ from scripts.run_real_generation_validation import (
 from app.llm_runtime import get_llm_runtime_config
 
 
-FRONTEND_ONTOLOGY_NODES = (
+OVERSEAS_FRONTEND_ONTOLOGY_NODES = (
     ("genre.romance", "Romance", "Genre"),
     ("genre.dark_romance", "Dark Romance", "Genre"),
     ("genre.fantasy", "Fantasy", "Genre"),
@@ -57,6 +57,80 @@ FRONTEND_ONTOLOGY_NODES = (
     ("hook.immediate_conflict", "Immediate Conflict", "Hook"),
     ("cliffhanger.unanswered_threat", "Unanswered Threat", "Cliffhanger"),
 )
+
+MAINLAND_FRONTEND_ONTOLOGY_NODES = (
+    ("genre.romance", "爱情", "Genre"),
+    ("genre.dark_romance", "强情感虐恋", "Genre"),
+    ("genre.modern_romance", "现代言情", "Genre"),
+    ("genre.costume_romance", "古代言情", "Genre"),
+    ("genre.urban", "都市", "Genre"),
+    ("genre.fantasy", "玄幻", "Genre"),
+    ("genre.xianxia", "仙侠", "Genre"),
+    ("genre.wuxia", "武侠", "Genre"),
+    ("genre.scifi", "科幻", "Genre"),
+    ("genre.mystery", "悬疑", "Genre"),
+    ("genre.horror", "惊悚", "Genre"),
+    ("genre.comedy", "喜剧", "Genre"),
+    ("genre.action", "动作", "Genre"),
+    ("genre.historical", "历史", "Genre"),
+    ("genre.school", "校园", "Genre"),
+    ("genre.apocalypse", "末日", "Genre"),
+    ("genre.family", "家庭伦理", "Genre"),
+    ("theme.revenge", "复仇", "Theme"),
+    ("theme.rebirth", "重生", "Theme"),
+    ("theme.transmigration", "穿越", "Theme"),
+    ("theme.system", "系统", "Theme"),
+    ("theme.power_growth", "逆袭成长", "Theme"),
+    ("theme.hidden_identity", "隐藏身份", "Theme"),
+    ("theme.true_fake_heir", "真假千金", "Theme"),
+    ("theme.wealthy_family", "豪门", "Theme"),
+    ("theme.business_war", "商战", "Theme"),
+    ("theme.palace_intrigue", "权谋", "Theme"),
+    ("theme.investigation", "探案", "Theme"),
+    ("theme.infinite_flow", "无限流", "Theme"),
+    ("theme.apocalypse_survival", "末日求生", "Theme"),
+    ("theme.supernatural_power", "异能", "Theme"),
+    ("theme.cultivation", "修仙", "Theme"),
+    ("theme.time_loop", "时间循环", "Theme"),
+    ("theme.vampire", "吸血鬼", "Theme"),
+    ("relationship.contract", "契约关系", "Relationship"),
+    ("relationship.marriage_first_love_later", "先婚后爱", "Relationship"),
+    ("relationship.reconciliation", "破镜重圆", "Relationship"),
+    ("relationship.chasing_spouse", "追妻火葬场", "Relationship"),
+    ("relationship.forbidden_love", "禁忌关系", "Relationship"),
+    ("relationship.rivals_to_allies", "宿敌合作", "Relationship"),
+    ("relationship.family_conflict", "家族冲突", "Relationship"),
+    ("conflict.class_gap", "阶层差异", "Conflict"),
+    ("conflict.identity_exposure", "身份暴露", "Conflict"),
+    ("world.modern_city", "现代都市", "World"),
+    ("world.ancient_court", "古代朝堂", "World"),
+    ("emotion.satisfying", "爽感", "Emotion"),
+    ("emotion.suspense", "悬念", "Emotion"),
+    ("emotion.sweet", "甜宠", "Emotion"),
+    ("emotion.tragic", "虐心", "Emotion"),
+    ("emotion.healing", "治愈", "Emotion"),
+    ("emotion.hot_blooded", "热血", "Emotion"),
+    ("emotion.humorous", "轻松搞笑", "Emotion"),
+    ("emotion.oppressive", "压迫感", "Emotion"),
+    ("emotion.righteous_anger", "正义之怒", "Emotion"),
+    ("audience.female_oriented", "女频受众", "Audience"),
+    ("audience.male_oriented", "男频受众", "Audience"),
+    ("audience.youth", "青年受众", "Audience"),
+    ("audience.mature", "熟龄受众", "Audience"),
+    ("audience.romance", "言情受众", "Audience"),
+    ("audience.fantasy", "玄幻受众", "Audience"),
+    ("audience.mystery", "悬疑受众", "Audience"),
+    ("audience.family", "家庭题材受众", "Audience"),
+    ("hook.crisis_opening", "开局危机", "Hook"),
+    ("hook.goal_first", "目标先行", "Hook"),
+    ("twist.identity_reversal", "身份反转", "Twist"),
+    ("cliffhanger.new_threat", "新威胁", "Cliffhanger"),
+    ("cliffhanger.reveal_withheld", "真相延迟", "Cliffhanger"),
+    ("pace.steady_escalation", "稳步升级", "Pace"),
+)
+
+# Backward-compatible import for tests and scripts that assume the default market.
+FRONTEND_ONTOLOGY_NODES = MAINLAND_FRONTEND_ONTOLOGY_NODES
 
 DEFAULT_MARKET_PROFILE = "cn_mainland"
 SUPPORTED_MARKET_PROFILES = {"cn_mainland", "overseas_tiktok"}
@@ -124,6 +198,7 @@ def _bootstrap_payloads(
         strategy_payloads = [
             _build_mainland_generation_strategy_payload(suffix, model_config)
         ]
+        ontology_nodes = MAINLAND_FRONTEND_ONTOLOGY_NODES
     else:
         platform_payload = build_platform_profile_payload(profile_id)
         prompt_payloads = build_prompt_library_payload(suffix)
@@ -134,6 +209,7 @@ def _bootstrap_payloads(
             model_config,
             deepening_prompt_id=deepening_prompt["id"],
         )
+        ontology_nodes = OVERSEAS_FRONTEND_ONTOLOGY_NODES
 
     payloads: list[tuple[str, dict[str, Any]]] = [
         ("/platform-profiles", platform_payload),
@@ -141,9 +217,14 @@ def _bootstrap_payloads(
     payloads.extend(
         (
             "/ontology-nodes",
-            build_ontology_node_payload(node_id, label, category),
+            _build_market_ontology_node_payload(
+                node_id,
+                label,
+                category,
+                market_profile=market_profile,
+            ),
         )
-        for node_id, label, category in FRONTEND_ONTOLOGY_NODES
+        for node_id, label, category in ontology_nodes
     )
     payloads.extend(
         (
@@ -153,9 +234,10 @@ def _bootstrap_payloads(
                 label=label,
                 category=category,
                 profile_id=profile_id,
+                market_profile=market_profile,
             ),
         )
-        for node_id, label, category in FRONTEND_ONTOLOGY_NODES
+        for node_id, label, category in ontology_nodes
     )
     payloads.extend(
         ("/prompt-library", prompt_payload)
@@ -166,6 +248,20 @@ def _bootstrap_payloads(
         for strategy_payload in strategy_payloads
     )
     return payloads
+
+
+def _build_market_ontology_node_payload(
+    node_id: str,
+    label: str,
+    category: str,
+    *,
+    market_profile: str,
+) -> dict[str, Any]:
+    payload = build_ontology_node_payload(node_id, label, category)
+    if market_profile == "cn_mainland":
+        payload["description"] = f"中国大陆长篇漫剧创作标签：{label}。"
+        payload["aliases"] = [label]
+    return payload
 
 
 def _build_mainland_platform_profile_payload(profile_id: str) -> dict[str, Any]:
@@ -409,12 +505,18 @@ def _build_scene_asset_payload(
     label: str,
     category: str,
     profile_id: str,
+    market_profile: str = DEFAULT_MARKET_PROFILE,
 ) -> dict[str, Any]:
+    is_mainland = market_profile == "cn_mainland"
     return {
         "id": f"scene.frontend_mvp_{node_id.replace('.', '_')}",
         "asset_type": "scene",
-        "title": f"Adaptable {label} Story Setting",
-        "summary": "A generic scene-setting source for local frontend generation validation.",
+        "title": f"可适配的{label}创作参考" if is_mainland else f"Adaptable {label} Story Setting",
+        "summary": (
+            "用于中国大陆长篇漫剧创作的通用标签参考，不预设固定情节。"
+            if is_mainland
+            else "A generic scene-setting source for local frontend generation validation."
+        ),
         "tags": [
             {
                 "ontology_node_id": node_id,
@@ -424,11 +526,21 @@ def _build_scene_asset_payload(
             }
         ],
         "content": {
-            "text": "Adapt the location to the selected story intent without imposing a fixed plot.",
-            "payload": {"source": "frontend_mvp_runtime_bootstrap"},
+            "text": (
+                "根据用户创作意图使用该标签，不得将标签扩写成固定套路或替代用户设定。"
+                if is_mainland
+                else "Adapt the location to the selected story intent without imposing a fixed plot."
+            ),
+            "payload": {
+                "source": "frontend_mvp_runtime_bootstrap",
+                "market_profile": market_profile,
+            },
         },
         "applicable_platform_profile_ids": [profile_id],
-        "metadata": {"source": "frontend_mvp_runtime_bootstrap"},
+        "metadata": {
+            "source": "frontend_mvp_runtime_bootstrap",
+            "market_profile": market_profile,
+        },
         "is_active": True,
     }
 

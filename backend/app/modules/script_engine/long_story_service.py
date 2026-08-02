@@ -15,6 +15,8 @@ from app.modules.script_engine.long_story_models import (
     EpisodeArtifactKind,
     EpisodePlan,
     StoryBible,
+    StoryPlanNode,
+    StoryPlanExpansionStatus,
     StoryProject,
     StoryProjectStatus,
     StoryProjectWorkspaceSave,
@@ -28,7 +30,12 @@ from app.modules.script_engine.long_story_repository import (
 
 
 ResultT = TypeVar("ResultT")
-PlanningVersionT = TypeVar("PlanningVersionT", StoryStagePlan, EpisodePlan)
+PlanningVersionT = TypeVar(
+    "PlanningVersionT",
+    StoryPlanNode,
+    StoryStagePlan,
+    EpisodePlan,
+)
 
 
 class LongStoryNotFoundError(LookupError):
@@ -303,6 +310,165 @@ class LongStoryService:
 
         return self._run(operation)
 
+    def save_story_plan_node(self, node: StoryPlanNode) -> StoryPlanNode:
+        def operation(repository: LongStoryRepository) -> StoryPlanNode:
+            project = self._require_project(
+                repository,
+                node.story_project_id,
+                for_update=True,
+            )
+            story_bible = repository.get_story_bible(
+                node.story_bible_id,
+                version=node.story_bible_version,
+            )
+            if story_bible is None or story_bible.story_project_id != project.project_id:
+                raise LongStoryReferenceError(
+                    "Story Plan Node must reference a Story Bible in the same project."
+                )
+            if (
+                node.planned_end_episode is not None
+                and node.planned_end_episode > project.planned_episode_count
+            ):
+                raise LongStoryReferenceError(
+                    "Story Plan Node episode range exceeds the Story Project episode count."
+                )
+            if not set(node.character_refs).issubset(story_bible.character_refs):
+                raise LongStoryReferenceError(
+                    "Story Plan Node character_refs must exist in its Story Bible."
+                )
+            story_line_ids = {item.story_line_id for item in story_bible.story_lines}
+            if not set(node.story_line_refs).issubset(story_line_ids):
+                raise LongStoryReferenceError(
+                    "Story Plan Node story_line_refs must exist in its Story Bible."
+                )
+
+            parent = None
+            if node.parent_node_id is not None:
+                parent = repository.get_story_plan_node(
+                    node.parent_node_id,
+                    version=node.parent_node_version,
+                )
+                if parent is None or parent.story_project_id != project.project_id:
+                    raise LongStoryReferenceError(
+                        "Story Plan Node parent must exist in the same project."
+                    )
+                if (
+                    parent.story_bible_id != node.story_bible_id
+                    or parent.story_bible_version != node.story_bible_version
+                ):
+                    raise LongStoryReferenceError(
+                        "Story Plan Node parent must use the same Story Bible version."
+                    )
+                if parent.expansion_status != StoryPlanExpansionStatus.expanded:
+                    raise LongStoryReferenceError(
+                        "A Story Plan Node must be expanded before it can have children."
+                    )
+                self._validate_child_bounds(parent, node)
+
+            predecessor = None
+            if node.predecessor_node_id is not None:
+                predecessor = repository.get_story_plan_node(
+                    node.predecessor_node_id,
+                    version=node.predecessor_node_version,
+                )
+                if predecessor is None:
+                    raise LongStoryReferenceError(
+                        "Story Plan Node predecessor was not found."
+                    )
+                if (
+                    predecessor.story_project_id != node.story_project_id
+                    or predecessor.story_bible_id != node.story_bible_id
+                    or predecessor.story_bible_version != node.story_bible_version
+                    or predecessor.parent_node_id != node.parent_node_id
+                    or predecessor.parent_node_version != node.parent_node_version
+                ):
+                    raise LongStoryReferenceError(
+                        "Story Plan Node predecessor must be a sibling in the same plan."
+                    )
+                if predecessor.sequence_order >= node.sequence_order:
+                    raise LongStoryReferenceError(
+                        "Story Plan Node predecessor must appear earlier among its siblings."
+                    )
+            elif node.parent_node_id is not None and node.sequence_order > 1:
+                raise LongStoryReferenceError(
+                    "A non-first child Story Plan Node requires an explicit predecessor."
+                )
+
+            self._validate_version_sequence(
+                current=repository.get_story_plan_node(node.node_id),
+                requested_version=node.version,
+                label="Story Plan Node",
+            )
+            latest_nodes = self._latest_versions_by_id(
+                repository.list_story_plan_nodes(node.story_project_id),
+                "node_id",
+            )
+            for existing in latest_nodes:
+                if existing.node_id == node.node_id or existing.status.value == "superseded":
+                    continue
+                same_parent = (
+                    existing.parent_node_id == node.parent_node_id
+                    and existing.parent_node_version == node.parent_node_version
+                )
+                if same_parent and existing.sequence_order == node.sequence_order:
+                    raise LongStoryPersistenceConflictError(
+                        "Another active Story Plan Node already uses this sibling order."
+                    )
+                if node.parent_node_id is None and existing.parent_node_id is None:
+                    if (
+                        existing.story_bible_id == node.story_bible_id
+                        and existing.story_bible_version == node.story_bible_version
+                    ):
+                        raise LongStoryPersistenceConflictError(
+                            "A Story Bible version can have only one active root plan node."
+                        )
+            return repository.save_story_plan_node(node)
+
+        return self._run(operation)
+
+    def get_story_plan_node(
+        self,
+        story_project_id: str,
+        node_id: str,
+        *,
+        version: int | None = None,
+    ) -> StoryPlanNode:
+        def operation(repository: LongStoryRepository) -> StoryPlanNode:
+            self._require_project(repository, story_project_id)
+            node = repository.get_story_plan_node(node_id, version=version)
+            if node is None or node.story_project_id != story_project_id:
+                raise LongStoryNotFoundError(
+                    f"Story Plan Node '{node_id}' was not found in "
+                    f"Story Project '{story_project_id}'."
+                )
+            return node
+
+        return self._run(operation)
+
+    def list_story_plan_nodes(
+        self,
+        story_project_id: str,
+        *,
+        parent_node_id: str | None = None,
+        roots_only: bool = False,
+    ) -> list[StoryPlanNode]:
+        def operation(repository: LongStoryRepository) -> list[StoryPlanNode]:
+            self._require_project(repository, story_project_id)
+            if parent_node_id is not None:
+                parent = repository.get_story_plan_node(parent_node_id)
+                if parent is None or parent.story_project_id != story_project_id:
+                    raise LongStoryNotFoundError(
+                        f"Parent Story Plan Node '{parent_node_id}' was not found in "
+                        f"Story Project '{story_project_id}'."
+                    )
+            return repository.list_story_plan_nodes(
+                story_project_id,
+                parent_node_id=parent_node_id,
+                roots_only=roots_only,
+            )
+
+        return self._run(operation)
+
     def save_story_stage(self, stage: StoryStagePlan) -> StoryStagePlan:
         def operation(repository: LongStoryRepository) -> StoryStagePlan:
             project = self._require_project(
@@ -471,6 +637,37 @@ class LongStoryService:
         if requested_version not in {current.version, current.version + 1}:
             raise LongStoryPersistenceConflictError(
                 f"{label} version is stale or skips a version."
+            )
+
+    @staticmethod
+    def _validate_child_bounds(parent: StoryPlanNode, child: StoryPlanNode) -> None:
+        if (
+            parent.planned_start_episode is not None
+            and child.planned_start_episode is not None
+            and (
+                child.planned_start_episode < parent.planned_start_episode
+                or child.planned_end_episode > parent.planned_end_episode
+            )
+        ):
+            raise LongStoryReferenceError(
+                "Child Story Plan Node episode range must stay inside its parent."
+            )
+        if (
+            parent.estimated_episode_count is not None
+            and child.estimated_episode_count is not None
+            and child.estimated_episode_count > parent.estimated_episode_count
+        ):
+            raise LongStoryReferenceError(
+                "Child Story Plan Node episode estimate cannot exceed its parent."
+            )
+        if (
+            parent.estimated_script_body_characters is not None
+            and child.estimated_script_body_characters is not None
+            and child.estimated_script_body_characters
+            > parent.estimated_script_body_characters
+        ):
+            raise LongStoryReferenceError(
+                "Child Story Plan Node body estimate cannot exceed its parent."
             )
 
     @staticmethod

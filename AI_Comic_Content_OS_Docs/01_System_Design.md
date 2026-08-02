@@ -62,6 +62,26 @@ User → Selected Tags / Added Tags / Excluded Tags / Creative Prompt
 
 其中 Phase 1 已通过现有 `ContentSpecService` 实现确定性 `CreativeIntentInput -> ContentSpec + ResolvedCreativeContext` Resolution API。Script Engine 的标准化需求输入仍是 `ContentSpec`，Character Context、字段 provenance、locked fields 和 exclusions 通过独立 optional 上下文进入 Draft Generation，不写入 `ContentSpec.metadata`。Phase 2 已接入由 `GenerationStrategy` 显式声明、按 tag / platform / stage 校验的静态 Draft 与 Deepening Knowledge Bundle。Creative Deepening 代码保留，但当前由独立前后端开关关闭。Frontend MVP 已通过现有步骤 API 支持逐集和分阶段全部生成；每个阶段保存集数范围、阶段指令和完成状态，并允许下一阶段读取更新后的标签、角色、故事线与人物关系。该能力仍是对单集 API 的有界编排，不是 Story Blueprint / Episode Planning runtime。后端已建立 PostgreSQL 长篇 schema、Alembic migration、事务型 Repository和版本化资源 API；Frontend 采用 IndexedDB 本地优先并同步完整 Workspace Snapshot，确认/修订/终稿另存不可变 Episode Artifact，服务端版本冲突不会静默覆盖。推荐标签 fallback、alias / unresolved tag、正式后端 Relationship Contract、AI 自动补全、动态 Knowledge Retrieval / RAG 仍未实现。
 
+中国大陆长篇目标链路已经确定，但尚未完整进入 runtime：
+
+```text
+Creative Prompt and/or Effective Tags
+→ optional Character Input
+→ Tag Context / Creative Intent Resolution
+→ Reviewable Story Synopsis / Story Direction
+→ Approved Story Bible Root
+→ Level-free, Non-balanced Recursive StoryPlanNode Tree
+→ Episode-ready Leaves
+→ Episode Plans
+→ Bounded Episode Generation Batches
+→ Continuity Updates
+→ Long-form Story Body
+```
+
+当前已实现 Story Bible、递归 Story Plan Node、Episode Plan 的契约、PostgreSQL persistence 和资源 API；尚未实现自动形成梗概、自动拆树、规划审核 UI、叶子映射、Continuity 自动更新和后台可恢复 Job。标签当前只直接影响 ContentSpec / Prompt；source-grounded Tag Profile、实时 Trend Signal 和 project-scoped CustomTagContext 仍是未来能力。
+
+人物关系网和故事线树是 Story Bible / Planning / Continuity facts 的辅助检阅投影。人物初始输入允许为空，后续从已确认规划和分集逐渐形成 proposed character / relationship / story-line delta，确认后才进入连续性事实。关系对象与故事线对象不合并，但可在统一 Story Map 中相互引用；后续生成只读取当前规划节点相关的 bounded continuity slice。关系或故事线修改默认只从指定未来节点/集数生效，不自动改写历史；显式历史调整必须经过 impact analysis、版本分支和可审计再生成。
+
 当前最小实现中，`Asset Retrieval` 的直接输入暂由 `OrchestrationPlan.asset_requests` 承载，用于保证资产检索请求结构化、可控、可测试。
 
 当前 Script Engine 的内部推荐流程为：

@@ -190,7 +190,7 @@ class CreativeIntentInput(BaseModel):
     audience_goal: TargetGoal
     commercial_goal: TargetGoal
     platform_goal: PlatformGoal
-    free_creative_prompt: str = Field(min_length=5, max_length=240)
+    free_creative_prompt: str = Field(default="", max_length=240)
     quality_level: QualityLevel
     budget_level: BudgetLevel
     selected_tag_ids: list[str] = Field(default_factory=list, max_length=12)
@@ -218,8 +218,10 @@ class CreativeIntentInput(BaseModel):
     def validate_active_tag_boundary(self) -> "CreativeIntentInput":
         active_tag_ids = self.selected_tag_ids + self.added_tag_ids
         normalized = [tag_id.casefold() for tag_id in active_tag_ids]
-        if not active_tag_ids:
-            raise ValueError("Creative intent requires at least one selected or added tag.")
+        if not self.free_creative_prompt.strip() and not active_tag_ids:
+            raise ValueError(
+                "Creative intent requires a free prompt or at least one active tag."
+            )
         if len(normalized) > 12:
             raise ValueError("Creative intent supports at most 12 active tags.")
         if len(set(normalized)) != len(normalized):
@@ -245,7 +247,7 @@ class ContentSpecBase(BaseModel):
     story_goal: str = Field(min_length=5, max_length=240)
     quality_level: QualityLevel
     budget_level: BudgetLevel
-    tags: list[TagRef] = Field(default_factory=list, min_length=1, max_length=20)
+    tags: list[TagRef] = Field(default_factory=list, max_length=20)
     creative_brief: CreativeBrief
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -290,7 +292,7 @@ class CreativeIntentResolutionResult(BaseModel):
     schema_version: str = Field(default="v1", pattern=r"^v\d+$")
     content_spec: ContentSpec
     resolved_creative_context: ResolvedCreativeContext
-    resolved_tag_refs: list[TagRef] = Field(min_length=1, max_length=12)
+    resolved_tag_refs: list[TagRef] = Field(default_factory=list, max_length=12)
     conflict_warnings: list[str] = Field(default_factory=list, max_length=20)
     requires_user_resolution: bool = False
     mapping_trace: list[CreativeIntentMappingTrace] = Field(default_factory=list, max_length=50)

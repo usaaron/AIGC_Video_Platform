@@ -1,0 +1,81 @@
+{
+  "content_spec_id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+  "generation_strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+  "output_language": "zh",
+  "desired_scene_count": 3,
+  "target_script_body_characters": 1797,
+  "resolved_creative_context": {
+    "schema_version": "v1",
+    "content_spec_id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+    "characters": [
+      {
+        "character_ref": "character.su_wan",
+        "name": "苏晚",
+        "role": "女主角、调查记者",
+        "description": "28岁，冷静敏锐，因姐姐死于被掩盖的矿难而追查顾氏；渴望公开真相，害怕再次信错人，底线是不牺牲无辜者。",
+        "motivation": null,
+        "desire": null,
+        "fear": null,
+        "belief": null,
+        "contradiction": null,
+        "decision_pattern": null,
+        "moral_boundaries": [],
+        "locked_fields": [
+          "name",
+          "role",
+          "description"
+        ],
+        "field_sources": {
+          "name": "user_provided",
+          "role": "user_provided",
+          "description": "user_provided"
+        }
+      },
+      {
+        "character_ref": "character.gu_chenzhou",
+        "name": "顾沉舟",
+        "role": "男主角、顾氏继承人",
+        "description": "30岁，克制强势，表面阻止苏晚曝光，实际在调查父亲；渴望终止家族罪恶，但恐惧真相毁掉所有亲近的人。",
+        "motivation": null,
+        "desire": null,
+        "fear": null,
+        "belief": null,
+        "contradiction": null,
+        "decision_pattern": null,
+        "moral_boundaries": [],
+        "locked_fields": [
+          "name",
+          "role",
+          "description"
+        ],
+        "field_sources": {
+          "name": "user_provided",
+          "role": "user_provided",
+          "description": "user_provided"
+        }
+      }
+    ],
+    "excluded_tag_ids": [],
+    "excluded_patterns": [
+      "海外平台术语",
+      "直播带货",
+      "秘密继承人捷径"
+    ],
+    "resolution_warnings": []
+  },
+  "episode_context": {
+    "generation_mode": "full",
+    "episode_number": 2,
+    "total_episodes": 334,
+    "previous_episode_summary": "Episode title: 第一集：被改写的证据\nSynopsis: 订婚宴上，苏晚准备公开顾氏掩盖矿难的材料，却被顾沉舟指出文件中藏有未脱敏证人名单。她主动暂停发送并核验材料，发现核心事故记录真实，但匿名来源曾二次拼接文件。面对顾沉舟的隐瞒与公开窗口的关闭，苏晚拒绝交出证据，改为公布已核验事实，暂停订婚并要求顾氏接受调查。就在她保护证人、主动推进主线后，离线存储盘的来源记录竟被改写，并指向顾沉舟的办公室。\nFinal state change: 苏晚公开暂停订婚并要求核查顾氏记录，随后发现离线证据的来源记录被实时改写，且矛头被刻意引向顾沉舟。\nFinal turning point: 苏晚公开暂停订婚后，证据来源被异常改写为顾沉舟的私人办公室。",
+    "previous_episode_question": "是谁在苏晚持有存储盘期间改写了证据追踪记录，又为何故意把来源指向顾沉舟的私人办公室？",
+    "episode_instruction": "生成第2集，直接承接上一集最终状态和未决问题；引入新的行动与代价，不复述上一集，不重置人物关系。",
+    "project_continuity_summary": "长篇主线：苏晚追查姐姐死亡与顾氏矿难；顾沉舟表面阻止、暗中调查父亲；两人在不信任中被迫合作。苏晚不牺牲无辜者，顾沉舟不能替苏晚决定真相如何公开。不得提前揭晓最终幕后主使。",
+    "batch_context": {
+      "batch_number": 1,
+      "start_episode": 1,
+      "end_episode": 5,
+      "batch_instruction": "承接既有状态并推进证据、关系或风险中的至少一项；不得重置冲突、重复上一集揭露或解决长篇主线。"
+    }
+  }
+}

@@ -164,7 +164,7 @@ Capability Development
 - PostgreSQL 是正式生产数据源；SQLite 只用于自动化测试和 migration compatibility，不作为生产替代。
 - 每个 Web 请求或 Application Use Case 使用独立 Session 和事务，异常时必须 rollback。
 - 稳定筛选字段、外键、状态、版本、集数和时间关系化；仍在演进的长篇结构保存 JSONB 完整快照。
-- Story Bible、Story Stage、Episode Plan 和 Continuity Ledger 版本一经写入不得原地覆盖，新内容必须提升 version。
+- Story Bible、Story Plan Node、Story Stage、Episode Plan 和 Continuity Ledger 版本一经写入不得原地覆盖，新内容必须提升 version。
 - Project、Batch 和 Job 等可变对象使用 revision 做 optimistic concurrency，禁止静默 last-write-wins。
 - Migration 必须验证 upgrade、downgrade 和 metadata drift；Alembic autogenerate 结果必须人工审阅。
 - Frontend Project + Workspace Snapshot 已接入 PostgreSQL，确认/修订/终稿已有 Episode Artifact；在编辑过程细粒度历史、旧 Repository 与后台 Job 全部迁移前，不得宣称整个生产链路已经完整 durable。
@@ -186,6 +186,12 @@ Capability Development
 - Final `MasterScript` 只能通过受控 Finalization Gate 生成并保存 lineage。
 - 前端分集编排不得伪装为尚未实现的 Story Blueprint / Episode Planning runtime。
 - 新增角色、故事线或关系约束不得静默改写历史分集。
+- 长篇规划不得强制固定层级或平衡树；每个 Story Plan Node 根据自身复杂度独立决定继续拆分或进入 `episode_ready`。
+- 人物关系网和故事线树是 Story Bible / Planning / Continuity 的可视化投影，不得成为相互冲突的第二事实源。
+- 人物与关系允许随已确认规划和分集渐进补全；模型生成的候选变化必须保留来源和确认状态，不能直接污染后续连续性事实。
+- 人物关系和故事线保持独立领域语义，可在统一 Story Map 中交叉引用；后续生成只消费与当前规划节点相关的有界连续性切片，不注入整部作品的全量图谱。
+- 已有内容后的关系/故事线修改默认 future-only；历史重写必须先做影响分析、显式创建版本并保留 lineage。
+- 标签必须区分稳定 Ontology、来源证据、知识画像和动态趋势；未知自定义标签只能先进入 project scope，不能自动污染公共知识。
 - Agent 如进入产品，应调用受控 Application Use Cases / Tools，不得绕过现有领域规则或形成无限自主循环。
 
 ## Definition Of Done

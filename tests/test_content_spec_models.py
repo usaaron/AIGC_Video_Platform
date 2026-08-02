@@ -68,6 +68,16 @@ def test_content_spec_create_accepts_valid_payload() -> None:
     assert len(model.tags) == 2
 
 
+def test_content_spec_create_accepts_prompt_driven_payload_without_tags() -> None:
+    payload = build_payload()
+    payload["tags"] = []
+
+    model = ContentSpecCreate.model_validate(payload)
+
+    assert model.story_goal == payload["story_goal"]
+    assert model.tags == []
+
+
 def test_content_spec_create_rejects_duplicate_tags() -> None:
     payload = build_payload()
     payload["tags"].append(payload["tags"][0].copy())
@@ -153,6 +163,65 @@ def test_creative_intent_rejects_selected_and_added_overlap() -> None:
                 "budget_level": payload["budget_level"],
                 "selected_tag_ids": ["genre.romance"],
                 "added_tag_ids": ["genre.romance"],
+                "creative_brief": payload["creative_brief"],
+            }
+        )
+
+
+def test_creative_intent_accepts_prompt_without_tags() -> None:
+    payload = build_payload()
+
+    intent = CreativeIntentInput.model_validate(
+        {
+            "title": payload["title"],
+            "audience_goal": payload["audience_goal"],
+            "commercial_goal": payload["commercial_goal"],
+            "platform_goal": payload["platform_goal"],
+            "free_creative_prompt": payload["story_goal"],
+            "quality_level": payload["quality_level"],
+            "budget_level": payload["budget_level"],
+            "creative_brief": payload["creative_brief"],
+        }
+    )
+
+    assert intent.selected_tag_ids == []
+    assert intent.added_tag_ids == []
+
+
+def test_creative_intent_accepts_tags_without_prompt() -> None:
+    payload = build_payload()
+
+    intent = CreativeIntentInput.model_validate(
+        {
+            "title": payload["title"],
+            "audience_goal": payload["audience_goal"],
+            "commercial_goal": payload["commercial_goal"],
+            "platform_goal": payload["platform_goal"],
+            "free_creative_prompt": "",
+            "quality_level": payload["quality_level"],
+            "budget_level": payload["budget_level"],
+            "selected_tag_ids": ["genre.romance"],
+            "creative_brief": payload["creative_brief"],
+        }
+    )
+
+    assert intent.free_creative_prompt == ""
+    assert intent.selected_tag_ids == ["genre.romance"]
+
+
+def test_creative_intent_rejects_missing_prompt_and_tags() -> None:
+    payload = build_payload()
+
+    with pytest.raises(ValidationError, match="free prompt or at least one active tag"):
+        CreativeIntentInput.model_validate(
+            {
+                "title": payload["title"],
+                "audience_goal": payload["audience_goal"],
+                "commercial_goal": payload["commercial_goal"],
+                "platform_goal": payload["platform_goal"],
+                "free_creative_prompt": "  ",
+                "quality_level": payload["quality_level"],
+                "budget_level": payload["budget_level"],
                 "creative_brief": payload["creative_brief"],
             }
         )

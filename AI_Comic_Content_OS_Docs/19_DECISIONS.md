@@ -487,7 +487,7 @@ Raw Data
 
 - 中国大陆资料提高的是市场适用度，不自动提高来源可信度；未经验证的爆款公式仍不得成为硬规则
 - 当前 Story QC 的平台维度改为通用 `Platform Fit`，中文不再被 Cultural Fit 默认降分
-- 中国大陆长篇 Knowledge Bundle、Story Bible、故事阶段规划和 Continuity Ledger 尚未实现，必须小步设计和验证
+- 中国大陆长篇 Knowledge Bundle 和 planning runtime 尚未实现；Story Bible、递归 Story Plan Node、兼容 Stage、Episode Plan 与 Continuity Ledger 已完成契约，其中主要规划对象已接入 PostgreSQL 资源 API
 - D-002 被本决策取代；D-015 只在重新启用海外模式时继续适用
 
 ---
@@ -513,7 +513,7 @@ Raw Data
 
 影响：
 
-- 当前批次状态和项目历史仍保存在浏览器 IndexedDB，后端 PostgreSQL 项目聚合、Generation Job 和断点恢复仍是下一阶段能力
+- 当前批次 authoring history 仍主要保存在 IndexedDB / Workspace Snapshot；PostgreSQL Project 与 Workspace Snapshot 已接入，后端 Generation Job executor 和断点恢复仍是下一阶段能力
 - 阶段生成提高了创作可控性，但不解决 Story Bible、跨阶段 Setup/Payoff、长期人物弧和专业连续性规划
 - 后续热点或 Data Intelligence 推荐必须由使用者确认后进入下一阶段输入，不得自动改写已确认剧集
 
@@ -528,8 +528,8 @@ Raw Data
 - 生产环境使用 PostgreSQL；SQLite 只用于 Repository 和 migration 自动化测试
 - 使用 SQLModel / SQLAlchemy 映射、Psycopg 3 驱动和 Alembic migration，不依赖应用启动时自动建表
 - 项目、版本号、状态、集数范围、时间等查询与约束字段采用关系列和索引
-- Story Bible、Stage Plan、Episode Plan、Continuity Ledger 等完整版本对象保存为 JSONB snapshot，避免将领域契约拆散为不可维护的超细表结构
-- Story Bible、Stage Plan、Episode Plan 和 Continuity Ledger 采用 immutable version；已保存版本不得原地覆盖
+- Story Bible、Story Plan Node、Stage Plan、Episode Plan、Continuity Ledger 等完整版本对象保存为 JSONB snapshot，避免将领域契约拆散为不可维护的超细表结构
+- Story Bible、Story Plan Node、Stage Plan、Episode Plan 和 Continuity Ledger 采用 immutable version；已保存版本不得原地覆盖
 - Story Project、Generation Batch 和 Generation Job 使用 optimistic revision；Repository 拒绝 stale write 和非法状态倒退
 - 一个 Application Use Case 使用一个数据库 Session / transaction；Repository 不自行提交事务
 - 所有 schema 变化必须通过可升级、可降级并可检查 metadata drift 的 migration 交付
@@ -542,7 +542,91 @@ Raw Data
 
 影响：
 
-- 当前已完成 schema、migration、事务型 Repository、Project / Story Bible / Stage / Episode Plan 资源 API、Frontend Project + Workspace Snapshot 同步，以及确认/修订/终稿 Episode Artifact；后台 Job 和编辑过程细粒度版本尚未接入
+- 当前已完成 schema、migration、事务型 Repository、Project / Story Bible / Story Plan Node / Stage / Episode Plan 资源 API、Frontend Project + Workspace Snapshot 同步，以及确认/修订/终稿 Episode Artifact；后台 Job 和编辑过程细粒度版本尚未接入
 - Application Use Cases 必须负责权限边界、事务范围和领域对象协调；API 不得直接操作 SQLModel Record
 - Frontend 采用 IndexedDB 本地优先 + PostgreSQL Workspace Snapshot：revision 冲突必须显式报告，不允许静默覆盖；删除采用服务端软归档，失败时不得假装成功
 - 本决策不引入新的 Engine，也不改变现有单集生成、Story QC、Revision 或 Finalization 行为
+
+---
+
+## D-023 长篇规划采用无固定层级的非平衡递归树
+
+状态：Accepted，runtime partially implemented
+
+决策：
+
+- 产品最终仍按“集”交付，但从整体故事方向到 Episode Plan 的内部拆分不固定为卷、章或单元
+- `StoryPlanNode` 通过 parent、同级 sequence 和 predecessor 表达叙事片段；每个节点根据自身复杂度独立决定继续展开或进入 `episode_ready`
+- 不同分支允许使用不同拆分深度，不为视觉整齐强制平衡树
+- 系统可以建议拆分，但使用者保留编辑、批准、继续展开和停止拆分的控制权
+- `StoryStagePlan` 兼容保留，但不再限制未来拆分层级
+- 人工审核采用 Story Bible 根方向确认 + 关键展开节点确认 + episode-ready 叶子进入 Episode Plan 前确认；不强制每个节点或每集都人工阻断
+
+原因：
+
+- 60 万字故事不同部分的信息量、转折密度和人物跨度不同，统一层数会造成有些部分过度规划、另一些部分规划不足
+- 直接从总纲一次拆到全部分集会放大计划僵化、上下文膨胀和长程漂移
+- 递归有界展开支持使用者分阶段审阅、暂停并向后续内容加入新元素
+
+影响：
+
+- 已完成模型、PostgreSQL persistence、migration、Repository、Application Service 和资源 API
+- 自动梗概、自动拆树、审核 UI、叶子到 Episode Plan 映射和 Prompt 注入尚未实现
+- 该决策不批准多 Agent、无限规划循环或一次请求生成完整 60 万字
+
+---
+
+## D-024 人物关系网与故事线树采用版本化事实投影和前向生效
+
+状态：Accepted，visual/runtime workflow pending
+
+决策：
+
+- 人物关系网以角色节点和方向性关系边提供直观检阅；故事线以主线、支线和人物弧分支提供树枝式检阅
+- 人物关系与故事线保持独立领域事实，在统一 Story Map / Continuity Workspace 中交叉引用和联动展示，不合并为一个难以治理的通用图对象
+- 两种视图都投影 Story Bible、Story Plan 和 Continuity facts，不建立相互竞争的第二权威数据源，也不因图形展示引入图数据库
+- 项目初始人物输入可为空；生成过程中发现的人物、关系和故事线变化以 proposed delta 记录，只有来自确认内容并通过确认流程后才约束后续生成
+- 人物节点和关系边都必须可打开详情：人物详情展示完整简介和变化历史，关系详情展示方向、说明、关键事件、证据和状态时间线
+- 后续生成只消费当前节点相关的 bounded continuity slice，不注入全量长篇关系网和故事线历史
+- 已有剧集后的关系、故事线和新增角色修改默认 prospective-only，从明确 future effective point 影响尚未生成内容
+- 系统不得因图上编辑静默改写已确认、已修订或已终稿分集
+- 未来先执行 impact analysis，展示受影响角色、规划节点、Episode Plans、Setup / Payoff 和集数范围，再由用户选择 future-only、创建分支、重规划未确认范围或显式历史再生成
+
+原因：
+
+- 长篇关系变化需要直观检阅，但关系图本身不能成为与剧本事实冲突的独立数据库
+- 生成大量内容后自动同步改写成本、连续性风险和审计风险不可控
+- 前向生效和版本分支符合内容创作者逐阶段更新故事的工作方式
+
+影响：
+
+- Frontend 已有本地 story lines / relationships authoring view 和 bounded continuity summary
+- 正式后端 Relationship authoring contract、proposed/confirmed lifecycle、effective point、Context Mapper、可交互图形 UI、impact analysis 和分支再生成尚未实现
+- 新增角色默认从未来节点/集数进入，不伪造历史存在
+
+---
+
+## D-025 标签作为来源化故事上下文入口而非孤立关键词
+
+状态：Accepted as target architecture，runtime partially implemented
+
+决策：
+
+- `OntologyNode` 保存稳定标签身份；Tag Evidence 保存来源；Tag Knowledge Profile 保存可泛化创作画像；Trend Signal 保存市场和时间窗口下的动态热度
+- 常规标签未来从已有内容和 `AnalysisResult` 中提取有来源证据，通过 bounded Tag Context Bundle 服务 Story Synopsis / Story Direction
+- 实时热门由未来 Data Intelligence 接入，不写入稳定 Ontology，也不得未经用户选择自动影响生成
+- 未知自定义标签先建立 project-scoped `CustomTagContext`，保存用户定义、AI inference、来源、歧义和确认状态；未经治理不得提升为公共标签
+- 目标输入规则为 Creative Prompt 或有效标签至少提供一项，Character optional
+- 标签主要帮助形成可审阅故事梗概和整体方向；确认后再进入 Story Bible、递归规划和长篇展开
+
+原因：
+
+- 标签只有关联来源和创作语义时，才能稳定提高故事方向的准确度
+- 把热度、稳定概念和用户一次性自定义词混为一体会造成不可治理、不可复现和知识污染
+- 标签堆叠不能替代 60 万字所需的递归规划和连续性控制
+
+影响：
+
+- 当前已实现大陆受控标签目录、选择 UI、静态灵感推荐和项目自定义关键词
+- Prompt-only 与受控 Ontology Tag-only 已兼容；Tag Evidence / Profile、动态 retrieval、CustomTagContext、实时趋势和 confirmed CustomTagContext-only 输入尚未实现
+- 第一轮实现应以少量高使用大陆标签和固定梗概质量对比验证，不建设大而全标签百科

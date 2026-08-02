@@ -13,13 +13,13 @@ AI Comic Content OS 当前面向中国大陆漫剧市场，重点建设中文长
 - 默认：`SCRIPT_MARKET_PROFILE=cn_mainland`
 - 保留但关闭：`overseas_tiktok`
 - 暂停：Creative Deepening 前后端运行开关默认关闭
-- 已完成基础：Story Project、Story Bible、故事阶段、Episode Plan、Continuity Ledger、批次检查点契约，以及 PostgreSQL / JSONB schema、Alembic migration 和事务型 Repository
-- 已接入后端资源 API：Story Project、Frontend Workspace Snapshot、Story Bible、故事阶段和 Episode Plan 的版本化保存与读取
+- 已完成基础：Story Project、Story Bible、无固定层级且允许各分支不同深度的递归 Story Plan Node、兼容故事阶段、Episode Plan、Continuity Ledger、批次检查点契约，以及 PostgreSQL / JSONB schema、Alembic migration 和事务型 Repository
+- 已接入后端资源 API：Story Project、Frontend Workspace Snapshot、Story Bible、递归 Story Plan Node、故事阶段和 Episode Plan 的版本化保存与读取
 - Frontend 已采用 IndexedDB 本地优先 + PostgreSQL Workspace Snapshot 服务端同步；冲突不静默覆盖，删除使用版本保护的服务端软归档
 - Frontend 已按市场来源隔离项目；中国大陆模式只展示 `cn_mainland` 项目，海外/TikTok 与来源不明的历史项目在前端完全隐藏但不删除，切换市场后才重新加载对应项目
 - 中国大陆模式固定使用中文界面和中文剧本输出，隐藏语言切换与海外入口；英文资源和源稿仅保留在停用资产及持久化层，不进入当前创作界面
 - 已接入 Episode Artifact 里程碑：确认稿、规则修订稿和终稿按不可变服务端版本保存并保留来源 lineage
-- 尚未接入 runtime：自动规划、编辑过程的细粒度版本、连续性自动更新和后台可恢复执行
+- 尚未接入 runtime：规划树自动拆分、规划审核 UI、叶子到 Episode Plan 映射、编辑过程的细粒度版本、连续性自动更新和后台可恢复执行
 - 尚未实现：完整 60 万字母本自动生成
 
 当前已经跑通：
@@ -36,7 +36,7 @@ Creative Intent / Character Context
 → FinalMasterScript
 ```
 
-Frontend MVP 支持本地项目、标签、角色、逐集生成和分阶段全部生成、分集编辑、AI 修改、修订、终稿与导出。工作区提供长篇字数验收仪表，以60 万字目标只统计动作与对白正文，并单独显示结构稿辅助文本、目标完成率、当前正文集均、达标所需集均和完结投影。阶段之间可以更新标签、角色与创作指令，再将新元素用于后续剧集。Creative Deepening 代码保留，但当前前端隐藏、后端拒绝执行。
+Frontend MVP 支持本地项目、中国大陆分类标签与用户自定义标签、角色、逐集生成和分阶段全部生成、分集编辑、AI 修改、修订、终稿与导出。大陆“灵感推荐”是需用户主动选择的静态策划建议，不是实时平台热榜。工作区提供长篇字数验收仪表，以 60 万字目标只统计动作与对白正文，并单独显示结构稿辅助文本、目标完成率、当前正文集均、达标所需集均和完结投影。阶段之间可以更新标签、角色与创作指令，再将新元素用于后续剧集。Creative Deepening 代码保留，但当前前端隐藏、后端拒绝执行。
 
 当前重要边界：
 
@@ -49,6 +49,11 @@ Frontend MVP 支持本地项目、标签、角色、逐集生成和分阶段全�
 - 项目工作区先保存到浏览器 IndexedDB，并在配置 PostgreSQL 时同步完整版本化 Workspace Snapshot；确认稿、修订稿和终稿另存不可变 Episode Artifact。没有数据库或服务暂时不可用时可继续本地编辑，但同步冲突必须人工处理。
 - 中文界面的英文剧本对照翻译是 presentation artifact，不修改正式英文剧本。
 - Agent、动态 RAG、视频生产和统一 Script Generation Facade 尚未实现。
+- 当前标签系统已提供大陆受控目录和项目自定义关键词，但尚未实现标签来源证据库、Tag Knowledge Profile、自定义标签项目级即时语义库或 Data Intelligence 实时热门接入。
+- 已支持“创作描述或受控 Ontology 标签至少填写一项，人物 optional”：Prompt-only 保留用户原文，Tag-only 由后端生成带 provenance 的故事方向，不再伪装为用户 Prompt；confirmed CustomTagContext-only 仍待实现。
+- 标签上下文未来主要服务可审阅的 Story Synopsis / Story Direction；确认后再进入 Story Bible、递归规划和 60 万字长篇展开，不能用标签堆叠直接替代长篇规划。
+- 人物关系网和故事线树是 Story Bible / Planning / Continuity 的辅助投影视图；修改默认只影响指定未来节点或集数，历史内容不会自动同步改写。显式历史调整需要影响分析、新版本和可审计再生成。
+- 长篇审核目标为“故事总方向确认 + 关键递归节点确认 + episode-ready 叶子进入分集计划前确认”，而不是固定卷级审核或强制每集阻断。
 
 完整实现状态见 [21_Current_Status_Checklist.md](AI_Comic_Content_OS_Docs/21_Current_Status_Checklist.md)。
 

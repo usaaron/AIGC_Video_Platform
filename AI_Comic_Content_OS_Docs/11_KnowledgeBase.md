@@ -47,6 +47,26 @@
 
 它们当前先作为知识与生成规则的结构化定义，不直接绑定某个 LLM 厂商。
 
+## Tag Context Library Future Boundary
+
+标签系统未来应通过现有 Knowledge Base / Asset 基础获得“标签背后的内容”，而不是新建一套平行知识库：
+
+```text
+OntologyNode
+→ source-grounded Tag Evidence
+→ versioned Tag Knowledge Profile
+→ bounded Tag Context Bundle
+→ Story Synopsis / Story Direction
+```
+
+- 常规标签的证据来自允许使用的已有内容引用、`AnalysisResult` 和受治理资料，并保存时间、市场、来源和 confidence。
+- Tag Knowledge Profile 只聚合可泛化的故事机制、受众期待、冲突、关系、情绪和反模式，不复制具体作品。
+- 实时热门属于 Data Intelligence 的动态 `TrendSnapshot / Trend Signal`；它引用标签，但不修改标签 ID 或静态知识内容。
+- 自定义标签未来先建立 project-scoped `CustomTagContext`。AI 可以给出暂定解释，但必须标记 inference 并由用户确认；没有来源时不能宣称已经建立行业知识。
+- 项目私有标签只有完成去重、来源验证和治理审核后，才可能提升为公共 Ontology / Knowledge 候选。
+
+当前尚未实现 Tag Evidence 聚合、动态 Tag Context Retrieval、自定义标签即时语义库或实时热门接入。完整方向见 `Research/14_Tag_Context_Library_v1_Architecture.md`。
+
 ## 当前 Asset 规则
 
 当前 `Asset` 必须：

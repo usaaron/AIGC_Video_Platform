@@ -123,8 +123,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
 
   const hasCreativeSignal = Boolean(
     draft.creativePrompt.trim()
-    || draft.selectedTagIds.length
-    || draft.characters.length,
+    || draft.selectedTagIds.length,
   );
   const hasExistingEpisodes = Boolean(project?.episodes.length);
   const customTagOptions = draft.customTags.map((tag): CreatorTag => ({
@@ -276,12 +275,15 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
       setPhaseNotice(t("generation.runtimeUnavailable"));
       return;
     }
-    if (draft.selectedTagIds.length === 0) {
-      setPhaseNotice(t("generation.tagRequired"));
+    if (!draft.creativePrompt.trim() && draft.selectedTagIds.length === 0) {
+      setPhaseNotice(t("generation.creativeSignalRequired"));
       return;
     }
     const customTagIds = new Set(draft.customTags.map((tag) => tag.id));
-    if (!draft.selectedTagIds.some((tagId) => !customTagIds.has(tagId))) {
+    if (
+      !draft.creativePrompt.trim()
+      && !draft.selectedTagIds.some((tagId) => !customTagIds.has(tagId))
+    ) {
       setPhaseNotice(t("generation.systemTagRequired"));
       return;
     }
@@ -313,7 +315,6 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
           ...project,
           ...draft,
           ...continuity,
-          creativePrompt: resolvedGenerationPrompt,
         }, {
           generationMode: draft.generationSettings.mode,
           episodeNumber,

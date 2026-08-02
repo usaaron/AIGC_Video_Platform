@@ -41,6 +41,8 @@ roadmap_priority_changed: false
 9. 所有重要冲突、舍弃和 AI 补全都必须可追踪。
 10. v1 只定义 authoring contract，不新增 Engine、Agent、RAG、API 或运行时步骤。
 
+目标产品输入规则：Creative Prompt 与有效标签至少提供一项，二者不能同时为空；Character 输入 optional。当前 runtime 已支持 Prompt-only 与受控 Ontology Tag-only，并对 Tag-only 派生方向保留 provenance；confirmed CustomTagContext-only 尚待兼容升级。
+
 ## 3. Recommended Architecture
 
 ### 3.1 Authoring Flow
@@ -302,6 +304,8 @@ Relationship Object 保存故事语义，不保存每场对白、隐藏 Chain of
 
 来源不等于优先级。`source=data_intelligence` 且高 confidence 的标签仍然只是建议；`source=user` 的 generated annotation 也不能自动变成锁定创作要求。
 
+未来还需要在这三层之外增加受治理的 Tag Context：常规标签引用 source-grounded Evidence 和 versioned Knowledge Profile；未知自定义标签先建立 project-scoped `CustomTagContext` 并请求用户确认。它不自动成为公共 `OntologyNode`。详细边界见 `Research/14_Tag_Context_Library_v1_Architecture.md`。
+
 ## 9. Architecture Responsibility Boundaries
 
 | Component | Question answered | Must not do |
@@ -367,7 +371,7 @@ Creative Intent Input v1 当前不包含：
 - Story Planning runtime；
 - RAG、Knowledge Retrieval 或 Creative Skill Registry；
 - 自动采用 Trending Tags；
-- 自动创建未知 OntologyNode；
+- 自动创建未知公共 OntologyNode；项目私有 `CustomTagContext` 属于未来兼容方向，但必须保留 inference/source 并由用户确认；
 - Character Agent 或多 Agent 编排；
 - Image / Video / Seedance 参数。
 

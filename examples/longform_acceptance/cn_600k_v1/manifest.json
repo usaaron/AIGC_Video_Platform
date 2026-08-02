@@ -1,0 +1,15 @@
+{
+  "evaluation_id": "cn_longform_600k_acceptance_v1",
+  "evaluation_mode": "real_llm_resumable_bounded",
+  "base_url": "http://127.0.0.1:8011",
+  "strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+  "platform_profile_id": "cn_mainland_comic_drama_v1",
+  "content_spec_id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+  "target_total_characters": 600000,
+  "initial_planned_episodes": 334,
+  "target_episode_body_characters": 1797,
+  "requested_episodes": 5,
+  "completed_at_start": [
+    1
+  ]
+}

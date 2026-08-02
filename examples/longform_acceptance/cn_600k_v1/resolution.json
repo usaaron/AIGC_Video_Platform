@@ -1,0 +1,233 @@
+{
+  "data": {
+    "schema_version": "v1",
+    "content_spec": {
+      "title": "订婚宴迷局：六十万字长篇验收",
+      "audience_goal": {
+        "summary": "中国大陆女性向悬疑情感与复仇连载受众",
+        "priority": "primary",
+        "success_metric": "持续阅读、人物关系投入与阶段性追更意愿"
+      },
+      "commercial_goal": {
+        "summary": "建立可持续展开并可改编为漫剧的六十万字长篇故事母本",
+        "priority": "primary",
+        "success_metric": "连续性、人物稳定性、伏笔回收与长期追读动力"
+      },
+      "platform_goal": {
+        "platform_profile_id": "cn_mainland_comic_drama_v1",
+        "objective": "生成面向中国大陆市场参考的中文长篇连载故事",
+        "target_duration_seconds": 180,
+        "target_aspect_ratio": "9:16"
+      },
+      "story_goal": "订婚宴上，调查记者苏晚准备公开顾氏集团掩盖矿难的证据，却发现未婚夫顾沉舟早已知道真相。她必须在复仇、保护无辜证人和追查幕后主使之间作出不可逆选择。",
+      "quality_level": "high",
+      "budget_level": "medium",
+      "tags": [
+        {
+          "ontology_node_id": "genre.dark_romance",
+          "label": "Dark Romance",
+          "category": "Genre",
+          "confidence": 1.0
+        },
+        {
+          "ontology_node_id": "theme.revenge",
+          "label": "Revenge",
+          "category": "Theme",
+          "confidence": 1.0
+        },
+        {
+          "ontology_node_id": "theme.hidden_identity",
+          "label": "Hidden Identity",
+          "category": "Theme",
+          "confidence": 1.0
+        },
+        {
+          "ontology_node_id": "emotion.suspense",
+          "label": "Suspense",
+          "category": "Emotion",
+          "confidence": 1.0
+        },
+        {
+          "ontology_node_id": "audience.romance",
+          "label": "Romance Audience",
+          "category": "Audience",
+          "confidence": 1.0
+        },
+        {
+          "ontology_node_id": "hook.immediate_conflict",
+          "label": "Immediate Conflict",
+          "category": "Hook",
+          "confidence": 1.0
+        },
+        {
+          "ontology_node_id": "cliffhanger.unanswered_threat",
+          "label": "Unanswered Threat",
+          "category": "Cliffhanger",
+          "confidence": 1.0
+        }
+      ],
+      "creative_brief": {
+        "hook": "从订婚宴即将公开证据的临界时刻开场。",
+        "tone": "suspenseful",
+        "pacing": "有推进但不过度压缩",
+        "target_emotion": "持续期待",
+        "asset_constraints": [],
+        "generation_notes": [
+          "这是长篇连载，不得提前解决矿难幕后主线。",
+          "每集必须让苏晚作出可见选择，并留下可承接的状态变化。"
+        ]
+      },
+      "metadata": {
+        "source": "creative_intent_resolution_v1",
+        "creative_intent_schema_version": "v1"
+      },
+      "id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+      "status": "draft",
+      "created_at": "2026-08-02T14:54:12.455675Z",
+      "updated_at": "2026-08-02T14:54:12.455716Z"
+    },
+    "resolved_creative_context": {
+      "schema_version": "v1",
+      "content_spec_id": "433630d5-15d6-4dbf-ae46-290d11f615bb",
+      "characters": [
+        {
+          "character_ref": "character.su_wan",
+          "name": "苏晚",
+          "role": "女主角、调查记者",
+          "description": "28岁，冷静敏锐，因姐姐死于被掩盖的矿难而追查顾氏；渴望公开真相，害怕再次信错人，底线是不牺牲无辜者。",
+          "motivation": null,
+          "desire": null,
+          "fear": null,
+          "belief": null,
+          "contradiction": null,
+          "decision_pattern": null,
+          "moral_boundaries": [],
+          "locked_fields": [
+            "name",
+            "role",
+            "description"
+          ],
+          "field_sources": {
+            "name": "user_provided",
+            "role": "user_provided",
+            "description": "user_provided"
+          }
+        },
+        {
+          "character_ref": "character.gu_chenzhou",
+          "name": "顾沉舟",
+          "role": "男主角、顾氏继承人",
+          "description": "30岁，克制强势，表面阻止苏晚曝光，实际在调查父亲；渴望终止家族罪恶，但恐惧真相毁掉所有亲近的人。",
+          "motivation": null,
+          "desire": null,
+          "fear": null,
+          "belief": null,
+          "contradiction": null,
+          "decision_pattern": null,
+          "moral_boundaries": [],
+          "locked_fields": [
+            "name",
+            "role",
+            "description"
+          ],
+          "field_sources": {
+            "name": "user_provided",
+            "role": "user_provided",
+            "description": "user_provided"
+          }
+        }
+      ],
+      "excluded_tag_ids": [],
+      "excluded_patterns": [
+        "海外平台术语",
+        "直播带货",
+        "秘密继承人捷径"
+      ],
+      "resolution_warnings": []
+    },
+    "resolved_tag_refs": [
+      {
+        "ontology_node_id": "genre.dark_romance",
+        "label": "Dark Romance",
+        "category": "Genre",
+        "confidence": 1.0
+      },
+      {
+        "ontology_node_id": "theme.revenge",
+        "label": "Revenge",
+        "category": "Theme",
+        "confidence": 1.0
+      },
+      {
+        "ontology_node_id": "theme.hidden_identity",
+        "label": "Hidden Identity",
+        "category": "Theme",
+        "confidence": 1.0
+      },
+      {
+        "ontology_node_id": "emotion.suspense",
+        "label": "Suspense",
+        "category": "Emotion",
+        "confidence": 1.0
+      },
+      {
+        "ontology_node_id": "audience.romance",
+        "label": "Romance Audience",
+        "category": "Audience",
+        "confidence": 1.0
+      },
+      {
+        "ontology_node_id": "hook.immediate_conflict",
+        "label": "Immediate Conflict",
+        "category": "Hook",
+        "confidence": 1.0
+      },
+      {
+        "ontology_node_id": "cliffhanger.unanswered_threat",
+        "label": "Unanswered Threat",
+        "category": "Cliffhanger",
+        "confidence": 1.0
+      }
+    ],
+    "conflict_warnings": [],
+    "requires_user_resolution": false,
+    "mapping_trace": [
+      {
+        "source_field": "free_creative_prompt",
+        "target_field": "content_spec.story_goal",
+        "reason": "The bounded v1 prompt is already a normalized story direction."
+      },
+      {
+        "source_field": "selected_tag_ids + added_tag_ids",
+        "target_field": "content_spec.tags",
+        "reason": "Active tag IDs were resolved through the existing Ontology."
+      },
+      {
+        "source_field": "creative_brief",
+        "target_field": "content_spec.creative_brief",
+        "reason": "The structured creative brief maps directly to the existing contract."
+      },
+      {
+        "source_field": "character_contexts",
+        "target_field": "resolved_creative_context.characters",
+        "reason": "Character context remains separate from ContentSpec metadata."
+      },
+      {
+        "source_field": "excluded_patterns",
+        "target_field": "resolved_creative_context.excluded_patterns",
+        "reason": "Excluded patterns remain explicit generation constraints."
+      }
+    ],
+    "request_metadata": {
+      "source": "cn_longform_600k_acceptance_v1",
+      "generation_planning": {
+        "episode_count_mode": "recommended",
+        "total_episodes": 334,
+        "target_total_characters": 600000,
+        "preferred_episode_duration_minutes": 3,
+        "story_density": "balanced",
+        "batch_size": 5
+      }
+    }
+  }
+}

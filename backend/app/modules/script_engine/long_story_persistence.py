@@ -93,6 +93,74 @@ class StoryBibleVersionRecord(SQLModel, table=True):
     payload: dict[str, Any] = Field(sa_column=_json_payload_column())
 
 
+class StoryPlanNodeVersionRecord(SQLModel, table=True):
+    __tablename__ = "story_plan_node_versions"
+    __table_args__ = (
+        Index(
+            "ix_story_plan_nodes_project_parent_order",
+            "story_project_id",
+            "parent_node_id",
+            "sequence_order",
+        ),
+        ForeignKeyConstraint(
+            ["story_bible_id", "story_bible_version"],
+            ["story_bible_versions.story_bible_id", "story_bible_versions.version"],
+        ),
+        ForeignKeyConstraint(
+            ["parent_node_id", "parent_node_version"],
+            ["story_plan_node_versions.node_id", "story_plan_node_versions.version"],
+        ),
+        ForeignKeyConstraint(
+            ["predecessor_node_id", "predecessor_node_version"],
+            ["story_plan_node_versions.node_id", "story_plan_node_versions.version"],
+        ),
+        CheckConstraint("sequence_order >= 1", name="ck_story_plan_node_order"),
+        CheckConstraint(
+            "(parent_node_id IS NULL AND parent_node_version IS NULL) OR "
+            "(parent_node_id IS NOT NULL AND parent_node_version IS NOT NULL)",
+            name="ck_story_plan_node_parent_pair",
+        ),
+        CheckConstraint(
+            "(predecessor_node_id IS NULL AND predecessor_node_version IS NULL) OR "
+            "(predecessor_node_id IS NOT NULL AND predecessor_node_version IS NOT NULL)",
+            name="ck_story_plan_node_predecessor_pair",
+        ),
+        CheckConstraint(
+            "(planned_start_episode IS NULL AND planned_end_episode IS NULL) OR "
+            "(planned_start_episode >= 1 AND planned_end_episode >= planned_start_episode)",
+            name="ck_story_plan_node_episode_range",
+        ),
+    )
+
+    node_id: str = Field(primary_key=True, max_length=120)
+    version: int = Field(primary_key=True)
+    story_project_id: str = Field(
+        foreign_key="story_projects.project_id",
+        index=True,
+        max_length=120,
+    )
+    story_bible_id: str = Field(index=True, max_length=120)
+    story_bible_version: int
+    schema_version: str = Field(max_length=20)
+    parent_node_id: str | None = Field(default=None, max_length=120)
+    parent_node_version: int | None = None
+    predecessor_node_id: str | None = Field(default=None, max_length=120)
+    predecessor_node_version: int | None = None
+    sequence_order: int
+    planned_start_episode: int | None = None
+    planned_end_episode: int | None = None
+    expansion_status: str = Field(index=True, max_length=40)
+    status: str = Field(index=True, max_length=40)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    approved_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    payload: dict[str, Any] = Field(sa_column=_json_payload_column())
+
+
 class StoryStagePlanVersionRecord(SQLModel, table=True):
     __tablename__ = "story_stage_plan_versions"
     __table_args__ = (

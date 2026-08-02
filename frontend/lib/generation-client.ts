@@ -1,7 +1,7 @@
 import { apiRequest } from "@/lib/api-client";
 import { buildContinuityGenerationSummary } from "@/lib/continuity";
 import { targetScriptBodyCharacters } from "@/lib/generation-planning";
-import { getTag } from "@/lib/tag-catalog";
+import { getTag, resolveLegacyTagId } from "@/lib/tag-catalog";
 import type {
   BilingualScriptView,
   CreativeDeepeningRun,
@@ -62,13 +62,16 @@ export async function generateSingleEpisode(
   const activeNodes = new Map(nodesResponse.data.filter((node) => node.is_active).map((node) => [node.id, node]));
   const customTags = project.customTags ?? [];
   const customTagMap = new Map(customTags.map((tag) => [tag.id, tag]));
-  const systemTagIds = project.selectedTagIds.filter((tagId) => !customTagMap.has(tagId));
+  const systemTagIds = Array.from(new Set(
+    project.selectedTagIds
+      .filter((tagId) => !customTagMap.has(tagId))
+      .map(resolveLegacyTagId),
+  ));
   const selectedCustomTagLabels = project.selectedTagIds
     .map((tagId) => customTagMap.get(tagId)?.label)
     .filter((label): label is string => Boolean(label));
   const missingTags = systemTagIds.filter((tagId) => !activeNodeIds.has(tagId));
   if (missingTags.length) throw new Error(`Backend Ontology is missing selected tags: ${missingTags.join(", ")}`);
-  if (systemTagIds.length === 0) throw new Error("Choose at least one system tag before generation. My Tags are creative keywords, not ContentSpec classifications.");
   const platform = profilesResponse.data.find(
     (item) => item.metadata?.runtime_status === "active",
   ) ?? profilesResponse.data[0];
@@ -98,19 +101,6 @@ export async function generateSingleEpisode(
     ?? strategiesResponse.data[0];
   if (!strategy) throw new Error("Backend has no GenerationStrategy. Initialize Prompt and Strategy resources first.");
 
-  const tagLabels = [
-    ...systemTagIds.map((id) => activeNodes.get(id)?.label ?? getTag(id)?.label ?? id),
-    ...selectedCustomTagLabels,
-  ];
-  const characterNames = project.characters.map((character) => character.name).filter(Boolean);
-  const prompt = project.creativePrompt.trim()
-    || (tagLabels.length
-      ? isMainlandChina
-        ? `创作一个包含以下要素的中文连载故事：${tagLabels.join("、")}。`
-        : `Create a story using ${tagLabels.join(", ")}.`
-      : isMainlandChina
-        ? `围绕${characterNames.join("、") || "已提供的角色"}创作一个中文连载故事。`
-        : `Create a story centered on ${characterNames.join(", ") || "the supplied characters"}.`);
   const safeTitle = project.title.trim().length >= 3 ? project.title.trim() : `${project.title.trim() || "New"} script`;
   const emotionTag = systemTagIds
     .map((tagId) => activeNodes.get(tagId))
@@ -129,7 +119,7 @@ export async function generateSingleEpisode(
       platform_goal: isMainlandChina
         ? { platform_profile_id: platform.id, objective: "生成适合中国大陆市场参考的连载故事单集框架", target_duration_seconds: Math.round(project.generationSettings.preferredEpisodeDurationMinutes * 60), target_aspect_ratio: "9:16" }
         : { platform_profile_id: platform.id, objective: "Create a compelling AI comic episode", target_duration_seconds: Math.round(project.generationSettings.preferredEpisodeDurationMinutes * 60), target_aspect_ratio: "9:16" },
-      free_creative_prompt: prompt.slice(0, 240),
+      free_creative_prompt: project.creativePrompt.trim().slice(0, 240),
       quality_level: "high",
       budget_level: "medium",
       selected_tag_ids: systemTagIds,
@@ -144,7 +134,11 @@ export async function generateSingleEpisode(
         asset_constraints: [],
         generation_notes: [
           project.generationSettings.customInstructions.trim(),
-          selectedCustomTagLabels.length ? `User-defined creative tags: ${selectedCustomTagLabels.join(", ")}.` : "",
+          selectedCustomTagLabels.length
+            ? isMainlandChina
+              ? `用户自定义创作标签：${selectedCustomTagLabels.join("、")}。`
+              : `User-defined creative tags: ${selectedCustomTagLabels.join(", ")}.`
+            : "",
         ].filter(Boolean),
       },
       character_contexts: project.characters.map((character, index) => {
@@ -302,7 +296,7 @@ function buildEpisodeContinuitySummary(draft: GeneratedDraft): string {
 
 function resolveScriptTone(emotionTagId?: string): "intense" | "melodramatic" | "suspenseful" | "emotional" {
   if (emotionTagId === "emotion.suspense") return "suspenseful";
-  if (emotionTagId === "emotion.tragic") return "melodramatic";
+  if (emotionTagId === "emotion.tragic" || emotionTagId === "emotion.oppressive") return "melodramatic";
   if (emotionTagId === "emotion.sweet" || emotionTagId === "emotion.healing") return "emotional";
   return "intense";
 }

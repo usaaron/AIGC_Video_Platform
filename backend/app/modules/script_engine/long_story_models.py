@@ -24,6 +24,14 @@ class PlanningApprovalStatus(str, Enum):
     superseded = "superseded"
 
 
+class StoryPlanExpansionStatus(str, Enum):
+    """Lifecycle of one recursively decomposable narrative segment."""
+
+    unexpanded = "unexpanded"
+    expanded = "expanded"
+    episode_ready = "episode_ready"
+
+
 class StoryLineType(str, Enum):
     main = "main"
     subplot = "subplot"
@@ -253,6 +261,109 @@ class StoryBible(BaseModel):
             raise ValueError("Approved Story Bible requires approved_at.")
         if self.status != PlanningApprovalStatus.approved and self.approved_at is not None:
             raise ValueError("approved_at is only valid for an approved Story Bible.")
+        return self
+
+
+class StoryPlanNode(BaseModel):
+    """One level-free node in a recursively decomposed long-story plan."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(default="v1", pattern=r"^v\d+$")
+    node_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    story_bible_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    story_bible_version: int = Field(ge=1)
+    version: int = Field(default=1, ge=1)
+    parent_node_id: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=120,
+        pattern=IDENTIFIER_PATTERN,
+    )
+    parent_node_version: int | None = Field(default=None, ge=1)
+    predecessor_node_id: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=120,
+        pattern=IDENTIFIER_PATTERN,
+    )
+    predecessor_node_version: int | None = Field(default=None, ge=1)
+    sequence_order: int = Field(default=1, ge=1, le=10_000)
+    title: str = Field(min_length=2, max_length=160)
+    narrative_purpose: str = Field(min_length=5, max_length=1_000)
+    synopsis: str = Field(min_length=10, max_length=3_000)
+    entry_state: str = Field(min_length=5, max_length=1_500)
+    central_conflict: str = Field(min_length=5, max_length=1_500)
+    turning_points: list[str] = Field(min_length=1, max_length=30)
+    emotional_direction: str = Field(min_length=3, max_length=800)
+    exit_state: str = Field(min_length=5, max_length=1_500)
+    character_refs: list[str] = Field(default_factory=list, max_length=50)
+    story_line_refs: list[str] = Field(default_factory=list, max_length=50)
+    setup_refs: list[str] = Field(default_factory=list, max_length=100)
+    payoff_refs: list[str] = Field(default_factory=list, max_length=100)
+    estimated_episode_count: int | None = Field(default=None, ge=1, le=2_000)
+    estimated_script_body_characters: int | None = Field(
+        default=None,
+        ge=300,
+        le=2_000_000,
+    )
+    planned_start_episode: int | None = Field(default=None, ge=1, le=2_000)
+    planned_end_episode: int | None = Field(default=None, ge=1, le=2_000)
+    expansion_status: StoryPlanExpansionStatus = StoryPlanExpansionStatus.unexpanded
+    decomposition_reason: str | None = Field(default=None, min_length=5, max_length=1_000)
+    status: PlanningApprovalStatus = PlanningApprovalStatus.draft
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    approved_at: datetime | None = None
+
+    @field_validator(
+        "turning_points",
+        "character_refs",
+        "story_line_refs",
+        "setup_refs",
+        "payoff_refs",
+    )
+    @classmethod
+    def ensure_unique_plan_node_values(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Story Plan Node list values must be unique.")
+        return values
+
+    @model_validator(mode="after")
+    def validate_plan_node(self) -> "StoryPlanNode":
+        if (self.parent_node_id is None) != (self.parent_node_version is None):
+            raise ValueError("parent_node_id and parent_node_version must be set together.")
+        if (self.predecessor_node_id is None) != (
+            self.predecessor_node_version is None
+        ):
+            raise ValueError(
+                "predecessor_node_id and predecessor_node_version must be set together."
+            )
+        if self.parent_node_id == self.node_id:
+            raise ValueError("A Story Plan Node cannot be its own parent.")
+        if self.predecessor_node_id == self.node_id:
+            raise ValueError("A Story Plan Node cannot be its own predecessor.")
+        if self.parent_node_id is None and self.predecessor_node_id is not None:
+            raise ValueError("A root Story Plan Node cannot have a predecessor.")
+        if (self.planned_start_episode is None) != (
+            self.planned_end_episode is None
+        ):
+            raise ValueError(
+                "planned_start_episode and planned_end_episode must be set together."
+            )
+        if (
+            self.planned_start_episode is not None
+            and self.planned_end_episode is not None
+            and self.planned_end_episode < self.planned_start_episode
+        ):
+            raise ValueError(
+                "planned_end_episode must not be lower than planned_start_episode."
+            )
+        if self.status == PlanningApprovalStatus.approved and self.approved_at is None:
+            raise ValueError("Approved Story Plan Node requires approved_at.")
+        if self.status != PlanningApprovalStatus.approved and self.approved_at is not None:
+            raise ValueError("approved_at is only valid for an approved Story Plan Node.")
         return self
 
 
@@ -607,6 +718,14 @@ class StoryProjectListResponse(BaseModel):
 
 class StoryBibleResponse(BaseModel):
     data: StoryBible
+
+
+class StoryPlanNodeResponse(BaseModel):
+    data: StoryPlanNode
+
+
+class StoryPlanNodeListResponse(BaseModel):
+    data: list[StoryPlanNode]
 
 
 class StoryStagePlanResponse(BaseModel):

@@ -14,6 +14,9 @@ from app.modules.script_engine.long_story_models import (
     LongStoryErrorResponse,
     StoryBible,
     StoryBibleResponse,
+    StoryPlanNode,
+    StoryPlanNodeListResponse,
+    StoryPlanNodeResponse,
     StoryProject,
     StoryProjectListResponse,
     StoryProjectResponse,
@@ -304,6 +307,84 @@ def get_story_bible(
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
     return StoryBibleResponse(data=story_bible)
+
+
+@router.put(
+    "/{project_id}/plan-nodes/{node_id}/versions/{version}",
+    response_model=StoryPlanNodeResponse,
+    responses={
+        404: {"model": LongStoryErrorResponse},
+        409: {"model": LongStoryErrorResponse},
+    },
+)
+def save_story_plan_node(
+    project_id: str,
+    node_id: str,
+    version: int,
+    payload: StoryPlanNode,
+    service: LongStoryService = Depends(get_long_story_service),
+) -> StoryPlanNodeResponse:
+    _validate_versioned_path(
+        project_id,
+        node_id,
+        version,
+        payload.story_project_id,
+        payload.node_id,
+        payload.version,
+        "Story Plan Node",
+    )
+    try:
+        node = service.save_story_plan_node(payload)
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    except (LongStoryPersistenceConflictError, LongStoryReferenceError) as exc:
+        _raise_conflict(exc)
+    return StoryPlanNodeResponse(data=node)
+
+
+@router.get(
+    "/{project_id}/plan-nodes/{node_id}",
+    response_model=StoryPlanNodeResponse,
+    responses={404: {"model": LongStoryErrorResponse}},
+)
+def get_story_plan_node(
+    project_id: str,
+    node_id: str,
+    version: int | None = Query(default=None, ge=1),
+    service: LongStoryService = Depends(get_long_story_service),
+) -> StoryPlanNodeResponse:
+    try:
+        node = service.get_story_plan_node(project_id, node_id, version=version)
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    return StoryPlanNodeResponse(data=node)
+
+
+@router.get(
+    "/{project_id}/plan-nodes",
+    response_model=StoryPlanNodeListResponse,
+    responses={404: {"model": LongStoryErrorResponse}},
+)
+def list_story_plan_nodes(
+    project_id: str,
+    parent_node_id: str | None = Query(default=None),
+    roots_only: bool = Query(default=False),
+    service: LongStoryService = Depends(get_long_story_service),
+) -> StoryPlanNodeListResponse:
+    if roots_only and parent_node_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="roots_only and parent_node_id cannot be used together.",
+        )
+    try:
+        nodes = service.list_story_plan_nodes(
+            project_id,
+            parent_node_id=parent_node_id,
+            roots_only=roots_only,
+        )
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    return StoryPlanNodeListResponse(data=nodes)
 
 
 @router.put(

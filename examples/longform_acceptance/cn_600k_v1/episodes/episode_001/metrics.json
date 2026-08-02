@@ -1,0 +1,30 @@
+{
+  "episode_number": 1,
+  "title": "第一集：被改写的证据",
+  "script_body_characters": 1416,
+  "action_characters": 748,
+  "dialogue_characters": 668,
+  "action_count": 9,
+  "dialogue_count": 13,
+  "scene_count": 3,
+  "scene_causality_complete": true,
+  "later_scenes_reference_prior_cause": true,
+  "final_cliffhanger": true,
+  "next_episode_question_present": true,
+  "locked_characters_preserved": true,
+  "qc_overall_score": 0.909,
+  "qc_status": "placeholder",
+  "qc_dimension_scores": {
+    "hook_quality": 5.0,
+    "character_agency": 2.5,
+    "conflict_escalation": 4.5,
+    "emotional_payoff": 4.5,
+    "cliffhanger_strength": 5.0
+  },
+  "prompt_tokens": 7157,
+  "completion_tokens": 4590,
+  "total_tokens": 11747,
+  "latency_seconds": 1242.297,
+  "started_at": "2026-08-02T14:54:12.458575+00:00",
+  "completed_at": "2026-08-02T15:14:54.749327+00:00"
+}

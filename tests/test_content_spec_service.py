@@ -173,6 +173,39 @@ def test_resolve_creative_intent_creates_content_spec_and_separate_context() -> 
     assert service.get(result.content_spec.id) == result.content_spec
 
 
+def test_resolve_prompt_only_intent_preserves_user_story_goal() -> None:
+    service = build_service()
+    payload_data = build_intent_payload().model_dump(mode="json")
+    payload_data["selected_tag_ids"] = []
+    payload_data["added_tag_ids"] = []
+    payload = CreativeIntentInput.model_validate(payload_data)
+
+    result = service.resolve_creative_intent(payload)
+
+    assert result.content_spec.story_goal == payload.free_creative_prompt
+    assert result.content_spec.tags == []
+    assert result.resolved_tag_refs == []
+    assert result.content_spec.metadata["story_goal_source"] == "user_provided"
+
+
+def test_resolve_tag_only_intent_derives_traceable_story_goal() -> None:
+    service = build_service()
+    payload_data = build_intent_payload().model_dump(mode="json")
+    payload_data["free_creative_prompt"] = ""
+    payload = CreativeIntentInput.model_validate(payload_data)
+
+    result = service.resolve_creative_intent(payload)
+
+    assert "Dark Romance" in result.content_spec.story_goal
+    assert "Revenge" in result.content_spec.story_goal
+    assert result.content_spec.metadata["story_goal_source"] == (
+        "system_derived_from_tags"
+    )
+    assert result.mapping_trace[0].source_field == (
+        "selected_tag_ids + added_tag_ids"
+    )
+
+
 def test_resolve_creative_intent_rejects_selected_excluded_conflict() -> None:
     service = build_service()
     payload = build_intent_payload().model_copy(

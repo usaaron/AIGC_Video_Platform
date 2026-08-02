@@ -19,6 +19,7 @@ from app.modules.script_engine.long_story_models import (
     GenerationJobCheckpoint,
     GenerationJobStatus,
     StoryBible,
+    StoryPlanNode,
     StoryProject,
     StoryProjectStatus,
     StoryProjectWorkspaceSnapshot,
@@ -101,6 +102,36 @@ def build_stage() -> StoryStagePlan:
         central_conflict="Adrian claims that the evidence was planted for her.",
         key_turns=["The payment timestamp predates Adrian's authority."],
         exit_state="Mara and Adrian possess complementary evidence but remain adversaries.",
+    )
+
+
+def build_story_plan_node(
+    *,
+    node_id: str = "story_plan.mainland_demo.root",
+    parent_node_id: str | None = None,
+    predecessor_node_id: str | None = None,
+    sequence_order: int = 1,
+) -> StoryPlanNode:
+    return StoryPlanNode(
+        node_id=node_id,
+        story_project_id="story_project.mainland_demo",
+        story_bible_id="story_bible.mainland_demo",
+        story_bible_version=1,
+        parent_node_id=parent_node_id,
+        parent_node_version=1 if parent_node_id else None,
+        predecessor_node_id=predecessor_node_id,
+        predecessor_node_version=1 if predecessor_node_id else None,
+        sequence_order=sequence_order,
+        title="The Evidence Returns",
+        narrative_purpose="Move the investigation from accusation to verified proof.",
+        synopsis="Mara discovers that her strongest evidence was altered and traces its source.",
+        entry_state="Mara trusts one suspicious payment record.",
+        central_conflict="Public revenge would destroy her access to reliable evidence.",
+        turning_points=["The timestamp predates Adrian's authority."],
+        emotional_direction="Certainty becomes controlled doubt.",
+        exit_state="Mara obtains one verified fact and a more dangerous lead.",
+        character_refs=["character.mara", "character.adrian"],
+        story_line_refs=["storyline.hidden_ledger"],
     )
 
 
@@ -352,6 +383,44 @@ def test_repository_lists_stage_and_episode_plans_in_order(database_runtime) -> 
         )
         assert [stage.stage_number for stage in stages] == [1]
         assert [episode.episode_number for episode in episodes] == [1, 2]
+
+
+def test_repository_persists_recursive_story_plan_nodes_in_sibling_order(
+    database_runtime,
+) -> None:
+    root = build_story_plan_node()
+    first = build_story_plan_node(
+        node_id="story_plan.mainland_demo.first",
+        parent_node_id=root.node_id,
+        sequence_order=1,
+    )
+    second = build_story_plan_node(
+        node_id="story_plan.mainland_demo.second",
+        parent_node_id=root.node_id,
+        predecessor_node_id=first.node_id,
+        sequence_order=2,
+    )
+    with database_runtime.session() as session:
+        repository = LongStoryRepository(session)
+        repository.save_project(build_project())
+        repository.save_story_bible(build_story_bible())
+        repository.save_story_plan_node(root)
+        repository.save_story_plan_node(first)
+        repository.save_story_plan_node(second)
+
+    with database_runtime.session() as session:
+        repository = LongStoryRepository(session)
+        roots = repository.list_story_plan_nodes(
+            "story_project.mainland_demo",
+            roots_only=True,
+        )
+        children = repository.list_story_plan_nodes(
+            "story_project.mainland_demo",
+            parent_node_id=root.node_id,
+        )
+        assert [node.node_id for node in roots] == [root.node_id]
+        assert [node.node_id for node in children] == [first.node_id, second.node_id]
+        assert repository.get_story_plan_node(second.node_id) == second
 
 
 def test_episode_artifact_versions_are_immutable_and_ordered(database_runtime) -> None:

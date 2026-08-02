@@ -63,6 +63,7 @@ V0.1 已实现：
 - `PlatformProfile` 的基础 API 输入输出契约
 - `OntologyNode` 的 Pydantic 数据模型
 - `OntologyNode` 的基础 API 输入输出契约
+- 中国大陆与海外运行时复用同一 `OntologyNode` 契约，通过 market-specific bootstrap 隔离 active 节点；市场不作为自由 metadata 塞入 `TagRef`
 - `RawContentRecord` 的 Pydantic 数据模型
 - `AnalysisResult` 的 Pydantic 数据模型
 - `BenchmarkRunResult` 的 Pydantic 数据模型
@@ -154,6 +155,8 @@ Phase 1 已实现以下最小运行时对象：
 - selected 与 excluded 冲突时解析失败，不静默选择
 - 当前 `free_creative_prompt` 被限制为 240 字符以内的已归一化故事方向，并确定性映射到 `ContentSpec.story_goal`
 
+当前 `CreativeIntentInput` 要求 `free_creative_prompt` 与受控 Ontology 标签至少提供一项，Character Context 全部 optional。Prompt-only 允许 `ContentSpec.tags=[]`；Tag-only 由后端从已解析 TagRef 透明生成 `ContentSpec.story_goal`，并在 metadata 保存 `story_goal_source=system_derived_from_tags`。二者都为空时拒绝。Frontend 不再把合成文本标记为用户原文；已确认 `CustomTagContext`-only 仍是未来兼容项。
+
 ## CreativeBriefInput 完整能力文档级建议契约
 
 `CreativeBriefInput` 继续描述 Phase 1 之后的完整 authoring contract，不替代当前已实现的最小 `CreativeIntentInput`，也不替代内嵌 `CreativeBrief`。
@@ -191,12 +194,13 @@ Recommended Tag 只代表数据建议。未被用户接受的推荐不得自动�
 - `excluded_tag_ids`：用户明确禁止进入最终创作规范的节点
 - `excluded_patterns`：无法由单一标签充分表达的禁用 trope、关系模式、表达方式或内容模式
 
-用户输入自由标签文本时，未来 resolver 只能：
+用户输入自由标签文本时，未来 resolver 首先应：
 
 - 解析为现有节点或 alias
-- 标记为 unresolved 并请求确认
+- 无匹配时建立 project-scoped `CustomTagContext` 候选，记录用户定义、AI inference、相关现有标签、来源和歧义
+- 请求用户确认语义后才允许用于故事梗概；未经治理不得提升为公共 Ontology 节点
 
-不得自动创建新的 `OntologyNode`，也不得把自由文本伪装成 `TagRef`。
+不得仅凭一个新词自动创建公共 `OntologyNode`，也不得把无来源的模型解释伪装成行业知识或正式 `TagRef`。未来 `CustomTagContext`、`TagContextReference` 与 `ResolvedTagContextBundle` 的文档级方向见 `Research/14_Tag_Context_Library_v1_Architecture.md`。
 
 ### GenerationConstraints 建议字段
 
@@ -1333,11 +1337,50 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 
 这些字段由当前分集和角色确定性整理、允许用户编辑并保存在 IndexedDB。后续分集生成时，前端将其压缩为 bounded `project_continuity_summary` 注入 `episode_context`；它约束后续集延续已有故事线和关系状态，但不会改写已经生成的分集。它们不是 `MasterScript` 正式字段，也不代表 Story Planning runtime 已实现。已有分集项目禁止在项目设定页直接重新生成覆盖；重新生成通过复制新的本地项目版本完成。
 
+### Relationship And Story-Line View Boundary
+
+人物关系网和故事线树是同一组 authoring / continuity facts 的可视化投影，不是新的权威数据副本：
+
+- 关系网以角色为节点、方向性关系为边，可展示关系类型、当前状态、变化历史和锁定状态；视觉上可参考游戏人物关系图的直观交互，但不引入图数据库。
+- 故事线以主线、支线和人物弧为分支，关联 Story Plan Node、Setup / Payoff 和分集推进；它是切换检阅视角，不替代递归 Story Plan Tree。
+- Frontend 本地视图当前保存 `storyLines[] / characterRelationships[]`；长期权威版本应来自 Story Bible、Continuity Ledger 和 versioned planning refs。
+
+人物关系与故事线不合并为同一个领域对象。人物关系回答“谁与谁目前是什么关系、关系为何改变”，故事线回答“哪条目标、冲突、伏笔或人物弧正在推进”。二者可以在统一“故事地图 / Continuity Workspace”中组合展示，并通过 `character_ref`、`story_line_ref`、`story_plan_node_ref` 和 episode evidence 相互跳转，但必须保持独立版本和职责。
+
+Character Context 在项目创建时是 optional，因此长篇生成允许渐进发现人物和关系。目标生命周期为：
+
+1. 用户预设的人物以 `user_provided` provenance 进入 Story Bible；
+2. 剧本或规划首次引入的新人物形成 proposed character fact，并记录 `first_seen_episode` / `first_seen_plan_node` 和 source evidence；
+3. 新关系或关系变化形成 proposed relationship delta，记录方向、类型、详细描述、生效点、来源分集/规划节点和 confidence；
+4. 只有用户确认或受控连续性流程确认后的事实，才能进入后续生成约束；无效候选、被拒稿件和 Creative Deepening shadow 不得污染关系网；
+5. 每次确认 Episode、Story Plan Node 或人工编辑后保存新版本，不覆盖旧关系状态。
+
+未来最小关系记录至少需要支持：
+
+- `source_character_ref` / `target_character_ref`
+- `relationship_type`、`direction`、`current_status` 和可阅读 `description`
+- `effective_from`、optional `effective_to` 和 relation change history
+- `source_refs` / evidence、provenance、confidence 和 confirmation status
+- linked story lines / setups / payoffs
+
+人物节点应链接到完整人物简介和变化历史；关系边应链接到关系详情、成立原因、关键事件和跨集变化，而不是只显示一个短标签。
+
+关系网和故事线同时承担后续生成约束，但不能把整张长篇图谱原样塞入 Prompt。未来 Context Mapper 应按 upcoming Story Plan Node / Episode Plan、活跃人物、相关关系、未完成 Story Lines、近期状态变化和 Setup / Payoff 选择 bounded continuity slice，并保留引用以按需读取完整详情。这一裁剪机制用于控制上下文长度和减少模型跑偏。
+
+关系或故事线在已有分集后被修改时，默认只从明确的 future effective point 影响尚未生成内容。系统不得自动重写已确认、已修订或已终稿分集。未来编辑流程应先输出影响分析，包括受影响角色、Story Plan Nodes、Episode Plans、Setup / Payoff 和尚未生成集数，再由用户选择：
+
+1. 仅对未来生效；
+2. 创建新的故事分支/项目版本；
+3. 显式重规划尚未确认的范围；
+4. 对历史范围发起单独、可审计的再生成任务。
+
+新增角色遵循相同规则：默认从指定未来节点或集数进入，不补写历史存在。当前模型尚未实现 proposed/confirmed fact lifecycle、effective point、影响分析、bounded continuity slice 或图形关系网的正式后端契约。
+
 `ScriptProject.marketProfile` 记录 authoring project 的市场来源，当前取值为 `cn_mainland`、`overseas_tiktok` 或兼容旧数据的 `legacy_unknown`。该字段不进入 `MasterScript`，用于按当前 runtime 市场过滤项目，并阻止不同市场配置之间直接续写、AI 修改、审核或终稿操作。旧 payload 缺少该字段时，Frontend 优先从已有 `generation_strategy_id` 推断；无法推断时保守标记为历史项目。非当前市场项目保留在持久化层，但不进入项目列表、首页或直接项目路由。
 
 ## Long-Story Planning Contracts v1
 
-当前已在 `script_engine/long_story_models.py` 实现长篇核心的版本化 Pydantic 契约。Project / Story Bible / Stage / Episode Plan 已接入持久化 Application Service 与版本化资源 API；它们仍未接入 Prompt Builder、自动规划或生成运行时。
+当前已在 `script_engine/long_story_models.py` 实现长篇核心的版本化 Pydantic 契约。Project / Story Bible / 递归 Story Plan Node / Stage / Episode Plan 已接入持久化 Application Service 与版本化资源 API；它们仍未接入 Prompt Builder、自动规划或生成运行时。
 
 ### `StoryProject`
 
@@ -1372,9 +1415,27 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 
 所有人物弧、关系和故事线必须引用已声明角色；approved 状态必须有 `approved_at`。
 
-### `StoryStagePlan`
+### `StoryPlanNode`
 
-故事阶段只负责把长篇方向分解为可管理的集数区间，并不改变最终按“集”交付的产品形式。它包含：
+`StoryPlanNode` 是 `StoryBible` 与 `EpisodePlan` 之间不绑定固定层级的递归叙事片段。系统不预设“卷 → 篇章 → 单元”的固定深度，每个节点只表达：
+
+- `parent_node_id + parent_node_version`：父叙事片段；根节点不提供
+- `predecessor_node_id + predecessor_node_version`：同级前驱及因果承接；第一个子节点不提供
+- `sequence_order`：同一父节点下的顺序
+- title、narrative purpose、synopsis
+- entry state、central conflict、turning points、emotional direction、exit state
+- character / story line / setup / payoff refs
+- optional 预计集数、正文字符数及计划集数范围
+- `unexpanded / expanded / episode_ready` 拆分状态
+- version、draft / approved / superseded 状态及批准时间
+
+节点没有 `depth` 或固定 `node_type`。是否继续拆分由每个节点自身的叙事复杂度、状态跨度、转折数量和预计容量独立决定，不使用全局统一拆分层数。同一父节点下允许一条分支较浅地成为 `episode_ready`，另一条分支继续递归多层，因此规划结果是非平衡树。`episode_ready` 只表示当前片段已经足够具体，可以继续产生 `EpisodePlan`，不是固定树深度；只有 `expanded` 节点可以拥有子节点。
+
+Application Service 当前校验唯一有效根节点、父子归属、同级顺序、显式前驱、Story Bible 人物/故事线引用，以及子节点集数和正文预算不得超出父节点。跨分支 Setup / Payoff 和故事线使用轻量引用，不引入图引擎。
+
+### `StoryStagePlan`（兼容保留）
+
+`StoryStagePlan` 是已经存在的单层阶段契约，继续兼容旧项目和当前 API，但不再作为未来长篇拆分深度的唯一表达。它只负责把长篇方向分解为可管理的集数区间，并不改变最终按“集”交付的产品形式。它包含：
 
 - 阶段编号与起止集数
 - 阶段目标、入口状态、核心冲突和关键转折
@@ -1429,6 +1490,7 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 
 - `story_projects`
 - `story_bible_versions`
+- `story_plan_node_versions`
 - `story_stage_plan_versions`
 - `episode_plan_versions`
 - `continuity_ledger_versions`
@@ -1441,7 +1503,7 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 
 - ID、FK、version / revision、status、集数范围和时间用于查询、唯一性与数据库约束。
 - 完整 Pydantic payload 保存为 JSONB，保证契约版本可以完整复原和审计。
-- Story Bible、Stage、Episode Plan 与 Ledger 使用复合版本主键，已有版本写入后不可覆盖。
+- Story Bible、Story Plan Node、Stage、Episode Plan 与 Ledger 使用复合版本主键，已有版本写入后不可覆盖。
 - Project、Batch 与 Job 允许受控更新，但 Repository 要求 revision 连续增长并校验状态迁移。
 - PostgreSQL 使用 JSONB；SQLite 测试使用 JSON compatibility variant。
 - 时间列使用 timezone-aware 类型。
@@ -1450,13 +1512,13 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 
 `EpisodeArtifact` 保存单集明确内容里程碑，而不是每次键盘输入。当前类型为 `draft / revised / final`，每条包含服务端分配的同类型版本号、content schema version、正文 JSONB、checksum、字节数、optional source artifact、client 和 bounded lineage refs。`artifact_id` 支持相同 payload 幂等重放但禁止覆盖；同项目、同集、同类型版本连续增长，单条正文限制 5 MB。
 
-当前持久化已完成 schema、migration、Repository，以及 Project / Workspace Snapshot / Episode Artifact / Story Bible / Stage / Episode Plan 的 Application Service 与资源 API。Frontend 已进行本地优先同步与服务端恢复，并在确认和质量闭环里程碑写入 Draft / Revised / Final Artifact；尚未实现编辑过程细粒度版本、Continuity 自动更新或后台 worker。
+当前持久化已完成 schema、migration、Repository，以及 Project / Workspace Snapshot / Episode Artifact / Story Bible / Story Plan Node / Stage / Episode Plan 的 Application Service 与资源 API。Frontend 已进行本地优先同步与服务端恢复，并在确认和质量闭环里程碑写入 Draft / Revised / Final Artifact；尚未实现编辑过程细粒度版本、递归自动拆分、Continuity 自动更新或后台 worker。
 
 ### Compatibility Boundary
 
 - 未修改 `ContentSpec`、`DraftMasterScript`、Final `MasterScript` 或现有生成步骤 API contract。
 - 未启用 Story Planning LLM call、Continuity 自动抽取或生成运行时 persistence integration。
-- `StoryBible` / `StoryStagePlan` / `EpisodePlan` 进入生成上下文前，仍需后续 mapper 和固定样本验证。
+- `StoryBible` / `StoryPlanNode` / `StoryStagePlan` / `EpisodePlan` 进入生成上下文前，仍需后续 mapper 和固定样本验证。
 - 新契约不代表完整 60 万字 runtime 已经完成。
 
 ## OrchestrationPlan 当前字段

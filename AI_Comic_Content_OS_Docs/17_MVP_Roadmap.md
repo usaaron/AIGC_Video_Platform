@@ -18,6 +18,7 @@
 
 - Data Intelligence 手工导入与可解释分析链路
 - `ContentSpec`、Ontology、Tag、Platform Profile
+- 中国大陆创作标签目录、旧前端标签 ID 兼容迁移和有界“灵感推荐”（非实时趋势）
 - Asset、规则 Retrieval、Orchestrator
 - Prompt Library、Prompt Retrieval、Prompt Builder、Generation Strategy
 - Mock / OpenAI-compatible `LLMAdapter`
@@ -47,13 +48,13 @@
 
 当前默认顺序：
 
-1. 已完成第一轮长篇 contract foundation：`StoryProject`、`StoryBible`、`StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、bounded batch / checkpoint models。
+1. 已完成第一轮长篇 contract foundation：`StoryProject`、`StoryBible`、level-free recursive `StoryPlanNode`、兼容 `StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、bounded batch / checkpoint models。
 2. 已完成 PostgreSQL / JSONB schema、Alembic migration、事务型 Repository、immutable version 与 optimistic revision foundation。
 3. 已完成 Project / Story Bible / Stage / Episode Plan 的 Application Service 与版本化资源 API。
 4. 已完成 Frontend Project + Workspace Snapshot 的 IndexedDB 本地优先同步、服务端恢复、冲突报告和版本保护软删除。
 5. 已完成确认 Draft / Revised / Final Episode Artifact 的不可变版本持久化和前端里程碑写入。
-6. 下一步实现 Story Bible / Stage 的人工批准切片和后台 Job 安全恢复，不直接改变当前单集生成主链路。
-7. 当前进入 60 万字真实生成验证：optional 单集正文预算已完成两次真实模型校准，系统推荐集数可按实际正文集均延长后续有界批次；下一步继续向 60 万有效正文推进，并验证批次间新增元素、连续性、人工确认、持久化恢复和失败续跑
+6. 当前下一步是递归规划 runtime 最小切片：生成并人工确认 Story Bible 根方向，按每个 Story Plan Node 自身复杂度展开当前分支，并在各自达到 `episode_ready` 后映射到 Episode Plan；不固定全局拆分层级，不要求各分支等深，也不一次展开全部集数。
+7. 60 万字真实生成验收在递归规划进入 runtime 前暂停继续烧取单集；已有单集正文预算和动态集数校准证据保留，后续从通过审核的叶子 Episode Plan 恢复有界生成，并验证连续性、热点增量、持久化恢复和失败续跑。
 8. 扩充并治理中国大陆长篇创作与漫剧改编知识资产。
 9. 在长篇结构稳定后，再决定 Creative Deepening、Agent 和 DDD-lite 的进入时点。
 
@@ -75,7 +76,7 @@ Agent 是合作方需求，但不预设为多 Agent。默认候选是单一 Crea
 
 以下已有研究尚未获得 runtime 批准：
 
-- Serialized Story Planning runtime（基础契约已实现；规划生成与运行时接入未批准）
+- Serialized Story Planning runtime（递归节点契约、持久化与 API 已实现；自动拆分、审核 UI 和生成上下文接入待实现）
 - Character Decision Logic runtime
 - 动态 Creative Knowledge Retrieval / RAG
 - Creative Skill Registry
@@ -91,7 +92,14 @@ Research 结论不得直接写入 Prompt、Schema 或业务规则。
 - `ScriptGenerationRequestMapper`
 - `ScriptGenerationWorkflowService` / Facade / `generate_script()`
 - Ontology alias 与 unresolved tag 人工确认
-- Relationship authoring 的正式后端契约
+- Creative Intent 输入兼容后续：Prompt-only、受控 Tag-only 和 Character optional 已完成；补齐 confirmed CustomTagContext-only
+- 10-20 个高使用大陆标签的 source-grounded Tag Knowledge Profile pilot
+- Project-scoped `CustomTagContext` 语义确认与 lineage；不自动提升为公共标签
+- Data Intelligence `TrendSnapshot` 到实时热门标签推荐的版本化接入
+- Tag Context 到可审阅 Story Synopsis / Story Direction，再到 Story Bible 根方向的映射与验证
+- Relationship / Story Line authoring 的正式后端契约、渐进式 fact delta、确认流程与 future effective point
+- Story Map 交互：人物节点详情、关系边详情、关系/支线交叉跳转和本次生成 continuity slice 预览
+- Bounded Continuity Context Mapper：按规划节点和分集选择相关人物、关系、活跃支线、近期变化与 Setup / Payoff
 - 编辑过程的细粒度历史、Artifact 审计 UI 与批量恢复（确认 Draft / Revised / Final Artifact 已完成）
 - Knowledge-aware QC / Revision / Evaluation
 - Feedback Learning Expansion

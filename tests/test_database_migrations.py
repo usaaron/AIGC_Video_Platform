@@ -11,6 +11,7 @@ EXPECTED_LONG_STORY_TABLES = {
     "generation_batches",
     "generation_job_checkpoints",
     "story_bible_versions",
+    "story_plan_node_versions",
     "story_projects",
     "story_project_workspace_snapshots",
     "story_stage_plan_versions",
