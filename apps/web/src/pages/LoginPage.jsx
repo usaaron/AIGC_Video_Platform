@@ -15,12 +15,15 @@ import { api } from '../services/apiClient'
 import './LoginPage.css'
 
 export function LoginPage() {
+  const registrationEntry = registrationEntryFromSearch(
+    typeof window === 'undefined' ? '' : window.location.search,
+  )
   const { login, register } = useAuth()
-  const [mode, setMode] = useState('login')
+  const [mode, setMode] = useState(registrationEntry.mode)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
-  const [token, setToken] = useState('')
+  const [token, setToken] = useState(registrationEntry.token)
   const [visible, setVisible] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -223,6 +226,11 @@ export function LoginPage() {
       </section>
     </main>
   )
+}
+
+export function registrationEntryFromSearch(search = '') {
+  const token = new URLSearchParams(search).get('token')?.trim() ?? ''
+  return { mode: token ? 'register' : 'login', token }
 }
 
 class LoginInputError extends Error {}
