@@ -154,6 +154,9 @@ mv "$temporary_env" "$RELEASE_ENV"
 changed=1
 
 "${compose[@]}" config --quiet
+if [[ "$component" == 'api' || "$component" == 'all' ]]; then
+  "${compose[@]}" run --rm --no-deps api node dist/scripts/dbMigrate.js
+fi
 "${compose[@]}" up -d --no-build --force-recreate "${services[@]}"
 
 app_domain="$(sed -n 's/^APP_ADDRESS=//p' "$DEMO_ENV" | tail -n 1)"

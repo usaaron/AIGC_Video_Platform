@@ -69,7 +69,10 @@ fi
 
 compose=(docker compose --env-file "$ROOT/deploy/demo.env" -f "$ROOT/compose.demo.yml")
 "${compose[@]}" config --quiet
-"${compose[@]}" up -d --build --remove-orphans
+"${compose[@]}" build api web
+"${compose[@]}" up -d postgres redis
+"${compose[@]}" run --rm --no-deps api node dist/scripts/dbMigrate.js
+"${compose[@]}" up -d --remove-orphans
 
 healthy=0
 for _ in $(seq 1 60); do
