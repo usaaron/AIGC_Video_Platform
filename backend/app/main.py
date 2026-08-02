@@ -1,4 +1,7 @@
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.assets import router as asset_router
 from app.api.routes.benchmarks import router as benchmark_router
@@ -24,6 +27,13 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description="Backend scaffold for the AI Comic Content OS MVP content planning engine.",
     )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_frontend_origins(),
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.include_router(asset_router)
     app.include_router(benchmark_router)
     app.include_router(content_spec_router)
@@ -41,6 +51,14 @@ def create_app() -> FastAPI:
     app.include_router(script_generation_router)
     app.include_router(trend_snapshot_router)
     return app
+
+
+def _frontend_origins() -> list[str]:
+    configured = os.getenv(
+        "FRONTEND_ORIGINS",
+        "http://127.0.0.1:3000,http://localhost:3000",
+    )
+    return [origin.strip() for origin in configured.split(",") if origin.strip()]
 
 
 app = create_app()

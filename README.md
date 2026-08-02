@@ -105,6 +105,8 @@ SCRIPT_MARKET_PROFILE=overseas_tiktok
 ./start-local.sh
 ```
 
+本地启动脚本会让浏览器直接访问 FastAPI，并通过 `FRONTEND_ORIGINS` 限制允许的前端地址。这样真实模型的长耗时生成不会经过 Next.js 开发代理而被提前断开；该设置不改变生产环境的 API 契约。
+
 访问：
 
 - Frontend: `http://127.0.0.1:3000`

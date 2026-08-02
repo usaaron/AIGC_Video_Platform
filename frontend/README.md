@@ -57,7 +57,7 @@ npm run typecheck
 npm run build
 ```
 
-The default Next.js proxy targets `http://127.0.0.1:8000`. Set `BACKEND_API_URL` when the backend runs elsewhere, or `NEXT_PUBLIC_API_BASE_URL` only when intentionally bypassing the same-origin proxy.
+The default Next.js proxy targets `http://127.0.0.1:8000`. `start-local.sh` intentionally sets `NEXT_PUBLIC_API_BASE_URL` to the backend URL so long-running real-LLM generation does not time out in the development rewrite proxy. FastAPI limits cross-origin access to `FRONTEND_ORIGINS`. Set `BACKEND_API_URL` when the backend runs elsewhere.
 
 Because the current backend repositories are in memory, initialize the running API after each restart:
 

@@ -29,6 +29,8 @@
 
 Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent -> generate-draft -> revise-draft -> finalize`。这证明现有步骤 API 可以支撑单集成品链路，但不代表统一 Script Generation Facade 已完成。
 
+本地真实模型生成可能持续数十秒或更久。`start-local.sh` 当前让浏览器通过 `NEXT_PUBLIC_API_BASE_URL` 直接访问 FastAPI，并由 `FRONTEND_ORIGINS` 控制允许来源，避免 Next.js 开发 rewrite 代理提前断开长请求。生产环境仍应由正式同域网关配置请求超时、鉴权和可观测性；该本地连接策略不改变 API 契约。
+
 长篇规划当前另有一组版本化资源 API，用于保存人工可审阅的 Project / Story Bible / Stage / Episode Plan。它们是 Script Generation Box 的上游规划资源，不是新的生成 Engine，也不自动调用 LLM。
 
 当前最小迁移方向：
