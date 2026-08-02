@@ -65,6 +65,7 @@ def seed_dependencies(
     deepening_knowledge_bundle_id: str | None = None,
     llm_adapter: LLMAdapter | None = None,
     creative_deepening_enabled: bool | None = None,
+    prompt_only: bool = False,
 ) -> tuple[ScriptGenerationService, str]:
     content_spec_repository = ContentSpecRepository()
     generation_strategy_repository = GenerationStrategyRepository()
@@ -151,6 +152,24 @@ def seed_dependencies(
         )
     )
 
+    asset_tags = [
+        TagRef(
+            ontology_node_id="genre.romance_service_generation",
+            label=(
+                "Dark Romance"
+                if draft_knowledge_bundle_id or deepening_knowledge_bundle_id
+                else "Romance"
+            ),
+            category="Genre",
+            confidence=0.9,
+        ),
+        TagRef(
+            ontology_node_id="emotion.revenge_service_generation",
+            label="Revenge",
+            category="Emotion",
+            confidence=0.85,
+        ),
+    ]
     content_spec = ContentSpec(
         title="Romance revenge short",
         audience_goal=TargetGoal(
@@ -172,24 +191,7 @@ def seed_dependencies(
         story_goal="Create a revenge romance cliffhanger.",
         quality_level=QualityLevel.medium,
         budget_level=BudgetLevel.medium,
-        tags=[
-            TagRef(
-                ontology_node_id="genre.romance_service_generation",
-                label=(
-                    "Dark Romance"
-                    if draft_knowledge_bundle_id or deepening_knowledge_bundle_id
-                    else "Romance"
-                ),
-                category="Genre",
-                confidence=0.9,
-            ),
-            TagRef(
-                ontology_node_id="emotion.revenge_service_generation",
-                label="Revenge",
-                category="Emotion",
-                confidence=0.85,
-            ),
-        ],
+        tags=[] if prompt_only else asset_tags,
         creative_brief=CreativeBrief(
             hook="She married him to destroy him.",
             tone="intense",
@@ -208,7 +210,7 @@ def seed_dependencies(
             asset_type=AssetType.character,
             title="Lead Pair",
             summary="Core lead pair for revenge romance.",
-            tags=content_spec.tags,
+            tags=asset_tags,
             content=AssetContent(text="Character asset", payload={"source": "unit_test"}),
             applicable_platform_profile_ids=["tiktok_v1_service"],
             metadata={"source": "unit_test"},
@@ -221,7 +223,7 @@ def seed_dependencies(
             asset_type=AssetType.scene,
             title="Wedding Set",
             summary="Wedding reveal set for revenge romance.",
-            tags=content_spec.tags,
+            tags=asset_tags,
             content=AssetContent(text="Scene asset", payload={"source": "unit_test"}),
             applicable_platform_profile_ids=["tiktok_v1_service"],
             metadata={"source": "unit_test"},
@@ -391,6 +393,26 @@ def test_script_generation_service_generates_draft_run() -> None:
     assert result.knowledge_bundle is None
     assert result.knowledge_selection_trace is None
     assert "CreativeKnowledgeBundle:" not in result.prompt_build_result.prompt_text
+
+
+def test_script_generation_service_supports_prompt_only_content_spec() -> None:
+    service, content_spec_id = seed_dependencies(prompt_only=True)
+
+    result = service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+        )
+    )
+
+    assert result.draft_master_script.content_spec_id == content_spec_id
+    assert result.retrieval_result.status.value == "resolved"
+    assert all(
+        request.required_tag_ids == []
+        for request in result.retrieval_result.resolved_requests
+    )
 
 
 def test_script_generation_service_preserves_serialized_episode_context() -> None:

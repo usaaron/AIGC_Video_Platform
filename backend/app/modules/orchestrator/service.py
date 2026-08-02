@@ -70,12 +70,13 @@ class OrchestratorService:
         return self._repository.list()
 
     def _build_asset_requests(self, content_spec: ContentSpec) -> list[AssetRequest]:
+        primary_tag_ids = [tag.ontology_node_id for tag in content_spec.tags]
         asset_requests = [
             AssetRequest(
                 request_id="characters_core",
                 asset_type="character",
                 reason="Retrieve reusable character assets aligned with primary story tags.",
-                required_tag_ids=[tag.ontology_node_id for tag in content_spec.tags[:2]],
+                required_tag_ids=primary_tag_ids[:2],
                 optional_tag_ids=[],
                 limit=3,
             ),
@@ -83,8 +84,8 @@ class OrchestratorService:
                 request_id="scenes_supporting",
                 asset_type="scene",
                 reason="Retrieve environment assets that support the episode hook and pacing.",
-                required_tag_ids=[content_spec.tags[0].ontology_node_id],
-                optional_tag_ids=[tag.ontology_node_id for tag in content_spec.tags[1:3]],
+                required_tag_ids=primary_tag_ids[:1],
+                optional_tag_ids=primary_tag_ids[1:3],
                 limit=3,
             ),
         ]

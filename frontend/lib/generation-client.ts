@@ -77,6 +77,11 @@ export async function generateSingleEpisode(
   ) ?? profilesResponse.data[0];
   if (!platform) throw new Error("Backend has no PlatformProfile. Initialize runtime resources first.");
   const isMainlandChina = platform.metadata?.market_profile === "cn_mainland";
+  if (!project.creativePrompt.trim() && systemTagIds.length === 0) {
+    throw new Error(isMainlandChina
+      ? "仅使用“我的标签”时需要补充创作描述或选择至少一个系统标签。"
+      : "My Tags require a creative description or at least one controlled system tag.");
+  }
   const projectMarketProfile = project.marketProfile ?? "legacy_unknown";
   if (
     projectMarketProfile !== CURRENT_MARKET_PROFILE

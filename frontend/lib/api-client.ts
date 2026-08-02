@@ -23,14 +23,27 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { detail?: unknown } | null;
-    throw new ApiError(formatApiError(payload?.detail), response.status);
+    const responseText = await response.text();
+    const payload = parseErrorPayload(responseText);
+    throw new ApiError(
+      formatApiError(payload?.detail, response.status, responseText),
+      response.status,
+    );
   }
 
   return response.json() as Promise<T>;
 }
 
-function formatApiError(detail: unknown): string {
+function parseErrorPayload(responseText: string): { detail?: unknown } | null {
+  if (!responseText.trim()) return null;
+  try {
+    return JSON.parse(responseText) as { detail?: unknown };
+  } catch {
+    return null;
+  }
+}
+
+function formatApiError(detail: unknown, status: number, responseText: string): string {
   if (typeof detail === "string" && detail.trim()) return detail;
   if (Array.isArray(detail)) {
     const messages = detail.flatMap((item) => {
@@ -44,5 +57,7 @@ function formatApiError(detail: unknown): string {
     });
     if (messages.length) return messages.join("; ");
   }
-  return "The API request failed.";
+  const plainText = responseText.trim();
+  if (plainText && !plainText.startsWith("<")) return plainText.slice(0, 500);
+  return `The API request failed (HTTP ${status}).`;
 }

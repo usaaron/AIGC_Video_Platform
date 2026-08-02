@@ -146,6 +146,20 @@ async def seed_content_spec(client: AsyncClient, suffix: str) -> str:
     return content_spec_response.json()["data"]["id"]
 
 
+async def seed_prompt_only_content_spec(client: AsyncClient, suffix: str) -> str:
+    profile_id = f"tiktok_v1_{suffix}"
+    profile_response = await client.post(
+        "/platform-profiles",
+        json=build_platform_profile_payload(profile_id),
+    )
+    assert profile_response.status_code == 201
+    payload = build_content_spec_payload(profile_id, "unused.genre", "unused.hook")
+    payload["tags"] = []
+    content_spec_response = await client.post("/content-specs", json=payload)
+    assert content_spec_response.status_code == 201
+    return content_spec_response.json()["data"]["id"]
+
+
 @pytest.mark.anyio
 async def test_create_orchestration_plan() -> None:
     async with AsyncClient(
@@ -161,6 +175,27 @@ async def test_create_orchestration_plan() -> None:
     data = response.json()["data"]
     assert data["content_spec_id"] == content_spec_id
     assert data["status"] == "ready"
+
+
+@pytest.mark.anyio
+async def test_create_orchestration_plan_supports_prompt_only_content_spec() -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()),
+        base_url="http://testserver",
+    ) as client:
+        content_spec_id = await seed_prompt_only_content_spec(
+            client,
+            "orch_prompt_only",
+        )
+        response = await client.post(
+            "/orchestrations",
+            json={"content_spec_id": content_spec_id, "desired_scene_count": 3},
+        )
+
+    assert response.status_code == 201
+    requests = response.json()["data"]["asset_requests"]
+    assert requests
+    assert all(item["required_tag_ids"] == [] for item in requests)
 
 
 @pytest.mark.anyio

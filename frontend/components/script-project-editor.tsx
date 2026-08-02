@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { CharacterCard } from "@/components/character-card";
 import { ArrowIcon, PlusIcon, ScriptIcon, UserIcon } from "@/components/icons";
@@ -63,7 +63,6 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
   const [isGenerating, setIsGenerating] = useState(false);
   const [availableTags, setAvailableTags] = useState<CreatorTag[]>(CREATOR_TAGS);
   const [tagSource, setTagSource] = useState<"loading" | "backend" | "local">("loading");
-  const autoCreateStarted = useRef(false);
 
   useEffect(() => {
     if (project) setDraft(toDraft(project));
@@ -153,26 +152,6 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
             ? t("editor.savedOffline")
             : t("editor.saved");
 
-  useEffect(() => {
-    if (
-      mode !== "create"
-      || autoCreateStarted.current
-      || !draft.creativePrompt.trim()
-    ) return;
-    const timer = window.setTimeout(() => {
-      autoCreateStarted.current = true;
-      setSaveState("saving");
-      void createProject({
-        ...draft,
-        title: draft.title.trim() || deriveProjectTitle(draft.creativePrompt),
-      }).then((created) => {
-        setSaveState("saved");
-        router.replace(`/projects/${created.id}`);
-      });
-    }, 700);
-    return () => window.clearTimeout(timer);
-  }, [draft, mode]);
-
   function updatePrompt(value: string) {
     setDraft((current) => ({
       ...current,
@@ -205,7 +184,6 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
       router.push(`/projects/${project.id}/characters/new`);
       return;
     }
-    autoCreateStarted.current = true;
     const created = await createProject({
       ...draft,
       title: draft.title.trim()
@@ -225,7 +203,6 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
 
   async function saveNewProject() {
     if (!hasCreativeSignal) return;
-    autoCreateStarted.current = true;
     setSaveState("saving");
     const created = await createProject({
       ...draft,
@@ -265,34 +242,66 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     URL.revokeObjectURL(url);
   }
 
-  async function generateScript() {
-    if (!project) return;
-    if (project.episodes.length) {
-      setPhaseNotice(t("generation.existingProtected"));
-      return;
-    }
-    if (tagSource !== "backend") {
-      setPhaseNotice(t("generation.runtimeUnavailable"));
-      return;
-    }
+  function validateGenerationInput(): string | null {
+    if (tagSource !== "backend") return t("generation.runtimeUnavailable");
     if (!draft.creativePrompt.trim() && draft.selectedTagIds.length === 0) {
-      setPhaseNotice(t("generation.creativeSignalRequired"));
-      return;
+      return t("generation.creativeSignalRequired");
     }
     const customTagIds = new Set(draft.customTags.map((tag) => tag.id));
     if (
       !draft.creativePrompt.trim()
       && !draft.selectedTagIds.some((tagId) => !customTagIds.has(tagId))
     ) {
-      setPhaseNotice(t("generation.systemTagRequired"));
+      return t("generation.systemTagRequired");
+    }
+    return null;
+  }
+
+  function confirmTagDerivedDirection(): boolean {
+    return Boolean(
+      draft.creativePrompt.trim()
+      || window.confirm(`${t("generation.fallbackConfirm")}\n\n${resolvedGenerationPrompt}`),
+    );
+  }
+
+  async function createAndGenerate() {
+    const validationError = validateGenerationInput();
+    if (validationError) {
+      setPhaseNotice(validationError);
       return;
     }
-    if (!draft.creativePrompt.trim() && !window.confirm(`${t("generation.fallbackConfirm")}\n\n${resolvedGenerationPrompt}`)) {
+    if (!confirmTagDerivedDirection()) return;
+    setSaveState("saving");
+    const created = await createProject({
+      ...draft,
+      title: draft.title.trim()
+        || (draft.creativePrompt.trim()
+          ? deriveProjectTitle(draft.creativePrompt)
+          : t("editor.untitled")),
+    });
+    setSaveState("saved");
+    await generateProject(created);
+  }
+
+  async function generateScript() {
+    if (!project) return;
+    const validationError = validateGenerationInput();
+    if (validationError) {
+      setPhaseNotice(validationError);
+      return;
+    }
+    if (!confirmTagDerivedDirection()) return;
+    await generateProject(project);
+  }
+
+  async function generateProject(targetProject: ScriptProject) {
+    if (targetProject.episodes.length) {
+      setPhaseNotice(t("generation.existingProtected"));
       return;
     }
     setIsGenerating(true);
     setPhaseNotice(null);
-    updateProject(project.id, { status: "generating" });
+    updateProject(targetProject.id, { status: "generating" });
     const generatedEpisodes: EpisodeWorkspace[] = [];
     try {
       const batchRange = nextBatchRange(0, draft.generationSettings);
@@ -308,11 +317,11 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
           draft.creativePrompt,
           draft.characters,
           generatedEpisodes,
-          project.storyLines,
-          project.characterRelationships,
+          targetProject.storyLines,
+          targetProject.characterRelationships,
         );
         const generationRun = await generateSingleEpisode({
-          ...project,
+          ...targetProject,
           ...draft,
           ...continuity,
         }, {
@@ -339,7 +348,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
         });
         previousEpisode = generationRun.draft_master_script;
         const batchRecord: GenerationBatchRecord = {
-          id: `batch-${project.id}-${batchNumber}`,
+          id: `batch-${targetProject.id}-${batchNumber}`,
           batchNumber,
           startEpisode: batchRange.startEpisode,
           endEpisode: batchRange.endEpisode,
@@ -350,7 +359,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
           ...(generatedEpisodes.length === targetCount ? { completedAt: now } : {}),
         };
         const firstRun = generatedEpisodes[0].generationRun;
-        updateProject(project.id, {
+        updateProject(targetProject.id, {
           ...draft,
           episodes: [...generatedEpisodes],
           generationBatches: [batchRecord],
@@ -359,15 +368,15 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
             draft.creativePrompt,
             draft.characters,
             generatedEpisodes,
-            project.storyLines,
-            project.characterRelationships,
+            targetProject.storyLines,
+            targetProject.characterRelationships,
           ),
           generationRun: firstRun,
           revisionRun: undefined,
           finalizationResult: undefined,
           workingDraftJson: generatedEpisodes[0].workingDraftJson,
           hasLocalDraftEdits: false,
-          contentSpecId: firstRun.content_spec_id ?? project.contentSpecId,
+          contentSpecId: firstRun.content_spec_id ?? targetProject.contentSpecId,
           status: "draft",
           ...(draft.titleSource === "user" ? {} : {
             title: firstRun.draft_master_script.title,
@@ -375,13 +384,13 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
           }),
         });
       }
-      router.push(`/projects/${project.id}/workspace`);
+      router.push(`/projects/${targetProject.id}/workspace`);
     } catch (error) {
-      updateProject(project.id, {
-        status: generatedEpisodes.length || project.generationRun ? "draft" : "idea",
+      updateProject(targetProject.id, {
+        status: generatedEpisodes.length || targetProject.generationRun ? "draft" : "idea",
       });
       setPhaseNotice(error instanceof Error ? error.message : t("generation.failed"));
-      if (generatedEpisodes.length) router.push(`/projects/${project.id}/workspace`);
+      if (generatedEpisodes.length) router.push(`/projects/${targetProject.id}/workspace`);
     } finally {
       setIsGenerating(false);
     }
@@ -619,9 +628,14 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
           {phaseNotice ? <div className="inline-notice">{phaseNotice}</div> : null}
           {hasExistingEpisodes ? <div className="inline-notice">{t("generation.existingProtected")}</div> : null}
           {mode === "create" ? (
-            <button className="primary-action full-width" disabled={!hasCreativeSignal || saveState === "saving"} onClick={saveNewProject} type="button">
-              {t("editor.saveProject")} <ArrowIcon />
-            </button>
+            <>
+              <button className="primary-action full-width" disabled={!hasCreativeSignal || isGenerating || saveState === "saving"} onClick={() => void createAndGenerate()} type="button">
+                {isGenerating ? t("generation.generating") : t("generation.generate")} <ArrowIcon />
+              </button>
+              <button className="outline-action full-width" disabled={!hasCreativeSignal || saveState === "saving"} onClick={() => void saveNewProject()} type="button">
+                {t("editor.saveProject")}
+              </button>
+            </>
           ) : (
             hasExistingEpisodes ? (
               <>

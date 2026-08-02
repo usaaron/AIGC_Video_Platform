@@ -18,7 +18,7 @@ class AssetRequest(BaseModel):
     request_id: str = Field(min_length=3, max_length=80)
     asset_type: str = Field(min_length=3, max_length=80)
     reason: str = Field(min_length=5, max_length=240)
-    required_tag_ids: list[str] = Field(min_length=1, max_length=10)
+    required_tag_ids: list[str] = Field(default_factory=list, max_length=10)
     optional_tag_ids: list[str] = Field(default_factory=list, max_length=10)
     limit: int = Field(default=5, ge=1, le=20)
 
