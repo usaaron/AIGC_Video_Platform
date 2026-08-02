@@ -141,8 +141,7 @@ const assetDefinitions: AssetDefinition[] = [
     description: '青玄宗传承千年的黑色测灵石碑，可显现灵根与碎星命纹。',
     prompt:
       '单个古代修仙宗门测灵石碑独立资产，三丈高的细长黑色玄石碑，厚重稳定，表面有极淡的古老竖向灵纹和中央圆形检测区域，石材边缘磨损，影视CG东方玄幻，完整轮廓，正面视图，中性纯色背景，竖屏9:16。',
-    negativePrompt:
-      '不要人物、人体、手、文字、书法、现代标牌、多个石碑、断裂、悬浮、过度发光、水印、logo。',
+    negativePrompt: '不要人物、人体、手、文字、书法、现代标牌、多个石碑、断裂、悬浮、过度发光、水印、logo。',
     attributes: {
       type: 'prop',
       category: 'other',
@@ -202,7 +201,11 @@ async function main() {
     completedAt: new Date().toISOString(),
   }
   await mkdir(resolve('artifacts'), { recursive: true })
-  await writeFile(resolve('artifacts', 'two-minute-demo-result.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
+  await writeFile(
+    resolve('artifacts', 'two-minute-demo-result.json'),
+    `${JSON.stringify(result, null, 2)}\n`,
+    'utf8',
+  )
   log(`完成：${OUTPUT_PATH}`)
 }
 
@@ -328,29 +331,30 @@ async function ensureScript(project: Project): Promise<string> {
     await tasksFor(project.id),
     (task) => task.kind === 'text' && task.metadata.generationStage === 'script-generate',
   )
-  const task = existing && !terminalFailure(existing)
-    ? existing
-    : await createTask(project.id, {
-        kind: 'text',
-        label: '2分钟网剧剧本',
-        provider: 'text',
-        model: 'glm-5.2',
-        estimatedCredits: 3,
-        metadata: {
-          generationStage: 'script-generate',
-          scriptOperation: 'generate',
-          billingMode: 'prepaid',
-          draft: productionScript,
-          direction,
-          mode: 'quick',
-          productionMode: 'web-series',
-          episodeMinutes: 2,
-          episodeDurationSeconds: 120,
+  const task =
+    existing && !terminalFailure(existing)
+      ? existing
+      : await createTask(project.id, {
+          kind: 'text',
+          label: '2分钟网剧剧本',
+          provider: 'text',
           model: 'glm-5.2',
-          revisionNote:
-            '严格保留12个连续场次、三个固定主要人物、一个固定场景和两个关键物件；结尾停在林砚反击前。每场动作与对白必须可在短镜头内执行。',
-        },
-      })
+          estimatedCredits: 3,
+          metadata: {
+            generationStage: 'script-generate',
+            scriptOperation: 'generate',
+            billingMode: 'prepaid',
+            draft: productionScript,
+            direction,
+            mode: 'quick',
+            productionMode: 'web-series',
+            episodeMinutes: 2,
+            episodeDurationSeconds: 120,
+            model: 'glm-5.2',
+            revisionNote:
+              '严格保留12个连续场次、三个固定主要人物、一个固定场景和两个关键物件；结尾停在林砚反击前。每场动作与对白必须可在短镜头内执行。',
+          },
+        })
   const completed = await waitForTask(project.id, task.id, 12 * 60_000)
   const generated = textResult(completed)?.script
   const selected = normalizeStoryboardActions(
@@ -372,41 +376,51 @@ async function ensureScript(project: Project): Promise<string> {
 async function ensureAssetSuggestions(projectId: string, script: string) {
   const tasks = await tasksFor(projectId)
   const completed = tasks.find(
-    (task) => task.kind === 'text' && task.metadata.generationStage === 'script-asset-suggestions' && task.status === 'completed',
+    (task) =>
+      task.kind === 'text' &&
+      task.metadata.generationStage === 'script-asset-suggestions' &&
+      task.status === 'completed',
   )
   if (completed) return
   const active = findTask(
     tasks,
     (task) => task.kind === 'text' && task.metadata.generationStage === 'script-asset-suggestions',
   )
-  const task = active && !terminalFailure(active)
-    ? active
-    : await createTask(projectId, {
-        kind: 'text',
-        label: '资产建议',
-        provider: 'text',
-        model: 'glm-5.2',
-        estimatedCredits: 2,
-        metadata: {
-          generationStage: 'script-asset-suggestions',
-          scriptOperation: 'suggest-assets',
-          billingMode: 'prepaid',
-          script,
-          direction,
+  const task =
+    active && !terminalFailure(active)
+      ? active
+      : await createTask(projectId, {
+          kind: 'text',
+          label: '资产建议',
+          provider: 'text',
           model: 'glm-5.2',
-        },
-      })
+          estimatedCredits: 2,
+          metadata: {
+            generationStage: 'script-asset-suggestions',
+            scriptOperation: 'suggest-assets',
+            billingMode: 'prepaid',
+            script,
+            direction,
+            model: 'glm-5.2',
+          },
+        })
   const result = await waitForTask(projectId, task.id, 8 * 60_000)
   const suggestions = textResult(result)?.assets
   if (Array.isArray(suggestions)) {
-    log(`资产建议：${suggestions.map((item) => String((item as JsonRecord).name || '')).filter(Boolean).join('、')}`)
+    log(
+      `资产建议：${suggestions
+        .map((item) => String((item as JsonRecord).name || ''))
+        .filter(Boolean)
+        .join('、')}`,
+    )
   }
 }
 
 async function ensureAssets(projectId: string) {
   const workspace = await workspaceFor(projectId)
   for (const definition of assetDefinitions) {
-    if (workspace.assets.some((asset) => asset.name === definition.name && asset.kind === definition.kind)) continue
+    if (workspace.assets.some((asset) => asset.name === definition.name && asset.kind === definition.kind))
+      continue
     await api<Asset>(`/projects/${projectId}/assets`, {
       method: 'POST',
       body: JSON.stringify({
@@ -427,7 +441,9 @@ async function ensureAssetImages(projectId: string) {
   let workspace = await workspaceFor(projectId)
   const tasks = await tasksFor(projectId)
   const firstWave: string[] = []
-  for (const asset of workspace.assets.filter((item) => assetDefinitions.some((definition) => definition.name === item.name))) {
+  for (const asset of workspace.assets.filter((item) =>
+    assetDefinitions.some((definition) => definition.name === item.name),
+  )) {
     if (asset.kind === 'character') {
       const faceReference = asRecord(asset.attributes.faceReference)
       if (typeof faceReference?.url === 'string') continue
@@ -494,7 +510,10 @@ async function ensureAssetImages(projectId: string) {
   workspace = await workspaceFor(projectId)
   const secondWave: string[] = []
   const currentTasks = await tasksFor(projectId)
-  for (const asset of workspace.assets.filter((item) => item.kind === 'character' && assetDefinitions.some((definition) => definition.name === item.name))) {
+  for (const asset of workspace.assets.filter(
+    (item) =>
+      item.kind === 'character' && assetDefinitions.some((definition) => definition.name === item.name),
+  )) {
     let attributes = asset.attributes
     let faceReference = asRecord(attributes.faceReference)
     if (typeof faceReference?.url !== 'string') {
@@ -538,7 +557,10 @@ async function ensureAssetImages(projectId: string) {
 
   workspace = await workspaceFor(projectId)
   const finalTasks = await tasksFor(projectId)
-  for (const asset of workspace.assets.filter((item) => item.kind === 'character' && assetDefinitions.some((definition) => definition.name === item.name))) {
+  for (const asset of workspace.assets.filter(
+    (item) =>
+      item.kind === 'character' && assetDefinitions.some((definition) => definition.name === item.name),
+  )) {
     const bodyReference = asRecord(asset.attributes.bodyReference)
     if (typeof bodyReference?.url === 'string') continue
     const bodyTask = latestAssetTask(finalTasks, asset.id, 'body')
@@ -594,7 +616,10 @@ async function ensureStoryboardImages(projectId: string, shots: Shot[]) {
       if (shot.imageUrl) continue
       const existing = findTask(
         tasks,
-        (task) => task.kind === 'image' && task.metadata.shotId === shot.id && task.metadata.generationStage === 'storyboard',
+        (task) =>
+          task.kind === 'image' &&
+          task.metadata.shotId === shot.id &&
+          task.metadata.generationStage === 'storyboard',
       )
       if (existing && !terminalFailure(existing)) {
         ids.push(existing.id)
@@ -633,7 +658,9 @@ async function ensureStoryboardImages(projectId: string, shots: Shot[]) {
     throw new Error('部分分镜图未回写到镜头')
   }
   const tasks = await tasksFor(projectId)
-  log(`分镜图完成：${tasks.filter((task) => task.kind === 'image' && task.metadata.generationStage === 'storyboard' && task.status === 'completed').length} 个`)
+  log(
+    `分镜图完成：${tasks.filter((task) => task.kind === 'image' && task.metadata.generationStage === 'storyboard' && task.status === 'completed').length} 个`,
+  )
 }
 
 async function ensureVideos(projectId: string) {
@@ -656,10 +683,7 @@ async function ensureVideos(projectId: string) {
         const shot = laneShots[depth]
         if (!shot || latestCompletedVideo(tasks, shot.id)) continue
 
-        const active = findTask(
-          tasks,
-          (task) => task.kind === 'video' && task.metadata.shotId === shot.id,
-        )
+        const active = findTask(tasks, (task) => task.kind === 'video' && task.metadata.shotId === shot.id)
         if (active && !terminalFailure(active)) {
           taskIds.push(active.id)
           continue
@@ -732,12 +756,13 @@ async function ensureFilmPreview(projectId: string): Promise<Task> {
     tasks,
     (task) => task.metadata.generationStage === 'film-preview' && task.metadata.previewMode !== 'partial',
   )
-  const preview = existing && !terminalFailure(existing)
-    ? existing
-    : await api<Task>(`/projects/${projectId}/film-preview`, {
-        method: 'POST',
-        body: JSON.stringify({ mode: 'full', force: true, episodeNumber: null }),
-      })
+  const preview =
+    existing && !terminalFailure(existing)
+      ? existing
+      : await api<Task>(`/projects/${projectId}/film-preview`, {
+          method: 'POST',
+          body: JSON.stringify({ mode: 'full', force: true, episodeNumber: null }),
+        })
   return waitForTask(projectId, preview.id, 30 * 60_000)
 }
 
@@ -786,7 +811,9 @@ async function waitForTasks(
     const tasks = (await tasksFor(projectId)).filter((task) => wanted.has(task.id))
     const failed = tasks.filter(terminalFailure)
     if (failed.length) {
-      throw new Error(`${label}失败：${failed.map((task) => `${task.label}: ${task.error || task.status}`).join('；')}`)
+      throw new Error(
+        `${label}失败：${failed.map((task) => `${task.label}: ${task.error || task.status}`).join('；')}`,
+      )
     }
     const completed = tasks.filter((task) => task.status === 'completed')
     if (completed.length === wanted.size) return completed
@@ -822,7 +849,8 @@ function findTask(tasks: Task[], predicate: (task: Task) => boolean): Task | und
 function latestAssetTask(tasks: Task[], assetId: string, stage: string): Task | undefined {
   return findTask(
     tasks,
-    (task) => task.kind === 'image' && task.metadata.assetId === assetId && task.metadata.generationStage === stage,
+    (task) =>
+      task.kind === 'image' && task.metadata.assetId === assetId && task.metadata.generationStage === stage,
   )
 }
 
@@ -867,8 +895,9 @@ function normalizeStoryboardActions(script: string): string {
   return script
     .split(/\n/u)
     .map((line) =>
-      line.replace(/动作[：:]([\s\S]*?)(?=｜对白[：:])/u, (_match, actions: string) =>
-        `动作：${twoStoryboardBeats(actions)}`,
+      line.replace(
+        /动作[：:]([\s\S]*?)(?=｜对白[：:])/u,
+        (_match, actions: string) => `动作：${twoStoryboardBeats(actions)}`,
       ),
     )
     .join('\n')

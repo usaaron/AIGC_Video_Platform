@@ -424,7 +424,10 @@ export function FilmPage({
               <dd>
                 {viewMode === 'full'
                   ? previewDuration
-                  : normalizedVideoDuration(videoTask?.metadata?.duration ?? shot.duration, shotMinDuration)}{' '}
+                  : normalizedVideoDuration(
+                      videoTask?.metadata?.duration ?? shot.duration,
+                      shotMinDuration,
+                    )}{' '}
                 秒
               </dd>
             </div>
@@ -460,7 +463,7 @@ export function FilmPage({
             <button
               key={item.id}
               className={viewMode === 'shot' && safeIndex === index ? 'active' : ''}
-                style={{ flex: normalizedVideoDuration(item.duration, shotMinDuration) }}
+              style={{ flex: normalizedVideoDuration(item.duration, shotMinDuration) }}
               onClick={() => {
                 setCurrentShot(shots.findIndex((shotItem) => shotItem.id === item.id))
                 setViewMode('shot')

@@ -1,5 +1,15 @@
 import { useState } from 'react'
-import { LoaderCircle, MapPinned, Package, Pencil, Plus, RefreshCcw, Shirt, Sparkles, UserRound } from 'lucide-react'
+import {
+  LoaderCircle,
+  MapPinned,
+  Package,
+  Pencil,
+  Plus,
+  RefreshCcw,
+  Shirt,
+  Sparkles,
+  UserRound,
+} from 'lucide-react'
 import { optionLabel } from '../assets/assetOptions'
 
 const KIND_META = {

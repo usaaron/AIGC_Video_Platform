@@ -494,8 +494,6 @@ async function createMemberWithWorkspace(
   })
   expect(created.statusCode).toBe(201)
 
-  await verifyEmailAddress(email)
-
   const loginResponse = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
@@ -508,26 +506,6 @@ async function createMemberWithWorkspace(
     userId: created.json().userId as string,
     tenantId,
   }
-}
-
-async function verifyEmailAddress(email: string): Promise<void> {
-  if (!app) throw new Error('App is not ready')
-  const request = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/email-verification/request',
-    payload: { email },
-  })
-  expect(request.statusCode).toBe(202)
-  const token = request.json().verificationToken as string | undefined
-  expect(token).toEqual(expect.any(String))
-  if (!token) throw new Error(`Expected verification token for ${email}`)
-
-  const verified = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/email-verification/verify',
-    payload: { token },
-  })
-  expect(verified.statusCode).toBe(204)
 }
 
 async function withDatabase(operation: (database: AccountDatabase) => Promise<void>): Promise<void> {

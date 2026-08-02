@@ -53,10 +53,7 @@ const assertOrganizationMembershipList = createJsonSchemaValidator(
   'organizations.list',
 )
 const assertMembershipList = createJsonSchemaValidator(z.array(membershipSchema), 'organizations.members')
-const assertSessionSummaryList = createJsonSchemaValidator(
-  z.array(sessionSummarySchema),
-  'sessions.list',
-)
+const assertSessionSummaryList = createJsonSchemaValidator(z.array(sessionSummarySchema), 'sessions.list')
 const assertBillingSummary = createJsonSchemaValidator(billingSummarySchema, 'billing.summary')
 const assertBillingPaymentConfiguration = createJsonSchemaValidator(
   billingPaymentConfigurationSchema,
@@ -74,10 +71,7 @@ const assertAdminOrganizationList = createJsonSchemaValidator(
   adminOrganizationListSchema,
   'admin.organizations',
 )
-const assertAdminMembershipList = createJsonSchemaValidator(
-  adminMembershipListSchema,
-  'admin.memberships',
-)
+const assertAdminMembershipList = createJsonSchemaValidator(adminMembershipListSchema, 'admin.memberships')
 const assertAdminBillingAccountList = createJsonSchemaValidator(
   adminBillingAccountListSchema,
   'admin.billing.accounts',
@@ -186,10 +180,7 @@ describe('api contract layer', { timeout: 30_000 }, () => {
       method: 'POST',
       url: '/api/v1/billing/checkout/credits',
       headers: { cookie: cookieValue(member) },
-      payload:
-        paymentConfig.creditPackCredits === null
-          ? {}
-          : { credits: paymentConfig.creditPackCredits },
+      payload: paymentConfig.creditPackCredits === null ? {} : { credits: paymentConfig.creditPackCredits },
     })
     expect(creditCheckout.statusCode).toBe(201)
     assertBillingCheckoutSession(creditCheckout.json())
@@ -629,9 +620,12 @@ class FakeStripeProvider implements BillingPaymentProvider {
     if (signature !== 'test-signature') {
       throw new Error('Invalid webhook signature')
     }
-    const parsed = JSON.parse(
-      typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8'),
-    ) as { id: string; type: string; createdAt: string; data: Record<string, unknown> }
+    const parsed = JSON.parse(typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8')) as {
+      id: string
+      type: string
+      createdAt: string
+      data: Record<string, unknown>
+    }
     return {
       id: parsed.id,
       type: parsed.type,

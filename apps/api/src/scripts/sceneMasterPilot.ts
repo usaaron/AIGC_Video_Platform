@@ -138,10 +138,7 @@ async function main() {
   log(`耗时：${Math.round(result.elapsedSeconds / 60)} 分钟；视频调用 3 次；分镜图片调用 0 次`)
 }
 
-async function ensureScene(
-  scene: SceneDefinition,
-  anchors: Map<number, string | null>,
-): Promise<Task> {
+async function ensureScene(scene: SceneDefinition, anchors: Map<number, string | null>): Promise<Task> {
   const existing = findSceneTask(await tasksFor(), scene.id)
   if (existing?.status === 'completed') {
     log(`${scene.label}：复用已完成任务`)

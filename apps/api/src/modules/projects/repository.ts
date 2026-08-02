@@ -358,7 +358,10 @@ export class ProjectRepository {
     if (!this.database) {
       return this.store.mutate((state) => {
         const project = state.projects.find(
-          (item) => item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
+          (item) =>
+            item.id === projectId &&
+            item.tenantId === principal.tenantId &&
+            item.ownerId === principal.userId,
         )
         if (!project) return false
         project.status = 'archived'
@@ -727,13 +730,13 @@ export class ProjectRepository {
         prompt: input.prompt ?? current.prompt,
         negativePrompt: input.negativePrompt ?? current.negativePrompt,
         imageUrl: input.imageUrl === undefined ? current.imageUrl : input.imageUrl,
-         continuityMode: input.continuityMode ?? current.continuityMode,
-         continuityNote: input.continuityNote ?? current.continuityNote,
-         episodeBreakBefore: input.episodeBreakBefore ?? current.episodeBreakBefore,
-         episodeNumber: input.episodeNumber ?? current.episodeNumber,
-         episodeTitle: input.episodeTitle ?? current.episodeTitle,
-         episodeKind: input.episodeKind ?? current.episodeKind,
-         updatedAt: new Date().toISOString(),
+        continuityMode: input.continuityMode ?? current.continuityMode,
+        continuityNote: input.continuityNote ?? current.continuityNote,
+        episodeBreakBefore: input.episodeBreakBefore ?? current.episodeBreakBefore,
+        episodeNumber: input.episodeNumber ?? current.episodeNumber,
+        episodeTitle: input.episodeTitle ?? current.episodeTitle,
+        episodeKind: input.episodeKind ?? current.episodeKind,
+        updatedAt: new Date().toISOString(),
       }
       const updatedResult = await client.query<ShotRow>(
         `
@@ -766,14 +769,14 @@ export class ProjectRepository {
           updated.duration,
           updated.prompt,
           updated.negativePrompt,
-           updated.imageUrl,
-           updated.continuityMode,
-           updated.continuityNote,
-           updated.episodeBreakBefore,
-           updated.episodeNumber,
-           updated.episodeTitle,
-           updated.episodeKind,
-           updated.updatedAt,
+          updated.imageUrl,
+          updated.continuityMode,
+          updated.continuityNote,
+          updated.episodeBreakBefore,
+          updated.episodeNumber,
+          updated.episodeTitle,
+          updated.episodeKind,
+          updated.updatedAt,
         ],
       )
       await touchProject(client, projectId, principal.tenantId, updated.updatedAt)
@@ -1108,7 +1111,8 @@ export class ProjectRepository {
   ): Promise<Shot[] | null> {
     return this.store.mutate((state) => {
       const project = state.projects.find(
-        (item) => item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
+        (item) =>
+          item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
       )
       if (!project) return null
       const changes = new Map(updates.map((update) => [update.id, update]))

@@ -15,6 +15,22 @@
     reverse_proxy api:8787
   }
 
+  handle /admin {
+    forward_auth api:8787 {
+      uri /api/v1/admin/access
+    }
+    redir /admin/ 308
+  }
+
+  handle_path /admin/* {
+    forward_auth api:8787 {
+      uri /api/v1/admin/access
+    }
+    root * /srv/admin
+    try_files {path} /index.html
+    file_server
+  }
+
   @immutable path /assets/*
   header @immutable Cache-Control "public, max-age=31536000, immutable"
 

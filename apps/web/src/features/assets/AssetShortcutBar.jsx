@@ -8,7 +8,14 @@ const KIND_LABELS = {
   costume: '服装',
 }
 
-export function AssetShortcutBar({ assets = [], tasks = [], value = '', onChange, inputRef, label = '资产快捷键' }) {
+export function AssetShortcutBar({
+  assets = [],
+  tasks = [],
+  value = '',
+  onChange,
+  inputRef,
+  label = '资产快捷键',
+}) {
   const availableAssets = assets.filter((asset) => asset.kind !== 'audio')
   if (!availableAssets.length) return null
   const mentions = findAssetMentions(value, availableAssets)
@@ -35,9 +42,7 @@ export function AssetShortcutBar({ assets = [], tasks = [], value = '', onChange
     <div className="asset-shortcut-bar" aria-label={label}>
       <div className="asset-shortcut-heading">
         <span>{label}</span>
-        <small>
-          {mentions.length > 0 ? `已识别 ${mentions.length} 个资产` : '点击名称插入当前光标位置'}
-        </small>
+        <small>{mentions.length > 0 ? `已识别 ${mentions.length} 个资产` : '点击名称插入当前光标位置'}</small>
       </div>
       <div className="asset-shortcut-list">
         {availableAssets.map((asset) => {
@@ -52,9 +57,23 @@ export function AssetShortcutBar({ assets = [], tasks = [], value = '', onChange
               onClick={() => insert(asset)}
               title={`${KIND_LABELS[asset.kind] || '资产'}：${asset.name}`}
             >
-              {previewUrl ? <img src={previewUrl} alt="" /> : state === 'failed' ? <AlertCircle size={13} /> : state === 'pending' ? <LoaderCircle size={13} className="spin" /> : <Image size={13} />}
+              {previewUrl ? (
+                <img src={previewUrl} alt="" />
+              ) : state === 'failed' ? (
+                <AlertCircle size={13} />
+              ) : state === 'pending' ? (
+                <LoaderCircle size={13} className="spin" />
+              ) : (
+                <Image size={13} />
+              )}
               <span>{asset.name}</span>
-              <small>{state === 'ready' ? KIND_LABELS[asset.kind] || '资产' : state === 'failed' ? '生成失败' : '待生成'}</small>
+              <small>
+                {state === 'ready'
+                  ? KIND_LABELS[asset.kind] || '资产'
+                  : state === 'failed'
+                    ? '生成失败'
+                    : '待生成'}
+              </small>
               {previewUrl && (
                 <span className="asset-shortcut-hover-preview" aria-hidden="true">
                   <img src={previewUrl} alt="" />
@@ -145,16 +164,19 @@ function renderHighlightedText(value, mentions, tasks, inputRef) {
 }
 
 function findAssetMentions(value, assets) {
-  const names = [...new Set(assets.map((asset) => asset.name?.trim()).filter((name) => name && name.length > 1))]
-    .sort((left, right) => right.length - left.length)
+  const names = [
+    ...new Set(assets.map((asset) => asset.name?.trim()).filter((name) => name && name.length > 1)),
+  ].sort((left, right) => right.length - left.length)
   if (!String(value || '').trim() || !names.length) return []
   const matcher = new RegExp(names.map(escapeRegExp).join('|'), 'gu')
-  return [...String(value).matchAll(matcher)].map((match) => {
-    const start = match.index || 0
-    const text = match[0]
-    const asset = assets.find((candidate) => candidate.name?.trim() === text)
-    return asset ? { asset, text, start, end: start + text.length } : null
-  }).filter(Boolean)
+  return [...String(value).matchAll(matcher)]
+    .map((match) => {
+      const start = match.index || 0
+      const text = match[0]
+      const asset = assets.find((candidate) => candidate.name?.trim() === text)
+      return asset ? { asset, text, start, end: start + text.length } : null
+    })
+    .filter(Boolean)
 }
 
 function escapeRegExp(value) {
@@ -164,7 +186,11 @@ function escapeRegExp(value) {
 function assetState(asset, tasks) {
   const related = tasks
     .filter((task) => task.metadata?.assetId === asset.id && task.kind === 'image')
-    .sort((left, right) => Date.parse(right.updatedAt || right.createdAt || '') - Date.parse(left.updatedAt || left.createdAt || ''))
+    .sort(
+      (left, right) =>
+        Date.parse(right.updatedAt || right.createdAt || '') -
+        Date.parse(left.updatedAt || left.createdAt || ''),
+    )
   if (related[0]?.status === 'failed') return 'failed'
   if (assetPreviewUrl(asset, tasks)) return 'ready'
   if (related.some((task) => ['queued', 'paused', 'running'].includes(task.status))) return 'pending'
@@ -190,7 +216,12 @@ function assetPreviewUrl(asset, tasks) {
 
 function latestCompletedOutput(asset, tasks) {
   return tasks
-    .filter((task) => task.metadata?.assetId === asset.id && task.status === 'completed' && task.outputs?.length)
-    .sort((left, right) => Date.parse(right.updatedAt || right.createdAt || '') - Date.parse(left.updatedAt || left.createdAt || ''))[0]
-    ?.outputs?.[0]
+    .filter(
+      (task) => task.metadata?.assetId === asset.id && task.status === 'completed' && task.outputs?.length,
+    )
+    .sort(
+      (left, right) =>
+        Date.parse(right.updatedAt || right.createdAt || '') -
+        Date.parse(left.updatedAt || left.createdAt || ''),
+    )[0]?.outputs?.[0]
 }

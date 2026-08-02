@@ -94,7 +94,7 @@ jobs:
                 apps/api/*|deploy/api.Dockerfile)
                   api=true
                   ;;
-                apps/web/*|deploy/web.Dockerfile|deploy/Caddyfile)
+                apps/web/*|apps/admin/*|deploy/web.Dockerfile|deploy/Caddyfile)
                   web=true
                   ;;
               esac

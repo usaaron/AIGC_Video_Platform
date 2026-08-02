@@ -24,7 +24,11 @@ export function installAuth(app: FastifyInstance, provider: AuthProvider): void 
       request.principal.emailVerified === false &&
       !isEmailVerificationAllowedRequest(request.method, request.url)
     ) {
-      throw new AppError(403, 'EMAIL_VERIFICATION_REQUIRED', 'Email verification is required before continuing')
+      throw new AppError(
+        403,
+        'EMAIL_VERIFICATION_REQUIRED',
+        'Email verification is required before continuing',
+      )
     }
   })
 }

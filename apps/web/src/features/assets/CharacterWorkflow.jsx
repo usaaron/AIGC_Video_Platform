@@ -61,12 +61,15 @@ export function CharacterWorkflow({
   const completedFaceTask = latestCompletedTask(relatedTasks, 'face')
   const completedFaceCandidate = completedOutput(completedFaceTask)
   const faceCandidate = faceCreationMode === 'direct' ? references[0] || null : generatedFaceCandidate
-  const confirmedOrCompletedFace = faceCreationMode === 'direct' ? references[0] || null : completedFaceCandidate
-  const facePreview = faceCandidate || confirmedOrCompletedFace || attributes.faceReference || references[0] || null
+  const confirmedOrCompletedFace =
+    faceCreationMode === 'direct' ? references[0] || null : completedFaceCandidate
+  const facePreview =
+    faceCandidate || confirmedOrCompletedFace || attributes.faceReference || references[0] || null
   const bodyCandidate = completedOutput(bodyTask)
   const appearanceVariants = Array.isArray(attributes.appearanceVariants) ? attributes.appearanceVariants : []
   const activeAppearanceVariantId = attributes.activeAppearanceVariantId || null
-  const activeAppearanceVariant = appearanceVariants.find((variant) => variant.id === activeAppearanceVariantId) || null
+  const activeAppearanceVariant =
+    appearanceVariants.find((variant) => variant.id === activeAppearanceVariantId) || null
 
   useEffect(() => {
     if (stage !== 'turnaround' || variantName.trim()) return
@@ -120,7 +123,9 @@ export function CharacterWorkflow({
       .filter((output) => output.mediaType === 'image' && output.url)
       .slice(0, 3)
       .map((output) => toReference(output, `${assetName || '人物'}-${viewLabel(output.view)}`))
-    const bodyReference = attributes.bodyReference || (bodyCandidate ? toReference(bodyCandidate, `${assetName || '人物'}-全身基准`) : null)
+    const bodyReference =
+      attributes.bodyReference ||
+      (bodyCandidate ? toReference(bodyCandidate, `${assetName || '人物'}-全身基准`) : null)
     if (!bodyReference) throw new Error('请先确认一整套身体图，再保存人物版本')
     if (references.length < 3) throw new Error('请等待正面、侧面、背面三张三视图全部生成')
     const name = variantName.trim()
@@ -569,58 +574,58 @@ function TrustedPortraitPanel({
       )}
 
       <div className="trusted-portrait-actions">
-          <span
-            className={`trusted-portrait-action-tooltip ${registrationSetupBlocked ? 'is-blocked' : ''}`}
-            title={registrationDisabledReason || '创建 AI 人像资源'}
-          >
-            <button
-              className={`button secondary ${registrationSetupBlocked ? 'requires-setup' : ''}`}
-              type="button"
-              disabled={
-                (!assetId && !onEnsureAsset) ||
-                attributes.faceStatus !== 'approved' ||
-                (portrait?.status !== 'failed' && Boolean(portrait) && !registrationTaskFailed) ||
-                (portrait?.status === 'processing' && !registrationTaskFailed) ||
-                registrationTaskActive ||
-                busyAction !== null
+        <span
+          className={`trusted-portrait-action-tooltip ${registrationSetupBlocked ? 'is-blocked' : ''}`}
+          title={registrationDisabledReason || '创建 AI 人像资源'}
+        >
+          <button
+            className={`button secondary ${registrationSetupBlocked ? 'requires-setup' : ''}`}
+            type="button"
+            disabled={
+              (!assetId && !onEnsureAsset) ||
+              attributes.faceStatus !== 'approved' ||
+              (portrait?.status !== 'failed' && Boolean(portrait) && !registrationTaskFailed) ||
+              (portrait?.status === 'processing' && !registrationTaskFailed) ||
+              registrationTaskActive ||
+              busyAction !== null
+            }
+            aria-describedby={registrationHint ? 'trusted-portrait-registration-hint' : undefined}
+            onClick={() => {
+              if (!configuration?.virtualRegistrationReady) {
+                setError(registrationDisabledReason || '素材库配置尚未完成，暂时无法创建 AI 人像资源')
+                return
               }
-              aria-describedby={registrationHint ? 'trusted-portrait-registration-hint' : undefined}
-              onClick={() => {
-                if (!configuration?.virtualRegistrationReady) {
-                  setError(registrationDisabledReason || '素材库配置尚未完成，暂时无法创建 AI 人像资源')
-                  return
-                }
-                if (!onRegisterVirtualPortrait) {
-                  setError('AI 人像资源任务接口未连接，请刷新页面后重试')
-                  return
-                }
-                void run('register', async () => {
-                  const persisted = assetId ? { id: assetId } : await onEnsureAsset?.()
-                  if (!persisted?.id) throw new Error('请先保存人物资产，再创建 AI 人像资源')
-                  return onRegisterVirtualPortrait(persisted.id, assetName)
-                })
-              }}
-            >
-              {busyAction === 'register' || registrationTaskActive ? (
-                <LoaderCircle size={15} className="spin" />
-              ) : (
-                <CloudUpload size={15} />
-              )}
-              {registrationTaskActive
-                ? registrationTask?.status === 'queued'
-                  ? '等待创建资源'
-                  : '正在创建资源'
-                : !configuration
-                  ? '正在检查配置'
-                  : !configuration.virtualRegistrationReady
-                    ? '需要公网地址'
-                    : registrationTaskFailed || portrait?.status === 'failed'
-                      ? '重试 AI 人像资源'
-                      : portrait?.groupType === 'AIGC'
-                        ? '重新提交 AI 人像'
-                        : '创建 AI 人像资源'}
-            </button>
-          </span>
+              if (!onRegisterVirtualPortrait) {
+                setError('AI 人像资源任务接口未连接，请刷新页面后重试')
+                return
+              }
+              void run('register', async () => {
+                const persisted = assetId ? { id: assetId } : await onEnsureAsset?.()
+                if (!persisted?.id) throw new Error('请先保存人物资产，再创建 AI 人像资源')
+                return onRegisterVirtualPortrait(persisted.id, assetName)
+              })
+            }}
+          >
+            {busyAction === 'register' || registrationTaskActive ? (
+              <LoaderCircle size={15} className="spin" />
+            ) : (
+              <CloudUpload size={15} />
+            )}
+            {registrationTaskActive
+              ? registrationTask?.status === 'queued'
+                ? '等待创建资源'
+                : '正在创建资源'
+              : !configuration
+                ? '正在检查配置'
+                : !configuration.virtualRegistrationReady
+                  ? '需要公网地址'
+                  : registrationTaskFailed || portrait?.status === 'failed'
+                    ? '重试 AI 人像资源'
+                    : portrait?.groupType === 'AIGC'
+                      ? '重新提交 AI 人像'
+                      : '创建 AI 人像资源'}
+          </button>
+        </span>
 
         {portrait && (
           <button
@@ -929,16 +934,15 @@ function TaskState({ task }) {
 }
 
 function TurnaroundPreview({ task, variant, onPreview }) {
-  const outputs =
-    variant?.turnaroundReferences?.length
-      ? variant.turnaroundReferences.slice(0, 3).map((reference, index) => ({
-          ...reference,
-          mediaType: 'image',
-          view: ['front', 'side', 'back'][index],
-        }))
-      : task?.status === 'completed'
-        ? task.outputs.slice(0, 3)
-        : []
+  const outputs = variant?.turnaroundReferences?.length
+    ? variant.turnaroundReferences.slice(0, 3).map((reference, index) => ({
+        ...reference,
+        mediaType: 'image',
+        view: ['front', 'side', 'back'][index],
+      }))
+    : task?.status === 'completed'
+      ? task.outputs.slice(0, 3)
+      : []
   if (!outputs.length) {
     return (
       <div className="turnaround-empty">
@@ -1019,7 +1023,11 @@ function AppearanceVariantPanel({
                 disabled={!variant.bodyReference?.url}
                 aria-label={`预览${variant.name}`}
               >
-                {variant.bodyReference?.url ? <img src={variant.bodyReference.url} alt="" /> : <UserRound size={18} />}
+                {variant.bodyReference?.url ? (
+                  <img src={variant.bodyReference.url} alt="" />
+                ) : (
+                  <UserRound size={18} />
+                )}
               </button>
               <div className="appearance-variant-info">
                 <strong>{variant.name}</strong>

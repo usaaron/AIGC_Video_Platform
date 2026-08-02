@@ -8,20 +8,17 @@ describe('authorization', () => {
     const principal = account([ROLES.ADMIN, ROLES.ORGANIZATION_MEMBER])
 
     expect(permissionsFor(principal)).toEqual(
-      new Set([
-        ...ROLE_ADMIN_EXPECTED_PERMISSIONS,
-        ...ROLE_MEMBER_EXPECTED_PERMISSIONS,
-      ]),
+      new Set([...ROLE_ADMIN_EXPECTED_PERMISSIONS, ...ROLE_MEMBER_EXPECTED_PERMISSIONS]),
     )
   })
 
   it('rejects missing authentication and missing permissions', async () => {
-    await expect(requirePermission(PERMISSIONS.USER_MANAGE)({ principal: null } as never)).rejects.toMatchObject(
-      {
-        statusCode: 401,
-        code: 'AUTHENTICATION_REQUIRED',
-      } satisfies Partial<AppError>,
-    )
+    await expect(
+      requirePermission(PERMISSIONS.USER_MANAGE)({ principal: null } as never),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'AUTHENTICATION_REQUIRED',
+    } satisfies Partial<AppError>)
 
     await expect(
       requirePermission(PERMISSIONS.USER_MANAGE)({

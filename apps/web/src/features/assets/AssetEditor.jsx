@@ -665,14 +665,15 @@ function buildEditorSuggestionFacts(suggestion) {
       { label: '精确年龄', value: attributes.exactAge ? String(attributes.exactAge) : '未指定' },
       {
         label: '外观细节',
-        value: [
-          optionLabel('ethnicity', attributes.ethnicity || 'unspecified'),
-          optionLabel('skinTone', attributes.skinTone || 'unspecified'),
-          optionLabel('eyeColor', attributes.eyeColor || 'unspecified'),
-          optionLabel('hairColor', attributes.hairColor || 'unspecified'),
-        ]
-          .filter((value) => value && value !== '不指定')
-          .join(' / ') || '未指定',
+        value:
+          [
+            optionLabel('ethnicity', attributes.ethnicity || 'unspecified'),
+            optionLabel('skinTone', attributes.skinTone || 'unspecified'),
+            optionLabel('eyeColor', attributes.eyeColor || 'unspecified'),
+            optionLabel('hairColor', attributes.hairColor || 'unspecified'),
+          ]
+            .filter((value) => value && value !== '不指定')
+            .join(' / ') || '未指定',
       },
       { label: '身份', value: suggestion.description || suggestion.reason || '未补充' },
     ]

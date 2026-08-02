@@ -17,11 +17,7 @@ import { AssetAwareTextarea, AssetShortcutBar } from '../features/assets/AssetSh
 import { NovelImportPanel } from '../features/novel/NovelImportPanel'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../features/script/AssetSuggestionsPanel'
 import { LongFormStudioPlaceholder } from '../features/script/LongFormStudioPlaceholder'
-import {
-  DEFAULT_SCRIPT_MODEL,
-  DEFAULT_SCRIPT_DIRECTION,
-  SCRIPT_OPERATION_CREDITS,
-} from '@seqora/contracts'
+import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
 const SCRIPT_MODEL_OPTIONS = [
   ['seqora-5.6', 'GPT 5.6（当前中转）'],
@@ -600,11 +596,8 @@ export function ScriptPage({
                     Boolean(stoppingTaskId)
                   }
                   onClick={() =>
-                        activeGenerateTask
-                          ? void stopScriptTask(
-                              activeGenerateTask,
-                              '智能生成',
-                            )
+                    activeGenerateTask
+                      ? void stopScriptTask(activeGenerateTask, '智能生成')
                       : void expand('generate')
                   }
                 >
@@ -613,17 +606,15 @@ export function ScriptPage({
                   ) : (
                     <Sparkles size={16} />
                   )}
-                    {stoppingTaskId === activeGenerateTask?.id
-                      ? '正在停止'
-                      : activeGenerateTask
-                        ? '智能生成中 · 点击停止'
-                        : generating && generationPhase !== 'segment'
-                          ? '正在智能生成'
-                          : `智能生成 · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
+                  {stoppingTaskId === activeGenerateTask?.id
+                    ? '正在停止'
+                    : activeGenerateTask
+                      ? '智能生成中 · 点击停止'
+                      : generating && generationPhase !== 'segment'
+                        ? '正在智能生成'
+                        : `智能生成 · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
                 </button>
-                <span className="script-primary-generation-note">
-                  剧情结构 · 光影 · 运镜 · 台词
-                </span>
+                <span className="script-primary-generation-note">剧情结构 · 光影 · 运镜 · 台词</span>
               </div>
             </div>
           </section>
@@ -790,9 +781,8 @@ export function ScriptPage({
                       value={segmentDurationSeconds}
                       onChange={(event) => setSegmentDurationSeconds(Number(event.target.value))}
                     >
-                      {(productionMode === 'web-series'
-                        ? [30, 60, 90, 120, 180, 240, 300]
-                        : [15, 30]).map((seconds) => (
+                      {(productionMode === 'web-series' ? [30, 60, 90, 120, 180, 240, 300] : [15, 30]).map(
+                        (seconds) => (
                           <option key={seconds} value={seconds}>
                             {formatEpisodeDuration(seconds)}
                           </option>

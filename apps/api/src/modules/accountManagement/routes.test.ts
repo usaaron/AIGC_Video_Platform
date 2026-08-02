@@ -368,7 +368,6 @@ describe('account management api', { timeout: 30_000 }, () => {
       },
     })
     expect(registrationAdmin.statusCode).toBe(201)
-    await verifyEmailAddress('registration-admin@example.com')
     const registrationAdminLogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
@@ -628,8 +627,6 @@ describe('account management api', { timeout: 30_000 }, () => {
       status: 'active',
     })
     const createdAdminUserId = createdAdmin.json().userId as string
-    await verifyEmailAddress('created-admin@example.com')
-
     const createdAdminLogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
@@ -700,8 +697,6 @@ describe('account management api', { timeout: 30_000 }, () => {
       tenantId: adminManagedTenant.tenantId,
     })
     const memberUserId = adminCreatesMember.json().userId as string
-    await verifyEmailAddress('admin-created-member@example.com')
-
     const organizationAdmin = await createOrganizationAdminWorkspace(
       'created-org-admin@example.com',
       'CreatedOrgAdmin123!',
@@ -1671,7 +1666,6 @@ async function createTenantUserInFreshWorkspace(
     },
   })
   expect(created.statusCode).toBe(201)
-  await verifyEmailAddress(email)
   const login = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',

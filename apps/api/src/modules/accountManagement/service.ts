@@ -52,10 +52,7 @@ import { AccountManagementRepository, type AccountWorkspace } from './repository
 
 const invitationLifetimeSeconds = 60 * 60 * 24 * 7
 const systemOrganizationRoles = new Set<Role>([ROLES.OWNER, ROLES.SUPER_ADMIN, ROLES.ADMIN])
-type RequestEmailVerification = (
-  input: { email: string },
-  metadata?: SessionMetadata,
-) => Promise<unknown>
+type RequestEmailVerification = (input: { email: string }, metadata?: SessionMetadata) => Promise<unknown>
 
 export class AccountManagementService {
   constructor(

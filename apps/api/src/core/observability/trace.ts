@@ -19,7 +19,9 @@ export function traceContext(traceId?: string | null): { traceId?: string | null
   return traceId ? { traceId } : {}
 }
 
-export function traceIdFromGenerationTask(task: { metadata?: Record<string, unknown> | null }): string | null {
+export function traceIdFromGenerationTask(task: {
+  metadata?: Record<string, unknown> | null
+}): string | null {
   return traceIdFromRecord(task.metadata ?? null)
 }
 

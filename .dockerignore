@@ -13,6 +13,7 @@ docs
 /deploy/demo.env
 apps/api/data
 backups
+artifacts
 **/*.test.*
 **/*.spec.*
 **/__tests__

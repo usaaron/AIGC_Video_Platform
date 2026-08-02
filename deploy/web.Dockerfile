@@ -14,16 +14,20 @@ COPY apps/admin/package.json apps/admin/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/prompting/package.json packages/prompting/package.json
 RUN --mount=type=cache,id=seqora-pnpm-web,target=/pnpm/store \
-  pnpm install --frozen-lockfile --filter @seqora/web...
+  pnpm install --frozen-lockfile --filter @seqora/web... --filter @seqora/admin...
 
 COPY apps/web apps/web
+COPY apps/admin apps/admin
 COPY packages/contracts packages/contracts
 COPY packages/prompting packages/prompting
-RUN pnpm build:shared && pnpm --filter @seqora/web build
+RUN pnpm build:shared \
+  && VITE_ADMIN_CONSOLE_URL=/admin/ pnpm --filter @seqora/web build \
+  && pnpm --filter @seqora/admin exec vite build --base=/admin/
 
 FROM caddy:2.10-alpine AS runtime
 
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /workspace/apps/web/dist /srv
+COPY --from=build /workspace/apps/admin/dist /srv/admin
 
 EXPOSE 80 443 443/udp

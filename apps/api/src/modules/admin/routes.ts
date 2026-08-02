@@ -46,6 +46,12 @@ export async function registerAdminRoutes(
 
 function registerAdminOverviewRoutes(app: FastifyInstance, context: AdminRouteContext): void {
   app.get(
+    '/admin/access',
+    { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
+    async (_request, reply) => reply.header('Cache-Control', 'no-store').code(204).send(),
+  )
+
+  app.get(
     '/admin/overview',
     { preHandler: requirePermission(PERMISSIONS.ADMIN_DASHBOARD_READ) },
     async (request, reply) => {

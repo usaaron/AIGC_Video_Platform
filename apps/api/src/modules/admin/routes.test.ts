@@ -34,10 +34,25 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const admin = await login('admin@seqora.local', 'Admin123!', {
       'user-agent': 'ConsoleAdminBrowser/1.0',
     })
-    await login('member@seqora.local', 'MemberPassword123!', {
+    const member = await login('member@seqora.local', 'MemberPassword123!', {
       'user-agent': 'MemberDevice/1.0',
     })
     const adminCookie = cookieValue(admin)
+
+    const anonymousAccess = await app.inject({ method: 'GET', url: '/api/v1/admin/access' })
+    expect(anonymousAccess.statusCode).toBe(401)
+    const memberAccess = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/access',
+      headers: { cookie: cookieValue(member) },
+    })
+    expect(memberAccess.statusCode).toBe(403)
+    const adminAccess = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/access',
+      headers: { cookie: adminCookie },
+    })
+    expect(adminAccess.statusCode).toBe(204)
 
     const snapshot = await app.inject({
       method: 'GET',
@@ -861,7 +876,6 @@ describe('admin console api', { timeout: 30_000 }, () => {
       },
     })
     expect(ownerCreatesCrossTenantAdmin.statusCode).toBe(201)
-    await verifyEmailAddress('enterprise-admin@example.com')
     const crossTenantAdmin = await login('enterprise-admin@example.com', 'EnterpriseAdmin123!')
     const crossTenantAdminCookie = cookieValue(crossTenantAdmin)
 
@@ -991,7 +1005,10 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const adminCookie = cookieValue(admin)
     const memberCookie = cookieValue(member)
 
-    const organization = await createWorkspaceFromCurrentSession(ownerCookie, 'Scoped Enterprise Organization')
+    const organization = await createWorkspaceFromCurrentSession(
+      ownerCookie,
+      'Scoped Enterprise Organization',
+    )
     const organizationAdmin = await app.inject({
       method: 'POST',
       url: `/api/v1/admin/organizations/${organization.tenantId}/users`,
@@ -1020,9 +1037,6 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(organizationMember.statusCode).toBe(201)
     const organizationMemberUserId = organizationMember.json().userId as string
     const organizationMemberMembershipId = organizationMember.json().id as string
-
-    await verifyEmailAddress('scoped-organization-admin@example.com')
-    await verifyEmailAddress('scoped-organization-member@example.com')
 
     const organizationAdminLogin = await login(
       'scoped-organization-admin@example.com',
@@ -1204,8 +1218,8 @@ describe('admin console api', { timeout: 30_000 }, () => {
       headers: { cookie: ownerCookie },
     })
     expect(ownerReadsOrganizationMemberSessions.statusCode).toBe(200)
-    const organizationMemberSessionId =
-      ownerReadsOrganizationMemberSessions.json().items[0]?.sessionId as string | undefined
+    const organizationMemberSessionId = ownerReadsOrganizationMemberSessions.json().items[0]?.sessionId as
+      string | undefined
     expect(organizationMemberSessionId).toEqual(expect.any(String))
 
     const ownerReadsSeedMemberSessions = await app.inject({
@@ -1334,26 +1348,6 @@ async function createWorkspaceFromCurrentSession(
   })
   expect(response.statusCode).toBe(201)
   return { tenantId: response.json().workspace.id as string }
-}
-
-async function verifyEmailAddress(email: string): Promise<void> {
-  if (!app) throw new Error('App is not ready')
-  const request = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/email-verification/request',
-    payload: { email },
-  })
-  expect(request.statusCode).toBe(202)
-  const token = request.json().verificationToken as string | undefined
-  expect(token).toEqual(expect.any(String))
-  if (!token) throw new Error(`Expected verification token for ${email}`)
-
-  const verified = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/email-verification/verify',
-    payload: { token },
-  })
-  expect(verified.statusCode).toBe(204)
 }
 
 async function createBillingReconciliationAlert(input: {

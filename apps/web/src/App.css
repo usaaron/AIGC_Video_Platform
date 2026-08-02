@@ -428,9 +428,7 @@
 .function-stack-card-agent {
   grid-column: span 2;
   min-height: 340px;
-  background:
-    linear-gradient(135deg, rgba(255, 251, 238, 0.98), rgba(246, 242, 228, 0.96)),
-    #fffdf8;
+  background: linear-gradient(135deg, rgba(255, 251, 238, 0.98), rgba(246, 242, 228, 0.96)), #fffdf8;
 }
 
 .function-stack-card-topline {

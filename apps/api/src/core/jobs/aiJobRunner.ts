@@ -63,9 +63,7 @@ export class AiJobRunner implements TaskDispatcher {
   async tick(context?: TaskDispatchContext): Promise<void> {
     if (this.tickPromise) return this.tickPromise
 
-    const tickPromise = this.taskRunnerLock
-      .runExclusive(() => this.runTick(context))
-      .then(() => undefined)
+    const tickPromise = this.taskRunnerLock.runExclusive(() => this.runTick(context)).then(() => undefined)
     this.tickPromise = tickPromise
 
     try {

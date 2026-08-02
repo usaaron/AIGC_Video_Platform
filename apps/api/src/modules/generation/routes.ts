@@ -67,7 +67,7 @@ export async function registerGenerationRoutes(
             body.data.episodeNumber,
             request.id,
           ),
-      )
+        )
     },
   )
 

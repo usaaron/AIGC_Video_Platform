@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { canEditProjectSettings, canOpenAccountAdmin, getAdminConsoleUrl } from './access'
 
 describe('account access helpers', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
   it('opens the account admin only for elevated sessions with user management permission', () => {
     expect(
       canOpenAccountAdmin({
@@ -50,6 +52,12 @@ describe('account access helpers', () => {
   it('builds the admin console URL used by the main app link', () => {
     expect(getAdminConsoleUrl()).toBe('http://localhost:5174/')
     expect(getAdminConsoleUrl('sessions')).toBe('http://localhost:5174/sessions')
+  })
+
+  it('supports a protected same-origin production admin path', () => {
+    vi.stubEnv('VITE_ADMIN_CONSOLE_URL', '/admin/')
+    expect(getAdminConsoleUrl()).toBe('/admin/')
+    expect(getAdminConsoleUrl('/sessions')).toBe('/admin/sessions')
   })
 
   it('keeps the creative app admin entry scoped to elevated account managers', () => {

@@ -313,7 +313,9 @@ export class BillingPaymentService {
     }
   }
 
-  private async processInvoicePaymentFailed(event: BillingPaymentWebhookEvent): Promise<PaymentWebhookResult> {
+  private async processInvoicePaymentFailed(
+    event: BillingPaymentWebhookEvent,
+  ): Promise<PaymentWebhookResult> {
     const invoice = objectRecord(event.data)
     const subscriptionId = subscriptionIdFromInvoice(invoice)
     if (!subscriptionId) {

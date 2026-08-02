@@ -42,7 +42,9 @@ describe('session token', () => {
     })
     expect(parseIssuedSessionToken(issued.token, secret)).toEqual(issued.payload)
     expect(parseIssuedSessionToken(`${issued.token}x`, secret)).toBeNull()
-    expect(parseIssuedSessionToken(issued.token, 'wrong-secret-with-at-least-thirty-two-characters')).toBeNull()
+    expect(
+      parseIssuedSessionToken(issued.token, 'wrong-secret-with-at-least-thirty-two-characters'),
+    ).toBeNull()
     expect(parseIssuedSessionToken(invalidSignedToken(secret, '{'), secret)).toBeNull()
 
     now.mockReturnValue(2_121_000)
