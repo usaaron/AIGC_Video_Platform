@@ -59,6 +59,7 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8787
       REDIS_URL: redis://redis:6379
+      BOOTSTRAP_ACCOUNTS_ON_START: 'false'
       DATA_FILE: /var/lib/seqora/app.json
       UPLOAD_DIR: /var/lib/seqora/uploads
       FFMPEG_PATH: /usr/bin/ffmpeg
@@ -93,6 +94,7 @@ services:
     environment:
       NODE_ENV: production
       REDIS_URL: redis://redis:6379
+      BOOTSTRAP_ACCOUNTS_ON_START: 'false'
       DATA_FILE: /var/lib/seqora/app.json
       UPLOAD_DIR: /var/lib/seqora/uploads
       FFMPEG_PATH: /usr/bin/ffmpeg

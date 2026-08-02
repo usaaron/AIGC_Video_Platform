@@ -45,5 +45,6 @@ export function createRuntimeStore(config: AppConfig): AppStore {
       adminPassword: config.BOOTSTRAP_ADMIN_PASSWORD,
     },
     config.BOOTSTRAP_DEMO_WORKSPACE,
+    config.NODE_ENV !== 'production',
   )
 }

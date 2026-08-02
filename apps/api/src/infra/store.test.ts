@@ -26,32 +26,21 @@ describe('AppStore mutation queue', () => {
     expect(store.read((state) => state.projects[0]!.name)).toBe('恢复后的项目')
   })
 
-  it('can bootstrap production accounts without demo projects or assets', async () => {
-    const store = new AppStore(
-      null,
-      {
-        memberEmail: 'tester@example.com',
-        memberPassword: 'UniqueMemberPassword123!',
-        ownerEmail: 'owner@example.com',
-        ownerPassword: 'UniqueOwnerPassword123!',
-        superAdminEmail: 'superadmin@example.com',
-        superAdminPassword: 'UniqueSuperAdminPassword123!',
-        adminEmail: 'admin@example.com',
-        adminPassword: 'UniqueAdminPassword123!',
-      },
-      false,
-    )
+  it('initializes an empty production-style store without auto-seeding demo data', async () => {
+    const store = new AppStore(null, undefined, false, false)
     await store.initialize()
 
     expect(
       store.read((state) => ({
         users: state.users.map((user) => user.email),
+        ledger: state.ledger.length,
         projects: state.projects.length,
         assets: state.assets.length,
         shots: state.shots.length,
       })),
     ).toEqual({
-      users: ['tester@example.com', 'owner@example.com', 'superadmin@example.com', 'admin@example.com'],
+      users: [],
+      ledger: 0,
       projects: 0,
       assets: 0,
       shots: 0,

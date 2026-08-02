@@ -202,32 +202,12 @@ const configSchema = z
       }
     }
     if (config.NODE_ENV === 'production') {
-      if (config.BOOTSTRAP_MEMBER_PASSWORD === developmentMemberPassword) {
+      if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
         context.addIssue({
           code: 'custom',
-          path: ['BOOTSTRAP_MEMBER_PASSWORD'],
-          message: 'Unique bootstrap passwords are required in production',
-        })
-      }
-      if (config.BOOTSTRAP_OWNER_PASSWORD === developmentOwnerPassword) {
-        context.addIssue({
-          code: 'custom',
-          path: ['BOOTSTRAP_OWNER_PASSWORD'],
-          message: 'Unique bootstrap passwords are required in production',
-        })
-      }
-      if (config.BOOTSTRAP_SUPER_ADMIN_PASSWORD === developmentSuperAdminPassword) {
-        context.addIssue({
-          code: 'custom',
-          path: ['BOOTSTRAP_SUPER_ADMIN_PASSWORD'],
-          message: 'Unique bootstrap passwords are required in production',
-        })
-      }
-      if (config.BOOTSTRAP_ADMIN_PASSWORD === developmentAdminPassword) {
-        context.addIssue({
-          code: 'custom',
-          path: ['BOOTSTRAP_ADMIN_PASSWORD'],
-          message: 'Unique bootstrap passwords are required in production',
+          path: ['BOOTSTRAP_ACCOUNTS_ON_START'],
+          message:
+            'BOOTSTRAP_ACCOUNTS_ON_START is forbidden in production; run `pnpm --filter @seqora/api accounts:init` explicitly after db:migrate',
         })
       }
     }
@@ -354,8 +334,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     BOOTSTRAP_DEMO_WORKSPACE:
       environment.BOOTSTRAP_DEMO_WORKSPACE ?? (environment.NODE_ENV === 'production' ? 'false' : 'true'),
     BOOTSTRAP_ACCOUNTS_ON_START:
-      environment.BOOTSTRAP_ACCOUNTS_ON_START ??
-      (environment.NODE_ENV === 'production' ? 'false' : 'true'),
+      environment.BOOTSTRAP_ACCOUNTS_ON_START ?? (environment.NODE_ENV === 'production' ? 'false' : 'true'),
     AUTH_PASSWORD_RESET_URL:
       environment.AUTH_PASSWORD_RESET_URL ??
       `${(environment.WEB_ORIGIN ?? 'http://localhost:5173').replace(/\/+$/, '')}/reset-password`,

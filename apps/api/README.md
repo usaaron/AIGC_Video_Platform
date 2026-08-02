@@ -46,6 +46,14 @@ Repository mirror 替换；普通 `store.mutate()` 不会把项目、任务或 A
 pnpm --filter @seqora/api db:migrate
 ```
 
+首次初始化生产账号时，必须在 `db:migrate` 成功后显式执行：
+
+```bash
+pnpm --filter @seqora/api accounts:init
+```
+
+生产环境禁止 `BOOTSTRAP_ACCOUNTS_ON_START=true`，API/Worker 启动不会自动创建账号。
+
 Migration 文件位于 `src/infra/migrations`。进入主分支后只能新增下一个版本，不能修改或删除旧 migration；每个 migration 文件由 `AccountDatabase` 单独包裹事务，并写入 `schema_migrations`。
 
 ## 模块边界

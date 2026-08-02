@@ -49,6 +49,7 @@ const store = new AppStore(
     adminPassword: config.BOOTSTRAP_ADMIN_PASSWORD,
   },
   config.BOOTSTRAP_DEMO_WORKSPACE,
+  config.NODE_ENV !== 'production',
 )
 await store.initialize()
 const database = config.DATABASE_URL ? new AccountDatabase(config.DATABASE_URL) : null
@@ -60,7 +61,9 @@ if (database) {
   }
 }
 const users = new UserRepository(store, database)
-await users.bootstrapFromStore()
+if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
+  await users.bootstrapFromStore()
+}
 const projectRepository = new ProjectRepository(store, database)
 await projectRepository.refreshRuntimeCacheFromDatabase()
 
@@ -69,7 +72,9 @@ const videoProvider = createVideoProvider(config)
 const imageProvider = createImageProvider(config)
 const textProvider = createTextProvider(config)
 const creditLedger = new StoreCreditLedger(store, users, false, database)
-await creditLedger.bootstrapFromStore()
+if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
+  await creditLedger.bootstrapFromStore()
+}
 const outboxRepository =
   database && config.TASK_QUEUE_DRIVER === 'bullmq' ? new OutboxRepository(database) : null
 const generationTaskRepository = new GenerationTaskRepository(store, creditLedger, database, outboxRepository)

@@ -130,6 +130,7 @@ export class AppStore {
     private readonly filePath: string | null,
     private readonly bootstrapUsers: BootstrapUsers = developmentBootstrapUsers,
     private readonly bootstrapDemoWorkspace = true,
+    private readonly bootstrapOnMissingFile = true,
   ) {
     this.lockPath = filePath ? `${filePath}.lock` : null
   }
@@ -147,7 +148,9 @@ export class AppStore {
       }
     }
 
-    this.state = removeLegacyDemoCharacters(createSeedState(this.bootstrapUsers, this.bootstrapDemoWorkspace))
+    this.state = this.bootstrapOnMissingFile
+      ? removeLegacyDemoCharacters(createSeedState(this.bootstrapUsers, this.bootstrapDemoWorkspace))
+      : createEmptyState()
     await this.persist()
   }
 
@@ -542,6 +545,26 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         createdAt: now,
       },
     ],
+  }
+}
+
+function createEmptyState(): AppState {
+  return {
+    users: [],
+    projects: [],
+    assets: [],
+    shots: [],
+    tasks: [],
+    aiJobs: [],
+    ledger: [],
+    media: [],
+    novelDocuments: [],
+    novelChapters: [],
+    novelChapterSummaries: [],
+    novelSummaryQueues: [],
+    novelSummaryQueueItems: [],
+    novelBoundaries: [],
+    novelStoryBibles: [],
   }
 }
 
