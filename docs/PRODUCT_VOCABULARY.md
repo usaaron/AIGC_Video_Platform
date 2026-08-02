@@ -41,3 +41,4 @@
 
 - [组织概念迁移说明](ORGANIZATION_MIGRATION.md)
 - [认证与权限设计](AUTHORIZATION.md)
+- [正式权限矩阵](PERMISSION_MATRIX.md)

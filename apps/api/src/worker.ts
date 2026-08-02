@@ -50,6 +50,7 @@ const store = new AppStore(
   },
   config.BOOTSTRAP_DEMO_WORKSPACE,
   config.NODE_ENV !== 'production',
+  config.NODE_ENV !== 'production',
 )
 await store.initialize()
 const database = config.DATABASE_URL ? new AccountDatabase(config.DATABASE_URL) : null

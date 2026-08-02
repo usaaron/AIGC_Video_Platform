@@ -46,5 +46,6 @@ export function createRuntimeStore(config: AppConfig): AppStore {
     },
     config.BOOTSTRAP_DEMO_WORKSPACE,
     config.NODE_ENV !== 'production',
+    config.NODE_ENV !== 'production',
   )
 }

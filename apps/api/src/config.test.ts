@@ -98,14 +98,13 @@ describe('production configuration', () => {
     })
   })
 
-  it('keeps the sample workspace opt-in for production', () => {
-    const production = {
-      ...productionConfig(),
-      TOKENADVENT_API_KEY: 'production-text-image-token',
-      REHDASU_API_KEY: 'production-text-token',
-      BOOTSTRAP_DEMO_WORKSPACE: 'true',
-    }
-    expect(loadConfig(production).BOOTSTRAP_DEMO_WORKSPACE).toBe(true)
+  it('forbids demo workspace bootstrap in production', () => {
+    expect(() =>
+      loadConfig({
+        ...productionConfig(),
+        BOOTSTRAP_DEMO_WORKSPACE: 'true',
+      }),
+    ).toThrow('BOOTSTRAP_DEMO_WORKSPACE is forbidden in production')
   })
 
   it('rejects missing production text and image credentials', () => {

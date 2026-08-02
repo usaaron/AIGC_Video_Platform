@@ -210,6 +210,13 @@ const configSchema = z
             'BOOTSTRAP_ACCOUNTS_ON_START is forbidden in production; run `pnpm --filter @seqora/api accounts:init` explicitly after db:migrate',
         })
       }
+      if (config.BOOTSTRAP_DEMO_WORKSPACE) {
+        context.addIssue({
+          code: 'custom',
+          path: ['BOOTSTRAP_DEMO_WORKSPACE'],
+          message: 'BOOTSTRAP_DEMO_WORKSPACE is forbidden in production; demo seed data is development-only',
+        })
+      }
     }
     if (config.BOOTSTRAP_MEMBER_EMAIL === config.BOOTSTRAP_ADMIN_EMAIL) {
       context.addIssue({

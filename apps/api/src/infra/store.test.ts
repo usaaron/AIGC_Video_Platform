@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AppStore } from './store.js'
@@ -45,6 +45,43 @@ describe('AppStore mutation queue', () => {
       assets: 0,
       shots: 0,
     })
+  })
+
+  it('keeps legacy creator role aliases out of production-style JSON reads', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'seqora-store-'))
+    const filePath = join(directory, 'legacy.json')
+    try {
+      await writeFile(
+        filePath,
+        JSON.stringify({
+          users: [
+            {
+              id: 'user-legacy',
+              email: 'legacy@example.com',
+              name: 'Legacy User',
+              passwordHash: 'hash',
+              tenantId: 'tenant-legacy',
+              roles: ['creator', 'admin', 'creator'],
+              plan: 'free',
+              credits: 0,
+              passwordResetRequired: false,
+              emailVerified: true,
+            },
+          ],
+        }),
+        'utf8',
+      )
+
+      const legacyImportStore = new AppStore(filePath)
+      await legacyImportStore.initialize()
+      expect(legacyImportStore.read((state) => state.users[0]!.roles)).toEqual(['member', 'admin'])
+
+      const productionRuntimeStore = new AppStore(filePath, undefined, true, true, false)
+      await productionRuntimeStore.initialize()
+      expect(productionRuntimeStore.read((state) => state.users[0]!.roles)).toEqual(['admin'])
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('keeps file-backed stores synchronized across API and worker processes', async () => {

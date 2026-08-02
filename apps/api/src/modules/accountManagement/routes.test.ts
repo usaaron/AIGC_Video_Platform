@@ -99,6 +99,14 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
     const ownerCookie = cookieValue(ownerLogin)
 
+    const organizations = await app.inject({
+      method: 'GET',
+      url: '/api/v1/organizations',
+      headers: { cookie: ownerCookie },
+    })
+    expect(organizations.statusCode).toBe(200)
+    expect(organizations.headers.deprecation).toBeUndefined()
+
     const workspaces = await app.inject({
       method: 'GET',
       url: '/api/v1/workspaces',
@@ -107,6 +115,16 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(workspaces.statusCode).toBe(200)
     expect(workspaces.headers.deprecation).toBe('true')
     expect(workspaces.headers.link).toContain('/api/v1/organizations')
+
+    const createdWorkspace = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workspaces',
+      headers: { cookie: ownerCookie },
+      payload: { name: 'Deprecated Workspace Route' },
+    })
+    expect(createdWorkspace.statusCode).toBe(201)
+    expect(createdWorkspace.headers.deprecation).toBe('true')
+    expect(createdWorkspace.headers.link).toContain('/api/v1/organizations')
 
     const tenantMembers = await app.inject({
       method: 'GET',
@@ -117,6 +135,34 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(tenantMembers.headers.deprecation).toBe('true')
     expect(tenantMembers.headers.link).toContain('/api/v1/organizations/tenant-seqora-demo/members')
 
+    const tenantInvitations = await app.inject({
+      method: 'GET',
+      url: '/api/v1/tenants/tenant-seqora-demo/invitations',
+      headers: { cookie: ownerCookie },
+    })
+    expect(tenantInvitations.statusCode).toBe(200)
+    expect(tenantInvitations.headers.deprecation).toBe('true')
+    expect(tenantInvitations.headers.link).toContain('/api/v1/organizations/tenant-seqora-demo/invitations')
+
+    const tenantSessions = await app.inject({
+      method: 'GET',
+      url: '/api/v1/tenants/tenant-seqora-demo/sessions',
+      headers: { cookie: ownerCookie },
+    })
+    expect(tenantSessions.statusCode).toBe(200)
+    expect(tenantSessions.headers.deprecation).toBe('true')
+    expect(tenantSessions.headers.link).toContain('/api/v1/organizations/tenant-seqora-demo/sessions')
+
+    const oldTransfer = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workspaces/tenant-seqora-demo/organization-admin-transfer',
+      headers: { cookie: ownerCookie },
+      payload: { targetUserId: 'user-member' },
+    })
+    expect(oldTransfer.statusCode).toBe(403)
+    expect(oldTransfer.headers.deprecation).toBe('true')
+    expect(oldTransfer.headers.link).toContain('/api/v1/organizations/tenant-seqora-demo/admin-transfer')
+
     const adminTenants = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/tenants',
@@ -125,6 +171,61 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(adminTenants.statusCode).toBe(200)
     expect(adminTenants.headers.deprecation).toBe('true')
     expect(adminTenants.headers.link).toContain('/api/v1/admin/organizations')
+
+    const adminTenantUser = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/tenants/tenant-seqora-demo/users',
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'deprecated-admin-tenant-member@example.com',
+        name: 'Deprecated Tenant Member',
+        password: 'DeprecatedTenantMember123!',
+        role: 'member',
+      },
+    })
+    expect(adminTenantUser.statusCode).toBe(409)
+    expect(adminTenantUser.headers.deprecation).toBe('true')
+    expect(adminTenantUser.headers.link).toContain('/api/v1/admin/organizations/tenant-seqora-demo/users')
+  })
+
+  it('rejects creator roles from new account management inputs', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const owner = await seedOwnerLogin()
+    const createdUser = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations/tenant-seqora-demo/users',
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'creator-input-user@example.com',
+        name: 'Creator Input User',
+        password: 'CreatorInputUser123!',
+        role: 'creator',
+      },
+    })
+    expect(createdUser.statusCode).toBe(400)
+    expect(createdUser.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
+
+    const invitation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations/tenant-seqora-demo/invitations',
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'creator-input-invitation@example.com',
+        roles: ['creator'],
+      },
+    })
+    expect(invitation.statusCode).toBe(400)
+    expect(invitation.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
+
+    const roleUpdate = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/organizations/tenant-seqora-demo/members/user-member/roles',
+      headers: { cookie: owner.cookie },
+      payload: { roles: ['creator'] },
+    })
+    expect(roleUpdate.statusCode).toBe(400)
+    expect(roleUpdate.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
   })
 
   it('lets admins grant credits and adjust target memberships from the admin API', async () => {

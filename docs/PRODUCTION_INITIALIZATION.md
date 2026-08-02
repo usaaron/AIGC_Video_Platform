@@ -4,7 +4,7 @@
 
 ## 原则
 
-- `NODE_ENV=production` 禁止 `BOOTSTRAP_ACCOUNTS_ON_START=true`。
+- `NODE_ENV=production` 禁止 `BOOTSTRAP_ACCOUNTS_ON_START=true` 和 `BOOTSTRAP_DEMO_WORKSPACE=true`。
 - 生产改库只允许显式命令：先 `db:migrate`，再按需执行 `accounts:init`。
 - `accounts:init` 是幂等命令：只插入缺失的初始账号、系统组织、membership、billing account 和初始 ledger，不覆盖已有账号密码。
 - `accounts:init` 在生产环境会拒绝默认开发密码、`replace-with-*` 占位密码、缺失的 bootstrap 邮箱/密码，以及重复邮箱或重复密码。
@@ -19,6 +19,7 @@
 - `NODE_ENV=production`
 - `DATABASE_URL`
 - `BOOTSTRAP_ACCOUNTS_ON_START=false`
+- `BOOTSTRAP_DEMO_WORKSPACE=false`
 - `BOOTSTRAP_MEMBER_EMAIL` / `BOOTSTRAP_MEMBER_PASSWORD`
 - `BOOTSTRAP_OWNER_EMAIL` / `BOOTSTRAP_OWNER_PASSWORD`
 - `BOOTSTRAP_SUPER_ADMIN_EMAIL` / `BOOTSTRAP_SUPER_ADMIN_PASSWORD`

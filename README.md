@@ -77,6 +77,7 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 - [总体架构](docs/ARCHITECTURE.md)
 - [开发记忆与接手手册](docs/DEVELOPMENT_MEMORY.md)
 - [认证与权限](docs/AUTHORIZATION.md)
+- [正式权限矩阵](docs/PERMISSION_MATRIX.md)
 - [资产生成与 Provider 接入](docs/ASSET_GENERATION.md)
 - [代码规范](docs/CODE_STYLE.md)
 - [部署边界](docs/DEPLOYMENT.md)
