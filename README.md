@@ -36,7 +36,7 @@ Creative Intent / Character Context
 → FinalMasterScript
 ```
 
-Frontend MVP 支持本地项目、标签、角色、逐集生成和分阶段全部生成、分集编辑、AI 修改、修订、终稿与导出。阶段之间可以更新标签、角色与创作指令，再将新元素用于后续剧集。Creative Deepening 代码保留，但当前前端隐藏、后端拒绝执行。
+Frontend MVP 支持本地项目、标签、角色、逐集生成和分阶段全部生成、分集编辑、AI 修改、修订、终稿与导出。工作区提供长篇字数验收仪表，按统一口径显示已生成结构稿、动作与对白正文、目标完成率、当前集均、达标所需集均和完结投影。阶段之间可以更新标签、角色与创作指令，再将新元素用于后续剧集。Creative Deepening 代码保留，但当前前端隐藏、后端拒绝执行。
 
 当前重要边界：
 
@@ -44,6 +44,7 @@ Frontend MVP 支持本地项目、标签、角色、逐集生成和分阶段全�
 - Revision 仍以规则式受控修改为主。
 - Acceptance 当前是 shadow 信号，不阻断 Finalization；Creative Deepening 当前默认关闭。
 - 全部生成由前端按批次有界调用单集 Draft API，并保存本地批次 lineage；不等同于 Story Planning runtime、后台 Job 或完整 60 万字自动生成。
+- 60 万字仪表用于量化当前产量与投影，不代表系统已通过全量长篇一次性验收；统计有效字母、数字和中文字符，不含空格、标点和 JSON 格式符号。
 - 项目工作区先保存到浏览器 IndexedDB，并在配置 PostgreSQL 时同步完整版本化 Workspace Snapshot；确认稿、修订稿和终稿另存不可变 Episode Artifact。没有数据库或服务暂时不可用时可继续本地编辑，但同步冲突必须人工处理。
 - 中文界面的英文剧本对照翻译是 presentation artifact，不修改正式英文剧本。
 - Agent、动态 RAG、视频生产和统一 Script Generation Facade 尚未实现。

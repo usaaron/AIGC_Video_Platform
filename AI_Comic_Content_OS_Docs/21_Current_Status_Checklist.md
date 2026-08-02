@@ -126,6 +126,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - 确认稿、修订稿和终稿 Episode Artifact 里程碑上报；失败不覆盖或删除本地稿件
 - Creative Input、系统标签、“我的标签”和 Character Builder
 - 逐集生成与有界阶段生成，包含本地批次 lineage 和 optional 阶段指令
+- 长篇字数验收仪表：实时统计已生成结构稿、动作与对白正文、当前集、集均产量、60 万字目标进度、达标所需集均和按当前集均的完结投影；整部 Markdown / JSON 导出保留同口径统计
 - 分集切换、结构化编辑、保存、确认和 AI 修改；Deepening 入口当前隐藏
 - Framework / Modification / Revised / Final 版本视图；历史 Deepening 数据仍可兼容读取
 - 单集与整部 Markdown / JSON 导出
@@ -183,6 +184,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - Frontend 项目数据先保存在 IndexedDB，并在 PostgreSQL 可用时同步 Project + Workspace Snapshot；远端新版本可恢复到本地，版本冲突只提示不自动覆盖。
 - Workspace Snapshot 是当前兼容恢复边界，不代表 Draft / Revised / Final episode 已成为独立、可查询的服务端领域版本。
 - “全部生成”是前端按有界批次逐集调用，不等同于一次生成完整系列规划；批次尚不具备后端持久化或断点任务恢复。
+- 长篇字数仪表是验收与容量投影工具，不是后台 60 万字生成 Job；当前“结构稿有效字符”统计字母、数字与中文字符，不含空格、标点和 JSON 格式符号。
 - 故事线和人物关系是本地 authoring / continuity artifact，不是 Final `MasterScript` 字段。
 - Bilingual View 是开发者 / 中文用户审阅工件，不进入目标语言正式剧本。
 - Static Knowledge 只在 Strategy 明确声明并通过适用性校验时注入。

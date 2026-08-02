@@ -14,6 +14,10 @@ import {
   reviewEpisodeDraft,
 } from "@/lib/generation-client";
 import { nextBatchRange } from "@/lib/generation-planning";
+import {
+  calculateDraftTextMetrics,
+  calculateSeriesTextMetrics,
+} from "@/lib/script-metrics";
 import { synchronizeContinuity } from "@/lib/continuity";
 import { completeScriptQualityLoop } from "@/lib/quality-loop-client";
 import { saveEpisodeArtifactOnServer } from "@/lib/project-sync";
@@ -120,6 +124,25 @@ export function ScriptWorkspace() {
     ? translatedTitle ?? t("nav.historicalProject")
     : currentProject.title;
   const isConfirmed = ["confirmed", "deepened", "final"].includes(currentEpisode.status);
+  const metricDrafts = currentProject.episodes.map((item) => (
+    item.episodeNumber === currentEpisode.episodeNumber && editingDraft
+      ? editingDraft
+      : resolveExportDraft(item)
+  ));
+  const seriesTextMetrics = calculateSeriesTextMetrics(
+    metricDrafts,
+    currentProject.generationSettings.targetTotalCharacters,
+    currentProject.generationSettings.episodeCount,
+  );
+  const displayedTextMetrics = calculateDraftTextMetrics(editingDraft ?? displayedDraft);
+  const numberFormatter = new Intl.NumberFormat(locale === "zh" ? "zh-CN" : "en-US");
+  const progressPercent = seriesTextMetrics.progressRatio * 100;
+  const projectedSummary = seriesTextMetrics.estimatedEpisodesToTarget === null
+    ? t("workspace.length.projectionPending")
+    : t("workspace.length.projectionValue")
+        .replace("{planned}", numberFormatter.format(seriesTextMetrics.plannedEpisodes))
+        .replace("{projected}", numberFormatter.format(seriesTextMetrics.projectedCharactersAtPlannedEpisodes))
+        .replace("{estimated}", numberFormatter.format(seriesTextMetrics.estimatedEpisodesToTarget));
 
   function blockCrossMarketMutation(): boolean {
     if (!marketMismatch) return false;
@@ -517,9 +540,10 @@ export function ScriptWorkspace() {
           tags: currentProject.selectedTagIds,
           characters: currentProject.characters,
           generation_mode: currentProject.generationSettings.mode,
+          text_metrics: seriesTextMetrics,
           episodes: ordered,
         }, null, 2)
-      : `# ${currentProject.title}\n\n${ordered.map((item) => toMarkdown(item.draft, item.episodeNumber)).join("\n\n---\n\n")}`;
+      : `# ${currentProject.title}\n\n## 长篇字数统计\n\n- 已生成：${numberFormatter.format(seriesTextMetrics.generatedEpisodes)} / ${numberFormatter.format(seriesTextMetrics.plannedEpisodes)} 集\n- 结构稿有效字符：${numberFormatter.format(seriesTextMetrics.totalCharacters)} / ${numberFormatter.format(seriesTextMetrics.targetCharacters)}\n- 动作与对白正文：${numberFormatter.format(seriesTextMetrics.scriptBodyCharacters)}\n- 当前集均：${numberFormatter.format(seriesTextMetrics.averageCharactersPerEpisode)}\n- 达标所需集均：${numberFormatter.format(seriesTextMetrics.requiredAverageCharactersPerEpisode)}\n- 统计口径：字母、数字与中文字符，不含空格和标点\n\n${ordered.map((item) => toMarkdown(item.draft, item.episodeNumber)).join("\n\n---\n\n")}`;
     downloadFile(
       content,
       `${safeFilename(currentProject.title)}-full-script.${format === "json" ? "json" : "md"}`,
@@ -538,6 +562,33 @@ export function ScriptWorkspace() {
         </div>
         <Link className="outline-action" href={`/projects/${currentProject.id}`}>{t("workspace.back")}</Link>
       </header>
+
+      <section aria-label={t("workspace.length.title")} className="story-length-dashboard">
+        <div className="story-length-heading">
+          <div>
+            <span className="section-kicker">{t("workspace.length.kicker")}</span>
+            <h2>{t("workspace.length.title")}</h2>
+          </div>
+          <strong>{progressPercent.toFixed(2)}%</strong>
+        </div>
+        <div className="story-length-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, progressPercent)}>
+          <span style={{ width: `${Math.min(100, progressPercent)}%` }} />
+        </div>
+        <div className="story-length-metrics">
+          <div><span>{t("workspace.length.total")}</span><strong>{numberFormatter.format(seriesTextMetrics.totalCharacters)}</strong><small>{t("workspace.length.target").replace("{target}", numberFormatter.format(seriesTextMetrics.targetCharacters))}</small></div>
+          <div><span>{t("workspace.length.body")}</span><strong>{numberFormatter.format(seriesTextMetrics.scriptBodyCharacters)}</strong><small>{t("workspace.length.bodyHelp")}</small></div>
+          <div><span>{t("workspace.length.average")}</span><strong>{numberFormatter.format(seriesTextMetrics.averageCharactersPerEpisode)}</strong><small>{t("workspace.length.requiredAverage").replace("{required}", numberFormatter.format(seriesTextMetrics.requiredAverageCharactersPerEpisode))}</small></div>
+          <div><span>{t("workspace.length.projection")}</span><strong>{numberFormatter.format(seriesTextMetrics.projectedCharactersAtPlannedEpisodes)}</strong><small>{projectedSummary}</small></div>
+        </div>
+        <div className="story-length-current">
+          <span>{t("workspace.length.currentEpisode").replace("{episode}", String(currentEpisode.episodeNumber))}</span>
+          <strong>{numberFormatter.format(displayedTextMetrics.totalCharacters)}</strong>
+          <small>{t("workspace.length.currentBreakdown")
+            .replace("{actions}", numberFormatter.format(displayedTextMetrics.actionCharacters))
+            .replace("{dialogue}", numberFormatter.format(displayedTextMetrics.dialogueCharacters))}</small>
+          <small>{t("workspace.length.countingRule")}</small>
+        </div>
+      </section>
 
       <nav className="project-view-tabs">
         <button aria-pressed={workspaceView === "script"} onClick={() => setWorkspaceView("script")} type="button">{t("workspace.scriptView")}</button>

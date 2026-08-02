@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:metrics": "node --no-warnings --experimental-strip-types --test tests/script-metrics.test.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.7",
