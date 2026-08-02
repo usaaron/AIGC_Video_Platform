@@ -61,4 +61,19 @@ describe('account password contracts', () => {
       }).success,
     ).toBe(true)
   })
+
+  it('accepts new eight-digit invitation codes and legacy long codes', () => {
+    const registration = {
+      name: 'Member',
+      email: 'member@example.com',
+      password: '12345678',
+      verificationCode: '123456',
+    }
+    expect(registerAccountSchema.safeParse({ ...registration, token: '01234567' }).success).toBe(true)
+    expect(
+      registerAccountSchema.safeParse({ ...registration, token: 'legacy-token'.padEnd(32, '1') }).success,
+    ).toBe(true)
+    expect(registerAccountSchema.safeParse({ ...registration, token: '1234567' }).success).toBe(false)
+    expect(registerAccountSchema.safeParse({ ...registration, token: '123456789' }).success).toBe(false)
+  })
 })

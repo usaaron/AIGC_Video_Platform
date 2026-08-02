@@ -6,9 +6,13 @@ export const workspaceStatusSchema = z.enum(['active', 'disabled'])
 export const organizationStatusSchema = workspaceStatusSchema
 export const membershipStatusSchema = z.enum(['active', 'disabled'])
 export const tenantInvitationStatusSchema = z.enum(['pending', 'accepted', 'revoked', 'expired'])
+const invitationTokenSchema = z.union([
+  z.string().regex(/^\d{8}$/),
+  z.string().min(32).max(256),
+])
 
 export const registerAccountSchema = z.object({
-  token: z.string().min(32).max(256),
+  token: invitationTokenSchema,
   name: z.string().min(1).max(80),
   email: z.string().email(),
   password: passwordSchema,
@@ -16,7 +20,7 @@ export const registerAccountSchema = z.object({
 })
 
 export const requestRegistrationCodeSchema = z.object({
-  token: z.string().min(32).max(256),
+  token: invitationTokenSchema,
   email: z.string().email(),
 })
 
@@ -33,7 +37,7 @@ export const createTenantInvitationSchema = z.object({
 })
 
 export const acceptTenantInvitationSchema = z.object({
-  token: z.string().min(32).max(256),
+  token: invitationTokenSchema,
   name: z.string().min(1).max(80),
   email: z.string().email().optional(),
   password: passwordSchema,
@@ -146,7 +150,7 @@ export const tenantInvitationSchema = z.object({
 })
 
 export const createdTenantInvitationSchema = tenantInvitationSchema.extend({
-  token: z.string().min(32),
+  token: invitationTokenSchema,
 })
 
 export type RegisterAccountInput = z.infer<typeof registerAccountSchema>

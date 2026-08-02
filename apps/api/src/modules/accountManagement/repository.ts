@@ -53,6 +53,11 @@ export type ClaimInvitationEmailResult =
   | { kind: 'membership_exists' }
   | { kind: 'invitation_unavailable' }
 
+export type CreateInvitationResult =
+  | { kind: 'created'; invitation: CreatedTenantInvitation }
+  | { kind: 'membership_exists' }
+  | { kind: 'token_collision' }
+
 export type VerifiedRegistrationResult =
   | { kind: 'accepted'; workspace: AccountWorkspace }
   | {
@@ -121,85 +126,93 @@ export class AccountManagementRepository {
     token: string
     tokenSecretHash: string
     expiresAt: string
-  }): Promise<CreatedTenantInvitation | null> {
-    return this.database.transaction(async (client) => {
-      let invitationId = `invitation-${randomUUID()}`
-      let reissued = false
-      if (input.email) {
-        const activeMember = await client.query<{ id: string }>(
-          `
-          SELECT m.id
-          FROM tenant_memberships m
-          JOIN auth_identities ai ON ai.user_id = m.user_id
-          JOIN users u ON u.id = m.user_id AND u.status = 'active'
-          WHERE m.tenant_id = $1
-            AND lower(ai.email) = lower($2)
-            AND ai.provider = 'local'
-            AND ai.status = 'active'
-            AND m.status = 'active'
-          LIMIT 1
-          `,
-          [input.tenantId, input.email],
-        )
-        if (activeMember.rows.length) return null
+  }): Promise<CreateInvitationResult> {
+    try {
+      return await this.database.transaction(async (client) => {
+        let invitationId = `invitation-${randomUUID()}`
+        let reissued = false
+        if (input.email) {
+          const activeMember = await client.query<{ id: string }>(
+            `
+            SELECT m.id
+            FROM tenant_memberships m
+            JOIN auth_identities ai ON ai.user_id = m.user_id
+            JOIN users u ON u.id = m.user_id AND u.status = 'active'
+            WHERE m.tenant_id = $1
+              AND lower(ai.email) = lower($2)
+              AND ai.provider = 'local'
+              AND ai.status = 'active'
+              AND m.status = 'active'
+            LIMIT 1
+            `,
+            [input.tenantId, input.email],
+          )
+          if (activeMember.rows.length) return { kind: 'membership_exists' as const }
 
-        const updated = await client.query<{ id: string }>(
-          `
-          UPDATE tenant_invitations
-          SET roles = $3,
-              invited_by_user_id = $4,
-              token_secret_hash = $5,
-              expires_at = $6,
-              accepted_at = NULL,
-              revoked_at = NULL,
-              updated_at = now()
-          WHERE tenant_id = $1
-            AND lower(email) = lower($2)
-            AND status = 'pending'
-          RETURNING id
-          `,
-          [
-            input.tenantId,
-            input.email,
-            input.roles,
-            input.invitedByUserId,
-            input.tokenSecretHash,
-            input.expiresAt,
-          ],
-        )
-        if (updated.rows[0]) {
-          invitationId = updated.rows[0].id
-          reissued = true
+          const updated = await client.query<{ id: string }>(
+            `
+            UPDATE tenant_invitations
+            SET roles = $3,
+                invited_by_user_id = $4,
+                token_secret_hash = $5,
+                expires_at = $6,
+                accepted_at = NULL,
+                revoked_at = NULL,
+                updated_at = now()
+            WHERE tenant_id = $1
+              AND lower(email) = lower($2)
+              AND status = 'pending'
+            RETURNING id
+            `,
+            [
+              input.tenantId,
+              input.email,
+              input.roles,
+              input.invitedByUserId,
+              input.tokenSecretHash,
+              input.expiresAt,
+            ],
+          )
+          if (updated.rows[0]) {
+            invitationId = updated.rows[0].id
+            reissued = true
+            await client.query(
+              `DELETE FROM registration_email_codes WHERE invitation_id = $1`,
+              [invitationId],
+            )
+          }
+        }
+        if (!reissued) {
           await client.query(
-            `DELETE FROM registration_email_codes WHERE invitation_id = $1`,
-            [invitationId],
+            `
+            INSERT INTO tenant_invitations (
+              id, tenant_id, email, roles, invited_by_user_id, token_secret_hash, status, expires_at,
+              accepted_at, revoked_at, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, NULL, NULL, now(), now())
+            `,
+            [
+              invitationId,
+              input.tenantId,
+              input.email,
+              input.roles,
+              input.invitedByUserId,
+              input.tokenSecretHash,
+              input.expiresAt,
+            ],
           )
         }
-      }
-      if (!reissued) {
-        await client.query(
-          `
-          INSERT INTO tenant_invitations (
-            id, tenant_id, email, roles, invited_by_user_id, token_secret_hash, status, expires_at,
-            accepted_at, revoked_at, created_at, updated_at
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, NULL, NULL, now(), now())
-          `,
-          [
-            invitationId,
-            input.tenantId,
-            input.email,
-            input.roles,
-            input.invitedByUserId,
-            input.tokenSecretHash,
-            input.expiresAt,
-          ],
-        )
-      }
 
-      const invitation = await readInvitationById(client, invitationId)
-      return invitation ? { ...invitation, token: input.token } : null
-    })
+        const invitation = await readInvitationById(client, invitationId)
+        if (!invitation) throw new Error('Created invitation could not be read')
+        return { kind: 'created' as const, invitation: { ...invitation, token: input.token } }
+      })
+    } catch (error) {
+      if (isPostgresUniqueConstraint(error, 'tenant_invitations_token_hash_unique')) {
+        return { kind: 'token_collision' }
+      }
+      throw error
+    }
   }
 
   async listInvitations(tenantId: string): Promise<TenantInvitation[]> {
@@ -1522,6 +1535,12 @@ function toTenantInvitation(row: TenantInvitationRow): TenantInvitation {
     createdAt: toIso(row.invitation_created_at),
     updatedAt: toIso(row.invitation_updated_at),
   }
+}
+
+function isPostgresUniqueConstraint(error: unknown, constraint: string): boolean {
+  if (!error || typeof error !== 'object') return false
+  const details = error as { code?: unknown; constraint?: unknown }
+  return details.code === '23505' && details.constraint === constraint
 }
 
 function toSessionSummary(row: SessionRow, currentSessionId: string | null): SessionSummary {

@@ -27,7 +27,7 @@ import type {
   WorkspaceMembership,
 } from '@seqora/contracts'
 import { ROLES } from '@seqora/contracts'
-import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto'
+import { createHash, createHmac, randomInt } from 'node:crypto'
 import { permissionsFor } from '../../core/auth/authorization.js'
 import { hashPassword, verifyPassword } from '../../core/auth/password.js'
 import {
@@ -55,6 +55,7 @@ import { AccountManagementRepository, type AccountWorkspace } from './repository
 const invitationLifetimeSeconds = 60 * 60 * 24 * 7
 const registrationCodeLifetimeSeconds = 10 * 60
 const registrationCodeResendSeconds = 60
+const invitationTokenCreateAttempts = 5
 const openInvitationRoles = new Set<Role>([ROLES.MEMBER, ROLES.ORGANIZATION_MEMBER])
 const systemOrganizationRoles = new Set<Role>([ROLES.OWNER, ROLES.SUPER_ADMIN, ROLES.ADMIN])
 type RequestEmailVerification = (input: { email: string }, metadata?: SessionMetadata) => Promise<unknown>
@@ -498,21 +499,26 @@ export class AccountManagementService {
     }
     await this.requireGlobalRoleCapacity(roles)
     await this.requireSystemOrganizationMembershipWrite(principal, tenantId, roles)
-    const token = issueInvitationToken()
-    const invitation = await this.accounts.createInvitation({
-      tenantId,
-      email,
-      roles,
-      invitedByUserId: principal.userId,
-      token,
-      tokenSecretHash: hashInvitationToken(token),
-      expiresAt: new Date(Date.now() + invitationLifetimeSeconds * 1_000).toISOString(),
-    })
-    if (!invitation) {
-      throw new AppError(409, 'MEMBERSHIP_ALREADY_EXISTS', 'Account is already an active member')
+    for (let attempt = 0; attempt < invitationTokenCreateAttempts; attempt += 1) {
+      const token = issueInvitationToken()
+      const result = await this.accounts.createInvitation({
+        tenantId,
+        email,
+        roles,
+        invitedByUserId: principal.userId,
+        token,
+        tokenSecretHash: hashInvitationToken(token),
+        expiresAt: new Date(Date.now() + invitationLifetimeSeconds * 1_000).toISOString(),
+      })
+      if (result.kind === 'token_collision') continue
+      if (result.kind === 'membership_exists') {
+        throw new AppError(409, 'MEMBERSHIP_ALREADY_EXISTS', 'Account is already an active member')
+      }
+      const invitation = result.invitation
+      if (invitation.email) await this.sendInvitationEmail(invitation)
+      return invitation
     }
-    if (invitation.email) await this.sendInvitationEmail(invitation)
-    return invitation
+    throw new AppError(503, 'INVITATION_CODE_UNAVAILABLE', 'Could not allocate a unique invitation code')
   }
 
   async listInvitations(principal: Principal, tenantId: string): Promise<TenantInvitation[]> {
@@ -1641,7 +1647,7 @@ function hasSystemOrganizationRole(roles: readonly Role[]): boolean {
 }
 
 function issueInvitationToken(): string {
-  return randomBytes(32).toString('base64url')
+  return randomInt(0, 100_000_000).toString().padStart(8, '0')
 }
 
 function hashInvitationToken(token: string): string {

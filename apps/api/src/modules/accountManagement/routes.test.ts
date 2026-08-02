@@ -579,7 +579,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       email: null,
       roles: ['organization_member'],
       status: 'pending',
-      token: expect.any(String),
+      token: expect.stringMatching(/^\d{8}$/),
     })
     const firstToken = firstInvitation.json().token as string
 
@@ -646,7 +646,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const secondInvitation = await createOpenInvitation()
     expect(secondInvitation.statusCode).toBe(201)
-    expect(secondInvitation.json()).toMatchObject({ email: null, token: expect.any(String) })
+    expect(secondInvitation.json()).toMatchObject({ email: null, token: expect.stringMatching(/^\d{8}$/) })
     expect(secondInvitation.json().token).not.toBe(firstToken)
 
     const secondToken = secondInvitation.json().token as string
@@ -1529,7 +1529,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       tenantId: organizationAdmin.tenantId,
       roles: ['organization_member'],
       status: 'pending',
-      token: expect.any(String),
+      token: expect.stringMatching(/^\d{8}$/),
     })
     const firstInvitation = createInvitation.json() as { id: string; token: string }
 
@@ -1547,7 +1547,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       id: firstInvitation.id,
       email: 'member@example.com',
       status: 'pending',
-      token: expect.any(String),
+      token: expect.stringMatching(/^\d{8}$/),
     })
     expect(reissuedInvitation.json().token).not.toBe(firstInvitation.token)
 
