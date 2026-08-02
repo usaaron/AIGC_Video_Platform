@@ -84,6 +84,8 @@ services:
       context: .
       dockerfile: deploy/api.Dockerfile
     command: ['node', 'dist/worker.js']
+    healthcheck:
+      disable: true
     restart: unless-stopped
     init: true
     env_file:
