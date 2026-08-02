@@ -8,16 +8,13 @@ import type {
 const imageResponseSchema = z.object({
   data: z.array(z.object({ b64_json: z.string().min(1) })).min(1),
 })
+const MAX_IMAGE_REQUEST_ATTEMPTS = 3
 
 type Fetcher = typeof fetch
 
 export type TokenAdventImageOptions = {
   baseUrl: string
   apiKey: string
-  alternateBaseUrl?: string
-  alternateApiKey?: string
-  alternateModels?: readonly string[]
-  alternateModel?: string
   model: string
   quality: 'low' | 'medium' | 'high'
   requestTimeoutMs: number
@@ -35,12 +32,12 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
 
   async generate(request: ImageGenerationRequest): Promise<ImageGenerationOutput[]> {
     const outputs: ImageGenerationOutput[] = []
-    const model = this.resolveModel(request.model)
     for (const view of request.outputs) {
       const prompt = promptFor(request, view)
+      const idempotencyKey = request.idempotencyKey ? `${request.idempotencyKey}:${view}` : undefined
       const response = request.references.length
-        ? await this.edit(prompt, request.aspectRatio, request.references, model)
-        : await this.create(prompt, request.aspectRatio, model)
+        ? await this.edit(prompt, request.aspectRatio, request.references, idempotencyKey)
+        : await this.create(prompt, request.aspectRatio, idempotencyKey)
       const parsed = imageResponseSchema.parse(response)
       outputs.push({
         view,
@@ -51,33 +48,32 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
     return outputs
   }
 
-  private create(prompt: string, aspectRatio: string, model: string): Promise<unknown> {
-    return this.requestJson(
-      '/v1/images/generations',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          prompt,
-          n: 1,
-          size: sizeFor(aspectRatio),
-          quality: this.options.quality,
-          output_format: 'png',
-        }),
+  private create(prompt: string, aspectRatio: string, idempotencyKey?: string): Promise<unknown> {
+    return this.requestJson('/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
       },
-      model,
-    )
+      body: JSON.stringify({
+        model: this.options.model,
+        prompt,
+        n: 1,
+        size: sizeFor(aspectRatio),
+        quality: this.options.quality,
+        output_format: 'png',
+      }),
+    })
   }
 
   private edit(
     prompt: string,
     aspectRatio: string,
     references: ImageGenerationRequest['references'],
-    model: string,
+    idempotencyKey?: string,
   ): Promise<unknown> {
     const body = new FormData()
-    body.set('model', model)
+    body.set('model', this.options.model)
     body.set('prompt', prompt)
     body.set('size', sizeFor(aspectRatio))
     body.set('quality', this.options.quality)
@@ -89,24 +85,20 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
         reference.name,
       )
     }
-    return this.requestJson('/v1/images/edits', { method: 'POST', body }, model)
+    return this.requestJson('/v1/images/edits', {
+      method: 'POST',
+      ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
+      body,
+    })
   }
 
-  private resolveModel(model: string | null | undefined): string {
-    if (model === 'nano-banana') return this.options.alternateModel || 'nano-banana'
-    if (!model || model === 'img2-default') return this.options.model
-    return model
-  }
-
-  private async requestJson(path: string, init: RequestInit, model: string): Promise<unknown> {
-    const baseUrl = this.resolveBaseUrl(model)
-    const apiKey = this.resolveApiKey(model)
+  private async requestJson(path: string, init: RequestInit): Promise<unknown> {
     let lastError: unknown
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < MAX_IMAGE_REQUEST_ATTEMPTS; attempt += 1) {
       try {
-        const response = await this.fetcher(`${baseUrl}${path}`, {
+        const response = await this.fetcher(`${this.baseUrl}${path}`, {
           ...init,
-          headers: { Authorization: `Bearer ${apiKey}`, ...init.headers },
+          headers: { Authorization: `Bearer ${this.options.apiKey}`, ...init.headers },
           signal: AbortSignal.timeout(this.options.requestTimeoutMs),
         })
         if (!response.ok) throw await providerError(response)
@@ -115,39 +107,11 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
         })
       } catch (error) {
         lastError = error
-        if (attempt > 0 || !isRetryable(error)) break
-        await new Promise((resolve) => setTimeout(resolve, 500))
+        if (attempt >= MAX_IMAGE_REQUEST_ATTEMPTS - 1 || !isRetryable(error)) break
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs(attempt)))
       }
     }
     throw lastError
-  }
-
-  private resolveApiKey(model: string): string {
-    if (this.isAlternateModel(model)) {
-      if (!this.options.alternateApiKey) {
-        throw new Error('Nano Banana 尚未配置真实 API 密钥，当前不能提交生成')
-      }
-      return this.options.alternateApiKey
-    }
-    return this.options.apiKey
-  }
-
-  private resolveBaseUrl(model: string): string {
-    if (this.isAlternateModel(model)) {
-      if (!this.options.alternateBaseUrl) {
-        throw new Error('Nano Banana 尚未配置真实 API 地址，当前不能提交生成')
-      }
-      return this.options.alternateBaseUrl.replace(/\/+$/, '')
-    }
-    return this.baseUrl
-  }
-
-  private isAlternateModel(model: string): boolean {
-    return (
-      model === 'nano-banana' ||
-      model === this.options.alternateModel ||
-      this.options.alternateModels?.includes(model) === true
-    )
   }
 }
 
@@ -182,12 +146,12 @@ function sizeFor(aspectRatio: string): string {
 
 async function providerError(response: Response): Promise<TokenAdventImageHttpError> {
   const body = await response.text().catch(() => '')
-  let message = body.slice(0, 500)
-  try {
-    const parsed = JSON.parse(body) as { error?: { message?: string }; message?: string }
-    message = parsed.error?.message || parsed.message || message
-  } catch {
-    // Keep the bounded text response when the provider does not return JSON.
+  let message = providerErrorMessage(body)
+  if (response.status === 524 || /524:\s*A timeout occurred/i.test(body)) {
+    message = '上游图片服务超时（524），本次图片没有生成成功；请稍后重试，或降低质量/减少参考图后再试'
+  }
+  if (response.status === 429) {
+    message = '上游图片服务限流（429），请稍后重试'
   }
   return new TokenAdventImageHttpError(
     response.status,
@@ -195,12 +159,32 @@ async function providerError(response: Response): Promise<TokenAdventImageHttpEr
   )
 }
 
+function providerErrorMessage(body: string): string {
+  let message = body.slice(0, 500)
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string }; message?: string }
+    message = parsed.error?.message || parsed.message || message
+  } catch {
+    message = htmlTitle(body) || message
+  }
+  return message
+}
+
 function isRetryable(error: unknown): boolean {
   if (error instanceof TokenAdventImageHttpError) {
+    if (error.status === 524) return false
     return error.status === 408 || error.status === 429 || error.status >= 500
   }
   return (
     error instanceof TypeError ||
     (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))
   )
+}
+
+function retryDelayMs(attempt: number): number {
+  return 750 * 2 ** attempt + Math.floor(Math.random() * 150)
+}
+
+function htmlTitle(body: string): string {
+  return /<title>(.*?)<\/title>/is.exec(body)?.[1]?.replace(/\s+/g, ' ').trim() ?? ''
 }

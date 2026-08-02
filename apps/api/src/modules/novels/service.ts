@@ -1,4 +1,5 @@
 import type {
+  AiJob,
   CommitNovelSummaryQueueResultsRequest,
   CreateNovelSummaryQueueRequest,
   DetectNovelBoundariesRequest,
@@ -9,6 +10,7 @@ import type {
   GenerateNovelBoundaryNotesRequest,
   GenerateNovelChapterSummariesRequest,
   GenerateNovelChapterSummariesResult,
+  NovelChapterAdaptationSources,
   GenerateNovelStoryBibleRequest,
   ImportNovelRequest,
   NovelChapter,
@@ -47,6 +49,9 @@ import {
 import { createHash } from 'node:crypto'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
+import type { AiJobExecutionResult, AiJobHandler } from '../../core/jobs/aiJobRunner.js'
+import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
+import type { AiJobRepository } from '../aiJobs/repository.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
 import type { NovelRepository } from './repository.js'
 
@@ -126,6 +131,8 @@ type NovelAssetSuggestionSource = {
 type AdaptationSourceChapter = SummarySourceChapter &
   Pick<NovelChapter, 'sourceChapterTitle' | 'crossesChapterBoundary'>
 
+type ResolvedChapterAdaptationSources = Required<NovelChapterAdaptationSources>
+
 const AUTO_SPLIT_TARGET_CHARS = 6_000
 const AUTO_SPLIT_WINDOW_CHARS = 800
 const AUTO_LONG_CHAPTER_FACTOR = 1.5
@@ -142,30 +149,38 @@ const NOVEL_STORY_BIBLE_MAX_TOKENS = 6_000
 const NOVEL_ASSET_SUGGESTIONS_MAX_TOKENS = 6_000
 const STORY_OVERVIEW_SUMMARY_CHAR_LIMIT = 420
 const STORY_OVERVIEW_FACT_CHAR_LIMIT = 120
+const AI_JOB_TEXT_PROVIDER = 'text'
+const NOVEL_SUMMARY_QUEUE_BATCH_JOB_KIND = 'novel.summaryQueueBatch'
 const MOJIBAKE_PATTERN = /锟斤拷|銆|鐨|涓|锛|鈥|妗|绔|浠|珨|腔|衄|饒|欴|[ÃÂâ]/gu
 const REPLACEMENT_PATTERN = /\uFFFD/gu
 
-export class NovelService {
+export class NovelService implements AiJobHandler {
   constructor(
     private readonly repository: NovelRepository,
     private readonly textProvider: TextGenerationProvider | null = null,
     private readonly creditLedger: CreditLedger | null = null,
+    private readonly aiJobs: AiJobRepository | null = null,
+    private readonly aiJobDispatcher: TaskDispatcher | null = null,
   ) {}
 
-  list(projectId: string, principal: Principal) {
-    const documents = this.repository.list(projectId, principal)
+  async list(projectId: string, principal: Principal) {
+    const documents = await this.repository.list(projectId, principal)
     if (!documents) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权访问')
     return documents
   }
 
-  detail(projectId: string, documentId: string, principal: Principal) {
-    const detail = this.repository.detail(projectId, documentId, principal)
+  async detail(projectId: string, documentId: string, principal: Principal) {
+    const detail = await this.repository.detail(projectId, documentId, principal)
     if (!detail) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权访问')
     return detail
   }
 
-  boundaries(projectId: string, documentId: string, principal: Principal): NovelBoundaryDetectionResult {
-    const result = this.repository.boundaries(projectId, documentId, principal)
+  async boundaries(
+    projectId: string,
+    documentId: string,
+    principal: Principal,
+  ): Promise<NovelBoundaryDetectionResult> {
+    const result = await this.repository.boundaries(projectId, documentId, principal)
     if (!result) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权访问边界识别结果')
     return result
   }
@@ -176,7 +191,7 @@ export class NovelService {
     input: DetectNovelBoundariesRequest,
     principal: Principal,
   ): Promise<NovelBoundaryDetectionResult> {
-    const source = this.repository.boundaryDetectionSource(projectId, documentId, principal)
+    const source = await this.repository.boundaryDetectionSource(projectId, documentId, principal)
     if (!source) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权检测边界')
     const warnings: string[] = []
     const drafts = detectBoundaryDrafts(source.chapters).slice(0, input.maxBoundaries)
@@ -202,7 +217,7 @@ export class NovelService {
     clientRequestId: string,
     principal: Principal,
   ): Promise<NovelBoundaryNotesResult> {
-    const current = this.repository.boundaries(projectId, documentId, principal)
+    const current = await this.repository.boundaries(projectId, documentId, principal)
     if (!current) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成边界说明')
     const selected = selectBoundariesForNotes(current.boundaries, input)
     if (!selected.length) {
@@ -255,9 +270,13 @@ export class NovelService {
     )
   }
 
-  summaries(projectId: string, documentId: string, principal: Principal): NovelChapterSummariesResult {
-    const detail = this.detail(projectId, documentId, principal)
-    const summaries = this.repository.summaries(projectId, documentId, principal)
+  async summaries(
+    projectId: string,
+    documentId: string,
+    principal: Principal,
+  ): Promise<NovelChapterSummariesResult> {
+    const detail = await this.detail(projectId, documentId, principal)
+    const summaries = await this.repository.summaries(projectId, documentId, principal)
     if (!summaries) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权访问')
     return {
       document: detail.document,
@@ -267,8 +286,12 @@ export class NovelService {
     }
   }
 
-  summaryQueue(projectId: string, documentId: string, principal: Principal): NovelSummaryQueueResult {
-    const result = this.repository.summaryQueue(projectId, documentId, principal)
+  async summaryQueue(
+    projectId: string,
+    documentId: string,
+    principal: Principal,
+  ): Promise<NovelSummaryQueueResult> {
+    const result = await this.repository.summaryQueue(projectId, documentId, principal)
     if (!result) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权访问摘要队列')
     return result
   }
@@ -292,6 +315,17 @@ export class NovelService {
     clientRequestId: string,
     principal: Principal,
   ): Promise<NovelSummaryQueueBatchResult> {
+    if (this.aiJobs && this.aiJobDispatcher) {
+      return this.enqueueSummaryQueueBatchTask(
+        projectId,
+        documentId,
+        queueId,
+        input,
+        clientRequestId,
+        principal,
+      )
+    }
+
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     return this.runBillableNovelOperation(
       principal,
@@ -302,13 +336,145 @@ export class NovelService {
     )
   }
 
+  canHandle(job: AiJob): boolean {
+    return job.kind === NOVEL_SUMMARY_QUEUE_BATCH_JOB_KIND
+  }
+
+  async execute(job: AiJob): Promise<AiJobExecutionResult> {
+    if (!this.canHandle(job)) throw new AppError(400, 'AI_JOB_UNSUPPORTED', '不支持的 AI 任务类型')
+    if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
+    const documentId = stringMetadata(job.input.documentId)
+    const queueId = stringMetadata(job.input.queueId)
+    if (!documentId || !queueId) {
+      throw new AppError(400, 'AI_JOB_INPUT_INVALID', 'AI 任务缺少小说摘要队列输入')
+    }
+    const batchSize = numberMetadata(job.input.batchSize)
+    const result = await this.runSummaryQueueBatchInternal(
+      job.projectId,
+      documentId,
+      queueId,
+      batchSize ? { batchSize } : {},
+      { userId: job.userId, tenantId: job.tenantId, roles: [] },
+    )
+    return {
+      output: {
+        aiOperationCompletedAt: result.queue?.updatedAt ?? new Date().toISOString(),
+        novelDocumentId: documentId,
+        novelSummaryQueueId: queueId,
+        processedItemIds: result.processedItemIds,
+        failedItemIds: result.failedItemIds,
+        warningCount: result.warnings.length,
+      },
+    }
+  }
+
+  private async enqueueSummaryQueueBatchTask(
+    projectId: string,
+    documentId: string,
+    queueId: string,
+    input: RunNovelSummaryQueueBatchRequest,
+    clientRequestId: string,
+    principal: Principal,
+  ): Promise<NovelSummaryQueueBatchResult> {
+    const source = await this.repository.summaryQueueSource(projectId, documentId, queueId, principal)
+    if (!source) throw new AppError(404, 'NOVEL_SUMMARY_QUEUE_NOT_FOUND', '摘要队列不存在或无权访问')
+    if (source.queue.status === 'paused') {
+      throw new AppError(409, 'NOVEL_SUMMARY_QUEUE_PAUSED', '摘要队列已暂停，请先恢复后再处理')
+    }
+    if (['completed', 'cancelled'].includes(source.queue.status)) {
+      throw new AppError(409, 'NOVEL_SUMMARY_QUEUE_TERMINAL', '摘要队列已结束，不能继续处理')
+    }
+
+    const batchSize = Math.min(input.batchSize ?? source.queue.batchSize, 24)
+    const pendingItemIds = source.items
+      .filter((item) => item.status === 'pending')
+      .sort((left, right) => left.order - right.order)
+      .slice(0, batchSize)
+      .map((item) => item.id)
+    const latest = await this.repository.summaryQueue(projectId, documentId, principal)
+    if (!latest) throw new AppError(404, 'NOVEL_SUMMARY_QUEUE_NOT_FOUND', '摘要队列不存在或无权访问')
+
+    const activeTask = await this.findActiveSummaryQueueBatchTask(projectId, documentId, queueId, principal)
+    if (activeTask) {
+      if (activeTask.status === 'queued') await this.aiJobDispatcher!.dispatch(activeTask)
+      return {
+        ...latest,
+        processedItemIds: [],
+        failedItemIds: [],
+        task: activeTask,
+        warnings: [`已有后台 AI 任务 ${activeTask.id} 正在处理该摘要队列`],
+      }
+    }
+
+    if (!pendingItemIds.length) {
+      return {
+        ...latest,
+        processedItemIds: [],
+        failedItemIds: [],
+        warnings: ['当前摘要队列没有待处理条目'],
+      }
+    }
+
+    const task = await this.aiJobs!.createWithCharge(
+      {
+        clientRequestId: `novel-summary-queue-${queueId}-${clientRequestId}`,
+        projectId,
+        kind: NOVEL_SUMMARY_QUEUE_BATCH_JOB_KIND,
+        label: `${source.document.name} · 章节摘要队列`,
+        provider: AI_JOB_TEXT_PROVIDER,
+        costCredits: NOVEL_OPERATION_CREDITS.chapterSummaryBatch,
+        maxAttempts: 3,
+        input: {
+          documentId,
+          queueId,
+          batchSize,
+          pendingItemIds,
+        },
+      },
+      principal,
+    )
+    await this.aiJobDispatcher!.dispatch(task)
+    return {
+      ...latest,
+      processedItemIds: [],
+      failedItemIds: [],
+      task,
+      warnings: [`已创建后台 AI 任务 ${task.id}，摘要结果会由 Worker 写回`],
+    }
+  }
+
+  private async findActiveSummaryQueueBatchTask(
+    projectId: string,
+    documentId: string,
+    queueId: string,
+    principal: Principal,
+  ): Promise<AiJob | null> {
+    if (!this.aiJobs) return null
+    const tasks = await this.aiJobs.listByProject(projectId, principal)
+    return (
+      tasks
+        .filter(
+          (task) =>
+            task.kind === NOVEL_SUMMARY_QUEUE_BATCH_JOB_KIND &&
+            task.input.documentId === documentId &&
+            task.input.queueId === queueId &&
+            ['queued', 'running', 'paused'].includes(task.status),
+        )
+        .sort((left, right) => {
+          const createdAt = right.createdAt.localeCompare(left.createdAt)
+          if (createdAt !== 0) return createdAt
+          return right.id.localeCompare(left.id)
+        })[0] ?? null
+    )
+  }
+
   async pauseSummaryQueue(
     projectId: string,
     documentId: string,
     queueId: string,
     principal: Principal,
   ): Promise<NovelSummaryQueueResult> {
-    const source = this.repository.summaryQueueSource(projectId, documentId, queueId, principal)
+    const source = await this.repository.summaryQueueSource(projectId, documentId, queueId, principal)
     if (!source) throw new AppError(404, 'NOVEL_SUMMARY_QUEUE_NOT_FOUND', '摘要队列不存在或无权访问')
     if (['completed', 'cancelled'].includes(source.queue.status)) {
       throw new AppError(409, 'NOVEL_SUMMARY_QUEUE_TERMINAL', '摘要队列已结束，不能暂停')
@@ -390,7 +556,7 @@ export class NovelService {
     input: RunNovelSummaryQueueBatchRequest,
     principal: Principal,
   ): Promise<NovelSummaryQueueBatchResult> {
-    const source = this.repository.summaryQueueSource(projectId, documentId, queueId, principal)
+    const source = await this.repository.summaryQueueSource(projectId, documentId, queueId, principal)
     if (!source) throw new AppError(404, 'NOVEL_SUMMARY_QUEUE_NOT_FOUND', '摘要队列不存在或无权访问')
     if (source.queue.status === 'paused') {
       throw new AppError(409, 'NOVEL_SUMMARY_QUEUE_PAUSED', '摘要队列已暂停，请先恢复后再处理')
@@ -459,7 +625,7 @@ export class NovelService {
       }
     }
 
-    const latest = this.repository.summaryQueue(projectId, documentId, principal)
+    const latest = await this.repository.summaryQueue(projectId, documentId, principal)
     if (!latest) throw new AppError(404, 'NOVEL_SUMMARY_QUEUE_NOT_FOUND', '摘要队列不存在或无权访问')
     return {
       ...latest,
@@ -473,6 +639,7 @@ export class NovelService {
     novelName: string,
     chapter: SummarySourceChapter,
   ): Promise<NovelSummaryQueueItemResult> {
+    if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const response = await this.textProvider!.generate({
       systemPrompt: NOVEL_CHAPTER_SUMMARY_SYSTEM_PROMPT,
       userPrompt: chapterSummaryPrompt(novelName, [chapter]),
@@ -494,12 +661,16 @@ export class NovelService {
     }
   }
 
-  storyBible(projectId: string, documentId: string, principal: Principal): NovelStoryBibleReadResult {
-    const detail = this.detail(projectId, documentId, principal)
-    const summaries = this.repository.summaries(projectId, documentId, principal)
+  async storyBible(
+    projectId: string,
+    documentId: string,
+    principal: Principal,
+  ): Promise<NovelStoryBibleReadResult> {
+    const detail = await this.detail(projectId, documentId, principal)
+    const summaries = await this.repository.summaries(projectId, documentId, principal)
     if (!summaries) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权访问')
     return {
-      storyBible: this.repository.storyBible(projectId, documentId, principal),
+      storyBible: await this.repository.storyBible(projectId, documentId, principal),
       summaryCount: summaries.length,
       chapterCount: detail.document.chapterCount,
       missingSummaryCount: Math.max(0, detail.document.chapterCount - summaries.length),
@@ -551,7 +722,7 @@ export class NovelService {
     clientRequestId: string,
     principal: Principal,
   ): Promise<GenerateNovelChapterSummariesResult> {
-    const source = this.repository.sourceForGeneration(projectId, documentId, principal)
+    const source = await this.repository.sourceForGeneration(projectId, documentId, principal)
     if (!source) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成摘要')
     const selectedChapters = selectChaptersForSummary(source.chapters, source.summaries, input)
     if (!selectedChapters.length) {
@@ -636,18 +807,24 @@ export class NovelService {
     clientRequestId: string,
     principal: Principal,
   ): Promise<NovelStoryBibleResult> {
-    const source = this.repository.sourceForGeneration(projectId, documentId, principal)
+    const source = await this.repository.sourceForGeneration(projectId, documentId, principal)
     if (!source) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成故事概要')
+    const selectedSummaries = selectSummariesForStoryBible(source.summaries, input.summaryLimit)
     const missingSummaryCount = Math.max(0, source.document.chapterCount - source.summaries.length)
-    if (missingSummaryCount > 0) {
-      throw new AppError(409, 'NOVEL_SUMMARIES_INCOMPLETE', '请先完成全部章节摘要，再生成故事概要')
+    const warnings = storyBibleWarnings(source.document.chapterCount, selectedSummaries.length)
+    if (!selectedSummaries.length) {
+      throw new AppError(409, 'NOVEL_SUMMARIES_REQUIRED', '请先生成至少一批章节摘要，再生成故事概要')
     }
-    if (source.storyBible && !input.force) {
+    if (
+      source.storyBible &&
+      !input.force &&
+      source.storyBible.sourceSummaryCount === selectedSummaries.length
+    ) {
       return {
         storyBible: source.storyBible,
-        missingSummaryCount: 0,
+        missingSummaryCount,
         generatedAt: new Date().toISOString(),
-        warnings: [],
+        warnings,
       }
     }
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
@@ -660,7 +837,7 @@ export class NovelService {
       async () => {
         const response = await this.textProvider!.generate({
           systemPrompt: NOVEL_STORY_BIBLE_SYSTEM_PROMPT,
-          userPrompt: storyBiblePrompt(source.document.name, source.summaries),
+          userPrompt: storyBiblePrompt(source.document.name, selectedSummaries, source.document.chapterCount),
           maxOutputTokens: NOVEL_STORY_BIBLE_MAX_TOKENS,
         })
         const parsed = parseStoryBibleProviderJson(response)
@@ -668,15 +845,15 @@ export class NovelService {
           projectId,
           documentId,
           parsed,
-          source.summaries.length,
+          selectedSummaries.length,
           principal,
         )
         if (!storyBible) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成故事概要')
         return {
           storyBible,
-          missingSummaryCount: 0,
+          missingSummaryCount,
           generatedAt: new Date().toISOString(),
-          warnings: [],
+          warnings,
         }
       },
     )
@@ -689,7 +866,7 @@ export class NovelService {
     _clientRequestId: string,
     principal: Principal,
   ): Promise<NovelAssetSuggestionsResult> {
-    const source = this.repository.sourceForGeneration(projectId, documentId, principal)
+    const source = await this.repository.sourceForGeneration(projectId, documentId, principal)
     if (!source) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成资产建议')
     if (!source.summaries.length) {
       throw new AppError(409, 'NOVEL_SUMMARIES_REQUIRED', '请先生成至少一批章节概要，再生成小说资产建议')
@@ -732,11 +909,26 @@ export class NovelService {
     clientRequestId: string,
     principal: Principal,
   ): Promise<NovelChapterAdaptationResult> {
-    const source = this.repository.sourceForGeneration(projectId, documentId, principal)
+    const source = await this.repository.sourceForGeneration(projectId, documentId, principal)
     if (!source) throw new AppError(404, 'NOVEL_NOT_FOUND', '小说不存在或无权生成章节改编剧本')
     const selectedChapters = selectChaptersForAdaptation(source.chapters, input)
     if (selectedChapters.length !== new Set(input.chapterIds).size) {
       throw new AppError(400, 'NOVEL_CHAPTER_NOT_FOUND', '选择的章节不存在或不属于当前小说')
+    }
+    const sources = resolveChapterAdaptationSources(input, source.storyBible)
+    if (input.sourceOptions?.storyBible && !source.storyBible) {
+      throw new AppError(409, 'NOVEL_STORY_BIBLE_REQUIRED', '请先生成故事概要，或取消勾选“故事概要”依据')
+    }
+    const selectedSummaryChapterIds = new Set(source.summaries.map((summary) => summary.chapterId))
+    const missingSummaryChapters = selectedChapters.filter(
+      (chapter) => !selectedSummaryChapterIds.has(chapter.id),
+    )
+    if (input.sourceOptions?.chapterSummaries && missingSummaryChapters.length > 0) {
+      throw new AppError(
+        409,
+        'NOVEL_CHAPTER_SUMMARIES_REQUIRED',
+        `所选章节中有 ${missingSummaryChapters.length} 章还没有对应章节概要，请先生成对应概要或取消勾选“章节概要”依据`,
+      )
     }
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
 
@@ -753,6 +945,7 @@ export class NovelService {
             selectedChapters,
             source.summaries,
             source.storyBible,
+            sources,
             input,
           ),
           maxOutputTokens: NOVEL_CHAPTER_ADAPTATION_MAX_TOKENS,
@@ -766,7 +959,7 @@ export class NovelService {
           targetSeconds: input.targetSeconds,
           mode: input.mode,
           generatedAt: new Date().toISOString(),
-          warnings: chapterAdaptationWarnings(source.summaries, source.storyBible, selectedChapters),
+          warnings: chapterAdaptationWarnings(source.summaries, source.storyBible, selectedChapters, sources),
         }
       },
     )
@@ -1321,6 +1514,37 @@ function selectChaptersForSummary(
     .slice(0, input.batchSize)
 }
 
+function selectSummariesForStoryBible(
+  summaries: NovelChapterSummary[],
+  summaryLimit: number | undefined,
+): NovelChapterSummary[] {
+  const limit = Math.min(summaries.length, summaryLimit ?? summaries.length)
+  if (limit <= 0) return []
+  const ordered = [...summaries].sort((left, right) => left.order - right.order)
+  const selected = new Map<string, NovelChapterSummary>()
+  for (const summary of ordered) {
+    if (!isOpeningSummary(summary)) continue
+    selected.set(summary.id, summary)
+    if (selected.size >= limit) break
+  }
+  for (const summary of ordered) {
+    if (selected.size >= limit) break
+    selected.set(summary.id, summary)
+  }
+  return [...selected.values()].sort((left, right) => left.order - right.order)
+}
+
+function isOpeningSummary(summary: Pick<NovelChapterSummary, 'order' | 'title'>): boolean {
+  return summary.order === 1 || /序章|序幕|开篇|楔子|前言|引子|prologue|preface/i.test(summary.title.trim())
+}
+
+function storyBibleWarnings(chapterCount: number, sourceSummaryCount: number): string[] {
+  if (sourceSummaryCount >= chapterCount) return []
+  return [
+    `本次故事概要只使用 ${sourceSummaryCount} / ${chapterCount} 章摘要，适合阶段性梳理；由于并非全书摘要，人物关系、世界观规则和伏笔回收可能不完整，后续建议在摘要更多后刷新。`,
+  ]
+}
+
 function selectChaptersForAdaptation<T extends { id: string; order: number }>(
   chapters: T[],
   input: GenerateNovelChapterAdaptationRequest,
@@ -1330,6 +1554,24 @@ function selectChaptersForAdaptation<T extends { id: string; order: number }>(
   return chapters
     .filter((chapter) => requested.has(chapter.id))
     .sort((left, right) => left.order - right.order)
+}
+
+function resolveChapterAdaptationSources(
+  input: GenerateNovelChapterAdaptationRequest,
+  storyBible: NovelStoryBible | null,
+): ResolvedChapterAdaptationSources {
+  if (!input.sourceOptions) {
+    return {
+      storyBible: Boolean(storyBible),
+      chapterSummaries: true,
+      chapterContent: true,
+    }
+  }
+  return {
+    storyBible: input.sourceOptions.storyBible === true,
+    chapterSummaries: input.sourceOptions.chapterSummaries === true,
+    chapterContent: input.sourceOptions.chapterContent === true,
+  }
 }
 
 function publicDocument(document: NovelDocument & { clientRequestId?: string }): NovelDocument {
@@ -1369,6 +1611,7 @@ function chapterAdaptationPrompt(
   chapters: AdaptationSourceChapter[],
   summaries: NovelChapterSummary[],
   storyBible: NovelStoryBible | null,
+  sources: ResolvedChapterAdaptationSources,
   input: GenerateNovelChapterAdaptationRequest,
 ): string {
   const summaryByChapterId = new Map(summaries.map((summary) => [summary.chapterId, summary]))
@@ -1384,12 +1627,24 @@ function chapterAdaptationPrompt(
         `章节标题：${chapter.title}`,
         `所属原章节：${chapter.sourceChapterTitle ?? '未识别'}`,
         `是否跨章节：${chapter.crossesChapterBoundary ? '是' : '否'}`,
-        `章节摘要：${summary?.summary ?? '暂无摘要，请只依据原文摘录改编'}`,
-        `关键人物：${summary ? compactFactList(summary.characters, 6) : '暂无'}`,
-        `关键地点：${summary ? compactFactList(summary.locations, 5) : '暂无'}`,
-        `关键道具：${summary ? compactFactList(summary.keyProps, 5) : '暂无'}`,
-        `改编注意：${summary?.adaptationNotes || '保持原文事实，不提前补完未知剧情'}`,
-        `原文摘录：\n${headExcerpt(chapter.content, excerptLimit)}`,
+        sources.chapterSummaries
+          ? `章节摘要：${summary?.summary ?? '暂无摘要，请只依据其他已启用来源改编'}`
+          : '章节摘要：本次未启用',
+        sources.chapterSummaries
+          ? `关键人物：${summary ? compactFactList(summary.characters, 6) : '暂无'}`
+          : '',
+        sources.chapterSummaries
+          ? `关键地点：${summary ? compactFactList(summary.locations, 5) : '暂无'}`
+          : '',
+        sources.chapterSummaries
+          ? `关键道具：${summary ? compactFactList(summary.keyProps, 5) : '暂无'}`
+          : '',
+        sources.chapterSummaries
+          ? `改编注意：${summary?.adaptationNotes || '保持原文事实，不提前补完未知剧情'}`
+          : '',
+        sources.chapterContent
+          ? `原文摘录：\n${headExcerpt(chapter.content, excerptLimit)}`
+          : '原文摘录：本次未启用',
       ].join('\n')
     })
     .join('\n\n---\n\n')
@@ -1398,7 +1653,8 @@ function chapterAdaptationPrompt(
     `作品名称：${name}`,
     `目标时长：约 ${input.targetSeconds} 秒`,
     `改编模式：${chapterAdaptationModeLabel(input.mode)}`,
-    storyBible
+    `生成依据：${chapterAdaptationSourceLabel(sources)}`,
+    sources.storyBible && storyBible
       ? [
           `故事概要：${headExcerpt(storyBible.synopsis, 900)}`,
           `改编策略：${headExcerpt(storyBible.adaptationStrategy, 700)}`,
@@ -1411,7 +1667,9 @@ function chapterAdaptationPrompt(
             .map((location) => `${location.name}：${location.description}`)
             .join('；')}`,
         ].join('\n')
-      : '故事概要：暂无，请只依据已选章节和章节摘要生成。',
+      : sources.storyBible
+        ? '故事概要：暂无，请只依据已选章节来源生成。'
+        : '故事概要：本次未启用。',
     '',
     '请把所选章节改编成可直接写入“剧本页”的中文 AI 视频改编剧本。',
     '硬性要求：只改编所选章节，不剧透后续；不要输出 Markdown 标题或解释；不要输出 JSON；不要把原文逐字搬运成长段落。',
@@ -1427,6 +1685,16 @@ function chapterAdaptationModeLabel(mode: GenerateNovelChapterAdaptationRequest[
   if (mode === 'opening') return '短视频开场钩子'
   if (mode === 'summary') return '章节概要式改编'
   return '镜头场次式改编'
+}
+
+function chapterAdaptationSourceLabel(sources: ResolvedChapterAdaptationSources): string {
+  return [
+    sources.storyBible ? '故事概要' : '',
+    sources.chapterSummaries ? '对应章节概要' : '',
+    sources.chapterContent ? '对应章节原文' : '',
+  ]
+    .filter(Boolean)
+    .join(' + ')
 }
 
 function boundaryNotesPrompt(name: string, boundaries: NovelBoundary[]): string {
@@ -1451,11 +1719,12 @@ function boundaryNotesPrompt(name: string, boundaries: NovelBoundary[]): string 
   ].join('\n')
 }
 
-function storyBiblePrompt(name: string, summaries: NovelChapterSummary[]): string {
+function storyBiblePrompt(name: string, summaries: NovelChapterSummary[], chapterCount: number): string {
   const summaryBlocks = summaries
     .map((summary) =>
       [
         `章节 ${summary.order}：${summary.title}`,
+        `开篇权重：${isOpeningSummary(summary) ? '高；通常包含全书题眼、世界观或故事方向' : '普通'}`,
         `摘要：${headExcerpt(summary.summary, STORY_OVERVIEW_SUMMARY_CHAR_LIMIT)}`,
         `关键事件：${compactFactList(summary.keyEvents, 3)}`,
         `人物：${compactFactList(summary.characters, 4)}`,
@@ -1468,8 +1737,12 @@ function storyBiblePrompt(name: string, summaries: NovelChapterSummary[]): strin
     .join('\n\n')
   return [
     `作品名称：${name}`,
-    `已完成章节摘要数量：${summaries.length}`,
-    '请基于所有章节摘要生成全书故事概要。只使用摘要中出现的事实，缺失处写入 risks，不要自行补完。',
+    `本次使用章节摘要数量：${summaries.length} / ${chapterCount}`,
+    '请基于本次提供的章节摘要生成故事概要。只使用摘要中出现的事实，缺失处写入 risks，不要自行补完。',
+    '开篇、序章、序幕、楔子、前言、引子通常会概括全书题眼、世界观或主要矛盾，请给予更高权重；但后续章节出现的具体事实优先级更高，不要用开篇概述覆盖后续明确事实。',
+    summaries.length < chapterCount
+      ? '注意：本次不是全书摘要，只能生成阶段性故事概要。请在 risks 中明确指出未覆盖后续章节导致的人物关系、世界观规则、伏笔回收风险。'
+      : '本次已覆盖全部章节摘要，可以生成完整故事概要。',
     '故事概要要服务 AI 视频改编：人物、地点、道具和世界观规则必须可供后续大纲、分集、资产和分镜复用。',
     '输出控制：synopsis 保持 500-900 字；characters、locations、keyProps、timeline、foreshadowing、worldRules 只保留最关键条目；不要展开成完整长文。',
     '字段类型必须符合约定：characters、locations、keyProps 是对象数组；timeline 是 {order,label,event} 数组；foreshadowing 是 {setup,payoff,status} 数组；themes、worldRules、risks 是字符串数组。',
@@ -1896,7 +2169,7 @@ function compactFactList(values: string[], maxItems: number): string {
 }
 
 function chapterSummaryMaxTokens(chapterCount: number): number {
-  return Math.min(24_000, Math.max(3_000, chapterCount * 1_200))
+  return Math.min(24_000, Math.max(3_000, chapterCount * 2_400))
 }
 
 function headExcerpt(value: string, limit: number): string {
@@ -1916,14 +2189,19 @@ function chapterAdaptationWarnings(
   summaries: NovelChapterSummary[],
   storyBible: NovelStoryBible | null,
   chapters: AdaptationSourceChapter[],
+  sources: ResolvedChapterAdaptationSources,
 ): string[] {
   const warnings: string[] = []
   const summaryChapterIds = new Set(summaries.map((summary) => summary.chapterId))
   const missingSummaryCount = chapters.filter((chapter) => !summaryChapterIds.has(chapter.id)).length
-  if (missingSummaryCount > 0) {
+  if (sources.chapterSummaries && missingSummaryCount > 0) {
     warnings.push(`有 ${missingSummaryCount} 个所选章节尚无摘要，已使用原文摘录直接改编`)
   }
-  if (!storyBible) warnings.push('当前小说还没有故事概要，角色和世界观一致性需要后续复核')
+  if (!sources.chapterSummaries) warnings.push('本次未使用章节概要，剧情因果需要写入后人工复核')
+  if (!sources.chapterContent) warnings.push('本次未使用章节原文，细节对白和动作需要写入后人工复核')
+  if (sources.storyBible && !storyBible)
+    warnings.push('当前小说还没有故事概要，角色和世界观一致性需要后续复核')
+  if (!sources.storyBible) warnings.push('本次未使用故事概要，角色和世界观一致性需要后续复核')
   if (chapters.some((chapter) => chapter.crossesChapterBoundary)) {
     warnings.push('所选章节包含跨章节分块，建议写入剧本后人工检查首尾衔接')
   }
@@ -1932,6 +2210,14 @@ function chapterAdaptationWarnings(
 
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : '章节摘要生成失败'
+}
+
+function stringMetadata(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function numberMetadata(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : null
 }
 
 function parseChapterSummariesProviderJson(raw: string) {
@@ -1969,12 +2255,53 @@ function parseProviderJsonValue(raw: string, errorMessage: string): unknown {
   const starts = [text.indexOf('{'), text.indexOf('[')].filter((index) => index >= 0)
   const start = starts.length ? Math.min(...starts) : -1
   const end = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'))
-  if (start < 0 || end < start) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', errorMessage)
-  try {
-    return JSON.parse(text.slice(start, end + 1))
-  } catch {
-    throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', errorMessage)
+  if (start < 0) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', errorMessage)
+  if (end < start) {
+    throw new AppError(
+      502,
+      'PROVIDER_RESPONSE_INVALID',
+      `${errorMessage}：模型输出被截断，请减少本次章节数或重试`,
+    )
   }
+  const jsonText = text.slice(start, end + 1)
+  try {
+    return JSON.parse(jsonText)
+  } catch {
+    const message = isLikelyIncompleteJson(jsonText)
+      ? `${errorMessage}：模型输出被截断，请减少本次章节数或重试`
+      : errorMessage
+    throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', message)
+  }
+}
+
+function isLikelyIncompleteJson(value: string): boolean {
+  const stack: string[] = []
+  let inString = false
+  let escaped = false
+  for (const character of value) {
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (character === '\\') {
+      escaped = inString
+      continue
+    }
+    if (character === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+    if (character === '{' || character === '[') {
+      stack.push(character)
+      continue
+    }
+    if (character === '}' || character === ']') {
+      const expected = character === '}' ? '{' : '['
+      if (stack.at(-1) === expected) stack.pop()
+    }
+  }
+  return inString || stack.length > 0
 }
 
 function normalizeChapterSummariesProviderContent(value: unknown): unknown {

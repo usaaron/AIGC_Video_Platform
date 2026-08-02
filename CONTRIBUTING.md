@@ -32,6 +32,12 @@ pnpm check
 
 UI 变更还需要手动检查桌面端和 390px 宽度移动端。涉及积分、并发或任务状态的变更必须添加单元测试。
 
+涉及账号、auth、workspace、session、billing ledger 或 Postgres migration 的变更，还需要执行 CI database job 的本地等价命令：
+
+```bash
+pnpm --filter @seqora/api exec vitest run src/infra/postgres.test.ts src/modules/auth/routes.test.ts src/modules/accountManagement/routes.test.ts src/modules/billing/creditLedger.test.ts
+```
+
 ## 完成标准
 
 - 验收条件全部满足，失败和空状态可用。

@@ -92,8 +92,8 @@ type RegressionReport = {
 
 const PROJECT_ID = 'project-midnight-film'
 const HEADERS = {
-  'x-demo-role': 'creator',
-  'x-demo-user-id': 'user-creator',
+  'x-demo-role': 'member',
+  'x-demo-user-id': 'user-member',
   'x-demo-tenant-id': 'tenant-seqora-demo',
 }
 const DEFAULT_BIANCHENG_PATH = 'E:\\Firefox下载\\边城.txt'
@@ -113,8 +113,10 @@ async function runRegression(options: CliOptions): Promise<RegressionReport> {
     UPLOAD_DIR: resolve('./data/novel-biancheng-regression'),
     MAX_UPLOAD_BYTES: '10485760',
   })
-  if (options.mode === 'live' && !config.TOKENADVENT_API_KEY) {
-    throw new Error('真实 Provider 模式需要配置 TOKENADVENT_API_KEY，可以放在 apps/api/.env')
+  if (options.mode === 'live' && !hasConfiguredLiveTextProvider(config.TEXT_MODEL, config)) {
+    throw new Error(
+      'Live provider mode requires REHDASU_API_KEY for GLM/Kimi models, TOKENADVENT_API_KEY for SEQORA models, or DEEPSEEK_API_KEY/STRINGX_API_KEY for DeepSeek models in apps/api/.env',
+    )
   }
 
   const app = await buildApp({
@@ -359,6 +361,19 @@ function parseCliOptions(args: string[], environment: NodeJS.ProcessEnv): CliOpt
   )
   if (overlapChars >= targetChars) throw new Error('overlap 必须小于 target')
   return { mode, path, chunks, targetChars, overlapChars }
+}
+
+function hasConfiguredLiveTextProvider(
+  model: string,
+  config: { TOKENADVENT_API_KEY: string; DEEPSEEK_API_KEY: string; REHDASU_API_KEY: string },
+): boolean {
+  const normalizedModel = model.trim().toLowerCase()
+  if (normalizedModel.startsWith('gpt-')) return Boolean(config.TOKENADVENT_API_KEY)
+  if (normalizedModel.startsWith('deepseek')) return Boolean(config.DEEPSEEK_API_KEY)
+  if (/^(glm-5\.2|glm-5\.2-fast|kimi-k3|kimi-k3-thinking)$/.test(normalizedModel)) {
+    return Boolean(config.REHDASU_API_KEY)
+  }
+  return false
 }
 
 function valueAfter(args: string[], prefix: string): string | undefined {

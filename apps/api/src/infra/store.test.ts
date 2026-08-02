@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { AppStore } from './store.js'
 
 describe('AppStore mutation queue', () => {
@@ -27,8 +30,12 @@ describe('AppStore mutation queue', () => {
     const store = new AppStore(
       null,
       {
-        creatorEmail: 'tester@example.com',
-        creatorPassword: 'UniqueCreatorPassword123!',
+        memberEmail: 'tester@example.com',
+        memberPassword: 'UniqueMemberPassword123!',
+        ownerEmail: 'owner@example.com',
+        ownerPassword: 'UniqueOwnerPassword123!',
+        superAdminEmail: 'superadmin@example.com',
+        superAdminPassword: 'UniqueSuperAdminPassword123!',
         adminEmail: 'admin@example.com',
         adminPassword: 'UniqueAdminPassword123!',
       },
@@ -44,10 +51,97 @@ describe('AppStore mutation queue', () => {
         shots: state.shots.length,
       })),
     ).toEqual({
-      users: ['tester@example.com', 'admin@example.com'],
+      users: ['tester@example.com', 'owner@example.com', 'superadmin@example.com', 'admin@example.com'],
       projects: 0,
       assets: 0,
       shots: 0,
     })
+  })
+
+  it('keeps file-backed stores synchronized across API and worker processes', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'seqora-store-'))
+    const filePath = join(directory, 'app.json')
+    try {
+      const apiStore = new AppStore(filePath)
+      const workerStore = new AppStore(filePath)
+      await apiStore.initialize()
+      await workerStore.initialize()
+
+      await apiStore.mutate((state) => {
+        state.projects[0]!.name = 'api-write'
+      })
+      expect(workerStore.read((state) => state.projects[0]!.name)).toBe('api-write')
+
+      await workerStore.mutate((state) => {
+        state.projects[0]!.synopsis = 'worker-write'
+      })
+
+      expect(
+        apiStore.read((state) => ({
+          name: state.projects[0]!.name,
+          synopsis: state.projects[0]!.synopsis,
+        })),
+      ).toEqual({ name: 'api-write', synopsis: 'worker-write' })
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps account runtime cache out of file persistence', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'seqora-store-'))
+    const filePath = join(directory, 'app.json')
+    try {
+      const store = new AppStore(filePath)
+      await store.initialize()
+      const persistedBefore = JSON.parse(await readFile(filePath, 'utf8')) as {
+        users: unknown[]
+        ledger: unknown[]
+        projects: Array<{ name: string }>
+      }
+
+      store.mutateAccountRuntimeCache((state) => {
+        state.users.push({
+          id: 'user-runtime-only',
+          email: 'runtime-only@example.com',
+          name: 'Runtime Only',
+          passwordHash: 'hash',
+          tenantId: 'tenant-runtime-only',
+          roles: ['member'],
+          plan: 'free',
+          credits: 10,
+          passwordResetRequired: false,
+          emailVerified: true,
+        })
+        state.ledger.unshift({
+          id: 'ledger-runtime-only',
+          userId: 'user-runtime-only',
+          tenantId: 'tenant-runtime-only',
+          amount: 10,
+          balance: 10,
+          type: 'grant',
+          description: 'Runtime only grant',
+          createdAt: new Date().toISOString(),
+        })
+      })
+
+      await store.mutate((state) => {
+        state.projects[0]!.name = 'persistent-project-change'
+        state.users.find((user) => user.id === 'user-runtime-only')!.credits = 8
+      })
+
+      expect(
+        store.read((state) => state.users.find((user) => user.id === 'user-runtime-only')?.credits),
+      ).toBe(8)
+      const persistedAfter = JSON.parse(await readFile(filePath, 'utf8')) as {
+        users: unknown[]
+        ledger: unknown[]
+        projects: Array<{ name: string }>
+      }
+      expect(persistedAfter.users).toEqual(persistedBefore.users)
+      expect(persistedAfter.ledger).toEqual(persistedBefore.ledger)
+      expect(persistedAfter.projects[0]!.name).toBe('persistent-project-change')
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 })

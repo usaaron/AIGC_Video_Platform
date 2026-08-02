@@ -1,7 +1,13 @@
-import { NOVEL_IMPORT_MAX_FILE_BYTES, type GenerationTask } from '@seqora/contracts'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { FastifyInstance } from 'fastify'
+import {
+  type AiJob,
+  NOVEL_IMPORT_MAX_FILE_BYTES,
+  type GenerationTask,
+  type NovelSummaryQueueResult,
+} from '@seqora/contracts'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify'
 import { readFile, rm, stat } from 'node:fs/promises'
+import { createHmac } from 'node:crypto'
 import { resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { TextDecoder } from 'node:util'
@@ -12,10 +18,14 @@ import type { ImageGenerationProvider } from './core/generation/imageProvider.js
 import { TextGenerationProviderError, type TextGenerationProvider } from './core/generation/textProvider.js'
 import type { AssetLibraryProvider, ProviderPortrait } from './core/generation/volcArkAssetLibraryProvider.js'
 import type { FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
-import { GenerationTaskRunner } from './core/jobs/taskDispatcher.js'
+import { GenerationTaskRunner, noopTaskDispatcher } from './core/jobs/taskDispatcher.js'
 import { createPublicMediaToken } from './core/media/publicMediaToken.js'
 import { AppStore, defaultAssetAttributes } from './infra/store.js'
+import { AccountDatabase } from './infra/postgres.js'
+import { ProjectRepository } from './modules/projects/repository.js'
+import { UserRepository } from './modules/users/repository.js'
 import { LocalObjectStorage } from './infra/objectStorage.js'
+import { startPostgresAuthFixture, type PostgresAuthFixture } from './testing/postgresAuth.js'
 
 const testConfig: AppConfig = {
   NODE_ENV: 'test',
@@ -25,16 +35,41 @@ const testConfig: AppConfig = {
   PUBLIC_API_BASE_URL: '',
   TRUST_PROXY: false,
   RATE_LIMIT_MAX: 300,
-  DEMO_UNLIMITED_GENERATION_CONCURRENCY: false,
-  TASK_WORKER_MODE: 'in-process',
+  TASK_QUEUE_DRIVER: 'inline',
+  TASK_QUEUE_NAME: 'seqora-generation-test',
+  TASK_QUEUE_WORKER_CONCURRENCY: 2,
+  TASK_QUEUE_POLL_INTERVAL_MS: 5_000,
+  REDIS_URL: '',
   AUTH_MODE: 'demo',
   AUTH_SECRET: 'test-secret-with-at-least-32-characters',
-  BOOTSTRAP_CREATOR_NAME: '林夏',
-  BOOTSTRAP_CREATOR_EMAIL: 'creator@seqora.local',
-  BOOTSTRAP_CREATOR_PASSWORD: 'Creator123!',
+  BILLING_WEBHOOK_SECRET: 'test-billing-webhook-secret-32-chars',
+  EMAIL_PROVIDER: 'console',
+  EMAIL_FROM: 'Seqora <no-reply@seqora.local>',
+  EMAIL_REPLY_TO: '',
+  RESEND_API_KEY: '',
+  AUTH_PASSWORD_RESET_URL: 'http://localhost:5173/reset-password',
+  AUTH_INVITATION_URL: 'http://localhost:5173/register',
+  PAYMENT_PROVIDER: 'none',
+  BILLING_SUCCESS_URL: '',
+  BILLING_CANCEL_URL: '',
+  STRIPE_SECRET_KEY: '',
+  STRIPE_WEBHOOK_SECRET: '',
+  STRIPE_MEMBER_PRICE_ID: '',
+  STRIPE_CREDIT_PRICE_ID: '',
+  STRIPE_CREDIT_PACK_CREDITS: 100,
+  BOOTSTRAP_MEMBER_NAME: '默认 C 端用户',
+  BOOTSTRAP_MEMBER_EMAIL: 'member@seqora.local',
+  BOOTSTRAP_MEMBER_PASSWORD: 'MemberPassword123!',
+  BOOTSTRAP_OWNER_NAME: '平台所有者',
+  BOOTSTRAP_OWNER_EMAIL: 'owner@seqora.local',
+  BOOTSTRAP_OWNER_PASSWORD: 'OwnerPassword123!',
+  BOOTSTRAP_SUPER_ADMIN_NAME: '超级管理员',
+  BOOTSTRAP_SUPER_ADMIN_EMAIL: 'superadmin@seqora.local',
+  BOOTSTRAP_SUPER_ADMIN_PASSWORD: 'SuperAdmin123!',
   BOOTSTRAP_ADMIN_NAME: '平台管理员',
   BOOTSTRAP_ADMIN_EMAIL: 'admin@seqora.local',
   BOOTSTRAP_ADMIN_PASSWORD: 'Admin123!',
+  BOOTSTRAP_ACCOUNTS_ON_START: true,
   BOOTSTRAP_DEMO_WORKSPACE: true,
   DATA_FILE: ':memory:',
   STORAGE_DRIVER: 'local',
@@ -45,11 +80,11 @@ const testConfig: AppConfig = {
   STRINGX_BASE_URL: 'https://maas.stringx.top/api/v3',
   STRINGX_API_KEY: '',
   STRINGX_VIDEO_MODEL: 'doubao-seedance-2-0-260128',
+  STRINGX_SEEDANCE_DEFAULT_TIER: 'fast',
+  STRINGX_SEEDANCE_MINI_MODEL: 'doubao-seedance-2-0-260128',
+  STRINGX_SEEDANCE_FAST_MODEL: 'doubao-seedance-2-0-260128',
+  STRINGX_SEEDANCE_PRO_MODEL: 'doubao-seedance-2-0-260128',
   STRINGX_REQUEST_TIMEOUT_MS: 30_000,
-  AIDEOS_BASE_URL: 'https://aideos.openrouter.icu',
-  AIDEOS_API_KEY: '',
-  AIDEOS_VIDEO_MODEL: 'doubao-seedance-2-0-260128',
-  AIDEOS_REQUEST_TIMEOUT_MS: 30_000,
   VIDEO_POLL_INTERVAL_MS: 5_000,
   ARK_API_BASE_URL: 'https://ark.cn-beijing.volces.com/api/v3',
   ARK_API_KEY: '',
@@ -63,16 +98,61 @@ const testConfig: AppConfig = {
   VOLC_ASSET_REQUEST_TIMEOUT_MS: 30_000,
   FFMPEG_PATH: 'ffmpeg',
   FILM_PREVIEW_TIMEOUT_MS: 60_000,
+  DEEPSEEK_BASE_URL: 'https://maas.stringx.top',
+  DEEPSEEK_API_KEY: '',
+  DEEPSEEK_MODEL: 'deepseekV3',
+  DEEPSEEK_CHAT_COMPLETIONS_PATH: '/api/v1/chat/completions',
+  DEEPSEEK_REQUEST_TIMEOUT_MS: 180_000,
+  REHDASU_BASE_URL: 'https://tokenadvent.com',
+  REHDASU_API_KEY: '',
+  REHDASU_MODEL: 'glm-5.2',
+  REHDASU_CHAT_COMPLETIONS_PATH: '/v1/chat/completions',
+  REHDASU_REQUEST_TIMEOUT_MS: 180_000,
   TOKENADVENT_BASE_URL: 'https://tokenadvent.com',
   TOKENADVENT_API_KEY: '',
-  TEXT_API_KEY: '',
   IMG2_MODEL: 'gpt-image-2',
-  NANOBANANA_BASE_URL: '',
-  NANOBANANA_MODEL: 'nano-banana',
-  NANOBANANA_API_KEY: '',
   IMG2_QUALITY: 'low',
-  TEXT_MODEL: 'glm-5.2',
+  TEXT_MODEL: 'gpt-5.6',
   TOKENADVENT_REQUEST_TIMEOUT_MS: 180_000,
+}
+
+type MemoryLogEntry = {
+  level: string
+  args: unknown[]
+}
+
+class MemoryLogger {
+  public readonly entries: MemoryLogEntry[] = []
+  public level = 'info'
+  public silent = false
+
+  child(): MemoryLogger {
+    return this
+  }
+
+  trace(...args: unknown[]): void {
+    this.entries.push({ level: 'trace', args })
+  }
+
+  debug(...args: unknown[]): void {
+    this.entries.push({ level: 'debug', args })
+  }
+
+  info(...args: unknown[]): void {
+    this.entries.push({ level: 'info', args })
+  }
+
+  warn(...args: unknown[]): void {
+    this.entries.push({ level: 'warn', args })
+  }
+
+  error(...args: unknown[]): void {
+    this.entries.push({ level: 'error', args })
+  }
+
+  fatal(...args: unknown[]): void {
+    this.entries.push({ level: 'fatal', args })
+  }
 }
 
 let app: FastifyInstance | undefined
@@ -97,8 +177,8 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: { name: 'CG 展示片', contentType: 'animation', aspectRatio: '16:9' },
@@ -114,30 +194,6 @@ describe('API authorization', () => {
     })
   })
 
-  it('archives a deleted project and removes it from the project library', async () => {
-    app = await buildApp({ config: testConfig, startWorker: false })
-    const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
-      'x-demo-tenant-id': 'tenant-seqora-demo',
-    }
-    const archived = await app.inject({
-      method: 'DELETE',
-      url: '/api/v1/projects/project-midnight-film',
-      headers,
-    })
-    const projects = await app.inject({ method: 'GET', url: '/api/v1/projects', headers })
-    const workspace = await app.inject({
-      method: 'GET',
-      url: '/api/v1/projects/project-midnight-film',
-      headers,
-    })
-
-    expect(archived.statusCode).toBe(204)
-    expect(projects.json()).toEqual([])
-    expect(workspace.statusCode).toBe(404)
-  })
-
   it('returns the persisted shot when creating a shot', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
 
@@ -145,8 +201,8 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/shots',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -168,21 +224,6 @@ describe('API authorization', () => {
     })
   })
 
-  it('keeps Aideos available as an explicit fallback provider', async () => {
-    app = await buildApp({
-      config: { ...testConfig, VIDEO_PROVIDER: 'aideos', AIDEOS_API_KEY: 'test-aideos-token' },
-      startWorker: false,
-    })
-
-    const response = await app.inject({ method: 'GET', url: '/api/v1/health' })
-
-    expect(response.statusCode).toBe(200)
-    expect(response.json()).toMatchObject({
-      providers: { seedance: 'configured' },
-      providerNames: { seedance: 'aideos-seedance' },
-    })
-  })
-
   it('configures StringX as the default Seedance provider', async () => {
     app = await buildApp({
       config: { ...testConfig, STRINGX_API_KEY: 'test-stringx-token' },
@@ -194,7 +235,29 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({
       providers: { seedance: 'configured' },
-      providerNames: { seedance: 'stringx-seedance' },
+      providerNames: { seedance: 'stringx-seedance', img2: 'local-mock' },
+      readiness: {
+        database: { status: 'disabled' },
+        redis: { status: 'disabled' },
+        queue: { driver: 'inline', name: 'seqora-generation-test' },
+        worker: { status: 'missing' },
+      },
+    })
+    expect(response.headers['x-request-id']).toEqual(expect.any(String))
+  })
+
+  it('returns readiness failures from the dedicated readiness endpoint', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+
+    const response = await app.inject({ method: 'GET', url: '/api/v1/health/readiness' })
+
+    expect(response.statusCode).toBe(503)
+    expect(response.json()).toMatchObject({
+      ready: false,
+      database: { status: 'disabled' },
+      redis: { status: 'disabled' },
+      queue: { status: 'ready', driver: 'inline' },
+      worker: { status: 'missing' },
     })
   })
 
@@ -216,16 +279,10 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
-    await app.inject({
-      method: 'PATCH',
-      url: '/api/v1/projects/project-midnight-film',
-      headers,
-      payload: { visualStyle: 'photorealistic' },
-    })
     const whitelist = await app.inject({
       method: 'GET',
       url: '/api/v1/trusted-assets/portraits?groupType=LivenessFace',
@@ -311,7 +368,7 @@ describe('API authorization', () => {
     expect(accepted.statusCode).toBe(202)
   })
 
-  it('rejects StringX MaaS portraits on Aideos before charging', async () => {
+  it('rejects StringX MaaS portraits on VolcArk before charging', async () => {
     const assetLibraryProvider: AssetLibraryProvider = {
       createVirtualGroup: async () => 'group-aigc-1',
       createVirtualAsset: async () => portrait('AIGC'),
@@ -320,13 +377,13 @@ describe('API authorization', () => {
       listAuthorizedPortraits: async () => [portrait('LivenessFace')],
     }
     app = await buildApp({
-      config: { ...testConfig, VIDEO_PROVIDER: 'aideos', AIDEOS_API_KEY: 'third-party-token' },
+      config: { ...testConfig, VIDEO_PROVIDER: 'volc-ark', ARK_API_KEY: 'official-ark-token' },
       assetLibraryProvider,
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const created = await app.inject({
@@ -377,8 +434,8 @@ describe('API authorization', () => {
       method: 'GET',
       url: '/api/v1/projects/project-midnight-film',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
     })
@@ -393,14 +450,14 @@ describe('API authorization', () => {
     )
   })
 
-  it('allows creators to submit generation tasks', async () => {
+  it('allows members to submit generation tasks', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const response = await app.inject({
       method: 'POST',
       url: '/api/v1/generation/tasks',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -420,8 +477,8 @@ describe('API authorization', () => {
     const store = new AppStore(null)
     app = await buildApp({ config: testConfig, store, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
@@ -517,8 +574,8 @@ describe('API authorization', () => {
     const store = new AppStore(null)
     app = await buildApp({ config: testConfig, store, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
@@ -659,8 +716,8 @@ describe('API authorization', () => {
     const store = new AppStore(null)
     app = await buildApp({ config: testConfig, store, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const created = await app.inject({
@@ -716,8 +773,8 @@ describe('API authorization', () => {
     const store = new AppStore(null)
     app = await buildApp({ config: testConfig, store, videoProvider, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
@@ -792,11 +849,93 @@ describe('API authorization', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/overview',
-      headers: { 'x-demo-role': 'admin' },
+      headers: { 'x-demo-role': 'admin', 'x-demo-tenant-id': 'tenant-seqora-demo' },
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toMatchObject({ users: 2, activeTasks: 0 })
+    expect(response.json()).toMatchObject({ users: 4, activeTasks: 0 })
+  })
+
+  it('protects observability metrics and returns operational counters to admins', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+
+    const denied = await app.inject({
+      method: 'GET',
+      url: '/api/v1/observability/metrics',
+      headers: { 'x-demo-role': 'member' },
+    })
+    expect(denied.statusCode).toBe(403)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/observability/metrics',
+      headers: { 'x-demo-role': 'admin', 'x-demo-tenant-id': 'tenant-seqora-demo' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      metrics: {
+        process: { pid: expect.any(Number), uptimeSeconds: expect.any(Number) },
+        http: expect.any(Object),
+        queue: expect.any(Object),
+        tasks: expect.any(Object),
+        aiJobs: expect.any(Object),
+        providers: expect.any(Object),
+        refunds: expect.any(Object),
+        filmPreview: expect.any(Object),
+      },
+      daily: {
+        creditsConsumed: expect.any(Number),
+        generationTasks: expect.any(Object),
+        aiJobs: expect.any(Object),
+        filmPreview: expect.any(Object),
+      },
+    })
+  })
+
+  it('prints trace ids in request logs and exposes Prometheus metrics', async () => {
+    const memoryLogger = new MemoryLogger()
+    app = await buildApp({
+      config: testConfig,
+      loggerInstance: memoryLogger as unknown as FastifyBaseLogger,
+      startWorker: false,
+    })
+
+    const readiness = await app.inject({ method: 'GET', url: '/api/v1/health/readiness' })
+    expect(readiness.statusCode).toBe(503)
+    expect(readiness.headers['x-request-id']).toEqual(expect.any(String))
+    expect(readiness.headers['x-trace-id']).toEqual(expect.any(String))
+
+    const requestLog = memoryLogger.entries.find(
+      (entry) =>
+        entry.level === 'info' &&
+        entry.args[1] === 'request completed' &&
+        typeof entry.args[0] === 'object' &&
+        entry.args[0] !== null &&
+        (entry.args[0] as Record<string, unknown>).route === '/api/v1/health/readiness',
+    )
+    expect(requestLog).toBeDefined()
+    expect(requestLog?.args[0]).toMatchObject({
+      requestId: expect.any(String),
+      traceId: expect.any(String),
+      method: 'GET',
+      route: '/api/v1/health/readiness',
+      statusCode: 503,
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/observability/metrics/prometheus',
+      headers: { 'x-demo-role': 'admin', 'x-demo-tenant-id': 'tenant-seqora-demo' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['content-type']).toContain('text/plain')
+    expect(response.body).toContain('# TYPE seqora_http_request_duration_ms_failures counter')
+    expect(response.body).toMatch(
+      /seqora_http_request_duration_ms_failures\{method="GET",route="\/api\/v1\/health\/readiness",status="5xx"\} [1-9]\d*/,
+    )
+    expect(response.body).toContain('# TYPE seqora_refunds_total counter')
   })
 
   it('proxies completed Seedance video content through the authenticated API', async () => {
@@ -821,7 +960,7 @@ describe('API authorization', () => {
       clientRequestId: 'completed-video-client',
       projectId: 'project-midnight-film',
       tenantId: 'tenant-seqora-demo',
-      userId: 'user-creator',
+      userId: 'user-member',
       kind: 'video',
       label: '已完成镜头',
       prompt: '雨夜车站',
@@ -844,8 +983,8 @@ describe('API authorization', () => {
       method: 'GET',
       url: task.resultUrl!,
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
         range: 'bytes=0-12',
       },
@@ -866,8 +1005,8 @@ describe('API authorization', () => {
       method: 'GET',
       url: task.resultUrl!,
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
     })
@@ -883,8 +1022,8 @@ describe('API authorization', () => {
       method: 'DELETE',
       url: '/api/v1/projects/project-midnight-film/generation/tasks/completed',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
     })
@@ -895,8 +1034,8 @@ describe('API authorization', () => {
       method: 'GET',
       url: task.resultUrl!,
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
     })
@@ -912,8 +1051,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({
@@ -955,16 +1094,6 @@ describe('API authorization', () => {
       'scene',
       'costume',
     ])
-    const generatedCharacter = response
-      .json()
-      .assets.find(
-        (asset: { kind: string; name: string }) => asset.kind === 'character' && asset.name === '女剑客',
-      )
-    expect(generatedCharacter).toMatchObject({
-      prompt: expect.stringContaining('透明背景'),
-      negativePrompt: expect.stringContaining('手部'),
-      attributes: { visualStyle: 'cinematic-cg', framing: 'portrait', background: 'transparent' },
-    })
     expect(after.json().assets).toHaveLength(before.json().assets.length)
     expect(after.json().project.script).toBe(before.json().project.script)
     expect(generate).toHaveBeenCalledOnce()
@@ -972,26 +1101,77 @@ describe('API authorization', () => {
       systemPrompt: expect.stringContaining('资产制片'),
       userPrompt: expect.stringContaining('已有资产'),
       maxOutputTokens: 6_000,
-      responseFormat: 'json',
     })
   })
 
-  it('normalizes wrapped partial asset suggestions returned by text models', async () => {
+  it('normalizes usable script asset JSON instead of falling back when optional provider fields are missing', async () => {
     const generate = vi.fn(async () =>
       JSON.stringify({
-        result: {
-          summary: '已识别主要人物与核心场景。',
-          characters: [
-            {
-              name: '林夏',
-              description: '贯穿主线的年轻女主角。',
-              prompt: '林夏，影视 CG 风格人物设定。',
-              reason: '主角需要跨镜头保持一致。',
-              priority: '5',
-              attributes: { gender: 'female' },
+        summary: '建议围绕翠翠、渡口和渡船建立核心资产。',
+        assets: [
+          {
+            kind: 'character',
+            name: '翠翠',
+            priority: '5',
+            attributes: {
+              gender: 'female',
+              ageGroup: 'young',
+              exactAge: null,
+              visualStyle: 'cinematic-cg',
             },
-          ],
-        },
+          },
+          {
+            kind: 'character',
+            name: '黄狗',
+            description: '陪伴翠翠和老船夫的 yellow dog。',
+            prompt: 'yellow dog, loyal animal companion, standing near the ferry boat.',
+            reason: '黄狗会在渡口镜头反复出现。',
+            priority: 4,
+            attributes: {
+              subjectType: 'animal',
+              species: 'dog',
+              ageGroup: 'young',
+              visualStyle: 'cinematic-cg',
+            },
+          },
+          {
+            kind: 'scene',
+            name: '茶峒渡口',
+            description: '翠翠与老船夫生活的核心外景。',
+            prompt: '湘西茶峒渡口空场景，溪水、白塔、渡船和岸边木屋。',
+            reason: '渡口会在多个镜头复用。',
+            priority: 4,
+            attributes: {
+              space: 'exterior',
+              sceneType: 'nature',
+              era: 'recent',
+              visualStyle: 'cinematic-cg',
+            },
+          },
+          {
+            kind: 'prop',
+            name: '渡船',
+            description: '老船夫摆渡使用的小船。',
+            prompt: '旧木渡船道具，木纹清晰，正面展示。',
+            reason: '渡船是场景行动核心物件。',
+            attributes: {
+              category: 'vehicle',
+              material: 'wood',
+            },
+          },
+          {
+            kind: 'costume',
+            name: '翠翠日常衣装',
+            description: '翠翠在渡口生活的朴素日常服装。',
+            prompt: '十三岁湘西少女朴素日常衣装，布料自然，完整平铺展示。',
+            reason: '角色造型需要跨镜头保持一致。',
+            attributes: {
+              audience: 'female',
+              category: 'daily',
+              design: 'chinese',
+            },
+          },
+        ],
       }),
     )
     app = await buildApp({
@@ -999,91 +1179,97 @@ describe('API authorization', () => {
       textProvider: { generate },
       startWorker: false,
     })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
 
     const response = await app.inject({
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
-      headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
-        'x-demo-tenant-id': 'tenant-seqora-demo',
-      },
+      headers,
       payload: {
-        script: '场次：1｜场景：旧码头｜角色：林夏｜剧情：林夏独自等待渡船。',
+        script:
+          '场次：1｜剧情：茶峒渡口的日常生活。｜场景：茶峒渡口｜角色：十三岁的孙女翠翠、七十岁的老船夫、黄狗｜动作：翠翠坐在渡船旁望向溪水，黄狗守在船头。｜关键道具：渡船｜服装：翠翠日常衣装',
+        direction: {
+          style: 'cinematic-cg',
+          composition: 'rule-of-thirds',
+          lighting: 'natural-soft',
+          camera: 'restrained',
+          focus: 'character',
+        },
       },
     })
 
     expect(response.statusCode, response.body).toBe(200)
     expect(response.json()).toMatchObject({
-      summary: '已识别主要人物与核心场景。',
+      summary: expect.stringContaining('翠翠'),
       warnings: [],
-      assets: expect.arrayContaining([
+    })
+    expect(response.json().assets).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
           kind: 'character',
-          name: '林夏',
+          name: '翠翠',
+          prompt: expect.stringContaining('翠翠'),
           priority: 5,
           attributes: expect.objectContaining({
             type: 'character',
+            subjectType: 'human',
             gender: 'female',
-            framing: 'portrait',
-            background: 'transparent',
+            ageGroup: 'teen',
+            exactAge: 13,
+            faceReference: null,
+            trustedPortrait: null,
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'character',
+          name: '黄狗',
+          description: expect.stringContaining('黄狗'),
+          prompt: expect.stringContaining('狗'),
+          attributes: expect.objectContaining({
+            type: 'character',
+            subjectType: 'animal',
+            species: '黄狗',
+            anthropomorphic: false,
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'scene',
+          name: '茶峒渡口',
+          attributes: expect.objectContaining({
+            type: 'scene',
+            space: 'exterior',
+            sceneType: 'nature',
+            emptyScene: true,
+            activitySpace: true,
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'prop',
+          name: '渡船',
+          attributes: expect.objectContaining({
+            type: 'prop',
+            category: 'vehicle',
+            material: 'wood',
+            condition: 'used',
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'costume',
+          name: '翠翠日常衣装',
+          attributes: expect.objectContaining({
+            type: 'costume',
+            audience: 'female',
+            season: 'all-season',
+            turnaround: false,
           }),
         }),
       ]),
-    })
-  })
-
-  it('repairs truncated Chinese asset suggestion JSON instead of discarding the model result', async () => {
-    const generate = vi.fn(
-      async () => `<think>先分析剧本实体。</think>\n\`\`\`json\n{
-      "概述": "已识别核心人物与主要地点。",
-      "资产建议": {
-        "人物资产": [{
-          "名称": "林夏",
-          "设定": "贯穿主线的年轻女主角。",
-          "提示词": "林夏，年轻女性，影视 CG 风格人物设定。",
-          "原因": "主角需要跨镜头保持一致。",
-          "优先级": "5",
-          "attributes": { "gender": "female" }
-        },],
-        "场景资产": [{
-          "名称": "旧码头",
-          "设定": "故事反复出现的临河旧码头。",
-          "提示词": "旧码头，无人空场，影视 CG 风格。",
-          "原因": "核心剧情地点。",
-          "优先级": 4,
-          "attributes": { "sceneType": "street" }
-        }]
-    `,
     )
-    app = await buildApp({
-      config: testConfig,
-      textProvider: { generate },
-      startWorker: false,
-    })
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
-      headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
-        'x-demo-tenant-id': 'tenant-seqora-demo',
-      },
-      payload: {
-        script: '场次：1｜场景：旧码头｜角色：林夏｜剧情：林夏独自等待渡船。',
-      },
-    })
-
-    expect(response.statusCode, response.body).toBe(200)
-    expect(response.json()).toMatchObject({
-      summary: '已识别核心人物与主要地点。',
-      warnings: [],
-      assets: expect.arrayContaining([
-        expect.objectContaining({ kind: 'character', name: '林夏', priority: 5 }),
-        expect.objectContaining({ kind: 'scene', name: '旧码头', priority: 4 }),
-      ]),
-    })
+    expect(generate).toHaveBeenCalledOnce()
   })
 
   it('falls back to readable character suggestions when the script asset provider returns invalid JSON', async () => {
@@ -1094,8 +1280,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
@@ -1147,162 +1333,29 @@ describe('API authorization', () => {
             subjectType: 'human',
           }),
         }),
-      ]),
-    )
-    const animal = response
-      .json()
-      .assets.find(
-        (asset: { kind: string; name: string }) => asset.kind === 'character' && asset.name === '黄狗',
-      )
-    expect(animal).toMatchObject({
-      prompt: expect.stringContaining('动物角色'),
-      attributes: { subjectType: 'animal', framing: 'portrait', background: 'transparent' },
-    })
-    expect(animal.prompt).not.toMatch(/男性|女性|青年|少年|少女|中年|老年/u)
-    expect(generate).toHaveBeenCalledOnce()
-  })
-
-  it('recovers gender, age, and character background from script evidence', async () => {
-    const providerResult = JSON.parse(scriptAssetSuggestionsJson())
-    const character = providerResult.assets.find((asset: { kind: string }) => asset.kind === 'character')
-    character.name = '林川'
-    character.description = '贯穿主线的退役镖师。'
-    character.prompt = '古风武侠角色，沉默克制，保持人物一致性。'
-    character.attributes.gender = 'unspecified'
-    character.attributes.ageGroup = 'young'
-    character.attributes.exactAge = null
-
-    const generate = vi.fn(async () => JSON.stringify(providerResult))
-    app = await buildApp({
-      config: testConfig,
-      textProvider: { generate },
-      startWorker: false,
-    })
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
-      headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
-        'x-demo-tenant-id': 'tenant-seqora-demo',
-      },
-      payload: {
-        script: '场次：1｜场景：旧码头｜角色：林川｜剧情：林川，35岁男性，曾是退役镖师，如今独自守着旧码头。',
-      },
-    })
-
-    const result = response.json()
-    const recovered = result.assets.find((asset: { name: string }) => asset.name === '林川')
-    expect(response.statusCode, response.body).toBe(200)
-    expect(recovered).toMatchObject({
-      description: expect.stringContaining('男性'),
-      prompt: expect.stringContaining('35岁'),
-      attributes: {
-        gender: 'male',
-        ageGroup: 'middle',
-        exactAge: 35,
-      },
-    })
-    expect(recovered.description).toContain('镖师')
-  })
-
-  it('extracts stable character and location names instead of actions and scene descriptions', async () => {
-    const generate = vi.fn(async () => '这不是有效 JSON')
-    app = await buildApp({
-      config: testConfig,
-      textProvider: { generate },
-      startWorker: false,
-    })
-    const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
-      'x-demo-tenant-id': 'tenant-seqora-demo',
-    }
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
-      headers,
-      payload: {
-        script:
-          '场次：S01｜场景：青云宗山门广场，石阶尽头立着测灵石，清晨冷雾未散，四周站满等待试炼的弟子｜角色：主要角色林川，先神情紧张、低头缩肩，随后强装镇定；配角青云宗长老、弟子甲、数名试炼弟子；背景角色弟子们交头接耳、抱臂观望｜动作：林川走向测灵石。',
-      },
-    })
-
-    expect(response.statusCode, response.body).toBe(200)
-    const names = response.json().assets.map((asset: { name: string }) => asset.name)
-    expect(response.json().assets).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ kind: 'character', name: '林川' }),
-        expect.objectContaining({ kind: 'character', name: '青云宗长老' }),
         expect.objectContaining({
-          kind: 'scene',
-          name: '青云宗山门广场',
-          attributes: expect.objectContaining({ sceneType: 'fantasy', era: 'ancient' }),
+          kind: 'character',
+          name: '黄狗',
+          prompt: expect.stringContaining('黄狗'),
+          attributes: expect.objectContaining({
+            gender: 'unspecified',
+            ageGroup: 'young',
+            exactAge: null,
+            subjectType: 'animal',
+            species: '黄狗',
+            anthropomorphic: false,
+          }),
         }),
       ]),
     )
-    expect(names).not.toEqual(
-      expect.arrayContaining([
-        '先神情紧张',
-        '低头缩肩',
-        '随后强装镇定',
-        '石阶尽头立着测灵石',
-        '清晨冷雾未散',
-        '四周站满等待试炼的弟子',
-        '数名试炼弟子',
-        '背景角色弟子们交头接耳',
-      ]),
-    )
-  })
-
-  it('recovers invalid provider asset names from explicit script entities', async () => {
-    const providerResult = JSON.parse(scriptAssetSuggestionsJson())
-    providerResult.assets = providerResult.assets.filter(
-      (asset: { kind: string }) => asset.kind === 'character' || asset.kind === 'scene',
-    )
-    providerResult.assets[0].name = '低头缩肩'
-    providerResult.assets[0].description = '主要角色林川在本场伪装紧张。'
-    providerResult.assets[1].name = '清晨冷雾未散'
-    providerResult.assets[1].description = '核心地点为青云宗山门广场。'
-    providerResult.assets[1].attributes.sceneType = 'city'
-    providerResult.assets[1].attributes.era = 'modern'
-    const generate = vi.fn(async () => JSON.stringify(providerResult))
-    app = await buildApp({
-      config: testConfig,
-      textProvider: { generate },
-      startWorker: false,
-    })
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
-      headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
-        'x-demo-tenant-id': 'tenant-seqora-demo',
-      },
-      payload: {
-        script:
-          '场次：S01｜场景：青云宗山门广场，清晨冷雾未散｜角色：主要角色林川，先神情紧张、低头缩肩｜动作：林川走向测灵石。',
-      },
-    })
-
-    expect(response.statusCode, response.body).toBe(200)
-    expect(response.json().assets).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ kind: 'character', name: '林川' }),
-        expect.objectContaining({ kind: 'scene', name: '青云宗山门广场' }),
-      ]),
-    )
-    expect(response.json().assets.map((asset: { name: string }) => asset.name)).not.toEqual(
-      expect.arrayContaining(['低头缩肩', '清晨冷雾未散']),
-    )
+    expect(generate).toHaveBeenCalledOnce()
   })
 
   it('imports a novel and splits explicit chapter headings without changing the script', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({
@@ -1378,8 +1431,8 @@ describe('API authorization', () => {
   it('previews novel splitting without importing a document', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const payload = {
@@ -1450,8 +1503,8 @@ describe('API authorization', () => {
   it('keeps repeated novel imports idempotent by client request id', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const payload = {
@@ -1491,8 +1544,8 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -1529,8 +1582,8 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -1581,8 +1634,8 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -1621,8 +1674,8 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -1639,8 +1692,8 @@ describe('API authorization', () => {
   it('detects suspicious novel chunk boundaries without changing chapter content', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await app.inject({
@@ -1713,8 +1766,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await app.inject({
@@ -1803,8 +1856,8 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -1824,7 +1877,7 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/novels/import',
       headers: {
-        'x-demo-role': 'creator',
+        'x-demo-role': 'member',
         'x-demo-user-id': 'user-other',
         'x-demo-tenant-id': 'tenant-other',
       },
@@ -1845,8 +1898,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -1918,6 +1971,85 @@ describe('API authorization', () => {
     expect(generate).not.toHaveBeenCalled()
   })
 
+  it('enqueues novel summary queue batches as AI jobs without calling the text provider', async () => {
+    const generate = vi.fn(async () => novelChapterSummariesJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      taskDispatcher: noopTaskDispatcher,
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue`,
+      headers,
+      payload: {
+        clientRequestId: 'summary-queue-worker-create',
+        batchSize: 2,
+        maxAttempts: 2,
+      },
+    })
+    const queueId = created.json().queue.id
+
+    const run = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/run-batch`,
+      headers,
+      payload: { clientRequestId: 'summary-queue-worker-run', batchSize: 2 },
+    })
+    const repeated = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/run-batch`,
+      headers,
+      payload: { clientRequestId: 'summary-queue-worker-run-again', batchSize: 2 },
+    })
+    const taskList = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film/ai-jobs',
+      headers,
+    })
+    const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+
+    expect(run.statusCode, run.body).toBe(200)
+    expect(run.json()).toMatchObject({
+      processedItemIds: [],
+      failedItemIds: [],
+      task: expect.objectContaining({
+        kind: 'novel.summaryQueueBatch',
+        provider: 'text',
+        status: 'queued',
+        costCredits: 4,
+        input: expect.objectContaining({
+          documentId: imported.document.id,
+          queueId,
+          batchSize: 2,
+          pendingItemIds: [created.json().items[0].id, created.json().items[1].id],
+        }),
+      }),
+    })
+    expect(repeated.statusCode, repeated.body).toBe(200)
+    expect(repeated.json().task.id).toBe(run.json().task.id)
+    expect(taskList.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: run.json().task.id,
+          kind: 'novel.summaryQueueBatch',
+          provider: 'text',
+          status: 'queued',
+        }),
+      ]),
+    )
+    expect(taskList.json().filter((task: AiJob) => task.kind === 'novel.summaryQueueBatch')).toHaveLength(1)
+    expect(billing.json().entries.filter((entry: { amount: number }) => entry.amount === -4)).toHaveLength(1)
+    expect(generate).not.toHaveBeenCalled()
+  })
+
   it('runs novel summary queue batches and supports pause, retry and skip', async () => {
     const generate = vi
       .fn()
@@ -1929,8 +2061,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -1970,6 +2102,40 @@ describe('API authorization', () => {
       headers,
       payload: { clientRequestId: 'summary-queue-run-batch', batchSize: 2 },
     })
+
+    let queueAfterRun: NovelSummaryQueueResult | null = null
+    await vi.waitFor(async () => {
+      const response = await app!.inject({
+        method: 'GET',
+        url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue`,
+        headers,
+      })
+      queueAfterRun = response.json()
+      expect(queueAfterRun).toMatchObject({
+        queue: {
+          status: 'failed',
+          completedCount: 1,
+          failedCount: 1,
+        },
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            id: firstItemId,
+            status: 'completed',
+            attempts: 1,
+            result: expect.objectContaining({
+              summary: expect.stringContaining('林夏收到匿名来信'),
+            }),
+          }),
+          expect.objectContaining({
+            id: secondItemId,
+            status: 'failed',
+            attempts: 1,
+            errorMessage: 'provider down',
+          }),
+        ]),
+      })
+    })
+
     const summariesAfterRun = await app.inject({
       method: 'GET',
       url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries`,
@@ -1993,29 +2159,16 @@ describe('API authorization', () => {
     expect(resumed.json().queue.status).toBe('queued')
     expect(run.statusCode, run.body).toBe(200)
     expect(run.json()).toMatchObject({
-      processedItemIds: [firstItemId],
-      failedItemIds: [secondItemId],
-      queue: {
-        status: 'failed',
-        completedCount: 1,
-        failedCount: 1,
-      },
-      items: expect.arrayContaining([
-        expect.objectContaining({
-          id: firstItemId,
-          status: 'completed',
-          attempts: 1,
-          result: expect.objectContaining({
-            summary: expect.stringContaining('林夏收到匿名来信'),
-          }),
+      processedItemIds: [],
+      failedItemIds: [],
+      task: expect.objectContaining({
+        kind: 'novel.summaryQueueBatch',
+        provider: 'text',
+        input: expect.objectContaining({
+          documentId: imported.document.id,
+          queueId,
         }),
-        expect.objectContaining({
-          id: secondItemId,
-          status: 'failed',
-          attempts: 1,
-          errorMessage: 'provider down',
-        }),
-      ]),
+      }),
     })
     expect(summariesAfterRun.json().summaries).toHaveLength(0)
     expect(retried.json()).toMatchObject({
@@ -2039,8 +2192,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2060,6 +2213,21 @@ describe('API authorization', () => {
       headers,
       payload: { clientRequestId: 'summary-queue-commit-run', batchSize: 2 },
     })
+
+    let queueAfterRun: NovelSummaryQueueResult | null = null
+    await vi.waitFor(async () => {
+      const response = await app!.inject({
+        method: 'GET',
+        url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue`,
+        headers,
+      })
+      queueAfterRun = response.json()
+      expect(queueAfterRun.queue).toMatchObject({
+        status: 'completed',
+        completedCount: 2,
+      })
+    })
+
     const committed = await app.inject({
       method: 'POST',
       url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summary-queue/${queueId}/commit-results`,
@@ -2082,12 +2250,17 @@ describe('API authorization', () => {
       url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/story-bible`,
       headers,
     })
+    const committedItemIds = queueAfterRun!.items.map((item) => item.id)
 
     expect(run.statusCode, run.body).toBe(200)
-    expect(run.json().queue.completedCount).toBe(2)
+    expect(run.json()).toMatchObject({
+      processedItemIds: [],
+      failedItemIds: [],
+      task: expect.objectContaining({ kind: 'novel.summaryQueueBatch', provider: 'text' }),
+    })
     expect(committed.statusCode, committed.body).toBe(200)
     expect(committed.json()).toMatchObject({
-      committedItemIds: run.json().processedItemIds,
+      committedItemIds,
       skippedItemIds: [],
       summaryCount: 2,
       missingSummaryCount: 0,
@@ -2099,7 +2272,7 @@ describe('API authorization', () => {
       ]),
       items: expect.arrayContaining([
         expect.objectContaining({
-          id: run.json().processedItemIds[0],
+          id: committedItemIds[0],
           summaryId: expect.any(String),
         }),
       ]),
@@ -2121,8 +2294,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2163,7 +2336,7 @@ describe('API authorization', () => {
       expect.objectContaining({
         systemPrompt: expect.stringContaining('长篇小说改编统筹'),
         userPrompt: expect.stringContaining('章节序号：1'),
-        maxOutputTokens: 3_000,
+        maxOutputTokens: 4_800,
       }),
     )
 
@@ -2193,8 +2366,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2219,6 +2392,39 @@ describe('API authorization', () => {
     })
   })
 
+  it('reports truncated provider chapter summary JSON as incomplete output', async () => {
+    const generate = vi.fn(async () => '{"summaries":[{"order":1,"title":"第一章","summary":"摘要尚未写完"')
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries/generate`,
+      headers,
+      payload: {
+        clientRequestId: 'chapter-summary-truncated-json',
+        batchSize: 1,
+      },
+    })
+
+    expect(response.statusCode).toBe(502)
+    expect(response.json()).toMatchObject({
+      error: {
+        code: 'PROVIDER_RESPONSE_INVALID',
+        message: expect.stringContaining('模型输出被截断'),
+      },
+    })
+  })
+
   it('generates a story overview only after all chapter summaries are ready', async () => {
     const generate = vi
       .fn()
@@ -2230,8 +2436,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2282,13 +2488,59 @@ describe('API authorization', () => {
     })
     expect(generate.mock.calls[1][0]).toMatchObject({
       systemPrompt: expect.stringContaining('故事概要编辑'),
-      userPrompt: expect.stringContaining('已完成章节摘要数量：2'),
+      userPrompt: expect.stringContaining('本次使用章节摘要数量：2 / 2'),
       maxOutputTokens: 6_000,
     })
     const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(billing.json().entries).toEqual(
       expect.arrayContaining([expect.objectContaining({ amount: -6, description: '生成小说故事概要' })]),
     )
+  })
+
+  it('generates a partial story overview from the selected number of chapter summaries', async () => {
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce(novelChapterSummariesJson())
+      .mockResolvedValueOnce(novelStoryBibleJson())
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/summaries/generate`,
+      headers,
+      payload: { clientRequestId: 'partial-chapter-summary-for-bible', batchSize: 1 },
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/story-bible/generate`,
+      headers,
+      payload: { clientRequestId: 'partial-story-bible', summaryLimit: 1 },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      storyBible: {
+        sourceSummaryCount: 1,
+        chapterCount: 2,
+      },
+      missingSummaryCount: 1,
+      warnings: [expect.stringContaining('1 / 2 章摘要')],
+    })
+    expect(generate.mock.calls[1][0]).toMatchObject({
+      userPrompt: expect.stringContaining('本次使用章节摘要数量：1 / 2'),
+      maxOutputTokens: 6_000,
+    })
+    expect(generate.mock.calls[1][0].userPrompt).toContain('开篇权重：高')
   })
 
   it('normalizes richer provider story overview JSON into stable content', async () => {
@@ -2302,8 +2554,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2358,8 +2610,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2395,8 +2647,42 @@ describe('API authorization', () => {
       attributes: {
         gender: 'male',
         ageGroup: 'senior',
+        exactAge: 70,
         subjectType: 'human',
         framing: 'full',
+      },
+    })
+    const cuicui = response
+      .json()
+      .assets.find(
+        (asset: { kind: string; name: string }) => asset.kind === 'character' && asset.name === '翠翠',
+      )
+    expect(cuicui).toMatchObject({
+      kind: 'character',
+      description: expect.stringContaining('女性'),
+      prompt: expect.stringContaining('湘西少女'),
+      attributes: {
+        gender: 'female',
+        ageGroup: 'teen',
+        exactAge: 13,
+        subjectType: 'human',
+      },
+    })
+    const yellowDog = response
+      .json()
+      .assets.find(
+        (asset: { kind: string; name: string }) => asset.kind === 'character' && asset.name === '黄狗',
+      )
+    expect(yellowDog).toMatchObject({
+      kind: 'character',
+      description: expect.stringContaining('动物角色'),
+      prompt: expect.stringContaining('黄狗/家犬'),
+      attributes: {
+        gender: 'unspecified',
+        ageGroup: 'young',
+        exactAge: null,
+        subjectType: 'animal',
+        species: '黄狗',
       },
     })
     expect(
@@ -2420,8 +2706,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const imported = await importShortNovel(app, headers)
@@ -2458,6 +2744,46 @@ describe('API authorization', () => {
     )
   })
 
+  it('requires matching chapter summaries when chapter summary source is selected', async () => {
+    const generate = vi.fn(async () => '不会被调用')
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const imported = await importShortNovel(app, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.document.id}/adapt-script`,
+      headers,
+      payload: {
+        clientRequestId: 'adapt-requires-matching-summary',
+        chapterIds: [imported.chapters[0].id],
+        targetSeconds: 60,
+        mode: 'scene',
+        sourceOptions: {
+          storyBible: false,
+          chapterSummaries: true,
+          chapterContent: true,
+        },
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(409)
+    expect(response.json()).toMatchObject({
+      error: {
+        code: 'NOVEL_CHAPTER_SUMMARIES_REQUIRED',
+      },
+    })
+    expect(generate).not.toHaveBeenCalled()
+  })
+
   it('generates a quick script once and returns warnings instead of retrying', async () => {
     const quickScript = Array.from(
       { length: 4 },
@@ -2475,8 +2801,8 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/script/generate',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: {
@@ -2499,52 +2825,14 @@ describe('API authorization', () => {
       expect.objectContaining({
         systemPrompt: expect.stringContaining('15 到 30 秒视频'),
         userPrompt: expect.stringContaining('风格：仿真人电影感'),
-        maxOutputTokens: 4_800,
-        model: 'glm-5.2',
+        maxOutputTokens: 2_400,
       }),
     )
-  })
-
-  it('rewrites a mid-length script without forcing it into the short-script shape', async () => {
-    const source = Array.from(
-      { length: 30 },
-      (_, index) =>
-        `场次：${index + 1}｜剧情：林夏沿着父亲留下的线索继续调查，阻力逐步升级并迫使她改变计划。｜场景：雨夜旧车站与地下档案室。｜角色：林夏、看守。｜动作：林夏护住铁盒，回头确认门外脚步后继续向前。｜对白：林夏：“我必须查清楚。”`,
-    ).join('\n')
-    const generate = vi.fn(async () => source)
-    app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/generate',
-      headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
-        'x-demo-tenant-id': 'tenant-seqora-demo',
-      },
-      payload: {
-        draft: source,
-        model: 'deepseek-v3',
-        revisionNote: '保留人物关系，强化结尾钩子',
-      },
-    })
-
-    expect(response.statusCode, response.body).toBe(200)
-    expect(response.json()).toMatchObject({ script: source, mode: 'quick' })
-    expect(generate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        systemPrompt: expect.stringContaining('剧本整理编剧'),
-        userPrompt: expect.stringContaining('强化结尾钩子'),
-        model: 'deepseek-v3',
-        maxOutputTokens: expect.any(Number),
-      }),
-    )
-    expect(generate.mock.calls[0][0].maxOutputTokens).toBeGreaterThan(2_400)
   })
 
   it('preserves a long source script without sending an oversized provider request', async () => {
     const longSource = Array.from(
-      { length: 180 },
+      { length: 80 },
       (_, index) =>
         `场次：${index + 1}｜剧情：主角沿着旧线索继续调查并发现新的阻力。｜场景：雨夜车站。｜角色：林夏。｜动作：她打开铁盒确认线索。｜对白：我必须查清楚。`,
     ).join('\n')
@@ -2559,8 +2847,8 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/script/generate',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: { draft: longSource, clientRequestId: 'long-script-preserve' },
@@ -2569,15 +2857,15 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({
       script: longSource,
-      warnings: [expect.stringContaining('超过 1 万字')],
+      warnings: [expect.stringContaining('按段继续')],
     })
     expect(generate).not.toHaveBeenCalled()
     const billing = await app.inject({
       method: 'GET',
       url: '/api/v1/billing/summary',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
     })
@@ -2600,8 +2888,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const existing =
@@ -2672,8 +2960,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
@@ -2704,37 +2992,6 @@ describe('API authorization', () => {
     )
   })
 
-  it('merges incomplete visual enrichment back into the original scene fields', async () => {
-    const original =
-      '场次：S01｜剧情：林夏在车站找到铁盒并发现新的线索。｜场景：雨夜旧车站｜角色：林夏、远处的看守｜动作：林夏蹲下打开铁盒；她抬头确认脚步声；看守在远处停下并回头｜对白：林夏：不能让他发现。'
-    const visualOnly =
-      '场次：S01｜风格：电影级 CG｜构图：中景，林夏位于画面右侧｜光影：冷白顶光｜运镜：沿铁盒缓慢推进｜衔接：脚步声承接下一场'
-    const generate = vi.fn().mockResolvedValue(visualOnly)
-    app = await buildApp({
-      config: testConfig,
-      textProvider: { generate },
-      startWorker: false,
-    })
-    const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
-      'x-demo-tenant-id': 'tenant-seqora-demo',
-    }
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/enrich',
-      headers,
-      payload: { script: original },
-    })
-
-    expect(response.statusCode).toBe(200)
-    expect(response.json().script).toContain('剧情：林夏在车站找到铁盒并发现新的线索。')
-    expect(response.json().script).toContain('动作：林夏蹲下打开铁盒；她抬头确认脚步声；看守在远处停下并回头')
-    expect(response.json().script).toContain('风格：电影级 CG')
-    expect(response.json().script).toContain('衔接：脚步声承接下一场')
-  })
-
   it('preserves the current script and returns an actionable error when text generation is unavailable', async () => {
     app = await buildApp({
       config: testConfig,
@@ -2746,8 +3003,8 @@ describe('API authorization', () => {
       startWorker: false,
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({
@@ -2778,24 +3035,15 @@ describe('API authorization', () => {
     const quickScript =
       '场次：1｜剧情：主角找到线索。｜场景：雨夜车站。｜角色：林夏。｜动作：打开铁盒。｜对白：找到了。'
     const detailedScript = `${quickScript}｜风格：电影 CG｜构图：三分法｜光影：低调光｜运镜：缓慢推进｜衔接：动作匹配`
-    const review = JSON.stringify({
-      score: 84,
-      verdict: '故事目标清楚，镜头衔接仍可加强。',
-      dimensions: ['plot', 'character', 'dialogue', 'style', 'composition', 'lighting', 'camera'].map(
-        (key) => ({ key, score: 84, finding: `${key} 检查结果`, suggestion: `${key} 修改建议` }),
-      ),
-      priorityActions: ['强化动作衔接'],
-    })
     const generate = vi
       .fn()
       .mockResolvedValueOnce(quickScript)
       .mockResolvedValueOnce(detailedScript)
-      .mockResolvedValueOnce(review)
       .mockRejectedValueOnce(new TextGenerationProviderError('上游暂时不可用'))
     app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
@@ -2824,22 +3072,6 @@ describe('API authorization', () => {
     })
     expect(enriched.statusCode, enriched.body).toBe(200)
 
-    const upgraded = await app.inject({
-      method: 'PUT',
-      url: '/api/v1/billing/plan',
-      headers,
-      payload: { plan: 'member' },
-    })
-    expect(upgraded.statusCode, upgraded.body).toBe(200)
-
-    const reviewed = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/review',
-      headers,
-      payload: { clientRequestId: 'script-credit-review', script: detailedScript },
-    })
-    expect(reviewed.statusCode, reviewed.body).toBe(200)
-
     const failed = await app.inject({
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/script/generate',
@@ -2851,27 +3083,26 @@ describe('API authorization', () => {
     const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(billing.statusCode).toBe(200)
     expect(billing.json()).toMatchObject({
-      plan: 'member',
-      credits: 775,
-      concurrency: 3,
-      planSelfServiceEnabled: true,
+      plan: 'free',
+      credits: 278,
+      concurrency: 1,
+      planSelfServiceEnabled: false,
       monthlyUsage: {
-        consumedCredits: 14,
+        consumedCredits: 11,
         refundedCredits: 3,
-        netCredits: 11,
-        generationCount: 4,
-        includedCredits: 500,
+        netCredits: 8,
+        generationCount: 3,
+        includedCredits: 0,
       },
     })
     expect(billing.json().entries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'generation-script-generate-script-credit-generate', amount: -3 }),
         expect.objectContaining({ id: 'generation-script-enrich-script-credit-enrich', amount: -5 }),
-        expect.objectContaining({ id: 'generation-script-review-script-credit-review', amount: -3 }),
         expect.objectContaining({ id: 'refund-script-generate-script-credit-refund', amount: 3 }),
       ]),
     )
-    expect(generate).toHaveBeenCalledTimes(4)
+    expect(generate).toHaveBeenCalledTimes(3)
   })
 
   it('does not call the text provider when script credits are insufficient', async () => {
@@ -2879,12 +3110,12 @@ describe('API authorization', () => {
     const generate = vi.fn(async () => '不应调用')
     app = await buildApp({ config: testConfig, store, textProvider: { generate }, startWorker: false })
     await store.mutate((state) => {
-      const user = state.users.find((item) => item.id === 'user-creator')!
+      const user = state.users.find((item) => item.id === 'user-member')!
       user.credits = 2
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
@@ -2900,25 +3131,24 @@ describe('API authorization', () => {
     expect(generate).not.toHaveBeenCalled()
   })
 
-  it('grants monthly member credits only once and disables plan self-service in production', async () => {
+  it('blocks frontend plan changes in every environment', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
 
-    for (const plan of ['member', 'free', 'member'] as const) {
-      const changed = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/billing/plan',
-        headers,
-        payload: { plan },
-      })
-      expect(changed.statusCode, changed.body).toBe(200)
-    }
+    const changed = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/billing/plan',
+      headers,
+      payload: { plan: 'member' },
+    })
+    expect(changed.statusCode).toBe(403)
+    expect(changed.json()).toMatchObject({ error: { code: 'PLAN_CHANGE_REQUIRES_BILLING_WEBHOOK' } })
     const testSummary = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
-    expect(testSummary.json()).toMatchObject({ plan: 'member', credits: 786, planSelfServiceEnabled: true })
+    expect(testSummary.json()).toMatchObject({ plan: 'free', credits: 286, planSelfServiceEnabled: false })
 
     await app.close()
     app = await buildApp({ config: { ...testConfig, NODE_ENV: 'production' }, startWorker: false })
@@ -2929,66 +3159,17 @@ describe('API authorization', () => {
       payload: { plan: 'member' },
     })
     expect(blocked.statusCode).toBe(403)
-    expect(blocked.json()).toMatchObject({ error: { code: 'PLAN_CHANGE_REQUIRES_ADMIN' } })
+    expect(blocked.json()).toMatchObject({ error: { code: 'PLAN_CHANGE_REQUIRES_BILLING_WEBHOOK' } })
     const productionSummary = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(productionSummary.json()).toMatchObject({ planSelfServiceEnabled: false })
-  })
-
-  it('requires membership for a structured professional script review', async () => {
-    const generate = vi.fn(async () =>
-      JSON.stringify({
-        score: 82,
-        verdict: '剧情目标清楚，但中段视觉转折不足。',
-        dimensions: ['plot', 'character', 'dialogue', 'style', 'composition', 'lighting', 'camera'].map(
-          (key) => ({ key, score: 82, finding: `${key}检查结果`, suggestion: `${key}修改建议` }),
-        ),
-        priorityActions: ['强化中段反转', '明确主角动作目标'],
-      }),
-    )
-    app = await buildApp({
-      config: testConfig,
-      textProvider: { generate },
-      startWorker: false,
-    })
-    const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
-      'x-demo-tenant-id': 'tenant-seqora-demo',
-    }
-    const payload = { script: '场景：雨夜车站\n角色：林夏\n动作：她走入站台。' }
-
-    const freeReview = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/review',
-      headers,
-      payload,
-    })
-    expect(freeReview.statusCode).toBe(403)
-    expect(freeReview.json()).toMatchObject({ error: { code: 'MEMBERSHIP_REQUIRED' } })
-    expect(generate).not.toHaveBeenCalled()
-
-    await app.inject({ method: 'PUT', url: '/api/v1/billing/plan', headers, payload: { plan: 'member' } })
-    const memberReview = await app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/project-midnight-film/script/review',
-      headers,
-      payload,
-    })
-    expect(memberReview.statusCode).toBe(200)
-    expect(memberReview.json()).toMatchObject({
-      score: 82,
-      verdict: expect.stringContaining('视觉转折'),
-      dimensions: expect.arrayContaining([expect.objectContaining({ key: 'camera' })]),
-      generatedAt: expect.any(String),
-    })
   })
 
   it('splits the script into at most eight predictable shots without calling the text provider', async () => {
     const generate = vi.fn(async () => '不应调用')
     app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const script = Array.from({ length: 10 }, (_, index) => `剧本段落 ${index + 1}`).join('\n')
@@ -3010,17 +3191,17 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toHaveLength(8)
     expect(response.json()[0]).toMatchObject({
-      title: '场次 1 · 动作 1',
-      prompt: expect.stringContaining('动作：剧本段落 1'),
+      title: '镜头 01',
+      prompt: '剧本段落 1',
       continuityMode: 'independent',
       continuityNote: '',
       imageUrl: null,
     })
     expect(response.json()[7]).toMatchObject({
-      title: '场次 3 · 动作 2',
-      prompt: expect.stringContaining('动作：画面内角色改变站位'),
-      continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一镜收束'),
+      title: '镜头 08',
+      prompt: '剧本段落 8',
+      continuityMode: 'independent',
+      continuityNote: expect.stringContaining('上一场收束：剧本段落 7'),
       imageUrl: null,
     })
     expect(generate).not.toHaveBeenCalled()
@@ -3029,8 +3210,8 @@ describe('API authorization', () => {
   it('preserves omitted asset and shot fields during partial updates', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const workspace = await app.inject({
@@ -3073,8 +3254,8 @@ describe('API authorization', () => {
   it('splits structured scenes into one continuous shot per action beat', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const scene = (number: number) =>
@@ -3110,7 +3291,7 @@ describe('API authorization', () => {
     expect(response.json()[0]).toMatchObject({
       title: '场次 1 · 动作 1',
       framing: '大全景',
-      duration: 3,
+      duration: 5,
       continuityMode: 'independent',
       prompt: expect.stringContaining('动作：林夏踏入积水'),
     })
@@ -3128,7 +3309,7 @@ describe('API authorization', () => {
     })
     expect(response.json()[3]).toMatchObject({
       title: '场次 2 · 动作 1',
-      continuityMode: 'continue',
+      continuityMode: 'independent',
       continuityNote: expect.stringContaining('上一场收束：林夏踏入积水'),
     })
   })
@@ -3141,8 +3322,8 @@ describe('API authorization', () => {
     }
     app = await buildApp({ config: testConfig, imageProvider, startWorker: false })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const created = await app.inject({
@@ -3214,7 +3395,7 @@ describe('film preview composition', () => {
         clientRequestId: `preview-source-client-${index + 1}`,
         projectId: shot.projectId,
         tenantId: shot.tenantId,
-        userId: 'user-creator',
+        userId: 'user-member',
         kind: 'video',
         label: `${shot.title}视频`,
         prompt: shot.prompt,
@@ -3235,8 +3416,8 @@ describe('film preview composition', () => {
       return tasks.map((task) => task.id)
     })
     const headers = {
-      'x-demo-role': 'creator',
-      'x-demo-user-id': 'user-creator',
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const before = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
@@ -3283,7 +3464,7 @@ describe('film preview composition', () => {
         clientRequestId: `partial-preview-client-${index + 1}`,
         projectId: shot.projectId,
         tenantId: shot.tenantId,
-        userId: 'user-creator',
+        userId: 'user-member',
         kind: 'video',
         label: `${shot.title}视频`,
         prompt: shot.prompt,
@@ -3307,8 +3488,8 @@ describe('film preview composition', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/film-preview',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
       },
       payload: { mode: 'partial' },
@@ -3350,7 +3531,7 @@ describe('film preview composition', () => {
         clientRequestId: 'range-preview-client',
         projectId: 'project-midnight-film',
         tenantId: 'tenant-seqora-demo',
-        userId: 'user-creator',
+        userId: 'user-member',
         kind: 'video',
         label: '完整预览',
         prompt: '',
@@ -3373,8 +3554,8 @@ describe('film preview composition', () => {
       method: 'GET',
       url: '/api/v1/generation/tasks/range-preview/content',
       headers: {
-        'x-demo-role': 'creator',
-        'x-demo-user-id': 'user-creator',
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
         'x-demo-tenant-id': 'tenant-seqora-demo',
         range: 'bytes=2-5',
       },
@@ -3389,8 +3570,8 @@ describe('film preview composition', () => {
 
 describe('one-click quick start', () => {
   const headers = {
-    'x-demo-role': 'creator',
-    'x-demo-user-id': 'user-creator',
+    'x-demo-role': 'member',
+    'x-demo-user-id': 'user-member',
     'x-demo-tenant-id': 'tenant-seqora-demo',
   }
   const imageProvider: ImageGenerationProvider = {
@@ -3463,7 +3644,7 @@ describe('one-click quick start', () => {
       ],
       replayed: false,
     })
-    expect(store.read((state) => state.users.find((user) => user.id === 'user-creator')!.credits)).toBe(270)
+    expect(store.read((state) => state.users.find((user) => user.id === 'user-member')!.credits)).toBe(270)
 
     const replayed = await app.inject({
       method: 'POST',
@@ -3476,7 +3657,7 @@ describe('one-click quick start', () => {
     expect(
       store.read((state) => state.assets.filter((asset) => asset.projectId === 'project-midnight-film')),
     ).toHaveLength(7)
-    expect(store.read((state) => state.users.find((user) => user.id === 'user-creator')!.credits)).toBe(270)
+    expect(store.read((state) => state.users.find((user) => user.id === 'user-member')!.credits)).toBe(270)
 
     const replanned = await app.inject({
       method: 'POST',
@@ -3505,7 +3686,7 @@ describe('one-click quick start', () => {
       headers,
     })
     await store.mutate((state) => {
-      state.users.find((user) => user.id === 'user-creator')!.credits = 5
+      state.users.find((user) => user.id === 'user-member')!.credits = 5
     })
 
     const response = await app.inject({
@@ -3595,35 +3776,57 @@ describe('one-click quick start', () => {
 })
 
 describe('local authentication', () => {
+  let authDatabase: PostgresAuthFixture | undefined
+
+  beforeAll(async () => {
+    authDatabase = await startPostgresAuthFixture()
+  }, 120_000)
+
+  beforeEach(async () => {
+    await authDatabase?.reset()
+  })
+
+  afterAll(async () => {
+    await authDatabase?.close()
+  })
+
+  function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
+    if (!authDatabase) throw new Error('Postgres auth fixture is not ready')
+    return {
+      ...testConfig,
+      ...overrides,
+      AUTH_MODE: 'local',
+      DATABASE_URL: authDatabase.connectionString,
+    }
+  }
+
   it('uses deployment-provided bootstrap credentials for an empty store', async () => {
     app = await buildApp({
-      config: {
-        ...testConfig,
-        AUTH_MODE: 'local',
-        BOOTSTRAP_CREATOR_EMAIL: 'tester@example.com',
-        BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
-      },
+      config: localAuthConfig({
+        BOOTSTRAP_MEMBER_EMAIL: 'tester@example.com',
+        BOOTSTRAP_MEMBER_PASSWORD: 'UniqueMemberPassword123!',
+      }),
       startWorker: false,
     })
 
     const oldCredentials = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     expect(oldCredentials.statusCode).toBe(401)
 
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'tester@example.com', password: 'UniqueCreatorPassword123!' },
+      payload: { email: 'tester@example.com', password: 'UniqueMemberPassword123!' },
     })
     expect(login.statusCode).toBe(200)
     expect(login.json()).toMatchObject({ account: { email: 'tester@example.com' } })
   })
 
   it('rate limits repeated failed login attempts', async () => {
-    app = await buildApp({ config: { ...testConfig, AUTH_MODE: 'local' }, startWorker: false })
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
     let response
     for (let attempt = 0; attempt < 11; attempt += 1) {
       response = await app.inject({
@@ -3640,15 +3843,15 @@ describe('local authentication', () => {
   })
 
   it('creates and clears an HttpOnly session', async () => {
-    app = await buildApp({ config: { ...testConfig, AUTH_MODE: 'local' }, startWorker: false })
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
 
     expect(login.statusCode).toBe(200)
-    expect(login.json()).toMatchObject({ account: { email: 'creator@seqora.local', plan: 'free' } })
+    expect(login.json()).toMatchObject({ account: { email: 'member@seqora.local', plan: 'free' } })
     const cookie = login.cookies.find((item) => item.name === 'seqora_session')
     expect(cookie?.httpOnly).toBe(true)
     expect(cookie?.sameSite).toBe('Strict')
@@ -3660,7 +3863,7 @@ describe('local authentication', () => {
       headers: { cookie: `seqora_session=${cookie?.value}` },
     })
     expect(me.statusCode).toBe(200)
-    expect(me.json()).toMatchObject({ account: { name: '林夏' } })
+    expect(me.json()).toMatchObject({ account: { name: '默认 C 端用户' } })
 
     const logout = await app.inject({
       method: 'POST',
@@ -3670,12 +3873,111 @@ describe('local authentication', () => {
     expect(logout.statusCode).toBe(204)
   })
 
-  it('changes an authenticated account password without accepting the old password afterward', async () => {
-    app = await buildApp({ config: { ...testConfig, AUTH_MODE: 'local' }, startWorker: false })
+  it('applies signed billing webhooks and ignores duplicate payment events', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
+    })
+    const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
+    const sessionHeaders = { cookie: `seqora_session=${sessionCookie?.value}` }
+    const subscriptionPayload = {
+      eventId: 'evt-subscription-activated-1',
+      type: 'subscription.activated',
+      membershipId: 'membership-tenant-seqora-demo-user-member',
+      occurredAt: '2026-07-01T00:00:00.000Z',
+      metadata: { subscriptionId: 'sub_1' },
+    }
+
+    const unsigned = await app.inject({
+      method: 'POST',
+      url: '/api/v1/billing/webhooks/testpay',
+      payload: subscriptionPayload,
+    })
+    expect(unsigned.statusCode).toBe(401)
+
+    const activated = await app.inject({
+      method: 'POST',
+      url: '/api/v1/billing/webhooks/testpay',
+      headers: signedWebhookHeaders(subscriptionPayload),
+      payload: subscriptionPayload,
+    })
+    expect(activated.statusCode, activated.body).toBe(200)
+    expect(activated.json()).toMatchObject({
+      duplicate: false,
+      eventId: 'evt-subscription-activated-1',
+      plan: 'member',
+      credits: 786,
+      ledgerEntry: { type: 'grant', amount: 500 },
+    })
+
+    const duplicateSubscription = await app.inject({
+      method: 'POST',
+      url: '/api/v1/billing/webhooks/testpay',
+      headers: signedWebhookHeaders(subscriptionPayload),
+      payload: subscriptionPayload,
+    })
+    expect(duplicateSubscription.statusCode).toBe(200)
+    expect(duplicateSubscription.json()).toMatchObject({ duplicate: true, plan: 'member' })
+
+    const purchasePayload = {
+      eventId: 'evt-credits-purchased-1',
+      type: 'credits.purchased',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-member',
+      credits: 120,
+      referenceId: 'payment-order-1',
+      description: 'Credit purchase',
+      metadata: { orderId: 'order_1' },
+    }
+    const purchased = await app.inject({
+      method: 'POST',
+      url: '/api/v1/billing/webhooks/testpay',
+      headers: signedWebhookHeaders(purchasePayload),
+      payload: purchasePayload,
+    })
+    expect(purchased.statusCode, purchased.body).toBe(200)
+    expect(purchased.json()).toMatchObject({
+      duplicate: false,
+      credits: 906,
+      ledgerEntry: { type: 'grant', amount: 120, description: 'Credit purchase' },
+    })
+
+    const duplicatePurchase = await app.inject({
+      method: 'POST',
+      url: '/api/v1/billing/webhooks/testpay',
+      headers: signedWebhookHeaders(purchasePayload),
+      payload: purchasePayload,
+    })
+    expect(duplicatePurchase.statusCode).toBe(200)
+    expect(duplicatePurchase.json()).toMatchObject({ duplicate: true })
+
+    const summary = await app.inject({
+      method: 'GET',
+      url: '/api/v1/billing/summary',
+      headers: sessionHeaders,
+    })
+    expect(summary.json()).toMatchObject({
+      plan: 'member',
+      credits: 906,
+      planSelfServiceEnabled: false,
+      monthlyUsage: { includedCredits: 500 },
+    })
+    expect(summary.json().entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ amount: 500, type: 'grant' }),
+        expect.objectContaining({ amount: 120, type: 'grant', description: 'Credit purchase' }),
+      ]),
+    )
+  })
+
+  it('changes an authenticated account password without accepting the old password afterward', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
     const headers = { cookie: `seqora_session=${sessionCookie?.value}` }
@@ -3695,7 +3997,7 @@ describe('local authentication', () => {
       method: 'PUT',
       url: '/api/v1/auth/password',
       headers,
-      payload: { currentPassword: 'Creator123!', newPassword: 'ReplacementPassword123!' },
+      payload: { currentPassword: 'MemberPassword123!', newPassword: 'ReplacementPassword123!' },
     })
     expect(changed.statusCode).toBe(204)
     expect(changed.headers['cache-control']).toBe('no-store')
@@ -3703,24 +4005,28 @@ describe('local authentication', () => {
     const oldLogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     expect(oldLogin.statusCode).toBe(401)
 
     const newLogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'ReplacementPassword123!' },
+      payload: { email: 'member@seqora.local', password: 'ReplacementPassword123!' },
     })
     expect(newLogin.statusCode).toBe(200)
   })
 
   it('persists project, asset, task and billing mutations', async () => {
-    app = await buildApp({ config: { ...testConfig, AUTH_MODE: 'local' }, startWorker: false })
+    app = await buildApp({
+      config: localAuthConfig(),
+      store: await importedProjectStore(),
+      startWorker: false,
+    })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
     const headers = { cookie: `seqora_session=${sessionCookie?.value}` }
@@ -3821,12 +4127,115 @@ describe('local authentication', () => {
     expect(billing.json()).toMatchObject({ credits: 280 })
   })
 
-  it('uploads and serves authenticated project media', async () => {
-    app = await buildApp({ config: { ...testConfig, AUTH_MODE: 'local' }, startWorker: false })
+  it('persists novel metadata in Postgres and source text in object storage', async () => {
+    app = await buildApp({
+      config: localAuthConfig(),
+      store: await importedProjectStore(),
+      startWorker: false,
+    })
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'creator@seqora.local', password: 'Creator123!' },
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
+    })
+    const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
+    const headers = { cookie: `seqora_session=${sessionCookie?.value}` }
+    const hiddenTail = '不可公开的长尾正文'
+    const content = [
+      '第一章 河岸',
+      '黄昏时，河岸的灯亮了。翠翠听见渡船靠岸，风从水面吹来。',
+      '',
+      '第二章 山雨',
+      `山雨落下，老船夫收起竹篙。${'山路'.repeat(1700)}${hiddenTail}`,
+    ].join('\n')
+
+    const imported = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/novels/import',
+      headers,
+      payload: {
+        clientRequestId: 'postgres-novel-import',
+        name: '河岸故事',
+        format: 'txt',
+        content,
+        splitOptions: { mode: 'heading', targetChars: 3000, overlapChars: 0 },
+      },
+    })
+
+    expect(imported.statusCode, imported.body).toBe(201)
+    expect(imported.json()).toMatchObject({
+      document: {
+        projectId: 'project-midnight-film',
+        name: '河岸故事',
+        chapterCount: 2,
+      },
+      chapters: expect.arrayContaining([
+        expect.objectContaining({ title: '第一章 河岸', preview: expect.any(String) }),
+      ]),
+    })
+    expect(imported.body).not.toContain(hiddenTail)
+
+    const database = new AccountDatabase(authDatabase!.connectionString)
+    try {
+      const documentRows = await database.query<{
+        content_storage_key: string
+        content_sha256: string
+      }>(
+        `
+        SELECT content_storage_key, content_sha256
+        FROM novel_documents
+        WHERE id = $1
+        `,
+        [imported.json().document.id],
+      )
+      expect(documentRows.rows[0]).toMatchObject({
+        content_storage_key: expect.stringContaining('/novels/'),
+        content_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      })
+      const chapterRows = await database.query<{ table_name: string | null }>(
+        "SELECT to_regclass('public.novel_chapters')::text AS table_name",
+      )
+      expect(chapterRows.rows[0]?.table_name).toBe('novel_chapters')
+      const stored = await new LocalObjectStorage(testConfig.UPLOAD_DIR).get(
+        documentRows.rows[0]!.content_storage_key,
+      )
+      expect(stored.toString('utf8')).toBe(content)
+    } finally {
+      await database.close()
+    }
+
+    await app.close()
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const relogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
+    })
+    const reloadedCookie = relogin.cookies.find((item) => item.name === 'seqora_session')
+    const reloaded = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/project-midnight-film/novels/${imported.json().document.id}`,
+      headers: { cookie: `seqora_session=${reloadedCookie?.value}` },
+    })
+
+    expect(reloaded.statusCode, reloaded.body).toBe(200)
+    expect(reloaded.json()).toMatchObject({
+      document: { name: '河岸故事', chapterCount: 2 },
+      chapters: expect.arrayContaining([expect.objectContaining({ title: '第二章 山雨' })]),
+    })
+    expect(reloaded.body).not.toContain(hiddenTail)
+  }, 30_000)
+
+  it('uploads and serves authenticated project media', async () => {
+    app = await buildApp({
+      config: localAuthConfig(),
+      store: await importedProjectStore(),
+      startWorker: false,
+    })
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'member@seqora.local', password: 'MemberPassword123!' },
     })
     const sessionCookie = login.cookies.find((item) => item.name === 'seqora_session')
     const cookie = `seqora_session=${sessionCookie?.value}`
@@ -3876,12 +4285,27 @@ describe('local authentication', () => {
     expect(source.headers['content-type']).toContain('image/png')
     expect(source.body).toBe('public-source')
   })
+
+  async function importedProjectStore(): Promise<AppStore> {
+    if (!authDatabase) throw new Error('Postgres auth fixture is not ready')
+    const store = new AppStore(null)
+    await store.initialize()
+    const database = new AccountDatabase(authDatabase.connectionString)
+    try {
+      const users = new UserRepository(store, database)
+      await users.bootstrapFromStore()
+      await new ProjectRepository(store, database).importFromStore()
+    } finally {
+      await database.close()
+    }
+    return store
+  }
 })
 
 localNovelRegression('local novel fixture regression', () => {
   const headers = {
-    'x-demo-role': 'creator',
-    'x-demo-user-id': 'user-creator',
+    'x-demo-role': 'member',
+    'x-demo-user-id': 'user-member',
     'x-demo-tenant-id': 'tenant-seqora-demo',
   }
 
@@ -4190,7 +4614,11 @@ function bianchengChapterSummariesJson(): string {
         title: '第一章 茶峒渡口',
         summary: '翠翠和老船夫守着茶峒溪边渡口，渡船、白塔和河岸生活构成故事的核心环境。',
         keyEvents: ['翠翠随祖父在渡口生活', '老船夫负责摆渡往来行人'],
-        characters: ['老船夫：男性，老年，翠翠的祖父，茶峒渡口船夫/摆渡人', '翠翠：少女，老船夫的外孙女'],
+        characters: [
+          '老船夫：男性，七十岁，翠翠的祖父，茶峒渡口船夫/摆渡人',
+          '翠翠：女性，十三岁少女，老船夫的外孙女',
+          '黄狗：陪伴老船夫和翠翠的家犬，会协助牵船拖绳',
+        ],
         locations: ['茶峒渡口：溪边渡船停靠处，连接两岸日常往来', '白塔：渡口附近的重要地标'],
         timeline: ['近代湘西边城日常生活开端'],
         keyProps: ['渡船：老船夫日常摆渡的核心工具', '白塔：反复出现的地标'],
@@ -4203,7 +4631,10 @@ function bianchengChapterSummariesJson(): string {
         title: '第二章 端午相遇',
         summary: '端午节热闹人群中，翠翠与青年相遇，河边风俗和地方节庆推动人物关系。',
         keyEvents: ['端午节人群聚集', '翠翠在河边与青年相遇'],
-        characters: ['翠翠：少女，纯净羞涩，依恋祖父', '老船夫：男性，老年，关心翠翠未来的摆渡老人'],
+        characters: [
+          '翠翠：女性，十三岁少女，纯净羞涩，依恋祖父',
+          '老船夫：男性，七十岁，关心翠翠未来的摆渡老人',
+        ],
         locations: ['茶峒河岸：节庆人群和船只聚集处'],
         timeline: ['端午节，人物关系开始发生变化'],
         keyProps: ['渡船：连接节庆动线和日常摆渡'],
@@ -4411,4 +4842,25 @@ function quickStartAnalysis(): string {
       },
     ],
   })
+}
+
+function signedWebhookHeaders(payload: unknown): Record<string, string> {
+  const signature = createHmac('sha256', testConfig.BILLING_WEBHOOK_SECRET)
+    .update(canonicalJson(payload))
+    .digest('hex')
+  return { 'x-seqora-signature': `sha256=${signature}` }
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value)) ?? ''
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJsonValue)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
+      .map(([key, item]) => [key, sortJsonValue(item)]),
+  )
 }

@@ -13,11 +13,42 @@ describe('api client', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    await api.login({ email: 'creator@seqora.local', password: 'Creator123!' })
+    await api.login({ email: 'member@seqora.local', password: 'MemberPassword123!' })
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/auth/login',
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    )
+  })
+
+  it('sends invitation-code registration requests with cookie credentials', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ account: { id: 'user-1' }, permissions: [] }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.register({
+      token: 'invite-token-'.padEnd(32, '1'),
+      name: 'New Member',
+      email: 'member@example.com',
+      password: 'MemberPassword123!',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/auth/register',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          token: 'invite-token-'.padEnd(32, '1'),
+          name: 'New Member',
+          email: 'member@example.com',
+          password: 'MemberPassword123!',
+        }),
+      }),
     )
   })
 
@@ -97,6 +128,115 @@ describe('api client', () => {
           newPassword: 'NewPassword123!',
         }),
       }),
+    )
+  })
+
+  it('calls payment configuration and checkout endpoints', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          provider: 'stripe',
+          enabled: true,
+          memberSubscriptionEnabled: true,
+          creditPurchaseEnabled: true,
+          creditPackCredits: 100,
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            provider: 'stripe',
+            checkoutType: 'subscription',
+            checkoutSessionId: 'cs_test_subscription',
+            url: 'https://checkout.stripe.test/subscription',
+            status: 'open',
+            plan: 'member',
+            credits: null,
+          },
+          { status: 201 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            provider: 'stripe',
+            checkoutType: 'credits',
+            checkoutSessionId: 'cs_test_credits',
+            url: 'https://checkout.stripe.test/credits',
+            status: 'open',
+            plan: null,
+            credits: 100,
+          },
+          { status: 201 },
+        ),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.billingPaymentConfiguration()
+    await api.createMemberSubscriptionCheckout()
+    await api.createCreditCheckout({ credits: 100 })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/billing/payment/configuration',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/billing/checkout/subscription',
+      expect.objectContaining({ method: 'POST', credentials: 'include', body: '{}' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/v1/billing/checkout/credits',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ credits: 100 }),
+      }),
+    )
+  })
+
+  it('calls organization switching and self-session account endpoints', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(
+        Response.json({
+          account: { tenantId: 'tenant-2', organizationId: 'tenant-2' },
+          workspace: { id: 'tenant-2' },
+          organization: { id: 'tenant-2' },
+        }),
+      )
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.organizations()
+    await api.switchOrganization('tenant-2')
+    await api.authSessions()
+    await api.revokeAuthSession('session-1')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/organizations',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/organizations/tenant-2/switch',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/v1/auth/sessions',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      '/api/v1/auth/sessions/session-1',
+      expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
     )
   })
 

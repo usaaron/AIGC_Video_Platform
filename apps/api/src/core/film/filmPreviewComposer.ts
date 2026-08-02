@@ -2,21 +2,20 @@ import type { GenerationTask } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { VideoGenerationProvider, VideoProviderName } from '../generation/videoProvider.js'
 import type { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
+import { observabilityMetrics, observeProviderCall } from '../observability/metrics.js'
 import {
   claimGenerationTaskLease,
   generationTaskLeaseMatches,
   releaseGenerationTaskLease,
   renewGenerationTaskLease,
 } from '../jobs/taskLease.js'
-import { generatedDescriptors } from '../jobs/taskWriteback.js'
 
 type PreviewTarget = { width: number; height: number }
 type ComposeRunner = (
@@ -83,6 +82,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
   }
 
   private async compose(taskId: string, leaseToken: string): Promise<void> {
+    const startedAt = Date.now()
     let temporaryDirectory: string | null = null
     try {
       const task = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
@@ -127,14 +127,19 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
           return
         }
         const inputPath = join(temporaryDirectory, `shot-${String(index + 1).padStart(3, '0')}.mp4`)
-        const cachedVideo = generatedDescriptors(source).find(
-          (item) => item.view === 'single' && item.contentType.startsWith('video/'),
-        )
-        if (cachedVideo) {
-          const content = await this.objectStorage.get(cachedVideo.storageKey)
-          await pipeline(Readable.from(content), createWriteStream(inputPath))
+        const cachedOutput = cachedVideoOutput(source)
+        if (cachedOutput) {
+          await writeFile(inputPath, await this.objectStorage.get(cachedOutput.storageKey))
         } else {
-          const content = await this.videoProvider.getContent(String(source.metadata.providerTaskId))
+          const content = await observeProviderCall(
+            {
+              provider: this.videoProviderName,
+              operation: 'video.getContent',
+              tenantId: task.tenantId,
+              taskId,
+            },
+            () => this.videoProvider.getContent(String(source.metadata.providerTaskId)),
+          )
           await pipeline(content.stream, createWriteStream(inputPath))
         }
         inputPaths.push(inputPath)
@@ -191,6 +196,33 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         task.updatedAt = new Date().toISOString()
       })
     } finally {
+      const finalTask = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
+      if (finalTask?.status === 'completed' || finalTask?.status === 'failed') {
+        const durationMs = Date.now() - startedAt
+        const ok = finalTask.status === 'completed'
+        const error = finalTask.error ? new Error(finalTask.error) : undefined
+        observabilityMetrics.recordFilmPreview({
+          tenantId: finalTask.tenantId,
+          taskId: finalTask.id,
+          durationMs,
+          ok,
+          error,
+        })
+        observabilityMetrics.recordTaskTerminal({
+          kind: `${finalTask.kind}:${finalTask.provider}`,
+          tenantId: finalTask.tenantId,
+          taskId: finalTask.id,
+          status: finalTask.status,
+        })
+        observabilityMetrics.recordTaskExecution({
+          kind: `${finalTask.kind}:${finalTask.provider}`,
+          tenantId: finalTask.tenantId,
+          taskId: finalTask.id,
+          durationMs,
+          ok,
+          error,
+        })
+      }
       if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true })
     }
   }
@@ -207,6 +239,18 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
   }
 }
 
+function cachedVideoOutput(task: GenerationTask): { storageKey: string } | null {
+  if (!Array.isArray(task.metadata.generatedOutputs)) return null
+  const output = task.metadata.generatedOutputs.find(
+    (value) =>
+      value !== null &&
+      typeof value === 'object' &&
+      (value as { view?: unknown }).view === 'single' &&
+      typeof (value as { storageKey?: unknown }).storageKey === 'string',
+  )
+  return output ? { storageKey: (output as { storageKey: string }).storageKey } : null
+}
+
 export async function runFfmpegComposition(
   inputPaths: string[],
   outputPath: string,
@@ -214,45 +258,16 @@ export async function runFfmpegComposition(
   ffmpegPath: string,
   timeoutMs: number,
 ): Promise<void> {
-  try {
-    await runFfmpegCompositionPass(inputPaths, outputPath, target, ffmpegPath, timeoutMs, true)
-  } catch (audioError) {
-    // Older provider videos may be silent. Keep them composable while making all
-    // newly generated videos preserve their audio whenever an audio stream exists.
-    try {
-      await runFfmpegCompositionPass(inputPaths, outputPath, target, ffmpegPath, timeoutMs, false)
-    } catch {
-      throw audioError
-    }
-  }
-}
-
-async function runFfmpegCompositionPass(
-  inputPaths: string[],
-  outputPath: string,
-  target: PreviewTarget,
-  ffmpegPath: string,
-  timeoutMs: number,
-  withAudio: boolean,
-): Promise<void> {
   const inputs = inputPaths.flatMap((path) => ['-i', path])
-  const videoFilters = inputPaths.map(
+  const filters = inputPaths.map(
     (_, index) =>
       `[${index}:v]scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,` +
       `pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=24,` +
       `format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS[v${index}]`,
   )
-  const filters = [...videoFilters]
-  if (withAudio) {
-    filters.push(
-      ...inputPaths.map((_, index) => `[${index}:a]aresample=48000,asetpts=PTS-STARTPTS[a${index}]`),
-      `${inputPaths.map((_, index) => `[v${index}][a${index}]`).join('')}concat=n=${inputPaths.length}:v=1:a=1[outv][outa]`,
-    )
-  } else {
-    filters.push(
-      `${inputPaths.map((_, index) => `[v${index}]`).join('')}concat=n=${inputPaths.length}:v=1:a=0[outv]`,
-    )
-  }
+  filters.push(
+    `${inputPaths.map((_, index) => `[v${index}]`).join('')}concat=n=${inputPaths.length}:v=1:a=0[outv]`,
+  )
   const args = [
     '-hide_banner',
     '-y',
@@ -261,7 +276,7 @@ async function runFfmpegCompositionPass(
     filters.join(';'),
     '-map',
     '[outv]',
-    ...(withAudio ? ['-map', '[outa]', '-c:a', 'aac', '-b:a', '128k'] : ['-an']),
+    '-an',
     '-c:v',
     'libx264',
     '-preset',

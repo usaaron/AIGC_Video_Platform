@@ -55,7 +55,12 @@ export const scriptModelSchema = z.enum([
   'kimi-k3',
   'glm-5.2',
   'glm-5.2-fast',
+  'kimi-k2.5',
+  'gpt-5.4',
+  'gpt-5.5',
+  'gpt-5.6',
 ])
+export const textModelSchema = scriptModelSchema
 export const DEFAULT_SCRIPT_MODEL = 'glm-5.2' as const
 
 export const scriptCreativeDirectionSchema = z.object({
@@ -560,6 +565,7 @@ export type UpdateShot = z.infer<typeof updateShotSchema>
 export type ProjectWorkspace = z.infer<typeof projectWorkspaceSchema>
 export type ScriptCreativeDirection = z.infer<typeof scriptCreativeDirectionSchema>
 export type ScriptModel = z.infer<typeof scriptModelSchema>
+export type TextModel = ScriptModel
 export type ScriptProductionMode = z.infer<typeof scriptProductionModeSchema>
 export type GenerateScriptAssetSuggestionsRequest = z.infer<
   typeof generateScriptAssetSuggestionsRequestSchema

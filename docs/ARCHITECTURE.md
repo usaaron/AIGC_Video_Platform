@@ -13,9 +13,17 @@ flowchart LR
   API -. schema .-> Contracts
   API --> Auth["AuthProvider"]
   API --> Ledger["CreditLedger"]
-  API --> Repo["TaskRepository"]
-  API -. enqueue .-> Queue["TaskDispatcher"]
+  API --> AccountDb["Postgres account/auth/billing"]
+  API --> ProjectDb["Postgres project/assets/shots/generation tasks"]
+  API --> AiJobs["Postgres ai_jobs workflow jobs"]
+  API --> NovelDb["Postgres novel metadata/queues/summaries"]
+  API --> ObjectStorage["ObjectStorage media + novel source"]
+  API --> Store["JSON compatibility/migration store"]
+  API --> Outbox["Postgres outbox_events"]
+  Outbox -. relay .-> Queue["BullMQ/Redis task queue"]
   Worker["apps/api/src/worker.ts 任务 worker"] --> Queue
+  Worker --> ProjectDb
+  Worker --> Outbox
 ```
 
 ## 边界
@@ -32,6 +40,7 @@ flowchart LR
 apps/api/src/
   core/          认证、错误、任务分发等跨模块能力
   modules/       auth、generation、billing、admin 等业务模块
+  infra/         Postgres migration、JSON Store、对象存储
   app.ts         依赖装配与路由注册
   server.ts      进程启动和优雅退出
 ```
@@ -44,16 +53,35 @@ apps/api/src/
 
 管理员端保留为独立应用，未来可使用不同域名、发布节奏和安全策略。它只复用契约与设计令牌，不复用创作端页面；后端管理接口统一位于 `/api/v1/admin/*`。
 
-## 多租户
+当前独立 `apps/admin` 是唯一后台边界；创作端只保留个人资料、组织切换和个人 session 管理。独立管理员端优先消费 `GET /api/v1/admin/console` 聚合接口，再按需要调用用户、组织、账单、session 和审计子接口。
 
-认证主体始终包含 `userId`、`tenantId` 和 `roles`。仓储查询必须显式带入主体并按 `tenantId` 过滤。客户端传入的租户 ID 不可信，不能用于数据隔离。
+## 多组织
+
+产品对外统一称为“组织”。认证主体始终包含 `userId`、`tenantId` 和 `roles`，并在兼容响应中提供 `organizationId`；仓储查询必须显式带入主体并按 `tenantId` 过滤。客户端传入的组织 ID 不可信，不能用于数据隔离。当前数据库表和历史字段仍保留 `tenant*` 命名，详见 [组织概念迁移说明](ORGANIZATION_MIGRATION.md)。
+
+当前账号、组织、账单、项目、AI Job 和小说域边界由 Postgres 中的 `users`、`auth_identities`、`tenant_memberships`、`sessions`、`billing_accounts`、`billing_ledger_entries`、`projects`、`assets`、`shots`、`generation_tasks`、`ai_jobs`、`novel_documents`、`novel_chapters`、`novel_boundaries`、`novel_summary_queues`、`novel_summary_queue_items`、`novel_chapter_summaries` 和 `novel_story_bibles` 承载。项目、AI Job 和小说仓储查询必须保留 `tenantId` 条件；JSON 只作为本地兼容、历史数据迁移输入和备份。
+
+## 数据持久化
+
+- Postgres：账号、身份、session、组织 membership、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜、图片/视频生成任务、通用 AI Job，以及小说元数据、章节 offset、边界、摘要队列、章节摘要和故事圣经。
+- Outbox：`outbox_events` 和业务写入在同一个 Postgres 事务里提交，用于保证任务记录、扣费和队列触发不会出现“DB 成功但 Redis 入队失败”的裂缝。Relay 以租约方式扫描未发送事件，投递 BullMQ 成功后标记 `sent`，失败后按 `next_attempt_at` 指数退避重试。
+- Redis/BullMQ：任务触发队列；API 和 worker 通过 Outbox relay 投递触发消息，worker 进程消费并执行 `GenerationTaskRunner.tick()` 和 `AiJobRunner.tick()`。`generation_tasks` 保留图片/视频镜头生成生命周期；`ai_jobs` 承载小说、剧本、资产建议等长耗时文本/工作流任务，当前已接入小说摘要队列批处理。
+- JSON Store：本地媒体索引、历史兼容数据、小说迁移输入和本地 Demo 备份状态；不再作为配置完整基础设施时的小说主写入源。
+- ObjectStorage：上传文件、生成图片、视频、尾帧、完整成片预览和小说正文。小说正文不落 Postgres，数据库只保存 `content_storage_key`、`content_sha256`、offset 和章节元数据。
+
+Postgres 模式下不允许 `AppStore` runtime snapshot 反写核心业务表。Repository 写入必须先落 Postgres，再显式镜像到本进程 runtime cache；普通 `store.mutate()` 只服务 JSON 本地兼容数据，不承载项目、任务或 AI Job 的新业务事实。
+
+Migration 文件位于 `apps/api/src/infra/migrations`。dev/test 启动时可以自动迁移；production 启动只检查是否最新，部署前必须运行 `pnpm --filter @seqora/api db:migrate`。
 
 ## 可替换端口
 
-- `AuthProvider`：当前 Demo Header，未来替换为 OIDC/JWT 验证。
-- `GenerationTaskRepository`：当前内存，未来替换为 PostgreSQL。
-- `CreditLedger`：当前空实现，未来执行幂等、原子积分预占。
-- `TaskDispatcher`：API 侧默认 no-op；worker 进程里的 `GenerationTaskRunner` 负责执行，未来可替换 Redis、SQS 或 RabbitMQ。
+- `AuthProvider`：当前生产路径为本地账号 + 签名 HttpOnly Cookie + Postgres session；`demo` header 只允许开发/测试。企业 SSO 可替换为 OIDC/JWT。
+- `GenerationTaskRepository`：当前通过 Postgres 持久化生成任务；API 队列操作直接写 DB 并镜像 runtime cache。图片/视频 runner 的 Store 写回路径仍是后续需要彻底仓储化的剩余风险。
+- `AiJobRepository`：通用 AI/工作流任务层，字段包括 `kind`、`input`、`output`、`provider`、`cost_credits`、`client_request_id`、状态和 lease；claim、heartbeat、complete、fail 和失败退款在 Postgres 中完成。文本类长任务不要直接散落在各 service 里，应通过该层创建、扣费、入队、执行和写回。
+- `CreditLedger`：当前已支持 Postgres billing ledger，扣费、退款、grant 和 adjustment 在数据库事务中完成。
+- `TaskDispatcher`：生产默认 `bullmq`。配置 Postgres 时，Repository 在创建/恢复 `generation_tasks` 或 `ai_jobs` 的同一事务中写 `outbox_events`，API 侧 dispatcher 只唤醒 relay；worker 消费 BullMQ 后再从 DB claim 任务并执行对应 runner。`inline` 仅用于测试或临时本地回退。长耗时 AI 操作应统一为 `Route -> create ai_jobs record -> reserve credits -> write outbox -> Worker provider call -> write back -> refund on failure`，路由只负责接收请求和返回任务/状态入口。
+
+应用启动装配集中在 `src/runtime/*`：`database.ts` 负责 store/database 初始化，`storage.ts` 负责对象存储，`providers.ts` 负责 Provider 创建，`services.ts` 负责 repository/service 实例化，`queues.ts` 负责 Worker/dispatcher，`routes.ts` 负责 Auth、健康检查和业务路由注册。`app.ts` 只保留生命周期、插件和这些工厂调用。
 
 业务服务只依赖这些接口，因此替换基础设施时不需要修改路由或前端。
 

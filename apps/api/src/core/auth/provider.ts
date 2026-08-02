@@ -1,8 +1,8 @@
 import { roleSchema, type Principal } from '@seqora/contracts'
 import type { FastifyRequest } from 'fastify'
 import type { AppConfig } from '../../config.js'
-import type { UserRepository } from '../../modules/users/repository.js'
-import { verifySessionToken } from './sessionToken.js'
+import type { AuthAccounts } from '../../modules/auth/accounts.js'
+import { hashSessionSecret, parseIssuedSessionToken, verifySessionToken } from './sessionToken.js'
 
 export const SESSION_COOKIE = 'seqora_session'
 
@@ -18,24 +18,62 @@ class DemoAuthProvider implements AuthProvider {
     return {
       userId: getHeader(request, 'x-demo-user-id') ?? 'demo-user',
       tenantId: getHeader(request, 'x-demo-tenant-id') ?? 'demo-tenant',
+      organizationId:
+        getHeader(request, 'x-demo-organization-id') ??
+        getHeader(request, 'x-demo-tenant-id') ??
+        'demo-tenant',
       roles: [role],
+      passwordResetRequired: false,
+      emailVerified: true,
     }
   }
 }
 
 class LocalAuthProvider implements AuthProvider {
   constructor(
-    private readonly users: UserRepository,
+    private readonly users: AuthAccounts,
     private readonly secret: string,
   ) {}
 
   async resolvePrincipal(request: FastifyRequest): Promise<Principal | null> {
     const token = request.cookies[SESSION_COOKIE]
     if (!token) return null
+    if (this.users.hasDatabase) {
+      const payload = parseIssuedSessionToken(token, this.secret)
+      if (!payload) return null
+      const session = await this.users.resolveSession(payload.sessionId)
+      if (
+        !session ||
+        session.revokedAt !== null ||
+        session.tokenSecretHash !== hashSessionSecret(payload.tokenSecret) ||
+        new Date(session.expiresAt).getTime() <= Date.now()
+      ) {
+        return null
+      }
+      await this.users.touchSession(payload.sessionId)
+      return {
+        userId: session.userId,
+        tenantId: session.tenantId,
+        organizationId: session.organizationId ?? session.tenantId,
+        roles: session.roles,
+        passwordResetRequired: session.passwordResetRequired,
+        emailVerified: session.emailVerified,
+      }
+    }
+
     const payload = verifySessionToken(token, this.secret)
     if (!payload) return null
-    const user = this.users.findById(payload.userId)
-    return user ? { userId: user.id, tenantId: user.tenantId, roles: user.roles } : null
+    const user = await this.users.findById(payload.userId)
+    return user
+      ? {
+          userId: user.id,
+          tenantId: user.tenantId,
+          organizationId: user.organizationId ?? user.tenantId,
+          roles: user.roles,
+          passwordResetRequired: user.passwordResetRequired,
+          emailVerified: user.emailVerified,
+        }
+      : null
   }
 }
 
@@ -44,7 +82,7 @@ function getHeader(request: FastifyRequest, name: string): string | undefined {
   return Array.isArray(value) ? value[0] : value
 }
 
-export function createAuthProvider(config: AppConfig, users: UserRepository): AuthProvider {
+export function createAuthProvider(config: AppConfig, users: AuthAccounts): AuthProvider {
   if (config.AUTH_MODE === 'local') return new LocalAuthProvider(users, config.AUTH_SECRET)
   if (config.AUTH_MODE === 'demo') return new DemoAuthProvider()
 

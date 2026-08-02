@@ -4,7 +4,9 @@ export type VideoProviderName = 'stringx-seedance' | 'aideos-seedance' | 'volc-a
 
 export type VideoGenerationRequest = {
   taskId: string
+  idempotencyKey?: string
   model: string | null
+  tier?: 'mini' | 'fast' | 'pro' | null
   prompt: string
   negativePrompt?: string
   seconds: number

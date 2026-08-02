@@ -32,10 +32,10 @@ async function generate(envPath, outputPath) {
   const patch = {
     users: [
       {
-        id: 'user-creator',
-        email: required(values, 'BOOTSTRAP_CREATOR_EMAIL').toLowerCase(),
-        name: required(values, 'BOOTSTRAP_CREATOR_NAME'),
-        passwordHash: hashPassword(required(values, 'BOOTSTRAP_CREATOR_PASSWORD')),
+        id: 'user-member',
+        email: required(values, 'BOOTSTRAP_MEMBER_EMAIL').toLowerCase(),
+        name: required(values, 'BOOTSTRAP_MEMBER_NAME'),
+        passwordHash: hashPassword(required(values, 'BOOTSTRAP_MEMBER_PASSWORD')),
       },
       {
         id: 'user-admin',

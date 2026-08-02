@@ -34,6 +34,8 @@ export type VolcArkSeedanceOptions = {
   baseUrl: string
   apiKey: string
   defaultModel: string
+  defaultTier?: 'mini' | 'fast' | 'pro'
+  tierModels?: Partial<Record<'mini' | 'fast' | 'pro', string>>
   requestTimeoutMs: number
   providerLabel?: string
   fetcher?: Fetcher
@@ -67,8 +69,9 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
 
     const response = await this.requestJson('/contents/generations/tasks', {
       method: 'POST',
+      ...(request.idempotencyKey ? { headers: { 'Idempotency-Key': request.idempotencyKey } } : {}),
       body: JSON.stringify({
-        model: this.resolveModel(request.model),
+        model: this.resolveModel(request.model, request.tier),
         content: [
           { type: 'text', text: effectivePrompt },
           ...images.slice(0, 9).map((image) => ({
@@ -78,7 +81,7 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
           })),
         ],
         generate_audio: request.generateAudio,
-        clientRequestId: request.taskId,
+        clientRequestId: request.idempotencyKey ?? request.taskId,
         resolution: resolutionSchema.parse(request.resolution),
         ratio: request.ratio,
         duration: request.seconds,
@@ -209,8 +212,10 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
     return taskResponseSchema.parse(response)
   }
 
-  private resolveModel(model: string | null): string {
-    return model?.startsWith('doubao-seedance-') ? model : this.options.defaultModel
+  private resolveModel(model: string | null, tier?: 'mini' | 'fast' | 'pro' | null): string {
+    if (model?.startsWith('doubao-seedance-')) return model
+    const effectiveTier = tier ?? this.options.defaultTier
+    return (effectiveTier ? this.options.tierModels?.[effectiveTier] : undefined) ?? this.options.defaultModel
   }
 
   private async requestJson(path: string, init: RequestInit): Promise<unknown> {

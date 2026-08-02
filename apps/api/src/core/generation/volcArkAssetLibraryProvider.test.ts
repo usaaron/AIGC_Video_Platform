@@ -135,6 +135,38 @@ describe('VolcArkAssetLibraryProvider', () => {
     })
   })
 
+  it('retries a transient material library network failure once', async () => {
+    let calls = 0
+    const fetcher = (async (input: RequestInfo | URL) => {
+      calls += 1
+      if (calls === 1) throw new TypeError('fetch failed')
+      const url = String(input)
+      if (url.includes('Action=GetAsset&')) {
+        return Response.json({
+          ResponseMetadata: { RequestId: 'request-1' },
+          Result: {
+            Id: 'asset-aigc-1',
+            GroupId: 'group-aigc-1',
+            Name: '角色甲',
+            AssetType: 'Image',
+            Status: 'Processing',
+            URL: '',
+          },
+        })
+      }
+      return Response.json({
+        ResponseMetadata: { RequestId: 'request-2' },
+        Result: { Id: 'group-aigc-1', Name: '角色甲', GroupType: 'AIGC' },
+      })
+    }) as typeof fetch
+
+    await expect(createProvider(fetcher).getPortrait('asset-aigc-1')).resolves.toMatchObject({
+      assetId: 'asset-aigc-1',
+      status: 'processing',
+    })
+    expect(calls).toBe(3)
+  })
+
   it('creates an asynchronous AIGC image resource', async () => {
     const requests: Array<{ url: string; body: unknown }> = []
     const responses = [

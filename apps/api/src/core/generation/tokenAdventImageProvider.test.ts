@@ -14,6 +14,7 @@ describe('TokenAdventImageProvider', () => {
 
     const outputs = await provider.generate({
       taskId: 'task-1',
+      idempotencyKey: 'generation:tenant-1:task-1',
       assetId: 'asset-1',
       aspectRatio: '9:16',
       prompt: '青年女性角色大头照',
@@ -28,6 +29,9 @@ describe('TokenAdventImageProvider', () => {
       size: '1024x1536',
       quality: 'low',
       output_format: 'png',
+    })
+    expect(capturedInit?.headers).toMatchObject({
+      'Idempotency-Key': 'generation:tenant-1:task-1:single',
     })
     expect(outputs[0]).toMatchObject({ view: 'single', contentType: 'image/png' })
     expect(outputs[0]?.content.toString()).toBe('png-content')
@@ -57,72 +61,6 @@ describe('TokenAdventImageProvider', () => {
     expect(capturedBody?.get('model')).toBe('gpt-image-2')
     expect(capturedBody?.get('size')).toBe('1536x1024')
     expect(capturedBody?.getAll('image[]')).toHaveLength(1)
-  })
-
-  it('uses a separately configured Nano Banana upstream instead of falling back to Img2', async () => {
-    let capturedUrl = ''
-    let capturedBody: string | undefined
-    let capturedAuthorization = ''
-    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      capturedUrl = String(input)
-      capturedBody = String(init?.body)
-      capturedAuthorization = new Headers(init?.headers).get('authorization') || ''
-      return Response.json({ data: [{ b64_json: Buffer.from('banana').toString('base64') }] })
-    }) as typeof fetch
-    const provider = new TokenAdventImageProvider({
-      baseUrl: 'https://tokenadvent.example',
-      apiKey: 'img2-key',
-      alternateBaseUrl: 'https://nano.example',
-      alternateApiKey: 'banana-key',
-      alternateModels: ['nano-banana'],
-      alternateModel: 'nano-banana',
-      model: 'gpt-image-2',
-      quality: 'low',
-      requestTimeoutMs: 180_000,
-      fetcher,
-    })
-
-    await provider.generate({
-      taskId: 'task-banana',
-      assetId: 'asset-1',
-      model: 'nano-banana',
-      aspectRatio: '1:1',
-      prompt: 'a single prop',
-      negativePrompt: '',
-      references: [],
-      outputs: ['single'],
-    })
-
-    expect(capturedUrl).toBe('https://nano.example/v1/images/generations')
-    expect(JSON.parse(capturedBody || '')).toMatchObject({ model: 'nano-banana' })
-    expect(capturedAuthorization).toBe('Bearer banana-key')
-  })
-
-  it('refuses Nano Banana when its real upstream is not configured', async () => {
-    const fetcher = (async () => {
-      throw new Error('should not call an upstream')
-    }) as typeof fetch
-    const provider = new TokenAdventImageProvider({
-      baseUrl: 'https://tokenadvent.example',
-      apiKey: 'img2-key',
-      model: 'gpt-image-2',
-      quality: 'low',
-      requestTimeoutMs: 180_000,
-      fetcher,
-    })
-
-    await expect(
-      provider.generate({
-        taskId: 'task-unconfigured-banana',
-        assetId: 'asset-1',
-        model: 'nano-banana',
-        aspectRatio: '1:1',
-        prompt: 'a single prop',
-        negativePrompt: '',
-        references: [],
-        outputs: ['single'],
-      }),
-    ).rejects.toThrow('尚未配置真实 API 地址')
   })
 
   it('retries one transient network failure', async () => {
@@ -167,6 +105,33 @@ describe('TokenAdventImageProvider', () => {
         outputs: ['single'],
       }),
     ).rejects.toThrow('invalid prompt')
+    expect(attempts).toBe(1)
+  })
+
+  it('summarizes upstream 524 HTML timeouts without repeating a stuck image request', async () => {
+    let attempts = 0
+    const fetcher = (async () => {
+      attempts += 1
+      return new Response(
+        '<html><head><title>tokenadvent.com | 524: A timeout occurred</title></head></html>',
+        {
+          status: 524,
+        },
+      )
+    }) as typeof fetch
+    const provider = createProvider(fetcher)
+
+    await expect(
+      provider.generate({
+        taskId: 'task-timeout',
+        assetId: 'asset-1',
+        aspectRatio: '1:1',
+        prompt: 'CG角色图',
+        negativePrompt: '',
+        references: [],
+        outputs: ['single'],
+      }),
+    ).rejects.toThrow('上游图片服务超时（524）')
     expect(attempts).toBe(1)
   })
 })

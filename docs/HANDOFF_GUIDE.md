@@ -12,14 +12,14 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 
 当前 Demo 已跑通除音频外的主要闭环：
 
-- 中文剧本快速生成、主动补齐制作视觉维度和会员专业审核。
+- 中文剧本快速生成、主动补齐制作视觉维度、结构块插入和资产建议。
 - 人物、场景、物品和服装资产；人物包含面部、全身、腿部优化和三视图流程。
 - TokenAdvent 文本与图片生成。
 - 弦序 Seedance 2.0 视频生成、任务轮询、取消、失败退款和可信人像素材库。
 - 分镜按场次或动作拆分、资产匹配、尾帧承接和会员三路并发。
 - FFmpeg 按分镜顺序合成无声完整 MP4 预览。
 
-尚未完成正式音频、支付、邀请注册、多客户隔离、PostgreSQL、持久消息队列和正式商用监控。当前定位是封闭客户测试和小团队联合开发。
+尚未完成正式音频、支付、邮件/短信投递、队列监控/告警、Worker 横向扩缩容演练和正式商用监控。账号/auth、组织 membership、session、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜、生成任务、通用 AI Job 和小说域数据已经迁入 Postgres；生成任务触发通过事务 Outbox 投递到 Redis/BullMQ，由独立 Worker 进程消费。当前定位是封闭客户测试和小团队联合开发。
 
 ## 2. 收到压缩包后先做什么
 
@@ -32,16 +32,17 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 
 常用命令：
 
-| 命令           | 用途                 |
-| -------------- | -------------------- |
-| `pnpm dev`     | 同时启动 Web 和 API  |
-| `pnpm dev:web` | 仅启动 Vite Web      |
-| `pnpm dev:api` | 构建共享包并启动 API |
-| `pnpm test`    | 运行全部测试         |
-| `pnpm build`   | 构建全部工作区       |
-| `pnpm check`   | 提交前完整检查       |
+| 命令              | 用途                        |
+| ----------------- | --------------------------- |
+| `pnpm dev`        | 同时启动 Web、API 和 Worker |
+| `pnpm dev:web`    | 仅启动 Vite Web             |
+| `pnpm dev:api`    | 构建共享包并启动 API        |
+| `pnpm dev:worker` | 构建共享包并启动 Worker     |
+| `pnpm test`       | 运行全部测试                |
+| `pnpm build`      | 构建全部工作区              |
+| `pnpm check`      | 提交前完整检查              |
 
-本地端口：Web `5173`，API `8787`。Vite 将 `/api` 代理到本地 API。
+本地端口：创作端 `5173`，独立管理员端 `5174`，API `8787`。两个 Vite 应用都会将 `/api` 代理到本地 API。
 
 ## 3. 交接包中的敏感内容
 
@@ -61,8 +62,8 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 ```text
 apps/
   web/        React 19 + Vite 8 创作端
-  api/        Fastify 5 + TypeScript API 与进程内 Worker
-  admin/      未来独立管理员端边界占位
+  api/        Fastify 5 + TypeScript API 与 BullMQ Worker
+  admin/      独立管理员端，集中承载用户、组织、账单、session 和审计能力
 packages/
   contracts/  前后端共享 Zod Schema、实体、角色和权限
   prompting/  图片/视频提示词与质量规则编译
@@ -87,17 +88,24 @@ API 入口是 `apps/api/src/app.ts`，配置入口是 `apps/api/src/config.ts`�
 每个业务模块遵守以下分层：
 
 ```text
-Route -> Service -> Repository / Provider -> AppStore / 外部 API
+Route -> Service -> Repository / Provider -> Postgres / AppStore / 外部 API
 ```
 
 - `routes.ts`：Zod 输入校验、权限和 HTTP 映射。
 - `service.ts`：业务编排，不直接依赖页面。
-- `repository.ts`：带用户、租户和项目边界的数据读写。
-- `core/generation/`：TokenAdvent、弦序、Aideos、官方方舟等 Provider 适配器。
+- `repository.ts`：带用户、组织和项目边界的数据读写；底层字段仍可能使用 `tenantId` 兼容命名。
+- `core/generation/`：TokenAdvent、弦序、官方方舟等 Provider 适配器。
+- `core/jobs/outbox.ts`：事务 Outbox。任务记录、扣费和待投递事件在同一个 Postgres 事务内提交，relay 再投递 BullMQ。
+- `core/jobs/bullMqQueue.ts`：BullMQ/Redis 任务触发队列，Outbox relay 入队，Worker 消费。
 - `core/jobs/taskDispatcher.ts`：任务依赖、套餐并发、提交、轮询、失败和退款。
+- `modules/aiJobs`：通用 AI Job 仓储与状态查询，小说摘要队列等长耗时文本工作流通过 Worker 执行。
 - `core/film/`：下载分镜视频并调用 FFmpeg 合成完整预览。
-- `infra/store.ts`：当前 JSON 状态仓储，未来应替换为数据库。
+- `infra/postgres.ts`：Postgres migration、`schema_migrations` 和事务工具。
+- `infra/store.ts`：本地媒体索引、运行态缓存和兼容备份的 JSON 状态仓储；项目域新数据以 Postgres 为业务来源。
 - `infra/objectStorage.ts`：本地文件或 GCS 的统一对象存储接口。
+- `modules/accountManagement`：邀请码注册、组织、成员、角色、membership、组织 session 和兼容 workspace/tenant 入口。
+- `modules/admin`：统一后台查询、账号启停、组织、membership、账单、session、审计日志和管理员重置密码。
+- `modules/billing`：Postgres ledger，扣费、退款、充值和管理员调账。
 
 新增接口时，先修改 `packages/contracts` 的 Schema，再改 API 和 Web。不要在两端复制枚举或手写不一致的请求类型。
 
@@ -116,15 +124,25 @@ Route -> Service -> Repository / Provider -> AppStore / 外部 API
 
 ## 7. 核心数据模型
 
-当前状态保存在 `apps/api/data/app.json`：
+当前状态分为 Postgres、JSON 和对象存储三类。
 
-- `User`：账号、租户、角色、套餐和积分余额。
-- `Project`：名称、内容类型、比例、简介、剧本和版本。
-- `Asset`：人物、场景、物品、服装或音频及其结构化属性。
-- `Shot`：顺序、景别、时长、提示词、分镜图和连续模式。
-- `GenerationTask`：Provider、模型、依赖、状态、积分、输出和错误。
-- `LedgerEntry`：积分发放、生成扣减和退款流水。
+Postgres：
+
+- `users` / `auth_identities`：账号和本地登录身份。
+- `sessions`：HttpOnly Cookie 对应的服务端 session、设备信息、撤销状态和过期时间。
+- `tenants` / `tenant_memberships`：组织、角色、状态和主组织；当前仍是数据库兼容表名。
+- `billing_accounts` / `billing_ledger_entries`：套餐、余额、幂等扣费、退款、充值和调账流水。
+- `password_reset_tokens`：忘记密码 token。
+- `audit_log_entries`：账号、成员、组织、session、账单等敏感操作审计。
+- `projects` / `project_versions`：项目、比例、内容类型、简介、剧本和版本。
+- `assets`：人物、场景、物品、服装或音频及其结构化属性。
+- `shots`：顺序、景别、时长、提示词、分镜图和连续模式。
+- `generation_tasks`：Provider、模型、依赖、状态、积分、输出和错误。
+
+JSON `apps/api/data/app.json`：
+
 - `Media`：上传文件元数据和对象存储位置。
+- 兼容镜像：账号、ledger 和项目域的历史 JSON 备份，不再作为 Postgres 业务来源。
 
 任务状态包括 `queued`、`paused`、`running`、`completed`、`failed` 和 `cancelled`。任务归档只写 `queueHiddenAt`，不能物理删除已完成任务，否则资产和视频输出 URL 会失效。
 
@@ -145,7 +163,7 @@ Route -> Service -> Repository / Provider -> AppStore / 外部 API
 5. 后续 tick 轮询状态，完成后代理视频并保存末帧。
 6. 失败任务自动创建幂等退款流水。
 
-Aideos 和官方方舟保留为显式回滚 Provider，不要把 Aideos 称为弦序官方服务。
+官方方舟保留为显式回滚 Provider；当前视频主链路使用弦序 StringX Seedance。
 
 ### 连续性与三路并发
 
@@ -165,17 +183,19 @@ Aideos 和官方方舟保留为显式回滚 Provider，不要把 Aideos 称为�
 
 ## 10. 如何修改常见功能
 
-| 需求                   | 优先查看                                                                |
-| ---------------------- | ----------------------------------------------------------------------- |
-| 新增项目/资产/分镜字段 | `packages/contracts/src/project.ts`、项目 Repository、对应页面          |
-| 修改登录和账号         | `modules/auth/`、`AuthProvider.jsx`、`LoginPage.jsx`                    |
-| 修改积分、套餐或退款   | `modules/billing/`、`modules/generation/`、`taskDispatcher.ts`          |
-| 修改图片生成           | `core/generation/tokenAdventImageProvider.ts`、资产功能目录             |
-| 修改视频请求           | `stringXSeedanceProvider.ts`、`taskDispatcher.ts`、`packages/prompting` |
-| 修改分镜拆分           | `modules/projects/service.ts`、`StoryboardPage.jsx`                     |
-| 修改三路并发           | `videoBatchPlanner.js`、`taskDispatcher.ts`，两端测试必须同时更新       |
-| 修改完整成片           | `core/film/`、`FilmPage.jsx`、`features/film/`                          |
-| 修改部署               | `compose.demo.yml`、`deploy/`、`docs/DEPLOYMENT.md`                     |
+| 需求                   | 优先查看                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| 新增项目/资产/分镜字段 | `packages/contracts/src/project.ts`、项目 Repository、对应页面                                |
+| 修改登录和账号         | `modules/auth/`、`AuthProvider.jsx`、`LoginPage.jsx`                                          |
+| 修改积分、套餐或退款   | `modules/billing/`、`modules/generation/`、`taskDispatcher.ts`                                |
+| 修改图片生成           | `core/generation/tokenAdventImageProvider.ts`、资产功能目录                                   |
+| 修改视频请求           | `stringXSeedanceProvider.ts`、`taskDispatcher.ts`、`packages/prompting`                       |
+| 修改分镜拆分           | `modules/projects/service.ts`、`StoryboardPage.jsx`                                           |
+| 修改三路并发           | `videoBatchPlanner.js`、`taskDispatcher.ts`，两端测试必须同时更新                             |
+| 修改完整成片           | `core/film/`、`FilmPage.jsx`、`features/film/`                                                |
+| 修改组织/session       | `modules/accountManagement/`、`apps/web/src/pages/SettingsPage.jsx`、`apps/admin/src/App.jsx` |
+| 修改后台管理           | `modules/admin/`、`packages/contracts/src/admin.ts`、`apps/admin/src/`                        |
+| 修改部署               | `compose.demo.yml`、`deploy/`、`docs/DEPLOYMENT.md`                                           |
 
 ## 11. 测试和代码规范
 
@@ -194,6 +214,12 @@ pnpm check
 
 它依次运行 Prettier 检查、Oxlint、全部 Vitest 和生产构建。Provider 测试使用测试替身，不应在 CI 中产生真实费用。
 
+账号和账单改动还应单独跑 CI database job 的核心范围：
+
+```bash
+pnpm --filter @seqora/api exec vitest run src/infra/postgres.test.ts src/modules/auth/routes.test.ts src/modules/accountManagement/routes.test.ts src/modules/billing/creditLedger.test.ts
+```
+
 ## 12. 部署
 
 封闭外测推荐 Google Compute Engine + Docker Compose + Caddy：
@@ -204,16 +230,16 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
 docker compose --env-file deploy/demo.env -f compose.demo.yml ps
 ```
 
-生产 Web 与 API 同域，Caddy 处理 HTTPS 和 `/api` 代理。API 使用 Docker 持久卷保存 `app.json`，媒体推荐私有 GCS。完整部署、备份、回滚和 CI/CD 步骤见 `docs/DEPLOYMENT.md` 与 `docs/CICD.md`。
+生产 Web 与 API 同域，Caddy 处理 HTTPS 和 `/api` 代理。Compose 同时运行 Postgres、Redis、API、Worker 和 Web；`app.json` 只保留媒体索引和兼容备份，媒体推荐私有 GCS。完整部署、备份、回滚和 CI/CD 步骤见 `docs/DEPLOYMENT.md` 与 `docs/CICD.md`。
 
-复制本地 `apps/api/data/` 不能直接覆盖正在运行的云端数据卷。恢复前必须停止 API、备份服务器当前数据，并确认对象存储中的媒体与 JSON 记录一致。
+复制本地 `apps/api/data/` 不能直接覆盖正在运行的云端数据卷。恢复前必须停止 API 和 Worker、备份服务器当前 Postgres、JSON 和 GCS 对象，并确认对象存储中的媒体与 JSON 记录一致。
 
 ## 13. 当前必须知道的限制
 
-1. JSON Store 和进程内 Worker 只适合单 API 实例；多实例会产生状态竞争和重复调度风险。
-2. 任务轮询与调度依赖 API 进程存活，尚未接入持久消息队列。
-3. 多位测试者共用一个创作者账号会看到相同数据，不是正式租户隔离。
-4. 音频、支付、找回密码和邀请注册尚未实现。
+1. 项目/任务/AI Job 已进入 Postgres，任务触发已通过 Outbox 进入 Redis/BullMQ；商用多实例前仍要验证组织过滤、重复投递、故障恢复和 Worker 横向扩缩容。
+2. Worker 是独立进程，但队列监控、死信处理、任务恢复演练和告警还没生产化。
+3. `app.json` 仍承载本地媒体索引和兼容备份，恢复数据前必须先确认 Postgres、JSON 和对象存储三者一致。
+4. 音频、邮件/短信投递和用户协议/隐私/数据删除流程尚未实现；Stripe test mode 支付沙箱已接入，但正式生产支付仍需补价格/webhook endpoint、税务发票、支付失败通知和对账告警。
 5. 第三方生成质量不稳定，提示词和负面规则只能提高下限，仍需人工验收。
 6. 上游额度、并发池、素材审核和安全策略会导致平台外部错误，不能用本地假状态掩盖。
 

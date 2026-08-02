@@ -43,8 +43,8 @@ export class ProjectService {
     return this.repository.list(principal)
   }
 
-  workspace(projectId: string, principal: Principal) {
-    const workspace = this.repository.workspace(projectId, principal)
+  async workspace(projectId: string, principal: Principal) {
+    const workspace = await this.repository.workspace(projectId, principal)
     if (!workspace) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权访问')
     return workspace
   }
@@ -78,7 +78,7 @@ export class ProjectService {
     principal: Principal,
     model: ScriptModel = DEFAULT_SCRIPT_MODEL,
   ) {
-    const workspace = this.workspace(projectId, principal)
+    const workspace = await this.workspace(projectId, principal)
     const source = script.trim()
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本内容')
 
@@ -165,7 +165,7 @@ export class ProjectService {
     billingMode: ScriptBillingMode = 'direct',
     episodeDurationSeconds = episodeMinutes * 60,
   ) {
-    const workspace = this.workspace(projectId, principal)
+    const workspace = await this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const source =
       draft.trim() ||
@@ -265,7 +265,7 @@ export class ProjectService {
     billingMode: ScriptBillingMode = 'direct',
     episodeDurationSeconds = episodeMinutes * 60,
   ) {
-    const workspace = this.workspace(projectId, principal)
+    const workspace = await this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const source = script.trim() || workspace.project.script.trim()
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先生成或填写快速剧本')
@@ -312,7 +312,7 @@ export class ProjectService {
     principal: Principal,
     model: ScriptModel = DEFAULT_SCRIPT_MODEL,
   ) {
-    const workspace = this.workspace(projectId, principal)
+    const workspace = await this.workspace(projectId, principal)
     if (this.repository.planFor(principal) !== 'member') {
       throw new AppError(403, 'MEMBERSHIP_REQUIRED', '专业剧本审核仅对创作会员开放')
     }
@@ -379,21 +379,23 @@ export class ProjectService {
   }
 
   async createShot(projectId: string, input: CreateShot, principal: Principal) {
-    this.assertShotDurationForProject(projectId, input.duration, principal)
+    await this.assertShotDurationForProject(projectId, input.duration, principal)
     const shot = await this.repository.createShot(projectId, input, principal)
     if (!shot) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
     return shot
   }
 
   async updateShot(projectId: string, shotId: string, input: UpdateShot, principal: Principal) {
-    if (input.duration !== undefined) this.assertShotDurationForProject(projectId, input.duration, principal)
+    if (input.duration !== undefined) {
+      await this.assertShotDurationForProject(projectId, input.duration, principal)
+    }
     const shot = await this.repository.updateShot(projectId, shotId, input, principal)
     if (!shot) throw new AppError(404, 'SHOT_NOT_FOUND', '分镜不存在或无权修改')
     return shot
   }
 
-  private assertShotDurationForProject(projectId: string, duration: number, principal: Principal) {
-    const workspace = this.workspace(projectId, principal)
+  private async assertShotDurationForProject(projectId: string, duration: number, principal: Principal) {
+    const workspace = await this.workspace(projectId, principal)
     if (workspace.project.contentType !== 'short-drama' && duration < 4) {
       throw new AppError(
         400,
@@ -404,7 +406,7 @@ export class ProjectService {
   }
 
   async generateShots(projectId: string, input: GenerateShotsRequest, principal: Principal) {
-    const workspace = this.workspace(projectId, principal)
+    const workspace = await this.workspace(projectId, principal)
     const source = workspace.project.script.trim()
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本')
 
@@ -422,7 +424,7 @@ export class ProjectService {
   }
 
   async autoSplitShotEpisodes(projectId: string, input: AutoSplitShotsRequest, principal: Principal) {
-    const workspace = this.workspace(projectId, principal)
+    const workspace = await this.workspace(projectId, principal)
     const assigned = assignShotEpisodes(workspace.shots, input.episodeDurationSeconds)
     const updated = await this.repository.updateShotEpisodes(
       projectId,

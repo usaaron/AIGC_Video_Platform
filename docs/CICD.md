@@ -5,7 +5,7 @@
 ## 日常流程
 
 1. 功能分支提交 Pull Request。
-2. `.github/workflows/ci.yml` 执行格式、Lint、测试和构建；`.github/workflows/containers.yml` 验证两个容器可以构建。
+2. `.github/workflows/ci.yml` 执行格式、Lint、测试和构建；其中 `database` job 会起 Postgres 和 Redis、执行 migration，先跑 API contract tests，再跑 auth/account/billing/project/admin/queue 集成测试。后端测试分层和运行方式见 [BACKEND_TESTING.md](BACKEND_TESTING.md)；`.github/workflows/containers.yml` 验证两个容器可以构建。
 3. Review 通过后合并到 `main`。
 4. CI 根据本次完整 Push 的文件变化生成发布清单。
 5. `.github/workflows/deploy.yml` 使用 Workload Identity Federation 获取短期 Google 凭据，推送不可变 Commit SHA 镜像，并通过 IAP SSH 更新 GCE。
@@ -124,7 +124,7 @@ echo "$DEPLOY_SA_EMAIL"
 | `GCE_INSTANCE`                 | `instance-20260719-184241`       |
 | `GCE_ZONE`                     | `asia-east2-c`                   |
 
-在 `Settings -> Branches` 保护 `main`：要求 `CI / quality` 通过、至少一位 Review、禁止强推。三人协作时采用短功能分支和小 PR，避免多人直接覆盖 `main`。
+在 `Settings -> Branches` 保护 `main`：要求 `CI / quality`、`CI / database` 通过、至少一位 Review、禁止强推。三人协作时采用短功能分支和小 PR，避免多人直接覆盖 `main`。
 
 ## 手动发布与回滚
 
@@ -135,7 +135,7 @@ echo "$DEPLOY_SA_EMAIL"
 - `all`：发布两端。
 - `auto`：手动运行时按安全策略等同 `all`；自动流水线会读取 CI 的精确发布清单。
 
-每次发布使用 Commit SHA 标签，旧镜像不会被覆盖。服务器会在 `/opt/seqora-backups/releases` 保存发布前的 `app.json` 和镜像清单，并在健康检查失败时自动回滚。需要人工回退到指定镜像时：
+每次发布使用 Commit SHA 标签，旧镜像不会被覆盖。服务器会在 `/opt/seqora-backups/releases` 保存发布前的 `app.json` 和镜像清单，并在健康检查失败时自动回滚。发布前和破坏性 migration 前还必须运行 [备份与恢复流程](BACKUP_RESTORE.md) 的全量备份，保留 Postgres dump、JSON 历史与 GCS generation 清单。需要人工回退到指定镜像时：
 
 ```bash
 sudo /opt/seqora/deploy/update-release.sh api \
@@ -146,7 +146,11 @@ sudo /opt/seqora/deploy/update-release.sh web \
 
 ## 当前边界
 
+- `.github/workflows/security.yml` 提供定时/手动的依赖扫描、OWASP Dependency-Check 和 SonarQube 入口。
+- `pnpm security:audit` 是轻量级供应链门禁，适合普通 PR。
+- `pnpm perf:k6:smoke` 和 `pnpm perf:k6:breakpoint` 只用于预发或专门压测环境。
+- 环境分层和预发布匿名化流程见 [ENVIRONMENT_STRATEGY.md](ENVIRONMENT_STRATEGY.md)，预发布刷新先跑 `pnpm preprod:anonymize:check` 再跑 `pnpm preprod:anonymize`。
 - CI/CD 文件已经就绪，但在 Artifact Registry、Workload Identity Federation、GitHub Environment 和 IAM 未完成前，自动部署不会成功。
 - 当前单实例更新会短暂重建目标容器，不是零停机。Web 通常为数秒，API 更新期间新请求可能短暂失败。
-- API 使用本地 JSON 和进程内任务 Worker。更新 API 前会备份数据，但运行中的生成任务不适合跨进程恢复；客户规模扩大前应迁移 PostgreSQL、Redis/队列和独立 Worker。
+- API 已使用 Postgres 承载账号/auth/session/组织 membership、账单 ledger、项目、资产、分镜、生成任务、AI Job 和小说域数据；任务触发通过 Postgres Outbox 投递 Redis/BullMQ，由独立 Worker 进程消费。更新 API 前会备份 Postgres 与 JSON 兼容数据；客户规模扩大前应补齐队列监控、重复投递验证、Worker 横向扩缩容演练和运行中任务恢复演练。
 - 数据结构发生破坏性变化时必须先写迁移脚本，不能只依赖镜像回滚。

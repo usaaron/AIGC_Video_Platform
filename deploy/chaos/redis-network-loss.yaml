@@ -1,0 +1,17 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: seqora-redis-network-loss
+  namespace: seqora-chaos
+spec:
+  action: loss
+  mode: all
+  selector:
+    namespaces:
+      - seqora-prod
+    labelSelectors:
+      app.kubernetes.io/name: redis
+  loss:
+    loss: '20'
+    correlation: '25'
+  duration: 5m

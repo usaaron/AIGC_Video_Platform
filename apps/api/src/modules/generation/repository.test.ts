@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { AppStore } from '../../infra/store.js'
 import { GenerationTaskRepository } from './repository.js'
 
-const creator: Principal = {
-  userId: 'user-creator',
+const memberPrincipal: Principal = {
+  userId: 'user-member',
   tenantId: 'tenant-seqora-demo',
-  roles: ['creator'],
+  roles: ['member'],
 }
 
 describe('GenerationTaskRepository charged creation', () => {
@@ -16,9 +16,9 @@ describe('GenerationTaskRepository charged creation', () => {
     const repository = new GenerationTaskRepository(store)
     const input = taskInput({ clientRequestId: 'atomic-image-task', estimatedCredits: 7 })
 
-    const task = await repository.createWithCharge(input, creator)
+    const task = await repository.createWithCharge(input, memberPrincipal)
     const persisted = store.read((state) => ({
-      credits: state.users.find((user) => user.id === creator.userId)!.credits,
+      credits: state.users.find((user) => user.id === memberPrincipal.userId)!.credits,
       ledger: state.ledger.find((entry) => entry.id === 'generation-atomic-image-task'),
       taskCount: state.tasks.filter((item) => item.clientRequestId === input.clientRequestId).length,
     }))
@@ -44,19 +44,19 @@ describe('GenerationTaskRepository charged creation', () => {
     const store = new AppStore(null)
     await store.initialize()
     await store.mutate((state) => {
-      state.users.find((user) => user.id === creator.userId)!.credits = 3
+      state.users.find((user) => user.id === memberPrincipal.userId)!.credits = 3
     })
     const repository = new GenerationTaskRepository(store)
     const input = taskInput({ clientRequestId: 'insufficient-image-task', estimatedCredits: 4 })
 
-    await expect(repository.createWithCharge(input, creator)).rejects.toMatchObject({
+    await expect(repository.createWithCharge(input, memberPrincipal)).rejects.toMatchObject({
       statusCode: 402,
       code: 'INSUFFICIENT_CREDITS',
     })
 
     expect(
       store.read((state) => ({
-        credits: state.users.find((user) => user.id === creator.userId)!.credits,
+        credits: state.users.find((user) => user.id === memberPrincipal.userId)!.credits,
         ledgerCount: state.ledger.filter((entry) => entry.id === 'generation-insufficient-image-task').length,
         taskCount: state.tasks.filter((item) => item.clientRequestId === input.clientRequestId).length,
       })),
@@ -73,10 +73,10 @@ describe('GenerationTaskRepository charged creation', () => {
     const repository = new GenerationTaskRepository(store)
     const input = taskInput({ clientRequestId: 'duplicate-image-task', estimatedCredits: 9 })
 
-    const first = await repository.createWithCharge(input, creator)
-    const second = await repository.createWithCharge(input, creator)
+    const first = await repository.createWithCharge(input, memberPrincipal)
+    const second = await repository.createWithCharge(input, memberPrincipal)
     const persisted = store.read((state) => ({
-      credits: state.users.find((user) => user.id === creator.userId)!.credits,
+      credits: state.users.find((user) => user.id === memberPrincipal.userId)!.credits,
       ledgerCount: state.ledger.filter((entry) => entry.id === 'generation-duplicate-image-task').length,
       taskCount: state.tasks.filter((item) => item.clientRequestId === input.clientRequestId).length,
     }))
@@ -99,7 +99,7 @@ describe('GenerationTaskRepository charged creation', () => {
       metadata: { shotId: 'shot-1' },
     })
 
-    const task = await repository.createWithCharge(input, creator)
+    const task = await repository.createWithCharge(input, memberPrincipal)
     await store.mutate((state) => {
       const stored = state.tasks.find((item) => item.id === task.id)!
       stored.status = 'running'
@@ -110,7 +110,7 @@ describe('GenerationTaskRepository charged creation', () => {
       }
     })
 
-    const result = await repository.deleteFromQueue(task.id, creator)
+    const result = await repository.deleteFromQueue(task.id, memberPrincipal)
 
     expect(result).toMatchObject({ outcome: 'deleted', refund: false })
     expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({

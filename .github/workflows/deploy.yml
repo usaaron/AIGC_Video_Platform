@@ -192,3 +192,18 @@ jobs:
             echo "- Web changed: ${{ steps.changes.outputs.web }}"
             echo "- Revision: ${{ steps.changes.outputs.sha }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Node.js for synthetic probe
+        if: steps.changes.outputs.api == 'true' || steps.changes.outputs.web == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run post-deploy synthetic probe
+        if: steps.changes.outputs.api == 'true' || steps.changes.outputs.web == 'true'
+        env:
+          SYNTHETIC_BASE_URL: ${{ vars.SYNTHETIC_BASE_URL }}
+          SYNTHETIC_EMAIL: ${{ secrets.SYNTHETIC_EMAIL }}
+          SYNTHETIC_PASSWORD: ${{ secrets.SYNTHETIC_PASSWORD }}
+          SYNTHETIC_ALERT_WEBHOOK_URL: ${{ secrets.SYNTHETIC_ALERT_WEBHOOK_URL }}
+        run: node scripts/monitoring/synthetic-probe.mjs

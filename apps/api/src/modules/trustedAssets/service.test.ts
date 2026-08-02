@@ -40,7 +40,7 @@ describe('TrustedAssetService', () => {
         clientRequestId: 'face-client',
         projectId: 'project-midnight-film',
         tenantId: 'tenant-seqora-demo',
-        userId: 'user-creator',
+        userId: 'user-member',
         kind: 'image',
         label: '角色甲面部',
         prompt: '',
@@ -103,9 +103,9 @@ describe('TrustedAssetService', () => {
     )
 
     const updated = await service.registerVirtual('project-midnight-film', 'character-1', {
-      userId: 'user-creator',
+      userId: 'user-member',
       tenantId: 'tenant-seqora-demo',
-      roles: ['creator'],
+      roles: ['member'],
     })
 
     expect(updated.attributes).toMatchObject({
@@ -196,9 +196,9 @@ describe('TrustedAssetService', () => {
     )
 
     const updated = await service.registerVirtual('project-midnight-film', 'character-existing', {
-      userId: 'user-creator',
+      userId: 'user-member',
       tenantId: 'tenant-seqora-demo',
-      roles: ['creator'],
+      roles: ['member'],
     })
 
     expect(createCalls).toBe(0)
@@ -265,7 +265,7 @@ describe('TrustedAssetService', () => {
         clientRequestId: 'old-face-client',
         projectId: 'project-midnight-film',
         tenantId: 'tenant-seqora-demo',
-        userId: 'user-creator',
+        userId: 'user-member',
         kind: 'image',
         label: 'Old face',
         prompt: '',
@@ -328,9 +328,9 @@ describe('TrustedAssetService', () => {
     )
 
     await service.registerVirtual('project-midnight-film', 'character-local-face', {
-      userId: 'user-creator',
+      userId: 'user-member',
       tenantId: 'tenant-seqora-demo',
-      roles: ['creator'],
+      roles: ['member'],
     })
 
     const token = submittedSourceUrl.split('/').pop()!
@@ -408,9 +408,9 @@ describe('TrustedAssetService', () => {
     )
 
     const updated = await service.refresh('project-midnight-film', 'character-rejected', {
-      userId: 'user-creator',
+      userId: 'user-member',
       tenantId: 'tenant-seqora-demo',
-      roles: ['creator'],
+      roles: ['member'],
     })
 
     expect(updated.attributes).toMatchObject({
@@ -521,9 +521,9 @@ describe('TrustedAssetService', () => {
     )
 
     const updated = await service.registerVirtual('project-midnight-film', 'character-retry', {
-      userId: 'user-creator',
+      userId: 'user-member',
       tenantId: 'tenant-seqora-demo',
-      roles: ['creator'],
+      roles: ['member'],
     })
 
     expect(createdGroupName).toMatch(/^可重试人物-/u)

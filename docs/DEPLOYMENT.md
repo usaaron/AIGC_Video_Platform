@@ -1,23 +1,25 @@
 # 外部测试部署
 
-当前推荐把 Demo 部署到一台 Google Compute Engine VM，通过 Docker Compose 运行 API 和 Web。Caddy 在同一域名下提供静态站点、`/api` 反向代理和自动 HTTPS；API 数据写入 Docker 持久卷，媒体写入私有 GCS Bucket。API 的 `8787` 端口不对公网开放。
+当前推荐把 Demo 部署到一台 Google Compute Engine VM，通过 Docker Compose 运行 Postgres、Redis、API、Worker 和 Web。Caddy 在同一域名下提供静态站点、`/api` 反向代理和自动 HTTPS；账号/auth/账单账本、项目、资产、分镜和生成任务写入 Postgres 持久卷，任务触发队列写入 Redis/BullMQ，媒体写入私有 GCS Bucket。API 的 `8787` 端口不对公网开放。
 
 这套方案适合封闭客户测试和小规模并发，不是正式商用架构。正式商用前必须完成本文“生产前必须替换”的事项。
 
 ## 封闭外测登录边界
 
 - 公网只展示登录页；除 `/api/v1/health` 和 `/api/v1/auth/login` 外，项目、媒体、任务、账单和管理 API 都要求有效账号会话。
-- 当前不提供注册、找回密码或公开邀请码。账号只从 `deploy/demo.env` 的 `BOOTSTRAP_*` 变量在空数据卷首次启动时创建。
-- 创作者账号进入创作工作台；管理员账号只进入管理概览，显示名由 `BOOTSTRAP_*_NAME` 设置，两者必须使用不同邮箱和强密码。不要向客户提供管理员账号。
+- 当前开放邀请码注册，不支持无邀请码自助注册。账号可由 `deploy/demo.env` 的 `BOOTSTRAP_*` 变量在空数据卷首次启动时创建，也可由 owner/super_admin/admin 在账号管理页按权限边界受控创建/邀请。
+- 受控组织邀请 API 是注册准入来源，密码重置 API 已有后端能力；生产面向用户开放前，必须先接入邮件/短信投递、频控、运营审核和告警。
+- member 账号进入创作工作台；owner/super_admin/admin 可以看到账号管理入口，显示名由 `BOOTSTRAP_*_NAME` 设置。四类首次账号必须使用不同邮箱和强密码，不要向客户提供管理员、super_admin 或 owner 账号。
 - `BOOTSTRAP_DEMO_WORKSPACE=false` 时新云端账号从空项目列表开始，不会出现本地开发的“午夜胶片”样例。
-- 多位测试者共用一个创作者账号时会看到同一批项目和积分。需要客户间数据隔离时，应暂时为每个客户部署独立实例；正式多客户版本必须先完成租户级账号管理。
-- `BOOTSTRAP_*` 只在数据文件不存在时生效，修改环境变量不会改掉已有账号密码。已有账号登录后可在“项目设置 -> 账号安全”修改自己的密码；当前仍没有忘记密码或管理员重置功能，因此首次密码必须妥善保存。
+- 同一组织的多位成员会看到同一批项目和账单权益。需要客户间强隔离时，为每个客户创建独立组织；项目域数据已写入 Postgres，正式多实例商用前仍要验证所有查询的组织范围条件、Redis 队列恢复和 Worker 横向扩缩容。
+- `BOOTSTRAP_*` 只在账号库为空时生效，修改环境变量不会改掉已有账号密码。已有账号登录后可在“项目设置 -> 账号安全”修改自己的密码；忘记密码 API 在生产开放前需要接邮件/短信投递。
 
 ## 独立部署单元
 
 - `apps/web`：静态站点，可部署到 Vercel、Cloudflare Pages 或对象存储/CDN。
 - `apps/api`：Node.js 服务，可部署到容器平台、云应用平台或虚拟机。
-- `apps/admin`：未来独立静态站点，建议使用单独域名并限制访问来源。
+- `apps/api` worker：复用 API 镜像，执行 `node dist/worker.js`，消费 Redis/BullMQ 里的生成任务触发。
+- `apps/admin`：独立管理员静态站点，消费 `/api/v1/admin/console`；正式部署建议使用单独域名、限制访问来源，并沿用后端权限和审计边界。
 
 Web 使用 `VITE_API_BASE_URL` 指向 API。API 使用 `WEB_ORIGIN` 限制跨域来源。生产中两者可以使用 `studio.example.com` 和 `api.example.com`。
 
@@ -29,7 +31,7 @@ Demo 媒体存储可设置 `STORAGE_DRIVER=gcs` 和 `GCS_BUCKET`，凭据使用 
 
 API 进程优先读取弦序返回的尾帧，并使用 FFmpeg 合成完整成片预览。开发机和 API 镜像必须安装带 `libx264` 的 FFmpeg，并保证 `FFMPEG_PATH` 指向可执行文件；默认值为 `ffmpeg`。`FILM_PREVIEW_TIMEOUT_MS` 同时控制尾帧提取和单次合成超时，默认 10 分钟。容器部署时还要为临时视频预留磁盘空间，并保证 API 进程可写系统临时目录。
 
-当前实现适合 Demo 的单实例 API。正式环境应把合成工作迁移到独立持久 Worker，设置 CPU、内存和并发上限，并为合成结果配置对象存储生命周期。预览 MP4 当前不包含音频或字幕，不应当作正式交付母版。
+当前生成任务和成片合成由独立 Worker 进程执行。正式环境还需要按任务类型设置 CPU、内存、并发上限和告警，并为合成结果配置对象存储生命周期。预览 MP4 当前不包含音频或字幕，不应当作正式交付母版。
 
 ## Google Cloud 准备
 
@@ -48,53 +50,43 @@ chmod 600 deploy/demo.env
 
 - `APP_ADDRESS`、`WEB_ORIGIN` 和 `PUBLIC_API_BASE_URL` 使用同一个真实 HTTPS 域名。
 - `AUTH_SECRET` 使用 `openssl rand -base64 48` 生成。
-- 两组 `BOOTSTRAP_*` 邮箱和密码必须唯一；只在空数据卷首次启动时生效。
+- 四组 `BOOTSTRAP_*` 邮箱和密码必须唯一：member、owner、super_admin、admin；只在空账号库首次启动时生效。
 - 保持 `BOOTSTRAP_DEMO_WORKSPACE=false`，让客户登录后创建自己的第一个项目。
-- 2 vCPU / 4GB 机器先保留 `API_MEMORY_LIMIT=1536m`、`API_NODE_HEAP_MB=768`、`WEB_MEMORY_LIMIT=192m`；发生 OOM 时优先升级内存，不要移除所有上限。
-- 保持 `VIDEO_PROVIDER=stringx`，填写私有 `GCS_BUCKET`、`STRINGX_API_KEY` 和 `TOKENADVENT_API_KEY`。`TEXT_API_KEY` 用于 Kimi/GLM 模型；GPT 和图片继续使用 `TOKENADVENT_API_KEY`，避免不同中转账号组的模型权限相互影响。
-- 资产页的 `Nano Banana` 选项只有在上游确实开通对应模型后才可用；通过 `NANOBANANA_MODEL` 配置真实上游 ID，必要时用 `NANOBANANA_API_KEY` 配置独立密钥。当前项目不会把 Nano Banana 静默降级为 Img2。
-- 生产启动会强制检查当前视频 Provider 密钥和 `TOKENADVENT_API_KEY`，缺少时直接停止，不允许静默使用 Mock 结果。
-- 要测试可信人像，再填写弦序 MaaS 素材库专用 `VOLC_ACCESS_KEY`、`VOLC_SECRET_KEY` 和与 StringX Token 同租户、同项目的 `VOLC_ARK_PROJECT_NAME`。StringX Bearer Token 不能代替素材库 AK/SK。
+- 保持 `TASK_QUEUE_DRIVER=bullmq` 和 `REDIS_URL=redis://redis:6379`，除非已经接入托管 Redis 或云队列适配器。
+- 2 vCPU / 4GB 机器先保留 `API_MEMORY_LIMIT=1536m`、`API_NODE_HEAP_MB=768`、`WORKER_MEMORY_LIMIT=1536m`、`WORKER_NODE_HEAP_MB=768`、`WEB_MEMORY_LIMIT=192m`；发生 OOM 时优先升级内存，不要移除所有上限。
+- 保持 `VIDEO_PROVIDER=stringx`，填写私有 `GCS_BUCKET`、`STRINGX_API_KEY`、默认中文文本模型需要的 `REHDASU_API_KEY` 和图片生成需要的 `TOKENADVENT_API_KEY`；只有选择 DeepSeek V3 时才需要 `DEEPSEEK_API_KEY`（可复用 `STRINGX_API_KEY`）。
+- 生产启动会强制检查当前视频 Provider 密钥、当前文本模型对应密钥和 TokenAdvent GPT Image 2 密钥，缺少时直接停止，不允许静默使用 Mock 结果。
+- 要测试可信人像，再填写弦序 MaaS 素材库专用 `VOLC_ACCESS_KEY`、`VOLC_SECRET_KEY` 和与 StringX Token 同组织、同项目的 `VOLC_ARK_PROJECT_NAME`。StringX Bearer Token 不能代替素材库 AK/SK。
 - 可选填写 `ASSET_LIBRARY_CONSOLE_URL`，人物编辑器会跳转到弦序私域素材库；不再硬编码火山控制台地址。
-- `AIDEOS_*` 和 `ARK_API_*` 只用于显式回滚，默认全弦序链路不读取这些变量。
+- `ARK_API_*` 只用于官方火山回滚，默认全弦序链路不读取这些变量。
 - 不要把 `deploy/demo.env`、服务账号 JSON 或任何 Key 提交到 Git。
-
-### 轻量新机部署
-
-Windows 开发机可先生成轻量源码包：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File deploy/package.ps1
-```
-
-默认输出到系统临时目录的 `seqora-deployment/seqora-source.tgz`，不会携带
-`apps/api/data`、本地上传媒体、`node_modules`、构建产物或测试缓存。只有明确需要迁移本地
-Demo 数据时才使用 `-IncludeRuntimeData`；新服务器不要默认迁移旧素材。
-
-源码包会包含忽略提交的 `deploy/demo.env`，只能通过 SSH/SCP 等私有通道传输。部署完成后，
-`bootstrap-fresh-gce.sh` 会删除服务器临时归档；开发机也应删除临时目录，禁止把归档上传到
-GitHub、公共 Bucket 或聊天。新机初始化命令为：
-
-```bash
-sudo bash /tmp/bootstrap-fresh-gce.sh /tmp/seqora-source.tgz
-```
-
-脚本适配 Debian/Ubuntu GCE：从 Docker 官方仓库安装 Engine、Buildx 和 Compose Plugin，
-原子替换 `/opt/seqora`，校验 Compose 后构建并启动。Docker 构建上下文不会包含生产环境文件；
-API 与 Web 分别只安装自身及共享工作区依赖，并复用 pnpm 下载缓存。
 
 启动前先检查最终配置，再构建并启动：
 
 ```bash
 docker compose --env-file deploy/demo.env -f compose.demo.yml config
+docker compose --env-file deploy/demo.env -f compose.demo.yml build api
+docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
+  node dist/scripts/dbMigrate.js
 docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
 docker compose --env-file deploy/demo.env -f compose.demo.yml ps
 curl --fail https://studio.example.com/api/v1/health
 ```
 
-`deploy/demo.env` 会完整注入 API 容器；Web 容器只接收 `APP_ADDRESS`，不会获得模型密钥。API 镜像内置 FFmpeg 并以非 root 用户运行。
+`deploy/demo.env` 会完整注入 Postgres、Redis、API 和 Worker 容器；Web 容器只接收 `APP_ADDRESS`，不会获得模型密钥或数据库连接串。API 镜像内置 FFmpeg 并以非 root 用户运行，Worker 复用同一镜像执行 `dist/worker.js`。
 
-Compose 默认把 API 限制为 1.5 CPU、1536MB 内存和 256 个进程，把 Caddy 限制为 0.5 CPU、192MB 内存和 128 个进程；每个容器日志最多保留 3 个 10MB 文件。前端登录前不会下载工作台代码，进入后按页面拆包；任务轮询为运行中 2.5 秒、空闲 12 秒、后台标签页 30 秒。静态资源使用长期缓存，入口 HTML 禁止缓存，更新后不需要客户手工清浏览器缓存。
+生产部署和升级时先显式执行 migration，再启动新 API：
+
+```bash
+docker compose --env-file deploy/demo.env -f compose.demo.yml build api
+docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
+  node dist/scripts/dbMigrate.js
+docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
+```
+
+API 在 `NODE_ENV=production` 下启动只检查 migration 是否最新，不自动改库。
+
+Compose 默认把 API 和 Worker 分别限制为 1.5 CPU、1536MB 内存和 256 个进程，把 Caddy 限制为 0.5 CPU、192MB 内存和 128 个进程；每个容器日志最多保留 3 个 10MB 文件。前端登录前不会下载工作台代码，进入后按页面拆包；任务轮询为运行中 2.5 秒、空闲 12 秒、后台标签页 30 秒。静态资源使用长期缓存，入口 HTML 禁止缓存，更新后不需要客户手工清浏览器缓存。
 
 ## 自动更新与回滚
 
@@ -104,44 +96,56 @@ Compose 默认把 API 限制为 1.5 CPU、1536MB 内存和 256 个进程，把 C
 
 ### 人工源码更新
 
-每次更新先备份数据，再拉取已通过 CI 的提交：
+每次更新先执行完整备份流程，再拉取已通过 CI 的提交。备份会导出 Postgres、JSON 历史、本地 uploads（如有）和 GCS 对象版本清单；恢复步骤见[备份与恢复流程](BACKUP_RESTORE.md)：
 
 ```bash
-mkdir -p backups
-docker compose --env-file deploy/demo.env -f compose.demo.yml exec -T api \
-  sh -c 'cat /var/lib/seqora/app.json' > "backups/app-$(date +%Y%m%d-%H%M%S).json"
+sudo /opt/seqora/deploy/backup-demo.sh
 git pull --ff-only
+docker compose --env-file deploy/demo.env -f compose.demo.yml build api
+docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
+  node dist/scripts/dbMigrate.js
 docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
 curl --fail https://studio.example.com/api/v1/health
 ```
 
-回滚时切回上一个已知正常的 Git Tag/Commit 并重新构建。恢复 JSON 前必须停止 API，并保留当前文件的第二份备份。GCS Bucket 应单独启用版本控制和生命周期策略；JSON 备份不包含 GCS 媒体对象。
+回滚时切回上一个已知正常的 Git Tag/Commit 并重新构建。恢复 Postgres 或 JSON 前必须停止 API 和 Worker，并保留当前数据库和文件的第二份备份。GCS Bucket 应单独启用版本控制和生命周期策略；数据库和 JSON 备份不包含 GCS 媒体对象。
 
 ## 外测上线门槛
+
+## 预发布刷新
+
+预发布环境用来跑全量回归、压测和脏数据兼容性验证。推荐流程是：
+
+1. 从最新生产备份恢复数据库和对象存储快照。
+2. 执行 `pnpm preprod:anonymize:check`，先验证系统组织和保留账号不会被误删。
+3. 执行 `pnpm preprod:anonymize`，清掉会话、邀请、重置 token、验证 token，并把账号、组织、账单、审计、项目、资产、分镜、生成任务、媒体对象、小说摘要和 AI job 敏感字段匿名化。
+4. 保留少量可控的 owner / super_admin / admin / member 登录账号，用于手工回归。
+5. 跑 `pnpm test:backend:full` 和 `pnpm perf:k6:smoke`，必要时再加 `pnpm perf:k6:breakpoint`。
+6. 只有预发布回归和压测都通过，才把同一批迁移和代码推到生产。
 
 上线前逐项确认：
 
 1. 域名 HTTPS 正常，HTTP 自动跳转 HTTPS，公网无法访问 `:8787`。
-2. 默认 `Creator123!`、`Admin123!` 无法登录，测试账号使用唯一强密码。
+2. 默认 `MemberPassword123!`、`Admin123!` 无法登录，测试账号使用唯一强密码。
 3. 登录页没有预填账号、默认密码或管理员切换入口；未登录访问项目 API 返回 `401`。
 4. Provider Key 只在 `deploy/demo.env` 或 Secret Manager，Web 构建和 Git 中没有 Key。
 5. GCS Bucket 非公开，上传图片和生成视频只能登录后通过 API 读取。
 6. 为弦序 Seedance/MaaS、TokenAdvent 和 Google Cloud 设置预算告警与每日额度。
-7. 备份和恢复至少演练一次，升级前保留 JSON 与 GCS 对象版本。
-8. 明确告知测试者：当前无音频、共享单租户、任务不可跨实例恢复，不上传敏感或未授权素材。
+7. 备份和恢复至少演练一次，升级前执行 `deploy/backup-demo.sh` 并保留 Postgres、JSON 与 GCS 对象版本清单。
+8. 明确告知测试者：当前无音频，任务队列和项目域虽已进入 Postgres/Redis 底座但仍处封闭外测阶段，不上传敏感或未授权素材。
 9. 浏览器实测登录、剧本、资产、分镜、视频、完整预览和退出登录。
 10. 仿真人测试先确认面部并等待 AIGC 资源变为 Active；真人测试必须由演员本人完成认证授权，制作方接收后再绑定 Asset ID。
 
 ## 生产前必须替换
 
-1. 使用 OIDC/JWT `AuthProvider`，禁止 Demo Header。
-2. 使用持久化任务仓储，并为所有查询增加租户条件。
-3. 使用原子积分账本，创建任务与扣费保证幂等。
-4. 使用真实队列和 Worker 执行模型任务。
-5. 增加结构化审计日志、速率限制、监控和告警。
-6. 将密钥放入部署平台 Secret，不使用 `VITE_` 变量保存服务端密钥。
-7. 增加邀请制账号管理、客户级租户隔离、数据导出与删除流程。
+1. 禁止 Demo Header；当前 local auth 可用于封闭外测，企业 SSO 再接 OIDC/JWT。
+2. 验证 Redis/BullMQ 队列在生产故障恢复、重复投递、横向扩缩容和监控告警下的行为。
+3. 持续审计项目、资产、分镜和生成任务查询的组织范围条件，并保留 JSON 备份到 Postgres 的回滚方案。
+4. 支付和订阅只能由服务端回调改变权益；前端不得自助伪造套餐和积分。
+5. 接入邮件/短信投递后再开放忘记密码和邀请/注册相关用户流程。
+6. 增加监控、告警、备份恢复演练、密钥轮换和数据导出/删除流程。
+7. 将密钥放入部署平台 Secret，不使用 `VITE_` 变量保存服务端密钥。
 
 ## CI
 
-GitHub Actions 在每个 PR 执行 `pnpm check`，并构建 API/Web 容器但不推送。合并 `main` 后，CI 产生经过验证的模块发布清单，生产发布只使用该清单和对应 Commit SHA。建议保护 `main`：要求 CI 通过、至少一位 Review、禁止强制推送，并为 `production` Environment 配置审批规则。
+GitHub Actions 在每个 PR 执行 `CI / quality`，并通过 `CI / database` 起 Postgres、执行 `pnpm --filter @seqora/api db:migrate`、跑 migration/auth/account/billing 集成测试；Container Images workflow 构建 API/Web 容器但不推送。合并 `main` 后，CI 产生经过验证的模块发布清单，生产发布只使用该清单和对应 Commit SHA。建议保护 `main`：要求 `CI / quality`、`CI / database`、至少一位 Review、禁止强制推送，并为 `production` Environment 配置审批规则。

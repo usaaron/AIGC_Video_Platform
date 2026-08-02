@@ -28,6 +28,10 @@ async function request(path, options = {}) {
 }
 
 const json = (method, body) => ({ method, body: JSON.stringify(body) })
+const emptyJsonPost = () => json('POST', {})
+const organizations = () => request('/organizations')
+const switchOrganization = (organizationId) =>
+  request(`/organizations/${encodeURIComponent(organizationId)}/switch`, emptyJsonPost())
 
 const upload = (file) => {
   const body = new FormData()
@@ -60,9 +64,18 @@ export async function waitForProjectScriptUpdate(
 export const api = {
   health: () => request('/health'),
   login: (input) => request('/auth/login', json('POST', input)),
-  logout: () => request('/auth/logout', { method: 'POST' }),
+  register: (input) => request('/auth/register', json('POST', input)),
+  requestEmailVerification: (input) => request('/auth/email-verification/request', json('POST', input)),
+  verifyEmail: (input) => request('/auth/email-verification/verify', json('POST', input)),
+  requestPasswordReset: (input) => request('/auth/password/reset-request', json('POST', input)),
+  resetPassword: (input) => request('/auth/password/reset', json('POST', input)),
+  logout: () => request('/auth/logout', emptyJsonPost()),
   session: () => request('/auth/me'),
   changePassword: (input) => request('/auth/password', json('PUT', input)),
+  organizations,
+  switchOrganization,
+  authSessions: () => request('/auth/sessions'),
+  revokeAuthSession: (sessionId) => request(`/auth/sessions/${sessionId}`, { method: 'DELETE' }),
   projects: () => request('/projects'),
   project: (id) => request(`/projects/${id}`),
   createProject: (input) => request('/projects', json('POST', input)),
@@ -205,5 +218,8 @@ export const api = {
     request(`/projects/${projectId}/generation/tasks/completed`, { method: 'DELETE' }),
   billing: () => request('/billing/summary'),
   updatePlan: (plan) => request('/billing/plan', json('PUT', { plan })),
+  billingPaymentConfiguration: () => request('/billing/payment/configuration'),
+  createMemberSubscriptionCheckout: () => request('/billing/checkout/subscription', emptyJsonPost()),
+  createCreditCheckout: (input = {}) => request('/billing/checkout/credits', json('POST', input)),
   adminOverview: () => request('/admin/overview'),
 }

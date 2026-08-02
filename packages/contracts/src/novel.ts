@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { scriptAssetSuggestionsContentSchema } from './project.js'
+import { aiJobSchema } from './aiJob.js'
+import { scriptAssetSuggestionsContentSchema, textModelSchema } from './project.js'
 
 export const novelSourceFormatSchema = z.enum(['txt', 'markdown'])
 export const novelSplitModeSchema = z.enum(['auto', 'heading', 'fixed'])
@@ -208,6 +209,7 @@ export const runNovelSummaryQueueBatchRequestSchema = z.object({
 export const novelSummaryQueueBatchResultSchema = novelSummaryQueueResultSchema.extend({
   processedItemIds: z.array(z.string().min(1)).max(24),
   failedItemIds: z.array(z.string().min(1)).max(24),
+  task: aiJobSchema.nullable().optional(),
   warnings: z.array(z.string().min(1).max(500)).default([]),
 })
 
@@ -390,20 +392,34 @@ export const generateNovelChapterSummariesResultSchema = z.object({
 export const generateNovelStoryBibleRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   force: z.boolean().default(false),
+  summaryLimit: z.number().int().min(1).max(1_000).optional(),
+  model: textModelSchema.default('glm-5.2'),
 })
 
 export const generateNovelAssetSuggestionsRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   maxAssets: z.number().int().min(4).max(16).default(12),
+  model: textModelSchema.default('glm-5.2'),
 })
 
 export const novelChapterAdaptationModeSchema = z.enum(['scene', 'opening', 'summary'])
+export const novelChapterAdaptationSourcesSchema = z
+  .object({
+    storyBible: z.boolean().optional(),
+    chapterSummaries: z.boolean().optional(),
+    chapterContent: z.boolean().optional(),
+  })
+  .refine((value) => Object.values(value).some(Boolean), {
+    message: '至少选择一种剧本生成依据',
+  })
 
 export const generateNovelChapterAdaptationRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   chapterIds: z.array(z.string().min(1).max(128)).min(1).max(6),
   targetSeconds: z.number().int().min(15).max(180).default(60),
   mode: novelChapterAdaptationModeSchema.default('scene'),
+  model: textModelSchema.default('glm-5.2'),
+  sourceOptions: novelChapterAdaptationSourcesSchema.optional(),
 })
 
 export const novelStoryBibleReadResultSchema = z.object({
@@ -476,6 +492,7 @@ export type GenerateNovelChapterSummariesResult = z.infer<typeof generateNovelCh
 export type GenerateNovelStoryBibleRequest = z.infer<typeof generateNovelStoryBibleRequestSchema>
 export type GenerateNovelAssetSuggestionsRequest = z.infer<typeof generateNovelAssetSuggestionsRequestSchema>
 export type NovelChapterAdaptationMode = z.infer<typeof novelChapterAdaptationModeSchema>
+export type NovelChapterAdaptationSources = z.infer<typeof novelChapterAdaptationSourcesSchema>
 export type GenerateNovelChapterAdaptationRequest = z.infer<
   typeof generateNovelChapterAdaptationRequestSchema
 >

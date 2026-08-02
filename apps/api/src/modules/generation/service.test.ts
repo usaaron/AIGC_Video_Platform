@@ -5,9 +5,9 @@ import type { GenerationTaskRepository } from './repository.js'
 import { GenerationService } from './service.js'
 
 const principal: Principal = {
-  userId: 'user-creator',
+  userId: 'user-member',
   tenantId: 'tenant-seqora-demo',
-  roles: ['creator'],
+  roles: ['member'],
 }
 
 describe('GenerationService task creation', () => {

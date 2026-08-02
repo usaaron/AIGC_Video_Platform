@@ -84,6 +84,8 @@ export interface AssetLibraryProvider {
 }
 
 type Fetcher = typeof fetch
+const TRANSIENT_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 524])
+const PROVIDER_RETRY_DELAY_MS = 350
 
 export type VolcArkAssetLibraryOptions = {
   baseUrl: string
@@ -168,10 +170,15 @@ export class VolcArkAssetLibraryProvider implements AssetLibraryProvider {
       throw new Error('素材库返回了不支持的预览地址')
     }
 
-    const response = await this.fetcher(previewUrl, {
-      method: 'GET',
-      signal: AbortSignal.timeout(this.options.requestTimeoutMs),
-    })
+    let response: Response
+    try {
+      response = await this.fetcher(previewUrl, {
+        method: 'GET',
+        signal: AbortSignal.timeout(this.options.requestTimeoutMs),
+      })
+    } catch (error) {
+      throw new Error(`素材库预览图下载失败：${readableFetchFailure(error)}`)
+    }
     if (!response.ok) throw new Error(`预览图片下载失败（HTTP ${response.status}）`)
     const contentType = response.headers.get('content-type')?.split(';', 1)[0] || 'image/jpeg'
     if (!contentType.startsWith('image/')) throw new Error('素材库返回的预览内容不是图片')
@@ -240,7 +247,7 @@ export class VolcArkAssetLibraryProvider implements AssetLibraryProvider {
       `Signature=${signature}`,
     ].join(', ')
 
-    const response = await this.fetcher(`${this.baseUrl}/?${query}`, {
+    const response = await this.fetchWithRetry(action, `${this.baseUrl}/?${query}`, {
       method: 'POST',
       headers: {
         Authorization: authorization,
@@ -249,7 +256,6 @@ export class VolcArkAssetLibraryProvider implements AssetLibraryProvider {
         'X-Date': date,
       },
       body: payload,
-      signal: AbortSignal.timeout(this.options.requestTimeoutMs),
     })
     const raw = await response.text().catch(() => '')
     let data: unknown
@@ -265,6 +271,27 @@ export class VolcArkAssetLibraryProvider implements AssetLibraryProvider {
       throw new Error(`弦序素材库请求失败：${detail}`)
     }
     return envelope.Result ?? {}
+  }
+
+  private async fetchWithRetry(action: string, url: string, init: RequestInit): Promise<Response> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await this.fetcher(url, {
+          ...init,
+          signal: AbortSignal.timeout(this.options.requestTimeoutMs),
+        })
+        if (!TRANSIENT_HTTP_STATUSES.has(response.status) || attempt === 1) return response
+        await delay(PROVIDER_RETRY_DELAY_MS)
+      } catch (error) {
+        lastError = error
+        if (attempt === 1 || !isTransientFetchFailure(error)) {
+          throw new Error(`弦序素材库网络暂时不可达（${action}）：${readableFetchFailure(error)}`)
+        }
+        await delay(PROVIDER_RETRY_DELAY_MS)
+      }
+    }
+    throw new Error(`弦序素材库网络暂时不可达（${action}）：${readableFetchFailure(lastError)}`)
   }
 }
 
@@ -308,4 +335,26 @@ function signingSignature(secretKey: string, date: string, value: string): strin
   const regionKey = hmac(dateKey, 'cn-beijing')
   const serviceKey = hmac(regionKey, 'ark')
   return createHmac('sha256', hmac(serviceKey, 'request')).update(value).digest('hex')
+}
+
+function isTransientFetchFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  return /fetch failed|network|timeout|timed out|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT/i.test(
+    `${error.name} ${error.message}`,
+  )
+}
+
+function readableFetchFailure(error: unknown): string {
+  if (!(error instanceof Error)) return '未知网络错误'
+  if (/timeout|timed out|AbortError|TimeoutError/i.test(`${error.name} ${error.message}`)) {
+    return '请求超时，请稍后刷新状态'
+  }
+  if (/fetch failed|network|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT/i.test(error.message)) {
+    return 'API 服务暂时无法连接弦序素材库，请稍后刷新状态'
+  }
+  return error.message || '未知网络错误'
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

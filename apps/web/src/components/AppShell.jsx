@@ -16,6 +16,7 @@ import {
   PackageOpen,
   RefreshCw,
   Settings,
+  UserCog,
   UsersRound,
   WandSparkles,
   X,
@@ -160,7 +161,16 @@ export function AppHeader({
   )
 }
 
-export function AppSidebar({ activeStep, mobileNav, billing, assetCount, onNavigate, onClose }) {
+export function AppSidebar({
+  activeStep,
+  mobileNav,
+  billing,
+  assetCount,
+  canOpenAdminAccounts = false,
+  adminConsoleUrl,
+  onNavigate,
+  onClose,
+}) {
   const activeIndex = STEPS.findIndex((item) => item.id === activeStep)
   const usage = billing?.monthlyUsage
   const usageBudget = usage?.includedCredits || (usage?.netCredits ?? 0) + (billing?.credits ?? 0)
@@ -218,6 +228,11 @@ export function AppSidebar({ activeStep, mobileNav, billing, assetCount, onNavig
       >
         <Settings size={17} /> 项目设置
       </button>
+      {canOpenAdminAccounts && (
+        <a className="sidebar-link" href={adminConsoleUrl} target="_blank" rel="noreferrer">
+          <UserCog size={17} /> 管理后台
+        </a>
+      )}
       <button
         type="button"
         className="usage-box"

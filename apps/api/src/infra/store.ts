@@ -1,4 +1,5 @@
 import type {
+  AiJob,
   Asset,
   GenerationTask,
   LedgerEntry,
@@ -16,9 +17,11 @@ import type {
   Shot,
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
+import { mkdir, open as openFile, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { hashPassword } from '../core/auth/password.js'
+import { normalizeAiJobLifecycle } from '../core/jobs/aiJobLease.js'
 import { normalizeGenerationTaskLifecycle } from '../core/jobs/taskLease.js'
 
 export type StoredUser = {
@@ -30,6 +33,8 @@ export type StoredUser = {
   roles: Role[]
   plan: Plan
   credits: number
+  passwordResetRequired: boolean
+  emailVerified: boolean
 }
 
 export type StoredMedia = {
@@ -66,6 +71,7 @@ export type AppState = {
   assets: Asset[]
   shots: Shot[]
   tasks: GenerationTask[]
+  aiJobs: AiJob[]
   ledger: LedgerEntry[]
   media: StoredMedia[]
   novelDocuments: StoredNovelDocument[]
@@ -78,18 +84,30 @@ export type AppState = {
 }
 
 export type BootstrapUsers = {
-  creatorName?: string
-  creatorEmail: string
-  creatorPassword: string
+  memberName?: string
+  memberEmail: string
+  memberPassword: string
+  ownerName?: string
+  ownerEmail: string
+  ownerPassword: string
+  superAdminName?: string
+  superAdminEmail: string
+  superAdminPassword: string
   adminName?: string
   adminEmail: string
   adminPassword: string
 }
 
 const developmentBootstrapUsers: BootstrapUsers = {
-  creatorName: '林夏',
-  creatorEmail: 'creator@seqora.local',
-  creatorPassword: 'Creator123!',
+  memberName: '默认 C 端用户',
+  memberEmail: 'member@seqora.local',
+  memberPassword: 'MemberPassword123!',
+  ownerName: '平台所有者',
+  ownerEmail: 'owner@seqora.local',
+  ownerPassword: 'OwnerPassword123!',
+  superAdminName: '超级管理员',
+  superAdminEmail: 'superadmin@seqora.local',
+  superAdminPassword: 'SuperAdmin123!',
   adminName: '平台管理员',
   adminEmail: 'admin@seqora.local',
   adminPassword: 'Admin123!',
@@ -98,12 +116,23 @@ const developmentBootstrapUsers: BootstrapUsers = {
 export class AppStore {
   private state!: AppState
   private writeQueue = Promise.resolve()
+  private readonly lockPath: string | null
+  private accountRuntimeCache: Pick<AppState, 'users' | 'ledger'> | null = null
+  private accountPersistenceBackup: Pick<AppState, 'users' | 'ledger'> | null = null
+  private projectWorkspaceRuntimeCache: Pick<AppState, 'projects' | 'assets' | 'shots'> | null = null
+  private projectWorkspacePersistenceBackup: Pick<AppState, 'projects' | 'assets' | 'shots'> | null = null
+  private generationTaskRuntimeCache: Pick<AppState, 'tasks'> | null = null
+  private generationTaskPersistenceBackup: Pick<AppState, 'tasks'> | null = null
+  private aiJobRuntimeCache: Pick<AppState, 'aiJobs'> | null = null
+  private aiJobPersistenceBackup: Pick<AppState, 'aiJobs'> | null = null
 
   constructor(
     private readonly filePath: string | null,
     private readonly bootstrapUsers: BootstrapUsers = developmentBootstrapUsers,
     private readonly bootstrapDemoWorkspace = true,
-  ) {}
+  ) {
+    this.lockPath = filePath ? `${filePath}.lock` : null
+  }
 
   async initialize(): Promise<void> {
     if (this.filePath) {
@@ -123,6 +152,11 @@ export class AppStore {
   }
 
   read<T>(reader: (state: Readonly<AppState>) => T): T {
+    this.reloadFromDiskSync()
+    this.applyAccountRuntimeCache()
+    this.applyProjectWorkspaceRuntimeCache()
+    this.applyGenerationTaskRuntimeCache()
+    this.applyAiJobRuntimeCache()
     return structuredClone(reader(this.state))
   }
 
@@ -134,17 +168,100 @@ export class AppStore {
     return this.runWrite(mutator)
   }
 
+  replaceAccountRuntimeCache(input: Pick<AppState, 'users' | 'ledger'>): void {
+    if (!this.accountPersistenceBackup) {
+      this.accountPersistenceBackup = structuredClone({
+        users: this.state.users,
+        ledger: this.state.ledger,
+      })
+    }
+    this.accountRuntimeCache = structuredClone(input)
+    this.applyAccountRuntimeCache()
+  }
+
+  mutateAccountRuntimeCache<T>(mutator: (state: AppState) => T): T {
+    this.applyAccountRuntimeCache()
+    this.applyProjectWorkspaceRuntimeCache()
+    this.applyGenerationTaskRuntimeCache()
+    this.applyAiJobRuntimeCache()
+    if (!this.accountPersistenceBackup) {
+      this.accountPersistenceBackup = structuredClone({
+        users: this.state.users,
+        ledger: this.state.ledger,
+      })
+    }
+    if (!this.accountRuntimeCache) {
+      this.accountRuntimeCache = structuredClone({
+        users: this.state.users,
+        ledger: this.state.ledger,
+      })
+    }
+    const result = mutator(this.state)
+    this.captureAccountRuntimeCache()
+    return structuredClone(result)
+  }
+
+  replaceProjectWorkspaceRuntimeCache(input: Pick<AppState, 'projects' | 'assets' | 'shots'>): void {
+    if (!this.projectWorkspacePersistenceBackup) {
+      this.projectWorkspacePersistenceBackup = structuredClone({
+        projects: this.state.projects,
+        assets: this.state.assets,
+        shots: this.state.shots,
+      })
+    }
+    this.projectWorkspaceRuntimeCache = structuredClone(input)
+    this.applyProjectWorkspaceRuntimeCache()
+  }
+
+  replaceGenerationTaskRuntimeCache(tasks: GenerationTask[]): void {
+    if (!this.generationTaskPersistenceBackup) {
+      this.generationTaskPersistenceBackup = structuredClone({ tasks: this.state.tasks })
+    }
+    this.generationTaskRuntimeCache = structuredClone({ tasks })
+    this.applyGenerationTaskRuntimeCache()
+  }
+
+  replaceAiJobRuntimeCache(aiJobs: AiJob[]): void {
+    if (!this.aiJobPersistenceBackup) {
+      this.aiJobPersistenceBackup = structuredClone({ aiJobs: this.state.aiJobs })
+    }
+    this.aiJobRuntimeCache = structuredClone({ aiJobs })
+    this.applyAiJobRuntimeCache()
+  }
+
+  mutateProjectWorkspaceRuntimeCache<T>(mutator: (state: AppState) => T): T {
+    this.applyProjectWorkspaceRuntimeCache()
+    this.applyGenerationTaskRuntimeCache()
+    this.applyAiJobRuntimeCache()
+    const result = mutator(this.state)
+    this.captureProjectWorkspaceRuntimeCache()
+    this.captureGenerationTaskRuntimeCache()
+    this.captureAiJobRuntimeCache()
+    return structuredClone(result)
+  }
+
   private async runWrite<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
     let result!: T
     const operation = this.writeQueue.then(async () => {
-      const snapshot = structuredClone(this.state)
-      try {
-        result = await mutator(this.state)
-        await this.persist()
-      } catch (error) {
-        this.state = snapshot
-        throw error
-      }
+      await this.withWriteLock(async () => {
+        await this.reloadFromDisk()
+        this.applyAccountRuntimeCache()
+        this.applyProjectWorkspaceRuntimeCache()
+        this.applyGenerationTaskRuntimeCache()
+        this.applyAiJobRuntimeCache()
+        const snapshot = structuredClone(this.state)
+        try {
+          result = await mutator(this.state)
+          this.captureAccountRuntimeCache()
+          this.applyProjectWorkspaceRuntimeCache()
+          this.applyGenerationTaskRuntimeCache()
+          this.applyAiJobRuntimeCache()
+          await this.persist()
+        } catch (error) {
+          this.state = snapshot
+          throw error
+        }
+      })
     })
     this.writeQueue = operation.then(
       () => undefined,
@@ -159,11 +276,155 @@ export class AppStore {
     await mkdir(dirname(this.filePath), { recursive: true })
     const temporary = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`
     try {
-      await writeFile(temporary, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8')
+      await writeFile(temporary, `${JSON.stringify(this.stateForPersistence(), null, 2)}\n`, 'utf8')
       await renameWithRetry(temporary, this.filePath)
     } finally {
       await rm(temporary, { force: true }).catch(() => {})
     }
+  }
+
+  private async reloadFromDisk(): Promise<void> {
+    if (!this.filePath) return
+    try {
+      this.state = removeLegacyDemoCharacters(
+        normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>),
+      )
+      this.applyAccountRuntimeCache()
+      this.applyProjectWorkspaceRuntimeCache()
+      this.applyGenerationTaskRuntimeCache()
+      this.applyAiJobRuntimeCache()
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+
+  private reloadFromDiskSync(): void {
+    if (!this.filePath || !existsSync(this.filePath)) return
+    this.state = removeLegacyDemoCharacters(
+      normalizeState(JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppState>),
+    )
+    this.applyAccountRuntimeCache()
+    this.applyProjectWorkspaceRuntimeCache()
+    this.applyGenerationTaskRuntimeCache()
+    this.applyAiJobRuntimeCache()
+  }
+
+  private applyAccountRuntimeCache(): void {
+    if (!this.accountRuntimeCache) return
+    this.state.users = structuredClone(this.accountRuntimeCache.users)
+    this.state.ledger = structuredClone(this.accountRuntimeCache.ledger)
+  }
+
+  private applyProjectWorkspaceRuntimeCache(): void {
+    if (!this.projectWorkspaceRuntimeCache) return
+    this.state.projects = structuredClone(this.projectWorkspaceRuntimeCache.projects)
+    this.state.assets = structuredClone(this.projectWorkspaceRuntimeCache.assets)
+    this.state.shots = structuredClone(this.projectWorkspaceRuntimeCache.shots)
+  }
+
+  private applyGenerationTaskRuntimeCache(): void {
+    if (!this.generationTaskRuntimeCache) return
+    this.state.tasks = structuredClone(this.generationTaskRuntimeCache.tasks)
+  }
+
+  private applyAiJobRuntimeCache(): void {
+    if (!this.aiJobRuntimeCache) return
+    this.state.aiJobs = structuredClone(this.aiJobRuntimeCache.aiJobs)
+  }
+
+  private captureAccountRuntimeCache(): void {
+    if (!this.accountRuntimeCache) return
+    this.accountRuntimeCache = structuredClone({
+      users: this.state.users,
+      ledger: this.state.ledger,
+    })
+  }
+
+  private captureProjectWorkspaceRuntimeCache(): void {
+    if (!this.projectWorkspaceRuntimeCache) return
+    this.projectWorkspaceRuntimeCache = structuredClone({
+      projects: this.state.projects,
+      assets: this.state.assets,
+      shots: this.state.shots,
+    })
+  }
+
+  private captureGenerationTaskRuntimeCache(): void {
+    if (!this.generationTaskRuntimeCache) return
+    this.generationTaskRuntimeCache = structuredClone({ tasks: this.state.tasks })
+  }
+
+  private captureAiJobRuntimeCache(): void {
+    if (!this.aiJobRuntimeCache) return
+    this.aiJobRuntimeCache = structuredClone({ aiJobs: this.state.aiJobs })
+  }
+
+  private stateForPersistence(): AppState {
+    if (
+      !this.accountPersistenceBackup &&
+      !this.projectWorkspacePersistenceBackup &&
+      !this.generationTaskPersistenceBackup &&
+      !this.aiJobPersistenceBackup
+    )
+      return this.state
+    const persisted = {
+      ...this.state,
+    }
+    if (this.accountPersistenceBackup) {
+      persisted.users = structuredClone(this.accountPersistenceBackup.users)
+      persisted.ledger = structuredClone(this.accountPersistenceBackup.ledger)
+    }
+    if (this.projectWorkspacePersistenceBackup) {
+      persisted.projects = structuredClone(this.projectWorkspacePersistenceBackup.projects)
+      persisted.assets = structuredClone(this.projectWorkspacePersistenceBackup.assets)
+      persisted.shots = structuredClone(this.projectWorkspacePersistenceBackup.shots)
+    }
+    if (this.generationTaskPersistenceBackup) {
+      persisted.tasks = structuredClone(this.generationTaskPersistenceBackup.tasks)
+    }
+    if (this.aiJobPersistenceBackup) {
+      persisted.aiJobs = structuredClone(this.aiJobPersistenceBackup.aiJobs)
+    }
+    return persisted
+  }
+
+  private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+    if (!this.lockPath) return operation()
+    const handle = await acquireFileLock(this.lockPath)
+    try {
+      return await operation()
+    } finally {
+      await handle.close().catch(() => {})
+      await rm(this.lockPath, { force: true }).catch(() => {})
+    }
+  }
+}
+
+async function acquireFileLock(lockPath: string) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    try {
+      const handle = await openFile(lockPath, 'wx')
+      await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: Date.now() }))
+      return handle
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      await removeStaleLock(lockPath)
+      await new Promise((resolve) => setTimeout(resolve, Math.min(25 + attempt * 5, 250)))
+    }
+  }
+  throw new Error(`Timed out waiting for app store lock: ${lockPath}`)
+}
+
+async function removeStaleLock(lockPath: string): Promise<void> {
+  const raw = await readFile(lockPath, 'utf8').catch(() => '')
+  let createdAt = Number.NaN
+  try {
+    createdAt = Number(JSON.parse(raw || '{}').createdAt)
+  } catch {
+    createdAt = Number.NaN
+  }
+  if (Number.isFinite(createdAt) && Date.now() - createdAt > 120_000) {
+    await rm(lockPath, { force: true }).catch(() => {})
   }
 }
 
@@ -183,20 +444,48 @@ async function renameWithRetry(source: string, destination: string): Promise<voi
 function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean): AppState {
   const now = new Date().toISOString()
   const tenantId = 'tenant-seqora-demo'
-  const creatorId = 'user-creator'
+  const memberId = 'user-member'
+  const ownerId = 'user-owner'
+  const superAdminId = 'user-super-admin'
   const projectId = 'project-midnight-film'
 
   return {
     users: [
       {
-        id: creatorId,
-        email: bootstrapUsers.creatorEmail.toLowerCase(),
-        name: bootstrapUsers.creatorName ?? '创作者',
-        passwordHash: hashPassword(bootstrapUsers.creatorPassword),
+        id: memberId,
+        email: bootstrapUsers.memberEmail.toLowerCase(),
+        name: bootstrapUsers.memberName ?? '默认 C 端用户',
+        passwordHash: hashPassword(bootstrapUsers.memberPassword),
         tenantId,
-        roles: ['creator'],
+        roles: ['member'],
         plan: 'free',
         credits: 286,
+        passwordResetRequired: false,
+        emailVerified: true,
+      },
+      {
+        id: ownerId,
+        email: bootstrapUsers.ownerEmail.toLowerCase(),
+        name: bootstrapUsers.ownerName ?? '平台所有者',
+        passwordHash: hashPassword(bootstrapUsers.ownerPassword),
+        tenantId,
+        roles: ['owner'],
+        plan: 'member',
+        credits: 1_000,
+        passwordResetRequired: false,
+        emailVerified: true,
+      },
+      {
+        id: superAdminId,
+        email: bootstrapUsers.superAdminEmail.toLowerCase(),
+        name: bootstrapUsers.superAdminName ?? '超级管理员',
+        passwordHash: hashPassword(bootstrapUsers.superAdminPassword),
+        tenantId,
+        roles: ['super_admin'],
+        plan: 'member',
+        credits: 1_000,
+        passwordResetRequired: false,
+        emailVerified: true,
       },
       {
         id: 'user-admin',
@@ -207,6 +496,8 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
         roles: ['admin'],
         plan: 'member',
         credits: 1_000,
+        passwordResetRequired: false,
+        emailVerified: true,
       },
     ],
     projects: demoWorkspace
@@ -214,10 +505,9 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
           {
             id: projectId,
             tenantId,
-            ownerId: creatorId,
+            ownerId: memberId,
             name: '午夜胶片',
             contentType: 'short-drama',
-            visualStyle: 'cinematic-cg',
             aspectRatio: '9:16',
             status: 'producing',
             synopsis: '雨夜，一卷能预见明天的胶片，正等待被打开。',
@@ -231,6 +521,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
     assets: demoWorkspace ? seedAssets(projectId, tenantId, now) : [],
     shots: demoWorkspace ? seedShots(projectId, tenantId, now) : [],
     tasks: [],
+    aiJobs: [],
     media: [],
     novelDocuments: [],
     novelChapters: [],
@@ -242,7 +533,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
     ledger: [
       {
         id: 'ledger-initial',
-        userId: creatorId,
+        userId: memberId,
         tenantId,
         amount: 286,
         balance: 286,
@@ -324,7 +615,7 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
       visualStyle: 'cinematic-cg',
       framing: 'full',
       bodyType: 'balanced',
-      background: 'transparent',
+      background: 'solid',
       faceStatus: 'pending',
       bodyStatus: 'pending',
       faceReference: null,
@@ -397,7 +688,7 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
     ['shot-3', 3, '等待', '广角', 4, '空旷站台，人物位于画面右侧，信号灯闪烁', '/demo/station.jpg'],
     ['shot-4', 4, '周野出现', '特写', 4, '周野从阴影走出，把旧铁盒放在长椅上', null],
     ['shot-5', 5, '打开铁盒', '俯拍', 5, '双手打开生锈铁盒，里面是一卷旧胶片，暖光', '/demo/room.jpg'],
-  ].map(([id, order, title, framing, duration, prompt, imageUrl], index) => ({
+  ].map(([id, order, title, framing, duration, prompt, imageUrl]) => ({
     id: id as string,
     projectId,
     tenantId,
@@ -408,7 +699,7 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
     prompt: prompt as string,
     negativePrompt: '',
     imageUrl: imageUrl as string | null,
-    continuityMode: index === 0 ? ('independent' as const) : ('continue' as const),
+    continuityMode: 'independent' as const,
     continuityNote: '',
     episodeBreakBefore: false,
     episodeNumber: 1,
@@ -420,12 +711,10 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
 }
 
 function normalizeState(input: Partial<AppState>): AppState {
-  const projects = (input.projects ?? []).map((project) => ({
-    ...project,
-    visualStyle: project.visualStyle ?? 'cinematic-cg',
-    episodeDurationSeconds: project.episodeDurationSeconds ?? 60,
+  const users = (input.users ?? []).map((user) => ({
+    ...user,
+    roles: normalizeStoredRoles((user as { roles?: readonly unknown[] }).roles ?? []),
   }))
-  const projectStyles = new Map(projects.map((project) => [project.id, project.visualStyle]))
   const assets = (input.assets ?? []).map((stored) => {
     const legacy = stored as Omit<Partial<Asset>, 'kind'> & {
       id: string
@@ -441,28 +730,19 @@ function normalizeState(input: Partial<AppState>): AppState {
       updatedAt: string
     }
     const kind: Asset['kind'] = legacy.kind === 'sound' ? 'audio' : legacy.kind
-    const attributes =
-      legacy.attributes?.type === kind
-        ? { ...defaultAssetAttributes(kind), ...legacy.attributes }
-        : defaultAssetAttributes(kind)
-    const normalizedAttributes =
-      attributes.type === 'scene'
-        ? { ...attributes, emptyScene: true, activitySpace: true }
-        : attributes
-    const projectVisualStyle = projectStyles.get(legacy.projectId) ?? 'cinematic-cg'
     return {
       ...legacy,
       kind,
       sourceMode: legacy.sourceMode ?? 'generate',
       promptMode: legacy.promptMode ?? 'standard',
-      customPromptMode: 'replace',
+      customPromptMode: legacy.customPromptMode ?? 'append',
       customPrompt: legacy.customPrompt ?? '',
       negativePrompt: legacy.negativePrompt ?? '',
       references: legacy.references ?? [],
       attributes:
-        'visualStyle' in normalizedAttributes
-          ? { ...normalizedAttributes, visualStyle: projectVisualStyle }
-          : normalizedAttributes,
+        legacy.attributes?.type === kind
+          ? { ...defaultAssetAttributes(kind), ...legacy.attributes }
+          : defaultAssetAttributes(kind),
     } as Asset
   })
   const tasks = (input.tasks ?? []).map((task) => ({
@@ -475,22 +755,21 @@ function normalizeState(input: Partial<AppState>): AppState {
     outputs: task.outputs ?? [],
   }))
   return {
-    users: input.users ?? [],
-    projects: projects as AppState['projects'],
+    users,
+    projects: input.projects ?? [],
     assets,
     shots: (input.shots ?? []).map((shot) => ({
       ...shot,
       negativePrompt: shot.negativePrompt ?? '',
       continuityMode: shot.continuityMode ?? 'independent',
       continuityNote: shot.continuityNote ?? '',
-      selectedImageTaskId: shot.selectedImageTaskId ?? null,
-      selectedVideoTaskId: shot.selectedVideoTaskId ?? null,
       episodeBreakBefore: shot.episodeBreakBefore ?? false,
       episodeNumber: shot.episodeNumber ?? 1,
       episodeTitle: shot.episodeTitle ?? '主故事',
       episodeKind: shot.episodeKind ?? 'standard',
     })),
     tasks: tasks.map((task) => normalizeGenerationTaskLifecycle(task)),
+    aiJobs: (input.aiJobs ?? []).map((job) => normalizeAiJobLifecycle(job)),
     ledger: input.ledger ?? [],
     media: input.media ?? [],
     novelDocuments: input.novelDocuments ?? [],
@@ -501,6 +780,19 @@ function normalizeState(input: Partial<AppState>): AppState {
     novelBoundaries: input.novelBoundaries ?? [],
     novelStoryBibles: input.novelStoryBibles ?? [],
   }
+}
+
+function normalizeStoredRoles(roles: readonly unknown[]): Role[] {
+  const allowed = new Set([
+    'member',
+    'admin',
+    'organization_admin',
+    'organization_member',
+    'super_admin',
+    'owner',
+  ])
+  const normalized = roles.flatMap((role) => (String(role) === 'creator' ? ['member'] : [String(role)]))
+  return [...new Set(normalized.filter((role) => allowed.has(role)))].map((role) => role as Role)
 }
 
 const DEFAULT_SCRIPT = `雨夜，临港市旧火车站。

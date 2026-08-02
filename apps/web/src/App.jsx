@@ -4,6 +4,7 @@ import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
 import { IconButton } from './components/ui'
 import { useAuth } from './components/AuthProvider'
+import { canOpenAccountAdmin, getAdminConsoleUrl } from './features/account/access'
 import { api } from './services/apiClient'
 import {
   selectShotAssetReferences,
@@ -32,7 +33,6 @@ const ACTIVE_TASK_POLL_MS = 2_500
 const IDLE_TASK_POLL_MS = 12_000
 const BACKGROUND_TASK_POLL_MS = 30_000
 
-const AdminPage = lazyNamed(() => import('./pages/AdminPage'), 'AdminPage')
 const AssetsPage = lazyNamed(() => import('./pages/AssetsPage'), 'AssetsPage')
 const BillingPage = lazyNamed(() => import('./pages/BillingPage'), 'BillingPage')
 const FilmPage = lazyNamed(() => import('./pages/FilmPage'), 'FilmPage')
@@ -65,6 +65,8 @@ function App() {
   const notificationHistoryReadyRef = useRef(false)
 
   const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
+  const canOpenAdminAccounts = canOpenAccountAdmin(session)
+  const adminConsoleUrl = getAdminConsoleUrl()
 
   useEffect(() => {
     if (adminOnly) return
@@ -202,9 +204,12 @@ function App() {
 
   if (adminOnly)
     return (
-      <Suspense fallback={<WorkspaceLoading fullPage />}>
-        <AdminPage />
-      </Suspense>
+      <div className="app-loading">
+        <p>此账号使用独立管理后台</p>
+        <a className="button primary" href={adminConsoleUrl}>
+          进入管理后台
+        </a>
+      </div>
     )
   if (loading || !billing)
     return (
@@ -1044,6 +1049,9 @@ function App() {
           key={project.id}
           project={project}
           account={session.account}
+          canEditProject={session.permissions.includes('project.write')}
+          canOpenAdminConsole={canOpenAdminAccounts}
+          adminConsoleUrl={adminConsoleUrl}
           onSave={updateProject}
           onChangePassword={(input) => api.changePassword(input)}
           onLogout={logout}
@@ -1077,6 +1085,8 @@ function App() {
         mobileNav={mobileNav}
         billing={billing}
         assetCount={workspace?.assets.length ?? 0}
+        canOpenAdminAccounts={canOpenAdminAccounts}
+        adminConsoleUrl={adminConsoleUrl}
         onNavigate={navigateTo}
         onClose={() => setMobileNav(false)}
       />

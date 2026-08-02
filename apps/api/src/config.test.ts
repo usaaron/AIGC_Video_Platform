@@ -4,40 +4,21 @@ import { loadConfig } from './config.js'
 describe('production configuration', () => {
   it('parses proxy and secure bootstrap settings', () => {
     const config = loadConfig({
-      NODE_ENV: 'production',
-      WEB_ORIGIN: 'https://studio.example.com',
+      ...productionConfig(),
       TRUST_PROXY: 'true',
-      AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
-      BOOTSTRAP_CREATOR_EMAIL: 'creator@example.com',
-      BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
-      BOOTSTRAP_ADMIN_EMAIL: 'admin@example.com',
-      BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
-      STRINGX_API_KEY: 'production-video-token',
-      TOKENADVENT_API_KEY: 'production-text-image-token',
+      BOOTSTRAP_MEMBER_EMAIL: 'member@example.com',
     })
 
     expect(config.TRUST_PROXY).toBe(true)
     expect(config.WEB_ORIGIN).toBe('https://studio.example.com')
-    expect(config.BOOTSTRAP_CREATOR_NAME).toBe('创作者')
+    expect(config.BOOTSTRAP_MEMBER_NAME).toBe('默认 C 端用户')
+    expect(config.BOOTSTRAP_OWNER_NAME).toBe('平台所有者')
     expect(config.BOOTSTRAP_DEMO_WORKSPACE).toBe(false)
-    expect(config.DEMO_UNLIMITED_GENERATION_CONCURRENCY).toBe(false)
-    expect(config.TASK_WORKER_MODE).toBe('in-process')
+    expect(config.BOOTSTRAP_ACCOUNTS_ON_START).toBe(false)
+    expect(config.EMAIL_PROVIDER).toBe('resend')
     expect(config.TEXT_MODEL).toBe('glm-5.2')
-    expect(config.TEXT_API_KEY).toBe('')
-  })
-
-  it('allows a separate text key while keeping image credentials independent', () => {
-    const config = loadConfig({
-      TOKENADVENT_API_KEY: 'image-token',
-      TEXT_API_KEY: 'text-model-token',
-    })
-    expect(config.TEXT_API_KEY).toBe('text-model-token')
-  })
-
-  it('enables practical unlimited concurrency only when explicitly configured', () => {
-    expect(loadConfig({ DEMO_UNLIMITED_GENERATION_CONCURRENCY: 'true' })).toMatchObject({
-      DEMO_UNLIMITED_GENERATION_CONCURRENCY: true,
-    })
+    expect(config.TASK_QUEUE_DRIVER).toBe('bullmq')
+    expect(config.REDIS_URL).toBe('redis://redis:6379')
   })
 
   it('rejects development credentials in production', () => {
@@ -46,17 +27,12 @@ describe('production configuration', () => {
 
   it('requires the selected video provider key in production', () => {
     const production = {
-      NODE_ENV: 'production',
-      WEB_ORIGIN: 'https://studio.example.com',
-      AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
-      BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
-      BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
+      ...productionConfig(),
+      STRINGX_API_KEY: '',
       TOKENADVENT_API_KEY: 'production-text-image-token',
+      REHDASU_API_KEY: 'production-text-token',
     }
     expect(() => loadConfig(production)).toThrow('STRINGX_API_KEY is required')
-    expect(() => loadConfig({ ...production, VIDEO_PROVIDER: 'aideos' })).toThrow(
-      'AIDEOS_API_KEY is required',
-    )
     expect(() => loadConfig({ ...production, VIDEO_PROVIDER: 'volc-ark' })).toThrow('ARK_API_KEY is required')
   })
 
@@ -70,33 +46,54 @@ describe('production configuration', () => {
     })
   })
 
-  it('defaults to StringX and keeps legacy Aideos settings available', () => {
+  it('keeps tests on inline queue by default and validates bullmq Redis config', () => {
+    expect(loadConfig({ NODE_ENV: 'test' }).TASK_QUEUE_DRIVER).toBe('inline')
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'test',
+        TASK_QUEUE_DRIVER: 'bullmq',
+        REDIS_URL: '',
+      }),
+    ).toThrow('REDIS_URL is required when TASK_QUEUE_DRIVER=bullmq')
+  })
+
+  it('requires an explicit Redis URL for the production BullMQ queue', () => {
+    expect(() =>
+      loadConfig({
+        ...productionConfig(),
+        REDIS_URL: '',
+      }),
+    ).toThrow('REDIS_URL is required when TASK_QUEUE_DRIVER=bullmq')
+  })
+
+  it('requires real email delivery in production', () => {
+    expect(() => loadConfig({ ...productionConfig(), EMAIL_PROVIDER: 'console' })).toThrow(
+      'EMAIL_PROVIDER=resend is required in production',
+    )
+    expect(() => loadConfig({ ...productionConfig(), RESEND_API_KEY: '' })).toThrow(
+      'RESEND_API_KEY is required',
+    )
+  })
+
+  it('defaults to StringX and ignores removed legacy Seedance aliases', () => {
     expect(
       loadConfig({
-        AIDEOS_API_KEY: '',
-        SEEDANCE_API_BASE_URL: 'https://legacy-aideos.example',
+        SEEDANCE_API_BASE_URL: 'https://legacy-seedance.example',
         SEEDANCE_API_KEY: 'legacy-token',
         SEEDANCE_MODEL: 'doubao-seedance-2-0-260128',
       }),
     ).toMatchObject({
       VIDEO_PROVIDER: 'stringx',
       STRINGX_BASE_URL: 'https://maas.stringx.top/api/v3',
-      AIDEOS_BASE_URL: 'https://legacy-aideos.example',
-      AIDEOS_API_KEY: 'legacy-token',
-      AIDEOS_VIDEO_MODEL: 'doubao-seedance-2-0-260128',
       VIDEO_POLL_INTERVAL_MS: 5_000,
     })
   })
 
   it('keeps the sample workspace opt-in for production', () => {
     const production = {
-      NODE_ENV: 'production',
-      WEB_ORIGIN: 'https://studio.example.com',
-      AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
-      BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
-      BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
-      STRINGX_API_KEY: 'production-video-token',
+      ...productionConfig(),
       TOKENADVENT_API_KEY: 'production-text-image-token',
+      REHDASU_API_KEY: 'production-text-token',
       BOOTSTRAP_DEMO_WORKSPACE: 'true',
     }
     expect(loadConfig(production).BOOTSTRAP_DEMO_WORKSPACE).toBe(true)
@@ -105,13 +102,42 @@ describe('production configuration', () => {
   it('rejects missing production text and image credentials', () => {
     expect(() =>
       loadConfig({
-        NODE_ENV: 'production',
-        WEB_ORIGIN: 'https://studio.example.com',
-        AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
-        BOOTSTRAP_CREATOR_PASSWORD: 'UniqueCreatorPassword123!',
-        BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
-        STRINGX_API_KEY: 'production-video-token',
+        ...productionConfig(),
+        TOKENADVENT_API_KEY: '',
       }),
     ).toThrow('TOKENADVENT_API_KEY is required')
   })
+
+  it('requires the selected Rehdasu text provider key in production', () => {
+    expect(() =>
+      loadConfig({
+        ...productionConfig(),
+        REHDASU_API_KEY: '',
+        TEXT_MODEL: 'glm-5.2',
+      }),
+    ).toThrow('REHDASU_API_KEY is required')
+  })
 })
+
+function productionConfig(overrides: Record<string, string> = {}): Record<string, string> {
+  return {
+    NODE_ENV: 'production',
+    WEB_ORIGIN: 'https://studio.example.com',
+    AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
+    BILLING_WEBHOOK_SECRET: 'a-unique-billing-webhook-secret-32-chars',
+    EMAIL_PROVIDER: 'resend',
+    EMAIL_FROM: 'Seqora <no-reply@example.com>',
+    RESEND_API_KEY: 'resend-production-token',
+    BOOTSTRAP_MEMBER_PASSWORD: 'UniqueMemberPassword123!',
+    BOOTSTRAP_OWNER_EMAIL: 'owner@example.com',
+    BOOTSTRAP_OWNER_PASSWORD: 'UniqueOwnerPassword123!',
+    BOOTSTRAP_SUPER_ADMIN_EMAIL: 'superadmin@example.com',
+    BOOTSTRAP_SUPER_ADMIN_PASSWORD: 'UniqueSuperAdminPassword123!',
+    BOOTSTRAP_ADMIN_PASSWORD: 'UniqueAdminPassword123!',
+    STRINGX_API_KEY: 'production-video-token',
+    TOKENADVENT_API_KEY: 'production-image-token',
+    REHDASU_API_KEY: 'production-text-token',
+    REDIS_URL: 'redis://redis:6379',
+    ...overrides,
+  }
+}
