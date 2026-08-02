@@ -31,14 +31,19 @@ describe('BullMQ task queue', { timeout: 60_000 }, () => {
       TASK_QUEUE_POLL_INTERVAL_MS: '60000',
       REDIS_URL: redisUrl,
     })
-    const tick = vi.fn(async () => {})
+    const tick = vi.fn(async (_context?: { traceId?: string | null; reason?: string }) => {})
     const worker = createBullMqGenerationWorker(config, { tick } as unknown as TaskQueueRunner)
     const dispatcher = createBullMqTaskDispatcher(config)
 
     try {
-      await dispatcher.dispatch(taskFixture())
+      await dispatcher.dispatch(taskFixture({ traceId: 'trace-bullmq-dispatch' }))
       await waitFor(() => tick.mock.calls.length > 0)
-      expect(tick).toHaveBeenCalled()
+      expect(
+        tick.mock.calls.some(
+          ([context]) =>
+            context?.traceId === 'trace-bullmq-dispatch' && context?.reason === 'task-dispatch',
+        ),
+      ).toBe(true)
     } finally {
       await dispatcher.close()
       await worker.close()
@@ -97,7 +102,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   throw new Error('Timed out waiting for BullMQ job')
 }
 
-function taskFixture(): GenerationTask {
+function taskFixture(overrides: { traceId?: string | null } = {}): GenerationTask {
   const now = new Date().toISOString()
   return {
     id: `task-${randomUUID()}`,
@@ -112,7 +117,7 @@ function taskFixture(): GenerationTask {
     provider: 'img2',
     model: null,
     tier: null,
-    metadata: {},
+    metadata: overrides.traceId ? { traceId: overrides.traceId } : {},
     status: 'queued',
     progress: 0,
     estimatedCredits: 1,

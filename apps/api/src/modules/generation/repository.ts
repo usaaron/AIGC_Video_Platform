@@ -9,6 +9,7 @@ import { cancellationResourceLockForTask } from '../../core/jobs/taskResourceLoc
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
+import { traceMetadata } from '../../core/observability/trace.js'
 
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(
@@ -194,14 +195,22 @@ export class GenerationTaskRepository {
     )
   }
 
-  async create(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask> {
-    if (this.database) return this.createInDatabase(input, principal, false)
-    return this.createInStore(input, principal)
+  async create(
+    input: CreateGenerationTask,
+    principal: Principal,
+    options: { traceId?: string | null } = {},
+  ): Promise<GenerationTask> {
+    if (this.database) return this.createInDatabase(input, principal, false, options)
+    return this.createInStore(input, principal, options)
   }
 
-  async createWithCharge(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask> {
-    if (this.database) return this.createInDatabase(input, principal, true)
-    return this.createWithChargeInStore(input, principal)
+  async createWithCharge(
+    input: CreateGenerationTask,
+    principal: Principal,
+    options: { traceId?: string | null } = {},
+  ): Promise<GenerationTask> {
+    if (this.database) return this.createInDatabase(input, principal, true, options)
+    return this.createWithChargeInStore(input, principal, options)
   }
 
   async listByProject(projectId: string, principal: Principal): Promise<GenerationTask[]> {
@@ -498,6 +507,7 @@ export class GenerationTaskRepository {
     input: CreateGenerationTask,
     principal: Principal,
     chargeCredits: boolean,
+    options: { traceId?: string | null } = {},
   ): Promise<GenerationTask> {
     const created = await this.database!.transaction(async (client) => {
       const replayed = await findTaskByClientRequest(client, input.clientRequestId, principal)
@@ -513,7 +523,7 @@ export class GenerationTaskRepository {
       }
 
       const now = new Date().toISOString()
-      const task = buildQueuedGenerationTask(input, principal, now)
+      const task = buildQueuedGenerationTask(input, principal, now, options)
       const inserted = await insertCreatedTask(client, task, membership.id)
       if (!inserted) {
         const existing = await findTaskByClientRequest(client, input.clientRequestId, principal)
@@ -582,7 +592,11 @@ export class GenerationTaskRepository {
     return created.task
   }
 
-  private async createInStore(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask> {
+  private async createInStore(
+    input: CreateGenerationTask,
+    principal: Principal,
+    options: { traceId?: string | null } = {},
+  ): Promise<GenerationTask> {
     return this.store.mutate((state) => {
       const existing = state.tasks.find(
         (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
@@ -591,7 +605,7 @@ export class GenerationTaskRepository {
 
       assertNoActiveShotTaskInState(state, input, principal)
       const now = new Date().toISOString()
-      const task = buildQueuedGenerationTask(input, principal, now)
+      const task = buildQueuedGenerationTask(input, principal, now, options)
       state.tasks.unshift(task)
       return task
     })
@@ -600,6 +614,7 @@ export class GenerationTaskRepository {
   private async createWithChargeInStore(
     input: CreateGenerationTask,
     principal: Principal,
+    options: { traceId?: string | null } = {},
   ): Promise<GenerationTask> {
     const creditLedger = this.creditLedger
     return this.store.transaction(async (state) => {
@@ -615,7 +630,7 @@ export class GenerationTaskRepository {
       if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
 
       const now = new Date().toISOString()
-      const task = buildQueuedGenerationTask(input, principal, now)
+      const task = buildQueuedGenerationTask(input, principal, now, options)
       if (creditLedger) {
         await creditLedger.reserveCreditsInState(
           state,
@@ -1014,6 +1029,7 @@ function buildQueuedGenerationTask(
   input: CreateGenerationTask,
   principal: Principal,
   now: string,
+  options: { traceId?: string | null } = {},
 ): GenerationTask {
   return normalizeGenerationTaskLifecycle({
     id: randomUUID(),
@@ -1028,7 +1044,7 @@ function buildQueuedGenerationTask(
     provider: input.provider,
     model: input.model ?? null,
     tier: input.tier ?? null,
-    metadata: input.metadata ?? {},
+    metadata: traceMetadata(input.metadata, options.traceId),
     status: 'queued',
     progress: 0,
     estimatedCredits: input.estimatedCredits,

@@ -32,10 +32,14 @@ describe('GenerationService task creation', () => {
     } as unknown as TaskDispatcher
     const service = new GenerationService(repository, dispatcher)
 
-    await expect(service.createTask(input, principal)).resolves.toMatchObject({ id: task.id })
+    await expect(service.createTask(input, principal, 'trace-service-create')).resolves.toMatchObject({
+      id: task.id,
+    })
 
-    expect(repository.createWithCharge).toHaveBeenCalledWith(input, principal)
-    expect(dispatcher.dispatch).toHaveBeenCalledWith(task)
+    expect(repository.createWithCharge).toHaveBeenCalledWith(input, principal, {
+      traceId: 'trace-service-create',
+    })
+    expect(dispatcher.dispatch).toHaveBeenCalledWith(task, { traceId: 'trace-service-create' })
   })
 })
 

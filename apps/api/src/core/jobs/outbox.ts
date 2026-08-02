@@ -2,7 +2,8 @@ import type { AiJob, GenerationTask } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type { QueryResult, QueryResultRow } from 'pg'
 import type { AccountDatabase } from '../../infra/postgres.js'
-import type { TaskDispatcher } from './taskDispatcher.js'
+import { traceIdFromAiJob, traceIdFromGenerationTask } from '../observability/trace.js'
+import type { TaskDispatchContext, TaskDispatcher } from './taskDispatcher.js'
 
 export type OutboxEventType = 'generation.task.dispatch' | 'ai_job.dispatch'
 
@@ -103,6 +104,7 @@ export class OutboxRepository {
         taskId: task.id,
         tenantId: task.tenantId,
         updatedAt: task.updatedAt,
+        ...(traceIdFromGenerationTask(task) ? { traceId: traceIdFromGenerationTask(task) } : {}),
       },
     })
   }
@@ -118,6 +120,7 @@ export class OutboxRepository {
         jobId: job.id,
         tenantId: job.tenantId,
         updatedAt: job.updatedAt,
+        ...(traceIdFromAiJob(job) ? { traceId: traceIdFromAiJob(job) } : {}),
       },
     })
   }
@@ -285,7 +288,7 @@ export class OutboxRelay {
 export class OutboxTaskDispatcher implements TaskDispatcher {
   constructor(private readonly relay: OutboxRelay) {}
 
-  async dispatch(): Promise<void> {
+  async dispatch(_task?: unknown, _context?: TaskDispatchContext): Promise<void> {
     void this.relay.flush().catch((error) => {
       process.emitWarning(
         `Failed to flush outbox relay: ${error instanceof Error ? error.message : String(error)}`,

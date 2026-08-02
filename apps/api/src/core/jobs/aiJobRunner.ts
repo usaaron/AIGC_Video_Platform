@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { AiJobRepository } from '../../modules/aiJobs/repository.js'
 import { observabilityMetrics } from '../observability/metrics.js'
 import { noopTaskRunnerLock, type TaskRunnerLock } from './taskRunnerLock.js'
-import type { TaskDispatcher } from './taskDispatcher.js'
+import type { TaskDispatchContext, TaskDispatcher } from './taskDispatcher.js'
 
 export type AiJobExecutionResult = {
   output?: Record<string, unknown>
@@ -56,14 +56,16 @@ export class AiJobRunner implements TaskDispatcher {
     this.timer = null
   }
 
-  async dispatch(): Promise<void> {
-    void this.tick().catch(() => {})
+  async dispatch(_task?: unknown, context?: TaskDispatchContext): Promise<void> {
+    void this.tick(context).catch(() => {})
   }
 
-  async tick(): Promise<void> {
+  async tick(context?: TaskDispatchContext): Promise<void> {
     if (this.tickPromise) return this.tickPromise
 
-    const tickPromise = this.taskRunnerLock.runExclusive(() => this.runTick()).then(() => undefined)
+    const tickPromise = this.taskRunnerLock
+      .runExclusive(() => this.runTick(context))
+      .then(() => undefined)
     this.tickPromise = tickPromise
 
     try {
@@ -77,7 +79,7 @@ export class AiJobRunner implements TaskDispatcher {
     await this.tick()
   }
 
-  private async runTick(): Promise<void> {
+  private async runTick(_context?: TaskDispatchContext): Promise<void> {
     await this.beforeTick?.()
     await this.repository.refundTerminalJobs()
     const available = Math.max(0, this.concurrency - this.activeExecutions.size)

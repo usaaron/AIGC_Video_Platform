@@ -4,6 +4,7 @@ import type { QueryResult, QueryResultRow } from 'pg'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
 import { observabilityMetrics } from '../../core/observability/metrics.js'
+import { traceMetadata } from '../../core/observability/trace.js'
 import type { OutboxRepository } from '../../core/jobs/outbox.js'
 import {
   DEFAULT_AI_JOB_MAX_ATTEMPTS,
@@ -97,9 +98,13 @@ export class AiJobRepository {
     this.store.replaceAiJobRuntimeCache(result.rows.map(jobFromRow))
   }
 
-  async createWithCharge(input: CreateAiJob, principal: Principal): Promise<AiJob> {
-    if (this.database) return this.createInDatabase(input, principal, true)
-    return this.createWithChargeInStore(input, principal)
+  async createWithCharge(
+    input: CreateAiJob,
+    principal: Principal,
+    options: { traceId?: string | null } = {},
+  ): Promise<AiJob> {
+    if (this.database) return this.createInDatabase(input, principal, true, options)
+    return this.createWithChargeInStore(input, principal, options)
   }
 
   async listByProject(projectId: string, principal: Principal): Promise<AiJob[]> {
@@ -434,6 +439,7 @@ export class AiJobRepository {
     input: CreateAiJob,
     principal: Principal,
     chargeCredits: boolean,
+    options: { traceId?: string | null } = {},
   ): Promise<AiJob> {
     const created = await this.database!.transaction(async (client) => {
       const replayed = await findJobByClientRequest(client, input.clientRequestId, principal)
@@ -446,7 +452,7 @@ export class AiJobRepository {
       if (!membership) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
 
       const now = new Date().toISOString()
-      const job = buildQueuedAiJob(input, principal, now)
+      const job = buildQueuedAiJob(input, principal, now, options)
       const inserted = await insertCreatedJob(client, job, membership.id)
       if (!inserted) {
         const existing = await findJobByClientRequest(client, input.clientRequestId, principal)
@@ -515,7 +521,11 @@ export class AiJobRepository {
     return created.job
   }
 
-  private async createWithChargeInStore(input: CreateAiJob, principal: Principal): Promise<AiJob> {
+  private async createWithChargeInStore(
+    input: CreateAiJob,
+    principal: Principal,
+    options: { traceId?: string | null } = {},
+  ): Promise<AiJob> {
     const creditLedger = this.creditLedger
     return this.store.transaction(async (state) => {
       const existing = state.aiJobs.find(
@@ -529,7 +539,7 @@ export class AiJobRepository {
       if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
 
       const now = new Date().toISOString()
-      const job = buildQueuedAiJob(input, principal, now)
+      const job = buildQueuedAiJob(input, principal, now, options)
       if (input.costCredits <= 0) {
         state.aiJobs.unshift(job)
         return job
@@ -855,7 +865,12 @@ function aiJobInsertParams(job: AiJob, membershipId: string | null): unknown[] {
   ]
 }
 
-function buildQueuedAiJob(input: CreateAiJob, principal: Principal, now: string): AiJob {
+function buildQueuedAiJob(
+  input: CreateAiJob,
+  principal: Principal,
+  now: string,
+  options: { traceId?: string | null } = {},
+): AiJob {
   return normalizeAiJobLifecycle({
     id: randomUUID(),
     clientRequestId: input.clientRequestId,
@@ -865,7 +880,7 @@ function buildQueuedAiJob(input: CreateAiJob, principal: Principal, now: string)
     kind: input.kind,
     label: input.label,
     provider: input.provider,
-    input: input.input,
+    input: traceMetadata(input.input, options.traceId),
     output: null,
     status: 'queued',
     costCredits: input.costCredits,

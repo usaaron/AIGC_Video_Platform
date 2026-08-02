@@ -2,8 +2,9 @@ import { Queue, Worker, type JobsOptions } from 'bullmq'
 import { Redis } from 'ioredis'
 import type { AppConfig } from '../../config.js'
 import { observabilityMetrics } from '../observability/metrics.js'
+import { traceIdFromAiJob, traceIdFromGenerationTask } from '../observability/trace.js'
 import type { OutboxEvent, OutboxPublisher } from './outbox.js'
-import type { TaskDispatcher } from './taskDispatcher.js'
+import type { TaskDispatchContext, TaskDispatcher } from './taskDispatcher.js'
 
 type GenerationQueueJob = {
   reason: 'task-dispatch' | 'startup' | 'poll' | 'outbox-event'
@@ -12,10 +13,11 @@ type GenerationQueueJob = {
   outboxEventId?: string
   eventType?: OutboxEvent['eventType']
   aggregateId?: string
+  traceId?: string | null
 }
 
 export interface TaskQueueRunner {
-  tick(): Promise<void>
+  tick(context?: TaskDispatchContext & { reason?: string }): Promise<void>
 }
 
 export type BullMqReadiness = {
@@ -50,11 +52,15 @@ export class BullMqTaskDispatcher implements TaskDispatcher, OutboxPublisher {
     })
   }
 
-  async dispatch(task: { id: string; tenantId: string; updatedAt: string }): Promise<void> {
+  async dispatch(
+    task: { id: string; tenantId: string; updatedAt: string; metadata?: Record<string, unknown> },
+    context?: TaskDispatchContext,
+  ): Promise<void> {
+    const traceId = context?.traceId ?? traceIdFromGenerationTask(task) ?? null
     try {
       await this.addQueueTrigger(
         'generation-task',
-        { reason: 'task-dispatch', taskId: task.id, tenantId: task.tenantId },
+        { reason: 'task-dispatch', taskId: task.id, tenantId: task.tenantId, traceId },
         `task-${safeJobIdPart(task.id)}-${safeJobIdPart(task.updatedAt)}`,
       )
     } catch (error) {
@@ -74,6 +80,7 @@ export class BullMqTaskDispatcher implements TaskDispatcher, OutboxPublisher {
         outboxEventId: event.id,
         eventType: event.eventType,
         aggregateId: event.aggregateId,
+        traceId: traceIdFromPayload(event.payload),
       },
       `outbox-${safeJobIdPart(event.id)}`,
     )
@@ -151,7 +158,7 @@ export class BullMqGenerationWorker {
         const startedAt = Date.now()
         const waitMs = Math.max(0, startedAt - job.timestamp)
         try {
-          await this.runner.tick()
+          await this.runner.tick({ traceId: job.data.traceId ?? null, reason: job.data.reason })
           observabilityMetrics.recordQueueJob({
             name: job.name,
             reason: job.data.reason,
@@ -269,4 +276,8 @@ function parseWorkerHeartbeat(value: string | null): { pid: number; updatedAt: s
 function workerStatus(heartbeat: { updatedAt: string } | null): BullMqReadiness['worker'] {
   if (!heartbeat) return 'missing'
   return Date.now() - Date.parse(heartbeat.updatedAt) <= 30_000 ? 'ready' : 'stale'
+}
+
+function traceIdFromPayload(payload: Record<string, unknown>): string | null {
+  return traceIdFromAiJob({ input: payload }) ?? traceIdFromGenerationTask({ metadata: payload })
 }

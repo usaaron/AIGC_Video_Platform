@@ -2,6 +2,7 @@ import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/co
 import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import type { FilmPreviewDispatcher } from '../../core/film/filmPreviewComposer.js'
+import { traceContext, traceIdFromGenerationTask } from '../../core/observability/trace.js'
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
 import type { VideoGenerationProvider } from '../../core/generation/videoProvider.js'
 import type { VideoProviderName } from '../../core/generation/videoProvider.js'
@@ -21,7 +22,11 @@ export class GenerationService {
     private readonly filmPreviewComposer: FilmPreviewDispatcher | null = null,
   ) {}
 
-  async createTask(input: CreateGenerationTask, principal: Principal): Promise<GenerationTask> {
+  async createTask(
+    input: CreateGenerationTask,
+    principal: Principal,
+    traceId?: string | null,
+  ): Promise<GenerationTask> {
     if (!this.repository.canCreate(input.projectId, principal)) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成')
     }
@@ -41,8 +46,8 @@ export class GenerationService {
         `以下人物使用弦序 MaaS 素材，不能提交到当前视频 Provider：${stringXPortraitNames.join('、')}。请切换弦序视频 API 后再生成`,
       )
     }
-    const task = await this.repository.createWithCharge(input, principal)
-    await this.dispatcher.dispatch(task)
+    const task = await this.repository.createWithCharge(input, principal, traceContext(traceId))
+    await this.dispatcher.dispatch(task, { traceId: traceId ?? traceIdFromGenerationTask(task) })
     return task
   }
 
@@ -59,6 +64,7 @@ export class GenerationService {
     principal: Principal,
     mode: FilmPreviewMode = 'full',
     force = false,
+    traceId?: string | null,
   ): Promise<GenerationTask> {
     if (!this.repository.canCreate(projectId, principal)) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成')
@@ -121,6 +127,7 @@ export class GenerationService {
         },
       },
       principal,
+      traceContext(traceId),
     )
     return this.filmPreviewComposer.start(task)
   }
@@ -134,13 +141,15 @@ export class GenerationService {
     return result.task
   }
 
-  async resumeTask(taskId: string, principal: Principal): Promise<GenerationTask> {
+  async resumeTask(taskId: string, principal: Principal, traceId?: string | null): Promise<GenerationTask> {
     const result = await this.repository.resume(taskId, principal)
     if (!result.task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权操作')
     if (result.outcome === 'not_resumable') {
       throw new AppError(409, 'TASK_NOT_RESUMABLE', '只有已暂停且仍在队列中的任务可以继续')
     }
-    await this.dispatcher.dispatch(result.task)
+    await this.dispatcher.dispatch(result.task, {
+      traceId: traceId ?? traceIdFromGenerationTask(result.task),
+    })
     return result.task
   }
 

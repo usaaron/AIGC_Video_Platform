@@ -16,7 +16,9 @@ describe('GenerationTaskRepository charged creation', () => {
     const repository = new GenerationTaskRepository(store)
     const input = taskInput({ clientRequestId: 'atomic-image-task', estimatedCredits: 7 })
 
-    const task = await repository.createWithCharge(input, memberPrincipal)
+    const task = await repository.createWithCharge(input, memberPrincipal, {
+      traceId: 'trace-generation-task',
+    })
     const persisted = store.read((state) => ({
       credits: state.users.find((user) => user.id === memberPrincipal.userId)!.credits,
       ledger: state.ledger.find((entry) => entry.id === 'generation-atomic-image-task'),
@@ -27,6 +29,7 @@ describe('GenerationTaskRepository charged creation', () => {
       clientRequestId: input.clientRequestId,
       estimatedCredits: 7,
       status: 'queued',
+      metadata: { traceId: 'trace-generation-task' },
     })
     expect(persisted).toMatchObject({
       credits: 279,

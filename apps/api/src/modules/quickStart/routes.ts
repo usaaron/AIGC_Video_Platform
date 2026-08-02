@@ -37,6 +37,7 @@ export async function registerQuickStartRoutes(
         parse(projectParams, request.params).projectId,
         parse(executeQuickStartRequestSchema, request.body),
         request.principal!,
+        request.id,
       )
       return reply.code(202).send(result)
     },

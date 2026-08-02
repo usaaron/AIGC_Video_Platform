@@ -172,6 +172,7 @@ export async function registerNovelRoutes(app: FastifyInstance, service: NovelSe
         input,
         input.clientRequestId ?? randomUUID(),
         request.principal!,
+        request.id,
       )
     },
   )

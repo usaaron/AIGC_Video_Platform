@@ -44,6 +44,7 @@ import {
 } from '../../core/auth/sessionToken.js'
 import { NoopMailer, tokenUrl, type Mailer } from '../../core/email/mailer.js'
 import { AppError } from '../../core/errors.js'
+import { traceMetadata } from '../../core/observability/trace.js'
 import type { AppStore } from '../../infra/store.js'
 import type { SessionMetadata } from '../auth/accounts.js'
 import type { UserRepository } from '../users/repository.js'
@@ -91,7 +92,7 @@ export class AccountManagementService {
       resourceId: created.workspace.id,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { name: created.workspace.name },
+      metadata: auditMetadata(metadata, { name: created.workspace.name }),
     })
     return await this.issueSession(created, metadata)
   }
@@ -140,7 +141,7 @@ export class AccountManagementService {
       resourceId: tenantId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { name: updated.name },
+      metadata: auditMetadata(metadata, { name: updated.name }),
     })
     return updated
   }
@@ -177,7 +178,7 @@ export class AccountManagementService {
       resourceId: tenantId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { name: updated.name, scope: 'admin_console' },
+      metadata: auditMetadata(metadata, { name: updated.name, scope: 'admin_console' }),
     })
     return updated
   }
@@ -243,7 +244,7 @@ export class AccountManagementService {
       resourceId: tenantId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { name: result.workspace.name },
+      metadata: auditMetadata(metadata, { name: result.workspace.name }),
     })
     return result.nextWorkspace ? await this.issueSession(result.nextWorkspace, metadata) : null
   }
@@ -279,7 +280,7 @@ export class AccountManagementService {
       resourceId: tenantId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { name: result.workspace.name, scope: 'admin_console' },
+      metadata: auditMetadata(metadata, { name: result.workspace.name, scope: 'admin_console' }),
     })
     return result.workspace
   }
@@ -348,10 +349,10 @@ export class AccountManagementService {
       resourceId: tenantId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: {
+      metadata: auditMetadata(metadata, {
         previousOrganizationAdminUserId: result.previousOrganizationAdmin.userId,
         newOrganizationAdminUserId: result.newOrganizationAdmin.userId,
-      },
+      }),
     })
     return {
       previousOrganizationAdmin: result.previousOrganizationAdmin,
@@ -426,11 +427,11 @@ export class AccountManagementService {
       resourceId: tenantId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: {
+      metadata: auditMetadata(metadata, {
         previousOrganizationAdminUserId: result.previousOrganizationAdmin.userId,
         newOrganizationAdminUserId: result.newOrganizationAdmin.userId,
         scope: 'admin_console',
-      },
+      }),
     })
     return {
       previousOrganizationAdmin: result.previousOrganizationAdmin,
@@ -462,7 +463,7 @@ export class AccountManagementService {
       resourceId: result.membership.id,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { roles: result.membership.roles },
+      metadata: auditMetadata(metadata, { roles: result.membership.roles }),
     })
     return result.nextWorkspace ? await this.issueSession(result.nextWorkspace, metadata) : null
   }
@@ -624,7 +625,7 @@ export class AccountManagementService {
       resourceId: member.id,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { roles: member.roles },
+      metadata: auditMetadata(metadata, { roles: member.roles }),
     })
     await this.requestVerificationEmail(member.email, metadata)
     return member
@@ -675,10 +676,10 @@ export class AccountManagementService {
       resourceId: result.membership.userId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: {
+      metadata: auditMetadata(metadata, {
         membershipId: result.membership.id,
         roles: result.membership.roles,
-      },
+      }),
     })
     await this.requestVerificationEmail(result.membership.email, metadata)
     return result.membership
@@ -729,11 +730,11 @@ export class AccountManagementService {
       resourceId: result.membership.userId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: {
+      metadata: auditMetadata(metadata, {
         membershipId: result.membership.id,
         roles: result.membership.roles,
         scope: 'admin_console',
-      },
+      }),
     })
     await this.requestVerificationEmail(result.membership.email, metadata)
     return result.membership
@@ -794,10 +795,10 @@ export class AccountManagementService {
       resourceId: updated.id,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: {
+      metadata: auditMetadata(metadata, {
         previousRoles: target.roles,
         roles: updated.roles,
-      },
+      }),
     })
     return updated
   }
@@ -844,11 +845,11 @@ export class AccountManagementService {
       resourceId: updated.id,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: {
+      metadata: auditMetadata(metadata, {
         previousRoles: target.roles,
         roles: updated.roles,
         scope: 'admin_console',
-      },
+      }),
     })
     return updated
   }
@@ -895,7 +896,7 @@ export class AccountManagementService {
       resourceId: target.id,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { roles: target.roles },
+      metadata: auditMetadata(metadata, { roles: target.roles }),
     })
   }
 
@@ -940,7 +941,7 @@ export class AccountManagementService {
       resourceId: target.id,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { roles: target.roles, scope: 'admin_console' },
+      metadata: auditMetadata(metadata, { roles: target.roles, scope: 'admin_console' }),
     })
   }
 
@@ -987,7 +988,7 @@ export class AccountManagementService {
       resourceId: userId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { membershipId: target.id, roles: target.roles },
+      metadata: auditMetadata(metadata, { membershipId: target.id, roles: target.roles }),
     })
   }
 
@@ -1046,7 +1047,7 @@ export class AccountManagementService {
       resourceId: sessionId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { scope: 'self' },
+      metadata: auditMetadata(metadata, { scope: 'self' }),
     })
   }
 
@@ -1075,7 +1076,7 @@ export class AccountManagementService {
       resourceId: sessionId,
       ipAddress: metadata?.ipAddress ?? null,
       userAgent: metadata?.userAgent ?? null,
-      metadata: { scope: 'tenant' },
+      metadata: auditMetadata(metadata, { scope: 'tenant' }),
     })
   }
 
@@ -1450,6 +1451,13 @@ function normalizeEmail(email: string): string {
 
 function normalizeName(name: string): string {
   return name.trim()
+}
+
+function auditMetadata(
+  metadata: SessionMetadata | undefined,
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  return traceMetadata(value, metadata?.traceId ?? null)
 }
 
 function normalizeRoles(roles: Role[]): Role[] {

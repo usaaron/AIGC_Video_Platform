@@ -26,7 +26,7 @@ export async function registerGenerationRoutes(
       const parsed = createGenerationTaskSchema.safeParse(request.body)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
 
-      const task = await service.createTask(parsed.data, request.principal!)
+      const task = await service.createTask(parsed.data, request.principal!, request.id)
       return reply.code(202).send(task)
     },
   )
@@ -57,8 +57,9 @@ export async function registerGenerationRoutes(
             request.principal!,
             body.data.mode,
             body.data.force,
+            request.id,
           ),
-        )
+      )
     },
   )
 
@@ -78,7 +79,7 @@ export async function registerGenerationRoutes(
     async (request) => {
       const parsed = taskParamsSchema.safeParse(request.params)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
-      return service.resumeTask(parsed.data.taskId, request.principal!)
+      return service.resumeTask(parsed.data.taskId, request.principal!, request.id)
     },
   )
 

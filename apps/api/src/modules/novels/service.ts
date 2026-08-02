@@ -51,6 +51,7 @@ import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
 import type { AiJobExecutionResult, AiJobHandler } from '../../core/jobs/aiJobRunner.js'
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
+import { traceContext, traceIdFromAiJob } from '../../core/observability/trace.js'
 import type { AiJobRepository } from '../aiJobs/repository.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
 import type { NovelRepository } from './repository.js'
@@ -315,6 +316,7 @@ export class NovelService implements AiJobHandler {
     input: RunNovelSummaryQueueBatchRequest,
     clientRequestId: string,
     principal: Principal,
+    traceId?: string | null,
   ): Promise<NovelSummaryQueueBatchResult> {
     if (this.aiJobs && this.aiJobDispatcher) {
       return this.enqueueSummaryQueueBatchTask(
@@ -324,6 +326,7 @@ export class NovelService implements AiJobHandler {
         input,
         clientRequestId,
         principal,
+        traceId,
       )
     }
 
@@ -376,6 +379,7 @@ export class NovelService implements AiJobHandler {
     input: RunNovelSummaryQueueBatchRequest,
     clientRequestId: string,
     principal: Principal,
+    traceId?: string | null,
   ): Promise<NovelSummaryQueueBatchResult> {
     const source = await this.repository.summaryQueueSource(projectId, documentId, queueId, principal)
     if (!source) throw new AppError(404, 'NOVEL_SUMMARY_QUEUE_NOT_FOUND', '摘要队列不存在或无权访问')
@@ -397,7 +401,11 @@ export class NovelService implements AiJobHandler {
 
     const activeTask = await this.findActiveSummaryQueueBatchTask(projectId, documentId, queueId, principal)
     if (activeTask) {
-      if (activeTask.status === 'queued') await this.aiJobDispatcher!.dispatch(activeTask)
+      if (activeTask.status === 'queued') {
+        await this.aiJobDispatcher!.dispatch(activeTask, {
+          traceId: traceId ?? traceIdFromAiJob(activeTask),
+        })
+      }
       return {
         ...latest,
         processedItemIds: [],
@@ -433,8 +441,9 @@ export class NovelService implements AiJobHandler {
         },
       },
       principal,
+      traceContext(traceId),
     )
-    await this.aiJobDispatcher!.dispatch(task)
+    await this.aiJobDispatcher!.dispatch(task, { traceId: traceId ?? traceIdFromAiJob(task) })
     return {
       ...latest,
       processedItemIds: [],

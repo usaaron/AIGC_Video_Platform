@@ -4,6 +4,7 @@ export type RequestSessionMetadata = {
   ipAddress: string | null
   userAgent: string | null
   deviceLabel: string | null
+  traceId: string | null
 }
 
 export function sessionMetadataFromRequest(request: FastifyRequest): RequestSessionMetadata {
@@ -12,6 +13,7 @@ export function sessionMetadataFromRequest(request: FastifyRequest): RequestSess
     ipAddress: truncate(request.ip, 128),
     userAgent,
     deviceLabel: deviceLabelFromUserAgent(userAgent),
+    traceId: request.id,
   }
 }
 
