@@ -259,9 +259,9 @@ export class AppStore {
         try {
           result = await mutator(this.state)
           this.captureAccountRuntimeCache()
-          this.applyProjectWorkspaceRuntimeCache()
-          this.applyGenerationTaskRuntimeCache()
-          this.applyAiJobRuntimeCache()
+          this.captureProjectWorkspaceRuntimeCache()
+          this.captureGenerationTaskRuntimeCache()
+          this.captureAiJobRuntimeCache()
           await this.persist()
         } catch (error) {
           this.state = snapshot
