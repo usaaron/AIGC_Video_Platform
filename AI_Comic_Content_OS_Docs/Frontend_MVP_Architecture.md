@@ -38,6 +38,8 @@ The frontend connects Creative Intent Resolution, episode-context Draft Generati
 
 Every project records its market profile. Projects retained from a disabled or unknown market remain readable, exportable and deletable, but generation and quality-loop mutations are blocked when the active runtime profile differs. The user can duplicate the creative inputs into a new project version bound to the current market; the frontend must never silently rewrite or continue an old project with a different Prompt / Strategy lineage.
 
+Under `cn_mainland`, the interface locale and generation output are fixed to Chinese and language controls are hidden. This constraint is enforced when projects are created, restored and sent to generation. Historical English artifacts use a Chinese-only presentation view when translation is available; the immutable English source remains in lineage and machine-readable export. The bilingual switch is restored only under `overseas_tiktok`.
+
 The frontend currently orchestrates existing step APIs. This makes the product usable but does not mean `ScriptGenerationFacade`, formal `ScriptGenerationRequest / Result`, or `generate_script()` has been implemented.
 
 ## 2. Backend Capability Assessment

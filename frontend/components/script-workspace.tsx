@@ -107,8 +107,19 @@ export function ScriptWorkspace() {
         : selectedVersion === "final" && finalDraft
           ? finalDraft
           : frameworkDraft;
-  const isConfirmed = ["confirmed", "deepened", "final"].includes(currentEpisode.status);
+  const displayedBilingualView = currentEpisode.bilingualViews?.[displayedDraft.id];
+  const translatedTitle = displayedBilingualView?.items.find((item) => item.path === "title")?.translated_text;
   const marketMismatch = currentProject.marketProfile !== CURRENT_MARKET_PROFILE;
+  const displayedTitle = CURRENT_MARKET_PROFILE === "cn_mainland"
+    && displayedDraft.language.toLocaleLowerCase().startsWith("en")
+    ? translatedTitle ?? (marketMismatch
+        ? t("nav.historicalProject")
+        : t("workspace.translationLoadingTitle"))
+    : displayedDraft.title;
+  const displayedProjectTitle = marketMismatch
+    ? translatedTitle ?? t("nav.historicalProject")
+    : currentProject.title;
+  const isConfirmed = ["confirmed", "deepened", "final"].includes(currentEpisode.status);
 
   function blockCrossMarketMutation(): boolean {
     if (!marketMismatch) return false;
@@ -521,7 +532,7 @@ export function ScriptWorkspace() {
       <header className="workspace-header">
         <div>
           <span className="section-kicker">{t("workspace.kicker")}</span>
-          <h1>{currentProject.title}</h1>
+          <h1>{displayedProjectTitle}</h1>
           <p>{t("workspace.episodeCountSummary").replace("{current}", String(currentProject.episodes.length)).replace("{total}", String(currentProject.generationSettings.episodeCount))}</p>
           <small>{t("workspace.settingsHelp")}</small>
         </div>
@@ -558,14 +569,14 @@ export function ScriptWorkspace() {
           ) : null}
           <div className="episode-series-export">
             <span>{t("workspace.exportAll")}</span>
-            <button onClick={() => downloadSeries("markdown")} type="button">Markdown</button>
-            <button onClick={() => downloadSeries("json")} type="button">JSON</button>
+            <button onClick={() => downloadSeries("markdown")} type="button">{t("workspace.exportMarkdown")}</button>
+            <button onClick={() => downloadSeries("json")} type="button">{t("workspace.exportJson")}</button>
           </div>
         </aside>
 
         <div className="episode-document-area">
           <div className="episode-title-row">
-            <div><span>{t("workspace.episodeLabel").replace("{number}", String(currentEpisode.episodeNumber))}</span><h2>{displayedDraft.title}</h2></div>
+            <div><span>{t("workspace.episodeLabel").replace("{number}", String(currentEpisode.episodeNumber))}</span><h2>{displayedTitle}</h2></div>
             <span className={`episode-status status-${currentEpisode.status}`}>{t(`episodeStatus.${currentEpisode.status}`)}</span>
           </div>
 
@@ -584,7 +595,7 @@ export function ScriptWorkspace() {
             {isConfirmed ? <button className="primary-action" disabled={busyAction === "next" || busyAction === "batch"} onClick={handleNextEpisode} type="button">{currentProject.generationSettings.mode === "full" && !currentProject.episodes.some((item) => item.episodeNumber === currentEpisode.episodeNumber + 1) ? t("workspace.nextBatch") : t("workspace.nextEpisode")} <ArrowIcon /></button> : null}
             {isConfirmed && CREATIVE_DEEPENING_ENABLED ? <button className="outline-action" disabled={busyAction === "deepen"} onClick={() => void requestDeepening()} type="button">{busyAction === "deepen" ? t("workspace.deepening") : t("workspace.deepenEpisode")}</button> : null}
             <button className="outline-action" onClick={() => downloadEpisode("markdown")} type="button">{t("workspace.exportEpisode")}</button>
-            <button className="text-action" onClick={() => downloadEpisode("json")} type="button">JSON</button>
+            <button className="text-action" onClick={() => downloadEpisode("json")} type="button">{t("workspace.exportJson")}</button>
           </div>
 
           {selectedVersion === "modification" && modificationDraft ? (
@@ -599,7 +610,7 @@ export function ScriptWorkspace() {
             <EpisodeDraftEditor draft={editingDraft} onChange={setEditingDraft} onCancel={() => setEditingDraft(null)} onConfirm={() => void confirmDraft(editingDraft)} onSave={saveManualEdit} t={t} />
           ) : (
             <ScriptDocumentWithTranslation
-              cachedView={currentEpisode.bilingualViews?.[displayedDraft.id]}
+              cachedView={displayedBilingualView}
               draft={displayedDraft}
               generationStrategyId={currentEpisode.generationRun.generation_strategy_id}
               locale={locale}
@@ -714,6 +725,7 @@ function ScriptDocumentWithTranslation({
   const [translationError, setTranslationError] = useState(false);
   const shouldTranslate = locale === "zh"
     && draft.language.toLocaleLowerCase().startsWith("en");
+  const translationOnly = CURRENT_MARKET_PROFILE === "cn_mainland" && shouldTranslate;
 
   useEffect(() => {
     if (
@@ -759,7 +771,14 @@ function ScriptDocumentWithTranslation({
           </button>
         </div>
       ) : null}
-      <ScriptDocument draft={draft} t={t} translations={translations} />
+      {!translationOnly || cachedView ? (
+        <ScriptDocument
+          draft={draft}
+          t={t}
+          translationOnly={translationOnly}
+          translations={translations}
+        />
+      ) : null}
     </>
   );
 }
@@ -768,42 +787,62 @@ function ScriptDocument({
   draft,
   t,
   translations,
+  translationOnly = false,
 }: {
   draft: GeneratedDraft;
   t: (key: string) => string;
   translations?: Map<string, string>;
+  translationOnly?: boolean;
 }) {
   return (
     <article className="script-document">
       <section className="script-overview">
         <strong>{t("workspace.hook")}</strong>
-        <p>{draft.hook}<Translation path="hook" t={t} translations={translations} /></p>
+        <p><ScriptText path="hook" source={draft.hook} t={t} translationOnly={translationOnly} translations={translations} /></p>
         <strong>{t("workspace.synopsis")}</strong>
-        <p>{draft.synopsis}<Translation path="synopsis" t={t} translations={translations} /></p>
+        <p><ScriptText path="synopsis" source={draft.synopsis} t={t} translationOnly={translationOnly} translations={translations} /></p>
       </section>
       {draft.scenes.map((scene, sceneIndex) => (
         <section className="script-scene" key={scene.scene_number}>
           <span>{String(scene.scene_number).padStart(2, "0")}</span>
           <div>
-            <h2>{scene.slug}<Translation path={`scenes.${sceneIndex}.slug`} t={t} translations={translations} /></h2>
-            <p className="scene-purpose">{scene.purpose}<Translation path={`scenes.${sceneIndex}.purpose`} t={t} translations={translations} /></p>
-            <p>{scene.beat_summary}<Translation path={`scenes.${sceneIndex}.beat_summary`} t={t} translations={translations} /></p>
+            <h2><ScriptText path={`scenes.${sceneIndex}.slug`} source={scene.slug} t={t} translationOnly={translationOnly} translations={translations} /></h2>
+            <p className="scene-purpose"><ScriptText path={`scenes.${sceneIndex}.purpose`} source={scene.purpose} t={t} translationOnly={translationOnly} translations={translations} /></p>
+            <p><ScriptText path={`scenes.${sceneIndex}.beat_summary`} source={scene.beat_summary} t={t} translationOnly={translationOnly} translations={translations} /></p>
             {scene.scene_causality ? (
               <dl className="scene-causality">
-                <div><dt>{t("workspace.goal")}</dt><dd>{scene.scene_causality.goal}<Translation path={`scenes.${sceneIndex}.scene_causality.goal`} t={t} translations={translations} /></dd></div>
-                <div><dt>{t("workspace.conflict")}</dt><dd>{scene.scene_causality.conflict}<Translation path={`scenes.${sceneIndex}.scene_causality.conflict`} t={t} translations={translations} /></dd></div>
-                <div><dt>{t("workspace.outcome")}</dt><dd>{scene.scene_causality.outcome}<Translation path={`scenes.${sceneIndex}.scene_causality.outcome`} t={t} translations={translations} /></dd></div>
-                {scene.scene_causality.causal_link ? <div><dt>{t("workspace.causalLink")}</dt><dd>{scene.scene_causality.causal_link}<Translation path={`scenes.${sceneIndex}.scene_causality.causal_link`} t={t} translations={translations} /></dd></div> : null}
+                <div><dt>{t("workspace.goal")}</dt><dd><ScriptText path={`scenes.${sceneIndex}.scene_causality.goal`} source={scene.scene_causality.goal} t={t} translationOnly={translationOnly} translations={translations} /></dd></div>
+                <div><dt>{t("workspace.conflict")}</dt><dd><ScriptText path={`scenes.${sceneIndex}.scene_causality.conflict`} source={scene.scene_causality.conflict} t={t} translationOnly={translationOnly} translations={translations} /></dd></div>
+                <div><dt>{t("workspace.outcome")}</dt><dd><ScriptText path={`scenes.${sceneIndex}.scene_causality.outcome`} source={scene.scene_causality.outcome} t={t} translationOnly={translationOnly} translations={translations} /></dd></div>
+                {scene.scene_causality.causal_link ? <div><dt>{t("workspace.causalLink")}</dt><dd><ScriptText path={`scenes.${sceneIndex}.scene_causality.causal_link`} source={scene.scene_causality.causal_link} t={t} translationOnly={translationOnly} translations={translations} /></dd></div> : null}
               </dl>
             ) : null}
-            <ul>{scene.character_actions.map((action, actionIndex) => <li key={`${action}-${actionIndex}`}>{action}<Translation path={`scenes.${sceneIndex}.character_actions.${actionIndex}`} t={t} translations={translations} /></li>)}</ul>
-            <div className="scene-dialogues">{scene.dialogues.map((dialogue, dialogueIndex) => <blockquote key={`${dialogue.character_name}-${dialogueIndex}`}><strong>{dialogue.character_name}</strong><small>{dialogue.intent}<Translation path={`scenes.${sceneIndex}.dialogues.${dialogueIndex}.intent`} t={t} translations={translations} /></small><p>{dialogue.text}<Translation path={`scenes.${sceneIndex}.dialogues.${dialogueIndex}.text`} t={t} translations={translations} /></p></blockquote>)}</div>
+            <ul>{scene.character_actions.map((action, actionIndex) => <li key={`${action}-${actionIndex}`}><ScriptText path={`scenes.${sceneIndex}.character_actions.${actionIndex}`} source={action} t={t} translationOnly={translationOnly} translations={translations} /></li>)}</ul>
+            <div className="scene-dialogues">{scene.dialogues.map((dialogue, dialogueIndex) => <blockquote key={`${dialogue.character_name}-${dialogueIndex}`}><strong>{dialogue.character_name}</strong><small><ScriptText path={`scenes.${sceneIndex}.dialogues.${dialogueIndex}.intent`} source={dialogue.intent} t={t} translationOnly={translationOnly} translations={translations} /></small><p><ScriptText path={`scenes.${sceneIndex}.dialogues.${dialogueIndex}.text`} source={dialogue.text} t={t} translationOnly={translationOnly} translations={translations} /></p></blockquote>)}</div>
           </div>
         </section>
       ))}
-      <footer className="script-ending"><strong>{t("workspace.nextQuestion")}</strong><p>{draft.next_episode_question}<Translation path="next_episode_question" t={t} translations={translations} /></p></footer>
+      <footer className="script-ending"><strong>{t("workspace.nextQuestion")}</strong><p><ScriptText path="next_episode_question" source={draft.next_episode_question ?? ""} t={t} translationOnly={translationOnly} translations={translations} /></p></footer>
     </article>
   );
+}
+
+function ScriptText({
+  path,
+  source,
+  translations,
+  translationOnly,
+  t,
+}: {
+  path: string;
+  source: string;
+  translations?: Map<string, string>;
+  translationOnly: boolean;
+  t: (key: string) => string;
+}) {
+  const translated = translations?.get(path);
+  if (translationOnly) return translated ?? source;
+  return <>{source}<Translation path={path} t={t} translations={translations} /></>;
 }
 
 function Translation({

@@ -88,7 +88,7 @@ export function CharacterEditorPage({ mode }: { mode: "create" | "edit" }) {
 
       <section className="character-page-sheet">
         <div className="character-form-grid">
-          <label className="form-field span-two"><span>{t("character.name")} <b>*</b></span><input autoFocus onChange={(event) => updateField("name", event.target.value)} placeholder="Lucian Vale" value={form.name} /></label>
+          <label className="form-field span-two"><span>{t("character.name")} <b>*</b></span><input autoFocus onChange={(event) => updateField("name", event.target.value)} placeholder={t("character.namePlaceholder")} value={form.name} /></label>
           <label className="form-field"><span>{t("character.age")} <small>{t("character.optional")}</small></span><input onChange={(event) => updateField("age", event.target.value)} placeholder="29" value={form.age} /></label>
           <label className="form-field"><span>{t("character.gender")} <small>{t("character.optional")}</small></span><select onChange={(event) => updateField("gender", event.target.value)} value={form.gender}><option value="">{t("character.choose")}</option><option value="Woman">{t("character.woman")}</option><option value="Man">{t("character.man")}</option><option value="Non-binary">{t("character.nonBinary")}</option><option value="Unspecified">{t("character.unspecified")}</option></select></label>
           <label className="form-field span-two"><span>{t("character.role")} <small>{t("character.optional")}</small></span><input onChange={(event) => updateField("role", event.target.value)} placeholder={t("character.rolePlaceholder")} value={form.role} /></label>

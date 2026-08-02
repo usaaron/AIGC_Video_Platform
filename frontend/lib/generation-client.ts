@@ -192,7 +192,7 @@ export async function generateSingleEpisode(
     body: JSON.stringify({
       content_spec_id: resolution.data.content_spec.id,
       generation_strategy_id: strategy.id,
-      output_language: project.generationSettings.outputLanguage,
+      output_language: isMainlandChina ? "zh" : project.generationSettings.outputLanguage,
       desired_scene_count: project.generationSettings.sceneCount,
       resolved_creative_context: resolution.data.resolved_creative_context,
       episode_context: episode ? {

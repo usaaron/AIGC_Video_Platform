@@ -44,6 +44,7 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
       .map((project) => {
         const generationMode: ScriptProject["generationSettings"]["mode"] =
           project.generationSettings?.mode === "full" ? "full" : "sequential";
+        const marketProfile = project.marketProfile ?? inferProjectMarketProfile(project);
         const episodes = project.episodes?.length
           ? project.episodes
           : project.generationRun
@@ -66,7 +67,7 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
             : [];
         return {
           ...project,
-          marketProfile: project.marketProfile ?? inferProjectMarketProfile(project),
+          marketProfile,
           customTags: project.customTags ?? [],
           episodes,
           generationBatches: project.generationBatches ?? (episodes.length ? [{
@@ -92,10 +93,13 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
             ...character,
             role: character.role ?? "",
           })),
-          generationSettings: normalizeGenerationSettings(
-            { ...project.generationSettings, mode: generationMode },
-            { legacy: project.generationSettings?.episodeCountMode === undefined },
-          ),
+          generationSettings: {
+            ...normalizeGenerationSettings(
+              { ...project.generationSettings, mode: generationMode },
+              { legacy: project.generationSettings?.episodeCountMode === undefined },
+            ),
+            ...(marketProfile === "cn_mainland" ? { outputLanguage: "zh" as const } : {}),
+          },
         };
       })
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

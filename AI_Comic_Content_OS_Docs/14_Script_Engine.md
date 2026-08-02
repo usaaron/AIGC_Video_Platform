@@ -6,6 +6,8 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 
 市场切换不重写历史项目。Frontend 根据项目 `marketProfile` 与既有 Generation Strategy 识别来源；非当前市场项目仅保留查看、导出和删除能力，不能调用续写、AI 修改、审核或 Finalization。用户需要继续创作时，应复制为绑定当前市场的新版本，从而保持 Prompt、Strategy 和产物 lineage 一致。
 
+当前 `cn_mainland` 市场的输出语言固定为中文。Frontend 隐藏语言选择，Project Provider、持久化恢复和 Generation Client 均将大陆项目归一化为 `output_language=zh`；海外开关关闭时，浏览器曾保存的英文界面偏好不得覆盖当前市场。历史英文剧本只通过 `BilingualScriptView` 的中文 presentation layer 阅读，英文源产物继续保持不可变。
+
 ## 当前阶段产物
 
 当前阶段最终产物是：

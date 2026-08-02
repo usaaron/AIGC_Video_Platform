@@ -26,7 +26,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <MenuIcon />
           </button>
-          <span>AI Comic Content OS</span>
+          <span>{t("brand.name")} · {t("brand.system")}</span>
           <LanguageToggle compact />
         </header>
         {storageError ? <div className="storage-alert">{storageError}</div> : null}

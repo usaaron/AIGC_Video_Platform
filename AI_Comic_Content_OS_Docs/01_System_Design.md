@@ -18,6 +18,7 @@
 - Creative Deepening 前后端运行开关默认关闭，不进入当前创作路径
 - 当前已加入基础阶段生成边界：按项目总集数分有界批次生成，批次间允许更新创作输入；PostgreSQL/JSONB schema、migration、Repository、长篇规划资源 API、Frontend Workspace Snapshot 同步和确认/修订/终稿 Episode Artifact 已实现，但后台任务恢复与专业长篇规划仍待实现
 - Frontend 项目保存 `marketProfile` 来源。海外/TikTok 历史项目继续可读、可导出和可删除，但不能在中国大陆 runtime 下直接续写或执行质量链；迁移必须复制为当前市场的新项目版本，禁止混合 lineage
+- `cn_mainland` Frontend 固定 `zh-CN` 界面和中文 Script Generation 输出，不暴露语言切换；历史英文产物通过 presentation-only 中文阅读视图展示，正式源稿不被翻译层覆盖。语言切换只在显式启用 `overseas_tiktok` 时恢复
 
 本文后续未改写的 TikTok V1 内容属于历史设计背景或停用资产说明，不再代表当前默认运行目标。
 

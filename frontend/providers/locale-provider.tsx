@@ -8,6 +8,8 @@ import {
   useState,
 } from "react";
 
+import { CURRENT_MARKET_PROFILE } from "@/lib/types";
+
 export type Locale = "en" | "zh";
 
 const STORAGE_KEY = "ai-comic-content-os.locale";
@@ -22,6 +24,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "nav.loading": "Loading projects",
     "nav.empty": "Your stories will gather here as a private local library.",
     "nav.storyIdea": "Story idea",
+    "nav.historicalProject": "Historical overseas project",
     "nav.localWorkspace": "Local workspace",
     "nav.savedBrowser": "Saved in this browser",
     "nav.cloudWorkspace": "Server-backed workspace",
@@ -32,6 +35,8 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "nav.noMatches": "No scripts match this search.",
     "nav.delete": "Delete",
     "nav.deleteConfirm": "Delete this local script project? This cannot be undone.",
+    "brand.name": "AI Comic",
+    "brand.system": "Content OS",
     "market.cn_mainland": "Mainland China",
     "market.overseas_tiktok": "Overseas / TikTok",
     "market.legacy_unknown": "Legacy project",
@@ -96,6 +101,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "editor.saveProject": "Save project",
     "editor.continue": "Continue to generation",
     "editor.beginHint": "Add an idea, a tag, or a character to begin.",
+    "editor.phaseLabel": "Frontend MVP",
     "tags.selected": "Selected tags",
     "tags.empty": "Choose a few signals. The story direction stays yours.",
     "tags.categories": "Tag categories",
@@ -126,6 +132,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "character.addTitle": "Add someone unforgettable",
     "character.close": "Close character editor",
     "character.name": "Name",
+    "character.namePlaceholder": "Lucian Vale",
     "character.age": "Age",
     "character.gender": "Gender",
     "character.role": "Story role",
@@ -303,6 +310,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "workspace.translationFailed": "The Chinese reading view could not be generated. The English source remains available.",
     "workspace.translationRetry": "Retry Chinese translation",
     "workspace.translationLabel": "Chinese",
+    "workspace.translationLoadingTitle": "Preparing Chinese title...",
     "continuity.kicker": "Project continuity",
     "continuity.title": "Story lines and character relationships",
     "continuity.help": "This editable project-level view tracks continuity without changing the episode MasterScript.",
@@ -346,6 +354,9 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
   zh: {
     "nav.close": "关闭项目导航",
     "nav.open": "打开项目导航",
+    "nav.historicalProject": "历史海外项目",
+    "brand.name": "AI 漫剧",
+    "brand.system": "内容创作系统",
     "market.cn_mainland": "中国大陆",
     "market.overseas_tiktok": "海外 / TikTok",
     "market.legacy_unknown": "历史项目",
@@ -426,6 +437,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "editor.saveProject": "保存项目",
     "editor.continue": "继续生成",
     "editor.beginHint": "添加创意、标签或角色后即可开始。",
+    "editor.phaseLabel": "当前创作功能",
     "tags.selected": "已选标签",
     "tags.empty": "选择少量故事信号，方向仍由你决定。",
     "tags.categories": "标签分类",
@@ -456,6 +468,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "character.addTitle": "添加一个令人难忘的角色",
     "character.close": "关闭角色编辑器",
     "character.name": "姓名",
+    "character.namePlaceholder": "例如：林晚晴",
     "character.age": "年龄",
     "character.gender": "性别",
     "character.role": "剧情身份",
@@ -534,12 +547,12 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "workspace.settingsHelp": "可修改标签、指令或继续添加角色；已有分集不会被覆盖。",
     "workspace.edit": "编辑结构化初稿",
     "workspace.preview": "返回预览",
-    "workspace.exportMarkdown": "导出 Markdown",
-    "workspace.exportJson": "导出 JSON",
+    "workspace.exportMarkdown": "导出可读文档",
+    "workspace.exportJson": "导出结构化数据",
     "workspace.frameworkNote": "内容深化前的框架初稿",
     "workspace.saveEdit": "保存本地修改",
-    "workspace.saved": "本地修改已保存，但尚未重新 QC 或 Finalize。",
-    "workspace.invalid": "修改后的 JSON 必须包含 title 和 scenes 数组。",
+    "workspace.saved": "本地修改已保存，但尚未重新质检或生成终稿。",
+    "workspace.invalid": "修改后的结构化数据必须包含标题和场景列表。",
     "workspace.hook": "开场钩子",
     "workspace.synopsis": "剧情梗概",
     "workspace.goal": "场景目标",
@@ -556,22 +569,22 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "workspace.discardEdits": "放弃本地修改",
     "workspace.editsDiscarded": "已放弃本地修改并恢复生成初稿。",
     "workspace.editedBlocked": "受控质量闭环必须基于原始生成初稿。请先放弃本地修改再继续。",
-    "workspace.originalQc": "原始 Story QC",
+    "workspace.originalQc": "原始剧本质检",
     "workspace.deepeningStatus": "创意深化",
-    "workspace.reQc": "Re-QC / Acceptance",
+    "workspace.reQc": "再质检 / 修订验收",
     "workspace.finalization": "终稿准入门",
     "workspace.notEnabled": "当前策略未启用",
     "workspace.notRun": "尚未执行",
     "workspace.passed": "已通过",
-    "workspace.shadowBoundary": "Shadow 候选不会自动替换正式初稿。",
-    "workspace.gateBoundary": "终稿必须经过 Revision 与 Re-QC 的受控准入。",
-    "workspace.completeQuality": "执行修订、Re-QC 并生成终稿",
+    "workspace.shadowBoundary": "影子候选不会自动替换正式初稿。",
+    "workspace.gateBoundary": "终稿必须经过修订与再质检的受控准入。",
+    "workspace.completeQuality": "执行修订、再质检并生成终稿",
     "workspace.completingQuality": "正在完成质量闭环……",
     "workspace.qualityCompleted": "质量闭环已完成",
-    "workspace.qualityComplete": "Revision、Re-QC、Acceptance Shadow 与 Finalization 已完成。",
+    "workspace.qualityComplete": "修订、再质检、修订验收影子记录与终稿准入均已完成。",
     "workspace.qualityFailed": "质量闭环未能完成。",
     "workspace.backendStateExpired": "后端已重启，这个项目的临时生成链路已失效。本地初稿仍然安全并可继续导出；请返回项目设置重新生成该集，再使用 AI 修改、内容深化或终稿功能。",
-    "workspace.finalNote": "受控 FinalMasterScript",
+    "workspace.finalNote": "受控终稿",
     "workspace.episodes": "分集",
     "workspace.episodeLabel": "第 {number} 集",
     "workspace.episodeCountSummary": "已生成 {current}/{total} 集框架",
@@ -615,7 +628,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "workspace.seriesComplete": "设定的全部分集框架已经生成。",
     "workspace.exportEpisode": "导出本集",
     "workspace.exportAll": "导出整部",
-    "workspace.finalizationHelp": "针对本集执行受控 Revision、Re-QC、Acceptance Shadow 和 Finalization Gate。",
+    "workspace.finalizationHelp": "针对本集执行受控修订、再质检、修订验收影子记录和终稿准入。",
     "workspace.scene": "场景",
     "workspace.field.title": "本集标题",
     "workspace.field.logline": "一句话梗概",
@@ -630,9 +643,10 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "workspace.scriptView": "分集剧本",
     "workspace.continuityView": "故事线与人物关系",
     "workspace.translationLoading": "正在生成中文对照阅读视图……",
-    "workspace.translationFailed": "中文对照生成失败，英文原稿仍然安全可用。",
+    "workspace.translationFailed": "中文阅读视图生成失败，历史英文原稿仍然安全并可导出。",
     "workspace.translationRetry": "重新生成中文对照",
-    "workspace.translationLabel": "中文对照",
+    "workspace.translationLabel": "中文阅读",
+    "workspace.translationLoadingTitle": "正在准备中文标题……",
     "continuity.kicker": "项目连续性",
     "continuity.title": "故事线与人物关系网",
     "continuity.help": "这是可编辑的项目级连续性视图，不会直接修改单集 MasterScript。",
@@ -685,9 +699,16 @@ interface LocaleContextValue {
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>("en");
+  const languageSwitchEnabled = CURRENT_MARKET_PROFILE === "overseas_tiktok";
+  const [locale, setLocaleState] = useState<Locale>(
+    languageSwitchEnabled ? "en" : "zh",
+  );
 
   useEffect(() => {
+    if (!languageSwitchEnabled) {
+      setLocaleState("zh");
+      return;
+    }
     try {
       const storedLocale = window.localStorage.getItem(STORAGE_KEY);
       if (storedLocale === "en" || storedLocale === "zh") {
@@ -696,7 +717,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     } catch {
       // Language switching remains available when browser storage is restricted.
     }
-  }, []);
+  }, [languageSwitchEnabled]);
 
   useEffect(() => {
     document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
@@ -716,8 +737,14 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     <LocaleContext.Provider
       value={{
         locale,
-        setLocale: setLocaleState,
-        toggleLocale: () => setLocaleState((current) => current === "en" ? "zh" : "en"),
+        setLocale: (nextLocale) => setLocaleState(
+          languageSwitchEnabled ? nextLocale : "zh",
+        ),
+        toggleLocale: () => {
+          if (languageSwitchEnabled) {
+            setLocaleState((current) => current === "en" ? "zh" : "en");
+          }
+        },
         t,
       }}
     >

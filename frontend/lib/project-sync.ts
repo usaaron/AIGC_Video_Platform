@@ -93,9 +93,14 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
         const payload = workspace.data.workspace_payload;
         if (!isScriptProject(payload)) return null;
         lastSyncedProjectUpdates.set(remoteProject.project_id, payload.updatedAt);
+        const marketProfile = payload.marketProfile ?? inferProjectMarketProfile(payload);
         const restored: ScriptProject = {
           ...payload,
-          marketProfile: payload.marketProfile ?? inferProjectMarketProfile(payload),
+          marketProfile,
+          generationSettings: {
+            ...payload.generationSettings,
+            ...(marketProfile === "cn_mainland" ? { outputLanguage: "zh" as const } : {}),
+          },
           contentSpecId: remoteProject.content_spec_id ?? undefined,
           serverSync: {
             status: "synced",

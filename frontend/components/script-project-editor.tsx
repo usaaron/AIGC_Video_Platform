@@ -25,6 +25,7 @@ import {
   type OntologyTagSource,
 } from "@/lib/tag-catalog";
 import {
+  CURRENT_MARKET_PROFILE,
   DEFAULT_GENERATION_SETTINGS,
   type CreatorTag,
   type EpisodeWorkspace,
@@ -560,13 +561,15 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
                 <span>{t("generation.batchSize")}</span>
                 <input disabled={draft.generationSettings.mode === "sequential"} min={1} max={20} onChange={(event) => updateGenerationSetting("batchSize", Number(event.target.value))} type="number" value={draft.generationSettings.mode === "sequential" ? 1 : draft.generationSettings.batchSize} />
               </label>
-              <label className="form-field">
-                <span>{t("generation.language")}</span>
-                <select onChange={(event) => updateGenerationSetting("outputLanguage", event.target.value as "en" | "zh")} value={draft.generationSettings.outputLanguage}>
-                  <option value="en">English</option>
-                  <option value="zh">中文</option>
-                </select>
-              </label>
+              {CURRENT_MARKET_PROFILE === "overseas_tiktok" ? (
+                <label className="form-field">
+                  <span>{t("generation.language")}</span>
+                  <select onChange={(event) => updateGenerationSetting("outputLanguage", event.target.value as "en" | "zh")} value={draft.generationSettings.outputLanguage}>
+                    <option value="en">English</option>
+                    <option value="zh">中文</option>
+                  </select>
+                </label>
+              ) : null}
               <label className="form-field">
                 <span>{t("generation.scenes")}</span>
                 <input min={2} max={8} onChange={(event) => updateGenerationSetting("sceneCount", Number(event.target.value))} type="number" value={draft.generationSettings.sceneCount} />
@@ -598,14 +601,17 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
             <div><dt>{t("editor.generationMode")}</dt><dd>{t(`generation.mode.${draft.generationSettings.mode}`)}</dd></div>
           </dl>
           <div className="phase-note">
-            <span>Frontend MVP</span>
+            <span>{t("editor.phaseLabel")}</span>
             <p>{t("editor.phaseText")}</p>
           </div>
           <details className="generation-context-preview">
             <summary>{t("generation.contextPreview")}</summary>
             <dl>
               <div><dt>{t("generation.resolvedIntent")}</dt><dd>{resolvedGenerationPrompt}</dd></div>
-              <div><dt>{t("editor.selectedTags")}</dt><dd>{draft.selectedTagIds.length ? draft.selectedTagIds.join(", ") : t("generation.none")}</dd></div>
+              <div><dt>{t("editor.selectedTags")}</dt><dd>{draft.selectedTagIds.length ? draft.selectedTagIds.map((tagId) => {
+                const tag = allAvailableTags.find((item) => item.id === tagId);
+                return tag ? getLocalizedTagLabel(tag, locale) : tagId;
+              }).join("、") : t("generation.none")}</dd></div>
               <div><dt>{t("home.characters")}</dt><dd>{draft.characters.length ? draft.characters.map((character) => `${character.name} (${character.role})`).join(", ") : t("generation.none")}</dd></div>
             </dl>
           </details>

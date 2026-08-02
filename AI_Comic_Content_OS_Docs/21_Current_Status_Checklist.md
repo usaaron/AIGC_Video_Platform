@@ -122,6 +122,7 @@ Frontend 在此单集 Draft API 之上提供逐集和分阶段全部生成，并
 - IndexedDB 本地优先项目、角色、分集和版本快照
 - PostgreSQL Project + Workspace Snapshot 同步、跨浏览器恢复、updated-at 合并、显式 revision conflict 和版本保护软删除
 - 项目级市场来源隔离：旧海外/TikTok 项目可查看、导出和删除；中国大陆 runtime 不允许直接续写或执行旧项目质量链，复制新版本后才进入当前市场
+- 中国大陆界面与生成语言固定为中文；语言开关随海外模式关闭，历史英文产物使用中文 presentation-only 阅读层且不覆盖源稿
 - 确认稿、修订稿和终稿 Episode Artifact 里程碑上报；失败不覆盖或删除本地稿件
 - Creative Input、系统标签、“我的标签”和 Character Builder
 - 逐集生成与有界阶段生成，包含本地批次 lineage 和 optional 阶段指令

@@ -83,11 +83,17 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   async function createProject(draft: ProjectDraft): Promise<ScriptProject> {
     const now = new Date().toISOString();
+    const generationSettings = draft.generationSettings ?? DEFAULT_GENERATION_SETTINGS;
     const project: ScriptProject = {
       id: crypto.randomUUID(),
       ...draft,
       marketProfile: CURRENT_MARKET_PROFILE,
-      generationSettings: draft.generationSettings ?? DEFAULT_GENERATION_SETTINGS,
+      generationSettings: {
+        ...generationSettings,
+        outputLanguage: CURRENT_MARKET_PROFILE === "cn_mainland"
+          ? "zh"
+          : generationSettings.outputLanguage,
+      },
       episodes: [],
       generationBatches: [],
       activeEpisodeNumber: 1,
@@ -116,6 +122,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       const updated: ScriptProject = {
         ...existing,
         ...patch,
+        generationSettings: patch.generationSettings
+          ? {
+              ...patch.generationSettings,
+              outputLanguage: existing.marketProfile === "cn_mainland"
+                ? "zh"
+                : patch.generationSettings.outputLanguage,
+            }
+          : existing.generationSettings,
         id: existing.id,
         createdAt: existing.createdAt,
         updatedAt: new Date().toISOString(),
