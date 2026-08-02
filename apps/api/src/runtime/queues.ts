@@ -12,6 +12,9 @@ import type { GenerationService } from '../modules/generation/service.js'
 import type { NovelService } from '../modules/novels/service.js'
 import { videoProviderName, type RuntimeProviders } from './providers.js'
 import type { RuntimeRepositories } from './services.js'
+import { createLocalGenerationTaskHandler } from '../core/jobs/localTaskHandler.js'
+import type { ProjectService } from '../modules/projects/service.js'
+import type { TrustedAssetService } from '../modules/trustedAssets/service.js'
 
 export type ManagedTaskDispatcher = TaskDispatcher & {
   close?: () => Promise<void>
@@ -35,6 +38,8 @@ export async function createRuntimeQueues(input: {
   taskDispatcherOverride?: TaskDispatcher
   getGenerationService: () => GenerationService | null
   getNovelService: () => NovelService | null
+  getProjectService: () => ProjectService | null
+  getTrustedAssetService: () => TrustedAssetService | null
 }): Promise<RuntimeQueues> {
   const {
     config,
@@ -46,6 +51,8 @@ export async function createRuntimeQueues(input: {
     taskDispatcherOverride,
     getGenerationService,
     getNovelService,
+    getProjectService,
+    getTrustedAssetService,
   } = input
 
   if (taskDispatcherOverride) {
@@ -113,6 +120,10 @@ export async function createRuntimeQueues(input: {
       : {}),
     ...(database ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database) } : {}),
     onVideoCompleted: createAutoFilmPreviewCallback(store, getGenerationService),
+    localTaskHandler: createLocalGenerationTaskHandler(store, {
+      projectService: getProjectService,
+      trustedAssetService: getTrustedAssetService,
+    }),
   })
   const aiJobRunner = new AiJobRunner(repositories.aiJobRepository, {
     concurrency: config.TASK_QUEUE_WORKER_CONCURRENCY,

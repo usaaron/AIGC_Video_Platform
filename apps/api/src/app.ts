@@ -83,6 +83,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(options.taskDispatcher ? { taskDispatcherOverride: options.taskDispatcher } : {}),
     getGenerationService: () => runtimeServices?.generationService ?? null,
     getNovelService: () => runtimeServices?.novelService ?? null,
+    getProjectService: () => runtimeServices?.projectService ?? null,
+    getTrustedAssetService: () => runtimeServices?.trustedAssetService ?? null,
   })
   runtimeServices = createRuntimeServices({
     config: options.config,

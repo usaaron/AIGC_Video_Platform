@@ -73,6 +73,7 @@ export async function createRuntimeRepositories(input: {
   if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
     await users.bootstrapFromStore()
   }
+  await users.refreshRuntimeCacheFromDatabase()
 
   const projectRepository = new ProjectRepository(store, database)
   await projectRepository.refreshRuntimeCacheFromDatabase()
@@ -96,7 +97,8 @@ export async function createRuntimeRepositories(input: {
   await aiJobRepository.refreshRuntimeCacheFromDatabase()
 
   const refreshProjectDomainRuntimeCache = database
-    ? async () => {
+      ? async () => {
+        await users.refreshRuntimeCacheFromDatabase()
         await projectRepository.refreshRuntimeCacheFromDatabase()
         await generationTaskRepository.refreshRuntimeCacheFromDatabase()
         await aiJobRepository.refreshRuntimeCacheFromDatabase()

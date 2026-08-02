@@ -47,6 +47,63 @@ describe('GenerationTaskRunner Seedance integration', () => {
     })
   })
 
+  it('executes handled local tasks once and writes the text result', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'background-script-task',
+      clientRequestId: 'background-script-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-member',
+      kind: 'text',
+      label: 'Background script',
+      prompt: '',
+      negativePrompt: '',
+      provider: 'text',
+      model: 'glm-5.2',
+      metadata: { scriptOperation: 'suggest-assets' },
+      status: 'queued',
+      progress: 0,
+      estimatedCredits: 1,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+    const result = { summary: 'Use one character and one location', assets: [] }
+    const execute = vi.fn(async () => result)
+    const runner = new GenerationTaskRunner(store, {
+      localTaskHandler: {
+        canHandle: (candidate) => candidate.provider === 'text',
+        execute,
+      },
+    })
+
+    await runner.tick()
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((item) => item.id === task.id)?.status)).toBe(
+        'completed',
+      ),
+    )
+    await runner.tick()
+
+    expect(execute).toHaveBeenCalledOnce()
+    expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+      status: 'completed',
+      progress: 100,
+      leaseOwnerId: null,
+      leaseToken: null,
+      metadata: {
+        textResult: result,
+        localTaskCompletedAt: expect.any(String),
+      },
+    })
+  })
+
   it('starts three independent provider submissions in one tick for a member', async () => {
     const store = new AppStore(null)
     await store.initialize()

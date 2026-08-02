@@ -15,6 +15,7 @@ import {
   VideoTaskExecutor,
 } from './taskRunnerComponents.js'
 import { noopTaskRunnerLock, type TaskRunnerLock } from './taskRunnerLock.js'
+import type { LocalGenerationTaskHandler } from './localTaskHandler.js'
 
 export interface TaskDispatcher {
   dispatch(
@@ -46,6 +47,7 @@ type GenerationTaskRunnerOptions = {
   afterTick?: () => Promise<void>
   taskRunnerLock?: TaskRunnerLock | null
   onVideoCompleted?: (task: GenerationTask) => Promise<void>
+  localTaskHandler?: LocalGenerationTaskHandler | null
 }
 
 export class GenerationTaskRunner implements TaskDispatcher {
@@ -60,6 +62,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly videoExecutor: VideoTaskExecutor
   private readonly imageExecutor: ImageTaskExecutor
   private readonly providerPoller: ProviderPoller
+  private readonly localTaskHandler: LocalGenerationTaskHandler | null
   private readonly activeExecutions = new Set<string>()
 
   constructor(
@@ -117,6 +120,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
       writeback: this.writeback,
       onVideoCompleted: options.onVideoCompleted ?? null,
     })
+    this.localTaskHandler = options.localTaskHandler ?? null
   }
 
   start(): void {
@@ -175,8 +179,12 @@ export class GenerationTaskRunner implements TaskDispatcher {
       this.scheduleRemoteExecutions([...recoveredSubmissions.image, ...remoteTasks.image], (task) =>
         this.imageExecutor.execute(task),
       )
+      const localTasks = [...recoveredSubmissions.local, ...remoteTasks.local].filter((task) =>
+        this.localTaskHandler?.canHandle(task),
+      )
+      this.scheduleRemoteExecutions(localTasks, (task) => this.executeLocalTask(task))
 
-      await this.writeback.advanceLocalTasks()
+      await this.writeback.advanceLocalTasks((task) => this.localTaskHandler?.canHandle(task) ?? false)
       await this.providerPoller.pollRemoteVideos()
     } finally {
       await this.afterTick?.()
@@ -195,4 +203,20 @@ export class GenerationTaskRunner implements TaskDispatcher {
       })
     }
   }
+
+  private async executeLocalTask(task: GenerationTask): Promise<void> {
+    const leaseToken = task.leaseToken
+    const handler = this.localTaskHandler
+    if (!leaseToken || !handler) return
+    try {
+      const result = await handler.execute(task)
+      await this.writeback.completeLocalTask(task.id, leaseToken, result)
+    } catch (error) {
+      await this.writeback.failTask(task.id, localTaskError(error), leaseToken)
+    }
+  }
+}
+
+function localTaskError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
