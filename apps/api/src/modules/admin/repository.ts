@@ -484,6 +484,36 @@ export class AdminRepository {
     })
   }
 
+  async revokeUserSessions(
+    principal: Principal,
+    userId: string,
+    metadata?: SessionMetadata,
+  ): Promise<{ user: AdminUser; revokedSessionCount: number } | null> {
+    return this.database.transaction(async (client) => {
+      const target = await loadUserSessionManagementTarget(client, principal, userId)
+      if (!target) return null
+
+      const revokedSessionCount = await revokeSessionsForUser(client, userId)
+      await insertAuditLog(client, {
+        tenantId: null,
+        userId,
+        actorUserId: principal.userId,
+        action: 'admin.user_sessions.revoked',
+        resourceType: 'user',
+        resourceId: userId,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: {
+          revokedSessionCount,
+          scope: 'admin_console',
+        },
+      })
+
+      const user = await readAdminUser(client, userId)
+      return user ? { user, revokedSessionCount } : null
+    })
+  }
+
   async updateBillingReconciliationAlert(
     principal: Principal,
     alertId: string,
@@ -952,6 +982,20 @@ function buildUserFilter(options: AdminListOptions): Filter {
       'EXISTS (SELECT 1 FROM tenant_memberships tenant_filter WHERE tenant_filter.user_id = u.id AND tenant_filter.tenant_id = ?)',
       options.tenantId,
     )
+  }
+  if (options.role) {
+    if (options.tenantId) {
+      builder.add(
+        'EXISTS (SELECT 1 FROM tenant_memberships role_filter WHERE role_filter.user_id = u.id AND role_filter.tenant_id = ? AND ? = ANY(role_filter.roles))',
+        options.tenantId,
+        options.role,
+      )
+    } else {
+      builder.add(
+        'EXISTS (SELECT 1 FROM tenant_memberships role_filter WHERE role_filter.user_id = u.id AND ? = ANY(role_filter.roles))',
+        options.role,
+      )
+    }
   }
   if (options.q?.trim()) {
     builder.add(
@@ -1465,6 +1509,36 @@ type PasswordManagementTarget = {
   memberships: Array<{ tenant_id: string; roles: Role[]; status: string }>
 }
 
+async function loadUserSessionManagementTarget(
+  client: Queryable,
+  principal: Principal,
+  userId: string,
+): Promise<Pick<PasswordManagementTarget, 'user' | 'memberships'> | null> {
+  const user = await client.query<PasswordManagementTarget['user']>(
+    `
+    SELECT id, status, password_reset_required
+    FROM users
+    WHERE id = $1
+    LIMIT 1
+    FOR UPDATE
+    `,
+    [userId],
+  )
+  const userRow = user.rows[0]
+  if (!userRow) return null
+
+  const memberships = await client.query<{ tenant_id: string; roles: Role[]; status: string }>(
+    `
+    SELECT tenant_id, roles, status
+    FROM tenant_memberships
+    WHERE user_id = $1
+    `,
+    [userId],
+  )
+  assertCanManageUserSessions(principal, userId, memberships.rows)
+  return { user: userRow, memberships: memberships.rows }
+}
+
 async function loadPasswordManagementTarget(
   client: Queryable,
   principal: Principal,
@@ -1514,6 +1588,88 @@ async function loadPasswordManagementTarget(
   )
   assertCanManageAccountPassword(principal, userId, memberships.rows)
   return { user: userRow, identityId, memberships: memberships.rows }
+}
+
+function assertCanManageUserSessions(
+  principal: Principal,
+  userId: string,
+  memberships: Array<{ tenant_id: string; roles: Role[]; status: string }>,
+): void {
+  if (principal.userId === userId) {
+    throw new AppError(
+      400,
+      'CANNOT_REVOKE_SELF_USER_SESSIONS',
+      'Use the current account session API to sign out',
+    )
+  }
+
+  if (!isPlatformAdmin(principal)) {
+    const inTenant = memberships.some(
+      (membership) => membership.tenant_id === principal.tenantId && membership.status === 'active',
+    )
+    if (!inTenant) {
+      throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot revoke another workspace account sessions')
+    }
+    if (
+      memberships.some(
+        (membership) => membership.tenant_id !== principal.tenantId && membership.status === 'active',
+      )
+    ) {
+      throw new AppError(
+        403,
+        'CROSS_TENANT_SESSION_REVOKE_REQUIRES_PLATFORM_ADMIN',
+        'Only owners or super admins can revoke cross-workspace account sessions',
+      )
+    }
+    if (memberships.some((membership) => hasElevatedRole(membership.roles))) {
+      throw new AppError(
+        403,
+        'ELEVATED_SESSION_REQUIRES_PLATFORM_ADMIN',
+        'Only owners or super admins can revoke elevated account sessions',
+      )
+    }
+    if (
+      principal.roles.includes(ROLES.ADMIN) &&
+      memberships.some((membership) => membership.roles.includes(ROLES.ORGANIZATION_MEMBER))
+    ) {
+      throw new AppError(
+        403,
+        'ORGANIZATION_MEMBER_REQUIRES_ORGANIZATION_ADMIN',
+        'Only organization administrators can revoke organization member sessions',
+      )
+    }
+    if (
+      principal.roles.includes(ROLES.ORGANIZATION_ADMIN) &&
+      memberships.some((membership) => membership.roles.includes(ROLES.MEMBER))
+    ) {
+      throw new AppError(
+        403,
+        'PLATFORM_MEMBER_REQUIRES_PLATFORM_ADMIN',
+        'Only platform administrators can revoke member sessions',
+      )
+    }
+    return
+  }
+
+  if (
+    memberships.some(
+      (membership) =>
+        (hasOwnerRole(membership.roles) || hasSuperAdminRole(membership.roles)) && !isOwner(principal),
+    )
+  ) {
+    throw new AppError(
+      403,
+      'ELEVATED_SESSION_REQUIRES_OWNER',
+      'Only owners can revoke owner or super admin sessions',
+    )
+  }
+  if (memberships.some((membership) => !canManageElevatedRoles(principal, membership.roles))) {
+    throw new AppError(
+      403,
+      'ELEVATED_SESSION_REQUIRES_PLATFORM_ADMIN',
+      'Only owners or super admins can revoke elevated account sessions',
+    )
+  }
 }
 
 function assertCanManageAccountPassword(
@@ -1604,6 +1760,7 @@ async function revokeSessionsForUser(client: Queryable, userId: string): Promise
       WHERE s.membership_id = m.id
         AND m.user_id = $1
         AND s.revoked_at IS NULL
+        AND s.expires_at > now()
       RETURNING s.id
     )
     SELECT count(*)::int AS count

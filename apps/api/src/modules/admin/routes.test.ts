@@ -131,6 +131,14 @@ describe('admin console api', { timeout: 30_000 }, () => {
       ]),
     })
 
+    const memberUsers = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users?tenantId=tenant-seqora-demo&role=member&limit=100',
+      headers: { cookie: adminCookie },
+    })
+    expect(memberUsers.statusCode).toBe(200)
+    expect(memberUsers.json().items.map((item: { id: string }) => item.id)).toEqual(['user-member'])
+
     const tenants = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/organizations?q=seqora',
@@ -580,6 +588,64 @@ describe('admin console api', { timeout: 30_000 }, () => {
       ],
     })
 
+    const memberSecondSession = await login('member@seqora.local', 'MemberPassword123!', {
+      'user-agent': 'MemberSecondDevice/1.0',
+    })
+    const memberThirdSession = await login('member@seqora.local', 'MemberPassword123!', {
+      'user-agent': 'MemberThirdDevice/1.0',
+    })
+
+    const adminBulkRevokesSelf = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/admin/users/user-admin/sessions',
+      headers: { cookie: adminCookie },
+    })
+    expect(adminBulkRevokesSelf.statusCode).toBe(400)
+    expect(adminBulkRevokesSelf.json()).toMatchObject({
+      error: { code: 'CANNOT_REVOKE_SELF_USER_SESSIONS' },
+    })
+
+    const bulkRevoked = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/admin/users/user-member/sessions',
+      headers: { cookie: adminCookie },
+    })
+    expect(bulkRevoked.statusCode).toBe(200)
+    expect(bulkRevoked.json()).toMatchObject({
+      user: { id: 'user-member' },
+      revokedSessionCount: 2,
+    })
+
+    const oldMemberSecondSession = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { cookie: cookieValue(memberSecondSession) },
+    })
+    expect(oldMemberSecondSession.statusCode).toBe(401)
+
+    const oldMemberThirdSession = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { cookie: cookieValue(memberThirdSession) },
+    })
+    expect(oldMemberThirdSession.statusCode).toBe(401)
+
+    const bulkAudit = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/audit-logs?action=admin.user_sessions.revoked&userId=user-member',
+      headers: { cookie: adminCookie },
+    })
+    expect(bulkAudit.statusCode).toBe(200)
+    expect(bulkAudit.json()).toMatchObject({
+      items: [
+        expect.objectContaining({
+          actorUserId: 'user-admin',
+          resourceId: 'user-member',
+          metadata: expect.objectContaining({ revokedSessionCount: 2, scope: 'admin_console' }),
+        }),
+      ],
+    })
+
     const ownerRevokesAdmin = await app.inject({
       method: 'DELETE',
       url: `/api/v1/admin/sessions/${adminSessionId}`,
@@ -663,6 +729,8 @@ describe('admin console api', { timeout: 30_000 }, () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const owner = await login('owner@seqora.local', 'OwnerPassword123!')
     const ownerCookie = cookieValue(owner)
+    const admin = await login('admin@seqora.local', 'Admin123!')
+    const adminCookie = cookieValue(admin)
 
     const renamed = await app.inject({
       method: 'PATCH',
@@ -675,6 +743,101 @@ describe('admin console api', { timeout: 30_000 }, () => {
       id: 'tenant-seqora-demo',
       name: 'Seqora Commercial Workspace',
     })
+
+    const createdOrganization = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/organizations',
+      headers: { cookie: ownerCookie },
+      payload: { name: 'Admin Created Organization' },
+    })
+    expect(createdOrganization.statusCode).toBe(201)
+    expect(createdOrganization.json()).toMatchObject({
+      id: expect.stringMatching(/^tenant-/),
+      name: 'Admin Created Organization',
+      status: 'active',
+    })
+    const adminCreatedOrganizationId = createdOrganization.json().id as string
+
+    const ownerSessionAfterCreate = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { cookie: ownerCookie },
+    })
+    expect(ownerSessionAfterCreate.statusCode).toBe(200)
+    expect(ownerSessionAfterCreate.json().account.tenantId).toBe('tenant-seqora-demo')
+
+    const adminCreatesOrganization = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/organizations',
+      headers: { cookie: adminCookie },
+      payload: { name: 'Admin Should Not Create Organization' },
+    })
+    expect(adminCreatesOrganization.statusCode).toBe(403)
+    expect(adminCreatesOrganization.json()).toMatchObject({
+      error: { code: 'PLATFORM_ADMIN_REQUIRED' },
+    })
+
+    const existingAccount = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/users',
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'existing-account@example.com',
+        name: 'Existing Account',
+        password: 'ExistingAccount123!',
+        role: 'member',
+      },
+    })
+    expect(existingAccount.statusCode).toBe(201)
+
+    const addedExistingMember = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/organizations/${adminCreatedOrganizationId}/members`,
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'existing-account@example.com',
+        roles: ['organization_member'],
+      },
+    })
+    expect(addedExistingMember.statusCode).toBe(201)
+    expect(addedExistingMember.json()).toMatchObject({
+      email: 'existing-account@example.com',
+      roles: ['organization_member'],
+      tenantId: adminCreatedOrganizationId,
+      status: 'active',
+    })
+    const existingMemberUserId = addedExistingMember.json().userId as string
+
+    const organizationAudit = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/audit-logs?resourceType=tenant&actorUserId=user-owner`,
+      headers: { cookie: ownerCookie },
+    })
+    expect(organizationAudit.statusCode).toBe(200)
+    expect(organizationAudit.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'admin.organization.created',
+          resourceId: adminCreatedOrganizationId,
+          metadata: expect.objectContaining({ scope: 'admin_console' }),
+        }),
+      ]),
+    )
+
+    const existingMemberAudit = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/audit-logs?userId=${existingMemberUserId}`,
+      headers: { cookie: ownerCookie },
+    })
+    expect(existingMemberAudit.statusCode).toBe(200)
+    expect(existingMemberAudit.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'admin.membership.added',
+          metadata: expect.objectContaining({ scope: 'admin_console' }),
+        }),
+      ]),
+    )
 
     const managedTenant = await createWorkspaceFromCurrentSession(ownerCookie, 'Console Managed Workspace')
     const createdMember = await app.inject({
@@ -754,6 +917,204 @@ describe('admin console api', { timeout: 30_000 }, () => {
         }),
       ]),
     )
+  })
+
+  it('manages organization invitations through admin console APIs', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const owner = await login('owner@seqora.local', 'OwnerPassword123!')
+    const ownerCookie = cookieValue(owner)
+    const organization = await createWorkspaceFromCurrentSession(ownerCookie, 'Admin Console Invite Organization')
+    const invitationUrl = `/api/v1/admin/organizations/${organization.tenantId}/invitations`
+
+    const created = await app.inject({
+      method: 'POST',
+      url: invitationUrl,
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'admin-console-invite@example.com',
+        roles: ['organization_member'],
+      },
+    })
+    expect(created.statusCode).toBe(201)
+    expect(created.json()).toMatchObject({
+      email: 'admin-console-invite@example.com',
+      tenantId: organization.tenantId,
+      roles: ['organization_member'],
+      status: 'pending',
+      token: expect.any(String),
+    })
+    const firstInvitation = created.json() as { id: string; token: string }
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: invitationUrl,
+      headers: { cookie: ownerCookie },
+    })
+    expect(listed.statusCode).toBe(200)
+    expect(listed.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: firstInvitation.id,
+          email: 'admin-console-invite@example.com',
+          status: 'pending',
+        }),
+      ]),
+    )
+
+    const reissued = await app.inject({
+      method: 'POST',
+      url: invitationUrl,
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'admin-console-invite@example.com',
+        roles: ['organization_member'],
+      },
+    })
+    expect(reissued.statusCode).toBe(201)
+    expect(reissued.json()).toMatchObject({
+      id: firstInvitation.id,
+      email: 'admin-console-invite@example.com',
+      status: 'pending',
+      token: expect.any(String),
+    })
+    expect(reissued.json().token).not.toBe(firstInvitation.token)
+
+    const revoked = await app.inject({
+      method: 'DELETE',
+      url: `${invitationUrl}/${firstInvitation.id}`,
+      headers: { cookie: ownerCookie },
+    })
+    expect(revoked.statusCode).toBe(204)
+
+    const afterRevoke = await app.inject({
+      method: 'GET',
+      url: invitationUrl,
+      headers: { cookie: ownerCookie },
+    })
+    expect(afterRevoke.statusCode).toBe(200)
+    expect(afterRevoke.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: firstInvitation.id,
+          email: 'admin-console-invite@example.com',
+          status: 'revoked',
+          revokedAt: expect.any(String),
+        }),
+      ]),
+    )
+  })
+
+  it('creates platform accounts and invitations without selecting an organization', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const owner = await login('owner@seqora.local', 'OwnerPassword123!')
+    const ownerCookie = cookieValue(owner)
+    const admin = await login('admin@seqora.local', 'Admin123!')
+    const adminCookie = cookieValue(admin)
+
+    const createdMember = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/users',
+      headers: { cookie: adminCookie },
+      payload: {
+        email: 'platform-member@example.com',
+        name: 'Platform Member',
+        password: 'PlatformMember123!',
+        role: 'member',
+      },
+    })
+    expect(createdMember.statusCode).toBe(201)
+    expect(createdMember.json()).toMatchObject({
+      email: 'platform-member@example.com',
+      roles: ['member'],
+      tenantName: 'Platform Member 的个人空间',
+      status: 'active',
+    })
+    expect(createdMember.json().tenantId).not.toBe('tenant-seqora-demo')
+
+    const ownerCreatesAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/users',
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'platform-admin@example.com',
+        name: 'Platform Admin',
+        password: 'PlatformAdmin123!',
+        role: 'admin',
+      },
+    })
+    expect(ownerCreatesAdmin.statusCode).toBe(201)
+    expect(ownerCreatesAdmin.json()).toMatchObject({
+      email: 'platform-admin@example.com',
+      roles: ['admin'],
+      tenantId: 'tenant-seqora-demo',
+    })
+
+    const organizationRoleWithoutOrganization = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/users',
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'org-role-without-org@example.com',
+        name: 'Missing Organization',
+        password: 'MissingOrganization123!',
+        role: 'organization_member',
+      },
+    })
+    expect(organizationRoleWithoutOrganization.statusCode).toBe(400)
+    expect(organizationRoleWithoutOrganization.json()).toMatchObject({
+      error: { code: 'ORGANIZATION_REQUIRED' },
+    })
+
+    const memberInvitation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/invitations',
+      headers: { cookie: adminCookie },
+      payload: {
+        email: 'platform-invited-member@example.com',
+        roles: ['member'],
+      },
+    })
+    expect(memberInvitation.statusCode).toBe(201)
+    expect(memberInvitation.json()).toMatchObject({
+      email: 'platform-invited-member@example.com',
+      roles: ['member'],
+      status: 'pending',
+      token: expect.any(String),
+    })
+    expect(memberInvitation.json().tenantId).not.toBe('tenant-seqora-demo')
+
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: memberInvitation.json().token,
+        email: 'platform-invited-member@example.com',
+        name: 'Platform Invited Member',
+        password: 'PlatformInvitedMember123!',
+      },
+    })
+    expect(accepted.statusCode).toBe(201)
+    expect(accepted.json()).toMatchObject({
+      account: {
+        email: 'platform-invited-member@example.com',
+        roles: ['member'],
+        tenantId: memberInvitation.json().tenantId,
+      },
+    })
+
+    const organizationInvitationWithoutOrganization = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/invitations',
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'org-invite-without-org@example.com',
+        roles: ['organization_member'],
+      },
+    })
+    expect(organizationInvitationWithoutOrganization.statusCode).toBe(400)
+    expect(organizationInvitationWithoutOrganization.json()).toMatchObject({
+      error: { code: 'ORGANIZATION_REQUIRED' },
+    })
   })
 
   it('enforces admin console workspace and membership role boundaries', async () => {

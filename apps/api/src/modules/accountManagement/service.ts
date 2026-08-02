@@ -51,6 +51,7 @@ import type { UserRepository } from '../users/repository.js'
 import { AccountManagementRepository, type AccountWorkspace } from './repository.js'
 
 const invitationLifetimeSeconds = 60 * 60 * 24 * 7
+const systemTenantId = 'tenant-seqora-demo'
 const systemOrganizationRoles = new Set<Role>([ROLES.OWNER, ROLES.SUPER_ADMIN, ROLES.ADMIN])
 type RequestEmailVerification = (
   input: { email: string },
@@ -190,6 +191,37 @@ export class AccountManagementService {
     metadata?: SessionMetadata,
   ): Promise<Organization> {
     return await this.adminUpdateWorkspace(principal, tenantId, input, metadata)
+  }
+
+  async adminCreateOrganization(
+    principal: Principal,
+    input: CreateOrganizationInput,
+    metadata?: SessionMetadata,
+  ): Promise<Organization> {
+    if (!isPlatformAdmin(principal)) {
+      throw new AppError(
+        403,
+        'PLATFORM_ADMIN_REQUIRED',
+        'Only owners or super admins can create organizations from the admin console',
+      )
+    }
+    await this.requireCurrentAccount(principal)
+    const organization = await this.accounts.createOrganizationForAdmin({
+      name: normalizeName(input.name),
+      createdByUserId: principal.userId,
+    })
+    await this.accounts.recordAuditLog({
+      tenantId: organization.id,
+      userId: principal.userId,
+      actorUserId: principal.userId,
+      action: 'admin.organization.created',
+      resourceType: 'tenant',
+      resourceId: organization.id,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: auditMetadata(metadata, { name: organization.name, scope: 'admin_console' }),
+    })
+    return organization
   }
 
   async switchWorkspace(
@@ -482,14 +514,77 @@ export class AccountManagementService {
     input: CreateTenantInvitationInput,
   ): Promise<CreatedTenantInvitation> {
     this.requireTenantScope(principal, tenantId)
+    return await this.createInvitationWithScope(principal, tenantId, input)
+  }
+
+  async listInvitations(principal: Principal, tenantId: string): Promise<TenantInvitation[]> {
+    this.requireTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    return await this.accounts.listInvitations(tenantId)
+  }
+
+  async adminListInvitations(principal: Principal, tenantId: string): Promise<TenantInvitation[]> {
+    this.requireAdminTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    return await this.accounts.listInvitations(tenantId)
+  }
+
+  async revokeInvitation(principal: Principal, tenantId: string, invitationId: string): Promise<void> {
+    this.requireTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    if (!(await this.accounts.revokeInvitation(tenantId, invitationId))) {
+      throw new AppError(404, 'INVITATION_NOT_FOUND', 'Invitation does not exist')
+    }
+  }
+
+  async adminRevokeInvitation(principal: Principal, tenantId: string, invitationId: string): Promise<void> {
+    this.requireAdminTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    if (!(await this.accounts.revokeInvitation(tenantId, invitationId))) {
+      throw new AppError(404, 'INVITATION_NOT_FOUND', 'Invitation does not exist')
+    }
+  }
+
+  async adminCreateInvitation(
+    principal: Principal,
+    tenantId: string,
+    input: CreateTenantInvitationInput,
+  ): Promise<CreatedTenantInvitation> {
+    this.requireAdminTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    return await this.createInvitationWithScope(principal, tenantId, input)
+  }
+
+  async adminCreatePlatformInvitation(
+    principal: Principal,
+    input: CreateTenantInvitationInput,
+  ): Promise<CreatedTenantInvitation> {
     await this.requireCurrentAccount(principal)
     const roles = normalizeRoles(input.roles)
+    if (roles.some(isOrganizationScopedRole)) {
+      throw new AppError(
+        400,
+        'ORGANIZATION_REQUIRED',
+        'Organization scoped roles must be invited inside an organization',
+      )
+    }
+    if (roles.length !== 1) {
+      throw new AppError(
+        400,
+        'SINGLE_ROLE_REQUIRED',
+        'Platform invitations must assign exactly one role',
+      )
+    }
     this.requireAssignableRoles(principal, roles)
     await this.requireGlobalRoleCapacity(roles)
-    await this.requireSystemOrganizationMembershipWrite(principal, tenantId, roles)
+
+    if (roles.every(isSystemOrganizationRole)) {
+      return await this.createInvitationWithScope(principal, systemTenantId, input)
+    }
+
     const token = issueInvitationToken()
-    const invitation = await this.accounts.createInvitation({
-      tenantId,
+    const invitation = await this.accounts.createInvitationWithNewWorkspace({
+      tenantName: personalOrganizationName(input.email.split('@')[0] ?? input.email, input.email),
       email: normalizeEmail(input.email),
       roles,
       invitedByUserId: principal.userId,
@@ -502,20 +597,6 @@ export class AccountManagementService {
     }
     await this.sendInvitationEmail(invitation)
     return invitation
-  }
-
-  async listInvitations(principal: Principal, tenantId: string): Promise<TenantInvitation[]> {
-    this.requireTenantScope(principal, tenantId)
-    await this.requireCurrentAccount(principal)
-    return await this.accounts.listInvitations(tenantId)
-  }
-
-  async revokeInvitation(principal: Principal, tenantId: string, invitationId: string): Promise<void> {
-    this.requireTenantScope(principal, tenantId)
-    await this.requireCurrentAccount(principal)
-    if (!(await this.accounts.revokeInvitation(tenantId, invitationId))) {
-      throw new AppError(404, 'INVITATION_NOT_FOUND', 'Invitation does not exist')
-    }
   }
 
   private async sendInvitationEmail(invitation: CreatedTenantInvitation): Promise<void> {
@@ -640,6 +721,43 @@ export class AccountManagementService {
     return await this.addMember(principal, tenantId, input, metadata)
   }
 
+  async adminAddOrganizationMember(
+    principal: Principal,
+    tenantId: string,
+    input: AddTenantMemberInput,
+    metadata?: SessionMetadata,
+  ): Promise<Membership> {
+    this.requireAdminTenantScope(principal, tenantId)
+    await this.requireCurrentAccount(principal)
+    const roles = normalizeRoles(input.roles)
+    this.requireAssignableRoles(principal, roles)
+    const existing = await this.users.findByEmail(normalizeEmail(input.email))
+    await this.requireGlobalRoleCapacity(roles, existing?.id)
+    await this.requireSystemOrganizationMembershipWrite(principal, tenantId, roles)
+    const member = await this.accounts.addMemberByEmail({
+      tenantId,
+      email: normalizeEmail(input.email),
+      roles,
+    })
+    if (!member) {
+      throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
+    }
+    this.mirrorMembership(member)
+    await this.accounts.recordAuditLog({
+      tenantId,
+      userId: member.userId,
+      actorUserId: principal.userId,
+      action: 'admin.membership.added',
+      resourceType: 'tenant_membership',
+      resourceId: member.id,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: auditMetadata(metadata, { roles: member.roles, scope: 'admin_console' }),
+    })
+    await this.requestVerificationEmail(member.email, metadata)
+    return member
+  }
+
   async createTenantUser(
     principal: Principal,
     tenantId: string,
@@ -734,6 +852,62 @@ export class AccountManagementService {
         membershipId: result.membership.id,
         roles: result.membership.roles,
         scope: 'admin_console',
+      }),
+    })
+    await this.requestVerificationEmail(result.membership.email, metadata)
+    return result.membership
+  }
+
+  async adminCreatePlatformUser(
+    principal: Principal,
+    input: CreateTenantUserInput,
+    metadata?: SessionMetadata,
+  ): Promise<Membership> {
+    await this.requireCurrentAccount(principal)
+    const roles: Role[] = [input.role]
+    if (roles.some(isOrganizationScopedRole)) {
+      throw new AppError(
+        400,
+        'ORGANIZATION_REQUIRED',
+        'Organization scoped roles must be created inside an organization',
+      )
+    }
+    this.requireAssignableRoles(principal, roles)
+    await this.requireGlobalRoleCapacity(roles)
+
+    if (roles.every(isSystemOrganizationRole)) {
+      return await this.adminCreateTenantUser(principal, systemTenantId, input, metadata)
+    }
+
+    const passwordHash = hashPassword(input.password)
+    const result = await this.accounts.createTenantUserWithNewWorkspace({
+      tenantName: personalOrganizationName(input.name, input.email),
+      email: normalizeEmail(input.email),
+      name: normalizeName(input.name),
+      passwordHash,
+      roles,
+    })
+    if (result.kind === 'duplicate') {
+      throw new AppError(409, 'ACCOUNT_ALREADY_EXISTS', 'A local account already exists for this email')
+    }
+    if (result.kind === 'tenant_missing') {
+      throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
+    }
+    this.mirrorMembership(result.membership, passwordHash)
+    await this.accounts.recordAuditLog({
+      tenantId: result.membership.tenantId,
+      userId: result.membership.userId,
+      actorUserId: principal.userId,
+      action: 'admin.account.created',
+      resourceType: 'user',
+      resourceId: result.membership.userId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: auditMetadata(metadata, {
+        membershipId: result.membership.id,
+        roles: result.membership.roles,
+        scope: 'admin_console',
+        personalOrganizationCreated: true,
       }),
     })
     await this.requestVerificationEmail(result.membership.email, metadata)
@@ -1201,6 +1375,33 @@ export class AccountManagementService {
     }
   }
 
+  private async createInvitationWithScope(
+    principal: Principal,
+    tenantId: string,
+    input: CreateTenantInvitationInput,
+  ): Promise<CreatedTenantInvitation> {
+    await this.requireCurrentAccount(principal)
+    const roles = normalizeRoles(input.roles)
+    this.requireAssignableRoles(principal, roles)
+    await this.requireGlobalRoleCapacity(roles)
+    await this.requireSystemOrganizationMembershipWrite(principal, tenantId, roles)
+    const token = issueInvitationToken()
+    const invitation = await this.accounts.createInvitation({
+      tenantId,
+      email: normalizeEmail(input.email),
+      roles,
+      invitedByUserId: principal.userId,
+      token,
+      tokenSecretHash: hashInvitationToken(token),
+      expiresAt: new Date(Date.now() + invitationLifetimeSeconds * 1_000).toISOString(),
+    })
+    if (!invitation) {
+      throw new AppError(409, 'MEMBERSHIP_ALREADY_EXISTS', 'Account is already an active member')
+    }
+    await this.sendInvitationEmail(invitation)
+    return invitation
+  }
+
   private requireAdminTenantScope(principal: Principal, tenantId: string): void {
     if (isPlatformAdmin(principal)) return
     this.requireTenantScope(principal, tenantId)
@@ -1468,8 +1669,17 @@ function isSystemOrganizationRole(role: Role): boolean {
   return systemOrganizationRoles.has(role)
 }
 
+function isOrganizationScopedRole(role: Role): boolean {
+  return role === ROLES.ORGANIZATION_ADMIN || role === ROLES.ORGANIZATION_MEMBER
+}
+
 function hasSystemOrganizationRole(roles: readonly Role[]): boolean {
   return roles.some(isSystemOrganizationRole)
+}
+
+function personalOrganizationName(name: string, email: string): string {
+  const base = normalizeName(name) || normalizeEmail(email).split('@')[0] || '用户'
+  return `${base} 的个人空间`.slice(0, 80)
 }
 
 function issueInvitationToken(): string {

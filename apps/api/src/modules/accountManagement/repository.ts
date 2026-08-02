@@ -89,6 +89,24 @@ export class AccountManagementRepository {
     })
   }
 
+  async createOrganizationForAdmin(input: {
+    name: string
+    createdByUserId: string
+  }): Promise<Workspace> {
+    const tenantId = `tenant-${randomUUID()}`
+    const created = await this.database.query<WorkspaceRow>(
+      `
+      INSERT INTO tenants (id, name, status, is_system, created_by_user_id, created_at, updated_at)
+      VALUES ($1, $2, 'active', false, $3, now(), now())
+      RETURNING id, name, status, created_at, updated_at
+      `,
+      [tenantId, input.name, input.createdByUserId],
+    )
+    const row = created.rows[0]
+    if (!row) throw new Error(`Could not create organization ${tenantId}`)
+    return toWorkspaceSummary(row)
+  }
+
   async createInvitation(input: {
     tenantId: string
     email: string
@@ -646,6 +664,122 @@ export class AccountManagementRepository {
       )
       if (!member.rows[0]) throw new Error(`Could not read created membership ${membershipId}`)
       return { kind: 'created', membership: toMembership(member.rows[0]) }
+    })
+  }
+
+  async createTenantUserWithNewWorkspace(input: {
+    tenantName: string
+    email: string
+    name: string
+    passwordHash: string
+    roles: Role[]
+  }): Promise<CreateTenantUserResult> {
+    return this.database.transaction(async (client) => {
+      const existingIdentity = await client.query<{ id: string }>(
+        `
+        SELECT id
+        FROM auth_identities
+        WHERE provider = 'local'
+          AND lower(email) = lower($1)
+        LIMIT 1
+        `,
+        [input.email],
+      )
+      if (existingIdentity.rows.length) return { kind: 'duplicate' }
+
+      const userId = `user-${randomUUID()}`
+      const tenantId = `tenant-${randomUUID()}`
+      const membershipId = membershipIdFor(userId, tenantId)
+      await client.query(
+        `
+        INSERT INTO users (id, display_name, status, created_at, updated_at)
+        VALUES ($1, $2, 'active', now(), now())
+        `,
+        [userId, input.name],
+      )
+      await client.query(
+        `
+        INSERT INTO auth_identities (
+          id, user_id, provider, provider_subject, email, password_hash, is_primary, status,
+          email_verified_at, email_verification_status, created_at, updated_at
+        )
+        VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', NULL, 'unverified', now(), now())
+        `,
+        [authIdentityIdFor(userId), userId, input.email, input.passwordHash],
+      )
+      await client.query(
+        `
+        INSERT INTO tenants (id, name, status, created_by_user_id, created_at, updated_at)
+        VALUES ($1, $2, 'active', $3, now(), now())
+        `,
+        [tenantId, input.tenantName, userId],
+      )
+      await client.query(
+        `
+        INSERT INTO tenant_memberships (
+          id, tenant_id, user_id, roles, is_primary, status, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, true, 'active', now(), now())
+        `,
+        [membershipId, tenantId, userId, input.roles],
+      )
+      await client.query(
+        `
+        INSERT INTO billing_accounts (membership_id, plan, credits, created_at, updated_at)
+        VALUES ($1, $2, $3, now(), now())
+        `,
+        [membershipId, defaultPlan, defaultCredits],
+      )
+
+      const member = await client.query<MembershipRow>(
+        membershipSelectSql('WHERE m.tenant_id = $1 AND m.user_id = $2'),
+        [tenantId, userId],
+      )
+      if (!member.rows[0]) throw new Error(`Could not read created membership ${membershipId}`)
+      return { kind: 'created', membership: toMembership(member.rows[0]) }
+    })
+  }
+
+  async createInvitationWithNewWorkspace(input: {
+    tenantName: string
+    email: string
+    roles: Role[]
+    invitedByUserId: string
+    token: string
+    tokenSecretHash: string
+    expiresAt: string
+  }): Promise<CreatedTenantInvitation | null> {
+    return this.database.transaction(async (client) => {
+      const tenantId = `tenant-${randomUUID()}`
+      await client.query(
+        `
+        INSERT INTO tenants (id, name, status, created_by_user_id, created_at, updated_at)
+        VALUES ($1, $2, 'active', $3, now(), now())
+        `,
+        [tenantId, input.tenantName, input.invitedByUserId],
+      )
+      const invitationId = `invitation-${randomUUID()}`
+      await client.query(
+        `
+        INSERT INTO tenant_invitations (
+          id, tenant_id, email, roles, invited_by_user_id, token_secret_hash, status, expires_at,
+          accepted_at, revoked_at, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, NULL, NULL, now(), now())
+        `,
+        [
+          invitationId,
+          tenantId,
+          input.email,
+          input.roles,
+          input.invitedByUserId,
+          input.tokenSecretHash,
+          input.expiresAt,
+        ],
+      )
+
+      const invitation = await readInvitationById(client, invitationId)
+      return invitation ? { ...invitation, token: input.token } : null
     })
   }
 

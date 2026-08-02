@@ -1,5 +1,8 @@
 import {
   adminTransferOrganizationAdminSchema,
+  addTenantMemberSchema,
+  createOrganizationSchema,
+  createTenantInvitationSchema,
   createTenantUserSchema,
   PERMISSIONS,
   updateMembershipRolesSchema,
@@ -11,6 +14,7 @@ import { requirePermission } from '../../core/auth/authorization.js'
 import { isPlatformAdmin } from '../../core/auth/roles.js'
 import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { AppError } from '../../core/errors.js'
+import { z } from 'zod'
 import {
   adminOrganizationSuccessor,
   adminTenantParams,
@@ -45,6 +49,25 @@ export function registerAdminOrganizationsRoutes(app: FastifyInstance, context: 
       return await requireAdminRepository(context.adminRepository).listTenants(
         scopeAdminOptions(request.principal!, parseListQuery(request.query)),
       )
+    },
+  )
+
+  app.post(
+    '/admin/organizations',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const organization = await requireAccountManagementService(
+        context.accountManagementService,
+      ).adminCreateOrganization(
+        request.principal!,
+        parse(createOrganizationSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+      reply.header('Cache-Control', 'no-store')
+      return reply.code(201).send(organization)
     },
   )
 
@@ -185,6 +208,77 @@ export function registerAdminOrganizationsRoutes(app: FastifyInstance, context: 
         sessionMetadataFromRequest(request),
       )
       return reply.code(201).send(member)
+    },
+  )
+
+  app.post(
+    '/admin/organizations/:tenantId/members',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      const member = await requireAccountManagementService(
+        context.accountManagementService,
+      ).adminAddOrganizationMember(
+        request.principal!,
+        tenantId,
+        parse(addTenantMemberSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+      reply.header('Cache-Control', 'no-store')
+      return reply.code(201).send(member)
+    },
+  )
+
+  app.get(
+    '/admin/organizations/:tenantId/invitations',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireAccountManagementService(
+        context.accountManagementService,
+      ).adminListInvitations(request.principal!, tenantId)
+    },
+  )
+
+  app.post(
+    '/admin/organizations/:tenantId/invitations',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      const invitation = await requireAccountManagementService(
+        context.accountManagementService,
+      ).adminCreateInvitation(
+        request.principal!,
+        tenantId,
+        parse(createTenantInvitationSchema, request.body),
+      )
+      reply.header('Cache-Control', 'no-store')
+      return reply.code(201).send(invitation)
+    },
+  )
+
+  app.delete(
+    '/admin/organizations/:tenantId/invitations/:invitationId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { tenantId, invitationId } = parse(
+        z.object({ tenantId: z.string().min(1).max(256), invitationId: z.string().min(1).max(256) }),
+        request.params,
+      )
+      await requireAccountManagementService(context.accountManagementService).adminRevokeInvitation(
+        request.principal!,
+        tenantId,
+        invitationId,
+      )
+      reply.header('Cache-Control', 'no-store')
+      return reply.code(204).send()
     },
   )
 
