@@ -5,11 +5,13 @@ import { AuthProvider, useAuth } from './components/AuthProvider.jsx'
 import { LoginPage } from './pages/LoginPage.jsx'
 import { EmailVerificationPage } from './pages/EmailVerificationPage.jsx'
 import { PasswordResetPage } from './pages/PasswordResetPage.jsx'
+import { RequiredPasswordChangePage } from './pages/RequiredPasswordChangePage.jsx'
+import { api } from './services/apiClient.js'
 
 const App = lazy(() => import('./App.jsx'))
 
 function Root() {
-  const { session, loading } = useAuth()
+  const { session, loading, logout } = useAuth()
   const path = window.location.pathname
   if (path === '/verify-email') return <EmailVerificationPage />
   if (path === '/reset-password') return <PasswordResetPage />
@@ -20,6 +22,15 @@ function Root() {
         <p>正在准备工作台…</p>
       </div>
     )
+  if (session?.account.passwordResetRequired) {
+    return (
+      <RequiredPasswordChangePage
+        account={session.account}
+        onChangePassword={(input) => api.changePassword(input)}
+        onLogout={logout}
+      />
+    )
+  }
   return session ? (
     <Suspense
       fallback={

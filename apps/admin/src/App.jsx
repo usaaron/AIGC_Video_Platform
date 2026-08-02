@@ -883,7 +883,7 @@ function UsersTable({
                     ) : (
                       <KeyRound size={14} />
                     )}
-                    临时密码
+                    重置临时密码
                   </button>
                   <button
                     className="row-button danger"
@@ -1834,7 +1834,7 @@ function CreateOrganizationUserModal({
           />
         </label>
         <label>
-          <span>临时密码</span>
+          <span>初始临时密码</span>
           <input
             type="password"
             value={form.password}
@@ -1844,6 +1844,7 @@ function CreateOrganizationUserModal({
             autoComplete="new-password"
             required
           />
+          <small>创建后交给用户首次登录；系统会立即要求用户设置自己的新密码。</small>
         </label>
         <label>
           <span>身份</span>
@@ -1990,8 +1991,11 @@ function PaymentStatusBadge({ status }) {
 
 function PasswordResetBadge({ required }) {
   return (
-    <span className={required ? 'security-badge required' : 'security-badge'}>
-      {required ? '需改密' : '正常'}
+    <span
+      className={required ? 'security-badge required' : 'security-badge'}
+      title={required ? '账号状态：用户需使用管理员设置的临时密码登录并修改密码' : '密码状态正常'}
+    >
+      {required ? '首次登录需改密' : '正常'}
     </span>
   )
 }

@@ -3,7 +3,11 @@ import { buildApp } from './app.js'
 import { loadConfig } from './config.js'
 
 const config = loadConfig()
-const app = await buildApp({ config, logger: true, startWorker: false })
+const app = await buildApp({
+  config,
+  logger: true,
+  startWorker: config.TASK_QUEUE_DRIVER === 'inline',
+})
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, 'shutting down')

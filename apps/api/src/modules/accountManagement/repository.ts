@@ -608,8 +608,11 @@ export class AccountManagementRepository {
       const membershipId = membershipIdFor(userId, input.tenantId)
       await client.query(
         `
-        INSERT INTO users (id, display_name, status, created_at, updated_at)
-        VALUES ($1, $2, 'active', now(), now())
+        INSERT INTO users (
+          id, display_name, status, password_reset_required, password_reset_required_at,
+          created_at, updated_at
+        )
+        VALUES ($1, $2, 'active', true, now(), now(), now())
         `,
         [userId, input.name],
       )
@@ -619,7 +622,7 @@ export class AccountManagementRepository {
             id, user_id, provider, provider_subject, email, password_hash, is_primary, status,
             email_verified_at, email_verification_status, created_at, updated_at
           )
-          VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', NULL, 'unverified', now(), now())
+          VALUES ($1, $2, 'local', $3, $3, $4, true, 'active', now(), 'verified', now(), now())
         `,
         [authIdentityIdFor(userId), userId, input.email, input.passwordHash],
       )

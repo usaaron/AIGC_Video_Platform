@@ -13,6 +13,7 @@ await runBlocking('build:shared', ['build:shared'])
 const dockerReady = commandExists('docker') && spawnSync('docker', ['info'], { stdio: 'ignore' }).status === 0
 const configuredDatabase = Boolean(process.env.DATABASE_URL?.trim())
 const configuredRedis = Boolean(process.env.REDIS_URL?.trim())
+const inlineQueue = !dockerReady && !configuredRedis
 
 if (dockerReady) {
   await runBlocking('dev:db', ['dev:db'])
@@ -29,8 +30,13 @@ const tasks = [
   ['web', ['--filter', '@seqora/web', 'dev']],
   ['admin', ['--filter', '@seqora/admin', 'dev']],
   ['api', ['--filter', '@seqora/api', 'dev']],
-  ['worker', ['--filter', '@seqora/api', 'dev:worker']],
 ]
+
+if (inlineQueue) {
+  process.stdout.write('[dev] Worker: inline queue mode; generation jobs run inside the API process\n')
+} else {
+  tasks.push(['worker', ['--filter', '@seqora/api', 'dev:worker']])
+}
 
 for (const [name, args] of tasks) {
   startLongRunning(name, args)

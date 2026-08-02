@@ -680,7 +680,6 @@ export class AccountManagementService {
         roles: result.membership.roles,
       },
     })
-    await this.requestVerificationEmail(result.membership.email, metadata)
     return result.membership
   }
 
@@ -735,7 +734,6 @@ export class AccountManagementService {
         scope: 'admin_console',
       },
     })
-    await this.requestVerificationEmail(result.membership.email, metadata)
     return result.membership
   }
 
