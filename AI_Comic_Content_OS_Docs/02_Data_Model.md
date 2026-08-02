@@ -1332,7 +1332,7 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 
 这些字段由当前分集和角色确定性整理、允许用户编辑并保存在 IndexedDB。后续分集生成时，前端将其压缩为 bounded `project_continuity_summary` 注入 `episode_context`；它约束后续集延续已有故事线和关系状态，但不会改写已经生成的分集。它们不是 `MasterScript` 正式字段，也不代表 Story Planning runtime 已实现。已有分集项目禁止在项目设定页直接重新生成覆盖；重新生成通过复制新的本地项目版本完成。
 
-`ScriptProject.marketProfile` 记录 authoring project 的市场来源，当前取值为 `cn_mainland`、`overseas_tiktok` 或兼容旧数据的 `legacy_unknown`。该字段不进入 `MasterScript`，只用于阻止不同市场配置之间直接续写、AI 修改、审核或终稿操作。旧 payload 缺少该字段时，Frontend 优先从已有 `generation_strategy_id` 推断；无法推断时保守标记为历史项目。复制新版本时绑定当前 runtime 市场，不覆盖旧项目。
+`ScriptProject.marketProfile` 记录 authoring project 的市场来源，当前取值为 `cn_mainland`、`overseas_tiktok` 或兼容旧数据的 `legacy_unknown`。该字段不进入 `MasterScript`，用于按当前 runtime 市场过滤项目，并阻止不同市场配置之间直接续写、AI 修改、审核或终稿操作。旧 payload 缺少该字段时，Frontend 优先从已有 `generation_strategy_id` 推断；无法推断时保守标记为历史项目。非当前市场项目保留在持久化层，但不进入项目列表、首页或直接项目路由。
 
 ## Long-Story Planning Contracts v1
 

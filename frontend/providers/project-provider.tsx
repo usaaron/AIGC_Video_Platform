@@ -179,7 +179,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   function getProject(projectId: string): ScriptProject | undefined {
-    return projects.find((project) => project.id === projectId);
+    return projects.find((project) => (
+      project.id === projectId && project.marketProfile === CURRENT_MARKET_PROFILE
+    ));
   }
 
   function requestServerSync(project: ScriptProject): void {
@@ -211,7 +213,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   return (
     <ProjectContext.Provider
       value={{
-        projects,
+        projects: projects.filter((project) => (
+          project.marketProfile === CURRENT_MARKET_PROFILE
+        )),
         isReady,
         storageError,
         serverPersistenceAvailable,

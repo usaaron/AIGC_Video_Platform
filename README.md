@@ -16,8 +16,8 @@ AI Comic Content OS 当前面向中国大陆漫剧市场，重点建设中文长
 - 已完成基础：Story Project、Story Bible、故事阶段、Episode Plan、Continuity Ledger、批次检查点契约，以及 PostgreSQL / JSONB schema、Alembic migration 和事务型 Repository
 - 已接入后端资源 API：Story Project、Frontend Workspace Snapshot、Story Bible、故事阶段和 Episode Plan 的版本化保存与读取
 - Frontend 已采用 IndexedDB 本地优先 + PostgreSQL Workspace Snapshot 服务端同步；冲突不静默覆盖，删除使用版本保护的服务端软归档
-- Frontend 已隔离项目市场来源；旧海外/TikTok 项目保留查看和导出，但不能在默认中国大陆配置下直接续写，需复制为当前市场的新版本
-- 中国大陆模式固定使用中文界面和中文剧本输出，隐藏语言切换；历史英文稿只展示中文阅读视图，英文源稿仍保留在 lineage 与导出数据中。切回 `overseas_tiktok` 后才恢复界面语言开关
+- Frontend 已按市场来源隔离项目；中国大陆模式只展示 `cn_mainland` 项目，海外/TikTok 与来源不明的历史项目在前端完全隐藏但不删除，切换市场后才重新加载对应项目
+- 中国大陆模式固定使用中文界面和中文剧本输出，隐藏语言切换与海外入口；英文资源和源稿仅保留在停用资产及持久化层，不进入当前创作界面
 - 已接入 Episode Artifact 里程碑：确认稿、规则修订稿和终稿按不可变服务端版本保存并保留来源 lineage
 - 尚未接入 runtime：自动规划、编辑过程的细粒度版本、连续性自动更新和后台可恢复执行
 - 尚未实现：完整 60 万字母本自动生成

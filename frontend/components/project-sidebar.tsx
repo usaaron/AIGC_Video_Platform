@@ -8,7 +8,6 @@ import { PlusIcon, ScriptIcon, SearchIcon, TrashIcon } from "@/components/icons"
 import { LanguageToggle } from "@/components/language-toggle";
 import { formatRelativeTime } from "@/lib/format";
 import { getLocalizedTagLabel, getTag } from "@/lib/tag-catalog";
-import { CURRENT_MARKET_PROFILE } from "@/lib/types";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 
@@ -69,14 +68,6 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
           ) : (
             visibleProjects.map((project) => {
               const primaryTag = getTag(project.selectedTagIds[0] ?? "");
-              const firstEpisode = project.episodes.slice().sort((a, b) => a.episodeNumber - b.episodeNumber)[0];
-              const firstDraftId = firstEpisode?.generationRun.draft_master_script.id;
-              const translatedTitle = firstDraftId
-                ? firstEpisode?.bilingualViews?.[firstDraftId]?.items.find((item) => item.path === "title")?.translated_text
-                : undefined;
-              const displayTitle = CURRENT_MARKET_PROFILE === "cn_mainland" && project.marketProfile !== "cn_mainland"
-                ? translatedTitle ?? t("nav.historicalProject")
-                : project.title;
               const active = pathname.includes(project.id);
               const projectHref = project.episodes.length
                 ? `/projects/${project.id}/workspace`
@@ -86,8 +77,8 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
                   <Link className="project-history-item" href={projectHref} onClick={onClose}>
                     <span className="project-history-icon"><ScriptIcon /></span>
                     <span className="project-history-copy">
-                      <strong>{displayTitle}</strong>
-                      <small>{t(`market.${project.marketProfile}`)} · {primaryTag ? getLocalizedTagLabel(primaryTag, locale) : t("nav.storyIdea")} · {project.episodes.length} {t("workspace.episodes")} · {formatRelativeTime(project.updatedAt, locale)}</small>
+                      <strong>{project.title}</strong>
+                      <small>{primaryTag ? getLocalizedTagLabel(primaryTag, locale) : t("nav.storyIdea")} · {project.episodes.length} {t("workspace.episodes")} · {formatRelativeTime(project.updatedAt, locale)}</small>
                     </span>
                     <span className={`status-dot status-${project.status}`} />
                   </Link>
