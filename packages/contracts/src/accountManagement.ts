@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { sessionSchema } from './account.js'
+import { passwordSchema, sessionSchema } from './account.js'
 import { roleSchema } from './auth.js'
 
 export const workspaceStatusSchema = z.enum(['active', 'disabled'])
@@ -11,7 +11,7 @@ export const registerAccountSchema = z.object({
   token: z.string().min(32).max(256),
   name: z.string().min(1).max(80),
   email: z.string().email(),
-  password: z.string().min(12).max(128),
+  password: passwordSchema,
   verificationCode: z.string().regex(/^\d{6}$/),
 })
 
@@ -36,7 +36,7 @@ export const acceptTenantInvitationSchema = z.object({
   token: z.string().min(32).max(256),
   name: z.string().min(1).max(80),
   email: z.string().email().optional(),
-  password: z.string().min(12).max(128),
+  password: passwordSchema,
 })
 
 export const createWorkspaceSchema = z.object({
@@ -65,7 +65,7 @@ export const addTenantMemberSchema = z.object({
 export const createTenantUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(80),
-  password: z.string().min(12).max(128),
+  password: passwordSchema,
   role: z.enum(['member', 'admin', 'organization_admin', 'organization_member', 'super_admin']),
 })
 

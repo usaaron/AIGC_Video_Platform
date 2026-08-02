@@ -242,7 +242,7 @@ export function LoginPage() {
                 {resendSeconds > 0 ? `${resendSeconds} 秒后可重新发送` : '重新发送验证码'}
               </button>
               <label>
-                <span>用户名</span>
+                <span>显示名称</span>
                 <div className="login-input">
                   <UserPlus size={17} />
                   <input
@@ -250,10 +250,11 @@ export function LoginPage() {
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                     autoComplete="name"
-                    placeholder="请输入用户名"
+                    placeholder="请输入显示名称"
                     required
                   />
                 </div>
+                <small className="login-field-hint">仅用于展示，可以与其他用户相同。</small>
               </label>
             </>
           )}
@@ -267,9 +268,9 @@ export function LoginPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete={isRegistering ? 'new-password' : 'current-password'}
-                  placeholder={isRegistering ? '至少 12 位密码' : '请输入密码'}
+                  placeholder={isRegistering ? '至少 8 位密码' : '请输入密码'}
                   required
-                  minLength={isRegistering ? 12 : undefined}
+                  minLength={isRegistering ? 8 : undefined}
                 />
                 <button
                   type="button"
@@ -356,7 +357,7 @@ export function authErrorMessage(error, { isRegistering = false, isForgotPasswor
       return '验证码已被使用，请重新发送'
     case 'VALIDATION_ERROR':
       return isRegistering
-        ? '请检查邀请码、邮箱、6 位验证码和密码，密码至少 12 位。'
+        ? '请检查邀请码、邮箱、6 位验证码和密码，密码至少 8 位。'
         : isForgotPassword
           ? '请检查邮箱格式。'
           : '请检查邮箱和密码。'

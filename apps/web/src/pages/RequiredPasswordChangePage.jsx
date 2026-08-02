@@ -67,7 +67,7 @@ export function RequiredPasswordChangePage({ account, onChangePassword, onLogout
             <LockKeyhole size={17} />
             <div>
               <strong>必须完成此步骤</strong>
-              <span>请输入管理员给你的临时密码，再设置至少 12 位的新密码。</span>
+              <span>请输入管理员给你的临时密码，再设置至少 8 位的新密码。</span>
             </div>
           </div>
 
@@ -84,14 +84,14 @@ export function RequiredPasswordChangePage({ account, onChangePassword, onLogout
                 value={newPassword}
                 onChange={setNewPassword}
                 autoComplete="new-password"
-                minLength={12}
+                minLength={8}
               />
               <PasswordField
                 label="确认新密码"
                 value={confirmPassword}
                 onChange={setConfirmPassword}
                 autoComplete="new-password"
-                minLength={12}
+                minLength={8}
               />
             </>
           )}

@@ -1740,7 +1740,7 @@ function GrantModal({ form, busy, onChange, onClose, onSubmit }) {
 
 function PasswordResetModal({ target, form, busy, onChange, onClose, onSubmit }) {
   const passwordLength = form.newPassword.length
-  const valid = passwordLength >= 12 && passwordLength <= 128
+  const valid = passwordLength >= 8 && passwordLength <= 128
   return (
     <Modal title="设置临时密码" onClose={onClose}>
       <form className="modal-form" onSubmit={onSubmit}>
@@ -1751,7 +1751,7 @@ function PasswordResetModal({ target, form, busy, onChange, onClose, onSubmit })
             type="password"
             value={form.newPassword}
             onChange={(event) => onChange({ ...form, newPassword: event.target.value })}
-            minLength={12}
+            minLength={8}
             maxLength={128}
             autoComplete="new-password"
             required
@@ -1793,7 +1793,7 @@ function CreateOrganizationUserModal({
     form.organizationId &&
     form.email.trim().includes('@') &&
     form.name.trim().length > 0 &&
-    form.password.length >= 12 &&
+    form.password.length >= 8 &&
     roleOptions.includes(form.role)
 
   return (
@@ -1839,7 +1839,7 @@ function CreateOrganizationUserModal({
             type="password"
             value={form.password}
             onChange={(event) => onChange({ ...form, password: event.target.value })}
-            minLength={12}
+            minLength={8}
             maxLength={128}
             autoComplete="new-password"
             required
