@@ -283,23 +283,6 @@ describe('API authorization', () => {
       'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
-    const whitelist = await app.inject({
-      method: 'GET',
-      url: '/api/v1/trusted-assets/portraits?groupType=LivenessFace',
-      headers,
-    })
-    expect(whitelist.statusCode).toBe(200)
-    expect(whitelist.json()).toMatchObject([
-      { assetId: 'asset-live-1', groupType: 'LivenessFace', status: 'active' },
-    ])
-    const whitelistPreview = await app.inject({
-      method: 'GET',
-      url: '/api/v1/trusted-assets/portraits/asset-live-1/preview',
-      headers,
-    })
-    expect(whitelistPreview.statusCode).toBe(200)
-    expect(whitelistPreview.headers['content-type']).toContain('image/png')
-    expect(whitelistPreview.body).toBe('whitelist-preview')
     const created = await app.inject({
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/assets',
@@ -350,6 +333,24 @@ describe('API authorization', () => {
         trustedPortrait: { assetId: 'asset-live-1', groupType: 'LivenessFace', status: 'active' },
       },
     })
+
+    const whitelist = await app.inject({
+      method: 'GET',
+      url: '/api/v1/trusted-assets/portraits?groupType=LivenessFace',
+      headers,
+    })
+    expect(whitelist.statusCode).toBe(200)
+    expect(whitelist.json()).toMatchObject([
+      { assetId: 'asset-live-1', groupType: 'LivenessFace', status: 'active' },
+    ])
+    const whitelistPreview = await app.inject({
+      method: 'GET',
+      url: '/api/v1/trusted-assets/portraits/asset-live-1/preview',
+      headers,
+    })
+    expect(whitelistPreview.statusCode).toBe(200)
+    expect(whitelistPreview.headers['content-type']).toContain('image/png')
+    expect(whitelistPreview.body).toBe('whitelist-preview')
 
     const accepted = await app.inject({
       method: 'POST',

@@ -5,6 +5,108 @@ import { describe, expect, it } from 'vitest'
 import { TrustedAssetService } from './service.js'
 
 describe('TrustedAssetService', () => {
+  it('only lists and previews portraits owned by the requesting user', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    await store.mutate((state) => {
+      const ownProject = state.projects.find((project) => project.id === 'project-midnight-film')!
+      state.projects.push({
+        ...ownProject,
+        id: 'project-other-user',
+        tenantId: 'tenant-other',
+        ownerId: 'user-other',
+        name: 'Other project',
+      })
+      for (const [id, projectId, tenantId, portraitId] of [
+        ['character-own', ownProject.id, ownProject.tenantId, 'portrait-own'],
+        ['character-other', 'project-other-user', 'tenant-other', 'portrait-other'],
+      ] as const) {
+        state.assets.push({
+          id,
+          projectId,
+          tenantId,
+          kind: 'character',
+          sourceMode: 'generate',
+          name: id,
+          description: '',
+          prompt: '',
+          promptMode: 'standard',
+          customPromptMode: 'append',
+          customPrompt: '',
+          negativePrompt: '',
+          references: [],
+          attributes: {
+            ...defaultAssetAttributes('character'),
+            trustedPortrait: {
+              assetId: portraitId,
+              groupId: `group-${portraitId}`,
+              groupType: 'AIGC',
+              name: portraitId,
+              status: 'active',
+              previewUrl: null,
+              errorCode: null,
+              errorMessage: null,
+              checkedAt: now,
+            },
+          },
+          imageUrl: null,
+          status: 'draft',
+          createdAt: now,
+          updatedAt: now,
+        })
+      }
+    })
+    const previewed: string[] = []
+    const portraits = ['portrait-own', 'portrait-other'].map((assetId) => ({
+      assetId,
+      groupId: `group-${assetId}`,
+      groupType: 'AIGC' as const,
+      name: assetId,
+      assetType: 'Image' as const,
+      status: 'active' as const,
+      previewUrl: null,
+      errorCode: null,
+      errorMessage: null,
+    }))
+    const provider: AssetLibraryProvider = {
+      createVirtualGroup: async () => 'unused',
+      createVirtualAsset: async () => portraits[0]!,
+      getPortrait: async (assetId) => portraits.find((portrait) => portrait.assetId === assetId)!,
+      getPortraitPreview: async (assetId) => {
+        previewed.push(assetId)
+        return { content: Buffer.from(assetId), contentType: 'image/png' }
+      },
+      listPortraits: async () => portraits,
+      listAuthorizedPortraits: async () => [],
+    }
+    const service = new TrustedAssetService(
+      store,
+      provider,
+      new MemoryStorage(),
+      'test-secret-with-at-least-32-characters',
+      'https://api.example.com',
+      'default',
+    )
+    const principal = {
+      userId: 'user-member',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['member' as const],
+    }
+
+    await expect(service.listPortraits('AIGC', principal)).resolves.toMatchObject([
+      { assetId: 'portrait-own' },
+    ])
+    await expect(service.preview('portrait-own', principal)).resolves.toMatchObject({
+      content: Buffer.from('portrait-own'),
+    })
+    await expect(service.preview('portrait-other', principal)).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'TRUSTED_PORTRAIT_NOT_FOUND',
+    })
+    expect(previewed).toEqual(['portrait-own'])
+  })
+
   it('publishes an approved face through a signed URL and creates an AIGC resource', async () => {
     const store = new AppStore(null)
     await store.initialize()

@@ -1,5 +1,15 @@
-import { useState } from 'react'
-import { AlertCircle, Image, LoaderCircle } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  AlertCircle,
+  ChevronDown,
+  Image,
+  Link2,
+  LoaderCircle,
+  MapPinned,
+  Package,
+  Shirt,
+  Users,
+} from 'lucide-react'
 
 const KIND_LABELS = {
   character: '人物',
@@ -8,17 +18,31 @@ const KIND_LABELS = {
   costume: '服装',
 }
 
+const KIND_ICONS = {
+  character: Users,
+  scene: MapPinned,
+  prop: Package,
+  costume: Shirt,
+}
+
+const KIND_ORDER = ['character', 'scene', 'prop', 'costume']
+
 export function AssetShortcutBar({
   assets = [],
   tasks = [],
   value = '',
   onChange,
   inputRef,
-  label = '资产快捷键',
+  label = '资产引用',
+  placement = 'bottom',
 }) {
-  const availableAssets = assets.filter((asset) => asset.kind !== 'audio')
+  const availableAssets = assets.filter((asset) => KIND_ORDER.includes(asset.kind))
   if (!availableAssets.length) return null
   const mentions = findAssetMentions(value, availableAssets)
+  const groups = KIND_ORDER.map((kind) => ({
+    kind,
+    assets: availableAssets.filter((asset) => asset.kind === kind),
+  })).filter((group) => group.assets.length)
 
   const insert = (asset) => {
     const target = inputRef?.current
@@ -39,52 +63,87 @@ export function AssetShortcutBar({
   }
 
   return (
-    <div className="asset-shortcut-bar" aria-label={label}>
-      <div className="asset-shortcut-heading">
-        <span>{label}</span>
-        <small>{mentions.length > 0 ? `已识别 ${mentions.length} 个资产` : '点击名称插入当前光标位置'}</small>
+    <details className={`asset-shortcut-bar placement-${placement}`}>
+      <summary className="asset-shortcut-heading">
+        <span className="asset-shortcut-heading-icon">
+          <Link2 size={14} />
+        </span>
+        <span>
+          <strong>{label}</strong>
+          <small>
+            {mentions.length ? `正文已引用 ${mentions.length} 项` : `${availableAssets.length} 项可插入`}
+          </small>
+        </span>
+        <span className="asset-shortcut-kind-dots" aria-hidden="true">
+          {groups.map((group) => (
+            <i className={`kind-${group.kind}`} key={group.kind} />
+          ))}
+        </span>
+        <ChevronDown className="asset-shortcut-chevron" size={14} />
+      </summary>
+
+      <div className="asset-shortcut-popover">
+        <header>
+          <div>
+            <strong>插入项目资产</strong>
+            <small>选择分类，再点击名称插入当前光标位置</small>
+          </div>
+          <span>{availableAssets.length} 项</span>
+        </header>
+        <div className="asset-shortcut-groups">
+          {groups.map((group) => {
+            const KindIcon = KIND_ICONS[group.kind]
+            const usedCount = group.assets.filter((asset) =>
+              mentions.some((mention) => mention.asset.id === asset.id),
+            ).length
+            return (
+              <details className={`asset-shortcut-group kind-${group.kind}`} key={group.kind}>
+                <summary>
+                  <KindIcon size={14} />
+                  <strong>{KIND_LABELS[group.kind]}</strong>
+                  <span>{usedCount ? `${usedCount} 已引用` : `${group.assets.length} 项`}</span>
+                  <ChevronDown size={13} />
+                </summary>
+                <div className="asset-shortcut-list">
+                  {group.assets.map((asset) => {
+                    const state = assetState(asset, tasks)
+                    const previewUrl = assetPreviewUrl(asset, tasks)
+                    const inText = mentions.some((mention) => mention.asset.id === asset.id)
+                    return (
+                      <button
+                        className={`asset-shortcut-button kind-${asset.kind} ${state} ${inText ? 'in-text' : ''}`}
+                        type="button"
+                        key={asset.id}
+                        onClick={() => insert(asset)}
+                        title={`${KIND_LABELS[asset.kind]}：${asset.name}`}
+                      >
+                        {previewUrl ? (
+                          <img src={previewUrl} alt="" />
+                        ) : state === 'failed' ? (
+                          <AlertCircle size={13} />
+                        ) : state === 'pending' ? (
+                          <LoaderCircle size={13} className="spin" />
+                        ) : (
+                          <Image size={13} />
+                        )}
+                        <span>{asset.name}</span>
+                        <small>{state === 'ready' ? '可用' : state === 'failed' ? '失败' : '待生成'}</small>
+                        {previewUrl && (
+                          <span className="asset-shortcut-hover-preview" aria-hidden="true">
+                            <img src={previewUrl} alt="" />
+                            <b>{asset.name}</b>
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </details>
+            )
+          })}
+        </div>
       </div>
-      <div className="asset-shortcut-list">
-        {availableAssets.map((asset) => {
-          const state = assetState(asset, tasks)
-          const previewUrl = assetPreviewUrl(asset, tasks)
-          const inText = mentions.some((mention) => mention.asset.id === asset.id)
-          return (
-            <button
-              className={`asset-shortcut-button ${state} ${inText ? 'in-text' : ''}`}
-              type="button"
-              key={asset.id}
-              onClick={() => insert(asset)}
-              title={`${KIND_LABELS[asset.kind] || '资产'}：${asset.name}`}
-            >
-              {previewUrl ? (
-                <img src={previewUrl} alt="" />
-              ) : state === 'failed' ? (
-                <AlertCircle size={13} />
-              ) : state === 'pending' ? (
-                <LoaderCircle size={13} className="spin" />
-              ) : (
-                <Image size={13} />
-              )}
-              <span>{asset.name}</span>
-              <small>
-                {state === 'ready'
-                  ? KIND_LABELS[asset.kind] || '资产'
-                  : state === 'failed'
-                    ? '生成失败'
-                    : '待生成'}
-              </small>
-              {previewUrl && (
-                <span className="asset-shortcut-hover-preview" aria-hidden="true">
-                  <img src={previewUrl} alt="" />
-                  <b>{asset.name}</b>
-                </span>
-              )}
-            </button>
-          )
-        })}
-      </div>
-    </div>
+    </details>
   )
 }
 
@@ -99,9 +158,50 @@ export function AssetAwareTextarea({
   onScroll,
   ...textareaProps
 }) {
+  const editorRef = useRef(null)
   const [scrollPosition, setScrollPosition] = useState({ left: 0, top: 0 })
-  const availableAssets = assets.filter((asset) => asset.kind !== 'audio')
+  const [editorMetrics, setEditorMetrics] = useState(null)
+  const availableAssets = assets.filter((asset) => KIND_ORDER.includes(asset.kind))
   const mentions = findAssetMentions(value, availableAssets)
+
+  const assignRef = (node) => {
+    editorRef.current = node
+    if (typeof inputRef === 'function') inputRef(node)
+    else if (inputRef) inputRef.current = node
+  }
+
+  const measureEditor = () => {
+    const target = editorRef.current
+    if (!target || !target.clientWidth) return
+    const computed = window.getComputedStyle(target)
+    setEditorMetrics({
+      width: target.clientWidth,
+      left: Number.parseFloat(computed.borderLeftWidth) || 0,
+      top: Number.parseFloat(computed.borderTopWidth) || 0,
+      padding: computed.padding,
+      fontFamily: computed.fontFamily,
+      fontSize: computed.fontSize,
+      fontStyle: computed.fontStyle,
+      fontWeight: computed.fontWeight,
+      letterSpacing: computed.letterSpacing,
+      lineHeight: computed.lineHeight,
+    })
+  }
+
+  useEffect(() => {
+    const target = editorRef.current
+    if (!target) return undefined
+    measureEditor()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(measureEditor)
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [])
+
+  const handleChange = (event) => {
+    onChange?.(event)
+    requestAnimationFrame(measureEditor)
+  }
 
   const handleScroll = (event) => {
     const target = event.currentTarget
@@ -114,16 +214,30 @@ export function AssetAwareTextarea({
       <div className="asset-aware-highlight" aria-hidden="true">
         <div
           className="asset-aware-highlight-inner"
-          style={{ transform: `translate(${-scrollPosition.left}px, ${-scrollPosition.top}px)` }}
+          style={{
+            transform: `translate(${(editorMetrics?.left || 0) - scrollPosition.left}px, ${(editorMetrics?.top || 0) - scrollPosition.top}px)`,
+            ...(editorMetrics
+              ? {
+                  width: `${editorMetrics.width}px`,
+                  padding: editorMetrics.padding,
+                  fontFamily: editorMetrics.fontFamily,
+                  fontSize: editorMetrics.fontSize,
+                  fontStyle: editorMetrics.fontStyle,
+                  fontWeight: editorMetrics.fontWeight,
+                  letterSpacing: editorMetrics.letterSpacing,
+                  lineHeight: editorMetrics.lineHeight,
+                }
+              : {}),
+          }}
         >
-          {renderHighlightedText(value, mentions, tasks, inputRef)}
+          {renderHighlightedText(value, mentions, tasks)}
         </div>
       </div>
       <textarea
         {...textareaProps}
-        ref={inputRef}
+        ref={assignRef}
         value={value}
-        onChange={onChange}
+        onChange={handleChange}
         onScroll={handleScroll}
         className={textareaProps.className}
         style={style}
@@ -132,7 +246,7 @@ export function AssetAwareTextarea({
   )
 }
 
-function renderHighlightedText(value, mentions, tasks, inputRef) {
+function renderHighlightedText(value, mentions, tasks) {
   if (!value) return '\u00a0'
   if (!mentions.length) return value
   const nodes = []
@@ -141,21 +255,12 @@ function renderHighlightedText(value, mentions, tasks, inputRef) {
     if (mention.start > cursor) nodes.push(value.slice(cursor, mention.start))
     const state = assetState(mention.asset, tasks)
     nodes.push(
-      <button
-        type="button"
+      <span
         key={`${mention.asset.id}-${mention.start}-${index}`}
-        className={`asset-inline-mention ${state}`}
-        title={`${KIND_LABELS[mention.asset.kind] || '资产'}：${mention.asset.name}（点击定位）`}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => {
-          const target = inputRef?.current
-          if (!target) return
-          target.focus()
-          target.setSelectionRange(mention.start, mention.end)
-        }}
+        className={`asset-inline-mention kind-${mention.asset.kind} ${state}`}
       >
         {mention.text}
-      </button>,
+      </span>,
     )
     cursor = mention.end
   })
@@ -163,7 +268,7 @@ function renderHighlightedText(value, mentions, tasks, inputRef) {
   return nodes
 }
 
-function findAssetMentions(value, assets) {
+export function findAssetMentions(value, assets) {
   const names = [
     ...new Set(assets.map((asset) => asset.name?.trim()).filter((name) => name && name.length > 1)),
   ].sort((left, right) => right.length - left.length)

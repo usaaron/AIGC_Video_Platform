@@ -176,6 +176,8 @@ export class TaskClaimer {
           if (claimed >= available) break
           if (task.status !== 'queued') continue
           if (task.provider === 'local-compose') continue
+          const retryNotBefore = Date.parse(stringValue(task.metadata.providerRetryNotBefore, ''))
+          if (Number.isFinite(retryNotBefore) && retryNotBefore > now.getTime()) continue
           if (this.dependencyResolver.state(task, userTasks) !== 'ready') continue
           const providerName = this.remoteProviderName(task)
           if (!this.ownsTask(task, providerName)) continue
@@ -402,6 +404,28 @@ export class TaskWritebackService {
     await this.refundService.refundTerminalTasks()
   }
 
+  async retryTimedOutVideoSubmission(taskId: string, leaseToken: string, error: string): Promise<void> {
+    await this.store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === taskId)
+      if (!task || task.status !== 'running') return
+      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
+      const now = new Date()
+      task.status = 'queued'
+      task.progress = 0
+      task.error = null
+      task.metadata = {
+        ...task.metadata,
+        providerState: 'retry_wait',
+        providerSubmissionError: error.slice(0, 1_000),
+        providerSubmissionTimedOutAt: now.toISOString(),
+        providerSubmissionRetries: Math.max(1, numberValue(task.attempts, 1)),
+        providerRetryNotBefore: new Date(now.getTime() + 10_000).toISOString(),
+      }
+      releaseGenerationTaskLease(task)
+      task.updatedAt = now.toISOString()
+    })
+  }
+
   async writeVideoSubmission(
     task: GenerationTask,
     leaseToken: string,
@@ -528,6 +552,12 @@ export class VideoTaskExecutor {
       )
       await this.options.writeback.writeVideoSubmission(task, leaseToken, submission)
     } catch (error) {
+      const attempts = task.attempts ?? 0
+      const maxAttempts = task.maxAttempts ?? DEFAULT_TASK_MAX_ATTEMPTS
+      if (error instanceof Error && isTimeoutError(error) && attempts < maxAttempts) {
+        await this.options.writeback.retryTimedOutVideoSubmission(task.id, leaseToken, messageFor(error))
+        return
+      }
       await this.options.writeback.failTask(task.id, messageFor(error), leaseToken)
     }
   }

@@ -45,12 +45,19 @@ export class TrustedAssetService {
     }
   }
 
-  async listPortraits(groupType: PortraitGroupType): Promise<ProviderPortrait[]> {
+  async listPortraits(groupType: PortraitGroupType, principal: Principal): Promise<ProviderPortrait[]> {
+    const visibleIds = this.visiblePortraitIds(principal, groupType)
+    if (!visibleIds.size) return []
     const portraits = await this.callProvider(() => this.requireProvider().listPortraits(groupType))
-    return portraits.map((portrait) => ({ ...portrait, previewUrl: trustedPortraitPreviewUrl(portrait) }))
+    return portraits
+      .filter((portrait) => visibleIds.has(portrait.assetId))
+      .map((portrait) => ({ ...portrait, previewUrl: trustedPortraitPreviewUrl(portrait) }))
   }
 
-  async preview(assetId: string): Promise<PortraitPreview> {
+  async preview(assetId: string, principal: Principal): Promise<PortraitPreview> {
+    if (!this.visiblePortraitIds(principal).has(assetId)) {
+      throw new AppError(404, 'TRUSTED_PORTRAIT_NOT_FOUND', '人像资源不存在或无权访问')
+    }
     const provider = this.requireProvider()
     return this.callProvider(async () => {
       if (provider.getPortraitPreview) return provider.getPortraitPreview(assetId)
@@ -165,6 +172,33 @@ export class TrustedAssetService {
       )
     }
     return this.provider
+  }
+
+  private visiblePortraitIds(principal: Principal, groupType?: PortraitGroupType): Set<string> {
+    return this.store.read((state) => {
+      const projectIds = new Set(
+        state.projects
+          .filter(
+            (project) => project.tenantId === principal.tenantId && project.ownerId === principal.userId,
+          )
+          .map((project) => project.id),
+      )
+      return new Set(
+        state.assets
+          .filter(
+            (asset) =>
+              asset.tenantId === principal.tenantId &&
+              projectIds.has(asset.projectId) &&
+              asset.attributes.type === 'character' &&
+              Boolean(asset.attributes.trustedPortrait?.assetId) &&
+              (!groupType || asset.attributes.trustedPortrait?.groupType === groupType),
+          )
+          .map((asset) =>
+            asset.attributes.type === 'character' ? asset.attributes.trustedPortrait!.assetId : '',
+          )
+          .filter(Boolean),
+      )
+    })
   }
 
   private async callProvider<T>(operation: () => Promise<T>): Promise<T> {

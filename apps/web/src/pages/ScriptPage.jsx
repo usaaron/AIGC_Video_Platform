@@ -678,14 +678,15 @@ export function ScriptPage({
                   </div>
                 )}
               </div>
-              <AssetShortcutBar
-                assets={assets}
-                tasks={tasks}
-                value={script}
-                onChange={update}
-                inputRef={textArea}
-              />
               <div className="script-document-footer">
+                <AssetShortcutBar
+                  assets={assets}
+                  tasks={tasks}
+                  value={script}
+                  onChange={update}
+                  inputRef={textArea}
+                  placement="top"
+                />
                 <span>{count} 字</span>
                 <span>{paragraphCount} 段</span>
                 <span>约 {estimatedMinutes} 分钟</span>
