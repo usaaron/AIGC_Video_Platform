@@ -20,8 +20,8 @@ import { LongFormStudioPlaceholder } from '../features/script/LongFormStudioPlac
 import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
 const SCRIPT_MODEL_OPTIONS = [
-  ['seqora-5.6', 'GPT 5.6（当前中转）'],
-  ['gpt-5.6-terra', 'GPT 5.6 Terra'],
+  ['seqora-5.6', 'SEQORA 5.6'],
+  ['gpt-5.6-terra', 'SEQORA 5.6 Terra'],
   ['kimi-k3', 'Kimi K3'],
   ['glm-5.2', 'GLM 5.2'],
   ['glm-5.2-fast', 'GLM 5.2 Fast'],
