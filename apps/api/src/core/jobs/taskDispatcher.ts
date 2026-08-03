@@ -201,10 +201,25 @@ export class GenerationTaskRunner implements TaskDispatcher {
     for (const task of tasks) {
       if (this.activeExecutions.has(task.id)) continue
       this.activeExecutions.add(task.id)
-      const execution = withHeartbeat ? this.writeback.runWithHeartbeat(task, execute) : execute(task)
+      const execution = withHeartbeat ? this.executeRemoteTask(task, execute) : execute(task)
       void execution.finally(() => {
         this.activeExecutions.delete(task.id)
       })
+    }
+  }
+
+  private async executeRemoteTask(
+    task: GenerationTask,
+    execute: (task: GenerationTask) => Promise<void>,
+  ): Promise<void> {
+    const leaseToken = task.leaseToken
+    if (!leaseToken) return
+    const stopHeartbeat = this.startTaskHeartbeat(task.id, leaseToken)
+    try {
+      await execute(task)
+    } finally {
+      stopHeartbeat()
+      await this.runTaskMutation(async () => {}, false)
     }
   }
 
@@ -212,26 +227,24 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const leaseToken = task.leaseToken
     const handler = this.localTaskHandler
     if (!leaseToken || !handler) return
-    const stopHeartbeat = this.startLocalTaskHeartbeat(task.id, leaseToken)
+    const stopHeartbeat = this.startTaskHeartbeat(task.id, leaseToken)
     try {
       const result = await handler.execute(task)
-      await this.runLocalTaskMutation(() => this.writeback.completeLocalTask(task.id, leaseToken, result))
+      await this.runTaskMutation(() => this.writeback.completeLocalTask(task.id, leaseToken, result))
     } catch (error) {
-      await this.runLocalTaskMutation(() =>
-        this.writeback.failTask(task.id, localTaskError(error), leaseToken),
-      )
+      await this.runTaskMutation(() => this.writeback.failTask(task.id, localTaskError(error), leaseToken))
     } finally {
       stopHeartbeat()
     }
   }
 
-  private startLocalTaskHeartbeat(taskId: string, leaseToken: string): () => void {
+  private startTaskHeartbeat(taskId: string, leaseToken: string): () => void {
     let heartbeatRunning = false
     const heartbeat = async () => {
       if (heartbeatRunning) return
       heartbeatRunning = true
       try {
-        await this.runLocalTaskMutation(() => this.writeback.renewLocalTaskLease(taskId, leaseToken))
+        await this.runTaskMutation(() => this.writeback.renewLocalTaskLease(taskId, leaseToken))
       } finally {
         heartbeatRunning = false
       }
@@ -241,10 +254,10 @@ export class GenerationTaskRunner implements TaskDispatcher {
     return () => clearInterval(timer)
   }
 
-  private async runLocalTaskMutation(operation: () => Promise<void>): Promise<void> {
+  private async runTaskMutation(operation: () => Promise<void>, refreshFirst = true): Promise<void> {
     for (let attempt = 0; attempt < 50; attempt += 1) {
       const acquired = await this.taskRunnerLock.runExclusive(async () => {
-        await this.beforeTick?.()
+        if (refreshFirst) await this.beforeTick?.()
         await operation()
         await this.afterTick?.()
       })
