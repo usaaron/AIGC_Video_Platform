@@ -53,22 +53,14 @@ describe('FilmPreviewComposer', () => {
     }
     let target: { width: number; height: number } | null = null
     const onStateChange = vi.fn(async () => {})
-    const composer = new FilmPreviewComposer(
-      store,
-      provider,
-      storage,
-      'ffmpeg',
-      60_000,
-      'aideos-seedance',
-      {
-        onStateChange,
-        composeRunner: async (inputPaths, outputPath, nextTarget) => {
-          expect(inputPaths).toHaveLength(2)
-          target = nextTarget
-          await writeFile(outputPath, Buffer.from('merged-video'))
-        },
+    const composer = new FilmPreviewComposer(store, provider, storage, 'ffmpeg', 60_000, 'aideos-seedance', {
+      onStateChange,
+      composeRunner: async (inputPaths, outputPath, nextTarget) => {
+        expect(inputPaths).toHaveLength(2)
+        target = nextTarget
+        await writeFile(outputPath, Buffer.from('merged-video'))
       },
-    )
+    })
 
     const started = await composer.start(preview)
     expect(started.status).toBe('running')

@@ -97,7 +97,7 @@ export async function createRuntimeRepositories(input: {
   await aiJobRepository.refreshRuntimeCacheFromDatabase()
 
   const refreshProjectDomainRuntimeCache = database
-      ? async () => {
+    ? async () => {
         await users.refreshRuntimeCacheFromDatabase()
         await projectRepository.refreshRuntimeCacheFromDatabase()
         await generationTaskRepository.refreshRuntimeCacheFromDatabase()
@@ -126,14 +126,8 @@ export function createRuntimeFilmPreviewComposer(input: {
   generationTaskRepository?: GenerationTaskRepository
   filmPreviewComposerOverride?: FilmPreviewDispatcher | null
 }): FilmPreviewDispatcher | null {
-  const {
-    config,
-    store,
-    objectStorage,
-    providers,
-    generationTaskRepository,
-    filmPreviewComposerOverride,
-  } = input
+  const { config, store, objectStorage, providers, generationTaskRepository, filmPreviewComposerOverride } =
+    input
   if (filmPreviewComposerOverride !== undefined) return filmPreviewComposerOverride
   if (!providers.videoProvider) return null
   return new FilmPreviewComposer(

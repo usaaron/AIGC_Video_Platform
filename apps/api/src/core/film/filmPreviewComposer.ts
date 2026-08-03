@@ -302,14 +302,7 @@ export function createFfmpegCompositionArgs(
   const audioInputIndexes = media.map((item, index) => {
     if (item.hasAudio) return index
     const silenceIndex = inputPaths.length + silenceInputs.length / 6
-    silenceInputs.push(
-      '-f',
-      'lavfi',
-      '-t',
-      ffmpegDuration(item.duration),
-      '-i',
-      'anullsrc=r=48000:cl=stereo',
-    )
+    silenceInputs.push('-f', 'lavfi', '-t', ffmpegDuration(item.duration), '-i', 'anullsrc=r=48000:cl=stereo')
     return silenceIndex
   })
   const filters = inputPaths.map(
@@ -364,15 +357,7 @@ async function probeInputMedia(
   const ffprobePath = join(dirname(ffmpegPath), `ffprobe${extname(ffmpegPath)}`)
   const stdout = await runProcess(
     ffprobePath,
-    [
-      '-v',
-      'error',
-      '-show_entries',
-      'format=duration:stream=codec_type,duration',
-      '-of',
-      'json',
-      inputPath,
-    ],
+    ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type,duration', '-of', 'json', inputPath],
     Math.min(timeoutMs, 15_000),
     'FFprobe 媒体检查失败',
     true,
