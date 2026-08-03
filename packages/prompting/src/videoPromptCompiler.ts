@@ -226,6 +226,7 @@ function conciseAssetAttributes(value: unknown): string {
         key !== 'faceReference' &&
         key !== 'bodyReference' &&
         key !== 'trustedPortrait' &&
+        key !== 'stagePrompts' &&
         key !== 'appearanceVariants' &&
         item !== null &&
         item !== undefined &&

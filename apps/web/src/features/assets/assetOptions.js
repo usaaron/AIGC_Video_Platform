@@ -46,6 +46,7 @@ export const DEFAULT_ATTRIBUTES = {
     legStretch: false,
     turnaround: false,
     turnaroundLayout: 'sheet',
+    stagePrompts: { face: '', body: '', turnaround: '' },
     appearanceVariants: [],
     activeAppearanceVariantId: null,
   },

@@ -71,8 +71,27 @@ describe('asset creation modes', () => {
 
     expect(input.sourceMode).toBe('generate')
     expect(input.references).toEqual([reference])
-    expect(input.prompt).toContain('严格保持参考图')
+    expect(input.prompt).toContain('严格保持导入参考图')
     expect(input.prompt).toContain('银色短发')
+  })
+
+  it('stores the face-stage prompt instead of a stale full-body override', () => {
+    const attributes = createDefaultAttributes('character')
+    attributes.stagePrompts = {
+      face: '面部阶段完整提示词，画面比例1:1',
+      body: '全身阶段完整提示词，画面比例9:16',
+      turnaround: '',
+    }
+    const input = buildAssetInput({
+      asset: { kind: 'character' },
+      draft: draft({ attributes, customPromptMode: 'replace', customPrompt: '旧全身提示词' }),
+      kind: 'character',
+      aspectRatio: '9:16',
+      creationMode: ASSET_CREATION_MODES.TEXT,
+    })
+
+    expect(input.prompt).toBe('面部阶段完整提示词，画面比例1:1')
+    expect(input.prompt).not.toContain('旧全身提示词')
   })
 
   it('drops old references when switching to text-only generation', () => {
