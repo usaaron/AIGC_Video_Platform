@@ -17,6 +17,7 @@ import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
+import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { AppError } from '../../core/errors.js'
 import type { ProjectService } from './service.js'
 
@@ -55,7 +56,11 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
     '/projects/:projectId',
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
     async (request, reply) => {
-      await service.archive(parse(projectParams, request.params).projectId, request.principal!)
+      await service.archive(
+        parse(projectParams, request.params).projectId,
+        request.principal!,
+        sessionMetadataFromRequest(request),
+      )
       return reply.code(204).send()
     },
   )

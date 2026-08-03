@@ -26,6 +26,8 @@ import { jsonrepair } from 'jsonrepair'
 import { z } from 'zod'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
+import { traceMetadata } from '../../core/observability/trace.js'
+import type { SessionMetadata } from '../auth/accounts.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
 import type { ProjectRepository } from './repository.js'
 
@@ -59,10 +61,21 @@ export class ProjectService {
     return project
   }
 
-  async archive(projectId: string, principal: Principal) {
+  async archive(projectId: string, principal: Principal, metadata?: SessionMetadata) {
     if (!(await this.repository.archive(projectId, principal))) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权删除')
     }
+    await this.repository.recordAuditLog({
+      tenantId: principal.tenantId,
+      userId: principal.userId,
+      actorUserId: principal.userId,
+      action: 'project.archived',
+      resourceType: 'project',
+      resourceId: projectId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: traceMetadata({ status: 'archived' }, metadata?.traceId ?? null),
+    })
   }
 
   async saveVersion(projectId: string, principal: Principal) {

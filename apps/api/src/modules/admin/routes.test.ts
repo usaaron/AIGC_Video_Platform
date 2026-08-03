@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { buildApp } from '../../app.js'
 import { loadConfig, type AppConfig } from '../../config.js'
 import { AccountDatabase } from '../../infra/postgres.js'
+import { AppStore } from '../../infra/store.js'
 import { startPostgresAuthFixture, type PostgresAuthFixture } from '../../testing/postgresAuth.js'
 import { BillingPaymentRepository } from '../billing/paymentRepository.js'
 
@@ -115,6 +116,72 @@ describe('admin console api', { timeout: 30_000 }, () => {
         ]),
       },
       generatedAt: expect.any(String),
+    })
+  })
+
+  it('reads admin and observability summaries from Postgres instead of JSON runtime state', async () => {
+    const store = new AppStore(null)
+    app = await buildApp({ config: localAuthConfig(), store, startWorker: false })
+    const admin = await login('admin@seqora.local', 'Admin123!')
+    const adminCookie = cookieValue(admin)
+    const now = new Date().toISOString()
+
+    await store.mutate((state) => {
+      state.tasks.unshift({
+        id: 'json-only-running-task',
+        clientRequestId: 'json-only-running-task',
+        projectId: 'project-json-only',
+        tenantId: 'tenant-seqora-demo',
+        userId: 'user-member',
+        kind: 'video',
+        label: 'JSON only running task',
+        prompt: 'This task exists only in app.json',
+        negativePrompt: '',
+        provider: 'local',
+        model: null,
+        tier: null,
+        metadata: {},
+        status: 'running',
+        progress: 25,
+        estimatedCredits: 999,
+        createdAt: now,
+        updatedAt: now,
+        resultUrl: null,
+        outputs: [],
+        error: null,
+      })
+      state.ledger.unshift({
+        id: 'json-only-generation-debit',
+        userId: 'user-member',
+        tenantId: 'tenant-seqora-demo',
+        amount: -999,
+        balance: 0,
+        type: 'generation',
+        description: 'JSON only debit',
+        createdAt: now,
+      })
+    })
+
+    const overview = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/overview',
+      headers: { cookie: adminCookie },
+    })
+    expect(overview.statusCode).toBe(200)
+    expect(overview.json()).toMatchObject({
+      activeTasks: 0,
+      creditsConsumedToday: 0,
+    })
+
+    const metrics = await app.inject({
+      method: 'GET',
+      url: '/api/v1/observability/metrics',
+      headers: { cookie: adminCookie },
+    })
+    expect(metrics.statusCode).toBe(200)
+    expect(metrics.json().daily).toMatchObject({
+      creditsConsumed: 0,
+      generationTasks: expect.objectContaining({ created: 0, terminal: 0 }),
     })
   })
 
@@ -252,6 +319,30 @@ describe('admin console api', { timeout: 30_000 }, () => {
         }),
       ],
     })
+
+    const billingAudit = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/audit-logs?action=billing.credits.adjusted&userId=user-member',
+      headers: { cookie: adminCookie },
+    })
+    expect(billingAudit.statusCode).toBe(200)
+    expect(billingAudit.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'billing.credits.adjusted',
+          resourceType: 'billing_account',
+          resourceId: 'membership-tenant-seqora-demo-user-member',
+          actorUserId: 'user-admin',
+          metadata: expect.objectContaining({
+            amount: 15,
+            balance: 301,
+            membershipId: 'membership-tenant-seqora-demo-user-member',
+            reason: 'Admin console audit top-up',
+            traceId: expect.any(String),
+          }),
+        }),
+      ]),
+    )
 
     const detail = await app.inject({
       method: 'GET',
@@ -854,6 +945,33 @@ describe('admin console api', { timeout: 30_000 }, () => {
       ]),
     )
 
+    const disabledOrganization = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/organizations/${adminCreatedOrganizationId}`,
+      headers: { cookie: ownerCookie },
+    })
+    expect(disabledOrganization.statusCode).toBe(200)
+    expect(disabledOrganization.json()).toMatchObject({
+      id: adminCreatedOrganizationId,
+      status: 'disabled',
+    })
+
+    const disabledOrganizationAudit = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/audit-logs?action=admin.organization.disabled&resourceType=tenant&actorUserId=user-owner`,
+      headers: { cookie: ownerCookie },
+    })
+    expect(disabledOrganizationAudit.statusCode).toBe(200)
+    expect(disabledOrganizationAudit.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'admin.organization.disabled',
+          resourceId: adminCreatedOrganizationId,
+          metadata: expect.objectContaining({ scope: 'admin_console', traceId: expect.any(String) }),
+        }),
+      ]),
+    )
+
     const managedTenant = await createWorkspaceFromCurrentSession(ownerCookie, 'Console Managed Workspace')
     const createdMember = await app.inject({
       method: 'POST',
@@ -924,7 +1042,11 @@ describe('admin console api', { timeout: 30_000 }, () => {
         }),
         expect.objectContaining({
           action: 'admin.membership.roles.updated',
-          metadata: expect.objectContaining({ scope: 'admin_console' }),
+          metadata: expect.objectContaining({
+            previousRoles: ['member'],
+            roles: ['admin'],
+            scope: 'admin_console',
+          }),
         }),
         expect.objectContaining({
           action: 'admin.membership.disabled',

@@ -2,6 +2,7 @@ import { PERMISSIONS } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
+import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { AppError } from '../../core/errors.js'
 import type { MediaService } from './service.js'
 
@@ -39,7 +40,11 @@ export async function registerMediaRoutes(
     async (request, reply) => {
       const params = mediaParams.safeParse(request.params)
       if (!params.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(params.error))
-      const { media, content } = await service.read(params.data.mediaId, request.principal!)
+      const { media, content } = await service.read(
+        params.data.mediaId,
+        request.principal!,
+        sessionMetadataFromRequest(request),
+      )
       return reply
         .header('Cache-Control', 'private, max-age=31536000, immutable')
         .type(media.contentType)

@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AccountDatabase } from '../../infra/postgres.js'
 import { AppStore } from '../../infra/store.js'
 import { startPostgresAuthFixture, type PostgresAuthFixture } from '../../testing/postgresAuth.js'
 import { ProjectRepository } from '../projects/repository.js'
 import { UserRepository } from '../users/repository.js'
 import { AiJobRepository } from './repository.js'
+import { AiJobRunner, type AiJobHandler } from '../../core/jobs/aiJobRunner.js'
 
 const principal = {
   userId: 'user-member',
@@ -135,6 +136,76 @@ describe('AiJobRepository postgres lifecycle', { timeout: 30_000 }, () => {
         refunded_at: expect.any(String),
         credits: 286,
         refund_count: '1',
+      })
+    } finally {
+      await database.close()
+    }
+  })
+
+  it('recovers expired running postgres AI jobs after a restart and writes the result back to Postgres', async () => {
+    const { database, repository } = await createRepository()
+    try {
+      const job = await repository.createWithCharge(
+        {
+          clientRequestId: 'postgres-ai-job-recovery',
+          projectId: 'project-midnight-film',
+          kind: 'novel.summaryQueueBatch',
+          label: 'Novel summary queue',
+          provider: 'text',
+          input: { queueId: 'queue-1' },
+          costCredits: 0,
+        },
+        principal,
+      )
+      const [claimed] = await repository.claimReadyJobs({
+        ownerId: 'worker-a',
+        leaseTtlMs: 60_000,
+        limit: 1,
+      })
+      expect(claimed?.id).toBe(job.id)
+
+      await database.query(
+        `
+        UPDATE ai_jobs
+        SET lease_expires_at = now() - interval '1 second',
+            lease_heartbeat_at = now() - interval '1 second'
+        WHERE id = $1
+        `,
+        [job.id],
+      )
+
+      const handler: AiJobHandler = {
+        canHandle: vi.fn((candidate) => candidate.kind === 'novel.summaryQueueBatch'),
+        execute: vi.fn(async () => ({ output: { recovered: true } })),
+      }
+      const runner = new AiJobRunner(repository, { handler, leaseTtlMs: 60_000 })
+
+      await runner.recoverInterrupted()
+      await vi.waitFor(() => expect(handler.execute).toHaveBeenCalledOnce())
+
+      await vi.waitFor(async () => {
+        const persisted = await database.query<{
+          status: string
+          output: { recovered?: boolean } | null
+          lease_owner_id: string | null
+        }>('SELECT status, output, lease_owner_id FROM ai_jobs WHERE id = $1', [job.id])
+        expect(persisted.rows[0]).toEqual({
+          status: 'completed',
+          output: { recovered: true },
+          lease_owner_id: null,
+        })
+      })
+
+      const recoveredStore = new AppStore(null)
+      await recoveredStore.initialize()
+      const recoveredRepository = new AiJobRepository(recoveredStore, null, database)
+      await recoveredRepository.refreshRuntimeCacheFromDatabase()
+      expect(
+        recoveredStore.read((state) => state.aiJobs.find((item) => item.id === job.id)),
+      ).toMatchObject({
+        status: 'completed',
+        output: { recovered: true },
+        leaseOwnerId: null,
       })
     } finally {
       await database.close()

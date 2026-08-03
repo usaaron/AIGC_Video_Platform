@@ -2,6 +2,7 @@ import { adminAdjustCreditsSchema, adminGrantCreditsSchema, PERMISSIONS } from '
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
+import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { isPlatformAdmin } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
 import {
@@ -109,7 +110,12 @@ export function registerAdminBillingRoutes(app: FastifyInstance, context: AdminR
     { preHandler: requirePermission(PERMISSIONS.BILLING_MANAGE) },
     async (request) => {
       const input = parse(adminGrantCreditsSchema, request.body)
-      return await requireLedger(context.ledger).grantCredits(request.principal!, input.amount, input.reason)
+      return await requireLedger(context.ledger).grantCredits(
+        request.principal!,
+        input.amount,
+        input.reason,
+        sessionMetadataFromRequest(request),
+      )
     },
   )
 
@@ -124,6 +130,7 @@ export function registerAdminBillingRoutes(app: FastifyInstance, context: AdminR
         membershipId,
         input.amount,
         input.reason,
+        sessionMetadataFromRequest(request),
       )
     },
   )

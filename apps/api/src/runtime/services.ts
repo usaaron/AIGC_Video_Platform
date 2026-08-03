@@ -177,13 +177,13 @@ export function createRuntimeServices(input: {
     emailVerificationUrl: config.AUTH_EMAIL_VERIFICATION_URL,
   })
   const accountManagementService = database
-    ? new AccountManagementService(
-        new AccountManagementRepository(database),
-        repositories.users,
-        store,
-        config.AUTH_SECRET,
-        config.WEB_ORIGIN,
-        mailer,
+      ? new AccountManagementService(
+          new AccountManagementRepository(database),
+          repositories.users,
+          store,
+          config.AUTH_SECRET,
+          config.WEB_ORIGIN,
+          mailer,
         config.AUTH_INVITATION_URL,
         (input, metadata) => authService.requestEmailVerification(input, metadata),
         config.NODE_ENV !== 'production',
@@ -217,7 +217,13 @@ export function createRuntimeServices(input: {
     Boolean(providers.imageProvider),
     repositories.creditLedger,
   )
-  const mediaService = new MediaService(new MediaRepository(store), objectStorage)
+  const mediaRepository = new MediaRepository(
+    store,
+    database,
+    config.STORAGE_DRIVER,
+    config.STORAGE_DRIVER === 'gcs' ? config.GCS_BUCKET : null,
+  )
+  const mediaService = new MediaService(mediaRepository, objectStorage)
   const trustedAssetService = new TrustedAssetService(
     store,
     providers.assetLibraryProvider,
@@ -227,6 +233,7 @@ export function createRuntimeServices(input: {
     config.VOLC_ARK_PROJECT_NAME,
     config.ASSET_LIBRARY_CONSOLE_URL,
     repositories.projectRepository,
+    mediaRepository,
   )
   const paymentProvider =
     paymentProviderOverride !== undefined ? paymentProviderOverride : createRuntimePaymentProvider(config)

@@ -297,6 +297,7 @@ export class AccountManagementService {
     principal: Principal,
     tenantId: string,
     metadata?: SessionMetadata,
+    auditAction: 'admin.workspace.disabled' | 'admin.organization.disabled' = 'admin.workspace.disabled',
   ): Promise<Workspace> {
     this.requireAdminTenantScope(principal, tenantId)
     this.requireOwner(principal, 'Only owners can disable workspaces')
@@ -311,7 +312,7 @@ export class AccountManagementService {
       tenantId,
       userId: principal.userId,
       actorUserId: principal.userId,
-      action: 'admin.workspace.disabled',
+      action: auditAction,
       resourceType: 'tenant',
       resourceId: tenantId,
       ipAddress: metadata?.ipAddress ?? null,
@@ -326,7 +327,7 @@ export class AccountManagementService {
     tenantId: string,
     metadata?: SessionMetadata,
   ): Promise<Organization> {
-    return await this.adminDisableWorkspace(principal, tenantId, metadata)
+    return await this.adminDisableWorkspace(principal, tenantId, metadata, 'admin.organization.disabled')
   }
 
   async transferOrganizationAdmin(

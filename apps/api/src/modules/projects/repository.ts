@@ -3,6 +3,7 @@ import type {
   CreateAsset,
   CreateProject,
   CreateShot,
+  GenerationTask,
   Principal,
   Plan,
   Project,
@@ -15,6 +16,7 @@ import type {
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
+import { insertAuditLog, type AuditLogInput } from '../../core/audit/auditLog.js'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
@@ -77,6 +79,19 @@ type ShotRow = QueryResultRow & {
   episode_title: string
   episode_kind: Shot['episodeKind']
   created_at: Date | string
+  updated_at: Date | string
+}
+
+type ProjectTaskPreviewRow = QueryResultRow & {
+  id: string
+  project_id: string
+  tenant_id: string
+  kind: GenerationTask['kind']
+  label: string
+  status: GenerationTask['status']
+  progress: number | string
+  metadata: unknown
+  outputs: unknown
   updated_at: Date | string
 }
 
@@ -145,12 +160,12 @@ export type ProjectJsonImportResult = {
 
 export class ProjectRepository {
   constructor(
-    private readonly store: AppStore,
+    private readonly store: AppStore | null,
     private readonly database: AccountDatabase | null = null,
   ) {}
 
   async importFromStore(): Promise<ProjectJsonImportResult> {
-    if (!this.database) {
+    if (!this.database || !this.store) {
       return {
         projects: { inserted: 0, skipped: 0 },
         assets: { inserted: 0, skipped: 0 },
@@ -199,7 +214,10 @@ export class ProjectRepository {
   }
 
   planFor(principal: Principal): Plan | null {
-    return this.store.read(
+    if (this.database) {
+      return null
+    }
+    return this.requireStore().read(
       (state) =>
         state.users.find((user) => user.id === principal.userId && user.tenantId === principal.tenantId)
           ?.plan ?? null,
@@ -221,13 +239,7 @@ export class ProjectRepository {
       `,
       [principal.tenantId, canReadAll, principal.userId],
     )
-    return this.store.read((state) =>
-      result.rows.map(projectFromRow).map((project) => ({
-        ...project,
-        previewUrl: projectPreviewUrl(project.id, state),
-        generationSummary: projectGenerationSummary(project.id, state),
-      })),
-    )
+    return await Promise.all(result.rows.map(projectFromRow).map((project) => this.decorateProject(project)))
   }
 
   async workspace(projectId: string, principal: Principal): Promise<ProjectWorkspace | null> {
@@ -364,7 +376,7 @@ export class ProjectRepository {
 
   async archive(projectId: string, principal: Principal): Promise<boolean> {
     if (!this.database) {
-      return this.store.mutate((state) => {
+      return this.requireStore().mutate((state) => {
         const project = state.projects.find(
           (item) =>
             item.id === projectId &&
@@ -390,6 +402,11 @@ export class ProjectRepository {
     if ((result.rowCount ?? 0) === 0) return false
     await this.refreshRuntimeCacheFromDatabase()
     return true
+  }
+
+  async recordAuditLog(input: AuditLogInput): Promise<void> {
+    if (!this.database) return
+    await insertAuditLog(this.database, input)
   }
 
   async saveVersion(projectId: string, principal: Principal): Promise<Project | null> {
@@ -902,7 +919,7 @@ export class ProjectRepository {
 
   private listFromStore(principal: Principal): Project[] {
     const canReadAll = canReadAllTenantContent(principal)
-    return this.store.read((state) =>
+    return this.requireStore().read((state) =>
       state.projects
         .filter((project) => project.tenantId === principal.tenantId)
         .filter((project) => project.status !== 'archived')
@@ -919,7 +936,7 @@ export class ProjectRepository {
   private workspaceFromStore(projectId: string, principal: Principal): ProjectWorkspace | null {
     const project = this.listFromStore(principal).find((item) => item.id === projectId)
     if (!project) return null
-    return this.store.read((state) => ({
+    return this.requireStore().read((state) => ({
       project,
       assets: state.assets.filter(
         (asset) => asset.projectId === projectId && asset.tenantId === principal.tenantId,
@@ -946,7 +963,7 @@ export class ProjectRepository {
       createdAt: now,
       updatedAt: now,
     }
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       state.projects.push(project)
       return project
     })
@@ -957,7 +974,7 @@ export class ProjectRepository {
     input: UpdateProject,
     principal: Principal,
   ): Promise<Project | null> {
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const project = state.projects.find(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
@@ -969,7 +986,7 @@ export class ProjectRepository {
   }
 
   private async saveVersionInStore(projectId: string, principal: Principal): Promise<Project | null> {
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const project = state.projects.find(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
@@ -986,7 +1003,7 @@ export class ProjectRepository {
     input: CreateAsset,
     principal: Principal,
   ): Promise<Asset | null> {
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const project = state.projects.find(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
@@ -1014,7 +1031,7 @@ export class ProjectRepository {
     input: UpdateAsset,
     principal: Principal,
   ): Promise<Asset | null> {
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const ownsProject = state.projects.some(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
@@ -1032,7 +1049,7 @@ export class ProjectRepository {
     assetId: string,
     principal: Principal,
   ): Promise<boolean> {
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const ownsProject = state.projects.some(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
@@ -1049,7 +1066,7 @@ export class ProjectRepository {
     input: CreateShot,
     principal: Principal,
   ): Promise<Shot | null> {
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const project = state.projects.find(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
@@ -1078,7 +1095,7 @@ export class ProjectRepository {
     input: UpdateShot,
     principal: Principal,
   ): Promise<Shot | null> {
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const ownsProject = state.projects.some(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
@@ -1095,7 +1112,7 @@ export class ProjectRepository {
     shots: CreateShot[],
     principal: Principal,
   ): Promise<Shot[] | null> {
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const project = state.projects.find(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
@@ -1123,7 +1140,7 @@ export class ProjectRepository {
     updates: Array<Pick<Shot, 'id' | 'episodeNumber' | 'episodeTitle' | 'episodeKind'>>,
     principal: Principal,
   ): Promise<Shot[] | null> {
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const project = state.projects.find(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
@@ -1182,8 +1199,51 @@ export class ProjectRepository {
     return result.rows[0] ? projectFromRow(result.rows[0]) : null
   }
 
+  private async decorateProject(project: Project): Promise<Project> {
+    if (!this.database) return project
+    const [tasks, assets, shots] = await Promise.all([
+      this.database.query<ProjectTaskPreviewRow>(
+        `
+        SELECT id, project_id, tenant_id, kind, label, status, progress, metadata, outputs, updated_at
+        FROM generation_tasks
+        WHERE project_id = $1 AND tenant_id = $2
+        ORDER BY updated_at DESC, id DESC
+        `,
+        [project.id, project.tenantId],
+      ),
+      this.database.query<AssetRow>(
+        `
+        SELECT ${assetColumns}
+        FROM assets
+        WHERE project_id = $1 AND tenant_id = $2
+        ORDER BY updated_at DESC, created_at DESC
+        `,
+        [project.id, project.tenantId],
+      ),
+      this.database.query<ShotRow>(
+        `
+        SELECT ${shotColumns}
+        FROM shots
+        WHERE project_id = $1 AND tenant_id = $2
+        ORDER BY shot_order ASC
+        `,
+        [project.id, project.tenantId],
+      ),
+    ])
+    const state = {
+      tasks: tasks.rows.map(projectPreviewTaskFromRow),
+      assets: assets.rows.map(assetFromRow),
+      shots: shots.rows.map(shotFromRow),
+    }
+    return {
+      ...project,
+      previewUrl: projectPreviewUrl(project.id, state),
+      generationSummary: projectGenerationSummary(project.id, state),
+    }
+  }
+
   async refreshRuntimeCacheFromDatabase(): Promise<void> {
-    if (!this.database) return
+    if (!this.database || !this.store) return
     const [projects, assets, shots] = await Promise.all([
       this.database.query<ProjectRow>(`SELECT ${projectColumns} FROM projects ORDER BY updated_at DESC`),
       this.database.query<AssetRow>(
@@ -1199,10 +1259,12 @@ export class ProjectRepository {
   }
 
   private async mirrorProject(project: Project): Promise<void> {
+    if (!this.store) return
     this.store.mutateProjectWorkspaceRuntimeCache((state) => upsertProject(state, project))
   }
 
   private async mirrorAsset(asset: Asset): Promise<void> {
+    if (!this.store) return
     this.store.mutateProjectWorkspaceRuntimeCache((state) => {
       upsertAsset(state, asset)
       const project = state.projects.find(
@@ -1213,12 +1275,14 @@ export class ProjectRepository {
   }
 
   private async mirrorDeletedAsset(projectId: string, assetId: string): Promise<void> {
+    if (!this.store) return
     this.store.mutateProjectWorkspaceRuntimeCache((state) => {
       state.assets = state.assets.filter((asset) => asset.id !== assetId || asset.projectId !== projectId)
     })
   }
 
   private async mirrorShot(shot: Shot): Promise<void> {
+    if (!this.store) return
     this.store.mutateProjectWorkspaceRuntimeCache((state) => {
       upsertShot(state, shot)
       const project = state.projects.find(
@@ -1229,6 +1293,7 @@ export class ProjectRepository {
   }
 
   private async mirrorReplacedShots(projectId: string, shots: Shot[]): Promise<void> {
+    if (!this.store) return
     this.store.mutateProjectWorkspaceRuntimeCache((state) => {
       const tenantId = shots[0]?.tenantId
       state.shots = state.shots.filter(
@@ -1241,6 +1306,13 @@ export class ProjectRepository {
       const latest = shots[0]?.updatedAt
       if (project && latest && project.updatedAt < latest) project.updatedAt = latest
     })
+  }
+
+  private requireStore(): AppStore {
+    if (!this.store) {
+      throw new Error('JSON AppStore is unavailable; ProjectRepository must use Postgres in runtime')
+    }
+    return this.store
   }
 }
 
@@ -1574,6 +1646,32 @@ function shotFromRow(row: ShotRow): Shot {
     episodeKind: row.episode_kind,
     createdAt: isoString(row.created_at),
     updatedAt: isoString(row.updated_at),
+  }
+}
+
+function projectPreviewTaskFromRow(row: ProjectTaskPreviewRow): GenerationTask {
+  return {
+    id: row.id,
+    clientRequestId: row.id,
+    projectId: row.project_id,
+    tenantId: row.tenant_id,
+    userId: '',
+    kind: row.kind,
+    label: row.label,
+    prompt: '',
+    negativePrompt: '',
+    provider: '',
+    model: null,
+    tier: null,
+    metadata: jsonValue(row.metadata, {}),
+    status: row.status,
+    progress: Number(row.progress),
+    estimatedCredits: 0,
+    createdAt: isoString(row.updated_at),
+    updatedAt: isoString(row.updated_at),
+    resultUrl: null,
+    outputs: jsonValue(row.outputs, []),
+    error: null,
   }
 }
 

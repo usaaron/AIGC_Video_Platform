@@ -698,12 +698,12 @@ export class NovelService implements AiJobHandler {
     return result
   }
 
-  previewSplit(
+  async previewSplit(
     projectId: string,
     input: PreviewNovelSplitRequest,
     principal: Principal,
-  ): NovelSplitPreviewResult {
-    if (!this.repository.canImportNovel(projectId, principal)) {
+  ): Promise<NovelSplitPreviewResult> {
+    if (!(await this.repository.canImportNovel(projectId, principal))) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权预览小说切分')
     }
 

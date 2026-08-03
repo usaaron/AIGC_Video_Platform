@@ -117,6 +117,14 @@ const configSchema = z
         message: 'Demo authentication is forbidden in production',
       })
     }
+    if (config.NODE_ENV === 'production' && !config.DATABASE_URL) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DATABASE_URL'],
+        message:
+          'DATABASE_URL is required in production; identity, billing, admin and observability data must use Postgres',
+      })
+    }
     if (config.NODE_ENV === 'production' && config.AUTH_SECRET === developmentAuthSecret) {
       context.addIssue({
         code: 'custom',

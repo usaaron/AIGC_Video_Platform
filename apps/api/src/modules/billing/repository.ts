@@ -1,5 +1,6 @@
 import type { BillingWebhookEvent, LedgerEntry, Plan } from '@seqora/contracts'
 import type { QueryResultRow } from 'pg'
+import { insertAuditLog } from '../../core/audit/auditLog.js'
 import { AppError } from '../../core/errors.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 
@@ -18,9 +19,18 @@ export type BillingLedgerRecordInput = {
   createdByUserId?: string | null
   createdAt?: string | undefined
   metadata?: BillingLedgerMetadata | undefined
+  audit?: BillingLedgerAuditInput | undefined
 }
 
 export type BillingLedgerMetadata = Record<string, unknown>
+
+export type BillingLedgerAuditInput = {
+  action: string
+  actorUserId: string | null
+  ipAddress: string | null
+  userAgent: string | null
+  metadata?: Record<string, unknown>
+}
 
 export type BillingLedgerMembershipRecordInput = {
   membershipId: string
@@ -34,6 +44,7 @@ export type BillingLedgerMembershipRecordInput = {
   createdByUserId?: string | null
   createdAt?: string | undefined
   metadata?: BillingLedgerMetadata | undefined
+  audit?: BillingLedgerAuditInput | undefined
 }
 
 export type BillingLedgerRecordResult = {
@@ -296,8 +307,29 @@ export class BillingLedgerRepository {
           JSON.stringify(input.metadata ?? {}),
         ],
       )
+      const entry = toLedgerEntry(inserted.rows[0]!)
+      if (input.audit) {
+        await insertAuditLog(client, {
+          tenantId: input.tenantId,
+          userId: input.userId,
+          actorUserId: input.audit.actorUserId,
+          action: input.audit.action,
+          resourceType: 'billing_account',
+          resourceId: membership.id,
+          ipAddress: input.audit.ipAddress,
+          userAgent: input.audit.userAgent,
+          metadata: {
+            ...(input.audit.metadata ?? {}),
+            membershipId: membership.id,
+            ledgerEntryId: entry.id,
+            entryType: entry.type,
+            amount: entry.amount,
+            balance: entry.balance,
+          },
+        })
+      }
       return {
-        entry: toLedgerEntry(inserted.rows[0]!),
+        entry,
         balance: nextCredits,
       }
     })
@@ -312,6 +344,7 @@ export class BillingLedgerRepository {
     description: string
     createdByUserId?: string | null
     createdAt?: string
+    audit?: BillingLedgerAuditInput
   }): Promise<BillingLedgerRecordResult | null> {
     return this.recordEntry({
       tenantId: input.tenantId,
@@ -324,6 +357,7 @@ export class BillingLedgerRepository {
       description: input.description,
       createdByUserId: input.createdByUserId ?? null,
       createdAt: input.createdAt,
+      audit: input.audit,
     })
   }
 
@@ -336,6 +370,7 @@ export class BillingLedgerRepository {
     createdByUserId?: string | null
     createdAt?: string
     metadata?: BillingLedgerMetadata
+    audit?: BillingLedgerAuditInput
   }): Promise<BillingLedgerRecordResult | null> {
     return this.recordEntry({
       tenantId: input.tenantId,
@@ -348,6 +383,7 @@ export class BillingLedgerRepository {
       createdByUserId: input.createdByUserId ?? null,
       createdAt: input.createdAt,
       metadata: input.metadata,
+      audit: input.audit,
     })
   }
 
@@ -362,6 +398,7 @@ export class BillingLedgerRepository {
     createdByUserId?: string | null
     createdAt?: string
     metadata?: BillingLedgerMetadata
+    audit?: BillingLedgerAuditInput
   }): Promise<BillingLedgerRecordResult | null> {
     return this.recordEntry({
       tenantId: input.tenantId,
@@ -375,6 +412,7 @@ export class BillingLedgerRepository {
       createdByUserId: input.createdByUserId ?? null,
       createdAt: input.createdAt,
       metadata: input.metadata,
+      audit: input.audit,
     })
   }
 
@@ -456,8 +494,29 @@ export class BillingLedgerRepository {
           JSON.stringify(input.metadata ?? {}),
         ],
       )
+      const entry = toLedgerEntry(inserted.rows[0]!)
+      if (input.audit) {
+        await insertAuditLog(client, {
+          tenantId: account.tenantId,
+          userId: account.userId,
+          actorUserId: input.audit.actorUserId,
+          action: input.audit.action,
+          resourceType: 'billing_account',
+          resourceId: account.membershipId,
+          ipAddress: input.audit.ipAddress,
+          userAgent: input.audit.userAgent,
+          metadata: {
+            ...(input.audit.metadata ?? {}),
+            membershipId: account.membershipId,
+            ledgerEntryId: entry.id,
+            entryType: entry.type,
+            amount: entry.amount,
+            balance: entry.balance,
+          },
+        })
+      }
       return {
-        entry: toLedgerEntry(inserted.rows[0]!),
+        entry,
         balance: nextCredits,
         membershipId: account.membershipId,
         userId: account.userId,
@@ -524,6 +583,7 @@ export class BillingLedgerRepository {
         throw new AppError(404, 'BILLING_ACCOUNT_NOT_FOUND', 'Billing account does not exist')
       }
 
+      const previousPlan = account.plan
       let plan = account.plan
       let credits = account.credits
       let ledgerEntry: LedgerEntry | null = null
@@ -647,6 +707,51 @@ export class BillingLedgerRepository {
           amount,
         ],
       )
+
+      if (plan !== previousPlan) {
+        await insertAuditLog(client, {
+          tenantId: account.tenantId,
+          userId: account.userId,
+          actorUserId: null,
+          action: 'billing.plan.updated',
+          resourceType: 'billing_account',
+          resourceId: account.membershipId,
+          ipAddress: null,
+          userAgent: null,
+          metadata: {
+            ...metadata,
+            provider: input.provider,
+            webhookEventId: payload.eventId,
+            webhookEventType: payload.type,
+            previousPlan,
+            plan,
+          },
+        })
+      }
+
+      if (ledgerEntry) {
+        await insertAuditLog(client, {
+          tenantId: account.tenantId,
+          userId: account.userId,
+          actorUserId: null,
+          action: billingAuditActionForWebhook(payload, ledgerEntry),
+          resourceType: 'billing_account',
+          resourceId: account.membershipId,
+          ipAddress: null,
+          userAgent: null,
+          metadata: {
+            ...metadata,
+            provider: input.provider,
+            webhookEventId: payload.eventId,
+            webhookEventType: payload.type,
+            membershipId: account.membershipId,
+            ledgerEntryId: ledgerEntry.id,
+            entryType: ledgerEntry.type,
+            amount: ledgerEntry.amount,
+            balance: ledgerEntry.balance,
+          },
+        })
+      }
 
       return {
         provider: input.provider,
@@ -884,6 +989,13 @@ function toLedgerEntry(row: LedgerEntryRow): LedgerEntry {
     description: row.description,
     createdAt: toIso(row.created_at),
   }
+}
+
+function billingAuditActionForWebhook(payload: BillingWebhookEvent, entry: LedgerEntry): string {
+  if (payload.type === 'payment.refunded') return 'billing.credits.refunded'
+  if (entry.type === 'grant') return 'billing.credits.granted'
+  if (entry.type === 'generation') return 'billing.credits.reserved'
+  return 'billing.credits.adjusted'
 }
 
 function toIso(value: Date | string): string {

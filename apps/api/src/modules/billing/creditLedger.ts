@@ -10,8 +10,10 @@ import { randomUUID } from 'node:crypto'
 import { isPlatformAdmin, isTenantManager } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
 import { observabilityMetrics } from '../../core/observability/metrics.js'
+import { traceMetadata } from '../../core/observability/trace.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
+import type { SessionMetadata } from '../auth/accounts.js'
 import type { UserRepository } from '../users/repository.js'
 import { BillingLedgerRepository, type BillingWebhookProcessResult } from './repository.js'
 
@@ -23,8 +25,15 @@ export interface CreditLedger {
     credits: number,
     referenceId: string,
     description?: string,
+    metadata?: SessionMetadata,
   ): Promise<boolean>
-  reserve(principal: Principal, credits: number, referenceId: string, description?: string): Promise<boolean>
+  reserve(
+    principal: Principal,
+    credits: number,
+    referenceId: string,
+    description?: string,
+    metadata?: SessionMetadata,
+  ): Promise<boolean>
   reserveCreditsInState(
     state: AppState,
     principal: Principal,
@@ -39,8 +48,18 @@ export interface CreditLedger {
     referenceId: string,
     description?: string,
   ): Promise<boolean>
-  refundCredits(principal: Principal, referenceId: string, description: string): Promise<void>
-  refundReservation(principal: Principal, referenceId: string, description: string): Promise<void>
+  refundCredits(
+    principal: Principal,
+    referenceId: string,
+    description: string,
+    metadata?: SessionMetadata,
+  ): Promise<void>
+  refundReservation(
+    principal: Principal,
+    referenceId: string,
+    description: string,
+    metadata?: SessionMetadata,
+  ): Promise<void>
   refundCreditsInState(
     state: AppState,
     principal: Principal,
@@ -55,7 +74,12 @@ export interface CreditLedger {
   ): Promise<void>
   refundGeneration(task: GenerationTask, description?: string): Promise<void>
   refundGenerationInState(state: AppState, task: GenerationTask, description?: string): Promise<void>
-  grantCredits(principal: Principal, amount: number, reason: string): Promise<BillingSummary>
+  grantCredits(
+    principal: Principal,
+    amount: number,
+    reason: string,
+    metadata?: SessionMetadata,
+  ): Promise<BillingSummary>
   grantCreditsInState(
     state: AppState,
     principal: Principal,
@@ -67,6 +91,7 @@ export interface CreditLedger {
     targetMembershipId: string,
     amount: number,
     reason: string,
+    metadata?: SessionMetadata,
   ): Promise<BillingSummary>
   adjustCreditsInState(
     state: AppState,
@@ -80,6 +105,7 @@ export interface CreditLedger {
     amount: number,
     referenceId: string,
     description: string,
+    metadata?: SessionMetadata,
   ): Promise<BillingSummary>
   adjustBalanceInState(
     state: AppState,
@@ -100,7 +126,7 @@ export class StoreCreditLedger implements CreditLedger {
   private readonly ledgerRepository: BillingLedgerRepository | null
 
   constructor(
-    private readonly store: AppStore,
+    private readonly store: AppStore | null,
     private readonly users: UserRepository,
     private readonly planSelfServiceEnabled = false,
     database: AccountDatabase | null = null,
@@ -110,6 +136,7 @@ export class StoreCreditLedger implements CreditLedger {
 
   async bootstrapFromStore(): Promise<void> {
     if (!this.ledgerRepository) return
+    if (!this.store) return
     if (await this.ledgerRepository.hasImportedJsonEntries()) return
     await this.ledgerRepository.bootstrapFromStore(this.store.read((state) => state.ledger))
   }
@@ -119,8 +146,9 @@ export class StoreCreditLedger implements CreditLedger {
     credits: number,
     referenceId: string,
     description = 'Generation task',
+    metadata?: SessionMetadata,
   ): Promise<boolean> {
-    return this.reserve(principal, credits, referenceId, description)
+    return this.reserve(principal, credits, referenceId, description, metadata)
   }
 
   async reserve(
@@ -128,9 +156,13 @@ export class StoreCreditLedger implements CreditLedger {
     credits: number,
     referenceId: string,
     description = 'Generation task',
+    metadata?: SessionMetadata,
   ): Promise<boolean> {
-    return this.store.transaction((state) =>
-      this.reserveInState(state, principal, credits, referenceId, description),
+    if (this.ledgerRepository) {
+      return this.reserveInState(unusedJsonState(), principal, credits, referenceId, description, metadata)
+    }
+    return this.requireStore().transaction((state) =>
+      this.reserveInState(state, principal, credits, referenceId, description, metadata),
     )
   }
 
@@ -150,6 +182,7 @@ export class StoreCreditLedger implements CreditLedger {
     credits: number,
     referenceId: string,
     description = 'Generation task',
+    metadata?: SessionMetadata,
   ): Promise<boolean> {
     const entryId = `generation-${referenceId}`
     if (!this.ledgerRepository && state.ledger.some((entry) => entry.id === entryId)) return false
@@ -163,10 +196,15 @@ export class StoreCreditLedger implements CreditLedger {
         entryType: 'generation',
         amount: -credits,
         description,
+        createdByUserId: principal.userId,
+        audit: billingAudit(
+          'billing.credits.reserved',
+          principal.userId,
+          metadata,
+          { referenceId, description, credits },
+        ),
       })
       if (!recorded) return false
-      const cachedUser = findUser(state, principal)
-      if (cachedUser) cachedUser.credits = recorded.balance
       return true
     }
 
@@ -187,14 +225,28 @@ export class StoreCreditLedger implements CreditLedger {
     return true
   }
 
-  async refundReservation(principal: Principal, referenceId: string, description: string): Promise<void> {
-    await this.store.transaction((state) =>
-      this.refundReservationInState(state, principal, referenceId, description),
+  async refundReservation(
+    principal: Principal,
+    referenceId: string,
+    description: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
+    if (this.ledgerRepository) {
+      await this.refundReservationInState(unusedJsonState(), principal, referenceId, description, metadata)
+      return
+    }
+    await this.requireStore().transaction((state) =>
+      this.refundReservationInState(state, principal, referenceId, description, metadata),
     )
   }
 
-  async refundCredits(principal: Principal, referenceId: string, description: string): Promise<void> {
-    await this.refundReservation(principal, referenceId, description)
+  async refundCredits(
+    principal: Principal,
+    referenceId: string,
+    description: string,
+    metadata?: SessionMetadata,
+  ): Promise<void> {
+    await this.refundReservation(principal, referenceId, description, metadata)
   }
 
   async refundCreditsInState(
@@ -211,6 +263,7 @@ export class StoreCreditLedger implements CreditLedger {
     principal: Principal,
     referenceId: string,
     description: string,
+    metadata?: SessionMetadata,
   ): Promise<void> {
     const debitId = `generation-${referenceId}`
     const refundId = `refund-${referenceId}`
@@ -227,10 +280,15 @@ export class StoreCreditLedger implements CreditLedger {
         refundEntryId: refundId,
         amount: Math.abs(debit.amount),
         description,
+        createdByUserId: principal.userId,
+        audit: billingAudit(
+          'billing.credits.refunded',
+          principal.userId,
+          metadata,
+          { referenceId, originalEntryId: debit.id, refundEntryId: refundId, description },
+        ),
       })
       if (!recorded) return
-      const cachedUser = findUser(state, principal)
-      if (cachedUser) cachedUser.credits = recorded.balance
       observabilityMetrics.recordRefund({ tenantId: principal.tenantId, amount: Math.abs(debit.amount) })
       return
     }
@@ -259,7 +317,11 @@ export class StoreCreditLedger implements CreditLedger {
   }
 
   async refundGeneration(task: GenerationTask, description = `${task.label} deleted refund`): Promise<void> {
-    await this.store.transaction((state) => this.refundGenerationInState(state, task, description))
+    if (this.ledgerRepository) {
+      await this.refundGenerationInState(unusedJsonState(), task, description)
+      return
+    }
+    await this.requireStore().transaction((state) => this.refundGenerationInState(state, task, description))
   }
 
   async refundGenerationInState(
@@ -285,11 +347,25 @@ export class StoreCreditLedger implements CreditLedger {
         refundEntryId: refundId,
         amount,
         description,
+        createdByUserId: task.userId,
         createdAt: now,
+        audit: {
+          action: 'billing.credits.refunded',
+          actorUserId: task.userId,
+          ipAddress: null,
+          userAgent: null,
+          metadata: {
+            taskId: task.id,
+            taskLabel: task.label,
+            referenceId: task.clientRequestId,
+            originalEntryId: debit.id,
+            refundEntryId: refundId,
+            description,
+            ...(typeof task.metadata?.traceId === 'string' ? { traceId: task.metadata.traceId } : {}),
+          },
+        },
       })
       if (!recorded) return
-      const cachedUser = findUserById(state, task.userId, task.tenantId)
-      if (cachedUser) cachedUser.credits = recorded.balance
       markTaskRefunded(state, task.id, now)
       observabilityMetrics.recordRefund({ tenantId: task.tenantId, amount })
       return
@@ -319,8 +395,18 @@ export class StoreCreditLedger implements CreditLedger {
     observabilityMetrics.recordRefund({ tenantId: task.tenantId, amount })
   }
 
-  async grantCredits(principal: Principal, amount: number, reason: string): Promise<BillingSummary> {
-    return this.store.transaction((state) => this.grantCreditsInState(state, principal, amount, reason))
+  async grantCredits(
+    principal: Principal,
+    amount: number,
+    reason: string,
+    metadata?: SessionMetadata,
+  ): Promise<BillingSummary> {
+    if (this.ledgerRepository) {
+      return this.grantCreditsInState(unusedJsonState(), principal, amount, reason, metadata)
+    }
+    return this.requireStore().transaction((state) =>
+      this.grantCreditsInState(state, principal, amount, reason, metadata),
+    )
   }
 
   async grantCreditsInState(
@@ -328,23 +414,26 @@ export class StoreCreditLedger implements CreditLedger {
     principal: Principal,
     amount: number,
     reason: string,
+    metadata?: SessionMetadata,
   ): Promise<BillingSummary> {
     if (amount <= 0) throw new AppError(400, 'INVALID_CREDIT_AMOUNT', 'Credit amount must be positive')
     const entryId = `grant-${cryptoRandomId()}`
 
     if (this.ledgerRepository) {
-      const recorded = await this.ledgerRepository.recordGrant({
+      await this.ledgerRepository.recordGrant({
         tenantId: principal.tenantId,
         userId: principal.userId,
         grantEntryId: entryId,
         amount,
         description: reason,
         createdByUserId: principal.userId,
+        audit: billingAudit(
+          'billing.credits.granted',
+          principal.userId,
+          metadata,
+          { referenceId: entryId, amount, reason },
+        ),
       })
-      if (recorded) {
-        const cachedUser = findUser(state, principal)
-        if (cachedUser) cachedUser.credits = recorded.balance
-      }
       return this.billingSummary(principal)
     }
 
@@ -374,9 +463,20 @@ export class StoreCreditLedger implements CreditLedger {
     targetMembershipId: string,
     amount: number,
     reason: string,
+    metadata?: SessionMetadata,
   ): Promise<BillingSummary> {
-    return this.store.transaction((state) =>
-      this.adjustCreditsInState(state, principal, targetMembershipId, amount, reason),
+    if (this.ledgerRepository) {
+      return this.adjustCreditsInState(
+        unusedJsonState(),
+        principal,
+        targetMembershipId,
+        amount,
+        reason,
+        metadata,
+      )
+    }
+    return this.requireStore().transaction((state) =>
+      this.adjustCreditsInState(state, principal, targetMembershipId, amount, reason, metadata),
     )
   }
 
@@ -386,6 +486,7 @@ export class StoreCreditLedger implements CreditLedger {
     targetMembershipId: string,
     amount: number,
     reason: string,
+    metadata?: SessionMetadata,
   ): Promise<BillingSummary> {
     if (!isBillingAdmin(principal)) {
       throw new AppError(403, 'PERMISSION_DENIED', 'Only administrators can adjust credits')
@@ -402,12 +503,16 @@ export class StoreCreditLedger implements CreditLedger {
         amount,
         description: reason,
         createdByUserId: principal.userId,
+        audit: billingAudit(
+          'billing.credits.adjusted',
+          principal.userId,
+          metadata,
+          { targetMembershipId, referenceId: entryId, amount, reason },
+        ),
       })
       if (!recorded) {
         throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
       }
-      const targetUser = findUserById(state, recorded.userId, recorded.tenantId)
-      if (targetUser) targetUser.credits = recorded.balance
       return this.billingSummary({
         userId: recorded.userId,
         tenantId: recorded.tenantId,
@@ -454,9 +559,20 @@ export class StoreCreditLedger implements CreditLedger {
     amount: number,
     referenceId: string,
     description: string,
+    metadata?: SessionMetadata,
   ): Promise<BillingSummary> {
-    return this.store.transaction((state) =>
-      this.adjustBalanceInState(state, principal, amount, referenceId, description),
+    if (this.ledgerRepository) {
+      return this.adjustBalanceInState(
+        unusedJsonState(),
+        principal,
+        amount,
+        referenceId,
+        description,
+        metadata,
+      )
+    }
+    return this.requireStore().transaction((state) =>
+      this.adjustBalanceInState(state, principal, amount, referenceId, description, metadata),
     )
   }
 
@@ -466,11 +582,12 @@ export class StoreCreditLedger implements CreditLedger {
     amount: number,
     referenceId: string,
     description: string,
+    metadata?: SessionMetadata,
   ): Promise<BillingSummary> {
     const entryId = `adjustment-${referenceId}`
 
     if (this.ledgerRepository) {
-      const recorded = await this.ledgerRepository.recordAdjustment({
+      await this.ledgerRepository.recordAdjustment({
         tenantId: principal.tenantId,
         userId: principal.userId,
         adjustmentEntryId: entryId,
@@ -478,11 +595,13 @@ export class StoreCreditLedger implements CreditLedger {
         amount,
         description,
         createdByUserId: principal.userId,
+        audit: billingAudit(
+          'billing.credits.adjusted',
+          principal.userId,
+          metadata,
+          { referenceId, amount, description },
+        ),
       })
-      if (recorded) {
-        const cachedUser = findUser(state, principal)
-        if (cachedUser) cachedUser.credits = recorded.balance
-      }
       return this.billingSummary(principal)
     }
 
@@ -527,7 +646,7 @@ export class StoreCreditLedger implements CreditLedger {
       return buildSummaryFromEntries(entries, account.plan, account.credits, this.planSelfServiceEnabled)
     }
 
-    return this.store.read((state) =>
+    return this.requireStore().read((state) =>
       buildSummaryFromEntries(
         ledgerEntriesForPrincipal(state, principal),
         account.plan,
@@ -546,7 +665,7 @@ export class StoreCreditLedger implements CreditLedger {
       return this.ledgerRepository.countConsumedCreditsSince(startIso, tenantId)
     }
     const startTime = new Date(startIso).getTime()
-    return this.store.read((state) =>
+    return this.requireStore().read((state) =>
       state.ledger
         .filter(
           (entry) =>
@@ -563,7 +682,10 @@ export class StoreCreditLedger implements CreditLedger {
     if (!this.planSelfServiceEnabled) {
       throw new AppError(403, 'PLAN_CHANGE_REQUIRES_ADMIN', 'Plan changes require an administrator')
     }
-    return this.store.transaction((state) => this.updatePlanInState(state, principal, plan))
+    if (this.ledgerRepository) {
+      return this.updatePlanInState(unusedJsonState(), principal, plan)
+    }
+    return this.requireStore().transaction((state) => this.updatePlanInState(state, principal, plan))
   }
 
   async updatePlanInState(state: AppState, principal: Principal, plan: Plan): Promise<BillingSummary> {
@@ -576,11 +698,6 @@ export class StoreCreditLedger implements CreditLedger {
         createdByUserId: principal.userId,
       })
       if (!updated) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
-      const cachedUser = findUser(state, principal)
-      if (cachedUser) {
-        cachedUser.plan = updated.plan
-        cachedUser.credits = updated.credits
-      }
       return this.billingSummary(principal)
     }
 
@@ -627,14 +744,34 @@ export class StoreCreditLedger implements CreditLedger {
       throw new AppError(503, 'ACCOUNT_DATABASE_REQUIRED', 'Postgres account database is required')
     }
     const result = await this.ledgerRepository.processWebhookEvent({ provider, payload })
-    if (result.duplicate || !result.userId || !result.tenantId) return result
-    await this.store.mutate((state) => {
-      const user = findUserById(state, result.userId!, result.tenantId!)
-      if (!user) return
-      if (result.plan) user.plan = result.plan
-      if (result.credits !== null) user.credits = result.credits
-    })
     return result
+  }
+
+  private requireStore(): AppStore {
+    if (!this.store) {
+      throw new Error('JSON AppStore is unavailable; StoreCreditLedger must use Postgres in runtime')
+    }
+    return this.store
+  }
+}
+
+function unusedJsonState(): AppState {
+  return {
+    users: [],
+    projects: [],
+    assets: [],
+    shots: [],
+    tasks: [],
+    aiJobs: [],
+    ledger: [],
+    media: [],
+    novelDocuments: [],
+    novelChapters: [],
+    novelChapterSummaries: [],
+    novelSummaryQueues: [],
+    novelSummaryQueueItems: [],
+    novelBoundaries: [],
+    novelStoryBibles: [],
   }
 }
 
@@ -650,6 +787,21 @@ function findUserById(state: AppState, userId: string, tenantId: string): AppSta
 
 function isBillingAdmin(principal: Principal): boolean {
   return isTenantManager(principal)
+}
+
+function billingAudit(
+  action: string,
+  actorUserId: string | null,
+  metadata: SessionMetadata | undefined,
+  value: Record<string, unknown>,
+) {
+  return {
+    action,
+    actorUserId,
+    ipAddress: metadata?.ipAddress ?? null,
+    userAgent: metadata?.userAgent ?? null,
+    metadata: traceMetadata(value, metadata?.traceId ?? null),
+  }
 }
 
 function ledgerEntriesForPrincipal(state: AppState, principal: Principal): LedgerEntry[] {

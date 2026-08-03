@@ -102,7 +102,7 @@ export async function registerRuntimeRoutes(input: {
       await registerTrustedAssetRoutes(api, services.trustedAssetService)
       await registerAiJobRoutes(api, services.aiJobService)
       await registerGenerationRoutes(api, services.generationService)
-      await registerObservabilityRoutes(api, store)
+      await registerObservabilityRoutes(api, store, repositories.adminRepository)
       await registerBillingRoutes(api, repositories.creditLedger, {
         webhookSecret: config.BILLING_WEBHOOK_SECRET,
         paymentService: services.paymentService,

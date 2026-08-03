@@ -140,16 +140,19 @@ export async function readAdminOverview(
           ? state.users.filter((user) => user.tenantId === scopedTenantId).length
           : state.users.length,
       )
+  const activeTasks = adminRepository
+    ? await adminRepository.countActiveGenerationTasks(scopedTenantId)
+    : store.read(
+        (state) =>
+          state.tasks.filter(
+            (task) =>
+              (task.status === 'queued' || task.status === 'running') &&
+              (!scopedTenantId || task.tenantId === scopedTenantId),
+          ).length,
+      )
   return {
     users,
-    activeTasks: store.read(
-      (state) =>
-        state.tasks.filter(
-          (task) =>
-            (task.status === 'queued' || task.status === 'running') &&
-            (!scopedTenantId || task.tenantId === scopedTenantId),
-        ).length,
-    ),
+    activeTasks,
     creditsConsumedToday,
     generatedAt: new Date().toISOString(),
   }

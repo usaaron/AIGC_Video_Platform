@@ -41,6 +41,7 @@ import {
   isPlatformAdmin,
 } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
+import type { DailyOperationalSummary } from '../../core/observability/metrics.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { SessionMetadata } from '../auth/accounts.js'
 
@@ -68,6 +69,106 @@ export type AdminListOptions = {
 
 export class AdminRepository {
   constructor(private readonly database: AccountDatabase) {}
+
+  async countActiveGenerationTasks(tenantId?: string): Promise<number> {
+    const result = await this.database.query<{ count: number }>(
+      `
+      SELECT count(*)::int AS count
+      FROM generation_tasks
+      WHERE status IN ('queued', 'running')
+        AND ($1::text IS NULL OR tenant_id = $1)
+      `,
+      [tenantId ?? null],
+    )
+    return result.rows[0]?.count ?? 0
+  }
+
+  async dailyOperationalSummary(tenantId?: string): Promise<DailyOperationalSummary> {
+    const periodStart = startOfChinaDay()
+    const [billing, generationTasks, aiJobs, filmPreview] = await Promise.all([
+      this.database.query<{
+        credits_consumed: number
+        refund_count: number
+      }>(
+        `
+        SELECT
+          COALESCE(
+            SUM(ABS(amount)) FILTER (WHERE entry_type = 'generation' AND amount < 0),
+            0
+          )::int AS credits_consumed,
+          count(*) FILTER (
+            WHERE entry_type = 'adjustment'
+              AND amount > 0
+              AND id LIKE 'refund-%'
+          )::int AS refund_count
+        FROM billing_ledger_entries
+        WHERE created_at >= $1::timestamptz
+          AND ($2::text IS NULL OR tenant_id = $2)
+        `,
+        [periodStart, tenantId ?? null],
+      ),
+      this.database.query<OperationalStatusCountRow>(
+        `
+        SELECT
+          count(*)::int AS created,
+          count(*) FILTER (WHERE status = 'completed')::int AS completed,
+          count(*) FILTER (WHERE status = 'failed')::int AS failed,
+          count(*) FILTER (WHERE status = 'cancelled')::int AS cancelled
+        FROM generation_tasks
+        WHERE created_at >= $1::timestamptz
+          AND ($2::text IS NULL OR tenant_id = $2)
+        `,
+        [periodStart, tenantId ?? null],
+      ),
+      this.database.query<OperationalStatusCountRow>(
+        `
+        SELECT
+          count(*)::int AS created,
+          count(*) FILTER (WHERE status = 'completed')::int AS completed,
+          count(*) FILTER (WHERE status = 'failed')::int AS failed,
+          count(*) FILTER (WHERE status = 'cancelled')::int AS cancelled
+        FROM ai_jobs
+        WHERE created_at >= $1::timestamptz
+          AND ($2::text IS NULL OR tenant_id = $2)
+        `,
+        [periodStart, tenantId ?? null],
+      ),
+      this.database.query<{
+        terminal: number
+        failed: number
+      }>(
+        `
+        SELECT
+          count(*) FILTER (WHERE status IN ('completed', 'failed', 'cancelled'))::int AS terminal,
+          count(*) FILTER (WHERE status = 'failed')::int AS failed
+        FROM generation_tasks
+        WHERE provider = 'local-compose'
+          AND created_at >= $1::timestamptz
+          AND ($2::text IS NULL OR tenant_id = $2)
+        `,
+        [periodStart, tenantId ?? null],
+      ),
+    ])
+
+    const taskCounts = operationalStatusCounts(generationTasks.rows[0])
+    const aiJobCounts = operationalStatusCounts(aiJobs.rows[0])
+    const filmPreviewTerminal = filmPreview.rows[0]?.terminal ?? 0
+    const filmPreviewFailed = filmPreview.rows[0]?.failed ?? 0
+
+    return {
+      periodStart,
+      generatedAt: new Date().toISOString(),
+      creditsConsumed: billing.rows[0]?.credits_consumed ?? 0,
+      refundCount: billing.rows[0]?.refund_count ?? 0,
+      generationTasks: taskCounts,
+      aiJobs: aiJobCounts,
+      filmPreview: {
+        terminal: filmPreviewTerminal,
+        failed: filmPreviewFailed,
+        failureRate: filmPreviewTerminal > 0 ? filmPreviewFailed / filmPreviewTerminal : null,
+      },
+    }
+  }
 
   async listUsers(options: AdminListOptions): Promise<AdminUserList> {
     const filter = buildUserFilter(options)
@@ -839,6 +940,13 @@ type Queryable = {
   ): Promise<{ rows: T[] }>
 }
 
+type OperationalStatusCountRow = {
+  created: number
+  completed: number
+  failed: number
+  cancelled: number
+}
+
 type AdminUserRow = {
   id: string
   email: string | null
@@ -1294,6 +1402,32 @@ function listResult<T>(items: T[], total: number, paging: Paging) {
       total,
     },
   }
+}
+
+function operationalStatusCounts(
+  row: OperationalStatusCountRow | undefined,
+): DailyOperationalSummary['generationTasks'] {
+  const created = row?.created ?? 0
+  const completed = row?.completed ?? 0
+  const failed = row?.failed ?? 0
+  const cancelled = row?.cancelled ?? 0
+  const terminal = completed + failed + cancelled
+  return {
+    created,
+    completed,
+    failed,
+    cancelled,
+    terminal,
+    successRate: terminal > 0 ? completed / terminal : null,
+  }
+}
+
+function startOfChinaDay(now = new Date()): string {
+  const chinaOffsetMs = 8 * 60 * 60 * 1_000
+  const chinaNow = new Date(now.getTime() + chinaOffsetMs)
+  return new Date(
+    Date.UTC(chinaNow.getUTCFullYear(), chinaNow.getUTCMonth(), chinaNow.getUTCDate()) - chinaOffsetMs,
+  ).toISOString()
 }
 
 function toAdminUser(row: AdminUserRow): AdminUser {
