@@ -224,6 +224,7 @@ export class GenerationTaskRepository {
       WHERE project_id = $1
         AND tenant_id = $2
         AND ($3::boolean OR user_id = $4)
+        AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
       ORDER BY created_at DESC, id DESC
       `,
       [projectId, principal.tenantId, canReadAll, principal.userId],
@@ -707,7 +708,8 @@ export class GenerationTaskRepository {
         (task) =>
           task.projectId === projectId &&
           task.tenantId === principal.tenantId &&
-          (canReadAll || task.userId === principal.userId),
+          (canReadAll || task.userId === principal.userId) &&
+          typeof task.metadata.queueHiddenAt !== 'string',
       ),
     )
   }

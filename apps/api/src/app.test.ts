@@ -681,6 +681,14 @@ describe('API authorization', () => {
         queueHiddenAt: expect.any(String),
       },
     })
+    const visibleAfterDelete = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film/generation/tasks',
+      headers,
+    })
+    expect(visibleAfterDelete.json()).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: taskId })]),
+    )
     const pendingRefund = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(pendingRefund.json().credits).toBe(startingCredits - 7)
 
