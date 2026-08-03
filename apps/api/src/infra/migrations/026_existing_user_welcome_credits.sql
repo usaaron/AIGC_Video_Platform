@@ -48,7 +48,7 @@ inserted_grants AS (
   RETURNING membership_id, amount
 )
 UPDATE billing_accounts AS account
-SET credits = account.credits + grant.amount,
+SET credits = account.credits + welcome.amount,
     updated_at = now()
-FROM inserted_grants AS grant
-WHERE account.membership_id = grant.membership_id;
+FROM inserted_grants AS welcome
+WHERE account.membership_id = welcome.membership_id;
