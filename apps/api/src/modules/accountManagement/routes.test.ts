@@ -387,16 +387,44 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const wrongEmail = await app.inject({
       method: 'POST',
-      url: '/api/v1/auth/register',
+      url: '/api/v1/auth/registration-code/request',
       payload: {
         token: invitationToken,
-        name: 'Alice',
         email: 'wrong-alice@example.com',
-        password: 'AlicePassword123!',
       },
     })
     expect(wrongEmail.statusCode).toBe(400)
     expect(wrongEmail.json()).toMatchObject({ error: { code: 'INVITATION_EMAIL_MISMATCH' } })
+
+    const registrationCodeRequest = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/registration-code/request',
+      payload: {
+        token: invitationToken,
+        email: 'alice@example.com',
+      },
+    })
+    expect(registrationCodeRequest.statusCode).toBe(202)
+    expect(registrationCodeRequest.json()).toMatchObject({
+      ok: true,
+      registrationCode: expect.stringMatching(/^\d{6}$/),
+      resendAfterSeconds: 60,
+    })
+    const registrationCode = registrationCodeRequest.json().registrationCode as string
+
+    const wrongCode = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: invitationToken,
+        name: 'Alice',
+        email: 'alice@example.com',
+        password: 'AlicePassword123!',
+        verificationCode: registrationCode === '000000' ? '999999' : '000000',
+      },
+    })
+    expect(wrongCode.statusCode).toBe(400)
+    expect(wrongCode.json()).toMatchObject({ error: { code: 'REGISTRATION_CODE_INVALID' } })
 
     const register = await app.inject({
       method: 'POST',
@@ -406,14 +434,20 @@ describe('account management api', { timeout: 30_000 }, () => {
         name: 'Alice',
         email: 'alice@example.com',
         password: 'AlicePassword123!',
+        verificationCode: registrationCode,
       },
     })
     expect(register.statusCode).toBe(201)
     expect(register.json()).toMatchObject({
-      account: { email: 'alice@example.com', name: 'Alice', tenantId: registrationTenantId },
+      account: {
+        email: 'alice@example.com',
+        name: 'Alice',
+        tenantId: registrationTenantId,
+        emailVerified: true,
+        credits: 2_000,
+      },
       workspace: { id: registrationTenantId, status: 'active' },
     })
-    await verifyEmailAddress('alice@example.com')
 
     const reusedInvitationCode = await app.inject({
       method: 'POST',
@@ -423,6 +457,7 @@ describe('account management api', { timeout: 30_000 }, () => {
         name: 'Alice',
         email: 'alice@example.com',
         password: 'AlicePassword123!',
+        verificationCode: registrationCode,
       },
     })
     expect(reusedInvitationCode.statusCode).toBe(409)
@@ -520,6 +555,123 @@ describe('account management api', { timeout: 30_000 }, () => {
         organizationId: createWorkspace.json().organization.id,
       },
       organization: { id: createWorkspace.json().organization.id },
+    })
+  })
+
+  it('claims one-time registration codes on first email use and allows duplicate display names', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+
+    const organizationAdmin = await createOrganizationAdminWorkspace(
+      'open-invite-admin@example.com',
+      'OpenInviteAdmin123!',
+      'Open Invitation Workspace',
+    )
+    const createOpenInvitation = async () =>
+      await app!.inject({
+        method: 'POST',
+        url: `/api/v1/organizations/${organizationAdmin.tenantId}/invitations`,
+        headers: { cookie: organizationAdmin.cookie },
+        payload: { roles: ['organization_member'] },
+      })
+
+    const firstInvitation = await createOpenInvitation()
+    expect(firstInvitation.statusCode).toBe(201)
+    expect(firstInvitation.json()).toMatchObject({
+      email: null,
+      roles: ['organization_member'],
+      status: 'pending',
+      token: expect.stringMatching(/^\d{8}$/),
+    })
+    const firstToken = firstInvitation.json().token as string
+
+    const directAcceptance = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/invitations/accept',
+      payload: {
+        token: firstToken,
+        name: 'Shared Name',
+        password: 'SharedPassword123!',
+      },
+    })
+    expect(directAcceptance.statusCode).toBe(400)
+    expect(directAcceptance.json()).toMatchObject({ error: { code: 'INVITATION_EMAIL_REQUIRED' } })
+
+    const firstCodeRequest = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/registration-code/request',
+      payload: { token: firstToken, email: 'open-first@example.com' },
+    })
+    expect(firstCodeRequest.statusCode).toBe(202)
+    const firstVerificationCode = firstCodeRequest.json().registrationCode as string
+    expect(firstVerificationCode).toMatch(/^\d{6}$/)
+
+    const differentEmailRequest = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/registration-code/request',
+      payload: { token: firstToken, email: 'open-other@example.com' },
+    })
+    expect(differentEmailRequest.statusCode).toBe(400)
+    expect(differentEmailRequest.json()).toMatchObject({
+      error: { code: 'INVITATION_EMAIL_MISMATCH' },
+    })
+
+    const firstRegistration = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: firstToken,
+        name: 'Shared Name',
+        email: 'open-first@example.com',
+        password: 'SharedPassword123!',
+        verificationCode: firstVerificationCode,
+      },
+    })
+    expect(firstRegistration.statusCode).toBe(201)
+    expect(firstRegistration.json()).toMatchObject({
+      account: { email: 'open-first@example.com', name: 'Shared Name', emailVerified: true },
+    })
+
+    const reusedInvitation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: firstToken,
+        name: 'Another Name',
+        email: 'open-first@example.com',
+        password: 'SharedPassword123!',
+        verificationCode: firstVerificationCode,
+      },
+    })
+    expect(reusedInvitation.statusCode).toBe(409)
+    expect(reusedInvitation.json()).toMatchObject({ error: { code: 'INVITATION_NOT_PENDING' } })
+
+    const secondInvitation = await createOpenInvitation()
+    expect(secondInvitation.statusCode).toBe(201)
+    expect(secondInvitation.json()).toMatchObject({ email: null, token: expect.stringMatching(/^\d{8}$/) })
+    expect(secondInvitation.json().token).not.toBe(firstToken)
+
+    const secondToken = secondInvitation.json().token as string
+    const secondCodeRequest = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/registration-code/request',
+      payload: { token: secondToken, email: 'open-second@example.com' },
+    })
+    expect(secondCodeRequest.statusCode).toBe(202)
+
+    const secondRegistration = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: secondToken,
+        name: 'Shared Name',
+        email: 'open-second@example.com',
+        password: 'SecondPassword123!',
+        verificationCode: secondCodeRequest.json().registrationCode,
+      },
+    })
+    expect(secondRegistration.statusCode).toBe(201)
+    expect(secondRegistration.json()).toMatchObject({
+      account: { email: 'open-second@example.com', name: 'Shared Name', emailVerified: true },
     })
   })
 
@@ -1378,7 +1530,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       tenantId: organizationAdmin.tenantId,
       roles: ['organization_member'],
       status: 'pending',
-      token: expect.any(String),
+      token: expect.stringMatching(/^\d{8}$/),
     })
     const firstInvitation = createInvitation.json() as { id: string; token: string }
 
@@ -1396,7 +1548,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       id: firstInvitation.id,
       email: 'member@example.com',
       status: 'pending',
-      token: expect.any(String),
+      token: expect.stringMatching(/^\d{8}$/),
     })
     expect(reissuedInvitation.json().token).not.toBe(firstInvitation.token)
 
@@ -1695,26 +1847,6 @@ async function activateProvisionedAccount(email: string, temporaryPassword: stri
   expect(readyLogin.statusCode).toBe(200)
   expect(readyLogin.json()).toMatchObject({ account: { passwordResetRequired: false } })
   return readyLogin
-}
-
-async function verifyEmailAddress(email: string): Promise<void> {
-  if (!app) throw new Error('App is not ready')
-  const request = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/email-verification/request',
-    payload: { email },
-  })
-  expect(request.statusCode).toBe(202)
-  const token = request.json().verificationToken as string | undefined
-  expect(token).toEqual(expect.any(String))
-  if (!token) throw new Error(`Expected verification token for ${email}`)
-
-  const verified = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/email-verification/verify',
-    payload: { token },
-  })
-  expect(verified.statusCode).toBe(204)
 }
 
 async function seedOwnerLogin() {

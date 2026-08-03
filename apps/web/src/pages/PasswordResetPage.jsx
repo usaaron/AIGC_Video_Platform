@@ -46,7 +46,7 @@ export function PasswordResetPage() {
           <div className="login-heading">
             <span className="eyebrow">账号安全</span>
             <h2>重置密码</h2>
-            <p>设置一个至少 12 位的新密码。</p>
+            <p>设置一个至少 8 位的新密码。</p>
           </div>
           <label>
             <span>新密码</span>
@@ -57,7 +57,7 @@ export function PasswordResetPage() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete="new-password"
-                minLength={12}
+                minLength={8}
                 required
                 disabled={state.status === 'success' || !token}
               />
@@ -72,7 +72,7 @@ export function PasswordResetPage() {
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
                 autoComplete="new-password"
-                minLength={12}
+                minLength={8}
                 required
                 disabled={state.status === 'success' || !token}
               />

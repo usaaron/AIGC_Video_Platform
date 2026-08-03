@@ -73,6 +73,7 @@ export async function createRuntimeRepositories(input: {
   if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
     await users.bootstrapFromStore()
   }
+  await users.refreshRuntimeCacheFromDatabase()
 
   const projectRepository = new ProjectRepository(store, database)
   await projectRepository.refreshRuntimeCacheFromDatabase()
@@ -97,6 +98,7 @@ export async function createRuntimeRepositories(input: {
 
   const refreshProjectDomainRuntimeCache = database
     ? async () => {
+        await users.refreshRuntimeCacheFromDatabase()
         await projectRepository.refreshRuntimeCacheFromDatabase()
         await generationTaskRepository.refreshRuntimeCacheFromDatabase()
         await aiJobRepository.refreshRuntimeCacheFromDatabase()
@@ -121,9 +123,11 @@ export function createRuntimeFilmPreviewComposer(input: {
   store: AppStore
   objectStorage: ObjectStorage
   providers: RuntimeProviders
+  generationTaskRepository?: GenerationTaskRepository
   filmPreviewComposerOverride?: FilmPreviewDispatcher | null
 }): FilmPreviewDispatcher | null {
-  const { config, store, objectStorage, providers, filmPreviewComposerOverride } = input
+  const { config, store, objectStorage, providers, generationTaskRepository, filmPreviewComposerOverride } =
+    input
   if (filmPreviewComposerOverride !== undefined) return filmPreviewComposerOverride
   if (!providers.videoProvider) return null
   return new FilmPreviewComposer(
@@ -133,6 +137,9 @@ export function createRuntimeFilmPreviewComposer(input: {
     config.FFMPEG_PATH,
     config.FILM_PREVIEW_TIMEOUT_MS,
     videoProviderName(config),
+    generationTaskRepository
+      ? { onStateChange: () => generationTaskRepository.flushRuntimeCacheToDatabase().then(() => {}) }
+      : {},
   )
 }
 
@@ -179,6 +186,7 @@ export function createRuntimeServices(input: {
         mailer,
         config.AUTH_INVITATION_URL,
         (input, metadata) => authService.requestEmailVerification(input, metadata),
+        config.NODE_ENV !== 'production',
       )
     : null
   const generationService = new GenerationService(

@@ -134,6 +134,35 @@ describe('TokenAdventImageProvider', () => {
     ).rejects.toThrow('上游图片服务超时（524）')
     expect(attempts).toBe(1)
   })
+
+  it('enforces a total response timeout without retrying the same image request', async () => {
+    let attempts = 0
+    const fetcher = (async () => {
+      attempts += 1
+      return new Promise<Response>(() => undefined)
+    }) as typeof fetch
+    const provider = new TokenAdventImageProvider({
+      baseUrl: 'https://tokenadvent.example/',
+      apiKey: 'test-key',
+      model: 'gpt-image-2',
+      quality: 'low',
+      requestTimeoutMs: 20,
+      fetcher,
+    })
+
+    await expect(
+      provider.generate({
+        taskId: 'task-hard-timeout',
+        assetId: 'asset-1',
+        aspectRatio: '1:1',
+        prompt: 'CG角色图',
+        negativePrompt: '',
+        references: [],
+        outputs: ['single'],
+      }),
+    ).rejects.toMatchObject({ name: 'TimeoutError' })
+    expect(attempts).toBe(1)
+  })
 })
 
 function createProvider(fetcher: typeof fetch) {

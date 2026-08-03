@@ -4,6 +4,7 @@ import './index.css'
 import { AuthProvider, useAuth } from './components/AuthProvider.jsx'
 import { LoginPage } from './pages/LoginPage.jsx'
 import { EmailVerificationPage } from './pages/EmailVerificationPage.jsx'
+import { EmailVerificationPendingPage } from './pages/EmailVerificationPendingPage.jsx'
 import { PasswordResetPage } from './pages/PasswordResetPage.jsx'
 import { RequiredPasswordChangePage } from './pages/RequiredPasswordChangePage.jsx'
 import { api } from './services/apiClient.js'
@@ -11,7 +12,7 @@ import { api } from './services/apiClient.js'
 const App = lazy(() => import('./App.jsx'))
 
 function Root() {
-  const { session, loading, logout } = useAuth()
+  const { session, loading, logout, refresh } = useAuth()
   const path = window.location.pathname
   if (path === '/verify-email') return <EmailVerificationPage />
   if (path === '/reset-password') return <PasswordResetPage />
@@ -30,6 +31,9 @@ function Root() {
         onLogout={logout}
       />
     )
+  }
+  if (session?.account.emailVerified === false) {
+    return <EmailVerificationPendingPage account={session.account} onRefresh={refresh} onLogout={logout} />
   }
   return session ? (
     <Suspense

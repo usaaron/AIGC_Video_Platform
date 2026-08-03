@@ -1094,18 +1094,30 @@ describe('admin console api', { timeout: 30_000 }, () => {
       email: 'platform-invited-member@example.com',
       roles: ['member'],
       status: 'pending',
-      token: expect.any(String),
+      token: expect.stringMatching(/^\d{8}$/),
     })
     expect(memberInvitation.json().tenantId).not.toBe('tenant-seqora-demo')
+    const memberInvitationToken = memberInvitation.json().token as string
+
+    const registrationCodeRequest = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/registration-code/request',
+      payload: {
+        token: memberInvitationToken,
+        email: 'platform-invited-member@example.com',
+      },
+    })
+    expect(registrationCodeRequest.statusCode).toBe(202)
 
     const accepted = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/register',
       payload: {
-        token: memberInvitation.json().token,
+        token: memberInvitationToken,
         email: 'platform-invited-member@example.com',
         name: 'Platform Invited Member',
         password: 'PlatformInvitedMember123!',
+        verificationCode: registrationCodeRequest.json().registrationCode,
       },
     })
     expect(accepted.statusCode).toBe(201)

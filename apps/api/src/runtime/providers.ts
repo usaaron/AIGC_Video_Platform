@@ -169,7 +169,8 @@ class RoutedTextProvider implements TextGenerationProvider {
 }
 
 function isGptModel(model: string): boolean {
-  return model.trim().toLowerCase().startsWith('gpt-')
+  const normalized = model.trim().toLowerCase()
+  return normalized === 'seqora-5.6' || normalized.startsWith('gpt-')
 }
 
 function isDeepSeekModel(model: string): boolean {

@@ -8,6 +8,7 @@ import {
 } from './core/jobs/bullMqQueue.js'
 import { OutboxRelay, OutboxRepository } from './core/jobs/outbox.js'
 import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
+import { createLocalGenerationTaskHandler } from './core/jobs/localTaskHandler.js'
 import { AiJobRunner } from './core/jobs/aiJobRunner.js'
 import {
   GenerationTaskRunner,
@@ -27,9 +28,12 @@ import { GenerationService } from './modules/generation/service.js'
 import { NovelRepository } from './modules/novels/repository.js'
 import { NovelService } from './modules/novels/service.js'
 import { ProjectRepository } from './modules/projects/repository.js'
+import { ProjectService } from './modules/projects/service.js'
+import { TrustedAssetService } from './modules/trustedAssets/service.js'
 import { UserRepository } from './modules/users/repository.js'
 import {
   createImageProvider,
+  createAssetLibraryProvider,
   createTextProvider,
   createVideoProvider,
   videoProviderName,
@@ -69,6 +73,7 @@ const users = new UserRepository(store, database)
 if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
   await users.bootstrapFromStore()
 }
+await users.refreshRuntimeCacheFromDatabase()
 const projectRepository = new ProjectRepository(store, database)
 await projectRepository.refreshRuntimeCacheFromDatabase()
 
@@ -76,6 +81,7 @@ const objectStorage = createObjectStorage(config)
 const videoProvider = createVideoProvider(config)
 const imageProvider = createImageProvider(config)
 const textProvider = createTextProvider(config)
+const assetLibraryProvider = createAssetLibraryProvider(config)
 const creditLedger = new StoreCreditLedger(store, users, false, database)
 if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
   await creditLedger.bootstrapFromStore()
@@ -89,6 +95,7 @@ await aiJobRepository.refreshRuntimeCacheFromDatabase()
 const refreshProjectDomainRuntimeCache = database
   ? async () => {
       await projectRepository.refreshRuntimeCacheFromDatabase()
+      await users.refreshRuntimeCacheFromDatabase()
       await generationTaskRepository.refreshRuntimeCacheFromDatabase()
       await aiJobRepository.refreshRuntimeCacheFromDatabase()
     }
@@ -102,11 +109,23 @@ const filmPreviewComposer =
         config.FFMPEG_PATH,
         config.FILM_PREVIEW_TIMEOUT_MS,
         videoProviderName(config),
+        { onStateChange: () => generationTaskRepository.flushRuntimeCacheToDatabase().then(() => {}) },
       )
     : null
 await filmPreviewComposer?.recoverInterrupted()
 
 let generationService: GenerationService | null = null
+const projectService = new ProjectService(projectRepository, textProvider, creditLedger)
+const trustedAssetService = new TrustedAssetService(
+  store,
+  assetLibraryProvider,
+  objectStorage,
+  config.AUTH_SECRET,
+  config.PUBLIC_API_BASE_URL.replace(/\/+$/, ''),
+  config.VOLC_ARK_PROJECT_NAME,
+  config.ASSET_LIBRARY_CONSOLE_URL,
+  projectRepository,
+)
 const novelService = new NovelService(
   new NovelRepository(store, database, objectStorage),
   textProvider,
@@ -131,6 +150,10 @@ const taskRunner = new GenerationTaskRunner(store, {
     : {}),
   ...(database ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database) } : {}),
   onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
+  localTaskHandler: createLocalGenerationTaskHandler(store, {
+    projectService: () => projectService,
+    trustedAssetService: () => trustedAssetService,
+  }),
 })
 const aiJobRunner = new AiJobRunner(aiJobRepository, {
   concurrency: config.TASK_QUEUE_WORKER_CONCURRENCY,

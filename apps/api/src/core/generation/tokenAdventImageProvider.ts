@@ -96,15 +96,15 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
     let lastError: unknown
     for (let attempt = 0; attempt < MAX_IMAGE_REQUEST_ATTEMPTS; attempt += 1) {
       try {
-        const response = await this.fetcher(`${this.baseUrl}${path}`, {
-          ...init,
-          headers: { Authorization: `Bearer ${this.options.apiKey}`, ...init.headers },
-          signal: AbortSignal.timeout(this.options.requestTimeoutMs),
-        })
-        if (!response.ok) throw await providerError(response)
-        return response.json().catch(() => {
-          throw new Error('TokenAdvent 返回了无法解析的图片响应')
-        })
+        return await fetchJsonWithTimeout(
+          this.fetcher,
+          `${this.baseUrl}${path}`,
+          {
+            ...init,
+            headers: { Authorization: `Bearer ${this.options.apiKey}`, ...init.headers },
+          },
+          this.options.requestTimeoutMs,
+        )
       } catch (error) {
         lastError = error
         if (attempt >= MAX_IMAGE_REQUEST_ATTEMPTS - 1 || !isRetryable(error)) break
@@ -144,18 +144,48 @@ function sizeFor(aspectRatio: string): string {
   return '1024x1024'
 }
 
-async function providerError(response: Response): Promise<TokenAdventImageHttpError> {
-  const body = await response.text().catch(() => '')
+async function fetchJsonWithTimeout(
+  fetcher: Fetcher,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<unknown> {
+  const controller = new AbortController()
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      controller.abort()
+      reject(new DOMException('TokenAdvent image request timed out', 'TimeoutError'))
+    }, timeoutMs)
+  })
+  const request = (async () => {
+    const response = await fetcher(url, { ...init, signal: controller.signal })
+    const body = await response.text().catch(() => '')
+    if (!response.ok) throw providerError(response.status, body)
+    try {
+      return JSON.parse(body)
+    } catch {
+      throw new Error('TokenAdvent 返回了无法解析的图片响应')
+    }
+  })()
+  try {
+    return await Promise.race([request, timeout])
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle)
+  }
+}
+
+function providerError(status: number, body: string): TokenAdventImageHttpError {
   let message = providerErrorMessage(body)
-  if (response.status === 524 || /524:\s*A timeout occurred/i.test(body)) {
+  if (status === 524 || /524:\s*A timeout occurred/i.test(body)) {
     message = '上游图片服务超时（524），本次图片没有生成成功；请稍后重试，或降低质量/减少参考图后再试'
   }
-  if (response.status === 429) {
+  if (status === 429) {
     message = '上游图片服务限流（429），请稍后重试'
   }
   return new TokenAdventImageHttpError(
-    response.status,
-    `TokenAdvent 图片请求失败 (${response.status})${message ? `: ${message}` : ''}`,
+    status,
+    `TokenAdvent 图片请求失败 (${status})${message ? `: ${message}` : ''}`,
   )
 }
 
@@ -175,10 +205,7 @@ function isRetryable(error: unknown): boolean {
     if (error.status === 524) return false
     return error.status === 408 || error.status === 429 || error.status >= 500
   }
-  return (
-    error instanceof TypeError ||
-    (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))
-  )
+  return error instanceof TypeError
 }
 
 function retryDelayMs(attempt: number): number {

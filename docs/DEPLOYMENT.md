@@ -1,6 +1,8 @@
 # 外部测试部署
 
-当前推荐把 Demo 部署到一台 Google Compute Engine VM，通过 Docker Compose 运行 Postgres、Redis、API、Worker 和 Web。Caddy 在同一域名下提供静态站点、`/api` 反向代理和自动 HTTPS；账号/auth/账单账本、项目、资产、分镜和生成任务写入 Postgres 持久卷，任务触发队列写入 Redis/BullMQ，媒体写入私有 GCS Bucket。API 的 `8787` 端口不对公网开放。
+> 本文用于搭建新环境和检查上线门槛。当前 `zjh.ai` 的实例标识、源码包发布、日志、备份和故障命令以 [生产运维手册](OPERATIONS_RUNBOOK.md) 为准。
+
+当前推荐把 Demo 部署到一台 Google Compute Engine VM，通过 Docker Compose 运行 Postgres、Redis、API、Worker 和 Web。Caddy 在同一域名下提供静态站点、`/api` 反向代理和自动 HTTPS，并启用 `strict_sni_host` 拒绝 TLS SNI 与 HTTP Host 不一致的域名前置请求；账号/auth/账单账本、项目、资产、分镜和生成任务写入 Postgres 持久卷，任务触发队列写入 Redis/BullMQ，媒体写入私有 GCS Bucket。API 的 `8787` 端口不对公网开放。
 
 这套方案适合封闭客户测试和小规模并发，不是正式商用架构。正式商用前必须完成本文“生产前必须替换”的事项。
 
@@ -8,20 +10,20 @@
 
 - 公网只展示登录页；除 `/api/v1/health` 和 `/api/v1/auth/login` 外，项目、媒体、任务、账单和管理 API 都要求有效账号会话。
 - 当前开放邀请码注册，不支持无邀请码自助注册。首批账号由 `deploy/demo.env` 的 `BOOTSTRAP_*` 变量提供输入，并且必须在 `db:migrate` 后显式执行 `accounts:init` 创建；API/Worker 生产启动不会自动 bootstrap。后续账号可由 owner/super_admin/admin 在账号管理页按权限边界受控创建/邀请。
-- 受控组织邀请 API 是注册准入来源，密码重置 API 已有后端能力；生产面向用户开放前，必须先接入邮件/短信投递、频控、运营审核和告警。
+- 注册入口使用 8 位组织邀请码和 6 位邮箱验证码。生产已经通过 Resend 投递注册验证码、邮箱验证、邀请和密码重置邮件；仍需补投递失败告警、退信处理和运营审核。
 - member 账号进入创作工作台；owner/super_admin/admin 可以看到账号管理入口，显示名由 `BOOTSTRAP_*_NAME` 设置。四类首次账号必须使用不同邮箱和强密码，不要向客户提供管理员、super_admin 或 owner 账号。
 - `BOOTSTRAP_DEMO_WORKSPACE` 仅允许 dev/test 使用；生产环境会直接拒绝该配置，云端账号从空项目列表开始，不会出现本地开发的“午夜胶片”样例。
 - 同一组织的多位成员会看到同一批项目和账单权益。需要客户间强隔离时，为每个客户创建独立组织；项目域数据已写入 Postgres，正式多实例商用前仍要验证所有查询的组织范围条件、Redis 队列恢复和 Worker 横向扩缩容。
-- `BOOTSTRAP_*` 只供显式 `accounts:init` 使用，命令是幂等插入，不会覆盖已有账号密码。已有账号登录后可在“项目设置 -> 账号安全”修改自己的密码；忘记密码 API 在生产开放前需要接邮件/短信投递。
+- `BOOTSTRAP_*` 只供显式 `accounts:init` 使用，命令是幂等插入，不会覆盖已有账号密码。已有账号登录后可在“项目设置 -> 账号安全”修改自己的密码；忘记密码已经通过 Resend 邮件完成闭环。
 
 ## 独立部署单元
 
 - `apps/web`：静态站点，可部署到 Vercel、Cloudflare Pages 或对象存储/CDN。
 - `apps/api`：Node.js 服务，可部署到容器平台、云应用平台或虚拟机。
 - `apps/api` worker：复用 API 镜像，执行 `node dist/worker.js`，消费 Redis/BullMQ 里的生成任务触发。
-- `apps/admin`：独立管理员静态站点，消费 `/api/v1/admin/console`；正式部署建议使用单独域名、限制访问来源，并沿用后端权限和审计边界。
+- `apps/admin`：独立管理员静态站点，消费 `/api/v1/admin/console`；当前生产构建在 `/admin/`，同时经过 Caddy `forward_auth` 和后端角色权限，普通用户不能直接访问。
 
-Web 使用 `VITE_API_BASE_URL` 指向 API。API 使用 `WEB_ORIGIN` 限制跨域来源。生产中两者可以使用 `studio.example.com` 和 `api.example.com`。
+Web 使用 `VITE_API_BASE_URL` 指向 API。API 使用 `WEB_ORIGIN` 限制跨域来源。当前生产采用同域 `https://zjh.ai` 和相对 API 前缀 `/api/v1`。
 
 当前 Compose 使用同域部署，Web 保持默认 `VITE_API_BASE_URL=/api/v1`，浏览器 Cookie 不跨站。不要把 Web 和 API 临时部署到两个无关域名，否则登录 Cookie 在部分浏览器中会失效。
 
@@ -50,6 +52,7 @@ chmod 600 deploy/demo.env
 
 - `APP_ADDRESS`、`WEB_ORIGIN` 和 `PUBLIC_API_BASE_URL` 使用同一个真实 HTTPS 域名。
 - `AUTH_SECRET` 使用 `openssl rand -base64 48` 生成。
+- 生产固定 `EMAIL_PROVIDER=resend`，配置已验证发件域名的 `EMAIL_FROM`、`RESEND_API_KEY` 和三个 `AUTH_*_URL`；不要使用 `console` 或 `none` 绕过生产校验。
 - 四组 `BOOTSTRAP_*` 邮箱和密码必须唯一：member、owner、super_admin、admin；只供显式 `accounts:init` 使用，生产启动不会自动创建账号。
 - 生产环境不要启用 `BOOTSTRAP_DEMO_WORKSPACE`；客户登录后直接从空项目列表创建自己的第一个项目。
 - 保持 `TASK_QUEUE_DRIVER=bullmq` 和 `REDIS_URL=redis://redis:6379`，除非已经接入托管 Redis 或云队列适配器。
@@ -72,7 +75,7 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
   node dist/scripts/initProductionAccounts.js
 docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
 docker compose --env-file deploy/demo.env -f compose.demo.yml ps
-curl --fail https://studio.example.com/api/v1/health
+curl --fail https://zjh.ai/api/v1/health
 ```
 
 Production account initialization is explicit. API and Worker startup must keep
@@ -110,19 +113,9 @@ Compose 默认把 API 和 Worker 分别限制为 1.5 CPU、1536MB 内存和 256 
 
 ### 人工源码更新
 
-每次更新先执行完整备份流程，再拉取已通过 CI 的提交。备份会导出 Postgres、JSON 历史、本地 uploads（如有）和 GCS 对象版本清单；恢复步骤见[备份与恢复流程](BACKUP_RESTORE.md)：
+当前 `/opt/seqora` 不含 `.git`，不能执行 `git pull`。在本地对已提交且通过 `pnpm check` 的版本运行 `deploy/package.ps1`，通过受控 GCloud SCP 上传归档，再在服务器执行 `deploy/update-source.sh`。脚本会保留生产 `deploy/demo.env`、执行 migration、重启、健康检查并在失败时恢复上一源码目录。完整命令和实例参数见 [生产运维手册](OPERATIONS_RUNBOOK.md)。
 
-```bash
-sudo /opt/seqora/deploy/backup-demo.sh
-git pull --ff-only
-docker compose --env-file deploy/demo.env -f compose.demo.yml build api
-docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
-  node dist/scripts/dbMigrate.js
-docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
-curl --fail https://studio.example.com/api/v1/health
-```
-
-回滚时切回上一个已知正常的 Git Tag/Commit 并重新构建。恢复 Postgres 或 JSON 前必须停止 API 和 Worker，并保留当前数据库和文件的第二份备份。GCS Bucket 应单独启用版本控制和生命周期策略；数据库和 JSON 备份不包含 GCS 媒体对象。
+每次发布前先执行 `deploy/backup-demo.sh`。恢复 Postgres 或 JSON 前必须停止 API 和 Worker，并保留当前数据库和文件的第二份备份。GCS Bucket 应单独启用版本控制和生命周期策略；数据库和 JSON 备份不包含 GCS 媒体对象。
 
 ## 外测上线门槛
 
@@ -146,7 +139,7 @@ curl --fail https://studio.example.com/api/v1/health
 5. GCS Bucket 非公开，上传图片和生成视频只能登录后通过 API 读取。
 6. 为弦序 Seedance/MaaS、TokenAdvent 和 Google Cloud 设置预算告警与每日额度。
 7. 备份和恢复至少演练一次，升级前执行 `deploy/backup-demo.sh` 并保留 Postgres、JSON 与 GCS 对象版本清单。
-8. 明确告知测试者：当前无音频，任务队列和项目域虽已进入 Postgres/Redis 底座但仍处封闭外测阶段，不上传敏感或未授权素材。
+8. 明确告知测试者：Seedance 单镜头可能带音频，但 FFmpeg 完整预览当前会移除音轨；系统仍处封闭外测阶段，不上传敏感或未授权素材。
 9. 浏览器实测登录、剧本、资产、分镜、视频、完整预览和退出登录。
 10. 仿真人测试先确认面部并等待 AIGC 资源变为 Active；真人测试必须由演员本人完成认证授权，制作方接收后再绑定 Asset ID。
 
@@ -156,7 +149,7 @@ curl --fail https://studio.example.com/api/v1/health
 2. 验证 Redis/BullMQ 队列在生产故障恢复、重复投递、横向扩缩容和监控告警下的行为。
 3. 持续审计项目、资产、分镜和生成任务查询的组织范围条件，并保留 JSON 备份到 Postgres 的回滚方案。
 4. 支付和订阅只能由服务端回调改变权益；前端不得自助伪造套餐和积分。
-5. 接入邮件/短信投递后再开放忘记密码和邀请/注册相关用户流程。
+5. 为已接入的 Resend 注册、验证、邀请和密码重置邮件补充退信、投递失败告警与运营可见状态。
 6. 增加监控、告警、备份恢复演练、密钥轮换和数据导出/删除流程。
 7. 将密钥放入部署平台 Secret，不使用 `VITE_` 变量保存服务端密钥。
 

@@ -1,29 +1,46 @@
 import { z } from 'zod'
-import { sessionSchema } from './account.js'
+import { passwordSchema, sessionSchema } from './account.js'
 import { roleSchema } from './auth.js'
 
 export const workspaceStatusSchema = z.enum(['active', 'disabled'])
 export const organizationStatusSchema = workspaceStatusSchema
 export const membershipStatusSchema = z.enum(['active', 'disabled'])
 export const tenantInvitationStatusSchema = z.enum(['pending', 'accepted', 'revoked', 'expired'])
+const invitationTokenSchema = z.union([z.string().regex(/^\d{8}$/), z.string().min(32).max(256)])
 
 export const registerAccountSchema = z.object({
-  token: z.string().min(32).max(256),
+  token: invitationTokenSchema,
   name: z.string().min(1).max(80),
   email: z.string().email(),
-  password: z.string().min(12).max(128),
+  password: passwordSchema,
+  verificationCode: z.string().regex(/^\d{6}$/),
+})
+
+export const requestRegistrationCodeSchema = z.object({
+  token: invitationTokenSchema,
+  email: z.string().email(),
+})
+
+export const requestRegistrationCodeResultSchema = z.object({
+  ok: z.literal(true),
+  expiresAt: z.string().datetime(),
+  resendAfterSeconds: z.number().int().positive(),
+  registrationCode: z
+    .string()
+    .regex(/^\d{6}$/)
+    .optional(),
 })
 
 export const createTenantInvitationSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().optional(),
   roles: z.array(roleSchema).min(1),
 })
 
 export const acceptTenantInvitationSchema = z.object({
-  token: z.string().min(32).max(256),
+  token: invitationTokenSchema,
   name: z.string().min(1).max(80),
   email: z.string().email().optional(),
-  password: z.string().min(12).max(128),
+  password: passwordSchema,
 })
 
 export const createWorkspaceSchema = z.object({
@@ -52,7 +69,7 @@ export const addTenantMemberSchema = z.object({
 export const createTenantUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(80),
-  password: z.string().min(12).max(128),
+  password: passwordSchema,
   role: z.enum(['member', 'admin', 'organization_admin', 'organization_member', 'super_admin']),
 })
 
@@ -121,7 +138,7 @@ export const tenantInvitationSchema = z.object({
   tenantName: z.string().min(1).max(80),
   organizationId: z.string().min(1),
   organizationName: z.string().min(1).max(80),
-  email: z.string().email(),
+  email: z.string().email().nullable(),
   roles: z.array(roleSchema).min(1),
   status: tenantInvitationStatusSchema,
   invitedByUserId: z.string().min(1),
@@ -133,10 +150,12 @@ export const tenantInvitationSchema = z.object({
 })
 
 export const createdTenantInvitationSchema = tenantInvitationSchema.extend({
-  token: z.string().min(32),
+  token: invitationTokenSchema,
 })
 
 export type RegisterAccountInput = z.infer<typeof registerAccountSchema>
+export type RequestRegistrationCodeInput = z.infer<typeof requestRegistrationCodeSchema>
+export type RequestRegistrationCodeResult = z.infer<typeof requestRegistrationCodeResultSchema>
 export type CreateTenantInvitationInput = z.infer<typeof createTenantInvitationSchema>
 export type AcceptTenantInvitationInput = z.infer<typeof acceptTenantInvitationSchema>
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>

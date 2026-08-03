@@ -93,6 +93,7 @@
 - 所有项目域查询必须带 `tenantId`/`organizationId` 和 `userId` 范围。
 - 负责把用户创作意图整理成可提交给 Jobs/Workers 的任务请求。
 - 负责资产和分镜的业务状态，不负责异步 Provider 执行锁。
+- `modules/quickStart` 仍使用 AppStore 聚合写入，是当前 UI 未开放的遗留实验；新模块不能复用该写法，应走 Postgres Repository、Outbox 和后台任务。
 
 不负责：
 

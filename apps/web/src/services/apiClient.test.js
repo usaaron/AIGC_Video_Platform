@@ -35,6 +35,7 @@ describe('api client', () => {
       name: 'New Member',
       email: 'member@example.com',
       password: 'MemberPassword123!',
+      verificationCode: '123456',
     })
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -47,6 +48,38 @@ describe('api client', () => {
           name: 'New Member',
           email: 'member@example.com',
           password: 'MemberPassword123!',
+          verificationCode: '123456',
+        }),
+      }),
+    )
+  })
+
+  it('requests an email code before invitation registration', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json(
+        {
+          ok: true,
+          expiresAt: '2026-08-03T12:10:00.000Z',
+          resendAfterSeconds: 60,
+        },
+        { status: 202 },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.requestRegistrationCode({
+      token: 'invite-token-'.padEnd(32, '1'),
+      email: 'member@example.com',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/auth/registration-code/request',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          token: 'invite-token-'.padEnd(32, '1'),
+          email: 'member@example.com',
         }),
       }),
     )

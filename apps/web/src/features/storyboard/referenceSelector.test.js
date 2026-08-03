@@ -58,6 +58,23 @@ describe('selectShotAssetReferences', () => {
     expect(references.map((reference) => reference.id)).toEqual(['scene-station'])
   })
 
+  it('does not attach a character from generic description overlap', () => {
+    const character = asset(
+      'character-iris',
+      'character',
+      'Iris',
+      'future space station inspector',
+      '/iris.png',
+    )
+
+    const references = selectShotAssetReferences([character], {
+      title: 'Empty control room',
+      prompt: 'A future space station control room with no people in frame.',
+    })
+
+    expect(references).toEqual([])
+  })
+
   it('generates video directly from assets when no storyboard image exists', () => {
     const references = selectShotAssetReferences(assets, {
       title: '林夏抵达',

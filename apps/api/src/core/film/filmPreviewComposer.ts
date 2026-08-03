@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { VideoGenerationProvider, VideoProviderName } from '../generation/videoProvider.js'
 import type { AppStore } from '../../infra/store.js'
@@ -26,6 +26,17 @@ type ComposeRunner = (
   timeoutMs: number,
 ) => Promise<void>
 
+type FilmPreviewComposerOptions = {
+  composeRunner?: ComposeRunner
+  leaseTtlMs?: number
+  onStateChange?: () => Promise<void>
+}
+
+export type FfmpegInputMedia = {
+  duration: number
+  hasAudio: boolean
+}
+
 export interface FilmPreviewDispatcher {
   recoverInterrupted(): Promise<void>
   start(task: GenerationTask): Promise<GenerationTask>
@@ -34,6 +45,8 @@ export interface FilmPreviewDispatcher {
 export class FilmPreviewComposer implements FilmPreviewDispatcher {
   private readonly leaseOwnerId = `film-preview-composer-${process.pid}-${randomUUID()}`
   private readonly leaseTtlMs: number
+  private readonly composeRunner: ComposeRunner
+  private readonly onStateChange: () => Promise<void>
 
   constructor(
     private readonly store: AppStore,
@@ -42,25 +55,29 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
     private readonly ffmpegPath: string,
     private readonly timeoutMs: number,
     private readonly videoProviderName: VideoProviderName = 'stringx-seedance',
-    private readonly composeRunner: ComposeRunner = runFfmpegComposition,
-    leaseTtlMs = 120_000,
+    options: FilmPreviewComposerOptions = {},
   ) {
-    this.leaseTtlMs = leaseTtlMs
+    this.leaseTtlMs = options.leaseTtlMs ?? 120_000
+    this.composeRunner = options.composeRunner ?? runFfmpegComposition
+    this.onStateChange = options.onStateChange ?? (async () => {})
   }
 
   async recoverInterrupted(): Promise<void> {
-    await this.store.mutate((state) => {
+    const recovered = await this.store.mutate((state) => {
       const now = new Date().toISOString()
-      state.tasks
-        .filter((task) => task.provider === 'local-compose' && task.status === 'running')
-        .forEach((task) => {
-          task.status = 'failed'
-          task.progress = 100
-          task.error = '完整预览合成被服务重启中断，请重新合成'
-          releaseGenerationTaskLease(task)
-          task.updatedAt = now
-        })
+      let count = 0
+      for (const task of state.tasks) {
+        if (task.provider !== 'local-compose' || task.status !== 'running') continue
+        task.status = 'failed'
+        task.progress = 100
+        task.error = '完整预览合成被服务重启中断，请重新合成'
+        releaseGenerationTaskLease(task)
+        task.updatedAt = now
+        count += 1
+      }
+      return count
     })
+    if (recovered) await this.onStateChange()
   }
 
   async start(task: GenerationTask): Promise<GenerationTask> {
@@ -77,6 +94,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       stored.updatedAt = nowIso
       return stored
     })
+    await this.onStateChange()
     void this.compose(task.id, typeof started.leaseToken === 'string' ? started.leaseToken : '')
     return started
   }
@@ -182,6 +200,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         stored.updatedAt = now
         releaseGenerationTaskLease(stored)
       })
+      await this.onStateChange()
     } catch (error) {
       const message = error instanceof Error ? error.message : '完整预览合成失败'
       await this.store.mutate((state) => {
@@ -195,6 +214,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         releaseGenerationTaskLease(task)
         task.updatedAt = new Date().toISOString()
       })
+      await this.onStateChange()
     } finally {
       const finalTask = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
       if (finalTask?.status === 'completed' || finalTask?.status === 'failed') {
@@ -228,14 +248,16 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
   }
 
   private async updateProgress(taskId: string, progress: number, leaseToken: string): Promise<void> {
-    await this.store.mutate((state) => {
+    const updated = await this.store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
-      if (!task || task.status !== 'running') return
-      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
+      if (!task || task.status !== 'running') return false
+      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return false
       task.progress = Math.min(99, Math.max(task.progress, progress))
       renewGenerationTaskLease(task, this.leaseOwnerId, leaseToken, this.leaseTtlMs)
       task.updatedAt = new Date().toISOString()
+      return true
     })
+    if (updated) await this.onStateChange()
   }
 }
 
@@ -258,56 +280,139 @@ export async function runFfmpegComposition(
   ffmpegPath: string,
   timeoutMs: number,
 ): Promise<void> {
+  const media = await Promise.all(
+    inputPaths.map((inputPath) => probeInputMedia(inputPath, ffmpegPath, timeoutMs)),
+  )
+  const args = createFfmpegCompositionArgs(inputPaths, outputPath, target, media)
+  await runProcess(ffmpegPath, args, timeoutMs, 'FFmpeg 合成失败')
+}
+
+export function createFfmpegCompositionArgs(
+  inputPaths: string[],
+  outputPath: string,
+  target: PreviewTarget,
+  media: FfmpegInputMedia[],
+): string[] {
+  if (inputPaths.length !== media.length || !inputPaths.length) {
+    throw new Error('FFmpeg 合成输入不完整')
+  }
+
   const inputs = inputPaths.flatMap((path) => ['-i', path])
+  const silenceInputs: string[] = []
+  const audioInputIndexes = media.map((item, index) => {
+    if (item.hasAudio) return index
+    const silenceIndex = inputPaths.length + silenceInputs.length / 6
+    silenceInputs.push('-f', 'lavfi', '-t', ffmpegDuration(item.duration), '-i', 'anullsrc=r=48000:cl=stereo')
+    return silenceIndex
+  })
   const filters = inputPaths.map(
     (_, index) =>
       `[${index}:v]scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,` +
       `pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=24,` +
       `format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS[v${index}]`,
   )
+  for (const [index, item] of media.entries()) {
+    filters.push(
+      `[${audioInputIndexes[index]}:a]aresample=48000:async=1:first_pts=0,` +
+        `aformat=sample_fmts=fltp:channel_layouts=stereo,apad,` +
+        `atrim=duration=${ffmpegDuration(item.duration)},asetpts=PTS-STARTPTS[a${index}]`,
+    )
+  }
   filters.push(
-    `${inputPaths.map((_, index) => `[v${index}]`).join('')}concat=n=${inputPaths.length}:v=1:a=0[outv]`,
+    `${inputPaths.map((_, index) => `[v${index}][a${index}]`).join('')}` +
+      `concat=n=${inputPaths.length}:v=1:a=1[outv][outa]`,
   )
-  const args = [
+  return [
     '-hide_banner',
     '-y',
     ...inputs,
+    ...silenceInputs,
     '-filter_complex',
     filters.join(';'),
     '-map',
     '[outv]',
-    '-an',
+    '-map',
+    '[outa]',
     '-c:v',
     'libx264',
     '-preset',
     'veryfast',
     '-crf',
     '23',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '192k',
     '-movflags',
     '+faststart',
     outputPath,
   ]
+}
 
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(ffmpegPath, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] })
+async function probeInputMedia(
+  inputPath: string,
+  ffmpegPath: string,
+  timeoutMs: number,
+): Promise<FfmpegInputMedia> {
+  const ffprobePath = join(dirname(ffmpegPath), `ffprobe${extname(ffmpegPath)}`)
+  const stdout = await runProcess(
+    ffprobePath,
+    ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type,duration', '-of', 'json', inputPath],
+    Math.min(timeoutMs, 15_000),
+    'FFprobe 媒体检查失败',
+    true,
+  )
+  const parsed = JSON.parse(stdout) as {
+    format?: { duration?: string }
+    streams?: Array<{ codec_type?: string; duration?: string }>
+  }
+  const streamDurations = (parsed.streams ?? [])
+    .map((stream) => Number(stream.duration))
+    .filter((duration) => Number.isFinite(duration) && duration > 0)
+  const duration = Number(parsed.format?.duration) || Math.max(0, ...streamDurations)
+  if (!Number.isFinite(duration) || duration <= 0) throw new Error('FFprobe 无法识别视频时长')
+  return {
+    duration,
+    hasAudio: (parsed.streams ?? []).some((stream) => stream.codec_type === 'audio'),
+  }
+}
+
+async function runProcess(
+  executable: string,
+  args: string[],
+  timeoutMs: number,
+  failurePrefix: string,
+  captureStdout = false,
+): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const child = spawn(executable, args, {
+      windowsHide: true,
+      stdio: ['ignore', captureStdout ? 'pipe' : 'ignore', 'pipe'],
+    })
+    let stdout = ''
+    if (captureStdout) child.stdout?.on('data', (chunk) => (stdout += String(chunk)))
     let stderr = ''
-    child.stderr.on('data', (chunk) => {
+    child.stderr?.on('data', (chunk) => {
       stderr = `${stderr}${String(chunk)}`.slice(-8_000)
     })
     const timeout = setTimeout(() => {
       child.kill()
-      reject(new Error('完整预览合成超时'))
+      reject(new Error(`${failurePrefix}：超时`))
     }, timeoutMs)
     child.once('error', (error) => {
       clearTimeout(timeout)
-      reject(new Error(`FFmpeg 无法启动：${error.message}`))
+      reject(new Error(`${failurePrefix}：${error.message}`))
     })
     child.once('close', (code) => {
       clearTimeout(timeout)
-      if (code === 0) resolve()
-      else reject(new Error(`FFmpeg 合成失败${stderr ? `：${stderr.slice(-1_000)}` : ''}`))
+      if (code === 0) resolve(stdout)
+      else reject(new Error(`${failurePrefix}${stderr ? `：${stderr.slice(-1_000)}` : ''}`))
     })
   })
+}
+
+function ffmpegDuration(duration: number): string {
+  return Math.max(0.001, duration).toFixed(3)
 }
 
 function previewTarget(aspectRatio: string): PreviewTarget {

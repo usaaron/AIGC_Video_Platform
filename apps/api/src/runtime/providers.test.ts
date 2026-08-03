@@ -25,4 +25,27 @@ describe('runtime providers', () => {
     expect(textProviderName(config)).toBe('rehdasu')
     expect(JSON.parse(capturedBody).model).toBe('glm-5.2')
   })
+
+  it('routes the public SEQORA 5.6 alias through the configured GPT provider', async () => {
+    let capturedBody = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = String(init?.body)
+        return Response.json({ choices: [{ message: { content: 'available' } }] })
+      }),
+    )
+
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      TOKENADVENT_API_KEY: 'test-tokenadvent-key',
+      TEXT_MODEL: 'gpt-5.6',
+    })
+    const provider = createTextProvider(config)
+
+    await expect(
+      provider?.generate({ systemPrompt: 'test', userPrompt: 'reply', model: 'seqora-5.6' }),
+    ).resolves.toBe('available')
+    expect(JSON.parse(capturedBody).model).toBe('gpt-5.6')
+  })
 })

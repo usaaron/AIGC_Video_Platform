@@ -7,6 +7,7 @@ import {
   createWorkspaceSchema,
   PERMISSIONS,
   registerAccountSchema,
+  requestRegistrationCodeSchema,
   transferOrganizationAdminSchema,
   updateMembershipRolesSchema,
   updateOrganizationSchema,
@@ -34,6 +35,18 @@ export async function registerAccountManagementRoutes(
   service: AccountManagementService | null,
   secureCookies: boolean,
 ): Promise<void> {
+  app.post(
+    '/auth/registration-code/request',
+    { config: { rateLimit: { max: 5, timeWindow: '10 minutes' } } },
+    async (request, reply) => {
+      const result = await requireService(service).requestRegistrationCode(
+        parse(requestRegistrationCodeSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+      return reply.code(202).send(result)
+    },
+  )
+
   app.post(
     '/auth/register',
     { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },

@@ -224,26 +224,48 @@ export class GenerationTaskRepository {
       WHERE project_id = $1
         AND tenant_id = $2
         AND ($3::boolean OR user_id = $4)
+        AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
       ORDER BY created_at DESC, id DESC
       `,
       [projectId, principal.tenantId, canReadAll, principal.userId],
     )
-    return result.rows.map(taskFromRow)
+    const tasks = result.rows.map(taskFromRow)
+    this.mirrorTasks(tasks)
+    return tasks
   }
 
-  listRecent(principal: Principal, limit = 100): GenerationTask[] {
-    const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
-    return this.store.read((state) =>
-      state.tasks
-        .filter(
-          (task) =>
-            task.tenantId === principal.tenantId &&
-            (canReadAll || task.userId === principal.userId) &&
-            typeof task.metadata.queueHiddenAt !== 'string',
-        )
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-        .slice(0, limit),
+  async listRecent(principal: Principal, limit = 100): Promise<GenerationTask[]> {
+    if (!this.database) {
+      const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+      return this.store.read((state) =>
+        state.tasks
+          .filter(
+            (task) =>
+              task.tenantId === principal.tenantId &&
+              (canReadAll || task.userId === principal.userId) &&
+              typeof task.metadata.queueHiddenAt !== 'string',
+          )
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+          .slice(0, limit),
+      )
+    }
+
+    const canReadAll = canReadAllTenantContent(principal)
+    const result = await this.database.query<GenerationTaskRow>(
+      `
+      SELECT ${generationTaskColumns}
+      FROM generation_tasks
+      WHERE tenant_id = $1
+        AND ($2::boolean OR user_id = $3)
+        AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
+      ORDER BY updated_at DESC, id DESC
+      LIMIT $4
+      `,
+      [principal.tenantId, canReadAll, principal.userId, Math.max(1, Math.min(500, limit))],
     )
+    const tasks = result.rows.map(taskFromRow)
+    this.mirrorTasks(tasks)
+    return tasks
   }
 
   filmPreviewPlan(projectId: string, principal: Principal, episodeNumber: number | null = null) {
@@ -686,7 +708,8 @@ export class GenerationTaskRepository {
         (task) =>
           task.projectId === projectId &&
           task.tenantId === principal.tenantId &&
-          (canReadAll || task.userId === principal.userId),
+          (canReadAll || task.userId === principal.userId) &&
+          typeof task.metadata.queueHiddenAt !== 'string',
       ),
     )
   }
@@ -710,6 +733,13 @@ export class GenerationTaskRepository {
       if (credits === null) return
       const user = state.users.find((item) => item.id === task.userId && item.tenantId === task.tenantId)
       if (user) user.credits = credits
+    })
+  }
+
+  private mirrorTasks(tasks: GenerationTask[]): void {
+    if (!tasks.length) return
+    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
+      for (const task of tasks) upsertTaskInState(state, task)
     })
   }
 }

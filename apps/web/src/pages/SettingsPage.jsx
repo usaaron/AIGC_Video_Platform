@@ -235,7 +235,7 @@ export function SettingsPage({
                 className="text-input"
                 type="password"
                 autoComplete="new-password"
-                minLength={12}
+                minLength={8}
                 value={newPassword}
                 onChange={(event) => setNewPassword(event.target.value)}
                 required
@@ -247,7 +247,7 @@ export function SettingsPage({
                 className="text-input"
                 type="password"
                 autoComplete="new-password"
-                minLength={12}
+                minLength={8}
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
                 required

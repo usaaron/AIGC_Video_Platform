@@ -41,6 +41,7 @@ import {
 export type ClaimedRemoteTasks = {
   video: GenerationTask[]
   image: GenerationTask[]
+  local: GenerationTask[]
 }
 
 export class DependencyResolver {
@@ -106,6 +107,7 @@ export class TaskClaimer {
       const nowIso = now.toISOString()
       const video: GenerationTask[] = []
       const image: GenerationTask[] = []
+      const local: GenerationTask[] = []
       state.tasks
         .filter((task) => task.status === 'running' && task.provider !== 'local-compose')
         .forEach((task) => {
@@ -134,8 +136,9 @@ export class TaskClaimer {
             countAttempt: false,
           })
           task.updatedAt = nowIso
+          if (!providerName) local.push(task)
         })
-      return { video, image }
+      return { video, image, local }
     })
   }
 
@@ -145,6 +148,7 @@ export class TaskClaimer {
       const nowIso = now.toISOString()
       const selectedVideoTasks: GenerationTask[] = []
       const selectedImageTasks: GenerationTask[] = []
+      const selectedLocalTasks: GenerationTask[] = []
 
       for (const user of state.users) {
         const userTasks = state.tasks.filter((task) => task.userId === user.id)
@@ -197,12 +201,14 @@ export class TaskClaimer {
             }
             if (this.isRemoteVideoTask(task)) selectedVideoTasks.push(task)
             if (this.isRemoteImageTask(task)) selectedImageTasks.push(task)
+          } else {
+            selectedLocalTasks.push(task)
           }
           claimed += 1
         }
       }
 
-      return { video: selectedVideoTasks, image: selectedImageTasks }
+      return { video: selectedVideoTasks, image: selectedImageTasks, local: selectedLocalTasks }
     })
   }
 
@@ -312,7 +318,7 @@ export class TaskWritebackService {
     }
   }
 
-  async advanceLocalTasks(): Promise<void> {
+  async advanceLocalTasks(shouldSkip: (task: GenerationTask) => boolean = () => false): Promise<void> {
     await this.store.mutate(async (state) => {
       const now = new Date().toISOString()
       state.tasks
@@ -321,7 +327,8 @@ export class TaskWritebackService {
             task.status === 'running' &&
             task.provider !== 'local-compose' &&
             !isRemoteProviderName(task.metadata.providerName) &&
-            task.leaseOwnerId === this.leaseOwnerId,
+            task.leaseOwnerId === this.leaseOwnerId &&
+            !shouldSkip(task),
         )
         .forEach((task) => {
           task.progress = Math.min(100, task.progress + 12)
@@ -337,6 +344,37 @@ export class TaskWritebackService {
             recordGenerationTaskTerminal(task)
           }
         })
+    })
+  }
+
+  async completeLocalTask(taskId: string, leaseToken: string, result: unknown): Promise<void> {
+    await this.store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === taskId)
+      if (!task || task.status !== 'running') return
+      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
+      const now = new Date().toISOString()
+      task.status = 'completed'
+      task.progress = 100
+      task.error = null
+      task.metadata = {
+        ...task.metadata,
+        localTaskCompletedAt: now,
+        ...(task.kind === 'text' ? { textResult: result } : {}),
+      }
+      task.updatedAt = now
+      releaseGenerationTaskLease(task)
+      recordGenerationTaskTerminal(task)
+    })
+  }
+
+  async renewLocalTaskLease(taskId: string, leaseToken: string): Promise<void> {
+    await this.store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === taskId)
+      if (!task || task.status !== 'running') return
+      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
+      const now = new Date()
+      renewGenerationTaskLease(task, this.leaseOwnerId, leaseToken, this.leaseTtlMs, now)
+      task.updatedAt = now.toISOString()
     })
   }
 

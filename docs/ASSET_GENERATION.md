@@ -29,10 +29,10 @@ Seedance 2.0 不允许把任意含真人人脸的公网图片或 Base64 直接�
 
 真人素材建议使用清晰正面图。全身参考图为竖版、人物全身正面；人脸特写图为竖版、正面无表情、肩部以上且面部约占画面三分之二。图片支持 JPEG/JPG/PNG/WebP/GIF/HEIC，小于 30MB，宽高比在 `(0.4, 2.5)`，边长在 300 到 6000px。一个真人素材组只能保存同一演员的不同妆造；每次补充素材都会做人脸一致性校验。
 
-视频和可信素材全走弦序，但使用两个弦序入口和两种凭证：Seedance 视频接口 `https://maas.stringx.top/api/v3` 使用 `sk-` Bearer Token，MaaS 素材库 `https://maas-ark.stringx.top` 使用一对 Access Key/Secret Key + 火山 SigV4。Aideos 是独立第三方中转，只保留为显式回滚选项，不属于弦序。两类弦序凭证必须属于同一租户/项目，素材的 `ProjectName` 当前默认 `default`。服务端变量：
+视频和可信素材全走弦序，但使用两个弦序入口和两种凭证：Seedance 视频接口 `https://maas.stringx.top/api/v3` 使用 `sk-` Bearer Token，MaaS 素材库 `https://maas-ark.stringx.top` 使用一对 Access Key/Secret Key + 火山 SigV4。两类弦序凭证必须属于同一租户/项目，素材的 `ProjectName` 当前默认 `default`。Aideos 只剩历史适配器源码和测试，当前 `VIDEO_PROVIDER` 仅允许 `stringx | volc-ark`，不能把 Aideos 写进新环境配置。服务端变量：
 
 ```dotenv
-PUBLIC_API_BASE_URL=https://studio.example.com
+PUBLIC_API_BASE_URL=https://zjh.ai
 VOLC_ASSET_BASE_URL=https://maas-ark.stringx.top
 VOLC_ACCESS_KEY=
 VOLC_SECRET_KEY=
@@ -57,16 +57,18 @@ VOLC_ASSET_REQUEST_TIMEOUT_MS=30000
 - `POST /api/v1/projects/:projectId/assets/:assetId/trusted-portrait/bind`
 - `POST /api/v1/projects/:projectId/assets/:assetId/trusted-portrait/refresh`
 
-## 一键尝鲜资产闭环
+## 一键尝鲜资产闭环（遗留 API，当前 UI 未开放）
 
-剧本页的“一键尝鲜”会先保存用户当前编辑的剧本，再调用文本 Provider 输出严格结构化资产提案。提案只包含 1 到 2 个推动主线的主要人物、1 到 2 套高复用服装和 1 到 2 个核心场景，不创建物品、音频或次要群演。默认画风排除 `photorealistic`，避免第一次体验被真人授权流程阻塞；用户仍可在资产页改成仿真人并按可信人像流程入库。
+仓库仍保留 Quick Start Service、API、契约、测试和未挂载的前端弹窗，但当前正式剧本页没有“一键尝鲜”入口。它不是当前客户闭环，也不应从项目库或新功能栈重新暴露，除非先把下面仍使用 `AppStore` 聚合写入的执行路径迁移到 Postgres Repository、Outbox、服务端定价和现有后台任务体系。
+
+遗留设计会先保存用户剧本，再调用文本 Provider 输出 1 到 2 个主要人物、1 到 2 套服装和 1 到 2 个核心场景，不创建物品、音频或次要群演；默认排除仿真人，避免首次体验被真人授权阻塞。
 
 流程分为两个服务端接口：
 
 - `POST /api/v1/projects/:projectId/quick-start/plan`：分析剧本、跳过同类型同名已有资产，返回资产清单、当前队列、套餐并发、预计积分和 45 到 180 秒/批次的等待区间；分析本身暂不扣平台积分，但限制为每分钟最多 6 次，避免无意产生文本 Provider 成本。
 - `POST /api/v1/projects/:projectId/quick-start/execute`：校验剧本 SHA-256 指纹，按服务端价格创建资产、积分流水和图片任务。人物面部候选固定 4 积分，服装和场景各 6 积分，前端不能覆盖价格。
 
-执行使用客户端幂等键 `clientRequestId`，重复确认不会重复建单或扣费。积分、资产和任务在同一个 AppStore 写入批次中完成；余额不足或剧本在分析后变化时，不创建任何资产。并发执行相同方案时，后进入的批次会重新去重。人物任务使用 `generationStage=face` 和 `1:1`，等待用户确认面部后再进入全身/三视图；服装使用平铺展示，场景使用空场景并预留表演空间。
+执行使用客户端幂等键 `clientRequestId`，重复确认不会重复建单或扣费。当前遗留实现仍在同一个 AppStore 写入批次中处理积分、资产和任务，这是它未重新开放的核心原因。人物任务使用 `generationStage=face` 和 `1:1`，等待用户确认面部后再进入全身/三视图。
 
 ## 媒体上传
 
@@ -122,17 +124,13 @@ Content-Type: multipart/form-data
 
 ## 剧本生成
 
-`POST /api/v1/projects/:projectId/script/generate` 使用 `TokenAdventTextProvider` 调用 `/v1/chat/completions`，现在默认是快速剧本模式。接口接收当前草稿或项目梗概、已确认资产和视觉方向，一次逻辑调用输出适合 15 到 30 秒视频的 4 到 6 个场景、基础动作和对白，目标约 800 到 1600 个中文字符，最大输出为 `2400` tokens。快速生成不会因为格式或篇幅不足而自动进行第二次完整重写；服务端会返回 `warnings`，用户可以继续编辑或主动补齐专业细节。Provider 的自动重试仅用于瞬时连接故障，不属于内容修订。
+正式剧本页的“智能生成”、改写、续写和资产建议会创建 `generation_tasks.kind=text` 后台任务，Worker 的 `scriptTaskHandler` 再调用 `ProjectService`。用户可以离开页面，任务完成后写回项目并由轮询刷新；旧的同步 `POST /script/generate`、`POST /script/enrich` 和 `POST /script/asset-suggestions` 路由仍为兼容入口，不代表当前 UI 会阻塞等待。
 
-文本模型通过同一个 OpenAI 兼容中转接口切换。默认逻辑值为 `glm-5.2`；历史值 `seqora-5.6` 仍会使用 `TEXT_MODEL`，当前页面可选择 `gpt-5.6-terra`、`kimi-k3`、`glm-5.2` 和 `glm-5.2-fast`，选中的值会作为请求的 `model` 发送给 `/v1/chat/completions`。所有未明确指定模型的剧本、解析、资产建议和一键尝鲜流程统一使用 `glm-5.2`。GPT 和图片使用 `TOKENADVENT_API_KEY`；`kimi-k3`、`glm-5.2`、`glm-5.2-fast` 优先使用 `TEXT_API_KEY`，未配置时才回退到 `TOKENADVENT_API_KEY`。
+智能生成按输入长度处理：少于 1500 个非空白字符时，结合项目简介、已确认资产、内容类型和修改意见扩写为约 1800 到 2600 字制作剧本；1500 到 9999 字时保留核心剧情、关系、因果、物件和对白，重写为可分镜格式且禁止压缩成提纲；达到 10000 字时保护原稿，不进行一次性重写，提示使用“续写下一段/集”或小说模块。网剧模式继承项目 `episodeDurationSeconds`（30 到 300 秒），要求 3 到 4 秒快切、场次动作和表情变化、配角反应、对白/画外音/内心独白以及集尾钩子。短视频模式面向 15 到 30 秒内容。
 
-`POST /api/v1/projects/:projectId/script/enrich` 是用户主动触发的专业视觉细节补齐接口。它保留快速剧本的场景数量、人物、剧情因果和对白，补充风格、构图、光影、运镜和衔接，最大输出为 `4000` tokens；本次调用也只进行一次逻辑生成，返回 `mode: detailed` 和可能的 `warnings`。生成后前端提供“补齐专业视觉细节”按钮，避免用户每次只想快速起稿时都等待完整制作级剧本。
+默认文本模型是 `glm-5.2`。Kimi/GLM 走 Rehdasu OpenAI 兼容路由，使用 `REHDASU_BASE_URL`、`REHDASU_API_KEY` 和 `REHDASU_CHAT_COMPLETIONS_PATH`；GPT 与图片生成使用 `TOKENADVENT_API_KEY`，DeepSeek 使用独立配置。前端选择的模型会冻结到任务，Worker 必须沿用，禁止悄悄改回默认模型。
 
-剧本页的三个结构按钮不是空标签：
-
-- `场景卡`：插入地点、内外景、时间天气、空间层次、关键道具和视觉执行字段。
-- `角色卡`：插入身份目标、外观识别点、动作过程和情绪字段。
-- `对白段`：插入说话者情绪/动作、台词和对手反应字段。
+`POST /script/enrich` 的按场次制作字段补齐逻辑仍保留兼容，但当前正式 UI 已把光影、运镜、台词和衔接并入“智能生成”，不再展示独立补齐按钮。原来的场景卡、角色卡、对白段快捷按钮也已移除。
 
 `POST /api/v1/projects/:projectId/script/review` 是会员专属真实审核接口。服务端强制校验用户套餐，调用文本 Provider 并校验结构化 JSON，返回剧情结构、角色动机、对白表演、风格统一、构图执行、光影设计、运镜节奏七个维度的评分、发现和修改建议，以及优先修改项。审核不写入项目正文，前端保留当前页面结果，用户确认修改后再保存剧本。专业审核是辅助意见，不替代编导最终判断。
 
@@ -146,7 +144,7 @@ Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默�
 - `GET https://maas.stringx.top/api/v3/contents/generations/tasks/:taskId`：查询任务状态并取得 `video_url/last_frame_url`
 - `POST https://maas.stringx.top/api/v3/contents/generations/tasks/:taskId/cancel`：取消远端任务
 
-Aideos 和官方火山 Provider 仍保留在服务端，分别通过 `VIDEO_PROVIDER=aideos` 和 `VIDEO_PROVIDER=volc-ark` 显式启用，只作为回滚通道。弦序任务记录 `providerName=stringx-seedance`，便于审计真实提交路径。
+官方火山 Provider 通过 `VIDEO_PROVIDER=volc-ark` 显式启用，只作为回滚通道。弦序任务记录 `providerName=stringx-seedance`，便于审计真实提交路径；Aideos 适配器不在当前运行时装配中。
 
 分镜页会根据镜头标题和提示词，从已生成的人物、场景、物品和服装中选择最多三项相关资产。人物优先使用已确认全身基准，选择结果写入图片任务的 `references`，并写入图片和视频任务的 `referenceAssetIds`。旧分镜图没有当前资产标记时会显示“需同步资产”，生成视频时忽略这类旧图，直接使用当前资产。
 
@@ -165,26 +163,26 @@ Aideos 和官方火山 Provider 仍保留在服务端，分别通过 `VIDEO_PROV
 
 资产图片和分镜视频的负面提示词不是只在前端展示。Worker 在真正调用 Provider 前通过共享包 `packages/prompting/src/qualityRuleCompiler.ts` 编译，当前版本为 `quality-floor-v1`，并把以下审计字段保存到任务：`qualityRuleVersion`、`qualityPresetIds`、`compiledNegativePrompt`、`userNegativePrompt`。
 
-规则按条件启用：视频通用稳定性、仿真人拍摄设备和背景穿帮、人物五官与手部、场景结构与空场景人物排除、广告产品展示，以及用户自定义负面提示词。动漫/国漫不会误加“禁止动漫”，雾景不会误加“禁止烟雾”，广告允许用户指定的品牌标识。Aideos 当前没有文档化的独立负面提示词字段，因此 Provider 将编译结果以 `【质量约束】...` 合入文本提示词；图片 Provider 直接使用 `negativePrompt` 字段。规则用于抬高质量下限，不保证每次生成无瑕，仍需人工验收和必要的重试。
+规则按条件启用：视频通用稳定性、仿真人拍摄设备和背景穿帮、人物五官与手部、场景结构与空场景人物排除、广告产品展示，以及用户自定义负面提示词。动漫/国漫不会误加“禁止动漫”，雾景不会误加“禁止烟雾”，广告允许用户指定的品牌标识。视频 Provider 将质量约束编入最终提示词；图片 Provider 使用 `negativePrompt` 字段。规则用于抬高质量下限，不保证每次生成无瑕，仍需人工验收和必要的重试。
 
-生成队列支持单任务暂停、继续和删除。只有本地仍为 `queued` 的任务可以暂停；暂停任务不参与 Worker 调度。删除等待任务时服务端先切换为 `paused`，再软删除并幂等退回预扣积分。运行中的弦序视频可以调用远端 `cancel`，成功后本地标记 `cancelled`、移出队列并退款；Aideos 没有可验证的取消接口，运行中仍返回 `409`。完成或失败任务删除时只写入 `queueHiddenAt`，不会破坏输出 URL。
+生成队列支持单任务暂停、继续和删除。只有本地仍为 `queued` 的任务可以暂停；暂停任务不参与 Worker 调度。删除等待任务时服务端先切换为 `paused`，再软删除并幂等退回预扣积分。运行中的弦序视频可以调用远端 `cancel`，成功后本地标记 `cancelled`、移出队列并退款。完成或失败任务删除时只写入 `queueHiddenAt`，不会破坏输出 URL。
 
 分镜卡片完整显示镜头提示词、参考资产、图片状态和视频状态，并提供独立的“生成图片”和“生成视频”按钮。两个入口互不依赖；“生成全部视频”也不会暗中创建图片任务。已有且匹配当前资产的分镜图会自动加入视频参考，没有时直接走资产或纯提示词。批量入口和每个镜头均可在生成前选择 `480p`、`720p`、`1080p` 或 `4k`，选中值冻结到任务 `metadata.resolution`。
 
 批量入口提供“并发优先”和“连续优先”。并发优先会把已有连续链均衡规划成最多套餐并发数条链，会员最多 3 条、免费用户 1 条；只把新增链首改为 `independent` 并持久化，链内仍按尾帧依赖顺序生成。连续优先完全保留用户现有衔接。后端 Worker 仍是最终并发控制者：会员同一 tick 最多向 Provider 提交 3 个可运行任务，免费用户最多 1 个。队列页显示实际运行数 / 上限。
 
-API 从对象存储读取受保护的分镜图和资产图并转换为 Base64 Data URL；已激活的可信人物改用 `asset://<asset_id>`。Worker 内部保留 `first_frame/reference_image` 语义，提交 Aideos 时按顺序扁平化为最多 9 个 URL 字符串；没有图片时只发送提示词。任务用 `videoInputMode` 记录 `storyboard-and-assets`、`assets` 或 `text`，便于排查实际生成路径。请求同时携带模型、项目比例、所选清晰度和关闭音频参数。分镜时长统一限制为 4 到 15 秒；建单超时默认 120 秒，建单成功后每 5 秒异步轮询。
+API 从对象存储读取受保护的分镜图和资产图并转换为 Provider 可读取的图片内容；已激活的可信人物改用 `asset://<asset_id>`。Worker 内部保留 `first_frame/reference_image` 语义，没有图片时只发送提示词。任务用 `videoInputMode` 记录 `storyboard-and-assets`、`assets` 或 `text`，便于排查实际生成路径。请求同时携带模型、项目比例、所选清晰度，并默认请求单镜头音频。网剧镜头限制为 3 到 15 秒，其他内容限制为 4 到 15 秒；建单超时默认 120 秒，建单成功后每 5 秒异步轮询。
 
 承接镜头的上一镜尾帧排在弦序 `content` 图片数组首位，最多仍遵守 9 张图片限制。有当前目标分镜图时提交成对首尾帧；只有上一镜尾帧时使用 `reference_image`，避免触发弦序校验。它不会替代人物/场景的结构化资产，也不会把上一段视频当作当前镜头视频输入。
 
-视频提示词由共享的 `@seqora/prompting` 包编译。`seedance-storyboard-v5` 只保留当前镜头的场景、角色、单个动作节拍和必要视觉字段；相邻镜头只提供动作接点，不再塞入完整上一场、下一场和 1200 字剧本上下文。提示词明确要求同一时间、同一空间、同一动作线，禁止插入特写、钟表、回忆、下一事件、突然切镜、跳时、回切和蒙太奇。前端创建任务时先编译一次，Worker 在真正提交前再按服务端项目数据覆盖编译，旧队列也会自动升级。
+视频提示词由共享的 `@seqora/prompting` 包编译，当前版本为 `seedance-storyboard-v7`。它保留当前镜头的场次、角色、动作节拍、表情、配角反应、对白/声音意图和必要视觉字段；相邻镜头只提供动作接点，不塞入完整上一场、下一场和超长剧本上下文。前端创建任务时先编译一次，Worker 在真正提交前再按服务端项目数据覆盖编译，旧队列也会自动升级。
 
 成片页默认进入“完整成片”模式，也可以切换到“单镜头”。单镜头只有在 Seedance 任务状态为 `completed` 且存在真实视频 URL 时才渲染 `<video>` 控件；排队、生成和失败状态仅显示分镜参考图与明确状态，不再用静态图模拟视频。
 
 当每个分镜都有已完成的 Seedance 视频后，`POST /api/v1/projects/:projectId/film-preview` 会按分镜顺序创建 `provider: "local-compose"` 的零积分任务。服务端下载对应视频，通过 FFmpeg 统一尺寸、24 fps 和 H.264 编码后拼接成一个 MP4，存入 `ObjectStorage`，再由现有鉴权内容接口提供 Range 播放。项目比例分别输出 `9:16` 的 `720 x 1280`、`16:9` 的 `1280 x 720`、`1:1` 的 `720 x 720`；不同源尺寸使用黑边补齐，不裁切内容。源视频任务 ID 未变化时复用现有预览，任一镜头重新生成后前端会提示重新合成。
 
-该 MP4 是客户检查镜头顺序和节奏的无声视频预览，不再次调用 Seedance，也不扣积分。真实音频、配音、混音、字幕和正式交付导出尚未接入。
+该 MP4 是客户检查镜头顺序和节奏的无声视频预览，不再次调用 Seedance，也不扣积分。单镜头 Seedance 视频可能包含模型生成音频，但当前 FFmpeg 使用 `-an` 移除所有音轨；配音、混音、字幕和正式交付导出尚未接入。
 
-第三方任务 ID 只保存在服务端任务 `metadata` 中；前端通过受登录权限保护的 `/api/v1/generation/tasks/:taskId/content` 播放或下载，不接触第三方 API Key。该代理把浏览器的 `Range` 请求转发给 Aideos content 端点并透传 `206`、`Accept-Ranges` 和 `Content-Range`。远端提交或生成失败时，任务会保存错误原因并自动退回本次预扣积分，退款账本使用任务 ID 保证幂等。
+第三方任务 ID 只保存在服务端任务 `metadata` 中；前端通过受登录权限保护的 `/api/v1/generation/tasks/:taskId/content` 播放或下载，不接触第三方 API Key。内容接口支持浏览器 Range 播放，并从对象存储或当前 Provider 的完成结果读取媒体。远端提交或生成失败时，任务会保存错误原因并自动退回本次预扣积分，退款账本使用任务 ID 保证幂等。
 
 本地开发在 `apps/api/.env` 配置 `VIDEO_PROVIDER=stringx`、`STRINGX_BASE_URL` 和 `STRINGX_API_KEY`。未配置密钥时开发环境使用本地模拟视频结果；生产环境缺少所选 Provider 密钥会拒绝启动。所有密钥只能通过服务端环境或 Secret Manager 注入，不能写入镜像、前端或 Git。

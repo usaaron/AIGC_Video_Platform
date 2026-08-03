@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { planSchema } from './account.js'
+import { passwordSchema, planSchema } from './account.js'
 import {
   billingReconciliationAlertListSchema,
   billingReconciliationAlertSchema,
@@ -223,7 +223,7 @@ export const adminPasswordResetRequirementUpdateSchema = z.object({
 })
 
 export const adminSetUserPasswordSchema = z.object({
-  newPassword: z.string().min(12).max(128),
+  newPassword: passwordSchema,
   requireChange: z.boolean().default(true),
   revokeSessions: z.boolean().default(true),
 })

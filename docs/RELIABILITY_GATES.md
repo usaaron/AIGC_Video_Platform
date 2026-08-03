@@ -60,7 +60,7 @@ probe target.
 Required environment:
 
 ```bash
-SYNTHETIC_BASE_URL=https://studio.example.com
+SYNTHETIC_BASE_URL=https://zjh.ai
 SYNTHETIC_EMAIL=monitoring@example.com
 SYNTHETIC_PASSWORD=replace-with-monitoring-password
 ```

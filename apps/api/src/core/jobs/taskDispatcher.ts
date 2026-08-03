@@ -15,6 +15,7 @@ import {
   VideoTaskExecutor,
 } from './taskRunnerComponents.js'
 import { noopTaskRunnerLock, type TaskRunnerLock } from './taskRunnerLock.js'
+import type { LocalGenerationTaskHandler } from './localTaskHandler.js'
 
 export interface TaskDispatcher {
   dispatch(
@@ -46,6 +47,7 @@ type GenerationTaskRunnerOptions = {
   afterTick?: () => Promise<void>
   taskRunnerLock?: TaskRunnerLock | null
   onVideoCompleted?: (task: GenerationTask) => Promise<void>
+  localTaskHandler?: LocalGenerationTaskHandler | null
 }
 
 export class GenerationTaskRunner implements TaskDispatcher {
@@ -60,7 +62,9 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly videoExecutor: VideoTaskExecutor
   private readonly imageExecutor: ImageTaskExecutor
   private readonly providerPoller: ProviderPoller
+  private readonly localTaskHandler: LocalGenerationTaskHandler | null
   private readonly activeExecutions = new Set<string>()
+  private readonly leaseTtlMs: number
 
   constructor(
     private readonly store: AppStore,
@@ -71,6 +75,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const imageProvider = options.imageProvider ?? null
     const objectStorage = options.objectStorage ?? null
     const leaseTtlMs = options.leaseTtlMs ?? 120_000
+    this.leaseTtlMs = leaseTtlMs
     const leaseOwnerId = `generation-task-runner-${process.pid}-${randomUUID()}`
     const dependencyResolver = new DependencyResolver()
 
@@ -117,6 +122,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
       writeback: this.writeback,
       onVideoCompleted: options.onVideoCompleted ?? null,
     })
+    this.localTaskHandler = options.localTaskHandler ?? null
   }
 
   start(): void {
@@ -175,8 +181,12 @@ export class GenerationTaskRunner implements TaskDispatcher {
       this.scheduleRemoteExecutions([...recoveredSubmissions.image, ...remoteTasks.image], (task) =>
         this.imageExecutor.execute(task),
       )
+      const localTasks = [...recoveredSubmissions.local, ...remoteTasks.local].filter((task) =>
+        this.localTaskHandler?.canHandle(task),
+      )
+      this.scheduleRemoteExecutions(localTasks, (task) => this.executeLocalTask(task), false)
 
-      await this.writeback.advanceLocalTasks()
+      await this.writeback.advanceLocalTasks((task) => this.localTaskHandler?.canHandle(task) ?? false)
       await this.providerPoller.pollRemoteVideos()
     } finally {
       await this.afterTick?.()
@@ -186,13 +196,82 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private scheduleRemoteExecutions(
     tasks: GenerationTask[],
     execute: (task: GenerationTask) => Promise<void>,
+    withHeartbeat = true,
   ): void {
     for (const task of tasks) {
       if (this.activeExecutions.has(task.id)) continue
       this.activeExecutions.add(task.id)
-      void this.writeback.runWithHeartbeat(task, execute).finally(() => {
+      const execution = withHeartbeat ? this.executeRemoteTask(task, execute) : execute(task)
+      void execution.finally(() => {
         this.activeExecutions.delete(task.id)
       })
     }
   }
+
+  private async executeRemoteTask(
+    task: GenerationTask,
+    execute: (task: GenerationTask) => Promise<void>,
+  ): Promise<void> {
+    const leaseToken = task.leaseToken
+    if (!leaseToken) return
+    const stopHeartbeat = this.startTaskHeartbeat(task.id, leaseToken)
+    try {
+      await execute(task)
+    } finally {
+      stopHeartbeat()
+      await this.runTaskMutation(async () => {}, false)
+    }
+  }
+
+  private async executeLocalTask(task: GenerationTask): Promise<void> {
+    const leaseToken = task.leaseToken
+    const handler = this.localTaskHandler
+    if (!leaseToken || !handler) return
+    const stopHeartbeat = this.startTaskHeartbeat(task.id, leaseToken)
+    try {
+      const result = await handler.execute(task)
+      await this.runTaskMutation(() => this.writeback.completeLocalTask(task.id, leaseToken, result))
+    } catch (error) {
+      await this.runTaskMutation(() => this.writeback.failTask(task.id, localTaskError(error), leaseToken))
+    } finally {
+      stopHeartbeat()
+    }
+  }
+
+  private startTaskHeartbeat(taskId: string, leaseToken: string): () => void {
+    let heartbeatRunning = false
+    const heartbeat = async () => {
+      if (heartbeatRunning) return
+      heartbeatRunning = true
+      try {
+        await this.runTaskMutation(() => this.writeback.renewLocalTaskLease(taskId, leaseToken))
+      } finally {
+        heartbeatRunning = false
+      }
+    }
+    const timer = setInterval(() => void heartbeat(), Math.max(1_000, Math.floor(this.leaseTtlMs / 3)))
+    timer.unref?.()
+    return () => clearInterval(timer)
+  }
+
+  private async runTaskMutation(operation: () => Promise<void>, refreshFirst = true): Promise<void> {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const acquired = await this.taskRunnerLock.runExclusive(async () => {
+        if (refreshFirst) await this.beforeTick?.()
+        await operation()
+        await this.afterTick?.()
+      })
+      if (acquired) return
+      await delay(100)
+    }
+    throw new Error('Timed out while persisting local generation task state')
+  }
+}
+
+function localTaskError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }

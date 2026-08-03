@@ -5,6 +5,43 @@ import { join } from 'node:path'
 import { AppStore } from './store.js'
 
 describe('AppStore mutation queue', () => {
+  it('retains mutations made to database-backed runtime cache slices', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    store.replaceGenerationTaskRuntimeCache([
+      {
+        id: 'runtime-cache-task',
+        clientRequestId: 'runtime-cache-client',
+        projectId: 'project-midnight-film',
+        tenantId: 'tenant-seqora-demo',
+        userId: 'user-member',
+        kind: 'text',
+        label: 'Runtime cache task',
+        prompt: '',
+        negativePrompt: '',
+        provider: 'text',
+        model: 'glm-5.2',
+        metadata: {},
+        status: 'queued',
+        progress: 0,
+        estimatedCredits: 1,
+        createdAt: now,
+        updatedAt: now,
+        resultUrl: null,
+        outputs: [],
+        error: null,
+      },
+    ])
+
+    await store.mutate((state) => {
+      state.tasks[0]!.status = 'running'
+      state.tasks[0]!.progress = 8
+    })
+
+    expect(store.read((state) => state.tasks[0])).toMatchObject({ status: 'running', progress: 8 })
+  })
+
   it('rolls back failed transactions before accepting the next write', async () => {
     const store = new AppStore(null)
     await store.initialize()

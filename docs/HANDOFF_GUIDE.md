@@ -1,6 +1,6 @@
 # SEQORA 项目交接与快速上手
 
-这份文档是新开发者的第一入口。目标是在 30 分钟内理解产品、启动项目、找到关键代码，并知道哪些边界不能随意修改。
+这份文档是新开发者的总览。代码 Agent 应先读根目录 `AGENTS.md` 和 [当前状态](CURRENT_STATE.md)，再用本文在 30 分钟内理解产品、启动项目和找到关键代码。
 
 ## 1. 项目是什么
 
@@ -10,16 +10,18 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 登录 -> 项目与比例 -> 剧本 -> 资产 -> 分镜 -> 视频队列 -> 完整成片
 ```
 
-当前 Demo 已跑通除音频外的主要闭环：
+当前生产已跑通主要创作闭环：
 
-- 中文剧本快速生成、主动补齐制作视觉维度、结构块插入和资产建议。
+- 中文剧本智能生成、按意见改写、续写下一段/集和资产建议；光影、运镜、构图、声音意图已并入智能生成，不再展示独立补齐或结构块按钮。
 - 人物、场景、物品和服装资产；人物包含面部、全身、腿部优化和三视图流程。
 - TokenAdvent 文本与图片生成。
 - 弦序 Seedance 2.0 视频生成、任务轮询、取消、失败退款和可信人像素材库。
 - 分镜按场次或动作拆分、资产匹配、尾帧承接和会员三路并发。
-- FFmpeg 按分镜顺序合成无声完整 MP4 预览。
+- Seedance 单镜头启用对白/现场声音频，FFmpeg 按分镜顺序合成无声完整 MP4 工作预览。
 
-尚未完成正式音频、支付、邮件/短信投递、队列监控/告警、Worker 横向扩缩容演练和正式商用监控。账号/auth、组织 membership、session、账单账户、账单流水、密码重置 token、审计日志、项目、资产、分镜、生成任务、通用 AI Job 和小说域数据已经迁入 Postgres；生成任务触发通过事务 Outbox 投递到 Redis/BullMQ，由独立 Worker 进程消费。当前定位是封闭客户测试和小团队联合开发。
+项目库“对话一句成片 / 图片大师 / 剧本大师”、小说上传与章节和长剧本创作仍是禁用或开发中入口。Quick Start Service/API 与旧弹窗文件仍存在，但没有挂到当前正式 UI，不能把它当成一键成片 Agent。
+
+尚未完成完整成片音轨、配音/字幕/混音、正式支付、投递失败运营、Worker 横向扩缩容演练和正式商用监控。Resend 已用于注册验证码、邮箱验证、邀请和密码重置。账号/auth、组织 membership、session、账单、项目、资产、分镜、任务、通用 AI Job 和小说域已经迁入 Postgres；任务触发通过事务 Outbox 投递到 Redis/BullMQ，由独立 Worker 消费。当前定位是封闭客户测试和小团队联合开发。
 
 ## 2. 收到压缩包后先做什么
 
@@ -27,8 +29,8 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 2. 安装 Node.js `>=22.12`、pnpm `>=11` 和带 `libx264` 的 FFmpeg。
 3. 在项目根目录运行 `pnpm install --frozen-lockfile`。
 4. 运行 `pnpm check`，确认格式、Lint、测试和生产构建全部通过。
-5. 运行 `pnpm dev`，打开 `http://localhost:5173`。
-6. 阅读本文件后，再读 `docs/DEVELOPMENT_MEMORY.md` 和目标模块源码。
+5. 运行 `pnpm dev`，打开 `http://localhost:5173`；管理员端是 `http://localhost:5174`。
+6. Docker 不可用时脚本会回退 JSON + 内联队列，但邀请码注册需要 Postgres。
 
 常用命令：
 
@@ -50,12 +52,12 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 
 - `apps/api/.env`：本地 Provider 密钥和运行配置。
 - `deploy/demo.env`：云端域名、部署账号和生产 Provider 配置。
-- `apps/api/data/app.json`：本地账号哈希、项目、资产、任务和积分账本。
+- `apps/api/data/app.json`：本地媒体索引、兼容缓存和历史迁移数据；Postgres 才是当前核心业务来源。
 - `apps/api/data/uploads/`：用户上传和本地生成媒体。
 
 这些文件用于在受信任人员之间恢复当前状态，**绝不能提交到 Git、上传公开网盘或转发给无关人员**。接收方应限制文件权限，使用结束后轮换 API Key 和账号密码。`.env.example` 与 `deploy/demo.env.example` 才是可提交模板。
 
-`BOOTSTRAP_*` 只在 `app.json` 不存在时创建账号。修改环境变量不会修改已有数据中的密码；已有账号需要在“项目设置 -> 账号安全”修改。
+开发环境可以按配置自动 bootstrap；生产必须在 migration 后显式运行 `accounts:init`。修改 `BOOTSTRAP_*` 不会覆盖已有账号密码；已有账号通过账号安全或密码重置修改。
 
 ## 4. Monorepo 结构
 
@@ -108,7 +110,7 @@ Route -> Service -> Repository / Provider -> Postgres / AppStore / 外部 API
 - Identity & Access：`core/auth`、`core/email`、`modules/auth`、`modules/users`。
 - Organizations：`modules/accountManagement`，负责组织、成员、角色、membership、组织 session 和兼容 workspace/tenant 入口。
 - Billing：`modules/billing`，负责 Postgres ledger、扣费、退款、充值、管理员调账、支付和对账告警。
-- Creative Projects：`modules/projects`、`modules/novels`、`modules/quickStart`、`modules/trustedAssets`。
+- Creative Projects：`modules/projects`、`modules/novels`、`modules/quickStart`、`modules/trustedAssets`。其中 `quickStart` 是仍依赖 AppStore 聚合写入的遗留实验，不应被新模块复用。
 - Jobs/Workers：`core/jobs`、`modules/generation`、`modules/aiJobs`、`worker.ts` 和 `runtime/queues.ts`。
 - Media Storage：`infra/objectStorage.ts`、`modules/media`、`core/media` 和 `runtime/storage.ts`。
 - Admin Console：`modules/admin`、`apps/admin` 和 `packages/contracts/src/admin.ts`。
@@ -157,7 +159,7 @@ JSON `apps/api/data/app.json`：
 
 ### 文本和图片
 
-剧本和 Img2 图片默认调用 TokenAdvent。图片结果写入对象存储，完成后同步更新对应 `asset.imageUrl` 或 `shot.imageUrl`。
+剧本默认通过 Rehdasu 路由调用 `glm-5.2`，GPT/DeepSeek 按所选模型路由到各自 Provider；正式 UI 把剧本生成、续写和资产建议创建为 `generation_tasks.kind=text` 后台任务，由 Worker 执行并写回。Img2 当前只调用 TokenAdvent GPT Image 2。图片结果写入对象存储，完成后同步更新对应 `asset.imageUrl` 或 `shot.imageUrl`。Nano Banana 目前只是禁用选项，没有 Provider 实现。
 
 ### 视频
 
@@ -184,7 +186,7 @@ JSON `apps/api/data/app.json`：
 
 ## 9. 完整成片
 
-每个分镜必须有一个真实完成的视频任务。`FilmPreviewComposer` 按镜头顺序下载视频，统一比例、尺寸、帧率和 H.264 编码，再拼成一个无声 MP4。`local-compose` 不扣积分，也不占 Seedance 并发。
+每个分镜必须有一个真实完成的视频任务。`FilmPreviewComposer` 按镜头顺序下载视频，统一比例、尺寸、帧率和 H.264 编码，再拼成一个无声 MP4。虽然单镜头请求启用了 Seedance 音频，当前 FFmpeg 合成使用 `-an`，不会保留音轨。`local-compose` 不扣积分，也不占 Seedance 并发。
 
 当前成片是测试预览，不包含配音、背景音乐、字幕、响度、正式码率和交付封装，不能当作商用母版。
 
@@ -194,15 +196,22 @@ JSON `apps/api/data/app.json`：
 | ---------------------- | --------------------------------------------------------------------------------------------- |
 | 新增项目/资产/分镜字段 | `packages/contracts/src/project.ts`、项目 Repository、对应页面                                |
 | 修改登录和账号         | `modules/auth/`、`AuthProvider.jsx`、`LoginPage.jsx`                                          |
+| 修改注册/邀请/邮箱     | `modules/accountManagement/`、`core/email/`、`LoginPage.jsx`、`AUTHORIZATION.md`              |
+| 修改剧本生成/资产建议  | `modules/projects/service.ts`、`core/jobs/scriptTaskHandler.ts`、`ScriptPage.jsx`             |
 | 修改积分、套餐或退款   | `modules/billing/`、`modules/generation/`、`taskDispatcher.ts`                                |
 | 修改图片生成           | `core/generation/tokenAdventImageProvider.ts`、资产功能目录                                   |
 | 修改视频请求           | `stringXSeedanceProvider.ts`、`taskDispatcher.ts`、`packages/prompting`                       |
+| 修改可信人像           | `modules/trustedAssets/`、`volcArkAssetLibraryProvider.ts`、`CharacterWorkflow.jsx`           |
 | 修改分镜拆分           | `modules/projects/service.ts`、`StoryboardPage.jsx`                                           |
 | 修改三路并发           | `videoBatchPlanner.js`、`taskDispatcher.ts`，两端测试必须同时更新                             |
+| 修改任务状态/暂停取消  | `packages/contracts` 任务 schema、`modules/generation/`、`core/jobs/`、`QueuePage.jsx`        |
 | 修改完整成片           | `core/film/`、`FilmPage.jsx`、`features/film/`                                                |
 | 修改组织/session       | `modules/accountManagement/`、`apps/web/src/pages/SettingsPage.jsx`、`apps/admin/src/App.jsx` |
 | 修改后台管理           | `modules/admin/`、`packages/contracts/src/admin.ts`、`apps/admin/src/`                        |
-| 修改部署               | `compose.demo.yml`、`deploy/`、`docs/DEPLOYMENT.md`                                           |
+| 新增 Provider          | `core/generation` 接口与适配器、`runtime/providers.ts`、配置 schema、健康检查和替身测试       |
+| 修改部署               | `compose.demo.yml`、`deploy/`、`OPERATIONS_RUNBOOK.md`、`DEPLOYMENT.md`                       |
+
+接手现有模块时先沿一条真实请求链阅读：页面事件 -> `apiClient` -> contracts -> Route -> Service -> Repository/任务 -> Worker/Provider -> 状态回写。新增模块也必须沿用这一顺序，不能只做页面或只写一个直连 Provider 的 Route。任务结束前至少同步 `CURRENT_STATE.md` 和本模块专项文档。
 
 ## 11. 测试和代码规范
 
@@ -246,18 +255,19 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml ps
 1. 项目/任务/AI Job 已进入 Postgres，任务触发已通过 Outbox 进入 Redis/BullMQ；商用多实例前仍要验证组织过滤、重复投递、故障恢复和 Worker 横向扩缩容。
 2. Worker 是独立进程，但队列监控、死信处理、任务恢复演练和告警还没生产化。
 3. `app.json` 仍承载本地媒体索引和兼容备份，恢复数据前必须先确认 Postgres、JSON 和对象存储三者一致。
-4. 音频、邮件/短信投递和用户协议/隐私/数据删除流程尚未实现；Stripe test mode 支付沙箱已接入，但正式生产支付仍需补价格/webhook endpoint、税务发票、支付失败通知和对账告警。
+4. 音频资产 AI 生成、完整成片音轨、用户协议/隐私/数据删除流程尚未实现；邮件已接 Resend，但退信与投递告警仍需补齐；Stripe test mode 已接入，正式支付仍需价格/webhook、税务发票、支付失败通知和对账告警。
 5. 第三方生成质量不稳定，提示词和负面规则只能提高下限，仍需人工验收。
 6. 上游额度、并发池、素材审核和安全策略会导致平台外部错误，不能用本地假状态掩盖。
 
 ## 14. 推荐阅读顺序
 
-1. `README.md`：启动、命令和功能概览。
-2. `docs/HANDOFF_GUIDE.md`：当前文件，建立整体地图。
-3. `docs/DEVELOPMENT_MEMORY.md`：完整历史、产品决策、验收记录和已知风险。
-4. `docs/ARCHITECTURE.md`：模块边界和演进方向。
-5. `docs/ASSET_GENERATION.md`：资产、可信人像、分镜和 Provider 细节。
-6. `docs/DEPLOYMENT.md` 与 `docs/CICD.md`：云端运行与发布。
-7. `docs/CODE_STYLE.md` 与 `CONTRIBUTING.md`：协作约束。
+1. `AGENTS.md`：接手规则和开发红线。
+2. `docs/CURRENT_STATE.md`：当前开放、实验、占位和生产状态。
+3. `docs/HANDOFF_GUIDE.md`：当前文件，建立整体地图。
+4. `docs/DEVELOPMENT_MEMORY.md`：完整历史、产品决策、验收记录和已知风险。
+5. `docs/ARCHITECTURE.md`：模块边界和演进方向。
+6. `docs/ASSET_GENERATION.md`：资产、可信人像、分镜和 Provider 细节。
+7. `docs/DEPLOYMENT.md` 与 `docs/CICD.md`：云端运行与发布。
+8. `docs/CODE_STYLE.md` 与 `CONTRIBUTING.md`：协作约束。
 
 接手第一天不要急着重构。先运行当前流程、阅读一个真实任务的 `metadata`、执行 `pnpm check`，再从一个有测试覆盖的窄功能开始修改。

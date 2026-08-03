@@ -56,7 +56,11 @@ export function selectVideoReferenceImages(storyboardImageUrl, references, limit
 
 function scoreAsset(asset, shotText) {
   const name = normalize(asset.name)
-  let matchScore = name && shotText.includes(name) ? 200 : 0
+  const exactNameMatch = Boolean(name && shotText.includes(name))
+  if (asset.kind === 'character' && !exactNameMatch) {
+    return { score: KIND_PRIORITY[asset.kind] || 0, matched: false }
+  }
+  let matchScore = exactNameMatch ? 200 : 0
   matchScore += overlapScore(shotText, name, 20, 40)
   matchScore += overlapScore(shotText, normalize(asset.description), 2, 20)
   return { score: (KIND_PRIORITY[asset.kind] || 0) + matchScore, matched: matchScore > 0 }

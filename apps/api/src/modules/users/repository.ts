@@ -118,6 +118,42 @@ export class UserRepository implements AuthAccounts {
     })
   }
 
+  async refreshRuntimeCacheFromDatabase(): Promise<void> {
+    if (!this.database) return
+    const result = await this.database.query<StoredUserRow>(
+      `
+      SELECT
+        u.id AS id,
+        COALESCE(ai.email, '') AS email,
+        u.display_name AS name,
+        ai.password_hash AS password_hash,
+        m.tenant_id AS tenant_id,
+        m.roles AS roles,
+        b.plan AS plan,
+        b.credits AS credits,
+        u.password_reset_required AS password_reset_required,
+        COALESCE(ai.email_verification_status = 'verified', false) AS email_verified
+      FROM users u
+      JOIN tenant_memberships m ON m.user_id = u.id AND m.status = 'active'
+      JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
+      JOIN billing_accounts b ON b.membership_id = m.id
+      LEFT JOIN LATERAL (
+        SELECT email, password_hash, email_verification_status
+        FROM auth_identities ai
+        WHERE ai.user_id = u.id
+          AND ai.provider = 'local'
+          AND ai.status = 'active'
+        ORDER BY ai.is_primary DESC, ai.created_at ASC
+        LIMIT 1
+      ) ai ON true
+      WHERE u.status = 'active'
+      ORDER BY m.created_at ASC, u.id ASC
+      `,
+    )
+    const ledger = this.store.read((state) => state.ledger)
+    this.store.replaceAccountRuntimeCache({ users: result.rows.map(toStoredUser), ledger })
+  }
+
   async findByEmail(email: string): Promise<StoredUser | null> {
     const normalized = email.toLowerCase()
     if (!this.database) {

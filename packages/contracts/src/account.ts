@@ -3,6 +3,7 @@ import { roleSchema } from './auth.js'
 
 export const planSchema = z.enum(['free', 'member'])
 export const emailVerificationStatusSchema = z.enum(['unverified', 'verified'])
+export const passwordSchema = z.string().min(8).max(128)
 
 export const accountSchema = z.object({
   id: z.string().min(1),
@@ -24,13 +25,13 @@ export const sessionSchema = z.object({
 
 export const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8).max(128),
+  password: passwordSchema,
 })
 
 export const changePasswordSchema = z
   .object({
-    currentPassword: z.string().min(8).max(128),
-    newPassword: z.string().min(12).max(128),
+    currentPassword: passwordSchema,
+    newPassword: passwordSchema,
   })
   .refine((input) => input.currentPassword !== input.newPassword, {
     path: ['newPassword'],
@@ -63,7 +64,7 @@ export const verifyEmailSchema = z.object({
 
 export const resetPasswordSchema = z.object({
   token: z.string().min(32).max(256),
-  newPassword: z.string().min(12).max(128),
+  newPassword: passwordSchema,
 })
 
 export type Account = z.infer<typeof accountSchema>
