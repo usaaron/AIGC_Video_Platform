@@ -1,34 +1,8 @@
-import { z } from 'zod'
 import {
   TextGenerationProviderError,
   type TextGenerationProvider,
   type TextGenerationRequest,
 } from './textProvider.js'
-
-const completionSchema = z.object({
-  choices: z
-    .array(
-      z.object({
-        message: z.object({
-          content: z
-            .union([z.string(), z.array(z.unknown())])
-            .nullable()
-            .optional(),
-        }),
-      }),
-    )
-    .min(1),
-})
-
-const streamChunkSchema = z.object({
-  choices: z.array(
-    z
-      .object({
-        delta: z.object({ content: z.string().optional() }).passthrough(),
-      })
-      .passthrough(),
-  ),
-})
 
 export type OpenAIChatTextOptions = {
   baseUrl: string
@@ -56,7 +30,7 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
     let lastError: unknown
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        return await this.generateOnce(request)
+        return await this.generateOnce(request, attempt === 0)
       } catch (error) {
         lastError = error
         if (attempt > 0 || !isRetryable(error)) break
@@ -66,9 +40,34 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
     throw publicProviderError(this.options.providerLabel, lastError)
   }
 
-  private async generateOnce(request: TextGenerationRequest): Promise<string> {
+  private async generateOnce(request: TextGenerationRequest, stream: boolean): Promise<string> {
+    let response = await this.requestCompletion(request, stream, true)
+    if (!response.ok && response.status === 400 && request.responseFormat === 'json') {
+      response = await this.requestCompletion(request, stream, false)
+    }
+    if (!response.ok) throw await textProviderError(this.options.providerLabel, response)
+
+    if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
+      return readCompletionStream(response.body, this.options.requestTimeoutMs)
+    }
+    let payload: unknown
+    try {
+      payload = await response.json()
+    } catch {
+      throw new InvalidTextResponseError(this.options.providerLabel)
+    }
+    const result = completionText(payload)
+    if (!result) throw new InvalidTextResponseError(this.options.providerLabel)
+    return result.trim()
+  }
+
+  private requestCompletion(
+    request: TextGenerationRequest,
+    stream: boolean,
+    includeResponseFormat: boolean,
+  ): Promise<Response> {
     const maxTokens = maxTokenPayload(request.maxOutputTokens, this.options.maxTokensMode ?? 'both')
-    const response = await this.fetcher(`${this.baseUrl}${this.completionsPath}`, {
+    return this.fetcher(`${this.baseUrl}${this.completionsPath}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.options.apiKey}`,
@@ -81,21 +80,13 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
           { role: 'user', content: request.userPrompt },
         ],
         ...maxTokens,
-        stream: true,
+        ...(includeResponseFormat && request.responseFormat === 'json'
+          ? { response_format: { type: 'json_object' } }
+          : {}),
+        stream,
       }),
       signal: AbortSignal.timeout(this.options.requestTimeoutMs),
     })
-    if (!response.ok) throw await textProviderError(this.options.providerLabel, response)
-
-    if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
-      return readCompletionStream(response.body, this.options.requestTimeoutMs)
-    }
-    const parsed = completionSchema.safeParse(await response.json())
-    if (!parsed.success) throw new InvalidTextResponseError(this.options.providerLabel)
-    const content = parsed.data.choices[0]!.message.content
-    const result = typeof content === 'string' ? content.trim() : ''
-    if (!result) throw new InvalidTextResponseError(this.options.providerLabel)
-    return result
   }
 }
 
@@ -123,6 +114,7 @@ async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs:
   const startedAt = Date.now()
   let buffered = ''
   let content = ''
+  let reasoningContent = ''
 
   const consume = (line: string) => {
     if (!line.startsWith('data:')) return
@@ -132,11 +124,11 @@ async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs:
     try {
       value = JSON.parse(payload)
     } catch {
-      throw new InvalidTextResponseError('OpenAI-compatible text provider')
+      return
     }
-    const parsed = streamChunkSchema.safeParse(value)
-    if (!parsed.success) return
-    for (const choice of parsed.data.choices) content += choice.delta.content ?? ''
+    const text = completionParts(value)
+    content += text.content
+    reasoningContent += text.reasoning
   }
 
   const readWithTimeout = async () => {
@@ -172,9 +164,66 @@ async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs:
   }
   buffered += decoder.decode()
   if (buffered) consume(buffered)
-  const result = content.trim()
+  const result = (content || reasoningContent).trim()
   if (!result) throw new InvalidTextResponseError('OpenAI-compatible text provider')
   return result
+}
+
+function completionText(value: unknown): string {
+  const parts = completionParts(value)
+  return parts.content || parts.reasoning
+}
+
+function completionParts(value: unknown): { content: string; reasoning: string } {
+  if (!isRecord(value)) return { content: textFromValue(value), reasoning: '' }
+
+  let content = textFromValue(value.output_text ?? value.text ?? value.content)
+  let reasoning = textFromValue(value.reasoning_content ?? value.reasoning)
+  if (Array.isArray(value.choices)) {
+    for (const choice of value.choices) {
+      if (!isRecord(choice)) continue
+      const delta = isRecord(choice.delta) ? choice.delta : undefined
+      const message = isRecord(choice.message) ? choice.message : undefined
+      content += textFromValue(
+        delta?.content ?? delta?.text ?? message?.content ?? message?.text ?? choice.text ?? choice.content,
+      )
+      reasoning += textFromValue(
+        delta?.reasoning_content ??
+          delta?.reasoning ??
+          message?.reasoning_content ??
+          message?.reasoning ??
+          choice.reasoning_content,
+      )
+    }
+  }
+
+  if (!content && !reasoning) {
+    for (const key of ['data', 'result', 'output', 'response', 'payload']) {
+      if (!(key in value)) continue
+      const nested = completionParts(value[key])
+      content += nested.content
+      reasoning += nested.reasoning
+      if (content || reasoning) break
+    }
+  }
+  return { content, reasoning }
+}
+
+function textFromValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (!Array.isArray(value)) return ''
+  return value
+    .map((part) => {
+      if (typeof part === 'string') return part
+      if (!isRecord(part)) return ''
+      return textFromValue(part.text ?? part.content ?? part.value)
+    })
+    .filter(Boolean)
+    .join('')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function timeoutError(): DOMException {
@@ -204,6 +253,7 @@ async function textProviderError(providerLabel: string, response: Response): Pro
 }
 
 function isRetryable(error: unknown): boolean {
+  if (error instanceof InvalidTextResponseError) return true
   if (error instanceof OpenAIChatHttpError) {
     return error.status === 408 || error.status === 429 || error.status >= 500
   }
