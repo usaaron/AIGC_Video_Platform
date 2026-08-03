@@ -444,6 +444,7 @@ describe('account management api', { timeout: 30_000 }, () => {
         name: 'Alice',
         tenantId: registrationTenantId,
         emailVerified: true,
+        credits: 2_000,
       },
       workspace: { id: registrationTenantId, status: 'active' },
     })

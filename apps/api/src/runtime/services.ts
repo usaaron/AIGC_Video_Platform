@@ -123,9 +123,17 @@ export function createRuntimeFilmPreviewComposer(input: {
   store: AppStore
   objectStorage: ObjectStorage
   providers: RuntimeProviders
+  generationTaskRepository?: GenerationTaskRepository
   filmPreviewComposerOverride?: FilmPreviewDispatcher | null
 }): FilmPreviewDispatcher | null {
-  const { config, store, objectStorage, providers, filmPreviewComposerOverride } = input
+  const {
+    config,
+    store,
+    objectStorage,
+    providers,
+    generationTaskRepository,
+    filmPreviewComposerOverride,
+  } = input
   if (filmPreviewComposerOverride !== undefined) return filmPreviewComposerOverride
   if (!providers.videoProvider) return null
   return new FilmPreviewComposer(
@@ -135,6 +143,9 @@ export function createRuntimeFilmPreviewComposer(input: {
     config.FFMPEG_PATH,
     config.FILM_PREVIEW_TIMEOUT_MS,
     videoProviderName(config),
+    generationTaskRepository
+      ? { onStateChange: () => generationTaskRepository.flushRuntimeCacheToDatabase().then(() => {}) }
+      : {},
   )
 }
 

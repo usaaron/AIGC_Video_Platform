@@ -109,6 +109,7 @@ const filmPreviewComposer =
         config.FFMPEG_PATH,
         config.FILM_PREVIEW_TIMEOUT_MS,
         videoProviderName(config),
+        { onStateChange: () => generationTaskRepository.flushRuntimeCacheToDatabase().then(() => {}) },
       )
     : null
 await filmPreviewComposer?.recoverInterrupted()

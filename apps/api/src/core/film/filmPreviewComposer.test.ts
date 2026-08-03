@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { VideoGenerationProvider } from '../generation/videoProvider.js'
 import { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
-import { FilmPreviewComposer } from './filmPreviewComposer.js'
+import { createFfmpegCompositionArgs, FilmPreviewComposer } from './filmPreviewComposer.js'
 
 describe('FilmPreviewComposer', () => {
   it('downloads shot videos and stores one normalized preview MP4', async () => {
@@ -52,6 +52,7 @@ describe('FilmPreviewComposer', () => {
       }),
     }
     let target: { width: number; height: number } | null = null
+    const onStateChange = vi.fn(async () => {})
     const composer = new FilmPreviewComposer(
       store,
       provider,
@@ -59,10 +60,13 @@ describe('FilmPreviewComposer', () => {
       'ffmpeg',
       60_000,
       'aideos-seedance',
-      async (inputPaths, outputPath, nextTarget) => {
-        expect(inputPaths).toHaveLength(2)
-        target = nextTarget
-        await writeFile(outputPath, Buffer.from('merged-video'))
+      {
+        onStateChange,
+        composeRunner: async (inputPaths, outputPath, nextTarget) => {
+          expect(inputPaths).toHaveLength(2)
+          target = nextTarget
+          await writeFile(outputPath, Buffer.from('merged-video'))
+        },
       },
     )
 
@@ -101,6 +105,7 @@ describe('FilmPreviewComposer', () => {
       },
     })
     expect(stored.get(String(completed.metadata.previewStorageKey))?.toString()).toBe('merged-video')
+    expect(onStateChange).toHaveBeenCalled()
   })
 
   it('marks an interrupted local composition as failed during startup recovery', async () => {
@@ -138,6 +143,25 @@ describe('FilmPreviewComposer', () => {
       leaseHeartbeatAt: null,
       leaseExpiresAt: null,
     })
+  })
+
+  it('keeps audio streams and supplies silence for clips without audio', () => {
+    const args = createFfmpegCompositionArgs(
+      ['shot-1.mp4', 'shot-2.mp4'],
+      'preview.mp4',
+      { width: 1920, height: 1080 },
+      [
+        { duration: 3, hasAudio: true },
+        { duration: 4, hasAudio: false },
+      ],
+    )
+    const filter = args[args.indexOf('-filter_complex') + 1]
+
+    expect(args).not.toContain('-an')
+    expect(args).toContain('anullsrc=r=48000:cl=stereo')
+    expect(args).toContain('[outa]')
+    expect(filter).toContain('concat=n=2:v=1:a=1[outv][outa]')
+    expect(filter).toContain('[2:a]')
   })
 })
 

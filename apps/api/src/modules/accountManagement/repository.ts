@@ -14,6 +14,7 @@ import type { AuditLogInput, AuthAccount } from '../auth/accounts.js'
 
 const defaultPlan: Plan = 'free'
 const defaultCredits = 0
+const registrationWelcomeCredits = 2_000
 
 export type AccountWorkspace = {
   account: AuthAccount
@@ -479,6 +480,7 @@ export class AccountManagementRepository {
   ): Promise<AccountWorkspace> {
     if (!row.email) throw new Error('Invitation email must be claimed before acceptance')
     const userId = input.existingUserId ?? `user-${randomUUID()}`
+    const welcomeCredits = input.existingUserId ? defaultCredits : registrationWelcomeCredits
     if (!input.existingUserId) {
       await client.query(
         `
@@ -538,8 +540,40 @@ export class AccountManagementRepository {
       VALUES ($1, $2, $3, now(), now())
       ON CONFLICT (membership_id) DO NOTHING
       `,
-      [membershipId, defaultPlan, defaultCredits],
+      [membershipId, defaultPlan, welcomeCredits],
     )
+    if (welcomeCredits > 0) {
+      await client.query(
+        `
+        INSERT INTO billing_ledger_entries (
+          id,
+          tenant_id,
+          user_id,
+          membership_id,
+          reference_id,
+          related_entry_id,
+          entry_type,
+          amount,
+          balance,
+          description,
+          created_by_user_id,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, NULL, 'grant', $6, $6, $7, NULL, now(), now())
+        ON CONFLICT (tenant_id, user_id, reference_id) DO NOTHING
+        `,
+        [
+          `ledger-registration-welcome-${randomUUID()}`,
+          row.tenant_id,
+          userId,
+          membershipId,
+          `registration-welcome:${userId}`,
+          welcomeCredits,
+          '申请资格首次赠送',
+        ],
+      )
+    }
     await client.query(
       `
       UPDATE tenant_invitations

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Check, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
@@ -51,6 +51,8 @@ function App() {
   const [tasks, setTasks] = useState([])
   const [billing, setBilling] = useState(null)
   const [providerHealth, setProviderHealth] = useState(null)
+  const [accountOrganizations, setAccountOrganizations] = useState([])
+  const [accountSessions, setAccountSessions] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [loadAttempt, setLoadAttempt] = useState(0)
@@ -69,6 +71,30 @@ function App() {
   const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
   const canOpenAdminAccounts = canOpenAccountAdmin(session)
   const adminConsoleUrl = getAdminConsoleUrl()
+
+  const loadAccountScope = useCallback(async () => {
+    const [organizations, sessions] = await Promise.all([api.organizations(), api.authSessions()])
+    setAccountOrganizations(organizations)
+    setAccountSessions(sessions)
+    return { organizations, sessions }
+  }, [])
+
+  const switchAccountOrganization = useCallback(
+    async (organizationId) => {
+      await api.switchOrganization(organizationId)
+      await refreshSession()
+      setWorkspace(null)
+      setTasks([])
+      setActiveStep('home')
+      setLoadAttempt((attempt) => attempt + 1)
+    },
+    [refreshSession],
+  )
+
+  const revokeAccountSession = useCallback(async (sessionId) => {
+    await api.revokeAuthSession(sessionId)
+    setAccountSessions(await api.authSessions())
+  }, [])
 
   useEffect(() => {
     if (adminOnly) return
@@ -1069,6 +1095,11 @@ function App() {
           canEditProject={session.permissions.includes('project.write')}
           canOpenAdminConsole={canOpenAdminAccounts}
           adminConsoleUrl={adminConsoleUrl}
+          organizations={accountOrganizations}
+          sessions={accountSessions}
+          onLoadAccountScope={loadAccountScope}
+          onSwitchOrganization={switchAccountOrganization}
+          onRevokeSession={revokeAccountSession}
           onSave={updateProject}
           onChangePassword={(input) => api.changePassword(input)}
           onLogout={logout}

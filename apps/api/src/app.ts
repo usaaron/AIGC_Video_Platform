@@ -66,6 +66,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     store,
     objectStorage: storage.objectStorage,
     providers,
+    generationTaskRepository: repositories.generationTaskRepository,
     ...(options.filmPreviewComposer !== undefined
       ? { filmPreviewComposerOverride: options.filmPreviewComposer }
       : {}),
