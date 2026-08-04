@@ -471,7 +471,9 @@ function App() {
     const shotIndex = orderedShots.findIndex((item) => item.id === shot.id)
     const adjacentPreviousShot = shotIndex > 0 ? orderedShots[shotIndex - 1] : null
     const previousShot =
-      adjacentPreviousShot && adjacentPreviousShot.episodeNumber === shot.episodeNumber
+      adjacentPreviousShot &&
+      !shot.episodeBreakBefore &&
+      adjacentPreviousShot.episodeNumber === shot.episodeNumber
         ? adjacentPreviousShot
         : null
     const actualContinuityMode = continuityMode === 'continue' && previousShot ? 'continue' : 'independent'

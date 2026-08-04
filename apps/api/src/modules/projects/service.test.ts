@@ -146,6 +146,19 @@ describe('assignShotEpisodes', () => {
     expect(result.map((shot) => shot.episodeNumber)).toEqual([1, 2])
     expect(result[1]?.episodeBreakBefore).toBe(true)
   })
+
+  it('clears textual continuity on the first shot of every episode', () => {
+    const result = assignShotEpisodes(
+      [
+        { id: 'shot-1', duration: 8, continuityNote: '上一场状态' },
+        { id: 'shot-2', duration: 8, continuityNote: '上一集状态' },
+      ],
+      8,
+    )
+
+    expect(result.map((shot) => shot.continuityMode)).toEqual(['independent', 'independent'])
+    expect(result.map((shot) => shot.continuityNote)).toEqual(['', ''])
+  })
 })
 
 describe('splitScriptParagraphs', () => {

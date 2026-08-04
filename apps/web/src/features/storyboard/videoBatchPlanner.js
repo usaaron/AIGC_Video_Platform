@@ -100,6 +100,7 @@ function continuitySegments(shots) {
 
 function startsEpisode(shot, previousShot) {
   if (!previousShot) return true
+  if (shot?.episodeBreakBefore) return true
   return (
     Number.isInteger(shot?.episodeNumber) &&
     Number.isInteger(previousShot?.episodeNumber) &&

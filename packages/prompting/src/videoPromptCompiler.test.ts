@@ -74,6 +74,21 @@ describe('compileStoryboardVideoPrompt', () => {
     expect(prompt).toContain('【场景衔接上下文】上一场人物右手握住门把手')
   })
 
+  it('does not leak continuity text into an independent shot', () => {
+    const prompt = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '9:16' },
+      shot: {
+        ...shot('episode-2-shot-1', '新一集：岚星走入观景桥。'),
+        continuityNote: '上一集结尾：岚星被守卫按倒在地，导航环掉入积水。',
+      },
+      continuityMode: 'independent',
+    })
+
+    expect(prompt).toContain('【独立镜头】')
+    expect(prompt).not.toContain('上一集结尾')
+    expect(prompt).not.toContain('【场景衔接上下文】')
+  })
+
   it('keeps one executable primary action and bounds a production prompt', () => {
     const prompt = compileStoryboardVideoPrompt({
       project: { aspectRatio: '9:16', script: '很长的剧本'.repeat(1_000) },

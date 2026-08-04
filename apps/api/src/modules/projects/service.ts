@@ -428,12 +428,13 @@ export class ProjectService {
     const assigned = assignShotEpisodes(workspace.shots, input.episodeDurationSeconds)
     const updated = await this.repository.updateShotEpisodes(
       projectId,
-      assigned.map(({ id, episodeNumber, episodeTitle, episodeKind, continuityMode }) => ({
+      assigned.map(({ id, episodeNumber, episodeTitle, episodeKind, continuityMode, continuityNote }) => ({
         id,
         episodeNumber,
         episodeTitle,
         episodeKind,
         continuityMode,
+        continuityNote: continuityNote ?? '',
       })),
       principal,
     )
@@ -448,6 +449,7 @@ export function assignShotEpisodes<
     episodeKind?: 'standard' | 'hook'
     episodeBreakBefore?: boolean
     continuityMode?: 'independent' | 'continue'
+    continuityNote?: string
   },
 >(
   shots: T[],
@@ -485,6 +487,8 @@ export function assignShotEpisodes<
       episodeKind: isHook ? ('hook' as const) : ('standard' as const),
       // Episodes are separate production units and never inherit a prior episode's tail frame.
       continuityMode: isFirstShotInEpisode ? ('independent' as const) : (input.continuityMode ?? 'continue'),
+      // Do not leave the previous episode's textual handoff attached to its first shot.
+      continuityNote: isFirstShotInEpisode ? '' : input.continuityNote,
     }
   })
 }

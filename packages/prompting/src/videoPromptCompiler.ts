@@ -65,10 +65,12 @@ export function compileStoryboardVideoPrompt(input: {
   return [
     `生成一段连续${duration}秒、${project.aspectRatio}画幅的${visualStyleLabel(project.visualStyle)}电影叙事视频。`,
     `【当前镜头】${shot.title || '未命名镜头'}，${shot.framing || '中景'}。${sentence(focusedPrompt)}`,
-    shot.continuityNote ? `【场景衔接上下文】${sentence(shot.continuityNote)}` : '',
+    continuityMode === 'continue' && shot.continuityNote
+      ? `【场景衔接上下文】${sentence(shot.continuityNote)}`
+      : '',
     continuityMode === 'continue'
       ? '【镜头衔接】严格承接上一镜头尾帧，人物身份、动作方向、视线、空间位置、光线和服装保持连续，首帧不要跳变。'
-      : '',
+      : '【独立镜头】本镜不读取、不复述上一镜或上一集的剧情、动作和状态；只依据当前镜头提示词与当前资产完成本镜。',
     identityRules ? `【资产一致性】${identityRules}。严格沿用输入参考图，不得更换人物或重设计资产。` : '',
     `【动作执行】本镜只完成一个主动作，不追加第二个剧情动作。${subjectMotion}`,
     `【群像表演】${actorPerformance}`,
