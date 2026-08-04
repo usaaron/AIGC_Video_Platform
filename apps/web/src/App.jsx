@@ -1031,7 +1031,7 @@ function App() {
           onEdit={() => navigateTo('storyboard')}
           onComposePreview={async (mode = 'full', episodeNumber = null) => {
             try {
-              const task = await api.createFilmPreview(project.id, mode, false, episodeNumber)
+              const task = await api.createFilmPreview(project.id, mode, true, episodeNumber)
               setTasks(await api.tasks(project.id))
               const target = mode === 'partial' ? '已完成片段' : '完整预览'
               setToast(task.status === 'completed' ? `${target}已是最新版本` : `${target}正在后台合成`)
