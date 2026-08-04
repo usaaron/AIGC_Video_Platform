@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Check, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
+import { BrandMark } from './components/BrandMark'
 import { IconButton } from './components/ui'
 import { useAuth } from './components/AuthProvider'
 import { canOpenAccountAdmin, getAdminConsoleUrl } from './features/account/access'
@@ -9,7 +10,6 @@ import { api } from './services/apiClient'
 import {
   selectShotAssetReferences,
   selectVideoReferenceImages,
-  taskUsesAssetReferences,
 } from './features/storyboard/referenceSelector'
 import {
   activeVideoTasksForShots,
@@ -22,6 +22,7 @@ import {
   VIDEO_PROMPT_VERSION,
 } from '@seqora/prompting'
 import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
+import { FUNCTION_STACK_IDS, FUNCTION_STACK_ITEMS } from './features/functionStack/config'
 import { compileCharacterStagePrompt } from './features/assets/promptCompiler'
 
 const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
@@ -39,6 +40,7 @@ const FilmPage = lazyNamed(() => import('./pages/FilmPage'), 'FilmPage')
 const GenerationPage = lazyNamed(() => import('./pages/GenerationPage'), 'GenerationPage')
 const OverviewPage = lazyNamed(() => import('./pages/OverviewPage'), 'OverviewPage')
 const ProjectHomePage = lazyNamed(() => import('./pages/ProjectHomePage'), 'ProjectHomePage')
+const FunctionStackPage = lazyNamed(() => import('./pages/FunctionStackPage'), 'FunctionStackPage')
 const ScriptPage = lazyNamed(() => import('./pages/ScriptPage'), 'ScriptPage')
 const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage')
 const StoryboardPage = lazyNamed(() => import('./pages/StoryboardPage'), 'StoryboardPage')
@@ -73,9 +75,22 @@ function App() {
   const adminConsoleUrl = getAdminConsoleUrl()
 
   const loadAccountScope = useCallback(async () => {
-    const [organizations, sessions] = await Promise.all([api.organizations(), api.authSessions()])
+    const [organizationsResult, sessionsResult] = await Promise.allSettled([
+      api.organizations(),
+      api.authSessions(),
+    ])
+    const organizations = organizationsResult.status === 'fulfilled' ? organizationsResult.value : []
+    const sessions = sessionsResult.status === 'fulfilled' ? sessionsResult.value : []
     setAccountOrganizations(organizations)
     setAccountSessions(sessions)
+
+    const failedSections = [
+      organizationsResult.status === 'rejected' ? '创作组织' : null,
+      sessionsResult.status === 'rejected' ? '登录设备' : null,
+    ].filter(Boolean)
+    if (failedSections.length) {
+      throw new Error(`${failedSections.join('、')}暂时无法同步，请稍后刷新。`)
+    }
     return { organizations, sessions }
   }, [])
 
@@ -94,6 +109,13 @@ function App() {
   const revokeAccountSession = useCallback(async (sessionId) => {
     await api.revokeAuthSession(sessionId)
     setAccountSessions(await api.authSessions())
+  }, [])
+
+  const inviteOrganizationMember = useCallback(async (organizationId, email) => {
+    return await api.createOrganizationInvitation(organizationId, {
+      email,
+      roles: ['organization_member'],
+    })
   }, [])
 
   useEffect(() => {
@@ -433,56 +455,6 @@ function App() {
     }
   }
 
-  const updateProject = async (input, message = '项目已保存') => {
-    try {
-      await api.updateProject(project.id, input)
-      await refreshWorkspace()
-      setToast(message)
-    } catch (error) {
-      setToast(error.message)
-    }
-  }
-
-  const createStoryboardImage = (shot) => {
-    const references = selectShotAssetReferences(workspace.assets, shot)
-    const generationReferences = [
-      ...(shot.imageUrl
-        ? [
-            {
-              id: `shot-reference-${shot.id}`,
-              url: shot.imageUrl,
-              name: `${shot.title}-reference.png`,
-              assetName: '镜头参考图',
-              assetKind: 'shot-reference',
-            },
-          ]
-        : []),
-      ...references,
-    ].slice(0, 4)
-    const referencePrompt = references.length
-      ? `参考项目资产：${references.map((reference) => reference.assetName).join('、')}，严格保持人物身份、服装、场景和关键物品一致`
-      : ''
-    return createJob(`分镜图 ${String(shot.order).padStart(2, '0')} · ${shot.title}`, '图片', 6, {
-      prompt: [
-        shot.prompt,
-        shot.continuityNote ? `场景衔接：${shot.continuityNote}` : '',
-        shot.framing,
-        referencePrompt,
-        '电影分镜静帧，构图清晰，保持项目视觉风格一致',
-      ]
-        .filter(Boolean)
-        .join('，'),
-      negativePrompt: shot.negativePrompt,
-      metadata: {
-        shotId: shot.id,
-        generationStage: 'storyboard',
-        aspectRatio: project.aspectRatio,
-        references: generationReferences,
-        referenceAssetIds: references.map((reference) => reference.id),
-      },
-    })
-  }
-
   const createStoryboardVideo = async (
     shot,
     {
@@ -497,9 +469,14 @@ function App() {
     const references = selectShotAssetReferences(workspace.assets, shot)
     const orderedShots = [...workspace.shots].sort((left, right) => left.order - right.order)
     const shotIndex = orderedShots.findIndex((item) => item.id === shot.id)
-    const previousShot = shotIndex > 0 ? orderedShots[shotIndex - 1] : null
-    let sourceTask = continuitySourceTask
-    if (continuityMode === 'continue' && previousShot && !sourceTask) {
+    const adjacentPreviousShot = shotIndex > 0 ? orderedShots[shotIndex - 1] : null
+    const previousShot =
+      adjacentPreviousShot && adjacentPreviousShot.episodeNumber === shot.episodeNumber
+        ? adjacentPreviousShot
+        : null
+    const actualContinuityMode = continuityMode === 'continue' && previousShot ? 'continue' : 'independent'
+    let sourceTask = actualContinuityMode === 'continue' ? continuitySourceTask : null
+    if (actualContinuityMode === 'continue' && previousShot && !sourceTask) {
       sourceTask = latestVideoTaskFor(tasks, previousShot, true)
       if (!sourceTask && !chain.includes(previousShot.id)) {
         sourceTask = await createStoryboardVideo(previousShot, {
@@ -518,23 +495,9 @@ function App() {
       setToast('上一镜头虽已完成，但尾帧提取失败；请重新生成上一镜头后再继续')
       return null
     }
-    const imageTasks = tasks.filter(
-      (task) =>
-        task.kind === 'image' &&
-        task.metadata?.shotId === shot.id &&
-        task.status !== 'failed' &&
-        task.status !== 'cancelled',
-    )
-    const existingImageTask =
-      imageTasks.find((task) => task.id === shot.selectedImageTaskId) || imageTasks[0] || null
-    const manualImageUrl =
+    const manualReferenceUrl =
       shot.imageUrl && !shot.imageUrl.startsWith('/api/v1/generation/tasks/') ? shot.imageUrl : null
-    const currentImageTask = taskUsesAssetReferences(existingImageTask, references) ? existingImageTask : null
-    const completedImageTask = currentImageTask?.status === 'completed' ? currentImageTask : null
-    const completedImageUrl =
-      manualImageUrl || (completedImageTask ? completedImageTask.resultUrl || shot.imageUrl : null)
-    const storyboardImageUrl = completedImageUrl
-    const images = selectVideoReferenceImages(storyboardImageUrl, references)
+    const images = selectVideoReferenceImages(manualReferenceUrl, references)
     const selectedResolution = videoResolutions.has(resolution) ? resolution : '720p'
     const videoPrompt = compileStoryboardVideoPrompt({
       project,
@@ -542,7 +505,7 @@ function App() {
       shots: workspace.shots,
       assets: workspace.assets,
       references,
-      continuityMode,
+      continuityMode: actualContinuityMode,
     })
     const dependencyIds = [sourceTask && sourceTask.status !== 'completed' ? sourceTask.id : null].filter(
       Boolean,
@@ -560,14 +523,14 @@ function App() {
         generateAudio: true,
         watermark: false,
         returnLastFrame: true,
-        continuityMode,
+        continuityMode: actualContinuityMode,
         ...(sourceTask ? { continuitySourceTaskId: sourceTask.id } : {}),
-        ...(storyboardImageUrl ? { storyboardImageUrl } : {}),
+        ...(manualReferenceUrl ? { manualReferenceUrl } : {}),
         images,
         videoInputMode: sourceTask
-          ? 'continuity-first-frame'
-          : storyboardImageUrl
-            ? 'storyboard-and-assets'
+          ? 'continuity-and-assets'
+          : manualReferenceUrl
+            ? 'manual-reference-and-assets'
             : references.length
               ? 'assets'
               : 'text',
@@ -619,6 +582,9 @@ function App() {
           }}
         />
       )
+    }
+    if (FUNCTION_STACK_IDS.has(activeStep)) {
+      return <FunctionStackPage tool={activeStep} />
     }
     if (!project) {
       return (
@@ -933,7 +899,6 @@ function App() {
             setToast('分镜已更新')
           }}
           onUpload={(file) => api.uploadMedia(project.id, file)}
-          onGenerateImage={createStoryboardImage}
           onGenerateVideo={createStoryboardVideo}
           onGenerateAllVideos={async (shotsToGenerate, resolution, mode = 'parallel') => {
             const activeTasks = activeVideoTasksForShots(tasks, shotsToGenerate)
@@ -1089,10 +1054,9 @@ function App() {
       ),
       settings: (
         <SettingsPage
-          key={project.id}
-          project={project}
+          key={session.account.id}
           account={session.account}
-          canEditProject={session.permissions.includes('project.write')}
+          billing={billing}
           canOpenAdminConsole={canOpenAdminAccounts}
           adminConsoleUrl={adminConsoleUrl}
           organizations={accountOrganizations}
@@ -1100,8 +1064,10 @@ function App() {
           onLoadAccountScope={loadAccountScope}
           onSwitchOrganization={switchAccountOrganization}
           onRevokeSession={revokeAccountSession}
-          onSave={updateProject}
+          onInviteOrganizationMember={inviteOrganizationMember}
+          onOpenBilling={() => navigateTo('billing')}
           onChangePassword={(input) => api.changePassword(input)}
+          onRequestEmailVerification={() => api.requestEmailVerification({ email: session.account.email })}
           onLogout={logout}
         />
       ),
@@ -1110,11 +1076,12 @@ function App() {
   }
 
   const runningJobs = tasks.filter((task) => task.status === 'running')
+  const activeFunction = FUNCTION_STACK_ITEMS.find((item) => item.id === activeStep)
 
   return (
     <div className="app-shell">
       <AppHeader
-        projectName={activeStep === 'home' ? '项目库' : project?.name || '选择项目'}
+        projectName={activeStep === 'home' ? '项目库' : activeFunction?.title || project?.name || '选择项目'}
         billing={billing}
         account={session.account}
         runningJobs={runningJobs}
@@ -1198,8 +1165,11 @@ function lazyNamed(loader, exportName) {
 function WorkspaceLoading({ fullPage = false }) {
   return (
     <div className={fullPage ? 'app-loading' : 'workspace-loading'}>
-      <LoaderCircle size={22} className="spin" />
-      <p>正在加载页面…</p>
+      <BrandMark size={20} spin />
+      <div>
+        <strong>正在打开工作台</strong>
+        <p>同步页面与项目数据...</p>
+      </div>
     </div>
   )
 }

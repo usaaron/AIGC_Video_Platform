@@ -614,15 +614,15 @@ export class AccountManagementService {
 
     await this.mailer.send({
       to: email,
-      subject: '序幕注册验证码',
+      subject: '序幕TV 注册验证码',
       text: [
-        `你的序幕注册验证码是：${code}`,
+        `你的序幕TV 注册验证码是：${code}`,
         '',
         `验证码将在 ${Math.floor(registrationCodeLifetimeSeconds / 60)} 分钟后失效。`,
         '如果不是你本人操作，请忽略这封邮件。',
       ].join('\n'),
       html: [
-        '<p>你的序幕注册验证码是：</p>',
+        '<p>你的序幕TV 注册验证码是：</p>',
         `<p style="font-size:24px;font-weight:700;letter-spacing:6px">${code}</p>`,
         `<p>验证码将在 ${Math.floor(registrationCodeLifetimeSeconds / 60)} 分钟后失效。</p>`,
         '<p>如果不是你本人操作，请忽略这封邮件。</p>',

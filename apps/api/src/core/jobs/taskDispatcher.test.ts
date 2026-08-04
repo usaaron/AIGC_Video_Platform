@@ -866,16 +866,12 @@ describe('GenerationTaskRunner Seedance integration', () => {
     await store.mutate((state) => state.tasks.unshift(linkedTask))
     await runner.tick()
 
-    expect(provider.submit).toHaveBeenCalledWith(
+    expect(provider.submit).toHaveBeenLastCalledWith(
       expect.objectContaining({
         images: [
           {
             role: 'first_frame',
             url: `data:image/jpeg;base64,${Buffer.from('tail-frame').toString('base64')}`,
-          },
-          {
-            role: 'last_frame',
-            url: `data:image/png;base64,${Buffer.from('target-frame').toString('base64')}`,
           },
         ],
       }),

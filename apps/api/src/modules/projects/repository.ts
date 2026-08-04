@@ -858,7 +858,7 @@ export class ProjectRepository {
 
   async updateShotEpisodes(
     projectId: string,
-    updates: Array<Pick<Shot, 'id' | 'episodeNumber' | 'episodeTitle' | 'episodeKind'>>,
+    updates: Array<Pick<Shot, 'id' | 'episodeNumber' | 'episodeTitle' | 'episodeKind' | 'continuityMode'>>,
     principal: Principal,
   ): Promise<Shot[] | null> {
     if (!this.database) {
@@ -875,7 +875,7 @@ export class ProjectRepository {
         await client.query(
           `
           UPDATE shots
-          SET episode_number = $4, episode_title = $5, episode_kind = $6, updated_at = $7
+          SET episode_number = $4, episode_title = $5, episode_kind = $6, continuity_mode = $7, updated_at = $8
           WHERE id = $1 AND project_id = $2 AND tenant_id = $3
           `,
           [
@@ -885,6 +885,7 @@ export class ProjectRepository {
             update.episodeNumber,
             update.episodeTitle,
             update.episodeKind,
+            update.continuityMode,
             now,
           ],
         )
@@ -1120,7 +1121,7 @@ export class ProjectRepository {
 
   private async updateShotEpisodesInStore(
     projectId: string,
-    updates: Array<Pick<Shot, 'id' | 'episodeNumber' | 'episodeTitle' | 'episodeKind'>>,
+    updates: Array<Pick<Shot, 'id' | 'episodeNumber' | 'episodeTitle' | 'episodeKind' | 'continuityMode'>>,
     principal: Principal,
   ): Promise<Shot[] | null> {
     return this.store.mutate((state) => {
@@ -1137,6 +1138,7 @@ export class ProjectRepository {
         shot.episodeNumber = update.episodeNumber
         shot.episodeTitle = update.episodeTitle
         shot.episodeKind = update.episodeKind
+        shot.continuityMode = update.continuityMode
         shot.updatedAt = now
       }
       project.updatedAt = now

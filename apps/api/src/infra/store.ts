@@ -18,7 +18,7 @@ import type {
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, open as openFile, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, open as openFile, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { hashPassword } from '../core/auth/password.js'
 import { normalizeAiJobLifecycle } from '../core/jobs/aiJobLease.js'
@@ -433,7 +433,10 @@ async function removeStaleLock(lockPath: string): Promise<void> {
   } catch {
     createdAt = Number.NaN
   }
-  if (Number.isFinite(createdAt) && Date.now() - createdAt > 120_000) {
+  const modifiedAt = Number.isFinite(createdAt)
+    ? createdAt
+    : ((await stat(lockPath).catch(() => null))?.mtimeMs ?? Number.NaN)
+  if (Number.isFinite(modifiedAt) && Date.now() - modifiedAt > 120_000) {
     await rm(lockPath, { force: true }).catch(() => {})
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AppStore } from './store.js'
@@ -145,6 +145,27 @@ describe('AppStore mutation queue', () => {
           synopsis: state.projects[0]!.synopsis,
         })),
       ).toEqual({ name: 'api-write', synopsis: 'worker-write' })
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('recovers an old malformed file lock left by an interrupted process', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'seqora-store-'))
+    const filePath = join(directory, 'app.json')
+    const lockPath = `${filePath}.lock`
+    try {
+      const store = new AppStore(filePath)
+      await store.initialize()
+      await writeFile(lockPath, '', 'utf8')
+      const staleTime = new Date(Date.now() - 180_000)
+      await utimes(lockPath, staleTime, staleTime)
+
+      await store.mutate((state) => {
+        state.projects[0]!.name = 'recovered-after-stale-lock'
+      })
+
+      expect(store.read((state) => state.projects[0]!.name)).toBe('recovered-after-stale-lock')
     } finally {
       await rm(directory, { recursive: true, force: true })
     }

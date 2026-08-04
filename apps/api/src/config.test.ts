@@ -57,6 +57,25 @@ describe('production configuration', () => {
     ).toThrow('REDIS_URL is required when TASK_QUEUE_DRIVER=bullmq')
   })
 
+  it('normalizes explicitly disabled local service URLs', () => {
+    expect(
+      loadConfig({
+        DATABASE_URL: ' ',
+        REDIS_URL: ' ',
+        TASK_QUEUE_DRIVER: 'inline',
+      }),
+    ).toMatchObject({ DATABASE_URL: '', REDIS_URL: '', TASK_QUEUE_DRIVER: 'inline' })
+  })
+
+  it('uses the explicit JSON store when Windows drops an empty database URL', () => {
+    expect(
+      loadConfig({
+        DATA_FILE: 'C:/seqora/data/app.json',
+        TASK_QUEUE_DRIVER: 'inline',
+      }).DATABASE_URL,
+    ).toBe('')
+  })
+
   it('requires an explicit Redis URL for the production BullMQ queue', () => {
     expect(() =>
       loadConfig({

@@ -10,9 +10,11 @@ import {
   Crown,
   FolderKanban,
   FolderOpen,
+  ImagePlus,
   Layers3,
   LayoutDashboard,
   Menu,
+  MessageSquareText,
   PackageOpen,
   RefreshCw,
   Settings,
@@ -24,6 +26,7 @@ import {
 } from 'lucide-react'
 import { BrandMark } from './BrandMark'
 import { IconButton, StatusDot } from './ui'
+import { FUNCTION_STACK_ITEMS } from '../features/functionStack/config'
 
 const STEPS = [
   { id: 'overview', label: '项目概览', icon: LayoutDashboard },
@@ -33,6 +36,12 @@ const STEPS = [
   { id: 'generate', label: '生成队列', icon: WandSparkles },
   { id: 'film', label: '成片', icon: Clapperboard },
 ]
+
+const FUNCTION_STACK_ICONS = {
+  'agent-studio': MessageSquareText,
+  'image-studio': ImagePlus,
+  'writing-studio': BookOpenText,
+}
 
 export function AppHeader({
   projectName,
@@ -61,7 +70,7 @@ export function AppHeader({
         </button>
         <BrandMark />
         <div className="brand-name">
-          序幕 <span>SEQORA</span>
+          序幕<span>TV</span>
         </div>
       </div>
       <button className="project-switcher" onClick={onProjectClick}>
@@ -193,8 +202,30 @@ export function AppSidebar({
         <FolderOpen size={17} />
         <span>项目库</span>
       </button>
+      <div className="sidebar-group-heading">
+        <span>功能栈</span>
+        <small>03</small>
+      </div>
+      <nav className="sidebar-tool-nav" aria-label="功能栈">
+        {FUNCTION_STACK_ITEMS.map((item) => {
+          const Icon = FUNCTION_STACK_ICONS[item.id]
+          return (
+            <button
+              key={item.id}
+              className={`sidebar-tool-item ${activeStep === item.id ? 'active' : ''}`}
+              onClick={() => onNavigate(item.id)}
+            >
+              <span className="sidebar-tool-icon">
+                <Icon size={15} />
+              </span>
+              <span>{item.label}</span>
+              <small>开发中</small>
+            </button>
+          )
+        })}
+      </nav>
       <div className="sidebar-label">创作流程</div>
-      <nav>
+      <nav className="sidebar-flow-nav" aria-label="创作流程">
         {STEPS.map((step, index) => {
           const Icon = step.icon
           return (

@@ -39,21 +39,39 @@ export function EmailVerificationPendingPage({ account, onRefresh, onLogout }) {
   return (
     <main className="login-page auth-result-page">
       <section className="login-scene" aria-label="等待邮箱验证">
-        <img src="/demo/station.jpg" alt="城市街道" />
+        <img src="/demo/room.jpg" alt="暖光中的电影创作空间" />
         <div className="login-scene-overlay" />
+        <div className="login-scene-frame" aria-hidden="true">
+          <span>02</span>
+          <span>ACCOUNT / SECURITY</span>
+        </div>
+        <div className="login-scanline" aria-hidden="true" />
         <div className="login-brand">
           <span>
             <MailCheck size={20} />
           </span>
-          序幕 <small>SEQORA</small>
+          <div>
+            <strong>序幕TV</strong>
+            <small>序幕TV创作工作台</small>
+          </div>
         </div>
         <div className="login-story">
           <span>账号安全</span>
           <h1>最后一步，验证你的邮箱。</h1>
           <p>完成邮箱验证后，项目库、积分和生成工作流会立即开放。</p>
         </div>
+        <div className="login-scene-footer" aria-hidden="true">
+          <span>SECURE FRAME</span>
+          <i />
+          <span>序幕TV</span>
+        </div>
       </section>
       <section className="login-panel">
+        <div className="login-panel-meta" aria-hidden="true">
+          <span>序幕TV</span>
+          <i />
+          <span>EMAIL VERIFICATION</span>
+        </div>
         <div className="login-form auth-result verification-pending">
           <span className="auth-result-icon warning">
             <MailCheck size={28} />

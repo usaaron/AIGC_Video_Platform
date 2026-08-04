@@ -1,9 +1,24 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { authErrorMessage, registrationEntryFromSearch } from './LoginPage'
+import { AuthProvider } from '../components/AuthProvider'
+import { EmailVerificationPage } from './EmailVerificationPage'
+import { authErrorMessage, LoginPage, registrationEntryFromSearch } from './LoginPage'
 import { RequiredPasswordChangePage } from './RequiredPasswordChangePage'
 
 describe('login guidance', () => {
+  it('renders the 序幕TV brand and launch slogan', () => {
+    const html = renderToStaticMarkup(
+      <AuthProvider>
+        <LoginPage />
+      </AuthProvider>,
+    )
+
+    expect(html).toContain('序幕TV')
+    expect(html).toContain('序幕起，')
+    expect(html).toContain('好戏生。')
+    expect(html).toContain('/demo/room.jpg')
+  })
+
   it('opens invitation links in registration mode with the token prefilled', () => {
     const token = 'invite-token-'.padEnd(32, '1')
 
@@ -51,5 +66,14 @@ describe('login guidance', () => {
     expect(html).toContain('修改临时密码')
     expect(html).toContain('member5@seqora.local')
     expect(html).toContain('必须完成此步骤')
+  })
+
+  it('keeps email verification in the shared branded shell with a neutral loading state', () => {
+    const html = renderToStaticMarkup(<EmailVerificationPage />)
+
+    expect(html).toContain('序幕TV')
+    expect(html).toContain('/demo/room.jpg')
+    expect(html).toContain('auth-result-icon checking')
+    expect(html).not.toContain('auth-result-icon error')
   })
 })

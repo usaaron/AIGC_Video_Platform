@@ -281,20 +281,25 @@ export class GenerationTaskRepository {
         .filter((shot) => shot.projectId === projectId && shot.tenantId === principal.tenantId)
         .filter((shot) => episodeNumber === null || shot.episodeNumber === episodeNumber)
         .sort((left, right) => left.order - right.order)
+      const completedVideoTasks = state.tasks.filter(
+        (task) =>
+          task.projectId === projectId &&
+          task.tenantId === principal.tenantId &&
+          task.kind === 'video' &&
+          task.provider === 'seedance' &&
+          task.status === 'completed' &&
+          typeof task.metadata.providerTaskId === 'string',
+      )
       const sources = shots.map((shot) => {
-        const completedTasks = state.tasks.filter(
-          (task) =>
-            task.projectId === projectId &&
-            task.tenantId === principal.tenantId &&
-            task.kind === 'video' &&
-            task.provider === 'seedance' &&
-            task.status === 'completed' &&
-            task.metadata.shotId === shot.id &&
-            typeof task.metadata.providerTaskId === 'string',
-        )
+        const selectedTask = shot.selectedVideoTaskId
+          ? completedVideoTasks.find((task) => task.id === shot.selectedVideoTaskId)
+          : undefined
+        const completedTasks = completedVideoTasks.filter((task) => task.metadata.shotId === shot.id)
         return {
           shot,
-          task: completedTasks.find((task) => task.id === shot.selectedVideoTaskId) ?? completedTasks[0],
+          // A retained version can belong to the prior shot ID after a user re-splits a script.
+          // It remains safe to compose because it is still scoped to this project and tenant.
+          task: selectedTask ?? completedTasks[0],
         }
       })
       return { project, shots, sources }

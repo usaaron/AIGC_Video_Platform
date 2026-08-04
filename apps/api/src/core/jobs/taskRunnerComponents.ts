@@ -679,7 +679,7 @@ export class VideoTaskExecutor {
   private async resolveVideoImages(task: GenerationTask): Promise<VideoGenerationRequest['images']> {
     const images: VideoGenerationRequest['images'] = []
     const continuitySourceTaskId = stringValue(task.metadata.continuitySourceTaskId, '')
-    const storyboardImageUrl = stringValue(task.metadata.storyboardImageUrl, '')
+    const legacyStoryboardImageUrl = stringValue(task.metadata.storyboardImageUrl, '')
     if (continuitySourceTaskId) {
       if (!this.options.objectStorage) throw new Error('连续镜头需要对象存储读取上一镜头尾帧')
       const sourceTask = this.store.read(
@@ -706,6 +706,9 @@ export class VideoTaskExecutor {
     if (!Array.isArray(task.metadata.images)) return images
     for (const value of task.metadata.images.slice(0, Math.max(0, 9 - images.length))) {
       if (typeof value !== 'string') continue
+      // Static storyboard frames are a legacy pre-video path. New videos rely on
+      // asset references and the preceding real video tail frame instead.
+      if (legacyStoryboardImageUrl && value === legacyStoryboardImageUrl) continue
       if (/^asset:\/\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) {
         images.push({ url: value, role: 'reference_image' })
         continue
@@ -720,7 +723,7 @@ export class VideoTaskExecutor {
       const content = await this.options.objectStorage.get(stored.storageKey)
       images.push({
         url: `data:${stored.contentType};base64,${content.toString('base64')}`,
-        role: continuitySourceTaskId && value === storyboardImageUrl ? 'last_frame' : 'reference_image',
+        role: 'reference_image',
       })
     }
     return images

@@ -52,6 +52,35 @@ describe('ProjectService script billing', () => {
   })
 })
 
+describe('ProjectService director beat splitting', () => {
+  it('keeps labelled action details together and carries scene state into two executable shots', async () => {
+    const script =
+      '场次：S01｜剧情：岚星确认观景桥上的异常坐标。｜目标：岚星确认异常来源。｜阻力：巡逻守卫正在接近。｜变化：坐标指向她腕上的导航环。｜场景：黎明前的天穹环城观景桥。｜角色：岚星（主角，左侧护栏旁）；巡逻守卫（配角，右侧桥廊）。｜入场状态：岚星停在左侧护栏旁，右手压住导航环；守卫在右侧桥廊远处。｜动作：动作1：岚星抬眼看向异常光点，右手收紧导航环，表情从警觉转为错愕；动作2：她侧身贴近护栏，手指划过导航环投出坐标，守卫同时停步转头。｜对白：[内心独白]岚星：坐标为什么在我身上？｜出场状态：岚星半蹲贴在护栏内侧，导航环投出悬浮坐标；守卫停在右侧桥廊。｜风格：影视CG。｜构图：竖屏中景。｜光影：银蓝晨光。｜运镜：稳定推进。｜衔接：本场结尾交付悬浮坐标和守卫转头状态。'
+    const repository = {
+      workspace: vi.fn(async () => ({ project: { contentType: 'short-drama', script }, assets: [] })),
+      replaceShots: vi.fn(async (_projectId, shots) => shots),
+    } as unknown as ProjectRepository
+    const service = new ProjectService(repository)
+
+    const shots = await service.generateShots(
+      'project-1',
+      { mode: 'beat', maxShots: 2, episodeDurationSeconds: 60 },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(shots).toHaveLength(2)
+    expect(shots.map((shot) => shot.duration)).toEqual([4, 5])
+    expect(shots[0]).toMatchObject({
+      prompt: expect.stringContaining('目标：岚星确认异常来源'),
+    })
+    expect(shots[0]?.prompt).toContain('入场状态：岚星停在左侧护栏旁')
+    expect(shots[0]?.prompt).not.toContain('出场状态：岚星半蹲')
+    expect(shots[1]?.prompt).toContain('出场状态：岚星半蹲贴在护栏内侧')
+    expect(shots[1]?.continuityNote).toContain('本镜所在场次的最终出场状态')
+    expect(shots[1]?.prompt).toContain('动作2：她侧身贴近护栏，手指划过导航环投出坐标')
+  })
+})
+
 describe('assignShotEpisodes', () => {
   it('keeps shots whole while assigning target-duration episodes', () => {
     const result = assignShotEpisodes(
@@ -65,6 +94,12 @@ describe('assignShotEpisodes', () => {
     )
 
     expect(result.map((shot) => shot.episodeNumber)).toEqual([1, 1, 2, 2])
+    expect(result.map((shot) => shot.continuityMode)).toEqual([
+      'independent',
+      'continue',
+      'independent',
+      'continue',
+    ])
     expect(result.map((shot) => shot.id)).toEqual(['shot-1', 'shot-2', 'shot-3', 'shot-4'])
   })
 
@@ -96,6 +131,7 @@ describe('assignShotEpisodes', () => {
     )
 
     expect(result.map((shot) => shot.episodeNumber)).toEqual([1, 1, 2])
+    expect(result.map((shot) => shot.continuityMode)).toEqual(['independent', 'continue', 'independent'])
   })
 
   it('prioritizes an explicit episode break over duration grouping', () => {

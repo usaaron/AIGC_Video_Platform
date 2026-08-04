@@ -623,10 +623,10 @@ pnpm dev:web
 
 本地 Seed 账号：
 
-| 身份   | 邮箱                   | 密码          |
-| ------ | ---------------------- | ------------- |
-| 创作者 | `creator@seqora.local` | `Creator123!` |
-| 管理员 | `admin@seqora.local`   | `Admin123!`   |
+| 身份   | 邮箱                  | 密码                 |
+| ------ | --------------------- | -------------------- |
+| 创作者 | `member@seqora.local` | `MemberPassword123!` |
+| 管理员 | `admin@seqora.local`  | `Admin123!`          |
 
 密码使用 scrypt 哈希保存，会话使用签名 HttpOnly Cookie。`BOOTSTRAP_*` 只在 `DATA_FILE` 不存在时读取，已有数据不会因环境变量变化而改密码。生产环境必须替换本地默认账号和 `AUTH_SECRET`。
 

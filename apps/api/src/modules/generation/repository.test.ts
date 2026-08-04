@@ -1,4 +1,4 @@
-import type { CreateGenerationTask, Principal } from '@seqora/contracts'
+import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/contracts'
 import { describe, expect, it } from 'vitest'
 import { AppStore } from '../../infra/store.js'
 import { GenerationTaskRepository } from './repository.js'
@@ -10,6 +10,46 @@ const memberPrincipal: Principal = {
 }
 
 describe('GenerationTaskRepository charged creation', () => {
+  it('keeps a selected completed video after the shot has been regenerated', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new GenerationTaskRepository(store)
+    const now = new Date().toISOString()
+    const retainedTask: GenerationTask = {
+      id: 'retained-shot-version',
+      clientRequestId: 'retained-shot-version-request',
+      projectId: 'project-midnight-film',
+      tenantId: memberPrincipal.tenantId,
+      userId: memberPrincipal.userId,
+      kind: 'video',
+      label: 'Retained version',
+      prompt: '',
+      negativePrompt: '',
+      provider: 'seedance',
+      model: 'doubao-seedance-2-0-260128',
+      tier: null,
+      metadata: { shotId: 'superseded-shot-id', providerTaskId: 'remote-retained-version' },
+      status: 'completed',
+      progress: 100,
+      estimatedCredits: 18,
+      maxAttempts: 3,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: '/api/v1/generation/tasks/retained-shot-version/content',
+      outputs: [],
+      error: null,
+      attempts: 1,
+    }
+    await store.mutate((state) => {
+      state.shots.find((shot) => shot.id === 'shot-1')!.selectedVideoTaskId = retainedTask.id
+      state.tasks.unshift(retainedTask)
+    })
+
+    const plan = repository.filmPreviewPlan('project-midnight-film', memberPrincipal)
+
+    expect(plan?.sources.find((source) => source.shot.id === 'shot-1')?.task?.id).toBe(retainedTask.id)
+  })
+
   it('creates the task, charges credits, and writes ledger in one transaction', async () => {
     const store = new AppStore(null)
     await store.initialize()

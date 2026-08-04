@@ -194,6 +194,37 @@ describe('API authorization', () => {
     })
   })
 
+  it('keeps the personal organization and current device available without Postgres', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+
+    const [organizations, sessions] = await Promise.all([
+      app.inject({ method: 'GET', url: '/api/v1/organizations', headers }),
+      app.inject({ method: 'GET', url: '/api/v1/auth/sessions', headers }),
+    ])
+
+    expect(organizations.statusCode).toBe(200)
+    expect(organizations.json()).toMatchObject([
+      {
+        organization: { id: 'tenant-seqora-demo', name: '个人创作空间' },
+        membership: { userId: 'user-member', isPrimary: true, roles: ['member'] },
+      },
+    ])
+    expect(sessions.statusCode).toBe(200)
+    expect(sessions.json()).toMatchObject([
+      {
+        userId: 'user-member',
+        tenantId: 'tenant-seqora-demo',
+        current: true,
+        deviceLabel: '当前浏览器（本地模式）',
+      },
+    ])
+  })
+
   it('returns the persisted shot when creating a shot', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
 
@@ -3298,7 +3329,7 @@ describe('API authorization', () => {
     expect(response.json()[0]).toMatchObject({
       title: '场次 1 · 动作 1',
       framing: '大全景',
-      duration: 3,
+      duration: 4,
       continuityMode: 'independent',
       prompt: expect.stringContaining('动作：林夏踏入积水'),
     })
