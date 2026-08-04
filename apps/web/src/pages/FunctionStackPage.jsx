@@ -221,8 +221,32 @@ function WritingStudio() {
             <span>世界观与分集规划</span>
           </div>
         </div>
-        <div className="tool-frame-status muted">自动保存</div>
+        <div className="tool-frame-status writing-studio-live">
+          <i /> 结构草稿 · 自动保存
+        </div>
       </header>
+      <div className="writing-studio-progress" aria-label="剧本大师工作流预览">
+        <div className="active">
+          <span>01</span>
+          <strong>输入种子</strong>
+          <small>当前阶段</small>
+        </div>
+        <div>
+          <span>02</span>
+          <strong>大纲候选</strong>
+          <small>等待确认</small>
+        </div>
+        <div>
+          <span>03</span>
+          <strong>设定档案</strong>
+          <small>确认后生成</small>
+        </div>
+        <div>
+          <span>04</span>
+          <strong>分集规划</strong>
+          <small>长剧本输出</small>
+        </div>
+      </div>
       <div className="writing-studio-layout">
         <aside className="writing-module-rail">
           <span className="tool-section-label">故事资料库</span>

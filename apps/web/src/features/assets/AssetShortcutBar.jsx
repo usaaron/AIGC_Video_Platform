@@ -57,7 +57,7 @@ export function AssetShortcutBar({
     requestAnimationFrame(() => {
       if (!target) return
       const cursor = start + prefix.length + asset.name.length
-      target.focus()
+      target.focus({ preventScroll: true })
       target.setSelectionRange(cursor, cursor)
     })
   }
@@ -114,6 +114,7 @@ export function AssetShortcutBar({
                         className={`asset-shortcut-button kind-${asset.kind} ${state} ${inText ? 'in-text' : ''}`}
                         type="button"
                         key={asset.id}
+                        onMouseDown={(event) => event.preventDefault()}
                         onClick={() => insert(asset)}
                         title={`${KIND_LABELS[asset.kind]}：${asset.name}`}
                       >

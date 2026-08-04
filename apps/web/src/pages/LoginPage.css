@@ -902,3 +902,91 @@
     animation: none;
   }
 }
+
+/* Keep the mobile entry page compact and prevent viewport rubber-band gaps. */
+.login-page {
+  width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+  overscroll-behavior-x: none;
+}
+
+@media (max-width: 900px) and (min-width: 761px) {
+  .login-page {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 0.84fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .login-scene {
+    min-height: 236px;
+    height: 236px;
+  }
+
+  .login-panel {
+    min-height: 0;
+    padding: 56px 22px 30px;
+  }
+
+  .login-form {
+    width: min(390px, 100%);
+  }
+
+  .login-heading {
+    margin-bottom: 14px;
+  }
+
+  .login-heading h2 {
+    font-size: 26px;
+  }
+
+  .login-form > label {
+    margin-bottom: 10px;
+  }
+
+  .login-input,
+  .login-submit,
+  .login-secondary-button {
+    min-height: 44px;
+    height: 44px;
+  }
+
+  .login-security-note {
+    margin-bottom: 13px;
+    padding: 10px;
+  }
+
+  .login-access-note {
+    margin-top: 12px;
+    padding-top: 11px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-scene,
+  .login-scene > img {
+    min-height: 218px;
+    height: 218px;
+  }
+
+  .login-brand {
+    top: 18px;
+    left: 20px;
+  }
+
+  .login-story {
+    bottom: 19px;
+  }
+
+  .login-story h1 {
+    font-size: 29px;
+  }
+
+  .login-panel {
+    padding: 52px 18px 26px;
+  }
+
+  .login-heading h2 {
+    font-size: 25px;
+  }
+}

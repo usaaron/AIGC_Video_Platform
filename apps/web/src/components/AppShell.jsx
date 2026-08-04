@@ -68,9 +68,12 @@ export function AppHeader({
         <button className="mobile-menu" onClick={onOpenNav} aria-label="打开导航">
           <Menu size={21} />
         </button>
-        <BrandMark />
+        <BrandMark spin />
         <div className="brand-name">
-          序幕<span>TV</span>
+          序幕
+          <span>
+            TV<sup className="brand-registered">®</sup>
+          </span>
         </div>
       </div>
       <button className="project-switcher" onClick={onProjectClick}>
