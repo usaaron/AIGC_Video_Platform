@@ -12,10 +12,6 @@ $runtimeStage = Join-Path $OutputRoot 'runtime'
 $sourceArchive = Join-Path $OutputRoot 'seqora-source.tgz'
 $runtimeArchive = Join-Path $OutputRoot 'seqora-runtime.tgz'
 
-if (-not (Test-Path -LiteralPath (Join-Path $repo 'deploy\demo.env') -PathType Leaf)) {
-  throw 'deploy/demo.env is required. Create it from deploy/demo.env.example first.'
-}
-
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 if (Test-Path -LiteralPath $stage) {
   $resolvedStage = (Resolve-Path -LiteralPath $stage).Path
@@ -36,10 +32,10 @@ if ($IncludeRuntimeData) {
   New-Item -ItemType Directory -Path $runtimeStage -Force | Out-Null
 }
 
-$paths = @(git -C $repo ls-files --cached --others --exclude-standard)
+$paths = @(git -C $repo ls-files --cached)
 $copiedFiles = 0
 foreach ($relativePath in $paths) {
-  if ($relativePath -eq 'deploy/bootstrap-gce.sh') {
+  if ($relativePath -in @('deploy/bootstrap-gce.sh', 'deploy/demo.env', 'deploy/release.env')) {
     continue
   }
   $sourcePath = Join-Path $repo $relativePath
@@ -52,10 +48,6 @@ foreach ($relativePath in $paths) {
   Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
   $copiedFiles++
 }
-
-$deployEnvTarget = Join-Path $stage 'deploy\demo.env'
-New-Item -ItemType Directory -Path (Split-Path -Parent $deployEnvTarget) -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $repo 'deploy\demo.env') -Destination $deployEnvTarget -Force
 
 $buildInfo = @(
   "BuiltAt=$(Get-Date -Format o)",
