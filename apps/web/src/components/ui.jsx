@@ -40,6 +40,17 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
     ) : (
       <Clock3 size={15} />
     )
+  const runningSeconds =
+    job.status === 'running'
+      ? Math.max(
+          0,
+          Math.floor(
+            (Date.now() -
+              Date.parse(job.metadata?.providerSubmittedAt || job.createdAt || job.updatedAt || '')) /
+              1_000,
+          ),
+        )
+      : 0
 
   return (
     <div className={`job-row ${compact ? 'compact' : ''}`}>
@@ -62,7 +73,11 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
           </p>
         )}
         {canCancelRunning && (
-          <p className="job-provider-note">弦序生成中可取消；取消成功后会移出队列并退回平台积分。</p>
+          <p className={`job-provider-note ${runningSeconds >= 360 ? 'delayed' : ''}`}>
+            {runningSeconds >= 360
+              ? `上游仍在处理，已等待 ${formatRunningTime(runningSeconds)}；超过常见 5 分钟不代表失败，可继续等待或取消后重试。`
+              : `弦序生成中 · 已等待 ${formatRunningTime(runningSeconds)}；取消成功后会移出队列并退回平台积分。`}
+          </p>
         )}
         {job.status === 'failed' && <p className="job-error">{job.error || '生成失败，请重新提交'}</p>}
       </div>
@@ -114,6 +129,11 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
       </span>
     </div>
   )
+}
+
+function formatRunningTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 60) return `${Math.max(0, seconds || 0)} 秒`
+  return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
 }
 
 function jobStateLabel(job) {

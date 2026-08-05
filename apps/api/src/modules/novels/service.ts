@@ -2035,6 +2035,7 @@ function novelCostumeSuggestion(seed: NovelCharacterSeed): ScriptAssetSuggestion
     priority: 3,
     attributes: {
       type: 'costume',
+      characterAssetId: null,
       audience: gender === 'male' ? 'male' : gender === 'female' ? 'female' : 'unisex',
       category: /船夫|摆渡|军|警|医生|药师|职业/u.test(text) ? 'professional' : 'daily',
       season: 'all-season',

@@ -28,6 +28,10 @@ ajv.addFormat('uri', {
     }
   },
 })
+ajv.addFormat('uuid', {
+  type: 'string',
+  validate: (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value),
+})
 
 export function createJsonSchemaValidator<TSchema extends ZodTypeAny>(schema: TSchema, label: string) {
   const validate = ajv.compile(z.toJSONSchema(schema))

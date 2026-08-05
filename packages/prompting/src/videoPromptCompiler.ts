@@ -1,4 +1,4 @@
-export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v9'
+export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v10'
 
 export type PromptProject = {
   aspectRatio: string
@@ -50,7 +50,7 @@ export function compileStoryboardVideoPrompt(input: {
   const focusedPrompt = focusedShotPrompt(shot.prompt)
   const actionSequence = actionSequenceFor(shot.prompt)
   const shotFields = promptFields(String(shot.prompt || ''))
-  const identityRules = referenceAssets.map(identityRuleFor).join('；')
+  const identityRules = referenceAssets.map((asset) => identityRuleFor(asset, referenceAssets)).join('；')
   const actorPerformance = actorPerformanceFor(shotFields.角色, actionSequence, shotFields.对白)
   const soundPlan = soundPlanFor(shotFields.对白, shot.prompt, referenceAssets)
   const subjectMotion = subjectMotionFor(
@@ -106,7 +106,7 @@ export function normalizedVideoDuration(value: unknown, minimum = 4): number {
   return Number.isFinite(parsed) ? Math.min(15, Math.max(min, Math.round(parsed))) : Math.max(5, min)
 }
 
-function identityRuleFor(asset: PromptAsset): string {
+function identityRuleFor(asset: PromptAsset, referenceAssets: PromptAsset[]): string {
   const label = ASSET_KIND_LABELS[asset.kind] || '资产'
   const detail = [
     asset.description,
@@ -116,9 +116,26 @@ function identityRuleFor(asset: PromptAsset): string {
     .filter(Boolean)
     .join('，')
   if (asset.kind === 'character') {
-    return `${label}“${asset.name}”保持参考图中的脸、发型、年龄、体型和服装完全一致${detail ? `（${detail}）` : ''}`
+    const linkedCostume = referenceAssets.find(
+      (reference) =>
+        reference.kind === 'costume' && costumeCharacterAssetId(reference.attributes) === asset.id,
+    )
+    return linkedCostume
+      ? `${label}“${asset.name}”保持参考图中的脸、发型、年龄和体型完全一致，服装造型以服装资产“${linkedCostume.name}”为唯一准则${detail ? `（${detail}）` : ''}`
+      : `${label}“${asset.name}”保持参考图中的脸、发型、年龄、体型和服装完全一致${detail ? `（${detail}）` : ''}`
+  }
+  if (asset.kind === 'costume') {
+    const characterId = costumeCharacterAssetId(asset.attributes)
+    const owner = referenceAssets.find((reference) => reference.id === characterId)
+    return `${label}“${asset.name}”的版型、材质、颜色和战损细节必须准确穿在${owner ? `人物“${owner.name}”` : '对应人物'}身上，不得退回人物参考图中的旧服装${detail ? `（${detail}）` : ''}`
   }
   return `${label}“${asset.name}”保持结构、材质、颜色和空间位置一致${detail ? `（${detail}）` : ''}`
+}
+
+function costumeCharacterAssetId(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const id = (value as Record<string, unknown>).characterAssetId
+  return typeof id === 'string' && id ? id : null
 }
 
 function subjectMotionFor(prompt: string | undefined, assets: PromptAsset[]): string {

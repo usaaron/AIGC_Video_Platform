@@ -250,6 +250,7 @@ export class ProjectService {
         const candidate = structuredSource
           ? alignEnrichedSceneRows(source, generatedCandidate)
           : generatedCandidate
+        assertRequestedSceneCount(source, candidate)
         const script = candidate
         const warnings = quickScriptIssues(script, productionMode)
         const updated = await this.repository.update(projectId, { script }, principal)
@@ -712,11 +713,41 @@ const COMPLETE_SCENE_FIELDS = [
 ] as const
 
 function normalizeExpandedScript(raw: string): string {
-  return raw
+  const normalized = raw
     .trim()
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<think>[\s\S]*$/gi, '')
     .replace(/^```(?:text|markdown)?\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim()
+  const firstScene = normalized.search(/(?:^|\n)\s*(?=场次\s*[：:])/u)
+  if (firstScene <= 0) return normalized
+  const preamble = normalized.slice(0, firstScene)
+  return /(?:用户希望|用户要求|让我|我们需要|我将|任务是|原稿包含|先分析|思考|输出要求)/u.test(preamble)
+    ? normalized.slice(firstScene).trim()
+    : normalized
+}
+
+function assertRequestedSceneCount(source: string, candidate: string): void {
+  const expected = explicitRequestedSceneCount(source)
+  if (!expected) return
+  const actual = splitScriptParagraphs(candidate).filter((paragraph) =>
+    Boolean(parseShotFields(paragraph.text).场次),
+  ).length
+  if (actual >= expected) return
+  throw new AppError(
+    502,
+    'PROVIDER_RESPONSE_TRUNCATED',
+    `文本服务返回不完整：明确要求 ${expected} 个场次，实际只返回 ${actual} 个；原剧本未被覆盖，请重试或切换模型`,
+  )
+}
+
+function explicitRequestedSceneCount(source: string): number | null {
+  for (const match of source.matchAll(/(\d{1,3})\s*个(?:场次|场景|镜头)/gu)) {
+    const count = Number(match[1])
+    if (Number.isInteger(count) && count >= 2 && count <= 100) return count
+  }
+  return null
 }
 
 async function ensureChineseScriptOutput(
@@ -1159,6 +1190,7 @@ function fallbackAssetSuggestions(
       priority: 4,
       attributes: {
         type: 'costume',
+        characterAssetId: null,
         audience: 'unisex',
         category: inferCostumeCategory(name),
         season: inferCostumeSeason(name),
@@ -2705,6 +2737,7 @@ function normalizeScriptAssetAttributes(
   }
   return {
     type: 'costume',
+    characterAssetId: null,
     audience: pickEnum(read('audience'), ['male', 'female', 'unisex'] as const, 'unisex'),
     category: pickEnum(
       read('category'),

@@ -53,12 +53,21 @@ export function AssetShortcutBar({
     const after = source.slice(end)
     const prefix = before && !/[\s，。；：:|]/u.test(before.slice(-1)) ? '；' : ''
     const nextValue = `${before}${prefix}${asset.name}${after}`
+    const editorScroll = target ? { left: target.scrollLeft, top: target.scrollTop } : null
+    const pageScroll = { left: window.scrollX, top: window.scrollY }
     onChange?.(nextValue)
     requestAnimationFrame(() => {
-      if (!target) return
-      const cursor = start + prefix.length + asset.name.length
-      target.focus({ preventScroll: true })
-      target.setSelectionRange(cursor, cursor)
+      requestAnimationFrame(() => {
+        if (!target) return
+        const cursor = start + prefix.length + asset.name.length
+        target.focus({ preventScroll: true })
+        target.setSelectionRange(cursor, cursor)
+        if (editorScroll) {
+          target.scrollLeft = editorScroll.left
+          target.scrollTop = editorScroll.top
+        }
+        window.scrollTo(pageScroll.left, pageScroll.top)
+      })
     })
   }
 

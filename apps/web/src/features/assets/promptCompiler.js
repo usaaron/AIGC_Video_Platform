@@ -151,6 +151,9 @@ function compileAutomatic(asset, aspectRatio) {
   }
   if (attributes.type === 'costume') {
     parts.push(
+      attributes.characterAssetId
+        ? '以绑定人物参考图中的原服装为版型和配色依据，只提取并重设计服装，不复制人物身体'
+        : '',
       optionLabel('audience', attributes.audience),
       optionLabel('costumeCategory', attributes.category),
       optionLabel('season', attributes.season),

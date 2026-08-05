@@ -441,6 +441,10 @@ export class TaskWritebackService {
         ...stored.metadata,
         providerState: submission.status,
         providerTaskId: submission.providerTaskId,
+        providerSubmittedAt:
+          typeof stored.metadata.providerSubmittedAt === 'string'
+            ? stored.metadata.providerSubmittedAt
+            : now.toISOString(),
         providerPolledAt: Date.now(),
         providerPollErrors: 0,
       }

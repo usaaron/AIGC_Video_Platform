@@ -3973,7 +3973,7 @@
   overflow-wrap: break-word;
   word-break: break-word;
   white-space: pre-wrap;
-  color: #2b2f29;
+  color: transparent;
   font-family: inherit;
   font-size: 11px;
   font-variant-ligatures: none;
@@ -3984,14 +3984,14 @@
 .asset-aware-textarea > textarea {
   position: relative;
   z-index: 2;
-  color: transparent;
+  color: #2b2f29;
   background: transparent;
   caret-color: #61752d;
   font-variant-ligatures: none;
   overflow-wrap: break-word;
   word-break: break-word;
   white-space: pre-wrap;
-  -webkit-text-fill-color: transparent;
+  -webkit-text-fill-color: #2b2f29;
 }
 
 .asset-inline-mention {
@@ -5075,13 +5075,15 @@
 .script-textarea-wrap > .asset-aware-textarea > textarea {
   flex: 1;
   resize: vertical;
-  color: transparent;
+  color: #2b2f29;
   background: transparent;
+  -webkit-text-fill-color: #2b2f29;
 }
 
 .script-textarea-wrap > .asset-aware-textarea .asset-aware-highlight-inner {
   min-width: 100%;
   box-sizing: border-box;
+  color: transparent;
 }
 
 .script-textarea-wrap > textarea {
@@ -7860,6 +7862,13 @@
 .asset-fields {
   display: grid;
   gap: 16px;
+}
+.asset-field-help {
+  display: block;
+  margin-top: -10px;
+  color: #7a8175;
+  font-size: 9px;
+  line-height: 1.55;
 }
 .asset-choice-field {
   min-width: 0;
@@ -10822,8 +10831,8 @@
 }
 .modal .asset-aware-textarea > textarea {
   background: transparent;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
+  color: #2b2f29;
+  -webkit-text-fill-color: #2b2f29;
 }
 .modal .field-label:not(:first-of-type) {
   margin-top: 13px;

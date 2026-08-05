@@ -143,6 +143,11 @@ export function AssetsPage({
           <AssetCard
             asset={asset}
             key={asset.id}
+            linkedCharacterName={
+              asset.kind === 'costume'
+                ? assets.find((item) => item.id === asset.attributes?.characterAssetId)?.name
+                : null
+            }
             onEdit={() => setEditing(asset)}
             task={tasks.find(
               (task) =>
@@ -183,6 +188,7 @@ export function AssetsPage({
         <AssetEditor
           key={editing.id || `new-${editing.kind}`}
           asset={editing}
+          projectAssets={assets}
           aspectRatio={project.aspectRatio}
           projectVisualStyle={project.visualStyle}
           tasks={tasks}
@@ -237,9 +243,9 @@ export function AssetsPage({
   )
 }
 
-function AssetCard({ asset, task, onEdit, onGenerate, onPreview, busy }) {
+function AssetCard({ asset, task, linkedCharacterName, onEdit, onGenerate, onPreview, busy }) {
   const EmptyIcon = emptyIcons[asset.kind] || Sparkles
-  const tags = summarizeAsset(asset)
+  const tags = [...(linkedCharacterName ? [`归属：${linkedCharacterName}`] : []), ...summarizeAsset(asset)]
   const previewUrl = getAssetPreviewUrl(asset)
   return (
     <article className={`asset-card asset-${asset.kind}`}>

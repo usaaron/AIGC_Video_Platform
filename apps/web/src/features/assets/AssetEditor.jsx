@@ -14,7 +14,7 @@ import { CharacterWorkflow } from './CharacterWorkflow'
 import { compileAssetPrompt, compileCharacterStagePrompt, inferCharacterPromptStage } from './promptCompiler'
 import { ReferenceUploader } from './ReferenceUploader'
 
-function createEditorDraft(asset, kind, projectVisualStyle = 'cinematic-cg') {
+function createEditorDraft(asset, kind, projectVisualStyle = 'cinematic-cg', projectAssets = []) {
   const initialAttributes = createDefaultAttributes(kind, projectVisualStyle)
   const attributes =
     asset.attributes?.type === kind
@@ -35,6 +35,9 @@ function createEditorDraft(asset, kind, projectVisualStyle = 'cinematic-cg') {
     }
     attributes.stagePrompts = stagePrompts
   }
+  if (kind === 'costume' && !attributes.characterAssetId) {
+    attributes.characterAssetId = inferCostumeCharacterId(asset, projectAssets)
+  }
   return {
     sourceMode: asset.sourceMode || 'generate',
     name: asset.name || '',
@@ -53,6 +56,7 @@ export function AssetEditor({
   asset,
   aspectRatio,
   projectVisualStyle = 'cinematic-cg',
+  projectAssets = [],
   tasks = [],
   onClose,
   onCreateDraft,
@@ -73,7 +77,7 @@ export function AssetEditor({
   const sourceSuggestion = asset.suggestion || null
   const suggestionOnly = Boolean(sourceSuggestion && !asset.id)
   const [creationMode, setCreationMode] = useState(() => inferAssetCreationMode(asset))
-  const [draft, setDraft] = useState(() => createEditorDraft(asset, kind, projectVisualStyle))
+  const [draft, setDraft] = useState(() => createEditorDraft(asset, kind, projectVisualStyle, projectAssets))
   const [suggestionApplied, setSuggestionApplied] = useState(false)
   const [characterStage, setCharacterStage] = useState(() => {
     if (kind !== 'character' || draft?.attributes?.faceStatus !== 'approved') return 'face'
@@ -85,7 +89,7 @@ export function AssetEditor({
 
   useEffect(() => {
     setCreationMode(inferAssetCreationMode(asset))
-    setDraft(createEditorDraft(asset, kind, projectVisualStyle))
+    setDraft(createEditorDraft(asset, kind, projectVisualStyle, projectAssets))
     setSuggestionApplied(false)
     if (kind === 'character') {
       const nextAttributes = asset.attributes
@@ -453,6 +457,7 @@ export function AssetEditor({
               <AssetFields
                 attributes={draft.attributes}
                 characterStage={characterStage}
+                characterAssets={projectAssets.filter((item) => item.kind === 'character')}
                 onChange={(attributes) => setDraft({ ...draft, attributes })}
               />
             )}
@@ -607,6 +612,11 @@ export function AssetEditor({
 function enforceProjectStyle(draft, visualStyle) {
   if (!visualStyle || !draft.attributes || !('visualStyle' in draft.attributes)) return draft
   return { ...draft, attributes: { ...draft.attributes, visualStyle }, customPromptMode: 'replace' }
+}
+
+function inferCostumeCharacterId(asset, projectAssets) {
+  const source = `${asset.name || ''} ${asset.description || ''} ${asset.prompt || ''}`
+  return projectAssets.find((item) => item.kind === 'character' && source.includes(item.name))?.id || null
 }
 
 function SourceSuggestionPanel({

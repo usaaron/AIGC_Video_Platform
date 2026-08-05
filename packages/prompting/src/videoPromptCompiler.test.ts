@@ -41,7 +41,7 @@ describe('compileStoryboardVideoPrompt', () => {
       references: [{ id: 'lin' }, { id: 'station' }],
     })
 
-    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v9')
+    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v10')
     expect(prompt).toContain('连续4秒、9:16画幅')
     expect(prompt).toContain('【当前镜头】镜头，特写')
     expect(prompt).not.toContain('上一镜结束：场景：雨夜旧火车站。')
@@ -122,6 +122,27 @@ describe('compileStoryboardVideoPrompt', () => {
     expect(prompt).toContain('场次变化：坐标指向导航环')
     expect(prompt).toContain('入场状态：岚星停在左侧护栏旁')
     expect(prompt).toContain('出场状态：岚星右手握住导航环')
+  })
+
+  it('lets a linked costume override only the character clothing', () => {
+    const prompt = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '16:9' },
+      shot: shot('battle', '角色：侠客｜动作：侠客握刀起身'),
+      assets: [
+        { id: 'hero', kind: 'character', name: '侠客', prompt: '灰色常服，黑色长靴' },
+        {
+          id: 'damaged-costume',
+          kind: 'costume',
+          name: '轻度战损变体',
+          prompt: '黑色古装，肩部破损',
+          attributes: { type: 'costume', characterAssetId: 'hero' },
+        },
+      ],
+      references: [{ id: 'hero' }, { id: 'damaged-costume' }],
+    })
+
+    expect(prompt).toContain('服装造型以服装资产“轻度战损变体”为唯一准则')
+    expect(prompt).toContain('不得退回人物参考图中的旧服装')
   })
 })
 

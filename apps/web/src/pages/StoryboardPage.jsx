@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import JSZip from 'jszip'
 import {
   ArrowDown,
   ArrowRight,
@@ -9,6 +10,7 @@ import {
   ChevronRight,
   CircleHelp,
   Clock3,
+  Download,
   Film,
   History,
   ImagePlus,
@@ -67,6 +69,7 @@ export function StoryboardPage({
   const [splittingEpisodes, setSplittingEpisodes] = useState(false)
   const [generatingAll, setGeneratingAll] = useState(false)
   const [operationError, setOperationError] = useState('')
+  const [downloadingVideos, setDownloadingVideos] = useState(false)
   const isWebSeries = project?.contentType === 'short-drama'
   const shotMinDuration = isWebSeries ? 3 : 4
   const totalDuration = shots.reduce(
@@ -86,6 +89,12 @@ export function StoryboardPage({
       : episodes.filter((episode) => episodeKey(episode) === selectedEpisode)
   const selectedEpisodeIndex = episodes.findIndex((episode) => episodeKey(episode) === selectedEpisode)
   const historyShot = shots.find((shot) => shot.id === historyShotId) || null
+  const downloadableVideos = shots.flatMap((shot) => {
+    const taskId = selectedVersionTaskId(tasks, shot, 'video')
+    const task = tasks.find((item) => item.id === taskId && item.status === 'completed')
+    const url = taskOutputUrl(task, 'video')
+    return task && url ? [{ shot, task, url }] : []
+  })
 
   useEffect(() => {
     setEpisodeDuration(projectEpisodeDurationSeconds)
@@ -144,6 +153,32 @@ export function StoryboardPage({
       setOperationError(error.message)
     } finally {
       setGeneratingAll(false)
+    }
+  }
+
+  const downloadCompletedVideos = async () => {
+    if (!downloadableVideos.length || downloadingVideos) return
+    setDownloadingVideos(true)
+    setOperationError('')
+    try {
+      const zip = new JSZip()
+      for (const { shot, url } of downloadableVideos) {
+        const response = await fetch(url, { credentials: 'include' })
+        if (!response.ok) throw new Error(`${shot.title} 下载失败（${response.status}）`)
+        const episode = `第${String(shot.episodeNumber || 1).padStart(2, '0')}集`
+        const name = `${String(shot.order).padStart(2, '0')}-${safeFileName(shot.title || '未命名镜头')}.mp4`
+        zip.folder(episode)?.file(name, await response.blob())
+      }
+      const archive = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 },
+      })
+      downloadBlob(archive, `${safeFileName(project.name || '序幕TV项目')}-分镜视频.zip`)
+    } catch (error) {
+      setOperationError(error.message)
+    } finally {
+      setDownloadingVideos(false)
     }
   }
 
@@ -261,6 +296,15 @@ export function StoryboardPage({
         >
           <Zap size={16} /> 全部独立生成
         </button>
+        <button
+          className="button secondary"
+          onClick={() => void downloadCompletedVideos()}
+          disabled={!downloadableVideos.length || downloadingVideos}
+          title={`下载当前选中的已完成视频版本，共 ${downloadableVideos.length} 条`}
+        >
+          {downloadingVideos ? <LoaderCircle size={16} className="spin" /> : <Download size={16} />}
+          {downloadingVideos ? '正在打包' : `批量下载 ${downloadableVideos.length} 条`}
+        </button>
       </PageHeader>
       <div className="episode-split-toolbar">
         <div>
@@ -337,7 +381,7 @@ export function StoryboardPage({
             <strong>当前生成批次已锁定</strong>
             <span>
               有 {activeShotCount}{' '}
-              个分镜视频任务仍在排队、暂停或生成中。批次策略暂时锁定；仍可点击其他镜头的视频按钮，确认后强制独立生成。
+              个分镜视频任务仍在排队、暂停或生成中。批次策略暂时锁定；未在执行的镜头仍可编辑，也可确认后强制独立生成。
             </span>
           </div>
         </div>
@@ -443,8 +487,8 @@ export function StoryboardPage({
           onUpload={onUpload}
           onClose={() => setEditing(null)}
           onSave={async (input) => {
-            if (batchLocked) {
-              setOperationError('当前生成批次已锁定，请先处理生成队列中的视频任务。')
+            if (editing.id && isActive(taskFor(tasks, editing, 'video'))) {
+              setOperationError('这个镜头正在生成，当前版本完成或取消后才能修改。')
               return
             }
             if (editing.id) await onUpdate(editing.id, input)
@@ -626,7 +670,7 @@ function ShotRow({
             </IconButton>
             <IconButton
               label="编辑分镜"
-              disabled={batchLocked}
+              disabled={isActive(videoTask)}
               onClick={(event) => {
                 event.stopPropagation()
                 onEdit()
@@ -789,6 +833,27 @@ function taskOutputUrl(task, kind) {
   if (kind === 'video')
     return task.resultUrl || task.outputs?.find((output) => output.mediaType === 'video')?.url
   return task.resultUrl || task.outputs?.find((output) => output.mediaType === 'image')?.url
+}
+
+function safeFileName(value) {
+  return [...String(value || '')]
+    .map((character) => (character.charCodeAt(0) < 32 ? '-' : character))
+    .join('')
+    .replace(/[<>:"/\\|?*]/gu, '-')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 80)
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
 }
 
 function formatVersionTime(value) {

@@ -266,6 +266,7 @@ export const propAttributesSchema = z.object({
 
 export const costumeAttributesSchema = z.object({
   type: z.literal('costume'),
+  characterAssetId: z.string().uuid().nullable().default(null),
   audience: z.enum(['male', 'female', 'unisex']),
   category: z.enum([
     'daily',

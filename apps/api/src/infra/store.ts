@@ -691,6 +691,7 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
   if (kind === 'costume') {
     return {
       type: 'costume',
+      characterAssetId: null,
       audience: 'unisex',
       category: 'daily',
       season: 'all-season',

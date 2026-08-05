@@ -3,6 +3,7 @@ import {
   autoSplitShotsRequestSchema,
   createAssetSchema,
   createShotSchema,
+  costumeAttributesSchema,
   enrichScriptRequestSchema,
   generateScriptAssetSuggestionsRequestSchema,
   generateScriptRequestSchema,
@@ -71,6 +72,28 @@ describe('asset contracts', () => {
   it('does not inject create defaults into partial asset updates', () => {
     expect(updateAssetSchema.parse({ status: 'confirmed' })).toEqual({ status: 'confirmed' })
     expect(updateAssetSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('keeps old costume assets compatible and validates an optional character binding', () => {
+    const costume = {
+      type: 'costume',
+      audience: 'male',
+      category: 'ancient',
+      season: 'all-season',
+      design: 'chinese',
+      presentation: 'flat',
+      visualStyle: 'cinematic-cg',
+      turnaround: false,
+    }
+
+    expect(costumeAttributesSchema.parse(costume).characterAssetId).toBeNull()
+    expect(
+      costumeAttributesSchema.parse({
+        ...costume,
+        characterAssetId: '123e4567-e89b-42d3-a456-426614174000',
+      }).characterAssetId,
+    ).toBe('123e4567-e89b-42d3-a456-426614174000')
+    expect(costumeAttributesSchema.safeParse({ ...costume, characterAssetId: '侠客' }).success).toBe(false)
   })
 })
 

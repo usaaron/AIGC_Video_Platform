@@ -51,6 +51,89 @@ describe('ProjectService script billing', () => {
     expect(repository.update).toHaveBeenCalledOnce()
   })
 
+  it('removes model reasoning preambles before saving a script', async () => {
+    const generatedScript =
+      '用户希望我生成一个场次。让我先分析人物与动作。\n场次：S01｜剧情：林夏推门进入。｜场景：雨夜车站。｜角色：林夏。｜动作：林夏收伞并抬头。｜对白：无台词。｜风格：影视CG。｜构图：中景。｜光影：冷色顶光。｜运镜：缓慢推进。｜衔接：林夏停在门内。'
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '雨夜来信',
+          contentType: '短片',
+          synopsis: '林夏进入车站。',
+          aspectRatio: '16:9',
+          script: '',
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const service = new ProjectService(repository, { generate: vi.fn(async () => generatedScript) }, {
+      reserve: vi.fn(),
+      refundReservation: vi.fn(),
+    } as unknown as CreditLedger)
+
+    const result = await service.generateScript(
+      'project-1',
+      '林夏进入车站',
+      DEFAULT_SCRIPT_DIRECTION,
+      'quick',
+      { goal: '', targetMinutes: 1 },
+      'short-video',
+      1,
+      'reasoning-cleanup',
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      'seqora-5.6',
+      '',
+      'prepaid',
+    )
+
+    expect(result.script).toMatch(/^场次：S01/u)
+    expect(result.script).not.toContain('用户希望')
+  })
+
+  it('rejects an explicitly requested scene count when the provider truncates the result', async () => {
+    const incomplete = Array.from(
+      { length: 5 },
+      (_, index) =>
+        `场次：S0${index + 1}｜剧情：推进冲突。｜场景：屋顶。｜角色：侠客。｜动作：侠客向前一步。｜对白：无台词。｜风格：影视CG。｜构图：中景。｜光影：冷光。｜运镜：推进。｜衔接：保持站姿。`,
+    ).join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '十场短片',
+          contentType: '短片',
+          synopsis: '',
+          aspectRatio: '16:9',
+          script: '',
+        },
+        assets: [],
+      }),
+      update: vi.fn(),
+    } as unknown as ProjectRepository
+    const service = new ProjectService(repository, { generate: vi.fn(async () => incomplete) }, {
+      reserve: vi.fn(),
+      refundReservation: vi.fn(),
+    } as unknown as CreditLedger)
+
+    await expect(
+      service.generateScript(
+        'project-1',
+        '请把故事拆成10个场次，每场独立成镜。',
+        DEFAULT_SCRIPT_DIRECTION,
+        'quick',
+        { goal: '', targetMinutes: 1 },
+        'short-video',
+        1,
+        'truncated-scenes',
+        { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+        'seqora-5.6',
+        '',
+        'prepaid',
+      ),
+    ).rejects.toThrow('明确要求 10 个场次，实际只返回 5 个')
+    expect(repository.update).not.toHaveBeenCalled()
+  })
+
   it('automatically repairs an English-dominant script before writing it back', async () => {
     const englishResult = [
       'S01: The swordsman enters the courtyard and watches the silent guards step backward.',

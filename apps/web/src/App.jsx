@@ -820,6 +820,7 @@ function App() {
               return null
             }
             if (asset.kind === 'character') return createCharacterFaceJob(asset, model, '重新生成面部大头照')
+            const references = assetGenerationReferences(asset, workspace.assets)
             return createJob(`${asset.name} · 重新生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
               prompt: asset.prompt,
               model,
@@ -829,7 +830,7 @@ function App() {
                 assetKind: asset.kind,
                 aspectRatio: project.aspectRatio,
                 sourceMode: asset.sourceMode,
-                references: asset.references,
+                references,
                 attributes: asset.attributes,
                 turnaround: asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
               },
@@ -1209,6 +1210,27 @@ function latestVideoTaskFor(tasks, shotOrId, needsLastFrame = false) {
 
 function hasLastFrame(task) {
   return task?.outputs?.some((output) => output.view === 'last-frame') ?? false
+}
+
+function assetGenerationReferences(asset, assets) {
+  const references = [...(asset.references || [])]
+  if (asset.kind !== 'costume' || !asset.attributes?.characterAssetId) return references
+  const character = assets.find(
+    (item) => item.kind === 'character' && item.id === asset.attributes.characterAssetId,
+  )
+  if (!character || character.attributes?.type !== 'character') return references
+  const activeVariant = (character.attributes.appearanceVariants || []).find(
+    (variant) => variant.id === character.attributes.activeAppearanceVariantId,
+  )
+  const source =
+    activeVariant?.bodyReference ||
+    character.attributes.bodyReference ||
+    character.attributes.faceReference ||
+    (character.imageUrl
+      ? { id: `character-${character.id}`, url: character.imageUrl, name: `${character.name}-人物参考` }
+      : null)
+  if (!source?.url || references.some((reference) => reference?.url === source.url)) return references
+  return [source, ...references]
 }
 
 function ProjectMenu({ projects, currentId, onClose, onSelect, onCreate }) {

@@ -18,10 +18,19 @@ export function selectShotAssetReferences(assets, shot, limit = 6) {
   const shotText = normalize(`${shot.title || ''}${shot.prompt || ''}`)
   const candidates = assets
     .filter((asset) => asset.kind !== 'audio' && referenceUrl(asset))
-    .map((asset, index) => ({ asset, index, ...scoreAsset(asset, shotText) }))
+    .map((asset, index) => ({ asset, index, ...scoreAsset(asset, shotText, assets) }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
 
-  const selected = candidates.filter((candidate) => candidate.matched).slice(0, limit)
+  const selected = []
+  const selectedCostumeOwners = new Set()
+  for (const candidate of candidates) {
+    if (!candidate.matched) continue
+    const ownerId = candidate.asset.kind === 'costume' ? candidate.asset.attributes?.characterAssetId : null
+    if (ownerId && selectedCostumeOwners.has(ownerId)) continue
+    selected.push(candidate)
+    if (ownerId) selectedCostumeOwners.add(ownerId)
+    if (selected.length >= limit) break
+  }
   if (!selected.some(({ asset }) => asset.kind === 'scene')) {
     const scene = candidates.find(({ asset }) => asset.kind === 'scene')
     if (scene && !selected.includes(scene)) selected.push(scene)
@@ -54,14 +63,21 @@ export function selectVideoReferenceImages(manualReferenceUrl, references, limit
   ].slice(0, limit)
 }
 
-function scoreAsset(asset, shotText) {
+function scoreAsset(asset, shotText, assets) {
   const name = normalize(asset.name)
   const exactNameMatch = Boolean(name && shotText.includes(name))
   if (asset.kind === 'character' && !exactNameMatch) {
     return { score: KIND_PRIORITY[asset.kind] || 0, matched: false }
   }
   let matchScore = exactNameMatch ? 200 : 0
-  matchScore += overlapScore(shotText, name, 20, 40)
+  let matchingName = name
+  if (asset.kind === 'costume' && asset.attributes?.characterAssetId) {
+    const owner = assets.find((item) => item.id === asset.attributes.characterAssetId)
+    const ownerName = normalize(owner?.name)
+    if (ownerName) matchingName = name.replace(ownerName, '')
+    if (ownerName && shotText.includes(ownerName)) matchScore += 190
+  }
+  matchScore += overlapScore(shotText, matchingName, 20, 40)
   matchScore += overlapScore(shotText, normalize(asset.description), 2, 20)
   return { score: (KIND_PRIORITY[asset.kind] || 0) + matchScore, matched: matchScore > 0 }
 }

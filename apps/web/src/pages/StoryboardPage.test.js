@@ -77,5 +77,6 @@ describe('groupShotsByEpisode', () => {
     expect(html).toContain('<video')
     expect(html).toContain('/generated/shot-1.mp4')
     expect(html).toContain('成片预览')
+    expect(html).toContain('批量下载 1 条')
   })
 })

@@ -2,7 +2,7 @@ import { Check, ChevronDown, SlidersHorizontal } from 'lucide-react'
 import { useState } from 'react'
 import { OPTIONS } from './assetOptions'
 
-export function AssetFields({ attributes, characterStage = 'face', onChange }) {
+export function AssetFields({ attributes, characterStage = 'face', characterAssets = [], onChange }) {
   const update = (key, value) => onChange({ ...attributes, [key]: value })
 
   return (
@@ -12,7 +12,9 @@ export function AssetFields({ attributes, characterStage = 'face', onChange }) {
       )}
       {attributes.type === 'scene' && <SceneFields value={attributes} update={update} />}
       {attributes.type === 'prop' && <PropFields value={attributes} update={update} />}
-      {attributes.type === 'costume' && <CostumeFields value={attributes} update={update} />}
+      {attributes.type === 'costume' && (
+        <CostumeFields value={attributes} characterAssets={characterAssets} update={update} />
+      )}
       {attributes.type === 'audio' && <AudioFields value={attributes} update={update} />}
     </div>
   )
@@ -231,9 +233,18 @@ function PropFields({ value, update }) {
   )
 }
 
-function CostumeFields({ value, update }) {
+function CostumeFields({ value, characterAssets, update }) {
   return (
     <>
+      <SelectField
+        label="归属人物"
+        value={value.characterAssetId || ''}
+        options={[['', '未绑定人物'], ...characterAssets.map((asset) => [asset.id, asset.name])]}
+        onChange={(next) => update('characterAssetId', next || null)}
+      />
+      <small className="asset-field-help">
+        绑定后，生成服装会参考该人物已确认的全身图；视频镜头提到人物时也会自动带入这套服装。
+      </small>
       <ChoiceField
         label="适用对象"
         value={value.audience}
