@@ -884,7 +884,7 @@ function App() {
               episodeDurationSeconds,
             })
             await refreshWorkspace()
-            setToast(mode === 'beat' ? '已按动作节拍细拆分镜' : '已按场次智能生成并自动拆分动作镜头')
+            setToast(mode === 'beat' ? '已按明确动作节拍细拆分镜' : '已按场次生成分镜，一场对应一个视频镜头')
           }}
           onAutoSplitEpisodes={async (episodeDurationSeconds) => {
             await api.autoSplitShotEpisodes(project.id, { episodeDurationSeconds })

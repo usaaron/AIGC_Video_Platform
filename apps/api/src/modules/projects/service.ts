@@ -173,6 +173,8 @@ export class ProjectService {
       `用户尚未提供完整剧本正文。请根据项目《${workspace.project.name}》和已有资产构思一个可制作的故事。`
     const sourceLength = contentLength(source)
     const episodeSeconds = normalizeEpisodeDurationSeconds(episodeDurationSeconds, episodeMinutes * 60)
+    const structuredSource = hasStructuredSceneRows(source)
+    const shouldExpandFromIdea = sourceLength < SCRIPT_INITIAL_EXPANSION_THRESHOLD && !structuredSource
 
     const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${productionMode === 'web-series' ? `网剧模式，每集${formatDuration(episodeSeconds)}` : '短视频模式'}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}`
     if (mode === 'quick' && sourceLength >= SINGLE_REWRITE_MAX_LENGTH) {
@@ -184,18 +186,16 @@ export class ProjectService {
         warnings: ['检测到超过 1 万字的长篇内容，已保护原稿；请使用“生成下一段”按段续写或进入小说模块。'],
       }
     }
-    const generationInstruction =
-      sourceLength < SCRIPT_INITIAL_EXPANSION_THRESHOLD
-        ? `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产，生成约 1800 到 2600 字的高信息密度制作剧本；如果原始内容是系统提示语，也要把它转化为具体剧情，不要原样复述。每个场次必须有明确角色、空间、动作拍点、对白类型、视觉执行和上下场衔接。`
-        : `当前内容约 ${sourceLength} 字。请在保留核心剧情、人物关系、场景因果、关键物件和对白信息的前提下，按原有逻辑重写整理为制作级剧本；不要把内容压缩成提纲，不要任意删减重要情节。`
-    const generationSystemPrompt =
-      sourceLength < SCRIPT_INITIAL_EXPANSION_THRESHOLD
-        ? productionMode === 'web-series'
-          ? WEB_SERIES_SCRIPT_SYSTEM_PROMPT
-          : QUICK_SCRIPT_SYSTEM_PROMPT
-        : productionMode === 'web-series'
-          ? WEB_SERIES_REWRITE_SYSTEM_PROMPT
-          : SCRIPT_REWRITE_SYSTEM_PROMPT
+    const generationInstruction = shouldExpandFromIdea
+      ? `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产，生成约 1800 到 2600 字的高信息密度制作剧本；如果原始内容是系统提示语，也要把它转化为具体剧情，不要原样复述。每个场次必须有明确角色、空间、动作拍点、对白类型、视觉执行和上下场衔接。`
+      : `当前内容约 ${sourceLength} 字。请在保留核心剧情、人物关系、场景因果、关键物件和对白信息的前提下，按原有逻辑重写整理为制作级剧本；不要把内容压缩成提纲，不要任意删减重要情节。原稿已经按场次组织时，输出场次数量、场次编号和顺序必须与原稿完全一致，只能在原场次内部补齐制作信息，不得新增、拆分或合并场次。`
+    const generationSystemPrompt = shouldExpandFromIdea
+      ? productionMode === 'web-series'
+        ? WEB_SERIES_SCRIPT_SYSTEM_PROMPT
+        : QUICK_SCRIPT_SYSTEM_PROMPT
+      : productionMode === 'web-series'
+        ? WEB_SERIES_REWRITE_SYSTEM_PROMPT
+        : SCRIPT_REWRITE_SYSTEM_PROMPT
     return this.runBillableScriptOperation(
       principal,
       `script-generate-${clientRequestId}`,
@@ -204,16 +204,19 @@ export class ProjectService {
       async () => {
         if (mode === 'segment') {
           const segmentSeconds = segment.targetSeconds ?? segment.targetMinutes * 60
-          const segmentText = normalizeExpandedScript(
+          const segmentText = await ensureChineseScriptOutput(
+            this.textProvider!,
             await this.textProvider!.generate({
-              systemPrompt:
+              systemPrompt: withChineseScriptRules(
                 productionMode === 'web-series'
                   ? WEB_SERIES_SEGMENT_SYSTEM_PROMPT
                   : SCRIPT_SEGMENT_SYSTEM_PROMPT,
+              ),
               userPrompt: `${projectContext}\n\n已有剧本或故事上下文：\n${scriptSegmentContext(source)}\n\n本段目标：${segment.goal || '顺着现有剧情自然推进下一段'}\n本段预计时长：${formatDuration(segmentSeconds)}\n\n请只生成下一段剧本正文，不要重写已有内容。`,
               maxOutputTokens: segmentMaxOutputTokens(segmentSeconds),
               model,
             }),
+            model,
           )
           if (!segmentText) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', '分段剧本为空')
           const script = appendScriptSegment(draft.trim() || workspace.project.script.trim(), segmentText)
@@ -226,9 +229,10 @@ export class ProjectService {
             warnings: segmentScriptIssues(segmentText),
           }
         }
-        const candidate = normalizeExpandedScript(
+        const generatedCandidate = await ensureChineseScriptOutput(
+          this.textProvider!,
           await this.textProvider!.generate({
-            systemPrompt: generationSystemPrompt,
+            systemPrompt: withChineseScriptRules(generationSystemPrompt),
             userPrompt:
               productionMode === 'web-series'
                 ? `${projectContext}\n\n${generationInstruction}\n请把以下素材改编成一集可制作的网剧剧本：\n${source}`
@@ -236,12 +240,16 @@ export class ProjectService {
             maxOutputTokens:
               productionMode === 'web-series'
                 ? webSeriesMaxOutputTokens(episodeSeconds)
-                : sourceLength < SCRIPT_INITIAL_EXPANSION_THRESHOLD
+                : shouldExpandFromIdea
                   ? INITIAL_SCRIPT_MAX_TOKENS
                   : longScriptMaxOutputTokens(source),
             model,
           }),
+          model,
         )
+        const candidate = structuredSource
+          ? alignEnrichedSceneRows(source, generatedCandidate)
+          : generatedCandidate
         const script = candidate
         const warnings = quickScriptIssues(script, productionMode)
         const updated = await this.repository.update(projectId, { script }, principal)
@@ -278,16 +286,19 @@ export class ProjectService {
       SCRIPT_OPERATION_CREDITS.enrich,
       '补齐剧本专业视觉细节',
       async () => {
-        const candidate = normalizeExpandedScript(
+        const candidate = await ensureChineseScriptOutput(
+          this.textProvider!,
           await this.textProvider!.generate({
-            systemPrompt:
+            systemPrompt: withChineseScriptRules(
               productionMode === 'web-series' ? WEB_SERIES_DETAIL_SYSTEM_PROMPT : SCRIPT_DETAIL_SYSTEM_PROMPT,
+            ),
             userPrompt: `${projectContext}\n\n请在保留原有场景数量、剧情因果、人物关系和对白的前提下，补齐以下剧本的制作字段与镜头衔接；本次改写要求必须优先执行：\n${source}`,
             maxOutputTokens: isProtectedLongScript(source)
               ? longScriptMaxOutputTokens(source)
               : SCRIPT_DETAIL_MAX_TOKENS,
             model,
           }),
+          model,
         )
         const candidateWithBreaks = preserveScriptBreakMarkers(source, candidate)
         const sceneAlignedCandidate = alignEnrichedSceneRows(source, candidateWithBreaks)
@@ -520,7 +531,7 @@ const SCENE_PRODUCTION_RULES = `每个场次是一条可以直接交给分镜师
 - 每个场次必须写清“谁想做什么→遇到什么阻力→发生什么可见变化→场尾留下什么结果或悬念”，剧情字段不能只复述故事梗概。
 - 场景字段必须同时写稳定地点、时间、天气、空间布局、前中后景、可复用陈设和主光源；关键物件要写名称、所在位置、当前状态和由谁使用。
 - 角色字段必须列出所有画面内角色，并为每个人写清主次、画面位置、朝向、视线、服装、当前表情、起始姿态和本镜反应；配角与背景角色不能只作为名单，必须有符合场景的动作或表情变化。
-- 动作字段必须拆成 2 到 3 个可被摄像机看见的节拍，用“动作1：…；动作2：…；动作3：…”分开。每个动作节拍只能有一个主动作，写清主角起势、执行、一次表情或视线变化和结束姿态；配角、群演只能做同步反应，禁止在同一节拍塞入第二个串行动作。
+- 动作字段必须拆成 2 到 3 个可被摄像机看见的微节拍，用“动作1：…；动作2：…；动作3：…”分开；这些微节拍共同完成当前场次的一个核心事件，不代表新增场次，也不能把同一事件换词重复。每个微节拍写清主角起势、执行、一次表情或视线变化和结束姿态；配角、群演只做同步反应。
 - 核心人物每 2 到 3 秒必须有一次可见的表情、视线、姿态或情绪状态变化；配角和背景角色也必须在对应节拍发生至少一次反应，这些变化必须落到动作或角色字段中，不能只写“情绪升级”。
 - 对白字段按实际情况明确标记“[对白]角色：内容”“[画外音]内容”“[内心独白]角色：内容”或“[音效]内容”；台词要短但推进冲突，没有台词时也要写至少两种现场声音和人物反应，不能返回空白或“无声”。
 - 风格字段写材质、色彩、角色与场景的统一规则；构图字段写景别、主体位置、视线方向、前中后景和画面重心；光影字段写主光方向、软硬、色温、阴影落点；运镜字段写机位、运动方式、速度、跟随对象和结束画面。
@@ -548,7 +559,7 @@ const SCRIPT_REWRITE_SYSTEM_PROMPT = `你是中文漫剧的剧本整理编剧。
 
 硬性规格：
 1. 保留原稿的核心剧情、人物关系、场景数量、时间地点、关键物件、对白和因果顺序；不得为了缩短输出而删除重要情节，也不得把一个场景压成一句话。
-2. 场景数量以原稿为准，可以合并明显重复的段落，但不得把完整剧情压缩成提纲；每个场景单独占一行。
+2. 场景数量、编号和顺序必须与原稿完全一致，不得新增、拆分、合并或删除场次；每个原场次只输出一行，只在该行内部补齐制作信息。
 3. 每行使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；缺失字段要根据原稿上下文补齐，不要凭空新增角色或道具。
 4. 剧情写清本场目标、阻力、变化和结果；角色写清画面位置、表情和姿态；动作写成至少 2 个摄像机能看见的连续动作；对白短而有信息量并标记对白类型。
 5. 保留原稿已有的悬念、转折和结尾方向；原稿有“【强制下一集】”时必须独占一行并原样保留。
@@ -558,8 +569,8 @@ const SCRIPT_REWRITE_SYSTEM_PROMPT = `你是中文漫剧的剧本整理编剧。
 const WEB_SERIES_SCRIPT_SYSTEM_PROMPT = `你是中文网剧漫剧的主编剧和短视频导演。请把用户素材写成一集可以直接进入分镜制作的网剧剧本，不要写成长篇小说或提纲。
 
 硬性规格：
-1. 本集目标时长由用户提供，约 1 到 5 分钟；按每个 3 到 4 秒动作镜头倒推数量，60 秒至少写 15 个动作单元，120 秒至少 30 个；只有必要的情绪停留、反应或动作完成镜头可以延长到 15 秒，不要用空镜填充时长。
-2. 输出不少于 8 个、并尽量接近目标时长所需数量的连续场次或动作单元，每行一个场次；每行必须使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：。
+1. 本集目标时长由用户提供，约 1 到 5 分钟；每个场次对应一个 4 到 15 秒的可生成视频镜头，以约 5 秒一场倒推场次数量，例如 60 秒通常为 10 到 15 场、120 秒通常为 20 到 30 场。不要用空镜填充时长，也不要在场次内部再次计算额外视频数量。
+2. 输出数量必须服从目标时长预算，每行一个场次、对应一个视频镜头；每行必须使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：。
 3. 每场都要有可拍摄的目标、阻力、变化和结果，动作明确到人物位置、视线、表情、手部或关键物件状态；每个动作单元都要能单独生成一个有起承转收的短视频，并明确主角、配角、背景角色各自做什么。
 4. 保持人物身份、服装、时间、地点、光线和关键物件连续；每场都写清场内角色与物件的相对位置，不要突然新增人物、道具或空间规则。
 5. 前段快速建立冲突，中段持续升级，后段制造明显波动；最后一行的场次值必须写“剧情钩子”，且不直接解决。
@@ -572,7 +583,7 @@ const WEB_SERIES_REWRITE_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧�
 
 硬性规格：
 1. 保留原稿的场景顺序、人物关系、对白、地点、时间、服装、关键物件和剧情因果；不得压缩成提纲或删除重要情节，不得把动作和对白合并成一句概括。
-2. 场景数量以原稿为准，每个场景或动作单元单独占一行；网剧分镜以 3 到 4 秒快切为主，必要时才延长到 15 秒。
+2. 场景数量、编号和顺序必须与原稿完全一致，不得新增、拆分、合并或删除场次；每个原场次单独占一行并对应一个 4 到 15 秒视频镜头，场内动作只作为该镜头的微节拍。
 3. 每行使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；缺失字段根据已有上下文补齐，不要任意新增人物、道具或空间规则。
 4. 每场都要有目标、阻力、变化和结果，动作明确到人物位置、视线、表情、手部或关键物件状态，并保持镜头之间的连续性；缺失信息要从原稿上下文恢复，不要用“沿用上一场”代替具体状态。
 5. 结尾保留并强化原稿的高波动钩子；如果原稿存在“【强制下一集】”，必须独占一行并原样保留。
@@ -598,7 +609,7 @@ const WEB_SERIES_DETAIL_SYSTEM_PROMPT = `你是中文网剧漫剧的视觉导演
 
 硬性规格：
 1. 保留原有场次、人物、对白、地点、关键物件和剧情因果，不压缩长稿，不另起新故事；每个动作单元都必须提供足够的角色和空间状态。
-2. 每个场次完整输出：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；禁止只输出镜头语言字段。网剧分镜以 3 到 4 秒快切为主，必要时才延长到 15 秒；每行都要写清可见动作和动作终点。
+2. 每个场次完整输出：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；禁止只输出镜头语言字段。每场对应一个视频镜头，以 4 到 5 秒快切为主，必要时延长到 15 秒；每行都要写清可见动作和动作终点。
 3. 风格写明材质、色彩和角色/场景的一致性；构图写景别、主体位置、前中后景和视线方向；光影写光源、方向、色温和明暗关系；运镜写机位、移动方式、速度、运动对象和落点。
 4. 衔接必须写清上一镜尾帧如何接入本镜，以及本镜如何把人物位置、动作、视线、服装、物件和光线交给下一镜，避免镜头像独立照片。
 5. 最后一个场次保留并强化高波动钩子，不提前揭示结果；原稿中的“【强制下一集】”必须独占一行并原样保留；不要增加拍摄设备、文字、水印或无关人物。
@@ -610,9 +621,23 @@ const SINGLE_REWRITE_MAX_LENGTH = 10_000
 const INITIAL_SCRIPT_MAX_TOKENS = 4_800
 const SCRIPT_DETAIL_MAX_TOKENS = 4_000
 const LONG_SCRIPT_MAX_TOKENS = 16_000
+const CHINESE_SCRIPT_OUTPUT_RULES = `语言硬约束：
+- 所有面向用户的场次名称、剧情、场景、角色、动作、对白、风格、构图、光影、运镜和衔接内容必须使用简体中文。
+- 除人物或地点的既有外文专名以及 AI、CG、2D、3D、Alpha 等行业缩写外，禁止输出英文标题、英文句子或中英混写的动作描述。
+- 不要把内部推理、英文动作草稿、英文镜头术语或翻译过程写进剧本正文。`
+
+const CHINESE_SCRIPT_REPAIR_SYSTEM_PROMPT = `你是中文剧本格式校对员。输入是一份混入英文的剧本结果，请只做语言与格式修复：
+1. 把所有英文标题、英文句子、英文动作描述和英文镜头术语准确改写为自然的简体中文。
+2. 人物、地点、物件、剧情因果、场次数量、场次编号、字段顺序、动作数量、对白含义和强制分集/分镜标记必须保持不变。
+3. AI、CG、2D、3D、Alpha 以及原稿中的既有外文专名可以保留；不要增加剧情、解释、标题、Markdown 或 JSON。
+4. 只输出修复后的完整剧本正文。`
 
 function webSeriesMaxOutputTokens(episodeSeconds: number): number {
   return Math.min(24_000, Math.max(7_000, Math.ceil(episodeSeconds / 60) * 6_500))
+}
+
+function withChineseScriptRules(systemPrompt: string): string {
+  return `${systemPrompt}\n\n${CHINESE_SCRIPT_OUTPUT_RULES}`
 }
 
 const SCRIPT_SEGMENT_SYSTEM_PROMPT = `你是中文长剧和漫剧的分段编剧。你的任务是基于已有剧本继续写下一段，而不是一次性生成整部长篇。
@@ -627,7 +652,7 @@ const SCRIPT_SEGMENT_SYSTEM_PROMPT = `你是中文长剧和漫剧的分段编剧
 8. ${SCENE_PRODUCTION_RULES}`
 
 const WEB_SERIES_SEGMENT_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧编剧。请基于已有剧本只续写下一集或下一段，严禁重写已有内容。
-1. 输出连续、可制作的场次，每个动作单元以 3 到 4 秒快切为主，必要时才延长到 15 秒；本段时长约为用户指定分钟数。
+1. 输出连续、可制作的场次，每个场次对应一个视频镜头，以 4 到 5 秒快切为主，必要时才延长到 15 秒；本段总时长约为用户指定分钟数。
 2. 承接上一段最后的时间、地点、人物状态、服装、视线、动作和关键物件，前两场要明确接住上一段尾部动作。
 3. 每场使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；每场都有目标、阻力、变化和结果。
 4. 本段末尾保留高波动钩子：悬念、受辱后反击前一秒、身份/实力即将揭示、关键物件启动或敌人误判；最后一行的场次值写“剧情钩子”，不要直接解决。
@@ -692,6 +717,50 @@ function normalizeExpandedScript(raw: string): string {
     .replace(/^```(?:text|markdown)?\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim()
+}
+
+async function ensureChineseScriptOutput(
+  provider: TextGenerationProvider,
+  raw: string,
+  model: ScriptModel,
+): Promise<string> {
+  const candidate = normalizeExpandedScript(raw)
+  if (!hasUnexpectedEnglish(candidate)) return candidate
+
+  const repaired = normalizeExpandedScript(
+    await provider.generate({
+      systemPrompt: CHINESE_SCRIPT_REPAIR_SYSTEM_PROMPT,
+      userPrompt: `请修复下面的剧本并完整返回：\n\n${candidate}`,
+      maxOutputTokens: Math.min(24_000, Math.max(2_400, Math.ceil(contentLength(candidate) * 1.5))),
+      model,
+    }),
+  )
+  if (!repaired || hasUnexpectedEnglish(repaired)) {
+    throw new AppError(
+      502,
+      'PROVIDER_RESPONSE_LANGUAGE_INVALID',
+      '文本服务连续返回大量英文内容，系统已阻止覆盖中文剧本，请更换模型后重试',
+    )
+  }
+  return repaired
+}
+
+function hasUnexpectedEnglish(script: string): boolean {
+  const inspected = script.replace(/\b(?:AI|CG|2D|3D|Alpha|Seedance|JSON|Markdown|IP|S\d+)\b/giu, '')
+  const englishWords = inspected.match(/[A-Za-z]{3,}/g) || []
+  if (englishWords.length < 6) return false
+
+  const hanCount = inspected.match(/[\u3400-\u9fff]/gu)?.length || 0
+  const latinCount = inspected.match(/[A-Za-z]/g)?.length || 0
+  const englishDominantLines = inspected
+    .split(/\n+/u)
+    .filter((line) => (line.match(/[A-Za-z]{3,}/g) || []).length >= 4)
+    .filter((line) => {
+      const lineHan = line.match(/[\u3400-\u9fff]/gu)?.length || 0
+      const lineLatin = line.match(/[A-Za-z]/g)?.length || 0
+      return lineLatin > Math.max(18, lineHan * 1.5)
+    }).length
+  return englishDominantLines >= 2 || (latinCount >= 80 && latinCount > hanCount * 0.22)
 }
 
 function isProtectedLongScript(script: string): boolean {
@@ -1696,15 +1765,26 @@ function preserveScriptBreakMarkers(source: string, candidate: string): string {
     .join('\n')
 }
 
+function hasStructuredSceneRows(script: string): boolean {
+  const paragraphs = splitScriptParagraphs(script)
+  if (paragraphs.length < 2) return false
+  const structuredRows = paragraphs.filter((paragraph) => {
+    const fields = parseShotFields(paragraph.text)
+    return Boolean(fields.场次) && Object.keys(fields).length >= 3
+  }).length
+  return structuredRows >= Math.max(2, Math.ceil(paragraphs.length * 0.6))
+}
+
 function alignEnrichedSceneRows(source: string, candidate: string): string {
   const sourceParagraphs = splitScriptParagraphs(source)
   const candidateParagraphs = splitScriptParagraphs(candidate)
   if (!sourceParagraphs.length || !candidateParagraphs.length) return candidate
 
   const candidateFields = candidateParagraphs.map((paragraph) => parseShotFields(paragraph.text))
-  const isComplete = candidateFields.every((fields) =>
-    COMPLETE_SCENE_FIELDS.every((field) => Boolean(fields[field])),
-  )
+  const preserveSceneCount = hasStructuredSceneRows(source)
+  const isComplete =
+    (!preserveSceneCount || candidateParagraphs.length === sourceParagraphs.length) &&
+    candidateFields.every((fields) => COMPLETE_SCENE_FIELDS.every((field) => Boolean(fields[field])))
   if (isComplete) return candidate
 
   const sourceFields = sourceParagraphs.map((paragraph) => parseShotFields(paragraph.text))
@@ -1830,16 +1910,17 @@ function splitScriptIntoBeatShots(
     const paragraph = scriptParagraph.text
     const fields = parseShotFields(paragraph)
     const direction = parseSceneDirectionFields(paragraph)
-    const beats = ensureActionBeatDensity(
-      splitFieldBeats(fields.动作 || fields.剧情 || paragraph, true),
-      fields,
-      isWebSeries,
-    ).slice(0, 4)
+    const beats = splitFieldBeats(fields.动作 || fields.剧情 || paragraph).slice(0, 4)
     const dialogueBeats = splitFieldBeats(fields.对白 || '')
     const sceneNumber = fields.场次 || String(sceneIndex + 1)
     for (const [beatIndex, beat] of beats.entries()) {
       if (shots.length >= maxShots) return shots
-      const dialogue = dialogueBeats[beatIndex]
+      const dialogue =
+        dialogueBeats.length > 1
+          ? dialogueBeats[beatIndex] || ''
+          : beatIndex === 0
+            ? dialogueBeats[0] || ''
+            : ''
       const duration = estimateShotDuration(beat, dialogue, fields, isWebSeries)
       shots.push({
         title: `场次 ${sceneNumber} · 动作 ${beatIndex + 1}`,
@@ -1870,9 +1951,6 @@ function splitScriptIntoSceneShots(
   maxShots: number,
   isWebSeries = false,
 ): ShotDraft[] {
-  // 用户按场次生成时，网剧内部仍拆成动作镜头，避免整场只生成一个主角动作。
-  if (isWebSeries) return splitScriptIntoBeatShots(paragraphs, maxShots, true)
-
   return paragraphs.slice(0, maxShots).map((scriptParagraph, index) => {
     const paragraph = scriptParagraph.text
     const fields = parseShotFields(paragraph)
@@ -1881,7 +1959,9 @@ function splitScriptIntoSceneShots(
     return {
       title: `镜头 ${String(index + 1).padStart(2, '0')}`,
       framing: index === 0 ? '大全景' : index % 3 === 0 ? '特写' : '中景',
-      duration: isWebSeries ? 4 : Math.min(15, Math.max(4, Math.ceil(paragraph.length / 18))),
+      duration: structured
+        ? estimateShotDuration(fields.动作 || fields.剧情 || paragraph, fields.对白, fields, isWebSeries)
+        : Math.min(15, Math.max(isWebSeries ? 3 : 4, Math.ceil(paragraph.length / 18))),
       prompt: structured
         ? compactShotPrompt(
             fields,
@@ -1891,6 +1971,7 @@ function splitScriptIntoSceneShots(
             undefined,
             0,
             1,
+            'scene',
           )
         : paragraph,
       negativePrompt: '',
@@ -1985,23 +2066,6 @@ function splitFieldBeats(value: string, splitCommas = false): string[] {
     .filter(Boolean)
 }
 
-function ensureActionBeatDensity(
-  beats: string[],
-  fields: Partial<Record<(typeof SHOT_FIELD_NAMES)[number], string>>,
-  isWebSeries: boolean,
-): string[] {
-  if (!isWebSeries || beats.length >= 2 || Object.keys(fields).length < 2) return beats
-  const base = beats[0] || fields.剧情 || '角色推进当前目标'
-  const roles = namedRolesForDirector(fields.角色)
-  const lead = roles[0] || '主要角色'
-  const supporting = roles.slice(1).join('、') || '配角和背景角色'
-  return [
-    `${base}；${lead}的表情从当前状态转为警觉，视线明确转向阻力来源`,
-    `${lead}改变站位或与关键物件发生可见互动；${supporting}同步转头、停步、交换视线或调整姿态`,
-    `${lead}停在下一步行动前并保持结束姿态；${supporting}留下紧张、疑惑或戒备的表情反应`,
-  ]
-}
-
 function compactShotPrompt(
   fields: Partial<Record<(typeof SHOT_FIELD_NAMES)[number], string>>,
   direction: SceneDirectionFields,
@@ -2010,8 +2074,13 @@ function compactShotPrompt(
   duration?: number,
   beatIndex = 0,
   beatCount = 1,
+  scope: 'scene' | 'beat' = 'beat',
 ): string {
   const action = beat.trim() || fields.动作 || '角色保持当前状态并产生可见变化'
+  const resolvedDialogue =
+    dialogue === undefined
+      ? fields.对白 || '无台词，角色通过表情和动作传达变化'
+      : dialogue || '无台词，仅保留本镜动作声、环境声和画内人物反应'
   return [
     fieldPart('场次', fields.场次 || '未编号场次', 24),
     fieldPart('剧情', fields.剧情 || '本场继续推进当前冲突', 260),
@@ -2021,15 +2090,22 @@ function compactShotPrompt(
     fieldPart('场景', fields.场景 || '沿用上一场空间与时间', 320),
     fieldPart('角色', fields.角色 || '沿用上一场所有角色；每位画面内人物都必须有动作、表情或视线变化', 420),
     ...(beatIndex === 0 ? [fieldPart('入场状态', direction.入场状态, 240)] : []),
+    fieldPart(
+      '镜头边界',
+      scope === 'scene'
+        ? '本镜只覆盖当前场次，按动作字段顺序完成，不重演上一场，不提前进入下一场'
+        : '本镜只表现当前动作，不重演上一镜已完成动作，不提前执行本场后续动作',
+      160,
+    ),
     fieldPart('动作', action, 520),
-    fieldPart('对白', dialogue || fields.对白 || '无台词，角色通过表情和动作传达变化', 280),
+    fieldPart('对白', resolvedDialogue, 280),
     fieldPart('风格', fields.风格 || '沿用项目视觉风格，角色与场景材质统一', 180),
     fieldPart('构图', fields.构图 || '中景，主体位于画面重心，前中后景清晰', 220),
     fieldPart('光影', fields.光影 || '沿用上一场光源方向和色温，避免跳变', 200),
     fieldPart('运镜', fields.运镜 || '稳定跟随动作，结尾停在下一动作起点', 240),
     fieldPart('衔接', fields.衔接 || '承接上一场人物位置、视线、动作、服装、物件和光线状态', 300),
     ...(beatIndex === beatCount - 1 ? [fieldPart('出场状态', direction.出场状态, 240)] : []),
-    fieldPart('导演节拍', directorBeatFor(action, fields.角色, dialogue || fields.对白, duration), 480),
+    fieldPart('导演节拍', directorBeatFor(action, fields.角色, resolvedDialogue, duration, scope), 480),
   ]
     .filter(Boolean)
     .join('｜')
@@ -2074,6 +2150,7 @@ function directorBeatFor(
   roleField: string | undefined,
   dialogue: string | undefined,
   duration: number | undefined,
+  scope: 'scene' | 'beat' = 'beat',
 ): string {
   const roles = namedRolesForDirector(roleField)
   const lead = roles[0] || '主角'
@@ -2081,8 +2158,12 @@ function directorBeatFor(
   const hasDialogue = dialogueTextForTiming(dialogue).length > 0 && !/无台词/u.test(String(dialogue || ''))
   const endSecond = Math.max(2, Number(duration || 4) - 1)
   return [
-    `本镜只完成一个主动作：${headExcerpt(action, 180)}`,
-    `0-1 秒承接既有状态，1-${endSecond} 秒完整表现动作起势、执行与一次表情或视线变化，最后 1 秒停在可被下一镜承接的结束姿态`,
+    scope === 'scene'
+      ? `本镜完整表现当前场次，不新增场外事件：${headExcerpt(action, 180)}`
+      : `本镜只完成一个主动作：${headExcerpt(action, 180)}`,
+    scope === 'scene'
+      ? `0-1 秒承接入场状态，1-${endSecond} 秒按动作字段的既定顺序完成表演与反应，最后 1 秒固定人物位置、视线和物件状态`
+      : `0-1 秒承接既有状态，1-${endSecond} 秒完整表现动作起势、执行与一次表情或视线变化，最后 1 秒停在可被下一镜承接的结束姿态`,
     supporting
       ? `主角 ${lead} 推进主动作；配角 ${supporting} 只做同步的转头、视线、停步或姿态反应，不新增第二个剧情动作`
       : `主角 ${lead} 推进主动作；其他画内人物只做同步的视线、表情或姿态反应，不新增第二个剧情动作`,

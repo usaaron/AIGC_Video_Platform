@@ -69,6 +69,7 @@ Route -> Service -> Repository / Provider -> Database / Store / External API
 - `modules/admin`：统一 Admin Console API、用户/组织/membership/账单/session/审计查询、账号启停、后台充值/调账。
 - `modules/billing`：Postgres billing ledger，幂等扣费、退款、grant 和 adjustment。
 - `modules/generation`：图片/视频/文本任务创建、查询、暂停、恢复、删除、输出读取。
+- `modules/projects`：剧本生成会强制简体中文，英文句子占比异常时在同一任务内自动校正；已有多场结构化剧本锁定场次数量。默认分镜是一场一镜，动作级细拆只处理明确动作节拍。
 - `modules/aiJobs`：通用 AI Job 查询和仓储；`ai_jobs` 保存 `kind`、`input`、`output`、`provider`、`cost_credits`、状态、lease 和幂等 `client_request_id`。
 - `modules/novels`：小说导入、章节索引、边界检查、摘要队列、章节摘要和故事圣经；Postgres/ObjectStorage 是主路径，JSON Store 只做本地兼容回退。摘要队列批处理已通过 `ai_jobs.kind = novel.summaryQueueBatch` 接入 Worker。
 - `core/jobs`：事务 Outbox、BullMQ 任务分发、任务依赖、并发、Provider 轮询、AI Job handler、失败退款和写回。

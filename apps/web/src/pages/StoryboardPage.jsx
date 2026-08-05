@@ -176,7 +176,7 @@ export function StoryboardPage({
           className="button secondary"
           onClick={() => void splitFromScript('scene')}
           disabled={controlsLocked}
-          title="按剧本场次自动拆出动作镜头、补齐角色反应，并继续生成队列"
+          title="每个剧本场次生成一个视频镜头，不再自动把场内动作重复拆开"
         >
           {splitting === 'scene' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
           {splitting === 'scene' ? '正在按场次智能生成' : '按场次智能生成'}
@@ -499,6 +499,9 @@ function ShotRow({
   onGenerateVideo,
 }) {
   const videoTask = taskFor(tasks, shot, 'video')
+  const previewVideoTaskId = selectedVersionTaskId(tasks, shot, 'video')
+  const previewVideoTask = tasks.find((task) => task.id === previewVideoTaskId) || null
+  const previewVideoUrl = taskOutputUrl(previewVideoTask, 'video')
   const references = selectShotAssetReferences(assets, shot)
   const videoMatchesAssets = taskUsesAssetReferences(videoTask, references)
   const videoActionLabel = generationActionLabel(videoTask, videoMatchesAssets, '视频')
@@ -516,9 +519,20 @@ function ShotRow({
       )}
       <article className={`shot-row ${selected ? 'selected' : ''}`} onClick={onSelect}>
         <div className="shot-number">{String(shot.order).padStart(2, '0')}</div>
-        <div className="shot-thumb">
-          <img src={shot.imageUrl || '/demo/station.jpg'} alt={shot.title} />
-          <span>{shot.framing}</span>
+        <div className={`shot-thumb ${previewVideoUrl ? 'has-video' : ''}`}>
+          {previewVideoUrl ? (
+            <video
+              src={previewVideoUrl}
+              controls
+              playsInline
+              preload="metadata"
+              aria-label={`${shot.title}成片预览`}
+              onClick={(event) => event.stopPropagation()}
+            />
+          ) : (
+            <img src={shot.imageUrl || '/demo/station.jpg'} alt={shot.title} />
+          )}
+          <span>{previewVideoUrl ? '成片预览' : shot.framing}</span>
         </div>
         <div className="shot-content">
           <div>

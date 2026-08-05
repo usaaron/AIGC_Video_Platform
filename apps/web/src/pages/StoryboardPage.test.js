@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { groupShotsByEpisode } from './StoryboardPage'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it, vi } from 'vitest'
+import { groupShotsByEpisode, StoryboardPage } from './StoryboardPage'
 
 describe('groupShotsByEpisode', () => {
   it('summarizes episodes and keeps the hook group last', () => {
@@ -29,5 +31,51 @@ describe('groupShotsByEpisode', () => {
       duration: 13,
       shots: [{ id: 'shot-1' }, { id: 'hook-1' }],
     })
+  })
+
+  it('renders the selected completed video directly inside the shot row', () => {
+    const html = renderToStaticMarkup(
+      createElement(StoryboardPage, {
+        project: { id: 'project-1', contentType: 'short-drama' },
+        shots: [
+          {
+            id: 'shot-1',
+            order: 1,
+            title: '镜头 01',
+            framing: '中景',
+            duration: 5,
+            prompt: '林砚抬眼看向长老。',
+            continuityMode: 'independent',
+            episodeNumber: 1,
+            episodeTitle: '第 1 集',
+            episodeKind: 'standard',
+            selectedVideoTaskId: 'video-1',
+          },
+        ],
+        assets: [],
+        tasks: [
+          {
+            id: 'video-1',
+            kind: 'video',
+            status: 'completed',
+            resultUrl: '/generated/shot-1.mp4',
+            metadata: { shotId: 'shot-1', resolution: '720p' },
+          },
+        ],
+        onUpdateEpisodeDuration: vi.fn(),
+        onRegenerate: vi.fn(),
+        onAutoSplitEpisodes: vi.fn(),
+        onCreate: vi.fn(),
+        onUpdate: vi.fn(),
+        onUpload: vi.fn(),
+        onGenerateVideo: vi.fn(),
+        onGenerateAllVideos: vi.fn(),
+        onNext: vi.fn(),
+      }),
+    )
+
+    expect(html).toContain('<video')
+    expect(html).toContain('/generated/shot-1.mp4')
+    expect(html).toContain('成片预览')
   })
 })

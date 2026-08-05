@@ -9662,6 +9662,16 @@
   height: 100%;
   object-fit: cover;
 }
+.shot-thumb video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  background: #11130f;
+}
+.shot-thumb.has-video {
+  background: #11130f;
+}
 .shot-thumb span {
   position: absolute;
   left: 6px;
@@ -9671,6 +9681,7 @@
   background: rgba(17, 19, 17, 0.7);
   color: #fff;
   font-size: 7px;
+  pointer-events: none;
 }
 .shot-content {
   min-width: 0;

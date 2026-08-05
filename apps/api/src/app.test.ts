@@ -3229,17 +3229,17 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toHaveLength(8)
     expect(response.json()[0]).toMatchObject({
-      title: '场次 1 · 动作 1',
-      prompt: expect.stringContaining('动作：剧本段落 1'),
+      title: '镜头 01',
+      prompt: '剧本段落 1',
       continuityMode: 'independent',
       continuityNote: '',
       imageUrl: null,
     })
     expect(response.json()[7]).toMatchObject({
-      title: '场次 8 · 动作 1',
-      prompt: expect.stringContaining('动作：剧本段落 8'),
+      title: '镜头 08',
+      prompt: '剧本段落 8',
       continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一场收束：剧本段落 7'),
+      continuityNote: expect.stringContaining('上一场已完成'),
       imageUrl: null,
     })
     expect(generate).not.toHaveBeenCalled()
@@ -3337,7 +3337,7 @@ describe('API authorization', () => {
       title: '场次 1 · 动作 2',
       framing: '中景',
       continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一镜收束：林夏踏入积水'),
+      continuityNote: expect.stringContaining('上一镜已完成'),
       prompt: expect.stringContaining('动作：她举起信封确认地址'),
     })
     expect(response.json()[2]).toMatchObject({
@@ -3348,7 +3348,7 @@ describe('API authorization', () => {
     expect(response.json()[3]).toMatchObject({
       title: '场次 2 · 动作 1',
       continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一场收束：林夏踏入积水'),
+      continuityNote: expect.stringContaining('上一场已完成'),
     })
   })
 
