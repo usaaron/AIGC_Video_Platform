@@ -44,10 +44,10 @@ export function taskUsesAssetReferences(task, references) {
   return actual.length === expected.length && expected.every((id, index) => actual[index] === id)
 }
 
-export function selectVideoReferenceImages(storyboardImageUrl, references, limit = 9) {
+export function selectVideoReferenceImages(manualReferenceUrl, references, limit = 9) {
   return [
     ...new Set(
-      [storyboardImageUrl, ...references.map((reference) => reference.videoUrl || reference.url)].filter(
+      [manualReferenceUrl, ...references.map((reference) => reference.videoUrl || reference.url)].filter(
         Boolean,
       ),
     ),

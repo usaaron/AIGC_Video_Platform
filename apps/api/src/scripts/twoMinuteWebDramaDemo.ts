@@ -2,8 +2,8 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 const API_BASE = process.env.DEMO_API_BASE_URL || 'http://127.0.0.1:8787/api/v1'
-const EMAIL = process.env.DEMO_EMAIL || 'creator@seqora.local'
-const PASSWORD = process.env.DEMO_PASSWORD || 'Creator123!'
+const EMAIL = process.env.DEMO_EMAIL || 'member@seqora.local'
+const PASSWORD = process.env.DEMO_PASSWORD || 'MemberPassword123!'
 const PROJECT_NAME = '碎星逆命｜2分钟网剧工作流验收'
 const OUTPUT_PATH = resolve('artifacts', '碎星逆命-2分钟网剧验收.mp4')
 const TARGET_SHOTS = 24
@@ -187,9 +187,6 @@ async function main() {
   const shots = await ensureShots(project.id)
   log(`分镜：${shots.length} 镜，页面标注时长 ${shots.reduce((sum, shot) => sum + shot.duration, 0)} 秒`)
 
-  // Img2 occasionally times out individual requests. Each retry resumes from
-  // completed shots, so allow every three-shot batch to recover independently.
-  await retryStage('分镜图', () => ensureStoryboardImages(project.id, shots), 24)
   await retryStage('分镜视频', () => ensureVideos(project.id), 32)
   const preview = await ensureFilmPreview(project.id)
   await downloadPreview(preview)
@@ -606,63 +603,6 @@ async function ensureShots(projectId: string): Promise<Shot[]> {
   return (await workspaceFor(projectId)).shots
 }
 
-async function ensureStoryboardImages(projectId: string, shots: Shot[]) {
-  const batchSize = 3
-  for (let offset = 0; offset < shots.length; offset += batchSize) {
-    const workspace = await workspaceFor(projectId)
-    const tasks = await tasksFor(projectId)
-    const ids: string[] = []
-    for (const shot of workspace.shots.slice(offset, offset + batchSize)) {
-      if (shot.imageUrl) continue
-      const existing = findTask(
-        tasks,
-        (task) =>
-          task.kind === 'image' &&
-          task.metadata.shotId === shot.id &&
-          task.metadata.generationStage === 'storyboard',
-      )
-      if (existing && !terminalFailure(existing)) {
-        ids.push(existing.id)
-        continue
-      }
-      const references = selectReferences(workspace.assets, shot, 3)
-      const task = await createTask(projectId, {
-        kind: 'image',
-        label: `分镜图 ${String(shot.order).padStart(2, '0')} · ${shot.title}`,
-        prompt: `${shot.prompt}，${shot.framing}，电影分镜静帧，高品质影视CG东方玄幻，保持人物身份、服装、场景、石碑和碎星玉一致，画面清晰，竖屏9:16。`,
-        negativePrompt: shot.negativePrompt,
-        provider: 'img2',
-        model: 'img2-default',
-        estimatedCredits: 6,
-        metadata: {
-          shotId: shot.id,
-          generationStage: 'storyboard',
-          aspectRatio: '9:16',
-          references,
-          referenceAssetIds: references.map((reference) => reference.id),
-        },
-      })
-      ids.push(task.id)
-    }
-    if (ids.length) {
-      await waitForTasks(
-        projectId,
-        ids,
-        12 * 60_000,
-        `分镜图 ${offset + 1}-${Math.min(offset + batchSize, shots.length)}`,
-      )
-    }
-  }
-  const workspace = await workspaceFor(projectId)
-  if (workspace.shots.filter((shot) => shot.imageUrl).length !== shots.length) {
-    throw new Error('部分分镜图未回写到镜头')
-  }
-  const tasks = await tasksFor(projectId)
-  log(
-    `分镜图完成：${tasks.filter((task) => task.kind === 'image' && task.metadata.generationStage === 'storyboard' && task.status === 'completed').length} 个`,
-  )
-}
-
 async function ensureVideos(projectId: string) {
   const workspace = await workspaceFor(projectId)
   const lanes: Shot[][] = []
@@ -694,8 +634,7 @@ async function ensureVideos(projectId: string) {
         if (previousShot && !source) {
           throw new Error(`镜头 ${shot.order} 缺少上一镜完成视频或尾帧`)
         }
-        const storyboardImageUrl = shot.imageUrl
-        if (!storyboardImageUrl) throw new Error(`镜头 ${shot.order} 缺少分镜图`)
+        const references = selectReferences(workspace.assets, shot, 6)
         const lane = Math.floor((shot.order - 1) / 3)
         const task = await createTask(projectId, {
           kind: 'video',
@@ -716,10 +655,9 @@ async function ensureVideos(projectId: string) {
             returnLastFrame: true,
             continuityMode: source ? 'continue' : 'independent',
             ...(source ? { continuitySourceTaskId: source.id } : {}),
-            storyboardImageUrl,
-            images: [storyboardImageUrl],
-            videoInputMode: source ? 'continuity-frame-pair' : 'storyboard-only',
-            referenceAssetIds: [],
+            images: references.map((reference) => reference.url),
+            videoInputMode: source ? 'continuity-and-assets' : references.length ? 'assets' : 'text',
+            referenceAssetIds: references.map((reference) => reference.id),
             batchId: `two-minute-demo-${projectId}`,
             batchMode: 'parallel',
             batchPlanVersion: 'v3-two-lane',

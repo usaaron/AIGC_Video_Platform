@@ -1,10 +1,8 @@
 import {
   ArrowRight,
-  BookOpenText,
   CircleAlert,
   Clock3,
   FolderOpen,
-  ImagePlus,
   LoaderCircle,
   PauseCircle,
   Pencil,
@@ -13,45 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import { useState } from 'react'
-import { BrandMark } from '../components/BrandMark'
 import { IconButton, PageHeader } from '../components/ui'
-
-const FUNCTION_STACK = [
-  {
-    id: 'agent',
-    index: '01',
-    eyebrow: 'ORCHESTRATOR / AGENT',
-    title: '对话一句成片',
-    description: '从一句创作意图开始，未来串起剧本、资产、分镜与成片。',
-    icon: BrandMark,
-    className: 'function-stack-card-agent',
-    messages: [
-      ['user', '帮我做一支 60 秒的赛博悬疑短片'],
-      ['system', '已识别主题，准备规划故事与制作链路'],
-      ['system', '剧本 · 资产 · 分镜 · 成片 · 待确认'],
-    ],
-  },
-  {
-    id: 'image',
-    index: '02',
-    eyebrow: 'IMAGE STUDIO',
-    title: '图片大师',
-    description: '独立生成角色、场景、物品和视觉参考图。',
-    icon: ImagePlus,
-    className: 'function-stack-card-image',
-    messages: ['人物面部', '场景设定', '产品视觉'],
-  },
-  {
-    id: 'script',
-    index: '03',
-    eyebrow: 'WRITING ROOM',
-    title: '剧本大师',
-    description: '面向长剧本的世界观、人物关系、分集与章节规划。',
-    icon: BookOpenText,
-    className: 'function-stack-card-script',
-    messages: ['世界观', '人物关系', '分集大纲'],
-  },
-]
 
 export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete }) {
   const [editingId, setEditingId] = useState(null)
@@ -185,22 +145,6 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
           </button>
         </div>
       </section>
-
-      <section className="function-stack" aria-label="功能栈">
-        <header className="function-stack-heading">
-          <div>
-            <span className="eyebrow">FUNCTION STACK</span>
-            <h2>把创作拆成三个入口</h2>
-            <p>先从最适合你的工作方式开始，项目内的素材和风格会在后续流程中保持一致。</p>
-          </div>
-          <span className="function-stack-rule">序幕 / 01</span>
-        </header>
-        <div className="function-stack-grid">
-          {FUNCTION_STACK.map((item) => (
-            <FunctionStackCard item={item} key={item.id} />
-          ))}
-        </div>
-      </section>
     </div>
   )
 }
@@ -217,53 +161,6 @@ function visualStyleLabel(value) {
   if (value === 'chinese-3d') return '3D风'
   if (value === 'storybook') return '绘本风'
   return 'CG风'
-}
-
-function FunctionStackCard({ item }) {
-  const Icon = item.icon
-  return (
-    <article className={`function-stack-card ${item.className}`}>
-      <div className="function-stack-card-topline">
-        <span>{item.index}</span>
-        <span>{item.eyebrow}</span>
-        <i />
-      </div>
-      <div className="function-stack-card-title">
-        <span className="function-stack-card-icon">
-          <Icon size={item.id === 'agent' ? 20 : 18} />
-        </span>
-        <div>
-          <h3>{item.title}</h3>
-          <p>{item.description}</p>
-        </div>
-      </div>
-      {item.id === 'agent' ? (
-        <div className="function-stack-agent-preview" aria-hidden="true">
-          {item.messages.map(([role, message]) => (
-            <div className={`function-stack-message ${role}`} key={message}>
-              <span>{role === 'user' ? 'YOU' : 'SEQORA'}</span>
-              <strong>{message}</strong>
-            </div>
-          ))}
-          <span className="function-stack-agent-pulse" />
-        </div>
-      ) : (
-        <div className="function-stack-tool-preview" aria-hidden="true">
-          {item.messages.map((message, index) => (
-            <span key={message} style={{ '--stack-delay': `${index * 120}ms` }}>
-              {message}
-            </span>
-          ))}
-        </div>
-      )}
-      <footer className="function-stack-card-footer">
-        <span>本期 UI 已就绪 · 功能开发中</span>
-        <button type="button" className="function-stack-open" disabled title="该功能将在后续版本开放">
-          即将开放 <ArrowRight size={14} />
-        </button>
-      </footer>
-    </article>
-  )
 }
 
 function ProjectGenerationState({ summary }) {

@@ -1,4 +1,4 @@
-import { compileAssetPrompt } from './promptCompiler'
+import { compileAssetPrompt, compileCharacterStagePrompt } from './promptCompiler'
 
 export const ASSET_CREATION_MODES = {
   DIRECT: 'direct',
@@ -69,7 +69,11 @@ export function buildAssetInput({ asset, draft, kind, aspectRatio, creationMode 
   const input = {
     ...(asset.id ? {} : { kind }),
     ...normalized,
-    prompt: direct ? '' : compileAssetPrompt(normalized, aspectRatio),
+    prompt: direct
+      ? ''
+      : kind === 'character'
+        ? compileCharacterStagePrompt(normalized, aspectRatio, 'face')
+        : compileAssetPrompt(normalized, aspectRatio),
     imageUrl:
       kind === 'audio'
         ? null

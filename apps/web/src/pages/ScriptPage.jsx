@@ -20,8 +20,8 @@ import { LongFormStudioPlaceholder } from '../features/script/LongFormStudioPlac
 import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
 const SCRIPT_MODEL_OPTIONS = [
-  ['seqora-5.6', 'SEQORA 5.6'],
-  ['gpt-5.6-terra', 'SEQORA 5.6 Terra'],
+  ['seqora-5.6', '序幕TV 5.6'],
+  ['gpt-5.6-terra', '序幕TV 5.6 Terra'],
   ['kimi-k3', 'Kimi K3'],
   ['glm-5.2', 'GLM 5.2'],
   ['glm-5.2-fast', 'GLM 5.2 Fast'],
@@ -633,7 +633,7 @@ export function ScriptPage({
                 <strong>{activeScriptTask.label}</strong>
                 <span>
                   {activeScriptTask.status === 'running'
-                    ? `序幕正在生成 · ${scriptTaskStage(activeScriptTask)}`
+                    ? `序幕TV 正在生成 · ${scriptTaskStage(activeScriptTask)}`
                     : activeScriptTask.status === 'paused'
                       ? '任务已暂停，可前往生成队列继续'
                       : '已提交模型，正在等待执行'}
@@ -678,14 +678,15 @@ export function ScriptPage({
                   </div>
                 )}
               </div>
-              <AssetShortcutBar
-                assets={assets}
-                tasks={tasks}
-                value={script}
-                onChange={update}
-                inputRef={textArea}
-              />
               <div className="script-document-footer">
+                <AssetShortcutBar
+                  assets={assets}
+                  tasks={tasks}
+                  value={script}
+                  onChange={update}
+                  inputRef={textArea}
+                  placement="top"
+                />
                 <span>{count} 字</span>
                 <span>{paragraphCount} 段</span>
                 <span>约 {estimatedMinutes} 分钟</span>

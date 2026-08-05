@@ -1094,7 +1094,7 @@ export function App() {
         <div className="brand-lockup">
           <span className="brand-mark">序</span>
           <div>
-            <strong>SEQORA Admin</strong>
+            <strong>序幕TV Admin</strong>
             <span>组织 {session.account.organizationId ?? session.account.tenantId}</span>
           </div>
         </div>
@@ -1568,7 +1568,7 @@ function LoginScreen({ form, busy, error, onChange, onSubmit }) {
         <div className="brand-lockup large">
           <span className="brand-mark">序</span>
           <div>
-            <strong>SEQORA Admin</strong>
+            <strong>序幕TV Admin</strong>
             <span>管理后台</span>
           </div>
         </div>

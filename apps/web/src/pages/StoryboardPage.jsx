@@ -52,7 +52,6 @@ export function StoryboardPage({
   onCreate,
   onUpdate,
   onUpload,
-  onGenerateImage,
   onGenerateVideo,
   onGenerateAllVideos,
   onNext,
@@ -177,7 +176,7 @@ export function StoryboardPage({
           className="button secondary"
           onClick={() => void splitFromScript('scene')}
           disabled={controlsLocked}
-          title="按剧本场次自动拆出动作镜头、补齐角色反应，并继续生成队列"
+          title="每个剧本场次生成一个视频镜头，不再自动把场内动作重复拆开"
         >
           {splitting === 'scene' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
           {splitting === 'scene' ? '正在按场次智能生成' : '按场次智能生成'}
@@ -421,7 +420,6 @@ export function StoryboardPage({
                     onUpdate={onUpdate}
                     onEdit={() => setEditing(shot)}
                     onHistory={() => setHistoryShotId(shot.id)}
-                    onGenerateImage={onGenerateImage}
                     onGenerateVideo={onGenerateVideo}
                   />
                 )
@@ -431,7 +429,7 @@ export function StoryboardPage({
         ))}
       </div>
       <div className="sticky-actions">
-        <span>视频 18 积分；分镜图可选；新视频默认生成对白、环境声和动作音效。</span>
+        <span>视频 18 积分；直接使用项目资产与上一镜真实尾帧，不预生成静态分镜图。</span>
         <button className="button primary" onClick={onNext}>
           查看生成队列 <ArrowRight size={16} />
         </button>
@@ -498,20 +496,14 @@ function ShotRow({
   onUpdate,
   onEdit,
   onHistory,
-  onGenerateImage,
   onGenerateVideo,
 }) {
-  const imageTask = taskFor(tasks, shot, 'image')
   const videoTask = taskFor(tasks, shot, 'video')
+  const previewVideoTaskId = selectedVersionTaskId(tasks, shot, 'video')
+  const previewVideoTask = tasks.find((task) => task.id === previewVideoTaskId) || null
+  const previewVideoUrl = taskOutputUrl(previewVideoTask, 'video')
   const references = selectShotAssetReferences(assets, shot)
-  const imageMatchesAssets = taskUsesAssetReferences(imageTask, references)
   const videoMatchesAssets = taskUsesAssetReferences(videoTask, references)
-  const imageActionLabel = generationActionLabel(
-    imageTask,
-    imageMatchesAssets,
-    '图片',
-    Boolean(shot.imageUrl),
-  )
   const videoActionLabel = generationActionLabel(videoTask, videoMatchesAssets, '视频')
 
   return (
@@ -527,9 +519,20 @@ function ShotRow({
       )}
       <article className={`shot-row ${selected ? 'selected' : ''}`} onClick={onSelect}>
         <div className="shot-number">{String(shot.order).padStart(2, '0')}</div>
-        <div className="shot-thumb">
-          <img src={shot.imageUrl || '/demo/station.jpg'} alt={shot.title} />
-          <span>{shot.framing}</span>
+        <div className={`shot-thumb ${previewVideoUrl ? 'has-video' : ''}`}>
+          {previewVideoUrl ? (
+            <video
+              src={previewVideoUrl}
+              controls
+              playsInline
+              preload="metadata"
+              aria-label={`${shot.title}成片预览`}
+              onClick={(event) => event.stopPropagation()}
+            />
+          ) : (
+            <img src={shot.imageUrl || '/demo/station.jpg'} alt={shot.title} />
+          )}
+          <span>{previewVideoUrl ? '成片预览' : shot.framing}</span>
         </div>
         <div className="shot-content">
           <div>
@@ -559,18 +562,6 @@ function ShotRow({
           <div className="shot-generation-state">
             <span
               className={
-                imageTask?.status === 'completed' && !imageMatchesAssets
-                  ? 'stale'
-                  : imageTask?.status || (shot.imageUrl ? 'completed' : '')
-              }
-            >
-              分镜图 ·{' '}
-              {imageTask?.status === 'completed' && !imageMatchesAssets
-                ? '需同步资产'
-                : taskLabel(imageTask, Boolean(shot.imageUrl))}
-            </span>
-            <span
-              className={
                 videoTask?.status === 'completed' && !videoMatchesAssets ? 'stale' : videoTask?.status || ''
               }
             >
@@ -583,20 +574,6 @@ function ShotRow({
           </div>
         </div>
         <div className="shot-actions">
-          <button
-            type="button"
-            className="shot-action-button image"
-            title={imageActionLabel}
-            aria-label={imageActionLabel}
-            disabled={isActive(imageTask)}
-            onClick={(event) => {
-              event.stopPropagation()
-              void onGenerateImage(shot)
-            }}
-          >
-            {isActive(imageTask) ? <LoaderCircle size={16} className="spin" /> : <ImagePlus size={16} />}
-            <span>{imageActionLabel}</span>
-          </button>
           <select
             className="shot-resolution-select"
             aria-label={`${shot.title} 视频清晰度`}
@@ -667,7 +644,6 @@ function ShotRow({
 function ShotHistoryModal({ shot, tasks, onClose, onRestore }) {
   const [restoring, setRestoring] = useState('')
   const [error, setError] = useState('')
-  const imageVersions = shotVersionPair(tasks, shot, 'image')
   const videoVersions = shotVersionPair(tasks, shot, 'video')
 
   const restore = async (kind, taskId) => {
@@ -696,14 +672,6 @@ function ShotHistoryModal({ shot, tasks, onClose, onRestore }) {
           </IconButton>
         </div>
         <div className="shot-history-columns">
-          <ShotHistoryColumn
-            title="分镜图"
-            kind="image"
-            versions={imageVersions}
-            selectedTaskId={selectedVersionTaskId(tasks, shot, 'image')}
-            restoring={restoring}
-            onRestore={restore}
-          />
           <ShotHistoryColumn
             title="镜头视频"
             kind="video"

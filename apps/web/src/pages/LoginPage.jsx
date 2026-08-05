@@ -125,25 +125,50 @@ export function LoginPage() {
 
   return (
     <main className="login-page">
-      <section className="login-scene" aria-label="序幕创作工作台画面">
-        <img src="/demo/station.jpg" alt="雨夜中的城市街道" />
+      <section className="login-scene" aria-label="序幕TV 创作工作台">
+        <img src="/demo/room.jpg" alt="暖光中的电影创作空间" />
         <div className="login-scene-overlay" />
+        <div className="login-scene-frame" aria-hidden="true">
+          <span>01</span>
+          <span>序幕TV® ORIGINALS</span>
+        </div>
+        <div className="login-scanline" aria-hidden="true" />
         <div className="login-brand">
           <span>
             <Aperture size={20} />
           </span>
-          序幕 <small>SEQORA</small>
+          <div>
+            <strong>
+              序幕TV<sup className="login-brand-mark">®</sup>
+            </strong>
+            <small>序幕TV创作工作台</small>
+          </div>
         </div>
         <div className="login-story">
-          <span>正在创作</span>
-          <h1>从一个故事，到一部成片。</h1>
-          <p>剧本、角色、分镜和生成任务，在同一个安静的工作台里完成。</p>
+          <span>序幕TV® · AI CINEMATIC STUDIO</span>
+          <h1>
+            “序幕起，<em>好戏生。</em>”
+          </h1>
+          <div className="login-story-timeline" aria-hidden="true">
+            <i />
+            <span>00:00:01</span>
+          </div>
+        </div>
+        <div className="login-scene-footer" aria-hidden="true">
+          <span>FRAME 01</span>
+          <i />
+          <span>24 FPS</span>
         </div>
       </section>
       <section className="login-panel">
-        <form onSubmit={submit} className="login-form">
+        <div className="login-panel-meta" aria-hidden="true">
+          <span>序幕TV®</span>
+          <i />
+          <span>SECURE ACCESS</span>
+        </div>
+        <form onSubmit={submit} className="login-form login-entry-form">
           <div className="login-heading">
-            <span className="eyebrow">创作工作台</span>
+            <span className="eyebrow">序幕TV® · 创作工作台</span>
             <h2>{isForgotPassword ? '找回密码' : isRegistering ? '验证邮箱并注册' : '欢迎回来'}</h2>
             <p>
               {isForgotPassword

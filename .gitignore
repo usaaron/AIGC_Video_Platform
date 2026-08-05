@@ -17,6 +17,7 @@ apps/web/src/assets/hero.png
 logs/
 tmp/
 apps/api/data/
+data/
 local-fixtures/
 /deploy/demo.env
 /deploy/monitoring.env

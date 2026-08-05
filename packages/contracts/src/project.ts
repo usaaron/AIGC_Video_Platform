@@ -220,6 +220,13 @@ export const characterAttributesSchema = z.object({
   legStretch: z.boolean(),
   turnaround: z.boolean(),
   turnaroundLayout: z.enum(['sheet', 'separate']),
+  stagePrompts: z
+    .object({
+      face: z.string().max(5_000),
+      body: z.string().max(5_000),
+      turnaround: z.string().max(5_000),
+    })
+    .optional(),
   appearanceVariants: z.array(characterAppearanceVariantSchema).max(12).default([]),
   activeAppearanceVariantId: z.string().max(128).nullable().default(null),
 })

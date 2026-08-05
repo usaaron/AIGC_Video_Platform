@@ -13,6 +13,23 @@ const sidebarProps = {
 }
 
 describe('app shell account entry', () => {
+  it('places the function stack between the project library and creative flow', () => {
+    const html = renderToStaticMarkup(
+      <AppSidebar {...sidebarProps} canOpenAdminAccounts={false} adminConsoleUrl="http://localhost:5174/" />,
+    )
+
+    const projectLibrary = html.indexOf('项目库')
+    const functionStack = html.indexOf('aria-label="功能栈"')
+    const creativeFlow = html.indexOf('aria-label="创作流程"')
+
+    expect(projectLibrary).toBeGreaterThanOrEqual(0)
+    expect(functionStack).toBeGreaterThan(projectLibrary)
+    expect(creativeFlow).toBeGreaterThan(functionStack)
+    expect(html).toContain('一句成片')
+    expect(html).toContain('图片大师')
+    expect(html).toContain('剧本大师')
+  })
+
   it('hides the admin console link from ordinary members', () => {
     const html = renderToStaticMarkup(
       <AppSidebar {...sidebarProps} canOpenAdminAccounts={false} adminConsoleUrl="http://localhost:5174/" />,

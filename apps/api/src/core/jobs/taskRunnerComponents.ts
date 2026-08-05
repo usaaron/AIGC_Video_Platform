@@ -176,6 +176,8 @@ export class TaskClaimer {
           if (claimed >= available) break
           if (task.status !== 'queued') continue
           if (task.provider === 'local-compose') continue
+          const retryNotBefore = Date.parse(stringValue(task.metadata.providerRetryNotBefore, ''))
+          if (Number.isFinite(retryNotBefore) && retryNotBefore > now.getTime()) continue
           if (this.dependencyResolver.state(task, userTasks) !== 'ready') continue
           const providerName = this.remoteProviderName(task)
           if (!this.ownsTask(task, providerName)) continue
@@ -402,6 +404,28 @@ export class TaskWritebackService {
     await this.refundService.refundTerminalTasks()
   }
 
+  async retryTimedOutVideoSubmission(taskId: string, leaseToken: string, error: string): Promise<void> {
+    await this.store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === taskId)
+      if (!task || task.status !== 'running') return
+      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
+      const now = new Date()
+      task.status = 'queued'
+      task.progress = 0
+      task.error = null
+      task.metadata = {
+        ...task.metadata,
+        providerState: 'retry_wait',
+        providerSubmissionError: error.slice(0, 1_000),
+        providerSubmissionTimedOutAt: now.toISOString(),
+        providerSubmissionRetries: Math.max(1, numberValue(task.attempts, 1)),
+        providerRetryNotBefore: new Date(now.getTime() + 10_000).toISOString(),
+      }
+      releaseGenerationTaskLease(task)
+      task.updatedAt = now.toISOString()
+    })
+  }
+
   async writeVideoSubmission(
     task: GenerationTask,
     leaseToken: string,
@@ -528,6 +552,12 @@ export class VideoTaskExecutor {
       )
       await this.options.writeback.writeVideoSubmission(task, leaseToken, submission)
     } catch (error) {
+      const attempts = task.attempts ?? 0
+      const maxAttempts = task.maxAttempts ?? DEFAULT_TASK_MAX_ATTEMPTS
+      if (error instanceof Error && isTimeoutError(error) && attempts < maxAttempts) {
+        await this.options.writeback.retryTimedOutVideoSubmission(task.id, leaseToken, messageFor(error))
+        return
+      }
       await this.options.writeback.failTask(task.id, messageFor(error), leaseToken)
     }
   }
@@ -649,7 +679,7 @@ export class VideoTaskExecutor {
   private async resolveVideoImages(task: GenerationTask): Promise<VideoGenerationRequest['images']> {
     const images: VideoGenerationRequest['images'] = []
     const continuitySourceTaskId = stringValue(task.metadata.continuitySourceTaskId, '')
-    const storyboardImageUrl = stringValue(task.metadata.storyboardImageUrl, '')
+    const legacyStoryboardImageUrl = stringValue(task.metadata.storyboardImageUrl, '')
     if (continuitySourceTaskId) {
       if (!this.options.objectStorage) throw new Error('连续镜头需要对象存储读取上一镜头尾帧')
       const sourceTask = this.store.read(
@@ -676,6 +706,9 @@ export class VideoTaskExecutor {
     if (!Array.isArray(task.metadata.images)) return images
     for (const value of task.metadata.images.slice(0, Math.max(0, 9 - images.length))) {
       if (typeof value !== 'string') continue
+      // Static storyboard frames are a legacy pre-video path. New videos rely on
+      // asset references and the preceding real video tail frame instead.
+      if (legacyStoryboardImageUrl && value === legacyStoryboardImageUrl) continue
       if (/^asset:\/\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) {
         images.push({ url: value, role: 'reference_image' })
         continue
@@ -690,7 +723,7 @@ export class VideoTaskExecutor {
       const content = await this.options.objectStorage.get(stored.storageKey)
       images.push({
         url: `data:${stored.contentType};base64,${content.toString('base64')}`,
-        role: continuitySourceTaskId && value === storyboardImageUrl ? 'last_frame' : 'reference_image',
+        role: 'reference_image',
       })
     }
     return images

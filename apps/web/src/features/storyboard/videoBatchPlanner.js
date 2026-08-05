@@ -7,14 +7,15 @@ export function planVideoBatch(shots, mode = 'parallel', concurrency = 3) {
   const limit = Math.max(1, Math.min(orderedShots.length, Math.floor(concurrency) || 1))
   if (mode === 'continuity') {
     const continuityUpdates = []
-    const lane = orderedShots.map((shot, index) => {
-      const continuityMode = index === 0 ? 'independent' : 'continue'
+    const plannedShots = orderedShots.map((shot, index) => {
+      const continuityMode = startsEpisode(shot, orderedShots[index - 1]) ? 'independent' : 'continue'
       if (continuityMode !== shot.continuityMode) {
         continuityUpdates.push({ shotId: shot.id, continuityMode })
       }
       return { ...shot, continuityMode }
     })
-    return { lanes: [lane], immediateLaneCount: 1, continuityUpdates }
+    const lanes = continuitySegments(plannedShots)
+    return { lanes, immediateLaneCount: Math.min(limit, lanes.length), continuityUpdates }
   }
 
   if (mode === 'independent') {
@@ -32,12 +33,18 @@ export function planVideoBatch(shots, mode = 'parallel', concurrency = 3) {
     }
   }
 
-  const lanes = continuitySegments(orderedShots)
+  const continuityUpdates = []
+  const plannedShots = orderedShots.map((shot, index) => {
+    if (!startsEpisode(shot, orderedShots[index - 1]) || shot.continuityMode === 'independent') return shot
+    continuityUpdates.push({ shotId: shot.id, continuityMode: 'independent' })
+    return { ...shot, continuityMode: 'independent' }
+  })
+  const lanes = continuitySegments(plannedShots)
 
   return {
     lanes,
     immediateLaneCount: Math.min(limit, lanes.length),
-    continuityUpdates: [],
+    continuityUpdates,
   }
 }
 
@@ -89,4 +96,14 @@ function continuitySegments(shots) {
     segments.at(-1).push(shot)
   }
   return segments
+}
+
+function startsEpisode(shot, previousShot) {
+  if (!previousShot) return true
+  if (shot?.episodeBreakBefore) return true
+  return (
+    Number.isInteger(shot?.episodeNumber) &&
+    Number.isInteger(previousShot?.episodeNumber) &&
+    shot.episodeNumber !== previousShot.episodeNumber
+  )
 }

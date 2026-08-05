@@ -49,7 +49,16 @@ export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
   if (asset.references?.length) {
     stageParts.push('严格保持导入参考图中的身份和关键外观特征')
   }
-  return applyCustomPrompt(asset, [...identity, ...stageParts].filter(Boolean).join('，'))
+  return applyCustomPrompt(asset, [...identity, ...stageParts].filter(Boolean).join('，'), stage)
+}
+
+export function inferCharacterPromptStage(prompt) {
+  const value = String(prompt || '').toLowerCase()
+  if (!value.trim()) return null
+  if (/三视图|设定表|正面.{0,12}侧面.{0,12}背面|turnaround|character sheet/.test(value)) return 'turnaround'
+  if (/全身|标准站姿|full[ -]?body|body shot/.test(value)) return 'body'
+  if (/大头照|面部|头像|头部|肩部|五官|headshot|close[ -]?up|\bportrait\b|1:1/.test(value)) return 'face'
+  return null
 }
 
 const CHARACTER_CUTOUT_REQUIREMENTS =
@@ -85,7 +94,16 @@ function specifiedOption(option, value, suffix) {
   return `${optionLabel(option, value)}${suffix}`
 }
 
-function applyCustomPrompt(asset, automatic) {
+function applyCustomPrompt(asset, automatic, stage = null) {
+  if (stage && asset.promptMode === 'advanced') {
+    const stagePrompt = asset.attributes?.stagePrompts?.[stage]?.trim() || ''
+    if (stagePrompt) return stagePrompt
+    const legacyPrompt = asset.customPrompt?.trim() || ''
+    const legacyStage = inferCharacterPromptStage(legacyPrompt)
+    if (legacyStage === stage) return legacyPrompt
+    if (!legacyStage && legacyPrompt) return [automatic, legacyPrompt].join('，')
+    return automatic
+  }
   const custom = asset.customPrompt?.trim() || ''
   if (asset.promptMode === 'advanced' && asset.customPromptMode === 'replace' && custom) {
     return custom

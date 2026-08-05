@@ -32,6 +32,8 @@ const emptyJsonPost = () => json('POST', {})
 const organizations = () => request('/organizations')
 const switchOrganization = (organizationId) =>
   request(`/organizations/${encodeURIComponent(organizationId)}/switch`, emptyJsonPost())
+const createOrganizationInvitation = (organizationId, input) =>
+  request(`/organizations/${encodeURIComponent(organizationId)}/invitations`, json('POST', input))
 
 const upload = (file) => {
   const body = new FormData()
@@ -75,6 +77,7 @@ export const api = {
   changePassword: (input) => request('/auth/password', json('PUT', input)),
   organizations,
   switchOrganization,
+  createOrganizationInvitation,
   authSessions: () => request('/auth/sessions'),
   revokeAuthSession: (sessionId) => request(`/auth/sessions/${sessionId}`, { method: 'DELETE' }),
   projects: () => request('/projects'),

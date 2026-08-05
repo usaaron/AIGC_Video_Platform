@@ -7,8 +7,8 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 
 const API_BASE = process.env.DEMO_API_BASE_URL || 'http://127.0.0.1:8787/api/v1'
-const EMAIL = process.env.DEMO_EMAIL || 'creator@seqora.local'
-const PASSWORD = process.env.DEMO_PASSWORD || 'Creator123!'
+const EMAIL = process.env.DEMO_EMAIL || 'member@seqora.local'
+const PASSWORD = process.env.DEMO_PASSWORD || 'MemberPassword123!'
 const PROJECT_ID = process.env.DEMO_PROJECT_ID || '0326a22c-9905-479b-b181-04849ca8183d'
 const PILOT_VERSION = 'scene-master-v2-anchor'
 const OUTPUT_DIR = resolve('artifacts', 'scene-master-pilot-v2')

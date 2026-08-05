@@ -28,6 +28,34 @@ describe('planVideoBatch', () => {
     expect(plan.continuityUpdates).toEqual([])
   })
 
+  it('starts a separate serial lane at every episode boundary', () => {
+    const source = shots(4).map((shot, index) => ({
+      ...shot,
+      episodeNumber: index < 2 ? 1 : 2,
+    }))
+
+    const plan = planVideoBatch(source, 'parallel', 3)
+
+    expect(plan.lanes.map((lane) => lane.map((shot) => shot.id))).toEqual([
+      ['shot-1', 'shot-2'],
+      ['shot-3', 'shot-4'],
+    ])
+    expect(plan.continuityUpdates).toEqual([{ shotId: 'shot-3', continuityMode: 'independent' }])
+  })
+
+  it('honors an explicit episode break even when stored episode numbers are stale', () => {
+    const source = shots(4).map((shot) => ({ ...shot, episodeNumber: 1 }))
+    source[2].episodeBreakBefore = true
+
+    const plan = planVideoBatch(source, 'parallel', 3)
+
+    expect(plan.lanes.map((lane) => lane.map((shot) => shot.id))).toEqual([
+      ['shot-1', 'shot-2'],
+      ['shot-3', 'shot-4'],
+    ])
+    expect(plan.continuityUpdates).toEqual([{ shotId: 'shot-3', continuityMode: 'independent' }])
+  })
+
   it('turns continuity mode into one explicit full-film chain', () => {
     const source = shots(4).map((shot) => ({ ...shot, continuityMode: 'independent' }))
     const plan = planVideoBatch(source, 'continuity', 3)

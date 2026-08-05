@@ -11,11 +11,30 @@ import {
 } from './assetDraft'
 import { ASSET_TABS, createDefaultAttributes, optionLabel } from './assetOptions'
 import { CharacterWorkflow } from './CharacterWorkflow'
-import { compileAssetPrompt, compileCharacterStagePrompt } from './promptCompiler'
+import { compileAssetPrompt, compileCharacterStagePrompt, inferCharacterPromptStage } from './promptCompiler'
 import { ReferenceUploader } from './ReferenceUploader'
 
 function createEditorDraft(asset, kind, projectVisualStyle = 'cinematic-cg') {
   const initialAttributes = createDefaultAttributes(kind, projectVisualStyle)
+  const attributes =
+    asset.attributes?.type === kind
+      ? {
+          ...initialAttributes,
+          ...asset.attributes,
+          ...(projectVisualStyle && 'visualStyle' in initialAttributes
+            ? { visualStyle: projectVisualStyle }
+            : {}),
+        }
+      : initialAttributes
+  if (kind === 'character') {
+    const stagePrompts = { ...initialAttributes.stagePrompts, ...attributes.stagePrompts }
+    const legacyPrompt = asset.customPrompt || asset.prompt || ''
+    if (legacyPrompt && !Object.values(stagePrompts).some((value) => value?.trim())) {
+      const inferredStage = inferCharacterPromptStage(legacyPrompt)
+      if (inferredStage) stagePrompts[inferredStage] = legacyPrompt
+    }
+    attributes.stagePrompts = stagePrompts
+  }
   return {
     sourceMode: asset.sourceMode || 'generate',
     name: asset.name || '',
@@ -26,16 +45,7 @@ function createEditorDraft(asset, kind, projectVisualStyle = 'cinematic-cg') {
     negativePrompt: asset.negativePrompt || '',
     references: asset.references || [],
     imageUrl: asset.imageUrl || null,
-    attributes:
-      asset.attributes?.type === kind
-        ? {
-            ...initialAttributes,
-            ...asset.attributes,
-            ...(projectVisualStyle && 'visualStyle' in initialAttributes
-              ? { visualStyle: projectVisualStyle }
-              : {}),
-          }
-        : initialAttributes,
+    attributes,
   }
 }
 
@@ -160,12 +170,38 @@ export function AssetEditor({
         customPromptMode: 'replace',
         customPrompt: '',
       }
+      const automatic = compileProviderPrompt(automaticDraft)
       return {
         ...current,
         promptMode: 'advanced',
         customPromptMode: 'replace',
-        customPrompt: compileProviderPrompt(automaticDraft),
+        ...(kind === 'character'
+          ? {
+              attributes: {
+                ...current.attributes,
+                stagePrompts: {
+                  ...current.attributes.stagePrompts,
+                  [characterStage]: automatic,
+                },
+              },
+            }
+          : { customPrompt: automatic }),
       }
+    })
+  }
+
+  const updateProviderPrompt = (value) => {
+    if (kind !== 'character') {
+      setDraft({ ...draft, customPromptMode: 'replace', customPrompt: value })
+      return
+    }
+    setDraft({
+      ...draft,
+      customPromptMode: 'replace',
+      attributes: {
+        ...draft.attributes,
+        stagePrompts: { ...draft.attributes.stagePrompts, [characterStage]: value },
+      },
     })
   }
 
@@ -473,14 +509,12 @@ export function AssetEditor({
                 </span>
                 <textarea
                   readOnly={draft.promptMode !== 'advanced'}
-                  value={draft.promptMode === 'advanced' ? draft.customPrompt : generatedPrompt}
-                  onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      customPromptMode: 'replace',
-                      customPrompt: event.target.value,
-                    })
+                  value={
+                    draft.promptMode === 'advanced' && kind !== 'character'
+                      ? draft.customPrompt
+                      : generatedPrompt
                   }
+                  onChange={(event) => updateProviderPrompt(event.target.value)}
                 />
               </label>
               <label>

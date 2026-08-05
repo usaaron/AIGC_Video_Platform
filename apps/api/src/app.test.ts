@@ -194,6 +194,37 @@ describe('API authorization', () => {
     })
   })
 
+  it('keeps the personal organization and current device available without Postgres', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+
+    const [organizations, sessions] = await Promise.all([
+      app.inject({ method: 'GET', url: '/api/v1/organizations', headers }),
+      app.inject({ method: 'GET', url: '/api/v1/auth/sessions', headers }),
+    ])
+
+    expect(organizations.statusCode).toBe(200)
+    expect(organizations.json()).toMatchObject([
+      {
+        organization: { id: 'tenant-seqora-demo', name: '个人创作空间' },
+        membership: { userId: 'user-member', isPrimary: true, roles: ['member'] },
+      },
+    ])
+    expect(sessions.statusCode).toBe(200)
+    expect(sessions.json()).toMatchObject([
+      {
+        userId: 'user-member',
+        tenantId: 'tenant-seqora-demo',
+        current: true,
+        deviceLabel: '当前浏览器（本地模式）',
+      },
+    ])
+  })
+
   it('returns the persisted shot when creating a shot', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
 
@@ -283,23 +314,6 @@ describe('API authorization', () => {
       'x-demo-user-id': 'user-member',
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
-    const whitelist = await app.inject({
-      method: 'GET',
-      url: '/api/v1/trusted-assets/portraits?groupType=LivenessFace',
-      headers,
-    })
-    expect(whitelist.statusCode).toBe(200)
-    expect(whitelist.json()).toMatchObject([
-      { assetId: 'asset-live-1', groupType: 'LivenessFace', status: 'active' },
-    ])
-    const whitelistPreview = await app.inject({
-      method: 'GET',
-      url: '/api/v1/trusted-assets/portraits/asset-live-1/preview',
-      headers,
-    })
-    expect(whitelistPreview.statusCode).toBe(200)
-    expect(whitelistPreview.headers['content-type']).toContain('image/png')
-    expect(whitelistPreview.body).toBe('whitelist-preview')
     const created = await app.inject({
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/assets',
@@ -350,6 +364,24 @@ describe('API authorization', () => {
         trustedPortrait: { assetId: 'asset-live-1', groupType: 'LivenessFace', status: 'active' },
       },
     })
+
+    const whitelist = await app.inject({
+      method: 'GET',
+      url: '/api/v1/trusted-assets/portraits?groupType=LivenessFace',
+      headers,
+    })
+    expect(whitelist.statusCode).toBe(200)
+    expect(whitelist.json()).toMatchObject([
+      { assetId: 'asset-live-1', groupType: 'LivenessFace', status: 'active' },
+    ])
+    const whitelistPreview = await app.inject({
+      method: 'GET',
+      url: '/api/v1/trusted-assets/portraits/asset-live-1/preview',
+      headers,
+    })
+    expect(whitelistPreview.statusCode).toBe(200)
+    expect(whitelistPreview.headers['content-type']).toContain('image/png')
+    expect(whitelistPreview.body).toBe('whitelist-preview')
 
     const accepted = await app.inject({
       method: 'POST',
@@ -3197,17 +3229,17 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toHaveLength(8)
     expect(response.json()[0]).toMatchObject({
-      title: '场次 1 · 动作 1',
-      prompt: expect.stringContaining('动作：剧本段落 1'),
+      title: '镜头 01',
+      prompt: '剧本段落 1',
       continuityMode: 'independent',
       continuityNote: '',
       imageUrl: null,
     })
     expect(response.json()[7]).toMatchObject({
-      title: '场次 8 · 动作 1',
-      prompt: expect.stringContaining('动作：剧本段落 8'),
+      title: '镜头 08',
+      prompt: '剧本段落 8',
       continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一场收束：剧本段落 7'),
+      continuityNote: expect.stringContaining('上一场已完成'),
       imageUrl: null,
     })
     expect(generate).not.toHaveBeenCalled()
@@ -3297,7 +3329,7 @@ describe('API authorization', () => {
     expect(response.json()[0]).toMatchObject({
       title: '场次 1 · 动作 1',
       framing: '大全景',
-      duration: 3,
+      duration: 4,
       continuityMode: 'independent',
       prompt: expect.stringContaining('动作：林夏踏入积水'),
     })
@@ -3305,7 +3337,7 @@ describe('API authorization', () => {
       title: '场次 1 · 动作 2',
       framing: '中景',
       continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一镜收束：林夏踏入积水'),
+      continuityNote: expect.stringContaining('上一镜已完成'),
       prompt: expect.stringContaining('动作：她举起信封确认地址'),
     })
     expect(response.json()[2]).toMatchObject({
@@ -3316,7 +3348,7 @@ describe('API authorization', () => {
     expect(response.json()[3]).toMatchObject({
       title: '场次 2 · 动作 1',
       continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一场收束：林夏踏入积水'),
+      continuityNote: expect.stringContaining('上一场已完成'),
     })
   })
 

@@ -1,4 +1,4 @@
-# SEQORA 文档索引
+# 序幕TV 文档索引
 
 本目录按“当前事实、开发边界、专项能力、质量、运维、历史”组织。新 Agent 先读根目录 `AGENTS.md`，再读 `CURRENT_STATE.md`。
 
@@ -28,6 +28,7 @@
 | 文档                                                     | 用途                                   | 当前阶段                    |
 | -------------------------------------------------------- | -------------------------------------- | --------------------------- |
 | [ASSET_GENERATION.md](ASSET_GENERATION.md)               | 资产、可信人像、图片、视频、分镜和成片 | 主流程有效                  |
+| [DIRECTOR_PIPELINE_AUDIT.md](DIRECTOR_PIPELINE_AUDIT.md) | 剧本到有声粗剪的链路审计与升级方案     | 2026-08-04 调研结论         |
 | [NOVEL_TO_VIDEO_AGENT.md](NOVEL_TO_VIDEO_AGENT.md)       | 长篇小说到视频的阶段方案               | 后端实验，前端开发中        |
 | [NOVEL_REGRESSION.md](NOVEL_REGRESSION.md)               | 小说真实样本回归                       | 手工显式执行                |
 | [SCENE_MASTER_EXPERIMENT.md](SCENE_MASTER_EXPERIMENT.md) | 按场次母带成片实验                     | 实验脚本，不是产品入口      |

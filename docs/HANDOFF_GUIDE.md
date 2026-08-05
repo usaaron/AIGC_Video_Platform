@@ -159,7 +159,7 @@ JSON `apps/api/data/app.json`：
 
 ### 文本和图片
 
-剧本默认通过 Rehdasu 路由调用 `glm-5.2`，GPT/DeepSeek 按所选模型路由到各自 Provider；正式 UI 把剧本生成、续写和资产建议创建为 `generation_tasks.kind=text` 后台任务，由 Worker 执行并写回。Img2 当前只调用 TokenAdvent GPT Image 2。图片结果写入对象存储，完成后同步更新对应 `asset.imageUrl` 或 `shot.imageUrl`。Nano Banana 目前只是禁用选项，没有 Provider 实现。
+剧本默认通过 Rehdasu 路由调用 `glm-5.2`，GPT/DeepSeek 按所选模型路由到各自 Provider；正式 UI 把剧本生成、续写和资产建议创建为 `generation_tasks.kind=text` 后台任务，由 Worker 执行并写回。剧本 Provider 输出必须为简体中文；英文占比异常时同一任务自动校正一次，仍异常则禁止写回。多场结构化原稿的改写保持场次数量。Img2 当前只调用 TokenAdvent GPT Image 2。图片结果写入对象存储，完成后同步更新对应 `asset.imageUrl` 或 `shot.imageUrl`。Nano Banana 目前只是禁用选项，没有 Provider 实现。
 
 ### 视频
 

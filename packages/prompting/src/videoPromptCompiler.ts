@@ -1,4 +1,4 @@
-export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v7'
+export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v9'
 
 export type PromptProject = {
   aspectRatio: string
@@ -42,12 +42,11 @@ export function compileStoryboardVideoPrompt(input: {
   references?: PromptReference[]
   continuityMode?: 'independent' | 'continue'
 }): string {
-  const { project, shot, shots = [], assets = [], references = [], continuityMode = 'independent' } = input
+  const { project, shot, assets = [], references = [], continuityMode = 'independent' } = input
   const duration = normalizedVideoDuration(shot.duration, project.contentType === 'short-drama' ? 3 : 4)
   const referenceAssets = references
     .map((reference) => assets.find((asset) => asset.id === reference.id))
     .filter((asset): asset is PromptAsset => Boolean(asset))
-  const context = adjacentShotContext(shot, shots)
   const focusedPrompt = focusedShotPrompt(shot.prompt)
   const actionSequence = actionSequenceFor(shot.prompt)
   const shotFields = promptFields(String(shot.prompt || ''))
@@ -66,19 +65,22 @@ export function compileStoryboardVideoPrompt(input: {
   return [
     `生成一段连续${duration}秒、${project.aspectRatio}画幅的${visualStyleLabel(project.visualStyle)}电影叙事视频。`,
     `【当前镜头】${shot.title || '未命名镜头'}，${shot.framing || '中景'}。${sentence(focusedPrompt)}`,
-    context ? `【前后镜头】${context}` : '',
-    shot.continuityNote ? `【场景衔接上下文】${sentence(shot.continuityNote)}` : '',
+    continuityMode === 'continue' && shot.continuityNote
+      ? `【场景衔接上下文】${sentence(shot.continuityNote)}`
+      : '',
     continuityMode === 'continue'
       ? '【镜头衔接】严格承接上一镜头尾帧，人物身份、动作方向、视线、空间位置、光线和服装保持连续，首帧不要跳变。'
-      : '',
+      : '【独立镜头】本镜不读取、不复述上一镜或上一集的剧情、动作和状态；只依据当前镜头提示词与当前资产完成本镜。',
     identityRules ? `【资产一致性】${identityRules}。严格沿用输入参考图，不得更换人物或重设计资产。` : '',
-    `【动作执行】${subjectMotion}`,
+    `【动作执行】本镜只完成一个主动作，不追加第二个剧情动作。${subjectMotion}`,
     `【群像表演】${actorPerformance}`,
-    actionSequence ? `【动作顺序】必须按以下顺序完成，不得跳过、合并或凭空增加动作：${actionSequence}` : '',
+    actionSequence
+      ? `【主动作】必须完整拍完这一项，不得拆成第二个事件、不得凭空增加动作：${actionSequence}`
+      : '',
     `【声音执行】${soundPlan}`,
     `【镜头运动】${cameraMotionFor(shot.framing)}`,
     `【环境运动】${environmentMotionFor(shot.prompt, referenceAssets)}`,
-    `【时间推进】0-1秒建立画面，1-${Math.max(2, duration - 1)}秒完成主要动作，最后1秒自然收束并保持动作连续。`,
+    `【时间推进】0-1秒延续上镜状态并建立画面，1-${Math.max(2, duration - 1)}秒完整完成主动作与至少一次表情或视线变化，最后1秒停在下一镜可直接承接的结束姿态。`,
     '【镜内剪辑】全程保持同一时间、同一空间和同一条动作线，只完成当前镜头指定动作。禁止插入特写、钟表、回忆、下一事件或其他画面；禁止突然切镜、跳时、回切和蒙太奇。',
     '输出必须是真实连续动态视频，不是静止图片，不是幻灯片；人物不能全程冻结，避免只有缩放、平移或单帧抖动。保持角色面部、身材、服装、场景空间和光线方向跨帧稳定。必须生成可听见的现场声音、对白或旁白；不要输出静音视频。',
   ]
@@ -102,17 +104,6 @@ export function normalizedVideoDuration(value: unknown, minimum = 4): number {
   const parsed = Number(value)
   const min = Math.min(15, Math.max(1, Math.round(minimum)))
   return Number.isFinite(parsed) ? Math.min(15, Math.max(min, Math.round(parsed))) : Math.max(5, min)
-}
-
-function adjacentShotContext(shot: PromptShot, shots: PromptShot[]): string {
-  const index = shots.findIndex((item) => item.id === shot.id)
-  if (index < 0) return ''
-  return [
-    shots[index - 1]?.prompt ? `上一镜结束：${sentence(lastActionFor(shots[index - 1]?.prompt))}` : '',
-    shots[index + 1]?.prompt ? `下一镜开始：${sentence(primaryActionFor(shots[index + 1]?.prompt))}` : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
 }
 
 function identityRuleFor(asset: PromptAsset): string {
@@ -226,6 +217,7 @@ function conciseAssetAttributes(value: unknown): string {
         key !== 'faceReference' &&
         key !== 'bodyReference' &&
         key !== 'trustedPortrait' &&
+        key !== 'stagePrompts' &&
         key !== 'appearanceVariants' &&
         item !== null &&
         item !== undefined &&
@@ -247,6 +239,9 @@ function focusedShotPrompt(value: string | undefined): string {
   if (!Object.keys(fields).length) return text.slice(0, 900)
   return [
     compactField('剧情目的', fields.剧情, 240),
+    compactField('场次目标', fields.目标, 180),
+    compactField('场次阻力', fields.阻力, 180),
+    compactField('场次变化', fields.变化, 180),
     compactField('场景', fields.场景, 260),
     compactField('角色状态', fields.角色, 260),
     compactField('关键物件', fields.关键物件 || fields.物件 || fields.道具, 220),
@@ -257,6 +252,9 @@ function focusedShotPrompt(value: string | undefined): string {
     compactField('光影', fields.光影, 180),
     compactField('运镜', fields.运镜, 200),
     compactField('衔接', fields.衔接, 280),
+    compactField('入场状态', fields.入场状态, 220),
+    compactField('出场状态', fields.出场状态, 220),
+    compactField('导演节拍', fields.导演节拍, 420),
   ]
     .filter(Boolean)
     .join('｜')
@@ -271,29 +269,12 @@ function promptFields(value: string): Record<string, string> {
   return fields
 }
 
-function primaryActionFor(value: string | undefined): string {
-  const text = String(value || '').trim()
-  const fields = promptFields(text)
-  return firstBeat(fields.动作 || fields.剧情 || text).slice(0, 240)
-}
-
 function actionSequenceFor(value: string | undefined): string {
   const text = String(value || '').trim()
   const fields = promptFields(text)
   const source = fields.动作 || fields.剧情 || (Object.keys(fields).length ? '' : text)
   const beats = fieldBeats(source)
-  return (beats.length ? beats.slice(0, 3).join('；') : source).slice(0, 420)
-}
-
-function lastActionFor(value: string | undefined): string {
-  const text = String(value || '').trim()
-  const fields = promptFields(text)
-  const beats = fieldBeats(fields.动作 || fields.剧情 || text)
-  return (beats.at(-1) || '').slice(0, 160)
-}
-
-function firstBeat(value: string | undefined): string {
-  return fieldBeats(value).at(0) || ''
+  return (beats[0] || source).slice(0, 420)
 }
 
 function fieldBeats(value: string | undefined): string[] {

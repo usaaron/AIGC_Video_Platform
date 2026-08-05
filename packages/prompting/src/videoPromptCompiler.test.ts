@@ -41,11 +41,12 @@ describe('compileStoryboardVideoPrompt', () => {
       references: [{ id: 'lin' }, { id: 'station' }],
     })
 
-    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v7')
+    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v9')
     expect(prompt).toContain('连续4秒、9:16画幅')
     expect(prompt).toContain('【当前镜头】镜头，特写')
-    expect(prompt).toContain('上一镜结束：场景：雨夜旧火车站。')
-    expect(prompt).toContain('下一镜开始：周野将旧铁盒放在长椅上。')
+    expect(prompt).not.toContain('上一镜结束：场景：雨夜旧火车站。')
+    expect(prompt).not.toContain('下一镜开始：周野将旧铁盒放在长椅上。')
+    expect(prompt).not.toContain('【前后镜头】')
     expect(prompt).not.toContain('【剧本上下文】')
     expect(prompt).toContain('人物“林夏”保持参考图中的脸')
     expect(prompt).toContain('场景“三号站台”保持结构')
@@ -73,7 +74,22 @@ describe('compileStoryboardVideoPrompt', () => {
     expect(prompt).toContain('【场景衔接上下文】上一场人物右手握住门把手')
   })
 
-  it('keeps one action beat and bounds a production prompt', () => {
+  it('does not leak continuity text into an independent shot', () => {
+    const prompt = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '9:16' },
+      shot: {
+        ...shot('episode-2-shot-1', '新一集：岚星走入观景桥。'),
+        continuityNote: '上一集结尾：岚星被守卫按倒在地，导航环掉入积水。',
+      },
+      continuityMode: 'independent',
+    })
+
+    expect(prompt).toContain('【独立镜头】')
+    expect(prompt).not.toContain('上一集结尾')
+    expect(prompt).not.toContain('【场景衔接上下文】')
+  })
+
+  it('keeps one executable primary action and bounds a production prompt', () => {
     const prompt = compileStoryboardVideoPrompt({
       project: { aspectRatio: '9:16', script: '很长的剧本'.repeat(1_000) },
       shot: shot(
@@ -85,9 +101,27 @@ describe('compileStoryboardVideoPrompt', () => {
     })
 
     expect(prompt).toContain('动作：林夏踏入积水')
-    expect(prompt).toContain('她举起信封')
-    expect(prompt).toContain('【动作顺序】必须按以下顺序完成')
+    expect(prompt).not.toContain('她举起信封')
+    expect(prompt).toContain('【主动作】必须完整拍完这一项')
     expect(prompt.length).toBeLessThan(4_000)
+  })
+
+  it('passes scene objectives, pressure and entry or exit state to the video model', () => {
+    const prompt = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '9:16', contentType: 'short-drama' },
+      shot: shot(
+        'director-shot',
+        '目标：岚星确认异常来源｜阻力：巡逻守卫正在接近｜变化：坐标指向导航环｜入场状态：岚星停在左侧护栏旁｜动作：岚星抬眼看向异常光点｜出场状态：岚星右手握住导航环，视线锁定坐标',
+        '中景',
+        4,
+      ),
+    })
+
+    expect(prompt).toContain('场次目标：岚星确认异常来源')
+    expect(prompt).toContain('场次阻力：巡逻守卫正在接近')
+    expect(prompt).toContain('场次变化：坐标指向导航环')
+    expect(prompt).toContain('入场状态：岚星停在左侧护栏旁')
+    expect(prompt).toContain('出场状态：岚星右手握住导航环')
   })
 })
 

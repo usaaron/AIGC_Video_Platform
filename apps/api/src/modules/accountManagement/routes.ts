@@ -6,6 +6,7 @@ import {
   createTenantUserSchema,
   createWorkspaceSchema,
   PERMISSIONS,
+  type Principal,
   registerAccountSchema,
   requestRegistrationCodeSchema,
   transferOrganizationAdminSchema,
@@ -13,7 +14,9 @@ import {
   updateOrganizationSchema,
   updateWorkspaceSchema,
   type AccountSession,
+  type OrganizationMembership,
   type Session,
+  type SessionSummary,
   type Workspace,
 } from '@seqora/contracts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -22,6 +25,7 @@ import { requirePermission } from '../../core/auth/authorization.js'
 import { SESSION_COOKIE } from '../../core/auth/provider.js'
 import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { AppError } from '../../core/errors.js'
+import type { UserRepository } from '../users/repository.js'
 import type { AccountManagementService } from './service.js'
 
 const tenantParams = z.object({ tenantId: z.string().min(1).max(256) })
@@ -34,6 +38,7 @@ export async function registerAccountManagementRoutes(
   app: FastifyInstance,
   service: AccountManagementService | null,
   secureCookies: boolean,
+  users: UserRepository,
 ): Promise<void> {
   app.post(
     '/auth/registration-code/request',
@@ -96,7 +101,8 @@ export async function registerAccountManagementRoutes(
   })
   app.get('/organizations', { preHandler: requireAuthenticated }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
-    return await requireService(service).listOrganizations(request.principal!)
+    if (service) return await service.listOrganizations(request.principal!)
+    return await listLocalOrganizations(request.principal!, users)
   })
 
   app.patch(
@@ -506,19 +512,24 @@ export async function registerAccountManagementRoutes(
 
   app.get('/auth/sessions', { preHandler: requireAuthenticated }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
-    return await requireService(service).listSessions(request.principal!, request.cookies[SESSION_COOKIE])
+    if (service) return await service.listSessions(request.principal!, request.cookies[SESSION_COOKIE])
+    return await listLocalSessions(request.principal!, users, request)
   })
 
   app.delete('/auth/sessions/:sessionId', { preHandler: requireAuthenticated }, async (request, reply) => {
+    if (!service) {
+      throw new AppError(
+        409,
+        'LOCAL_SESSION_REVOKE_UNSUPPORTED',
+        'Local development only keeps the current browser session',
+      )
+    }
     const { sessionId } = parse(sessionParams, request.params)
-    const sessions = await requireService(service).listSessions(
-      request.principal!,
-      request.cookies[SESSION_COOKIE],
-    )
+    const sessions = await service.listSessions(request.principal!, request.cookies[SESSION_COOKIE])
     const revokingCurrentSession = sessions.some(
       (session) => session.sessionId === sessionId && session.current,
     )
-    await requireService(service).revokeCurrentTenantSession(
+    await service.revokeCurrentTenantSession(
       request.principal!,
       sessionId,
       sessionMetadataFromRequest(request),
@@ -597,6 +608,83 @@ async function requireAuthenticated(request: FastifyRequest): Promise<void> {
   if (!request.principal) {
     throw new AppError(401, 'AUTHENTICATION_REQUIRED', 'Authentication is required')
   }
+}
+
+async function listLocalOrganizations(
+  principal: Principal,
+  users: UserRepository,
+): Promise<OrganizationMembership[]> {
+  const account = await users.findById(principal.userId, principal.tenantId)
+  if (!account) throw new AppError(401, 'SESSION_INVALID', 'Session is no longer valid')
+
+  const now = new Date().toISOString()
+  const organization: Workspace = {
+    id: account.tenantId,
+    name: localOrganizationName(account.roles),
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  }
+  return [
+    {
+      workspace: organization,
+      organization,
+      membership: {
+        id: `local-membership-${account.tenantId}-${account.id}`,
+        tenantId: account.tenantId,
+        tenantName: organization.name,
+        organizationId: principal.organizationId ?? account.tenantId,
+        organizationName: organization.name,
+        userId: account.id,
+        email: account.email,
+        name: account.name,
+        roles: account.roles,
+        status: 'active',
+        isPrimary: true,
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+  ]
+}
+
+async function listLocalSessions(
+  principal: Principal,
+  users: UserRepository,
+  request: FastifyRequest,
+): Promise<SessionSummary[]> {
+  const account = await users.findById(principal.userId, principal.tenantId)
+  if (!account) throw new AppError(401, 'SESSION_INVALID', 'Session is no longer valid')
+
+  const now = new Date()
+  const createdAt = now.toISOString()
+  const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1_000).toISOString()
+  const organizationName = localOrganizationName(account.roles)
+  return [
+    {
+      sessionId: `local-current-${account.id}`,
+      userId: account.id,
+      tenantId: account.tenantId,
+      tenantName: organizationName,
+      organizationId: principal.organizationId ?? account.tenantId,
+      organizationName,
+      roles: account.roles,
+      createdAt,
+      lastSeenAt: createdAt,
+      expiresAt,
+      revokedAt: null,
+      ipAddress: request.ip ?? null,
+      userAgent: request.headers['user-agent'] ?? null,
+      deviceLabel: '当前浏览器（本地模式）',
+      current: true,
+    },
+  ]
+}
+
+function localOrganizationName(roles: readonly string[]): string {
+  return roles.includes('organization_admin') || roles.includes('organization_member')
+    ? '本地组织空间'
+    : '个人创作空间'
 }
 
 function requireService(service: AccountManagementService | null): AccountManagementService {

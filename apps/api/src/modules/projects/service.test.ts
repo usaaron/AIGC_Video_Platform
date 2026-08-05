@@ -50,6 +50,164 @@ describe('ProjectService script billing', () => {
     expect(creditLedger.reserve).not.toHaveBeenCalled()
     expect(repository.update).toHaveBeenCalledOnce()
   })
+
+  it('automatically repairs an English-dominant script before writing it back', async () => {
+    const englishResult = [
+      'S01: The swordsman enters the courtyard and watches the silent guards step backward.',
+      'S02: The captain raises his blade, shouts an order, and forces everyone toward the gate.',
+      'S03: The swordsman blocks the attack, turns aside, and prepares the final counterattack.',
+    ].join('\n')
+    const repairedScript =
+      '场次：S01｜剧情：剑客进入庭院，守卫无声后退。｜场景：夜色庭院。｜角色：剑客；守卫。｜动作：剑客停步观察，守卫后退。｜对白：无台词。｜风格：影视CG。｜构图：中景。｜光影：冷色月光。｜运镜：缓慢推进。｜衔接：剑客停在庭院中央。'
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '庭院对决',
+          contentType: 'short-video',
+          synopsis: '剑客进入庭院。',
+          aspectRatio: '16:9',
+          script: '',
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = {
+      generate: vi.fn().mockResolvedValueOnce(englishResult).mockResolvedValueOnce(repairedScript),
+    }
+    const service = new ProjectService(repository, textProvider)
+
+    const result = await service.generateScript(
+      'project-1',
+      '剑客进入庭院与守卫对峙',
+      DEFAULT_SCRIPT_DIRECTION,
+      'quick',
+      { goal: '', targetMinutes: 1 },
+      'short-video',
+      1,
+      'repair-english-script',
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(result.script).toBe(repairedScript)
+    expect(textProvider.generate).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(textProvider.generate).mock.calls[1]?.[0].systemPrompt).toContain('中文剧本格式校对员')
+    expect(repository.update).toHaveBeenCalledWith('project-1', { script: repairedScript }, expect.anything())
+  })
+
+  it('keeps the original scene count when a short structured script is rewritten', async () => {
+    const source = [
+      '场次：S01｜剧情：林砚推门进入大殿。｜场景：宗门大殿。｜角色：林砚。｜动作：动作1：林砚推门；动作2：林砚停步。｜对白：无台词。',
+      '场次：S02｜剧情：长老宣布测试开始。｜场景：宗门大殿。｜角色：林砚；长老。｜动作：动作1：长老抬手；动作2：林砚抬眼。｜对白：[对白]长老：开始。',
+    ].join('\n')
+    const candidate = [
+      '场次：S01｜剧情：林砚推门进入大殿。｜场景：宗门大殿。｜角色：林砚。｜动作：林砚推门后停步。｜对白：无台词。',
+      '场次：S02｜剧情：长老宣布测试开始。｜场景：宗门大殿。｜角色：林砚；长老。｜动作：长老抬手，林砚抬眼。｜对白：[对白]长老：开始。',
+      '场次：S03｜剧情：凭空新增的围观冲突。｜场景：宗门大殿。｜角色：围观弟子。｜动作：众人起哄。｜对白：无台词。',
+    ].join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '宗门测试',
+          contentType: 'short-drama',
+          synopsis: '林砚参加测试。',
+          aspectRatio: '9:16',
+          script: source,
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = { generate: vi.fn(async () => candidate) }
+    const service = new ProjectService(repository, textProvider)
+
+    const result = await service.generateScript(
+      'project-1',
+      source,
+      DEFAULT_SCRIPT_DIRECTION,
+      'quick',
+      { goal: '', targetMinutes: 1 },
+      'web-series',
+      1,
+      'preserve-scene-count',
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(splitScriptParagraphs(result.script)).toHaveLength(2)
+    expect(result.script).not.toContain('S03')
+    expect(result.script).not.toContain('围观弟子')
+  })
+})
+
+describe('ProjectService director beat splitting', () => {
+  it('keeps labelled action details together and carries scene state into two executable shots', async () => {
+    const script =
+      '场次：S01｜剧情：岚星确认观景桥上的异常坐标。｜目标：岚星确认异常来源。｜阻力：巡逻守卫正在接近。｜变化：坐标指向她腕上的导航环。｜场景：黎明前的天穹环城观景桥。｜角色：岚星（主角，左侧护栏旁）；巡逻守卫（配角，右侧桥廊）。｜入场状态：岚星停在左侧护栏旁，右手压住导航环；守卫在右侧桥廊远处。｜动作：动作1：岚星抬眼看向异常光点，右手收紧导航环，表情从警觉转为错愕；动作2：她侧身贴近护栏，手指划过导航环投出坐标，守卫同时停步转头。｜对白：[内心独白]岚星：坐标为什么在我身上？｜出场状态：岚星半蹲贴在护栏内侧，导航环投出悬浮坐标；守卫停在右侧桥廊。｜风格：影视CG。｜构图：竖屏中景。｜光影：银蓝晨光。｜运镜：稳定推进。｜衔接：本场结尾交付悬浮坐标和守卫转头状态。'
+    const repository = {
+      workspace: vi.fn(async () => ({ project: { contentType: 'short-drama', script }, assets: [] })),
+      replaceShots: vi.fn(async (_projectId, shots) => shots),
+    } as unknown as ProjectRepository
+    const service = new ProjectService(repository)
+
+    const shots = await service.generateShots(
+      'project-1',
+      { mode: 'beat', maxShots: 2, episodeDurationSeconds: 60 },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(shots).toHaveLength(2)
+    expect(shots.map((shot) => shot.duration)).toEqual([4, 5])
+    expect(shots[0]).toMatchObject({
+      prompt: expect.stringContaining('目标：岚星确认异常来源'),
+    })
+    expect(shots[0]?.prompt).toContain('入场状态：岚星停在左侧护栏旁')
+    expect(shots[0]?.prompt).not.toContain('出场状态：岚星半蹲')
+    expect(shots[1]?.prompt).toContain('出场状态：岚星半蹲贴在护栏内侧')
+    expect(shots[1]?.continuityNote).toContain('本镜所在场次的最终出场状态')
+    expect(shots[1]?.prompt).toContain('动作2：她侧身贴近护栏，手指划过导航环投出坐标')
+    expect(shots[1]?.prompt).toContain('对白：无台词')
+    expect(shots[1]?.prompt).not.toContain('坐标为什么在我身上')
+  })
+
+  it('creates one video shot per scene in the default scene mode', async () => {
+    const script =
+      '场次：S01｜剧情：岚星确认异常坐标。｜场景：天穹环城观景桥。｜角色：岚星；巡逻守卫。｜动作：动作1：岚星抬眼看向光点；动作2：她收紧导航环；动作3：守卫停步转头。｜对白：[内心独白]岚星：坐标为什么在我身上？｜风格：影视CG。｜构图：中景。｜光影：银蓝晨光。｜运镜：稳定推进。｜衔接：导航环保持发光。'
+    const repository = {
+      workspace: vi.fn(async () => ({ project: { contentType: 'short-drama', script }, assets: [] })),
+      replaceShots: vi.fn(async (_projectId, shots) => shots),
+    } as unknown as ProjectRepository
+    const service = new ProjectService(repository)
+
+    const shots = await service.generateShots(
+      'project-1',
+      { mode: 'scene', maxShots: 120, episodeDurationSeconds: 60 },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(shots).toHaveLength(1)
+    expect(shots[0]?.prompt).toContain('镜头边界：本镜只覆盖当前场次')
+    expect(shots[0]?.prompt).toContain('动作1：岚星抬眼看向光点')
+    expect(shots[0]?.prompt).toContain('动作3：守卫停步转头')
+  })
+
+  it('does not turn comma-separated performance detail into duplicate beat videos', async () => {
+    const script =
+      '场次：S01｜剧情：林砚观察来敌。｜场景：雨夜长街。｜角色：林砚。｜动作：林砚抬眼，收紧剑柄，侧身让开道路。｜对白：无台词。'
+    const repository = {
+      workspace: vi.fn(async () => ({ project: { contentType: 'short-drama', script }, assets: [] })),
+      replaceShots: vi.fn(async (_projectId, shots) => shots),
+    } as unknown as ProjectRepository
+    const service = new ProjectService(repository)
+
+    const shots = await service.generateShots(
+      'project-1',
+      { mode: 'beat', maxShots: 120, episodeDurationSeconds: 60 },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(shots).toHaveLength(1)
+    expect(shots[0]?.prompt).toContain('林砚抬眼，收紧剑柄，侧身让开道路')
+  })
 })
 
 describe('assignShotEpisodes', () => {
@@ -65,6 +223,12 @@ describe('assignShotEpisodes', () => {
     )
 
     expect(result.map((shot) => shot.episodeNumber)).toEqual([1, 1, 2, 2])
+    expect(result.map((shot) => shot.continuityMode)).toEqual([
+      'independent',
+      'continue',
+      'independent',
+      'continue',
+    ])
     expect(result.map((shot) => shot.id)).toEqual(['shot-1', 'shot-2', 'shot-3', 'shot-4'])
   })
 
@@ -96,6 +260,7 @@ describe('assignShotEpisodes', () => {
     )
 
     expect(result.map((shot) => shot.episodeNumber)).toEqual([1, 1, 2])
+    expect(result.map((shot) => shot.continuityMode)).toEqual(['independent', 'continue', 'independent'])
   })
 
   it('prioritizes an explicit episode break over duration grouping', () => {
@@ -109,6 +274,19 @@ describe('assignShotEpisodes', () => {
 
     expect(result.map((shot) => shot.episodeNumber)).toEqual([1, 2])
     expect(result[1]?.episodeBreakBefore).toBe(true)
+  })
+
+  it('clears textual continuity on the first shot of every episode', () => {
+    const result = assignShotEpisodes(
+      [
+        { id: 'shot-1', duration: 8, continuityNote: '上一场状态' },
+        { id: 'shot-2', duration: 8, continuityNote: '上一集状态' },
+      ],
+      8,
+    )
+
+    expect(result.map((shot) => shot.continuityMode)).toEqual(['independent', 'independent'])
+    expect(result.map((shot) => shot.continuityNote)).toEqual(['', ''])
   })
 })
 

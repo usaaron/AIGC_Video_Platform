@@ -59,6 +59,54 @@ describe('asset prompt compiler', () => {
     expect(compileCharacterStagePrompt(asset, '9:16', 'turnaround')).toContain('16:9三栏')
   })
 
+  it('keeps advanced character prompts isolated by workflow stage', () => {
+    const attributes = createDefaultAttributes('character')
+    attributes.stagePrompts = {
+      face: '自定义面部完整提示词',
+      body: '自定义全身完整提示词',
+      turnaround: '自定义三视图完整提示词',
+    }
+    const asset = {
+      name: '岚星',
+      description: '星际引路人',
+      sourceMode: 'generate',
+      promptMode: 'advanced',
+      customPromptMode: 'replace',
+      customPrompt: '旧的全局提示词',
+      attributes,
+    }
+
+    expect(compileCharacterStagePrompt(asset, '9:16', 'face')).toBe('自定义面部完整提示词')
+    expect(compileCharacterStagePrompt(asset, '9:16', 'body')).toBe('自定义全身完整提示词')
+    expect(compileCharacterStagePrompt(asset, '9:16', 'turnaround')).toBe('自定义三视图完整提示词')
+  })
+
+  it('does not reuse a legacy face prompt for full-body generation', () => {
+    const asset = {
+      name: '岚星',
+      description: '星际引路人',
+      sourceMode: 'generate',
+      promptMode: 'advanced',
+      customPromptMode: 'replace',
+      customPrompt: '人物面部大头照，头部和肩部完整入镜，画面比例1:1',
+      attributes: createDefaultAttributes('character'),
+    }
+
+    const bodyPrompt = compileCharacterStagePrompt(asset, '9:16', 'body')
+    expect(bodyPrompt).toContain('全身完整入镜')
+    expect(bodyPrompt).toContain('画面比例9:16')
+    expect(bodyPrompt).not.toContain('人物面部大头照')
+
+    const facePrompt = compileCharacterStagePrompt(
+      { ...asset, customPrompt: '人物全身完整入镜，标准站姿，画面比例9:16' },
+      '9:16',
+      'face',
+    )
+    expect(facePrompt).toContain('人物面部大头照')
+    expect(facePrompt).toContain('画面比例1:1')
+    expect(facePrompt).not.toContain('标准站姿')
+  })
+
   it('adds identity constraints when Img2 receives reference images', () => {
     const asset = {
       name: '林夏',

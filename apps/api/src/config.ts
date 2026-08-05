@@ -32,7 +32,7 @@ const configSchema = z
     AUTH_SECRET: z.string().min(32).default(developmentAuthSecret),
     BILLING_WEBHOOK_SECRET: z.string().min(32).default(developmentBillingWebhookSecret),
     EMAIL_PROVIDER: z.enum(['none', 'console', 'resend']).default('console'),
-    EMAIL_FROM: z.string().min(1).max(256).default('Seqora <no-reply@seqora.local>'),
+    EMAIL_FROM: z.string().min(1).max(256).default('序幕TV <no-reply@seqora.local>'),
     EMAIL_REPLY_TO: z.union([z.literal(''), z.string().email()]).default(''),
     RESEND_API_KEY: z.string().default(''),
     EMAIL_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(15_000),
@@ -326,6 +326,12 @@ const configSchema = z
 export type AppConfig = z.infer<typeof configSchema>
 
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
+  const useExplicitJsonStore =
+    environment.NODE_ENV !== 'production' &&
+    Boolean(environment.DATA_FILE?.trim()) &&
+    environment.TASK_QUEUE_DRIVER === 'inline' &&
+    environment.DATABASE_URL === undefined
+
   return configSchema.parse({
     ...environment,
     TASK_QUEUE_DRIVER:
@@ -339,9 +345,11 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     DATABASE_URL:
       environment.DATABASE_URL !== undefined
         ? environment.DATABASE_URL.trim()
-        : environment.NODE_ENV === 'production'
+        : useExplicitJsonStore
           ? ''
-          : developmentDatabaseUrl,
+          : environment.NODE_ENV === 'production'
+            ? ''
+            : developmentDatabaseUrl,
     BOOTSTRAP_MEMBER_NAME:
       environment.BOOTSTRAP_MEMBER_NAME ??
       (environment.NODE_ENV === 'production' ? '默认 C 端用户' : '默认成员'),

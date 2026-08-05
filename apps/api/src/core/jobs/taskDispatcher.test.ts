@@ -336,6 +336,57 @@ describe('GenerationTaskRunner Seedance integration', () => {
     )
   })
 
+  it('retries a timed out video submission with the same idempotency key', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const [task] = queuedVideoTasks(1)
+    await store.mutate((state) => state.tasks.unshift(task!))
+    const timeout = new Error('The operation was aborted due to timeout')
+    timeout.name = 'TimeoutError'
+    const provider: VideoGenerationProvider = {
+      submit: vi
+        .fn()
+        .mockRejectedValueOnce(timeout)
+        .mockResolvedValueOnce({ providerTaskId: 'video-after-retry', status: 'queued', progress: 0 }),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+    }
+    const runner = new GenerationTaskRunner(store, {
+      videoProvider: provider,
+      providerPollIntervalMs: 60_000,
+    })
+
+    await runner.tick()
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((item) => item.id === task!.id))).toMatchObject({
+        status: 'queued',
+        attempts: 1,
+        error: null,
+        metadata: {
+          providerState: 'retry_wait',
+          providerSubmissionError: expect.stringContaining('第三方生成请求超时'),
+          providerRetryNotBefore: expect.any(String),
+        },
+      }),
+    )
+    await store.mutate((state) => {
+      const stored = state.tasks.find((item) => item.id === task!.id)!
+      stored.metadata = { ...stored.metadata, providerRetryNotBefore: new Date(0).toISOString() }
+    })
+
+    await runner.tick()
+    await vi.waitFor(() => expect(provider.submit).toHaveBeenCalledTimes(2))
+    expect(provider.submit.mock.calls.map(([request]) => request.idempotencyKey)).toEqual([
+      `generation:${task!.tenantId}:${task!.id}`,
+      `generation:${task!.tenantId}:${task!.id}`,
+    ])
+    expect(store.read((state) => state.tasks.find((item) => item.id === task!.id))).toMatchObject({
+      status: 'running',
+      attempts: 2,
+      metadata: { providerTaskId: 'video-after-retry' },
+    })
+  })
+
   it('persists a remote image failure before the runtime cache is refreshed', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -815,16 +866,12 @@ describe('GenerationTaskRunner Seedance integration', () => {
     await store.mutate((state) => state.tasks.unshift(linkedTask))
     await runner.tick()
 
-    expect(provider.submit).toHaveBeenCalledWith(
+    expect(provider.submit).toHaveBeenLastCalledWith(
       expect.objectContaining({
         images: [
           {
             role: 'first_frame',
             url: `data:image/jpeg;base64,${Buffer.from('tail-frame').toString('base64')}`,
-          },
-          {
-            role: 'last_frame',
-            url: `data:image/png;base64,${Buffer.from('target-frame').toString('base64')}`,
           },
         ],
       }),

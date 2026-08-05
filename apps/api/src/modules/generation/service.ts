@@ -102,9 +102,11 @@ export class GenerationService {
           ? task.metadata.previewMode === 'partial'
           : task.metadata.previewMode !== 'partial') &&
         sameStringArray(task.metadata.sourceVideoTaskIds, sourceVideoTaskIds) &&
-        (task.status === 'queued' || task.status === 'running' || task.status === 'completed'),
+        task.status !== 'cancelled',
     )
-    if (existing && !force) return existing
+    // Automatic completion callbacks are idempotent even after a failed compose. An explicit
+    // user retry may replace a terminal result, but never duplicates an active composition.
+    if (existing && (!force || existing.status === 'queued' || existing.status === 'running')) return existing
 
     const task = await this.repository.create(
       {

@@ -243,7 +243,7 @@ export class AuthService {
   ): Promise<void> {
     const resetUrl = tokenUrl(this.options.passwordResetUrl ?? '', token)
     const text = [
-      'Reset your Seqora password using the link below.',
+      '请通过以下链接重置你的序幕TV密码。',
       '',
       resetUrl,
       '',
@@ -253,10 +253,10 @@ export class AuthService {
     try {
       await (this.options.mailer ?? new NoopMailer()).send({
         to: email,
-        subject: 'Reset your Seqora password',
+        subject: '重置序幕TV密码',
         text,
         html: [
-          '<p>Reset your Seqora password using the link below.</p>',
+          '<p>请通过以下链接重置你的序幕TV密码。</p>',
           `<p><a href="${escapeHtml(resetUrl)}">Reset password</a></p>`,
           `<p>This link expires at ${escapeHtml(expiresAt)}.</p>`,
           '<p>If you did not request this change, you can ignore this email.</p>',
@@ -292,7 +292,7 @@ export class AuthService {
   ): Promise<void> {
     const verifyUrl = tokenUrl(this.options.emailVerificationUrl ?? '', token)
     const text = [
-      'Verify your Seqora email address using the link below.',
+      '请通过以下链接验证你的序幕TV邮箱。',
       '',
       verifyUrl,
       '',
@@ -302,10 +302,10 @@ export class AuthService {
     try {
       await (this.options.mailer ?? new NoopMailer()).send({
         to: email,
-        subject: 'Verify your Seqora email',
+        subject: '验证序幕TV邮箱',
         text,
         html: [
-          '<p>Verify your Seqora email address using the link below.</p>',
+          '<p>请通过以下链接验证你的序幕TV邮箱。</p>',
           `<p><a href="${escapeHtml(verifyUrl)}">Verify email</a></p>`,
           `<p>This link expires at ${escapeHtml(expiresAt)}.</p>`,
           '<p>If you did not create this account, you can ignore this email.</p>',

@@ -27,7 +27,7 @@ export async function registerTrustedAssetRoutes(
     { preHandler: requirePermission(PERMISSIONS.ASSET_WRITE) },
     async (request) => {
       const query = parse(listPortraitsQuerySchema, request.query)
-      return service.listPortraits(query.groupType)
+      return service.listPortraits(query.groupType, request.principal!)
     },
   )
 
@@ -42,7 +42,7 @@ export async function registerTrustedAssetRoutes(
     { preHandler: requirePermission(PERMISSIONS.ASSET_WRITE) },
     async (request, reply) => {
       const params = parse(portraitPreviewParamsSchema, request.params)
-      const preview = await service.preview(params.assetId)
+      const preview = await service.preview(params.assetId, request.principal!)
       return reply
         .header('Cache-Control', 'private, max-age=300')
         .type(preview.contentType)
