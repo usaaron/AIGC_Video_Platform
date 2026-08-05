@@ -45,7 +45,7 @@ describe('GenerationTaskRepository charged creation', () => {
       state.tasks.unshift(retainedTask)
     })
 
-    const plan = repository.filmPreviewPlan('project-midnight-film', memberPrincipal)
+    const plan = await repository.filmPreviewPlan('project-midnight-film', memberPrincipal)
 
     expect(plan?.sources.find((source) => source.shot.id === 'shot-1')?.task?.id).toBe(retainedTask.id)
   })
