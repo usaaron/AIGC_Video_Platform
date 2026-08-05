@@ -5648,6 +5648,12 @@
   font-size: 13px;
 }
 
+.operation-notice {
+  margin: 12px 0 0;
+  color: var(--accent-strong);
+  font-size: 13px;
+}
+
 .queue-policy {
   display: flex;
   align-items: flex-start;

@@ -1,9 +1,38 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import JSZip from 'jszip'
 import { describe, expect, it, vi } from 'vitest'
-import { groupShotsByEpisode, StoryboardPage } from './StoryboardPage'
+import { addStoryboardVideosToArchive, groupShotsByEpisode, StoryboardPage } from './StoryboardPage'
 
 describe('groupShotsByEpisode', () => {
+  it('keeps available videos when another completed source has expired', async () => {
+    const zip = new JSZip()
+    const fetchVideo = vi.fn(async (url) =>
+      url.endsWith('/available')
+        ? { ok: true, blob: async () => new Uint8Array([1, 2, 3]) }
+        : { ok: false, status: 502 },
+    )
+
+    const result = await addStoryboardVideosToArchive(
+      zip,
+      [
+        {
+          shot: { title: '可用镜头', order: 1, episodeNumber: 1 },
+          url: '/available',
+        },
+        {
+          shot: { title: '过期镜头', order: 2, episodeNumber: 1 },
+          url: '/expired',
+        },
+      ],
+      fetchVideo,
+    )
+
+    expect(result).toMatchObject({ successCount: 1, failures: [{ message: 'HTTP 502' }] })
+    expect(zip.file('第01集/01-可用镜头.mp4')).not.toBeNull()
+    expect(await zip.file('_下载失败清单.txt').async('string')).toContain('过期镜头：HTTP 502')
+  })
+
   it('summarizes episodes and keeps the hook group last', () => {
     const groups = groupShotsByEpisode([
       { id: 'shot-1', episodeNumber: 1, episodeTitle: '起点', episodeKind: 'standard', duration: 5 },

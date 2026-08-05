@@ -69,6 +69,7 @@ export function StoryboardPage({
   const [splittingEpisodes, setSplittingEpisodes] = useState(false)
   const [generatingAll, setGeneratingAll] = useState(false)
   const [operationError, setOperationError] = useState('')
+  const [operationNotice, setOperationNotice] = useState('')
   const [downloadingVideos, setDownloadingVideos] = useState(false)
   const isWebSeries = project?.contentType === 'short-drama'
   const shotMinDuration = isWebSeries ? 3 : 4
@@ -124,6 +125,7 @@ export function StoryboardPage({
     if (controlsLocked || !shots.length) return
     setSplittingEpisodes(true)
     setOperationError('')
+    setOperationNotice('')
     try {
       await onAutoSplitEpisodes(episodeDuration)
     } catch (error) {
@@ -147,6 +149,7 @@ export function StoryboardPage({
       return
     setGeneratingAll(true)
     setOperationError('')
+    setOperationNotice('')
     try {
       await onGenerateAllVideos(shots, batchResolution, mode)
     } catch (error) {
@@ -160,14 +163,14 @@ export function StoryboardPage({
     if (!downloadableVideos.length || downloadingVideos) return
     setDownloadingVideos(true)
     setOperationError('')
+    setOperationNotice('')
     try {
       const zip = new JSZip()
-      for (const { shot, url } of downloadableVideos) {
-        const response = await fetch(url, { credentials: 'include' })
-        if (!response.ok) throw new Error(`${shot.title} 下载失败（${response.status}）`)
-        const episode = `第${String(shot.episodeNumber || 1).padStart(2, '0')}集`
-        const name = `${String(shot.order).padStart(2, '0')}-${safeFileName(shot.title || '未命名镜头')}.mp4`
-        zip.folder(episode)?.file(name, await response.blob())
+      const { successCount, failures } = await addStoryboardVideosToArchive(zip, downloadableVideos)
+      if (!successCount) {
+        throw new Error(
+          `没有可下载的视频；${failures.length} 条已完成记录的源文件暂不可用，请重新生成后再试。`,
+        )
       }
       const archive = await zip.generateAsync({
         type: 'blob',
@@ -175,6 +178,11 @@ export function StoryboardPage({
         compressionOptions: { level: 6 },
       })
       downloadBlob(archive, `${safeFileName(project.name || '序幕TV项目')}-分镜视频.zip`)
+      setOperationNotice(
+        failures.length
+          ? `已打包 ${successCount} 条视频，另有 ${failures.length} 条源文件暂不可用，详情已写入压缩包。`
+          : `已打包 ${successCount} 条视频。`,
+      )
     } catch (error) {
       setOperationError(error.message)
     } finally {
@@ -372,6 +380,11 @@ export function StoryboardPage({
       {operationError && (
         <p className="operation-error" role="alert">
           {operationError}
+        </p>
+      )}
+      {operationNotice && (
+        <p className="operation-notice" role="status">
+          {operationNotice}
         </p>
       )}
       {batchLocked && (
@@ -833,6 +846,36 @@ function taskOutputUrl(task, kind) {
   if (kind === 'video')
     return task.resultUrl || task.outputs?.find((output) => output.mediaType === 'video')?.url
   return task.resultUrl || task.outputs?.find((output) => output.mediaType === 'image')?.url
+}
+
+export async function addStoryboardVideosToArchive(zip, videos, fetchVideo = globalThis.fetch) {
+  const failures = []
+  let successCount = 0
+  for (const { shot, url } of videos) {
+    try {
+      const response = await fetchVideo(url, { credentials: 'include' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const episode = `第${String(shot.episodeNumber || 1).padStart(2, '0')}集`
+      const name = `${String(shot.order).padStart(2, '0')}-${safeFileName(shot.title || '未命名镜头')}.mp4`
+      zip.folder(episode)?.file(name, await response.blob())
+      successCount += 1
+    } catch (error) {
+      failures.push({ shot, message: error instanceof Error ? error.message : String(error) })
+    }
+  }
+  if (failures.length) {
+    zip.file(
+      '_下载失败清单.txt',
+      [
+        '以下分镜的已完成记录暂时无法读取源文件，可在分镜页重新生成后再次下载：',
+        ...failures.map(
+          ({ shot, message }) =>
+            `第 ${shot.episodeNumber || 1} 集 · ${shot.title || `镜头 ${shot.order}`}：${message}`,
+        ),
+      ].join('\n'),
+    )
+  }
+  return { successCount, failures }
 }
 
 function safeFileName(value) {
