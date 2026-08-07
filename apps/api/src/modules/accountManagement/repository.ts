@@ -1,10 +1,12 @@
 import type {
   CreatedTenantInvitation,
   Membership,
+  OrganizationType,
   Plan,
   Role,
   SessionSummary,
   TenantInvitation,
+  TenantInvitationScope,
   Workspace,
   WorkspaceMembership,
 } from '@seqora/contracts'
@@ -88,13 +90,14 @@ export class AccountManagementRepository {
       )
       if (!user.rows.length) return null
       const role = await readWorkspaceCreationRole(client, userId)
+      const organizationType = await readWorkspaceCreationOrganizationType(client, userId, role)
 
       await client.query(
         `
-        INSERT INTO tenants (id, name, status, created_by_user_id, created_at, updated_at)
-        VALUES ($1, $2, 'active', $3, now(), now())
+        INSERT INTO tenants (id, name, status, organization_type, created_by_user_id, created_at, updated_at)
+        VALUES ($1, $2, 'active', $3, $4, now(), now())
         `,
-        [tenantId, name, userId],
+        [tenantId, name, organizationType, userId],
       )
       await client.query(
         `
@@ -124,8 +127,8 @@ export class AccountManagementRepository {
     const tenantId = `tenant-${randomUUID()}`
     const created = await this.database.query<WorkspaceRow>(
       `
-      INSERT INTO tenants (id, name, status, is_system, created_by_user_id, created_at, updated_at)
-      VALUES ($1, $2, 'active', false, $3, now(), now())
+      INSERT INTO tenants (id, name, status, is_system, organization_type, created_by_user_id, created_at, updated_at)
+      VALUES ($1, $2, 'active', false, 'enterprise', $3, now(), now())
       RETURNING id, name, status, created_at, updated_at
       `,
       [tenantId, input.name, input.createdByUserId],
@@ -139,6 +142,7 @@ export class AccountManagementRepository {
     tenantId: string
     email: string | null
     roles: Role[]
+    invitationScope: TenantInvitationScope
     invitedByUserId: string
     token: string
     tokenSecretHash: string
@@ -170,9 +174,10 @@ export class AccountManagementRepository {
             `
             UPDATE tenant_invitations
             SET roles = $3,
-                invited_by_user_id = $4,
-                token_secret_hash = $5,
-                expires_at = $6,
+                invitation_scope = $4,
+                invited_by_user_id = $5,
+                token_secret_hash = $6,
+                expires_at = $7,
                 accepted_at = NULL,
                 revoked_at = NULL,
                 updated_at = now()
@@ -185,6 +190,7 @@ export class AccountManagementRepository {
               input.tenantId,
               input.email,
               input.roles,
+              input.invitationScope,
               input.invitedByUserId,
               input.tokenSecretHash,
               input.expiresAt,
@@ -202,16 +208,17 @@ export class AccountManagementRepository {
           await client.query(
             `
             INSERT INTO tenant_invitations (
-              id, tenant_id, email, roles, invited_by_user_id, token_secret_hash, status, expires_at,
+              id, tenant_id, email, roles, invitation_scope, invited_by_user_id, token_secret_hash, status, expires_at,
               accepted_at, revoked_at, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, NULL, NULL, now(), now())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, NULL, NULL, now(), now())
             `,
             [
               invitationId,
               input.tenantId,
               input.email,
               input.roles,
+              input.invitationScope,
               input.invitedByUserId,
               input.tokenSecretHash,
               input.expiresAt,
@@ -539,18 +546,32 @@ export class AccountManagementRepository {
     }
 
     const membershipId = membershipIdFor(userId, row.tenant_id)
+    const isPrimaryMembership = row.invitation_scope === 'platform_registration'
+    if (isPrimaryMembership) {
+      await client.query(
+        `
+        UPDATE tenant_memberships
+        SET is_primary = false,
+            updated_at = now()
+        WHERE user_id = $1
+          AND is_primary = true
+        `,
+        [userId],
+      )
+    }
     await client.query(
       `
       INSERT INTO tenant_memberships (
         id, tenant_id, user_id, roles, is_primary, status, created_at, updated_at
       )
-      VALUES ($1, $2, $3, $4, false, 'active', now(), now())
+      VALUES ($1, $2, $3, $4, $5, 'active', now(), now())
       ON CONFLICT (tenant_id, user_id)
       DO UPDATE SET roles = EXCLUDED.roles,
+                    is_primary = EXCLUDED.is_primary,
                     status = 'active',
                     updated_at = now()
       `,
-      [membershipId, row.tenant_id, userId, row.roles],
+      [membershipId, row.tenant_id, userId, row.roles, isPrimaryMembership],
     )
     await client.query(
       `
@@ -1021,8 +1042,8 @@ export class AccountManagementRepository {
       )
       await client.query(
         `
-        INSERT INTO tenants (id, name, status, created_by_user_id, created_at, updated_at)
-        VALUES ($1, $2, 'active', $3, now(), now())
+        INSERT INTO tenants (id, name, status, organization_type, created_by_user_id, created_at, updated_at)
+        VALUES ($1, $2, 'active', 'personal', $3, now(), now())
         `,
         [tenantId, input.tenantName, userId],
       )
@@ -1056,6 +1077,7 @@ export class AccountManagementRepository {
     tenantName: string
     email: string
     roles: Role[]
+    invitationScope: TenantInvitationScope
     invitedByUserId: string
     token: string
     tokenSecretHash: string
@@ -1066,8 +1088,8 @@ export class AccountManagementRepository {
         const tenantId = `tenant-${randomUUID()}`
         await client.query(
           `
-          INSERT INTO tenants (id, name, status, created_by_user_id, created_at, updated_at)
-          VALUES ($1, $2, 'active', $3, now(), now())
+          INSERT INTO tenants (id, name, status, organization_type, created_by_user_id, created_at, updated_at)
+          VALUES ($1, $2, 'active', 'personal', $3, now(), now())
           `,
           [tenantId, input.tenantName, input.invitedByUserId],
         )
@@ -1075,16 +1097,17 @@ export class AccountManagementRepository {
         await client.query(
           `
           INSERT INTO tenant_invitations (
-            id, tenant_id, email, roles, invited_by_user_id, token_secret_hash, status, expires_at,
+            id, tenant_id, email, roles, invitation_scope, invited_by_user_id, token_secret_hash, status, expires_at,
             accepted_at, revoked_at, created_at, updated_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, NULL, NULL, now(), now())
+          VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, NULL, NULL, now(), now())
           `,
           [
             invitationId,
             tenantId,
             input.email,
             input.roles,
+            input.invitationScope,
             input.invitedByUserId,
             input.tokenSecretHash,
             input.expiresAt,
@@ -1424,6 +1447,7 @@ type MembershipRow = {
   membership_id: string
   tenant_id: string
   tenant_name: string
+  organization_type: OrganizationType | null
   roles: Role[]
   membership_status: Membership['status']
   is_primary: boolean
@@ -1459,6 +1483,7 @@ type TenantInvitationRow = {
   tenant_name: string
   email: string | null
   roles: Role[]
+  invitation_scope: TenantInvitationScope
   invitation_status: TenantInvitation['status']
   invited_by_user_id: string
   expires_at: Date | string
@@ -1485,6 +1510,7 @@ function accountWorkspaceSelectSql(whereClause: string): string {
       m.created_at AS membership_created_at,
       m.updated_at AS membership_updated_at,
       t.name AS tenant_name,
+      t.organization_type,
       t.status AS tenant_status,
       t.created_at AS tenant_created_at,
       t.updated_at AS tenant_updated_at,
@@ -1515,6 +1541,7 @@ function invitationSelectSql(whereClause: string): string {
       t.name AS tenant_name,
       i.email,
       i.roles,
+      i.invitation_scope,
       CASE
         WHEN i.status = 'pending' AND i.expires_at <= now() THEN 'expired'
         ELSE i.status
@@ -1540,6 +1567,7 @@ function membershipSelectSql(whereClause: string): string {
       m.id AS membership_id,
       m.tenant_id,
       t.name AS tenant_name,
+      t.organization_type,
       m.roles,
       m.status AS membership_status,
       m.is_primary,
@@ -1632,6 +1660,27 @@ async function readWorkspaceCreationRole(client: Queryable, userId: string): Pro
   return 'member'
 }
 
+async function readWorkspaceCreationOrganizationType(
+  client: Queryable,
+  userId: string,
+  role: Role,
+): Promise<OrganizationType> {
+  if (role === 'organization_admin') return 'enterprise'
+  const result = await client.query<{ elevated: boolean }>(
+    `
+    SELECT EXISTS (
+      SELECT 1
+      FROM tenant_memberships
+      WHERE user_id = $1
+        AND status = 'active'
+        AND roles && ARRAY['owner', 'super_admin', 'admin', 'organization_admin']::text[]
+    ) AS elevated
+    `,
+    [userId],
+  )
+  return result.rows[0]?.elevated ? 'enterprise' : 'personal'
+}
+
 function toWorkspaceSummary(row: WorkspaceRow): Workspace {
   return {
     id: row.id,
@@ -1673,6 +1722,7 @@ function toMembership(row: MembershipRow): Membership {
     id: row.membership_id,
     tenantId: row.tenant_id,
     tenantName: row.tenant_name,
+    organizationType: row.organization_type ?? undefined,
     organizationId: row.tenant_id,
     organizationName: row.tenant_name,
     userId: row.id,
@@ -1695,6 +1745,7 @@ function toTenantInvitation(row: TenantInvitationRow): TenantInvitation {
     organizationName: row.tenant_name,
     email: row.email,
     roles: row.roles,
+    scope: row.invitation_scope,
     status: row.invitation_status,
     invitedByUserId: row.invited_by_user_id,
     expiresAt: toIso(row.expires_at),

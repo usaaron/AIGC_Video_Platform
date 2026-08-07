@@ -90,11 +90,17 @@ export class UserRepository implements AuthAccounts {
         )
         await client.query(
           `
-          INSERT INTO tenants (id, name, status, created_by_user_id, is_system, created_at, updated_at)
-          VALUES ($1, $2, 'active', $3, $4, now(), now())
+          INSERT INTO tenants (id, name, status, created_by_user_id, is_system, organization_type, created_at, updated_at)
+          VALUES ($1, $2, 'active', $3, $4, $5, now(), now())
           ON CONFLICT (id) DO NOTHING
         `,
-          [seed.tenantId, seed.tenantId, userId, seed.tenantId === systemTenantId],
+          [
+            seed.tenantId,
+            seed.tenantId,
+            userId,
+            seed.tenantId === systemTenantId,
+            seed.tenantId === systemTenantId ? 'system' : 'personal',
+          ],
         )
         await client.query(
           `

@@ -3,11 +3,11 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
 import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
-import { isPlatformAdmin } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
 import {
   billingAlertParams,
   billingMembershipParams,
+  canAccessAdminMembership,
   parse,
   parseListQuery,
   requireAdminRepository,
@@ -95,10 +95,7 @@ export function registerAdminBillingRoutes(app: FastifyInstance, context: AdminR
       reply.header('Cache-Control', 'no-store')
       const detail = await requireAdminRepository(context.adminRepository).findMembership(membershipId)
       if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
-      if (
-        !isPlatformAdmin(request.principal!) &&
-        detail.membership.tenantId !== request.principal!.tenantId
-      ) {
+      if (!canAccessAdminMembership(request.principal!, detail.membership)) {
         throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot read another workspace membership')
       }
       return detail

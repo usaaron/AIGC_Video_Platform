@@ -81,10 +81,11 @@ export async function initializeBootstrapAccounts(
   await database.transaction(async (client) => {
     await client.query(
       `
-      INSERT INTO tenants (id, name, status, is_system, created_at, updated_at)
-      VALUES ($1, 'Seqora Local', 'active', true, $2, $2)
+      INSERT INTO tenants (id, name, status, is_system, organization_type, created_at, updated_at)
+      VALUES ($1, 'Seqora Local', 'active', true, 'system', $2, $2)
       ON CONFLICT (id)
       DO UPDATE SET is_system = true,
+                    organization_type = 'system',
                     status = 'active',
                     updated_at = EXCLUDED.updated_at
       `,

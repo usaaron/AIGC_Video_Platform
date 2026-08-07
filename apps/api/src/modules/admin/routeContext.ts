@@ -1,4 +1,4 @@
-import { adminSessionStatusSchema, roleSchema, type AdminOverview, type Principal } from '@seqora/contracts'
+import { adminSessionStatusSchema, roleSchema, ROLES, type AdminOverview, type Principal } from '@seqora/contracts'
 import type { FastifyReply } from 'fastify'
 import { z } from 'zod'
 import { parseIssuedSessionToken } from '../../core/auth/sessionToken.js'
@@ -100,7 +100,13 @@ export function parseConsoleQuery(value: unknown): AdminListOptions {
 
 export function scopeAdminOptions(principal: Principal, options: AdminListOptions): AdminListOptions {
   if (isPlatformAdmin(principal)) return options
-  return { ...options, tenantId: principal.tenantId }
+  if (principal.roles.includes(ROLES.ADMIN)) {
+    return { ...options, visibilityScope: 'personal' }
+  }
+  if (principal.roles.includes(ROLES.ORGANIZATION_ADMIN)) {
+    return { ...options, visibilityScope: 'organization', scopeTenantId: principal.tenantId }
+  }
+  return { ...options, visibilityScope: 'self', scopeTenantId: principal.tenantId }
 }
 
 export function currentSessionIdFromCookie(
@@ -111,6 +117,20 @@ export function currentSessionIdFromCookie(
   return parseIssuedSessionToken(token, authSecret)?.sessionId ?? null
 }
 
+export function canAccessAdminMembership(
+  principal: Principal,
+  membership: { tenantId: string; organizationType?: string | null | undefined; roles: readonly string[] },
+): boolean {
+  if (isPlatformAdmin(principal)) return true
+  if (principal.roles.includes(ROLES.ADMIN)) {
+    return membership.organizationType === 'personal' && membership.roles.includes('member')
+  }
+  if (principal.roles.includes(ROLES.ORGANIZATION_ADMIN)) {
+    return membership.tenantId === principal.tenantId && membership.roles.includes('organization_member')
+  }
+  return membership.tenantId === principal.tenantId && membership.roles.includes('member')
+}
+
 export async function readAdminOverview(
   store: AppStore,
   ledger: CreditLedger | null,
@@ -119,6 +139,10 @@ export async function readAdminOverview(
 ): Promise<AdminOverview> {
   const today = startOfChinaDay()
   const scopedTenantId = principal && !isPlatformAdmin(principal) ? principal.tenantId : undefined
+  const scopedAdminOptions =
+    principal && !isPlatformAdmin(principal)
+      ? scopeAdminOptions(principal, { limit: 1, offset: 0 })
+      : null
   const creditsConsumedToday = ledger
     ? await ledger.consumedCreditsSince(today, scopedTenantId)
     : store.read((state) =>
@@ -134,7 +158,7 @@ export async function readAdminOverview(
         ),
       )
   const users = adminRepository
-    ? (await adminRepository.listUsers({ limit: 1, offset: 0, tenantId: scopedTenantId })).meta.total
+    ? (await adminRepository.listUsers(scopedAdminOptions ?? { limit: 1, offset: 0 })).meta.total
     : store.read((state) =>
         scopedTenantId
           ? state.users.filter((user) => user.tenantId === scopedTenantId).length
