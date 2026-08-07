@@ -76,7 +76,7 @@ export const createTenantUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(80),
   password: passwordSchema,
-  role: z.enum(['member', 'admin', 'organization_admin', 'organization_member', 'super_admin']),
+  role: z.enum(['member', 'admin', 'organization_admin', 'organization_member', 'super_admin', 'owner']),
 })
 
 export const updateMembershipRolesSchema = z.object({

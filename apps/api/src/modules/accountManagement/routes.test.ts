@@ -263,9 +263,28 @@ describe('account management api', { timeout: 30_000 }, () => {
       ]),
     })
 
+    const personalMember = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/users',
+      headers: { cookie: adminCookie },
+      payload: {
+        email: 'billing-personal-member@example.com',
+        name: 'Billing Personal Member',
+        password: 'BillingPersonalMember123!',
+        role: 'member',
+      },
+    })
+    expect(personalMember.statusCode).toBe(201)
+    expect(personalMember.json()).toMatchObject({
+      email: 'billing-personal-member@example.com',
+      roles: ['member'],
+      organizationType: 'personal',
+    })
+    const personalMembershipId = personalMember.json().id as string
+
     const adjusted = await app.inject({
       method: 'POST',
-      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-member/adjustments',
+      url: `/api/v1/admin/billing/memberships/${personalMembershipId}/adjustments`,
       headers: { cookie: adminCookie },
       payload: {
         amount: 25,
@@ -274,7 +293,7 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
     expect(adjusted.statusCode).toBe(200)
     expect(adjusted.json()).toMatchObject({
-      credits: 311,
+      credits: 25,
       entries: expect.arrayContaining([
         expect.objectContaining({
           amount: 25,
@@ -286,7 +305,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const corrected = await app.inject({
       method: 'POST',
-      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-member/adjustments',
+      url: `/api/v1/admin/billing/memberships/${personalMembershipId}/adjustments`,
       headers: { cookie: adminCookie },
       payload: {
         amount: -10,
@@ -295,7 +314,7 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
     expect(corrected.statusCode).toBe(200)
     expect(corrected.json()).toMatchObject({
-      credits: 301,
+      credits: 15,
       entries: expect.arrayContaining([
         expect.objectContaining({
           amount: -10,
@@ -1206,7 +1225,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       headers: { cookie: owner.cookie },
       payload: {
         email: 'system-member@example.com',
-        roles: ['member'],
+        roles: ['organization_member'],
       },
     })
     expect(memberInvitation.statusCode).toBe(409)
@@ -1279,17 +1298,19 @@ describe('account management api', { timeout: 30_000 }, () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
     const owner = await seedOwnerLogin()
-    const secondOwnerInvitation = await app.inject({
+    const secondOwnerUser = await app.inject({
       method: 'POST',
-      url: '/api/v1/organizations/tenant-seqora-demo/invitations',
+      url: '/api/v1/admin/organizations/tenant-seqora-demo/users',
       headers: { cookie: owner.cookie },
       payload: {
         email: 'second-owner@example.com',
-        roles: ['owner'],
+        name: 'Second Owner',
+        password: 'SecondOwner123!',
+        role: 'owner',
       },
     })
-    expect(secondOwnerInvitation.statusCode).toBe(409)
-    expect(secondOwnerInvitation.json()).toMatchObject({
+    expect(secondOwnerUser.statusCode).toBe(409)
+    expect(secondOwnerUser.json()).toMatchObject({
       error: { code: 'OWNER_LIMIT_REACHED' },
     })
 
