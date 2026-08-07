@@ -44,6 +44,9 @@ contracts, API inputs, bootstrap paths, and production runtime code must not rei
 | `billing.read.self`      | yes   | yes         | no    | yes    | no                 | yes                 |
 | `billing.read.all`       | yes   | yes         | yes   | no     | yes                | no                  |
 | `billing.manage`         | yes   | yes         | yes   | no     | yes                | no                  |
+| `usage.read.self`        | yes   | yes         | yes   | yes    | yes                | yes                 |
+| `usage.read.scoped`      | yes   | yes         | yes   | no     | yes                | no                  |
+| `usage.read.all`         | yes   | yes         | no    | no     | no                 | no                  |
 | `user.read`              | yes   | yes         | yes   | no     | yes                | no                  |
 | `user.manage`            | yes   | yes         | yes   | no     | yes                | no                  |
 | `admin.dashboard.read`   | yes   | yes         | yes   | no     | yes                | no                  |
@@ -62,6 +65,33 @@ freeze the role set and the exact matrix.
 | `member`              | Own account, own sessions, authorized creative content                                                | Admin console and other users                                                                                                               |
 | `organization_admin`  | Own organization's `organization_member` accounts, sessions, billing records, and operational records | Other organizations; platform `member`, `admin`, `super_admin`, `owner`; other `organization_admin` unless transferred by owner/super_admin |
 | `organization_member` | Own account, own sessions, authorized organization creative content                                   | Admin console and other users                                                                                                               |
+
+## Usage Visibility Boundaries
+
+Usage metrics include realtime concurrency, RPM, TPM, request counts, token counts,
+credit consumption, provider usage, and error rates. User-level usage data is high-cardinality
+operational data and must not be exposed through public metrics labels.
+
+| Actor                 | Usage visibility                                                                                                  | Required permission                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `owner`               | All platform users, all organizations, global totals, and per-user/per-organization details                        | `usage.read.all`                                       |
+| `super_admin`         | All platform users, all organizations, global totals, and per-user/per-organization details                        | `usage.read.all`                                       |
+| `admin`               | Platform C-side `member` users and explicitly authorized platform operations scope; no owner/super_admin internals | `usage.read.scoped`; repository must apply scope rules |
+| `organization_admin`  | Users, sessions, jobs, billing usage, and usage records inside the current organization only                       | `usage.read.scoped`; repository must filter by organization |
+| `member`              | Own usage only                                                                                                    | `usage.read.self`                                      |
+| `organization_member` | Own usage only inside the authorized organization                                                                 | `usage.read.self`                                      |
+
+The backend scope helper is `usageVisibilityFor()` in `apps/api/src/core/auth/roles.ts`:
+
+- `owner` and `super_admin`: `all`.
+- `admin`: `platform_scope`.
+- `organization_admin`: `organization_scope`.
+- `member` and `organization_member`: `self`.
+
+Future usage APIs must authorize with `usage.read.self`, `usage.read.scoped`, or `usage.read.all`
+and then apply the scope returned by `usageVisibilityFor()`. Frontend hiding is not sufficient.
+Metric names and counting rules are frozen in `docs/USAGE_METRICS.md` and
+`packages/contracts/src/usage.ts`.
 
 ## Hard Limits
 

@@ -1,5 +1,7 @@
 import { ROLES, type Principal, type Role } from '@seqora/contracts'
 
+export type UsageVisibilityScope = 'all' | 'platform_scope' | 'organization_scope' | 'self'
+
 export function isOwner(principal: Principal): boolean {
   return principal.roles.includes(ROLES.OWNER)
 }
@@ -22,6 +24,13 @@ export function isTenantManager(principal: Principal): boolean {
 
 export function canReadAllTenantContent(principal: Principal): boolean {
   return isTenantManager(principal)
+}
+
+export function usageVisibilityFor(principal: Principal): UsageVisibilityScope {
+  if (isPlatformAdmin(principal)) return 'all'
+  if (principal.roles.includes(ROLES.ADMIN)) return 'platform_scope'
+  if (principal.roles.includes(ROLES.ORGANIZATION_ADMIN)) return 'organization_scope'
+  return 'self'
 }
 
 export function hasElevatedRole(roles: readonly Role[]): boolean {
