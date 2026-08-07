@@ -10,6 +10,8 @@ import type { VideoGenerationProvider, VideoProviderName } from '../generation/v
 import type { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { observabilityMetrics, observeProviderCall } from '../observability/metrics.js'
+import { traceIdFromGenerationTask } from '../observability/trace.js'
+import { usageCollector } from '../observability/usage.js'
 import {
   claimGenerationTaskLease,
   generationTaskLeaseMatches,
@@ -65,7 +67,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
   async recoverInterrupted(): Promise<void> {
     const recovered = await this.store.mutate((state) => {
       const now = new Date().toISOString()
-      let count = 0
+      const tasks: GenerationTask[] = []
       for (const task of state.tasks) {
         if (task.provider !== 'local-compose' || task.status !== 'running') continue
         task.status = 'failed'
@@ -73,11 +75,12 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         task.error = '完整预览合成被服务重启中断，请重新合成'
         releaseGenerationTaskLease(task)
         task.updatedAt = now
-        count += 1
+        tasks.push(task)
       }
-      return count
+      return tasks
     })
-    if (recovered) await this.onStateChange()
+    for (const task of recovered) recordPreviewTaskUsage(task)
+    if (recovered.length) await this.onStateChange()
   }
 
   async start(task: GenerationTask): Promise<GenerationTask> {
@@ -95,6 +98,21 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       return stored
     })
     await this.onStateChange()
+    if (
+      started.id === task.id &&
+      started.status === 'running' &&
+      started.leaseOwnerId === this.leaseOwnerId
+    ) {
+      usageCollector.startJob({
+        jobId: started.id,
+        source: 'generation_task',
+        kind: started.kind,
+        tenantId: started.tenantId,
+        organizationId: started.tenantId,
+        userId: started.userId,
+        traceId: traceIdFromGenerationTask(started),
+      })
+    }
     void this.compose(task.id, typeof started.leaseToken === 'string' ? started.leaseToken : '')
     return started
   }
@@ -102,8 +120,10 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
   private async compose(taskId: string, leaseToken: string): Promise<void> {
     const startedAt = Date.now()
     let temporaryDirectory: string | null = null
+    let usageTask: GenerationTask | null = null
     try {
       const task = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
+      usageTask = task
       if (!task) throw new Error('完整预览任务不存在')
       if (task.status !== 'running' || !generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken))
         return
@@ -154,7 +174,10 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
               provider: this.videoProviderName,
               operation: 'video.getContent',
               tenantId: task.tenantId,
+              organizationId: task.tenantId,
+              userId: task.userId,
               taskId,
+              traceId: traceIdFromGenerationTask(task),
             },
             () => this.videoProvider.getContent(String(source.metadata.providerTaskId)),
           )
@@ -242,6 +265,21 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
           ok,
           error,
         })
+        recordPreviewTaskUsage(finalTask)
+      }
+      const usageFinalTask = finalTask ?? usageTask
+      if (usageFinalTask) {
+        usageCollector.finishJob({
+          jobId: usageFinalTask.id,
+          source: 'generation_task',
+          kind: usageFinalTask.kind,
+          status: terminalUsageStatus(usageFinalTask.status),
+          recordUsage: false,
+          tenantId: usageFinalTask.tenantId,
+          organizationId: usageFinalTask.tenantId,
+          userId: usageFinalTask.userId,
+          traceId: traceIdFromGenerationTask(usageFinalTask),
+        })
       }
       if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true })
     }
@@ -259,6 +297,25 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
     })
     if (updated) await this.onStateChange()
   }
+}
+
+function recordPreviewTaskUsage(task: GenerationTask): void {
+  if (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') return
+  usageCollector.recordJobTerminal({
+    jobId: task.id,
+    source: 'generation_task',
+    kind: task.kind,
+    status: task.status,
+    creditsUsed: task.status === 'completed' ? task.estimatedCredits : 0,
+    tenantId: task.tenantId,
+    organizationId: task.tenantId,
+    userId: task.userId,
+    traceId: traceIdFromGenerationTask(task),
+  })
+}
+
+function terminalUsageStatus(status: GenerationTask['status']): 'completed' | 'failed' | 'cancelled' | 'unknown' {
+  return status === 'completed' || status === 'failed' || status === 'cancelled' ? status : 'unknown'
 }
 
 function cachedVideoOutput(task: GenerationTask): { storageKey: string } | null {

@@ -10,6 +10,7 @@ export class DeepSeekTextProvider extends OpenAIChatTextProvider {
       ...options,
       completionsPath: options.completionsPath ?? '/api/v1/chat/completions',
       providerLabel: 'DeepSeek V3',
+      providerName: 'deepseek-v3',
     })
   }
 }

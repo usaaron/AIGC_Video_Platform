@@ -1,4 +1,12 @@
-import type { BillingWebhookEvent, LedgerEntry, Plan } from '@seqora/contracts'
+import {
+  ROLES,
+  type BillingWebhookEvent,
+  type LedgerEntry,
+  type OrganizationType,
+  type Plan,
+  type Principal,
+  type Role,
+} from '@seqora/contracts'
 import type { QueryResultRow } from 'pg'
 import { insertAuditLog } from '../../core/audit/auditLog.js'
 import { AppError } from '../../core/errors.js'
@@ -34,6 +42,7 @@ export type BillingLedgerAuditInput = {
 
 export type BillingLedgerMembershipRecordInput = {
   membershipId: string
+  principal: Pick<Principal, 'tenantId' | 'roles'>
   scopeTenantId?: string
   entryId: string
   referenceId: string
@@ -425,6 +434,9 @@ export class BillingLedgerRepository {
         throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
       }
       if (input.scopeTenantId && account.tenantId !== input.scopeTenantId) {
+        throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot adjust billing for another workspace')
+      }
+      if (!canManageBillingAccount(input.principal, account)) {
         throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot adjust billing for another workspace')
       }
 
@@ -946,11 +958,13 @@ async function resolveAccountByMembershipId(
     membership_id: string
     user_id: string
     tenant_id: string
+    organization_type: OrganizationType | null
+    roles: Role[]
     plan: Plan
     credits: number
   }>(
     `
-    SELECT b.membership_id, m.user_id, m.tenant_id, b.plan, b.credits
+    SELECT b.membership_id, m.user_id, m.tenant_id, t.organization_type, m.roles, b.plan, b.credits
     FROM billing_accounts b
     JOIN tenant_memberships m ON m.id = b.membership_id
     JOIN users u ON u.id = m.user_id AND u.status = 'active'
@@ -967,6 +981,8 @@ async function resolveAccountByMembershipId(
         membershipId: row.membership_id,
         userId: row.user_id,
         tenantId: row.tenant_id,
+        organizationType: row.organization_type,
+        roles: row.roles,
         plan: row.plan,
         credits: row.credits,
       }
@@ -1148,8 +1164,28 @@ type BillingAccountRecord = {
   membershipId: string
   userId: string
   tenantId: string
+  organizationType: OrganizationType | null
+  roles: Role[]
   plan: Plan
   credits: number
+}
+
+function canManageBillingAccount(
+  principal: Pick<Principal, 'tenantId' | 'roles'>,
+  account: BillingAccountRecord,
+): boolean {
+  if (principal.roles.includes(ROLES.OWNER) || principal.roles.includes(ROLES.SUPER_ADMIN)) return true
+  if (principal.roles.includes(ROLES.ADMIN)) {
+    return account.organizationType === 'personal' && account.roles.includes(ROLES.MEMBER)
+  }
+  if (principal.roles.includes(ROLES.ORGANIZATION_ADMIN)) {
+    return (
+      account.tenantId === principal.tenantId &&
+      account.organizationType === 'enterprise' &&
+      account.roles.includes(ROLES.ORGANIZATION_MEMBER)
+    )
+  }
+  return false
 }
 
 type LedgerEntryRow = {

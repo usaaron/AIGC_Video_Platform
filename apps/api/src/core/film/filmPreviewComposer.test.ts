@@ -1,13 +1,18 @@
 import type { GenerationTask } from '@seqora/contracts'
 import { writeFile } from 'node:fs/promises'
 import { Readable } from 'node:stream'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VideoGenerationProvider } from '../generation/videoProvider.js'
 import { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
+import { usageCollector } from '../observability/usage.js'
 import { createFfmpegCompositionArgs, FilmPreviewComposer } from './filmPreviewComposer.js'
 
 describe('FilmPreviewComposer', () => {
+  beforeEach(() => {
+    usageCollector.resetForTests()
+  })
+
   it('downloads shot videos and stores one normalized preview MP4', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -57,6 +62,10 @@ describe('FilmPreviewComposer', () => {
       onStateChange,
       composeRunner: async (inputPaths, outputPath, nextTarget) => {
         expect(inputPaths).toHaveLength(2)
+        expect(usageCollector.snapshot({ userId: preview.userId })).toMatchObject({
+          jobConcurrency: 1,
+          jobCount: 0,
+        })
         target = nextTarget
         await writeFile(outputPath, Buffer.from('merged-video'))
       },
@@ -98,6 +107,13 @@ describe('FilmPreviewComposer', () => {
     })
     expect(stored.get(String(completed.metadata.previewStorageKey))?.toString()).toBe('merged-video')
     expect(onStateChange).toHaveBeenCalled()
+    expect(usageCollector.snapshot({ userId: preview.userId })).toMatchObject({
+      jobConcurrency: 0,
+      jobCount: 1,
+      jobFailedCount: 0,
+      jobFailureRate: 0,
+      creditsUsed: 0,
+    })
   })
 
   it('marks an interrupted local composition as failed during startup recovery', async () => {
@@ -134,6 +150,13 @@ describe('FilmPreviewComposer', () => {
       leaseAcquiredAt: null,
       leaseHeartbeatAt: null,
       leaseExpiresAt: null,
+    })
+    expect(usageCollector.snapshot({ userId: task.userId })).toMatchObject({
+      jobConcurrency: 0,
+      jobCount: 1,
+      jobFailedCount: 1,
+      jobFailureRate: 1,
+      creditsUsed: 0,
     })
   })
 

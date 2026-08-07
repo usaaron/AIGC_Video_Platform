@@ -129,7 +129,7 @@ export class QuickStartService {
       `已有资产：${context.assets.length ? context.assets.map((asset) => `${asset.kind}:${asset.name}`).join('；') : '无'}`,
       `剧本：\n${boundedScript(script)}`,
     ].join('\n')
-    const analysis = await this.generateAnalysis(userPrompt, script, model)
+    const analysis = await this.generateAnalysis(userPrompt, script, model, principal)
     const assets = deduplicateProposals(proposalsFor(analysis), context.assets)
     const estimate = estimateFor(assets, context.user.plan === 'member' ? 3 : 1, context.queueAhead)
     return {
@@ -343,12 +343,14 @@ export class QuickStartService {
     userPrompt: string,
     sourceScript: string,
     model: ScriptModel,
+    principal: Principal,
   ): Promise<ProviderAnalysis> {
     const first = await this.textProvider!.generate({
       systemPrompt: QUICK_START_SYSTEM_PROMPT,
       userPrompt,
       maxOutputTokens: 3_000,
       model,
+      usageContext: usageContextForPrincipal(principal),
     })
     try {
       return parseProviderAnalysis(first)
@@ -359,12 +361,21 @@ export class QuickStartService {
           userPrompt: `${userPrompt}\n\n待修复输出：\n${first.slice(0, 12_000)}`,
           maxOutputTokens: 3_000,
           model,
+          usageContext: usageContextForPrincipal(principal),
         })
         return parseProviderAnalysis(repaired)
       } catch {
         return fallbackProviderAnalysis(sourceScript)
       }
     }
+  }
+}
+
+function usageContextForPrincipal(principal: Principal) {
+  return {
+    tenantId: principal.tenantId,
+    organizationId: principal.organizationId ?? principal.tenantId,
+    userId: principal.userId,
   }
 }
 

@@ -1,15 +1,20 @@
 import type { GenerationTask } from '@seqora/contracts'
 import { VIDEO_PROMPT_VERSION } from '@seqora/prompting'
 import { Readable } from 'node:stream'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ImageGenerationProvider } from '../generation/imageProvider.js'
 import type { VideoGenerationProvider } from '../generation/videoProvider.js'
 import { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
+import { usageCollector } from '../observability/usage.js'
 import { GenerationTaskRunner } from './taskDispatcher.js'
 import type { TaskRunnerLock } from './taskRunnerLock.js'
 
 describe('GenerationTaskRunner Seedance integration', () => {
+  beforeEach(() => {
+    usageCollector.resetForTests()
+  })
+
   it('leaves local FFmpeg composition progress under the composer ownership', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -102,6 +107,15 @@ describe('GenerationTaskRunner Seedance integration', () => {
         localTaskCompletedAt: expect.any(String),
       },
     })
+    await vi.waitFor(() =>
+      expect(usageCollector.snapshot({ userId: task.userId })).toMatchObject({
+        jobConcurrency: 0,
+        jobCount: 1,
+        jobFailedCount: 0,
+        jobFailureRate: 0,
+        creditsUsed: task.estimatedCredits,
+      }),
+    )
   })
 
   it('starts three independent provider submissions in one tick for a member', async () => {
@@ -532,6 +546,13 @@ describe('GenerationTaskRunner Seedance integration', () => {
       leaseAcquiredAt: null,
       leaseHeartbeatAt: null,
       leaseExpiresAt: null,
+    })
+    expect(usageCollector.snapshot({ userId: task!.userId })).toMatchObject({
+      jobConcurrency: 0,
+      jobCount: 1,
+      jobFailedCount: 0,
+      jobFailureRate: 0,
+      creditsUsed: task!.estimatedCredits,
     })
   })
 
@@ -1278,6 +1299,15 @@ describe('GenerationTaskRunner Seedance integration', () => {
     })
     expect(store.read((state) => state.shots.find((item) => item.id === 'shot-1'))?.imageUrl).toBe(
       '/api/v1/generation/tasks/storyboard-image-task/outputs/single',
+    )
+    await vi.waitFor(() =>
+      expect(usageCollector.snapshot({ userId: task.userId })).toMatchObject({
+        jobConcurrency: 0,
+        jobCount: 1,
+        jobFailedCount: 0,
+        jobFailureRate: 0,
+        creditsUsed: task.estimatedCredits,
+      }),
     )
   })
 

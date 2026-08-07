@@ -3,6 +3,11 @@ import {
   type TextGenerationProvider,
   type TextGenerationRequest,
 } from './textProvider.js'
+import {
+  providerTokenUsageFromPayload,
+  recordTextProviderUsage,
+  type ProviderTokenUsage,
+} from '../observability/usage.js'
 
 export type OpenAIChatTextOptions = {
   baseUrl: string
@@ -10,6 +15,7 @@ export type OpenAIChatTextOptions = {
   model: string
   requestTimeoutMs: number
   providerLabel: string
+  providerName?: string
   completionsPath?: string
   maxTokensMode?: 'both' | 'max_tokens' | 'max_completion_tokens'
   fetcher?: typeof fetch
@@ -48,7 +54,9 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
     if (!response.ok) throw await textProviderError(this.options.providerLabel, response)
 
     if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
-      return readCompletionStream(response.body, this.options.requestTimeoutMs)
+      const completion = await readCompletionStream(response.body, this.options.requestTimeoutMs)
+      this.recordTokenUsage(request, completion.usage)
+      return completion.text
     }
     let payload: unknown
     try {
@@ -58,6 +66,7 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
     }
     const result = completionText(payload)
     if (!result) throw new InvalidTextResponseError(this.options.providerLabel)
+    this.recordTokenUsage(request, providerTokenUsageFromPayload(payload))
     return result.trim()
   }
 
@@ -88,6 +97,15 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
       signal: AbortSignal.timeout(this.options.requestTimeoutMs),
     })
   }
+
+  private recordTokenUsage(request: TextGenerationRequest, usage: ProviderTokenUsage | null): void {
+    recordTextProviderUsage({
+      provider: this.options.providerName ?? this.options.providerLabel,
+      model: request.model ?? this.options.model,
+      usageContext: request.usageContext ?? null,
+      usage,
+    })
+  }
 }
 
 class OpenAIChatHttpError extends Error {
@@ -108,13 +126,17 @@ class InvalidTextResponseError extends Error {
   }
 }
 
-async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs: number): Promise<string> {
+async function readCompletionStream(
+  body: ReadableStream<Uint8Array>,
+  timeoutMs: number,
+): Promise<{ text: string; usage: ProviderTokenUsage | null }> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   const startedAt = Date.now()
   let buffered = ''
   let content = ''
   let reasoningContent = ''
+  let usage: ProviderTokenUsage | null = null
 
   const consume = (line: string) => {
     if (!line.startsWith('data:')) return
@@ -126,6 +148,7 @@ async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs:
     } catch {
       return
     }
+    usage = providerTokenUsageFromPayload(value) ?? usage
     const text = completionParts(value)
     content += text.content
     reasoningContent += text.reasoning
@@ -166,7 +189,7 @@ async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs:
   if (buffered) consume(buffered)
   const result = (content || reasoningContent).trim()
   if (!result) throw new InvalidTextResponseError('OpenAI-compatible text provider')
-  return result
+  return { text: result, usage }
 }
 
 function completionText(value: unknown): string {

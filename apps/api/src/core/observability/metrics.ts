@@ -1,5 +1,6 @@
-import type { AiJob, GenerationTask } from '@seqora/contracts'
+import type { AiJob, GenerationTask, UsageMetrics } from '@seqora/contracts'
 import type { AppStore } from '../../infra/store.js'
+import { usageCollector } from './usage.js'
 
 type DurationStats = {
   count: number
@@ -51,6 +52,7 @@ export type ObservabilitySnapshot = {
   filmPreview: {
     executions: DurationRecord
   }
+  usage: UsageMetrics
 }
 
 export type DailyOperationalSummary = {
@@ -281,6 +283,7 @@ class ObservabilityMetrics {
       filmPreview: {
         executions: durationsWithPrefix(this.durations, 'film_preview.execution', options.tenantId),
       },
+      usage: usageCollector.snapshot(options.tenantId ? { tenantId: options.tenantId } : {}),
     }
   }
 
@@ -318,12 +321,26 @@ export async function observeProviderCall<T>(
     provider: string
     operation: string
     tenantId?: string | null
+    organizationId?: string | null
+    userId?: string | null
     taskId?: string | null
     jobId?: string | null
+    traceId?: string | null
   },
   operation: () => Promise<T>,
 ): Promise<T> {
   const startedAt = Date.now()
+  const usageCallId = usageCollector.startProviderCall({
+    provider: input.provider,
+    operation: input.operation,
+    tenantId: input.tenantId ?? null,
+    organizationId: input.organizationId ?? input.tenantId ?? null,
+    userId: input.userId ?? null,
+    taskId: input.taskId ?? null,
+    jobId: input.jobId ?? null,
+    traceId: input.traceId ?? null,
+    now: startedAt,
+  })
   try {
     const result = await operation()
     observabilityMetrics.recordProviderCall({
@@ -340,6 +357,8 @@ export async function observeProviderCall<T>(
       error,
     })
     throw error
+  } finally {
+    usageCollector.finishProviderCall(usageCallId)
   }
 }
 

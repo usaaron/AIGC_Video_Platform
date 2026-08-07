@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { observabilityMetrics } from './metrics.js'
+import { usageCollector } from './usage.js'
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -13,6 +14,24 @@ export function installObservabilityHooks(app: FastifyInstance): void {
     request.observabilityStartedAt = Date.now()
     reply.header('x-request-id', request.id)
     reply.header('x-trace-id', request.id)
+    usageCollector.startApiRequest({
+      requestId: request.id,
+      method: request.method,
+      route: request.url.split('?', 1)[0] ?? 'unknown',
+      traceId: request.id,
+      now: request.observabilityStartedAt,
+    })
+  })
+  app.addHook('preHandler', async (request) => {
+    const route = request.routeOptions.url ?? request.url.split('?', 1)[0] ?? 'unknown'
+    usageCollector.bindApiRequestIdentity(request.id, {
+      tenantId: request.principal?.tenantId ?? null,
+      organizationId: request.principal?.organizationId ?? request.principal?.tenantId ?? null,
+      userId: request.principal?.userId ?? null,
+      traceId: request.id,
+      method: request.method,
+      route,
+    })
   })
   app.addHook('onResponse', async (request, reply) => {
     const context = requestLogContext(request)
@@ -24,6 +43,17 @@ export function installObservabilityHooks(app: FastifyInstance): void {
       statusCode: reply.statusCode,
       durationMs,
       tenantId: context.tenantId,
+    })
+    usageCollector.finishApiRequest({
+      requestId: request.id,
+      method: request.method,
+      route,
+      statusCode: reply.statusCode,
+      durationMs,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: context.userId,
+      traceId: context.traceId,
     })
     request.log.info(
       {
@@ -42,6 +72,7 @@ export function requestLogContext(request: FastifyRequest): {
   requestId: string
   traceId: string
   tenantId: string | null
+  organizationId: string | null
   userId: string | null
   taskId: string | null
   jobId: string | null
@@ -52,6 +83,7 @@ export function requestLogContext(request: FastifyRequest): {
     requestId: request.id,
     traceId: request.id,
     tenantId: request.principal?.tenantId ?? null,
+    organizationId: request.principal?.organizationId ?? request.principal?.tenantId ?? null,
     userId: request.principal?.userId ?? null,
     taskId: stringValue(params.taskId),
     jobId: stringValue(params.jobId),

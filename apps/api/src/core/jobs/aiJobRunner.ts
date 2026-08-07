@@ -2,6 +2,8 @@ import type { AiJob } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type { AiJobRepository } from '../../modules/aiJobs/repository.js'
 import { observabilityMetrics } from '../observability/metrics.js'
+import { traceIdFromAiJob } from '../observability/trace.js'
+import { usageCollector } from '../observability/usage.js'
 import { noopTaskRunnerLock, type TaskRunnerLock } from './taskRunnerLock.js'
 import type { TaskDispatchContext, TaskDispatcher } from './taskDispatcher.js'
 
@@ -97,6 +99,15 @@ export class AiJobRunner implements TaskDispatcher {
         waitMs: durationSince(job.createdAt, now),
       })
       this.activeExecutions.add(job.id)
+      usageCollector.startJob({
+        jobId: job.id,
+        source: 'ai_job',
+        kind: job.kind,
+        tenantId: job.tenantId,
+        organizationId: job.tenantId,
+        userId: job.userId,
+        traceId: traceIdFromAiJob(job),
+      })
       void this.runExecution(job).finally(() => {
         this.activeExecutions.delete(job.id)
       })
@@ -105,15 +116,29 @@ export class AiJobRunner implements TaskDispatcher {
 
   private async runExecution(job: AiJob): Promise<void> {
     const leaseToken = typeof job.leaseToken === 'string' ? job.leaseToken : ''
-    if (!leaseToken) return
+    if (!leaseToken) {
+      usageCollector.finishJob({
+        jobId: job.id,
+        source: 'ai_job',
+        kind: job.kind,
+        status: 'unknown',
+        tenantId: job.tenantId,
+        organizationId: job.tenantId,
+        userId: job.userId,
+        traceId: traceIdFromAiJob(job),
+      })
+      return
+    }
     const startedAt = Date.now()
     const stopHeartbeat = this.startLeaseHeartbeat(job.id, leaseToken)
+    let usageStatus: 'completed' | 'failed' | 'cancelled' | 'unknown' = 'unknown'
     try {
       if (!this.handler?.canHandle(job)) {
         throw new Error(`AI job handler is not configured for kind ${job.kind}`)
       }
       const result = await this.handler.execute(job)
       await this.repository.complete(job.id, this.leaseOwnerId, leaseToken, result.output ?? {})
+      usageStatus = 'completed'
       observabilityMetrics.recordAiJobExecution({
         kind: job.kind,
         tenantId: job.tenantId,
@@ -129,6 +154,7 @@ export class AiJobRunner implements TaskDispatcher {
       })
     } catch (error) {
       await this.repository.fail(job.id, this.leaseOwnerId, leaseToken, messageFor(error))
+      usageStatus = 'failed'
       observabilityMetrics.recordAiJobExecution({
         kind: job.kind,
         tenantId: job.tenantId,
@@ -145,6 +171,17 @@ export class AiJobRunner implements TaskDispatcher {
       })
     } finally {
       stopHeartbeat()
+      usageCollector.finishJob({
+        jobId: job.id,
+        source: 'ai_job',
+        kind: job.kind,
+        status: usageStatus,
+        creditsUsed: usageStatus === 'completed' ? job.costCredits : 0,
+        tenantId: job.tenantId,
+        organizationId: job.tenantId,
+        userId: job.userId,
+        traceId: traceIdFromAiJob(job),
+      })
     }
   }
 

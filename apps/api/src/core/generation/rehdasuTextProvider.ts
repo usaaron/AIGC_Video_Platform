@@ -1,7 +1,7 @@
 import { OpenAIChatTextProvider, type OpenAIChatTextOptions } from './openAIChatTextProvider.js'
 import type { TextGenerationRequest } from './textProvider.js'
 
-export type RehdasuTextOptions = Omit<OpenAIChatTextOptions, 'providerLabel'>
+export type RehdasuTextOptions = Omit<OpenAIChatTextOptions, 'providerLabel' | 'providerName'>
 
 const REHDASU_REASONING_MODEL_MIN_OUTPUT_TOKENS = 256
 
@@ -9,7 +9,12 @@ export class RehdasuTextProvider extends OpenAIChatTextProvider {
   private readonly defaultModel: string
 
   constructor(options: RehdasuTextOptions) {
-    super({ ...options, providerLabel: 'Rehdasu 文本服务', maxTokensMode: 'max_tokens' })
+    super({
+      ...options,
+      providerLabel: 'Rehdasu text service',
+      providerName: 'rehdasu',
+      maxTokensMode: 'max_tokens',
+    })
     this.defaultModel = options.model
   }
 

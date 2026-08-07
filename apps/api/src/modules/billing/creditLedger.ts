@@ -496,7 +496,8 @@ export class StoreCreditLedger implements CreditLedger {
     if (this.ledgerRepository) {
       const recorded = await this.ledgerRepository.recordAdjustmentForMembership({
         membershipId: targetMembershipId,
-        ...(isPlatformAdmin(principal) ? {} : { scopeTenantId: principal.tenantId }),
+        principal,
+        ...(principal.roles.includes('organization_admin') ? { scopeTenantId: principal.tenantId } : {}),
         entryId,
         referenceId: entryId,
         entryType: 'adjustment',

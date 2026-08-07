@@ -23,6 +23,7 @@ describe('role permissions', () => {
         PERMISSIONS.ASSET_READ,
         PERMISSIONS.ASSET_WRITE,
         PERMISSIONS.BILLING_READ_SELF,
+        PERMISSIONS.USAGE_READ_SELF,
       ],
       admin: [
         PERMISSIONS.PROJECT_READ,
@@ -30,6 +31,8 @@ describe('role permissions', () => {
         PERMISSIONS.ASSET_READ,
         PERMISSIONS.BILLING_READ_ALL,
         PERMISSIONS.BILLING_MANAGE,
+        PERMISSIONS.USAGE_READ_SELF,
+        PERMISSIONS.USAGE_READ_SCOPED,
         PERMISSIONS.USER_READ,
         PERMISSIONS.USER_MANAGE,
         PERMISSIONS.ADMIN_DASHBOARD_READ,
@@ -43,6 +46,8 @@ describe('role permissions', () => {
         PERMISSIONS.ASSET_WRITE,
         PERMISSIONS.BILLING_READ_ALL,
         PERMISSIONS.BILLING_MANAGE,
+        PERMISSIONS.USAGE_READ_SELF,
+        PERMISSIONS.USAGE_READ_SCOPED,
         PERMISSIONS.USER_READ,
         PERMISSIONS.USER_MANAGE,
         PERMISSIONS.ADMIN_DASHBOARD_READ,
@@ -55,6 +60,7 @@ describe('role permissions', () => {
         PERMISSIONS.ASSET_READ,
         PERMISSIONS.ASSET_WRITE,
         PERMISSIONS.BILLING_READ_SELF,
+        PERMISSIONS.USAGE_READ_SELF,
       ],
       super_admin: [
         PERMISSIONS.PROJECT_READ,
@@ -66,6 +72,9 @@ describe('role permissions', () => {
         PERMISSIONS.BILLING_READ_SELF,
         PERMISSIONS.BILLING_READ_ALL,
         PERMISSIONS.BILLING_MANAGE,
+        PERMISSIONS.USAGE_READ_SELF,
+        PERMISSIONS.USAGE_READ_SCOPED,
+        PERMISSIONS.USAGE_READ_ALL,
         PERMISSIONS.USER_READ,
         PERMISSIONS.USER_MANAGE,
         PERMISSIONS.ADMIN_DASHBOARD_READ,
@@ -80,6 +89,9 @@ describe('role permissions', () => {
         PERMISSIONS.BILLING_READ_SELF,
         PERMISSIONS.BILLING_READ_ALL,
         PERMISSIONS.BILLING_MANAGE,
+        PERMISSIONS.USAGE_READ_SELF,
+        PERMISSIONS.USAGE_READ_SCOPED,
+        PERMISSIONS.USAGE_READ_ALL,
         PERMISSIONS.USER_READ,
         PERMISSIONS.USER_MANAGE,
         PERMISSIONS.ADMIN_DASHBOARD_READ,
@@ -96,6 +108,7 @@ describe('role permissions', () => {
     expect(ROLE_PERMISSIONS.super_admin).toContain(PERMISSIONS.ADMIN_DASHBOARD_READ)
     expect(ROLE_PERMISSIONS.super_admin).toContain(PERMISSIONS.USER_MANAGE)
     expect(ROLE_PERMISSIONS.super_admin).toContain(PERMISSIONS.BILLING_MANAGE)
+    expect(ROLE_PERMISSIONS.super_admin).toContain(PERMISSIONS.USAGE_READ_ALL)
     expect(ROLE_PERMISSIONS.super_admin).not.toContain(PERMISSIONS.SYSTEM_CONFIG_MANAGE)
   })
 
@@ -107,15 +120,22 @@ describe('role permissions', () => {
     expect(ROLE_PERMISSIONS.member).not.toContain(PERMISSIONS.ADMIN_DASHBOARD_READ)
     expect(ROLE_PERMISSIONS.member).not.toContain(PERMISSIONS.BILLING_MANAGE)
     expect(ROLE_PERMISSIONS.member).not.toContain(PERMISSIONS.USER_MANAGE)
+    expect(ROLE_PERMISSIONS.member).toContain(PERMISSIONS.USAGE_READ_SELF)
+    expect(ROLE_PERMISSIONS.member).not.toContain(PERMISSIONS.USAGE_READ_SCOPED)
+    expect(ROLE_PERMISSIONS.member).not.toContain(PERMISSIONS.USAGE_READ_ALL)
     expect(ROLE_PERMISSIONS.organization_member).toEqual(ROLE_PERMISSIONS.member)
   })
 
   it('allows admins to inspect operations without changing system configuration', () => {
     expect(ROLE_PERMISSIONS.admin).toContain(PERMISSIONS.ADMIN_DASHBOARD_READ)
     expect(ROLE_PERMISSIONS.admin).toContain(PERMISSIONS.BILLING_MANAGE)
+    expect(ROLE_PERMISSIONS.admin).toContain(PERMISSIONS.USAGE_READ_SCOPED)
+    expect(ROLE_PERMISSIONS.admin).not.toContain(PERMISSIONS.USAGE_READ_ALL)
     expect(ROLE_PERMISSIONS.admin).not.toContain(PERMISSIONS.SYSTEM_CONFIG_MANAGE)
     expect(ROLE_PERMISSIONS.organization_admin).toContain(PERMISSIONS.ADMIN_DASHBOARD_READ)
     expect(ROLE_PERMISSIONS.organization_admin).toContain(PERMISSIONS.USER_MANAGE)
+    expect(ROLE_PERMISSIONS.organization_admin).toContain(PERMISSIONS.USAGE_READ_SCOPED)
+    expect(ROLE_PERMISSIONS.organization_admin).not.toContain(PERMISSIONS.USAGE_READ_ALL)
     expect(ROLE_PERMISSIONS.organization_admin).not.toContain(PERMISSIONS.SYSTEM_CONFIG_MANAGE)
   })
 })

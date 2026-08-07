@@ -243,6 +243,7 @@ export class NovelService implements AiJobHandler {
           systemPrompt: NOVEL_BOUNDARY_NOTE_SYSTEM_PROMPT,
           userPrompt: boundaryNotesPrompt(current.document.name, selected),
           maxOutputTokens: Math.min(6_000, Math.max(1_200, selected.length * 320)),
+          usageContext: usageContextForPrincipal(principal),
         })
         const parsed = parseBoundaryNotesProviderJson(response)
         const drafts = parsed.notes
@@ -611,7 +612,7 @@ export class NovelService implements AiJobHandler {
       }
 
       try {
-        const result = await this.generateQueueItemSummary(source.document.name, chapter)
+        const result = await this.generateQueueItemSummary(source.document.name, chapter, principal)
         await this.repository.completeSummaryQueueItem(
           projectId,
           documentId,
@@ -647,12 +648,14 @@ export class NovelService implements AiJobHandler {
   private async generateQueueItemSummary(
     novelName: string,
     chapter: SummarySourceChapter,
+    principal: Principal,
   ): Promise<NovelSummaryQueueItemResult> {
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const response = await this.textProvider!.generate({
       systemPrompt: NOVEL_CHAPTER_SUMMARY_SYSTEM_PROMPT,
       userPrompt: chapterSummaryPrompt(novelName, [chapter]),
       maxOutputTokens: chapterSummaryMaxTokens(1),
+      usageContext: usageContextForPrincipal(principal),
     })
     const parsed = parseChapterSummariesProviderJson(response)
     const summary = parsed.summaries[0]
@@ -757,6 +760,7 @@ export class NovelService implements AiJobHandler {
           systemPrompt: NOVEL_CHAPTER_SUMMARY_SYSTEM_PROMPT,
           userPrompt: chapterSummaryPrompt(source.document.name, selectedChapters),
           maxOutputTokens: chapterSummaryMaxTokens(selectedChapters.length),
+          usageContext: usageContextForPrincipal(principal),
         })
         const parsed = parseChapterSummariesProviderJson(response)
         const drafts = parsed.summaries
@@ -848,6 +852,7 @@ export class NovelService implements AiJobHandler {
           systemPrompt: NOVEL_STORY_BIBLE_SYSTEM_PROMPT,
           userPrompt: storyBiblePrompt(source.document.name, selectedSummaries, source.document.chapterCount),
           maxOutputTokens: NOVEL_STORY_BIBLE_MAX_TOKENS,
+          usageContext: usageContextForPrincipal(principal),
         })
         const parsed = parseStoryBibleProviderJson(response)
         const storyBible = await this.repository.saveStoryBible(
@@ -893,6 +898,7 @@ export class NovelService implements AiJobHandler {
           systemPrompt: NOVEL_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
           userPrompt: novelAssetSuggestionsPrompt(source, input.maxAssets),
           maxOutputTokens: NOVEL_ASSET_SUGGESTIONS_MAX_TOKENS,
+          usageContext: usageContextForPrincipal(principal),
         })
         result = scriptAssetSuggestionsContentSchema.parse(
           parseProviderJsonValue(response, '小说资产建议结果格式错误'),
@@ -958,6 +964,7 @@ export class NovelService implements AiJobHandler {
             input,
           ),
           maxOutputTokens: NOVEL_CHAPTER_ADAPTATION_MAX_TOKENS,
+          usageContext: usageContextForPrincipal(principal),
         })
         const script = normalizeAdaptedScript(response)
         if (!script) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', '章节改编剧本为空')
@@ -990,6 +997,14 @@ export class NovelService implements AiJobHandler {
       await this.creditLedger.refundReservation(principal, referenceId, `${description} · 失败退款`)
       throw error
     }
+  }
+}
+
+function usageContextForPrincipal(principal: Principal) {
+  return {
+    tenantId: principal.tenantId,
+    organizationId: principal.organizationId ?? principal.tenantId,
+    userId: principal.userId,
   }
 }
 
