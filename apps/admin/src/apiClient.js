@@ -5,6 +5,7 @@ import {
   createdTenantInvitationSchema,
   sessionSchema,
   tenantInvitationSchema,
+  usageSummarySchema,
 } from '@seqora/contracts'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
@@ -73,6 +74,8 @@ export const api = {
   session: async () => sessionSchema.parse(await request('/auth/me')),
   adminConsole: async (params = {}) =>
     adminConsoleSchema.parse(await request(`/admin/console${buildQueryString(params)}`)),
+  adminUsage: async (params = {}) =>
+    usageSummarySchema.parse(await request(`/admin/usage${buildQueryString(params)}`)),
   createOrganization,
   updateOrganization,
   disableOrganization,

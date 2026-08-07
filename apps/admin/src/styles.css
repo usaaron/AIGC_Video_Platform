@@ -329,6 +329,92 @@ p {
   font-weight: 700;
 }
 
+.usage-page {
+  display: grid;
+  gap: 14px;
+}
+
+.usage-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--soft-line);
+  border-radius: 7px;
+  background: #fbfcf8;
+}
+
+.usage-controls strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.usage-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.segmented-control {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.segmented-control button {
+  min-width: 58px;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #626b60;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.segmented-control button.active {
+  background: var(--lime);
+  color: #25300f;
+}
+
+.usage-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.usage-stack {
+  display: grid;
+  gap: 4px;
+}
+
+.usage-stack strong,
+.usage-stack span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-stack span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .overview-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1967,6 +2053,7 @@ code {
 
   .console-toolbar,
   .overview-grid,
+  .usage-metric-grid,
   .summary-strip,
   .drawer-summary-grid,
   .session-context-grid {
@@ -2017,6 +2104,7 @@ code {
 
   .console-toolbar,
   .overview-grid,
+  .usage-metric-grid,
   .system-strip,
   .summary-strip,
   .drawer-summary-grid,
@@ -2038,6 +2126,21 @@ code {
 
   .system-strip time {
     justify-self: start;
+  }
+
+  .usage-controls,
+  .usage-control-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .segmented-control,
+  .usage-control-actions .icon-text-button {
+    width: 100%;
+  }
+
+  .segmented-control button {
+    flex: 1;
   }
 
   .adjustment-workbench > header,

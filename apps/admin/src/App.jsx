@@ -64,6 +64,9 @@ import {
 
 const tabs = [
   { id: 'overview', label: '概览', icon: Gauge },
+  { id: 'usage-realtime', label: '实时用量', icon: Activity },
+  { id: 'usage-users', label: '用户用量', icon: UsersRound },
+  { id: 'usage-organizations', label: '组织用量', icon: Building2 },
   { id: 'users', label: '用户', icon: UsersRound },
   { id: 'organizations', label: '组织', icon: Building2 },
   { id: 'memberships', label: '成员关系', icon: IdCard },
@@ -107,6 +110,11 @@ const organizationAdminTransferInitialState = {
 }
 const WEB_ORIGIN = (import.meta.env.VITE_WEB_ORIGIN || 'http://localhost:5173').replace(/\/+$/, '')
 const organizationScopedRoles = new Set(['organization_admin', 'organization_member'])
+const usageTabIds = new Set(['usage-realtime', 'usage-users', 'usage-organizations'])
+
+function isUsageTab(tabId) {
+  return usageTabIds.has(tabId)
+}
 
 function roleRequiresOrganization(role) {
   return organizationScopedRoles.has(role)
@@ -128,6 +136,10 @@ export function App() {
   const [snapshot, setSnapshot] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [usageSummary, setUsageSummary] = useState(null)
+  const [usageLoading, setUsageLoading] = useState(false)
+  const [usageError, setUsageError] = useState('')
+  const [usageRange, setUsageRange] = useState('today')
   const [notice, setNotice] = useState('')
   const [queryDraft, setQueryDraft] = useState('')
   const [query, setQuery] = useState('')
@@ -223,10 +235,28 @@ export function App() {
     }
   }
 
+  const loadUsage = async () => {
+    setUsageLoading(true)
+    setUsageError('')
+    try {
+      setUsageSummary(await api.adminUsage({ range: usageRange, limit: 100, offset: 0 }))
+    } catch (requestError) {
+      if (requestError.status === 401) setSession(null)
+      setUsageError(requestError.message)
+    } finally {
+      setUsageLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (!session || !canReadConsole) return
     void loadConsole()
   }, [session?.account?.id, session?.account?.tenantId, canReadConsole, consoleRequestParams])
+
+  useEffect(() => {
+    if (!session || !canReadConsole || !isUsageTab(activeTab)) return
+    void loadUsage()
+  }, [session?.account?.id, session?.account?.tenantId, canReadConsole, activeTab, usageRange])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -377,6 +407,14 @@ export function App() {
 
   const changeConsolePageSize = (limit) => {
     updateConsoleFilters({ limit: Number(limit), offset: 0 })
+  }
+
+  const refreshActiveData = () => {
+    if (isUsageTab(activeTab)) {
+      void loadUsage()
+      return
+    }
+    void loadConsole()
   }
 
   const login = async (event) => {
@@ -1106,8 +1144,13 @@ export function App() {
               <small>{session.account.roles.map(roleName).join('、')}</small>
             </div>
           </div>
-          <button className="icon-text-button" type="button" onClick={loadConsole} disabled={loading}>
-            {loading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
+          <button
+            className="icon-text-button"
+            type="button"
+            onClick={refreshActiveData}
+            disabled={loading || usageLoading}
+          >
+            {loading || usageLoading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
             刷新
           </button>
           <button className="icon-button" type="button" aria-label="退出" onClick={logout}>
@@ -1150,17 +1193,19 @@ export function App() {
             </label>
           </section>
 
-          <ConsoleServerControls
-            filters={consoleFilters}
-            query={queryDraft}
-            loading={loading}
-            organizations={organizationFilterOptions}
-            activeMeta={activeListMeta}
-            onFilterChange={updateConsoleFilters}
-            onClear={clearConsoleFilters}
-            onPageSizeChange={changeConsolePageSize}
-            onPageOffsetChange={goToConsoleOffset}
-          />
+          {!isUsageTab(activeTab) && (
+            <ConsoleServerControls
+              filters={consoleFilters}
+              query={queryDraft}
+              loading={loading}
+              organizations={organizationFilterOptions}
+              activeMeta={activeListMeta}
+              onFilterChange={updateConsoleFilters}
+              onClear={clearConsoleFilters}
+              onPageSizeChange={changeConsolePageSize}
+              onPageOffsetChange={goToConsoleOffset}
+            />
+          )}
 
           {notice && <div className="notice success">{notice}</div>}
           {error && <div className="notice error">{error}</div>}
@@ -1170,6 +1215,42 @@ export function App() {
             <>
               {activeTab === 'overview' && (
                 <OverviewPanel snapshot={snapshot} summary={summary} setActiveTab={setActiveTab} />
+              )}
+              {activeTab === 'usage-realtime' && (
+                <UsageRealtimePage
+                  summary={usageSummary}
+                  loading={usageLoading}
+                  error={usageError}
+                  range={usageRange}
+                  onRangeChange={setUsageRange}
+                  onRefresh={loadUsage}
+                />
+              )}
+              {activeTab === 'usage-users' && (
+                <UsageTablePage
+                  title="用户用量"
+                  subject="user"
+                  rows={usageSummary?.users ?? []}
+                  loading={usageLoading}
+                  error={usageError}
+                  query={query}
+                  range={usageRange}
+                  onRangeChange={setUsageRange}
+                  onRefresh={loadUsage}
+                />
+              )}
+              {activeTab === 'usage-organizations' && (
+                <UsageTablePage
+                  title="组织用量"
+                  subject="organization"
+                  rows={usageSummary?.organizations ?? []}
+                  loading={usageLoading}
+                  error={usageError}
+                  query={query}
+                  range={usageRange}
+                  onRangeChange={setUsageRange}
+                  onRefresh={loadUsage}
+                />
               )}
               {activeTab === 'users' && (
                 <UsersTable
@@ -1645,6 +1726,184 @@ function OverviewPanel({ snapshot, summary, setActiveTab }) {
         <time>{formatDate(snapshot.generatedAt)}</time>
       </section>
     </div>
+  )
+}
+
+function UsageRealtimePage({ summary, loading, error, range, onRangeChange, onRefresh }) {
+  const metrics = summary?.global?.metrics ?? null
+  return (
+    <div className="usage-page">
+      <UsageControls
+        range={range}
+        generatedAt={summary?.generatedAt}
+        loading={loading}
+        onRangeChange={onRangeChange}
+        onRefresh={onRefresh}
+      />
+      {error && <div className="notice error">{error}</div>}
+      {loading && !summary && <LoadingScreen compact label="正在读取实时用量" />}
+      {metrics && (
+        <>
+          <section className="usage-metric-grid">
+            <MetricBlock icon={Activity} label="API 并发" value={formatUsageNumber(metrics.apiConcurrency)} />
+            <MetricBlock icon={Gauge} label="任务并发" value={formatUsageNumber(metrics.jobConcurrency)} />
+            <MetricBlock
+              icon={Globe}
+              label="Provider 并发"
+              value={formatUsageNumber(metrics.providerConcurrency)}
+            />
+            <MetricBlock icon={RefreshCw} label="RPM" value={formatUsageNumber(metrics.rpm)} />
+            <MetricBlock icon={FileText} label="TPM" value={formatUsageNumber(metrics.tpm)} />
+            <MetricBlock icon={CreditCard} label="积分消耗" value={formatUsageNumber(metrics.creditsUsed)} />
+          </section>
+          <DataSection title={`${usageRangeName(summary.range)}汇总`} count={summary.global.name ?? 'global'}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>请求</th>
+                  <th>任务</th>
+                  <th>Token</th>
+                  <th>积分</th>
+                  <th>API 错误率</th>
+                  <th>任务失败率</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>{formatUsageNumber(metrics.requestCount)}</td>
+                  <td>{formatUsageNumber(metrics.jobCount)}</td>
+                  <td>{formatUsageNumber(metrics.totalTokens)}</td>
+                  <td>{formatUsageNumber(metrics.creditsUsed)}</td>
+                  <td>{formatUsageRatio(metrics.errorRate)}</td>
+                  <td>{formatUsageRatio(metrics.jobFailureRate)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </DataSection>
+        </>
+      )}
+      {!loading && !metrics && !error && <p className="panel-empty">暂无用量数据。</p>}
+    </div>
+  )
+}
+
+function UsageTablePage({
+  title,
+  subject,
+  rows,
+  loading,
+  error,
+  query,
+  range,
+  onRangeChange,
+  onRefresh,
+}) {
+  const visibleRows = filterRows(rows, query)
+  return (
+    <div className="usage-page">
+      <UsageControls
+        range={range}
+        generatedAt={rows[0]?.generatedAt}
+        loading={loading}
+        onRangeChange={onRangeChange}
+        onRefresh={onRefresh}
+      />
+      {error && <div className="notice error">{error}</div>}
+      {loading && !rows.length && <LoadingScreen compact label={`正在读取${title}`} />}
+      <DataSection title={`${usageRangeName(range)}${title}`} count={visibleRows.length}>
+        <table className="data-table wide">
+          <thead>
+            <tr>
+              <th>{subject === 'user' ? '用户' : '组织'}</th>
+              <th>实时并发</th>
+              <th>RPM / TPM</th>
+              <th>请求 / 任务</th>
+              <th>Token</th>
+              <th>积分</th>
+              <th>错误 / 失败</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((row) => (
+              <tr key={usageRowKey(row)}>
+                <td>
+                  <IdentityCell
+                    name={row.name ?? (subject === 'user' ? row.email : row.organizationId)}
+                    detail={subject === 'user' ? row.email : row.organizationId}
+                    compact
+                  />
+                </td>
+                <td>
+                  <div className="usage-stack">
+                    <span>API {formatUsageNumber(row.metrics.apiConcurrency)}</span>
+                    <span>任务 {formatUsageNumber(row.metrics.jobConcurrency)}</span>
+                    <span>Provider {formatUsageNumber(row.metrics.providerConcurrency)}</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="usage-stack">
+                    <strong>{formatUsageNumber(row.metrics.rpm)} RPM</strong>
+                    <span>{formatUsageNumber(row.metrics.tpm)} TPM</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="usage-stack">
+                    <strong>{formatUsageNumber(row.metrics.requestCount)} 请求</strong>
+                    <span>{formatUsageNumber(row.metrics.jobCount)} 任务</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="usage-stack">
+                    <strong>{formatUsageNumber(row.metrics.totalTokens)}</strong>
+                    <span>
+                      入 {formatUsageNumber(row.metrics.inputTokens)} / 出{' '}
+                      {formatUsageNumber(row.metrics.outputTokens)}
+                    </span>
+                  </div>
+                </td>
+                <td>{formatUsageNumber(row.metrics.creditsUsed)}</td>
+                <td>
+                  <div className="usage-stack">
+                    <span>API {formatUsageRatio(row.metrics.errorRate)}</span>
+                    <span>任务 {formatUsageRatio(row.metrics.jobFailureRate)}</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            <EmptyRow visible={!visibleRows.length && !loading} columns={7} />
+          </tbody>
+        </table>
+      </DataSection>
+    </div>
+  )
+}
+
+function UsageControls({ range, generatedAt, loading, onRangeChange, onRefresh }) {
+  return (
+    <section className="usage-controls">
+      <div>
+        <span className="eyebrow">Usage</span>
+        <strong>{generatedAt ? `更新于 ${formatDate(generatedAt)}` : '等待用量快照'}</strong>
+      </div>
+      <div className="usage-control-actions">
+        <div className="segmented-control" aria-label="用量范围">
+          {['today', 'week', 'month'].map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={range === value ? 'active' : ''}
+              onClick={() => onRangeChange(value)}
+            >
+              {usageRangeName(value)}
+            </button>
+          ))}
+        </div>
+        <button className="icon-text-button" type="button" onClick={onRefresh} disabled={loading}>
+          {loading ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}
+          刷新
+        </button>
+      </div>
+    </section>
   )
 }
 
@@ -5394,9 +5653,34 @@ function EmptyRow({ visible, columns }) {
   )
 }
 
+function usageRangeName(range) {
+  const labels = {
+    today: '今日',
+    week: '本周',
+    month: '本月',
+  }
+  return labels[range] ?? range
+}
+
+function formatUsageNumber(value) {
+  return new Intl.NumberFormat('zh-CN').format(Number.isFinite(value) ? value : 0)
+}
+
+function formatUsageRatio(value) {
+  const ratio = Number.isFinite(value) ? value : 0
+  return `${Math.round(ratio * 1000) / 10}%`
+}
+
+function usageRowKey(row) {
+  return row.userId ?? row.organizationId ?? row.subjectType
+}
+
 function tabCount(tabId, summary) {
   const counts = {
     overview: '',
+    'usage-realtime': '',
+    'usage-users': '',
+    'usage-organizations': '',
     users: summary.users,
     organizations: summary.organizations,
     tenants: summary.organizations,
