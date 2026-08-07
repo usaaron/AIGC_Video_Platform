@@ -4,8 +4,14 @@ import { roleSchema } from './auth.js'
 
 export const workspaceStatusSchema = z.enum(['active', 'disabled'])
 export const organizationStatusSchema = workspaceStatusSchema
+export const organizationTypeSchema = z.enum(['system', 'personal', 'enterprise', 'synthetic'])
 export const membershipStatusSchema = z.enum(['active', 'disabled'])
 export const tenantInvitationStatusSchema = z.enum(['pending', 'accepted', 'revoked', 'expired'])
+export const tenantInvitationScopeSchema = z.enum([
+  'platform_registration',
+  'organization_membership',
+  'system_account',
+])
 const invitationTokenSchema = z.union([z.string().regex(/^\d{8}$/), z.string().min(32).max(256)])
 
 export const registerAccountSchema = z.object({
@@ -70,7 +76,7 @@ export const createTenantUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(80),
   password: passwordSchema,
-  role: z.enum(['member', 'admin', 'organization_admin', 'organization_member', 'super_admin']),
+  role: z.enum(['member', 'admin', 'organization_admin', 'organization_member', 'super_admin', 'owner']),
 })
 
 export const updateMembershipRolesSchema = z.object({
@@ -90,6 +96,7 @@ export const membershipSchema = z.object({
   id: z.string().min(1),
   tenantId: z.string().min(1),
   tenantName: z.string().min(1).max(80),
+  organizationType: organizationTypeSchema.optional(),
   organizationId: z.string().min(1),
   organizationName: z.string().min(1).max(80),
   userId: z.string().min(1),
@@ -140,6 +147,7 @@ export const tenantInvitationSchema = z.object({
   organizationName: z.string().min(1).max(80),
   email: z.string().email().nullable(),
   roles: z.array(roleSchema).min(1),
+  scope: tenantInvitationScopeSchema.optional(),
   status: tenantInvitationStatusSchema,
   invitedByUserId: z.string().min(1),
   expiresAt: z.string().datetime(),
@@ -169,10 +177,12 @@ export type CreateTenantUserInput = z.infer<typeof createTenantUserSchema>
 export type UpdateMembershipRolesInput = z.infer<typeof updateMembershipRolesSchema>
 export type Workspace = z.infer<typeof workspaceSchema>
 export type Organization = z.infer<typeof organizationSchema>
+export type OrganizationType = z.infer<typeof organizationTypeSchema>
 export type Membership = z.infer<typeof membershipSchema>
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 export type AccountSession = z.infer<typeof accountSessionSchema>
 export type WorkspaceMembership = z.infer<typeof workspaceMembershipSchema>
 export type OrganizationMembership = z.infer<typeof organizationMembershipSchema>
 export type TenantInvitation = z.infer<typeof tenantInvitationSchema>
+export type TenantInvitationScope = z.infer<typeof tenantInvitationScopeSchema>
 export type CreatedTenantInvitation = z.infer<typeof createdTenantInvitationSchema>

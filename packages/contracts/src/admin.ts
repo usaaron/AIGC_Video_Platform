@@ -6,6 +6,7 @@ import {
   ledgerEntrySchema,
 } from './billing.js'
 import { roleSchema } from './auth.js'
+import { organizationTypeSchema } from './accountManagement.js'
 
 export const adminOverviewSchema = z.object({
   users: z.number().int().nonnegative(),
@@ -44,6 +45,7 @@ export const adminTenantSchema = z.object({
   name: z.string().min(1).max(80),
   status: adminTenantStatusSchema,
   isSystem: z.boolean().default(false),
+  organizationType: organizationTypeSchema.optional(),
   createdByUserId: z.string().min(1).nullable(),
   createdByEmail: z.string().email().nullable(),
   createdByName: z.string().min(1).max(80).nullable(),
@@ -59,6 +61,7 @@ export const adminMembershipSchema = z.object({
   tenantId: z.string().min(1),
   tenantName: z.string().min(1).max(80),
   tenantStatus: adminTenantStatusSchema,
+  organizationType: organizationTypeSchema.optional(),
   organizationId: z.string().min(1),
   organizationName: z.string().min(1).max(80),
   organizationStatus: adminOrganizationStatusSchema,

@@ -35,10 +35,17 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const admin = await login('admin@seqora.local', 'Admin123!', {
       'user-agent': 'ConsoleAdminBrowser/1.0',
     })
-    const member = await login('member@seqora.local', 'MemberPassword123!', {
+    const adminCookie = cookieValue(admin)
+    const visibleMember = await createPersonalMemberFixture(
+      adminCookie,
+      'admin-visible-member@example.com',
+      'Admin Visible Member',
+      'AdminVisibleMember123!',
+    )
+    const member = await login(visibleMember.email, visibleMember.password, {
       'user-agent': 'MemberDevice/1.0',
     })
-    const adminCookie = cookieValue(admin)
+    expect(member.statusCode).toBe(200)
 
     const anonymousAccess = await app.inject({ method: 'GET', url: '/api/v1/admin/access' })
     expect(anonymousAccess.statusCode).toBe(401)
@@ -63,7 +70,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(snapshot.statusCode).toBe(200)
     expect(snapshot.json()).toMatchObject({
       overview: {
-        users: 4,
+        users: 1,
         activeTasks: expect.any(Number),
         creditsConsumedToday: expect.any(Number),
         generatedAt: expect.any(String),
@@ -71,39 +78,50 @@ describe('admin console api', { timeout: 30_000 }, () => {
       users: {
         meta: expect.objectContaining({ limit: 10, offset: 0 }),
         items: expect.arrayContaining([
-          expect.objectContaining({ id: 'user-admin', email: 'admin@seqora.local' }),
+          expect.objectContaining({ id: visibleMember.userId, email: visibleMember.email }),
         ]),
       },
       tenants: {
-        items: [expect.objectContaining({ id: 'tenant-seqora-demo', status: 'active', isSystem: true })],
+        items: [
+          expect.objectContaining({
+            id: visibleMember.tenantId,
+            status: 'active',
+            isSystem: false,
+            organizationType: 'personal',
+          }),
+        ],
       },
       organizations: {
-        items: [expect.objectContaining({ id: 'tenant-seqora-demo', status: 'active', isSystem: true })],
+        items: [
+          expect.objectContaining({
+            id: visibleMember.tenantId,
+            status: 'active',
+            isSystem: false,
+            organizationType: 'personal',
+          }),
+        ],
       },
       memberships: {
         items: expect.arrayContaining([
           expect.objectContaining({
-            id: 'membership-tenant-seqora-demo-user-admin',
-            organizationId: 'tenant-seqora-demo',
+            id: visibleMember.membershipId,
+            userId: visibleMember.userId,
+            organizationId: visibleMember.tenantId,
+            roles: ['member'],
+            organizationType: 'personal',
           }),
         ]),
       },
       billingAccounts: {
         items: expect.arrayContaining([
-          expect.objectContaining({ membershipId: 'membership-tenant-seqora-demo-user-member' }),
+          expect.objectContaining({ membershipId: visibleMember.membershipId }),
         ]),
       },
       sessions: {
         items: expect.arrayContaining([
           expect.objectContaining({
-            userId: 'user-admin',
-            tenantId: 'tenant-seqora-demo',
-            status: 'active',
-            current: true,
-            userAgent: 'ConsoleAdminBrowser/1.0',
-          }),
-          expect.objectContaining({
-            userId: 'user-member',
+            userId: visibleMember.userId,
+            tenantId: visibleMember.tenantId,
             status: 'active',
             current: false,
             userAgent: 'MemberDevice/1.0',
@@ -189,50 +207,54 @@ describe('admin console api', { timeout: 30_000 }, () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const admin = await login('admin@seqora.local', 'Admin123!')
     const adminCookie = cookieValue(admin)
+    const visibleMember = await createPersonalMemberFixture(
+      adminCookie,
+      'personal-admin-visible@example.com',
+      'Personal Admin Visible',
+      'PersonalAdminVisible123!',
+    )
 
     const users = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/users?q=seqora.local',
+      url: '/api/v1/admin/users?q=personal-admin-visible',
       headers: { cookie: adminCookie },
     })
     expect(users.statusCode).toBe(200)
     expect(users.json()).toMatchObject({
-      meta: { total: 4, limit: 50, offset: 0 },
+      meta: { total: 1, limit: 50, offset: 0 },
       items: expect.arrayContaining([
         expect.objectContaining({
-          id: 'user-admin',
-          email: 'admin@seqora.local',
+          id: visibleMember.userId,
+          email: visibleMember.email,
           status: 'active',
-          roles: expect.arrayContaining(['admin']),
-        }),
-        expect.objectContaining({
-          id: 'user-owner',
-          email: 'owner@seqora.local',
-          roles: expect.arrayContaining(['owner']),
+          roles: expect.arrayContaining(['member']),
         }),
       ]),
     })
 
     const memberUsers = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/users?tenantId=tenant-seqora-demo&role=member&limit=100',
+      url: `/api/v1/admin/users?tenantId=${visibleMember.tenantId}&role=member&limit=100`,
       headers: { cookie: adminCookie },
     })
     expect(memberUsers.statusCode).toBe(200)
-    expect(memberUsers.json().items.map((item: { id: string }) => item.id)).toEqual(['user-member'])
+    expect(memberUsers.json().items.map((item: { id: string }) => item.id)).toEqual([
+      visibleMember.userId,
+    ])
 
     const tenants = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/organizations?q=seqora',
+      url: `/api/v1/admin/organizations?tenantId=${visibleMember.tenantId}`,
       headers: { cookie: adminCookie },
     })
     expect(tenants.statusCode).toBe(200)
     expect(tenants.json()).toMatchObject({
       items: [
         expect.objectContaining({
-          id: 'tenant-seqora-demo',
+          id: visibleMember.tenantId,
           status: 'active',
-          activeMembershipCount: 4,
+          organizationType: 'personal',
+          activeMembershipCount: 1,
           activeOrganizationAdminCount: 0,
         }),
       ],
@@ -240,16 +262,17 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const organizations = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/organizations?q=seqora',
+      url: `/api/v1/admin/organizations?tenantId=${visibleMember.tenantId}`,
       headers: { cookie: adminCookie },
     })
     expect(organizations.statusCode).toBe(200)
     expect(organizations.json()).toMatchObject({
       items: [
         expect.objectContaining({
-          id: 'tenant-seqora-demo',
+          id: visibleMember.tenantId,
           status: 'active',
-          activeMembershipCount: 4,
+          organizationType: 'personal',
+          activeMembershipCount: 1,
           activeOrganizationAdminCount: 0,
         }),
       ],
@@ -257,25 +280,26 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const memberships = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/memberships?tenantId=tenant-seqora-demo&role=member',
+      url: `/api/v1/admin/memberships?tenantId=${visibleMember.tenantId}&role=member`,
       headers: { cookie: adminCookie },
     })
     expect(memberships.statusCode).toBe(200)
     expect(memberships.json()).toMatchObject({
       items: [
         expect.objectContaining({
-          id: 'membership-tenant-seqora-demo-user-member',
-          userId: 'user-member',
-          email: 'member@seqora.local',
+          id: visibleMember.membershipId,
+          userId: visibleMember.userId,
+          email: visibleMember.email,
+          organizationType: 'personal',
           plan: 'free',
-          credits: 286,
+          credits: 0,
         }),
       ],
     })
 
     const adjusted = await app.inject({
       method: 'POST',
-      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-member/adjustments',
+      url: `/api/v1/admin/billing/memberships/${visibleMember.membershipId}/adjustments`,
       headers: { cookie: adminCookie },
       payload: {
         amount: 15,
@@ -286,15 +310,15 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const billingAccounts = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/billing/accounts?membershipId=membership-tenant-seqora-demo-user-member',
+      url: `/api/v1/admin/billing/accounts?membershipId=${visibleMember.membershipId}`,
       headers: { cookie: adminCookie },
     })
     expect(billingAccounts.statusCode).toBe(200)
     expect(billingAccounts.json()).toMatchObject({
       items: [
         expect.objectContaining({
-          membershipId: 'membership-tenant-seqora-demo-user-member',
-          credits: 301,
+          membershipId: visibleMember.membershipId,
+          credits: 15,
           plan: 'free',
         }),
       ],
@@ -302,17 +326,17 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const ledger = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/billing/ledger?membershipId=membership-tenant-seqora-demo-user-member&type=adjustment',
+      url: `/api/v1/admin/billing/ledger?membershipId=${visibleMember.membershipId}&type=adjustment`,
       headers: { cookie: adminCookie },
     })
     expect(ledger.statusCode).toBe(200)
     expect(ledger.json()).toMatchObject({
       items: [
         expect.objectContaining({
-          membershipId: 'membership-tenant-seqora-demo-user-member',
-          userId: 'user-member',
+          membershipId: visibleMember.membershipId,
+          userId: visibleMember.userId,
           amount: 15,
-          balance: 301,
+          balance: 15,
           type: 'adjustment',
           description: 'Admin console audit top-up',
           createdByUserId: 'user-admin',
@@ -322,7 +346,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const billingAudit = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/audit-logs?action=billing.credits.adjusted&userId=user-member',
+      url: `/api/v1/admin/audit-logs?action=billing.credits.adjusted&userId=${visibleMember.userId}`,
       headers: { cookie: adminCookie },
     })
     expect(billingAudit.statusCode).toBe(200)
@@ -331,12 +355,12 @@ describe('admin console api', { timeout: 30_000 }, () => {
         expect.objectContaining({
           action: 'billing.credits.adjusted',
           resourceType: 'billing_account',
-          resourceId: 'membership-tenant-seqora-demo-user-member',
+          resourceId: visibleMember.membershipId,
           actorUserId: 'user-admin',
           metadata: expect.objectContaining({
             amount: 15,
-            balance: 301,
-            membershipId: 'membership-tenant-seqora-demo-user-member',
+            balance: 15,
+            membershipId: visibleMember.membershipId,
             reason: 'Admin console audit top-up',
             traceId: expect.any(String),
           }),
@@ -346,13 +370,13 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const detail = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-member',
+      url: `/api/v1/admin/billing/memberships/${visibleMember.membershipId}`,
       headers: { cookie: adminCookie },
     })
     expect(detail.statusCode).toBe(200)
     expect(detail.json()).toMatchObject({
-      membership: expect.objectContaining({ userId: 'user-member', roles: ['member'] }),
-      billing: expect.objectContaining({ credits: 301 }),
+      membership: expect.objectContaining({ userId: visibleMember.userId, roles: ['member'] }),
+      billing: expect.objectContaining({ credits: 15 }),
       entries: expect.arrayContaining([
         expect.objectContaining({ amount: 15, description: 'Admin console audit top-up' }),
       ]),
@@ -414,11 +438,18 @@ describe('admin console api', { timeout: 30_000 }, () => {
   it('lets admins set temporary member passwords and records the forced reset state', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const admin = await login('admin@seqora.local', 'Admin123!')
+    const adminCookie = cookieValue(admin)
+    const visibleMember = await createPersonalMemberFixture(
+      adminCookie,
+      'personal-password-member@example.com',
+      'Personal Password Member',
+      'PersonalPasswordMember123!',
+    )
 
     const updated = await app.inject({
       method: 'PUT',
-      url: '/api/v1/admin/users/user-member/password',
-      headers: { cookie: cookieValue(admin) },
+      url: `/api/v1/admin/users/${visibleMember.userId}/password`,
+      headers: { cookie: adminCookie },
       payload: {
         newPassword: 'MemberTempPassword123!',
         requireChange: true,
@@ -427,18 +458,18 @@ describe('admin console api', { timeout: 30_000 }, () => {
     })
     expect(updated.statusCode).toBe(200)
     expect(updated.json()).toMatchObject({
-      id: 'user-member',
+      id: visibleMember.userId,
       passwordResetRequired: true,
     })
 
-    const oldPassword = await login('member@seqora.local', 'MemberPassword123!')
+    const oldPassword = await login(visibleMember.email, visibleMember.password)
     expect(oldPassword.statusCode).toBe(401)
 
-    const temporaryPassword = await login('member@seqora.local', 'MemberTempPassword123!')
+    const temporaryPassword = await login(visibleMember.email, 'MemberTempPassword123!')
     expect(temporaryPassword.statusCode).toBe(200)
     expect(temporaryPassword.json()).toMatchObject({
       account: {
-        id: 'user-member',
+        id: visibleMember.userId,
         passwordResetRequired: true,
       },
     })
@@ -455,8 +486,8 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const audit = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/audit-logs?action=admin.password.temporary_set&userId=user-member',
-      headers: { cookie: cookieValue(admin) },
+      url: `/api/v1/admin/audit-logs?action=admin.password.temporary_set&userId=${visibleMember.userId}`,
+      headers: { cookie: adminCookie },
     })
     expect(audit.statusCode).toBe(200)
     expect(audit.json()).toMatchObject({
@@ -585,25 +616,33 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const admin = await login('admin@seqora.local', 'Admin123!', {
       'user-agent': 'AdminSessionDevice/1.0',
     })
-    const member = await login('member@seqora.local', 'MemberPassword123!', {
-      'user-agent': 'MemberSessionDevice/1.0',
-    })
     const owner = await login('owner@seqora.local', 'OwnerPassword123!', {
       'user-agent': 'OwnerSessionDevice/1.0',
     })
     const adminCookie = cookieValue(admin)
+    const ownerCookie = cookieValue(owner)
+    const visibleMember = await createPersonalMemberFixture(
+      adminCookie,
+      'personal-session-member@example.com',
+      'Personal Session Member',
+      'PersonalSessionMember123!',
+    )
+    const member = await login(visibleMember.email, visibleMember.password, {
+      'user-agent': 'MemberSessionDevice/1.0',
+    })
+    expect(member.statusCode).toBe(200)
 
     const activeMemberSessions = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/sessions?userId=user-member&status=active',
+      url: `/api/v1/admin/sessions?userId=${visibleMember.userId}&status=active`,
       headers: { cookie: adminCookie },
     })
     expect(activeMemberSessions.statusCode).toBe(200)
     expect(activeMemberSessions.json()).toMatchObject({
       items: [
         expect.objectContaining({
-          userId: 'user-member',
-          tenantId: 'tenant-seqora-demo',
+          userId: visibleMember.userId,
+          tenantId: visibleMember.tenantId,
           status: 'active',
           userAgent: 'MemberSessionDevice/1.0',
         }),
@@ -614,7 +653,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const selfSessions = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/sessions?userId=user-admin&status=active',
-      headers: { cookie: adminCookie },
+      headers: { cookie: ownerCookie },
     })
     expect(selfSessions.statusCode).toBe(200)
     const adminSessionId = selfSessions.json().items[0].sessionId
@@ -632,7 +671,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const activeOwnerSessions = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/sessions?userId=user-owner&status=active',
-      headers: { cookie: adminCookie },
+      headers: { cookie: ownerCookie },
     })
     expect(activeOwnerSessions.statusCode).toBe(200)
     const ownerSessionId = activeOwnerSessions.json().items[0].sessionId
@@ -663,7 +702,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const revokedMemberSessions = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/sessions?userId=user-member&status=revoked',
+      url: `/api/v1/admin/sessions?userId=${visibleMember.userId}&status=revoked`,
       headers: { cookie: adminCookie },
     })
     expect(revokedMemberSessions.statusCode).toBe(200)
@@ -671,7 +710,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
       items: [
         expect.objectContaining({
           sessionId: memberSessionId,
-          userId: 'user-member',
+          userId: visibleMember.userId,
           status: 'revoked',
           revokedAt: expect.any(String),
         }),
@@ -680,7 +719,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const audit = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/audit-logs?action=admin.session.revoked&userId=user-member',
+      url: `/api/v1/admin/audit-logs?action=admin.session.revoked&userId=${visibleMember.userId}`,
       headers: { cookie: adminCookie },
     })
     expect(audit.statusCode).toBe(200)
@@ -694,10 +733,10 @@ describe('admin console api', { timeout: 30_000 }, () => {
       ],
     })
 
-    const memberSecondSession = await login('member@seqora.local', 'MemberPassword123!', {
+    const memberSecondSession = await login(visibleMember.email, visibleMember.password, {
       'user-agent': 'MemberSecondDevice/1.0',
     })
-    const memberThirdSession = await login('member@seqora.local', 'MemberPassword123!', {
+    const memberThirdSession = await login(visibleMember.email, visibleMember.password, {
       'user-agent': 'MemberThirdDevice/1.0',
     })
 
@@ -713,12 +752,12 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const bulkRevoked = await app.inject({
       method: 'DELETE',
-      url: '/api/v1/admin/users/user-member/sessions',
+      url: `/api/v1/admin/users/${visibleMember.userId}/sessions`,
       headers: { cookie: adminCookie },
     })
     expect(bulkRevoked.statusCode).toBe(200)
     expect(bulkRevoked.json()).toMatchObject({
-      user: { id: 'user-member' },
+      user: { id: visibleMember.userId },
       revokedSessionCount: 2,
     })
 
@@ -738,7 +777,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const bulkAudit = await app.inject({
       method: 'GET',
-      url: '/api/v1/admin/audit-logs?action=admin.user_sessions.revoked&userId=user-member',
+      url: `/api/v1/admin/audit-logs?action=admin.user_sessions.revoked&userId=${visibleMember.userId}`,
       headers: { cookie: adminCookie },
     })
     expect(bulkAudit.statusCode).toBe(200)
@@ -746,7 +785,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
       items: [
         expect.objectContaining({
           actorUserId: 'user-admin',
-          resourceId: 'user-member',
+          resourceId: visibleMember.userId,
           metadata: expect.objectContaining({ revokedSessionCount: 2, scope: 'admin_console' }),
         }),
       ],
@@ -1341,6 +1380,12 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(ownerChangesSuperAdmin.statusCode).toBe(200)
     expect(ownerChangesSuperAdmin.json()).toMatchObject({ roles: ['admin'] })
 
+    const visibleMember = await createPersonalMemberFixture(
+      adminCookie,
+      'admin-scoped-visible-member@example.com',
+      'Admin Scoped Visible Member',
+      'AdminScopedVisibleMember123!',
+    )
     const crossTenant = await createWorkspaceFromCurrentSession(ownerCookie, 'Enterprise Workspace')
     const ownerCreatesCrossTenantMember = await app.inject({
       method: 'POST',
@@ -1350,7 +1395,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
         email: 'enterprise-member@example.com',
         name: 'Enterprise Member',
         password: 'EnterpriseMember123!',
-        role: 'member',
+        role: 'organization_member',
       },
     })
     expect(ownerCreatesCrossTenantMember.statusCode).toBe(201)
@@ -1367,7 +1412,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
         email: 'enterprise-admin@example.com',
         name: 'Enterprise Admin',
         password: 'EnterpriseAdmin123!',
-        role: 'admin',
+        role: 'organization_admin',
       },
     })
     expect(ownerCreatesCrossTenantAdmin.statusCode).toBe(201)
@@ -1385,8 +1430,11 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(scopedConsole.statusCode).toBe(200)
     const scopedSnapshot = scopedConsole.json()
     expect(scopedSnapshot.tenants.items.map((item: { id: string }) => item.id)).toEqual([
-      'tenant-seqora-demo',
+      visibleMember.tenantId,
     ])
+    expect(scopedSnapshot.users.items.map((item: { id: string }) => item.id)).toContain(
+      visibleMember.userId,
+    )
     expect(scopedSnapshot.users.items.map((item: { id: string }) => item.id)).not.toContain(crossTenantUserId)
     expect(scopedSnapshot.memberships.items.map((item: { id: string }) => item.id)).not.toContain(
       crossTenantMembershipId,
@@ -1502,6 +1550,12 @@ describe('admin console api', { timeout: 30_000 }, () => {
     const superAdminCookie = cookieValue(superAdmin)
     const adminCookie = cookieValue(admin)
     const memberCookie = cookieValue(member)
+    const personalMember = await createPersonalMemberFixture(
+      adminCookie,
+      'scoped-personal-member@example.com',
+      'Scoped Personal Member',
+      'ScopedPersonalMember123!',
+    )
 
     const organization = await createWorkspaceFromCurrentSession(
       ownerCookie,
@@ -1566,6 +1620,13 @@ describe('admin console api', { timeout: 30_000 }, () => {
       membershipId: 'membership-tenant-seqora-demo-user-member',
       message: 'Seed organization payment needs review',
     })
+    const personalAlertId = await createBillingReconciliationAlert({
+      providerEventId: 'evt_personal_scope_alert',
+      tenantId: personalMember.tenantId,
+      userId: personalMember.userId,
+      membershipId: personalMember.membershipId,
+      message: 'Personal account payment needs review',
+    })
     const organizationAlertId = await createBillingReconciliationAlert({
       providerEventId: 'evt_organization_scope_alert',
       tenantId: organization.tenantId,
@@ -1594,7 +1655,13 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(scopedSnapshot.users.items.map((item: { id: string }) => item.id)).toContain(
       organizationMemberUserId,
     )
+    expect(scopedSnapshot.users.items.map((item: { id: string }) => item.id)).not.toContain(
+      organizationAdminUserId,
+    )
     expect(scopedSnapshot.users.items.map((item: { id: string }) => item.id)).not.toContain('user-member')
+    expect(scopedSnapshot.users.items.map((item: { id: string }) => item.id)).not.toContain(
+      personalMember.userId,
+    )
     expect(
       scopedSnapshot.billingLedgerEntries.items.map((item: { membershipId: string }) => item.membershipId),
     ).toContain(organizationMemberMembershipId)
@@ -1618,6 +1685,9 @@ describe('admin console api', { timeout: 30_000 }, () => {
     })
     expect(organizationAdminListsUsers.statusCode).toBe(200)
     expect(organizationAdminListsUsers.json().items.map((item: { id: string }) => item.id)).toContain(
+      organizationMemberUserId,
+    )
+    expect(organizationAdminListsUsers.json().items.map((item: { id: string }) => item.id)).not.toContain(
       organizationAdminUserId,
     )
     expect(organizationAdminListsUsers.json().items.map((item: { id: string }) => item.id)).not.toContain(
@@ -1639,15 +1709,18 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
     const adminListsOrganizationAlerts = await app.inject({
       method: 'GET',
-      url: `/api/v1/admin/billing/reconciliation-alerts?tenantId=${organization.tenantId}&limit=100`,
+      url: '/api/v1/admin/billing/reconciliation-alerts?limit=100',
       headers: { cookie: adminCookie },
     })
     expect(adminListsOrganizationAlerts.statusCode).toBe(200)
     expect(adminListsOrganizationAlerts.json().items.map((item: { id: string }) => item.id)).not.toContain(
       organizationAlertId,
     )
-    expect(adminListsOrganizationAlerts.json().items.map((item: { id: string }) => item.id)).toContain(
+    expect(adminListsOrganizationAlerts.json().items.map((item: { id: string }) => item.id)).not.toContain(
       seedAlertId,
+    )
+    expect(adminListsOrganizationAlerts.json().items.map((item: { id: string }) => item.id)).toContain(
+      personalAlertId,
     )
 
     const adminUpdatesOrganizationAlert = await app.inject({
@@ -1779,7 +1852,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
     })
     expect(organizationAdminResetsSeedMemberPassword.statusCode).toBe(403)
     expect(organizationAdminResetsSeedMemberPassword.json()).toMatchObject({
-      error: { code: 'TENANT_SCOPE_MISMATCH' },
+      error: { code: 'PLATFORM_MEMBER_REQUIRES_PLATFORM_ADMIN' },
     })
   })
 
@@ -1809,6 +1882,44 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(sessions.statusCode).toBe(403)
   })
 })
+
+async function createPersonalMemberFixture(
+  adminCookie: string,
+  email: string,
+  name: string,
+  password: string,
+): Promise<{ membershipId: string; userId: string; tenantId: string; email: string; password: string }> {
+  if (!app) throw new Error('App is not ready')
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/v1/admin/users',
+    headers: { cookie: adminCookie },
+    payload: {
+      email,
+      name,
+      password,
+      role: 'member',
+    },
+  })
+  expect(created.statusCode).toBe(201)
+  const body = created.json() as {
+    id: string
+    userId: string
+    tenantId: string
+    email: string
+    roles: string[]
+    status: string
+    organizationType?: string
+  }
+  expect(body).toMatchObject({
+    email,
+    roles: ['member'],
+    status: 'active',
+    organizationType: 'personal',
+  })
+  expect(body.tenantId).not.toBe('tenant-seqora-demo')
+  return { membershipId: body.id, userId: body.userId, tenantId: body.tenantId, email, password }
+}
 
 function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   if (!authDatabase) throw new Error('Postgres auth fixture is not ready')

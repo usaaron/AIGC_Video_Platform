@@ -8,6 +8,7 @@ import { AppError } from '../../core/errors.js'
 import {
   billingAlertParams,
   billingMembershipParams,
+  canAccessAdminMembership,
   parse,
   parseListQuery,
   requireAdminRepository,
@@ -95,10 +96,7 @@ export function registerAdminBillingRoutes(app: FastifyInstance, context: AdminR
       reply.header('Cache-Control', 'no-store')
       const detail = await requireAdminRepository(context.adminRepository).findMembership(membershipId)
       if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
-      if (
-        !isPlatformAdmin(request.principal!) &&
-        detail.membership.tenantId !== request.principal!.tenantId
-      ) {
+      if (!canAccessAdminMembership(request.principal!, detail.membership)) {
         throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot read another workspace membership')
       }
       return detail
@@ -125,8 +123,16 @@ export function registerAdminBillingRoutes(app: FastifyInstance, context: AdminR
     async (request) => {
       const { membershipId } = parse(billingMembershipParams, request.params)
       const input = parse(adminAdjustCreditsSchema, request.body)
+      const detail = await requireAdminRepository(context.adminRepository).findMembership(membershipId)
+      if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+      if (!canAccessAdminMembership(request.principal!, detail.membership)) {
+        throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot adjust another workspace membership')
+      }
+      const principal = isPlatformAdmin(request.principal!)
+        ? request.principal!
+        : { ...request.principal!, tenantId: detail.membership.tenantId }
       return await requireLedger(context.ledger).adjustCredits(
-        request.principal!,
+        principal,
         membershipId,
         input.amount,
         input.reason,

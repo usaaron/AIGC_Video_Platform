@@ -369,18 +369,21 @@ describe('postgres migrations', { timeout: 30_000 }, () => {
     if (!postgres) throw new Error('Postgres fixture is not ready')
     const suffix = uniqueSuffix()
     const database = new AccountDatabase(postgres.connectionString)
+    const userId = `user-legacy-${suffix}`
+    const tenantId = `tenant-legacy-${suffix}`
+    const membershipId = `membership-legacy-${suffix}`
+    const invitationId = `invitation-legacy-${suffix}`
 
     try {
-      const userId = `user-legacy-${suffix}`
-      const tenantId = `tenant-legacy-${suffix}`
-      const membershipId = `membership-legacy-${suffix}`
-      const invitationId = `invitation-legacy-${suffix}`
       await database.transaction(async (client) => {
         await client.query(
           'ALTER TABLE tenant_memberships DROP CONSTRAINT IF EXISTS tenant_memberships_roles_known_check',
         )
         await client.query(
           'ALTER TABLE tenant_invitations DROP CONSTRAINT IF EXISTS tenant_invitations_roles_known_check',
+        )
+        await client.query(
+          'ALTER TABLE tenant_invitations DROP CONSTRAINT IF EXISTS tenant_invitations_scope_roles_check',
         )
         await client.query(
           `
@@ -460,6 +463,9 @@ describe('postgres migrations', { timeout: 30_000 }, () => {
         ),
       ).rejects.toThrow()
     } finally {
+      await database.query('DELETE FROM tenant_invitations WHERE id = $1', [invitationId]).catch(() => {})
+      await database.query(await readProjectMigration('016_organization_roles.sql')).catch(() => {})
+      await database.query(await readProjectMigration('027_organization_invitation_scopes.sql')).catch(() => {})
       await database.close()
     }
   })
@@ -546,14 +552,20 @@ describe('postgres migrations', { timeout: 30_000 }, () => {
     const database = new AccountDatabase(postgres.connectionString)
 
     try {
-      await database.query(await readProjectMigration('018_system_organizations.sql'))
+      await database.query(
+        `
+        INSERT INTO tenants (id, name, status, is_system, organization_type, created_at, updated_at)
+        VALUES ('tenant-seqora-demo', 'Seqora Local', 'active', true, 'system', now(), now())
+        `,
+      )
       const systemOrganization = await database.query<{
         id: string
         status: string
         is_system: boolean
+        organization_type: string
       }>(
         `
-        SELECT id, status, is_system
+        SELECT id, status, is_system, organization_type
         FROM tenants
         WHERE id = 'tenant-seqora-demo'
         `,
@@ -563,6 +575,7 @@ describe('postgres migrations', { timeout: 30_000 }, () => {
           id: 'tenant-seqora-demo',
           status: 'active',
           is_system: true,
+          organization_type: 'system',
         },
       ])
 
@@ -593,6 +606,131 @@ describe('postgres migrations', { timeout: 30_000 }, () => {
           WHERE id = 'tenant-seqora-demo'
           `,
         ),
+      ).rejects.toMatchObject({ code: '23514' })
+    } finally {
+      await database.close()
+    }
+  })
+
+  it('rejects incompatible invitation scopes and organization types at the database layer', async () => {
+    if (!postgres) throw new Error('Postgres fixture is not ready')
+    await postgres.reset()
+    const database = new AccountDatabase(postgres.connectionString)
+    const suffix = uniqueSuffix()
+    const actorUserId = `user-invitation-scope-${suffix}`
+    const personalTenantId = `tenant-personal-${suffix}`
+    const enterpriseTenantId = `tenant-enterprise-${suffix}`
+    const systemTenantId = 'tenant-seqora-demo'
+
+    async function insertInvitation(input: {
+      id: string
+      tenantId: string
+      roles: string[]
+      scope: string
+    }) {
+      return await database.query(
+        `
+        INSERT INTO tenant_invitations (
+          id, tenant_id, email, roles, invitation_scope, invited_by_user_id,
+          token_secret_hash, status, expires_at, accepted_at, revoked_at, created_at, updated_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6,
+          $7, 'pending', now() + interval '1 day', NULL, NULL, now(), now()
+        )
+        `,
+        [
+          input.id,
+          input.tenantId,
+          `${input.id}@example.com`,
+          input.roles,
+          input.scope,
+          actorUserId,
+          `hash-${input.id}`,
+        ],
+      )
+    }
+
+    try {
+      await database.query(
+        `
+        INSERT INTO users (id, display_name, status, created_at, updated_at)
+        VALUES ($1, 'Invitation Scope Actor', 'active', now(), now())
+        `,
+        [actorUserId],
+      )
+      await database.query(
+        `
+        INSERT INTO tenants (id, name, status, is_system, organization_type, created_by_user_id, created_at, updated_at)
+        VALUES
+          ($1, 'Personal Organization', 'active', false, 'personal', $4, now(), now()),
+          ($2, 'Enterprise Organization', 'active', false, 'enterprise', $4, now(), now()),
+          ($3, 'Seqora Local', 'active', true, 'system', $4, now(), now())
+        `,
+        [personalTenantId, enterpriseTenantId, systemTenantId, actorUserId],
+      )
+
+      await expect(
+        insertInvitation({
+          id: `invitation-valid-platform-${suffix}`,
+          tenantId: personalTenantId,
+          roles: ['member'],
+          scope: 'platform_registration',
+        }),
+      ).resolves.toMatchObject({ rowCount: 1 })
+
+      await expect(
+        insertInvitation({
+          id: `invitation-valid-organization-${suffix}`,
+          tenantId: enterpriseTenantId,
+          roles: ['organization_member'],
+          scope: 'organization_membership',
+        }),
+      ).resolves.toMatchObject({ rowCount: 1 })
+
+      await expect(
+        insertInvitation({
+          id: `invitation-valid-system-${suffix}`,
+          tenantId: systemTenantId,
+          roles: ['admin'],
+          scope: 'system_account',
+        }),
+      ).resolves.toMatchObject({ rowCount: 1 })
+
+      await expect(
+        insertInvitation({
+          id: `invitation-platform-on-enterprise-${suffix}`,
+          tenantId: enterpriseTenantId,
+          roles: ['member'],
+          scope: 'platform_registration',
+        }),
+      ).rejects.toMatchObject({ code: '23514' })
+
+      await expect(
+        insertInvitation({
+          id: `invitation-org-on-personal-${suffix}`,
+          tenantId: personalTenantId,
+          roles: ['organization_member'],
+          scope: 'organization_membership',
+        }),
+      ).rejects.toMatchObject({ code: '23514' })
+
+      await expect(
+        insertInvitation({
+          id: `invitation-system-on-enterprise-${suffix}`,
+          tenantId: enterpriseTenantId,
+          roles: ['admin'],
+          scope: 'system_account',
+        }),
+      ).rejects.toMatchObject({ code: '23514' })
+
+      await expect(
+        insertInvitation({
+          id: `invitation-member-org-scope-${suffix}`,
+          tenantId: enterpriseTenantId,
+          roles: ['member'],
+          scope: 'organization_membership',
+        }),
       ).rejects.toMatchObject({ code: '23514' })
     } finally {
       await database.close()

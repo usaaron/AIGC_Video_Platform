@@ -11,7 +11,6 @@ import {
 } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { requirePermission } from '../../core/auth/authorization.js'
-import { isPlatformAdmin } from '../../core/auth/roles.js'
 import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { AppError } from '../../core/errors.js'
 import { z } from 'zod'
@@ -22,6 +21,7 @@ import {
   markDeprecated,
   parse,
   parseListQuery,
+  canAccessAdminMembership,
   requireAccountManagementService,
   requireAdminRepository,
   scopeAdminOptions,
@@ -300,10 +300,7 @@ export function registerAdminOrganizationsRoutes(app: FastifyInstance, context: 
       const { membershipId } = parse(billingMembershipParams, request.params)
       const detail = await requireAdminRepository(context.adminRepository).findMembership(membershipId)
       if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
-      if (
-        !isPlatformAdmin(request.principal!) &&
-        detail.membership.tenantId !== request.principal!.tenantId
-      ) {
+      if (!canAccessAdminMembership(request.principal!, detail.membership)) {
         throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot manage another workspace membership')
       }
       reply.header('Cache-Control', 'no-store')
@@ -326,10 +323,7 @@ export function registerAdminOrganizationsRoutes(app: FastifyInstance, context: 
       const { membershipId } = parse(billingMembershipParams, request.params)
       const detail = await requireAdminRepository(context.adminRepository).findMembership(membershipId)
       if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
-      if (
-        !isPlatformAdmin(request.principal!) &&
-        detail.membership.tenantId !== request.principal!.tenantId
-      ) {
+      if (!canAccessAdminMembership(request.principal!, detail.membership)) {
         throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot manage another workspace membership')
       }
       await requireAccountManagementService(context.accountManagementService).adminDisableMembership(
@@ -350,10 +344,7 @@ export function registerAdminOrganizationsRoutes(app: FastifyInstance, context: 
       reply.header('Cache-Control', 'no-store')
       const detail = await requireAdminRepository(context.adminRepository).findMembership(membershipId)
       if (!detail) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
-      if (
-        !isPlatformAdmin(request.principal!) &&
-        detail.membership.tenantId !== request.principal!.tenantId
-      ) {
+      if (!canAccessAdminMembership(request.principal!, detail.membership)) {
         throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot read another workspace membership')
       }
       return detail

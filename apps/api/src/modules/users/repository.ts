@@ -63,6 +63,14 @@ export class UserRepository implements AuthAccounts {
         const seed = user as AccountSeed
         const userId = seed.id
         const membershipId = membershipIdFor(seed.id, seed.tenantId)
+        const isSystemOrganization = seed.tenantId === systemTenantId
+        const organizationType = isSystemOrganization
+          ? 'system'
+          : seed.roles.some((role) =>
+              ['owner', 'super_admin', 'admin', 'organization_admin', 'organization_member'].includes(role),
+            )
+            ? 'enterprise'
+            : 'personal'
         await client.query(
           `
           INSERT INTO users (id, display_name, status, created_at, updated_at)
@@ -90,11 +98,11 @@ export class UserRepository implements AuthAccounts {
         )
         await client.query(
           `
-          INSERT INTO tenants (id, name, status, created_by_user_id, is_system, created_at, updated_at)
-          VALUES ($1, $2, 'active', $3, $4, now(), now())
+          INSERT INTO tenants (id, name, status, created_by_user_id, is_system, organization_type, created_at, updated_at)
+          VALUES ($1, $2, 'active', $3, $4, $5, now(), now())
           ON CONFLICT (id) DO NOTHING
         `,
-          [seed.tenantId, seed.tenantId, userId, seed.tenantId === systemTenantId],
+          [seed.tenantId, seed.tenantId, userId, isSystemOrganization, organizationType],
         )
         await client.query(
           `
