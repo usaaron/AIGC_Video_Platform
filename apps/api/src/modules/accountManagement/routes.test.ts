@@ -263,9 +263,28 @@ describe('account management api', { timeout: 30_000 }, () => {
       ]),
     })
 
+    const personalMember = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/users',
+      headers: { cookie: adminCookie },
+      payload: {
+        email: 'billing-personal-member@example.com',
+        name: 'Billing Personal Member',
+        password: 'BillingPersonalMember123!',
+        role: 'member',
+      },
+    })
+    expect(personalMember.statusCode).toBe(201)
+    expect(personalMember.json()).toMatchObject({
+      email: 'billing-personal-member@example.com',
+      roles: ['member'],
+      organizationType: 'personal',
+    })
+    const personalMembershipId = personalMember.json().id as string
+
     const adjusted = await app.inject({
       method: 'POST',
-      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-member/adjustments',
+      url: `/api/v1/admin/billing/memberships/${personalMembershipId}/adjustments`,
       headers: { cookie: adminCookie },
       payload: {
         amount: 25,
@@ -274,7 +293,7 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
     expect(adjusted.statusCode).toBe(200)
     expect(adjusted.json()).toMatchObject({
-      credits: 311,
+      credits: 25,
       entries: expect.arrayContaining([
         expect.objectContaining({
           amount: 25,
@@ -286,7 +305,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
     const corrected = await app.inject({
       method: 'POST',
-      url: '/api/v1/admin/billing/memberships/membership-tenant-seqora-demo-user-member/adjustments',
+      url: `/api/v1/admin/billing/memberships/${personalMembershipId}/adjustments`,
       headers: { cookie: adminCookie },
       payload: {
         amount: -10,
@@ -295,7 +314,7 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
     expect(corrected.statusCode).toBe(200)
     expect(corrected.json()).toMatchObject({
-      credits: 301,
+      credits: 15,
       entries: expect.arrayContaining([
         expect.objectContaining({
           amount: -10,
@@ -332,7 +351,7 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(response.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } })
   })
 
-  it('requires invitation codes for registration and creates accounts through auth register', async () => {
+  it('separates platform registration invitations from organization membership invitations', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
     const missingInvitationCode = await app.inject({
@@ -348,49 +367,58 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(missingInvitationCode.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
 
     const owner = await seedOwnerLogin()
-    const registrationWorkspace = await app.inject({
+    const adminLogin = await app.inject({
       method: 'POST',
-      url: '/api/v1/organizations',
-      headers: { cookie: owner.cookie },
-      payload: { name: 'Registration Workspace' },
-    })
-    expect(registrationWorkspace.statusCode).toBe(201)
-    const registrationTenantId = registrationWorkspace.json().workspace.id as string
-    const registrationAdmin = await app.inject({
-      method: 'POST',
-      url: `/api/v1/admin/organizations/${registrationTenantId}/users`,
-      headers: { cookie: owner.cookie },
+      url: '/api/v1/auth/login',
       payload: {
-        email: 'registration-admin@example.com',
-        name: 'Registration Admin',
-        password: 'RegistrationAdmin123!',
-        role: 'admin',
+        email: 'admin@seqora.local',
+        password: 'Admin123!',
       },
     })
-    expect(registrationAdmin.statusCode).toBe(201)
-    const registrationAdminLogin = await activateProvisionedAccount(
-      'registration-admin@example.com',
-      'RegistrationAdmin123!',
-    )
-    expect(registrationAdminLogin.statusCode).toBe(200)
-    const invitation = await app.inject({
+    expect(adminLogin.statusCode).toBe(200)
+    const adminCookie = cookieValue(adminLogin)
+
+    const platformInvitation = await app.inject({
       method: 'POST',
-      url: `/api/v1/organizations/${registrationTenantId}/invitations`,
-      headers: { cookie: cookieValue(registrationAdminLogin) },
+      url: '/api/v1/admin/invitations',
+      headers: { cookie: adminCookie },
       payload: {
-        email: 'alice@example.com',
+        email: 'scoped-platform-member@example.com',
         roles: ['member'],
       },
     })
-    expect(invitation.statusCode).toBe(201)
-    const invitationToken = invitation.json().token as string
+    expect(platformInvitation.statusCode).toBe(201)
+    expect(platformInvitation.json()).toMatchObject({
+      email: 'scoped-platform-member@example.com',
+      roles: ['member'],
+      scope: 'platform_registration',
+      status: 'pending',
+      token: expect.stringMatching(/^\d{8}$/),
+    })
+    const platformTenantId = platformInvitation.json().tenantId as string
+    const platformInvitationToken = platformInvitation.json().token as string
+    expect(platformTenantId).not.toBe('tenant-seqora-demo')
+
+    const directPlatformAcceptance = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/invitations/accept',
+      payload: {
+        token: platformInvitationToken,
+        name: 'Scoped Platform Member',
+        password: 'ScopedPlatformMember123!',
+      },
+    })
+    expect(directPlatformAcceptance.statusCode).toBe(400)
+    expect(directPlatformAcceptance.json()).toMatchObject({
+      error: { code: 'REGISTRATION_CODE_REQUIRED' },
+    })
 
     const wrongEmail = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/registration-code/request',
       payload: {
-        token: invitationToken,
-        email: 'wrong-alice@example.com',
+        token: platformInvitationToken,
+        email: 'wrong-scoped-platform-member@example.com',
       },
     })
     expect(wrongEmail.statusCode).toBe(400)
@@ -400,8 +428,8 @@ describe('account management api', { timeout: 30_000 }, () => {
       method: 'POST',
       url: '/api/v1/auth/registration-code/request',
       payload: {
-        token: invitationToken,
-        email: 'alice@example.com',
+        token: platformInvitationToken,
+        email: 'scoped-platform-member@example.com',
       },
     })
     expect(registrationCodeRequest.statusCode).toBe(202)
@@ -416,10 +444,10 @@ describe('account management api', { timeout: 30_000 }, () => {
       method: 'POST',
       url: '/api/v1/auth/register',
       payload: {
-        token: invitationToken,
-        name: 'Alice',
-        email: 'alice@example.com',
-        password: 'AlicePassword123!',
+        token: platformInvitationToken,
+        name: 'Scoped Platform Member',
+        email: 'scoped-platform-member@example.com',
+        password: 'ScopedPlatformMember123!',
         verificationCode: registrationCode === '000000' ? '999999' : '000000',
       },
     })
@@ -430,33 +458,173 @@ describe('account management api', { timeout: 30_000 }, () => {
       method: 'POST',
       url: '/api/v1/auth/register',
       payload: {
-        token: invitationToken,
-        name: 'Alice',
-        email: 'alice@example.com',
-        password: 'AlicePassword123!',
+        token: platformInvitationToken,
+        name: 'Scoped Platform Member',
+        email: 'scoped-platform-member@example.com',
+        password: 'ScopedPlatformMember123!',
         verificationCode: registrationCode,
       },
     })
     expect(register.statusCode).toBe(201)
     expect(register.json()).toMatchObject({
       account: {
-        email: 'alice@example.com',
-        name: 'Alice',
-        tenantId: registrationTenantId,
+        email: 'scoped-platform-member@example.com',
+        name: 'Scoped Platform Member',
+        tenantId: platformTenantId,
+        organizationId: platformTenantId,
+        roles: ['member'],
         emailVerified: true,
         credits: 2_000,
       },
-      workspace: { id: registrationTenantId, status: 'active' },
+      workspace: { id: platformTenantId, status: 'active' },
+      organization: { id: platformTenantId, status: 'active' },
     })
+    const platformUserId = register.json().account.id as string
+
+    const platformMemberships = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/memberships?tenantId=${platformTenantId}&userId=${platformUserId}&limit=100`,
+      headers: { cookie: adminCookie },
+    })
+    expect(platformMemberships.statusCode).toBe(200)
+    expect(platformMemberships.json().items).toEqual([
+      expect.objectContaining({
+        userId: platformUserId,
+        email: 'scoped-platform-member@example.com',
+        roles: ['member'],
+        isPrimary: true,
+        organizationType: 'personal',
+      }),
+    ])
+
+    const enterpriseOrganization = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizations',
+      headers: { cookie: owner.cookie },
+      payload: { name: 'Scoped Enterprise Organization' },
+    })
+    expect(enterpriseOrganization.statusCode).toBe(201)
+    const enterpriseTenantId = enterpriseOrganization.json().organization.id as string
+
+    const organizationInvitation = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/organizations/${enterpriseTenantId}/invitations`,
+      headers: { cookie: owner.cookie },
+      payload: {
+        email: 'scoped-organization-member@example.com',
+        roles: ['organization_member'],
+      },
+    })
+    expect(organizationInvitation.statusCode).toBe(201)
+    expect(organizationInvitation.json()).toMatchObject({
+      email: 'scoped-organization-member@example.com',
+      tenantId: enterpriseTenantId,
+      roles: ['organization_member'],
+      scope: 'organization_membership',
+      status: 'pending',
+      token: expect.stringMatching(/^\d{8}$/),
+    })
+    const organizationInvitationToken = organizationInvitation.json().token as string
+
+    const organizationCodeRequest = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/registration-code/request',
+      payload: {
+        token: organizationInvitationToken,
+        email: 'scoped-organization-member@example.com',
+      },
+    })
+    expect(organizationCodeRequest.statusCode).toBe(400)
+    expect(organizationCodeRequest.json()).toMatchObject({
+      error: { code: 'PLATFORM_REGISTRATION_INVITATION_REQUIRED' },
+    })
+
+    const organizationRegister = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        token: organizationInvitationToken,
+        name: 'Scoped Organization Member',
+        email: 'scoped-organization-member@example.com',
+        password: 'ScopedOrganizationMember123!',
+        verificationCode: '000000',
+      },
+    })
+    expect(organizationRegister.statusCode).toBe(400)
+    expect(organizationRegister.json()).toMatchObject({
+      error: { code: 'PLATFORM_REGISTRATION_INVITATION_REQUIRED' },
+    })
+
+    const organizationAccept = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/invitations/accept',
+      payload: {
+        token: organizationInvitationToken,
+        name: 'Scoped Organization Member',
+        password: 'ScopedOrganizationMember123!',
+      },
+    })
+    expect(organizationAccept.statusCode).toBe(201)
+    expect(organizationAccept.json()).toMatchObject({
+      account: {
+        email: 'scoped-organization-member@example.com',
+        tenantId: enterpriseTenantId,
+        organizationId: enterpriseTenantId,
+        roles: ['organization_member'],
+      },
+    })
+    const organizationMemberUserId = organizationAccept.json().account.id as string
+
+    const organizationMemberships = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/memberships?tenantId=${enterpriseTenantId}&userId=${organizationMemberUserId}&limit=100`,
+      headers: { cookie: owner.cookie },
+    })
+    expect(organizationMemberships.statusCode).toBe(200)
+    expect(organizationMemberships.json().items).toEqual([
+      expect.objectContaining({
+        userId: organizationMemberUserId,
+        email: 'scoped-organization-member@example.com',
+        roles: ['organization_member'],
+        isPrimary: false,
+        organizationType: 'enterprise',
+      }),
+    ])
+
+    const adminUsers = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users?q=scoped-&limit=100',
+      headers: { cookie: adminCookie },
+    })
+    expect(adminUsers.statusCode).toBe(200)
+    expect(adminUsers.json().items.map((item: { email: string }) => item.email)).toContain(
+      'scoped-platform-member@example.com',
+    )
+    expect(adminUsers.json().items.map((item: { email: string }) => item.email)).not.toContain(
+      'scoped-organization-member@example.com',
+    )
+
+    const ownerUsers = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users?q=scoped-&limit=100',
+      headers: { cookie: owner.cookie },
+    })
+    expect(ownerUsers.statusCode).toBe(200)
+    expect(ownerUsers.json().items.map((item: { email: string }) => item.email)).toEqual(
+      expect.arrayContaining([
+        'scoped-platform-member@example.com',
+        'scoped-organization-member@example.com',
+      ]),
+    )
 
     const reusedInvitationCode = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/register',
       payload: {
-        token: invitationToken,
-        name: 'Alice',
-        email: 'alice@example.com',
-        password: 'AlicePassword123!',
+        token: platformInvitationToken,
+        name: 'Scoped Platform Member',
+        email: 'scoped-platform-member@example.com',
+        password: 'ScopedPlatformMember123!',
         verificationCode: registrationCode,
       },
     })
@@ -468,7 +636,7 @@ describe('account management api', { timeout: 30_000 }, () => {
     const relogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'alice@example.com', password: 'AlicePassword123!' },
+      payload: { email: 'scoped-platform-member@example.com', password: 'ScopedPlatformMember123!' },
     })
     expect(relogin.statusCode).toBe(200)
     const reloginCookie = cookieValue(relogin)
@@ -502,26 +670,26 @@ describe('account management api', { timeout: 30_000 }, () => {
       method: 'POST',
       url: '/api/v1/organizations',
       headers: { cookie: reloginCookie },
-      payload: { name: 'Alice Second Workspace' },
+      payload: { name: 'Scoped Platform Second Workspace' },
     })
 
     expect(createWorkspace.statusCode).toBe(201)
     expect(createWorkspace.json()).toMatchObject({
       account: { roles: ['member'] },
-      workspace: { name: 'Alice Second Workspace', status: 'active' },
-      organization: { name: 'Alice Second Workspace', status: 'active' },
+      workspace: { name: 'Scoped Platform Second Workspace', status: 'active' },
+      organization: { name: 'Scoped Platform Second Workspace', status: 'active' },
     })
 
     const createOrganization = await app.inject({
       method: 'POST',
       url: '/api/v1/organizations',
       headers: { cookie: reloginCookie },
-      payload: { name: 'Alice Third Organization' },
+      payload: { name: 'Scoped Platform Third Organization' },
     })
     expect(createOrganization.statusCode).toBe(201)
     expect(createOrganization.json()).toMatchObject({
       account: { roles: ['member'] },
-      organization: { name: 'Alice Third Organization', status: 'active' },
+      organization: { name: 'Scoped Platform Third Organization', status: 'active' },
     })
 
     const organizations = await app.inject({
@@ -533,11 +701,11 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(organizations.json()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          workspace: expect.objectContaining({ name: 'Alice Third Organization' }),
-          organization: expect.objectContaining({ name: 'Alice Third Organization' }),
+          workspace: expect.objectContaining({ name: 'Scoped Platform Third Organization' }),
+          organization: expect.objectContaining({ name: 'Scoped Platform Third Organization' }),
           membership: expect.objectContaining({
             organizationId: createOrganization.json().organization.id,
-            organizationName: 'Alice Third Organization',
+            organizationName: 'Scoped Platform Third Organization',
           }),
         }),
       ]),
@@ -558,27 +726,33 @@ describe('account management api', { timeout: 30_000 }, () => {
     })
   })
 
-  it('claims one-time registration codes on first email use and allows duplicate display names', async () => {
+  it('uses one-time platform registration codes and allows duplicate display names', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
-    const organizationAdmin = await createOrganizationAdminWorkspace(
-      'open-invite-admin@example.com',
-      'OpenInviteAdmin123!',
-      'Open Invitation Workspace',
-    )
-    const createOpenInvitation = async () =>
+    const adminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'admin@seqora.local',
+        password: 'Admin123!',
+      },
+    })
+    expect(adminLogin.statusCode).toBe(200)
+    const adminCookie = cookieValue(adminLogin)
+    const createPlatformInvitation = async (email: string) =>
       await app!.inject({
         method: 'POST',
-        url: `/api/v1/organizations/${organizationAdmin.tenantId}/invitations`,
-        headers: { cookie: organizationAdmin.cookie },
-        payload: { roles: ['organization_member'] },
+        url: '/api/v1/admin/invitations',
+        headers: { cookie: adminCookie },
+        payload: { email, roles: ['member'] },
       })
 
-    const firstInvitation = await createOpenInvitation()
+    const firstInvitation = await createPlatformInvitation('open-first@example.com')
     expect(firstInvitation.statusCode).toBe(201)
     expect(firstInvitation.json()).toMatchObject({
-      email: null,
-      roles: ['organization_member'],
+      email: 'open-first@example.com',
+      roles: ['member'],
+      scope: 'platform_registration',
       status: 'pending',
       token: expect.stringMatching(/^\d{8}$/),
     })
@@ -594,7 +768,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       },
     })
     expect(directAcceptance.statusCode).toBe(400)
-    expect(directAcceptance.json()).toMatchObject({ error: { code: 'INVITATION_EMAIL_REQUIRED' } })
+    expect(directAcceptance.json()).toMatchObject({ error: { code: 'REGISTRATION_CODE_REQUIRED' } })
 
     const firstCodeRequest = await app.inject({
       method: 'POST',
@@ -605,10 +779,12 @@ describe('account management api', { timeout: 30_000 }, () => {
     const firstVerificationCode = firstCodeRequest.json().registrationCode as string
     expect(firstVerificationCode).toMatch(/^\d{6}$/)
 
+    const differentEmailInvitation = await createPlatformInvitation('open-other@example.com')
+    expect(differentEmailInvitation.statusCode).toBe(201)
     const differentEmailRequest = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/registration-code/request',
-      payload: { token: firstToken, email: 'open-other@example.com' },
+      payload: { token: differentEmailInvitation.json().token, email: 'open-first@example.com' },
     })
     expect(differentEmailRequest.statusCode).toBe(400)
     expect(differentEmailRequest.json()).toMatchObject({
@@ -645,9 +821,12 @@ describe('account management api', { timeout: 30_000 }, () => {
     expect(reusedInvitation.statusCode).toBe(409)
     expect(reusedInvitation.json()).toMatchObject({ error: { code: 'INVITATION_NOT_PENDING' } })
 
-    const secondInvitation = await createOpenInvitation()
+    const secondInvitation = await createPlatformInvitation('open-second@example.com')
     expect(secondInvitation.statusCode).toBe(201)
-    expect(secondInvitation.json()).toMatchObject({ email: null, token: expect.stringMatching(/^\d{8}$/) })
+    expect(secondInvitation.json()).toMatchObject({
+      email: 'open-second@example.com',
+      token: expect.stringMatching(/^\d{8}$/),
+    })
     expect(secondInvitation.json().token).not.toBe(firstToken)
 
     const secondToken = secondInvitation.json().token as string
@@ -1046,7 +1225,7 @@ describe('account management api', { timeout: 30_000 }, () => {
       headers: { cookie: owner.cookie },
       payload: {
         email: 'system-member@example.com',
-        roles: ['member'],
+        roles: ['organization_member'],
       },
     })
     expect(memberInvitation.statusCode).toBe(409)
@@ -1119,17 +1298,19 @@ describe('account management api', { timeout: 30_000 }, () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
 
     const owner = await seedOwnerLogin()
-    const secondOwnerInvitation = await app.inject({
+    const secondOwnerUser = await app.inject({
       method: 'POST',
-      url: '/api/v1/organizations/tenant-seqora-demo/invitations',
+      url: '/api/v1/admin/organizations/tenant-seqora-demo/users',
       headers: { cookie: owner.cookie },
       payload: {
         email: 'second-owner@example.com',
-        roles: ['owner'],
+        name: 'Second Owner',
+        password: 'SecondOwner123!',
+        role: 'owner',
       },
     })
-    expect(secondOwnerInvitation.statusCode).toBe(409)
-    expect(secondOwnerInvitation.json()).toMatchObject({
+    expect(secondOwnerUser.statusCode).toBe(409)
+    expect(secondOwnerUser.json()).toMatchObject({
       error: { code: 'OWNER_LIMIT_REACHED' },
     })
 
@@ -1533,6 +1714,20 @@ describe('account management api', { timeout: 30_000 }, () => {
       token: expect.stringMatching(/^\d{8}$/),
     })
     const firstInvitation = createInvitation.json() as { id: string; token: string }
+
+    const invalidOrganizationMemberInvitation = await app.inject({
+      method: 'POST',
+      url: `/api/v1/organizations/${organizationAdmin.tenantId}/invitations`,
+      headers: { cookie: organizationAdmin.cookie },
+      payload: {
+        email: 'illegal-member@example.com',
+        roles: ['member'],
+      },
+    })
+    expect(invalidOrganizationMemberInvitation.statusCode).toBe(400)
+    expect(invalidOrganizationMemberInvitation.json()).toMatchObject({
+      error: { code: 'ORGANIZATION_INVITATION_ROLE_REQUIRED' },
+    })
 
     const reissuedInvitation = await app.inject({
       method: 'POST',

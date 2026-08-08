@@ -9,6 +9,7 @@ import { registerAdminAuditRoutes } from './adminAudit.js'
 import { registerAdminBillingRoutes } from './adminBilling.js'
 import { registerAdminOrganizationsRoutes } from './adminOrganizations.js'
 import { registerAdminSessionsRoutes } from './adminSessions.js'
+import { registerAdminUsageRoutes } from './adminUsage.js'
 import { registerAdminUsersRoutes } from './adminUsers.js'
 import type { AdminRepository } from './repository.js'
 import {
@@ -42,6 +43,7 @@ export async function registerAdminRoutes(
   registerAdminBillingRoutes(app, context)
   registerAdminSessionsRoutes(app, context)
   registerAdminAuditRoutes(app, context)
+  registerAdminUsageRoutes(app, context)
 }
 
 function registerAdminOverviewRoutes(app: FastifyInstance, context: AdminRouteContext): void {

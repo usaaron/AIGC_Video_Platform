@@ -41,6 +41,7 @@ import {
   isPlatformAdmin,
 } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
+import type { DailyOperationalSummary } from '../../core/observability/metrics.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { SessionMetadata } from '../auth/accounts.js'
 
@@ -51,6 +52,8 @@ export type AdminListOptions = {
   q?: string | undefined
   status?: string | undefined
   tenantId?: string | undefined
+  scopeTenantId?: string | undefined
+  visibilityScope?: 'all' | 'personal' | 'organization' | 'self' | undefined
   userId?: string | undefined
   membershipId?: string | undefined
   role?: Role | undefined
@@ -69,8 +72,115 @@ export type AdminListOptions = {
 export class AdminRepository {
   constructor(private readonly database: AccountDatabase) {}
 
+  async countActiveGenerationTasks(tenantId?: string): Promise<number> {
+    const result = await this.database.query<{ count: number }>(
+      `
+      SELECT count(*)::int AS count
+      FROM generation_tasks
+      WHERE status IN ('queued', 'running')
+        AND ($1::text IS NULL OR tenant_id = $1)
+      `,
+      [tenantId ?? null],
+    )
+    return result.rows[0]?.count ?? 0
+  }
+
+  async dailyOperationalSummary(tenantId?: string): Promise<DailyOperationalSummary> {
+    const periodStart = startOfChinaDay()
+    const [billing, generationTasks, aiJobs, filmPreview] = await Promise.all([
+      this.database.query<{
+        credits_consumed: number
+        refund_count: number
+      }>(
+        `
+        SELECT
+          COALESCE(
+            SUM(ABS(amount)) FILTER (WHERE entry_type = 'generation' AND amount < 0),
+            0
+          )::int AS credits_consumed,
+          count(*) FILTER (
+            WHERE entry_type = 'adjustment'
+              AND amount > 0
+              AND id LIKE 'refund-%'
+          )::int AS refund_count
+        FROM billing_ledger_entries
+        WHERE created_at >= $1::timestamptz
+          AND ($2::text IS NULL OR tenant_id = $2)
+        `,
+        [periodStart, tenantId ?? null],
+      ),
+      this.database.query<OperationalStatusCountRow>(
+        `
+        SELECT
+          count(*)::int AS created,
+          count(*) FILTER (WHERE status = 'completed')::int AS completed,
+          count(*) FILTER (WHERE status = 'failed')::int AS failed,
+          count(*) FILTER (WHERE status = 'cancelled')::int AS cancelled
+        FROM generation_tasks
+        WHERE created_at >= $1::timestamptz
+          AND ($2::text IS NULL OR tenant_id = $2)
+        `,
+        [periodStart, tenantId ?? null],
+      ),
+      this.database.query<OperationalStatusCountRow>(
+        `
+        SELECT
+          count(*)::int AS created,
+          count(*) FILTER (WHERE status = 'completed')::int AS completed,
+          count(*) FILTER (WHERE status = 'failed')::int AS failed,
+          count(*) FILTER (WHERE status = 'cancelled')::int AS cancelled
+        FROM ai_jobs
+        WHERE created_at >= $1::timestamptz
+          AND ($2::text IS NULL OR tenant_id = $2)
+        `,
+        [periodStart, tenantId ?? null],
+      ),
+      this.database.query<{
+        terminal: number
+        failed: number
+      }>(
+        `
+        SELECT
+          count(*) FILTER (WHERE status IN ('completed', 'failed', 'cancelled'))::int AS terminal,
+          count(*) FILTER (WHERE status = 'failed')::int AS failed
+        FROM generation_tasks
+        WHERE provider = 'local-compose'
+          AND created_at >= $1::timestamptz
+          AND ($2::text IS NULL OR tenant_id = $2)
+        `,
+        [periodStart, tenantId ?? null],
+      ),
+    ])
+
+    const taskCounts = operationalStatusCounts(generationTasks.rows[0])
+    const aiJobCounts = operationalStatusCounts(aiJobs.rows[0])
+    const filmPreviewTerminal = filmPreview.rows[0]?.terminal ?? 0
+    const filmPreviewFailed = filmPreview.rows[0]?.failed ?? 0
+
+    return {
+      periodStart,
+      generatedAt: new Date().toISOString(),
+      creditsConsumed: billing.rows[0]?.credits_consumed ?? 0,
+      refundCount: billing.rows[0]?.refund_count ?? 0,
+      generationTasks: taskCounts,
+      aiJobs: aiJobCounts,
+      filmPreview: {
+        terminal: filmPreviewTerminal,
+        failed: filmPreviewFailed,
+        failureRate: filmPreviewTerminal > 0 ? filmPreviewFailed / filmPreviewTerminal : null,
+      },
+    }
+  }
+
   async listUsers(options: AdminListOptions): Promise<AdminUserList> {
     const filter = buildUserFilter(options)
+    const visibleMembership = numberedVisibilityMembershipCondition(options, 'm', 't', filter.params.length)
+    const visibleActiveMembership = numberedVisibilityActiveMembershipCondition(
+      options,
+      'm',
+      't',
+      filter.params.length + visibleMembership.params.length,
+    )
     const total = await this.database.query<{ total: number }>(
       `
       SELECT count(*)::int AS total
@@ -90,24 +200,34 @@ export class AdminRepository {
         u.status,
         u.password_reset_required,
         COALESCE(
-          array_agg(DISTINCT role_value.role) FILTER (WHERE role_value.role IS NOT NULL),
+          array_agg(DISTINCT role_value.role) FILTER (
+            WHERE role_value.role IS NOT NULL
+              AND ${visibleMembership.clause}
+          ),
           ARRAY[]::text[]
         ) AS roles,
-        count(DISTINCT m.id)::int AS membership_count,
-        count(DISTINCT m.id) FILTER (WHERE m.status = 'active')::int AS active_membership_count,
+        count(DISTINCT m.id) FILTER (WHERE ${visibleMembership.clause})::int AS membership_count,
+        count(DISTINCT m.id) FILTER (WHERE ${visibleActiveMembership.clause})::int AS active_membership_count,
         u.created_at,
         u.updated_at
       FROM users u
       LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
       LEFT JOIN tenant_memberships m ON m.user_id = u.id
+      LEFT JOIN tenants t ON t.id = m.tenant_id
       LEFT JOIN LATERAL unnest(m.roles) AS role_value(role) ON true
       ${filter.where}
       GROUP BY u.id, ai.email
       ORDER BY u.created_at DESC, u.id DESC
-      LIMIT $${filter.params.length + 1}
-      OFFSET $${filter.params.length + 2}
+      LIMIT $${filter.params.length + visibleMembership.params.length + visibleActiveMembership.params.length + 1}
+      OFFSET $${filter.params.length + visibleMembership.params.length + visibleActiveMembership.params.length + 2}
       `,
-      [...filter.params, paging.limit, paging.offset],
+      [
+        ...filter.params,
+        ...visibleMembership.params,
+        ...visibleActiveMembership.params,
+        paging.limit,
+        paging.offset,
+      ],
     )
     return listResult(rows.rows.map(toAdminUser), total.rows[0]?.total ?? 0, paging)
   }
@@ -139,6 +259,7 @@ export class AdminRepository {
         t.name,
         t.status,
         t.is_system,
+        t.organization_type,
         t.created_by_user_id,
         created_by_identity.email AS created_by_email,
         created_by.display_name AS created_by_name,
@@ -432,7 +553,23 @@ export class AdminRepository {
           'Use the current account session API to sign out',
         )
       }
-      if (!isPlatformAdmin(principal) && row.tenant_id !== principal.tenantId) {
+      const targetMembership = {
+        tenant_id: row.tenant_id,
+        organization_type: row.organization_type,
+        roles: row.roles,
+        status: row.membership_status,
+      }
+      if (!isPlatformAdmin(principal) && !canAccessMembershipRecord(principal, targetMembership)) {
+        if (targetMembership.tenant_id === principal.tenantId && hasElevatedRole(row.roles)) {
+          const ownerOnly = (hasOwnerRole(row.roles) || hasSuperAdminRole(row.roles)) && !isOwner(principal)
+          throw new AppError(
+            403,
+            ownerOnly ? 'ELEVATED_SESSION_REQUIRES_OWNER' : 'ELEVATED_SESSION_REQUIRES_PLATFORM_ADMIN',
+            ownerOnly
+              ? 'Only owners can revoke owner or super admin sessions'
+              : 'Only owners or super admins can revoke admin sessions',
+          )
+        }
         throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot revoke a session from another workspace')
       }
       if (!canManageElevatedRoles(principal, row.roles)) {
@@ -481,6 +618,36 @@ export class AdminRepository {
       )
       const revokedRow = revoked.rows[0]
       return revokedRow ? toAdminSession(revokedRow, null) : null
+    })
+  }
+
+  async revokeUserSessions(
+    principal: Principal,
+    userId: string,
+    metadata?: SessionMetadata,
+  ): Promise<{ user: AdminUser; revokedSessionCount: number } | null> {
+    return this.database.transaction(async (client) => {
+      const target = await loadUserSessionManagementTarget(client, principal, userId)
+      if (!target) return null
+
+      const revokedSessionCount = await revokeSessionsForUser(client, userId)
+      await insertAuditLog(client, {
+        tenantId: null,
+        userId,
+        actorUserId: principal.userId,
+        action: 'admin.user_sessions.revoked',
+        resourceType: 'user',
+        resourceId: userId,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: {
+          revokedSessionCount,
+          scope: 'admin_console',
+        },
+      })
+
+      const user = await readAdminUser(client, userId)
+      return user ? { user, revokedSessionCount } : null
     })
   }
 
@@ -809,6 +976,13 @@ type Queryable = {
   ): Promise<{ rows: T[] }>
 }
 
+type OperationalStatusCountRow = {
+  created: number
+  completed: number
+  failed: number
+  cancelled: number
+}
+
 type AdminUserRow = {
   id: string
   email: string | null
@@ -827,6 +1001,7 @@ type AdminTenantRow = {
   name: string
   status: AdminTenant['status']
   is_system: boolean
+  organization_type: AdminTenant['organizationType'] | null
   created_by_user_id: string | null
   created_by_email: string | null
   created_by_name: string | null
@@ -842,6 +1017,7 @@ type AdminMembershipRow = {
   tenant_id: string
   tenant_name: string
   tenant_status: AdminTenant['status']
+  organization_type: AdminMembership['organizationType'] | null
   user_id: string
   email: string | null
   name: string
@@ -920,6 +1096,7 @@ type AdminSessionRow = {
   tenant_id: string
   tenant_name: string
   tenant_status: AdminTenant['status']
+  organization_type: AdminMembership['organizationType'] | null
   user_id: string
   email: string | null
   name: string
@@ -949,8 +1126,14 @@ type AdminAuditLogEntryRow = {
   created_at: Date | string
 }
 
+type SqlCondition = {
+  clause: string
+  params: unknown[]
+}
+
 function buildUserFilter(options: AdminListOptions): Filter {
   const builder = new FilterBuilder()
+  addVisibilityUserFilter(builder, options, 'u.id')
   if (options.userId) builder.add('u.id = ?', options.userId)
   if (options.status) builder.add('u.status = ?', options.status)
   if (options.tenantId) {
@@ -959,6 +1142,7 @@ function buildUserFilter(options: AdminListOptions): Filter {
       options.tenantId,
     )
   }
+  addRoleUserFilter(builder, options, 'u.id')
   if (options.q?.trim()) {
     builder.add(
       '(lower(u.id) LIKE ? OR lower(u.display_name) LIKE ? OR lower(ai.email) LIKE ?)',
@@ -972,6 +1156,13 @@ function buildUserFilter(options: AdminListOptions): Filter {
 
 function buildTenantFilter(options: AdminListOptions): Filter {
   const builder = new FilterBuilder()
+  if (options.visibilityScope === 'personal') {
+    builder.add('t.organization_type = ?', 'personal')
+  } else if (options.visibilityScope === 'organization') {
+    builder.add('t.id = ? AND t.organization_type = ?', options.scopeTenantId ?? '', 'enterprise')
+  } else if (options.visibilityScope === 'self') {
+    builder.add('t.id = ?', options.scopeTenantId ?? '')
+  }
   if (options.tenantId) builder.add('t.id = ?', options.tenantId)
   if (options.status) builder.add('t.status = ?', options.status)
   if (options.q?.trim()) {
@@ -983,6 +1174,7 @@ function buildTenantFilter(options: AdminListOptions): Filter {
 function buildMembershipFilter(options: AdminListOptions): Filter {
   const builder = new FilterBuilder()
   if (options.membershipId) builder.add('m.id = ?', options.membershipId)
+  addVisibilityMembershipFilter(builder, options, 'm', 't')
   if (options.tenantId) builder.add('m.tenant_id = ?', options.tenantId)
   if (options.userId) builder.add('m.user_id = ?', options.userId)
   if (options.status) builder.add('m.status = ?', options.status)
@@ -1000,8 +1192,201 @@ function buildMembershipFilter(options: AdminListOptions): Filter {
   return builder.build()
 }
 
+function addVisibilityUserFilter(
+  builder: FilterBuilder,
+  options: AdminListOptions,
+  userIdSql: string,
+): void {
+  const condition = visibilityMembershipExistsCondition(options, userIdSql)
+  if (condition) builder.add(condition.clause, ...condition.params)
+}
+
+function addVisibilityMembershipFilter(
+  builder: FilterBuilder,
+  options: AdminListOptions,
+  membershipAlias: string,
+  tenantAlias: string,
+): void {
+  const condition = visibilityMembershipCondition(options, membershipAlias, tenantAlias)
+  if (condition) builder.add(condition.clause, ...condition.params)
+}
+
+function addRoleUserFilter(builder: FilterBuilder, options: AdminListOptions, userIdSql: string): void {
+  if (!options.role) return
+  const condition = visibilityMembershipCondition(options, 'role_filter', 'role_tenant')
+  builder.add(
+    `
+      EXISTS (
+        SELECT 1
+        FROM tenant_memberships role_filter
+        JOIN tenants role_tenant ON role_tenant.id = role_filter.tenant_id
+        WHERE role_filter.user_id = ${userIdSql}
+          ${options.tenantId ? 'AND role_filter.tenant_id = ?' : ''}
+          AND ? = ANY(role_filter.roles)
+          ${condition ? `AND ${condition.clause}` : ''}
+      )
+    `,
+    ...(options.tenantId ? [options.tenantId] : []),
+    options.role,
+    ...(condition?.params ?? []),
+  )
+}
+
+function visibilityMembershipExistsCondition(
+  options: AdminListOptions,
+  userIdSql: string,
+): SqlCondition | null {
+  const condition = visibilityMembershipCondition(options, 'visible_membership', 'visible_tenant')
+  if (!condition) return null
+  return {
+    clause: `
+      EXISTS (
+        SELECT 1
+        FROM tenant_memberships visible_membership
+        JOIN tenants visible_tenant ON visible_tenant.id = visible_membership.tenant_id
+        WHERE visible_membership.user_id = ${userIdSql}
+          AND ${condition.clause}
+      )
+    `,
+    params: condition.params,
+  }
+}
+
+function visibilityMembershipCondition(
+  options: AdminListOptions,
+  membershipAlias: string,
+  tenantAlias: string,
+): SqlCondition | null {
+  if (options.visibilityScope === 'personal') {
+    return {
+      clause: `${membershipAlias}.status = 'active' AND ${tenantAlias}.organization_type = ? AND ? = ANY(${membershipAlias}.roles)`,
+      params: ['personal', ROLES.MEMBER],
+    }
+  }
+  if (options.visibilityScope === 'organization') {
+    return {
+      clause: `${membershipAlias}.status = 'active' AND ${membershipAlias}.tenant_id = ? AND ${tenantAlias}.organization_type = ? AND ? = ANY(${membershipAlias}.roles)`,
+      params: [options.scopeTenantId ?? '', 'enterprise', ROLES.ORGANIZATION_MEMBER],
+    }
+  }
+  if (options.visibilityScope === 'self') {
+    return {
+      clause: `${membershipAlias}.status = 'active' AND ${membershipAlias}.tenant_id = ? AND ? = ANY(${membershipAlias}.roles)`,
+      params: [options.scopeTenantId ?? '', ROLES.MEMBER],
+    }
+  }
+  return null
+}
+
+function numberedVisibilityMembershipCondition(
+  options: AdminListOptions,
+  membershipAlias: string,
+  tenantAlias: string,
+  parameterOffset: number,
+): SqlCondition {
+  const condition = visibilityMembershipCondition(options, membershipAlias, tenantAlias) ?? {
+    clause: 'true',
+    params: [],
+  }
+  return numberedCondition(condition, parameterOffset)
+}
+
+function numberedVisibilityActiveMembershipCondition(
+  options: AdminListOptions,
+  membershipAlias: string,
+  tenantAlias: string,
+  parameterOffset: number,
+): SqlCondition {
+  const condition = visibilityMembershipCondition(options, membershipAlias, tenantAlias) ?? {
+    clause: `${membershipAlias}.status = 'active'`,
+    params: [],
+  }
+  return numberedCondition(condition, parameterOffset)
+}
+
+function numberedCondition(condition: SqlCondition, parameterOffset: number): SqlCondition {
+  let index = parameterOffset
+  return {
+    clause: condition.clause.replace(/\?/g, () => `$${++index}`),
+    params: condition.params,
+  }
+}
+
+function addVisibilityRecordMembershipFilter(
+  builder: FilterBuilder,
+  options: AdminListOptions,
+  membershipIdSql: string,
+  userIdSql: string,
+  tenantIdSql: string,
+): void {
+  const condition = visibilityMembershipCondition(options, 'visible_membership', 'visible_tenant')
+  if (!condition) return
+  builder.add(
+    `(
+      (
+        ${membershipIdSql} IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_memberships visible_membership
+          JOIN tenants visible_tenant ON visible_tenant.id = visible_membership.tenant_id
+          WHERE visible_membership.id = ${membershipIdSql}
+            AND ${condition.clause}
+        )
+      )
+      OR (
+        ${membershipIdSql} IS NULL
+        AND ${userIdSql} IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_memberships visible_membership
+          JOIN tenants visible_tenant ON visible_tenant.id = visible_membership.tenant_id
+          WHERE visible_membership.user_id = ${userIdSql}
+            AND (${tenantIdSql} IS NULL OR visible_membership.tenant_id = ${tenantIdSql})
+            AND ${condition.clause}
+        )
+      )
+    )`,
+    ...condition.params,
+    ...condition.params,
+  )
+}
+
+function addVisibilityAuditFilter(builder: FilterBuilder, options: AdminListOptions): void {
+  const condition = visibilityMembershipCondition(options, 'visible_membership', 'visible_tenant')
+  if (!condition) return
+  builder.add(
+    `(
+      (
+        e.user_id IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_memberships visible_membership
+          JOIN tenants visible_tenant ON visible_tenant.id = visible_membership.tenant_id
+          WHERE visible_membership.user_id = e.user_id
+            AND (e.tenant_id IS NULL OR visible_membership.tenant_id = e.tenant_id)
+            AND ${condition.clause}
+        )
+      )
+      OR (
+        e.user_id IS NULL
+        AND e.tenant_id IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_memberships visible_membership
+          JOIN tenants visible_tenant ON visible_tenant.id = visible_membership.tenant_id
+          WHERE visible_membership.tenant_id = e.tenant_id
+            AND ${condition.clause}
+        )
+      )
+    )`,
+    ...condition.params,
+    ...condition.params,
+  )
+}
+
 function buildLedgerFilter(options: AdminListOptions): Filter {
   const builder = new FilterBuilder()
+  addVisibilityRecordMembershipFilter(builder, options, 'e.membership_id', 'e.user_id', 'e.tenant_id')
   if (options.membershipId) builder.add('e.membership_id = ?', options.membershipId)
   if (options.tenantId) builder.add('e.tenant_id = ?', options.tenantId)
   if (options.userId) builder.add('e.user_id = ?', options.userId)
@@ -1019,6 +1404,7 @@ function buildLedgerFilter(options: AdminListOptions): Filter {
 
 function buildPaymentReconciliationFilter(options: AdminListOptions): Filter {
   const builder = new FilterBuilder()
+  addVisibilityRecordMembershipFilter(builder, options, 'r.membership_id', 'r.user_id', 'r.tenant_id')
   if (options.membershipId) builder.add('r.membership_id = ?', options.membershipId)
   if (options.tenantId) builder.add('r.tenant_id = ?', options.tenantId)
   if (options.userId) builder.add('r.user_id = ?', options.userId)
@@ -1037,6 +1423,7 @@ function buildPaymentReconciliationFilter(options: AdminListOptions): Filter {
 
 function buildBillingReconciliationAlertFilter(options: AdminListOptions): Filter {
   const builder = new FilterBuilder()
+  addVisibilityRecordMembershipFilter(builder, options, 'a.membership_id', 'a.user_id', 'a.tenant_id')
   if (options.membershipId) builder.add('a.membership_id = ?', options.membershipId)
   if (options.tenantId) builder.add('a.tenant_id = ?', options.tenantId)
   if (options.userId) builder.add('a.user_id = ?', options.userId)
@@ -1058,6 +1445,7 @@ function buildBillingReconciliationAlertFilter(options: AdminListOptions): Filte
 function buildSessionFilter(options: AdminListOptions): Filter {
   const builder = new FilterBuilder()
   if (options.membershipId) builder.add('s.membership_id = ?', options.membershipId)
+  addVisibilityMembershipFilter(builder, options, 'm', 't')
   if (options.tenantId) builder.add('m.tenant_id = ?', options.tenantId)
   if (options.userId) builder.add('m.user_id = ?', options.userId)
   if (options.role) builder.add('? = ANY(m.roles)', options.role)
@@ -1085,6 +1473,7 @@ function buildSessionFilter(options: AdminListOptions): Filter {
 
 function buildAuditFilter(options: AdminListOptions): Filter {
   const builder = new FilterBuilder()
+  addVisibilityAuditFilter(builder, options)
   if (options.tenantId) {
     builder.add(
       `(e.tenant_id = ? OR (
@@ -1175,6 +1564,7 @@ function membershipSelectSql(): string {
       m.tenant_id,
       t.name AS tenant_name,
       t.status AS tenant_status,
+      t.organization_type,
       m.user_id,
       ai.email,
       u.display_name AS name,
@@ -1202,6 +1592,7 @@ function adminSessionSelectSql(): string {
       m.tenant_id,
       t.name AS tenant_name,
       t.status AS tenant_status,
+      t.organization_type,
       m.user_id,
       ai.email,
       u.display_name AS name,
@@ -1252,6 +1643,32 @@ function listResult<T>(items: T[], total: number, paging: Paging) {
   }
 }
 
+function operationalStatusCounts(
+  row: OperationalStatusCountRow | undefined,
+): DailyOperationalSummary['generationTasks'] {
+  const created = row?.created ?? 0
+  const completed = row?.completed ?? 0
+  const failed = row?.failed ?? 0
+  const cancelled = row?.cancelled ?? 0
+  const terminal = completed + failed + cancelled
+  return {
+    created,
+    completed,
+    failed,
+    cancelled,
+    terminal,
+    successRate: terminal > 0 ? completed / terminal : null,
+  }
+}
+
+function startOfChinaDay(now = new Date()): string {
+  const chinaOffsetMs = 8 * 60 * 60 * 1_000
+  const chinaNow = new Date(now.getTime() + chinaOffsetMs)
+  return new Date(
+    Date.UTC(chinaNow.getUTCFullYear(), chinaNow.getUTCMonth(), chinaNow.getUTCDate()) - chinaOffsetMs,
+  ).toISOString()
+}
+
 function toAdminUser(row: AdminUserRow): AdminUser {
   return {
     id: row.id,
@@ -1273,6 +1690,7 @@ function toAdminTenant(row: AdminTenantRow): AdminTenant {
     name: row.name,
     status: row.status,
     isSystem: row.is_system,
+    organizationType: row.organization_type ?? undefined,
     createdByUserId: row.created_by_user_id,
     createdByEmail: row.created_by_email,
     createdByName: row.created_by_name,
@@ -1290,6 +1708,7 @@ function toAdminMembership(row: AdminMembershipRow): AdminMembership {
     tenantId: row.tenant_id,
     tenantName: row.tenant_name,
     tenantStatus: row.tenant_status,
+    organizationType: row.organization_type ?? undefined,
     organizationId: row.tenant_id,
     organizationName: row.tenant_name,
     organizationStatus: row.tenant_status,
@@ -1461,6 +1880,75 @@ function canManageElevatedRoles(principal: Principal, roles: Role[]): boolean {
   )
 }
 
+function canAccessMembershipRecord(
+  principal: Principal,
+  membership: MembershipAccessRow,
+): boolean {
+  if (isPlatformAdmin(principal)) return true
+  if (membership.status !== 'active') return false
+  if (principal.roles.includes(ROLES.ADMIN)) {
+    return membership.organization_type === 'personal' && membership.roles.includes(ROLES.MEMBER)
+  }
+  if (principal.roles.includes(ROLES.ORGANIZATION_ADMIN)) {
+    return (
+      membership.tenant_id === principal.tenantId &&
+      membership.organization_type === 'enterprise' &&
+      membership.roles.includes(ROLES.ORGANIZATION_MEMBER)
+    )
+  }
+  return membership.tenant_id === principal.tenantId && membership.roles.includes(ROLES.MEMBER)
+}
+
+function assertNonPlatformCanManageVisibleMemberships(
+  principal: Principal,
+  memberships: MembershipAccessRow[],
+  operation: 'password' | 'session',
+  fallbackMessage: string,
+): void {
+  const activeMemberships = memberships.filter((membership) => membership.status === 'active')
+  const visibleMemberships = activeMemberships.filter((membership) =>
+    canAccessMembershipRecord(principal, membership),
+  )
+  if (visibleMemberships.length > 0 && visibleMemberships.length === activeMemberships.length) return
+
+  if (activeMemberships.some((membership) => hasElevatedRole(membership.roles))) {
+    throw new AppError(
+      403,
+      operation === 'session'
+        ? 'ELEVATED_SESSION_REQUIRES_PLATFORM_ADMIN'
+        : 'ELEVATED_ACCOUNT_REQUIRES_PLATFORM_ADMIN',
+      operation === 'session'
+        ? 'Only owners or super admins can revoke elevated account sessions'
+        : 'Only owners or super admins can reset elevated account passwords',
+    )
+  }
+  if (
+    principal.roles.includes(ROLES.ADMIN) &&
+    activeMemberships.some((membership) => membership.roles.includes(ROLES.ORGANIZATION_MEMBER))
+  ) {
+    throw new AppError(
+      403,
+      'ORGANIZATION_MEMBER_REQUIRES_ORGANIZATION_ADMIN',
+      operation === 'session'
+        ? 'Only organization administrators can revoke organization member sessions'
+        : 'Only organization administrators can manage organization member accounts',
+    )
+  }
+  if (
+    principal.roles.includes(ROLES.ORGANIZATION_ADMIN) &&
+    activeMemberships.some((membership) => membership.roles.includes(ROLES.MEMBER))
+  ) {
+    throw new AppError(
+      403,
+      'PLATFORM_MEMBER_REQUIRES_PLATFORM_ADMIN',
+      operation === 'session'
+        ? 'Only platform administrators can revoke member sessions'
+        : 'Only platform administrators can manage member accounts',
+    )
+  }
+  throw new AppError(403, 'TENANT_SCOPE_MISMATCH', fallbackMessage)
+}
+
 type PasswordManagementTarget = {
   user: {
     id: string
@@ -1468,7 +1956,45 @@ type PasswordManagementTarget = {
     password_reset_required: boolean
   }
   identityId: string
-  memberships: Array<{ tenant_id: string; roles: Role[]; status: string }>
+  memberships: MembershipAccessRow[]
+}
+
+type MembershipAccessRow = {
+  tenant_id: string
+  organization_type: AdminMembership['organizationType'] | null
+  roles: Role[]
+  status: string
+}
+
+async function loadUserSessionManagementTarget(
+  client: Queryable,
+  principal: Principal,
+  userId: string,
+): Promise<Pick<PasswordManagementTarget, 'user' | 'memberships'> | null> {
+  const user = await client.query<PasswordManagementTarget['user']>(
+    `
+    SELECT id, status, password_reset_required
+    FROM users
+    WHERE id = $1
+    LIMIT 1
+    FOR UPDATE
+    `,
+    [userId],
+  )
+  const userRow = user.rows[0]
+  if (!userRow) return null
+
+  const memberships = await client.query<MembershipAccessRow>(
+    `
+    SELECT m.tenant_id, t.organization_type, m.roles, m.status
+    FROM tenant_memberships m
+    JOIN tenants t ON t.id = m.tenant_id
+    WHERE m.user_id = $1
+    `,
+    [userId],
+  )
+  assertCanManageUserSessions(principal, userId, memberships.rows)
+  return { user: userRow, memberships: memberships.rows }
 }
 
 async function loadPasswordManagementTarget(
@@ -1510,11 +2036,12 @@ async function loadPasswordManagementTarget(
     )
   }
 
-  const memberships = await client.query<{ tenant_id: string; roles: Role[]; status: string }>(
+  const memberships = await client.query<MembershipAccessRow>(
     `
-    SELECT tenant_id, roles, status
-    FROM tenant_memberships
-    WHERE user_id = $1
+    SELECT m.tenant_id, t.organization_type, m.roles, m.status
+    FROM tenant_memberships m
+    JOIN tenants t ON t.id = m.tenant_id
+    WHERE m.user_id = $1
     `,
     [userId],
   )
@@ -1522,60 +2049,66 @@ async function loadPasswordManagementTarget(
   return { user: userRow, identityId, memberships: memberships.rows }
 }
 
+function assertCanManageUserSessions(
+  principal: Principal,
+  userId: string,
+  memberships: MembershipAccessRow[],
+): void {
+  if (principal.userId === userId) {
+    throw new AppError(
+      400,
+      'CANNOT_REVOKE_SELF_USER_SESSIONS',
+      'Use the current account session API to sign out',
+    )
+  }
+
+  if (!isPlatformAdmin(principal)) {
+    assertNonPlatformCanManageVisibleMemberships(
+      principal,
+      memberships,
+      'session',
+      'Cannot revoke another workspace account sessions',
+    )
+    return
+  }
+
+  if (
+    memberships.some(
+      (membership) =>
+        (hasOwnerRole(membership.roles) || hasSuperAdminRole(membership.roles)) && !isOwner(principal),
+    )
+  ) {
+    throw new AppError(
+      403,
+      'ELEVATED_SESSION_REQUIRES_OWNER',
+      'Only owners can revoke owner or super admin sessions',
+    )
+  }
+  if (memberships.some((membership) => !canManageElevatedRoles(principal, membership.roles))) {
+    throw new AppError(
+      403,
+      'ELEVATED_SESSION_REQUIRES_PLATFORM_ADMIN',
+      'Only owners or super admins can revoke elevated account sessions',
+    )
+  }
+}
+
 function assertCanManageAccountPassword(
   principal: Principal,
   userId: string,
-  memberships: Array<{ tenant_id: string; roles: Role[]; status: string }>,
+  memberships: MembershipAccessRow[],
 ): void {
   if (principal.userId === userId) {
     throw new AppError(400, 'CANNOT_MANAGE_SELF_PASSWORD', 'Use the current account password API')
   }
 
   if (!isPlatformAdmin(principal)) {
-    const inTenant = memberships.some(
-      (membership) => membership.tenant_id === principal.tenantId && membership.status === 'active',
+    assertNonPlatformCanManageVisibleMemberships(
+      principal,
+      memberships,
+      'password',
+      'Cannot manage another workspace account',
     )
-    if (!inTenant) {
-      throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot manage another workspace account')
-    }
-    if (
-      memberships.some(
-        (membership) => membership.tenant_id !== principal.tenantId && membership.status === 'active',
-      )
-    ) {
-      throw new AppError(
-        403,
-        'CROSS_TENANT_PASSWORD_REQUIRES_PLATFORM_ADMIN',
-        'Only owners or super admins can reset cross-workspace accounts',
-      )
-    }
-    if (memberships.some((membership) => hasElevatedRole(membership.roles))) {
-      throw new AppError(
-        403,
-        'ELEVATED_ACCOUNT_REQUIRES_PLATFORM_ADMIN',
-        'Only owners or super admins can reset elevated account passwords',
-      )
-    }
-    if (
-      principal.roles.includes(ROLES.ADMIN) &&
-      memberships.some((membership) => membership.roles.includes(ROLES.ORGANIZATION_MEMBER))
-    ) {
-      throw new AppError(
-        403,
-        'ORGANIZATION_MEMBER_REQUIRES_ORGANIZATION_ADMIN',
-        'Only organization administrators can manage organization member accounts',
-      )
-    }
-    if (
-      principal.roles.includes(ROLES.ORGANIZATION_ADMIN) &&
-      memberships.some((membership) => membership.roles.includes(ROLES.MEMBER))
-    ) {
-      throw new AppError(
-        403,
-        'PLATFORM_MEMBER_REQUIRES_PLATFORM_ADMIN',
-        'Only platform administrators can manage member accounts',
-      )
-    }
     return
   }
 
@@ -1610,6 +2143,7 @@ async function revokeSessionsForUser(client: Queryable, userId: string): Promise
       WHERE s.membership_id = m.id
         AND m.user_id = $1
         AND s.revoked_at IS NULL
+        AND s.expires_at > now()
       RETURNING s.id
     )
     SELECT count(*)::int AS count

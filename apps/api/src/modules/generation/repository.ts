@@ -1,4 +1,4 @@
-import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/contracts'
+import type { Asset, CreateGenerationTask, GenerationTask, Principal, Project, Shot } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
@@ -53,6 +53,67 @@ type GenerationTaskImportResult = {
   tasks: { inserted: number; skipped: number }
 }
 
+type GenerationProjectRow = QueryResultRow & {
+  id: string
+  tenant_id: string
+  owner_user_id: string
+  name: string
+  content_type: Project['contentType']
+  aspect_ratio: Project['aspectRatio']
+  status: Project['status']
+  synopsis: string
+  script: string
+  version: number | string
+  created_at: Date | string
+  updated_at: Date | string
+}
+
+type GenerationShotRow = QueryResultRow & {
+  id: string
+  project_id: string
+  tenant_id: string
+  shot_order: number | string
+  title: string
+  framing: string
+  duration_seconds: number | string
+  prompt: string
+  negative_prompt: string
+  image_url: string | null
+  continuity_mode: Shot['continuityMode']
+  continuity_note: string
+  episode_break_before: boolean
+  episode_number: number | string
+  episode_title: string
+  episode_kind: Shot['episodeKind']
+  created_at: Date | string
+  updated_at: Date | string
+}
+
+type GenerationAssetRow = QueryResultRow & {
+  id: string
+  project_id: string
+  tenant_id: string
+  kind: Asset['kind']
+  source_mode: Asset['sourceMode']
+  name: string
+  description: string
+  prompt: string
+  prompt_mode: Asset['promptMode']
+  custom_prompt_mode: Asset['customPromptMode']
+  custom_prompt: string
+  negative_prompt: string
+  reference_items: unknown
+  attributes: unknown
+  image_url: string | null
+  status: Asset['status']
+  created_at: Date | string
+  updated_at: Date | string
+}
+
+type AssetNameRow = QueryResultRow & {
+  name: string
+}
+
 const generationTaskColumns = `
   id,
   client_request_id,
@@ -86,7 +147,7 @@ const generationTaskColumns = `
 
 export class GenerationTaskRepository {
   constructor(
-    private readonly store: AppStore,
+    private readonly store: AppStore | null,
     private readonly creditLedger: CreditLedger | null = null,
     private readonly database: AccountDatabase | null = null,
     private readonly outbox: OutboxRepository | null = null,
@@ -94,7 +155,7 @@ export class GenerationTaskRepository {
 
   async importFromStore(): Promise<GenerationTaskImportResult> {
     const result: GenerationTaskImportResult = { tasks: { inserted: 0, skipped: 0 } }
-    if (!this.database) return result
+    if (!this.database || !this.store) return result
 
     const tasks = this.store.read((state) => state.tasks)
     if (!tasks.length) return result
@@ -113,7 +174,7 @@ export class GenerationTaskRepository {
   }
 
   async refreshRuntimeCacheFromDatabase(): Promise<void> {
-    if (!this.database) return
+    if (!this.database || !this.store) return
     const result = await this.database.query<GenerationTaskRow>(
       `
       SELECT ${generationTaskColumns}
@@ -125,7 +186,7 @@ export class GenerationTaskRepository {
   }
 
   async flushRuntimeCacheToDatabase(): Promise<number> {
-    if (!this.database) return 0
+    if (!this.database || !this.store) return 0
 
     const tasks = this.store.read((state) => state.tasks.map(normalizeGenerationTaskLifecycle))
     if (!tasks.length) return 0
@@ -142,8 +203,23 @@ export class GenerationTaskRepository {
     })
   }
 
-  canCreate(projectId: string, principal: Principal): boolean {
-    return this.store.read((state) =>
+  async canCreate(projectId: string, principal: Principal): Promise<boolean> {
+    if (this.database) {
+      const result = await this.database.query<{ id: string }>(
+        `
+        SELECT id
+        FROM projects
+        WHERE id = $1
+          AND tenant_id = $2
+          AND owner_user_id = $3
+          AND status <> 'archived'
+        LIMIT 1
+        `,
+        [projectId, principal.tenantId, principal.userId],
+      )
+      return result.rows.length > 0
+    }
+    return this.requireStore().read((state) =>
       state.projects.some(
         (project) =>
           project.id === projectId &&
@@ -153,11 +229,64 @@ export class GenerationTaskRepository {
     )
   }
 
-  storyboardVideoContext(input: CreateGenerationTask, principal: Principal) {
+  async storyboardVideoContext(input: CreateGenerationTask, principal: Principal) {
     if (input.kind !== 'video' || input.provider !== 'seedance' || typeof input.metadata?.shotId !== 'string') {
       return null
     }
-    return this.store.read((state) => {
+    if (this.database) {
+      const [projectResult, shotsResult, assetsResult] = await Promise.all([
+        this.database.query<GenerationProjectRow>(
+          `
+          SELECT
+            id, tenant_id, owner_user_id, name, content_type, aspect_ratio, status,
+            synopsis, script, version, created_at, updated_at
+          FROM projects
+          WHERE id = $1
+            AND tenant_id = $2
+            AND owner_user_id = $3
+            AND status <> 'archived'
+          LIMIT 1
+          `,
+          [input.projectId, principal.tenantId, principal.userId],
+        ),
+        this.database.query<GenerationShotRow>(
+          `
+          SELECT
+            id, project_id, tenant_id, shot_order, title, framing, duration_seconds,
+            prompt, negative_prompt, image_url, continuity_mode, continuity_note,
+            episode_break_before, episode_number, episode_title, episode_kind,
+            created_at, updated_at
+          FROM shots
+          WHERE project_id = $1 AND tenant_id = $2
+          ORDER BY shot_order ASC
+          `,
+          [input.projectId, principal.tenantId],
+        ),
+        this.database.query<GenerationAssetRow>(
+          `
+          SELECT
+            id, project_id, tenant_id, kind, source_mode, name, description, prompt,
+            prompt_mode, custom_prompt_mode, custom_prompt, negative_prompt,
+            reference_items, attributes, image_url, status, created_at, updated_at
+          FROM assets
+          WHERE project_id = $1 AND tenant_id = $2
+          ORDER BY created_at ASC, id ASC
+          `,
+          [input.projectId, principal.tenantId],
+        ),
+      ])
+      const project = projectResult.rows[0] ? projectFromRow(projectResult.rows[0]) : null
+      const shots = shotsResult.rows.map(shotFromRow)
+      const shot = shots.find((item) => item.id === input.metadata?.shotId)
+      if (!project || !shot) return null
+      return {
+        project,
+        shot,
+        shots,
+        assets: assetsResult.rows.map(assetFromRow),
+      }
+    }
+    return this.requireStore().read((state) => {
       const project = state.projects.find(
         (item) =>
           item.id === input.projectId &&
@@ -184,12 +313,34 @@ export class GenerationTaskRepository {
     })
   }
 
-  blockedPortraitNames(input: CreateGenerationTask, principal: Principal): string[] {
+  async blockedPortraitNames(input: CreateGenerationTask, principal: Principal): Promise<string[]> {
     if (input.kind !== 'video' || !Array.isArray(input.metadata?.referenceAssetIds)) return []
     const referenceIds = input.metadata.referenceAssetIds.filter(
       (value): value is string => typeof value === 'string',
     )
-    return this.store.read((state) =>
+    if (!referenceIds.length) return []
+    if (this.database) {
+      const result = await this.database.query<AssetNameRow>(
+        `
+        SELECT name
+        FROM assets
+        WHERE id = ANY($1::text[])
+          AND project_id = $2
+          AND tenant_id = $3
+          AND attributes->>'type' = 'character'
+          AND attributes->>'subjectType' = 'human'
+          AND (
+            attributes->>'portraitSource' = 'authorized-real'
+            OR attributes->>'visualStyle' = 'photorealistic'
+          )
+          AND COALESCE(attributes#>>'{trustedPortrait,status}', '') <> 'active'
+        ORDER BY name ASC
+        `,
+        [referenceIds, input.projectId, principal.tenantId],
+      )
+      return result.rows.map((row) => row.name)
+    }
+    return this.requireStore().read((state) =>
       state.assets
         .filter(
           (asset) =>
@@ -206,12 +357,30 @@ export class GenerationTaskRepository {
     )
   }
 
-  stringXPortraitNames(input: CreateGenerationTask, principal: Principal): string[] {
+  async stringXPortraitNames(input: CreateGenerationTask, principal: Principal): Promise<string[]> {
     if (input.kind !== 'video' || !Array.isArray(input.metadata?.referenceAssetIds)) return []
     const referenceIds = input.metadata.referenceAssetIds.filter(
       (value): value is string => typeof value === 'string',
     )
-    return this.store.read((state) =>
+    if (!referenceIds.length) return []
+    if (this.database) {
+      const result = await this.database.query<AssetNameRow>(
+        `
+        SELECT name
+        FROM assets
+        WHERE id = ANY($1::text[])
+          AND project_id = $2
+          AND tenant_id = $3
+          AND attributes->>'type' = 'character'
+          AND attributes#>>'{trustedPortrait,status}' = 'active'
+          AND attributes#>>'{trustedPortrait,assetId}' LIKE 'maas-%'
+        ORDER BY name ASC
+        `,
+        [referenceIds, input.projectId, principal.tenantId],
+      )
+      return result.rows.map((row) => row.name)
+    }
+    return this.requireStore().read((state) =>
       state.assets
         .filter(
           (asset) =>
@@ -266,41 +435,41 @@ export class GenerationTaskRepository {
   }
 
   async listRecent(principal: Principal, limit = 100): Promise<GenerationTask[]> {
-    if (!this.database) {
-      const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
-      return this.store.read((state) =>
-        state.tasks
-          .filter(
-            (task) =>
-              task.tenantId === principal.tenantId &&
-              (canReadAll || task.userId === principal.userId) &&
-              typeof task.metadata.queueHiddenAt !== 'string',
-          )
-          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-          .slice(0, limit),
+    if (this.database) {
+      const canReadAll = canReadAllTenantContent(principal)
+      const result = await this.database.query<GenerationTaskRow>(
+        `
+        SELECT ${generationTaskColumns}
+        FROM generation_tasks
+        WHERE tenant_id = $1
+          AND ($2::boolean OR user_id = $3)
+          AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
+        ORDER BY updated_at DESC, id DESC
+        LIMIT $4
+        `,
+        [principal.tenantId, canReadAll, principal.userId, Math.max(1, Math.min(500, limit))],
       )
+      const tasks = result.rows.map(taskFromRow)
+      this.mirrorTasks(tasks)
+      return tasks
     }
-
-    const canReadAll = canReadAllTenantContent(principal)
-    const result = await this.database.query<GenerationTaskRow>(
-      `
-      SELECT ${generationTaskColumns}
-      FROM generation_tasks
-      WHERE tenant_id = $1
-        AND ($2::boolean OR user_id = $3)
-        AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
-      ORDER BY updated_at DESC, id DESC
-      LIMIT $4
-      `,
-      [principal.tenantId, canReadAll, principal.userId, Math.max(1, Math.min(500, limit))],
+    const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
+    return this.requireStore().read((state) =>
+      state.tasks
+        .filter(
+          (task) =>
+            task.tenantId === principal.tenantId &&
+            (canReadAll || task.userId === principal.userId) &&
+            typeof task.metadata.queueHiddenAt !== 'string',
+        )
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .slice(0, limit),
     )
-    const tasks = result.rows.map(taskFromRow)
-    this.mirrorTasks(tasks)
-    return tasks
   }
 
-  filmPreviewPlan(projectId: string, principal: Principal, episodeNumber: number | null = null) {
-    return this.store.read((state) => {
+  async filmPreviewPlan(projectId: string, principal: Principal, episodeNumber: number | null = null) {
+    if (this.database) return this.filmPreviewPlanFromDatabase(projectId, principal, episodeNumber)
+    return this.requireStore().read((state) => {
       const project = state.projects.find(
         (item) =>
           item.id === projectId &&
@@ -379,7 +548,7 @@ export class GenerationTaskRepository {
       return tasks.length
     }
 
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const now = new Date().toISOString()
       const terminalTasks = state.tasks.filter(
         (task) =>
@@ -423,7 +592,7 @@ export class GenerationTaskRepository {
       return result
     }
 
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const task = findControlledTask(state.tasks, taskId, principal)
       if (!task) return { outcome: 'not_found' as const, task: null }
       if (task.status === 'paused') return { outcome: 'already_paused' as const, task }
@@ -466,7 +635,7 @@ export class GenerationTaskRepository {
       return result
     }
 
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const task = findControlledTask(state.tasks, taskId, principal)
       if (!task) return { outcome: 'not_found' as const, task: null }
       if (task.status !== 'paused' || typeof task.metadata.queueHiddenAt === 'string') {
@@ -537,7 +706,7 @@ export class GenerationTaskRepository {
       return result
     }
 
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const task = findControlledTask(state.tasks, taskId, principal)
       if (!task) return { outcome: 'not_found' as const, task: null, refund: false }
       if (typeof task.metadata.queueHiddenAt === 'string') {
@@ -578,6 +747,96 @@ export class GenerationTaskRepository {
 
   async cancelRunning(taskId: string, principal: Principal): Promise<GenerationTask | null> {
     return this.deleteFromQueue(taskId, principal).then((result) => result.task)
+  }
+
+  private async filmPreviewPlanFromDatabase(
+    projectId: string,
+    principal: Principal,
+    episodeNumber: number | null,
+  ): Promise<{
+    project: Project
+    shots: Shot[]
+    sources: Array<{ shot: Shot; task: GenerationTask | undefined }>
+  } | null> {
+    const projectResult = await this.database!.query<GenerationProjectRow>(
+      `
+      SELECT
+        id,
+        tenant_id,
+        owner_user_id,
+        name,
+        content_type,
+        aspect_ratio,
+        status,
+        synopsis,
+        script,
+        version,
+        created_at,
+        updated_at
+      FROM projects
+      WHERE id = $1
+        AND tenant_id = $2
+        AND ($3::boolean OR owner_user_id = $4)
+      LIMIT 1
+      `,
+      [projectId, principal.tenantId, canReadAllTenantContent(principal), principal.userId],
+    )
+    const project = projectResult.rows[0] ? projectFromRow(projectResult.rows[0]) : null
+    if (!project) return null
+
+    const [shotsResult, taskResult] = await Promise.all([
+      this.database!.query<GenerationShotRow>(
+        `
+        SELECT
+          id,
+          project_id,
+          tenant_id,
+          shot_order,
+          title,
+          framing,
+          duration_seconds,
+          prompt,
+          negative_prompt,
+          image_url,
+          continuity_mode,
+          continuity_note,
+          episode_break_before,
+          episode_number,
+          episode_title,
+          episode_kind,
+          created_at,
+          updated_at
+        FROM shots
+        WHERE project_id = $1
+          AND tenant_id = $2
+          AND ($3::int IS NULL OR episode_number = $3)
+        ORDER BY shot_order ASC
+        `,
+        [projectId, principal.tenantId, episodeNumber],
+      ),
+      this.database!.query<GenerationTaskRow>(
+        `
+        SELECT ${generationTaskColumns}
+        FROM generation_tasks
+        WHERE project_id = $1
+          AND tenant_id = $2
+          AND kind = 'video'
+          AND provider = 'seedance'
+          AND status = 'completed'
+          AND metadata ? 'shotId'
+          AND jsonb_typeof(metadata->'providerTaskId') = 'string'
+        ORDER BY updated_at DESC, id DESC
+        `,
+        [projectId, principal.tenantId],
+      ),
+    ])
+    const shots = shotsResult.rows.map(shotFromRow)
+    const tasks = taskResult.rows.map(taskFromRow)
+    const sources = shots.map((shot) => ({
+      shot,
+      task: tasks.find((task) => task.metadata.shotId === shot.id),
+    }))
+    return { project, shots, sources }
   }
 
   private async createInDatabase(
@@ -674,7 +933,7 @@ export class GenerationTaskRepository {
     principal: Principal,
     options: { traceId?: string | null } = {},
   ): Promise<GenerationTask> {
-    return this.store.mutate((state) => {
+    return this.requireStore().mutate((state) => {
       const existing = state.tasks.find(
         (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
       )
@@ -694,7 +953,7 @@ export class GenerationTaskRepository {
     options: { traceId?: string | null } = {},
   ): Promise<GenerationTask> {
     const creditLedger = this.creditLedger
-    return this.store.transaction(async (state) => {
+    return this.requireStore().transaction(async (state) => {
       const existing = state.tasks.find(
         (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
       )
@@ -739,7 +998,7 @@ export class GenerationTaskRepository {
 
   private listByProjectFromStore(projectId: string, principal: Principal): GenerationTask[] {
     const canReadAll = canReadAllTenantContent(principal)
-    return this.store.read((state) =>
+    return this.requireStore().read((state) =>
       state.tasks.filter(
         (task) =>
           task.projectId === projectId &&
@@ -752,7 +1011,7 @@ export class GenerationTaskRepository {
 
   private findByIdFromStore(taskId: string, principal: Principal): GenerationTask | null {
     const canReadAll = canReadAllTenantContent(principal)
-    return this.store.read(
+    return this.requireStore().read(
       (state) =>
         state.tasks.find(
           (task) =>
@@ -764,6 +1023,7 @@ export class GenerationTaskRepository {
   }
 
   private async mirrorTask(task: GenerationTask, credits: number | null): Promise<void> {
+    if (!this.store) return
     this.store.mutateProjectWorkspaceRuntimeCache((state) => {
       upsertTaskInState(state, task)
       if (credits === null) return
@@ -774,9 +1034,17 @@ export class GenerationTaskRepository {
 
   private mirrorTasks(tasks: GenerationTask[]): void {
     if (!tasks.length) return
+    if (!this.store) return
     this.store.mutateProjectWorkspaceRuntimeCache((state) => {
       for (const task of tasks) upsertTaskInState(state, task)
     })
+  }
+
+  private requireStore(): AppStore {
+    if (!this.store) {
+      throw new Error('JSON AppStore is unavailable; GenerationTaskRepository must use Postgres in runtime')
+    }
+    return this.store
   }
 }
 
@@ -1181,6 +1449,70 @@ function upsertTaskInState(state: AppState, task: GenerationTask): void {
     state.tasks[index] = task
   } else {
     state.tasks.unshift(task)
+  }
+}
+
+function projectFromRow(row: GenerationProjectRow): Project {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    ownerId: row.owner_user_id,
+    name: row.name,
+    contentType: row.content_type,
+    aspectRatio: row.aspect_ratio,
+    status: row.status,
+    synopsis: row.synopsis,
+    script: row.script,
+    version: Number(row.version),
+    createdAt: isoString(row.created_at),
+    updatedAt: isoString(row.updated_at),
+  }
+}
+
+function shotFromRow(row: GenerationShotRow): Shot {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    tenantId: row.tenant_id,
+    order: Number(row.shot_order),
+    title: row.title,
+    framing: row.framing,
+    duration: Number(row.duration_seconds),
+    prompt: row.prompt,
+    negativePrompt: row.negative_prompt,
+    imageUrl: row.image_url,
+    continuityMode: row.continuity_mode,
+    continuityNote: row.continuity_note,
+    episodeBreakBefore: row.episode_break_before,
+    episodeNumber: Number(row.episode_number),
+    episodeTitle: row.episode_title,
+    episodeKind: row.episode_kind,
+    selectedVideoTaskId: null,
+    createdAt: isoString(row.created_at),
+    updatedAt: isoString(row.updated_at),
+  }
+}
+
+function assetFromRow(row: GenerationAssetRow): Asset {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    tenantId: row.tenant_id,
+    kind: row.kind,
+    sourceMode: row.source_mode,
+    name: row.name,
+    description: row.description,
+    prompt: row.prompt,
+    promptMode: row.prompt_mode,
+    customPromptMode: row.custom_prompt_mode,
+    customPrompt: row.custom_prompt,
+    negativePrompt: row.negative_prompt,
+    references: jsonValue(row.reference_items, []),
+    attributes: jsonValue(row.attributes, { type: row.kind }) as Asset['attributes'],
+    imageUrl: row.image_url,
+    status: row.status,
+    createdAt: isoString(row.created_at),
+    updatedAt: isoString(row.updated_at),
   }
 }
 

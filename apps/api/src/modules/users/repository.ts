@@ -45,7 +45,7 @@ const systemTenantId = 'tenant-seqora-demo'
 
 export class UserRepository implements AuthAccounts {
   constructor(
-    private readonly store: AppStore,
+    private readonly store: AppStore | null,
     private readonly database: AccountDatabase | null = null,
   ) {}
 
@@ -54,7 +54,7 @@ export class UserRepository implements AuthAccounts {
   }
 
   async bootstrapFromStore(): Promise<void> {
-    if (!this.database) return
+    if (!this.database || !this.store) return
     const users = this.store.read((state) => state.users)
     if (!users.length) return
 
@@ -90,11 +90,17 @@ export class UserRepository implements AuthAccounts {
         )
         await client.query(
           `
-          INSERT INTO tenants (id, name, status, created_by_user_id, is_system, created_at, updated_at)
-          VALUES ($1, $2, 'active', $3, $4, now(), now())
+          INSERT INTO tenants (id, name, status, created_by_user_id, is_system, organization_type, created_at, updated_at)
+          VALUES ($1, $2, 'active', $3, $4, $5, now(), now())
           ON CONFLICT (id) DO NOTHING
         `,
-          [seed.tenantId, seed.tenantId, userId, seed.tenantId === systemTenantId],
+          [
+            seed.tenantId,
+            seed.tenantId,
+            userId,
+            seed.tenantId === systemTenantId,
+            seed.tenantId === systemTenantId ? 'system' : 'personal',
+          ],
         )
         await client.query(
           `
@@ -119,7 +125,7 @@ export class UserRepository implements AuthAccounts {
   }
 
   async refreshRuntimeCacheFromDatabase(): Promise<void> {
-    if (!this.database) return
+    if (!this.database || !this.store) return
     const result = await this.database.query<StoredUserRow>(
       `
       SELECT
@@ -157,7 +163,9 @@ export class UserRepository implements AuthAccounts {
   async findByEmail(email: string): Promise<StoredUser | null> {
     const normalized = email.toLowerCase()
     if (!this.database) {
-      return this.store.read((state) => state.users.find((user) => user.email === normalized) ?? null)
+      return this.requireStore().read(
+        (state) => state.users.find((user) => user.email === normalized) ?? null,
+      )
     }
 
     const result = await this.database.query<StoredUserRow>(
@@ -192,7 +200,7 @@ export class UserRepository implements AuthAccounts {
 
   async findById(id: string, tenantId?: string): Promise<StoredUser | null> {
     if (!this.database) {
-      return this.store.read(
+      return this.requireStore().read(
         (state) =>
           state.users.find((user) => user.id === id && (tenantId ? user.tenantId === tenantId : true)) ??
           null,
@@ -238,7 +246,7 @@ export class UserRepository implements AuthAccounts {
 
   async updatePassword(userId: string, tenantId: string, passwordHash: string): Promise<boolean> {
     if (!this.database) {
-      return this.store.mutate((state) => {
+      return this.requireStore().mutate((state) => {
         const user = state.users.find((item) => item.id === userId && item.tenantId === tenantId)
         if (!user) return false
         user.passwordHash = passwordHash
@@ -290,18 +298,12 @@ export class UserRepository implements AuthAccounts {
       return (updated.rowCount ?? 0) > 0
     })
 
-    if (result) {
-      await this.store.mutate((state) => {
-        const user = state.users.find((item) => item.id === userId && item.tenantId === tenantId)
-        if (user) user.passwordHash = passwordHash
-      })
-    }
     return result
   }
 
   async findBillingAccount(userId: string, tenantId: string): Promise<BillingAccount | null> {
     if (!this.database) {
-      return this.store.read((state) => {
+      return this.requireStore().read((state) => {
         const user = state.users.find((item) => item.id === userId && item.tenantId === tenantId)
         return user ? { plan: user.plan, credits: user.credits } : null
       })
@@ -330,7 +332,7 @@ export class UserRepository implements AuthAccounts {
     delta: number,
   ): Promise<BillingAccount | null> {
     if (!this.database) {
-      return this.store.mutate((state) => {
+      return this.requireStore().mutate((state) => {
         const user = state.users.find((item) => item.id === userId && item.tenantId === tenantId)
         if (!user) return null
         const nextCredits = user.credits + delta
@@ -366,7 +368,7 @@ export class UserRepository implements AuthAccounts {
 
   async setBillingPlan(userId: string, tenantId: string, plan: Plan): Promise<BillingAccount | null> {
     if (!this.database) {
-      return this.store.mutate((state) => {
+      return this.requireStore().mutate((state) => {
         const user = state.users.find((item) => item.id === userId && item.tenantId === tenantId)
         if (!user) return null
         user.plan = plan
@@ -543,6 +545,13 @@ export class UserRepository implements AuthAccounts {
       passwordResetRequired: user.passwordResetRequired ?? false,
       emailVerified: user.emailVerified ?? true,
     }
+  }
+
+  private requireStore(): AppStore {
+    if (!this.store) {
+      throw new Error('JSON AppStore is unavailable; UserRepository must use Postgres in runtime')
+    }
+    return this.store
   }
 }
 

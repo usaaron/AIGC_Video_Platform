@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+  addExistingOrganizationMemberRoleOptions,
   auditLogTone,
   assignableRoleOptions,
   buildSessionRiskRows,
+  canAddExistingOrganizationMember,
+  canCreateOrganization,
   canCreateOrganizationUser,
   canAssignRole,
   canDisableOrganization,
+  canLeaveOrganization,
   canManageMembership,
   canManageOrganization,
   canReadAdminConsole,
@@ -44,11 +48,28 @@ describe('admin console helpers', () => {
     expect(canManageOrganization(superAdminSession, 'tenant-b')).toBe(true)
     expect(canManageOrganization(adminSession, 'tenant-a')).toBe(true)
     expect(canManageOrganization(adminSession, 'tenant-b')).toBe(false)
+    expect(canCreateOrganization(ownerSession)).toBe(true)
+    expect(canCreateOrganization(superAdminSession)).toBe(true)
+    expect(canCreateOrganization(adminSession)).toBe(false)
     expect(canDisableOrganization(ownerSession, 'tenant-a')).toBe(true)
     expect(canDisableOrganization(superAdminSession, 'tenant-a')).toBe(false)
     expect(canTransferOrganizationAdmin(ownerSession, 'tenant-a')).toBe(true)
     expect(canTransferOrganizationAdmin(superAdminSession, 'tenant-a')).toBe(true)
     expect(canTransferOrganizationAdmin(adminSession, 'tenant-a')).toBe(false)
+    expect(canAddExistingOrganizationMember(ownerSession, { id: 'tenant-b', status: 'active' })).toBe(true)
+    expect(canAddExistingOrganizationMember(adminSession, { id: 'tenant-b', status: 'active' })).toBe(false)
+    expect(
+      addExistingOrganizationMemberRoleOptions(
+        sessionFor('user-org-admin', 'tenant-a', ['organization_admin']),
+        { id: 'tenant-a', status: 'active' },
+      ),
+    ).toEqual(['organization_member'])
+    expect(canLeaveOrganization(adminSession, { id: 'tenant-a', status: 'active' }, [
+      membershipFor('user-admin', 'tenant-a', ['admin']),
+    ])).toBe(true)
+    expect(canLeaveOrganization(adminSession, { id: 'tenant-b', status: 'active' }, [
+      membershipFor('user-admin', 'tenant-b', ['admin']),
+    ])).toBe(false)
   })
 
   it('protects system organizations in the admin console helpers', () => {
@@ -181,6 +202,7 @@ describe('admin console helpers', () => {
         sessions: { meta: { total: 6 } },
         billingAccounts: { meta: { total: 3 } },
         billingPaymentReconciliation: { meta: { total: 7 } },
+        billingReconciliationAlerts: { meta: { total: 11 } },
         auditLogs: { meta: { total: 9 } },
       }),
     ).toEqual({
@@ -191,6 +213,7 @@ describe('admin console helpers', () => {
       sessions: 6,
       billingAccounts: 3,
       paymentReconciliation: 7,
+      reconciliationAlerts: 11,
       auditLogs: 9,
     })
   })
@@ -269,5 +292,5 @@ function sessionFor(userId, tenantId, roles, permissions = ['admin.dashboard.rea
 }
 
 function membershipFor(userId, tenantId, roles) {
-  return { userId, tenantId, roles }
+  return { userId, tenantId, roles, status: 'active' }
 }

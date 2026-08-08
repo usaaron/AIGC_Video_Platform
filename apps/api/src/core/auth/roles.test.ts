@@ -12,6 +12,7 @@ import {
   isSuperAdmin,
   isTenantAdmin,
   isTenantManager,
+  usageVisibilityFor,
 } from './roles.js'
 
 describe('roles', () => {
@@ -42,6 +43,15 @@ describe('roles', () => {
 
     expect(canReadAllTenantContent(owner)).toBe(true)
     expect(canReadAllTenantContent(member)).toBe(false)
+  })
+
+  it('freezes usage visibility boundaries by role', () => {
+    expect(usageVisibilityFor(principal(ROLES.OWNER))).toBe('all')
+    expect(usageVisibilityFor(principal(ROLES.SUPER_ADMIN))).toBe('all')
+    expect(usageVisibilityFor(principal(ROLES.ADMIN))).toBe('platform_scope')
+    expect(usageVisibilityFor(principal(ROLES.ORGANIZATION_ADMIN))).toBe('organization_scope')
+    expect(usageVisibilityFor(principal(ROLES.MEMBER))).toBe('self')
+    expect(usageVisibilityFor(principal(ROLES.ORGANIZATION_MEMBER))).toBe('self')
   })
 
   it('flags elevated role arrays consistently', () => {

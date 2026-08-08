@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { OpenAIChatTextProvider } from './openAIChatTextProvider.js'
+import { usageCollector } from '../observability/usage.js'
 
 describe('OpenAIChatTextProvider', () => {
+  beforeEach(() => {
+    usageCollector.resetForTests()
+  })
+
   it('parses streamed chunks that include extra OpenAI-compatible choice fields', async () => {
     const stream = [
       'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"glm-5.2","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}',
@@ -27,8 +32,24 @@ describe('OpenAIChatTextProvider', () => {
     })
 
     await expect(
-      provider.generate({ systemPrompt: 'system', userPrompt: 'user', maxOutputTokens: 32 }),
+      provider.generate({
+        systemPrompt: 'system',
+        userPrompt: 'user',
+        maxOutputTokens: 32,
+        usageContext: {
+          tenantId: 'tenant-1',
+          organizationId: 'organization-1',
+          userId: 'user-1',
+          traceId: 'trace-text-usage',
+        },
+      }),
     ).resolves.toBe('可用')
+    expect(usageCollector.snapshot({ userId: 'user-1' })).toMatchObject({
+      tpm: 3,
+      inputTokens: 1,
+      outputTokens: 2,
+      totalTokens: 3,
+    })
   })
 
   it('accepts array content and skips malformed streamed provider events', async () => {

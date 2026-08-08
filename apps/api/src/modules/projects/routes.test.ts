@@ -194,14 +194,20 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       error: { code: expect.stringMatching(/PROJECT_NOT_FOUND|PERMISSION_DENIED|TENANT_SCOPE_MISMATCH/) },
     })
 
+    const missingMediaId = '00000000-0000-4000-8000-000000000000'
+    const missingMedia = await app.inject({
+      method: 'GET',
+      url: `/api/v1/media/${missingMediaId}`,
+      headers: { cookie: memberCookie, 'user-agent': 'MediaAuditTest/1.0' },
+    })
+    expect(missingMedia.statusCode).toBe(404)
+
     const archived = await app.inject({
-      method: 'PATCH',
+      method: 'DELETE',
       url: `/api/v1/projects/${projectId}`,
       headers: { cookie: memberCookie },
-      payload: { status: 'archived' },
     })
-    expect(archived.statusCode).toBe(200)
-    expect(archived.json()).toMatchObject({ id: projectId, status: 'archived' })
+    expect(archived.statusCode).toBe(204)
 
     const deletedAsset = await app.inject({
       method: 'DELETE',
@@ -235,6 +241,56 @@ describe('project postgres api', { timeout: 30_000 }, () => {
         [projectId, assetId, shotId],
       )
       expect(deleted.rows[0]).toEqual({ project_status: 'archived', asset_count: '0', shot_count: '1' })
+
+      const audit = await database.query<{
+        action: string
+        resource_type: string
+        resource_id: string
+        actor_user_id: string
+        metadata: Record<string, unknown>
+      }>(
+        `
+        SELECT action, resource_type, resource_id, actor_user_id, metadata
+        FROM audit_log_entries
+        WHERE action = 'project.archived'
+          AND resource_id = $1
+        LIMIT 1
+        `,
+        [projectId],
+      )
+      expect(audit.rows[0]).toMatchObject({
+        action: 'project.archived',
+        resource_type: 'project',
+        resource_id: projectId,
+        actor_user_id: 'user-member',
+        metadata: expect.objectContaining({ status: 'archived', traceId: expect.any(String) }),
+      })
+
+      const mediaAudit = await database.query<{
+        action: string
+        resource_type: string
+        resource_id: string
+        user_id: string
+        user_agent: string
+        metadata: Record<string, unknown>
+      }>(
+        `
+        SELECT action, resource_type, resource_id, user_id, user_agent, metadata
+        FROM audit_log_entries
+        WHERE action = 'media.access.failed'
+          AND resource_id = $1
+        LIMIT 1
+        `,
+        [missingMediaId],
+      )
+      expect(mediaAudit.rows[0]).toMatchObject({
+        action: 'media.access.failed',
+        resource_type: 'media_object',
+        resource_id: missingMediaId,
+        user_id: 'user-member',
+        user_agent: 'MediaAuditTest/1.0',
+        metadata: expect.objectContaining({ reason: 'media_not_found', traceId: expect.any(String) }),
+      })
     })
   })
 

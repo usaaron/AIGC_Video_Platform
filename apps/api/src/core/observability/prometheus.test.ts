@@ -67,5 +67,23 @@ function snapshot(): ObservabilitySnapshot {
     filmPreview: {
       executions: {},
     },
+    usage: {
+      apiConcurrency: 0,
+      jobConcurrency: 0,
+      providerConcurrency: 0,
+      rpm: 0,
+      tpm: 0,
+      requestCount: 0,
+      jobCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      creditsUsed: 0,
+      errorCount: 0,
+      errorRate: 0,
+      jobFailedCount: 0,
+      jobFailureRate: 0,
+      providerUnits: 0,
+    },
   }
 }

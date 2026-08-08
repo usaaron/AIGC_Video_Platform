@@ -5,6 +5,8 @@ import type { VideoGenerationProvider, VideoProviderName } from '../generation/v
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../../modules/billing/creditLedger.js'
+import { usageCollector } from '../observability/usage.js'
+import { traceIdFromGenerationTask } from '../observability/trace.js'
 import {
   DependencyResolver,
   ImageTaskExecutor,
@@ -201,8 +203,31 @@ export class GenerationTaskRunner implements TaskDispatcher {
     for (const task of tasks) {
       if (this.activeExecutions.has(task.id)) continue
       this.activeExecutions.add(task.id)
+      usageCollector.startJob({
+        jobId: task.id,
+        source: 'generation_task',
+        kind: task.kind,
+        tenantId: task.tenantId,
+        organizationId: task.tenantId,
+        userId: task.userId,
+        traceId: traceIdFromGenerationTask(task),
+      })
       const execution = withHeartbeat ? this.executeRemoteTask(task, execute) : execute(task)
       void execution.finally(() => {
+        const stored = this.store.read((state) => state.tasks.find((item) => item.id === task.id) ?? task)
+        const status = usageStatusForTask(stored)
+        usageCollector.finishJob({
+          jobId: task.id,
+          source: 'generation_task',
+          kind: task.kind,
+          status,
+          creditsUsed: status === 'completed' ? stored.estimatedCredits : 0,
+          recordUsage: false,
+          tenantId: stored.tenantId,
+          organizationId: stored.tenantId,
+          userId: stored.userId,
+          traceId: traceIdFromGenerationTask(stored),
+        })
         this.activeExecutions.delete(task.id)
       })
     }
@@ -274,4 +299,11 @@ function localTaskError(error: unknown): string {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+function usageStatusForTask(task: GenerationTask): 'completed' | 'failed' | 'cancelled' | 'unknown' {
+  if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+    return task.status
+  }
+  return 'unknown'
 }

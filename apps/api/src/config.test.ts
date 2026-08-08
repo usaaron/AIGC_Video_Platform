@@ -85,6 +85,15 @@ describe('production configuration', () => {
     ).toThrow('REDIS_URL is required when TASK_QUEUE_DRIVER=bullmq')
   })
 
+  it('requires Postgres for production identity, billing, admin and observability data', () => {
+    expect(() =>
+      loadConfig({
+        ...productionConfig(),
+        DATABASE_URL: '',
+      }),
+    ).toThrow('DATABASE_URL is required in production')
+  })
+
   it('forbids startup account bootstrap in production', () => {
     expect(() =>
       loadConfig({
@@ -159,6 +168,7 @@ function productionConfig(overrides: Record<string, string> = {}): Record<string
     TOKENADVENT_API_KEY: 'production-image-token',
     REHDASU_API_KEY: 'production-text-token',
     REDIS_URL: 'redis://redis:6379',
+    DATABASE_URL: 'postgres://seqora:production-password@postgres:5432/seqora',
     ...overrides,
   }
 }

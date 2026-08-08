@@ -12,6 +12,7 @@
     "db:migrate": "tsx src/scripts/dbMigrate.ts",
     "accounts:init": "tsx src/scripts/initProductionAccounts.ts",
     "accounts:reset-admin-password": "tsx src/scripts/resetBootstrapAdminPassword.ts",
+    "db:repair-personal-organizations": "tsx src/scripts/repairPersonalOrganizations.ts",
     "db:anonymize-preprod": "tsx src/scripts/anonymizePreprodData.ts",
     "db:anonymize-preprod:check": "tsx src/scripts/anonymizePreprodData.ts --dry-run",
     "db:import-json": "tsx src/scripts/importJsonToPostgres.ts",

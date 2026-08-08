@@ -23,6 +23,8 @@ import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../../modules/billing/creditLedger.js'
 import { observabilityMetrics, observeProviderCall } from '../observability/metrics.js'
+import { traceIdFromGenerationTask } from '../observability/trace.js'
+import { usageCollector } from '../observability/usage.js'
 import {
   DEFAULT_TASK_MAX_ATTEMPTS,
   claimGenerationTaskLease,
@@ -550,7 +552,10 @@ export class VideoTaskExecutor {
           provider: stringValue(preparedTask.metadata.providerName, 'seedance'),
           operation: 'video.submit',
           tenantId: preparedTask.tenantId,
+          organizationId: preparedTask.tenantId,
+          userId: preparedTask.userId,
           taskId: preparedTask.id,
+          traceId: traceIdFromGenerationTask(preparedTask),
         },
         () => this.options.videoProvider!.submit(request),
       )
@@ -764,7 +769,10 @@ export class ImageTaskExecutor {
           provider: stringValue(preparedTask.metadata.providerName, 'tokenadvent-img2'),
           operation: 'image.generate',
           tenantId: preparedTask.tenantId,
+          organizationId: preparedTask.tenantId,
+          userId: preparedTask.userId,
           taskId: preparedTask.id,
+          traceId: traceIdFromGenerationTask(preparedTask),
         },
         () => this.options.imageProvider!.generate(request),
       )
@@ -932,7 +940,10 @@ export class ProviderPoller {
             provider: this.options.videoProviderName,
             operation: 'video.cancel',
             tenantId: task.tenantId,
+            organizationId: task.tenantId,
+            userId: task.userId,
             taskId: task.id,
+            traceId: traceIdFromGenerationTask(task),
           },
           () => this.options.videoProvider!.cancel!(providerTaskId),
         )
@@ -1001,7 +1012,10 @@ export class ProviderPoller {
             provider: this.options.videoProviderName,
             operation: 'video.getStatus',
             tenantId: task.tenantId,
+            organizationId: task.tenantId,
+            userId: task.userId,
             taskId: task.id,
+            traceId: traceIdFromGenerationTask(task),
           },
           () => this.options.videoProvider!.getStatus(providerTaskId),
         )
@@ -1020,7 +1034,10 @@ export class ProviderPoller {
                 provider: this.options.videoProviderName,
                 operation: 'video.getLastFrameContent',
                 tenantId: task.tenantId,
+                organizationId: task.tenantId,
+                userId: task.userId,
                 taskId: task.id,
+                traceId: traceIdFromGenerationTask(task),
               },
               () =>
                 this.options.writeback.persistVideoLastFrame(
@@ -1274,6 +1291,19 @@ function recordGenerationTaskTerminal(task: GenerationTask, error?: unknown): vo
     ok: task.status === 'completed',
     error,
   })
+  if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+    usageCollector.recordJobTerminal({
+      jobId: task.id,
+      source: 'generation_task',
+      kind: task.kind,
+      status: task.status,
+      creditsUsed: task.status === 'completed' ? task.estimatedCredits : 0,
+      tenantId: task.tenantId,
+      organizationId: task.tenantId,
+      userId: task.userId,
+      traceId: traceIdFromGenerationTask(task),
+    })
+  }
 }
 
 function taskMetricKind(task: GenerationTask): string {

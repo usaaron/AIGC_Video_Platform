@@ -10,6 +10,7 @@ import { createPublicMediaToken, verifyPublicMediaToken } from '../../core/media
 import { AppError } from '../../core/errors.js'
 import type { AppStore, StoredMedia } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
+import type { MediaRepository } from '../media/repository.js'
 import type { ProjectRepository } from '../projects/repository.js'
 
 const SOURCE_URL_TTL_MS = 24 * 60 * 60 * 1_000
@@ -34,6 +35,9 @@ export class TrustedAssetService {
     private readonly projectName: string,
     private readonly consoleUrl = '',
     private readonly projectRepository: Pick<ProjectRepository, 'updateAsset'> | null = null,
+    private readonly mediaRepository:
+      | Pick<MediaRepository, 'findSourceById' | 'findSourceByReferenceIds'>
+      | null = null,
   ) {}
 
   configuration() {
@@ -101,7 +105,7 @@ export class TrustedAssetService {
       return this.savePortrait(asset, portrait, 'ai-virtual', principal)
     }
 
-    const source = this.findSource(asset)
+    const source = await this.findSource(asset)
     if (!source) {
       throw new AppError(409, 'FACE_SOURCE_REQUIRED', '请先生成或导入并确认人物面部，再创建弦序素材资源')
     }
@@ -236,45 +240,92 @@ export class TrustedAssetService {
     return asset as CharacterAsset
   }
 
-  private findSource(asset: CharacterAsset): StoredSource | null {
+  private async findSource(asset: CharacterAsset): Promise<StoredSource | null> {
+    const currentFace = asset.attributes.faceReference
+    if (currentFace) {
+      const currentFacePath = referencePath(currentFace.url)
+      const mediaId = /^\/api\/v1\/media\/([^/]+)$/.exec(currentFacePath)?.[1] ?? currentFace.id
+      const mediaSource = await this.findMediaSourceById(mediaId, asset)
+      if (mediaSource) return mediaSource
+
+      const generated = /^\/api\/v1\/generation\/tasks\/([^/]+)\/outputs\/([^/]+)$/.exec(currentFacePath)
+      if (!generated) return null
+      return this.findGeneratedTaskSource(asset, generated[1]!, generated[2]!)
+    }
+
+    const generated = this.findLegacyGeneratedFaceSource(asset)
+    if (generated) return generated
+
+    return await this.findMediaSourceByReferenceIds(asset.references.map((item) => item.id), asset)
+  }
+
+  private async findMediaSourceById(mediaId: string, asset: CharacterAsset): Promise<StoredSource | null> {
+    if (this.mediaRepository) {
+      return await this.mediaRepository.findSourceById(mediaId, asset.projectId, asset.tenantId, 'image')
+    }
     return this.store.read((state) => {
-      const currentFace = asset.attributes.faceReference
-      if (currentFace) {
-        const currentFacePath = referencePath(currentFace.url)
-        const mediaId = /^\/api\/v1\/media\/([^/]+)$/.exec(currentFacePath)?.[1] ?? currentFace.id
-        const media = state.media.find(
-          (item) =>
-            item.id === mediaId &&
-            item.projectId === asset.projectId &&
-            item.tenantId === asset.tenantId &&
-            item.kind === 'image',
-        )
-        if (media) return sourceFromMedia(media)
+      const media = state.media.find(
+        (item) =>
+          item.id === mediaId &&
+          item.projectId === asset.projectId &&
+          item.tenantId === asset.tenantId &&
+          item.kind === 'image',
+      )
+      return media ? sourceFromMedia(media) : null
+    })
+  }
 
-        const generated = /^\/api\/v1\/generation\/tasks\/([^/]+)\/outputs\/([^/]+)$/.exec(currentFacePath)
-        if (!generated) return null
-        const sourceTask = state.tasks.find(
-          (task) =>
-            task.id === generated[1] &&
-            task.projectId === asset.projectId &&
-            task.tenantId === asset.tenantId &&
-            task.status === 'completed',
-        )
-        const descriptors = Array.isArray(sourceTask?.metadata.generatedOutputs)
-          ? sourceTask.metadata.generatedOutputs
-          : []
-        const descriptor = descriptors.find(
-          (item) =>
-            item &&
-            typeof item === 'object' &&
-            (item as { view?: unknown }).view === generated[2] &&
-            typeof (item as { storageKey?: unknown }).storageKey === 'string' &&
-            typeof (item as { contentType?: unknown }).contentType === 'string',
-        ) as StoredSource | undefined
-        return descriptor ?? null
-      }
+  private async findMediaSourceByReferenceIds(
+    referenceIds: readonly string[],
+    asset: CharacterAsset,
+  ): Promise<StoredSource | null> {
+    if (!referenceIds.length) return null
+    if (this.mediaRepository) {
+      return await this.mediaRepository.findSourceByReferenceIds(
+        referenceIds,
+        asset.projectId,
+        asset.tenantId,
+        'image',
+      )
+    }
+    return this.store.read((state) => {
+      const media = state.media.find(
+        (item) =>
+          referenceIds.includes(item.id) &&
+          item.projectId === asset.projectId &&
+          item.tenantId === asset.tenantId &&
+          item.kind === 'image',
+      )
+      return media ? sourceFromMedia(media) : null
+    })
+  }
 
-      // Legacy assets may have an approved face without a persisted faceReference.
+  private findGeneratedTaskSource(asset: CharacterAsset, taskId: string, view: string): StoredSource | null {
+    return this.store.read((state) => {
+      const sourceTask = state.tasks.find(
+        (task) =>
+          task.id === taskId &&
+          task.projectId === asset.projectId &&
+          task.tenantId === asset.tenantId &&
+          task.status === 'completed',
+      )
+      const descriptors = Array.isArray(sourceTask?.metadata.generatedOutputs)
+        ? sourceTask.metadata.generatedOutputs
+        : []
+      const descriptor = descriptors.find(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          (item as { view?: unknown }).view === view &&
+          typeof (item as { storageKey?: unknown }).storageKey === 'string' &&
+          typeof (item as { contentType?: unknown }).contentType === 'string',
+      ) as StoredSource | undefined
+      return descriptor ?? null
+    })
+  }
+
+  private findLegacyGeneratedFaceSource(asset: CharacterAsset): StoredSource | null {
+    return this.store.read((state) => {
       const faceTask = state.tasks.find(
         (task) =>
           task.projectId === asset.projectId &&
@@ -293,17 +344,7 @@ export class TrustedAssetService {
           typeof (item as { storageKey?: unknown }).storageKey === 'string' &&
           typeof (item as { contentType?: unknown }).contentType === 'string',
       ) as StoredSource | undefined
-      if (generated) return generated
-
-      const referenceIds = asset.references.map((item) => item.id)
-      const media = state.media.find(
-        (item) =>
-          referenceIds.includes(item.id) &&
-          item.projectId === asset.projectId &&
-          item.tenantId === asset.tenantId &&
-          item.kind === 'image',
-      )
-      return media ? sourceFromMedia(media) : null
+      return generated ?? null
     })
   }
 

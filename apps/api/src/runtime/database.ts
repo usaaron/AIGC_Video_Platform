@@ -12,9 +12,6 @@ export async function createRuntimeDatabase(
   config: AppConfig,
   storeOverride?: AppStore,
 ): Promise<RuntimeDatabase> {
-  const store = storeOverride ?? createRuntimeStore(config)
-  await store.initialize()
-
   const database = config.DATABASE_URL ? new AccountDatabase(config.DATABASE_URL) : null
   if (database) {
     if (config.NODE_ENV === 'production') {
@@ -23,6 +20,9 @@ export async function createRuntimeDatabase(
       await database.migrate()
     }
   }
+
+  const store = storeOverride ?? createRuntimeStore(config)
+  await store.initialize()
 
   return { store, database }
 }

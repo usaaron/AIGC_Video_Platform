@@ -1,5 +1,6 @@
 import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/contracts'
 import { describe, expect, it } from 'vitest'
+import type { AccountDatabase } from '../../infra/postgres.js'
 import { AppStore } from '../../infra/store.js'
 import { GenerationTaskRepository } from './repository.js'
 
@@ -10,6 +11,77 @@ const memberPrincipal: Principal = {
 }
 
 describe('GenerationTaskRepository charged creation', () => {
+  it('reads the canonical storyboard prompt from postgres instead of the runtime cache', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const currentPrompt = '0-2 seconds: current database action.\n2-5 seconds: current database reaction.'
+    const database = {
+      query: async (sql: string) => {
+        if (sql.includes('FROM projects')) {
+          return {
+            rows: [
+              {
+                id: 'project-midnight-film',
+                tenant_id: memberPrincipal.tenantId,
+                owner_user_id: memberPrincipal.userId,
+                name: 'Database project',
+                content_type: 'short-drama',
+                aspect_ratio: '16:9',
+                status: 'draft',
+                synopsis: '',
+                script: '',
+                version: 8,
+                created_at: '2026-08-08T00:00:00.000Z',
+                updated_at: '2026-08-08T01:00:00.000Z',
+              },
+            ],
+          }
+        }
+        if (sql.includes('FROM shots')) {
+          return {
+            rows: [
+              {
+                id: 'shot-1',
+                project_id: 'project-midnight-film',
+                tenant_id: memberPrincipal.tenantId,
+                shot_order: 1,
+                title: 'Current shot',
+                framing: 'Medium',
+                duration_seconds: 5,
+                prompt: currentPrompt,
+                negative_prompt: '',
+                image_url: null,
+                continuity_mode: 'continue',
+                continuity_note: '',
+                episode_break_before: false,
+                episode_number: 1,
+                episode_title: 'Episode 1',
+                episode_kind: 'standard',
+                created_at: '2026-08-08T00:00:00.000Z',
+                updated_at: '2026-08-08T01:00:00.000Z',
+              },
+            ],
+          }
+        }
+        if (sql.includes('FROM assets')) return { rows: [] }
+        throw new Error(`Unexpected query: ${sql}`)
+      },
+    } as unknown as AccountDatabase
+    const repository = new GenerationTaskRepository(store, null, database)
+
+    const context = await repository.storyboardVideoContext(
+      taskInput({
+        kind: 'video',
+        provider: 'seedance',
+        metadata: { shotId: 'shot-1' },
+      }),
+      memberPrincipal,
+    )
+
+    expect(context?.shot.prompt).toBe(currentPrompt)
+    expect(context?.project.version).toBe(8)
+  })
+
   it('keeps a selected completed video after the shot has been regenerated', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -45,7 +117,7 @@ describe('GenerationTaskRepository charged creation', () => {
       state.tasks.unshift(retainedTask)
     })
 
-    const plan = repository.filmPreviewPlan('project-midnight-film', memberPrincipal)
+    const plan = await repository.filmPreviewPlan('project-midnight-film', memberPrincipal)
 
     expect(plan?.sources.find((source) => source.shot.id === 'shot-1')?.task?.id).toBe(retainedTask.id)
   })

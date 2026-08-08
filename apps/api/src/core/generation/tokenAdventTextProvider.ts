@@ -3,6 +3,11 @@ import {
   type TextGenerationProvider,
   type TextGenerationRequest,
 } from './textProvider.js'
+import {
+  providerTokenUsageFromPayload,
+  recordTextProviderUsage,
+  type ProviderTokenUsage,
+} from '../observability/usage.js'
 
 export type TokenAdventTextOptions = {
   baseUrl: string
@@ -46,10 +51,14 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
     if (!response.ok) throw await textProviderError(response)
 
     if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
-      return readCompletionStream(response.body, this.options.requestTimeoutMs)
+      const completion = await readCompletionStream(response.body, this.options.requestTimeoutMs)
+      this.recordTokenUsage(request, model, completion.usage)
+      return completion.text
     }
-    const content = completionText(await response.json())
+    const payload = await response.json()
+    const content = completionText(payload)
     if (!content) throw new InvalidTextResponseError()
+    this.recordTokenUsage(request, model, providerTokenUsageFromPayload(payload))
     return content.trim()
   }
 
@@ -92,6 +101,19 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
       ? this.options.alternateApiKey
       : this.options.apiKey
   }
+
+  private recordTokenUsage(
+    request: TextGenerationRequest,
+    model: string,
+    usage: ProviderTokenUsage | null,
+  ): void {
+    recordTextProviderUsage({
+      provider: 'tokenadvent-gpt',
+      model,
+      usageContext: request.usageContext ?? null,
+      usage,
+    })
+  }
 }
 
 class TokenAdventHttpError extends Error {
@@ -111,12 +133,16 @@ class InvalidTextResponseError extends Error {
   }
 }
 
-async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs: number): Promise<string> {
+async function readCompletionStream(
+  body: ReadableStream<Uint8Array>,
+  timeoutMs: number,
+): Promise<{ text: string; usage: ProviderTokenUsage | null }> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   const startedAt = Date.now()
   let buffered = ''
   let content = ''
+  let usage: ProviderTokenUsage | null = null
 
   const consume = (line: string) => {
     if (!line.startsWith('data:')) return
@@ -129,6 +155,7 @@ async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs:
       return
     }
     if (!isRecord(value)) return
+    usage = providerTokenUsageFromPayload(value) ?? usage
     content += completionText(value)
   }
 
@@ -167,7 +194,7 @@ async function readCompletionStream(body: ReadableStream<Uint8Array>, timeoutMs:
   if (buffered) consume(buffered)
   const result = content.trim()
   if (!result) throw new InvalidTextResponseError()
-  return result
+  return { text: result, usage }
 }
 
 function timeoutError(): DOMException {

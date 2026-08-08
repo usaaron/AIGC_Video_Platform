@@ -4,6 +4,7 @@ import {
   Building2,
   Check,
   Clock,
+  Copy,
   CreditCard,
   Filter,
   FileText,
@@ -13,6 +14,7 @@ import {
   KeyRound,
   LoaderCircle,
   LogOut,
+  MailPlus,
   Monitor,
   PencilLine,
   Plus,
@@ -20,6 +22,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  UserPlus,
   UsersRound,
   X,
 } from 'lucide-react'
@@ -28,9 +31,13 @@ import { api } from './apiClient'
 import {
   assignableRoleOptions,
   auditLogTone,
+  addExistingOrganizationMemberRoleOptions,
   buildSessionRiskRows,
+  canAddExistingOrganizationMember,
+  canCreateOrganization,
   canCreateOrganizationUser,
   canDisableOrganization,
+  canLeaveOrganization,
   canManageBilling,
   canManageMembership,
   canManageOrganization,
@@ -57,10 +64,15 @@ import {
 
 const tabs = [
   { id: 'overview', label: '概览', icon: Gauge },
+  { id: 'usage-realtime', label: '实时用量', icon: Activity },
+  { id: 'usage-users', label: '用户用量', icon: UsersRound },
+  { id: 'usage-organizations', label: '组织用量', icon: Building2 },
   { id: 'users', label: '用户', icon: UsersRound },
   { id: 'organizations', label: '组织', icon: Building2 },
   { id: 'memberships', label: '成员关系', icon: IdCard },
+  { id: 'invitations', label: '邀请', icon: MailPlus },
   { id: 'billing', label: '账单流水', icon: CreditCard },
+  { id: 'reconciliation-alerts', label: '对账告警', icon: AlertTriangle },
   { id: 'adjustments', label: '账单调账', icon: PencilLine },
   { id: 'sessions', label: 'Session', icon: KeyRound },
   { id: 'session-risk', label: 'Session 风险', icon: AlertTriangle },
@@ -71,11 +83,49 @@ const loginInitialState = { email: '', password: '' }
 const adjustmentInitialState = { amount: '', reason: '' }
 const grantInitialState = { amount: '', reason: '' }
 const passwordInitialState = { newPassword: '', requireChange: true, revokeSessions: true }
+const reconciliationAlertMessageDefaults = {
+  acknowledged: '已确认，正在处理',
+  resolved: '已解决，已完成对账',
+}
+const createOrganizationInitialState = { name: '' }
 const createUserInitialState = { organizationId: '', email: '', name: '', password: '', role: 'member' }
+const addExistingMemberInitialState = { organizationId: '', email: '', role: 'organization_member' }
+const createInvitationInitialState = { organizationId: '', email: '', role: 'member' }
+const sessionRiskAuditInitialState = { userId: '', items: [], loading: false, error: '' }
+const consoleFilterInitialState = { tenantId: '', role: '', status: '', limit: 50, offset: 0 }
+const consolePageSizeOptions = [25, 50, 100]
+const consoleRoleFilterOptions = [
+  'owner',
+  'super_admin',
+  'admin',
+  'member',
+  'organization_admin',
+  'organization_member',
+]
+const consoleStatusFilterOptions = ['active', 'disabled']
 const organizationAdminTransferInitialState = {
   organizationId: '',
   currentOrganizationAdminUserId: '',
   targetUserId: '',
+}
+const WEB_ORIGIN = (import.meta.env.VITE_WEB_ORIGIN || 'http://localhost:5173').replace(/\/+$/, '')
+const organizationScopedRoles = new Set(['organization_admin', 'organization_member'])
+const usageTabIds = new Set(['usage-realtime', 'usage-users', 'usage-organizations'])
+
+function isUsageTab(tabId) {
+  return usageTabIds.has(tabId)
+}
+
+function roleRequiresOrganization(role) {
+  return organizationScopedRoles.has(role)
+}
+
+function platformRoleScopeName(role) {
+  return role === 'member' ? 'C 端个人空间（自动创建）' : '平台内部系统组织'
+}
+
+function invitationUrlFor(token) {
+  return `${WEB_ORIGIN}/register?token=${encodeURIComponent(token)}`
 }
 
 export function App() {
@@ -86,8 +136,14 @@ export function App() {
   const [snapshot, setSnapshot] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [usageSummary, setUsageSummary] = useState(null)
+  const [usageLoading, setUsageLoading] = useState(false)
+  const [usageError, setUsageError] = useState('')
+  const [usageRange, setUsageRange] = useState('today')
   const [notice, setNotice] = useState('')
+  const [queryDraft, setQueryDraft] = useState('')
   const [query, setQuery] = useState('')
+  const [consoleFilters, setConsoleFilters] = useState(consoleFilterInitialState)
   const [activeTab, setActiveTab] = useState('overview')
   const [busy, setBusy] = useState('')
   const [adjustTarget, setAdjustTarget] = useState(null)
@@ -100,10 +156,33 @@ export function App() {
   const [auditResourceFilter, setAuditResourceFilter] = useState('all')
   const [sessionRiskFilter, setSessionRiskFilter] = useState('all')
   const [organizationTypeFilter, setOrganizationTypeFilter] = useState('all')
+  const [invitationPageOrganizationId, setInvitationPageOrganizationId] = useState('')
+  const [invitationStatusFilter, setInvitationStatusFilter] = useState('all')
+  const [reconciliationAlertStatusFilter, setReconciliationAlertStatusFilter] = useState('open')
+  const [reconciliationAlertSeverityFilter, setReconciliationAlertSeverityFilter] = useState('all')
+  const [reconciliationAlertAction, setReconciliationAlertAction] = useState(null)
+  const [reconciliationAlertMessage, setReconciliationAlertMessage] = useState('')
   const [passwordTarget, setPasswordTarget] = useState(null)
   const [passwordForm, setPasswordForm] = useState(passwordInitialState)
+  const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false)
+  const [createOrganizationForm, setCreateOrganizationForm] = useState(createOrganizationInitialState)
   const [createUserOpen, setCreateUserOpen] = useState(false)
   const [createUserForm, setCreateUserForm] = useState(createUserInitialState)
+  const [addExistingMemberOpen, setAddExistingMemberOpen] = useState(false)
+  const [addExistingMemberForm, setAddExistingMemberForm] = useState(addExistingMemberInitialState)
+  const [createInvitationOpen, setCreateInvitationOpen] = useState(false)
+  const [createInvitationForm, setCreateInvitationForm] = useState(createInvitationInitialState)
+  const [createdInvitation, setCreatedInvitation] = useState(null)
+  const [invitationManagerTarget, setInvitationManagerTarget] = useState(null)
+  const [invitationItems, setInvitationItems] = useState([])
+  const [invitationLoading, setInvitationLoading] = useState(false)
+  const [invitationError, setInvitationError] = useState('')
+  const [userDetailId, setUserDetailId] = useState('')
+  const [organizationDetailId, setOrganizationDetailId] = useState('')
+  const [membershipDetailId, setMembershipDetailId] = useState('')
+  const [auditDetailId, setAuditDetailId] = useState('')
+  const [sessionRiskDetailId, setSessionRiskDetailId] = useState('')
+  const [sessionRiskAuditContext, setSessionRiskAuditContext] = useState(sessionRiskAuditInitialState)
   const [organizationAdminTransferTarget, setOrganizationAdminTransferTarget] = useState(null)
   const [organizationAdminTransferForm, setOrganizationAdminTransferForm] = useState(
     organizationAdminTransferInitialState,
@@ -131,11 +210,23 @@ export function App() {
   const canManageAccountStatus = canManageUsers(session)
   const canAdjustBilling = canManageBilling(session)
 
+  const consoleRequestParams = useMemo(
+    () => ({
+      limit: consoleFilters.limit,
+      offset: consoleFilters.offset,
+      ...(query ? { q: query } : {}),
+      ...(consoleFilters.tenantId ? { tenantId: consoleFilters.tenantId } : {}),
+      ...(consoleFilters.role ? { role: consoleFilters.role } : {}),
+      ...(consoleFilters.status ? { status: consoleFilters.status } : {}),
+    }),
+    [consoleFilters, query],
+  )
+
   const loadConsole = async () => {
     setLoading(true)
     setError('')
     try {
-      setSnapshot(await api.adminConsole())
+      setSnapshot(await api.adminConsole(consoleRequestParams))
     } catch (requestError) {
       if (requestError.status === 401) setSession(null)
       setError(requestError.message)
@@ -144,10 +235,40 @@ export function App() {
     }
   }
 
+  const loadUsage = async () => {
+    setUsageLoading(true)
+    setUsageError('')
+    try {
+      setUsageSummary(await api.adminUsage({ range: usageRange, limit: 100, offset: 0 }))
+    } catch (requestError) {
+      if (requestError.status === 401) setSession(null)
+      setUsageError(requestError.message)
+    } finally {
+      setUsageLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (!session || !canReadConsole) return
     void loadConsole()
-  }, [session?.account?.id, session?.account?.tenantId, canReadConsole])
+  }, [session?.account?.id, session?.account?.tenantId, canReadConsole, consoleRequestParams])
+
+  useEffect(() => {
+    if (!session || !canReadConsole || !isUsageTab(activeTab)) return
+    void loadUsage()
+  }, [session?.account?.id, session?.account?.tenantId, canReadConsole, activeTab, usageRange])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setConsoleFilters((current) => (current.offset === 0 ? current : { ...current, offset: 0 }))
+      setQuery(queryDraft.trim())
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [queryDraft])
+
+  useEffect(() => {
+    setConsoleFilters((current) => (current.offset === 0 ? current : { ...current, offset: 0 }))
+  }, [activeTab])
 
   useEffect(() => {
     if (!notice) return undefined
@@ -168,33 +289,133 @@ export function App() {
     )
   }, [snapshot?.generatedAt])
 
+  const organizationItems = useMemo(
+    () => snapshot?.organizations?.items ?? snapshot?.tenants?.items ?? [],
+    [snapshot],
+  )
+  const organizationDetailTarget = useMemo(
+    () => organizationItems.find((organization) => organization.id === organizationDetailId) ?? null,
+    [organizationItems, organizationDetailId],
+  )
+  const userDetailTarget = useMemo(
+    () => snapshot?.users?.items.find((user) => user.id === userDetailId) ?? null,
+    [snapshot, userDetailId],
+  )
+  const membershipDetailTarget = useMemo(
+    () =>
+      snapshot?.memberships?.items.find((membership) => membershipIdFor(membership) === membershipDetailId) ??
+      null,
+    [snapshot, membershipDetailId],
+  )
+  const auditDetailTarget = useMemo(
+    () => snapshot?.auditLogs?.items.find((entry) => entry.id === auditDetailId) ?? null,
+    [snapshot, auditDetailId],
+  )
+  const sessionRiskDetailTarget = useMemo(
+    () =>
+      buildSessionRiskRows(snapshot?.sessions?.items ?? []).find(
+        (item) => item.sessionId === sessionRiskDetailId,
+      ) ?? null,
+    [snapshot, sessionRiskDetailId],
+  )
+  const creatableOrganizations = useMemo(
+    () =>
+      organizationItems.filter(
+        (item) => item.status === 'active' && canCreateOrganizationUser(session, item),
+      ),
+    [organizationItems, session],
+  )
+  const manageableInvitationOrganizations = useMemo(
+    () => organizationItems.filter((item) => canManageOrganization(session, item)),
+    [organizationItems, session],
+  )
+  const invitationPageOrganization = useMemo(
+    () =>
+      manageableInvitationOrganizations.find((organization) => organization.id === invitationPageOrganizationId) ??
+      manageableInvitationOrganizations[0] ??
+      null,
+    [manageableInvitationOrganizations, invitationPageOrganizationId],
+  )
+
   const filtered = useMemo(() => {
     if (!snapshot) return null
-    const organizationItems = snapshot.organizations?.items ?? snapshot.tenants.items
     return {
-      users: filterRows(snapshot.users.items, query),
-      organizations: filterRows(organizationItems, query),
-      memberships: filterRows(snapshot.memberships.items, query),
-      billingAccounts: filterRows(snapshot.billingAccounts.items, query),
-      billingLedgerEntries: filterRows(snapshot.billingLedgerEntries.items, query),
-      billingPaymentReconciliation: filterRows(snapshot.billingPaymentReconciliation?.items ?? [], query),
-      sessions: filterRows(snapshot.sessions.items, query),
-      auditLogs: filterRows(snapshot.auditLogs.items, query),
+      users: snapshot.users.items,
+      organizations: organizationItems,
+      memberships: snapshot.memberships.items,
+      billingAccounts: snapshot.billingAccounts.items,
+      billingLedgerEntries: snapshot.billingLedgerEntries.items,
+      billingPaymentReconciliation: snapshot.billingPaymentReconciliation?.items ?? [],
+      billingReconciliationAlerts: snapshot.billingReconciliationAlerts?.items ?? [],
+      sessions: snapshot.sessions.items,
+      auditLogs: snapshot.auditLogs.items,
     }
-  }, [snapshot, query])
+  }, [snapshot, organizationItems])
 
   const summary = useMemo(() => summarizeConsole(snapshot), [snapshot])
   const createUserOrganization = useMemo(
-    () =>
-      (snapshot?.organizations?.items ?? snapshot?.tenants?.items ?? []).find(
-        (organization) => organization.id === createUserForm.organizationId,
-      ) ?? null,
-    [snapshot, createUserForm.organizationId],
+    () => organizationItems.find((organization) => organization.id === createUserForm.organizationId) ?? null,
+    [organizationItems, createUserForm.organizationId],
   )
   const createUserRoleOptions = useMemo(
-    () => assignableRoleOptions(session, createUserOrganization),
-    [session, createUserOrganization],
+    () => assignableRoleOptions(session, null),
+    [session],
   )
+  const addExistingMemberOrganization = useMemo(
+    () =>
+      organizationItems.find((organization) => organization.id === addExistingMemberForm.organizationId) ??
+      null,
+    [organizationItems, addExistingMemberForm.organizationId],
+  )
+  const addExistingMemberRoleOptions = useMemo(
+    () => addExistingOrganizationMemberRoleOptions(session, addExistingMemberOrganization),
+    [session, addExistingMemberOrganization],
+  )
+  const createInvitationOrganization = useMemo(
+    () =>
+      organizationItems.find((organization) => organization.id === createInvitationForm.organizationId) ??
+      null,
+    [organizationItems, createInvitationForm.organizationId],
+  )
+  const createInvitationRoleOptions = useMemo(
+    () => assignableRoleOptions(session, null),
+    [session],
+  )
+  const activeListMeta = useMemo(() => activeConsoleListMeta(snapshot, activeTab), [snapshot, activeTab])
+  const organizationFilterOptions = useMemo(
+    () => organizationOptionsForFilter(organizationItems, consoleFilters.tenantId),
+    [organizationItems, consoleFilters.tenantId],
+  )
+
+  const updateConsoleFilters = (patch, { resetOffset = true } = {}) => {
+    setConsoleFilters((current) => ({
+      ...current,
+      ...patch,
+      offset: resetOffset ? 0 : (patch.offset ?? current.offset),
+    }))
+  }
+
+  const clearConsoleFilters = () => {
+    setQueryDraft('')
+    setQuery('')
+    setConsoleFilters(consoleFilterInitialState)
+  }
+
+  const goToConsoleOffset = (offset) => {
+    updateConsoleFilters({ offset: Math.max(0, offset) }, { resetOffset: false })
+  }
+
+  const changeConsolePageSize = (limit) => {
+    updateConsoleFilters({ limit: Number(limit), offset: 0 })
+  }
+
+  const refreshActiveData = () => {
+    if (isUsageTab(activeTab)) {
+      void loadUsage()
+      return
+    }
+    void loadConsole()
+  }
 
   const login = async (event) => {
     event.preventDefault()
@@ -253,42 +474,348 @@ export function App() {
   }
 
   const openCreateUser = (organizationId = '') => {
-    const activeOrganizations = (snapshot?.organizations?.items ?? snapshot?.tenants?.items ?? []).filter(
-      (item) => item.status === 'active' && canCreateOrganizationUser(session, item),
-    )
     const organization =
-      activeOrganizations.find((item) => item.id === organizationId) ?? activeOrganizations[0]
-    const roles = assignableRoleOptions(session, organization)
-    if (!organization || !roles.length) {
-      setNotice('该组织不允许添加当前身份可分配的账号')
+      creatableOrganizations.find((item) => item.id === organizationId) ?? creatableOrganizations[0]
+    const roles = assignableRoleOptions(session, null)
+    const organizationRoles = organization
+      ? assignableRoleOptions(session, organization).filter(roleRequiresOrganization)
+      : []
+    const role = organizationId
+      ? (organizationRoles[0] ?? roles[0])
+      : (roles.find((item) => !roleRequiresOrganization(item)) ?? roles[0])
+    if (!roles.length || !role) {
+      setNotice('当前身份不允许添加账号')
       return
     }
     setCreateUserForm({
       ...createUserInitialState,
-      organizationId: organization?.id ?? '',
-      role: roles[0] ?? 'member',
+      organizationId: roleRequiresOrganization(role) ? (organization?.id ?? '') : '',
+      role,
     })
     setCreateUserOpen(true)
   }
 
+  const openCreateOrganization = () => {
+    if (!canCreateOrganization(session)) {
+      setNotice('当前身份不能创建组织')
+      return
+    }
+    setCreateOrganizationForm(createOrganizationInitialState)
+    setCreateOrganizationOpen(true)
+  }
+
+  const openAddExistingMember = (organizationId = '') => {
+    const organizations = organizationItems.filter((organization) =>
+      canAddExistingOrganizationMember(session, organization),
+    )
+    const organization = organizations.find((item) => item.id === organizationId) ?? organizations[0]
+    const roles = addExistingOrganizationMemberRoleOptions(session, organization)
+    const role = roles.includes(addExistingMemberInitialState.role)
+      ? addExistingMemberInitialState.role
+      : roles[0]
+    if (!organization || !role) {
+      setNotice('当前身份不能加入已有账号')
+      return
+    }
+    setAddExistingMemberForm({
+      ...addExistingMemberInitialState,
+      organizationId: organization.id,
+      role,
+    })
+    setAddExistingMemberOpen(true)
+  }
+
+  const openCreateInvitation = (organizationId = '') => {
+    const organization =
+      creatableOrganizations.find((item) => item.id === organizationId) ?? creatableOrganizations[0]
+    const roles = assignableRoleOptions(session, null)
+    const organizationRoles = organization
+      ? assignableRoleOptions(session, organization).filter(roleRequiresOrganization)
+      : []
+    const role = organizationId
+      ? (organizationRoles[0] ?? roles[0])
+      : (roles.find((item) => !roleRequiresOrganization(item)) ?? roles[0])
+    if (!roles.length || !role) {
+      setNotice('当前身份不允许创建邀请')
+      return
+    }
+    setCreateInvitationForm({
+      ...createInvitationInitialState,
+      organizationId: roleRequiresOrganization(role) ? (organization?.id ?? '') : '',
+      role,
+    })
+    setCreateInvitationOpen(true)
+  }
+
+  async function loadOrganizationInvitations(organization = invitationManagerTarget) {
+    if (!organization) return
+    setInvitationLoading(true)
+    setInvitationError('')
+    try {
+      setInvitationItems(await api.listOrganizationInvitations(organization.id))
+    } catch (requestError) {
+      setInvitationError(requestError.message)
+    } finally {
+      setInvitationLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab !== 'invitations') return
+    const selected = invitationPageOrganization
+    if (!selected) {
+      setInvitationItems([])
+      return
+    }
+    if (selected.id !== invitationPageOrganizationId) {
+      setInvitationPageOrganizationId(selected.id)
+      return
+    }
+    void loadOrganizationInvitations(selected)
+  }, [activeTab, invitationPageOrganization, invitationPageOrganizationId])
+
+  const selectInvitationPageOrganization = async (organizationId) => {
+    setInvitationPageOrganizationId(organizationId)
+    const organization = manageableInvitationOrganizations.find((item) => item.id === organizationId)
+    if (organization) await loadOrganizationInvitations(organization)
+  }
+
+  const openInvitationManager = async (organization) => {
+    if (!canManageOrganization(session, organization)) {
+      setNotice('当前身份不能管理该组织邀请')
+      return
+    }
+    setInvitationManagerTarget(organization)
+    setInvitationItems([])
+    await loadOrganizationInvitations(organization)
+  }
+
+  const openOrganizationDetail = (organization) => {
+    setUserDetailId('')
+    setMembershipDetailId('')
+    setOrganizationDetailId(organization.id)
+  }
+
+  const openUserDetail = (user) => {
+    setOrganizationDetailId('')
+    setMembershipDetailId('')
+    setUserDetailId(user.id)
+  }
+
+  const openMembershipDetail = (membership) => {
+    setUserDetailId('')
+    setOrganizationDetailId('')
+    setMembershipDetailId(membershipIdFor(membership))
+  }
+
+  const openAuditDetail = (entry) => {
+    setAuditDetailId(entry.id)
+  }
+
+  const closeAuditDetail = () => {
+    setAuditDetailId('')
+  }
+
+  const searchConsoleTab = (tabId, value, message) => {
+    const searchValue = value || ''
+    setAuditDetailId('')
+    setActiveTab(tabId)
+    setQueryDraft(searchValue)
+    setQuery(searchValue)
+    setConsoleFilters((current) => ({ ...current, offset: 0 }))
+    if (message) setNotice(message)
+  }
+
+  const openAuditUserReference = (userId) => {
+    if (!userId) return
+    const user = snapshot?.users?.items.find((item) => item.id === userId)
+    if (!user) {
+      searchConsoleTab('users', userId, '当前快照未包含该用户，已切到用户列表并按 ID 搜索')
+      return
+    }
+    setAuditDetailId('')
+    setActiveTab('users')
+    openUserDetail(user)
+  }
+
+  const openAuditOrganizationReference = (organizationId) => {
+    if (!organizationId) return
+    const organization = organizationItems.find((item) => item.id === organizationId)
+    if (!organization) {
+      searchConsoleTab('organizations', organizationId, '当前快照未包含该组织，已切到组织列表并按 ID 搜索')
+      return
+    }
+    setAuditDetailId('')
+    setActiveTab('organizations')
+    openOrganizationDetail(organization)
+  }
+
+  const openAuditMembershipReference = (membershipId) => {
+    if (!membershipId) return
+    const membership = snapshot?.memberships?.items.find((item) => membershipIdFor(item) === membershipId)
+    if (!membership) {
+      searchConsoleTab('memberships', membershipId, '当前快照未包含该 membership，已切到成员关系列表并按 ID 搜索')
+      return
+    }
+    setAuditDetailId('')
+    setActiveTab('memberships')
+    openMembershipDetail(membership)
+  }
+
+  const openAuditBillingReference = (referenceId) => {
+    if (!referenceId) return
+    searchConsoleTab('billing', referenceId, '已切到账单页并按关联 ID 搜索')
+  }
+
+  const openAuditSessionReference = (sessionId) => {
+    if (!sessionId) return
+    searchConsoleTab('session-risk', sessionId, '已切到 Session 风险页并按 session ID 搜索')
+  }
+
   const submitCreateUser = async (event) => {
     event.preventDefault()
+    const needsOrganization = roleRequiresOrganization(createUserForm.role)
+    const organizationName = createUserOrganization?.name ?? createUserForm.organizationId
+    const scopeLine = needsOrganization
+      ? `组织：${organizationName}`
+      : `范围：${platformRoleScopeName(createUserForm.role)}`
     const confirmed = window.confirm(
-      `确认创建 ${roleName(createUserForm.role)} 账号？\n\n邮箱：${createUserForm.email.trim()}\n组织：${createUserForm.organizationId}`,
+      `确认创建 ${roleName(createUserForm.role)} 账号？\n\n邮箱：${createUserForm.email.trim()}\n${scopeLine}`,
     )
     if (!confirmed) return
     await runAction('create-user', async () => {
-      await api.createOrganizationUser(createUserForm.organizationId, {
+      const payload = {
         email: createUserForm.email.trim(),
         name: createUserForm.name.trim(),
         password: createUserForm.password,
         role: createUserForm.role,
-      })
+      }
+      if (needsOrganization) {
+        await api.createOrganizationUser(createUserForm.organizationId, payload)
+      } else {
+        await api.createPlatformUser(payload)
+      }
       setCreateUserOpen(false)
       setCreateUserForm(createUserInitialState)
       await loadConsole()
       setNotice('账号已创建')
     })
+  }
+
+  const submitCreateOrganization = async (event) => {
+    event.preventDefault()
+    const name = createOrganizationForm.name.trim()
+    const confirmed = window.confirm(`确认创建组织？\n\n组织名称：${name}\n创建后不会切换当前后台登录组织。`)
+    if (!confirmed) return
+    await runAction('create-organization', async () => {
+      const organization = await api.createOrganization({ name })
+      setCreateOrganizationOpen(false)
+      setCreateOrganizationForm(createOrganizationInitialState)
+      await loadConsole()
+      setOrganizationDetailId(organization.id)
+      setNotice('组织已创建')
+    })
+  }
+
+  const submitAddExistingMember = async (event) => {
+    event.preventDefault()
+    const organization = addExistingMemberOrganization
+    if (!organization) return
+    const email = addExistingMemberForm.email.trim()
+    const confirmed = window.confirm(
+      `确认把已有账号加入组织？\n\n组织：${organization.name}\n账号：${email}\n身份：${roleName(addExistingMemberForm.role)}`,
+    )
+    if (!confirmed) return
+    await runAction('add-existing-member', async () => {
+      await api.addExistingOrganizationMember(organization.id, {
+        email,
+        roles: [addExistingMemberForm.role],
+      })
+      setAddExistingMemberOpen(false)
+      setAddExistingMemberForm(addExistingMemberInitialState)
+      await loadConsole()
+      setNotice('已有账号已加入组织')
+    })
+  }
+
+  const submitCreateInvitation = async (event) => {
+    event.preventDefault()
+    const email = createInvitationForm.email.trim()
+    const needsOrganization = roleRequiresOrganization(createInvitationForm.role)
+    const organizationName = createInvitationOrganization?.name ?? createInvitationForm.organizationId
+    const scopeLine = needsOrganization
+      ? `组织：${organizationName}`
+      : `范围：${platformRoleScopeName(createInvitationForm.role)}`
+    const confirmed = window.confirm(
+      `确认创建 ${roleName(createInvitationForm.role)} 邀请？\n\n邮箱：${email}\n${scopeLine}\n受邀人注册后会获得该身份。`,
+    )
+    if (!confirmed) return
+    await runAction('create-invitation', async () => {
+      const payload = {
+        email,
+        roles: [createInvitationForm.role],
+      }
+      const invitation = needsOrganization
+        ? await api.createOrganizationInvitation(createInvitationForm.organizationId, payload)
+        : await api.createPlatformInvitation(payload)
+      setCreateInvitationOpen(false)
+      setCreateInvitationForm(createInvitationInitialState)
+      setCreatedInvitation(invitation)
+      if (needsOrganization && invitationManagerTarget?.id === createInvitationForm.organizationId) {
+        await loadOrganizationInvitations(invitationManagerTarget)
+      }
+      if (
+        needsOrganization &&
+        activeTab === 'invitations' &&
+        invitationPageOrganization?.id === createInvitationForm.organizationId
+      ) {
+        await loadOrganizationInvitations(invitationPageOrganization)
+      }
+      await loadConsole()
+      setNotice('邀请已创建，请保存邀请码')
+    })
+  }
+
+  const reissueInvitation = async (invitation, organization = invitationManagerTarget) => {
+    if (!organization) return
+    const confirmed = window.confirm(
+      `确认重新生成邀请码？\n\n邮箱：${invitation.email}\n组织：${organization.name}\n身份：${invitation.roles.map(roleName).join('、')}\n旧邀请码将立即失效。`,
+    )
+    if (!confirmed) return
+    await runAction(`invitation-reissue:${invitation.id}`, async () => {
+      const nextInvitation = await api.createOrganizationInvitation(organization.id, {
+        email: invitation.email,
+        roles: invitation.roles,
+      })
+      setCreatedInvitation(nextInvitation)
+      await loadOrganizationInvitations(organization)
+      await loadConsole()
+      setNotice('邀请码已重新生成，请保存新邀请码')
+    })
+  }
+
+  const revokeInvitation = async (invitation, organization = invitationManagerTarget) => {
+    if (!organization) return
+    const confirmed = window.confirm(
+      `确认撤销邀请？\n\n邮箱：${invitation.email}\n组织：${organization.name}\n撤销后该邀请码不能再注册。`,
+    )
+    if (!confirmed) return
+    await runAction(`invitation-revoke:${invitation.id}`, async () => {
+      await api.revokeOrganizationInvitation(organization.id, invitation.id)
+      await loadOrganizationInvitations(organization)
+      await loadConsole()
+      setNotice('邀请已撤销')
+    })
+  }
+
+  const copyText = async (text, successMessage) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
+      await navigator.clipboard.writeText(text)
+      setNotice(successMessage)
+    } catch {
+      setError('浏览器不支持自动复制，请手动选择内容复制')
+    }
   }
 
   const renameOrganization = async (organization) => {
@@ -313,6 +840,25 @@ export function App() {
       await api.disableOrganization(organization.id)
       await loadConsole()
       setNotice('组织已禁用')
+    })
+  }
+
+  const leaveOrganization = async (organization) => {
+    const confirmed = window.confirm(
+      `确认退出组织？\n\n组织：${organization.name}\n退出后当前组织下的 session 会失效。`,
+    )
+    if (!confirmed) return
+    await runAction(`organization-leave:${organization.id}`, async () => {
+      const nextSession = await api.leaveOrganization(organization.id)
+      setOrganizationDetailId('')
+      if (nextSession) {
+        setSession(nextSession)
+        await loadConsole()
+        setNotice('已退出组织')
+      } else {
+        setSession(null)
+        setSnapshot(null)
+      }
     })
   }
 
@@ -420,6 +966,51 @@ export function App() {
     })
   }
 
+  const revokeUserSessions = async (targetSession) => {
+    const confirmed = window.confirm(
+      `确认踢下线该用户的全部活跃 session？\n\n用户：${targetSession.name}\n账号：${targetSession.email ?? targetSession.userId}\n这个操作会撤销该用户当前所有活跃 session。`,
+    )
+    if (!confirmed) return
+    await runAction(`user-sessions:${targetSession.userId}`, async () => {
+      const result = await api.revokeUserSessions(targetSession.userId)
+      await loadConsole()
+      setNotice(`已踢下线 ${result.revokedSessionCount ?? 0} 个 session`)
+    })
+  }
+
+  const forcePasswordResetFromSession = async (targetSession) => {
+    await forcePasswordReset({
+      id: targetSession.userId,
+      name: targetSession.name,
+      email: targetSession.email,
+    })
+  }
+
+  const openSessionRiskDetail = async (targetSession) => {
+    setSessionRiskDetailId(targetSession.sessionId)
+    setSessionRiskAuditContext({
+      ...sessionRiskAuditInitialState,
+      userId: targetSession.userId,
+      loading: true,
+    })
+    try {
+      const result = await api.adminAuditLogs({ userId: targetSession.userId, limit: 50, offset: 0 })
+      setSessionRiskAuditContext({
+        userId: targetSession.userId,
+        items: result.items,
+        loading: false,
+        error: '',
+      })
+    } catch (requestError) {
+      setSessionRiskAuditContext({
+        userId: targetSession.userId,
+        items: [],
+        loading: false,
+        error: requestError.message,
+      })
+    }
+  }
+
   const openAdjustment = (membership) => {
     setAdjustTarget(membership)
     setAdjustmentForm(adjustmentInitialState)
@@ -479,6 +1070,30 @@ export function App() {
     })
   }
 
+  const openReconciliationAlertAction = (alert, status) => {
+    setReconciliationAlertAction({ alert, status })
+    setReconciliationAlertMessage(reconciliationAlertMessageDefaults[status] ?? '')
+  }
+
+  const submitReconciliationAlertAction = async (event) => {
+    event.preventDefault()
+    if (!reconciliationAlertAction) return
+    const { alert, status } = reconciliationAlertAction
+    const statusLabel = status === 'acknowledged' ? '确认' : '解决'
+    const message = reconciliationAlertMessage.trim()
+    await runAction(`reconciliation-alert:${alert.id}:${status}`, async () => {
+      await api.updateReconciliationAlert(alert.id, {
+        status,
+        ...(message ? { message } : {}),
+        metadata: { handledFrom: 'admin_console', handledAction: status },
+      })
+      setReconciliationAlertAction(null)
+      setReconciliationAlertMessage('')
+      await loadConsole()
+      setNotice(`对账告警已${statusLabel}`)
+    })
+  }
+
   const runAction = async (id, action) => {
     setBusy(id)
     setError('')
@@ -529,8 +1144,13 @@ export function App() {
               <small>{session.account.roles.map(roleName).join('、')}</small>
             </div>
           </div>
-          <button className="icon-text-button" type="button" onClick={loadConsole} disabled={loading}>
-            {loading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
+          <button
+            className="icon-text-button"
+            type="button"
+            onClick={refreshActiveData}
+            disabled={loading || usageLoading}
+          >
+            {loading || usageLoading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
             刷新
           </button>
           <button className="icon-button" type="button" aria-label="退出" onClick={logout}>
@@ -566,12 +1186,26 @@ export function App() {
             <label className="search-field">
               <Search size={16} />
               <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                value={queryDraft}
+                onChange={(event) => setQueryDraft(event.target.value)}
                 placeholder="搜索用户、组织、账单、session 或审计"
               />
             </label>
           </section>
+
+          {!isUsageTab(activeTab) && (
+            <ConsoleServerControls
+              filters={consoleFilters}
+              query={queryDraft}
+              loading={loading}
+              organizations={organizationFilterOptions}
+              activeMeta={activeListMeta}
+              onFilterChange={updateConsoleFilters}
+              onClear={clearConsoleFilters}
+              onPageSizeChange={changeConsolePageSize}
+              onPageOffsetChange={goToConsoleOffset}
+            />
+          )}
 
           {notice && <div className="notice success">{notice}</div>}
           {error && <div className="notice error">{error}</div>}
@@ -582,12 +1216,49 @@ export function App() {
               {activeTab === 'overview' && (
                 <OverviewPanel snapshot={snapshot} summary={summary} setActiveTab={setActiveTab} />
               )}
+              {activeTab === 'usage-realtime' && (
+                <UsageRealtimePage
+                  summary={usageSummary}
+                  loading={usageLoading}
+                  error={usageError}
+                  range={usageRange}
+                  onRangeChange={setUsageRange}
+                  onRefresh={loadUsage}
+                />
+              )}
+              {activeTab === 'usage-users' && (
+                <UsageTablePage
+                  title="用户用量"
+                  subject="user"
+                  rows={usageSummary?.users ?? []}
+                  loading={usageLoading}
+                  error={usageError}
+                  query={query}
+                  range={usageRange}
+                  onRangeChange={setUsageRange}
+                  onRefresh={loadUsage}
+                />
+              )}
+              {activeTab === 'usage-organizations' && (
+                <UsageTablePage
+                  title="组织用量"
+                  subject="organization"
+                  rows={usageSummary?.organizations ?? []}
+                  loading={usageLoading}
+                  error={usageError}
+                  query={query}
+                  range={usageRange}
+                  onRangeChange={setUsageRange}
+                  onRefresh={loadUsage}
+                />
+              )}
               {activeTab === 'users' && (
                 <UsersTable
                   users={filtered.users}
                   currentUserId={session.account.id}
                   canManage={canManageAccountStatus}
                   busy={busy}
+                  onOpenDetail={openUserDetail}
                   onSetStatus={setUserStatus}
                   onOpenPasswordReset={openPasswordReset}
                   onForcePasswordReset={forcePasswordReset}
@@ -600,10 +1271,15 @@ export function App() {
                   busy={busy}
                   typeFilter={organizationTypeFilter}
                   onTypeFilterChange={setOrganizationTypeFilter}
+                  onOpenDetail={openOrganizationDetail}
+                  onCreateOrganization={openCreateOrganization}
                   onRename={renameOrganization}
                   onDisable={disableOrganization}
                   onTransferOrganizationAdmin={openOrganizationAdminTransfer}
                   onCreateUser={openCreateUser}
+                  onAddExistingMember={openAddExistingMember}
+                  onCreateInvitation={openCreateInvitation}
+                  onManageInvitations={openInvitationManager}
                 />
               )}
               {activeTab === 'memberships' && (
@@ -613,9 +1289,35 @@ export function App() {
                   canAdjustBilling={canAdjustBilling}
                   busy={busy}
                   onCreateUser={openCreateUser}
+                  onCreateInvitation={openCreateInvitation}
+                  onOpenDetail={openMembershipDetail}
                   onUpdateRole={updateMembershipRole}
                   onDisableMembership={disableMembership}
                   onAdjust={openAdjustment}
+                />
+              )}
+              {activeTab === 'invitations' && (
+                <InvitationsPage
+                  organizations={manageableInvitationOrganizations}
+                  selectedOrganization={invitationPageOrganization}
+                  selectedOrganizationId={invitationPageOrganization?.id ?? ''}
+                  invitations={invitationItems}
+                  loading={invitationLoading}
+                  error={invitationError}
+                  session={session}
+                  busy={busy}
+                  query={query}
+                  statusFilter={invitationStatusFilter}
+                  onStatusFilterChange={setInvitationStatusFilter}
+                  onSelectOrganization={selectInvitationPageOrganization}
+                  onCreateInvitation={() =>
+                    invitationPageOrganization
+                      ? openCreateInvitation(invitationPageOrganization.id)
+                      : openCreateInvitation()
+                  }
+                  onRefresh={() => loadOrganizationInvitations(invitationPageOrganization)}
+                  onReissue={(invitation) => reissueInvitation(invitation, invitationPageOrganization)}
+                  onRevoke={(invitation) => revokeInvitation(invitation, invitationPageOrganization)}
                 />
               )}
               {activeTab === 'billing' && (
@@ -623,9 +1325,28 @@ export function App() {
                   accounts={filtered.billingAccounts}
                   entries={filtered.billingLedgerEntries}
                   reconciliation={filtered.billingPaymentReconciliation}
+                  alerts={filtered.billingReconciliationAlerts}
+                  organizations={organizationItems}
                   canManage={canAdjustBilling}
+                  busy={busy}
                   onAdjust={openAdjustment}
                   onGrant={() => setGrantOpen(true)}
+                  onUpdateAlert={openReconciliationAlertAction}
+                  onOpenAlertsPage={() => setActiveTab('reconciliation-alerts')}
+                />
+              )}
+              {activeTab === 'reconciliation-alerts' && (
+                <ReconciliationAlertsPage
+                  alerts={filtered.billingReconciliationAlerts}
+                  reconciliation={filtered.billingPaymentReconciliation}
+                  organizations={organizationItems}
+                  statusFilter={reconciliationAlertStatusFilter}
+                  severityFilter={reconciliationAlertSeverityFilter}
+                  canManage={canAdjustBilling}
+                  busy={busy}
+                  onStatusFilterChange={setReconciliationAlertStatusFilter}
+                  onSeverityFilterChange={setReconciliationAlertSeverityFilter}
+                  onUpdateAlert={openReconciliationAlertAction}
                 />
               )}
               {activeTab === 'adjustments' && (
@@ -656,8 +1377,12 @@ export function App() {
                   riskFilter={sessionRiskFilter}
                   canManage={canManageAccountStatus}
                   busy={busy}
+                  currentUserId={session.account.id}
                   onRiskFilterChange={setSessionRiskFilter}
                   onRevoke={revokeSession}
+                  onRevokeUserSessions={revokeUserSessions}
+                  onForcePasswordReset={forcePasswordResetFromSession}
+                  onOpenDetail={openSessionRiskDetail}
                 />
               )}
               {activeTab === 'audit' && (
@@ -668,6 +1393,7 @@ export function App() {
                   resourceFilter={auditResourceFilter}
                   onActionFilterChange={setAuditActionFilter}
                   onResourceFilterChange={setAuditResourceFilter}
+                  onOpenDetail={openAuditDetail}
                 />
               )}
             </>
@@ -694,6 +1420,27 @@ export function App() {
           onSubmit={submitGrant}
         />
       )}
+      {reconciliationAlertAction && (
+        <ReconciliationAlertActionModal
+          alert={reconciliationAlertAction.alert}
+          status={reconciliationAlertAction.status}
+          message={reconciliationAlertMessage}
+          organizationName={organizationNameFor(
+            organizationItems,
+            organizationIdFromRow(reconciliationAlertAction.alert),
+          )}
+          busy={
+            busy ===
+            `reconciliation-alert:${reconciliationAlertAction.alert.id}:${reconciliationAlertAction.status}`
+          }
+          onMessageChange={setReconciliationAlertMessage}
+          onClose={() => {
+            setReconciliationAlertAction(null)
+            setReconciliationAlertMessage('')
+          }}
+          onSubmit={submitReconciliationAlertAction}
+        />
+      )}
       {passwordTarget && (
         <PasswordResetModal
           target={passwordTarget}
@@ -707,14 +1454,68 @@ export function App() {
       {createUserOpen && (
         <CreateOrganizationUserModal
           form={createUserForm}
-          organizations={(snapshot?.organizations?.items ?? snapshot?.tenants?.items ?? []).filter(
-            (organization) => canCreateOrganizationUser(session, organization),
-          )}
+          organizations={creatableOrganizations}
           roleOptions={createUserRoleOptions}
+          session={session}
           busy={busy === 'create-user'}
           onChange={setCreateUserForm}
           onClose={() => setCreateUserOpen(false)}
           onSubmit={submitCreateUser}
+        />
+      )}
+      {createOrganizationOpen && (
+        <CreateOrganizationModal
+          form={createOrganizationForm}
+          busy={busy === 'create-organization'}
+          onChange={setCreateOrganizationForm}
+          onClose={() => setCreateOrganizationOpen(false)}
+          onSubmit={submitCreateOrganization}
+        />
+      )}
+      {addExistingMemberOpen && (
+        <AddExistingMemberModal
+          form={addExistingMemberForm}
+          organizations={organizationItems}
+          roleOptions={addExistingMemberRoleOptions}
+          session={session}
+          busy={busy === 'add-existing-member'}
+          onChange={setAddExistingMemberForm}
+          onClose={() => setAddExistingMemberOpen(false)}
+          onSubmit={submitAddExistingMember}
+        />
+      )}
+      {createInvitationOpen && (
+        <CreateInvitationModal
+          form={createInvitationForm}
+          organizations={creatableOrganizations}
+          roleOptions={createInvitationRoleOptions}
+          session={session}
+          busy={busy === 'create-invitation'}
+          onChange={setCreateInvitationForm}
+          onClose={() => setCreateInvitationOpen(false)}
+          onSubmit={submitCreateInvitation}
+        />
+      )}
+      {createdInvitation && (
+        <InvitationResultModal
+          invitation={createdInvitation}
+          onClose={() => setCreatedInvitation(null)}
+          onCopy={copyText}
+        />
+      )}
+      {invitationManagerTarget && (
+        <OrganizationInvitationsModal
+          organization={invitationManagerTarget}
+          invitations={invitationItems}
+          loading={invitationLoading}
+          error={invitationError}
+          session={session}
+          busy={busy}
+          onCreate={() => openCreateInvitation(invitationManagerTarget.id)}
+          onRefresh={() => loadOrganizationInvitations(invitationManagerTarget)}
+          onReissue={reissueInvitation}
+          onRevoke={revokeInvitation}
+          onClose={() => setInvitationManagerTarget(null)}
         />
       )}
       {organizationAdminTransferTarget && (
@@ -726,6 +1527,106 @@ export function App() {
           onChange={setOrganizationAdminTransferForm}
           onClose={() => setOrganizationAdminTransferTarget(null)}
           onSubmit={submitOrganizationAdminTransfer}
+        />
+      )}
+      {userDetailTarget && (
+        <UserDetailDrawer
+          user={userDetailTarget}
+          organizations={organizationItems}
+          memberships={snapshot?.memberships?.items ?? []}
+          billingAccounts={snapshot?.billingAccounts?.items ?? []}
+          ledgerEntries={snapshot?.billingLedgerEntries?.items ?? []}
+          sessions={snapshot?.sessions?.items ?? []}
+          alerts={snapshot?.billingReconciliationAlerts?.items ?? []}
+          reconciliation={snapshot?.billingPaymentReconciliation?.items ?? []}
+          auditLogs={snapshot?.auditLogs?.items ?? []}
+          currentUserId={session.account.id}
+          canManage={canManageAccountStatus}
+          busy={busy}
+          onClose={() => setUserDetailId('')}
+          onSetStatus={setUserStatus}
+          onOpenPasswordReset={openPasswordReset}
+          onForcePasswordReset={forcePasswordReset}
+          onOpenMembership={openMembershipDetail}
+        />
+      )}
+      {membershipDetailTarget && (
+        <MembershipDetailDrawer
+          membership={membershipDetailTarget}
+          billingAccounts={snapshot?.billingAccounts?.items ?? []}
+          ledgerEntries={snapshot?.billingLedgerEntries?.items ?? []}
+          sessions={snapshot?.sessions?.items ?? []}
+          alerts={snapshot?.billingReconciliationAlerts?.items ?? []}
+          reconciliation={snapshot?.billingPaymentReconciliation?.items ?? []}
+          auditLogs={snapshot?.auditLogs?.items ?? []}
+          session={session}
+          canAdjustBilling={canAdjustBilling}
+          busy={busy}
+          onClose={() => setMembershipDetailId('')}
+          onUpdateRole={updateMembershipRole}
+          onDisableMembership={disableMembership}
+          onAdjust={openAdjustment}
+        />
+      )}
+      {auditDetailTarget && (
+        <AuditLogDetailDrawer
+          entry={auditDetailTarget}
+          users={snapshot?.users?.items ?? []}
+          organizations={organizationItems}
+          memberships={snapshot?.memberships?.items ?? []}
+          billingAccounts={snapshot?.billingAccounts?.items ?? []}
+          ledgerEntries={snapshot?.billingLedgerEntries?.items ?? []}
+          sessions={snapshot?.sessions?.items ?? []}
+          reconciliation={snapshot?.billingPaymentReconciliation?.items ?? []}
+          alerts={snapshot?.billingReconciliationAlerts?.items ?? []}
+          onClose={closeAuditDetail}
+          onOpenUser={openAuditUserReference}
+          onOpenOrganization={openAuditOrganizationReference}
+          onOpenMembership={openAuditMembershipReference}
+          onOpenBilling={openAuditBillingReference}
+          onOpenSession={openAuditSessionReference}
+        />
+      )}
+      {sessionRiskDetailTarget && (
+        <SessionRiskDetailDrawer
+          session={sessionRiskDetailTarget}
+          sessions={snapshot?.sessions?.items ?? []}
+          auditLogs={sessionRiskAuditContext.items}
+          auditLoading={sessionRiskAuditContext.loading}
+          auditError={sessionRiskAuditContext.error}
+          canManage={canManageAccountStatus}
+          busy={busy}
+          currentUserId={session.account.id}
+          onClose={() => {
+            setSessionRiskDetailId('')
+            setSessionRiskAuditContext(sessionRiskAuditInitialState)
+          }}
+          onRevoke={revokeSession}
+          onRevokeUserSessions={revokeUserSessions}
+          onForcePasswordReset={forcePasswordResetFromSession}
+        />
+      )}
+      {organizationDetailTarget && (
+        <OrganizationDetailDrawer
+          organization={organizationDetailTarget}
+          memberships={snapshot?.memberships?.items ?? []}
+          billingAccounts={snapshot?.billingAccounts?.items ?? []}
+          sessions={snapshot?.sessions?.items ?? []}
+          alerts={snapshot?.billingReconciliationAlerts?.items ?? []}
+          reconciliation={snapshot?.billingPaymentReconciliation?.items ?? []}
+          auditLogs={snapshot?.auditLogs?.items ?? []}
+          session={session}
+          busy={busy}
+          onClose={() => setOrganizationDetailId('')}
+          onRename={renameOrganization}
+          onDisable={disableOrganization}
+          onTransferOrganizationAdmin={openOrganizationAdminTransfer}
+          onCreateUser={openCreateUser}
+          onAddExistingMember={openAddExistingMember}
+          onCreateInvitation={openCreateInvitation}
+          onManageInvitations={openInvitationManager}
+          onLeaveOrganization={leaveOrganization}
+          onOpenAlertPage={() => setActiveTab('reconciliation-alerts')}
         />
       )}
     </div>
@@ -828,11 +1729,306 @@ function OverviewPanel({ snapshot, summary, setActiveTab }) {
   )
 }
 
+function UsageRealtimePage({ summary, loading, error, range, onRangeChange, onRefresh }) {
+  const metrics = summary?.global?.metrics ?? null
+  return (
+    <div className="usage-page">
+      <UsageControls
+        range={range}
+        generatedAt={summary?.generatedAt}
+        loading={loading}
+        onRangeChange={onRangeChange}
+        onRefresh={onRefresh}
+      />
+      {error && <div className="notice error">{error}</div>}
+      {loading && !summary && <LoadingScreen compact label="正在读取实时用量" />}
+      {metrics && (
+        <>
+          <section className="usage-metric-grid">
+            <MetricBlock icon={Activity} label="API 并发" value={formatUsageNumber(metrics.apiConcurrency)} />
+            <MetricBlock icon={Gauge} label="任务并发" value={formatUsageNumber(metrics.jobConcurrency)} />
+            <MetricBlock
+              icon={Globe}
+              label="Provider 并发"
+              value={formatUsageNumber(metrics.providerConcurrency)}
+            />
+            <MetricBlock icon={RefreshCw} label="RPM" value={formatUsageNumber(metrics.rpm)} />
+            <MetricBlock icon={FileText} label="TPM" value={formatUsageNumber(metrics.tpm)} />
+            <MetricBlock icon={CreditCard} label="积分消耗" value={formatUsageNumber(metrics.creditsUsed)} />
+          </section>
+          <DataSection title={`${usageRangeName(summary.range)}汇总`} count={summary.global.name ?? 'global'}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>请求</th>
+                  <th>任务</th>
+                  <th>Token</th>
+                  <th>积分</th>
+                  <th>API 错误率</th>
+                  <th>任务失败率</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>{formatUsageNumber(metrics.requestCount)}</td>
+                  <td>{formatUsageNumber(metrics.jobCount)}</td>
+                  <td>{formatUsageNumber(metrics.totalTokens)}</td>
+                  <td>{formatUsageNumber(metrics.creditsUsed)}</td>
+                  <td>{formatUsageRatio(metrics.errorRate)}</td>
+                  <td>{formatUsageRatio(metrics.jobFailureRate)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </DataSection>
+        </>
+      )}
+      {!loading && !metrics && !error && <p className="panel-empty">暂无用量数据。</p>}
+    </div>
+  )
+}
+
+function UsageTablePage({
+  title,
+  subject,
+  rows,
+  loading,
+  error,
+  query,
+  range,
+  onRangeChange,
+  onRefresh,
+}) {
+  const visibleRows = filterRows(rows, query)
+  return (
+    <div className="usage-page">
+      <UsageControls
+        range={range}
+        generatedAt={rows[0]?.generatedAt}
+        loading={loading}
+        onRangeChange={onRangeChange}
+        onRefresh={onRefresh}
+      />
+      {error && <div className="notice error">{error}</div>}
+      {loading && !rows.length && <LoadingScreen compact label={`正在读取${title}`} />}
+      <DataSection title={`${usageRangeName(range)}${title}`} count={visibleRows.length}>
+        <table className="data-table wide">
+          <thead>
+            <tr>
+              <th>{subject === 'user' ? '用户' : '组织'}</th>
+              <th>实时并发</th>
+              <th>RPM / TPM</th>
+              <th>请求 / 任务</th>
+              <th>Token</th>
+              <th>积分</th>
+              <th>错误 / 失败</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((row) => (
+              <tr key={usageRowKey(row)}>
+                <td>
+                  <IdentityCell
+                    name={row.name ?? (subject === 'user' ? row.email : row.organizationId)}
+                    detail={subject === 'user' ? row.email : row.organizationId}
+                    compact
+                  />
+                </td>
+                <td>
+                  <div className="usage-stack">
+                    <span>API {formatUsageNumber(row.metrics.apiConcurrency)}</span>
+                    <span>任务 {formatUsageNumber(row.metrics.jobConcurrency)}</span>
+                    <span>Provider {formatUsageNumber(row.metrics.providerConcurrency)}</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="usage-stack">
+                    <strong>{formatUsageNumber(row.metrics.rpm)} RPM</strong>
+                    <span>{formatUsageNumber(row.metrics.tpm)} TPM</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="usage-stack">
+                    <strong>{formatUsageNumber(row.metrics.requestCount)} 请求</strong>
+                    <span>{formatUsageNumber(row.metrics.jobCount)} 任务</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="usage-stack">
+                    <strong>{formatUsageNumber(row.metrics.totalTokens)}</strong>
+                    <span>
+                      入 {formatUsageNumber(row.metrics.inputTokens)} / 出{' '}
+                      {formatUsageNumber(row.metrics.outputTokens)}
+                    </span>
+                  </div>
+                </td>
+                <td>{formatUsageNumber(row.metrics.creditsUsed)}</td>
+                <td>
+                  <div className="usage-stack">
+                    <span>API {formatUsageRatio(row.metrics.errorRate)}</span>
+                    <span>任务 {formatUsageRatio(row.metrics.jobFailureRate)}</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            <EmptyRow visible={!visibleRows.length && !loading} columns={7} />
+          </tbody>
+        </table>
+      </DataSection>
+    </div>
+  )
+}
+
+function UsageControls({ range, generatedAt, loading, onRangeChange, onRefresh }) {
+  return (
+    <section className="usage-controls">
+      <div>
+        <span className="eyebrow">Usage</span>
+        <strong>{generatedAt ? `更新于 ${formatDate(generatedAt)}` : '等待用量快照'}</strong>
+      </div>
+      <div className="usage-control-actions">
+        <div className="segmented-control" aria-label="用量范围">
+          {['today', 'week', 'month'].map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={range === value ? 'active' : ''}
+              onClick={() => onRangeChange(value)}
+            >
+              {usageRangeName(value)}
+            </button>
+          ))}
+        </div>
+        <button className="icon-text-button" type="button" onClick={onRefresh} disabled={loading}>
+          {loading ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}
+          刷新
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function ConsoleServerControls({
+  filters,
+  query,
+  loading,
+  organizations,
+  activeMeta,
+  onFilterChange,
+  onClear,
+  onPageSizeChange,
+  onPageOffsetChange,
+}) {
+  const limit = activeMeta?.limit ?? filters.limit
+  const offset = activeMeta?.offset ?? filters.offset
+  const total = activeMeta?.total ?? 0
+  const from = total ? offset + 1 : 0
+  const to = Math.min(offset + limit, total)
+  const hasPrevious = offset > 0
+  const hasNext = offset + limit < total
+  const hasActiveList = Boolean(activeMeta)
+
+  return (
+    <section className="server-list-controls">
+      <div className="server-filter-row">
+        <label>
+          <Building2 size={14} />
+          <select
+            value={filters.tenantId}
+            onChange={(event) => onFilterChange({ tenantId: event.target.value })}
+          >
+            <option value="">全部组织</option>
+            {organizations.map((organization) => (
+              <option key={organization.id} value={organization.id}>
+                {organization.name} · {organization.id}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <ShieldCheck size={14} />
+          <select value={filters.role} onChange={(event) => onFilterChange({ role: event.target.value })}>
+            <option value="">全部身份</option>
+            {consoleRoleFilterOptions.map((role) => (
+              <option key={role} value={role}>
+                {roleName(role)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <Power size={14} />
+          <select
+            value={filters.status}
+            onChange={(event) => onFilterChange({ status: event.target.value })}
+          >
+            <option value="">全部状态</option>
+            {consoleStatusFilterOptions.map((status) => (
+              <option key={status} value={status}>
+                {statusName(status)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <FileText size={14} />
+          <select value={filters.limit} onChange={(event) => onPageSizeChange(event.target.value)}>
+            {consolePageSizeOptions.map((size) => (
+              <option key={size} value={size}>
+                每页 {size}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="row-button"
+          type="button"
+          disabled={!query && !filters.tenantId && !filters.role && !filters.status && filters.limit === 50}
+          onClick={onClear}
+        >
+          <X size={14} />
+          清空筛选
+        </button>
+      </div>
+
+      <div className="server-pagination-row">
+        <span>
+          {!hasActiveList
+            ? '筛选会应用到用户、组织、成员、账单、Session 和审计列表'
+            : loading
+              ? '正在读取服务端列表'
+              : `服务端分页 ${from}-${to} / ${total}`}
+        </span>
+        {hasActiveList && (
+        <div>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!hasPrevious || loading}
+            onClick={() => onPageOffsetChange(Math.max(0, offset - limit))}
+          >
+            上一页
+          </button>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!hasNext || loading}
+            onClick={() => onPageOffsetChange(offset + limit)}
+          >
+            下一页
+          </button>
+        </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
 function UsersTable({
   users,
   currentUserId,
   canManage,
   busy,
+  onOpenDetail,
   onSetStatus,
   onOpenPasswordReset,
   onForcePasswordReset,
@@ -872,6 +2068,10 @@ function UsersTable({
               <td>{formatDate(user.updatedAt)}</td>
               <td>
                 <div className="row-actions">
+                  <button className="row-button" type="button" onClick={() => onOpenDetail(user)}>
+                    <FileText size={14} />
+                    详情
+                  </button>
                   <button
                     className="row-button"
                     type="button"
@@ -933,16 +2133,28 @@ function OrganizationsTable({
   busy,
   typeFilter,
   onTypeFilterChange,
+  onOpenDetail,
+  onCreateOrganization,
   onRename,
   onDisable,
   onTransferOrganizationAdmin,
   onCreateUser,
+  onAddExistingMember,
+  onCreateInvitation,
+  onManageInvitations,
 }) {
   const visibleOrganizations =
     typeFilter === 'all'
       ? organizations
       : organizations.filter((organization) => classifyOrganization(organization).type === typeFilter)
   const typeCounts = summarizeOrganizationTypes(organizations)
+  const canCreateInvitation = organizations.some(
+    (organization) => organization.status === 'active' && canCreateOrganizationUser(session, organization),
+  )
+  const canCreateNewOrganization = canCreateOrganization(session)
+  const canAddExistingMember = organizations.some((organization) =>
+    canAddExistingOrganizationMember(session, organization),
+  )
 
   return (
     <DataSection title="组织列表" count={visibleOrganizations.length}>
@@ -957,6 +2169,45 @@ function OrganizationsTable({
             ))}
           </select>
         </label>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={!canCreateNewOrganization || busy === 'create-organization'}
+          onClick={onCreateOrganization}
+        >
+          {busy === 'create-organization' ? (
+            <LoaderCircle size={14} className="spin" />
+          ) : (
+            <Building2 size={14} />
+          )}
+          创建组织
+        </button>
+        <button
+          className="row-button"
+          type="button"
+          disabled={!canAddExistingMember || busy === 'add-existing-member'}
+          onClick={() => onAddExistingMember()}
+        >
+          {busy === 'add-existing-member' ? (
+            <LoaderCircle size={14} className="spin" />
+          ) : (
+            <UserPlus size={14} />
+          )}
+          加入已有账号
+        </button>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={!canCreateInvitation || busy === 'create-invitation'}
+          onClick={() => onCreateInvitation()}
+        >
+          {busy === 'create-invitation' ? (
+            <LoaderCircle size={14} className="spin" />
+          ) : (
+            <MailPlus size={14} />
+          )}
+          创建邀请
+        </button>
       </div>
       <table className="data-table wide">
         <thead>
@@ -993,6 +2244,10 @@ function OrganizationsTable({
                 <td>{formatDate(organization.updatedAt)}</td>
                 <td>
                   <div className="row-actions">
+                    <button className="row-button" type="button" onClick={() => onOpenDetail(organization)}>
+                      <FileText size={14} />
+                      详情
+                    </button>
                     <button
                       className="row-button"
                       type="button"
@@ -1019,6 +2274,49 @@ function OrganizationsTable({
                     >
                       <Plus size={14} />
                       添加账号
+                    </button>
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={
+                        organization.status !== 'active' ||
+                        !canAddExistingOrganizationMember(session, organization) ||
+                        busy === 'add-existing-member'
+                      }
+                      onClick={() => onAddExistingMember(organization.id)}
+                    >
+                      {busy === 'add-existing-member' ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <UserPlus size={14} />
+                      )}
+                      加入已有账号
+                    </button>
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={
+                        organization.status !== 'active' ||
+                        !canCreateOrganizationUser(session, organization) ||
+                        busy === 'create-invitation'
+                      }
+                      onClick={() => onCreateInvitation(organization.id)}
+                    >
+                      {busy === 'create-invitation' ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <MailPlus size={14} />
+                      )}
+                      创建邀请
+                    </button>
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={!canManageOrganization(session, organization)}
+                      onClick={() => onManageInvitations(organization)}
+                    >
+                      <MailPlus size={14} />
+                      邀请管理
                     </button>
                     <button
                       className="row-button"
@@ -1072,6 +2370,8 @@ function MembershipsTable({
   canAdjustBilling,
   busy,
   onCreateUser,
+  onCreateInvitation,
+  onOpenDetail,
   onUpdateRole,
   onDisableMembership,
   onAdjust,
@@ -1087,6 +2387,19 @@ function MembershipsTable({
         >
           <Plus size={14} />
           添加账号
+        </button>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={!canManageUsers(session) || busy === 'create-invitation'}
+          onClick={() => onCreateInvitation()}
+        >
+          {busy === 'create-invitation' ? (
+            <LoaderCircle size={14} className="spin" />
+          ) : (
+            <MailPlus size={14} />
+          )}
+          创建邀请
         </button>
       </div>
       <table className="data-table wide">
@@ -1130,6 +2443,10 @@ function MembershipsTable({
               <td>{formatDate(membership.updatedAt)}</td>
               <td>
                 <div className="row-actions">
+                  <button className="row-button" type="button" onClick={() => onOpenDetail(membership)}>
+                    <FileText size={14} />
+                    详情
+                  </button>
                   <button
                     className="row-button"
                     type="button"
@@ -1167,7 +2484,129 @@ function MembershipsTable({
   )
 }
 
-function BillingPanel({ accounts, entries, reconciliation, canManage, onAdjust, onGrant }) {
+function InvitationsPage({
+  organizations,
+  selectedOrganization,
+  selectedOrganizationId,
+  invitations,
+  loading,
+  error,
+  session,
+  busy,
+  query,
+  statusFilter,
+  onStatusFilterChange,
+  onSelectOrganization,
+  onCreateInvitation,
+  onRefresh,
+  onReissue,
+  onRevoke,
+}) {
+  const canCreate =
+    selectedOrganization?.status === 'active' && canCreateOrganizationUser(session, selectedOrganization)
+  const statusCounts = summarizeInvitationStatuses(invitations)
+  const visibleInvitations = filterRows(
+    statusFilter === 'all'
+      ? invitations
+      : invitations.filter((invitation) => invitation.status === statusFilter),
+    query,
+  )
+
+  return (
+    <div className="invitation-page-layout">
+      <DataSection title="邀请管理" count={visibleInvitations.length}>
+        <div className="inline-filter-bar invitation-page-toolbar">
+          <label>
+            <Building2 size={14} />
+            <select
+              value={selectedOrganizationId}
+              onChange={(event) => onSelectOrganization(event.target.value)}
+              disabled={!organizations.length}
+            >
+              {organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name} · {organization.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <Filter size={14} />
+            <select value={statusFilter} onChange={(event) => onStatusFilterChange(event.target.value)}>
+              <option value="all">全部状态 · {invitations.length}</option>
+              <option value="pending">待接受 · {statusCounts.pending}</option>
+              <option value="accepted">已接受 · {statusCounts.accepted}</option>
+              <option value="revoked">已撤销 · {statusCounts.revoked}</option>
+              <option value="expired">已过期 · {statusCounts.expired}</option>
+            </select>
+          </label>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={!canCreate || busy === 'create-invitation'}
+            onClick={onCreateInvitation}
+          >
+            {busy === 'create-invitation' ? (
+              <LoaderCircle size={14} className="spin" />
+            ) : (
+              <MailPlus size={14} />
+            )}
+            创建邀请
+          </button>
+          <button className="row-button" type="button" disabled={!selectedOrganization || loading} onClick={onRefresh}>
+            {loading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
+            刷新列表
+          </button>
+        </div>
+        {selectedOrganization ? (
+          <section className="organization-detail-head invitation-page-head">
+            <IdentityCell name={selectedOrganization.name} detail={selectedOrganization.id} />
+            <div>
+              <span>待接受</span>
+              <strong>{statusCounts.pending}</strong>
+            </div>
+            <div>
+              <span>已接受</span>
+              <strong>{statusCounts.accepted}</strong>
+            </div>
+            <StatusBadge status={selectedOrganization.status} />
+          </section>
+        ) : (
+          <p className="panel-empty">暂无可管理的组织。</p>
+        )}
+        {error && <div className="notice error">{error}</div>}
+        {loading && !invitations.length ? (
+          <LoadingScreen compact label="正在读取邀请列表" />
+        ) : (
+          <InvitationCards
+            invitations={visibleInvitations}
+            canCreate={canCreate}
+            busy={busy}
+            onReissue={onReissue}
+            onRevoke={onRevoke}
+          />
+        )}
+        <p className="modal-hint">明文邀请码只在创建或重新生成后显示一次；历史列表只保存状态和时间。</p>
+      </DataSection>
+    </div>
+  )
+}
+
+function BillingPanel({
+  accounts,
+  entries,
+  reconciliation,
+  alerts,
+  organizations,
+  canManage,
+  busy,
+  onAdjust,
+  onGrant,
+  onUpdateAlert,
+  onOpenAlertsPage,
+}) {
+  const openAlerts = alerts.filter((alert) => alert.status !== 'resolved')
+  const visibleAlerts = openAlerts.length ? openAlerts : alerts.slice(0, 5)
   return (
     <div className="stack">
       <DataSection title="账单账户" count={accounts.length}>
@@ -1218,6 +2657,23 @@ function BillingPanel({ accounts, entries, reconciliation, canManage, onAdjust, 
             <EmptyRow visible={!accounts.length} columns={7} />
           </tbody>
         </table>
+      </DataSection>
+
+      <DataSection title="对账告警" count={alerts.length}>
+        <div className="section-actions">
+          <button className="row-button" type="button" onClick={onOpenAlertsPage}>
+            <AlertTriangle size={14} />
+            查看全部告警
+          </button>
+        </div>
+        <ReconciliationAlertsTable
+          alerts={visibleAlerts}
+          reconciliation={reconciliation}
+          organizations={organizations}
+          canManage={canManage}
+          busy={busy}
+          onUpdateAlert={onUpdateAlert}
+        />
       </DataSection>
 
       <DataSection title="账单流水" count={entries.length}>
@@ -1446,6 +2902,1132 @@ function BillingAdjustmentPage({
   )
 }
 
+function ReconciliationAlertsPage({
+  alerts,
+  reconciliation,
+  organizations,
+  statusFilter,
+  severityFilter,
+  canManage,
+  busy,
+  onStatusFilterChange,
+  onSeverityFilterChange,
+  onUpdateAlert,
+}) {
+  const visibleAlerts = alerts.filter((alert) => {
+    const statusMatch = statusFilter === 'all' || alert.status === statusFilter
+    const severityMatch = severityFilter === 'all' || alert.severity === severityFilter
+    return statusMatch && severityMatch
+  })
+  const summary = summarizeReconciliationAlerts(alerts)
+
+  return (
+    <div className="alert-page">
+      <section className="summary-strip">
+        <MetricBlock icon={AlertTriangle} label="未处理" value={summary.open} tone="high" />
+        <MetricBlock icon={ShieldCheck} label="已确认" value={summary.acknowledged} tone="medium" />
+        <MetricBlock icon={Check} label="已解决" value={summary.resolved} />
+        <MetricBlock icon={AlertTriangle} label="高优先级" value={summary.critical} tone="high" />
+      </section>
+
+      <DataSection title="对账告警" count={visibleAlerts.length}>
+        <div className="inline-filter-bar">
+          <label>
+            <Filter size={14} />
+            <select value={statusFilter} onChange={(event) => onStatusFilterChange(event.target.value)}>
+              <option value="all">全部状态</option>
+              <option value="open">未处理</option>
+              <option value="acknowledged">已确认</option>
+              <option value="resolved">已解决</option>
+            </select>
+          </label>
+          <label>
+            <AlertTriangle size={14} />
+            <select value={severityFilter} onChange={(event) => onSeverityFilterChange(event.target.value)}>
+              <option value="all">全部严重性</option>
+              <option value="warning">警告</option>
+              <option value="critical">严重</option>
+            </select>
+          </label>
+        </div>
+        <ReconciliationAlertsTable
+          alerts={visibleAlerts}
+          reconciliation={reconciliation}
+          organizations={organizations}
+          canManage={canManage}
+          busy={busy}
+          onUpdateAlert={onUpdateAlert}
+        />
+      </DataSection>
+
+      <DataSection title="最近支付对账" count={reconciliation.length}>
+        <table className="data-table wide alert-table">
+          <thead>
+            <tr>
+              <th>事件</th>
+              <th>状态</th>
+              <th>组织</th>
+              <th>Membership</th>
+              <th>积分</th>
+              <th>消息</th>
+              <th>时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reconciliation.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  <div className="stacked-cell">
+                    <strong>{item.eventType}</strong>
+                    <small>{shortId(item.providerEventId)}</small>
+                  </div>
+                </td>
+                <td>
+                  <PaymentStatusBadge status={item.status} />
+                </td>
+                <td>{organizationNameFor(organizations, organizationIdFromRow(item))}</td>
+                <td>{shortId(item.membershipId)}</td>
+                <td className={(item.amount ?? 0) >= 0 ? 'amount positive' : 'amount negative'}>
+                  {item.amount === null ? '-' : formatSignedAmount(item.amount)}
+                </td>
+                <td>{item.message}</td>
+                <td>{formatDate(item.createdAt)}</td>
+              </tr>
+            ))}
+            <EmptyRow visible={!reconciliation.length} columns={7} />
+          </tbody>
+        </table>
+      </DataSection>
+    </div>
+  )
+}
+
+function ReconciliationAlertsTable({
+  alerts,
+  reconciliation,
+  organizations,
+  canManage,
+  busy,
+  onUpdateAlert,
+}) {
+  const reconciliationById = new Map(reconciliation.map((item) => [item.id, item]))
+  return (
+    <table className="data-table wide alert-table">
+      <thead>
+        <tr>
+          <th>告警</th>
+          <th>严重性</th>
+          <th>状态</th>
+          <th>组织</th>
+          <th>Membership</th>
+          <th>对账项</th>
+          <th>备注</th>
+          <th>时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {alerts.map((alert) => {
+          const linked = alert.reconciliationItemId ? reconciliationById.get(alert.reconciliationItemId) : null
+          return (
+            <tr key={alert.id}>
+              <td>
+                <div className="stacked-cell">
+                  <strong>{alert.alertType}</strong>
+                  <small>
+                    {alert.provider} · {shortId(alert.providerEventId)}
+                  </small>
+                </div>
+              </td>
+              <td>
+                <AlertSeverityBadge severity={alert.severity} />
+              </td>
+              <td>
+                <AlertStatusBadge status={alert.status} />
+              </td>
+              <td>{organizationNameFor(organizations, organizationIdFromRow(alert))}</td>
+              <td>{shortId(alert.membershipId)}</td>
+              <td>
+                <div className="stacked-cell">
+                  <strong>{shortId(linked?.id ?? alert.reconciliationItemId)}</strong>
+                  <small>{linked?.status ? paymentStatusName(linked.status) : '-'}</small>
+                </div>
+              </td>
+              <td>
+                <div className="stacked-cell">
+                  <strong>{alert.message}</strong>
+                  <small>{compactJson(alert.metadata)}</small>
+                </div>
+              </td>
+              <td>{formatDate(alert.createdAt)}</td>
+              <td>
+                <div className="row-actions">
+                  <button
+                    className="row-button"
+                    type="button"
+                    disabled={
+                      !canManage ||
+                      alert.status !== 'open' ||
+                      busy === `reconciliation-alert:${alert.id}:acknowledged`
+                    }
+                    onClick={() => onUpdateAlert(alert, 'acknowledged')}
+                  >
+                    {busy === `reconciliation-alert:${alert.id}:acknowledged` ? (
+                      <LoaderCircle size={14} className="spin" />
+                    ) : (
+                      <ShieldCheck size={14} />
+                    )}
+                    确认
+                  </button>
+                  <button
+                    className="row-button"
+                    type="button"
+                    disabled={
+                      !canManage ||
+                      alert.status === 'resolved' ||
+                      busy === `reconciliation-alert:${alert.id}:resolved`
+                    }
+                    onClick={() => onUpdateAlert(alert, 'resolved')}
+                  >
+                    {busy === `reconciliation-alert:${alert.id}:resolved` ? (
+                      <LoaderCircle size={14} className="spin" />
+                    ) : (
+                      <Check size={14} />
+                    )}
+                    解决
+                  </button>
+                </div>
+              </td>
+            </tr>
+          )
+        })}
+        <EmptyRow visible={!alerts.length} columns={9} />
+      </tbody>
+    </table>
+  )
+}
+
+function UserDetailDrawer({
+  user,
+  organizations,
+  memberships,
+  billingAccounts,
+  ledgerEntries,
+  sessions,
+  alerts,
+  reconciliation,
+  auditLogs,
+  currentUserId,
+  canManage,
+  busy,
+  onClose,
+  onSetStatus,
+  onOpenPasswordReset,
+  onForcePasswordReset,
+  onOpenMembership,
+}) {
+  const userMemberships = sortByRecent(memberships.filter((membership) => membership.userId === user.id))
+  const userMembershipIds = new Set(userMemberships.map(membershipIdFor))
+  const userBillingRows = sortByRecent(
+    billingAccounts.filter(
+      (account) => account.userId === user.id || userMembershipIds.has(membershipIdFor(account)),
+    ),
+  )
+  const userLedgerRows = sortByRecent(
+    ledgerEntries.filter(
+      (entry) => rowMatchesUser(entry, user.id) || rowMatchesAnyMembership(entry, userMembershipIds),
+    ),
+  )
+  const userSessionRows = sortByRecent(sessions.filter((item) => item.userId === user.id))
+  const userAlertRows = sortByRecent(
+    alerts.filter((alert) => rowMatchesUser(alert, user.id) || rowMatchesAnyMembership(alert, userMembershipIds)),
+  )
+  const userReconciliationRows = sortByRecent(
+    reconciliation.filter(
+      (item) => rowMatchesUser(item, user.id) || rowMatchesAnyMembership(item, userMembershipIds),
+    ),
+  )
+  const userAuditRows = sortByRecent(
+    auditLogs.filter(
+      (entry) => rowMatchesUser(entry, user.id) || rowMatchesAnyMembership(entry, userMembershipIds),
+    ),
+  )
+  const activeSessions = userSessionRows.filter((item) => item.status === 'active').length
+  const totalCredits = userBillingRows.reduce((total, account) => total + Number(account.credits ?? 0), 0)
+  const openAlerts = userAlertRows.filter((alert) => alert.status !== 'resolved').length
+  const canEditUser = canManage && user.id !== currentUserId
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+        <header className="drawer-header">
+          <div>
+            <span className="eyebrow">用户详情</span>
+            <h2>{user.name}</h2>
+            <p>{user.email ?? user.id}</p>
+          </div>
+          <button className="icon-button" type="button" aria-label="关闭用户详情" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="drawer-summary-grid">
+          <div>
+            <span>账号状态</span>
+            <strong>
+              <StatusBadge status={user.status} />
+            </strong>
+          </div>
+          <div>
+            <span>安全状态</span>
+            <strong>
+              <PasswordResetBadge required={user.passwordResetRequired} />
+            </strong>
+          </div>
+          <div>
+            <span>平台身份</span>
+            <strong>{user.roles.map(roleName).join(' / ')}</strong>
+          </div>
+          <div>
+            <span>组织关系</span>
+            <strong>
+              {user.activeMembershipCount} / {user.membershipCount}
+            </strong>
+          </div>
+          <div>
+            <span>账单积分</span>
+            <strong className={totalCredits >= 0 ? 'amount positive' : 'amount negative'}>
+              {formatSignedAmount(totalCredits)}
+            </strong>
+          </div>
+          <div>
+            <span>活跃 Session</span>
+            <strong>{activeSessions}</strong>
+          </div>
+          <div>
+            <span>未解决告警</span>
+            <strong>{openAlerts}</strong>
+          </div>
+          <div>
+            <span>创建时间</span>
+            <strong>{formatDate(user.createdAt)}</strong>
+          </div>
+          <div>
+            <span>更新时间</span>
+            <strong>{formatDate(user.updatedAt)}</strong>
+          </div>
+        </div>
+
+        <div className="drawer-actions">
+          <button
+            className="row-button"
+            type="button"
+            disabled={!canEditUser || busy === `password:${user.id}`}
+            onClick={() => onOpenPasswordReset(user)}
+          >
+            {busy === `password:${user.id}` ? <LoaderCircle size={14} className="spin" /> : <KeyRound size={14} />}
+            临时密码
+          </button>
+          <button
+            className="row-button danger"
+            type="button"
+            disabled={!canEditUser || user.passwordResetRequired || busy === `force-password:${user.id}`}
+            onClick={() => onForcePasswordReset(user)}
+          >
+            {busy === `force-password:${user.id}` ? (
+              <LoaderCircle size={14} className="spin" />
+            ) : (
+              <ShieldCheck size={14} />
+            )}
+            强制改密
+          </button>
+          <button
+            className={user.status === 'active' ? 'row-button danger' : 'row-button'}
+            type="button"
+            disabled={!canEditUser || busy === `user:${user.id}`}
+            onClick={() => onSetStatus(user)}
+          >
+            {busy === `user:${user.id}` ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
+            {user.status === 'active' ? '禁用账号' : '启用账号'}
+          </button>
+        </div>
+
+        <DrawerSection title="所属组织" count={userMemberships.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>组织</th>
+                <th>角色</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {userMemberships.map((membership) => (
+                <tr key={membership.id}>
+                  <td>
+                    <IdentityCell
+                      name={organizationNameFor(organizations, organizationIdFromRow(membership))}
+                      detail={organizationIdFromRow(membership)}
+                      compact
+                    />
+                  </td>
+                  <td>
+                    <RolePills roles={membership.roles} />
+                  </td>
+                  <td>
+                    <StatusPair primary={membership.status} secondary={membership.userStatus} />
+                  </td>
+                  <td>
+                    <button className="row-button" type="button" onClick={() => onOpenMembership(membership)}>
+                      <FileText size={14} />
+                      详情
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              <EmptyRow visible={!userMemberships.length} columns={4} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="账单账户" count={userBillingRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>组织</th>
+                <th>套餐</th>
+                <th>积分</th>
+                <th>更新时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {userBillingRows.map((account) => (
+                <tr key={membershipIdFor(account)}>
+                  <td>{organizationNameFor(organizations, organizationIdFromRow(account))}</td>
+                  <td>{planName(account.plan)}</td>
+                  <td className={account.credits >= 0 ? 'amount positive' : 'amount negative'}>{account.credits}</td>
+                  <td>{formatDate(account.updatedAt)}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!userBillingRows.length} columns={4} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="最近账单流水" count={userLedgerRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>积分</th>
+                <th>余额</th>
+                <th>说明</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {userLedgerRows.slice(0, 10).map((entry) => (
+                <tr key={entry.id}>
+                  <td>{ledgerTypeName(entry.type)}</td>
+                  <td className={entry.amount >= 0 ? 'amount positive' : 'amount negative'}>
+                    {formatSignedAmount(entry.amount)}
+                  </td>
+                  <td>{entry.balance ?? '-'}</td>
+                  <td>{entry.description ?? shortId(entry.referenceId)}</td>
+                  <td>{formatDate(entry.createdAt)}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!userLedgerRows.length} columns={5} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="Session 设备" count={userSessionRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>组织</th>
+                <th>设备</th>
+                <th>IP</th>
+                <th>状态</th>
+                <th>最近活跃</th>
+              </tr>
+            </thead>
+            <tbody>
+              {userSessionRows.slice(0, 10).map((item) => (
+                <tr key={item.sessionId}>
+                  <td>{organizationNameFor(organizations, organizationIdFromRow(item))}</td>
+                  <td>{item.deviceLabel ?? userAgentSummary(item.userAgent)}</td>
+                  <td>{item.ipAddress ?? '-'}</td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
+                  <td>{formatDate(item.lastSeenAt ?? item.createdAt)}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!userSessionRows.length} columns={5} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="对账告警" count={userAlertRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>严重性</th>
+                <th>状态</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {userAlertRows.slice(0, 8).map((alert) => (
+                <tr key={alert.id}>
+                  <td>{alert.alertType}</td>
+                  <td>
+                    <AlertSeverityBadge severity={alert.severity} />
+                  </td>
+                  <td>
+                    <AlertStatusBadge status={alert.status} />
+                  </td>
+                  <td>{formatDate(alert.createdAt ?? alert.updatedAt)}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!userAlertRows.length} columns={4} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="最近支付对账" count={userReconciliationRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>事件</th>
+                <th>状态</th>
+                <th>积分</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {userReconciliationRows.slice(0, 8).map((item) => (
+                <tr key={item.id}>
+                  <td>{item.eventType}</td>
+                  <td>
+                    <PaymentStatusBadge status={item.status} />
+                  </td>
+                  <td className={(item.amount ?? 0) >= 0 ? 'amount positive' : 'amount negative'}>
+                    {item.amount === null ? '-' : formatSignedAmount(item.amount)}
+                  </td>
+                  <td>{formatDate(item.createdAt)}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!userReconciliationRows.length} columns={4} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="最近操作 / 审计" count={userAuditRows.length}>
+          <AuditActivityList entries={userAuditRows} />
+        </DrawerSection>
+      </aside>
+    </div>
+  )
+}
+
+function MembershipDetailDrawer({
+  membership,
+  billingAccounts,
+  ledgerEntries,
+  sessions,
+  alerts,
+  reconciliation,
+  auditLogs,
+  session,
+  canAdjustBilling,
+  busy,
+  onClose,
+  onUpdateRole,
+  onDisableMembership,
+  onAdjust,
+}) {
+  const membershipId = membershipIdFor(membership)
+  const organizationId = organizationIdFromRow(membership)
+  const account = billingAccounts.find((item) => membershipIdFor(item) === membershipId) ?? null
+  const ledgerRows = sortByRecent(ledgerEntries.filter((entry) => rowMatchesMembership(entry, membershipId)))
+  const sessionRows = sortByRecent(sessions.filter((item) => rowMatchesMembership(item, membershipId)))
+  const alertRows = sortByRecent(alerts.filter((alert) => rowMatchesMembership(alert, membershipId)))
+  const reconciliationRows = sortByRecent(
+    reconciliation.filter((item) => rowMatchesMembership(item, membershipId)),
+  )
+  const auditRows = sortByRecent(
+    auditLogs.filter(
+      (entry) =>
+        rowMatchesMembership(entry, membershipId) ||
+        (rowMatchesUser(entry, membership.userId) && organizationIdFromRow(entry) === organizationId),
+    ),
+  )
+  const activeSessions = sessionRows.filter((item) => item.status === 'active').length
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+        <header className="drawer-header">
+          <div>
+            <span className="eyebrow">Membership 详情</span>
+            <h2>{membership.name}</h2>
+            <p>{membership.email ?? membership.userId} · {membershipId}</p>
+          </div>
+          <button className="icon-button" type="button" aria-label="关闭 membership 详情" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="drawer-summary-grid">
+          <div>
+            <span>组织</span>
+            <strong>{membership.tenantName ?? organizationId}</strong>
+          </div>
+          <div>
+            <span>成员状态</span>
+            <strong>
+              <StatusPair primary={membership.status} secondary={membership.userStatus} />
+            </strong>
+          </div>
+          <div>
+            <span>角色</span>
+            <strong>{membership.roles.map(roleName).join(' / ')}</strong>
+          </div>
+          <div>
+            <span>套餐</span>
+            <strong>{planName(account?.plan ?? membership.plan)}</strong>
+          </div>
+          <div>
+            <span>积分</span>
+            <strong className={(account?.credits ?? membership.credits ?? 0) >= 0 ? 'amount positive' : 'amount negative'}>
+              {account?.credits ?? membership.credits ?? 0}
+            </strong>
+          </div>
+          <div>
+            <span>活跃 Session</span>
+            <strong>{activeSessions}</strong>
+          </div>
+          <div>
+            <span>是否主组织</span>
+            <strong>{membership.isPrimary ? '是' : '否'}</strong>
+          </div>
+          <div>
+            <span>创建时间</span>
+            <strong>{formatDate(membership.createdAt)}</strong>
+          </div>
+          <div>
+            <span>更新时间</span>
+            <strong>{formatDate(membership.updatedAt)}</strong>
+          </div>
+        </div>
+
+        <div className="drawer-actions">
+          <RoleEditor
+            membership={membership}
+            session={session}
+            busy={busy === `member-role:${membership.id}`}
+            onUpdateRole={onUpdateRole}
+          />
+          <button
+            className="row-button"
+            type="button"
+            disabled={!canAdjustBilling}
+            onClick={() => onAdjust(membership)}
+          >
+            <PencilLine size={14} />
+            调账
+          </button>
+          <button
+            className="row-button danger"
+            type="button"
+            disabled={
+              membership.status !== 'active' ||
+              !canManageMembership(session, membership) ||
+              busy === `member-disable:${membership.id}`
+            }
+            onClick={() => onDisableMembership(membership)}
+          >
+            {busy === `member-disable:${membership.id}` ? (
+              <LoaderCircle size={14} className="spin" />
+            ) : (
+              <Power size={14} />
+            )}
+            移除 membership
+          </button>
+        </div>
+
+        <DrawerSection title="用户与组织" count={1}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>用户</th>
+                <th>组织</th>
+                <th>角色</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <IdentityCell name={membership.name} detail={membership.email ?? membership.userId} compact />
+                </td>
+                <td>
+                  <IdentityCell name={membership.tenantName} detail={organizationId} compact />
+                </td>
+                <td>
+                  <RolePills roles={membership.roles} />
+                </td>
+                <td>
+                  <StatusPair primary={membership.status} secondary={membership.userStatus} />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="账单账户" count={account ? 1 : 0}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>套餐</th>
+                <th>积分</th>
+                <th>状态</th>
+                <th>更新时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {account && (
+                <tr>
+                  <td>{planName(account.plan)}</td>
+                  <td className={account.credits >= 0 ? 'amount positive' : 'amount negative'}>{account.credits}</td>
+                  <td>
+                    <StatusPair primary={account.membershipStatus} secondary={account.userStatus} />
+                  </td>
+                  <td>{formatDate(account.updatedAt)}</td>
+                </tr>
+              )}
+              <EmptyRow visible={!account} columns={4} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="最近账单流水" count={ledgerRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>积分</th>
+                <th>余额</th>
+                <th>说明</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ledgerRows.slice(0, 10).map((entry) => (
+                <tr key={entry.id}>
+                  <td>{ledgerTypeName(entry.type)}</td>
+                  <td className={entry.amount >= 0 ? 'amount positive' : 'amount negative'}>
+                    {formatSignedAmount(entry.amount)}
+                  </td>
+                  <td>{entry.balance ?? '-'}</td>
+                  <td>{entry.description ?? shortId(entry.referenceId)}</td>
+                  <td>{formatDate(entry.createdAt)}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!ledgerRows.length} columns={5} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="Session 设备" count={sessionRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>设备</th>
+                <th>IP</th>
+                <th>状态</th>
+                <th>最近活跃</th>
+                <th>过期时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessionRows.slice(0, 10).map((item) => (
+                <tr key={item.sessionId}>
+                  <td>{item.deviceLabel ?? userAgentSummary(item.userAgent)}</td>
+                  <td>{item.ipAddress ?? '-'}</td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
+                  <td>{formatDate(item.lastSeenAt ?? item.createdAt)}</td>
+                  <td>{formatDate(item.expiresAt)}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!sessionRows.length} columns={5} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="对账告警" count={alertRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>严重性</th>
+                <th>状态</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alertRows.slice(0, 8).map((alert) => (
+                <tr key={alert.id}>
+                  <td>{alert.alertType}</td>
+                  <td>
+                    <AlertSeverityBadge severity={alert.severity} />
+                  </td>
+                  <td>
+                    <AlertStatusBadge status={alert.status} />
+                  </td>
+                  <td>{formatDate(alert.createdAt ?? alert.updatedAt)}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!alertRows.length} columns={4} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="最近支付对账" count={reconciliationRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>事件</th>
+                <th>状态</th>
+                <th>积分</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reconciliationRows.slice(0, 8).map((item) => (
+                <tr key={item.id}>
+                  <td>{item.eventType}</td>
+                  <td>
+                    <PaymentStatusBadge status={item.status} />
+                  </td>
+                  <td className={(item.amount ?? 0) >= 0 ? 'amount positive' : 'amount negative'}>
+                    {item.amount === null ? '-' : formatSignedAmount(item.amount)}
+                  </td>
+                  <td>{formatDate(item.createdAt)}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!reconciliationRows.length} columns={4} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="最近操作 / 审计" count={auditRows.length}>
+          <AuditActivityList entries={auditRows} />
+        </DrawerSection>
+      </aside>
+    </div>
+  )
+}
+
+function OrganizationDetailDrawer({
+  organization,
+  memberships,
+  billingAccounts,
+  sessions,
+  alerts,
+  reconciliation,
+  auditLogs,
+  session,
+  busy,
+  onClose,
+  onRename,
+  onDisable,
+  onTransferOrganizationAdmin,
+  onCreateUser,
+  onAddExistingMember,
+  onCreateInvitation,
+  onManageInvitations,
+  onLeaveOrganization,
+  onOpenAlertPage,
+}) {
+  const organizationType = classifyOrganization(organization)
+  const organizationId = organization.id
+  const memberRows = memberships.filter((membership) => organizationIdFromRow(membership) === organizationId)
+  const billingRows = billingAccounts.filter((account) => organizationIdFromRow(account) === organizationId)
+  const sessionRows = sessions.filter((item) => organizationIdFromRow(item) === organizationId)
+  const alertRows = alerts.filter((item) => organizationIdFromRow(item) === organizationId)
+  const reconciliationRows = reconciliation.filter((item) => organizationIdFromRow(item) === organizationId)
+  const auditRows = auditLogs.filter((item) => organizationIdFromRow(item) === organizationId)
+  const canCreate = organization.status === 'active' && canCreateOrganizationUser(session, organization)
+  const canManage = canManageOrganization(session, organization)
+  const canTransfer = canTransferOrganizationAdmin(session, organization)
+  const canDisableTarget = canDisableOrganization(session, organization)
+  const canAddExisting = canAddExistingOrganizationMember(session, organization)
+  const canLeaveTarget = canLeaveOrganization(session, organization, memberRows)
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+        <header className="drawer-header">
+          <div>
+            <span className="eyebrow">组织详情</span>
+            <h2>{organization.name}</h2>
+            <p>{organization.id}</p>
+          </div>
+          <button className="icon-button" type="button" aria-label="关闭组织详情" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="drawer-summary-grid">
+          <div>
+            <span>类型</span>
+            <strong>
+              <OrganizationTypeBadge organizationType={organizationType} />
+            </strong>
+          </div>
+          <div>
+            <span>状态</span>
+            <strong>
+              <StatusBadge status={organization.status} />
+            </strong>
+          </div>
+          <div>
+            <span>成员</span>
+            <strong>
+              {organization.activeMembershipCount} / {organization.membershipCount}
+            </strong>
+          </div>
+          <div>
+            <span>组织管理员</span>
+            <strong>{organization.activeOrganizationAdminCount}</strong>
+          </div>
+          <div>
+            <span>创建者</span>
+            <strong>{organization.createdByEmail ?? organization.createdByName ?? '-'}</strong>
+          </div>
+          <div>
+            <span>更新时间</span>
+            <strong>{formatDate(organization.updatedAt)}</strong>
+          </div>
+        </div>
+
+        <div className="drawer-actions">
+          <button className="row-button" type="button" disabled={!canManage} onClick={() => onRename(organization)}>
+            <PencilLine size={14} />
+            改名
+          </button>
+          <button className="row-button" type="button" disabled={!canCreate} onClick={() => onCreateUser(organization.id)}>
+            <Plus size={14} />
+            添加账号
+          </button>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!canAddExisting || busy === 'add-existing-member'}
+            onClick={() => onAddExistingMember(organization.id)}
+          >
+            {busy === 'add-existing-member' ? (
+              <LoaderCircle size={14} className="spin" />
+            ) : (
+              <UserPlus size={14} />
+            )}
+            加入已有账号
+          </button>
+          <button className="row-button" type="button" disabled={!canCreate} onClick={() => onCreateInvitation(organization.id)}>
+            <MailPlus size={14} />
+            创建邀请
+          </button>
+          <button className="row-button" type="button" disabled={!canManage} onClick={() => onManageInvitations(organization)}>
+            <MailPlus size={14} />
+            邀请管理
+          </button>
+          <button className="row-button" type="button" disabled={!canTransfer || organization.activeOrganizationAdminCount < 1} onClick={() => onTransferOrganizationAdmin(organization)}>
+            <ShieldCheck size={14} />
+            更换负责人
+          </button>
+          <button className="row-button danger" type="button" disabled={!canDisableTarget} onClick={() => onDisable(organization)}>
+            <Power size={14} />
+            禁用组织
+          </button>
+          <button
+            className="row-button danger"
+            type="button"
+            disabled={!canLeaveTarget || busy === `organization-leave:${organization.id}`}
+            onClick={() => onLeaveOrganization(organization)}
+          >
+            {busy === `organization-leave:${organization.id}` ? (
+              <LoaderCircle size={14} className="spin" />
+            ) : (
+              <LogOut size={14} />
+            )}
+            退出组织
+          </button>
+          <button className="primary-button" type="button" onClick={() => { onOpenAlertPage(); onClose() }}>
+            <AlertTriangle size={14} />
+            查看对账告警
+          </button>
+        </div>
+
+        <DrawerSection title="成员" count={memberRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>成员</th>
+                <th>角色</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              {memberRows.map((membership) => (
+                <tr key={membership.id}>
+                  <td>
+                    <IdentityCell name={membership.name} detail={membership.email ?? membership.userId} compact />
+                  </td>
+                  <td>
+                    <RolePills roles={membership.roles} />
+                  </td>
+                  <td>
+                    <StatusPair primary={membership.status} secondary={membership.userStatus} />
+                  </td>
+                </tr>
+              ))}
+              <EmptyRow visible={!memberRows.length} columns={3} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="账单账户" count={billingRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>成员</th>
+                <th>套餐</th>
+                <th>积分</th>
+              </tr>
+            </thead>
+            <tbody>
+              {billingRows.map((account) => (
+                <tr key={account.membershipId}>
+                  <td>
+                    <IdentityCell name={account.name} detail={account.email ?? account.userId} compact />
+                  </td>
+                  <td>{planName(account.plan)}</td>
+                  <td className={account.credits >= 0 ? 'amount positive' : 'amount negative'}>{account.credits}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!billingRows.length} columns={3} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="Session" count={sessionRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>成员</th>
+                <th>设备</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessionRows.slice(0, 8).map((item) => (
+                <tr key={item.sessionId}>
+                  <td>
+                    <IdentityCell name={item.name} detail={item.email ?? item.userId} compact />
+                  </td>
+                  <td>{item.deviceLabel ?? userAgentSummary(item.userAgent)}</td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
+                </tr>
+              ))}
+              <EmptyRow visible={!sessionRows.length} columns={3} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="告警" count={alertRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>严重性</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alertRows.slice(0, 8).map((alert) => (
+                <tr key={alert.id}>
+                  <td>
+                    <div className="stacked-cell">
+                      <strong>{alert.alertType}</strong>
+                      <small>{shortId(alert.providerEventId)}</small>
+                    </div>
+                  </td>
+                  <td>
+                    <AlertSeverityBadge severity={alert.severity} />
+                  </td>
+                  <td>
+                    <AlertStatusBadge status={alert.status} />
+                  </td>
+                </tr>
+              ))}
+              <EmptyRow visible={!alertRows.length} columns={3} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="最近对账" count={reconciliationRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>事件</th>
+                <th>状态</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reconciliationRows.slice(0, 8).map((item) => (
+                <tr key={item.id}>
+                  <td>{item.eventType}</td>
+                  <td>
+                    <PaymentStatusBadge status={item.status} />
+                  </td>
+                  <td>{formatDate(item.createdAt)}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!reconciliationRows.length} columns={3} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="审计" count={auditRows.length}>
+          <div className="drawer-activity-list">
+            {auditRows.slice(0, 6).map((entry) => (
+              <article key={entry.id} className="drawer-activity">
+                <div>
+                  <strong>{entry.action}</strong>
+                  <small>{entry.resourceType} · {shortId(entry.resourceId)}</small>
+                </div>
+                <span>{formatDate(entry.createdAt)}</span>
+              </article>
+            ))}
+            {!auditRows.length && <p className="panel-empty">暂无审计记录。</p>}
+          </div>
+        </DrawerSection>
+      </aside>
+    </div>
+  )
+}
+
 function SessionsTable({ sessions, canManage, busy, onRevoke }) {
   return (
     <DataSection title="Session 设备信息" count={sessions.length}>
@@ -1505,7 +4087,228 @@ function SessionsTable({ sessions, canManage, busy, onRevoke }) {
   )
 }
 
-function SessionRiskView({ sessions, riskFilter, canManage, busy, onRiskFilterChange, onRevoke }) {
+function SessionRiskDetailDrawer({
+  session,
+  sessions,
+  auditLogs,
+  auditLoading,
+  auditError,
+  canManage,
+  busy,
+  currentUserId,
+  onClose,
+  onRevoke,
+  onRevokeUserSessions,
+  onForcePasswordReset,
+}) {
+  const userSessions = sortByRecent(sessions.filter((item) => item.userId === session.userId))
+  const riskRows = buildSessionRiskRows(userSessions)
+  const activeCount = session.activeCount ?? userSessions.filter((item) => item.status === 'active').length
+  const targetIsCurrentUser = session.userId === currentUserId
+  const canManageTargetUser = canManage && !targetIsCurrentUser
+  const revokeSessionBusy = busy === `session:${session.sessionId}`
+  const revokeUserBusy = busy === `user-sessions:${session.userId}`
+  const forcePasswordBusy = busy === `force-password:${session.userId}`
+  const organizationId = organizationIdFromRow(session)
+  const organizationName = session.organizationName ?? session.tenantName
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+        <header className="drawer-header">
+          <div>
+            <span className="eyebrow">Session 风险详情</span>
+            <h2>{session.name}</h2>
+            <p>{session.email ?? session.userId}</p>
+          </div>
+          <button className="icon-button" type="button" aria-label="关闭 Session 风险详情" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="drawer-summary-grid">
+          <div>
+            <span>风险等级</span>
+            <strong>
+              <RiskBadge level={session.riskLevel} />
+            </strong>
+          </div>
+          <div>
+            <span>Session 状态</span>
+            <strong>
+              <StatusBadge status={session.status} />
+            </strong>
+          </div>
+          <div>
+            <span>活跃 Session</span>
+            <strong>{activeCount}</strong>
+          </div>
+          <div>
+            <span>组织</span>
+            <strong>{organizationName}</strong>
+          </div>
+          <div>
+            <span>最后活跃</span>
+            <strong>{formatDate(session.lastSeenAt ?? session.createdAt)}</strong>
+          </div>
+          <div>
+            <span>过期时间</span>
+            <strong>{formatDate(session.expiresAt)}</strong>
+          </div>
+        </div>
+
+        <div className="drawer-actions">
+          <button
+            className="row-button danger"
+            type="button"
+            disabled={!canManage || session.current || session.status !== 'active' || revokeSessionBusy}
+            onClick={() => onRevoke(session)}
+          >
+            {revokeSessionBusy ? <LoaderCircle size={14} className="spin" /> : <LogOut size={14} />}
+            {session.current ? '当前 Session' : '撤销当前 Session'}
+          </button>
+          <button
+            className="row-button danger"
+            type="button"
+            disabled={!canManageTargetUser || activeCount < 1 || revokeUserBusy}
+            onClick={() => onRevokeUserSessions(session)}
+          >
+            {revokeUserBusy ? <LoaderCircle size={14} className="spin" /> : <LogOut size={14} />}
+            踢该用户下线
+          </button>
+          <button
+            className="row-button danger"
+            type="button"
+            disabled={!canManageTargetUser || forcePasswordBusy}
+            onClick={() => onForcePasswordReset(session)}
+          >
+            {forcePasswordBusy ? <LoaderCircle size={14} className="spin" /> : <ShieldCheck size={14} />}
+            强制改密
+          </button>
+        </div>
+
+        <DrawerSection title="风险原因" count={session.reasons?.length ?? 0}>
+          <ReasonPills reasons={session.reasons ?? []} />
+        </DrawerSection>
+
+        <DrawerSection title="设备与请求上下文" count={1}>
+          <div className="session-context-grid">
+            <div>
+              <span>Session ID</span>
+              <code>{session.sessionId}</code>
+            </div>
+            <div>
+              <span>Membership ID</span>
+              <code>{session.membershipId}</code>
+            </div>
+            <div>
+              <span>用户 ID</span>
+              <code>{session.userId}</code>
+            </div>
+            <div>
+              <span>组织 ID</span>
+              <code>{organizationId}</code>
+            </div>
+            <div>
+              <span>设备</span>
+              <strong>{session.deviceLabel ?? userAgentSummary(session.userAgent)}</strong>
+            </div>
+            <div>
+              <span>IP</span>
+              <strong>{session.ipAddress ?? '-'}</strong>
+            </div>
+            <div>
+              <span>角色</span>
+              <strong>{session.roles.map(roleName).join(' / ')}</strong>
+            </div>
+            <div>
+              <span>创建时间</span>
+              <strong>{formatDate(session.createdAt)}</strong>
+            </div>
+          </div>
+          <div className="code-field">
+            <span>完整 userAgent</span>
+            <pre className="code-block">{session.userAgent ?? '-'}</pre>
+          </div>
+        </DrawerSection>
+
+        <DrawerSection title="同用户 Session" count={riskRows.length}>
+          <table className="mini-table">
+            <thead>
+              <tr>
+                <th>风险</th>
+                <th>状态</th>
+                <th>设备</th>
+                <th>IP</th>
+                <th>最后活跃</th>
+                <th>过期时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {riskRows.slice(0, 12).map((item) => (
+                <tr key={item.sessionId}>
+                  <td>
+                    <RiskBadge level={item.riskLevel} />
+                  </td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
+                  <td>{item.deviceLabel ?? userAgentSummary(item.userAgent)}</td>
+                  <td>{item.ipAddress ?? '-'}</td>
+                  <td>{formatDate(item.lastSeenAt ?? item.createdAt)}</td>
+                  <td>{formatDate(item.expiresAt)}</td>
+                </tr>
+              ))}
+              <EmptyRow visible={!riskRows.length} columns={6} />
+            </tbody>
+          </table>
+        </DrawerSection>
+
+        <DrawerSection title="审计上下文" count={auditLogs.length}>
+          {auditLoading && <p className="panel-empty">正在读取审计上下文...</p>}
+          {auditError && <p className="notice error">{auditError}</p>}
+          {!auditLoading && !auditError && (
+            <div className="audit-context-list">
+              {auditLogs.slice(0, 12).map((entry) => (
+                <article key={entry.id} className={`audit-context-entry ${auditLogTone(entry)}`}>
+                  <div>
+                    <strong>{entry.action}</strong>
+                    <small>
+                      {entry.resourceType} · {entry.resourceId ? shortId(entry.resourceId) : '-'} ·{' '}
+                      {formatDate(entry.createdAt)}
+                    </small>
+                    <small>
+                      Actor {entry.actorUserId ? shortId(entry.actorUserId) : '-'} · User{' '}
+                      {entry.userId ? shortId(entry.userId) : '-'} · IP {entry.ipAddress ?? '-'}
+                    </small>
+                    <span>userAgent</span>
+                    <pre className="code-block compact">{entry.userAgent ?? '-'}</pre>
+                    <span>metadata</span>
+                    <pre className="code-block compact">{prettyJson(entry.metadata)}</pre>
+                  </div>
+                </article>
+              ))}
+              {!auditLogs.length && <p className="panel-empty">暂无审计上下文。</p>}
+            </div>
+          )}
+        </DrawerSection>
+      </aside>
+    </div>
+  )
+}
+
+function SessionRiskView({
+  sessions,
+  riskFilter,
+  canManage,
+  busy,
+  currentUserId,
+  onRiskFilterChange,
+  onRevoke,
+  onRevokeUserSessions,
+  onForcePasswordReset,
+  onOpenDetail,
+}) {
   const rows = buildSessionRiskRows(sessions)
   const summary = summarizeSessionRisks(rows)
   const visibleRows = riskFilter === 'all' ? rows : rows.filter((row) => row.riskLevel === riskFilter)
@@ -1545,45 +4348,81 @@ function SessionRiskView({ sessions, riskFilter, canManage, busy, onRiskFilterCh
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((session) => (
-              <tr key={session.sessionId}>
-                <td>
-                  <RiskBadge level={session.riskLevel} />
-                </td>
-                <td>
-                  <IdentityCell name={session.name} detail={session.email ?? session.userId} />
-                </td>
-                <td>{session.tenantName}</td>
-                <td>
-                  <DeviceCell session={session} />
-                </td>
-                <td>{session.activeCount}</td>
-                <td>{formatInactiveHours(session.inactiveHours)}</td>
-                <td>
-                  <ReasonPills reasons={session.reasons} />
-                </td>
-                <td>
-                  <button
-                    className="row-button danger"
-                    type="button"
-                    disabled={
-                      !canManage ||
-                      session.current ||
-                      session.status !== 'active' ||
-                      busy === `session:${session.sessionId}`
-                    }
-                    onClick={() => onRevoke(session)}
-                  >
-                    {busy === `session:${session.sessionId}` ? (
-                      <LoaderCircle size={14} className="spin" />
-                    ) : (
-                      <LogOut size={14} />
-                    )}
-                    撤销
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {visibleRows.map((session) => {
+              const targetIsCurrentUser = session.userId === currentUserId
+              const canManageTargetUser = canManage && !targetIsCurrentUser
+              const revokeSessionBusy = busy === `session:${session.sessionId}`
+              const revokeUserBusy = busy === `user-sessions:${session.userId}`
+              const forcePasswordBusy = busy === `force-password:${session.userId}`
+
+              return (
+                <tr key={session.sessionId}>
+                  <td>
+                    <RiskBadge level={session.riskLevel} />
+                  </td>
+                  <td>
+                    <IdentityCell name={session.name} detail={session.email ?? session.userId} />
+                  </td>
+                  <td>{session.tenantName}</td>
+                  <td>
+                    <DeviceCell session={session} />
+                  </td>
+                  <td>{session.activeCount}</td>
+                  <td>{formatInactiveHours(session.inactiveHours)}</td>
+                  <td>
+                    <ReasonPills reasons={session.reasons} />
+                  </td>
+                  <td>
+                    <div className="row-actions risk-actions">
+                      <button className="row-button" type="button" onClick={() => onOpenDetail(session)}>
+                        <FileText size={14} />
+                        详情
+                      </button>
+                      <button
+                        className="row-button danger"
+                        type="button"
+                        disabled={!canManageTargetUser || session.activeCount < 1 || revokeUserBusy}
+                        onClick={() => onRevokeUserSessions(session)}
+                      >
+                        {revokeUserBusy ? <LoaderCircle size={14} className="spin" /> : <LogOut size={14} />}
+                        踢用户
+                      </button>
+                      <button
+                        className="row-button danger"
+                        type="button"
+                        disabled={!canManageTargetUser || forcePasswordBusy}
+                        onClick={() => onForcePasswordReset(session)}
+                      >
+                        {forcePasswordBusy ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
+                          <ShieldCheck size={14} />
+                        )}
+                        强制改密
+                      </button>
+                      <button
+                        className="row-button danger"
+                        type="button"
+                        disabled={
+                          !canManage ||
+                          session.current ||
+                          session.status !== 'active' ||
+                          revokeSessionBusy
+                        }
+                        onClick={() => onRevoke(session)}
+                      >
+                        {revokeSessionBusy ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
+                          <LogOut size={14} />
+                        )}
+                        撤销
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
             <EmptyRow visible={!visibleRows.length} columns={8} />
           </tbody>
         </table>
@@ -1599,6 +4438,7 @@ function AuditLogPage({
   resourceFilter,
   onActionFilterChange,
   onResourceFilterChange,
+  onOpenDetail,
 }) {
   const actions = uniqueValues(allEntries, 'action')
   const resourceTypes = uniqueValues(allEntries, 'resourceType')
@@ -1662,7 +4502,13 @@ function AuditLogPage({
                   <span>User {entry.userId ? shortId(entry.userId) : '-'}</span>
                   <span>IP {entry.ipAddress ?? '-'}</span>
                 </div>
-                <code>{compactJson(entry.metadata)}</code>
+                <div className="audit-event-footer">
+                  <code>{compactJson(entry.metadata)}</code>
+                  <button className="row-button" type="button" onClick={() => onOpenDetail(entry)}>
+                    <FileText size={14} />
+                    详情
+                  </button>
+                </div>
               </div>
             </article>
           ))}
@@ -1670,6 +4516,191 @@ function AuditLogPage({
         </div>
       </DataSection>
     </div>
+  )
+}
+
+function AuditLogDetailDrawer({
+  entry,
+  users,
+  organizations,
+  memberships,
+  billingAccounts,
+  ledgerEntries,
+  sessions,
+  reconciliation,
+  alerts,
+  onClose,
+  onOpenUser,
+  onOpenOrganization,
+  onOpenMembership,
+  onOpenBilling,
+  onOpenSession,
+}) {
+  const metadata = objectMetadata(entry)
+  const references = auditRelatedReferences(entry)
+  const userItems = references.users.map((reference) => {
+    const user = users.find((item) => item.id === reference.id)
+    return {
+      ...reference,
+      title: user?.name ?? reference.id,
+      detail: user?.email ?? (user ? user.id : '当前快照未加载，点击后搜索'),
+      actionLabel: user ? '打开' : '搜索',
+      onOpen: () => onOpenUser(reference.id),
+    }
+  })
+  const organizationItems = references.organizations.map((reference) => {
+    const organization = organizations.find((item) => item.id === reference.id)
+    return {
+      ...reference,
+      title: organization?.name ?? reference.id,
+      detail: organization ? organizationTypeName(classifyOrganization(organization).type) : '当前快照未加载，点击后搜索',
+      actionLabel: organization ? '打开' : '搜索',
+      onOpen: () => onOpenOrganization(reference.id),
+    }
+  })
+  const membershipItems = references.memberships.map((reference) => {
+    const membership = memberships.find((item) => membershipIdFor(item) === reference.id)
+    return {
+      ...reference,
+      title: membership?.name ?? reference.id,
+      detail: membership
+        ? `${membership.tenantName} · ${membership.email ?? membership.userId}`
+        : '当前快照未加载，点击后搜索',
+      actionLabel: membership ? '打开' : '搜索',
+      onOpen: () => onOpenMembership(reference.id),
+    }
+  })
+  const sessionItems = references.sessions.map((reference) => {
+    const targetSession = sessions.find((item) => item.sessionId === reference.id)
+    return {
+      ...reference,
+      title: targetSession?.name ?? reference.id,
+      detail: targetSession
+        ? `${targetSession.tenantName} · ${targetSession.deviceLabel ?? userAgentSummary(targetSession.userAgent)}`
+        : '当前快照未加载，点击后搜索',
+      actionLabel: targetSession ? '打开' : '搜索',
+      onOpen: () => onOpenSession(reference.id),
+    }
+  })
+  const billingItems = auditBillingReferenceItems({
+    references,
+    billingAccounts,
+    ledgerEntries,
+    reconciliation,
+    alerts,
+    onOpenBilling,
+  })
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+        <header className="drawer-header">
+          <div>
+            <span className="eyebrow">审计日志详情</span>
+            <h2>{entry.action}</h2>
+            <p>
+              {entry.resourceType} · {entry.resourceId ? shortId(entry.resourceId) : '-'}
+            </p>
+          </div>
+          <button className="icon-button" type="button" aria-label="关闭审计日志详情" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="drawer-summary-grid">
+          <div>
+            <span>动作</span>
+            <strong>{entry.action}</strong>
+          </div>
+          <div>
+            <span>资源</span>
+            <strong>{entry.resourceType}</strong>
+          </div>
+          <div>
+            <span>资源 ID</span>
+            <strong>{entry.resourceId ?? '-'}</strong>
+          </div>
+          <div>
+            <span>组织</span>
+            <strong>{entry.organizationId ?? entry.tenantId ?? '-'}</strong>
+          </div>
+          <div>
+            <span>IP</span>
+            <strong>{entry.ipAddress ?? '-'}</strong>
+          </div>
+          <div>
+            <span>时间</span>
+            <strong>{formatDate(entry.createdAt)}</strong>
+          </div>
+        </div>
+
+        <DrawerSection title="关联对象" count={referenceCount(references)}>
+          <div className="audit-reference-grid">
+            <AuditReferenceGroup title="用户" items={userItems} emptyLabel="没有关联用户。" />
+            <AuditReferenceGroup title="组织" items={organizationItems} emptyLabel="没有关联组织。" />
+            <AuditReferenceGroup title="Membership" items={membershipItems} emptyLabel="没有关联 membership。" />
+            <AuditReferenceGroup title="Session" items={sessionItems} emptyLabel="没有关联 session。" />
+            <AuditReferenceGroup title="账单记录" items={billingItems} emptyLabel="没有关联账单记录。" />
+          </div>
+        </DrawerSection>
+
+        <DrawerSection title="请求上下文" count={1}>
+          <div className="session-context-grid">
+            <div>
+              <span>Audit ID</span>
+              <code>{entry.id}</code>
+            </div>
+            <div>
+              <span>Actor User ID</span>
+              <code>{entry.actorUserId ?? '-'}</code>
+            </div>
+            <div>
+              <span>User ID</span>
+              <code>{entry.userId ?? '-'}</code>
+            </div>
+            <div>
+              <span>Organization ID</span>
+              <code>{entry.organizationId ?? entry.tenantId ?? '-'}</code>
+            </div>
+          </div>
+          <div className="code-field">
+            <span>完整 userAgent</span>
+            <pre className="code-block">{entry.userAgent ?? '-'}</pre>
+          </div>
+        </DrawerSection>
+
+        <DrawerSection title="完整 metadata" count={Object.keys(metadata).length}>
+          <pre className="code-block large">{prettyJson(metadata)}</pre>
+        </DrawerSection>
+      </aside>
+    </div>
+  )
+}
+
+function AuditReferenceGroup({ title, items, emptyLabel }) {
+  return (
+    <section className="audit-reference-group">
+      <header>
+        <h4>{title}</h4>
+        <span>{items.length}</span>
+      </header>
+      <div>
+        {items.map((item) => (
+          <article key={`${item.label}:${item.id}`} className="audit-reference-item">
+            <div>
+              <span>{item.label}</span>
+              <strong>{item.title}</strong>
+              <small>{item.detail}</small>
+            </div>
+            <button className="row-button" type="button" onClick={item.onOpen}>
+              <FileText size={14} />
+              {item.actionLabel}
+            </button>
+          </article>
+        ))}
+        {!items.length && <p className="panel-empty compact">{emptyLabel}</p>}
+      </div>
+    </section>
   )
 }
 
@@ -1779,41 +4810,68 @@ function PasswordResetModal({ target, form, busy, onChange, onClose, onSubmit })
   )
 }
 
+function CreateOrganizationModal({ form, busy, onChange, onClose, onSubmit }) {
+  const valid = form.name.trim().length > 0
+  return (
+    <Modal title="创建组织" onClose={onClose}>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <label>
+          <span>组织名称</span>
+          <input
+            value={form.name}
+            onChange={(event) => onChange({ ...form, name: event.target.value })}
+            maxLength={80}
+            required
+          />
+        </label>
+        <p className="modal-hint">后台创建组织不会切换当前登录 session；创建后可加入已有账号或创建新账号。</p>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="创建组织" />
+      </form>
+    </Modal>
+  )
+}
+
 function CreateOrganizationUserModal({
   form,
   organizations,
   roleOptions,
+  session,
   busy,
   onChange,
   onClose,
   onSubmit,
 }) {
-  const activeOrganizations = organizations.filter((organization) => organization.status === 'active')
+  const organizationOptions = organizations.filter(
+    (organization) =>
+      organization.status === 'active' && assignableRoleOptions(session, organization).includes(form.role),
+  )
+  const needsOrganization = roleRequiresOrganization(form.role)
   const valid =
-    form.organizationId &&
+    (!needsOrganization || form.organizationId) &&
     form.email.trim().includes('@') &&
     form.name.trim().length > 0 &&
     form.password.length >= 8 &&
     roleOptions.includes(form.role)
 
+  const selectRole = (role) => {
+    const nextOrganizations = organizations.filter(
+      (organization) =>
+        organization.status === 'active' && assignableRoleOptions(session, organization).includes(role),
+    )
+    onChange({
+      ...form,
+      role,
+      organizationId: roleRequiresOrganization(role)
+        ? nextOrganizations.find((organization) => organization.id === form.organizationId)?.id ??
+          nextOrganizations[0]?.id ??
+          ''
+        : '',
+    })
+  }
+
   return (
     <Modal title="添加账号" onClose={onClose}>
       <form className="modal-form" onSubmit={onSubmit}>
-        <label>
-          <span>组织</span>
-          <select
-            value={form.organizationId}
-            onChange={(event) => onChange({ ...form, organizationId: event.target.value })}
-            disabled={!activeOrganizations.length}
-            required
-          >
-            {activeOrganizations.map((organization) => (
-              <option key={organization.id} value={organization.id}>
-                {organization.name} · {organization.id}
-              </option>
-            ))}
-          </select>
-        </label>
         <label>
           <span>邮箱</span>
           <input
@@ -1850,7 +4908,7 @@ function CreateOrganizationUserModal({
           <span>身份</span>
           <select
             value={form.role}
-            onChange={(event) => onChange({ ...form, role: event.target.value })}
+            onChange={(event) => selectRole(event.target.value)}
             required
           >
             {roleOptions.map((role) => (
@@ -1860,10 +4918,422 @@ function CreateOrganizationUserModal({
             ))}
           </select>
         </label>
+        {needsOrganization ? (
+          <label>
+            <span>组织</span>
+            <select
+              value={form.organizationId}
+              onChange={(event) => onChange({ ...form, organizationId: event.target.value })}
+              disabled={!organizationOptions.length}
+              required
+            >
+              {organizationOptions.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name} · {organization.id}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <p className="modal-hint">范围：{platformRoleScopeName(form.role)}</p>
+        )}
         <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="创建账号" />
       </form>
     </Modal>
   )
+}
+
+function AddExistingMemberModal({
+  form,
+  organizations,
+  roleOptions,
+  session,
+  busy,
+  onChange,
+  onClose,
+  onSubmit,
+}) {
+  const organizationOptions = organizations.filter((organization) =>
+    canAddExistingOrganizationMember(session, organization),
+  )
+  const selectedOrganization =
+    organizationOptions.find((organization) => organization.id === form.organizationId) ?? null
+  const roles = roleOptions.length
+    ? roleOptions
+    : addExistingOrganizationMemberRoleOptions(session, selectedOrganization)
+  const valid =
+    Boolean(selectedOrganization) &&
+    form.email.trim().includes('@') &&
+    roles.includes(form.role)
+
+  const selectOrganization = (organizationId) => {
+    const organization = organizationOptions.find((item) => item.id === organizationId)
+    const nextRoles = addExistingOrganizationMemberRoleOptions(session, organization)
+    onChange({
+      ...form,
+      organizationId,
+      role: nextRoles.includes(form.role) ? form.role : (nextRoles[0] ?? form.role),
+    })
+  }
+
+  return (
+    <Modal title="加入已有账号" onClose={onClose}>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <label>
+          <span>组织</span>
+          <select
+            value={form.organizationId}
+            onChange={(event) => selectOrganization(event.target.value)}
+            disabled={!organizationOptions.length}
+            required
+          >
+            {organizationOptions.map((organization) => (
+              <option key={organization.id} value={organization.id}>
+                {organization.name} · {organization.id}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>已有账号邮箱</span>
+          <input
+            type="email"
+            value={form.email}
+            onChange={(event) => onChange({ ...form, email: event.target.value })}
+            autoComplete="off"
+            required
+          />
+        </label>
+        <label>
+          <span>加入后的身份</span>
+          <select
+            value={form.role}
+            onChange={(event) => onChange({ ...form, role: event.target.value })}
+            disabled={!roles.length}
+            required
+          >
+            {roles.map((role) => (
+              <option key={role} value={role}>
+                {roleName(role)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="modal-hint">该账号必须已经存在且未被禁用；加入组织不会重置密码或切换当前后台 session。</p>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="加入组织" />
+      </form>
+    </Modal>
+  )
+}
+
+function CreateInvitationModal({
+  form,
+  organizations,
+  roleOptions,
+  session,
+  busy,
+  onChange,
+  onClose,
+  onSubmit,
+}) {
+  const organizationOptions = organizations.filter(
+    (organization) =>
+      organization.status === 'active' && assignableRoleOptions(session, organization).includes(form.role),
+  )
+  const needsOrganization = roleRequiresOrganization(form.role)
+  const valid =
+    (!needsOrganization || form.organizationId) &&
+    form.email.trim().includes('@') &&
+    roleOptions.includes(form.role)
+
+  const selectOrganization = (organizationId) => {
+    const organization = organizationOptions.find((item) => item.id === organizationId)
+    const nextRoles = assignableRoleOptions(session, organization)
+    onChange({
+      ...form,
+      organizationId,
+      role: nextRoles.includes(form.role) ? form.role : (nextRoles[0] ?? form.role),
+    })
+  }
+
+  const selectRole = (role) => {
+    const nextOrganizations = organizations.filter(
+      (organization) =>
+        organization.status === 'active' && assignableRoleOptions(session, organization).includes(role),
+    )
+    onChange({
+      ...form,
+      role,
+      organizationId: roleRequiresOrganization(role)
+        ? nextOrganizations.find((organization) => organization.id === form.organizationId)?.id ??
+          nextOrganizations[0]?.id ??
+          ''
+        : '',
+    })
+  }
+
+  return (
+    <Modal title="创建邀请" onClose={onClose}>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <label>
+          <span>受邀邮箱</span>
+          <input
+            type="email"
+            value={form.email}
+            onChange={(event) => onChange({ ...form, email: event.target.value })}
+            autoComplete="off"
+            required
+          />
+        </label>
+        <label>
+          <span>注册后身份</span>
+          <select
+            value={form.role}
+            onChange={(event) => selectRole(event.target.value)}
+            required
+          >
+            {roleOptions.map((role) => (
+              <option key={role} value={role}>
+                {roleName(role)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {needsOrganization ? (
+          <label>
+            <span>组织</span>
+            <select
+              value={form.organizationId}
+              onChange={(event) => selectOrganization(event.target.value)}
+              disabled={!organizationOptions.length}
+              required
+            >
+              {organizationOptions.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name} · {organization.id}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <p className="modal-hint">范围：{platformRoleScopeName(form.role)}</p>
+        )}
+        <p className="modal-hint">邀请码只在创建后显示一次，同时会按邮件配置发送邀请邮件。</p>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="创建邀请" />
+      </form>
+    </Modal>
+  )
+}
+
+function InvitationResultModal({ invitation, onClose, onCopy }) {
+  const invitationUrl = invitationUrlFor(invitation.token)
+  const organizationName = invitation.organizationName ?? invitation.tenantName
+  const organizationId = invitation.organizationId ?? invitation.tenantId
+
+  return (
+    <Modal title="邀请码已创建" onClose={onClose}>
+      <div className="invitation-result">
+        <IdentityCell name={organizationName} detail={organizationId} />
+        <dl className="invitation-meta">
+          <div>
+            <dt>受邀邮箱</dt>
+            <dd>{invitation.email}</dd>
+          </div>
+          <div>
+            <dt>身份</dt>
+            <dd>{invitation.roles.map(roleName).join('、')}</dd>
+          </div>
+          <div>
+            <dt>状态</dt>
+            <dd>{statusName(invitation.status)}</dd>
+          </div>
+          <div>
+            <dt>过期时间</dt>
+            <dd>{formatDate(invitation.expiresAt)}</dd>
+          </div>
+        </dl>
+        <label className="copy-field">
+          <span>注册链接</span>
+          <div>
+            <input value={invitationUrl} readOnly onFocus={(event) => event.target.select()} />
+            <button
+              type="button"
+              className="row-button"
+              onClick={() => onCopy(invitationUrl, '注册链接已复制')}
+            >
+              <Copy size={14} />
+              复制链接
+            </button>
+          </div>
+        </label>
+        <label className="copy-field">
+          <span>邀请码</span>
+          <div>
+            <input value={invitation.token} readOnly onFocus={(event) => event.target.select()} />
+            <button
+              type="button"
+              className="row-button"
+              onClick={() => onCopy(invitation.token, '邀请码已复制')}
+            >
+              <Copy size={14} />
+              复制邀请码
+            </button>
+          </div>
+        </label>
+        <p className="modal-hint">明文邀请码关闭后不能从数据库还原；需要再次展示时请重新创建邀请。</p>
+        <div className="modal-actions">
+          <button className="primary-button" type="button" onClick={onClose}>
+            <Check size={15} />
+            完成
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function InvitationCards({ invitations, canCreate, busy, onReissue, onRevoke }) {
+  return (
+    <div className="invitation-list">
+      {invitations.map((invitation) => (
+        <article key={invitation.id} className="invitation-card">
+          <header>
+            <div>
+              <strong>{invitation.email}</strong>
+              <small>{invitation.id}</small>
+            </div>
+            <InvitationStatusBadge status={invitation.status} />
+          </header>
+          <div className="invitation-card-grid">
+            <div>
+              <span>身份</span>
+              <RolePills roles={invitation.roles} />
+            </div>
+            <div>
+              <span>创建时间</span>
+              <strong>{formatDate(invitation.createdAt)}</strong>
+            </div>
+            <div>
+              <span>过期时间</span>
+              <strong>{formatDate(invitation.expiresAt)}</strong>
+            </div>
+            <div>
+              <span>完成时间</span>
+              <strong>{invitation.acceptedAt ? formatDate(invitation.acceptedAt) : '-'}</strong>
+            </div>
+            <div>
+              <span>撤销时间</span>
+              <strong>{invitation.revokedAt ? formatDate(invitation.revokedAt) : '-'}</strong>
+            </div>
+          </div>
+          <footer>
+            <button
+              className="row-button"
+              type="button"
+              disabled={
+                !canCreate ||
+                invitation.status === 'accepted' ||
+                busy === `invitation-reissue:${invitation.id}`
+              }
+              onClick={() => onReissue(invitation)}
+            >
+              {busy === `invitation-reissue:${invitation.id}` ? (
+                <LoaderCircle size={14} className="spin" />
+              ) : (
+                <RefreshCw size={14} />
+              )}
+              重新生成
+            </button>
+            <button
+              className="row-button danger"
+              type="button"
+              disabled={invitation.status !== 'pending' || busy === `invitation-revoke:${invitation.id}`}
+              onClick={() => onRevoke(invitation)}
+            >
+              {busy === `invitation-revoke:${invitation.id}` ? (
+                <LoaderCircle size={14} className="spin" />
+              ) : (
+                <Power size={14} />
+              )}
+              撤销
+            </button>
+          </footer>
+        </article>
+      ))}
+      {!invitations.length && <p className="panel-empty">暂无邀请记录。</p>}
+    </div>
+  )
+}
+
+function OrganizationInvitationsModal({
+  organization,
+  invitations,
+  loading,
+  error,
+  session,
+  busy,
+  onCreate,
+  onRefresh,
+  onReissue,
+  onRevoke,
+  onClose,
+}) {
+  const canCreate = organization.status === 'active' && canCreateOrganizationUser(session, organization)
+  const pendingCount = invitations.filter((invitation) => invitation.status === 'pending').length
+
+  return (
+    <Modal title="组织详情 / 邀请管理" wide onClose={onClose}>
+      <div className="organization-invitations">
+        <section className="organization-detail-head">
+          <IdentityCell name={organization.name} detail={organization.id} />
+          <div>
+            <span>成员</span>
+            <strong>
+              {organization.activeMembershipCount} / {organization.membershipCount}
+            </strong>
+          </div>
+          <div>
+            <span>待接受邀请</span>
+            <strong>{pendingCount}</strong>
+          </div>
+          <StatusBadge status={organization.status} />
+        </section>
+        <div className="invitation-toolbar">
+          <button className="primary-button" type="button" disabled={!canCreate} onClick={onCreate}>
+            <MailPlus size={14} />
+            创建邀请
+          </button>
+          <button className="row-button" type="button" disabled={loading} onClick={onRefresh}>
+            {loading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
+            刷新列表
+          </button>
+        </div>
+        {error && <div className="notice error">{error}</div>}
+        {loading && !invitations.length ? (
+          <LoadingScreen compact label="正在读取邀请列表" />
+        ) : (
+          <InvitationCards
+            invitations={invitations}
+            canCreate={canCreate}
+            busy={busy}
+            onReissue={onReissue}
+            onRevoke={onRevoke}
+          />
+        )}
+        <p className="modal-hint">历史邀请只显示状态；明文邀请码只会在创建或重新生成后显示一次。</p>
+      </div>
+    </Modal>
+  )
+}
+
+function InvitationStatusBadge({ status }) {
+  const labels = {
+    pending: '待接受',
+    accepted: '已接受',
+    revoked: '已撤销',
+    expired: '已过期',
+  }
+  return <span className={`invitation-status-badge ${status}`}>{labels[status] ?? statusName(status)}</span>
 }
 
 function OrganizationAdminTransferModal({
@@ -1922,10 +5392,68 @@ function OrganizationAdminTransferModal({
   )
 }
 
-function Modal({ title, children, onClose }) {
+function ReconciliationAlertActionModal({
+  alert,
+  status,
+  message,
+  organizationName,
+  busy,
+  onMessageChange,
+  onClose,
+  onSubmit,
+}) {
+  const actionLabel = status === 'acknowledged' ? '确认告警' : '解决告警'
+  const valid = message.trim().length > 0 && message.trim().length <= 200
+  return (
+    <Modal title={actionLabel} onClose={onClose}>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <dl className="invitation-meta">
+          <div>
+            <dt>组织</dt>
+            <dd>{organizationName}</dd>
+          </div>
+          <div>
+            <dt>状态</dt>
+            <dd>{reconciliationAlertStatusName(alert.status)}</dd>
+          </div>
+          <div>
+            <dt>严重性</dt>
+            <dd>{alertSeverityName(alert.severity)}</dd>
+          </div>
+          <div>
+            <dt>事件</dt>
+            <dd>{alert.eventType}</dd>
+          </div>
+        </dl>
+        <div className="alert-action-summary">
+          <strong>{alert.alertType}</strong>
+          <span>{alert.provider} · {shortId(alert.providerEventId)}</span>
+          <p>{alert.message}</p>
+        </div>
+        <label>
+          <span>处理备注</span>
+          <textarea
+            value={message}
+            onChange={(event) => onMessageChange(event.target.value)}
+            maxLength={200}
+            rows={4}
+            required
+          />
+        </label>
+        <p className="modal-hint">备注会写回对账告警记录，便于后续审计和复盘。</p>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel={actionLabel} />
+      </form>
+    </Modal>
+  )
+}
+
+function Modal({ title, children, onClose, wide = false }) {
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <section className="modal" onMouseDown={(event) => event.stopPropagation()}>
+      <section
+        className={wide ? 'modal wide-modal' : 'modal'}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <header>
           <h2>{title}</h2>
           <button className="icon-button" type="button" aria-label="关闭" onClick={onClose}>
@@ -1964,6 +5492,38 @@ function DataSection({ title, count, children }) {
   )
 }
 
+function DrawerSection({ title, count, children }) {
+  return (
+    <section className="drawer-section">
+      <header>
+        <h3>{title}</h3>
+        <span>{count}</span>
+      </header>
+      <div className="drawer-section-body">{children}</div>
+    </section>
+  )
+}
+
+function AuditActivityList({ entries }) {
+  return (
+    <div className="drawer-activity-list">
+      {entries.slice(0, 8).map((entry) => (
+        <article key={entry.id} className="drawer-activity">
+          <div>
+            <strong>{entry.action}</strong>
+            <small>
+              {entry.resourceType} · {entry.resourceId ? shortId(entry.resourceId) : '-'}
+            </small>
+            <small>{compactJson(entry.metadata)}</small>
+          </div>
+          <span>{formatDate(entry.createdAt)}</span>
+        </article>
+      ))}
+      {!entries.length && <p className="panel-empty">暂无审计记录。</p>}
+    </div>
+  )
+}
+
 function IdentityCell({ name, detail, compact = false }) {
   return (
     <div className={compact ? 'identity-cell compact' : 'identity-cell'}>
@@ -1980,13 +5540,42 @@ function StatusBadge({ status }) {
   return <span className={`status-badge ${status}`}>{statusName(status)}</span>
 }
 
-function PaymentStatusBadge({ status }) {
+function paymentStatusName(status) {
   const labels = {
     processed: '已处理',
     ignored: '已忽略',
     failed: '失败',
   }
-  return <span className={`payment-status-badge ${status}`}>{labels[status] ?? status}</span>
+  return labels[status] ?? status
+}
+
+function PaymentStatusBadge({ status }) {
+  return <span className={`payment-status-badge ${status}`}>{paymentStatusName(status)}</span>
+}
+
+function AlertStatusBadge({ status }) {
+  return <span className={`alert-status-badge ${status}`}>{reconciliationAlertStatusName(status)}</span>
+}
+
+function alertSeverityName(severity) {
+  const labels = {
+    warning: '警告',
+    critical: '严重',
+  }
+  return labels[severity] ?? severity
+}
+
+function AlertSeverityBadge({ severity }) {
+  return <span className={`alert-severity-badge ${severity}`}>{alertSeverityName(severity)}</span>
+}
+
+function reconciliationAlertStatusName(status) {
+  const labels = {
+    open: '未处理',
+    acknowledged: '已确认',
+    resolved: '已解决',
+  }
+  return labels[status] ?? status
 }
 
 function PasswordResetBadge({ required }) {
@@ -2064,20 +5653,94 @@ function EmptyRow({ visible, columns }) {
   )
 }
 
+function usageRangeName(range) {
+  const labels = {
+    today: '今日',
+    week: '本周',
+    month: '本月',
+  }
+  return labels[range] ?? range
+}
+
+function formatUsageNumber(value) {
+  return new Intl.NumberFormat('zh-CN').format(Number.isFinite(value) ? value : 0)
+}
+
+function formatUsageRatio(value) {
+  const ratio = Number.isFinite(value) ? value : 0
+  return `${Math.round(ratio * 1000) / 10}%`
+}
+
+function usageRowKey(row) {
+  return row.userId ?? row.organizationId ?? row.subjectType
+}
+
 function tabCount(tabId, summary) {
   const counts = {
     overview: '',
+    'usage-realtime': '',
+    'usage-users': '',
+    'usage-organizations': '',
     users: summary.users,
     organizations: summary.organizations,
     tenants: summary.organizations,
     memberships: summary.memberships,
+    invitations: '',
     billing: summary.billingAccounts,
+    'reconciliation-alerts': summary.reconciliationAlerts,
     adjustments: summary.billingAccounts,
     sessions: summary.sessions,
     'session-risk': summary.sessions,
     audit: summary.auditLogs,
   }
   return counts[tabId] ?? ''
+}
+
+function activeConsoleListMeta(snapshot, activeTab) {
+  if (!snapshot) return null
+  const metaByTab = {
+    users: snapshot.users?.meta,
+    organizations: snapshot.organizations?.meta ?? snapshot.tenants?.meta,
+    memberships: snapshot.memberships?.meta,
+    billing: snapshot.billingLedgerEntries?.meta,
+    'reconciliation-alerts': snapshot.billingReconciliationAlerts?.meta,
+    adjustments: snapshot.billingAccounts?.meta,
+    sessions: snapshot.sessions?.meta,
+    'session-risk': snapshot.sessions?.meta,
+    audit: snapshot.auditLogs?.meta,
+  }
+  return metaByTab[activeTab] ?? null
+}
+
+function organizationOptionsForFilter(organizations, selectedOrganizationId) {
+  const options = [...organizations]
+  if (selectedOrganizationId && !options.some((organization) => organization.id === selectedOrganizationId)) {
+    options.unshift({
+      id: selectedOrganizationId,
+      name: selectedOrganizationId,
+      status: 'active',
+      isSystem: false,
+      createdByUserId: null,
+      createdByEmail: null,
+      createdByName: null,
+      membershipCount: 0,
+      activeMembershipCount: 0,
+      activeOrganizationAdminCount: 0,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    })
+  }
+  return options
+}
+
+function summarizeInvitationStatuses(invitations) {
+  return invitations.reduce(
+    (summary, invitation) => ({
+      ...summary,
+      [invitation.status]: (summary[invitation.status] ?? 0) + 1,
+    }),
+    { pending: 0, accepted: 0, revoked: 0, expired: 0 },
+  )
 }
 
 function MetricBlock({ icon: Icon, label, value, tone = '' }) {
@@ -2148,6 +5811,169 @@ function compactJson(value) {
   return text.length > 96 ? `${text.slice(0, 93)}...` : text
 }
 
+function prettyJson(value) {
+  return JSON.stringify(value ?? {}, null, 2)
+}
+
+function auditRelatedReferences(entry) {
+  const metadata = objectMetadata(entry)
+  const references = {
+    users: [],
+    organizations: [],
+    memberships: [],
+    sessions: [],
+    billingAccounts: [],
+    ledgerEntries: [],
+    reconciliationItems: [],
+    reconciliationAlerts: [],
+  }
+
+  addAuditReference(references.users, '操作者', entry.actorUserId)
+  addAuditReference(references.users, '受影响用户', entry.userId)
+  addAuditReference(references.organizations, '组织', entry.organizationId ?? entry.tenantId)
+
+  if (entry.resourceType === 'user') addAuditReference(references.users, '资源用户', entry.resourceId)
+  if (entry.resourceType === 'tenant') addAuditReference(references.organizations, '资源组织', entry.resourceId)
+  if (entry.resourceType === 'tenant_membership' || entry.resourceType === 'membership') {
+    addAuditReference(references.memberships, '资源 membership', entry.resourceId)
+  }
+  if (entry.resourceType === 'session') addAuditReference(references.sessions, '资源 session', entry.resourceId)
+  if (entry.resourceType === 'billing_account') addAuditReference(references.billingAccounts, '资源账单账户', entry.resourceId)
+  if (entry.resourceType === 'billing_ledger_entry') {
+    addAuditReference(references.ledgerEntries, '资源账单流水', entry.resourceId)
+  }
+  if (entry.resourceType === 'billing_reconciliation_alert') {
+    addAuditReference(references.reconciliationAlerts, '资源对账告警', entry.resourceId)
+  }
+
+  addAuditMetadataReferences(references.users, metadata, {
+    userId: 'metadata.userId',
+    actorUserId: 'metadata.actorUserId',
+    createdByUserId: 'metadata.createdByUserId',
+    invitedByUserId: 'metadata.invitedByUserId',
+    targetUserId: 'metadata.targetUserId',
+    currentOrganizationAdminUserId: 'metadata.currentOrganizationAdminUserId',
+  })
+  addAuditMetadataReferences(references.organizations, metadata, {
+    tenantId: 'metadata.tenantId',
+    organizationId: 'metadata.organizationId',
+    targetTenantId: 'metadata.targetTenantId',
+    targetOrganizationId: 'metadata.targetOrganizationId',
+  })
+  addAuditMetadataReferences(references.memberships, metadata, {
+    membershipId: 'metadata.membershipId',
+    targetMembershipId: 'metadata.targetMembershipId',
+  })
+  addAuditMetadataReferences(references.sessions, metadata, {
+    sessionId: 'metadata.sessionId',
+    targetSessionId: 'metadata.targetSessionId',
+  })
+  addAuditMetadataReferences(references.billingAccounts, metadata, {
+    billingAccountId: 'metadata.billingAccountId',
+  })
+  addAuditMetadataReferences(references.ledgerEntries, metadata, {
+    ledgerEntryId: 'metadata.ledgerEntryId',
+    relatedEntryId: 'metadata.relatedEntryId',
+  })
+  addAuditMetadataReferences(references.reconciliationItems, metadata, {
+    reconciliationItemId: 'metadata.reconciliationItemId',
+    paymentReconciliationItemId: 'metadata.paymentReconciliationItemId',
+    paymentSessionId: 'metadata.paymentSessionId',
+  })
+  addAuditMetadataReferences(references.reconciliationAlerts, metadata, {
+    alertId: 'metadata.alertId',
+    reconciliationAlertId: 'metadata.reconciliationAlertId',
+  })
+
+  for (const reference of references.memberships) {
+    addAuditReference(references.billingAccounts, `账单账户：${reference.label}`, reference.id)
+  }
+
+  return references
+}
+
+function addAuditMetadataReferences(target, metadata, keyLabels) {
+  for (const [key, label] of Object.entries(keyLabels)) {
+    addAuditReference(target, label, metadata[key])
+  }
+}
+
+function addAuditReference(target, label, value) {
+  if (typeof value !== 'string') return
+  const id = value.trim()
+  if (!id || target.some((item) => item.id === id && item.label === label)) return
+  target.push({ label, id })
+}
+
+function referenceCount(references) {
+  return Object.values(references).reduce((total, items) => total + items.length, 0)
+}
+
+function auditBillingReferenceItems({
+  references,
+  billingAccounts,
+  ledgerEntries,
+  reconciliation,
+  alerts,
+  onOpenBilling,
+}) {
+  const items = []
+
+  for (const reference of references.billingAccounts) {
+    const account = billingAccounts.find((item) => membershipIdFor(item) === reference.id)
+    items.push({
+      ...reference,
+      label: reference.label,
+      title: account?.name ?? reference.id,
+      detail: account
+        ? `${account.tenantName} · ${planName(account.plan)} · ${account.credits} 积分`
+        : '当前快照未加载，点击后搜索',
+      actionLabel: account ? '打开' : '搜索',
+      onOpen: () => onOpenBilling(reference.id),
+    })
+  }
+
+  for (const reference of references.ledgerEntries) {
+    const entry = ledgerEntries.find((item) => item.id === reference.id || item.referenceId === reference.id)
+    items.push({
+      ...reference,
+      title: entry ? `${ledgerTypeName(entry.type)} ${formatSignedAmount(entry.amount)}` : reference.id,
+      detail: entry ? `${entry.description ?? entry.referenceId} · ${formatDate(entry.createdAt)}` : '当前快照未加载，点击后搜索',
+      actionLabel: entry ? '打开' : '搜索',
+      onOpen: () => onOpenBilling(reference.id),
+    })
+  }
+
+  for (const reference of references.reconciliationItems) {
+    const item = reconciliation.find(
+      (candidate) =>
+        candidate.id === reference.id ||
+        candidate.providerEventId === reference.id ||
+        candidate.paymentSessionId === reference.id,
+    )
+    items.push({
+      ...reference,
+      title: item ? item.eventType : reference.id,
+      detail: item ? `${paymentStatusName(item.status)} · ${item.message}` : '当前快照未加载，点击后搜索',
+      actionLabel: item ? '打开' : '搜索',
+      onOpen: () => onOpenBilling(reference.id),
+    })
+  }
+
+  for (const reference of references.reconciliationAlerts) {
+    const alert = alerts.find((candidate) => candidate.id === reference.id || candidate.providerEventId === reference.id)
+    items.push({
+      ...reference,
+      title: alert ? alert.alertType : reference.id,
+      detail: alert ? `${reconciliationAlertStatusName(alert.status)} · ${alert.message}` : '当前快照未加载，点击后搜索',
+      actionLabel: alert ? '打开' : '搜索',
+      onOpen: () => onOpenBilling(reference.id),
+    })
+  }
+
+  return items
+}
+
 function organizationAdminTransferCandidates(memberships, tenantId) {
   return memberships.filter(
     (membership) =>
@@ -2155,6 +5981,80 @@ function organizationAdminTransferCandidates(memberships, tenantId) {
       membership.status === 'active' &&
       membership.userStatus === 'active' &&
       membership.roles.includes('organization_member'),
+  )
+}
+
+function organizationNameFor(organizations, organizationId) {
+  if (!organizationId) return '-'
+  return organizations.find((organization) => organization.id === organizationId)?.name ?? organizationId
+}
+
+function organizationIdFromRow(row) {
+  return row?.organizationId ?? row?.tenantId ?? ''
+}
+
+function objectMetadata(row) {
+  return row?.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata) ? row.metadata : {}
+}
+
+function rowMatchesUser(row, userId) {
+  if (!userId) return false
+  const metadata = objectMetadata(row)
+  return [
+    row?.userId,
+    row?.actorUserId,
+    row?.createdByUserId,
+    metadata.userId,
+    metadata.actorUserId,
+    metadata.createdByUserId,
+    metadata.targetUserId,
+    row?.resourceType === 'user' ? row?.resourceId : '',
+  ].includes(userId)
+}
+
+function rowMatchesMembership(row, membershipId) {
+  if (!membershipId) return false
+  const metadata = objectMetadata(row)
+  return [
+    row?.membershipId,
+    row?.targetMembershipId,
+    metadata.membershipId,
+    metadata.targetMembershipId,
+    row?.resourceType === 'membership' ? row?.resourceId : '',
+  ].includes(membershipId)
+}
+
+function rowMatchesAnyMembership(row, membershipIds) {
+  if (!membershipIds.size) return false
+  const metadata = objectMetadata(row)
+  return [
+    row?.membershipId,
+    row?.targetMembershipId,
+    metadata.membershipId,
+    metadata.targetMembershipId,
+    row?.resourceType === 'membership' ? row?.resourceId : '',
+  ].some((id) => id && membershipIds.has(id))
+}
+
+function sortByRecent(rows) {
+  return [...rows].sort((left, right) => recentTime(right) - recentTime(left))
+}
+
+function recentTime(row) {
+  const value = row?.lastSeenAt ?? row?.updatedAt ?? row?.createdAt ?? row?.expiresAt
+  const time = value ? new Date(value).getTime() : 0
+  return Number.isFinite(time) ? time : 0
+}
+
+function summarizeReconciliationAlerts(alerts) {
+  return alerts.reduce(
+    (summary, alert) => {
+      summary.total += 1
+      summary[alert.status] = (summary[alert.status] ?? 0) + 1
+      if (alert.severity === 'critical') summary.critical += 1
+      return summary
+    },
+    { total: 0, open: 0, acknowledged: 0, resolved: 0, critical: 0 },
   )
 }
 

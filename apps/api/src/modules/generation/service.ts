@@ -28,11 +28,11 @@ export class GenerationService {
     principal: Principal,
     traceId?: string | null,
   ): Promise<GenerationTask> {
-    if (!this.repository.canCreate(input.projectId, principal)) {
+    if (!(await this.repository.canCreate(input.projectId, principal))) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成')
     }
-    const taskInput = this.snapshotStoryboardVideoTask(input, principal)
-    const blockedPortraitNames = this.repository.blockedPortraitNames(taskInput, principal)
+    const taskInput = await this.snapshotStoryboardVideoTask(input, principal)
+    const blockedPortraitNames = await this.repository.blockedPortraitNames(taskInput, principal)
     if (blockedPortraitNames.length) {
       throw new AppError(
         409,
@@ -40,7 +40,7 @@ export class GenerationService {
         `以下仿真人物需要先完成方舟资源入库或真人授权：${blockedPortraitNames.join('、')}`,
       )
     }
-    const stringXPortraitNames = this.repository.stringXPortraitNames(taskInput, principal)
+    const stringXPortraitNames = await this.repository.stringXPortraitNames(taskInput, principal)
     if (this.videoProviderName !== 'stringx-seedance' && stringXPortraitNames.length) {
       throw new AppError(
         409,
@@ -53,11 +53,14 @@ export class GenerationService {
     return task
   }
 
-  private snapshotStoryboardVideoTask(input: CreateGenerationTask, principal: Principal): CreateGenerationTask {
+  private async snapshotStoryboardVideoTask(
+    input: CreateGenerationTask,
+    principal: Principal,
+  ): Promise<CreateGenerationTask> {
     if (input.kind !== 'video' || input.provider !== 'seedance' || typeof input.metadata?.shotId !== 'string') {
       return input
     }
-    const context = this.repository.storyboardVideoContext(input, principal)
+    const context = await this.repository.storyboardVideoContext(input, principal)
     if (!context) throw new AppError(404, 'SHOT_NOT_FOUND', '分镜不存在或无权生成')
     const referenceAssetIds = Array.isArray(input.metadata.referenceAssetIds)
       ? input.metadata.referenceAssetIds.filter((value): value is string => typeof value === 'string')
@@ -123,13 +126,13 @@ export class GenerationService {
     episodeNumber: number | null = null,
     traceId?: string | null,
   ): Promise<GenerationTask> {
-    if (!this.repository.canCreate(projectId, principal)) {
+    if (!(await this.repository.canCreate(projectId, principal))) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成')
     }
     if (!this.filmPreviewComposer) {
       throw new AppError(503, 'FILM_PREVIEW_UNAVAILABLE', '完整预览合成服务尚未配置')
     }
-    const plan = this.repository.filmPreviewPlan(projectId, principal, episodeNumber)
+    const plan = await this.repository.filmPreviewPlan(projectId, principal, episodeNumber)
     if (!plan || !plan.shots.length) throw new AppError(400, 'SHOTS_REQUIRED', '项目还没有可合成的分镜')
     const missing = plan.sources.filter((source) => !source.task).map((source) => source.shot.title)
     if (mode === 'full' && missing.length) {

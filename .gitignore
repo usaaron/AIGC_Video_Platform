@@ -15,6 +15,7 @@ apps/web/src/assets/hero.png
 
 # Logs and runtime files
 logs/
+tmp/
 apps/api/data/
 data/
 local-fixtures/

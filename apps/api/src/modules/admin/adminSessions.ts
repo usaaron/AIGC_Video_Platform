@@ -5,6 +5,7 @@ import { SESSION_COOKIE } from '../../core/auth/provider.js'
 import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { AppError } from '../../core/errors.js'
 import {
+  adminUserParams,
   adminSessionParams,
   currentSessionIdFromCookie,
   parse,
@@ -40,6 +41,22 @@ export function registerAdminSessionsRoutes(app: FastifyInstance, context: Admin
       if (!revoked) throw new AppError(404, 'SESSION_NOT_FOUND', 'Session does not exist')
       reply.header('Cache-Control', 'no-store')
       return reply.code(204).send()
+    },
+  )
+
+  app.delete(
+    '/admin/users/:userId/sessions',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { userId } = parse(adminUserParams, request.params)
+      const result = await requireAdminRepository(context.adminRepository).revokeUserSessions(
+        request.principal!,
+        userId,
+        sessionMetadataFromRequest(request),
+      )
+      if (!result) throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
+      reply.header('Cache-Control', 'no-store')
+      return result
     },
   )
 }

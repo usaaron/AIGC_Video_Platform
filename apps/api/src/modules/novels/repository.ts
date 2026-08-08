@@ -435,8 +435,16 @@ export class NovelRepository {
     private readonly objectStorage: ObjectStorage | null = null,
   ) {}
 
+  private requireObjectStorage(): ObjectStorage {
+    if (!this.objectStorage) {
+      throw new Error('Novel ObjectStorage is required when Postgres is configured')
+    }
+    return this.objectStorage
+  }
+
   async importFromStore(): Promise<NovelJsonImportResult> {
-    if (!this.database || !this.objectStorage) return emptyNovelJsonImportResult()
+    if (!this.database) return emptyNovelJsonImportResult()
+    const objectStorage = this.requireObjectStorage()
     const snapshot = this.store.read((state) => ({
       documents: state.novelDocuments,
       chapters: state.novelChapters,
@@ -446,16 +454,16 @@ export class NovelRepository {
       summaryQueueItems: state.novelSummaryQueueItems,
       storyBibles: state.novelStoryBibles,
     }))
-    return importNovelSnapshotFromStore(this.database, this.objectStorage, snapshot)
+    return importNovelSnapshotFromStore(this.database, objectStorage, snapshot)
   }
 
-  canImportNovel(projectId: string, principal: Principal): boolean {
+  async canImportNovel(projectId: string, principal: Principal): Promise<boolean> {
+    if (this.database) return projectVisibleInDatabase(this.database, projectId, principal, 'write')
     return this.store.read((state) => Boolean(findWritableProject(state, projectId, principal)))
   }
 
   async list(projectId: string, principal: Principal): Promise<NovelDocument[] | null> {
-    if (this.database && this.objectStorage)
-      return listDocumentsFromDatabase(this.database, projectId, principal)
+    if (this.database) return listDocumentsFromDatabase(this.database, projectId, principal)
     return this.store.read((state) => {
       if (!findReadableProject(state, projectId, principal)) return null
       return state.novelDocuments
@@ -470,7 +478,7 @@ export class NovelRepository {
     documentId: string,
     principal: Principal,
   ): Promise<NovelImportResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return detailFromDatabase(this.database, projectId, documentId, principal)
     }
     return this.store.read((state) => {
@@ -489,7 +497,7 @@ export class NovelRepository {
     documentId: string,
     principal: Principal,
   ): Promise<NovelBoundaryDetectionResult | null> | NovelBoundaryDetectionResult | null {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return boundariesFromDatabase(this.database, projectId, documentId, principal)
     }
     return this.store.read((state) => {
@@ -505,10 +513,10 @@ export class NovelRepository {
     documentId: string,
     principal: Principal,
   ): Promise<NovelBoundaryDetectionSource | null> | NovelBoundaryDetectionSource | null {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return boundaryDetectionSourceFromDatabase(
         this.database,
-        this.objectStorage,
+        this.requireObjectStorage(),
         projectId,
         documentId,
         principal,
@@ -534,7 +542,7 @@ export class NovelRepository {
     principal: Principal,
     warnings: string[] = [],
   ): Promise<NovelBoundaryDetectionResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return saveDetectedBoundariesInDatabase(
         this.database,
         projectId,
@@ -593,7 +601,7 @@ export class NovelRepository {
     principal: Principal,
     warnings: string[] = [],
   ): Promise<NovelBoundaryNotesResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return saveBoundaryNotesInDatabase(
         this.database,
         projectId,
@@ -645,7 +653,7 @@ export class NovelRepository {
     documentId: string,
     principal: Principal,
   ): Promise<NovelChapterSummary[] | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return summariesFromDatabase(this.database, projectId, documentId, principal)
     }
     return this.store.read((state) => {
@@ -661,7 +669,7 @@ export class NovelRepository {
     documentId: string,
     principal: Principal,
   ): Promise<NovelSummaryQueueResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return summaryQueueFromDatabase(this.database, projectId, documentId, principal)
     }
     return this.store.read((state) => {
@@ -679,10 +687,10 @@ export class NovelRepository {
     queueId: string,
     principal: Principal,
   ): Promise<NovelSummaryQueueSource | null> | NovelSummaryQueueSource | null {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return summaryQueueSourceFromDatabase(
         this.database,
-        this.objectStorage,
+        this.requireObjectStorage(),
         projectId,
         documentId,
         queueId,
@@ -710,7 +718,7 @@ export class NovelRepository {
     status: NovelSummaryQueueStatus,
     principal: Principal,
   ): Promise<NovelSummaryQueueResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return updateSummaryQueueStatusInDatabase(
         this.database,
         projectId,
@@ -744,7 +752,7 @@ export class NovelRepository {
     queueId: string,
     principal: Principal,
   ): Promise<NovelSummaryQueueResult | null> {
-    if (this.database && this.objectStorage)
+    if (this.database)
       return resumeSummaryQueueInDatabase(this.database, projectId, documentId, queueId, principal)
     return this.store.mutate((state) => {
       const context = findWritableSummaryQueueContext(state, projectId, documentId, queueId, principal)
@@ -764,7 +772,7 @@ export class NovelRepository {
     itemId: string,
     principal: Principal,
   ): Promise<NovelSummaryQueueResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return startSummaryQueueItemInDatabase(this.database, projectId, documentId, queueId, itemId, principal)
     }
     return this.store.mutate((state) => {
@@ -791,7 +799,7 @@ export class NovelRepository {
     result: NovelSummaryQueueItemResult,
     principal: Principal,
   ): Promise<NovelSummaryQueueResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return completeSummaryQueueItemInDatabase(
         this.database,
         projectId,
@@ -826,7 +834,7 @@ export class NovelRepository {
     errorMessage: string,
     principal: Principal,
   ): Promise<NovelSummaryQueueResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return failSummaryQueueItemInDatabase(
         this.database,
         projectId,
@@ -859,7 +867,7 @@ export class NovelRepository {
     itemId: string,
     principal: Principal,
   ): Promise<NovelSummaryQueueResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return retrySummaryQueueItemInDatabase(this.database, projectId, documentId, queueId, itemId, principal)
     }
     return this.store.mutate((state) => {
@@ -884,7 +892,7 @@ export class NovelRepository {
     itemId: string,
     principal: Principal,
   ): Promise<NovelSummaryQueueResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return skipSummaryQueueItemInDatabase(this.database, projectId, documentId, queueId, itemId, principal)
     }
     return this.store.mutate((state) => {
@@ -909,7 +917,7 @@ export class NovelRepository {
     force: boolean,
     principal: Principal,
   ): Promise<NovelSummaryQueueCommitResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return commitSummaryQueueResultsInDatabase(
         this.database,
         projectId,
@@ -992,7 +1000,7 @@ export class NovelRepository {
     documentId: string,
     principal: Principal,
   ): Promise<NovelStoryBible | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return storyBibleFromDatabase(this.database, projectId, documentId, principal)
     }
     return this.store.read((state) => {
@@ -1008,8 +1016,14 @@ export class NovelRepository {
     documentId: string,
     principal: Principal,
   ): Promise<NovelGenerationSource | null> | NovelGenerationSource | null {
-    if (this.database && this.objectStorage) {
-      return generationSourceFromDatabase(this.database, this.objectStorage, projectId, documentId, principal)
+    if (this.database) {
+      return generationSourceFromDatabase(
+        this.database,
+        this.requireObjectStorage(),
+        projectId,
+        documentId,
+        principal,
+      )
     }
     return this.store.read((state) => {
       if (!findWritableProject(state, projectId, principal)) return null
@@ -1030,8 +1044,15 @@ export class NovelRepository {
     chapters: NovelChapterDraft[],
     principal: Principal,
   ): Promise<NovelImportResult | null> {
-    if (this.database && this.objectStorage) {
-      return importNovelInDatabase(this.database, this.objectStorage, projectId, input, chapters, principal)
+    if (this.database) {
+      return importNovelInDatabase(
+        this.database,
+        this.requireObjectStorage(),
+        projectId,
+        input,
+        chapters,
+        principal,
+      )
     }
     return this.store.mutate((state) => {
       const project = findWritableProject(state, projectId, principal)
@@ -1100,7 +1121,7 @@ export class NovelRepository {
     principal: Principal,
     force: boolean,
   ): Promise<NovelChapterSummary[] | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return saveChapterSummariesInDatabase(this.database, projectId, documentId, drafts, principal, force)
     }
     return this.store.mutate((state) => {
@@ -1161,7 +1182,7 @@ export class NovelRepository {
     input: CreateNovelSummaryQueueRequest,
     principal: Principal,
   ): Promise<NovelSummaryQueueResult | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return createSummaryQueueInDatabase(this.database, projectId, documentId, input, principal)
     }
     return this.store.mutate((state) => {
@@ -1243,7 +1264,7 @@ export class NovelRepository {
     sourceSummaryCount: number,
     principal: Principal,
   ): Promise<NovelStoryBible | null> {
-    if (this.database && this.objectStorage) {
+    if (this.database) {
       return saveStoryBibleInDatabase(
         this.database,
         projectId,

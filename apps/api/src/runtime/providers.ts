@@ -142,26 +142,31 @@ class RoutedTextProvider implements TextGenerationProvider {
     const requestedModel = (request.model || this.defaultModel).trim()
     if (isGptModel(requestedModel)) {
       if (!this.gptProvider) throw modelNotConfigured(requestedModel)
-      return observeProviderCall({ provider: 'tokenadvent-gpt', operation: 'text.generate' }, () =>
-        this.gptProvider!.generate({ ...request, model: requestedModel }),
+      return observeProviderCall(
+        { provider: 'tokenadvent-gpt', operation: 'text.generate', ...request.usageContext },
+        () => this.gptProvider!.generate({ ...request, model: requestedModel }),
       )
     }
     if (isDeepSeekModel(requestedModel)) {
       if (!this.deepSeekProvider) throw modelNotConfigured(requestedModel)
-      return observeProviderCall({ provider: 'deepseek-v3', operation: 'text.generate' }, () =>
-        this.deepSeekProvider!.generate({
-          ...request,
-          model: isDeepSeekPublicAlias(requestedModel) ? this.deepSeekModel : requestedModel,
-        }),
+      return observeProviderCall(
+        { provider: 'deepseek-v3', operation: 'text.generate', ...request.usageContext },
+        () =>
+          this.deepSeekProvider!.generate({
+            ...request,
+            model: isDeepSeekPublicAlias(requestedModel) ? this.deepSeekModel : requestedModel,
+          }),
       )
     }
     if (isRehdasuModel(requestedModel)) {
       if (!this.rehdasuProvider) throw modelNotConfigured(requestedModel)
-      return observeProviderCall({ provider: 'rehdasu', operation: 'text.generate' }, () =>
-        this.rehdasuProvider!.generate({
-          ...request,
-          model: isRehdasuPublicAlias(requestedModel) ? this.rehdasuModel : requestedModel,
-        }),
+      return observeProviderCall(
+        { provider: 'rehdasu', operation: 'text.generate', ...request.usageContext },
+        () =>
+          this.rehdasuProvider!.generate({
+            ...request,
+            model: isRehdasuPublicAlias(requestedModel) ? this.rehdasuModel : requestedModel,
+          }),
       )
     }
     throw new TextGenerationProviderError(`文本模型 ${requestedModel} 尚未接入`)

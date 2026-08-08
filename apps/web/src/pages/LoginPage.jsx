@@ -18,6 +18,7 @@ import './LoginPage.css'
 export function LoginPage() {
   const registrationEntry = registrationEntryFromSearch(
     typeof window === 'undefined' ? '' : window.location.search,
+    typeof window === 'undefined' ? '' : window.location.pathname,
   )
   const { login, register } = useAuth()
   const [mode, setMode] = useState(registrationEntry.mode)
@@ -362,9 +363,9 @@ export function LoginPage() {
   )
 }
 
-export function registrationEntryFromSearch(search = '') {
+export function registrationEntryFromSearch(search = '', pathname = '') {
   const token = new URLSearchParams(search).get('token')?.trim() ?? ''
-  return { mode: token ? 'register' : 'login', token }
+  return { mode: token || pathname === '/register' ? 'register' : 'login', token }
 }
 
 class LoginInputError extends Error {}

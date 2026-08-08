@@ -26,6 +26,8 @@ import { jsonrepair } from 'jsonrepair'
 import { z } from 'zod'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
+import { traceMetadata } from '../../core/observability/trace.js'
+import type { SessionMetadata } from '../auth/accounts.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
 import type { ProjectRepository } from './repository.js'
 
@@ -59,10 +61,21 @@ export class ProjectService {
     return project
   }
 
-  async archive(projectId: string, principal: Principal) {
+  async archive(projectId: string, principal: Principal, metadata?: SessionMetadata) {
     if (!(await this.repository.archive(projectId, principal))) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权删除')
     }
+    await this.repository.recordAuditLog({
+      tenantId: principal.tenantId,
+      userId: principal.userId,
+      actorUserId: principal.userId,
+      action: 'project.archived',
+      resourceType: 'project',
+      resourceId: projectId,
+      ipAddress: metadata?.ipAddress ?? null,
+      userAgent: metadata?.userAgent ?? null,
+      metadata: traceMetadata({ status: 'archived' }, metadata?.traceId ?? null),
+    })
   }
 
   async saveVersion(projectId: string, principal: Principal) {
@@ -102,6 +115,7 @@ export class ProjectService {
           maxOutputTokens: SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS,
           responseFormat: 'json',
           model,
+          usageContext: usageContextForPrincipal(principal),
         })
         result = parseProviderJson(
           response,
@@ -215,6 +229,7 @@ export class ProjectService {
               userPrompt: `${projectContext}\n\n已有剧本或故事上下文：\n${scriptSegmentContext(source)}\n\n本段目标：${segment.goal || '顺着现有剧情自然推进下一段'}\n本段预计时长：${formatDuration(segmentSeconds)}\n\n请只生成下一段剧本正文，不要重写已有内容。`,
               maxOutputTokens: segmentMaxOutputTokens(segmentSeconds),
               model,
+              usageContext: usageContextForPrincipal(principal),
             }),
             model,
           )
@@ -244,6 +259,7 @@ export class ProjectService {
                   ? INITIAL_SCRIPT_MAX_TOKENS
                   : longScriptMaxOutputTokens(source),
             model,
+            usageContext: usageContextForPrincipal(principal),
           }),
           model,
         )
@@ -298,6 +314,7 @@ export class ProjectService {
               ? longScriptMaxOutputTokens(source)
               : SCRIPT_DETAIL_MAX_TOKENS,
             model,
+            usageContext: usageContextForPrincipal(principal),
           }),
           model,
         )
@@ -344,6 +361,7 @@ export class ProjectService {
           userPrompt: `项目：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n画面比例：${workspace.project.aspectRatio}\n当前选择模型：${model}\n创作方向：${directionSummary(direction)}\n\n待审核剧本：\n${source}`,
           maxOutputTokens: 4_000,
           model,
+          usageContext: usageContextForPrincipal(principal),
         })
         const review = parseProviderJson(response, scriptReviewContentSchema, '专业审核结果格式错误')
         return { ...review, generatedAt: new Date().toISOString() }
@@ -468,6 +486,14 @@ export class ProjectService {
     )
     if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
     return updated
+  }
+}
+
+function usageContextForPrincipal(principal: Principal) {
+  return {
+    tenantId: principal.tenantId,
+    organizationId: principal.organizationId ?? principal.tenantId,
+    userId: principal.userId,
   }
 }
 

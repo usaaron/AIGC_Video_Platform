@@ -176,9 +176,12 @@ describe('postgres billing ledger', () => {
       'Admin manual top-up',
     )
     expect(adjusted.credits).toBe(341)
-    expect(store.read((state) => state.users.find((user) => user.id === principal.userId)?.credits)).toBe(341)
+    expect(store.read((state) => state.users.find((user) => user.id === principal.userId)?.credits)).toBe(286)
     expect(
       store.read((state) => state.ledger.some((entry) => entry.description === 'Admin manual top-up')),
+    ).toBe(false)
+    expect(
+      store.read((state) => state.ledger.some((entry) => entry.description === 'Launch promotional grant')),
     ).toBe(false)
 
     const rows = await database.query<{
@@ -207,6 +210,38 @@ describe('postgres billing ledger', () => {
         amount: 30,
         created_by_user_id: principal.userId,
       },
+    ])
+
+    const auditRows = await database.query<{
+      action: string
+      user_id: string
+      actor_user_id: string
+      resource_id: string
+      metadata: Record<string, unknown>
+    }>(
+      `
+      SELECT action, user_id, actor_user_id, resource_id, metadata
+      FROM audit_log_entries
+      WHERE action IN ('billing.credits.granted', 'billing.credits.adjusted')
+        AND resource_id = 'membership-tenant-seqora-demo-user-member'
+      ORDER BY action
+      `,
+    )
+    expect(auditRows.rows).toEqual([
+      expect.objectContaining({
+        action: 'billing.credits.adjusted',
+        user_id: principal.userId,
+        actor_user_id: adminPrincipal.userId,
+        resource_id: 'membership-tenant-seqora-demo-user-member',
+        metadata: expect.objectContaining({ amount: 25, reason: 'Admin manual top-up' }),
+      }),
+      expect.objectContaining({
+        action: 'billing.credits.granted',
+        user_id: principal.userId,
+        actor_user_id: principal.userId,
+        resource_id: 'membership-tenant-seqora-demo-user-member',
+        metadata: expect.objectContaining({ amount: 30, reason: 'Launch promotional grant' }),
+      }),
     ])
   })
 
@@ -247,9 +282,10 @@ describe('postgres billing ledger', () => {
       monthlyUsage: { includedCredits: 500 },
     })
     expect(store.read((state) => state.users.find((user) => user.id === principal.userId))).toMatchObject({
-      plan: 'member',
-      credits: 786,
+      plan: 'free',
+      credits: 286,
     })
+    expect(store.read((state) => state.ledger.some((entry) => entry.amount === 500))).toBe(false)
 
     const grants = await database.query<{ count: number }>(
       `

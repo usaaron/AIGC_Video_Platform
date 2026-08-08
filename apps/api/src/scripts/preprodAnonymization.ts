@@ -127,10 +127,11 @@ async function upsertSystemOrganization(
     'tenants',
     'upsert',
     `
-    INSERT INTO tenants (id, name, status, is_system, created_at, updated_at)
-    VALUES ($1, 'Seqora Local', 'active', true, now(), now())
+    INSERT INTO tenants (id, name, status, is_system, organization_type, created_at, updated_at)
+    VALUES ($1, 'Seqora Local', 'active', true, 'system', now(), now())
     ON CONFLICT (id) DO UPDATE
     SET is_system = true,
+        organization_type = 'system',
         status = 'active',
         updated_at = now()
     `,

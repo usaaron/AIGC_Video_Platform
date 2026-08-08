@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { TokenAdventTextProvider } from './tokenAdventTextProvider.js'
+import { usageCollector } from '../observability/usage.js'
 
 describe('TokenAdventTextProvider', () => {
+  beforeEach(() => {
+    usageCollector.resetForTests()
+  })
+
   it('returns chat completion text', async () => {
     let capturedBody = ''
     const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -97,6 +102,34 @@ describe('TokenAdventTextProvider', () => {
     await expect(provider.generate({ systemPrompt: 'test', userPrompt: 'test' })).resolves.toBe(
       '嵌套文本结果',
     )
+  })
+
+  it('records provider usage for TPM when a relay returns token counts', async () => {
+    const provider = createProvider(async () =>
+      Response.json({
+        choices: [{ message: { content: 'usage recorded' } }],
+        usage: { prompt_tokens: 11, completion_tokens: 13, total_tokens: 24 },
+      }),
+    )
+
+    await expect(
+      provider.generate({
+        systemPrompt: 'test',
+        userPrompt: 'usage',
+        usageContext: {
+          tenantId: 'tenant-1',
+          organizationId: 'organization-1',
+          userId: 'user-1',
+          traceId: 'trace-1',
+        },
+      }),
+    ).resolves.toBe('usage recorded')
+    expect(usageCollector.snapshot({ userId: 'user-1' })).toMatchObject({
+      tpm: 24,
+      inputTokens: 11,
+      outputTokens: 13,
+      totalTokens: 24,
+    })
   })
 
   it('accepts result-wrapped chunks in streamed responses', async () => {

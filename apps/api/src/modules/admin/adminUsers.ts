@@ -2,6 +2,8 @@ import {
   adminAccountStatusUpdateSchema,
   adminPasswordResetRequirementUpdateSchema,
   adminSetUserPasswordSchema,
+  createTenantInvitationSchema,
+  createTenantUserSchema,
   PERMISSIONS,
 } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
@@ -13,6 +15,7 @@ import {
   adminUserParams,
   parse,
   parseListQuery,
+  requireAccountManagementService,
   requireAdminRepository,
   scopeAdminOptions,
   type AdminRouteContext,
@@ -27,6 +30,42 @@ export function registerAdminUsersRoutes(app: FastifyInstance, context: AdminRou
       return await requireAdminRepository(context.adminRepository).listUsers(
         scopeAdminOptions(request.principal!, parseListQuery(request.query)),
       )
+    },
+  )
+
+  app.post(
+    '/admin/users',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const member = await requireAccountManagementService(
+        context.accountManagementService,
+      ).adminCreatePlatformUser(
+        request.principal!,
+        parse(createTenantUserSchema, request.body),
+        sessionMetadataFromRequest(request),
+      )
+      return reply.code(201).send(member)
+    },
+  )
+
+  app.post(
+    '/admin/invitations',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: requirePermission(PERMISSIONS.USER_MANAGE),
+    },
+    async (request, reply) => {
+      const invitation = await requireAccountManagementService(
+        context.accountManagementService,
+      ).adminCreatePlatformInvitation(
+        request.principal!,
+        parse(createTenantInvitationSchema, request.body),
+      )
+      reply.header('Cache-Control', 'no-store')
+      return reply.code(201).send(invitation)
     },
   )
 

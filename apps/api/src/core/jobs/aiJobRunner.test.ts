@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppStore } from '../../infra/store.js'
 import { AiJobRepository } from '../../modules/aiJobs/repository.js'
+import { usageCollector } from '../observability/usage.js'
 import { AiJobRunner, type AiJobHandler } from './aiJobRunner.js'
 
 const principal = {
@@ -10,6 +11,10 @@ const principal = {
 } as const
 
 describe('AiJobRunner', () => {
+  beforeEach(() => {
+    usageCollector.resetForTests()
+  })
+
   it('executes queued AI jobs through the configured handler', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -53,6 +58,15 @@ describe('AiJobRunner', () => {
       leaseToken: null,
       error: null,
     })
+    await vi.waitFor(() =>
+      expect(usageCollector.snapshot({ userId: principal.userId })).toMatchObject({
+        jobConcurrency: 0,
+        jobCount: 1,
+        jobFailedCount: 0,
+        jobFailureRate: 0,
+        creditsUsed: 4,
+      }),
+    )
   })
 
   it('refunds reserved credits when an AI job fails', async () => {
@@ -105,5 +119,12 @@ describe('AiJobRunner', () => {
     expect(
       store.read((state) => state.ledger.filter((entry) => entry.id === 'refund-ai-job-failure')),
     ).toEqual([expect.objectContaining({ amount: 4, type: 'adjustment', balance: originalCredits })])
+    expect(usageCollector.snapshot({ userId: principal.userId })).toMatchObject({
+      jobConcurrency: 0,
+      jobCount: 1,
+      jobFailedCount: 1,
+      jobFailureRate: 1,
+      creditsUsed: 0,
+    })
   })
 })

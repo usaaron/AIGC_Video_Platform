@@ -27,6 +27,7 @@ describe('login guidance', () => {
       token,
     })
     expect(registrationEntryFromSearch('?source=email')).toEqual({ mode: 'login', token: '' })
+    expect(registrationEntryFromSearch('', '/register')).toEqual({ mode: 'register', token: '' })
   })
 
   it('shows a specific message for invalid credentials', () => {
