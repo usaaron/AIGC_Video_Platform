@@ -530,6 +530,7 @@ export const createShotSchema = z.object({
   episodeNumber: shotInputFields.episodeNumber.default(1),
   episodeTitle: shotInputFields.episodeTitle.default('主故事'),
   episodeKind: shotInputFields.episodeKind.default('standard'),
+  insertAfterShotId: z.string().min(1).max(128).nullable().optional(),
 })
 
 export const updateShotSchema = z

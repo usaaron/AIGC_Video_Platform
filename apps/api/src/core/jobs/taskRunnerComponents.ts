@@ -622,14 +622,20 @@ export class VideoTaskExecutor {
           if (value) trustedAliases.set(value, uri)
         }
       }
-      const compiledPrompt = compileStoryboardVideoPrompt({
-        project: { ...project, visualStyle: project.visualStyle ?? 'cinematic-cg' },
-        shot,
-        shots,
-        assets,
-        references: referenceAssetIds.map((id) => ({ id })),
-        continuityMode: stored.metadata.continuityMode === 'continue' ? 'continue' : 'independent',
-      })
+      const sourcePromptSnapshot = stringValue(stored.metadata.sourcePromptSnapshot, shot.prompt)
+      const hasTaskPromptSnapshot =
+        typeof stored.metadata.sourcePromptHash === 'string' &&
+        typeof stored.metadata.compiledPrompt === 'string'
+      const compiledPrompt = hasTaskPromptSnapshot
+        ? stringValue(stored.metadata.compiledPrompt, stored.prompt)
+        : compileStoryboardVideoPrompt({
+            project: { ...project, visualStyle: project.visualStyle ?? 'cinematic-cg' },
+            shot,
+            shots,
+            assets,
+            references: referenceAssetIds.map((id) => ({ id })),
+            continuityMode: stored.metadata.continuityMode === 'continue' ? 'continue' : 'independent',
+          })
       const visualStyles = referenceAssets
         .map((asset) => ('visualStyle' in asset.attributes ? asset.attributes.visualStyle : null))
         .filter((style): style is NonNullable<typeof style> => typeof style === 'string')
@@ -645,7 +651,7 @@ export class VideoTaskExecutor {
             ? !referenceAssets.some((asset) => asset.kind === 'character')
             : false,
         ...(scene?.attributes.type === 'scene' ? { weather: scene.attributes.weather } : {}),
-        sourcePrompt: shot.prompt,
+        sourcePrompt: sourcePromptSnapshot,
         customNegativePrompt: userNegativePrompt,
       })
 

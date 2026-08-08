@@ -41,7 +41,7 @@ describe('compileStoryboardVideoPrompt', () => {
       references: [{ id: 'lin' }, { id: 'station' }],
     })
 
-    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v10')
+    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v11')
     expect(prompt).toContain('连续4秒、9:16画幅')
     expect(prompt).toContain('【当前镜头】镜头，特写')
     expect(prompt).not.toContain('上一镜结束：场景：雨夜旧火车站。')
@@ -143,6 +143,30 @@ describe('compileStoryboardVideoPrompt', () => {
 
     expect(prompt).toContain('服装造型以服装资产“轻度战损变体”为唯一准则')
     expect(prompt).toContain('不得退回人物参考图中的旧服装')
+  })
+
+  it('preserves an explicit director timeline without conflicting single-action rules', () => {
+    const source = [
+      '场次：S02｜时长：5秒｜场景：废弃戏楼屋顶｜战斗前基础状态。',
+      '',
+      '侠客位于画面左侧，雷霆人位于画面右侧。',
+      '',
+      '0-1.5秒：低机位拍摄中央积水，细窄电流贴着水面爬行。',
+      '1.5-2.5秒：镜头沿水面抬升，侠客摘下斗笠并掷出。',
+      '2.5-4秒：镜头跟随斗笠，雷霆人抬起左前臂挡中边缘。',
+      '4-5秒：碎片离开画面，双方保持结束姿态。',
+    ].join('\n')
+    const prompt = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '16:9', contentType: 'short-drama' },
+      shot: shot('timeline', source, '低机位', 5),
+    })
+
+    expect(prompt).toContain('【导演时间轴（最高优先级）】')
+    expect(prompt).toContain(source)
+    expect(prompt).toContain('严格逐段执行导演时间轴')
+    expect(prompt).not.toContain('本镜只完成一个主动作')
+    expect(prompt).not.toContain('【主动作】')
+    expect(prompt).not.toContain('【时间推进】0-1秒')
   })
 })
 

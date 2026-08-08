@@ -206,6 +206,8 @@ export const api = {
   createShot: (projectId, input) => request(`/projects/${projectId}/shots`, json('POST', input)),
   updateShot: (projectId, shotId, input) =>
     request(`/projects/${projectId}/shots/${shotId}`, json('PATCH', input)),
+  deleteShot: (projectId, shotId) =>
+    request(`/projects/${projectId}/shots/${shotId}`, { method: 'DELETE' }),
   generateShots: (projectId, input = {}) =>
     request(`/projects/${projectId}/shots/generate`, json('POST', input)),
   autoSplitShotEpisodes: (projectId, input) =>

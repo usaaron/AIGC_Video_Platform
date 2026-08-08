@@ -22,6 +22,7 @@ import {
   RefreshCw,
   RotateCcw,
   Scissors,
+  Trash2,
   Video,
   Upload,
   X,
@@ -53,6 +54,7 @@ export function StoryboardPage({
   onAutoSplitEpisodes,
   onCreate,
   onUpdate,
+  onDelete,
   onUpload,
   onGenerateVideo,
   onGenerateAllVideos,
@@ -71,6 +73,7 @@ export function StoryboardPage({
   const [operationError, setOperationError] = useState('')
   const [operationNotice, setOperationNotice] = useState('')
   const [downloadingVideos, setDownloadingVideos] = useState(false)
+  const [deletingShotId, setDeletingShotId] = useState('')
   const isWebSeries = project?.contentType === 'short-drama'
   const shotMinDuration = isWebSeries ? 3 : 4
   const totalDuration = shots.reduce(
@@ -207,6 +210,24 @@ export function StoryboardPage({
       : latestEpisode?.title || `第 ${episodeNumber} 集`,
     episodeKind: 'standard',
   })
+
+  const deleteShot = async (shot) => {
+    const videoTask = taskFor(tasks, shot, 'video')
+    if (isActive(videoTask) || deletingShotId) return
+    if (!window.confirm(`确认删除“${shot.title}”吗？后续镜头会自动重新编号，已完成的视频历史不会被删除。`)) {
+      return
+    }
+    setDeletingShotId(shot.id)
+    setOperationError('')
+    try {
+      await onDelete(shot.id)
+      if (selected === shot.id) setSelected(null)
+    } catch (error) {
+      setOperationError(error.message)
+    } finally {
+      setDeletingShotId('')
+    }
+  }
 
   return (
     <div className="page storyboard-page">
@@ -477,6 +498,8 @@ export function StoryboardPage({
                     onUpdate={onUpdate}
                     onEdit={() => setEditing(shot)}
                     onHistory={() => setHistoryShotId(shot.id)}
+                    onDelete={() => void deleteShot(shot)}
+                    deleting={deletingShotId === shot.id}
                     onGenerateVideo={onGenerateVideo}
                   />
                 )
@@ -494,6 +517,7 @@ export function StoryboardPage({
       {editing && (
         <ShotEditor
           shot={editing}
+          shots={shots}
           minDuration={shotMinDuration}
           assets={assets}
           tasks={tasks}
@@ -553,6 +577,8 @@ function ShotRow({
   onUpdate,
   onEdit,
   onHistory,
+  onDelete,
+  deleting,
   onGenerateVideo,
 }) {
   const videoTask = taskFor(tasks, shot, 'video')
@@ -690,6 +716,17 @@ function ShotRow({
               }}
             >
               <Pencil size={17} />
+            </IconButton>
+            <IconButton
+              label="删除分镜"
+              className="danger"
+              disabled={isActive(videoTask) || deleting}
+              onClick={(event) => {
+                event.stopPropagation()
+                onDelete()
+              }}
+            >
+              {deleting ? <LoaderCircle size={17} className="spin" /> : <Trash2 size={17} />}
             </IconButton>
           </div>
         </div>
@@ -1035,7 +1072,18 @@ function resolutionLabel(value) {
   return VIDEO_RESOLUTIONS.find((option) => option.value === value)?.label || '720P'
 }
 
-function ShotEditor({ shot, minDuration = 4, assets = [], tasks = [], onUpload, onClose, onSave }) {
+function ShotEditor({
+  shot,
+  shots = [],
+  minDuration = 4,
+  assets = [],
+  tasks = [],
+  onUpload,
+  onClose,
+  onSave,
+}) {
+  const orderedShots = [...shots].sort((left, right) => left.order - right.order)
+  const [insertionIndex, setInsertionIndex] = useState(orderedShots.length)
   const [title, setTitle] = useState(shot.title || '')
   const [framing, setFraming] = useState(shot.framing || '中景')
   const [duration, setDuration] = useState(normalizedVideoDuration(shot.duration, minDuration))
@@ -1049,6 +1097,26 @@ function ShotEditor({ shot, minDuration = 4, assets = [], tasks = [], onUpload, 
   const [episodeKind, setEpisodeKind] = useState(shot.episodeKind || 'standard')
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+
+  const insertionLabel =
+    insertionIndex === 0
+      ? '最前面'
+      : insertionIndex >= orderedShots.length
+        ? '末尾'
+        : `第 ${insertionIndex} 镜之后`
+
+  const changeInsertionIndex = (value) => {
+    const nextIndex = Math.max(0, Math.min(orderedShots.length, Number(value)))
+    setInsertionIndex(nextIndex)
+    const previous = nextIndex > 0 ? orderedShots[nextIndex - 1] : null
+    const next = orderedShots[nextIndex] || null
+    const episode = previous || next
+    if (episode) {
+      setEpisodeNumber(episode.episodeNumber || 1)
+      setEpisodeTitle(episode.episodeTitle || `第 ${episode.episodeNumber || 1} 集`)
+      setEpisodeKind('standard')
+    }
+  }
 
   const uploadReference = async (event) => {
     const file = event.target.files?.[0]
@@ -1084,6 +1152,17 @@ function ShotEditor({ shot, minDuration = 4, assets = [], tasks = [], onUpload, 
             episodeNumber: Number(episodeNumber),
             episodeTitle: episodeTitle.trim() || `第 ${episodeNumber} 集`,
             episodeKind,
+            continuityMode: shot.id
+              ? shot.continuityMode || 'continue'
+              : insertionIndex === 0
+                ? 'independent'
+                : shot.continuityMode || 'continue',
+            ...(shot.id
+              ? {}
+              : {
+                  insertAfterShotId:
+                    insertionIndex === 0 ? null : orderedShots[insertionIndex - 1]?.id,
+                }),
           })
         }}
         onMouseDown={(event) => event.stopPropagation()}
@@ -1164,6 +1243,24 @@ function ShotEditor({ shot, minDuration = 4, assets = [], tasks = [], onUpload, 
             />
           </label>
         </div>
+        {!shot.id && (
+          <label className="shot-insertion-control">
+            <span>
+              <strong>插入位置</strong>
+              <em>{insertionLabel}</em>
+            </span>
+            <input
+              type="range"
+              min="0"
+              max={orderedShots.length}
+              step="1"
+              value={insertionIndex}
+              aria-label="新分镜插入位置"
+              onChange={(event) => changeInsertionIndex(event.target.value)}
+            />
+            <small>拖动滑块选择放在第几镜之后；末尾为追加</small>
+          </label>
+        )}
         <div className="shot-reference-editor">
           <div className="shot-reference-preview">
             {imageUrl ? <img src={imageUrl} alt="镜头参考" /> : <ImagePlus size={24} />}

@@ -1407,6 +1407,69 @@ describe('GenerationTaskRunner Seedance integration', () => {
       leaseExpiresAt: null,
     })
   })
+
+  it('uses the prompt snapshot captured when a queued video task was created', async () => {
+    const videoProvider: VideoGenerationProvider = {
+      submit: vi.fn(async () => ({
+        providerTaskId: 'snapshot-video-remote',
+        status: 'queued',
+        progress: 0,
+      })),
+      getStatus: vi.fn(async () => ({ status: 'completed', progress: 100, error: null })),
+      getContent: vi.fn(),
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'snapshot-video',
+      clientRequestId: 'snapshot-video-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-member',
+      kind: 'video',
+      label: '镜头 01',
+      prompt: 'compiled prompt from click time',
+      negativePrompt: '',
+      provider: 'seedance',
+      model: 'doubao-seedance-2-0-260128',
+      metadata: {
+        shotId: 'shot-1',
+        duration: 5,
+        aspectRatio: '9:16',
+        resolution: '720p',
+        sourcePromptSnapshot: '0-1秒：旧版本动作。',
+        sourcePromptHash: 'captured-hash',
+        compiledPrompt: 'compiled prompt from click time',
+        compiledPromptHash: 'compiled-hash',
+        referenceAssetIds: [],
+        images: [],
+      },
+      status: 'queued',
+      progress: 0,
+      estimatedCredits: 18,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+    await store.mutate((state) => {
+      const shot = state.shots.find((item) => item.id === 'shot-1')
+      if (shot) shot.prompt = 'newer prompt edited after task creation'
+      state.tasks.unshift(task)
+    })
+
+    const runner = new GenerationTaskRunner(store, {
+      videoProvider,
+      providerPollIntervalMs: 0,
+    })
+    await runner.tick()
+
+    expect(videoProvider.submit).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'compiled prompt from click time' }),
+    )
+  })
 })
 
 function queuedVideoTasks(count: number): GenerationTask[] {

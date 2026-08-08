@@ -901,6 +901,11 @@ function App() {
             await refreshWorkspace()
             setToast('分镜已更新')
           }}
+          onDelete={async (shotId) => {
+            await api.deleteShot(project.id, shotId)
+            await refreshWorkspace()
+            setToast('分镜已删除，后续镜头已重新编号')
+          }}
           onUpload={(file) => api.uploadMedia(project.id, file)}
           onGenerateVideo={createStoryboardVideo}
           onGenerateAllVideos={async (shotsToGenerate, resolution, mode = 'parallel') => {
@@ -937,6 +942,7 @@ function App() {
                         resolution,
                         continuityMode: shot.continuityMode,
                         previousTaskId: previousVideoTask?.id ?? null,
+                        sourcePromptSnapshot: shot.prompt,
                       }) &&
                       (!mustProvideLastFrame || hasLastFrame(task)),
                   )

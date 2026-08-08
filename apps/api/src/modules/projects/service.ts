@@ -392,6 +392,12 @@ export class ProjectService {
 
   async createShot(projectId: string, input: CreateShot, principal: Principal) {
     await this.assertShotDurationForProject(projectId, input.duration, principal)
+    if (typeof input.insertAfterShotId === 'string') {
+      const workspace = await this.workspace(projectId, principal)
+      if (!workspace.shots.some((shot) => shot.id === input.insertAfterShotId)) {
+        throw new AppError(404, 'SHOT_INSERT_ANCHOR_NOT_FOUND', '插入位置对应的分镜不存在，请刷新后重试')
+      }
+    }
     const shot = await this.repository.createShot(projectId, input, principal)
     if (!shot) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
     return shot
@@ -404,6 +410,16 @@ export class ProjectService {
     const shot = await this.repository.updateShot(projectId, shotId, input, principal)
     if (!shot) throw new AppError(404, 'SHOT_NOT_FOUND', '分镜不存在或无权修改')
     return shot
+  }
+
+  async deleteShot(projectId: string, shotId: string, principal: Principal) {
+    const outcome = await this.repository.deleteShot(projectId, shotId, principal)
+    if (outcome === 'active') {
+      throw new AppError(409, 'SHOT_GENERATION_ACTIVE', '这个分镜仍在排队、暂停或生成中，请先处理生成任务')
+    }
+    if (outcome === 'not_found') {
+      throw new AppError(404, 'SHOT_NOT_FOUND', '分镜不存在或无权删除')
+    }
   }
 
   private async assertShotDurationForProject(projectId: string, duration: number, principal: Principal) {

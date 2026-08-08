@@ -110,6 +110,12 @@ describe('shot contracts', () => {
     expect(updateShotSchema.parse({ continuityNote: 'previous action continues' })).toEqual({
       continuityNote: 'previous action continues',
     })
+    expect(createShotSchema.parse({ title: 'Inserted shot', insertAfterShotId: 'shot-2' })).toMatchObject({
+      insertAfterShotId: 'shot-2',
+    })
+    expect(createShotSchema.parse({ title: 'Opening shot', insertAfterShotId: null })).toMatchObject({
+      insertAfterShotId: null,
+    })
   })
 
   it('does not inject create defaults into partial shot updates', () => {

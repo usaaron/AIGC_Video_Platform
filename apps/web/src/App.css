@@ -9842,6 +9842,13 @@
 .shot-utility-actions .icon-button {
   margin-top: 2px;
 }
+.shot-utility-actions .icon-button.danger {
+  color: #a04b46;
+}
+.shot-utility-actions .icon-button.danger:hover:not(:disabled) {
+  border-color: #e1aaa5;
+  background: #fff2f0;
+}
 .shot-generation-state {
   display: flex;
   flex-wrap: wrap;
@@ -9882,6 +9889,36 @@
   max-height: calc(100vh - 32px);
   margin: 16px 0;
   overflow-y: auto;
+}
+.shot-insertion-control {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 14px;
+  padding: 11px 12px;
+  border: 1px solid #dce5c2;
+  border-radius: 6px;
+  background: #f8faef;
+}
+.shot-insertion-control > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: #5e6b36;
+  font-size: 10px;
+}
+.shot-insertion-control em {
+  color: #849052;
+  font-style: normal;
+  font-weight: 700;
+}
+.shot-insertion-control input[type='range'] {
+  width: 100%;
+  accent-color: #91a942;
+}
+.shot-insertion-control small {
+  color: #89927a;
+  font-size: 8px;
 }
 .shot-history-modal {
   width: min(980px, calc(100vw - 32px));

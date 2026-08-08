@@ -153,6 +153,37 @@ export class GenerationTaskRepository {
     )
   }
 
+  storyboardVideoContext(input: CreateGenerationTask, principal: Principal) {
+    if (input.kind !== 'video' || input.provider !== 'seedance' || typeof input.metadata?.shotId !== 'string') {
+      return null
+    }
+    return this.store.read((state) => {
+      const project = state.projects.find(
+        (item) =>
+          item.id === input.projectId &&
+          item.tenantId === principal.tenantId &&
+          item.ownerId === principal.userId,
+      )
+      const shot = state.shots.find(
+        (item) =>
+          item.id === input.metadata?.shotId &&
+          item.projectId === input.projectId &&
+          item.tenantId === principal.tenantId,
+      )
+      if (!project || !shot) return null
+      return {
+        project,
+        shot,
+        shots: state.shots
+          .filter((item) => item.projectId === input.projectId && item.tenantId === principal.tenantId)
+          .sort((left, right) => left.order - right.order),
+        assets: state.assets.filter(
+          (item) => item.projectId === input.projectId && item.tenantId === principal.tenantId,
+        ),
+      }
+    })
+  }
+
   blockedPortraitNames(input: CreateGenerationTask, principal: Principal): string[] {
     if (input.kind !== 'video' || !Array.isArray(input.metadata?.referenceAssetIds)) return []
     const referenceIds = input.metadata.referenceAssetIds.filter(

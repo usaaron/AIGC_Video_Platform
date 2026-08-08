@@ -1,6 +1,7 @@
 import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/contracts'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
+import { compileStoryboardVideoPrompt, VIDEO_PROMPT_VERSION } from '@seqora/prompting'
 import type { FilmPreviewDispatcher } from '../../core/film/filmPreviewComposer.js'
 import { traceContext, traceIdFromGenerationTask } from '../../core/observability/trace.js'
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
@@ -30,7 +31,8 @@ export class GenerationService {
     if (!this.repository.canCreate(input.projectId, principal)) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成')
     }
-    const blockedPortraitNames = this.repository.blockedPortraitNames(input, principal)
+    const taskInput = this.snapshotStoryboardVideoTask(input, principal)
+    const blockedPortraitNames = this.repository.blockedPortraitNames(taskInput, principal)
     if (blockedPortraitNames.length) {
       throw new AppError(
         409,
@@ -38,7 +40,7 @@ export class GenerationService {
         `以下仿真人物需要先完成方舟资源入库或真人授权：${blockedPortraitNames.join('、')}`,
       )
     }
-    const stringXPortraitNames = this.repository.stringXPortraitNames(input, principal)
+    const stringXPortraitNames = this.repository.stringXPortraitNames(taskInput, principal)
     if (this.videoProviderName !== 'stringx-seedance' && stringXPortraitNames.length) {
       throw new AppError(
         409,
@@ -46,9 +48,59 @@ export class GenerationService {
         `以下人物使用弦序 MaaS 素材，不能提交到当前视频 Provider：${stringXPortraitNames.join('、')}。请切换弦序视频 API 后再生成`,
       )
     }
-    const task = await this.repository.createWithCharge(input, principal, traceContext(traceId))
+    const task = await this.repository.createWithCharge(taskInput, principal, traceContext(traceId))
     await this.dispatcher.dispatch(task, { traceId: traceId ?? traceIdFromGenerationTask(task) })
     return task
+  }
+
+  private snapshotStoryboardVideoTask(input: CreateGenerationTask, principal: Principal): CreateGenerationTask {
+    if (input.kind !== 'video' || input.provider !== 'seedance' || typeof input.metadata?.shotId !== 'string') {
+      return input
+    }
+    const context = this.repository.storyboardVideoContext(input, principal)
+    if (!context) throw new AppError(404, 'SHOT_NOT_FOUND', '分镜不存在或无权生成')
+    const referenceAssetIds = Array.isArray(input.metadata.referenceAssetIds)
+      ? input.metadata.referenceAssetIds.filter((value): value is string => typeof value === 'string')
+      : []
+    const continuityMode = input.metadata.continuityMode === 'continue' ? 'continue' : 'independent'
+    const compiledPrompt = compileStoryboardVideoPrompt({
+      project: { ...context.project, visualStyle: context.project.visualStyle ?? 'cinematic-cg' },
+      shot: context.shot,
+      shots: context.shots,
+      assets: context.assets,
+      references: referenceAssetIds.map((id) => ({ id })),
+      continuityMode,
+    })
+    const sourceShotSnapshot = {
+      id: context.shot.id,
+      order: context.shot.order,
+      title: context.shot.title,
+      framing: context.shot.framing,
+      duration: context.shot.duration,
+      prompt: context.shot.prompt,
+      negativePrompt: context.shot.negativePrompt,
+      continuityMode: context.shot.continuityMode,
+      continuityNote: context.shot.continuityNote,
+      episodeNumber: context.shot.episodeNumber,
+      episodeBreakBefore: context.shot.episodeBreakBefore,
+      updatedAt: context.shot.updatedAt,
+    }
+    return {
+      ...input,
+      prompt: compiledPrompt,
+      negativePrompt: input.negativePrompt ?? context.shot.negativePrompt,
+      metadata: {
+        ...input.metadata,
+        sourceShotSnapshot,
+        sourcePromptSnapshot: context.shot.prompt,
+        sourcePromptHash: promptHash(context.shot.prompt),
+        sourceShotUpdatedAt: context.shot.updatedAt,
+        compiledPrompt,
+        compiledPromptHash: promptHash(compiledPrompt),
+        videoPromptVersion: VIDEO_PROMPT_VERSION,
+        sourceProjectVersion: context.project.version,
+      },
+    }
   }
 
   listProjectTasks(projectId: string, principal: Principal): Promise<GenerationTask[]> {
@@ -257,6 +309,10 @@ export class GenerationService {
       contentType: descriptor.contentType,
     }
   }
+}
+
+function promptHash(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex')
 }
 
 function sameStringArray(value: unknown, expected: string[]): boolean {

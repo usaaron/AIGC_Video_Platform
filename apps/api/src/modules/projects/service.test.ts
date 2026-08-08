@@ -1,10 +1,10 @@
 import { DEFAULT_SCRIPT_DIRECTION } from '@seqora/contracts'
 import { describe, expect, it, vi } from 'vitest'
-import type { AppState } from '../../infra/store.js'
+import { AppStore, type AppState } from '../../infra/store.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
 import { projectGenerationSummary, projectPreviewUrl } from './repository.js'
-import type { ProjectRepository } from './repository.js'
+import { ProjectRepository } from './repository.js'
 import { assignShotEpisodes, ProjectService, splitScriptParagraphs } from './service.js'
 
 describe('ProjectService script billing', () => {
@@ -290,6 +290,73 @@ describe('ProjectService director beat splitting', () => {
 
     expect(shots).toHaveLength(1)
     expect(shots[0]?.prompt).toContain('林砚抬眼，收紧剑柄，侧身让开道路')
+  })
+})
+
+describe('ProjectService shot deletion', () => {
+  it('blocks deletion while the shot still has an active generation task', async () => {
+    const repository = {
+      deleteShot: vi.fn(async () => 'active' as const),
+    } as unknown as ProjectRepository
+    const service = new ProjectService(repository)
+
+    await expect(
+      service.deleteShot('project-1', 'shot-1', {
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        roles: ['creator'],
+      }),
+    ).rejects.toThrow('这个分镜仍在排队、暂停或生成中')
+  })
+})
+
+describe('ProjectRepository shot ordering', () => {
+  it('inserts after the selected shot and compacts orders after deletion', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new ProjectRepository(store)
+    const principal = {
+      userId: 'user-member',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['member'] as const,
+    }
+    const before = await repository.workspace('project-midnight-film', principal)
+    const anchor = before?.shots[1]
+    expect(anchor).toBeDefined()
+
+    const inserted = await repository.createShot(
+      'project-midnight-film',
+      {
+        title: '插入镜头',
+        framing: '中景',
+        duration: 5,
+        prompt: '承接第二镜后的补充动作。',
+        negativePrompt: '',
+        imageUrl: null,
+        continuityMode: 'continue',
+        continuityNote: '',
+        episodeBreakBefore: false,
+        episodeNumber: anchor!.episodeNumber,
+        episodeTitle: anchor!.episodeTitle,
+        episodeKind: 'standard',
+        insertAfterShotId: anchor!.id,
+      },
+      principal,
+    )
+    expect(inserted?.order).toBe(3)
+    const afterInsert = await repository.workspace('project-midnight-film', principal)
+    expect(afterInsert?.shots.map((shot) => shot.order)).toEqual(
+      Array.from({ length: afterInsert.shots.length }, (_, index) => index + 1),
+    )
+    expect(afterInsert?.shots[2]?.id).toBe(inserted?.id)
+
+    await expect(repository.deleteShot('project-midnight-film', inserted!.id, principal)).resolves.toBe(
+      'deleted',
+    )
+    const afterDelete = await repository.workspace('project-midnight-film', principal)
+    expect(afterDelete?.shots.map((shot) => shot.order)).toEqual(
+      Array.from({ length: afterDelete.shots.length }, (_, index) => index + 1),
+    )
   })
 })
 
