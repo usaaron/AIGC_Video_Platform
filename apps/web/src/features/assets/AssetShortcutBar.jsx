@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
   ChevronDown,
@@ -169,6 +169,7 @@ export function AssetAwareTextarea({
   ...textareaProps
 }) {
   const editorRef = useRef(null)
+  const measureFrameRef = useRef(null)
   const [scrollPosition, setScrollPosition] = useState({ left: 0, top: 0 })
   const [editorMetrics, setEditorMetrics] = useState(null)
   const availableAssets = assets.filter((asset) => KIND_ORDER.includes(asset.kind))
@@ -184,33 +185,71 @@ export function AssetAwareTextarea({
     const target = editorRef.current
     if (!target || !target.clientWidth) return
     const computed = window.getComputedStyle(target)
-    setEditorMetrics({
+    const nextMetrics = {
       width: target.clientWidth,
       left: Number.parseFloat(computed.borderLeftWidth) || 0,
       top: Number.parseFloat(computed.borderTopWidth) || 0,
       padding: computed.padding,
+      boxSizing: computed.boxSizing,
       fontFamily: computed.fontFamily,
       fontSize: computed.fontSize,
       fontStyle: computed.fontStyle,
       fontWeight: computed.fontWeight,
       letterSpacing: computed.letterSpacing,
       lineHeight: computed.lineHeight,
+      overflowWrap: computed.overflowWrap,
+      tabSize: computed.tabSize,
+      textAlign: computed.textAlign,
+      textIndent: computed.textIndent,
+      textTransform: computed.textTransform,
+      whiteSpace: computed.whiteSpace,
+      wordBreak: computed.wordBreak,
+      wordSpacing: computed.wordSpacing,
+    }
+    setEditorMetrics((current) => (sameEditorMetrics(current, nextMetrics) ? current : nextMetrics))
+  }
+
+  const syncEditorLayout = () => {
+    const target = editorRef.current
+    if (!target) return
+    setScrollPosition((current) => {
+      const next = { left: target.scrollLeft, top: target.scrollTop }
+      return current.left === next.left && current.top === next.top ? current : next
+    })
+    measureEditor()
+  }
+
+  const scheduleEditorLayoutSync = () => {
+    if (measureFrameRef.current !== null) window.cancelAnimationFrame(measureFrameRef.current)
+    measureFrameRef.current = window.requestAnimationFrame(() => {
+      syncEditorLayout()
+      measureFrameRef.current = window.requestAnimationFrame(() => {
+        measureFrameRef.current = null
+        syncEditorLayout()
+      })
     })
   }
 
   useEffect(() => {
     const target = editorRef.current
     if (!target) return undefined
-    measureEditor()
+    scheduleEditorLayoutSync()
     if (typeof ResizeObserver === 'undefined') return undefined
-    const observer = new ResizeObserver(measureEditor)
+    const observer = new ResizeObserver(scheduleEditorLayoutSync)
     observer.observe(target)
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      if (measureFrameRef.current !== null) window.cancelAnimationFrame(measureFrameRef.current)
+    }
   }, [])
+
+  useLayoutEffect(() => {
+    scheduleEditorLayoutSync()
+  }, [value])
 
   const handleChange = (event) => {
     onChange?.(event)
-    requestAnimationFrame(measureEditor)
+    scheduleEditorLayoutSync()
   }
 
   const handleScroll = (event) => {
@@ -230,12 +269,21 @@ export function AssetAwareTextarea({
               ? {
                   width: `${editorMetrics.width}px`,
                   padding: editorMetrics.padding,
+                  boxSizing: editorMetrics.boxSizing,
                   fontFamily: editorMetrics.fontFamily,
                   fontSize: editorMetrics.fontSize,
                   fontStyle: editorMetrics.fontStyle,
                   fontWeight: editorMetrics.fontWeight,
                   letterSpacing: editorMetrics.letterSpacing,
                   lineHeight: editorMetrics.lineHeight,
+                  overflowWrap: editorMetrics.overflowWrap,
+                  tabSize: editorMetrics.tabSize,
+                  textAlign: editorMetrics.textAlign,
+                  textIndent: editorMetrics.textIndent,
+                  textTransform: editorMetrics.textTransform,
+                  whiteSpace: editorMetrics.whiteSpace,
+                  wordBreak: editorMetrics.wordBreak,
+                  wordSpacing: editorMetrics.wordSpacing,
                 }
               : {}),
           }}
@@ -254,6 +302,11 @@ export function AssetAwareTextarea({
       />
     </div>
   )
+}
+
+function sameEditorMetrics(current, next) {
+  if (!current) return false
+  return Object.keys(next).every((key) => current[key] === next[key])
 }
 
 function renderHighlightedText(value, mentions, tasks) {
