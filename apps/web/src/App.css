@@ -5083,7 +5083,6 @@
 }
 
 .script-textarea-wrap > .asset-aware-textarea .asset-aware-highlight-inner {
-  min-width: 100%;
   box-sizing: border-box;
   color: transparent;
 }

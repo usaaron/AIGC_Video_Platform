@@ -268,6 +268,7 @@ export function AssetAwareTextarea({
             ...(editorMetrics
               ? {
                   width: `${editorMetrics.width}px`,
+                  minWidth: `${editorMetrics.width}px`,
                   padding: editorMetrics.padding,
                   boxSizing: editorMetrics.boxSizing,
                   fontFamily: editorMetrics.fontFamily,
