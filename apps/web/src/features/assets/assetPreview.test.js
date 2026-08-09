@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { getAssetPreviewUrl } from './assetPreview'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { getAssetPreviewUrl, warmAssetPreviewCache } from './assetPreview'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('asset preview selection', () => {
   it('uses the full-body image as a character card cover once it exists', () => {
@@ -33,5 +37,25 @@ describe('asset preview selection', () => {
       '/prop.png',
     )
     expect(getAssetPreviewUrl({ kind: 'audio', imageUrl: '/ignored.png' })).toBeNull()
+  })
+
+  it('keeps one decoded image object per stable preview URL', () => {
+    let imageCount = 0
+    class FakeImage {
+      constructor() {
+        imageCount += 1
+      }
+
+      set src(_value) {
+        this.onload?.()
+      }
+    }
+    vi.stubGlobal('window', { Image: FakeImage })
+    const assets = [{ kind: 'character', imageUrl: '/cache-character-1.png', attributes: {} }]
+
+    warmAssetPreviewCache(assets)
+    warmAssetPreviewCache(assets)
+
+    expect(imageCount).toBe(1)
   })
 })

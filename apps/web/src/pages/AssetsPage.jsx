@@ -259,7 +259,7 @@ function AssetCard({ asset, task, linkedCharacterName, onEdit, onGenerate, onPre
               onPreview({ url: previewUrl, alt: asset.name, fileName: `${asset.name}-资产预览` })
             }
           >
-            <img src={previewUrl} alt={asset.name} />
+            <img src={previewUrl} alt={asset.name} loading="eager" decoding="async" />
           </button>
         ) : (
           <EmptyIcon size={42} />

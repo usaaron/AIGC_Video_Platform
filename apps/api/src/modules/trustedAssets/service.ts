@@ -35,9 +35,10 @@ export class TrustedAssetService {
     private readonly projectName: string,
     private readonly consoleUrl = '',
     private readonly projectRepository: Pick<ProjectRepository, 'updateAsset'> | null = null,
-    private readonly mediaRepository:
-      | Pick<MediaRepository, 'findSourceById' | 'findSourceByReferenceIds'>
-      | null = null,
+    private readonly mediaRepository: Pick<
+      MediaRepository,
+      'findSourceById' | 'findSourceByReferenceIds'
+    > | null = null,
   ) {}
 
   configuration() {
@@ -101,7 +102,8 @@ export class TrustedAssetService {
 
     const current = asset.attributes.trustedPortrait
     if (current?.groupType === 'AIGC' && current.status === 'processing') {
-      const portrait = await this.callProvider(() => provider.getPortrait(current.assetId))
+      const portrait = await this.readProcessingPortrait(provider, current)
+      if (!portrait) return asset
       return this.savePortrait(asset, portrait, 'ai-virtual', principal)
     }
 
@@ -149,7 +151,13 @@ export class TrustedAssetService {
     const asset = this.requireCharacterAsset(projectId, assetId, principal)
     const current = asset.attributes.trustedPortrait
     if (!current) throw new AppError(409, 'TRUSTED_PORTRAIT_REQUIRED', '当前人物尚未绑定弦序素材资源')
-    const portrait = await this.callProvider(() => this.requireProvider().getPortrait(current.assetId))
+    const portrait =
+      current.status === 'processing'
+        ? await this.readProcessingPortrait(this.requireProvider(), current)
+        : await this.callProvider(() =>
+            this.requireProvider().getPortrait(current.assetId, current.groupType),
+          )
+    if (!portrait) return asset
     return this.savePortrait(
       asset,
       portrait,
@@ -209,10 +217,26 @@ export class TrustedAssetService {
     try {
       return await operation()
     } catch (error) {
-      if (error instanceof AppError) throw error
-      const detail = error instanceof Error ? error.message : '未知错误'
-      throw new AppError(502, 'ASSET_LIBRARY_REQUEST_FAILED', `弦序素材库请求失败：${detail}`)
+      throw this.providerError(error)
     }
+  }
+
+  private async readProcessingPortrait(
+    provider: AssetLibraryProvider,
+    current: TrustedPortrait,
+  ): Promise<ProviderPortrait | null> {
+    try {
+      return await provider.getPortrait(current.assetId, current.groupType)
+    } catch (error) {
+      if (isPendingPortraitLookupError(error)) return null
+      throw this.providerError(error)
+    }
+  }
+
+  private providerError(error: unknown): AppError {
+    if (error instanceof AppError) return error
+    const detail = error instanceof Error ? error.message : '未知错误'
+    return new AppError(502, 'ASSET_LIBRARY_REQUEST_FAILED', `弦序素材库请求失败：${detail}`)
   }
 
   private requireCharacterAsset(projectId: string, assetId: string, principal: Principal): CharacterAsset {
@@ -256,7 +280,10 @@ export class TrustedAssetService {
     const generated = this.findLegacyGeneratedFaceSource(asset)
     if (generated) return generated
 
-    return await this.findMediaSourceByReferenceIds(asset.references.map((item) => item.id), asset)
+    return await this.findMediaSourceByReferenceIds(
+      asset.references.map((item) => item.id),
+      asset,
+    )
   }
 
   private async findMediaSourceById(mediaId: string, asset: CharacterAsset): Promise<StoredSource | null> {
@@ -416,4 +443,11 @@ function trustedPortraitPreviewUrl(portrait: ProviderPortrait): string | null {
     return `/api/v1/trusted-assets/portraits/${encodeURIComponent(portrait.assetId)}/preview`
   }
   return portrait.previewUrl
+}
+
+function isPendingPortraitLookupError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  return /尚未能建立可靠资源验证|尚未就绪|暂未就绪|处理中|processing|not ready|not found|does not exist|resource[^\n]*missing|请求超时|网络暂时不可达/i.test(
+    error.message,
+  )
 }

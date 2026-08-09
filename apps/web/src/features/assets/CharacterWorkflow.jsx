@@ -500,24 +500,30 @@ function TrustedPortraitPanel({
     if (!assetId || portrait?.status !== 'processing' || !refreshTrustedPortraitRef.current) return undefined
     let cancelled = false
     let timer
+    let pollAttempt = 0
 
     const poll = async () => {
       try {
         const updated = await refreshTrustedPortraitRef.current(assetId)
         if (cancelled) return
+        pollAttempt = 0
         setPollError('')
         if (updated?.attributes) attributesChangeRef.current(updated.attributes)
         if (updated?.attributes?.trustedPortrait?.status === 'processing') {
-          timer = window.setTimeout(poll, 4_000)
+          timer = window.setTimeout(poll, 6_000)
         }
       } catch (pollingError) {
         if (cancelled) return
-        setPollError(pollingError instanceof Error ? pollingError.message : '自动同步上游状态失败')
-        timer = window.setTimeout(poll, 8_000)
+        pollAttempt += 1
+        // AIGC resources are eventually consistent upstream; avoid showing a red error for one transient lookup.
+        if (pollAttempt >= 3) {
+          setPollError(pollingError instanceof Error ? pollingError.message : '自动同步上游状态失败')
+        }
+        timer = window.setTimeout(poll, Math.min(30_000, 8_000 * 2 ** Math.min(pollAttempt - 1, 2)))
       }
     }
 
-    void poll()
+    timer = window.setTimeout(poll, 5_000)
     return () => {
       cancelled = true
       window.clearTimeout(timer)
@@ -560,7 +566,7 @@ function TrustedPortraitPanel({
               aria-label="放大查看当前可信人像"
               onClick={() => onPreview?.({ url: boundPreviewUrl, name: portrait.name || portrait.assetId })}
             >
-              <img src={boundPreviewUrl} alt="" />
+              <img src={boundPreviewUrl} alt="" loading="eager" decoding="async" />
             </button>
           ) : (
             <span className="trusted-portrait-binding-placeholder">
@@ -719,7 +725,11 @@ function TrustedPortraitPanel({
                     })
                   }
                 >
-                  {itemPreviewUrl ? <img src={itemPreviewUrl} alt="" /> : <Images size={22} />}
+                  {itemPreviewUrl ? (
+                    <img src={itemPreviewUrl} alt="" loading="eager" decoding="async" />
+                  ) : (
+                    <Images size={22} />
+                  )}
                 </button>
                 <button
                   className="trusted-portrait-card-select"

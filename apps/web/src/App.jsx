@@ -24,6 +24,7 @@ import {
 import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 import { FUNCTION_STACK_IDS, FUNCTION_STACK_ITEMS } from './features/functionStack/config'
 import { compileCharacterStagePrompt } from './features/assets/promptCompiler'
+import { warmAssetPreviewCache } from './features/assets/assetPreview'
 
 const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const videoResolutions = new Set(['480p', '720p', '1080p', '4k'])
@@ -190,6 +191,12 @@ function App() {
   }, [workspace?.project.id])
 
   useEffect(() => {
+    warmAssetPreviewCache(
+      (workspace?.assets || []).filter((asset) => asset.kind === 'character').slice(0, 24),
+    )
+  }, [workspace?.assets])
+
+  useEffect(() => {
     if (!recentTasksLoaded) return
     if (!recentTasks.length) {
       taskStatusesRef.current = {}
@@ -294,6 +301,17 @@ function App() {
     const next = await api.project(projectId)
     setWorkspace(next)
     setProjects(await api.projects())
+  }
+
+  const mergeWorkspaceAsset = (updatedAsset) => {
+    if (!updatedAsset?.id) return
+    setWorkspace((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        assets: current.assets.map((asset) => (asset.id === updatedAsset.id ? updatedAsset : asset)),
+      }
+    })
   }
 
   const refreshBilling = async () => {
@@ -786,12 +804,12 @@ function App() {
           onRegisterVirtualPortrait={createTrustedPortraitJob}
           onBindTrustedPortrait={async (assetId, providerAssetId) => {
             const updated = await api.bindTrustedPortrait(project.id, assetId, providerAssetId)
-            await refreshWorkspace()
+            mergeWorkspaceAsset(updated)
             return updated
           }}
           onRefreshTrustedPortrait={async (assetId) => {
             const updated = await api.refreshTrustedPortrait(project.id, assetId)
-            await refreshWorkspace()
+            mergeWorkspaceAsset(updated)
             return updated
           }}
           onGenerateStage={(asset, stage, prompt, model) => {
@@ -892,7 +910,9 @@ function App() {
               episodeDurationSeconds,
             })
             await refreshWorkspace()
-            setToast(mode === 'beat' ? '已按动作拆分镜头' : '已按场次生成分镜，一场对应一个视频镜头')
+            setToast(
+              mode === 'beat' ? '已按动作拆分镜头' : '已按场次生成分镜；单场剧本会自动按可执行动作补充分镜',
+            )
           }}
           onAutoSplitEpisodes={async (episodeDurationSeconds) => {
             await api.autoSplitShotEpisodes(project.id, { episodeDurationSeconds })

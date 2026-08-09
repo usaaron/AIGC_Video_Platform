@@ -220,6 +220,53 @@ describe('ProjectService script billing', () => {
     expect(result.script).not.toContain('S03')
     expect(result.script).not.toContain('围观弟子')
   })
+
+  it('repairs a web-series response that was incorrectly compressed into one scene', async () => {
+    const shortCandidate =
+      '场次：S01｜剧情：女剑客进入山门并发现追兵。｜场景：宗门山门。｜角色：女剑客；追兵。｜动作：女剑客回头，追兵逼近。｜对白：无台词。'
+    const completeCandidate = Array.from(
+      { length: 10 },
+      (_, index) =>
+        `场次：S${String(index + 1).padStart(2, '0')}｜剧情：女剑客推进第${index + 1}个冲突节点。｜场景：宗门山门。｜角色：女剑客；追兵。｜动作：动作1：女剑客移动并改变视线；动作2：追兵做出对应反应。｜对白：[对白]追兵：站住。｜风格：影视CG。｜构图：中景。｜光影：冷色月光。｜运镜：跟随推进。｜衔接：保留人物位置和追兵方向。`,
+    ).join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '山门追杀',
+          contentType: 'short-drama',
+          synopsis: '女剑客逃入山门。',
+          aspectRatio: '9:16',
+          script: '',
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = {
+      generate: vi.fn().mockResolvedValueOnce(shortCandidate).mockResolvedValueOnce(completeCandidate),
+    }
+    const service = new ProjectService(repository, textProvider)
+
+    const result = await service.generateScript(
+      'project-1',
+      shortCandidate,
+      DEFAULT_SCRIPT_DIRECTION,
+      'quick',
+      { goal: '', targetMinutes: 1 },
+      'web-series',
+      1,
+      'repair-web-series-scene-count',
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      'seqora-5.6',
+      '',
+      'prepaid',
+      60,
+    )
+
+    expect(splitScriptParagraphs(result.script)).toHaveLength(10)
+    expect(textProvider.generate).toHaveBeenCalledTimes(2)
+    expect(repository.update).toHaveBeenCalledOnce()
+  })
 })
 
 describe('ProjectService director beat splitting', () => {
@@ -252,7 +299,7 @@ describe('ProjectService director beat splitting', () => {
     expect(shots[1]?.prompt).not.toContain('坐标为什么在我身上')
   })
 
-  it('creates one video shot per scene in the default scene mode', async () => {
+  it('falls back to executable actions when scene mode only receives one scene', async () => {
     const script =
       '场次：S01｜剧情：岚星确认异常坐标。｜场景：天穹环城观景桥。｜角色：岚星；巡逻守卫。｜动作：动作1：岚星抬眼看向光点；动作2：她收紧导航环；动作3：守卫停步转头。｜对白：[内心独白]岚星：坐标为什么在我身上？｜风格：影视CG。｜构图：中景。｜光影：银蓝晨光。｜运镜：稳定推进。｜衔接：导航环保持发光。'
     const repository = {
@@ -267,10 +314,33 @@ describe('ProjectService director beat splitting', () => {
       { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
     )
 
-    expect(shots).toHaveLength(1)
-    expect(shots[0]?.prompt).toContain('镜头边界：本镜只覆盖当前场次')
+    expect(shots).toHaveLength(3)
+    expect(shots[0]?.prompt).toContain('镜头边界：本镜只表现当前动作')
     expect(shots[0]?.prompt).toContain('动作1：岚星抬眼看向光点')
-    expect(shots[0]?.prompt).toContain('动作3：守卫停步转头')
+    expect(shots[0]?.prompt).not.toContain('动作3：守卫停步转头')
+    expect(shots[2]?.prompt).toContain('动作3：守卫停步转头')
+  })
+
+  it('keeps one video shot per scene when multiple scenes are available', async () => {
+    const script = [
+      '场次：S01｜剧情：岚星进入观景桥。｜场景：观景桥。｜角色：岚星。｜动作：动作1：岚星推门；动作2：岚星停步。｜对白：无台词。',
+      '场次：S02｜剧情：守卫发现岚星。｜场景：观景桥。｜角色：岚星；守卫。｜动作：动作1：守卫回头；动作2：岚星贴近护栏。｜对白：[对白]守卫：谁在那里？',
+    ].join('\n')
+    const repository = {
+      workspace: vi.fn(async () => ({ project: { contentType: 'short-drama', script }, assets: [] })),
+      replaceShots: vi.fn(async (_projectId, shots) => shots),
+    } as unknown as ProjectRepository
+    const service = new ProjectService(repository)
+
+    const shots = await service.generateShots(
+      'project-1',
+      { mode: 'scene', maxShots: 120, episodeDurationSeconds: 60 },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(shots).toHaveLength(2)
+    expect(shots[0]?.prompt).toContain('动作2：岚星停步')
+    expect(shots[1]?.prompt).toContain('动作2：岚星贴近护栏')
   })
 
   it('does not turn comma-separated performance detail into duplicate beat videos', async () => {
@@ -452,6 +522,22 @@ describe('splitScriptParagraphs', () => {
     expect(splitScriptParagraphs('第一场\n【强制分镜】\n第二场')).toEqual([
       { text: '第一场', forceEpisodeBreakBefore: false },
       { text: '第二场', forceEpisodeBreakBefore: false, forceShotBreakBefore: true },
+    ])
+  })
+
+  it('groups multiline scene fields and splits inline scene rows', () => {
+    const script =
+      '场次：S01\n剧情：角色进入山门。\n场景：宗门山门。\n角色：角色甲。\n动作：角色甲抬眼。｜场次：S02｜剧情：追兵赶到。｜场景：宗门山门。｜角色：追兵。'
+
+    expect(splitScriptParagraphs(script)).toEqual([
+      {
+        text: '场次：S01｜剧情：角色进入山门。｜场景：宗门山门。｜角色：角色甲。｜动作：角色甲抬眼。',
+        forceEpisodeBreakBefore: false,
+      },
+      {
+        text: '场次：S02｜剧情：追兵赶到。｜场景：宗门山门。｜角色：追兵。',
+        forceEpisodeBreakBefore: false,
+      },
     ])
   })
 })

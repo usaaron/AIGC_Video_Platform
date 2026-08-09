@@ -240,7 +240,7 @@ export function StoryboardPage({
           className="button secondary"
           onClick={() => void splitFromScript('scene')}
           disabled={controlsLocked}
-          title="每个剧本场次生成一个视频镜头，不再自动把场内动作重复拆开"
+          title="正常情况每个场次生成一个视频镜头；整份剧本只识别到一场时，会按场内动作自动补充分镜"
         >
           {splitting === 'scene' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
           {splitting === 'scene' ? '正在按场次智能生成' : '按场次智能生成'}
@@ -1160,8 +1160,7 @@ function ShotEditor({
             ...(shot.id
               ? {}
               : {
-                  insertAfterShotId:
-                    insertionIndex === 0 ? null : orderedShots[insertionIndex - 1]?.id,
+                  insertAfterShotId: insertionIndex === 0 ? null : orderedShots[insertionIndex - 1]?.id,
                 }),
           })
         }}

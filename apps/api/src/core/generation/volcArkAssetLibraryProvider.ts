@@ -77,7 +77,7 @@ export type PortraitPreview = {
 export interface AssetLibraryProvider {
   createVirtualGroup(name: string, description: string): Promise<string>
   createVirtualAsset(groupId: string, name: string, sourceUrl: string): Promise<ProviderPortrait>
-  getPortrait(assetId: string): Promise<ProviderPortrait>
+  getPortrait(assetId: string, expectedGroupType?: PortraitGroupType): Promise<ProviderPortrait>
   getPortraitPreview?(assetId: string): Promise<PortraitPreview>
   listPortraits(groupType: PortraitGroupType): Promise<ProviderPortrait[]>
   listAuthorizedPortraits(): Promise<ProviderPortrait[]>
@@ -143,10 +143,11 @@ export class VolcArkAssetLibraryProvider implements AssetLibraryProvider {
     }
   }
 
-  async getPortrait(assetId: string): Promise<ProviderPortrait> {
+  async getPortrait(assetId: string, expectedGroupType?: PortraitGroupType): Promise<ProviderPortrait> {
     const asset = assetSchema.parse(
       await this.call('GetAsset', { Id: assetId, ProjectName: this.options.projectName }),
     )
+    if (expectedGroupType) return mapPortrait(asset, expectedGroupType)
     const group = assetGroupSchema.parse(
       await this.call('GetAssetGroup', {
         Id: asset.GroupId,

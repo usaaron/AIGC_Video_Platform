@@ -188,7 +188,12 @@ export class ProjectService {
     const sourceLength = contentLength(source)
     const episodeSeconds = normalizeEpisodeDurationSeconds(episodeDurationSeconds, episodeMinutes * 60)
     const structuredSource = hasStructuredSceneRows(source)
+    const sourceStructuredSceneCount = countStructuredScenes(source)
+    const sourceHasStructuredScene = sourceStructuredSceneCount >= 2
     const shouldExpandFromIdea = sourceLength < SCRIPT_INITIAL_EXPANSION_THRESHOLD && !structuredSource
+    const enforceWebSeriesSceneBudget =
+      productionMode === 'web-series' && mode !== 'segment' && !sourceHasStructuredScene
+    const sceneBudget = webSeriesSceneBudget(episodeSeconds)
 
     const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${productionMode === 'web-series' ? `网剧模式，每集${formatDuration(episodeSeconds)}` : '短视频模式'}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}`
     if (mode === 'quick' && sourceLength >= SINGLE_REWRITE_MAX_LENGTH) {
@@ -201,8 +206,16 @@ export class ProjectService {
       }
     }
     const generationInstruction = shouldExpandFromIdea
-      ? `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产，生成约 1800 到 2600 字的高信息密度制作剧本；如果原始内容是系统提示语，也要把它转化为具体剧情，不要原样复述。每个场次必须有明确角色、空间、动作拍点、对白类型、视觉执行和上下场衔接。`
-      : `当前内容约 ${sourceLength} 字。请在保留核心剧情、人物关系、场景因果、关键物件和对白信息的前提下，按原有逻辑重写整理为制作级剧本；不要把内容压缩成提纲，不要任意删减重要情节。原稿已经按场次组织时，输出场次数量、场次编号和顺序必须与原稿完全一致，只能在原场次内部补齐制作信息，不得新增、拆分或合并场次。`
+      ? `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产，生成约 1800 到 2600 字的高信息密度制作剧本；如果原始内容是系统提示语，也要把它转化为具体剧情，不要原样复述。每个场次必须有明确角色、空间、动作拍点、对白类型、视觉执行和上下场衔接。${
+          enforceWebSeriesSceneBudget
+            ? `本集目标时长 ${formatDuration(episodeSeconds)}，必须输出 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 个场次，建议输出 ${sceneBudget.target} 个；每个场次单独占一行，不得把整集压成一场。`
+            : ''
+        }`
+      : `当前内容约 ${sourceLength} 字。请在保留核心剧情、人物关系、场景因果、关键物件和对白信息的前提下，按原有逻辑重写整理为制作级剧本；不要把内容压缩成提纲，不要任意删减重要情节。原稿已经按场次组织时，输出场次数量、场次编号和顺序必须与原稿完全一致，只能在原场次内部补齐制作信息，不得新增、拆分或合并场次。${
+          enforceWebSeriesSceneBudget
+            ? `本集目标时长 ${formatDuration(episodeSeconds)}，原稿尚未按场次组织，必须重新组织为 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 个场次，建议输出 ${sceneBudget.target} 个；每个场次单独占一行。`
+            : ''
+        }`
     const generationSystemPrompt = shouldExpandFromIdea
       ? productionMode === 'web-series'
         ? WEB_SERIES_SCRIPT_SYSTEM_PROMPT
@@ -263,10 +276,27 @@ export class ProjectService {
           }),
           model,
         )
-        const candidate = structuredSource
+        let candidate = structuredSource
           ? alignEnrichedSceneRows(source, generatedCandidate)
           : generatedCandidate
+        if (enforceWebSeriesSceneBudget && countStructuredScenes(candidate) < sceneBudget.minimum) {
+          const repaired = await this.textProvider!.generate({
+            systemPrompt: withChineseScriptRules(WEB_SERIES_SCRIPT_SYSTEM_PROMPT),
+            userPrompt: `${projectContext}\n\n上一次生成只返回了 ${countStructuredScenes(candidate)} 个可识别场次，低于制作要求。请完整重写并只返回剧本正文：必须输出 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 个场次，建议 ${sceneBudget.target} 个；每个场次单独占一行，每场对应一个 4 到 15 秒视频镜头，保留以下素材的核心人物、冲突和因果，不得把整集压成一段。\n\n用户素材：\n${source}`,
+            maxOutputTokens: webSeriesMaxOutputTokens(episodeSeconds),
+            model,
+            usageContext: usageContextForPrincipal(principal),
+          })
+          candidate = await ensureChineseScriptOutput(this.textProvider!, repaired, model)
+        }
         assertRequestedSceneCount(source, candidate)
+        if (enforceWebSeriesSceneBudget && countStructuredScenes(candidate) < sceneBudget.minimum) {
+          throw new AppError(
+            502,
+            'PROVIDER_RESPONSE_TRUNCATED',
+            `文本服务返回不完整：本集至少需要 ${sceneBudget.minimum} 个场次，实际只返回 ${countStructuredScenes(candidate)} 个；原剧本未被覆盖，请重试或切换模型`,
+          )
+        }
         const script = candidate
         const warnings = quickScriptIssues(script, productionMode)
         const updated = await this.repository.update(projectId, { script }, principal)
@@ -461,7 +491,7 @@ export class ProjectService {
     const shots =
       input.mode === 'beat'
         ? splitScriptIntoBeatShots(paragraphs, input.maxShots, isWebSeries)
-        : splitScriptIntoSceneShots(paragraphs, input.maxShots, isWebSeries)
+        : splitScriptIntoSmartSceneShots(paragraphs, input.maxShots, isWebSeries)
     return this.repository.replaceShots(
       projectId,
       assignShotEpisodes(shots, input.episodeDurationSeconds),
@@ -677,6 +707,18 @@ const CHINESE_SCRIPT_REPAIR_SYSTEM_PROMPT = `你是中文剧本格式校对员�
 
 function webSeriesMaxOutputTokens(episodeSeconds: number): number {
   return Math.min(24_000, Math.max(7_000, Math.ceil(episodeSeconds / 60) * 6_500))
+}
+
+function webSeriesSceneBudget(episodeSeconds: number): {
+  minimum: number
+  target: number
+  maximum: number
+} {
+  return {
+    minimum: Math.max(4, Math.min(120, Math.ceil(episodeSeconds / 6))),
+    target: Math.max(5, Math.min(120, Math.ceil(episodeSeconds / 5))),
+    maximum: Math.max(6, Math.min(120, Math.ceil(episodeSeconds / 4))),
+  }
 }
 
 function withChineseScriptRules(systemPrompt: string): string {
@@ -1790,22 +1832,56 @@ export function splitScriptParagraphs(script: string): ScriptParagraph[] {
   const lines = script
     .replaceAll(FORCE_EPISODE_BREAK_MARKER, `\n${FORCE_EPISODE_BREAK_MARKER}\n`)
     .replaceAll(FORCE_SHOT_BREAK_MARKER, `\n${FORCE_SHOT_BREAK_MARKER}\n`)
+    .replace(/｜\s*(?=场次\s*[：:])/gu, '\n')
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean)
   const paragraphs: ScriptParagraph[] = []
   let forceEpisodeBreakBefore = false
   let forceShotBreakBefore = false
+  let structuredScene: ScriptParagraph | null = null
+
+  const flushStructuredScene = () => {
+    if (!structuredScene) return
+    paragraphs.push(structuredScene)
+    structuredScene = null
+  }
 
   for (const line of lines) {
     if (line === FORCE_EPISODE_BREAK_MARKER) {
+      flushStructuredScene()
       forceEpisodeBreakBefore = true
       continue
     }
     if (line === FORCE_SHOT_BREAK_MARKER) {
+      flushStructuredScene()
       forceShotBreakBefore = true
       continue
     }
+
+    if (/^场次\s*[：:]/u.test(line)) {
+      flushStructuredScene()
+      structuredScene = {
+        text: line,
+        forceEpisodeBreakBefore,
+        ...(forceShotBreakBefore ? { forceShotBreakBefore: true } : {}),
+      }
+      forceEpisodeBreakBefore = false
+      forceShotBreakBefore = false
+      continue
+    }
+
+    if (structuredScene && isStructuredSceneContinuation(line)) {
+      structuredScene.text = `${structuredScene.text}｜${line}`
+      continue
+    }
+
+    if (structuredScene) {
+      structuredScene.text = `${structuredScene.text} ${line}`
+      continue
+    }
+
+    flushStructuredScene()
     paragraphs.push({
       text: line,
       forceEpisodeBreakBefore,
@@ -1815,7 +1891,16 @@ export function splitScriptParagraphs(script: string): ScriptParagraph[] {
     forceShotBreakBefore = false
   }
 
+  flushStructuredScene()
+
   return paragraphs
+}
+
+function isStructuredSceneContinuation(line: string): boolean {
+  const field = line.match(/^([^：:]{1,12})\s*[：:]/u)?.[1]?.trim()
+  return Boolean(
+    field && ([...SHOT_FIELD_NAMES, ...SCENE_DIRECTION_FIELD_NAMES] as readonly string[]).includes(field),
+  )
 }
 
 function preserveScriptBreakMarkers(source: string, candidate: string): string {
@@ -1912,6 +1997,11 @@ function sceneNumberKey(value: string | undefined, index: number): string {
 
 function scriptScenes(script: string): string[] {
   return splitScriptParagraphs(script).map((paragraph) => paragraph.text)
+}
+
+function countStructuredScenes(script: string): number {
+  return splitScriptParagraphs(script).filter((paragraph) => Boolean(parseShotFields(paragraph.text).场次))
+    .length
 }
 
 function quickScriptIssues(
@@ -2059,6 +2149,18 @@ function splitScriptIntoSceneShots(
       }),
     }
   })
+}
+
+function splitScriptIntoSmartSceneShots(
+  paragraphs: ScriptParagraph[],
+  maxShots: number,
+  isWebSeries = false,
+): ShotDraft[] {
+  const sceneShots = splitScriptIntoSceneShots(paragraphs, maxShots, isWebSeries)
+  if (paragraphs.length !== 1 || sceneShots.length !== 1) return sceneShots
+
+  const actionShots = splitScriptIntoBeatShots(paragraphs, maxShots, isWebSeries)
+  return actionShots.length > 1 ? actionShots : sceneShots
 }
 
 function isHookParagraph(paragraph: string): boolean {
