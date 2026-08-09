@@ -110,6 +110,9 @@ export async function registerGenerationRoutes(
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
       const range = typeof request.headers.range === 'string' ? request.headers.range : undefined
       const content = await service.getVideoContent(parsed.data.taskId, request.principal!, range)
+      if ('redirectUrl' in content) {
+        return reply.header('Cache-Control', 'private, max-age=300').redirect(content.redirectUrl, 307)
+      }
       reply.header('Cache-Control', 'private, no-store').type(content.contentType)
       if (content.contentLength) reply.header('Content-Length', content.contentLength)
       if (content.acceptRanges) reply.header('Accept-Ranges', content.acceptRanges)

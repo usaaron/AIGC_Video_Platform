@@ -2,7 +2,7 @@ import { billingWebhookEventSchema, createCreditCheckoutSchema, PERMISSIONS } fr
 import type { FastifyInstance } from 'fastify'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
-import { requirePermission } from '../../core/auth/authorization.js'
+import { requireAnyPermission, requirePermission } from '../../core/auth/authorization.js'
 import { AppError } from '../../core/errors.js'
 import type { CreditLedger } from './creditLedger.js'
 import type { BillingPaymentService } from './paymentService.js'
@@ -22,7 +22,7 @@ export async function registerBillingRoutes(
 ): Promise<void> {
   app.get(
     '/billing/summary',
-    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_SELF) },
+    { preHandler: requireAnyPermission(PERMISSIONS.BILLING_READ_SELF, PERMISSIONS.BILLING_READ_ALL) },
     async (request) => await ledger.billingSummary(request.principal!),
   )
   app.put('/billing/plan', { preHandler: requirePermission(PERMISSIONS.BILLING_READ_SELF) }, () => {

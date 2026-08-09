@@ -71,6 +71,8 @@ describe('compileStoryboardVideoPrompt', () => {
     })
 
     expect(prompt).toContain('【镜头衔接】严格承接上一镜头尾帧')
+    expect(prompt).toContain('第一张是唯一的上一镜真实尾帧')
+    expect(prompt).toContain('不得用后续参考图重构首帧')
     expect(prompt).toContain('【场景衔接上下文】上一场人物右手握住门把手')
   })
 

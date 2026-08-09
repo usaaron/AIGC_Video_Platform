@@ -251,7 +251,7 @@ export function StoryboardPage({
           disabled={controlsLocked}
         >
           {splitting === 'beat' ? <LoaderCircle size={16} className="spin" /> : <Scissors size={16} />}
-          {splitting === 'beat' ? '正在动作级细拆' : '高级：动作级细拆'}
+          {splitting === 'beat' ? '正在按动作拆分' : '按动作拆分镜头'}
         </button>
         <button
           type="button"

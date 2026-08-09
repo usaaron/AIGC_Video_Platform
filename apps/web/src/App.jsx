@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { Check, LoaderCircle, RefreshCw, X } from 'lucide-react'
+import { Check, LoaderCircle, LogOut, RefreshCw, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
 import { BrandMark } from './components/BrandMark'
@@ -281,6 +281,9 @@ function App() {
         <button className="button primary" type="button" onClick={() => setLoadAttempt((value) => value + 1)}>
           <RefreshCw size={16} /> 重新加载
         </button>
+        <button className="button secondary" type="button" onClick={() => void logout()}>
+          <LogOut size={16} /> 退出登录
+        </button>
       </div>
     )
 
@@ -499,7 +502,11 @@ function App() {
     }
     const manualReferenceUrl =
       shot.imageUrl && !shot.imageUrl.startsWith('/api/v1/generation/tasks/') ? shot.imageUrl : null
-    const images = selectVideoReferenceImages(manualReferenceUrl, references)
+    const images = selectVideoReferenceImages(
+      manualReferenceUrl,
+      references,
+      actualContinuityMode === 'continue' ? 4 : 9,
+    )
     const selectedResolution = videoResolutions.has(resolution) ? resolution : '720p'
     const videoPrompt = compileStoryboardVideoPrompt({
       project,
@@ -885,7 +892,7 @@ function App() {
               episodeDurationSeconds,
             })
             await refreshWorkspace()
-            setToast(mode === 'beat' ? '已按明确动作节拍细拆分镜' : '已按场次生成分镜，一场对应一个视频镜头')
+            setToast(mode === 'beat' ? '已按动作拆分镜头' : '已按场次生成分镜，一场对应一个视频镜头')
           }}
           onAutoSplitEpisodes={async (episodeDurationSeconds) => {
             await api.autoSplitShotEpisodes(project.id, { episodeDurationSeconds })

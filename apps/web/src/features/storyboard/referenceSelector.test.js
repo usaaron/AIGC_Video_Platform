@@ -131,6 +131,22 @@ describe('selectShotAssetReferences', () => {
     expect(references[0]).toMatchObject({ url: '/face.png', videoUrl: 'asset://asset-live-1' })
     expect(selectVideoReferenceImages(null, references)).toEqual(['asset://asset-live-1'])
   })
+
+  it('keeps continuity references bounded so the tail frame remains the visual anchor', () => {
+    const references = [
+      { id: 'character-lin', url: '/character.png' },
+      { id: 'scene-station', url: '/scene.png' },
+      { id: 'prop-film', url: '/prop.png' },
+      { id: 'costume-lin', url: '/costume.png' },
+    ]
+
+    expect(selectVideoReferenceImages('/tail.png', references, 4)).toEqual([
+      '/tail.png',
+      '/character.png',
+      '/scene.png',
+      '/prop.png',
+    ])
+  })
 })
 
 function asset(id, kind, name, description, imageUrl, bodyUrl = null) {

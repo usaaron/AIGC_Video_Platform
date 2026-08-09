@@ -31,6 +31,8 @@ type ComposeRunner = (
 type FilmPreviewComposerOptions = {
   composeRunner?: ComposeRunner
   leaseTtlMs?: number
+  ioTimeoutMs?: number
+  stateChangeTimeoutMs?: number
   onStateChange?: () => Promise<void>
 }
 
@@ -47,6 +49,8 @@ export interface FilmPreviewDispatcher {
 export class FilmPreviewComposer implements FilmPreviewDispatcher {
   private readonly leaseOwnerId = `film-preview-composer-${process.pid}-${randomUUID()}`
   private readonly leaseTtlMs: number
+  private readonly ioTimeoutMs: number
+  private readonly stateChangeTimeoutMs: number
   private readonly composeRunner: ComposeRunner
   private readonly onStateChange: () => Promise<void>
 
@@ -59,7 +63,9 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
     private readonly videoProviderName: VideoProviderName = 'stringx-seedance',
     options: FilmPreviewComposerOptions = {},
   ) {
-    this.leaseTtlMs = options.leaseTtlMs ?? 120_000
+    this.ioTimeoutMs = options.ioTimeoutMs ?? Math.max(30_000, Math.min(timeoutMs, 120_000))
+    this.leaseTtlMs = options.leaseTtlMs ?? Math.max(120_000, this.ioTimeoutMs + 30_000)
+    this.stateChangeTimeoutMs = options.stateChangeTimeoutMs ?? Math.min(this.ioTimeoutMs, 30_000)
     this.composeRunner = options.composeRunner ?? runFfmpegComposition
     this.onStateChange = options.onStateChange ?? (async () => {})
   }
@@ -70,9 +76,17 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       const tasks: GenerationTask[] = []
       for (const task of state.tasks) {
         if (task.provider !== 'local-compose' || task.status !== 'running') continue
+        const expiresAt = task.leaseExpiresAt ? Date.parse(task.leaseExpiresAt) : Number.NaN
+        if (Number.isFinite(expiresAt) && expiresAt > Date.now()) continue
         task.status = 'failed'
         task.progress = 100
         task.error = '完整预览合成被服务重启中断，请重新合成'
+        task.metadata = {
+          ...task.metadata,
+          providerState: 'failed',
+          compositionStage: 'failed',
+          compositionRecoveredAt: now,
+        }
         releaseGenerationTaskLease(task)
         task.updatedAt = now
         tasks.push(task)
@@ -80,7 +94,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       return tasks
     })
     for (const task of recovered) recordPreviewTaskUsage(task)
-    if (recovered.length) await this.onStateChange()
+    if (recovered.length) await this.notifyStateChange()
   }
 
   async start(task: GenerationTask): Promise<GenerationTask> {
@@ -93,11 +107,16 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       stored.status = 'running'
       stored.progress = 1
       stored.error = null
-      stored.metadata = { ...stored.metadata, providerState: 'composing', compositionStartedAt: nowIso }
+      stored.metadata = {
+        ...stored.metadata,
+        providerState: 'composing',
+        compositionStage: 'preparing',
+        compositionStartedAt: nowIso,
+      }
       stored.updatedAt = nowIso
       return stored
     })
-    await this.onStateChange()
+    await this.notifyStateChange()
     if (
       started.id === task.id &&
       started.status === 'running' &&
@@ -120,6 +139,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
   private async compose(taskId: string, leaseToken: string): Promise<void> {
     const startedAt = Date.now()
     let temporaryDirectory: string | null = null
+    let stopLeaseHeartbeat: (() => void) | null = null
     let usageTask: GenerationTask | null = null
     try {
       const task = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
@@ -152,6 +172,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
           return source
         }),
       )
+      stopLeaseHeartbeat = this.startLeaseHeartbeat(taskId, leaseToken)
 
       temporaryDirectory = await mkdtemp(join(tmpdir(), 'seqora-film-'))
       const inputPaths: string[] = []
@@ -165,9 +186,20 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
           return
         }
         const inputPath = join(temporaryDirectory, `shot-${String(index + 1).padStart(3, '0')}.mp4`)
+        await this.updateProgress(taskId, current.progress, leaseToken, {
+          compositionStage: 'downloading',
+          compositionSourceIndex: index + 1,
+          compositionSourceTaskId: source.id,
+          compositionSourceCount: sourceTasks.length,
+        })
         const cachedOutput = cachedVideoOutput(source)
         if (cachedOutput) {
-          await writeFile(inputPath, await this.objectStorage.get(cachedOutput.storageKey))
+          const cachedContent = await withTimeout(
+            this.objectStorage.get(cachedOutput.storageKey),
+            this.ioTimeoutMs,
+            `读取第 ${index + 1} 个镜头缓存超时`,
+          )
+          await writeFile(inputPath, cachedContent)
         } else {
           const content = await observeProviderCall(
             {
@@ -179,16 +211,45 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
               taskId,
               traceId: traceIdFromGenerationTask(task),
             },
-            () => this.videoProvider.getContent(String(source.metadata.providerTaskId)),
+            () =>
+              withTimeout(
+                this.videoProvider.getContent(String(source.metadata.providerTaskId)),
+                this.ioTimeoutMs,
+                `读取第 ${index + 1} 个镜头视频超时`,
+              ),
           )
-          await pipeline(content.stream, createWriteStream(inputPath))
+          const destination = createWriteStream(inputPath)
+          try {
+            await withTimeout(
+              pipeline(content.stream, destination),
+              this.ioTimeoutMs,
+              `写入第 ${index + 1} 个镜头视频超时`,
+              () => {
+                content.stream.destroy()
+                destination.destroy()
+              },
+            )
+          } catch (error) {
+            content.stream.destroy()
+            destination.destroy()
+            throw error
+          }
         }
         inputPaths.push(inputPath)
-        await this.updateProgress(taskId, 5 + Math.round(((index + 1) / sourceTasks.length) * 40), leaseToken)
+        await this.updateProgress(
+          taskId,
+          5 + Math.round(((index + 1) / sourceTasks.length) * 40),
+          leaseToken,
+          { compositionStage: 'downloaded' },
+        )
       }
 
       const outputPath = join(temporaryDirectory, 'film-preview.mp4')
-      await this.updateProgress(taskId, 50, leaseToken)
+      await this.updateProgress(taskId, 50, leaseToken, {
+        compositionStage: 'composing',
+        compositionSourceIndex: null,
+        compositionSourceTaskId: null,
+      })
       await this.composeRunner(
         inputPaths,
         outputPath,
@@ -196,11 +257,19 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         this.ffmpegPath,
         this.timeoutMs,
       )
-      await this.updateProgress(taskId, 92, leaseToken)
+      await this.updateProgress(taskId, 92, leaseToken, {
+        compositionStage: 'uploading',
+        compositionSourceIndex: null,
+        compositionSourceTaskId: null,
+      })
 
       const output = await readFile(outputPath)
       const storageKey = `${task.tenantId}/${task.projectId}/generated/${task.id}-film-preview.mp4`
-      await this.objectStorage.put(storageKey, output, 'video/mp4')
+      await withTimeout(
+        this.objectStorage.put(storageKey, output, 'video/mp4'),
+        this.ioTimeoutMs,
+        '上传完整预览视频超时',
+      )
       await this.store.mutate((state) => {
         const stored = state.tasks.find((item) => item.id === taskId)
         if (!stored || stored.status !== 'running') return
@@ -215,6 +284,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         stored.metadata = {
           ...stored.metadata,
           providerState: 'completed',
+          compositionStage: 'completed',
           previewStorageKey: storageKey,
           previewContentType: 'video/mp4',
           previewSize: output.length,
@@ -223,7 +293,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         stored.updatedAt = now
         releaseGenerationTaskLease(stored)
       })
-      await this.onStateChange()
+      await this.notifyStateChange()
     } catch (error) {
       const message = error instanceof Error ? error.message : '完整预览合成失败'
       await this.store.mutate((state) => {
@@ -233,12 +303,18 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         task.status = 'failed'
         task.progress = 100
         task.error = message.slice(0, 1_000)
-        task.metadata = { ...task.metadata, providerState: 'failed' }
+        task.metadata = {
+          ...task.metadata,
+          providerState: 'failed',
+          compositionStage: 'failed',
+          compositionFailedAt: new Date().toISOString(),
+        }
         releaseGenerationTaskLease(task)
         task.updatedAt = new Date().toISOString()
       })
-      await this.onStateChange()
+      await this.notifyStateChange()
     } finally {
+      stopLeaseHeartbeat?.()
       const finalTask = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
       if (finalTask?.status === 'completed' || finalTask?.status === 'failed') {
         const durationMs = Date.now() - startedAt
@@ -285,17 +361,48 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
     }
   }
 
-  private async updateProgress(taskId: string, progress: number, leaseToken: string): Promise<void> {
+  private async updateProgress(
+    taskId: string,
+    progress: number,
+    leaseToken: string,
+    metadata: Record<string, unknown> = {},
+  ): Promise<void> {
     const updated = await this.store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task || task.status !== 'running') return false
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return false
       task.progress = Math.min(99, Math.max(task.progress, progress))
+      task.metadata = { ...task.metadata, ...metadata }
       renewGenerationTaskLease(task, this.leaseOwnerId, leaseToken, this.leaseTtlMs)
       task.updatedAt = new Date().toISOString()
       return true
     })
-    if (updated) await this.onStateChange()
+    if (updated) await this.notifyStateChange()
+  }
+
+  private startLeaseHeartbeat(taskId: string, leaseToken: string): () => void {
+    const interval = setInterval(
+      () => void this.renewLease(taskId, leaseToken),
+      Math.max(1_000, Math.floor(this.leaseTtlMs / 3)),
+    )
+    interval.unref?.()
+    return () => clearInterval(interval)
+  }
+
+  private async renewLease(taskId: string, leaseToken: string): Promise<void> {
+    const renewed = await this.store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === taskId)
+      if (!task || task.status !== 'running') return false
+      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return false
+      renewGenerationTaskLease(task, this.leaseOwnerId, leaseToken, this.leaseTtlMs)
+      task.updatedAt = new Date().toISOString()
+      return true
+    })
+    if (renewed) await this.notifyStateChange()
+  }
+
+  private async notifyStateChange(): Promise<void> {
+    await withTimeout(this.onStateChange(), this.stateChangeTimeoutMs, '合成任务状态同步超时').catch(() => {})
   }
 }
 
@@ -314,7 +421,9 @@ function recordPreviewTaskUsage(task: GenerationTask): void {
   })
 }
 
-function terminalUsageStatus(status: GenerationTask['status']): 'completed' | 'failed' | 'cancelled' | 'unknown' {
+function terminalUsageStatus(
+  status: GenerationTask['status'],
+): 'completed' | 'failed' | 'cancelled' | 'unknown' {
   return status === 'completed' || status === 'failed' || status === 'cancelled' ? status : 'unknown'
 }
 
@@ -480,4 +589,28 @@ function previewTarget(aspectRatio: string): PreviewTarget {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+  onTimeout?: () => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      onTimeout?.()
+      reject(new Error(message))
+    }, timeoutMs)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
 }

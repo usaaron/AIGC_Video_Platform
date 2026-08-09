@@ -896,6 +896,25 @@ describe('API authorization', () => {
     expect(response.json()).toMatchObject({ users: 4, activeTasks: 0 })
   })
 
+  it('allows admin accounts to load the user-side billing summary', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/billing/summary',
+      headers: {
+        'x-demo-role': 'admin',
+        'x-demo-user-id': 'user-admin',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      credits: expect.any(Number),
+      monthlyUsage: expect.any(Object),
+    })
+  })
+
   it('protects observability metrics and returns operational counters to admins', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
 

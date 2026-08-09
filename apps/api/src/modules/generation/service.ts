@@ -7,7 +7,7 @@ import { traceContext, traceIdFromGenerationTask } from '../../core/observabilit
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
 import type { VideoGenerationProvider } from '../../core/generation/videoProvider.js'
 import type { VideoProviderName } from '../../core/generation/videoProvider.js'
-import type { ObjectStorage } from '../../infra/objectStorage.js'
+import type { ObjectStorage, ObjectStorageStream } from '../../infra/objectStorage.js'
 import { AppError } from '../../core/errors.js'
 import type { GenerationTaskRepository } from './repository.js'
 
@@ -57,7 +57,11 @@ export class GenerationService {
     input: CreateGenerationTask,
     principal: Principal,
   ): Promise<CreateGenerationTask> {
-    if (input.kind !== 'video' || input.provider !== 'seedance' || typeof input.metadata?.shotId !== 'string') {
+    if (
+      input.kind !== 'video' ||
+      input.provider !== 'seedance' ||
+      typeof input.metadata?.shotId !== 'string'
+    ) {
       return input
     }
     const context = await this.repository.storyboardVideoContext(input, principal)
@@ -240,7 +244,7 @@ export class GenerationService {
       if (typeof storageKey !== 'string') {
         throw new AppError(404, 'VIDEO_CONTENT_UNAVAILABLE', '完整预览文件不存在')
       }
-      return bufferVideoContent(await this.objectStorage.get(storageKey), range)
+      return await this.videoStorageContent(storageKey, range)
     }
     if (task.provider !== 'seedance') {
       throw new AppError(400, 'VIDEO_CONTENT_UNAVAILABLE', '该任务没有可播放的视频内容')
@@ -257,10 +261,7 @@ export class GenerationService {
         )
       : null
     if (cachedVideo && this.objectStorage) {
-      return bufferVideoContent(
-        await this.objectStorage.get((cachedVideo as { storageKey: string }).storageKey),
-        range,
-      )
+      return await this.videoStorageContent((cachedVideo as { storageKey: string }).storageKey, range)
     }
     if (!this.videoProvider) {
       throw new AppError(503, 'SEEDANCE_NOT_CONFIGURED', 'Seedance 服务尚未配置')
@@ -312,6 +313,26 @@ export class GenerationService {
       contentType: descriptor.contentType,
     }
   }
+
+  private async videoStorageContent(storageKey: string, range?: string) {
+    const storage = this.objectStorage
+    if (!storage) throw new AppError(503, 'VIDEO_STORAGE_UNAVAILABLE', '视频存储尚未配置')
+    const signedUrl = await signedStorageUrl(storage, storageKey)
+    if (signedUrl) return { redirectUrl: signedUrl, contentType: 'video/mp4' as const }
+
+    if (storage.getStream) {
+      const full = await storage.getStream(storageKey)
+      const parsed = parseByteRange(range, full.size)
+      if (!parsed) {
+        return streamVideoContent(full, null)
+      }
+      full.stream.destroy()
+      const partial = await storage.getStream(storageKey, parsed)
+      return streamVideoContent(partial, parsed)
+    }
+
+    return bufferVideoContent(await storage.get(storageKey), range)
+  }
 }
 
 function promptHash(value: string): string {
@@ -346,6 +367,27 @@ function bufferVideoContent(content: Buffer, range?: string) {
     statusCode: 206,
     acceptRanges: 'bytes',
     contentRange: `bytes ${parsed.start}-${parsed.end}/${content.length}`,
+  }
+}
+
+function streamVideoContent(content: ObjectStorageStream, range: { start: number; end: number } | null) {
+  const selectedLength = range ? range.end - range.start + 1 : content.size
+  return {
+    stream: content.stream,
+    contentType: 'video/mp4',
+    contentLength: String(selectedLength),
+    statusCode: range ? 206 : 200,
+    acceptRanges: 'bytes',
+    contentRange: range ? `bytes ${range.start}-${range.end}/${content.size}` : null,
+  }
+}
+
+async function signedStorageUrl(storage: ObjectStorage | null, storageKey: string): Promise<string | null> {
+  if (!storage?.getSignedUrl) return null
+  try {
+    return await storage.getSignedUrl(storageKey)
+  } catch {
+    return null
   }
 }
 

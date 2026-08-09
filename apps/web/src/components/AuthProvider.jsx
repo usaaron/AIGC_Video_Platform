@@ -31,8 +31,13 @@ export function AuthProvider({ children }) {
   }
 
   const logout = async () => {
-    await api.logout()
-    setSession(null)
+    try {
+      await api.logout()
+    } catch {
+      // The local session must still be released when the API cannot be reached.
+    } finally {
+      setSession(null)
+    }
   }
 
   const refresh = async () => {

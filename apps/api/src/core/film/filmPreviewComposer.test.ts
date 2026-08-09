@@ -160,6 +160,90 @@ describe('FilmPreviewComposer', () => {
     })
   })
 
+  it('does not recover a composition whose lease is still active', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const task = {
+      ...previewTask(['source-1']),
+      status: 'running' as const,
+      leaseOwnerId: 'active-composer',
+      leaseToken: 'active-token',
+      leaseAcquiredAt: new Date().toISOString(),
+      leaseHeartbeatAt: new Date().toISOString(),
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }
+    await store.mutate((state) => {
+      state.tasks.unshift(task)
+    })
+
+    const composer = new FilmPreviewComposer(
+      store,
+      {} as VideoGenerationProvider,
+      {} as ObjectStorage,
+      'ffmpeg',
+      60_000,
+    )
+
+    await composer.recoverInterrupted()
+
+    expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+      status: 'running',
+      progress: 0,
+      leaseOwnerId: 'active-composer',
+      leaseToken: 'active-token',
+    })
+  })
+
+  it('fails a composition when a shot stream stops producing data', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const source = sourceTask('source-stalled', 'provider-stalled')
+    const preview = previewTask([source.id])
+    await store.mutate((state) => {
+      state.tasks.unshift(preview, source)
+    })
+
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(async () => {
+        throw new Error('not used')
+      }),
+      getStatus: vi.fn(async () => {
+        throw new Error('not used')
+      }),
+      getContent: vi.fn(async () => ({
+        stream: new Readable({ read() {} }),
+        contentType: 'video/mp4',
+        contentLength: null,
+        statusCode: 200,
+        acceptRanges: null,
+        contentRange: null,
+      })),
+    }
+    const composer = new FilmPreviewComposer(
+      store,
+      provider,
+      {
+        put: vi.fn(async () => {}),
+        get: vi.fn(async () => Buffer.alloc(0)),
+        delete: vi.fn(async () => {}),
+      },
+      'ffmpeg',
+      60_000,
+      'aideos-seedance',
+      { ioTimeoutMs: 20, stateChangeTimeoutMs: 20, leaseTtlMs: 1_000 },
+    )
+
+    await composer.start(preview)
+    await vi.waitFor(
+      () => {
+        const task = store.read((state) => state.tasks.find((item) => item.id === preview.id))
+        expect(task?.status).toBe('failed')
+        expect(task?.error).toContain('写入第 1 个镜头视频超时')
+      },
+      { timeout: 1_000 },
+    )
+  })
+
   it('keeps audio streams and supplies silence for clips without audio', () => {
     const args = createFfmpegCompositionArgs(
       ['shot-1.mp4', 'shot-2.mp4'],

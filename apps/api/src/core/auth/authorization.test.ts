@@ -1,7 +1,7 @@
 import { PERMISSIONS, ROLES, type Principal } from '@seqora/contracts'
 import type { AppError } from '../errors.js'
 import { describe, expect, it } from 'vitest'
-import { permissionsFor, requirePermission } from './authorization.js'
+import { permissionsFor, requireAnyPermission, requirePermission } from './authorization.js'
 
 describe('authorization', () => {
   it('merges permissions from every assigned role', () => {
@@ -34,6 +34,20 @@ describe('authorization', () => {
     await expect(
       requirePermission(PERMISSIONS.USER_MANAGE)({
         principal: account([ROLES.ADMIN]),
+      } as never),
+    ).resolves.toBeUndefined()
+  })
+
+  it('allows a broader permission to satisfy a scoped read', async () => {
+    await expect(
+      requireAnyPermission(PERMISSIONS.BILLING_READ_SELF, PERMISSIONS.BILLING_READ_ALL)({
+        principal: account([ROLES.ADMIN]),
+      } as never),
+    ).resolves.toBeUndefined()
+
+    await expect(
+      requireAnyPermission(PERMISSIONS.BILLING_READ_SELF, PERMISSIONS.BILLING_READ_ALL)({
+        principal: account([ROLES.MEMBER]),
       } as never),
     ).resolves.toBeUndefined()
   })

@@ -69,7 +69,9 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
         )}
         {job.status === 'running' && !canCancelRunning && (
           <p className="job-provider-note">
-            第三方生成中，暂不可暂停或删除；若第三方失败，平台会自动退回积分。
+            {job.provider === 'local-compose'
+              ? compositionStageLabel(job)
+              : '第三方生成中，暂不可暂停或删除；若第三方失败，平台会自动退回积分。'}
           </p>
         )}
         {canCancelRunning && (
@@ -143,4 +145,19 @@ function jobStateLabel(job) {
   if (job.status === 'running') return `${job.progress}%`
   if (job.status === 'paused') return '已暂停'
   return '等待中'
+}
+
+function compositionStageLabel(job) {
+  const stage = job.metadata?.compositionStage
+  const index = Number(job.metadata?.compositionSourceIndex)
+  const count = Number(job.metadata?.compositionSourceCount)
+  if (stage === 'downloading' && Number.isInteger(index) && index > 0) {
+    return Number.isInteger(count) && count > 0
+      ? `正在读取第 ${index}/${count} 个镜头视频，完成后将自动合成。`
+      : `正在读取第 ${index} 个镜头视频，完成后将自动合成。`
+  }
+  if (stage === 'composing') return '镜头已就绪，FFmpeg 正在合成完整预览。'
+  if (stage === 'uploading') return '完整预览已合成，正在上传并写回项目。'
+  if (stage === 'preparing') return '正在准备镜头文件和合成任务。'
+  return '完整预览合成中，平台会持续处理。'
 }

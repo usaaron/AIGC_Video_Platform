@@ -16,3 +16,15 @@ export function requirePermission(permission: Permission): preHandlerHookHandler
     }
   }
 }
+
+export function requireAnyPermission(...permissions: Permission[]): preHandlerHookHandler {
+  return async (request) => {
+    if (!request.principal) {
+      throw new AppError(401, 'AUTHENTICATION_REQUIRED', 'Authentication is required')
+    }
+    const granted = permissionsFor(request.principal)
+    if (!permissions.some((permission) => granted.has(permission))) {
+      throw new AppError(403, 'PERMISSION_DENIED', `Missing permission: ${permissions.join(' or ')}`)
+    }
+  }
+}
