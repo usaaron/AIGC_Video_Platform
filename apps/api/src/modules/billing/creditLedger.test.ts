@@ -13,9 +13,9 @@ const principal: Principal = {
 }
 
 const adminPrincipal: Principal = {
-  userId: 'user-admin',
+  userId: 'user-super-admin',
   tenantId: 'tenant-seqora-demo',
-  roles: ['admin'],
+  roles: ['super_admin'],
 }
 
 let authDatabase: PostgresAuthFixture | undefined
