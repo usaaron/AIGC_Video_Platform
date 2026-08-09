@@ -28,6 +28,22 @@ describe('authorization', () => {
       statusCode: 403,
       code: 'PERMISSION_DENIED',
     })
+
+    await expect(
+      requireAnyPermission(PERMISSIONS.USER_MANAGE)({ principal: null } as never),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'AUTHENTICATION_REQUIRED',
+    } satisfies Partial<AppError>)
+
+    await expect(
+      requireAnyPermission(PERMISSIONS.USER_MANAGE)({
+        principal: account([ROLES.MEMBER]),
+      } as never),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'PERMISSION_DENIED',
+    })
   })
 
   it('allows principals with the required permission to continue', async () => {
