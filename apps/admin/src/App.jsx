@@ -331,7 +331,9 @@ export function App() {
   )
   const invitationPageOrganization = useMemo(
     () =>
-      manageableInvitationOrganizations.find((organization) => organization.id === invitationPageOrganizationId) ??
+      manageableInvitationOrganizations.find(
+        (organization) => organization.id === invitationPageOrganizationId,
+      ) ??
       manageableInvitationOrganizations[0] ??
       null,
     [manageableInvitationOrganizations, invitationPageOrganizationId],
@@ -357,10 +359,7 @@ export function App() {
     () => organizationItems.find((organization) => organization.id === createUserForm.organizationId) ?? null,
     [organizationItems, createUserForm.organizationId],
   )
-  const createUserRoleOptions = useMemo(
-    () => assignableRoleOptions(session, null),
-    [session],
-  )
+  const createUserRoleOptions = useMemo(() => assignableRoleOptions(session, null), [session])
   const addExistingMemberOrganization = useMemo(
     () =>
       organizationItems.find((organization) => organization.id === addExistingMemberForm.organizationId) ??
@@ -377,10 +376,7 @@ export function App() {
       null,
     [organizationItems, createInvitationForm.organizationId],
   )
-  const createInvitationRoleOptions = useMemo(
-    () => assignableRoleOptions(session, null),
-    [session],
-  )
+  const createInvitationRoleOptions = useMemo(() => assignableRoleOptions(session, null), [session])
   const activeListMeta = useMemo(() => activeConsoleListMeta(snapshot, activeTab), [snapshot, activeTab])
   const organizationFilterOptions = useMemo(
     () => organizationOptionsForFilter(organizationItems, consoleFilters.tenantId),
@@ -654,7 +650,11 @@ export function App() {
     if (!membershipId) return
     const membership = snapshot?.memberships?.items.find((item) => membershipIdFor(item) === membershipId)
     if (!membership) {
-      searchConsoleTab('memberships', membershipId, '当前快照未包含该 membership，已切到成员关系列表并按 ID 搜索')
+      searchConsoleTab(
+        'memberships',
+        membershipId,
+        '当前快照未包含该 membership，已切到成员关系列表并按 ID 搜索',
+      )
       return
     }
     setAuditDetailId('')
@@ -1787,17 +1787,7 @@ function UsageRealtimePage({ summary, loading, error, range, onRangeChange, onRe
   )
 }
 
-function UsageTablePage({
-  title,
-  subject,
-  rows,
-  loading,
-  error,
-  query,
-  range,
-  onRangeChange,
-  onRefresh,
-}) {
+function UsageTablePage({ title, subject, rows, loading, error, query, range, onRangeChange, onRefresh }) {
   const visibleRows = filterRows(rows, query)
   return (
     <div className="usage-page">
@@ -1957,10 +1947,7 @@ function ConsoleServerControls({
         </label>
         <label>
           <Power size={14} />
-          <select
-            value={filters.status}
-            onChange={(event) => onFilterChange({ status: event.target.value })}
-          >
+          <select value={filters.status} onChange={(event) => onFilterChange({ status: event.target.value })}>
             <option value="">全部状态</option>
             {consoleStatusFilterOptions.map((status) => (
               <option key={status} value={status}>
@@ -1999,24 +1986,24 @@ function ConsoleServerControls({
               : `服务端分页 ${from}-${to} / ${total}`}
         </span>
         {hasActiveList && (
-        <div>
-          <button
-            className="row-button"
-            type="button"
-            disabled={!hasPrevious || loading}
-            onClick={() => onPageOffsetChange(Math.max(0, offset - limit))}
-          >
-            上一页
-          </button>
-          <button
-            className="row-button"
-            type="button"
-            disabled={!hasNext || loading}
-            onClick={() => onPageOffsetChange(offset + limit)}
-          >
-            下一页
-          </button>
-        </div>
+          <div>
+            <button
+              className="row-button"
+              type="button"
+              disabled={!hasPrevious || loading}
+              onClick={() => onPageOffsetChange(Math.max(0, offset - limit))}
+            >
+              上一页
+            </button>
+            <button
+              className="row-button"
+              type="button"
+              disabled={!hasNext || loading}
+              onClick={() => onPageOffsetChange(offset + limit)}
+            >
+              下一页
+            </button>
+          </div>
         )}
       </div>
     </section>
@@ -2553,7 +2540,12 @@ function InvitationsPage({
             )}
             创建邀请
           </button>
-          <button className="row-button" type="button" disabled={!selectedOrganization || loading} onClick={onRefresh}>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!selectedOrganization || loading}
+            onClick={onRefresh}
+          >
             {loading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
             刷新列表
           </button>
@@ -3028,7 +3020,9 @@ function ReconciliationAlertsTable({
       </thead>
       <tbody>
         {alerts.map((alert) => {
-          const linked = alert.reconciliationItemId ? reconciliationById.get(alert.reconciliationItemId) : null
+          const linked = alert.reconciliationItemId
+            ? reconciliationById.get(alert.reconciliationItemId)
+            : null
           return (
             <tr key={alert.id}>
               <td>
@@ -3140,7 +3134,9 @@ function UserDetailDrawer({
   )
   const userSessionRows = sortByRecent(sessions.filter((item) => item.userId === user.id))
   const userAlertRows = sortByRecent(
-    alerts.filter((alert) => rowMatchesUser(alert, user.id) || rowMatchesAnyMembership(alert, userMembershipIds)),
+    alerts.filter(
+      (alert) => rowMatchesUser(alert, user.id) || rowMatchesAnyMembership(alert, userMembershipIds),
+    ),
   )
   const userReconciliationRows = sortByRecent(
     reconciliation.filter(
@@ -3225,7 +3221,11 @@ function UserDetailDrawer({
             disabled={!canEditUser || busy === `password:${user.id}`}
             onClick={() => onOpenPasswordReset(user)}
           >
-            {busy === `password:${user.id}` ? <LoaderCircle size={14} className="spin" /> : <KeyRound size={14} />}
+            {busy === `password:${user.id}` ? (
+              <LoaderCircle size={14} className="spin" />
+            ) : (
+              <KeyRound size={14} />
+            )}
             临时密码
           </button>
           <button
@@ -3306,7 +3306,9 @@ function UserDetailDrawer({
                 <tr key={membershipIdFor(account)}>
                   <td>{organizationNameFor(organizations, organizationIdFromRow(account))}</td>
                   <td>{planName(account.plan)}</td>
-                  <td className={account.credits >= 0 ? 'amount positive' : 'amount negative'}>{account.credits}</td>
+                  <td className={account.credits >= 0 ? 'amount positive' : 'amount negative'}>
+                    {account.credits}
+                  </td>
                   <td>{formatDate(account.updatedAt)}</td>
                 </tr>
               ))}
@@ -3476,7 +3478,9 @@ function MembershipDetailDrawer({
           <div>
             <span className="eyebrow">Membership 详情</span>
             <h2>{membership.name}</h2>
-            <p>{membership.email ?? membership.userId} · {membershipId}</p>
+            <p>
+              {membership.email ?? membership.userId} · {membershipId}
+            </p>
           </div>
           <button className="icon-button" type="button" aria-label="关闭 membership 详情" onClick={onClose}>
             <X size={18} />
@@ -3504,7 +3508,11 @@ function MembershipDetailDrawer({
           </div>
           <div>
             <span>积分</span>
-            <strong className={(account?.credits ?? membership.credits ?? 0) >= 0 ? 'amount positive' : 'amount negative'}>
+            <strong
+              className={
+                (account?.credits ?? membership.credits ?? 0) >= 0 ? 'amount positive' : 'amount negative'
+              }
+            >
               {account?.credits ?? membership.credits ?? 0}
             </strong>
           </div>
@@ -3574,7 +3582,11 @@ function MembershipDetailDrawer({
             <tbody>
               <tr>
                 <td>
-                  <IdentityCell name={membership.name} detail={membership.email ?? membership.userId} compact />
+                  <IdentityCell
+                    name={membership.name}
+                    detail={membership.email ?? membership.userId}
+                    compact
+                  />
                 </td>
                 <td>
                   <IdentityCell name={membership.tenantName} detail={organizationId} compact />
@@ -3604,7 +3616,9 @@ function MembershipDetailDrawer({
               {account && (
                 <tr>
                   <td>{planName(account.plan)}</td>
-                  <td className={account.credits >= 0 ? 'amount positive' : 'amount negative'}>{account.credits}</td>
+                  <td className={account.credits >= 0 ? 'amount positive' : 'amount negative'}>
+                    {account.credits}
+                  </td>
                   <td>
                     <StatusPair primary={account.membershipStatus} secondary={account.userStatus} />
                   </td>
@@ -3820,11 +3834,21 @@ function OrganizationDetailDrawer({
         </div>
 
         <div className="drawer-actions">
-          <button className="row-button" type="button" disabled={!canManage} onClick={() => onRename(organization)}>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!canManage}
+            onClick={() => onRename(organization)}
+          >
             <PencilLine size={14} />
             改名
           </button>
-          <button className="row-button" type="button" disabled={!canCreate} onClick={() => onCreateUser(organization.id)}>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!canCreate}
+            onClick={() => onCreateUser(organization.id)}
+          >
             <Plus size={14} />
             添加账号
           </button>
@@ -3841,19 +3865,39 @@ function OrganizationDetailDrawer({
             )}
             加入已有账号
           </button>
-          <button className="row-button" type="button" disabled={!canCreate} onClick={() => onCreateInvitation(organization.id)}>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!canCreate}
+            onClick={() => onCreateInvitation(organization.id)}
+          >
             <MailPlus size={14} />
             创建邀请
           </button>
-          <button className="row-button" type="button" disabled={!canManage} onClick={() => onManageInvitations(organization)}>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!canManage}
+            onClick={() => onManageInvitations(organization)}
+          >
             <MailPlus size={14} />
             邀请管理
           </button>
-          <button className="row-button" type="button" disabled={!canTransfer || organization.activeOrganizationAdminCount < 1} onClick={() => onTransferOrganizationAdmin(organization)}>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!canTransfer || organization.activeOrganizationAdminCount < 1}
+            onClick={() => onTransferOrganizationAdmin(organization)}
+          >
             <ShieldCheck size={14} />
             更换负责人
           </button>
-          <button className="row-button danger" type="button" disabled={!canDisableTarget} onClick={() => onDisable(organization)}>
+          <button
+            className="row-button danger"
+            type="button"
+            disabled={!canDisableTarget}
+            onClick={() => onDisable(organization)}
+          >
             <Power size={14} />
             禁用组织
           </button>
@@ -3870,7 +3914,14 @@ function OrganizationDetailDrawer({
             )}
             退出组织
           </button>
-          <button className="primary-button" type="button" onClick={() => { onOpenAlertPage(); onClose() }}>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => {
+              onOpenAlertPage()
+              onClose()
+            }}
+          >
             <AlertTriangle size={14} />
             查看对账告警
           </button>
@@ -3889,7 +3940,11 @@ function OrganizationDetailDrawer({
               {memberRows.map((membership) => (
                 <tr key={membership.id}>
                   <td>
-                    <IdentityCell name={membership.name} detail={membership.email ?? membership.userId} compact />
+                    <IdentityCell
+                      name={membership.name}
+                      detail={membership.email ?? membership.userId}
+                      compact
+                    />
                   </td>
                   <td>
                     <RolePills roles={membership.roles} />
@@ -3920,7 +3975,9 @@ function OrganizationDetailDrawer({
                     <IdentityCell name={account.name} detail={account.email ?? account.userId} compact />
                   </td>
                   <td>{planName(account.plan)}</td>
-                  <td className={account.credits >= 0 ? 'amount positive' : 'amount negative'}>{account.credits}</td>
+                  <td className={account.credits >= 0 ? 'amount positive' : 'amount negative'}>
+                    {account.credits}
+                  </td>
                 </tr>
               ))}
               <EmptyRow visible={!billingRows.length} columns={3} />
@@ -4015,7 +4072,9 @@ function OrganizationDetailDrawer({
               <article key={entry.id} className="drawer-activity">
                 <div>
                   <strong>{entry.action}</strong>
-                  <small>{entry.resourceType} · {shortId(entry.resourceId)}</small>
+                  <small>
+                    {entry.resourceType} · {shortId(entry.resourceId)}
+                  </small>
                 </div>
                 <span>{formatDate(entry.createdAt)}</span>
               </article>
@@ -4404,10 +4463,7 @@ function SessionRiskView({
                         className="row-button danger"
                         type="button"
                         disabled={
-                          !canManage ||
-                          session.current ||
-                          session.status !== 'active' ||
-                          revokeSessionBusy
+                          !canManage || session.current || session.status !== 'active' || revokeSessionBusy
                         }
                         onClick={() => onRevoke(session)}
                       >
@@ -4553,7 +4609,9 @@ function AuditLogDetailDrawer({
     return {
       ...reference,
       title: organization?.name ?? reference.id,
-      detail: organization ? organizationTypeName(classifyOrganization(organization).type) : '当前快照未加载，点击后搜索',
+      detail: organization
+        ? organizationTypeName(classifyOrganization(organization).type)
+        : '当前快照未加载，点击后搜索',
       actionLabel: organization ? '打开' : '搜索',
       onOpen: () => onOpenOrganization(reference.id),
     }
@@ -4638,7 +4696,11 @@ function AuditLogDetailDrawer({
           <div className="audit-reference-grid">
             <AuditReferenceGroup title="用户" items={userItems} emptyLabel="没有关联用户。" />
             <AuditReferenceGroup title="组织" items={organizationItems} emptyLabel="没有关联组织。" />
-            <AuditReferenceGroup title="Membership" items={membershipItems} emptyLabel="没有关联 membership。" />
+            <AuditReferenceGroup
+              title="Membership"
+              items={membershipItems}
+              emptyLabel="没有关联 membership。"
+            />
             <AuditReferenceGroup title="Session" items={sessionItems} emptyLabel="没有关联 session。" />
             <AuditReferenceGroup title="账单记录" items={billingItems} emptyLabel="没有关联账单记录。" />
           </div>
@@ -4862,9 +4924,9 @@ function CreateOrganizationUserModal({
       ...form,
       role,
       organizationId: roleRequiresOrganization(role)
-        ? nextOrganizations.find((organization) => organization.id === form.organizationId)?.id ??
+        ? (nextOrganizations.find((organization) => organization.id === form.organizationId)?.id ??
           nextOrganizations[0]?.id ??
-          ''
+          '')
         : '',
     })
   }
@@ -4906,11 +4968,7 @@ function CreateOrganizationUserModal({
         </label>
         <label>
           <span>身份</span>
-          <select
-            value={form.role}
-            onChange={(event) => selectRole(event.target.value)}
-            required
-          >
+          <select value={form.role} onChange={(event) => selectRole(event.target.value)} required>
             {roleOptions.map((role) => (
               <option key={role} value={role}>
                 {roleName(role)}
@@ -4961,10 +5019,7 @@ function AddExistingMemberModal({
   const roles = roleOptions.length
     ? roleOptions
     : addExistingOrganizationMemberRoleOptions(session, selectedOrganization)
-  const valid =
-    Boolean(selectedOrganization) &&
-    form.email.trim().includes('@') &&
-    roles.includes(form.role)
+  const valid = Boolean(selectedOrganization) && form.email.trim().includes('@') && roles.includes(form.role)
 
   const selectOrganization = (organizationId) => {
     const organization = organizationOptions.find((item) => item.id === organizationId)
@@ -5019,7 +5074,9 @@ function AddExistingMemberModal({
             ))}
           </select>
         </label>
-        <p className="modal-hint">该账号必须已经存在且未被禁用；加入组织不会重置密码或切换当前后台 session。</p>
+        <p className="modal-hint">
+          该账号必须已经存在且未被禁用；加入组织不会重置密码或切换当前后台 session。
+        </p>
         <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="加入组织" />
       </form>
     </Modal>
@@ -5065,9 +5122,9 @@ function CreateInvitationModal({
       ...form,
       role,
       organizationId: roleRequiresOrganization(role)
-        ? nextOrganizations.find((organization) => organization.id === form.organizationId)?.id ??
+        ? (nextOrganizations.find((organization) => organization.id === form.organizationId)?.id ??
           nextOrganizations[0]?.id ??
-          ''
+          '')
         : '',
     })
   }
@@ -5087,11 +5144,7 @@ function CreateInvitationModal({
         </label>
         <label>
           <span>注册后身份</span>
-          <select
-            value={form.role}
-            onChange={(event) => selectRole(event.target.value)}
-            required
-          >
+          <select value={form.role} onChange={(event) => selectRole(event.target.value)} required>
             {roleOptions.map((role) => (
               <option key={role} value={role}>
                 {roleName(role)}
@@ -5427,7 +5480,9 @@ function ReconciliationAlertActionModal({
         </dl>
         <div className="alert-action-summary">
           <strong>{alert.alertType}</strong>
-          <span>{alert.provider} · {shortId(alert.providerEventId)}</span>
+          <span>
+            {alert.provider} · {shortId(alert.providerEventId)}
+          </span>
           <p>{alert.message}</p>
         </div>
         <label>
@@ -5833,12 +5888,15 @@ function auditRelatedReferences(entry) {
   addAuditReference(references.organizations, '组织', entry.organizationId ?? entry.tenantId)
 
   if (entry.resourceType === 'user') addAuditReference(references.users, '资源用户', entry.resourceId)
-  if (entry.resourceType === 'tenant') addAuditReference(references.organizations, '资源组织', entry.resourceId)
+  if (entry.resourceType === 'tenant')
+    addAuditReference(references.organizations, '资源组织', entry.resourceId)
   if (entry.resourceType === 'tenant_membership' || entry.resourceType === 'membership') {
     addAuditReference(references.memberships, '资源 membership', entry.resourceId)
   }
-  if (entry.resourceType === 'session') addAuditReference(references.sessions, '资源 session', entry.resourceId)
-  if (entry.resourceType === 'billing_account') addAuditReference(references.billingAccounts, '资源账单账户', entry.resourceId)
+  if (entry.resourceType === 'session')
+    addAuditReference(references.sessions, '资源 session', entry.resourceId)
+  if (entry.resourceType === 'billing_account')
+    addAuditReference(references.billingAccounts, '资源账单账户', entry.resourceId)
   if (entry.resourceType === 'billing_ledger_entry') {
     addAuditReference(references.ledgerEntries, '资源账单流水', entry.resourceId)
   }
@@ -5938,7 +5996,9 @@ function auditBillingReferenceItems({
     items.push({
       ...reference,
       title: entry ? `${ledgerTypeName(entry.type)} ${formatSignedAmount(entry.amount)}` : reference.id,
-      detail: entry ? `${entry.description ?? entry.referenceId} · ${formatDate(entry.createdAt)}` : '当前快照未加载，点击后搜索',
+      detail: entry
+        ? `${entry.description ?? entry.referenceId} · ${formatDate(entry.createdAt)}`
+        : '当前快照未加载，点击后搜索',
       actionLabel: entry ? '打开' : '搜索',
       onOpen: () => onOpenBilling(reference.id),
     })
@@ -5961,11 +6021,15 @@ function auditBillingReferenceItems({
   }
 
   for (const reference of references.reconciliationAlerts) {
-    const alert = alerts.find((candidate) => candidate.id === reference.id || candidate.providerEventId === reference.id)
+    const alert = alerts.find(
+      (candidate) => candidate.id === reference.id || candidate.providerEventId === reference.id,
+    )
     items.push({
       ...reference,
       title: alert ? alert.alertType : reference.id,
-      detail: alert ? `${reconciliationAlertStatusName(alert.status)} · ${alert.message}` : '当前快照未加载，点击后搜索',
+      detail: alert
+        ? `${reconciliationAlertStatusName(alert.status)} · ${alert.message}`
+        : '当前快照未加载，点击后搜索',
       actionLabel: alert ? '打开' : '搜索',
       onOpen: () => onOpenBilling(reference.id),
     })

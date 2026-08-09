@@ -10,7 +10,12 @@ describe('usageCollector', () => {
   })
 
   it('tracks active API requests and rolling RPM by user', () => {
-    usageCollector.startApiRequest({ requestId: 'request-1', method: 'GET', route: '/api/v1/test', now: 1_000 })
+    usageCollector.startApiRequest({
+      requestId: 'request-1',
+      method: 'GET',
+      route: '/api/v1/test',
+      now: 1_000,
+    })
     usageCollector.bindApiRequestIdentity('request-1', {
       tenantId: 'tenant-1',
       organizationId: 'organization-1',

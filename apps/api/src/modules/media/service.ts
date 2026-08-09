@@ -57,7 +57,12 @@ export class MediaService {
   async read(id: string, principal: Principal, metadata?: SessionMetadata) {
     const media = await this.repository.find(id, principal)
     if (!media) {
-      await this.recordAccessFailure(id, principal, metadata, await this.repository.accessFailureContext(id, principal))
+      await this.recordAccessFailure(
+        id,
+        principal,
+        metadata,
+        await this.repository.accessFailureContext(id, principal),
+      )
     }
     if (!media) throw new AppError(404, 'MEDIA_NOT_FOUND', '媒体文件不存在或无权访问')
     try {

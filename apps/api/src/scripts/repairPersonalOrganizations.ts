@@ -6,9 +6,7 @@ import { systemTenantId } from './bootstrapAccounts.js'
 const config = loadConfig()
 
 if (!config.DATABASE_URL) {
-  throw new Error(
-    'DATABASE_URL is required for pnpm --filter @seqora/api db:repair-personal-organizations',
-  )
+  throw new Error('DATABASE_URL is required for pnpm --filter @seqora/api db:repair-personal-organizations')
 }
 
 const dryRun = process.argv.includes('--dry-run')

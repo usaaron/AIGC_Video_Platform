@@ -230,7 +230,11 @@ export class GenerationTaskRepository {
   }
 
   async storyboardVideoContext(input: CreateGenerationTask, principal: Principal) {
-    if (input.kind !== 'video' || input.provider !== 'seedance' || typeof input.metadata?.shotId !== 'string') {
+    if (
+      input.kind !== 'video' ||
+      input.provider !== 'seedance' ||
+      typeof input.metadata?.shotId !== 'string'
+    ) {
       return null
     }
     if (this.database) {

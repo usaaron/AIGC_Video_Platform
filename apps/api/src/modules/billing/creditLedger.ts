@@ -197,12 +197,11 @@ export class StoreCreditLedger implements CreditLedger {
         amount: -credits,
         description,
         createdByUserId: principal.userId,
-        audit: billingAudit(
-          'billing.credits.reserved',
-          principal.userId,
-          metadata,
-          { referenceId, description, credits },
-        ),
+        audit: billingAudit('billing.credits.reserved', principal.userId, metadata, {
+          referenceId,
+          description,
+          credits,
+        }),
       })
       if (!recorded) return false
       return true
@@ -281,12 +280,12 @@ export class StoreCreditLedger implements CreditLedger {
         amount: Math.abs(debit.amount),
         description,
         createdByUserId: principal.userId,
-        audit: billingAudit(
-          'billing.credits.refunded',
-          principal.userId,
-          metadata,
-          { referenceId, originalEntryId: debit.id, refundEntryId: refundId, description },
-        ),
+        audit: billingAudit('billing.credits.refunded', principal.userId, metadata, {
+          referenceId,
+          originalEntryId: debit.id,
+          refundEntryId: refundId,
+          description,
+        }),
       })
       if (!recorded) return
       observabilityMetrics.recordRefund({ tenantId: principal.tenantId, amount: Math.abs(debit.amount) })
@@ -427,12 +426,11 @@ export class StoreCreditLedger implements CreditLedger {
         amount,
         description: reason,
         createdByUserId: principal.userId,
-        audit: billingAudit(
-          'billing.credits.granted',
-          principal.userId,
-          metadata,
-          { referenceId: entryId, amount, reason },
-        ),
+        audit: billingAudit('billing.credits.granted', principal.userId, metadata, {
+          referenceId: entryId,
+          amount,
+          reason,
+        }),
       })
       return this.billingSummary(principal)
     }
@@ -504,12 +502,12 @@ export class StoreCreditLedger implements CreditLedger {
         amount,
         description: reason,
         createdByUserId: principal.userId,
-        audit: billingAudit(
-          'billing.credits.adjusted',
-          principal.userId,
-          metadata,
-          { targetMembershipId, referenceId: entryId, amount, reason },
-        ),
+        audit: billingAudit('billing.credits.adjusted', principal.userId, metadata, {
+          targetMembershipId,
+          referenceId: entryId,
+          amount,
+          reason,
+        }),
       })
       if (!recorded) {
         throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
@@ -596,12 +594,11 @@ export class StoreCreditLedger implements CreditLedger {
         amount,
         description,
         createdByUserId: principal.userId,
-        audit: billingAudit(
-          'billing.credits.adjusted',
-          principal.userId,
-          metadata,
-          { referenceId, amount, description },
-        ),
+        audit: billingAudit('billing.credits.adjusted', principal.userId, metadata, {
+          referenceId,
+          amount,
+          description,
+        }),
       })
       return this.billingSummary(principal)
     }

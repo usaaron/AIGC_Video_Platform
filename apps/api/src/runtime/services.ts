@@ -177,13 +177,13 @@ export function createRuntimeServices(input: {
     emailVerificationUrl: config.AUTH_EMAIL_VERIFICATION_URL,
   })
   const accountManagementService = database
-      ? new AccountManagementService(
-          new AccountManagementRepository(database),
-          repositories.users,
-          store,
-          config.AUTH_SECRET,
-          config.WEB_ORIGIN,
-          mailer,
+    ? new AccountManagementService(
+        new AccountManagementRepository(database),
+        repositories.users,
+        store,
+        config.AUTH_SECRET,
+        config.WEB_ORIGIN,
+        mailer,
         config.AUTH_INVITATION_URL,
         (input, metadata) => authService.requestEmailVerification(input, metadata),
         config.NODE_ENV !== 'production',

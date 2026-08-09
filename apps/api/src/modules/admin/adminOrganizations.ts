@@ -238,9 +238,10 @@ export function registerAdminOrganizationsRoutes(app: FastifyInstance, context: 
     async (request, reply) => {
       const { tenantId } = parse(adminTenantParams, request.params)
       reply.header('Cache-Control', 'no-store')
-      return await requireAccountManagementService(
-        context.accountManagementService,
-      ).adminListInvitations(request.principal!, tenantId)
+      return await requireAccountManagementService(context.accountManagementService).adminListInvitations(
+        request.principal!,
+        tenantId,
+      )
     },
   )
 
@@ -254,11 +255,7 @@ export function registerAdminOrganizationsRoutes(app: FastifyInstance, context: 
       const { tenantId } = parse(adminTenantParams, request.params)
       const invitation = await requireAccountManagementService(
         context.accountManagementService,
-      ).adminCreateInvitation(
-        request.principal!,
-        tenantId,
-        parse(createTenantInvitationSchema, request.body),
-      )
+      ).adminCreateInvitation(request.principal!, tenantId, parse(createTenantInvitationSchema, request.body))
       reply.header('Cache-Control', 'no-store')
       return reply.code(201).send(invitation)
     },

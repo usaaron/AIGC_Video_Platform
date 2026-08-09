@@ -40,13 +40,19 @@ describe('authorization', () => {
 
   it('allows a broader permission to satisfy a scoped read', async () => {
     await expect(
-      requireAnyPermission(PERMISSIONS.BILLING_READ_SELF, PERMISSIONS.BILLING_READ_ALL)({
+      requireAnyPermission(
+        PERMISSIONS.BILLING_READ_SELF,
+        PERMISSIONS.BILLING_READ_ALL,
+      )({
         principal: account([ROLES.ADMIN]),
       } as never),
     ).resolves.toBeUndefined()
 
     await expect(
-      requireAnyPermission(PERMISSIONS.BILLING_READ_SELF, PERMISSIONS.BILLING_READ_ALL)({
+      requireAnyPermission(
+        PERMISSIONS.BILLING_READ_SELF,
+        PERMISSIONS.BILLING_READ_ALL,
+      )({
         principal: account([ROLES.MEMBER]),
       } as never),
     ).resolves.toBeUndefined()

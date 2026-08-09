@@ -120,10 +120,7 @@ export class AccountManagementRepository {
     })
   }
 
-  async createOrganizationForAdmin(input: {
-    name: string
-    createdByUserId: string
-  }): Promise<Workspace> {
+  async createOrganizationForAdmin(input: { name: string; createdByUserId: string }): Promise<Workspace> {
     const tenantId = `tenant-${randomUUID()}`
     const created = await this.database.query<WorkspaceRow>(
       `

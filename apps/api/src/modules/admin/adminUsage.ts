@@ -15,12 +15,7 @@ import { permissionsFor } from '../../core/auth/authorization.js'
 import { isPlatformAdmin } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
 import { usageCollector } from '../../core/observability/usage.js'
-import {
-  parse,
-  requireAdminRepository,
-  scopeAdminOptions,
-  type AdminRouteContext,
-} from './routeContext.js'
+import { parse, requireAdminRepository, scopeAdminOptions, type AdminRouteContext } from './routeContext.js'
 import type { AdminRepository } from './repository.js'
 
 const usageQuery = z.object({
@@ -88,34 +83,30 @@ export function registerAdminUsageRoutes(app: FastifyInstance, context: AdminRou
           ),
         }),
       ),
-      users: users.items.map((user) =>
-        {
-          const organizationId = organizationIdByUserId.get(user.id) ?? null
-          const metrics =
-            platformAdmin || organizationId
-              ? usageCollector.snapshot(
-                  {
-                    userId: user.id,
-                    ...(platformAdmin || !organizationId
-                      ? {}
-                      : { tenantId: organizationId, organizationId }),
-                  },
-                  nowMs,
-                  rangeSince,
-                )
-              : zeroUsageMetrics()
-          return summaryItem({
-            subjectType: 'user',
-            userId: user.id,
-            organizationId,
-            email: user.email,
-            name: user.name,
-            range: query.range,
-            generatedAt,
-            metrics,
-          })
-        },
-      ),
+      users: users.items.map((user) => {
+        const organizationId = organizationIdByUserId.get(user.id) ?? null
+        const metrics =
+          platformAdmin || organizationId
+            ? usageCollector.snapshot(
+                {
+                  userId: user.id,
+                  ...(platformAdmin || !organizationId ? {} : { tenantId: organizationId, organizationId }),
+                },
+                nowMs,
+                rangeSince,
+              )
+            : zeroUsageMetrics()
+        return summaryItem({
+          subjectType: 'user',
+          userId: user.id,
+          organizationId,
+          email: user.email,
+          name: user.name,
+          range: query.range,
+          generatedAt,
+          metrics,
+        })
+      }),
     } satisfies UsageSummary
   })
 }
@@ -176,10 +167,15 @@ async function readAllVisibleMemberships(
   )
 }
 
-async function readAllPages<T>(load: (limit: number, offset: number) => Promise<{
-  items: T[]
-  meta: { total: number }
-}>): Promise<T[]> {
+async function readAllPages<T>(
+  load: (
+    limit: number,
+    offset: number,
+  ) => Promise<{
+    items: T[]
+    meta: { total: number }
+  }>,
+): Promise<T[]> {
   const items: T[] = []
   let offset = 0
   while (true) {
@@ -254,11 +250,7 @@ function rangeStartMs(range: UsageRange, now: Date): number {
   if (range === 'month') {
     return Date.UTC(chinaNow.getUTCFullYear(), chinaNow.getUTCMonth(), 1) - chinaOffsetMs
   }
-  const startOfToday = Date.UTC(
-    chinaNow.getUTCFullYear(),
-    chinaNow.getUTCMonth(),
-    chinaNow.getUTCDate(),
-  )
+  const startOfToday = Date.UTC(chinaNow.getUTCFullYear(), chinaNow.getUTCMonth(), chinaNow.getUTCDate())
   if (range === 'week') {
     const day = chinaNow.getUTCDay()
     const daysSinceMonday = (day + 6) % 7

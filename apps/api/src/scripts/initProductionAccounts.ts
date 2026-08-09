@@ -1,10 +1,7 @@
 import 'dotenv/config'
 import { loadConfig } from '../config.js'
 import { AccountDatabase } from '../infra/postgres.js'
-import {
-  createBootstrapAccounts,
-  initializeBootstrapAccounts,
-} from './bootstrapAccounts.js'
+import { createBootstrapAccounts, initializeBootstrapAccounts } from './bootstrapAccounts.js'
 
 const productionBootstrapInputKeys = [
   'BOOTSTRAP_MEMBER_EMAIL',
