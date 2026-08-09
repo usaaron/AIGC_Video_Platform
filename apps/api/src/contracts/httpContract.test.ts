@@ -376,7 +376,7 @@ describe('api contract layer', { timeout: 30_000 }, () => {
       action: 'admin.session.revoked',
       resourceType: 'session',
       resourceId: parsedSession.sessionId,
-      actorUserId: 'user-admin',
+      actorUserId: 'user-super-admin',
       userAgent: chromeWindowsUserAgent,
     })
     expect(revokedAuditEntry.metadata).toMatchObject({ scope: 'admin_console' })
@@ -423,7 +423,7 @@ describe('api contract layer', { timeout: 30_000 }, () => {
     expect(passwordAuditEntry).toMatchObject({
       action: 'admin.password.temporary_set',
       resourceType: 'auth_identity',
-      actorUserId: 'user-admin',
+      actorUserId: 'user-super-admin',
       userAgent: chromeWindowsUserAgent,
     })
     expect(passwordAuditEntry.metadata).toMatchObject({
