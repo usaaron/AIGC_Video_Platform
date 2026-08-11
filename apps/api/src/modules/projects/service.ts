@@ -3095,7 +3095,8 @@ function providerJsonCandidates(raw: string): string[] {
     if (match[1]) candidates.push(match[1].trim())
   }
 
-  for (const source of [...candidates]) {
+  const initialCandidates = candidates.slice()
+  for (const source of initialCandidates) {
     for (let index = 0; index < source.length; index += 1) {
       if (source[index] !== '{' && source[index] !== '[') continue
       const balanced = balancedJsonSlice(source, index)
