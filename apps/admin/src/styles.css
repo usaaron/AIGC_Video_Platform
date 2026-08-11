@@ -1266,7 +1266,7 @@ p {
   width: 168px;
   min-height: 34px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 18px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 6px;
   padding: 0 8px;
@@ -1276,7 +1276,12 @@ p {
   color: #4d611b;
 }
 
+.role-editor.loading {
+  grid-template-columns: minmax(0, 1fr) 18px;
+}
+
 .role-editor select {
+  width: 100%;
   min-width: 0;
   border: 0;
   outline: 0;

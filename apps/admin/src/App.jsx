@@ -6948,7 +6948,7 @@ function RoleEditor({ membership, session, busy, onUpdateRole }) {
   if (!editable || visibleOptions.length < 2) return <RolePills roles={membership.roles} />
 
   return (
-    <label className="role-editor">
+    <label className={busy ? 'role-editor loading' : 'role-editor'}>
       <select
         value={currentRole}
         disabled={busy}
@@ -6960,7 +6960,7 @@ function RoleEditor({ membership, session, busy, onUpdateRole }) {
           </option>
         ))}
       </select>
-      {busy ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
+      {busy && <LoaderCircle size={14} className="spin" />}
     </label>
   )
 }
