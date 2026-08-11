@@ -78,7 +78,7 @@ export const scriptCreativeDirectionSchema = z.object({
 export const scriptGenerationSegmentSchema = z.object({
   goal: z.string().trim().max(500).default(''),
   targetMinutes: z.number().int().min(1).max(15).default(5),
-  targetSeconds: z.number().int().min(15).max(900).optional(),
+  targetSeconds: z.number().int().min(5).max(900).optional(),
 })
 
 export const generateScriptRequestSchema = z.object({
@@ -89,7 +89,7 @@ export const generateScriptRequestSchema = z.object({
   segment: scriptGenerationSegmentSchema.default({ goal: '', targetMinutes: 5 }),
   productionMode: scriptProductionModeSchema.default('short-video'),
   episodeMinutes: z.number().int().min(1).max(5).default(1),
-  episodeDurationSeconds: z.number().int().min(30).max(300).default(60),
+  episodeDurationSeconds: z.number().int().min(5).max(300).default(60),
   model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
   revisionNote: z.string().trim().max(2_000).default(''),
 })
@@ -100,7 +100,7 @@ export const enrichScriptRequestSchema = z.object({
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
   productionMode: scriptProductionModeSchema.default('short-video'),
   episodeMinutes: z.number().int().min(1).max(5).default(1),
-  episodeDurationSeconds: z.number().int().min(30).max(300).default(60),
+  episodeDurationSeconds: z.number().int().min(5).max(300).default(60),
   model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
   revisionNote: z.string().trim().max(2_000).default(''),
 })
@@ -143,11 +143,11 @@ export const scriptReviewResultSchema = scriptReviewContentSchema.extend({
 export const generateShotsRequestSchema = z.object({
   maxShots: z.number().int().min(3).max(120).default(8),
   mode: z.enum(['scene', 'beat']).default('scene'),
-  episodeDurationSeconds: z.number().int().min(30).max(300).default(60),
+  episodeDurationSeconds: z.number().int().min(5).max(300).default(60),
 })
 
 export const autoSplitShotsRequestSchema = z.object({
-  episodeDurationSeconds: z.number().int().min(30).max(300).default(60),
+  episodeDurationSeconds: z.number().int().min(5).max(300).default(60),
 })
 
 export const mediaReferenceSchema = z.object({
@@ -360,7 +360,7 @@ export const projectSchema = z.object({
   // Visual direction is a project rule. Asset-level values are retained only
   // for legacy compatibility and are normalized to this value by the API.
   visualStyle: visualStyleSchema.optional(),
-  episodeDurationSeconds: z.number().int().min(30).max(300).optional(),
+  episodeDurationSeconds: z.number().int().min(5).max(300).optional(),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']),
   status: projectStatusSchema,
   synopsis: z.string().max(1_000),
@@ -376,7 +376,7 @@ export const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(120),
   contentType: z.enum(['short-drama', 'advertisement', 'animation']).default('short-drama'),
   visualStyle: visualStyleSchema.default('cinematic-cg'),
-  episodeDurationSeconds: z.number().int().min(30).max(300).default(60),
+  episodeDurationSeconds: z.number().int().min(5).max(300).default(60),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']).default('9:16'),
 })
 
@@ -385,7 +385,7 @@ export const updateProjectSchema = z
     name: z.string().trim().min(1).max(120).optional(),
     status: projectStatusSchema.optional(),
     visualStyle: visualStyleSchema.optional(),
-    episodeDurationSeconds: z.number().int().min(30).max(300).optional(),
+    episodeDurationSeconds: z.number().int().min(5).max(300).optional(),
     synopsis: z.string().max(1_000).optional(),
     script: z.string().max(100_000).optional(),
   })

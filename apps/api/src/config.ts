@@ -332,9 +332,12 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     Boolean(environment.DATA_FILE?.trim()) &&
     environment.TASK_QUEUE_DRIVER === 'inline' &&
     environment.DATABASE_URL === undefined
+  // Keep existing deployments working while operators migrate the legacy text key.
+  const rehdasuApiKey = environment.REHDASU_API_KEY?.trim() || environment.TEXT_API_KEY?.trim() || ''
 
   return configSchema.parse({
     ...environment,
+    REHDASU_API_KEY: rehdasuApiKey,
     TASK_QUEUE_DRIVER:
       environment.TASK_QUEUE_DRIVER ?? (environment.NODE_ENV === 'test' ? 'inline' : 'bullmq'),
     REDIS_URL:

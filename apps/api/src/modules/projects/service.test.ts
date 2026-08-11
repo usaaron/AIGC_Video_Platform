@@ -180,11 +180,11 @@ describe('ProjectService script billing', () => {
 
   it('keeps the original scene count when a short structured script is rewritten', async () => {
     const source = [
-      '场次：S01｜剧情：林砚推门进入大殿。｜场景：宗门大殿。｜角色：林砚。｜动作：动作1：林砚推门；动作2：林砚停步。｜对白：无台词。',
+      '场次：S01｜剧情：林砚推门进入大殿。｜场景：宗门大殿。｜角色：林砚。｜动作：动作1：林砚推门；动作2：林砚停步。｜对白：[内心独白]林砚：测试开始。',
       '场次：S02｜剧情：长老宣布测试开始。｜场景：宗门大殿。｜角色：林砚；长老。｜动作：动作1：长老抬手；动作2：林砚抬眼。｜对白：[对白]长老：开始。',
     ].join('\n')
     const candidate = [
-      '场次：S01｜剧情：林砚推门进入大殿。｜场景：宗门大殿。｜角色：林砚。｜动作：林砚推门后停步。｜对白：无台词。',
+      '场次：S01｜剧情：林砚推门进入大殿。｜场景：宗门大殿。｜角色：林砚。｜动作：林砚推门后停步。｜对白：[内心独白]林砚：测试开始。',
       '场次：S02｜剧情：长老宣布测试开始。｜场景：宗门大殿。｜角色：林砚；长老。｜动作：长老抬手，林砚抬眼。｜对白：[对白]长老：开始。',
       '场次：S03｜剧情：凭空新增的围观冲突。｜场景：宗门大殿。｜角色：围观弟子。｜动作：众人起哄。｜对白：无台词。',
     ].join('\n')
@@ -219,6 +219,60 @@ describe('ProjectService script billing', () => {
     expect(splitScriptParagraphs(result.script)).toHaveLength(2)
     expect(result.script).not.toContain('S03')
     expect(result.script).not.toContain('围观弟子')
+  })
+
+  it('repairs a web-series script when any scene is missing spoken dialogue', async () => {
+    const scene = (index: number, dialogue: string) =>
+      `场次：S0${index}｜剧情：林砚在测试中推进第${index}步。｜场景：宗门大殿。｜角色：林砚；长老。｜动作：动作1：林砚向前一步；动作2：长老抬眼回应。｜对白：${dialogue}｜风格：影视CG。｜构图：中景。｜光影：冷色顶光。｜运镜：稳定推进。｜衔接：两人位置和视线保持连续。`
+    const source = [
+      scene(1, '[内心独白]林砚：不能退。'),
+      scene(2, '[对白]长老：继续。'),
+      scene(3, '[对白]林砚：我来。'),
+      scene(4, '无台词；[音效]脚步声；[环境声]殿内回响。'),
+    ].join('\n')
+    const repaired = [
+      scene(1, '[内心独白]林砚：不能退；[音效]衣料摩擦；[环境声]殿内回响。'),
+      scene(2, '[对白]长老：继续；[音效]袖摆声；[环境声]殿内回响。'),
+      scene(3, '[对白]林砚：我来；[音效]脚步声；[环境声]殿内回响。'),
+      scene(4, '[画外音]测试进入最后一关；[音效]铜铃声；[环境声]殿内回响。'),
+    ].join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '宗门测试',
+          contentType: 'short-drama',
+          synopsis: '林砚参加测试。',
+          aspectRatio: '9:16',
+          script: source,
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = {
+      generate: vi.fn().mockResolvedValueOnce(source).mockResolvedValueOnce(repaired),
+    }
+    const service = new ProjectService(repository, textProvider)
+
+    const result = await service.generateScript(
+      'project-1',
+      source,
+      DEFAULT_SCRIPT_DIRECTION,
+      'quick',
+      { goal: '', targetMinutes: 1 },
+      'web-series',
+      1,
+      'repair-missing-web-series-dialogue',
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(textProvider.generate).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(textProvider.generate).mock.calls[1]?.[0].systemPrompt).toContain(
+      '对白导演和声音设计',
+    )
+    expect(result.script).not.toContain('无台词')
+    expect(result.script).toContain('[画外音]测试进入最后一关')
+    expect(repository.update).toHaveBeenCalledOnce()
   })
 
   it('repairs a web-series response that was incorrectly compressed into one scene', async () => {
@@ -265,6 +319,147 @@ describe('ProjectService script billing', () => {
 
     expect(splitScriptParagraphs(result.script)).toHaveLength(10)
     expect(textProvider.generate).toHaveBeenCalledTimes(2)
+    expect(repository.update).toHaveBeenCalledOnce()
+  })
+
+  it('uses the project content type to generate a timed advertising production script', async () => {
+    const generatedScript = Array.from(
+      { length: 4 },
+      (_, index) =>
+        `场次：A0${index + 1}｜剧情：${index * 7}-${Math.min(30, (index + 1) * 7)}秒，传播任务：展示序幕TV核心价值；核心信息：创作流程更清晰；屏幕文字：序幕TV。｜场景：明亮创作工作室。｜角色：创作者。｜动作：动作1：创作者打开工作台；动作2：画面展示制作结果。｜对白：[旁白]让好戏从序幕开始；[音效]界面提示音。｜风格：高级简洁。｜构图：产品界面居中。｜光影：均匀柔光。｜运镜：稳定推进。｜衔接：界面内容连续进入下一段。`,
+    ).join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '序幕TV宣传片',
+          contentType: 'advertisement',
+          synopsis: '大气简洁的品牌宣传片',
+          aspectRatio: '16:9',
+          script: '',
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = { generate: vi.fn(async () => generatedScript) }
+    const service = new ProjectService(repository, textProvider)
+
+    const result = await service.generateScript(
+      'project-1',
+      '序幕TV的广告宣传片，大气简洁',
+      DEFAULT_SCRIPT_DIRECTION,
+      'quick',
+      { goal: '', targetMinutes: 1 },
+      'short-video',
+      1,
+      'advertisement-script',
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      'seqora-5.6',
+      '',
+      'prepaid',
+      30,
+    )
+
+    const request = vi.mocked(textProvider.generate).mock.calls[0]?.[0]
+    expect(request?.systemPrompt).toContain('中文商业广告的创意总监')
+    expect(request?.systemPrompt).toContain('屏幕文字')
+    expect(request?.userPrompt).toContain('广告创作模式，目标成片 0 分 30 秒')
+    expect(request?.userPrompt).toContain('禁止原样复述')
+    expect(splitScriptParagraphs(result.script)).toHaveLength(4)
+    expect(result.script).not.toBe('序幕TV的广告宣传片，大气简洁')
+  })
+
+  it('uses a standalone narrative prompt for short-film projects', async () => {
+    const generatedScript = Array.from(
+      { length: 4 },
+      (_, index) =>
+        `场次：S0${index + 1}｜剧情：第${index + 1}段推进人物目标、阻力和结果。｜场景：雨夜末班车站。｜角色：林夏；站务员。｜动作：动作1：林夏寻找遗失的信；动作2：站务员给出新的线索。｜对白：[对白]林夏：我必须在末班车前找到它。｜风格：现实主义短片。｜构图：中景双人构图。｜光影：冷色站台灯。｜运镜：缓慢跟随。｜衔接：人物和信件位置连续。`,
+    ).join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '末班来信',
+          contentType: 'animation',
+          synopsis: '女孩在末班车前寻找一封信。',
+          aspectRatio: '16:9',
+          script: '',
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = { generate: vi.fn(async () => generatedScript) }
+    const service = new ProjectService(repository, textProvider)
+
+    await service.generateScript(
+      'project-1',
+      '女孩在末班车前寻找母亲留下的信',
+      DEFAULT_SCRIPT_DIRECTION,
+      'quick',
+      { goal: '', targetMinutes: 1 },
+      'short-video',
+      1,
+      'short-film-script',
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      'seqora-5.6',
+      '',
+      'prepaid',
+      30,
+    )
+
+    const request = vi.mocked(textProvider.generate).mock.calls[0]?.[0]
+    expect(request?.systemPrompt).toContain('中文叙事短片的编剧')
+    expect(request?.systemPrompt).toContain('完整起承转合')
+    expect(request?.userPrompt).toContain('短片创作模式，目标成片 0 分 30 秒')
+    expect(request?.userPrompt).toContain('完整独立短片')
+  })
+
+  it('retries instead of saving an advertising idea echoed by the provider', async () => {
+    const source = '序幕TV的广告宣传片，大气简洁'
+    const repairedScript = Array.from(
+      { length: 4 },
+      (_, index) =>
+        `场次：A0${index + 1}｜剧情：广告段落${index + 1}，时段与传播任务完整。｜场景：创作工作室。｜角色：创作者。｜动作：动作1：操作工作台；动作2：查看成片。｜对白：[旁白]序幕起，好戏生。｜风格：高级简洁。｜构图：界面居中。｜光影：柔和主光。｜运镜：稳定推进。｜衔接：产品界面连续。`,
+    ).join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '序幕TV宣传片',
+          contentType: 'advertisement',
+          synopsis: '',
+          aspectRatio: '16:9',
+          script: '',
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = {
+      generate: vi.fn().mockResolvedValueOnce(source).mockResolvedValueOnce(repairedScript),
+    }
+    const service = new ProjectService(repository, textProvider)
+
+    const result = await service.generateScript(
+      'project-1',
+      source,
+      DEFAULT_SCRIPT_DIRECTION,
+      'quick',
+      { goal: '', targetMinutes: 1 },
+      'short-video',
+      1,
+      'repair-advertisement-echo',
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      'seqora-5.6',
+      '',
+      'prepaid',
+      30,
+    )
+
+    expect(textProvider.generate).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(textProvider.generate).mock.calls[1]?.[0].userPrompt).toContain(
+      '可能只是复述用户输入，不可写回',
+    )
+    expect(result.script).toBe(repairedScript)
     expect(repository.update).toHaveBeenCalledOnce()
   })
 })

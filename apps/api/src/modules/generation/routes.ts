@@ -113,7 +113,9 @@ export async function registerGenerationRoutes(
       if ('redirectUrl' in content) {
         return reply.header('Cache-Control', 'private, max-age=300').redirect(content.redirectUrl, 307)
       }
-      reply.header('Cache-Control', 'private, no-store').type(content.contentType)
+      // Task IDs are immutable media versions; let the browser reuse the bytes while
+      // still keeping the response private to the signed-in user.
+      reply.header('Cache-Control', 'private, max-age=86400, immutable').type(content.contentType)
       if (content.contentLength) reply.header('Content-Length', content.contentLength)
       if (content.acceptRanges) reply.header('Accept-Ranges', content.acceptRanges)
       if (content.contentRange) reply.header('Content-Range', content.contentRange)

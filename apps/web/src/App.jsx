@@ -648,7 +648,11 @@ function App() {
           onUpdateEpisodeDuration={async (episodeDurationSeconds) => {
             await api.updateProject(project.id, { episodeDurationSeconds })
             await refreshWorkspace()
-            setToast(`已设置每集 ${episodeDurationSeconds} 秒，分镜会沿用该时长`)
+            setToast(
+              project.contentType === 'short-drama'
+                ? `已设置每集 ${episodeDurationSeconds} 秒，分镜会沿用该时长`
+                : `已设置目标成片 ${episodeDurationSeconds} 秒，脚本与分镜会沿用该时长`,
+            )
           }}
           onGenerate={async (
             draft,
@@ -660,7 +664,7 @@ function App() {
             setPhase,
           ) => {
             setPhase?.('submitting')
-            return createScriptJob(productionMode === 'web-series' ? '网剧剧本' : '快速剧本', 'generate', {
+            return createScriptJob(scriptGenerationTaskLabel(project.contentType), 'generate', {
               draft,
               direction,
               mode: 'quick',
@@ -682,21 +686,17 @@ function App() {
             setPhase,
           ) => {
             setPhase?.('submitting')
-            return createScriptJob(
-              productionMode === 'web-series' ? '续写下一集' : '续写下一段',
-              'generate',
-              {
-                draft,
-                direction,
-                mode: 'segment',
-                segment,
-                productionMode,
-                episodeDurationSeconds,
-                episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
-                model,
-                revisionNote,
-              },
-            )
+            return createScriptJob(scriptSegmentTaskLabel(project.contentType), 'generate', {
+              draft,
+              direction,
+              mode: 'segment',
+              segment,
+              productionMode,
+              episodeDurationSeconds,
+              episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
+              model,
+              revisionNote,
+            })
           }}
           onImportNovel={async (input) => {
             const result = await api.importNovel(project.id, input)
@@ -1299,6 +1299,18 @@ function ProjectMenu({ projects, currentId, onClose, onSelect, onCreate }) {
       </div>
     </div>
   )
+}
+
+function scriptGenerationTaskLabel(contentType) {
+  if (contentType === 'advertisement') return '广告脚本'
+  if (contentType === 'animation') return '短片剧本'
+  return '网剧剧本'
+}
+
+function scriptSegmentTaskLabel(contentType) {
+  if (contentType === 'advertisement') return '延长广告脚本'
+  if (contentType === 'animation') return '续写短片'
+  return '续写下一集'
 }
 
 function exportProject(workspace, tasks) {

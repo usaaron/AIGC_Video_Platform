@@ -186,8 +186,8 @@ export function StoryboardPage({
       }
       const archive = await zip.generateAsync({
         type: 'blob',
-        compression: 'DEFLATE',
-        compressionOptions: { level: 6 },
+        // MP4 is already compressed. Re-compressing it only burns CPU and delays the download.
+        compression: 'STORE',
       })
       downloadBlob(archive, `${safeFileName(project.name || '序幕TV项目')}-分镜视频.zip`)
       setOperationNotice(
@@ -617,7 +617,7 @@ function ShotRow({
               src={previewVideoUrl}
               controls
               playsInline
-              preload="metadata"
+              preload="none"
               aria-label={`${shot.title}成片预览`}
               onClick={(event) => event.stopPropagation()}
             />
@@ -814,7 +814,7 @@ function ShotHistoryColumn({ title, kind, versions, selectedTaskId, restoring, o
               <article className={`shot-version-card ${current ? 'current' : ''}`} key={task.id}>
                 <div className="shot-version-media">
                   {kind === 'video' ? (
-                    <video src={url || undefined} controls preload="metadata" />
+                    <video src={url || undefined} controls preload="none" />
                   ) : url ? (
                     <img src={url} alt={`${title}${current ? '当前版' : '上一版'}`} />
                   ) : (
@@ -895,20 +895,20 @@ function taskOutputUrl(task, kind) {
 }
 
 export async function addStoryboardVideosToArchive(zip, videos, fetchVideo = globalThis.fetch) {
-  const failures = []
-  let successCount = 0
-  for (const { shot, url } of videos) {
+  const results = await mapWithConcurrency(videos, 4, async ({ shot, url }) => {
     try {
-      const response = await fetchVideo(url, { credentials: 'include' })
+      const response = await fetchVideo(url, { credentials: 'include', cache: 'force-cache' })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const episode = `第${String(shot.episodeNumber || 1).padStart(2, '0')}集`
       const name = `${String(shot.order).padStart(2, '0')}-${safeFileName(shot.title || '未命名镜头')}.mp4`
       zip.folder(episode)?.file(name, await response.blob())
-      successCount += 1
+      return { ok: true, shot }
     } catch (error) {
-      failures.push({ shot, message: error instanceof Error ? error.message : String(error) })
+      return { ok: false, shot, message: error instanceof Error ? error.message : String(error) }
     }
-  }
+  })
+  const failures = results.filter((result) => !result.ok)
+  const successCount = results.length - failures.length
   if (failures.length) {
     zip.file(
       '_下载失败清单.txt',
@@ -922,6 +922,20 @@ export async function addStoryboardVideosToArchive(zip, videos, fetchVideo = glo
     )
   }
   return { successCount, failures }
+}
+
+async function mapWithConcurrency(items, concurrency, operation) {
+  const results = new Array(items.length)
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await operation(items[index], index)
+    }
+  })
+  await Promise.all(workers)
+  return results
 }
 
 function safeFileName(value) {

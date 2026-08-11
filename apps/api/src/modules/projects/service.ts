@@ -33,6 +33,7 @@ import type { ProjectRepository } from './repository.js'
 
 type ScriptBillingMode = 'direct' | 'prepaid'
 type ProjectVisualStyle = Exclude<ScriptCreativeDirection['style'], 'auto'>
+type ScriptContentMode = 'web-series' | 'advertisement' | 'short-film' | 'short-video'
 
 export class ProjectService {
   constructor(
@@ -181,21 +182,26 @@ export class ProjectService {
   ) {
     const workspace = await this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
+    const scriptMode = resolveScriptContentMode(workspace.project.contentType, productionMode)
     const source =
       draft.trim() ||
       workspace.project.synopsis.trim() ||
       `用户尚未提供完整剧本正文。请根据项目《${workspace.project.name}》和已有资产构思一个可制作的故事。`
     const sourceLength = contentLength(source)
-    const episodeSeconds = normalizeEpisodeDurationSeconds(episodeDurationSeconds, episodeMinutes * 60)
+    const episodeSeconds = normalizeScriptDurationSeconds(
+      episodeDurationSeconds,
+      episodeMinutes * 60,
+      scriptMode,
+    )
     const structuredSource = hasStructuredSceneRows(source)
     const sourceStructuredSceneCount = countStructuredScenes(source)
     const sourceHasStructuredScene = sourceStructuredSceneCount >= 2
     const shouldExpandFromIdea = sourceLength < SCRIPT_INITIAL_EXPANSION_THRESHOLD && !structuredSource
     const enforceWebSeriesSceneBudget =
-      productionMode === 'web-series' && mode !== 'segment' && !sourceHasStructuredScene
+      scriptMode === 'web-series' && mode !== 'segment' && !sourceHasStructuredScene
     const sceneBudget = webSeriesSceneBudget(episodeSeconds)
 
-    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${productionMode === 'web-series' ? `网剧模式，每集${formatDuration(episodeSeconds)}` : '短视频模式'}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}`
+    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${scriptModeContext(scriptMode, episodeSeconds)}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}`
     if (mode === 'quick' && sourceLength >= SINGLE_REWRITE_MAX_LENGTH) {
       const updated = await this.repository.update(projectId, { script: source }, principal)
       if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
@@ -205,41 +211,36 @@ export class ProjectService {
         warnings: ['检测到超过 1 万字的长篇内容，已保护原稿；请使用“生成下一段”按段续写或进入小说模块。'],
       }
     }
-    const generationInstruction = shouldExpandFromIdea
-      ? `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产，生成约 1800 到 2600 字的高信息密度制作剧本；如果原始内容是系统提示语，也要把它转化为具体剧情，不要原样复述。每个场次必须有明确角色、空间、动作拍点、对白类型、视觉执行和上下场衔接。${
-          enforceWebSeriesSceneBudget
-            ? `本集目标时长 ${formatDuration(episodeSeconds)}，必须输出 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 个场次，建议输出 ${sceneBudget.target} 个；每个场次单独占一行，不得把整集压成一场。`
-            : ''
-        }`
-      : `当前内容约 ${sourceLength} 字。请在保留核心剧情、人物关系、场景因果、关键物件和对白信息的前提下，按原有逻辑重写整理为制作级剧本；不要把内容压缩成提纲，不要任意删减重要情节。原稿已经按场次组织时，输出场次数量、场次编号和顺序必须与原稿完全一致，只能在原场次内部补齐制作信息，不得新增、拆分或合并场次。${
-          enforceWebSeriesSceneBudget
-            ? `本集目标时长 ${formatDuration(episodeSeconds)}，原稿尚未按场次组织，必须重新组织为 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 个场次，建议输出 ${sceneBudget.target} 个；每个场次单独占一行。`
-            : ''
-        }`
-    const generationSystemPrompt = shouldExpandFromIdea
-      ? productionMode === 'web-series'
-        ? WEB_SERIES_SCRIPT_SYSTEM_PROMPT
-        : QUICK_SCRIPT_SYSTEM_PROMPT
-      : productionMode === 'web-series'
-        ? WEB_SERIES_REWRITE_SYSTEM_PROMPT
-        : SCRIPT_REWRITE_SYSTEM_PROMPT
+    const generationInstruction = scriptGenerationInstruction({
+      scriptMode,
+      sourceLength,
+      shouldExpandFromIdea,
+      episodeSeconds,
+      sourceHasStructuredScene,
+      sceneBudget,
+    })
+    const generationSystemPrompt = scriptGenerationSystemPrompt(scriptMode, shouldExpandFromIdea)
     return this.runBillableScriptOperation(
       principal,
       `script-generate-${clientRequestId}`,
       SCRIPT_OPERATION_CREDITS.generate,
-      mode === 'segment' ? '生成长剧分段' : '快速生成剧本',
+      mode === 'segment'
+        ? scriptSegmentOperationLabel(scriptMode)
+        : scriptGenerationOperationLabel(scriptMode),
       async () => {
         if (mode === 'segment') {
           const segmentSeconds = segment.targetSeconds ?? segment.targetMinutes * 60
-          const segmentText = await ensureChineseScriptOutput(
+          let segmentText = await ensureChineseScriptOutput(
             this.textProvider!,
             await this.textProvider!.generate({
-              systemPrompt: withChineseScriptRules(
-                productionMode === 'web-series'
-                  ? WEB_SERIES_SEGMENT_SYSTEM_PROMPT
-                  : SCRIPT_SEGMENT_SYSTEM_PROMPT,
+              systemPrompt: withChineseScriptRules(scriptSegmentSystemPrompt(scriptMode)),
+              userPrompt: scriptSegmentUserPrompt(
+                scriptMode,
+                projectContext,
+                source,
+                segment.goal,
+                segmentSeconds,
               ),
-              userPrompt: `${projectContext}\n\n已有剧本或故事上下文：\n${scriptSegmentContext(source)}\n\n本段目标：${segment.goal || '顺着现有剧情自然推进下一段'}\n本段预计时长：${formatDuration(segmentSeconds)}\n\n请只生成下一段剧本正文，不要重写已有内容。`,
               maxOutputTokens: segmentMaxOutputTokens(segmentSeconds),
               model,
               usageContext: usageContextForPrincipal(principal),
@@ -247,6 +248,17 @@ export class ProjectService {
             model,
           )
           if (!segmentText) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', '分段剧本为空')
+          if (scriptMode === 'web-series' && !hasSufficientWebSeriesDialogue(segmentText)) {
+            segmentText = await repairWebSeriesDialogue(
+              this.textProvider!,
+              projectContext,
+              segmentText,
+              model,
+              segmentMaxOutputTokens(segmentSeconds),
+              principal,
+            )
+          }
+          assertWebSeriesDialogueCoverage(segmentText, scriptMode)
           const script = appendScriptSegment(draft.trim() || workspace.project.script.trim(), segmentText)
           const updated = await this.repository.update(projectId, { script }, principal)
           if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
@@ -261,16 +273,13 @@ export class ProjectService {
           this.textProvider!,
           await this.textProvider!.generate({
             systemPrompt: withChineseScriptRules(generationSystemPrompt),
-            userPrompt:
-              productionMode === 'web-series'
-                ? `${projectContext}\n\n${generationInstruction}\n请把以下素材改编成一集可制作的网剧剧本：\n${source}`
-                : `${projectContext}\n\n${generationInstruction}\n请把以下素材改编成可直接进入分镜的快速剧本：\n${source}`,
-            maxOutputTokens:
-              productionMode === 'web-series'
-                ? webSeriesMaxOutputTokens(episodeSeconds)
-                : shouldExpandFromIdea
-                  ? INITIAL_SCRIPT_MAX_TOKENS
-                  : longScriptMaxOutputTokens(source),
+            userPrompt: scriptGenerationUserPrompt(scriptMode, projectContext, generationInstruction, source),
+            maxOutputTokens: scriptGenerationMaxOutputTokens(
+              scriptMode,
+              episodeSeconds,
+              shouldExpandFromIdea,
+              source,
+            ),
             model,
             usageContext: usageContextForPrincipal(principal),
           }),
@@ -289,7 +298,42 @@ export class ProjectService {
           })
           candidate = await ensureChineseScriptOutput(this.textProvider!, repaired, model)
         }
+        const contentSceneBudget = scriptContentSceneBudget(scriptMode, episodeSeconds)
+        const shouldRepairContentStructure =
+          shouldExpandFromIdea &&
+          scriptMode !== 'web-series' &&
+          scriptMode !== 'short-video' &&
+          countStructuredScenes(candidate) < contentSceneBudget.minimum
+        if (shouldRepairContentStructure) {
+          const repaired = await this.textProvider!.generate({
+            systemPrompt: withChineseScriptRules(scriptGenerationSystemPrompt(scriptMode, true)),
+            userPrompt: scriptStructureRepairPrompt(
+              scriptMode,
+              projectContext,
+              source,
+              candidate,
+              episodeSeconds,
+              contentSceneBudget,
+            ),
+            maxOutputTokens: scriptGenerationMaxOutputTokens(scriptMode, episodeSeconds, true, source),
+            model,
+            usageContext: usageContextForPrincipal(principal),
+          })
+          candidate = await ensureChineseScriptOutput(this.textProvider!, repaired, model)
+        }
+        if (scriptMode === 'web-series' && !hasSufficientWebSeriesDialogue(candidate)) {
+          const repaired = await repairWebSeriesDialogue(
+            this.textProvider!,
+            projectContext,
+            candidate,
+            model,
+            webSeriesMaxOutputTokens(episodeSeconds),
+            principal,
+          )
+          candidate = structuredSource ? alignEnrichedSceneRows(source, repaired) : repaired
+        }
         assertRequestedSceneCount(source, candidate)
+        assertWebSeriesDialogueCoverage(candidate, scriptMode)
         if (enforceWebSeriesSceneBudget && countStructuredScenes(candidate) < sceneBudget.minimum) {
           throw new AppError(
             502,
@@ -297,8 +341,20 @@ export class ProjectService {
             `文本服务返回不完整：本集至少需要 ${sceneBudget.minimum} 个场次，实际只返回 ${countStructuredScenes(candidate)} 个；原剧本未被覆盖，请重试或切换模型`,
           )
         }
+        if (
+          shouldExpandFromIdea &&
+          scriptMode !== 'web-series' &&
+          scriptMode !== 'short-video' &&
+          countStructuredScenes(candidate) < contentSceneBudget.minimum
+        ) {
+          throw new AppError(
+            502,
+            'PROVIDER_RESPONSE_TRUNCATED',
+            `${scriptModeDisplayName(scriptMode)}生成结果不完整：目标 ${formatDuration(episodeSeconds)} 至少需要 ${contentSceneBudget.minimum} 个可识别段落，模型只返回 ${countStructuredScenes(candidate)} 个；原内容未被覆盖，请重试或切换模型`,
+          )
+        }
         const script = candidate
-        const warnings = quickScriptIssues(script, productionMode)
+        const warnings = quickScriptIssues(script, scriptMode, episodeSeconds)
         const updated = await this.repository.update(projectId, { script }, principal)
         if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
         return { script: updated.script, mode: 'quick' as const, warnings }
@@ -322,24 +378,28 @@ export class ProjectService {
   ) {
     const workspace = await this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
+    const scriptMode = resolveScriptContentMode(workspace.project.contentType, productionMode)
     const source = script.trim() || workspace.project.script.trim()
-    if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先生成或填写快速剧本')
-    const episodeSeconds = normalizeEpisodeDurationSeconds(episodeDurationSeconds, episodeMinutes * 60)
+    if (!source)
+      throw new AppError(400, 'SCRIPT_REQUIRED', `请先生成或填写${scriptModeDisplayName(scriptMode)}`)
+    const episodeSeconds = normalizeScriptDurationSeconds(
+      episodeDurationSeconds,
+      episodeMinutes * 60,
+      scriptMode,
+    )
 
-    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${productionMode === 'web-series' ? `网剧模式，每集${formatDuration(episodeSeconds)}` : '短视频模式'}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}`
+    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${scriptModeContext(scriptMode, episodeSeconds)}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}`
     return this.runBillableScriptOperation(
       principal,
       `script-enrich-${clientRequestId}`,
       SCRIPT_OPERATION_CREDITS.enrich,
-      '补齐剧本专业视觉细节',
+      scriptDetailOperationLabel(scriptMode),
       async () => {
         const candidate = await ensureChineseScriptOutput(
           this.textProvider!,
           await this.textProvider!.generate({
-            systemPrompt: withChineseScriptRules(
-              productionMode === 'web-series' ? WEB_SERIES_DETAIL_SYSTEM_PROMPT : SCRIPT_DETAIL_SYSTEM_PROMPT,
-            ),
-            userPrompt: `${projectContext}\n\n请在保留原有场景数量、剧情因果、人物关系和对白的前提下，补齐以下剧本的制作字段与镜头衔接；本次改写要求必须优先执行：\n${source}`,
+            systemPrompt: withChineseScriptRules(scriptDetailSystemPrompt(scriptMode)),
+            userPrompt: scriptDetailUserPrompt(scriptMode, projectContext, source),
             maxOutputTokens: isProtectedLongScript(source)
               ? longScriptMaxOutputTokens(source)
               : SCRIPT_DETAIL_MAX_TOKENS,
@@ -349,12 +409,24 @@ export class ProjectService {
           model,
         )
         const candidateWithBreaks = preserveScriptBreakMarkers(source, candidate)
-        const sceneAlignedCandidate = alignEnrichedSceneRows(source, candidateWithBreaks)
+        let sceneAlignedCandidate = alignEnrichedSceneRows(source, candidateWithBreaks)
+        if (scriptMode === 'web-series' && !hasSufficientWebSeriesDialogue(sceneAlignedCandidate)) {
+          const repaired = await repairWebSeriesDialogue(
+            this.textProvider!,
+            projectContext,
+            sceneAlignedCandidate,
+            model,
+            isProtectedLongScript(source) ? longScriptMaxOutputTokens(source) : SCRIPT_DETAIL_MAX_TOKENS,
+            principal,
+          )
+          sceneAlignedCandidate = alignEnrichedSceneRows(source, repaired)
+        }
+        assertWebSeriesDialogueCoverage(sceneAlignedCandidate, scriptMode)
         const preserved = isProtectedLongScript(source) && candidateIsTooShort(source, sceneAlignedCandidate)
         const enriched = preserved ? source : sceneAlignedCandidate
         const warnings = preserved
           ? ['检测到长篇原稿，AI 输出过短，系统已自动保留原稿，避免剧情被压缩。']
-          : detailedScriptIssues(enriched, productionMode)
+          : detailedScriptIssues(enriched, scriptMode, episodeSeconds)
         const updated = await this.repository.update(projectId, { script: enriched }, principal)
         if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
         return { script: updated.script, mode: 'detailed' as const, warnings }
@@ -613,6 +685,16 @@ const SCENE_PRODUCTION_RULES = `每个场次是一条可以直接交给分镜师
 - 不要凭空添加原稿没有的主要角色、关键道具或新空间规则；保持服装、位置、视线、光线和关键物件连续。
 - 每一行都必须同时包含场次、剧情、目标、阻力、变化、场景、角色、入场状态、动作、对白、出场状态、风格、构图、光影、运镜、衔接，场次值使用 S01、S02 这样的稳定编号；每个场次尽量保持 320 到 560 个中文字符的信息密度，不能为了凑字数重复形容词。`
 
+const ADVERTISEMENT_PRODUCTION_RULES = `每个广告段落是一条可直接交给分镜师和视频模型的制作记录，不要只写口号或抽象氛围。
+- 每段必须写清“本段传播任务→观众看到的主体与动作→获得的核心信息→段尾画面结果”，屏幕文字必须给出确切内容与出现时机。
+- 场景字段写清地点、时间、空间布局、前中后景、主体陈设和主光源；产品字段信息应写入剧情与动作，名称、位置、朝向、材质和使用状态保持一致。
+- 人物不是必选项。纯产品、界面或场景广告应在角色字段明确写“无人物，主体为……”，禁止为了满足格式凭空增加模特；有人物时写清位置、朝向、表情、起始姿态和与产品的真实交互。
+- 动作拆成 2 到 3 个可见微节拍，写清主体起始状态、运动过程、局部细节变化与结束状态；禁止用多个形容词替代实际动作。
+- 对白字段按需要标记“[旁白]”“[对白]”“[音效]”“[音乐]”；无人声时可写“无旁白”，但必须给出现场音或设计音，不能返回空白。
+- 构图写景别、主体位置、文字安全区域、前中后景和画面重心；光影写光源方向、软硬、色温、产品高光与阴影；运镜写机位、运动方式、速度、跟随主体和结束画面。
+- 衔接字段必须写清产品状态、主体位置、运动方向、色彩、光线、声音或文字如何交给下一段，避免每段像互不相关的素材拼接。
+- 每一行必须包含场次、剧情、场景、角色、动作、对白、风格、构图、光影、运镜、衔接，场次使用 A01、A02 等稳定编号；信息具体紧凑，不要重复口号凑字数。`
+
 const QUICK_SCRIPT_SYSTEM_PROMPT = `你是中文漫剧的快速编剧。你的任务不是写长篇小说，而是把用户素材整理成 15 到 30 秒视频可以直接进入分镜的故事骨架。
 
 硬性规格：
@@ -639,6 +721,51 @@ const SCRIPT_REWRITE_SYSTEM_PROMPT = `你是中文漫剧的剧本整理编剧。
 6. ${SCENE_PRODUCTION_RULES}
 7. 只输出重写后的剧本正文，不要标题、解释、Markdown 或分析。`
 
+const ADVERTISEMENT_SCRIPT_SYSTEM_PROMPT = `你是中文商业广告的创意总监、文案和导演。请把用户的一句话想法、品牌资料或产品资料扩写成可以直接进入资产设计、分镜和视频生成的广告制作脚本，而不是故事梗概、品牌介绍或普通剧情短片。
+
+硬性规格：
+1. 严格围绕用户指定的目标时长编排传播节奏，每行一个连续广告段落、对应一个可生成视频镜头；每行都要写明该段承担的传播任务和明确起止时间，例如“0-3秒抓住注意”“3-8秒展示核心价值”。
+2. 使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：。场次使用 A01、A02 等编号；剧情字段必须包含“时段、传播任务、核心信息、屏幕文字”，对白字段使用“[旁白]”“[对白]”“[音效]”“[音乐]”标记。
+3. 开头 1 到 3 秒必须有可见的注意力抓点；品牌、产品、服务或核心对象应尽早出现，不能到结尾才首次展示。中段只证明一个核心价值，使用具体画面、动作、使用情境或前后变化，不要堆砌多个空泛卖点。
+4. 最后一段必须完成品牌/产品清晰落版、核心文案和行动引导；行动引导应符合素材，例如“立即体验”“了解更多”，不得擅自添加购买链接、价格、优惠、认证、性能数据、代言或用户未提供的承诺。
+5. 品牌名、产品名、标语和专有名词必须保持用户原文拼写；信息不足时使用真实可拍的体验表达，不得编造事实。广告语简短、可读、可配音，避免长篇解释。
+6. 每段画面都要能独立制作且与前后段连续：产品状态、角色位置、服装、光线、文字层级和运动方向不能跳变；人物只在传播需要时出现，不要为了“像剧情”虚构无关冲突。
+7. 广告不是网剧：不要生成分集钩子、受辱反击、悬念续集或完整人物成长线，除非用户素材明确要求剧情广告。
+8. ${ADVERTISEMENT_PRODUCTION_RULES}
+9. 只输出广告脚本正文，不要标题、创意阐释、Markdown、表格、JSON 或分析。`
+
+const ADVERTISEMENT_REWRITE_SYSTEM_PROMPT = `你是中文商业广告的创意总监和制作脚本统筹。请把已有广告想法、文案或脚本重写成可直接进入资产设计、分镜和视频生成的广告制作稿。
+
+硬性规格：
+1. 保留品牌名、产品名、已有事实、核心卖点、受众、语气、画面顺序、现有文案和行动引导，不得编造价格、优惠、认证、性能数据、代言或用户未提供的承诺。
+2. 原稿已按场次组织时，场次数量、编号和顺序必须完全一致，只在原段落内补齐；原稿未结构化时，按目标时长重组为连续广告段落。
+3. 每行使用：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：。剧情字段写明时段、传播任务、核心信息、屏幕文字；对白字段标记旁白、对白、音效和音乐。
+4. 开头快速抓住注意，中段用可见证据证明一个核心价值，结尾清晰落版并给出合适的行动引导；产品或品牌不能只在末尾突然出现。
+5. 删除重复口号和空泛形容词，但不能把广告压缩成一句品牌简介；每段必须有具体可见动作和画面结果。
+6. ${ADVERTISEMENT_PRODUCTION_RULES}
+7. 只输出重写后的广告脚本正文，不要解释、Markdown、表格、JSON 或分析。`
+
+const SHORT_FILM_SCRIPT_SYSTEM_PROMPT = `你是中文叙事短片的编剧、导演和剪辑统筹。请把用户的一句话想法或已有素材扩写成一个有完整起承转合、可以直接进入资产设计、分镜和视频生成的独立短片，不要写成广告、网剧单集、小说梗概或续集预告。
+
+硬性规格：
+1. 严格围绕用户指定的目标时长倒推场次数量，每行一个连续场次、对应一个可生成视频镜头；开场建立人物处境与目标，中段出现可见阻力和转折，结尾完成情节与情绪落点。
+2. 每行使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：。剧情字段要写明本场时段、叙事任务、目标、阻力、变化和结果。
+3. 动作、对白、画外音、内心独白、现场音和音乐只保留能推进人物目标或情绪变化的信息；不要用空镜、旁白总结或重复动作填时长。
+4. 每场都要交付新的信息、关系或状态变化，并清楚承接上一场的人物位置、视线、服装、物件和声音；转折必须由前文行动造成，不能突然新增人物、能力或规则。
+5. 结尾应完成独立短片的情节回收或情绪余韵，不强制制造“下一集”钩子，不得擅自加入品牌落版、广告语或行动引导。
+6. ${SCENE_PRODUCTION_RULES}
+7. 只输出短片剧本正文，不要标题、解释、Markdown、表格、JSON 或分析。`
+
+const SHORT_FILM_REWRITE_SYSTEM_PROMPT = `你是中文叙事短片的剧本编辑和分镜前置统筹。请在不改变原作核心表达的前提下，把已有故事或剧本整理成目标时长内可制作的完整独立短片。
+
+硬性规格：
+1. 保留人物关系、故事因果、地点、时间、关键物件、重要对白、转折和结局方向；不得压成提纲，也不要扩成网剧或广告。
+2. 原稿已按场次组织时，场次数量、编号和顺序必须完全一致，不得新增、拆分、合并或删除场次；只在原场次内部补齐制作信息。
+3. 每行使用：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；剧情写明时段、叙事任务、目标、阻力、变化和结果。
+4. 强化“建立处境→行动受阻→选择或转折→结果与情绪落点”的完整闭环；不要强行保留续集钩子，也不要加入品牌文案和行动引导。
+5. ${SCENE_PRODUCTION_RULES}
+6. 只输出重写后的短片剧本正文，不要解释、Markdown、表格、JSON 或分析。`
+
 const WEB_SERIES_SCRIPT_SYSTEM_PROMPT = `你是中文网剧漫剧的主编剧和短视频导演。请把用户素材写成一集可以直接进入分镜制作的网剧剧本，不要写成长篇小说或提纲。
 
 硬性规格：
@@ -648,7 +775,7 @@ const WEB_SERIES_SCRIPT_SYSTEM_PROMPT = `你是中文网剧漫剧的主编剧和
 4. 保持人物身份、服装、时间、地点、光线和关键物件连续；每场都写清场内角色与物件的相对位置，不要突然新增人物、道具或空间规则。
 5. 前段快速建立冲突，中段持续升级，后段制造明显波动；最后一行的场次值必须写“剧情钩子”，且不直接解决。
 6. 钩子可以是秘密即将揭示、主角受辱后即将反击、关键物件即将启动、敌人误判实力或即将进入反转/装逼时刻；必须停在动作或悬念接点。
-7. 对白短而有信息量，没有对白时写“无台词”，并写出人物反应。
+7. 对白必须真正可听见并推动本场冲突：每个场次必须写 1 句短对白、画外音或内心独白，使用“[对白]角色：内容”“[画外音]内容”“[内心独白]角色：内容”标记；禁止写“无台词”。每场另写至少一种[音效]和一种[音乐/环境声]，不能返回空白、静音或只写“人物反应”。
 8. ${SCENE_PRODUCTION_RULES}
 9. 只输出剧本正文，不要标题、解释、Markdown 或分析。`
 
@@ -659,9 +786,10 @@ const WEB_SERIES_REWRITE_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧�
 2. 场景数量、编号和顺序必须与原稿完全一致，不得新增、拆分、合并或删除场次；每个原场次单独占一行并对应一个 4 到 15 秒视频镜头，场内动作只作为该镜头的微节拍。
 3. 每行使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；缺失字段根据已有上下文补齐，不要任意新增人物、道具或空间规则。
 4. 每场都要有目标、阻力、变化和结果，动作明确到人物位置、视线、表情、手部或关键物件状态，并保持镜头之间的连续性；缺失信息要从原稿上下文恢复，不要用“沿用上一场”代替具体状态。
-5. 结尾保留并强化原稿的高波动钩子；如果原稿存在“【强制下一集】”，必须独占一行并原样保留。
-6. ${SCENE_PRODUCTION_RULES}
-7. 只输出重写后的剧本正文，不要标题、解释、Markdown 或分析。`
+5. 对白不能被压缩成“无台词”：每个场次必须有一句可听见的[对白]、[画外音]或[内心独白]，并且台词要改变人物选择、关系或信息；每场同时写[音效]和[环境声]，不得出现静音场次。
+6. 结尾保留并强化原稿的高波动钩子；如果原稿存在“【强制下一集】”，必须独占一行并原样保留。
+7. ${SCENE_PRODUCTION_RULES}
+8. 只输出重写后的剧本正文，不要标题、解释、Markdown 或分析。`
 
 const SCRIPT_DETAIL_SYSTEM_PROMPT = `你是中文漫剧的视觉导演和分镜前置编剧。请把快速剧本补齐为可直接用于资产设计、分镜和视频生成的制作级剧本。
 
@@ -678,16 +806,39 @@ const SCRIPT_DETAIL_SYSTEM_PROMPT = `你是中文漫剧的视觉导演和分镜�
 
 只输出补齐后的剧本正文。`
 
+const ADVERTISEMENT_DETAIL_SYSTEM_PROMPT = `你是中文商业广告的导演、摄影指导、文案和声音设计。请在不改变广告事实与传播策略的前提下，把现有广告脚本补齐为可直接分镜和视频生成的制作稿。
+1. 场次数量、编号、时段顺序、品牌名、产品名、核心卖点、屏幕文字、旁白和行动引导必须保留；不得擅自添加价格、优惠、认证、性能数据或代言。
+2. 每行完整输出：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；剧情明确时段、传播任务、核心信息和屏幕文字，对白明确旁白、对白、音效与音乐。
+3. 补齐产品展示角度、材质细节、使用动作、文字安全区域、品牌识别时机、光影与运镜；所有视觉选择必须服务一个核心传播信息。
+4. 开头注意力抓点、中段可见证明和结尾品牌落版必须连贯，不能补成普通剧情短片或网剧钩子。
+5. ${ADVERTISEMENT_PRODUCTION_RULES}
+只输出补齐后的广告脚本正文。`
+
+const SHORT_FILM_DETAIL_SYSTEM_PROMPT = `你是中文叙事短片的导演、摄影指导、剪辑和声音设计。请在不改变原剧情的前提下，把短片补齐成可直接分镜和视频生成的制作稿。
+1. 保留原有场次、人物、地点、关键物件、对白、因果、转折和结尾，不扩写成广告或连续网剧。
+2. 每行完整输出：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；剧情明确时段、叙事任务、目标、阻力、变化和结果。
+3. 补齐人物表演节拍、配角反应、现场音、音乐进入/退出点、构图、光影、运镜和转场落点；每一项都要服务人物行动与情绪变化。
+4. 场间保持人物位置、视线、服装、物件、环境和声音连续，结尾完成情节回收或情绪落点，不强加下一集钩子或品牌行动引导。
+5. ${SCENE_PRODUCTION_RULES}
+只输出补齐后的短片剧本正文。`
+
 const WEB_SERIES_DETAIL_SYSTEM_PROMPT = `你是中文网剧漫剧的视觉导演、分镜导演和连续性统筹。请在不改变原剧情的前提下，把剧本补齐为可制作的网剧分镜前置稿。
 
 硬性规格：
 1. 保留原有场次、人物、对白、地点、关键物件和剧情因果，不压缩长稿，不另起新故事；每个动作单元都必须提供足够的角色和空间状态。
 2. 每个场次完整输出：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；禁止只输出镜头语言字段。每场对应一个视频镜头，以 4 到 5 秒快切为主，必要时延长到 15 秒；每行都要写清可见动作和动作终点。
-3. 风格写明材质、色彩和角色/场景的一致性；构图写景别、主体位置、前中后景和视线方向；光影写光源、方向、色温和明暗关系；运镜写机位、移动方式、速度、运动对象和落点。
-4. 衔接必须写清上一镜尾帧如何接入本镜，以及本镜如何把人物位置、动作、视线、服装、物件和光线交给下一镜，避免镜头像独立照片。
-5. 最后一个场次保留并强化高波动钩子，不提前揭示结果；原稿中的“【强制下一集】”必须独占一行并原样保留；不要增加拍摄设备、文字、水印或无关人物。
-6. ${SCENE_PRODUCTION_RULES}
+3. 对白字段必须补齐可听见的[对白]、[画外音]或[内心独白]；每个场次都不能写“无台词”，每场同时补充[音效]和[环境声/音乐]，确保视频不是无声空镜。
+4. 风格写明材质、色彩和角色/场景的一致性；构图写景别、主体位置、前中后景和视线方向；光影写光源、方向、色温和明暗关系；运镜写机位、移动方式、速度、运动对象和落点。
+5. 衔接必须写清上一镜尾帧如何接入本镜，以及本镜如何把人物位置、动作、视线、服装、物件和光线交给下一镜，避免镜头像独立照片。
+6. 最后一个场次保留并强化高波动钩子，不提前揭示结果；原稿中的“【强制下一集】”必须独占一行并原样保留；不要增加拍摄设备、文字、水印或无关人物。
+7. ${SCENE_PRODUCTION_RULES}
 只输出补齐后的剧本正文。`
+
+const WEB_SERIES_DIALOGUE_REPAIR_SYSTEM_PROMPT = `你是中文网剧的对白导演和声音设计。输入是一份场次数量已经确定的网剧制作稿，请只补强对白与声音，不改变场次数量、编号、剧情因果、人物、动作、地点、物件、构图、光影、运镜和衔接。
+1. 每个场次必须有一句可听见的[对白]、[画外音]或[内心独白]；不得返回“无台词”或空白对白。
+2. 台词必须短、口语化，并改变信息、选择、关系或冲突，不能只是重复画面；[对白]注明说话者，[画外音]和[内心独白]不得要求人物对口型。
+3. 每场对白字段同时保留或补充[音效]与[环境声/音乐]，声音随动作进入并在镜尾自然收束，禁止静音。
+4. 每个原场次仍单独占一行并完整保留全部制作字段，只输出修复后的完整剧本正文。`
 
 const SCRIPT_INITIAL_EXPANSION_THRESHOLD = 1_500
 const SINGLE_REWRITE_MAX_LENGTH = 10_000
@@ -721,6 +872,216 @@ function webSeriesSceneBudget(episodeSeconds: number): {
   }
 }
 
+type ScriptSceneBudget = ReturnType<typeof webSeriesSceneBudget>
+
+function resolveScriptContentMode(
+  contentType: string,
+  productionMode: GenerateScriptRequest['productionMode'],
+): ScriptContentMode {
+  if (contentType === 'advertisement') return 'advertisement'
+  if (contentType === 'animation') return 'short-film'
+  if (contentType === 'short-drama' && productionMode === 'web-series') return 'web-series'
+  return productionMode
+}
+
+function scriptModeDisplayName(mode: ScriptContentMode): string {
+  if (mode === 'advertisement') return '广告脚本'
+  if (mode === 'short-film') return '短片剧本'
+  if (mode === 'web-series') return '网剧剧本'
+  return '快速剧本'
+}
+
+function scriptModeContext(mode: ScriptContentMode, durationSeconds: number): string {
+  if (mode === 'advertisement') return `广告创作模式，目标成片 ${formatDuration(durationSeconds)}`
+  if (mode === 'short-film') return `短片创作模式，目标成片 ${formatDuration(durationSeconds)}`
+  if (mode === 'web-series') return `网剧模式，每集 ${formatDuration(durationSeconds)}`
+  return `短视频模式，目标成片 ${formatDuration(durationSeconds)}`
+}
+
+function scriptContentSceneBudget(mode: ScriptContentMode, durationSeconds: number): ScriptSceneBudget {
+  if (mode === 'web-series') return webSeriesSceneBudget(durationSeconds)
+  if (mode === 'advertisement') {
+    return {
+      minimum: Math.max(2, Math.min(40, Math.ceil(durationSeconds / 8))),
+      target: Math.max(2, Math.min(48, Math.ceil(durationSeconds / 5))),
+      maximum: Math.max(3, Math.min(60, Math.ceil(durationSeconds / 3))),
+    }
+  }
+  if (mode === 'short-film') {
+    return {
+      minimum: Math.max(3, Math.min(60, Math.ceil(durationSeconds / 8))),
+      target: Math.max(4, Math.min(80, Math.ceil(durationSeconds / 5))),
+      maximum: Math.max(5, Math.min(100, Math.ceil(durationSeconds / 3))),
+    }
+  }
+  return { minimum: 4, target: 5, maximum: 6 }
+}
+
+function scriptGenerationSystemPrompt(mode: ScriptContentMode, shouldExpandFromIdea: boolean): string {
+  if (mode === 'advertisement') {
+    return shouldExpandFromIdea ? ADVERTISEMENT_SCRIPT_SYSTEM_PROMPT : ADVERTISEMENT_REWRITE_SYSTEM_PROMPT
+  }
+  if (mode === 'short-film') {
+    return shouldExpandFromIdea ? SHORT_FILM_SCRIPT_SYSTEM_PROMPT : SHORT_FILM_REWRITE_SYSTEM_PROMPT
+  }
+  if (mode === 'web-series') {
+    return shouldExpandFromIdea ? WEB_SERIES_SCRIPT_SYSTEM_PROMPT : WEB_SERIES_REWRITE_SYSTEM_PROMPT
+  }
+  return shouldExpandFromIdea ? QUICK_SCRIPT_SYSTEM_PROMPT : SCRIPT_REWRITE_SYSTEM_PROMPT
+}
+
+function scriptGenerationInstruction(input: {
+  scriptMode: ScriptContentMode
+  sourceLength: number
+  shouldExpandFromIdea: boolean
+  episodeSeconds: number
+  sourceHasStructuredScene: boolean
+  sceneBudget: ScriptSceneBudget
+}): string {
+  const { scriptMode, sourceLength, shouldExpandFromIdea, episodeSeconds, sourceHasStructuredScene } = input
+  const budget =
+    scriptMode === 'web-series' ? input.sceneBudget : scriptContentSceneBudget(scriptMode, episodeSeconds)
+  const durationRule = `目标成片时长 ${formatDuration(episodeSeconds)}，输出 ${budget.minimum} 到 ${budget.maximum} 个可识别场次/段落，建议 ${budget.target} 个；每行一个场次，不得把全部内容压成一段。`
+
+  if (shouldExpandFromIdea) {
+    if (scriptMode === 'advertisement') {
+      return `当前素材仅 ${sourceLength} 字，属于广告创意输入。必须主动推断合理的传播目标与核心对象，把它扩写成完整可执行广告，禁止原样复述或只润色这一句话。${durationRule}`
+    }
+    if (scriptMode === 'short-film') {
+      return `当前素材仅 ${sourceLength} 字，属于短片创意输入。必须补全人物目标、可见阻力、因果转折和结尾情绪落点，形成完整独立短片，禁止原样复述或只生成故事梗概。${durationRule}`
+    }
+    return `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产，生成约 1800 到 2600 字的高信息密度制作剧本；如果原始内容是系统提示语，也要把它转化为具体剧情，不要原样复述。每个场次必须有明确角色、空间、动作拍点、对白类型、视觉执行和上下场衔接。${scriptMode === 'web-series' ? durationRule : ''}`
+  }
+
+  const preserveRule = sourceHasStructuredScene
+    ? '原稿已经按场次组织，输出场次数量、场次编号和顺序必须与原稿完全一致，只能在原场次内部补齐制作信息，不得新增、拆分或合并场次。'
+    : durationRule
+  if (scriptMode === 'advertisement') {
+    return `当前广告素材约 ${sourceLength} 字。保留品牌事实、核心卖点、受众、语气、已有画面和文案，将其重写为目标时长内可制作的广告脚本；不得改成普通剧情片，也不得编造宣传承诺。${preserveRule}`
+  }
+  if (scriptMode === 'short-film') {
+    return `当前短片素材约 ${sourceLength} 字。保留人物关系、核心事件、因果、转折与结局方向，将其重写为目标时长内有完整叙事闭环的短片制作稿；不要压成提纲，也不要加入广告落版或网剧钩子。${preserveRule}`
+  }
+  return `当前内容约 ${sourceLength} 字。请在保留核心剧情、人物关系、场景因果、关键物件和对白信息的前提下，按原有逻辑重写整理为制作级剧本；不要把内容压缩成提纲，不要任意删减重要情节。${preserveRule}`
+}
+
+function scriptGenerationUserPrompt(
+  mode: ScriptContentMode,
+  projectContext: string,
+  generationInstruction: string,
+  source: string,
+): string {
+  const request =
+    mode === 'advertisement'
+      ? '请把以下素材创作成可直接进入分镜的商业广告制作脚本'
+      : mode === 'short-film'
+        ? '请把以下素材创作成可直接进入分镜的完整独立短片'
+        : mode === 'web-series'
+          ? '请把以下素材改编成一集可制作的网剧剧本'
+          : '请把以下素材改编成可直接进入分镜的快速剧本'
+  return `${projectContext}\n\n${generationInstruction}\n${request}：\n${source}`
+}
+
+function scriptGenerationMaxOutputTokens(
+  mode: ScriptContentMode,
+  durationSeconds: number,
+  shouldExpandFromIdea: boolean,
+  source: string,
+): number {
+  if (!shouldExpandFromIdea) return longScriptMaxOutputTokens(source)
+  if (mode === 'web-series') return webSeriesMaxOutputTokens(durationSeconds)
+  if (mode === 'advertisement') {
+    return Math.min(12_000, Math.max(3_500, Math.ceil(durationSeconds / 30) * 3_000))
+  }
+  if (mode === 'short-film') {
+    return Math.min(16_000, Math.max(4_500, Math.ceil(durationSeconds / 30) * 3_500))
+  }
+  return INITIAL_SCRIPT_MAX_TOKENS
+}
+
+function scriptStructureRepairPrompt(
+  mode: ScriptContentMode,
+  projectContext: string,
+  source: string,
+  candidate: string,
+  durationSeconds: number,
+  budget: ScriptSceneBudget,
+): string {
+  const modeRule =
+    mode === 'advertisement'
+      ? '必须形成“开场抓点→核心对象/问题→一个核心价值的可见证明→品牌落版与行动引导”的广告结构，并在剧情字段写明时间段、传播任务、核心信息和屏幕文字。'
+      : '必须形成“建立人物处境与目标→可见阻力→因果转折→结果与情绪落点”的完整独立短片，不要加入广告落版或下一集钩子。'
+  return `${projectContext}\n\n上一次结果只有 ${countStructuredScenes(candidate)} 个可识别段落，且可能只是复述用户输入，不可写回。请完整重写：目标时长 ${formatDuration(durationSeconds)}，必须输出 ${budget.minimum} 到 ${budget.maximum} 个场次/段落，建议 ${budget.target} 个；每行必须以“场次：”开始并包含全部制作字段。${modeRule}\n\n用户原始素材：\n${source}`
+}
+
+function scriptGenerationOperationLabel(mode: ScriptContentMode): string {
+  if (mode === 'advertisement') return '智能生成广告脚本'
+  if (mode === 'short-film') return '智能生成短片剧本'
+  if (mode === 'web-series') return '智能生成网剧剧本'
+  return '快速生成剧本'
+}
+
+function scriptSegmentOperationLabel(mode: ScriptContentMode): string {
+  if (mode === 'advertisement') return '延长广告脚本'
+  if (mode === 'short-film') return '续写短片'
+  if (mode === 'web-series') return '续写下一集'
+  return '生成下一段'
+}
+
+function scriptDetailOperationLabel(mode: ScriptContentMode): string {
+  if (mode === 'advertisement') return '补齐广告制作细节'
+  if (mode === 'short-film') return '补齐短片制作细节'
+  return '补齐剧本专业视觉细节'
+}
+
+function scriptDetailSystemPrompt(mode: ScriptContentMode): string {
+  if (mode === 'advertisement') return ADVERTISEMENT_DETAIL_SYSTEM_PROMPT
+  if (mode === 'short-film') return SHORT_FILM_DETAIL_SYSTEM_PROMPT
+  if (mode === 'web-series') return WEB_SERIES_DETAIL_SYSTEM_PROMPT
+  return SCRIPT_DETAIL_SYSTEM_PROMPT
+}
+
+function scriptDetailUserPrompt(mode: ScriptContentMode, projectContext: string, source: string): string {
+  const request =
+    mode === 'advertisement'
+      ? '请保留广告事实、传播结构、屏幕文字和行动引导，补齐产品展示、声音、光影、运镜及段落衔接'
+      : mode === 'short-film'
+        ? '请保留短片剧情因果、转折和结尾，补齐表演、声音、光影、运镜及场次衔接'
+        : '请在保留原有场景数量、剧情因果、人物关系和对白的前提下，补齐制作字段与镜头衔接'
+  return `${projectContext}\n\n${request}；本次改写要求必须优先执行：\n${source}`
+}
+
+function scriptSegmentSystemPrompt(mode: ScriptContentMode): string {
+  if (mode === 'advertisement') return ADVERTISEMENT_SEGMENT_SYSTEM_PROMPT
+  if (mode === 'short-film') return SHORT_FILM_SEGMENT_SYSTEM_PROMPT
+  if (mode === 'web-series') return WEB_SERIES_SEGMENT_SYSTEM_PROMPT
+  return SCRIPT_SEGMENT_SYSTEM_PROMPT
+}
+
+function scriptSegmentUserPrompt(
+  mode: ScriptContentMode,
+  projectContext: string,
+  source: string,
+  goal: string,
+  segmentSeconds: number,
+): string {
+  const fallbackGoal =
+    mode === 'advertisement'
+      ? '补充新的使用场景或可见证明，并在结尾重新完成品牌落版'
+      : mode === 'short-film'
+        ? '顺着人物当前行动继续推进短片'
+        : mode === 'web-series'
+          ? '承接上一集钩子推进下一集'
+          : '顺着现有剧情自然推进下一段'
+  const finalInstruction =
+    mode === 'advertisement'
+      ? '请只输出追加的广告段落，不要重写已有广告。'
+      : mode === 'short-film'
+        ? '请只输出续写的新场次，不要重写已有短片。'
+        : '请只生成下一段剧本正文，不要重写已有内容。'
+  return `${projectContext}\n\n已有脚本上下文：\n${scriptSegmentContext(source)}\n\n本次目标：${goal || fallbackGoal}\n追加时长：${formatDuration(segmentSeconds)}\n\n${finalInstruction}`
+}
+
 function withChineseScriptRules(systemPrompt: string): string {
   return `${systemPrompt}\n\n${CHINESE_SCRIPT_OUTPUT_RULES}`
 }
@@ -736,13 +1097,30 @@ const SCRIPT_SEGMENT_SYSTEM_PROMPT = `你是中文长剧和漫剧的分段编剧
 7. 不要在本段一次性解决全剧大结局，除非本段目标明确要求收尾。
 8. ${SCENE_PRODUCTION_RULES}`
 
+const ADVERTISEMENT_SEGMENT_SYSTEM_PROMPT = `你是中文商业广告的创意总监和制作统筹。请在现有广告脚本末尾追加一组可制作的广告段落，用于按用户指定秒数延长当前广告，而不是重写原稿或另做一支无关广告。
+1. 承接现有广告的品牌、产品、核心卖点、受众、视觉风格、产品状态、旁白语气和最后画面；只追加新段落。
+2. 追加内容用于补充使用场景、可见证明或情绪价值，不能重复原段落，也不能编造价格、优惠、认证、性能数据、代言或未提供的承诺。
+3. 新段落时间码从现有广告结尾继续累计；最后一段重新完成简洁品牌落版和合适的行动引导。
+4. 每行使用：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；剧情写明时段、传播任务、核心信息和屏幕文字。
+5. ${ADVERTISEMENT_PRODUCTION_RULES}
+6. 只输出要追加的广告段落正文，不要复述已有脚本，不要解释、Markdown、表格或分析。`
+
+const SHORT_FILM_SEGMENT_SYSTEM_PROMPT = `你是中文叙事短片的编剧和连续性统筹。请在现有短片末尾续写用户指定时长的新场次，只推进当前故事，不要重写、总结或复述已有内容。
+1. 首场直接承接上一场的人物位置、视线、服装、动作、关键物件、环境和声音状态。
+2. 新场次继续推进人物目标，形成新的阻力、选择、变化与结果；不得突然新增人物、能力、道具或世界规则。
+3. 用户要求收尾时完成因果回收和情绪落点；未要求收尾时留下自然的下一步行动，但不要套用网剧受辱反击或强制下一集钩子。
+4. 每行使用：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：。
+5. ${SCENE_PRODUCTION_RULES}
+6. 只输出续写的新场次正文，不要复述已有剧本，不要解释、Markdown、表格或分析。`
+
 const WEB_SERIES_SEGMENT_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧编剧。请基于已有剧本只续写下一集或下一段，严禁重写已有内容。
 1. 输出连续、可制作的场次，每个场次对应一个视频镜头，以 4 到 5 秒快切为主，必要时才延长到 15 秒；本段总时长约为用户指定分钟数。
 2. 承接上一段最后的时间、地点、人物状态、服装、视线、动作和关键物件，前两场要明确接住上一段尾部动作。
 3. 每场使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；每场都有目标、阻力、变化和结果。
-4. 本段末尾保留高波动钩子：悬念、受辱后反击前一秒、身份/实力即将揭示、关键物件启动或敌人误判；最后一行的场次值写“剧情钩子”，不要直接解决。
-5. ${SCENE_PRODUCTION_RULES}
-6. 只输出下一段剧本正文，不要标题、解释、Markdown、JSON 或分析。`
+4. 对白不能被压缩成“无台词”：每个场次必须有[对白]、[画外音]或[内心独白]，台词要推进本段冲突；每场必须写[音效]和[环境声]，不得出现静音场次。
+5. 本段末尾保留高波动钩子：悬念、受辱后反击前一秒、身份/实力即将揭示、关键物件启动或敌人误判；最后一行的场次值写“剧情钩子”，不要直接解决。
+6. ${SCENE_PRODUCTION_RULES}
+7. 只输出下一段剧本正文，不要标题、解释、Markdown、JSON 或分析。`
 
 const QUICK_SCRIPT_FIELDS = ['场次', '剧情', '场景', '角色', '动作', '对白']
 const SCRIPT_SCENE_FIELDS = [
@@ -860,6 +1238,49 @@ async function ensureChineseScriptOutput(
   return repaired
 }
 
+function hasSufficientWebSeriesDialogue(script: string): boolean {
+  const scenes = splitScriptParagraphs(script)
+    .map((paragraph) => parseShotFields(paragraph.text))
+    .filter((fields) => Boolean(fields.场次))
+  if (!scenes.length) return false
+  const spokenScenes = scenes.filter((fields) => {
+    const dialogue = String(fields.对白 || '')
+    return /\[(?:对白|画外音|内心独白)\]/u.test(dialogue) && !/无台词/u.test(dialogue)
+  }).length
+    return spokenScenes === scenes.length
+}
+
+function assertWebSeriesDialogueCoverage(script: string, mode: ScriptContentMode): void {
+  if (mode !== 'web-series' || hasSufficientWebSeriesDialogue(script)) return
+  throw new AppError(
+    502,
+    'PROVIDER_RESPONSE_INVALID',
+    '网剧对白生成不完整：每个场次都需要可听见的对白、画外音或内心独白；原剧本未被覆盖，请重试或切换模型',
+  )
+}
+
+async function repairWebSeriesDialogue(
+  provider: TextGenerationProvider,
+  projectContext: string,
+  script: string,
+  model: ScriptModel,
+  maxOutputTokens: number,
+  principal: Principal,
+): Promise<string> {
+  const repaired = await ensureChineseScriptOutput(
+    provider,
+    await provider.generate({
+      systemPrompt: withChineseScriptRules(WEB_SERIES_DIALOGUE_REPAIR_SYSTEM_PROMPT),
+      userPrompt: `${projectContext}\n\n以下网剧的场次数量和剧情已经确定，但可听台词不足。请保持场次与全部制作信息不变，只补强对白与声音后完整返回：\n${script}`,
+      maxOutputTokens,
+      model,
+      usageContext: usageContextForPrincipal(principal),
+    }),
+    model,
+  )
+  return alignEnrichedSceneRows(script, repaired)
+}
+
 function hasUnexpectedEnglish(script: string): boolean {
   const inspected = script.replace(/\b(?:AI|CG|2D|3D|Alpha|Seedance|JSON|Markdown|IP|S\d+)\b/giu, '')
   const englishWords = inspected.match(/[A-Za-z]{3,}/g) || []
@@ -894,9 +1315,10 @@ function segmentMaxOutputTokens(targetSeconds: number): number {
   return Math.min(5_500, Math.max(2_400, Math.ceil(targetSeconds / 60) * 650))
 }
 
-function normalizeEpisodeDurationSeconds(value: number, fallback = 60): number {
-  if (!Number.isFinite(value)) return fallback
-  return Math.min(300, Math.max(30, Math.round(value)))
+function normalizeScriptDurationSeconds(value: number, fallback: number, mode: ScriptContentMode): number {
+  const minimum = mode === 'web-series' ? 30 : mode === 'short-film' ? 10 : 5
+  if (!Number.isFinite(value)) return Math.min(300, Math.max(minimum, Math.round(fallback)))
+  return Math.min(300, Math.max(minimum, Math.round(value)))
 }
 
 function formatDuration(seconds: number): string {
@@ -2128,19 +2550,26 @@ function countStructuredScenes(script: string): number {
 
 function quickScriptIssues(
   script: string,
-  productionMode: GenerateScriptRequest['productionMode'] = 'short-video',
+  mode: ScriptContentMode = 'short-video',
+  durationSeconds = 30,
 ): string[] {
   const issues: string[] = []
   const characterCount = script.replace(/\s/g, '').length
   const scenes = scriptScenes(script)
-  const isWebSeries = productionMode === 'web-series'
-  const minimumScenes = isWebSeries ? 8 : 4
-  const maximumScenes = isWebSeries ? 120 : 6
+  const budget = scriptContentSceneBudget(mode, durationSeconds)
+  const minimumCharacters =
+    mode === 'advertisement'
+      ? Math.max(500, budget.target * 160)
+      : mode === 'short-film'
+        ? Math.max(800, budget.target * 190)
+        : 1_800
 
-  if (characterCount < 1_800)
-    issues.push(`内容仅 ${characterCount} 字，建议补充到 1800 字以上，确保每场有足够的可执行动作和衔接信息`)
-  if (scenes.length < minimumScenes || scenes.length > maximumScenes)
-    issues.push(`当前 ${scenes.length} 个场景，建议保持 ${minimumScenes} 到 ${maximumScenes} 个`)
+  if (characterCount < minimumCharacters)
+    issues.push(
+      `内容仅 ${characterCount} 字，建议补充到 ${minimumCharacters} 字以上，确保每段有足够的可执行动作和衔接信息`,
+    )
+  if (scenes.length < budget.minimum || scenes.length > budget.maximum)
+    issues.push(`当前 ${scenes.length} 个场景，目标时长建议保持 ${budget.minimum} 到 ${budget.maximum} 个`)
   for (const field of QUICK_SCRIPT_FIELDS) {
     const missing = scenes.filter((scene) => !new RegExp(`${field}[：:]`).test(scene)).length
     if (missing) issues.push(`${missing} 个场景缺少“${field}”字段`)
@@ -2152,12 +2581,14 @@ function quickScriptIssues(
 
 function detailedScriptIssues(
   script: string,
-  productionMode: GenerateScriptRequest['productionMode'] = 'short-video',
+  mode: ScriptContentMode = 'short-video',
+  durationSeconds = 30,
 ): string[] {
   const issues: string[] = []
   const scenes = scriptScenes(script)
-  if (productionMode === 'short-video' && (scenes.length < 4 || scenes.length > 6))
-    issues.push(`当前 ${scenes.length} 个场景，建议保持与快速剧本一致`)
+  const budget = scriptContentSceneBudget(mode, durationSeconds)
+  if (scenes.length < budget.minimum || scenes.length > budget.maximum)
+    issues.push(`当前 ${scenes.length} 个场景，建议与 ${formatDuration(durationSeconds)} 的目标结构保持一致`)
   for (const field of SCRIPT_SCENE_FIELDS) {
     const missing = scenes.filter((scene) => !new RegExp(`${field}[：:]`).test(scene)).length
     if (missing) issues.push(`${missing} 个场景缺少“${field}”字段`)

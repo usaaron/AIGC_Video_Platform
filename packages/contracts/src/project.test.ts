@@ -171,6 +171,12 @@ describe('script workflow contracts', () => {
     expect(autoSplitShotsRequestSchema.parse({ episodeDurationSeconds: 300 })).toEqual({
       episodeDurationSeconds: 300,
     })
+    expect(generateScriptRequestSchema.parse({ episodeDurationSeconds: 15 })).toMatchObject({
+      episodeDurationSeconds: 15,
+    })
+    expect(generateShotsRequestSchema.parse({ episodeDurationSeconds: 15 })).toMatchObject({
+      episodeDurationSeconds: 15,
+    })
     expect(generateShotsRequestSchema.parse({ episodeDurationSeconds: 90 })).toMatchObject({
       episodeDurationSeconds: 90,
     })

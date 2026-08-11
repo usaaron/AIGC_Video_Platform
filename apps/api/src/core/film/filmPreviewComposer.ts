@@ -175,17 +175,17 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       stopLeaseHeartbeat = this.startLeaseHeartbeat(taskId, leaseToken)
 
       temporaryDirectory = await mkdtemp(join(tmpdir(), 'seqora-film-'))
-      const inputPaths: string[] = []
-      for (const [index, source] of sourceTasks.entries()) {
+      let downloadedCount = 0
+      const downloadedPaths = await mapWithConcurrency(sourceTasks, 4, async (source, index) => {
         const current = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
         if (
           !current ||
           current.status !== 'running' ||
           !generationTaskLeaseMatches(current, this.leaseOwnerId, leaseToken)
         ) {
-          return
+          return null
         }
-        const inputPath = join(temporaryDirectory, `shot-${String(index + 1).padStart(3, '0')}.mp4`)
+        const inputPath = join(temporaryDirectory!, `shot-${String(index + 1).padStart(3, '0')}.mp4`)
         await this.updateProgress(taskId, current.progress, leaseToken, {
           compositionStage: 'downloading',
           compositionSourceIndex: index + 1,
@@ -235,14 +235,17 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
             throw error
           }
         }
-        inputPaths.push(inputPath)
+        downloadedCount += 1
         await this.updateProgress(
           taskId,
-          5 + Math.round(((index + 1) / sourceTasks.length) * 40),
+          5 + Math.round((downloadedCount / sourceTasks.length) * 40),
           leaseToken,
           { compositionStage: 'downloaded' },
         )
-      }
+        return inputPath
+      })
+      if (downloadedPaths.some((inputPath) => inputPath === null)) return
+      const inputPaths = downloadedPaths.filter((inputPath): inputPath is string => Boolean(inputPath))
 
       const outputPath = join(temporaryDirectory, 'film-preview.mp4')
       await this.updateProgress(taskId, 50, leaseToken, {
@@ -589,6 +592,24 @@ function previewTarget(aspectRatio: string): PreviewTarget {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await worker(items[index]!, index)
+    }
+  })
+  await Promise.all(workers)
+  return results
 }
 
 function withTimeout<T>(

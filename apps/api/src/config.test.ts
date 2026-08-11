@@ -153,6 +153,17 @@ describe('production configuration', () => {
       }),
     ).toThrow('REHDASU_API_KEY is required')
   })
+
+  it('accepts the legacy text key as a Rehdasu migration fallback', () => {
+    const config = loadConfig({
+      ...productionConfig(),
+      REHDASU_API_KEY: '',
+      TEXT_API_KEY: 'legacy-rehdasu-token',
+      TEXT_MODEL: 'glm-5.2',
+    })
+
+    expect(config.REHDASU_API_KEY).toBe('legacy-rehdasu-token')
+  })
 })
 
 function productionConfig(overrides: Record<string, string> = {}): Record<string, string> {
