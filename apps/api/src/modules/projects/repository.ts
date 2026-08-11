@@ -379,13 +379,14 @@ export class ProjectRepository {
   }
 
   async archive(projectId: string, principal: Principal): Promise<boolean> {
+    const canArchiveAll = canReadAllTenantContent(principal)
     if (!this.database) {
       return this.requireStore().mutate((state) => {
         const project = state.projects.find(
           (item) =>
             item.id === projectId &&
             item.tenantId === principal.tenantId &&
-            item.ownerId === principal.userId,
+            (canArchiveAll || item.ownerId === principal.userId),
         )
         if (!project) return false
         project.status = 'archived'
@@ -398,10 +399,12 @@ export class ProjectRepository {
     const result = await this.database.query(
       `
       UPDATE projects
-      SET status = 'archived', updated_at = $4
-      WHERE id = $1 AND tenant_id = $2 AND owner_user_id = $3
+      SET status = 'archived', updated_at = $5
+      WHERE id = $1
+        AND tenant_id = $2
+        AND ($3::boolean OR owner_user_id = $4)
       `,
-      [projectId, principal.tenantId, principal.userId, updatedAt],
+      [projectId, principal.tenantId, canArchiveAll, principal.userId, updatedAt],
     )
     if ((result.rowCount ?? 0) === 0) return false
     await this.refreshRuntimeCacheFromDatabase()

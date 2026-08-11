@@ -22,6 +22,7 @@ import {
   sourceVideoTaskIds,
 } from '../features/film/filmPreview'
 import { projectRatioMode } from '../features/film/projectRatio'
+import { hasVideoMetadataLoaded, markVideoMetadataLoaded } from '../features/film/videoPlaybackCache'
 import { normalizedVideoDuration } from '@seqora/prompting'
 
 export function FilmPage({
@@ -134,7 +135,9 @@ export function FilmPage({
       previewTask?.status === 'paused')
   const displayUrl = viewMode === 'full' ? previewUrl : videoUrl
   const displayState = viewMode === 'full' ? previewState : videoState
-  const displayVideoLoaded = Boolean(displayUrl && loadedVideoUrl === displayUrl)
+  const displayVideoLoaded = Boolean(
+    displayUrl && (loadedVideoUrl === displayUrl || hasVideoMetadataLoaded(displayUrl)),
+  )
   const displayVideoFailed = Boolean(displayUrl && failedVideoUrl === displayUrl)
   const previewDownloadName = `${safeFileName(project.name)}-${
     retainedPreviewVisible
@@ -340,10 +343,12 @@ export function FilmPage({
                   preload="metadata"
                   playsInline
                   onCanPlay={() => {
+                    markVideoMetadataLoaded(displayUrl)
                     setLoadedVideoUrl(displayUrl)
                     setFailedVideoUrl(null)
                   }}
                   onLoadedMetadata={() => {
+                    markVideoMetadataLoaded(displayUrl)
                     setLoadedVideoUrl(displayUrl)
                     setFailedVideoUrl(null)
                   }}

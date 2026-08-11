@@ -651,6 +651,37 @@ describe('ProjectRepository shot ordering', () => {
   })
 })
 
+describe('ProjectRepository project archiving', () => {
+  it('allows a tenant owner to archive a project created by another tenant member', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new ProjectRepository(store)
+    const owner = {
+      userId: 'user-owner',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['owner'] as const,
+    }
+
+    await expect(repository.archive('project-midnight-film', owner)).resolves.toBe(true)
+    await expect(repository.list(owner)).resolves.not.toContainEqual(
+      expect.objectContaining({ id: 'project-midnight-film' }),
+    )
+  })
+
+  it('keeps ordinary members from archiving another member project', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new ProjectRepository(store)
+    const member = {
+      userId: 'user-other-member',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['member'] as const,
+    }
+
+    await expect(repository.archive('project-midnight-film', member)).resolves.toBe(false)
+  })
+})
+
 describe('assignShotEpisodes', () => {
   it('keeps shots whole while assigning target-duration episodes', () => {
     const result = assignShotEpisodes(

@@ -25,6 +25,12 @@ import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 import { FUNCTION_STACK_IDS, FUNCTION_STACK_ITEMS } from './features/functionStack/config'
 import { compileCharacterStagePrompt } from './features/assets/promptCompiler'
 import { warmAssetPreviewCache } from './features/assets/assetPreview'
+import { warmVideoPlaybackCache } from './features/film/videoPlaybackCache'
+import {
+  clearProjectTaskCache,
+  readProjectTaskCache,
+  writeProjectTaskCache,
+} from './features/generation/projectTaskCache'
 
 const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const videoResolutions = new Set(['480p', '720p', '1080p', '4k'])
@@ -70,6 +76,11 @@ function App() {
   const [notificationPopups, setNotificationPopups] = useState([])
   const taskStatusesRef = useRef(readTaskStatusCache())
   const notificationHistoryReadyRef = useRef(false)
+
+  const replaceTasks = useCallback((projectId, nextTasks) => {
+    setTasks(nextTasks)
+    if (projectId) writeProjectTaskCache(projectId, nextTasks)
+  }, [])
 
   const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
   const canOpenAdminAccounts = canOpenAccountAdmin(session)
@@ -128,14 +139,18 @@ function App() {
         setProjects(projectList)
         setBilling(billingSummary)
         setProviderHealth(health)
-        if (projectList[0]) setWorkspace(await api.project(projectList[0].id))
+        if (projectList[0]) {
+          const initialProjectId = projectList[0].id
+          setWorkspace(await api.project(initialProjectId))
+          replaceTasks(initialProjectId, readProjectTaskCache(initialProjectId))
+        }
       })
       .catch((error) => {
         setLoadError(error.message || '无法加载项目和积分信息。')
         setToast(error.message)
       })
       .finally(() => setLoading(false))
-  }, [adminOnly, loadAttempt])
+  }, [adminOnly, loadAttempt, replaceTasks])
 
   useEffect(() => {
     if (!workspace?.project.id) return undefined
@@ -160,7 +175,7 @@ function App() {
           api.recentTasks(),
         ])
         if (cancelled) return
-        setTasks(nextTasks)
+        replaceTasks(workspace.project.id, nextTasks)
         setWorkspace(nextWorkspace)
         setBilling(nextBilling)
         setProjects(nextProjects)
@@ -188,13 +203,17 @@ function App() {
       window.clearTimeout(timer)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [workspace?.project.id])
+  }, [replaceTasks, workspace?.project.id])
 
   useEffect(() => {
     warmAssetPreviewCache(
       (workspace?.assets || []).filter((asset) => asset.kind === 'character').slice(0, 24),
     )
   }, [workspace?.assets])
+
+  useEffect(() => {
+    warmVideoPlaybackCache(tasks)
+  }, [tasks])
 
   useEffect(() => {
     if (!recentTasksLoaded) return
@@ -343,7 +362,7 @@ function App() {
         estimatedCredits: cost,
         metadata: options.metadata,
       })
-      setTasks(await api.tasks(project.id))
+      replaceTasks(project.id, await api.tasks(project.id))
       await refreshBilling()
       setToast(`${label} 已加入生成队列`)
       return created
@@ -384,7 +403,7 @@ function App() {
         assetId,
       },
     })
-    setTasks(await api.tasks(project.id))
+    replaceTasks(project.id, await api.tasks(project.id))
     await refreshBilling()
     setToast('AI 人像资源已进入后台任务，完成后会自动同步状态')
     return task
@@ -419,7 +438,7 @@ function App() {
           ...input,
         },
       })
-      setTasks(await api.tasks(project.id))
+      replaceTasks(project.id, await api.tasks(project.id))
       await refreshBilling()
       setToast(`${label}已提交后台生成`)
       return task
@@ -448,8 +467,9 @@ function App() {
 
   const openNotification = async (notification) => {
     markNotificationRead(notification.id)
+    replaceTasks(notification.projectId, readProjectTaskCache(notification.projectId))
     await refreshWorkspace(notification.projectId)
-    setTasks(await api.tasks(notification.projectId))
+    replaceTasks(notification.projectId, await api.tasks(notification.projectId))
     navigateTo(notification.target)
   }
 
@@ -457,7 +477,9 @@ function App() {
     try {
       const created = await api.createTask(retryTaskInput(notification.task))
       markNotificationRead(notification.id)
-      if (project?.id === created.projectId) setTasks(await api.tasks(created.projectId))
+      if (project?.id === created.projectId) {
+        replaceTasks(created.projectId, await api.tasks(created.projectId))
+      }
       setToast(`${created.label}已重新提交`)
     } catch (error) {
       setToast(error.message)
@@ -468,6 +490,7 @@ function App() {
     try {
       const created = await api.createProject(input)
       await refreshWorkspace(created.id)
+      replaceTasks(created.id, readProjectTaskCache(created.id))
       setNewProjectOpen(false)
       navigateTo('script')
       setToast('新项目已创建')
@@ -586,8 +609,9 @@ function App() {
           projects={projects}
           onCreate={() => setNewProjectOpen(true)}
           onOpen={async (projectId) => {
+            replaceTasks(projectId, readProjectTaskCache(projectId))
             await refreshWorkspace(projectId)
-            setTasks(await api.tasks(projectId))
+            replaceTasks(projectId, await api.tasks(projectId))
             navigateTo('overview')
           }}
           onRename={async (projectId, name) => {
@@ -598,12 +622,19 @@ function App() {
           }}
           onDelete={async (projectId) => {
             await api.deleteProject(projectId)
+            clearProjectTaskCache(projectId)
             const nextProjects = await api.projects()
             setProjects(nextProjects)
             if (project?.id === projectId) {
               const nextWorkspace = nextProjects[0] ? await api.project(nextProjects[0].id) : null
               setWorkspace(nextWorkspace)
-              setTasks(nextProjects[0] ? await api.tasks(nextProjects[0].id) : [])
+              if (nextProjects[0]) {
+                const nextProjectId = nextProjects[0].id
+                replaceTasks(nextProjectId, readProjectTaskCache(nextProjectId))
+                replaceTasks(nextProjectId, await api.tasks(nextProjectId))
+              } else {
+                replaceTasks(null, [])
+              }
             }
             setToast('项目已删除并归档')
           }}
@@ -824,7 +855,7 @@ function App() {
           onUpload={(file) => api.uploadMedia(project.id, file)}
           onCancelTask={async (taskId) => {
             await api.deleteTask(taskId)
-            setTasks(await api.tasks(project.id))
+            replaceTasks(project.id, await api.tasks(project.id))
             setToast('已停止剧本生成，可以切换模型后重试')
           }}
           onNext={() => navigateTo('assets')}
@@ -1053,7 +1084,7 @@ function App() {
             )
             const created = laneResults.reduce((total, count) => total + count, 0)
             await refreshWorkspace()
-            setTasks(await api.tasks(project.id))
+            replaceTasks(project.id, await api.tasks(project.id))
             if (created) {
               const laneCount = Math.min(plan.immediateLaneCount, created)
               setToast(
@@ -1077,7 +1108,7 @@ function App() {
           onPause={async (taskId) => {
             try {
               await api.pauseTask(taskId)
-              setTasks(await api.tasks(project.id))
+              replaceTasks(project.id, await api.tasks(project.id))
               setToast('任务已暂停')
             } catch (error) {
               setToast(error.message)
@@ -1086,7 +1117,7 @@ function App() {
           onResume={async (taskId) => {
             try {
               await api.resumeTask(taskId)
-              setTasks(await api.tasks(project.id))
+              replaceTasks(project.id, await api.tasks(project.id))
               setToast('任务已继续')
             } catch (error) {
               setToast(error.message)
@@ -1095,7 +1126,7 @@ function App() {
           onDelete={async (taskId) => {
             try {
               await api.deleteTask(taskId)
-              setTasks(await api.tasks(project.id))
+              replaceTasks(project.id, await api.tasks(project.id))
               await refreshBilling()
               setToast('任务已移出队列')
             } catch (error) {
@@ -1104,7 +1135,7 @@ function App() {
           }}
           onClear={async () => {
             await api.clearTasks(project.id)
-            setTasks(await api.tasks(project.id))
+            replaceTasks(project.id, await api.tasks(project.id))
             setToast('已归档结束任务，生成结果仍然保留')
           }}
           onNext={() => navigateTo('film')}
@@ -1126,7 +1157,7 @@ function App() {
           onComposePreview={async (mode = 'full', episodeNumber = null) => {
             try {
               const task = await api.createFilmPreview(project.id, mode, true, episodeNumber)
-              setTasks(await api.tasks(project.id))
+              replaceTasks(project.id, await api.tasks(project.id))
               const target = mode === 'partial' ? '已完成片段' : '完整预览'
               setToast(task.status === 'completed' ? `${target}已是最新版本` : `${target}正在后台合成`)
               return task
@@ -1220,7 +1251,9 @@ function App() {
           currentId={project?.id}
           onClose={() => setProjectMenuOpen(false)}
           onSelect={async (id) => {
+            replaceTasks(id, readProjectTaskCache(id))
             await refreshWorkspace(id)
+            replaceTasks(id, await api.tasks(id))
             setProjectMenuOpen(false)
             navigateTo('overview')
           }}
