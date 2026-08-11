@@ -126,6 +126,7 @@ export class GenerationResultWriteback {
       if (!stored || stored.status !== 'running') return null
       if (!generationTaskLeaseMatches(stored, input.leaseOwnerId, input.leaseToken)) return null
       const updatedAt = new Date()
+      const progressChanged = input.status.progress !== stored.progress
       stored.status = input.status.status
       stored.progress = input.status.progress
       stored.error = input.status.error
@@ -140,6 +141,9 @@ export class GenerationResultWriteback {
         ...stored.metadata,
         providerState: input.status.status,
         providerPollErrors: 0,
+        providerProgressChangedAt: progressChanged
+          ? updatedAt.toISOString()
+          : (stored.metadata.providerProgressChangedAt ?? stored.metadata.providerSubmittedAt),
         ...(input.videoDescriptor || input.lastFrameDescriptor
           ? {
               generatedOutputs: descriptors,

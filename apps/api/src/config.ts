@@ -80,6 +80,7 @@ const configSchema = z
     STRINGX_SEEDANCE_PRO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
     STRINGX_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
     VIDEO_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).max(60_000).default(5_000),
+    VIDEO_PROCESSING_STALL_TIMEOUT_MS: z.coerce.number().int().min(60_000).max(1_800_000).default(360_000),
     ARK_API_BASE_URL: z.string().url().default('https://ark.cn-beijing.volces.com/api/v3'),
     ARK_API_KEY: z.string().default(''),
     ARK_VIDEO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),

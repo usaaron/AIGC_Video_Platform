@@ -8,6 +8,7 @@ import type { CreditLedger } from '../../modules/billing/creditLedger.js'
 import { usageCollector } from '../observability/usage.js'
 import { traceIdFromGenerationTask } from '../observability/trace.js'
 import {
+  type ClaimedRemoteTasks,
   DependencyResolver,
   ImageTaskExecutor,
   ProviderPoller,
@@ -44,6 +45,7 @@ type GenerationTaskRunnerOptions = {
   objectStorage?: ObjectStorage | null
   creditLedger?: CreditLedger | null
   providerPollIntervalMs?: number
+  providerStallTimeoutMs?: number
   leaseTtlMs?: number
   beforeTick?: () => Promise<void>
   afterTick?: () => Promise<void>
@@ -118,6 +120,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
       videoProvider,
       videoProviderName,
       providerPollIntervalMs: options.providerPollIntervalMs ?? 5_000,
+      providerStallTimeoutMs: options.providerStallTimeoutMs ?? 6 * 60_000,
       leaseOwnerId,
       leaseTtlMs,
       objectStorage,
@@ -177,22 +180,33 @@ export class GenerationTaskRunner implements TaskDispatcher {
       const remoteTasks = await this.claimer.claimQueuedTasks()
 
       await this.refundService.refundTerminalTasks()
-      this.scheduleRemoteExecutions([...recoveredSubmissions.video, ...remoteTasks.video], (task) =>
-        this.videoExecutor.execute(task),
-      )
-      this.scheduleRemoteExecutions([...recoveredSubmissions.image, ...remoteTasks.image], (task) =>
-        this.imageExecutor.execute(task),
-      )
-      const localTasks = [...recoveredSubmissions.local, ...remoteTasks.local].filter((task) =>
-        this.localTaskHandler?.canHandle(task),
-      )
-      this.scheduleRemoteExecutions(localTasks, (task) => this.executeLocalTask(task), false)
+      this.scheduleClaimedTasks({
+        video: [...recoveredSubmissions.video, ...remoteTasks.video],
+        image: [...recoveredSubmissions.image, ...remoteTasks.image],
+        local: [...recoveredSubmissions.local, ...remoteTasks.local],
+      })
 
       await this.writeback.advanceLocalTasks((task) => this.localTaskHandler?.canHandle(task) ?? false)
       await this.providerPoller.pollRemoteVideos()
+
+      // A provider poll can complete a continuity source and persist its tail frame. Claim again
+      // in the same tick so the next shot does not wait for the next BullMQ polling interval.
+      const newlyReadyTasks = await this.claimer.claimQueuedTasks()
+      await this.refundService.refundTerminalTasks()
+      this.scheduleClaimedTasks(newlyReadyTasks)
     } finally {
       await this.afterTick?.()
     }
+  }
+
+  private scheduleClaimedTasks(tasks: ClaimedRemoteTasks): void {
+    this.scheduleRemoteExecutions(tasks.video, (task) => this.videoExecutor.execute(task))
+    this.scheduleRemoteExecutions(tasks.image, (task) => this.imageExecutor.execute(task))
+    this.scheduleRemoteExecutions(
+      tasks.local.filter((task) => this.localTaskHandler?.canHandle(task)),
+      (task) => this.executeLocalTask(task),
+      false,
+    )
   }
 
   private scheduleRemoteExecutions(

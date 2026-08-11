@@ -162,8 +162,8 @@ export class TaskClaimer {
             task.status = 'failed'
             task.progress = 100
             task.error = this.dependencyResolver.continuityDependencyMissingFrame(task, userTasks)
-              ? 'Dependency source is missing a last frame; regenerate the previous shot'
-              : 'Dependency task failed or is missing'
+              ? '上一镜已完成但没有可用尾帧，请重新生成上一镜后再继续'
+              : '依赖的上一镜任务失败、已删除或不存在，请从该镜头重新生成'
             task.updatedAt = nowIso
             releaseGenerationTaskLease(task)
             recordGenerationTaskTerminal(task, new Error(task.error))
@@ -428,6 +428,74 @@ export class TaskWritebackService {
     })
   }
 
+  async handleStalledVideoProcessing(
+    taskId: string,
+    leaseToken: string,
+    providerTaskId: string,
+  ): Promise<GenerationTask | null> {
+    const result = await this.store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === taskId)
+      if (!task || task.status !== 'running') return null
+      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return null
+
+      const now = new Date()
+      const nowIso = now.toISOString()
+      const timeoutRetries = numberValue(task.metadata.providerProcessingTimeoutRetries, 0)
+      const canRetry =
+        timeoutRetries < 1 && (task.attempts ?? 0) < (task.maxAttempts ?? DEFAULT_TASK_MAX_ATTEMPTS)
+      const previousTaskIds = Array.isArray(task.metadata.providerPreviousTaskIds)
+        ? task.metadata.providerPreviousTaskIds.filter(
+            (value): value is string => typeof value === 'string' && value.length > 0,
+          )
+        : []
+      const {
+        providerTaskId: _providerTaskId,
+        providerSubmittedAt: _providerSubmittedAt,
+        providerPolledAt: _providerPolledAt,
+        providerProgressChangedAt: _providerProgressChangedAt,
+        providerRetryNotBefore: _providerRetryNotBefore,
+        ...metadata
+      } = task.metadata
+
+      if (canRetry) {
+        const nextRetry = timeoutRetries + 1
+        task.status = 'queued'
+        task.progress = 0
+        task.error = null
+        task.metadata = {
+          ...metadata,
+          providerState: 'retry_wait',
+          providerProcessingTimeoutRetries: nextRetry,
+          providerProcessingTimedOutAt: nowIso,
+          providerPreviousTaskIds: [...new Set([...previousTaskIds, providerTaskId])],
+          providerRetryNotBefore: new Date(now.getTime() + 2_000).toISOString(),
+          providerIdempotencyKey: `generation:${task.tenantId}:${task.id}:processing-retry:${nextRetry}`,
+        }
+      } else {
+        task.status = 'failed'
+        task.progress = 100
+        task.error = '上游视频生成长时间无进度，自动重试后仍未恢复；本次任务已停止并退回积分'
+        task.metadata = {
+          ...metadata,
+          providerState: 'failed',
+          providerProcessingTimedOutAt: nowIso,
+          providerPreviousTaskIds: [...new Set([...previousTaskIds, providerTaskId])],
+          providerError: task.error,
+          providerFailedAt: nowIso,
+        }
+      }
+      releaseGenerationTaskLease(task)
+      task.updatedAt = nowIso
+      return task
+    })
+
+    if (result?.status === 'failed') {
+      recordGenerationTaskTerminal(result, new Error(result.error ?? 'Video processing stalled'))
+      await this.refundService.refundTerminalTasks()
+    }
+    return result
+  }
+
   async writeVideoSubmission(
     task: GenerationTask,
     leaseToken: string,
@@ -447,6 +515,7 @@ export class TaskWritebackService {
           typeof stored.metadata.providerSubmittedAt === 'string'
             ? stored.metadata.providerSubmittedAt
             : now.toISOString(),
+        providerProgressChangedAt: now.toISOString(),
         providerPolledAt: Date.now(),
         providerPollErrors: 0,
       }
@@ -851,6 +920,7 @@ export class ProviderPoller {
       videoProvider: VideoGenerationProvider | null
       videoProviderName: VideoProviderName
       providerPollIntervalMs: number
+      providerStallTimeoutMs: number
       leaseOwnerId: string
       leaseTtlMs: number
       objectStorage: ObjectStorage | null
@@ -1019,6 +1089,18 @@ export class ProviderPoller {
           },
           () => this.options.videoProvider!.getStatus(providerTaskId),
         )
+        if (
+          status.status === 'running' &&
+          videoProcessingStalled(task, status, this.options.providerStallTimeoutMs)
+        ) {
+          const stalled = await this.options.writeback.handleStalledVideoProcessing(
+            task.id,
+            leaseToken,
+            providerTaskId,
+          )
+          if (stalled) this.cancelStalledProviderTask(providerTaskId)
+          continue
+        }
         let lastFrameDescriptor: GeneratedOutputDescriptor | null = null
         let lastFrameError: string | null = null
         const hasLastFrame = generatedDescriptors(task).some((item) => item.view === 'last-frame')
@@ -1074,6 +1156,11 @@ export class ProviderPoller {
         }
       }
     }
+  }
+
+  private cancelStalledProviderTask(providerTaskId: string): void {
+    if (!this.options.videoProvider?.cancel) return
+    void this.options.videoProvider.cancel(providerTaskId).catch(() => {})
   }
 
   private async claimCancelledRemoteTasks(tasks: GenerationTask[]): Promise<GenerationTask[]> {
@@ -1248,6 +1335,18 @@ function imageAssetKind(task: GenerationTask): 'character' | 'scene' | 'prop' | 
 
 function numberValue(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function videoProcessingStalled(
+  task: GenerationTask,
+  status: VideoGenerationStatus,
+  stallTimeoutMs: number,
+): boolean {
+  if (status.progress > task.progress) return false
+  const progressChangedAt = Date.parse(
+    stringValue(task.metadata.providerProgressChangedAt, stringValue(task.metadata.providerSubmittedAt, '')),
+  )
+  return Number.isFinite(progressChangedAt) && Date.now() - progressChangedAt >= stallTimeoutMs
 }
 
 function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {

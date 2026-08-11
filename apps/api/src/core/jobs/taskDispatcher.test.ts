@@ -401,6 +401,101 @@ describe('GenerationTaskRunner Seedance integration', () => {
     })
   })
 
+  it('retries a stalled provider video once without breaking its continuity chain', async () => {
+    const submit = vi.fn(async ({ taskId }) => ({
+      providerTaskId: `remote-${taskId}-${submit.mock.calls.length}`,
+      status: 'queued' as const,
+      progress: 0,
+    }))
+    const cancel = vi.fn(async () => {})
+    const provider: VideoGenerationProvider = {
+      submit,
+      getStatus: vi.fn(async () => ({ status: 'running' as const, progress: 50, error: null })),
+      getContent: vi.fn(),
+      cancel,
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const [source, linked] = queuedVideoTasks(2)
+    source!.id = 'stalled-source'
+    source!.clientRequestId = 'stalled-source-client'
+    source!.metadata = { ...source!.metadata, shotId: 'shot-1' }
+    linked!.id = 'stalled-linked'
+    linked!.clientRequestId = 'stalled-linked-client'
+    linked!.metadata = {
+      ...linked!.metadata,
+      shotId: 'shot-2',
+      continuityMode: 'continue',
+      continuitySourceTaskId: source!.id,
+      dependsOnTaskId: source!.id,
+      dependsOnTaskIds: [source!.id],
+    }
+    await store.mutate((state) => state.tasks.unshift(source!, linked!))
+    const runner = new GenerationTaskRunner(store, {
+      videoProvider: provider,
+      providerPollIntervalMs: 0,
+      providerStallTimeoutMs: 1,
+    })
+
+    await runner.tick()
+    await store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === source!.id)!
+      task.metadata = {
+        ...task.metadata,
+        providerProgressChangedAt: new Date(Date.now() - 60_000).toISOString(),
+        providerPolledAt: 0,
+      }
+    })
+    await runner.tick()
+
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith('remote-stalled-source-1'))
+    expect(store.read((state) => state.tasks.find((task) => task.id === source!.id))).toMatchObject({
+      status: 'queued',
+      progress: 0,
+      attempts: 1,
+      metadata: {
+        providerState: 'retry_wait',
+        providerProcessingTimeoutRetries: 1,
+        providerPreviousTaskIds: ['remote-stalled-source-1'],
+        providerIdempotencyKey: `generation:${source!.tenantId}:${source!.id}:processing-retry:1`,
+      },
+    })
+    expect(store.read((state) => state.tasks.find((task) => task.id === linked!.id))?.status).toBe('queued')
+
+    await store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === source!.id)!
+      task.metadata = { ...task.metadata, providerRetryNotBefore: new Date(0).toISOString() }
+    })
+    await runner.tick()
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(2))
+    expect(submit).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        idempotencyKey: `generation:${source!.tenantId}:${source!.id}:processing-retry:1`,
+      }),
+    )
+
+    await store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === source!.id)!
+      task.metadata = {
+        ...task.metadata,
+        providerProgressChangedAt: new Date(Date.now() - 60_000).toISOString(),
+        providerPolledAt: 0,
+      }
+    })
+    await runner.tick()
+
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith('remote-stalled-source-2'))
+    expect(store.read((state) => state.tasks.find((task) => task.id === source!.id))).toMatchObject({
+      status: 'failed',
+      progress: 100,
+      error: '上游视频生成长时间无进度，自动重试后仍未恢复；本次任务已停止并退回积分',
+    })
+    expect(store.read((state) => state.tasks.find((task) => task.id === linked!.id))).toMatchObject({
+      status: 'failed',
+      error: '依赖的上一镜任务失败、已删除或不存在，请从该镜头重新生成',
+    })
+  })
+
   it('persists a remote image failure before the runtime cache is refreshed', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -899,6 +994,80 @@ describe('GenerationTaskRunner Seedance integration', () => {
     )
   })
 
+  it('submits the next continuity shot in the same tick that its source completes', async () => {
+    const files = new Map<string, Buffer>()
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(async ({ taskId }) => ({
+        providerTaskId: `remote-${taskId}`,
+        status: 'queued' as const,
+        progress: 0,
+      })),
+      getStatus: vi.fn(async () => ({ status: 'completed' as const, progress: 100, error: null })),
+      getLastFrameContent: vi.fn(async () => ({
+        stream: Readable.from([Buffer.from('source-tail-frame')]),
+        contentType: 'image/jpeg',
+        contentLength: '17',
+        statusCode: 200,
+        acceptRanges: null,
+        contentRange: null,
+      })),
+      getContent: vi.fn(),
+    }
+    const objectStorage: ObjectStorage = {
+      put: vi.fn(async (key, content) => files.set(key, content)),
+      get: vi.fn(async (key) => files.get(key) ?? Buffer.alloc(0)),
+      delete: vi.fn(async (key) => files.delete(key)),
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const [source, linked] = queuedVideoTasks(2)
+    source!.id = 'same-tick-source'
+    source!.clientRequestId = 'same-tick-source-client'
+    source!.metadata = { ...source!.metadata, shotId: 'shot-1' }
+    linked!.id = 'same-tick-linked'
+    linked!.clientRequestId = 'same-tick-linked-client'
+    linked!.metadata = {
+      ...linked!.metadata,
+      shotId: 'shot-2',
+      continuityMode: 'continue',
+      continuitySourceTaskId: source!.id,
+      dependsOnTaskId: source!.id,
+      dependsOnTaskIds: [source!.id],
+    }
+    await store.mutate((state) => state.tasks.unshift(source!, linked!))
+
+    const runner = new GenerationTaskRunner(store, {
+      videoProvider: provider,
+      objectStorage,
+      providerPollIntervalMs: 0,
+    })
+    await runner.tick()
+
+    await vi.waitFor(() => expect(provider.submit).toHaveBeenCalledTimes(2))
+    expect(provider.getStatus).toHaveBeenCalledTimes(1)
+    expect(provider.submit).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        taskId: linked!.id,
+        images: [
+          {
+            role: 'first_frame',
+            url: `data:image/jpeg;base64,${Buffer.from('source-tail-frame').toString('base64')}`,
+          },
+        ],
+      }),
+    )
+    expect(store.read((state) => state.tasks.find((task) => task.id === source!.id))).toMatchObject({
+      status: 'completed',
+      metadata: {
+        generatedOutputs: expect.arrayContaining([expect.objectContaining({ view: 'last-frame' })]),
+      },
+    })
+    expect(store.read((state) => state.tasks.find((task) => task.id === linked!.id))).toMatchObject({
+      status: 'running',
+      metadata: { providerTaskId: `remote-${linked!.id}` },
+    })
+  })
+
   it('does not submit a linked shot when the completed source has no tail frame', async () => {
     const provider: VideoGenerationProvider = {
       submit: vi.fn(),
@@ -939,7 +1108,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
     expect(provider.submit).not.toHaveBeenCalled()
     expect(store.read((state) => state.tasks.find((task) => task.id === linked.id))).toMatchObject({
       status: 'failed',
-      error: 'Dependency source is missing a last frame; regenerate the previous shot',
+      error: '上一镜已完成但没有可用尾帧，请重新生成上一镜后再继续',
     })
   })
 

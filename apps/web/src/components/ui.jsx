@@ -77,7 +77,7 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
         {canCancelRunning && (
           <p className={`job-provider-note ${runningSeconds >= 360 ? 'delayed' : ''}`}>
             {runningSeconds >= 360
-              ? `上游仍在处理，已等待 ${formatRunningTime(runningSeconds)}；超过常见 5 分钟不代表失败，可继续等待或取消后重试。`
+              ? `上游仍在处理，已等待 ${formatRunningTime(runningSeconds)}；进度长时间不变时系统会自动取消旧任务并重试，无需一直等待。`
               : `弦序生成中 · 已等待 ${formatRunningTime(runningSeconds)}；取消成功后会移出队列并退回平台积分。`}
           </p>
         )}

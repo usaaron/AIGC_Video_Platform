@@ -367,7 +367,7 @@ queued -> running -> completed
 - 本地受保护分镜图和资产图由 Worker 读取为 Base64 Data URL；没有图片时直接发送纯文本。
 - 请求默认带 `return_last_frame: true`，但 Aideos 文档没有定义独立尾帧 URL。视频完成后 Provider 流式下载 MP4 到临时目录，用 FFmpeg 截取 JPEG 末帧，写入 `ObjectStorage` 后清理临时文件。
 - 浏览器通过本地鉴权 content 路由播放；Provider 转发 `Range` 并透传 `206/Accept-Ranges/Content-Range`，前端不接触弦序 Token。
-- 建单最长等待 120 秒；拿到远端任务 ID 后每 `VIDEO_POLL_INTERVAL_MS` 轮询，默认 5 秒。
+- 建单最长等待 120 秒；拿到远端任务 ID 后每 `VIDEO_POLL_INTERVAL_MS` 轮询，默认 5 秒。若上游进度连续 `VIDEO_PROCESSING_STALL_TIMEOUT_MS`（默认 6 分钟）不变，任务会取消旧上游并换幂等键自动重试一次，仍无进度才失败并释放依赖链。
 - 负面提示词以 `【质量约束】...` 合入 prompt，因为 Aideos 没有文档化的独立负面字段。
 - 当前默认装配由 `VIDEO_PROVIDER=stringx` 控制，任务审计字段为 `providerName=stringx-seedance`。Aideos 与官方 Ark 分别保留为显式回滚实现。
 - 2026-07-20 曾通过第三方 Aideos 完成 `480p`、`9:16`、4 秒动态视频冒烟；该结果只能证明 Aideos 链路，不代表弦序视频链路。弦序直连鉴权和协议已验证，真实生成当前受成员积分额度阻塞。
@@ -562,6 +562,7 @@ AIDEOS_API_KEY=<从密码管理器或部署 Secret 注入>
 AIDEOS_VIDEO_MODEL=doubao-seedance-2-0-260128
 AIDEOS_REQUEST_TIMEOUT_MS=120000
 VIDEO_POLL_INTERVAL_MS=5000
+VIDEO_PROCESSING_STALL_TIMEOUT_MS=360000
 
 # 仅 VIDEO_PROVIDER=volc-ark 回滚时使用
 ARK_API_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
