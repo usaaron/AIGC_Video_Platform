@@ -22,6 +22,7 @@ import {
   Power,
   RefreshCw,
   Search,
+  ShieldAlert,
   ShieldCheck,
   UserPlus,
   UsersRound,
@@ -62,6 +63,7 @@ import {
   statusName,
   isEnterpriseOrganization,
   isPersonalAccountMembership,
+  isPlatformAdminSession,
   summarizeAuditLogs,
   summarizeBillingAdjustments,
   summarizeConsole,
@@ -78,6 +80,7 @@ const tabs = [
   { id: 'personal-accounts', label: '个人账号', icon: IdCard },
   { id: 'organizations', label: '企业组织', icon: Building2 },
   { id: 'memberships', label: '账号归属', icon: IdCard },
+  { id: 'compliance', label: '合规审查', icon: ShieldAlert, platformOnly: true },
   { id: 'invitations', label: '邀请', icon: MailPlus },
   { id: 'billing', label: '账单流水', icon: CreditCard },
   { id: 'reconciliation-alerts', label: '对账告警', icon: AlertTriangle },
@@ -103,7 +106,37 @@ const addExistingMemberInitialState = { organizationId: '', email: '', role: 'or
 const createInvitationInitialState = { organizationId: '', email: '', role: 'member' }
 const sessionRiskAuditInitialState = { userId: '', items: [], loading: false, error: '' }
 const consoleFilterInitialState = { tenantId: '', role: '', status: '', limit: 50, offset: 0 }
+const complianceFilterInitialState = {
+  q: '',
+  userId: '',
+  tenantId: '',
+  source: '',
+  category: 'all',
+  limit: 50,
+  offset: 0,
+  sample: false,
+}
+const complianceActionInitialState = { action: 'reviewed', reason: '', category: '' }
 const consolePageSizeOptions = [25, 50, 100]
+const complianceSourceLabels = {
+  generation_task: '生成任务',
+  ai_job: 'AI Job',
+}
+const complianceSeverityLabels = {
+  low: '低',
+  medium: '中',
+  high: '高',
+  critical: '严重',
+}
+const complianceCategoryLabels = {
+  political_sensitive: '政治敏感',
+  terrorism: '涉恐/爆炸物',
+  sexual_content: '涉黄/性内容',
+  graphic_violence: '极端血腥暴力',
+  extremism: '极端主义/仇恨',
+  self_harm: '自伤自杀',
+  other: '其他',
+}
 const consoleRoleFilterOptions = [
   'owner',
   'super_admin',
@@ -150,6 +183,13 @@ export function App() {
   const [usageLoading, setUsageLoading] = useState(false)
   const [usageError, setUsageError] = useState('')
   const [usageRange, setUsageRange] = useState('today')
+  const [compliancePrompts, setCompliancePrompts] = useState(null)
+  const [complianceLoading, setComplianceLoading] = useState(false)
+  const [complianceError, setComplianceError] = useState('')
+  const [complianceFilters, setComplianceFilters] = useState(complianceFilterInitialState)
+  const [complianceDetailId, setComplianceDetailId] = useState('')
+  const [complianceActionTarget, setComplianceActionTarget] = useState(null)
+  const [complianceActionForm, setComplianceActionForm] = useState(complianceActionInitialState)
   const [notice, setNotice] = useState('')
   const [queryDraft, setQueryDraft] = useState('')
   const [query, setQuery] = useState('')
@@ -227,6 +267,11 @@ export function App() {
   const canReadConsole = canReadAdminConsole(session)
   const canManageAccountStatus = canManageUsers(session)
   const canAdjustBilling = canManageBilling(session)
+  const canReviewCompliance = isPlatformAdminSession(session)
+  const visibleTabs = useMemo(
+    () => tabs.filter((tab) => !tab.platformOnly || canReviewCompliance),
+    [canReviewCompliance],
+  )
 
   const consoleRequestParams = useMemo(
     () => ({
@@ -266,6 +311,31 @@ export function App() {
     }
   }
 
+  const loadCompliancePrompts = async (overrides = {}) => {
+    if (!canReviewCompliance) return
+    const nextFilters = { ...complianceFilters, ...overrides }
+    setComplianceLoading(true)
+    setComplianceError('')
+    try {
+      setCompliancePrompts(
+        await api.adminCompliancePrompts({
+          limit: nextFilters.limit,
+          offset: nextFilters.sample ? 0 : nextFilters.offset,
+          sample: nextFilters.sample ? 'true' : undefined,
+          ...(nextFilters.q.trim() ? { q: nextFilters.q.trim() } : {}),
+          ...(nextFilters.userId.trim() ? { userId: nextFilters.userId.trim() } : {}),
+          ...(nextFilters.tenantId.trim() ? { tenantId: nextFilters.tenantId.trim() } : {}),
+          ...(nextFilters.source ? { source: nextFilters.source } : {}),
+        }),
+      )
+    } catch (requestError) {
+      if (requestError.status === 401) setSession(null)
+      setComplianceError(requestError.message)
+    } finally {
+      setComplianceLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (!session || !canReadConsole) return
     void loadConsole()
@@ -275,6 +345,15 @@ export function App() {
     if (!session || !canReadConsole || !isUsageTab(activeTab)) return
     void loadUsage()
   }, [session?.account?.id, session?.account?.tenantId, canReadConsole, activeTab, usageRange])
+
+  useEffect(() => {
+    if (!session || !canReadConsole || activeTab !== 'compliance' || !canReviewCompliance) return
+    void loadCompliancePrompts()
+  }, [session?.account?.id, canReadConsole, activeTab, canReviewCompliance, complianceFilters])
+
+  useEffect(() => {
+    if (activeTab === 'compliance' && !canReviewCompliance) setActiveTab('overview')
+  }, [activeTab, canReviewCompliance])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -318,6 +397,20 @@ export function App() {
   const personalAccountMemberships = useMemo(
     () => (snapshot?.memberships?.items ?? []).filter(isPersonalAccountMembership),
     [snapshot],
+  )
+  const compliancePromptItems = useMemo(() => compliancePrompts?.items ?? [], [compliancePrompts])
+  const visibleCompliancePromptItems = useMemo(() => {
+    if (complianceFilters.category === 'all') return compliancePromptItems
+    if (complianceFilters.category === 'none') {
+      return compliancePromptItems.filter((item) => item.riskTags.length === 0)
+    }
+    return compliancePromptItems.filter((item) =>
+      item.riskTags.some((tag) => tag.category === complianceFilters.category),
+    )
+  }, [complianceFilters.category, compliancePromptItems])
+  const complianceDetailTarget = useMemo(
+    () => compliancePromptItems.find((item) => item.id === complianceDetailId) ?? null,
+    [compliancePromptItems, complianceDetailId],
   )
   const organizationDetailTarget = useMemo(
     () => organizationItems.find((organization) => organization.id === organizationDetailId) ?? null,
@@ -472,6 +565,27 @@ export function App() {
     setConsoleFilters(consoleFilterInitialState)
   }
 
+  const updateComplianceFilters = (patch, { resetOffset = true } = {}) => {
+    setComplianceFilters((current) => ({
+      ...current,
+      ...patch,
+      offset: resetOffset ? 0 : (patch.offset ?? current.offset),
+      sample: patch.sample ?? (resetOffset ? false : current.sample),
+    }))
+  }
+
+  const clearComplianceFilters = () => {
+    setComplianceFilters(complianceFilterInitialState)
+  }
+
+  const refreshComplianceSample = () => {
+    setComplianceFilters((current) => ({ ...current, sample: true, offset: 0 }))
+  }
+
+  const goToComplianceOffset = (offset) => {
+    updateComplianceFilters({ offset: Math.max(0, offset), sample: false }, { resetOffset: false })
+  }
+
   const goToConsoleOffset = (offset) => {
     updateConsoleFilters({ offset: Math.max(0, offset) }, { resetOffset: false })
   }
@@ -483,6 +597,10 @@ export function App() {
   const refreshActiveData = () => {
     if (isUsageTab(activeTab)) {
       void loadUsage()
+      return
+    }
+    if (activeTab === 'compliance') {
+      void loadCompliancePrompts()
       return
     }
     void loadConsole()
@@ -523,6 +641,7 @@ export function App() {
     await runAction(`user:${user.id}`, async () => {
       await api.updateUserStatus(user.id, nextStatus)
       await loadConsole()
+      if (activeTab === 'compliance') await loadCompliancePrompts()
       setNotice(`账号已${nextStatus === 'disabled' ? '禁用' : '启用'}`)
     })
   }
@@ -677,6 +796,22 @@ export function App() {
     setUserDetailId('')
     setOrganizationDetailId('')
     setMembershipDetailId(membershipIdFor(membership))
+  }
+
+  const openComplianceDetail = (item) => {
+    setUserDetailId('')
+    setOrganizationDetailId('')
+    setMembershipDetailId('')
+    setComplianceDetailId(item.id)
+  }
+
+  const openComplianceAction = (item, action) => {
+    setComplianceActionTarget(item)
+    setComplianceActionForm({
+      action,
+      reason: action === 'warned' ? '提示词存在合规风险，已对账号发出人工警告' : '人工抽查已完成',
+      category: item.riskTags[0]?.category ?? '',
+    })
   }
 
   const openAuditDetail = (entry) => {
@@ -1256,6 +1391,29 @@ export function App() {
     })
   }
 
+  const submitComplianceAction = async (event) => {
+    event.preventDefault()
+    if (!complianceActionTarget) return
+    const reason = complianceActionForm.reason.trim()
+    if (!reason) return
+    const actionLabel = complianceActionForm.action === 'warned' ? '警告' : '已审查'
+    await runAction(`compliance:${complianceActionTarget.id}:${complianceActionForm.action}`, async () => {
+      await api.recordCompliancePromptAction(
+        complianceActionTarget.source,
+        complianceActionTarget.sourceId,
+        {
+          action: complianceActionForm.action,
+          reason,
+          ...(complianceActionForm.category ? { category: complianceActionForm.category } : {}),
+        },
+      )
+      setComplianceActionTarget(null)
+      setComplianceActionForm(complianceActionInitialState)
+      await loadCompliancePrompts()
+      setNotice(`合规记录已标记为${actionLabel}`)
+    })
+  }
+
   const runAction = async (id, action) => {
     setBusy(id)
     setError('')
@@ -1310,9 +1468,13 @@ export function App() {
             className="icon-text-button"
             type="button"
             onClick={refreshActiveData}
-            disabled={loading || usageLoading}
+            disabled={loading || usageLoading || complianceLoading}
           >
-            {loading || usageLoading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
+            {loading || usageLoading || complianceLoading ? (
+              <LoaderCircle size={16} className="spin" />
+            ) : (
+              <RefreshCw size={16} />
+            )}
             刷新
           </button>
           <button className="icon-button" type="button" aria-label="退出" onClick={logout}>
@@ -1324,7 +1486,7 @@ export function App() {
       <div className="admin-layout">
         <aside className="admin-sidebar">
           <nav>
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -1348,19 +1510,21 @@ export function App() {
           <section className="console-toolbar">
             <div>
               <span className="eyebrow">Admin Console</span>
-              <h1>{tabs.find((tab) => tab.id === activeTab)?.label ?? '概览'}</h1>
+              <h1>{visibleTabs.find((tab) => tab.id === activeTab)?.label ?? '概览'}</h1>
             </div>
-            <label className="search-field">
-              <Search size={16} />
-              <input
-                value={queryDraft}
-                onChange={(event) => setQueryDraft(event.target.value)}
-                placeholder="搜索用户、组织、账单、session 或审计"
-              />
-            </label>
+            {activeTab !== 'compliance' && (
+              <label className="search-field">
+                <Search size={16} />
+                <input
+                  value={queryDraft}
+                  onChange={(event) => setQueryDraft(event.target.value)}
+                  placeholder="搜索用户、组织、账单、session 或审计"
+                />
+              </label>
+            )}
           </section>
 
-          {!isUsageTab(activeTab) && (
+          {!isUsageTab(activeTab) && activeTab !== 'compliance' && (
             <ConsoleServerControls
               filters={consoleFilters}
               query={queryDraft}
@@ -1478,6 +1642,42 @@ export function App() {
                   onDisableMembership={disableMembership}
                   onAdjust={openAdjustment}
                   onUpdatePlan={openMembershipPlan}
+                />
+              )}
+              {activeTab === 'compliance' && canReviewCompliance && (
+                <ComplianceReviewPage
+                  prompts={visibleCompliancePromptItems}
+                  allPrompts={compliancePromptItems}
+                  meta={compliancePrompts?.meta ?? { limit: complianceFilters.limit, offset: 0, total: 0 }}
+                  generatedAt={compliancePrompts?.generatedAt ?? null}
+                  filters={complianceFilters}
+                  loading={complianceLoading}
+                  error={complianceError}
+                  busy={busy}
+                  currentUserId={session.account.id}
+                  onFilterChange={updateComplianceFilters}
+                  onClear={clearComplianceFilters}
+                  onRefresh={() => loadCompliancePrompts()}
+                  onSample={refreshComplianceSample}
+                  onPageOffsetChange={goToComplianceOffset}
+                  onOpenDetail={openComplianceDetail}
+                  onOpenUser={(item) => searchConsoleTab('users', item.userId)}
+                  onOpenOrganization={(item) =>
+                    searchConsoleTab(
+                      item.organizationType === 'enterprise' ? 'organizations' : 'memberships',
+                      item.tenantId,
+                    )
+                  }
+                  onReview={(item) => openComplianceAction(item, 'reviewed')}
+                  onWarn={(item) => openComplianceAction(item, 'warned')}
+                  onDisableUser={(item) =>
+                    setUserStatus({
+                      id: item.userId,
+                      name: item.name,
+                      email: item.email,
+                      status: item.userStatus,
+                    })
+                  }
                 />
               )}
               {activeTab === 'invitations' && (
@@ -1789,6 +1989,37 @@ export function App() {
           onDisableMembership={disableMembership}
           onAdjust={openAdjustment}
           onUpdatePlan={openMembershipPlan}
+        />
+      )}
+      {complianceDetailTarget && (
+        <CompliancePromptDetailDrawer
+          item={complianceDetailTarget}
+          busy={busy}
+          currentUserId={session.account.id}
+          onClose={() => setComplianceDetailId('')}
+          onReview={(item) => openComplianceAction(item, 'reviewed')}
+          onWarn={(item) => openComplianceAction(item, 'warned')}
+          onDisableUser={(item) =>
+            setUserStatus({
+              id: item.userId,
+              name: item.name,
+              email: item.email,
+              status: item.userStatus,
+            })
+          }
+        />
+      )}
+      {complianceActionTarget && (
+        <CompliancePromptActionModal
+          item={complianceActionTarget}
+          form={complianceActionForm}
+          busy={busy === `compliance:${complianceActionTarget.id}:${complianceActionForm.action}`}
+          onChange={setComplianceActionForm}
+          onClose={() => {
+            setComplianceActionTarget(null)
+            setComplianceActionForm(complianceActionInitialState)
+          }}
+          onSubmit={submitComplianceAction}
         />
       )}
       {auditDetailTarget && (
@@ -2850,6 +3081,247 @@ function MembershipsTable({
   )
 }
 
+function ComplianceReviewPage({
+  prompts,
+  allPrompts,
+  meta,
+  generatedAt,
+  filters,
+  loading,
+  error,
+  busy,
+  currentUserId,
+  onFilterChange,
+  onClear,
+  onRefresh,
+  onSample,
+  onPageOffsetChange,
+  onOpenDetail,
+  onOpenUser,
+  onOpenOrganization,
+  onReview,
+  onWarn,
+  onDisableUser,
+}) {
+  const offset = filters.sample ? 0 : meta.offset
+  const from = meta.total ? offset + 1 : 0
+  const to = Math.min(offset + meta.limit, meta.total)
+  const hasPrevious = offset > 0
+  const hasNext = offset + meta.limit < meta.total && !filters.sample
+  const riskCount = allPrompts.filter((item) => item.riskTags.length > 0).length
+
+  return (
+    <div className="compliance-page">
+      <section className="server-list-controls compliance-controls">
+        <div className="server-filter-row">
+          <label>
+            <Search size={14} />
+            <input
+              value={filters.q}
+              onChange={(event) => onFilterChange({ q: event.target.value })}
+              placeholder="搜索 prompt、用户、组织或任务"
+            />
+          </label>
+          <label>
+            <UsersRound size={14} />
+            <input
+              value={filters.userId}
+              onChange={(event) => onFilterChange({ userId: event.target.value })}
+              placeholder="指定用户 ID"
+            />
+          </label>
+          <label>
+            <Building2 size={14} />
+            <input
+              value={filters.tenantId}
+              onChange={(event) => onFilterChange({ tenantId: event.target.value })}
+              placeholder="指定组织/空间 ID"
+            />
+          </label>
+          <label>
+            <FileText size={14} />
+            <select value={filters.source} onChange={(event) => onFilterChange({ source: event.target.value })}>
+              <option value="">全部来源</option>
+              <option value="generation_task">生成任务</option>
+              <option value="ai_job">AI Job</option>
+            </select>
+          </label>
+          <label>
+            <ShieldAlert size={14} />
+            <select
+              value={filters.category}
+              onChange={(event) => onFilterChange({ category: event.target.value }, { resetOffset: false })}
+            >
+              <option value="all">全部风险</option>
+              <option value="none">无命中</option>
+              {Object.entries(complianceCategoryLabels).map(([category, label]) => (
+                <option key={category} value={category}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <FileText size={14} />
+            <select
+              value={filters.limit}
+              onChange={(event) => onFilterChange({ limit: Number(event.target.value) })}
+            >
+              {consolePageSizeOptions.map((size) => (
+                <option key={size} value={size}>
+                  每页 {size}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="row-button" type="button" onClick={onClear}>
+            <X size={14} />
+            清空筛选
+          </button>
+          <button className="row-button" type="button" disabled={loading} onClick={onRefresh}>
+            {loading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
+            刷新
+          </button>
+          <button className="primary-button" type="button" disabled={loading} onClick={onSample}>
+            {loading ? <LoaderCircle size={14} className="spin" /> : <Filter size={14} />}
+            随机抽查
+          </button>
+        </div>
+        <div className="server-pagination-row">
+          <span>
+            {loading
+              ? '正在读取审查样本'
+              : filters.sample
+                ? `随机抽查 ${allPrompts.length} 条 / 匹配 ${meta.total} 条`
+                : `审查分页 ${from}-${to} / ${meta.total}`}
+            {generatedAt ? ` · ${formatDate(generatedAt)}` : ''}
+            {filters.category !== 'all' ? ` · 当前风险筛选 ${prompts.length} 条` : ''}
+            {riskCount ? ` · 风险命中 ${riskCount} 条` : ''}
+          </span>
+          <div>
+            <button
+              className="row-button"
+              type="button"
+              disabled={!hasPrevious || loading}
+              onClick={() => onPageOffsetChange(Math.max(0, offset - meta.limit))}
+            >
+              上一页
+            </button>
+            <button
+              className="row-button"
+              type="button"
+              disabled={!hasNext || loading}
+              onClick={() => onPageOffsetChange(offset + meta.limit)}
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {error && <div className="notice error">{error}</div>}
+
+      <DataSection title="提示词审查" count={prompts.length}>
+        <table className="data-table wide compliance-table">
+          <thead>
+            <tr>
+              <th>账号</th>
+              <th>归属</th>
+              <th>提示词预览</th>
+              <th>风险</th>
+              <th>来源</th>
+              <th>时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {prompts.map((item) => {
+              const actionBusy = busy.startsWith(`compliance:${item.id}`)
+              const accountBusy = busy === `user:${item.userId}`
+              return (
+                <tr key={item.id}>
+                  <td>
+                    <IdentityCell name={item.name} detail={item.email ?? item.userId} />
+                  </td>
+                  <td>
+                    <IdentityCell
+                      name={item.tenantName ?? item.tenantId}
+                      detail={organizationTypeName(item.organizationType ?? 'standard')}
+                      compact
+                    />
+                  </td>
+                  <td>
+                    <div className="prompt-preview">
+                      <strong>{item.label}</strong>
+                      <span>{item.promptPreview || '-'}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <ComplianceRiskTags tags={item.riskTags} />
+                  </td>
+                  <td>
+                    <div className="source-stack">
+                      <strong>{complianceSourceName(item.source)}</strong>
+                      <small>
+                        {item.kind} · {item.status}
+                      </small>
+                    </div>
+                  </td>
+                  <td>{formatDate(item.createdAt)}</td>
+                  <td>
+                    <div className="row-actions">
+                      <button className="row-button" type="button" onClick={() => onOpenDetail(item)}>
+                        <FileText size={14} />
+                        详情
+                      </button>
+                      <button className="row-button" type="button" onClick={() => onOpenUser(item)}>
+                        <UsersRound size={14} />
+                        账号
+                      </button>
+                      <button className="row-button" type="button" onClick={() => onOpenOrganization(item)}>
+                        <Building2 size={14} />
+                        归属
+                      </button>
+                      <button
+                        className="row-button"
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => onReview(item)}
+                      >
+                        {actionBusy ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
+                        已审查
+                      </button>
+                      <button
+                        className="row-button"
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => onWarn(item)}
+                      >
+                        <AlertTriangle size={14} />
+                        警告
+                      </button>
+                      <button
+                        className="row-button danger"
+                        type="button"
+                        disabled={item.userStatus !== 'active' || item.userId === currentUserId || accountBusy}
+                        onClick={() => onDisableUser(item)}
+                      >
+                        {accountBusy ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
+                        封号
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+            <EmptyRow visible={!prompts.length && !loading} columns={7} />
+          </tbody>
+        </table>
+      </DataSection>
+    </div>
+  )
+}
+
 function InvitationsPage({
   organizations,
   selectedOrganization,
@@ -3531,6 +4003,99 @@ function ReconciliationAlertsTable({
         <EmptyRow visible={!alerts.length} columns={9} />
       </tbody>
     </table>
+  )
+}
+
+function CompliancePromptDetailDrawer({
+  item,
+  busy,
+  currentUserId,
+  onClose,
+  onReview,
+  onWarn,
+  onDisableUser,
+}) {
+  const actionBusy = busy.startsWith(`compliance:${item.id}`)
+  const accountBusy = busy === `user:${item.userId}`
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+        <header className="drawer-header">
+          <div>
+            <span className="eyebrow">Compliance Review</span>
+            <h2>提示词审查详情</h2>
+            <p>
+              {complianceSourceName(item.source)} · {item.sourceId}
+            </p>
+          </div>
+          <button className="icon-button" type="button" aria-label="关闭" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="drawer-summary-grid">
+          <div>
+            <span>账号</span>
+            <strong>{item.email ?? item.userId}</strong>
+          </div>
+          <div>
+            <span>归属</span>
+            <strong>{item.organizationName ?? item.organizationId}</strong>
+          </div>
+          <div>
+            <span>风险</span>
+            <strong>{item.riskTags.length ? `命中 ${item.riskTags.length} 类` : '未命中'}</strong>
+          </div>
+          <div>
+            <span>状态</span>
+            <strong>{item.userStatus}</strong>
+          </div>
+        </div>
+
+        <div className="drawer-actions">
+          <button className="row-button" type="button" disabled={actionBusy} onClick={() => onReview(item)}>
+            {actionBusy ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
+            标记已审查
+          </button>
+          <button className="row-button" type="button" disabled={actionBusy} onClick={() => onWarn(item)}>
+            <AlertTriangle size={14} />
+            发送警告
+          </button>
+          <button
+            className="row-button danger"
+            type="button"
+            disabled={item.userStatus !== 'active' || item.userId === currentUserId || accountBusy}
+            onClick={() => onDisableUser(item)}
+          >
+            {accountBusy ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
+            禁用账号
+          </button>
+        </div>
+
+        <DrawerSection title="风险标签" count={item.riskTags.length}>
+          <ComplianceRiskTags tags={item.riskTags} expanded />
+        </DrawerSection>
+
+        <DrawerSection title="提示词输入" count={item.promptText ? 1 : 0}>
+          <pre className="prompt-text-block">{item.promptText || '-'}</pre>
+        </DrawerSection>
+
+        <DrawerSection title="任务信息" count={5}>
+          <div className="key-value-grid">
+            <span>来源</span>
+            <strong>{complianceSourceName(item.source)}</strong>
+            <span>类型</span>
+            <strong>{item.kind}</strong>
+            <span>Provider</span>
+            <strong>{item.provider}</strong>
+            <span>创建时间</span>
+            <strong>{formatDate(item.createdAt)}</strong>
+            <span>Input keys</span>
+            <strong>{item.inputKeys.length ? item.inputKeys.join('、') : '-'}</strong>
+          </div>
+        </DrawerSection>
+      </aside>
+    </div>
   )
 }
 
@@ -6068,6 +6633,51 @@ function ReconciliationAlertActionModal({
   )
 }
 
+function CompliancePromptActionModal({ item, form, busy, onChange, onClose, onSubmit }) {
+  const actionLabel = form.action === 'warned' ? '发送警告' : '标记已审查'
+  const valid = form.reason.trim().length > 0
+  return (
+    <Modal title={actionLabel} onClose={onClose}>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <label>
+          <span>处理动作</span>
+          <select value={form.action} onChange={(event) => onChange({ ...form, action: event.target.value })}>
+            <option value="reviewed">标记已审查</option>
+            <option value="warned">发送警告</option>
+          </select>
+        </label>
+        <label>
+          <span>风险类别</span>
+          <select
+            value={form.category}
+            onChange={(event) => onChange({ ...form, category: event.target.value })}
+          >
+            <option value="">不指定</option>
+            {Object.entries(complianceCategoryLabels).map(([category, label]) => (
+              <option key={category} value={category}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>备注</span>
+          <textarea
+            value={form.reason}
+            onChange={(event) => onChange({ ...form, reason: event.target.value })}
+            placeholder="记录人工审查结论或警告原因"
+            required
+          />
+        </label>
+        <p className="modal-hint">
+          处理记录会写入审计日志；当前阶段不会自动发送站内信。目标账号：{item.email ?? item.userId}
+        </p>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel={actionLabel} />
+      </form>
+    </Modal>
+  )
+}
+
 function Modal({ title, children, onClose, wide = false }) {
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -6157,6 +6767,22 @@ function IdentityCell({ name, detail, compact = false }) {
   )
 }
 
+function ComplianceRiskTags({ tags, expanded = false }) {
+  if (!tags.length) return <span className="compliance-risk-empty">未命中</span>
+  return (
+    <div className={expanded ? 'compliance-risk-tags expanded' : 'compliance-risk-tags'}>
+      {tags.map((tag) => (
+        <span key={tag.category} className={`compliance-risk-tag ${tag.severity}`}>
+          {tag.label}
+          <small>
+            {complianceSeverityName(tag.severity)} · {tag.hits}
+          </small>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function StatusBadge({ status }) {
   return <span className={`status-badge ${status}`}>{statusName(status)}</span>
 }
@@ -6188,6 +6814,14 @@ function alertSeverityName(severity) {
 
 function AlertSeverityBadge({ severity }) {
   return <span className={`alert-severity-badge ${severity}`}>{alertSeverityName(severity)}</span>
+}
+
+function complianceSourceName(source) {
+  return complianceSourceLabels[source] ?? source
+}
+
+function complianceSeverityName(severity) {
+  return complianceSeverityLabels[severity] ?? severity
 }
 
 function reconciliationAlertStatusName(status) {
@@ -6307,6 +6941,7 @@ function tabCount(tabId, summary, derivedCounts = {}) {
     organizations: derivedCounts.enterpriseOrganizations,
     tenants: summary.organizations,
     memberships: summary.memberships,
+    compliance: '',
     invitations: '',
     billing: summary.billingAccounts,
     'reconciliation-alerts': summary.reconciliationAlerts,

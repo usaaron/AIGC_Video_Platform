@@ -7,6 +7,7 @@ import type { AccountManagementService } from '../accountManagement/service.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
 import { registerAdminAuditRoutes } from './adminAudit.js'
 import { registerAdminBillingRoutes } from './adminBilling.js'
+import { registerAdminComplianceRoutes } from './adminCompliance.js'
 import { registerAdminOrganizationsRoutes } from './adminOrganizations.js'
 import { registerAdminSessionsRoutes } from './adminSessions.js'
 import { registerAdminUsageRoutes } from './adminUsage.js'
@@ -44,6 +45,7 @@ export async function registerAdminRoutes(
   registerAdminSessionsRoutes(app, context)
   registerAdminAuditRoutes(app, context)
   registerAdminUsageRoutes(app, context)
+  registerAdminComplianceRoutes(app, context)
 }
 
 function registerAdminOverviewRoutes(app: FastifyInstance, context: AdminRouteContext): void {

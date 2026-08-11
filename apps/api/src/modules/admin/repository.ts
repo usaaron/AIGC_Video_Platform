@@ -10,6 +10,13 @@ import type {
   AdminBillingReconciliationAlertList,
   AdminBillingPaymentReconciliationItem,
   AdminBillingPaymentReconciliationList,
+  AdminCompliancePromptActionInput,
+  AdminCompliancePromptItem,
+  AdminCompliancePromptList,
+  AdminCompliancePromptSource,
+  AdminComplianceRiskCategory,
+  AdminComplianceRiskTag,
+  AdminComplianceSeverity,
   AdminMembership,
   AdminMembershipDetail,
   AdminMembershipList,
@@ -65,6 +72,8 @@ export type AdminListOptions = {
   paymentStatus?: 'processed' | 'ignored' | 'failed' | undefined
   alertStatus?: BillingReconciliationAlertStatus | undefined
   alertSeverity?: BillingReconciliationAlertSeverity | undefined
+  source?: AdminCompliancePromptSource | undefined
+  sample?: boolean | undefined
   limit: number
   offset: number
 }
@@ -743,6 +752,72 @@ export class AdminRepository {
     return listResult(rows.rows.map(toAdminAuditLogEntry), total.rows[0]?.total ?? 0, paging)
   }
 
+  async listCompliancePromptItems(options: AdminListOptions): Promise<AdminCompliancePromptList> {
+    const filter = buildCompliancePromptFilter(options)
+    const total = await this.database.query<{ total: number }>(
+      `
+      SELECT count(*)::int AS total
+      FROM (${compliancePromptUnionSql()}) p
+      ${filter.where}
+      `,
+      filter.params,
+    )
+    const paging = normalizePaging(options)
+    const orderBy = options.sample ? 'ORDER BY random()' : 'ORDER BY p.created_at DESC, p.source_id DESC'
+    const rows = await this.database.query<AdminCompliancePromptRow>(
+      `
+      SELECT *
+      FROM (${compliancePromptUnionSql()}) p
+      ${filter.where}
+      ${orderBy}
+      LIMIT $${filter.params.length + 1}
+      OFFSET $${filter.params.length + 2}
+      `,
+      [...filter.params, paging.limit, options.sample ? 0 : paging.offset],
+    )
+    return {
+      ...listResult(rows.rows.map(toAdminCompliancePromptItem), total.rows[0]?.total ?? 0, {
+        limit: paging.limit,
+        offset: options.sample ? 0 : paging.offset,
+      }),
+      generatedAt: new Date().toISOString(),
+    }
+  }
+
+  async recordCompliancePromptAction(
+    principal: Principal,
+    source: AdminCompliancePromptSource,
+    sourceId: string,
+    input: AdminCompliancePromptActionInput,
+    metadata?: SessionMetadata,
+  ): Promise<AdminCompliancePromptItem | null> {
+    return this.database.transaction(async (client) => {
+      const prompt = await findCompliancePromptBySource(client, source, sourceId)
+      if (!prompt) return null
+      await insertAuditLog(client, {
+        tenantId: prompt.tenant_id,
+        userId: prompt.user_id,
+        actorUserId: principal.userId,
+        action:
+          input.action === 'warned'
+            ? 'compliance.prompt.warning_issued'
+            : 'compliance.prompt.reviewed',
+        resourceType: 'compliance_prompt',
+        resourceId: prompt.source_id,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: {
+          scope: 'admin_compliance',
+          source,
+          category: input.category ?? null,
+          reason: input.reason,
+          promptPreview: promptPreview(promptTextFromComplianceRow(prompt)),
+        },
+      })
+      return toAdminCompliancePromptItem(prompt)
+    })
+  }
+
   async setAccountStatus(
     principal: Principal,
     userId: string,
@@ -1132,6 +1207,30 @@ type AdminAuditLogEntryRow = {
   created_at: Date | string
 }
 
+type AdminCompliancePromptRow = {
+  source: AdminCompliancePromptSource
+  source_id: string
+  client_request_id: string
+  project_id: string
+  tenant_id: string
+  tenant_name: string | null
+  organization_type: AdminTenant['organizationType'] | null
+  user_id: string
+  email: string | null
+  name: string
+  user_status: AdminAccountStatus
+  membership_id: string | null
+  kind: string
+  label: string
+  provider: string
+  status: string
+  prompt: string
+  negative_prompt: string | null
+  input: Record<string, unknown> | string
+  created_at: Date | string
+  updated_at: Date | string
+}
+
 type SqlCondition = {
   clause: string
   params: unknown[]
@@ -1510,6 +1609,30 @@ function buildAuditFilter(options: AdminListOptions): Filter {
   return builder.build()
 }
 
+function buildCompliancePromptFilter(options: AdminListOptions): Filter {
+  const builder = new FilterBuilder()
+  if (options.source) builder.add('p.source = ?', options.source)
+  if (options.tenantId) builder.add('p.tenant_id = ?', options.tenantId)
+  if (options.userId) builder.add('p.user_id = ?', options.userId)
+  if (options.q?.trim()) {
+    builder.add(
+      "(lower(p.source_id) LIKE ? OR lower(p.client_request_id) LIKE ? OR lower(p.project_id) LIKE ? OR lower(p.user_id) LIKE ? OR lower(COALESCE(p.email, '')) LIKE ? OR lower(p.name) LIKE ? OR lower(COALESCE(p.tenant_name, '')) LIKE ? OR lower(p.label) LIKE ? OR lower(p.prompt) LIKE ? OR lower(COALESCE(p.negative_prompt, '')) LIKE ? OR lower(p.input::text) LIKE ?)",
+      search(options.q),
+      search(options.q),
+      search(options.q),
+      search(options.q),
+      search(options.q),
+      search(options.q),
+      search(options.q),
+      search(options.q),
+      search(options.q),
+      search(options.q),
+      search(options.q),
+    )
+  }
+  return builder.build()
+}
+
 class FilterBuilder {
   private readonly clauses: string[] = []
   private readonly params: unknown[] = []
@@ -1561,6 +1684,98 @@ async function readAdminUser(client: Queryable, userId: string): Promise<AdminUs
   const row = result.rows[0]
   if (!row) throw new Error(`Could not read admin user ${userId}`)
   return toAdminUser(row)
+}
+
+async function findCompliancePromptBySource(
+  client: Queryable,
+  source: AdminCompliancePromptSource,
+  sourceId: string,
+): Promise<AdminCompliancePromptRow | null> {
+  const result = await client.query<AdminCompliancePromptRow>(
+    `
+    SELECT *
+    FROM (${compliancePromptUnionSql()}) p
+    WHERE p.source = $1
+      AND p.source_id = $2
+    LIMIT 1
+    `,
+    [source, sourceId],
+  )
+  return result.rows[0] ?? null
+}
+
+function compliancePromptUnionSql(): string {
+  return `
+    SELECT
+      'generation_task'::text AS source,
+      gt.id AS source_id,
+      gt.client_request_id,
+      gt.project_id,
+      gt.tenant_id,
+      t.name AS tenant_name,
+      t.organization_type,
+      gt.user_id,
+      ai.email,
+      u.display_name AS name,
+      u.status AS user_status,
+      gt.membership_id,
+      gt.kind::text AS kind,
+      gt.label,
+      gt.provider,
+      gt.status::text AS status,
+      gt.prompt,
+      gt.negative_prompt,
+      jsonb_build_object(
+        'prompt', gt.prompt,
+        'negativePrompt', gt.negative_prompt,
+        'metadata', gt.metadata
+      ) AS input,
+      gt.created_at,
+      gt.updated_at
+    FROM generation_tasks gt
+    JOIN users u ON u.id = gt.user_id
+    JOIN tenants t ON t.id = gt.tenant_id
+    LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
+    WHERE gt.prompt <> ''
+      OR gt.negative_prompt <> ''
+
+    UNION ALL
+
+    SELECT
+      'ai_job'::text AS source,
+      aj.id AS source_id,
+      aj.client_request_id,
+      aj.project_id,
+      aj.tenant_id,
+      t.name AS tenant_name,
+      t.organization_type,
+      aj.user_id,
+      ai.email,
+      u.display_name AS name,
+      u.status AS user_status,
+      aj.membership_id,
+      aj.kind::text AS kind,
+      aj.label,
+      aj.provider,
+      aj.status::text AS status,
+      COALESCE(
+        aj.input->>'prompt',
+        aj.input->>'text',
+        aj.input->>'content',
+        aj.input->>'query',
+        aj.input->>'userInput',
+        ''
+      ) AS prompt,
+      NULL::text AS negative_prompt,
+      aj.input,
+      aj.created_at,
+      aj.updated_at
+    FROM ai_jobs aj
+    JOIN users u ON u.id = aj.user_id
+    JOIN tenants t ON t.id = aj.tenant_id
+    LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
+    WHERE aj.input <> '{}'::jsonb
+  `
 }
 
 function membershipSelectSql(): string {
@@ -1867,6 +2082,190 @@ function toAdminAuditLogEntry(row: AdminAuditLogEntryRow): AdminAuditLogEntry {
     metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
     createdAt: toIso(row.created_at),
   }
+}
+
+function toAdminCompliancePromptItem(row: AdminCompliancePromptRow): AdminCompliancePromptItem {
+  const promptText = promptTextFromComplianceRow(row)
+  const riskTags = classifyComplianceRisk(promptText)
+  return {
+    id: `${row.source}:${row.source_id}`,
+    source: row.source,
+    sourceId: row.source_id,
+    clientRequestId: row.client_request_id,
+    projectId: row.project_id,
+    tenantId: row.tenant_id,
+    tenantName: row.tenant_name,
+    organizationId: row.tenant_id,
+    organizationName: row.tenant_name,
+    organizationType: row.organization_type ?? undefined,
+    userId: row.user_id,
+    email: row.email,
+    name: row.name,
+    userStatus: row.user_status,
+    membershipId: row.membership_id,
+    kind: row.kind,
+    label: row.label,
+    provider: row.provider,
+    status: row.status,
+    promptPreview: promptPreview(promptText),
+    promptText,
+    inputKeys: Object.keys(jsonRecord(row.input)).slice(0, 30),
+    riskTags,
+    riskScore: complianceRiskScore(riskTags),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  }
+}
+
+function promptTextFromComplianceRow(row: AdminCompliancePromptRow): string {
+  const input = jsonRecord(row.input)
+  const promptParts = [
+    row.prompt,
+    row.negative_prompt ? `Negative: ${row.negative_prompt}` : '',
+    ...extractPromptStrings(input),
+  ]
+  return truncateText(uniqueNonEmpty(promptParts).join('\n\n'), 4_000)
+}
+
+function extractPromptStrings(value: unknown, path = '', depth = 0): string[] {
+  if (depth > 6 || value === null || value === undefined) return []
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed || !isPromptLikePath(path)) return []
+    return [truncateText(trimmed, 2_000)]
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => extractPromptStrings(item, `${path}.${index}`, depth + 1))
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) =>
+      extractPromptStrings(item, path ? `${path}.${key}` : key, depth + 1),
+    )
+  }
+  return []
+}
+
+function isPromptLikePath(path: string): boolean {
+  const normalized = path.toLowerCase()
+  return [
+    'prompt',
+    'negativeprompt',
+    'text',
+    'content',
+    'message',
+    'messages',
+    'query',
+    'input',
+    'userinput',
+    'description',
+    'script',
+  ].some((key) => normalized.includes(key))
+}
+
+function classifyComplianceRisk(promptText: string): AdminComplianceRiskTag[] {
+  const normalized = promptText.toLowerCase()
+  return complianceRiskRules
+    .map((rule) => {
+      const hits = rule.terms.filter((term) => normalized.includes(term.toLowerCase())).length
+      return hits > 0
+        ? {
+            category: rule.category,
+            label: rule.label,
+            severity: rule.severity,
+            hits,
+          }
+        : null
+    })
+    .filter((tag): tag is AdminComplianceRiskTag => Boolean(tag))
+}
+
+function complianceRiskScore(tags: AdminComplianceRiskTag[]): number {
+  const severityWeight: Record<AdminComplianceSeverity, number> = {
+    low: 10,
+    medium: 30,
+    high: 70,
+    critical: 100,
+  }
+  return tags.reduce((score, tag) => Math.max(score, severityWeight[tag.severity] + tag.hits), 0)
+}
+
+const complianceRiskRules: Array<{
+  category: AdminComplianceRiskCategory
+  label: string
+  severity: AdminComplianceSeverity
+  terms: string[]
+}> = [
+  {
+    category: 'terrorism',
+    label: '涉恐/爆炸物',
+    severity: 'critical',
+    terms: ['恐怖袭击', '恐怖组织', '炸弹', '爆炸物', '自制炸药', '劫持', '人质', '袭击机场', 'jihad', 'terrorist'],
+  },
+  {
+    category: 'sexual_content',
+    label: '涉黄/性内容',
+    severity: 'high',
+    terms: ['色情', '裸露', '裸体', '性行为', '成人视频', '未成年性', '强奸', '性侵', 'porn', 'rape'],
+  },
+  {
+    category: 'graphic_violence',
+    label: '极端血腥暴力',
+    severity: 'high',
+    terms: ['血腥', '肢解', '虐杀', '斩首', '内脏', '残肢', '酷刑', '爆头', 'gore', 'beheading'],
+  },
+  {
+    category: 'political_sensitive',
+    label: '政治敏感',
+    severity: 'medium',
+    terms: ['政治敏感', '敏感政治', '政变', '颠覆', '分裂国家', '台独', '港独', '藏独', '疆独'],
+  },
+  {
+    category: 'extremism',
+    label: '极端主义/仇恨',
+    severity: 'high',
+    terms: ['极端主义', '纳粹', '种族清洗', '仇恨宣言', '大屠杀', 'genocide', 'nazi'],
+  },
+  {
+    category: 'self_harm',
+    label: '自伤自杀',
+    severity: 'medium',
+    terms: ['自杀', '自残', '割腕', '上吊', '服毒', 'suicide', 'self-harm'],
+  },
+]
+
+function promptPreview(value: string): string {
+  return truncateText(value.replace(/\s+/g, ' ').trim(), 500)
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  const seen = new Set<string>()
+  const results: string[] = []
+  for (const value of values) {
+    const trimmed = value.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    results.push(trimmed)
+  }
+  return results
+}
+
+function truncateText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> {
+  if (!value) return {}
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {}
+    } catch {
+      return {}
+    }
+  }
+  return typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
 
 function search(value: string): string {

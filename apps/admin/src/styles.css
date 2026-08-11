@@ -317,6 +317,145 @@ p {
   font-size: 11px;
 }
 
+.server-filter-row input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.compliance-page {
+  display: grid;
+  gap: 14px;
+}
+
+.compliance-controls .server-filter-row label {
+  min-width: 210px;
+}
+
+.compliance-table .prompt-preview {
+  max-width: 420px;
+}
+
+.prompt-preview,
+.source-stack {
+  display: grid;
+  gap: 3px;
+}
+
+.prompt-preview strong,
+.source-stack strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-preview span,
+.source-stack small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.prompt-preview span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.compliance-risk-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.compliance-risk-tags.expanded {
+  gap: 8px;
+}
+
+.compliance-risk-tag,
+.compliance-risk-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid #d8ded1;
+  border-radius: 999px;
+  background: #f4f6f1;
+  color: #5f685c;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.compliance-risk-tag small {
+  color: inherit;
+  font-size: 10px;
+  opacity: 0.72;
+}
+
+.compliance-risk-tag.medium {
+  border-color: #ead5a8;
+  background: #fff7e6;
+  color: #7a4f0d;
+}
+
+.compliance-risk-tag.high {
+  border-color: #efc4bc;
+  background: #fff0ed;
+  color: #91372d;
+}
+
+.compliance-risk-tag.critical {
+  border-color: #d58d83;
+  background: #f8ddd8;
+  color: #7b251d;
+}
+
+.prompt-text-block {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--soft-line);
+  border-radius: 7px;
+  background: #fbfcf8;
+  color: #2d312b;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.key-value-grid {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: start;
+}
+
+.key-value-grid span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.key-value-grid strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 12px;
+}
+
 .server-pagination-row {
   justify-content: space-between;
   padding-top: 8px;

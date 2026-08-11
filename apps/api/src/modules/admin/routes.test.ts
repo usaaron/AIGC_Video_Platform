@@ -246,6 +246,116 @@ describe('admin console api', { timeout: 30_000 }, () => {
     })
   })
 
+  it('lets only platform admins review prompt compliance samples and record warning actions', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const member = await login('member@seqora.local', 'MemberPassword123!')
+    const memberCookie = cookieValue(member)
+    const admin = await login('admin@seqora.local', 'Admin123!')
+    const adminCookie = cookieValue(admin)
+    const superAdmin = await login('superadmin@seqora.local', 'SuperAdmin123!')
+    const superAdminCookie = cookieValue(superAdmin)
+
+    const project = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: { cookie: memberCookie },
+      payload: {
+        name: 'Compliance Review Project',
+        contentType: 'short-drama',
+        aspectRatio: '9:16',
+      },
+    })
+    expect(project.statusCode).toBe(201)
+
+    const task = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks',
+      headers: { cookie: memberCookie },
+      payload: {
+        clientRequestId: 'compliance-review-risk-prompt',
+        projectId: project.json().id,
+        kind: 'image',
+        label: 'Compliance Review Prompt',
+        prompt: 'compliance-review-risk-prompt 血腥 violence test',
+        provider: 'local',
+        estimatedCredits: 1,
+      },
+    })
+    expect(task.statusCode).toBe(202)
+
+    const ordinaryAdmin = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/compliance/prompts?q=compliance-review-risk-prompt&limit=10',
+      headers: { cookie: adminCookie },
+    })
+    expect(ordinaryAdmin.statusCode).toBe(403)
+    expect(ordinaryAdmin.json()).toMatchObject({
+      error: { code: 'COMPLIANCE_REVIEW_REQUIRES_PLATFORM_ADMIN' },
+    })
+
+    const list = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/compliance/prompts?q=compliance-review-risk-prompt&limit=10',
+      headers: { cookie: superAdminCookie },
+    })
+    expect(list.statusCode).toBe(200)
+    expect(list.json()).toMatchObject({
+      items: [
+        expect.objectContaining({
+          source: 'generation_task',
+          userId: 'user-member',
+          promptPreview: expect.stringContaining('compliance-review-risk-prompt'),
+          riskTags: expect.arrayContaining([
+            expect.objectContaining({ category: 'graphic_violence', severity: 'high' }),
+          ]),
+        }),
+      ],
+      meta: expect.objectContaining({ total: 1, limit: 10, offset: 0 }),
+      generatedAt: expect.any(String),
+    })
+
+    const sample = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/compliance/prompts?q=compliance-review-risk-prompt&sample=true&limit=10',
+      headers: { cookie: superAdminCookie },
+    })
+    expect(sample.statusCode).toBe(200)
+    expect(sample.json().items).toHaveLength(1)
+
+    const item = list.json().items[0] as { source: string; sourceId: string }
+    const warned = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/compliance/prompts/${item.source}/${item.sourceId}/actions`,
+      headers: { cookie: superAdminCookie },
+      payload: {
+        action: 'warned',
+        reason: 'Manual compliance warning',
+        category: 'graphic_violence',
+      },
+    })
+    expect(warned.statusCode).toBe(200)
+
+    const audit = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/audit-logs?action=compliance.prompt.warning_issued&resourceType=compliance_prompt',
+      headers: { cookie: superAdminCookie },
+    })
+    expect(audit.statusCode).toBe(200)
+    expect(audit.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'compliance.prompt.warning_issued',
+          resourceId: item.sourceId,
+          actorUserId: 'user-super-admin',
+          metadata: expect.objectContaining({
+            reason: 'Manual compliance warning',
+            category: 'graphic_violence',
+          }),
+        }),
+      ]),
+    )
+  })
+
   it('reads admin and observability summaries from Postgres instead of JSON runtime state', async () => {
     const store = new AppStore(null)
     app = await buildApp({ config: localAuthConfig(), store, startWorker: false })

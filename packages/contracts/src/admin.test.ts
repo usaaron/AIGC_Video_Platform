@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   adminConsoleSchema,
+  adminCompliancePromptActionSchema,
+  adminCompliancePromptListSchema,
   adminMembershipSchema,
   adminPasswordResetRequirementUpdateSchema,
   adminSetUserPasswordSchema,
@@ -209,6 +211,59 @@ describe('admin console contracts', () => {
       plan: 'member',
       grantMonthlyCredits: true,
     })
+    expect(
+      adminCompliancePromptActionSchema.parse({
+        action: 'warned',
+        reason: 'Manual compliance warning',
+        category: 'graphic_violence',
+      }),
+    ).toMatchObject({ action: 'warned', category: 'graphic_violence' })
+  })
+
+  it('accepts compliance prompt review lists', () => {
+    expect(
+      adminCompliancePromptListSchema.parse({
+        items: [
+          {
+            id: 'generation_task:task-1',
+            source: 'generation_task',
+            sourceId: 'task-1',
+            clientRequestId: 'request-1',
+            projectId: 'project-1',
+            tenantId: 'tenant-system',
+            tenantName: 'System Organization',
+            organizationId: 'tenant-system',
+            organizationName: 'System Organization',
+            organizationType: 'system',
+            userId: 'user-admin',
+            email: 'admin@example.com',
+            name: 'Platform Admin',
+            userStatus: 'active',
+            membershipId: 'membership-admin',
+            kind: 'image',
+            label: 'Prompt Review',
+            provider: 'local',
+            status: 'queued',
+            promptPreview: 'Prompt preview',
+            promptText: 'Prompt preview',
+            inputKeys: ['prompt'],
+            riskTags: [
+              {
+                category: 'graphic_violence',
+                label: '极端血腥暴力',
+                severity: 'high',
+                hits: 1,
+              },
+            ],
+            riskScore: 71,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        meta,
+        generatedAt: now,
+      }),
+    ).toMatchObject({ items: [{ source: 'generation_task', riskScore: 71 }] })
   })
 
   it('accepts organization billing summaries', () => {

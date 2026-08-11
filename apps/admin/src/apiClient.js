@@ -1,6 +1,8 @@
 import {
   adminAuditLogEntryListSchema,
   adminBillingReconciliationAlertSchema,
+  adminCompliancePromptItemSchema,
+  adminCompliancePromptListSchema,
   adminConsoleSchema,
   createdTenantInvitationSchema,
   organizationBillingSummarySchema,
@@ -114,6 +116,17 @@ export const api = {
     request(`/admin/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
   adminAuditLogs: async (params = {}) =>
     adminAuditLogEntryListSchema.parse(await request(`/admin/audit-logs${buildQueryString(params)}`)),
+  adminCompliancePrompts: async (params = {}) =>
+    adminCompliancePromptListSchema.parse(
+      await request(`/admin/compliance/prompts${buildQueryString(params)}`),
+    ),
+  recordCompliancePromptAction: async (source, sourceId, input) =>
+    adminCompliancePromptItemSchema.parse(
+      await request(
+        `/admin/compliance/prompts/${encodeURIComponent(source)}/${encodeURIComponent(sourceId)}/actions`,
+        json('POST', input),
+      ),
+    ),
   grantCredits: (input) => request('/admin/billing/grants', json('POST', input)),
   adjustCredits: (membershipId, input) =>
     request(

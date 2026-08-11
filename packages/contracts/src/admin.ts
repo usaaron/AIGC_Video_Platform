@@ -144,6 +144,66 @@ export const adminAuditLogEntrySchema = z.object({
   createdAt: z.string().datetime(),
 })
 
+export const adminCompliancePromptSourceSchema = z.enum(['generation_task', 'ai_job'])
+export const adminComplianceRiskCategorySchema = z.enum([
+  'political_sensitive',
+  'terrorism',
+  'sexual_content',
+  'graphic_violence',
+  'extremism',
+  'self_harm',
+  'other',
+])
+export const adminComplianceSeveritySchema = z.enum(['low', 'medium', 'high', 'critical'])
+
+export const adminComplianceRiskTagSchema = z.object({
+  category: adminComplianceRiskCategorySchema,
+  label: z.string().min(1).max(40),
+  severity: adminComplianceSeveritySchema,
+  hits: z.number().int().nonnegative(),
+})
+
+export const adminCompliancePromptItemSchema = z.object({
+  id: z.string().min(1),
+  source: adminCompliancePromptSourceSchema,
+  sourceId: z.string().min(1),
+  clientRequestId: z.string().min(1),
+  projectId: z.string().min(1),
+  tenantId: z.string().min(1),
+  tenantName: z.string().min(1).max(80).nullable(),
+  organizationId: z.string().min(1),
+  organizationName: z.string().min(1).max(80).nullable(),
+  organizationType: organizationTypeSchema.optional(),
+  userId: z.string().min(1),
+  email: z.string().email().nullable(),
+  name: z.string().min(1).max(80),
+  userStatus: adminAccountStatusSchema,
+  membershipId: z.string().min(1).nullable(),
+  kind: z.string().min(1).max(128),
+  label: z.string().min(1).max(200),
+  provider: z.string().min(1).max(64),
+  status: z.string().min(1).max(40),
+  promptPreview: z.string().max(500),
+  promptText: z.string().max(4_000),
+  inputKeys: z.array(z.string().min(1).max(120)),
+  riskTags: z.array(adminComplianceRiskTagSchema),
+  riskScore: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
+
+export const adminCompliancePromptListSchema = z.object({
+  items: z.array(adminCompliancePromptItemSchema),
+  meta: adminListMetaSchema,
+  generatedAt: z.string().datetime(),
+})
+
+export const adminCompliancePromptActionSchema = z.object({
+  action: z.enum(['reviewed', 'warned']),
+  reason: z.string().trim().min(1).max(500),
+  category: adminComplianceRiskCategorySchema.optional(),
+})
+
 export const adminBillingPaymentReconciliationItemSchema = z.object({
   id: z.string().min(1),
   provider: z.string().min(1),
@@ -262,6 +322,13 @@ export type AdminBillingReconciliationAlert = z.infer<typeof adminBillingReconci
 export type AdminBillingReconciliationAlertList = z.infer<typeof adminBillingReconciliationAlertListSchema>
 export type AdminSession = z.infer<typeof adminSessionSchema>
 export type AdminAuditLogEntry = z.infer<typeof adminAuditLogEntrySchema>
+export type AdminCompliancePromptSource = z.infer<typeof adminCompliancePromptSourceSchema>
+export type AdminComplianceRiskCategory = z.infer<typeof adminComplianceRiskCategorySchema>
+export type AdminComplianceSeverity = z.infer<typeof adminComplianceSeveritySchema>
+export type AdminComplianceRiskTag = z.infer<typeof adminComplianceRiskTagSchema>
+export type AdminCompliancePromptItem = z.infer<typeof adminCompliancePromptItemSchema>
+export type AdminCompliancePromptList = z.infer<typeof adminCompliancePromptListSchema>
+export type AdminCompliancePromptActionInput = z.infer<typeof adminCompliancePromptActionSchema>
 export type AdminUserList = z.infer<typeof adminUserListSchema>
 export type AdminTenantList = z.infer<typeof adminTenantListSchema>
 export type AdminOrganizationList = z.infer<typeof adminOrganizationListSchema>

@@ -1,4 +1,11 @@
-import { adminSessionStatusSchema, roleSchema, ROLES, type AdminOverview, type Principal } from '@seqora/contracts'
+import {
+  adminCompliancePromptSourceSchema,
+  adminSessionStatusSchema,
+  roleSchema,
+  ROLES,
+  type AdminOverview,
+  type Principal,
+} from '@seqora/contracts'
 import type { FastifyReply } from 'fastify'
 import { z } from 'zod'
 import { parseIssuedSessionToken } from '../../core/auth/sessionToken.js'
@@ -49,6 +56,23 @@ const consoleQuery = listQuery.extend({
   sessionStatus: adminSessionStatusSchema.optional(),
 })
 
+const compliancePromptQuery = listQuery
+  .omit({
+    status: true,
+    role: true,
+    type: true,
+    action: true,
+    resourceType: true,
+    actorUserId: true,
+    paymentStatus: true,
+    alertStatus: true,
+    alertSeverity: true,
+  })
+  .extend({
+    source: adminCompliancePromptSourceSchema.optional(),
+    sample: z.preprocess((value) => value === true || value === 'true' || value === '1', z.boolean()),
+  })
+
 export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value)
   if (!result.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(result.error))
@@ -96,6 +120,10 @@ export function parseSessionListQuery(value: unknown): AdminListOptions {
 
 export function parseConsoleQuery(value: unknown): AdminListOptions {
   return parse(consoleQuery, value)
+}
+
+export function parseCompliancePromptQuery(value: unknown): AdminListOptions {
+  return parse(compliancePromptQuery, value)
 }
 
 export function scopeAdminOptions(principal: Principal, options: AdminListOptions): AdminListOptions {
