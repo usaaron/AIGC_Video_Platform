@@ -321,6 +321,34 @@ describe('ProjectService director beat splitting', () => {
     expect(shots[2]?.prompt).toContain('动作3：守卫停步转头')
   })
 
+  it('automatically batches one oversized script block instead of returning one shot', async () => {
+    const narrative = Array.from(
+      { length: 140 },
+      (_, index) =>
+        `第${index + 1}个剧情节拍中，林砚改变站位并观察对手，围观者同步后退，关键物品的状态随冲突发生变化`,
+    ).join('。')
+    const script =
+      `场次：S01｜剧情：${narrative}。｜场景：雨夜旧街。｜角色：林砚；围观者。` +
+      '｜对白：[内心独白]林砚：不能再等。｜风格：影视CG。｜构图：竖屏中景。'
+    const repository = {
+      workspace: vi.fn(async () => ({ project: { contentType: 'short-drama', script }, assets: [] })),
+      replaceShots: vi.fn(async (_projectId, shots) => shots),
+    } as unknown as ProjectRepository
+    const service = new ProjectService(repository)
+
+    const shots = await service.generateShots(
+      'project-1',
+      { mode: 'scene', maxShots: 120, episodeDurationSeconds: 60 },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(shots.length).toBeGreaterThan(8)
+    expect(shots.length).toBeLessThanOrEqual(120)
+    expect(shots[0]?.prompt).toContain('第1个剧情节拍')
+    expect(shots.at(-1)?.prompt).toContain('第140个剧情节拍')
+    expect(repository.replaceShots).toHaveBeenCalledOnce()
+  })
+
   it('keeps one video shot per scene when multiple scenes are available', async () => {
     const script = [
       '场次：S01｜剧情：岚星进入观景桥。｜场景：观景桥。｜角色：岚星。｜动作：动作1：岚星推门；动作2：岚星停步。｜对白：无台词。',
@@ -539,6 +567,26 @@ describe('splitScriptParagraphs', () => {
         forceEpisodeBreakBefore: false,
       },
     ])
+  })
+
+  it('recognizes markdown episode and scene headings as batch boundaries', () => {
+    const script = [
+      '**第 1 集**',
+      '### **场次：S01**',
+      '**剧情：林砚进入旧街。**',
+      '**动作：林砚停步观察。**',
+      '**第 2 集**',
+      '### **场次：S02**',
+      '**剧情：追兵封住出口。**',
+      '**动作：追兵举起武器。**',
+    ].join('\n')
+
+    const paragraphs = splitScriptParagraphs(script)
+
+    expect(paragraphs).toHaveLength(2)
+    expect(paragraphs.map((paragraph) => paragraph.forceEpisodeBreakBefore)).toEqual([true, true])
+    expect(paragraphs[0]?.text).toContain('场次：S01')
+    expect(paragraphs[1]?.text).toContain('场次：S02')
   })
 })
 

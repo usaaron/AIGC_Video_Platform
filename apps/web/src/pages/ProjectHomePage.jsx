@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import { useState } from 'react'
+import { BrandMark } from '../components/BrandMark'
 import { IconButton, PageHeader } from '../components/ui'
 
 export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete }) {
@@ -56,6 +57,8 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
       setBusyId(null)
     }
   }
+
+  if (!projects.length) return <ProjectEmptyWelcome onCreate={onCreate} />
 
   return (
     <div className="page project-home-page">
@@ -145,6 +148,82 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
           </button>
         </div>
       </section>
+    </div>
+  )
+}
+
+export function ProjectEmptyWelcome({ onCreate }) {
+  return (
+    <div className="page project-empty-welcome">
+      <section className="project-welcome-stage" aria-label="新项目欢迎页">
+        <div className="project-welcome-copy">
+          <div className="project-welcome-kicker">
+            <BrandMark size={15} spin />
+            <strong>序幕 TV</strong>
+            <i />
+            <span>创作工作台</span>
+          </div>
+          <span className="project-welcome-sequence">PROJECT / 001</span>
+          <h1>
+            欢迎来到序幕 TV
+            <em>让第一幕，从这里发生。</em>
+          </h1>
+          <p>从一个名字开始，把脑海里的第一幕留在这里。</p>
+          <button className="project-welcome-primary" type="button" onClick={onCreate}>
+            <Plus size={17} />
+            <span>创建第一个项目</span>
+            <ArrowRight size={16} />
+          </button>
+        </div>
+
+        <div className="project-welcome-reel" aria-hidden="true">
+          <header>
+            <span>SEQORA / OPENING</span>
+            <i>
+              <b /> READY
+            </i>
+          </header>
+          <div className="project-welcome-viewfinder">
+            <span className="welcome-corner top-left" />
+            <span className="welcome-corner top-right" />
+            <span className="welcome-corner bottom-left" />
+            <span className="welcome-corner bottom-right" />
+            <div className="welcome-frame-index">
+              <span>SCENE 01</span>
+              <small>00:00:00</small>
+            </div>
+            <div className="welcome-focus-mark">
+              <BrandMark size={52} spin />
+            </div>
+            <blockquote>
+              “序幕起，
+              <br />
+              好戏生。”
+            </blockquote>
+            <span className="welcome-scan-line" />
+          </div>
+          <div className="project-welcome-timeline">
+            <div className="welcome-timecode">
+              <span>00</span>
+              <span>01</span>
+              <span>02</span>
+              <span>03</span>
+              <span>04</span>
+            </div>
+            <div className="welcome-timeline-track">
+              <span />
+              <span />
+              <span />
+              <i />
+            </div>
+          </div>
+        </div>
+      </section>
+      <footer className="project-welcome-footer">
+        <span>NEW PROJECT</span>
+        <i />
+        <span>READY FOR THE FIRST SCENE</span>
+      </footer>
     </div>
   )
 }

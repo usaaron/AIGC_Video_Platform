@@ -486,7 +486,7 @@ export class ProjectService {
     const source = workspace.project.script.trim()
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本')
 
-    const paragraphs = splitScriptParagraphs(source)
+    const paragraphs = expandLongScriptParagraphs(splitScriptParagraphs(source))
     const isWebSeries = workspace.project.contentType === 'short-drama'
     const shots =
       input.mode === 'beat'
@@ -1832,9 +1832,9 @@ export function splitScriptParagraphs(script: string): ScriptParagraph[] {
   const lines = script
     .replaceAll(FORCE_EPISODE_BREAK_MARKER, `\n${FORCE_EPISODE_BREAK_MARKER}\n`)
     .replaceAll(FORCE_SHOT_BREAK_MARKER, `\n${FORCE_SHOT_BREAK_MARKER}\n`)
-    .replace(/｜\s*(?=场次\s*[：:])/gu, '\n')
+    .replace(/(?:｜|\|)\s*(?=(?:#{1,6}\s*|\*{1,2})?场次\s*[：:])/gu, '\n')
     .split(/\n+/)
-    .map((line) => line.trim())
+    .map(normalizeScriptLine)
     .filter(Boolean)
   const paragraphs: ScriptParagraph[] = []
   let forceEpisodeBreakBefore = false
@@ -1859,7 +1859,13 @@ export function splitScriptParagraphs(script: string): ScriptParagraph[] {
       continue
     }
 
-    if (/^场次\s*[：:]/u.test(line)) {
+    if (isEpisodeHeaderLine(line)) {
+      flushStructuredScene()
+      forceEpisodeBreakBefore = true
+      continue
+    }
+
+    if (isSceneHeaderLine(line)) {
       flushStructuredScene()
       structuredScene = {
         text: line,
@@ -1896,11 +1902,127 @@ export function splitScriptParagraphs(script: string): ScriptParagraph[] {
   return paragraphs
 }
 
+function normalizeScriptLine(line: string): string {
+  return line
+    .trim()
+    .replace(/^#{1,6}\s*/u, '')
+    .replace(/^[-+>]\s+(?=(?:\*{1,2})?(?:场次|场景|第\s*\d+\s*[集话场幕]|(?:E\d+[-_])?S\d+))/iu, '')
+    .trim()
+}
+
+function normalizedScriptHeader(line: string): string {
+  return normalizeScriptLine(line)
+    .replace(/[*_`【】[\]]/gu, '')
+    .trim()
+}
+
+function isEpisodeHeaderLine(line: string): boolean {
+  const header = normalizedScriptHeader(line)
+  if (/^E\d+[-_]S\d+/iu.test(header)) return false
+  return /^(?:第\s*[一二三四五六七八九十百千0-9]+\s*[集话]|EP(?:ISODE)?\s*\d+)(?:\s*[：:].*)?$/iu.test(header)
+}
+
+function isSceneHeaderLine(line: string): boolean {
+  const header = normalizedScriptHeader(line)
+  return /^(?:场次\s*(?:[：:]\s*)?(?:[A-Z]*\d+|[一二三四五六七八九十百千]+)|(?:E\d+[-_])?S\d+|第\s*[一二三四五六七八九十百千0-9]+\s*[场幕]|(?:场景|SCENE)\s*[一二三四五六七八九十百千0-9]+)(?:\s*[：:｜|.、-].*)?$/iu.test(
+    header,
+  )
+}
+
 function isStructuredSceneContinuation(line: string): boolean {
-  const field = line.match(/^([^：:]{1,12})\s*[：:]/u)?.[1]?.trim()
+  const field = line
+    .match(/^([^：:]{1,20})\s*[：:]/u)?.[1]
+    ?.replace(/[*_`#【】[\]]/gu, '')
+    .trim()
   return Boolean(
     field && ([...SHOT_FIELD_NAMES, ...SCENE_DIRECTION_FIELD_NAMES] as readonly string[]).includes(field),
   )
+}
+
+const LONG_SCRIPT_PARAGRAPH_THRESHOLD = 900
+const LONG_SCRIPT_CHUNK_TARGET = 420
+
+function expandLongScriptParagraphs(paragraphs: ScriptParagraph[]): ScriptParagraph[] {
+  return paragraphs.flatMap(expandLongScriptParagraph)
+}
+
+function expandLongScriptParagraph(paragraph: ScriptParagraph): ScriptParagraph[] {
+  if (paragraph.text.replace(/\s/gu, '').length < LONG_SCRIPT_PARAGRAPH_THRESHOLD) return [paragraph]
+
+  const fields = parseShotFields(paragraph.text)
+  const direction = parseSceneDirectionFields(paragraph.text)
+  const narrativeField = (['动作', '剧情', '对白'] as const)
+    .map((field) => ({ field, value: fields[field]?.trim() || '' }))
+    .sort((left, right) => right.value.length - left.value.length)[0]
+  const narrative =
+    narrativeField && narrativeField.value.length >= LONG_SCRIPT_PARAGRAPH_THRESHOLD / 2
+      ? narrativeField.value
+      : paragraph.text
+  const chunks = splitLongNarrative(narrative)
+  if (chunks.length < 2) return [paragraph]
+
+  const structured = Boolean(fields.场次) && narrative !== paragraph.text && narrativeField
+  return chunks.map((chunk, index) => {
+    if (!structured || !narrativeField) {
+      return {
+        text: chunk,
+        forceEpisodeBreakBefore: index === 0 && paragraph.forceEpisodeBreakBefore,
+        ...(index === 0 && paragraph.forceShotBreakBefore ? { forceShotBreakBefore: true } : {}),
+      }
+    }
+
+    const sceneNumber = `${fields.场次}-${String(index + 1).padStart(2, '0')}`
+    const row = [
+      `场次：${sceneNumber}`,
+      `${narrativeField.field}：${chunk}`,
+      ...SHOT_FIELD_NAMES.filter(
+        (field) =>
+          field !== '场次' &&
+          field !== narrativeField.field &&
+          Boolean(fields[field]) &&
+          (fields[field]?.length || 0) <= 600,
+      ).map((field) => `${field}：${fields[field]}`),
+      ...SCENE_DIRECTION_FIELD_NAMES.filter((field) => Boolean(direction[field])).map(
+        (field) => `${field}：${direction[field]}`,
+      ),
+    ].join('｜')
+
+    return {
+      text: row,
+      forceEpisodeBreakBefore: index === 0 && paragraph.forceEpisodeBreakBefore,
+      ...(index === 0 && paragraph.forceShotBreakBefore ? { forceShotBreakBefore: true } : {}),
+    }
+  })
+}
+
+function splitLongNarrative(value: string): string[] {
+  const normalized = value.replace(/\s+/gu, ' ').trim()
+  if (!normalized) return []
+  const sentences = normalized.match(/[^。！？!?；;]+[。！？!?；;]?/gu) || [normalized]
+  const chunks: string[] = []
+  let current = ''
+
+  const flush = () => {
+    const text = current.trim()
+    if (text) chunks.push(text)
+    current = ''
+  }
+
+  for (const sentence of sentences) {
+    const text = sentence.trim()
+    if (!text) continue
+    if (text.length > LONG_SCRIPT_CHUNK_TARGET * 1.5) {
+      flush()
+      for (let offset = 0; offset < text.length; offset += LONG_SCRIPT_CHUNK_TARGET) {
+        chunks.push(text.slice(offset, offset + LONG_SCRIPT_CHUNK_TARGET).trim())
+      }
+      continue
+    }
+    if (current && current.length + text.length > LONG_SCRIPT_CHUNK_TARGET) flush()
+    current += text
+  }
+  flush()
+  return chunks
 }
 
 function preserveScriptBreakMarkers(source: string, candidate: string): string {
@@ -2200,9 +2322,15 @@ function headExcerpt(value: string, limit: number): string {
 function parseShotFields(paragraph: string): Partial<Record<(typeof SHOT_FIELD_NAMES)[number], string>> {
   const fields: Partial<Record<(typeof SHOT_FIELD_NAMES)[number], string>> = {}
   for (const segment of paragraph.split('｜')) {
-    const match = segment.trim().match(/^([^：:]+)[：:]([\s\S]*)$/)
-    const key = match?.[1]?.trim() as (typeof SHOT_FIELD_NAMES)[number] | undefined
-    if (key && SHOT_FIELD_NAMES.includes(key)) fields[key] = match?.[2]?.trim() || ''
+    const match = segment
+      .trim()
+      .replace(/^\*{1,2}|\*{1,2}$/gu, '')
+      .match(/^([^：:]+)[：:]([\s\S]*)$/)
+    const key = match?.[1]?.replace(/[*_`#【】[\]]/gu, '').trim() as
+      (typeof SHOT_FIELD_NAMES)[number] | undefined
+    if (key && SHOT_FIELD_NAMES.includes(key)) {
+      fields[key] = match?.[2]?.replace(/^\*{1,2}|\*{1,2}$/gu, '').trim() || ''
+    }
   }
   return fields
 }
@@ -2210,9 +2338,15 @@ function parseShotFields(paragraph: string): Partial<Record<(typeof SHOT_FIELD_N
 function parseSceneDirectionFields(paragraph: string): SceneDirectionFields {
   const fields: SceneDirectionFields = {}
   for (const segment of paragraph.split('｜')) {
-    const match = segment.trim().match(/^([^：:]+)[：:]([\s\S]*)$/)
-    const key = match?.[1]?.trim() as (typeof SCENE_DIRECTION_FIELD_NAMES)[number] | undefined
-    if (key && SCENE_DIRECTION_FIELD_NAMES.includes(key)) fields[key] = match?.[2]?.trim() || ''
+    const match = segment
+      .trim()
+      .replace(/^\*{1,2}|\*{1,2}$/gu, '')
+      .match(/^([^：:]+)[：:]([\s\S]*)$/)
+    const key = match?.[1]?.replace(/[*_`#【】[\]]/gu, '').trim() as
+      (typeof SCENE_DIRECTION_FIELD_NAMES)[number] | undefined
+    if (key && SCENE_DIRECTION_FIELD_NAMES.includes(key)) {
+      fields[key] = match?.[2]?.replace(/^\*{1,2}|\*{1,2}$/gu, '').trim() || ''
+    }
   }
   return fields
 }

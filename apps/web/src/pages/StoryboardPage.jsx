@@ -115,8 +115,17 @@ export function StoryboardPage({
     if (controlsLocked) return
     setSplitting(mode)
     setOperationError('')
+    setOperationNotice('')
     try {
-      await onRegenerate(mode, episodeDuration)
+      const generatedShots = await onRegenerate(mode, episodeDuration)
+      const generatedCount = Array.isArray(generatedShots) ? generatedShots.length : 0
+      if (generatedCount) {
+        setOperationNotice(
+          mode === 'beat'
+            ? `已批量拆分 ${generatedCount} 个动作镜头`
+            : `已扫描完整剧本，批量生成 ${generatedCount} 个分镜`,
+        )
+      }
     } catch (error) {
       setOperationError(error.message)
     } finally {
@@ -240,10 +249,10 @@ export function StoryboardPage({
           className="button secondary"
           onClick={() => void splitFromScript('scene')}
           disabled={controlsLocked}
-          title="正常情况每个场次生成一个视频镜头；整份剧本只识别到一场时，会按场内动作自动补充分镜"
+          title="扫描完整剧本并批量生成：标准剧本按场次拆分；只识别到一个超长文本块时自动按语义段落补充分镜"
         >
           {splitting === 'scene' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
-          {splitting === 'scene' ? '正在按场次智能生成' : '按场次智能生成'}
+          {splitting === 'scene' ? '正在批量拆分全剧本' : '批量智能分镜'}
         </button>
         <button
           className="button secondary"

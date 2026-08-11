@@ -614,15 +614,7 @@ function App() {
       return <FunctionStackPage tool={activeStep} />
     }
     if (!project) {
-      return (
-        <div className="page empty-workspace">
-          <h1>创建第一个项目</h1>
-          <p>从项目名称和画面比例开始。</p>
-          <button className="button primary" onClick={() => setNewProjectOpen(true)}>
-            新建项目
-          </button>
-        </div>
-      )
+      return <ProjectHomePage projects={[]} onCreate={() => setNewProjectOpen(true)} />
     }
 
     const pages = {
@@ -904,15 +896,18 @@ function App() {
           concurrency={billing.concurrency}
           unlimitedConcurrency={billing.unlimitedConcurrency}
           onRegenerate={async (mode = 'scene', episodeDurationSeconds = 60) => {
-            await api.generateShots(project.id, {
+            const generatedShots = await api.generateShots(project.id, {
               maxShots: project.contentType === 'short-drama' ? 120 : 48,
               mode,
               episodeDurationSeconds,
             })
             await refreshWorkspace()
             setToast(
-              mode === 'beat' ? '已按动作拆分镜头' : '已按场次生成分镜；单场剧本会自动按可执行动作补充分镜',
+              mode === 'beat'
+                ? `已批量拆分 ${generatedShots.length} 个动作镜头`
+                : `已扫描完整剧本，批量生成 ${generatedShots.length} 个分镜`,
             )
+            return generatedShots
           }}
           onAutoSplitEpisodes={async (episodeDurationSeconds) => {
             await api.autoSplitShotEpisodes(project.id, { episodeDurationSeconds })
@@ -1117,7 +1112,11 @@ function App() {
   return (
     <div className="app-shell">
       <AppHeader
-        projectName={activeStep === 'home' ? '项目库' : activeFunction?.title || project?.name || '选择项目'}
+        projectName={
+          activeStep === 'home' || !projects.length
+            ? '项目库'
+            : activeFunction?.title || project?.name || '选择项目'
+        }
         billing={billing}
         account={session.account}
         runningJobs={runningJobs}
