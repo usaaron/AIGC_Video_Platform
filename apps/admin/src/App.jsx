@@ -101,9 +101,22 @@ const reconciliationAlertMessageDefaults = {
   resolved: '已解决，已完成对账',
 }
 const createOrganizationInitialState = { name: '' }
-const createUserInitialState = { organizationId: '', email: '', name: '', password: '', role: 'member' }
+const createOrganizationWithAdminInitialState = {
+  organizationName: '',
+  adminEmail: '',
+  adminName: '',
+  adminPassword: '',
+}
+const createUserInitialState = {
+  organizationId: '',
+  email: '',
+  name: '',
+  password: '',
+  role: 'member',
+  scope: 'personal',
+}
 const addExistingMemberInitialState = { organizationId: '', email: '', role: 'organization_member' }
-const createInvitationInitialState = { organizationId: '', email: '', role: 'member' }
+const createInvitationInitialState = { kind: 'platform', organizationId: '', email: '', role: 'member' }
 const sessionRiskAuditInitialState = { userId: '', items: [], loading: false, error: '' }
 const consoleFilterInitialState = { tenantId: '', role: '', status: '', limit: 50, offset: 0 }
 const complianceFilterInitialState = {
@@ -163,8 +176,26 @@ function roleRequiresOrganization(role) {
   return organizationScopedRoles.has(role)
 }
 
+function canCreatePlatformInvitation(session) {
+  return assignableRoleOptions(session, null).includes('member')
+}
+
+function organizationInvitationRoleOptions(session, organization) {
+  if (!organization) return []
+  return assignableRoleOptions(session, organization).filter(roleRequiresOrganization)
+}
+
 function platformRoleScopeName(role) {
   return role === 'member' ? 'C 端个人空间（自动创建）' : '平台内部系统组织'
+}
+
+function invitationScopeName(scope) {
+  const labels = {
+    platform_registration: '普通成员邀请',
+    organization_membership: '企业组织邀请',
+    system_account: '系统账号邀请',
+  }
+  return labels[scope] ?? '邀请'
 }
 
 function invitationUrlFor(token) {
@@ -215,6 +246,7 @@ export function App() {
   const [auditResourceFilter, setAuditResourceFilter] = useState('all')
   const [sessionRiskFilter, setSessionRiskFilter] = useState('all')
   const [invitationPageOrganizationId, setInvitationPageOrganizationId] = useState('')
+  const [platformInvitationStatusFilter, setPlatformInvitationStatusFilter] = useState('all')
   const [invitationStatusFilter, setInvitationStatusFilter] = useState('all')
   const [reconciliationAlertStatusFilter, setReconciliationAlertStatusFilter] = useState('open')
   const [reconciliationAlertSeverityFilter, setReconciliationAlertSeverityFilter] = useState('all')
@@ -224,6 +256,10 @@ export function App() {
   const [passwordForm, setPasswordForm] = useState(passwordInitialState)
   const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false)
   const [createOrganizationForm, setCreateOrganizationForm] = useState(createOrganizationInitialState)
+  const [createOrganizationWithAdminOpen, setCreateOrganizationWithAdminOpen] = useState(false)
+  const [createOrganizationWithAdminForm, setCreateOrganizationWithAdminForm] = useState(
+    createOrganizationWithAdminInitialState,
+  )
   const [createUserOpen, setCreateUserOpen] = useState(false)
   const [createUserForm, setCreateUserForm] = useState(createUserInitialState)
   const [addExistingMemberOpen, setAddExistingMemberOpen] = useState(false)
@@ -232,8 +268,11 @@ export function App() {
   const [createInvitationForm, setCreateInvitationForm] = useState(createInvitationInitialState)
   const [createdInvitation, setCreatedInvitation] = useState(null)
   const [invitationManagerTarget, setInvitationManagerTarget] = useState(null)
+  const [platformInvitationItems, setPlatformInvitationItems] = useState([])
   const [invitationItems, setInvitationItems] = useState([])
+  const [platformInvitationLoading, setPlatformInvitationLoading] = useState(false)
   const [invitationLoading, setInvitationLoading] = useState(false)
+  const [platformInvitationError, setPlatformInvitationError] = useState('')
   const [invitationError, setInvitationError] = useState('')
   const [userDetailId, setUserDetailId] = useState('')
   const [organizationDetailId, setOrganizationDetailId] = useState('')
@@ -449,6 +488,13 @@ export function App() {
     () => enterpriseOrganizationItems.filter((item) => canManageOrganization(session, item)),
     [enterpriseOrganizationItems, session],
   )
+  const invitableOrganizationItems = useMemo(
+    () =>
+      enterpriseOrganizationItems.filter(
+        (item) => item.status === 'active' && organizationInvitationRoleOptions(session, item).length > 0,
+      ),
+    [enterpriseOrganizationItems, session],
+  )
   const invitationPageOrganization = useMemo(
     () =>
       manageableInvitationOrganizations.find(
@@ -480,7 +526,14 @@ export function App() {
     () => organizationItems.find((organization) => organization.id === createUserForm.organizationId) ?? null,
     [organizationItems, createUserForm.organizationId],
   )
-  const createUserRoleOptions = useMemo(() => assignableRoleOptions(session, null), [session])
+  const createUserRoleOptions = useMemo(() => {
+    if (createUserForm.scope === 'organization') {
+      return createUserOrganization
+        ? assignableRoleOptions(session, createUserOrganization).filter(roleRequiresOrganization)
+        : []
+    }
+    return assignableRoleOptions(session, null).filter((role) => role === 'member' || role === 'admin')
+  }, [session, createUserForm.scope, createUserOrganization])
   const addExistingMemberOrganization = useMemo(
     () =>
       organizationItems.find((organization) => organization.id === addExistingMemberForm.organizationId) ??
@@ -497,12 +550,19 @@ export function App() {
       null,
     [organizationItems, createInvitationForm.organizationId],
   )
-  const createInvitationRoleOptions = useMemo(() => assignableRoleOptions(session, null), [session])
   const activeListMeta = useMemo(() => {
-    if (activeTab === 'organizations') return clientListMeta(enterpriseOrganizationItems.length, consoleFilters)
-    if (activeTab === 'personal-accounts') return clientListMeta(personalAccountMemberships.length, consoleFilters)
+    if (activeTab === 'organizations')
+      return clientListMeta(enterpriseOrganizationItems.length, consoleFilters)
+    if (activeTab === 'personal-accounts')
+      return clientListMeta(personalAccountMemberships.length, consoleFilters)
     return activeConsoleListMeta(snapshot, activeTab)
-  }, [snapshot, activeTab, enterpriseOrganizationItems.length, personalAccountMemberships.length, consoleFilters])
+  }, [
+    snapshot,
+    activeTab,
+    enterpriseOrganizationItems.length,
+    personalAccountMemberships.length,
+    consoleFilters,
+  ])
   const organizationFilterOptions = useMemo(() => {
     if (activeTab === 'organizations') {
       return organizationOptionsForFilter(enterpriseOrganizationItems, consoleFilters.tenantId)
@@ -540,13 +600,7 @@ export function App() {
     ) {
       setConsoleFilters((current) => ({ ...current, tenantId: '', offset: 0 }))
     }
-  }, [
-    activeTab,
-    consoleFilters.tenantId,
-    enterpriseOrganizationItems,
-    personalAccountMemberships,
-    snapshot,
-  ])
+  }, [activeTab, consoleFilters.tenantId, enterpriseOrganizationItems, personalAccountMemberships, snapshot])
 
   const updateConsoleFilters = (patch, { resetOffset = true } = {}) => {
     setConsoleFilters((current) => ({
@@ -661,22 +715,24 @@ export function App() {
   }
 
   const openCreateUser = (organizationId = '') => {
-    const organization =
-      creatableOrganizations.find((item) => item.id === organizationId) ?? creatableOrganizations[0]
-    const roles = assignableRoleOptions(session, null)
-    const organizationRoles = organization
-      ? assignableRoleOptions(session, organization).filter(roleRequiresOrganization)
-      : []
-    const role = organizationId
-      ? (organizationRoles[0] ?? roles[0])
-      : (roles.find((item) => !roleRequiresOrganization(item)) ?? roles[0])
+    const isOrganizationScope = Boolean(organizationId)
+    const organization = isOrganizationScope
+      ? (creatableOrganizations.find((item) => item.id === organizationId) ?? creatableOrganizations[0])
+      : null
+    const roles = isOrganizationScope
+      ? organization
+        ? assignableRoleOptions(session, organization).filter(roleRequiresOrganization)
+        : []
+      : assignableRoleOptions(session, null).filter((item) => item === 'member' || item === 'admin')
+    const role = roles[0]
     if (!roles.length || !role) {
       setNotice('当前身份不允许添加账号')
       return
     }
     setCreateUserForm({
       ...createUserInitialState,
-      organizationId: roleRequiresOrganization(role) ? (organization?.id ?? '') : '',
+      scope: isOrganizationScope ? 'organization' : 'personal',
+      organizationId: isOrganizationScope ? (organization?.id ?? '') : '',
       role,
     })
     setCreateUserOpen(true)
@@ -689,6 +745,19 @@ export function App() {
     }
     setCreateOrganizationForm(createOrganizationInitialState)
     setCreateOrganizationOpen(true)
+  }
+
+  const openCreateOrganizationWithAdmin = () => {
+    if (!canCreateOrganization(session)) {
+      setNotice('当前身份不能创建组织')
+      return
+    }
+    if (!assignableRoleOptions(session, null).includes('organization_admin')) {
+      setNotice('当前身份不能创建组织管理员')
+      return
+    }
+    setCreateOrganizationWithAdminForm(createOrganizationWithAdminInitialState)
+    setCreateOrganizationWithAdminOpen(true)
   }
 
   const openAddExistingMember = (organizationId = '') => {
@@ -712,23 +781,33 @@ export function App() {
     setAddExistingMemberOpen(true)
   }
 
-  const openCreateInvitation = (organizationId = '') => {
-    const organization =
-      creatableOrganizations.find((item) => item.id === organizationId) ?? creatableOrganizations[0]
-    const roles = assignableRoleOptions(session, null)
-    const organizationRoles = organization
-      ? assignableRoleOptions(session, organization).filter(roleRequiresOrganization)
-      : []
-    const role = organizationId
-      ? (organizationRoles[0] ?? roles[0])
-      : (roles.find((item) => !roleRequiresOrganization(item)) ?? roles[0])
-    if (!roles.length || !role) {
-      setNotice('当前身份不允许创建邀请')
+  const openCreatePlatformInvitation = () => {
+    if (!canCreatePlatformInvitation(session)) {
+      setNotice('当前身份不能创建普通成员邀请')
       return
     }
     setCreateInvitationForm({
       ...createInvitationInitialState,
-      organizationId: roleRequiresOrganization(role) ? (organization?.id ?? '') : '',
+      kind: 'platform',
+      organizationId: '',
+      role: 'member',
+    })
+    setCreateInvitationOpen(true)
+  }
+
+  const openCreateOrganizationInvitation = (organizationId = '', role = 'organization_member') => {
+    const candidates = invitableOrganizationItems.filter((organization) =>
+      organizationInvitationRoleOptions(session, organization).includes(role),
+    )
+    const organization = candidates.find((item) => item.id === organizationId) ?? candidates[0]
+    if (!organization) {
+      setNotice(`当前身份不能创建${roleName(role)}邀请`)
+      return
+    }
+    setCreateInvitationForm({
+      ...createInvitationInitialState,
+      kind: 'organization',
+      organizationId: organization.id,
       role,
     })
     setCreateInvitationOpen(true)
@@ -746,6 +825,28 @@ export function App() {
       setInvitationLoading(false)
     }
   }
+
+  async function loadPlatformInvitations() {
+    if (!canCreatePlatformInvitation(session)) {
+      setPlatformInvitationItems([])
+      setPlatformInvitationError('')
+      return
+    }
+    setPlatformInvitationLoading(true)
+    setPlatformInvitationError('')
+    try {
+      setPlatformInvitationItems(await api.listPlatformInvitations())
+    } catch (requestError) {
+      setPlatformInvitationError(requestError.message)
+    } finally {
+      setPlatformInvitationLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab !== 'invitations') return
+    void loadPlatformInvitations()
+  }, [activeTab, session?.account?.id, session?.account?.tenantId])
 
   useEffect(() => {
     if (activeTab !== 'invitations') return
@@ -857,7 +958,11 @@ export function App() {
     if (!membershipId) return
     const membership = snapshot?.memberships?.items.find((item) => membershipIdFor(item) === membershipId)
     if (!membership) {
-      searchConsoleTab('memberships', membershipId, '当前快照未包含该 membership，已切到账号归属列表并按 ID 搜索')
+      searchConsoleTab(
+        'memberships',
+        membershipId,
+        '当前快照未包含该 membership，已切到账号归属列表并按 ID 搜索',
+      )
       return
     }
     setAuditDetailId('')
@@ -908,7 +1013,9 @@ export function App() {
   const submitCreateOrganization = async (event) => {
     event.preventDefault()
     const name = createOrganizationForm.name.trim()
-    const confirmed = window.confirm(`确认创建组织？\n\n组织名称：${name}\n创建后不会切换当前后台登录组织。`)
+    const confirmed = window.confirm(
+      `确认创建企业组织？\n\n组织名称：${name}\n创建后不会切换当前后台登录组织。`,
+    )
     if (!confirmed) return
     await runAction('create-organization', async () => {
       const organization = await api.createOrganization({ name })
@@ -917,6 +1024,41 @@ export function App() {
       await loadConsole()
       setOrganizationDetailId(organization.id)
       setNotice('组织已创建')
+    })
+  }
+
+  const submitCreateOrganizationWithAdmin = async (event) => {
+    event.preventDefault()
+    const organizationName = createOrganizationWithAdminForm.organizationName.trim()
+    const adminEmail = createOrganizationWithAdminForm.adminEmail.trim()
+    const adminName = createOrganizationWithAdminForm.adminName.trim()
+    const confirmed = window.confirm(
+      `确认创建企业组织并直接创建首个组织管理员？\n\n组织：${organizationName}\n管理员：${adminName} <${adminEmail}>\n\n如果管理员账号创建失败，已创建的企业组织会保留。`,
+    )
+    if (!confirmed) return
+    await runAction('create-organization-with-admin', async () => {
+      const organization = await api.createOrganization({ name: organizationName })
+      try {
+        await api.createOrganizationUser(organization.id, {
+          email: adminEmail,
+          name: adminName,
+          password: createOrganizationWithAdminForm.adminPassword,
+          role: 'organization_admin',
+        })
+      } catch (requestError) {
+        setCreateOrganizationWithAdminOpen(false)
+        setCreateOrganizationWithAdminForm(createOrganizationWithAdminInitialState)
+        await loadConsole()
+        setOrganizationDetailId(organization.id)
+        throw new Error(
+          `企业组织已创建（${organization.name}），但首个组织管理员创建失败：${requestError.message}`,
+        )
+      }
+      setCreateOrganizationWithAdminOpen(false)
+      setCreateOrganizationWithAdminForm(createOrganizationWithAdminInitialState)
+      await loadConsole()
+      setOrganizationDetailId(organization.id)
+      setNotice('企业组织和首个组织管理员已创建')
     })
   }
 
@@ -944,19 +1086,20 @@ export function App() {
   const submitCreateInvitation = async (event) => {
     event.preventDefault()
     const email = createInvitationForm.email.trim()
-    const needsOrganization = roleRequiresOrganization(createInvitationForm.role)
+    const needsOrganization = createInvitationForm.kind === 'organization'
+    const invitationRole = needsOrganization ? createInvitationForm.role : 'member'
     const organizationName = createInvitationOrganization?.name ?? createInvitationForm.organizationId
     const scopeLine = needsOrganization
-      ? `组织：${organizationName}`
-      : `范围：${platformRoleScopeName(createInvitationForm.role)}`
+      ? `企业组织：${organizationName}`
+      : '范围：普通成员个人空间（注册后自动创建）'
     const confirmed = window.confirm(
-      `确认创建 ${roleName(createInvitationForm.role)} 邀请？\n\n邮箱：${email}\n${scopeLine}\n受邀人注册后会获得该身份。`,
+      `确认创建 ${roleName(invitationRole)} 邀请？\n\n邮箱：${email}\n${scopeLine}\n受邀人注册后会获得该身份。`,
     )
     if (!confirmed) return
     await runAction('create-invitation', async () => {
       const payload = {
         email,
-        roles: [createInvitationForm.role],
+        roles: [invitationRole],
       }
       const invitation = needsOrganization
         ? await api.createOrganizationInvitation(createInvitationForm.organizationId, payload)
@@ -973,6 +1116,9 @@ export function App() {
         invitationPageOrganization?.id === createInvitationForm.organizationId
       ) {
         await loadOrganizationInvitations(invitationPageOrganization)
+      }
+      if (!needsOrganization && activeTab === 'invitations') {
+        await loadPlatformInvitations()
       }
       await loadConsole()
       setNotice('邀请已创建，请保存邀请码')
@@ -1008,6 +1154,19 @@ export function App() {
       await loadOrganizationInvitations(organization)
       await loadConsole()
       setNotice('邀请已撤销')
+    })
+  }
+
+  const revokePlatformInvitation = async (invitation) => {
+    const confirmed = window.confirm(
+      `确认撤销普通成员邀请？\n\n邮箱：${invitation.email}\n撤销后该邀请码不能再注册。`,
+    )
+    if (!confirmed) return
+    await runAction(`platform-invitation-revoke:${invitation.id}`, async () => {
+      await api.revokePlatformInvitation(invitation.id)
+      await loadPlatformInvitations()
+      await loadConsole()
+      setNotice('普通成员邀请已撤销')
     })
   }
 
@@ -1395,15 +1554,11 @@ export function App() {
     if (!reason) return
     const actionLabel = complianceActionForm.action === 'warned' ? '警告' : '已审查'
     await runAction(`compliance:${complianceActionTarget.id}:${complianceActionForm.action}`, async () => {
-      await api.recordCompliancePromptAction(
-        complianceActionTarget.source,
-        complianceActionTarget.sourceId,
-        {
-          action: complianceActionForm.action,
-          reason,
-          ...(complianceActionForm.category ? { category: complianceActionForm.category } : {}),
-        },
-      )
+      await api.recordCompliancePromptAction(complianceActionTarget.source, complianceActionTarget.sourceId, {
+        action: complianceActionForm.action,
+        reason,
+        ...(complianceActionForm.category ? { category: complianceActionForm.category } : {}),
+      })
       setComplianceActionTarget(null)
       setComplianceActionForm(complianceActionInitialState)
       await loadCompliancePrompts()
@@ -1615,6 +1770,8 @@ export function App() {
                   onUpdatePlan={openMembershipPlan}
                   onOpenPasswordReset={openPasswordReset}
                   onSetStatus={setUserStatus}
+                  onCreateUser={openCreateUser}
+                  onCreateInvitation={openCreatePlatformInvitation}
                 />
               )}
               {activeTab === 'organizations' && (
@@ -1624,12 +1781,13 @@ export function App() {
                   busy={busy}
                   onOpenDetail={openOrganizationDetail}
                   onCreateOrganization={openCreateOrganization}
+                  onCreateOrganizationWithAdmin={openCreateOrganizationWithAdmin}
                   onRename={renameOrganization}
                   onDisable={disableOrganization}
                   onTransferOrganizationAdmin={openOrganizationAdminTransfer}
                   onCreateUser={openCreateUser}
                   onAddExistingMember={openAddExistingMember}
-                  onCreateInvitation={openCreateInvitation}
+                  onCreateInvitation={openCreateOrganizationInvitation}
                   onManageInvitations={openInvitationManager}
                   onOpenOrganizationBilling={openOrganizationBilling}
                 />
@@ -1640,8 +1798,6 @@ export function App() {
                   session={session}
                   canAdjustBilling={canAdjustBilling}
                   busy={busy}
-                  onCreateUser={openCreateUser}
-                  onCreateInvitation={openCreateInvitation}
                   onOpenDetail={openMembershipDetail}
                   onUpdateRole={updateMembershipRole}
                   onDisableMembership={disableMembership}
@@ -1690,20 +1846,26 @@ export function App() {
                   organizations={manageableInvitationOrganizations}
                   selectedOrganization={invitationPageOrganization}
                   selectedOrganizationId={invitationPageOrganization?.id ?? ''}
+                  platformInvitations={platformInvitationItems}
+                  platformLoading={platformInvitationLoading}
+                  platformError={platformInvitationError}
                   invitations={invitationItems}
                   loading={invitationLoading}
                   error={invitationError}
                   session={session}
                   busy={busy}
                   query={query}
+                  platformStatusFilter={platformInvitationStatusFilter}
+                  onPlatformStatusFilterChange={setPlatformInvitationStatusFilter}
                   statusFilter={invitationStatusFilter}
                   onStatusFilterChange={setInvitationStatusFilter}
                   onSelectOrganization={selectInvitationPageOrganization}
-                  onCreateInvitation={() =>
-                    invitationPageOrganization
-                      ? openCreateInvitation(invitationPageOrganization.id)
-                      : openCreateInvitation()
+                  onCreatePlatformInvitation={openCreatePlatformInvitation}
+                  onCreateOrganizationInvitation={(role) =>
+                    openCreateOrganizationInvitation(invitationPageOrganization?.id ?? '', role)
                   }
+                  onRefreshPlatform={loadPlatformInvitations}
+                  onRevokePlatform={revokePlatformInvitation}
                   onRefresh={() => loadOrganizationInvitations(invitationPageOrganization)}
                   onReissue={(invitation) => reissueInvitation(invitation, invitationPageOrganization)}
                   onRevoke={(invitation) => revokeInvitation(invitation, invitationPageOrganization)}
@@ -1899,6 +2061,15 @@ export function App() {
           onSubmit={submitCreateOrganization}
         />
       )}
+      {createOrganizationWithAdminOpen && (
+        <CreateOrganizationWithAdminModal
+          form={createOrganizationWithAdminForm}
+          busy={busy === 'create-organization-with-admin'}
+          onChange={setCreateOrganizationWithAdminForm}
+          onClose={() => setCreateOrganizationWithAdminOpen(false)}
+          onSubmit={submitCreateOrganizationWithAdmin}
+        />
+      )}
       {addExistingMemberOpen && (
         <AddExistingMemberModal
           form={addExistingMemberForm}
@@ -1914,8 +2085,7 @@ export function App() {
       {createInvitationOpen && (
         <CreateInvitationModal
           form={createInvitationForm}
-          organizations={creatableOrganizations}
-          roleOptions={createInvitationRoleOptions}
+          organizations={invitableOrganizationItems}
           session={session}
           busy={busy === 'create-invitation'}
           onChange={setCreateInvitationForm}
@@ -1938,7 +2108,7 @@ export function App() {
           error={invitationError}
           session={session}
           busy={busy}
-          onCreate={() => openCreateInvitation(invitationManagerTarget.id)}
+          onCreate={() => openCreateOrganizationInvitation(invitationManagerTarget.id, 'organization_member')}
           onRefresh={() => loadOrganizationInvitations(invitationManagerTarget)}
           onReissue={reissueInvitation}
           onRevoke={revokeInvitation}
@@ -2082,7 +2252,7 @@ export function App() {
           onTransferOrganizationAdmin={openOrganizationAdminTransfer}
           onCreateUser={openCreateUser}
           onAddExistingMember={openAddExistingMember}
-          onCreateInvitation={openCreateInvitation}
+          onCreateInvitation={openCreateOrganizationInvitation}
           onManageInvitations={openInvitationManager}
           onLeaveOrganization={leaveOrganization}
           onOpenOrganizationBilling={openOrganizationBilling}
@@ -2604,9 +2774,35 @@ function PersonalAccountsTable({
   onUpdatePlan,
   onOpenPasswordReset,
   onSetStatus,
+  onCreateUser,
+  onCreateInvitation,
 }) {
   return (
     <DataSection title="个人账号" count={memberships.length}>
+      <div className="section-actions">
+        <button
+          className="row-button"
+          type="button"
+          disabled={!canManageUsers(session) || busy === 'create-user'}
+          onClick={() => onCreateUser()}
+        >
+          {busy === 'create-user' ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}
+          直接创建个人账号
+        </button>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={!canCreatePlatformInvitation(session) || busy === 'create-invitation'}
+          onClick={() => onCreateInvitation()}
+        >
+          {busy === 'create-invitation' ? (
+            <LoaderCircle size={14} className="spin" />
+          ) : (
+            <MailPlus size={14} />
+          )}
+          邀请普通成员
+        </button>
+      </div>
       <table className="data-table wide">
         <thead>
           <tr>
@@ -2682,11 +2878,7 @@ function PersonalAccountsTable({
                       disabled={!canManage || passwordBusy}
                       onClick={() => onOpenPasswordReset(userTarget)}
                     >
-                      {passwordBusy ? (
-                        <LoaderCircle size={14} className="spin" />
-                      ) : (
-                        <KeyRound size={14} />
-                      )}
+                      {passwordBusy ? <LoaderCircle size={14} className="spin" /> : <KeyRound size={14} />}
                       设置密码
                     </button>
                     <button
@@ -2695,11 +2887,7 @@ function PersonalAccountsTable({
                       disabled={!canManage || membership.userId === currentUserId || accountBusy}
                       onClick={() => onSetStatus(userTarget)}
                     >
-                      {accountBusy ? (
-                        <LoaderCircle size={14} className="spin" />
-                      ) : (
-                        <Power size={14} />
-                      )}
+                      {accountBusy ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
                       {membership.userStatus === 'active' ? '禁用账号' : '启用账号'}
                     </button>
                   </div>
@@ -2729,6 +2917,7 @@ function OrganizationsTable({
   busy,
   onOpenDetail,
   onCreateOrganization,
+  onCreateOrganizationWithAdmin,
   onRename,
   onDisable,
   onTransferOrganizationAdmin,
@@ -2739,13 +2928,7 @@ function OrganizationsTable({
   onOpenOrganizationBilling,
 }) {
   const visibleOrganizations = organizations
-  const canCreateInvitation = organizations.some(
-    (organization) => organization.status === 'active' && canCreateOrganizationUser(session, organization),
-  )
   const canCreateNewOrganization = canCreateOrganization(session)
-  const canAddExistingMember = organizations.some((organization) =>
-    canAddExistingOrganizationMember(session, organization),
-  )
 
   return (
     <DataSection title="企业组织列表" count={visibleOrganizations.length}>
@@ -2761,33 +2944,20 @@ function OrganizationsTable({
           ) : (
             <Building2 size={14} />
           )}
-          创建组织
+          创建企业组织
         </button>
         <button
           className="row-button"
           type="button"
-          disabled={!canAddExistingMember || busy === 'add-existing-member'}
-          onClick={() => onAddExistingMember()}
+          disabled={!canCreateNewOrganization || busy === 'create-organization-with-admin'}
+          onClick={onCreateOrganizationWithAdmin}
         >
-          {busy === 'add-existing-member' ? (
+          {busy === 'create-organization-with-admin' ? (
             <LoaderCircle size={14} className="spin" />
           ) : (
-            <UserPlus size={14} />
+            <Crown size={14} />
           )}
-          加入已有账号
-        </button>
-        <button
-          className="primary-button"
-          type="button"
-          disabled={!canCreateInvitation || busy === 'create-invitation'}
-          onClick={() => onCreateInvitation()}
-        >
-          {busy === 'create-invitation' ? (
-            <LoaderCircle size={14} className="spin" />
-          ) : (
-            <MailPlus size={14} />
-          )}
-          创建邀请
+          创建企业组织+首个管理员
         </button>
       </div>
       <table className="data-table wide">
@@ -2806,6 +2976,11 @@ function OrganizationsTable({
         <tbody>
           {visibleOrganizations.map((organization) => {
             const organizationType = classifyOrganization(organization)
+            const invitationRoles = organizationInvitationRoleOptions(session, organization)
+            const canInviteOrganizationMember =
+              organization.status === 'active' && invitationRoles.includes('organization_member')
+            const canInviteOrganizationAdmin =
+              organization.status === 'active' && invitationRoles.includes('organization_admin')
             return (
               <tr key={organization.id}>
                 <td>
@@ -2863,7 +3038,7 @@ function OrganizationsTable({
                       onClick={() => onCreateUser(organization.id)}
                     >
                       <Plus size={14} />
-                      添加账号
+                      直接创建组织账号
                     </button>
                     <button
                       className="row-button"
@@ -2885,19 +3060,28 @@ function OrganizationsTable({
                     <button
                       className="row-button"
                       type="button"
-                      disabled={
-                        organization.status !== 'active' ||
-                        !canCreateOrganizationUser(session, organization) ||
-                        busy === 'create-invitation'
-                      }
-                      onClick={() => onCreateInvitation(organization.id)}
+                      disabled={!canInviteOrganizationMember || busy === 'create-invitation'}
+                      onClick={() => onCreateInvitation(organization.id, 'organization_member')}
                     >
                       {busy === 'create-invitation' ? (
                         <LoaderCircle size={14} className="spin" />
                       ) : (
                         <MailPlus size={14} />
                       )}
-                      创建邀请
+                      邀请组织成员
+                    </button>
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={!canInviteOrganizationAdmin || busy === 'create-invitation'}
+                      onClick={() => onCreateInvitation(organization.id, 'organization_admin')}
+                    >
+                      {busy === 'create-invitation' ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <Crown size={14} />
+                      )}
+                      邀请组织管理员
                     </button>
                     <button
                       className="row-button"
@@ -2959,8 +3143,6 @@ function MembershipsTable({
   session,
   canAdjustBilling,
   busy,
-  onCreateUser,
-  onCreateInvitation,
   onOpenDetail,
   onUpdateRole,
   onDisableMembership,
@@ -2969,30 +3151,6 @@ function MembershipsTable({
 }) {
   return (
     <DataSection title="账号归属查询" count={memberships.length}>
-      <div className="section-actions">
-        <button
-          className="row-button"
-          type="button"
-          disabled={!canManageUsers(session)}
-          onClick={() => onCreateUser()}
-        >
-          <Plus size={14} />
-          添加账号
-        </button>
-        <button
-          className="primary-button"
-          type="button"
-          disabled={!canManageUsers(session) || busy === 'create-invitation'}
-          onClick={() => onCreateInvitation()}
-        >
-          {busy === 'create-invitation' ? (
-            <LoaderCircle size={14} className="spin" />
-          ) : (
-            <MailPlus size={14} />
-          )}
-          创建邀请
-        </button>
-      </div>
       <table className="data-table wide">
         <thead>
           <tr>
@@ -3143,7 +3301,10 @@ function ComplianceReviewPage({
           </label>
           <label>
             <FileText size={14} />
-            <select value={filters.source} onChange={(event) => onFilterChange({ source: event.target.value })}>
+            <select
+              value={filters.source}
+              onChange={(event) => onFilterChange({ source: event.target.value })}
+            >
               <option value="">全部来源</option>
               <option value="generation_task">生成任务</option>
               <option value="ai_job">AI Job</option>
@@ -3306,7 +3467,9 @@ function ComplianceReviewPage({
                       <button
                         className="row-button danger"
                         type="button"
-                        disabled={item.userStatus !== 'active' || item.userId === currentUserId || accountBusy}
+                        disabled={
+                          item.userStatus !== 'active' || item.userId === currentUserId || accountBusy
+                        }
                         onClick={() => onDisableUser(item)}
                       >
                         {accountBusy ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
@@ -3329,22 +3492,34 @@ function InvitationsPage({
   organizations,
   selectedOrganization,
   selectedOrganizationId,
+  platformInvitations,
+  platformLoading,
+  platformError,
   invitations,
   loading,
   error,
   session,
   busy,
   query,
+  platformStatusFilter,
+  onPlatformStatusFilterChange,
   statusFilter,
   onStatusFilterChange,
   onSelectOrganization,
-  onCreateInvitation,
+  onCreatePlatformInvitation,
+  onCreateOrganizationInvitation,
+  onRefreshPlatform,
+  onRevokePlatform,
   onRefresh,
   onReissue,
   onRevoke,
 }) {
-  const canCreate =
-    selectedOrganization?.status === 'active' && canCreateOrganizationUser(session, selectedOrganization)
+  const canCreateMemberInvitation = canCreatePlatformInvitation(session)
+  const organizationRoles = organizationInvitationRoleOptions(session, selectedOrganization)
+  const canCreateOrganizationMember =
+    selectedOrganization?.status === 'active' && organizationRoles.includes('organization_member')
+  const canCreateOrganizationAdmin =
+    selectedOrganization?.status === 'active' && organizationRoles.includes('organization_admin')
   const statusCounts = summarizeInvitationStatuses(invitations)
   const visibleInvitations = filterRows(
     statusFilter === 'all'
@@ -3352,10 +3527,78 @@ function InvitationsPage({
       : invitations.filter((invitation) => invitation.status === statusFilter),
     query,
   )
+  const platformStatusCounts = summarizeInvitationStatuses(platformInvitations)
+  const visiblePlatformInvitations = filterRows(
+    platformStatusFilter === 'all'
+      ? platformInvitations
+      : platformInvitations.filter((invitation) => invitation.status === platformStatusFilter),
+    query,
+  )
 
   return (
     <div className="invitation-page-layout">
-      <DataSection title="邀请管理" count={visibleInvitations.length}>
+      <DataSection title="普通成员邀请" count={visiblePlatformInvitations.length}>
+        <div className="inline-filter-bar invitation-page-toolbar">
+          <label>
+            <Filter size={14} />
+            <select
+              value={platformStatusFilter}
+              onChange={(event) => onPlatformStatusFilterChange(event.target.value)}
+            >
+              <option value="all">全部状态 · {platformInvitations.length}</option>
+              <option value="pending">待接受 · {platformStatusCounts.pending}</option>
+              <option value="accepted">已接受 · {platformStatusCounts.accepted}</option>
+              <option value="revoked">已撤销 · {platformStatusCounts.revoked}</option>
+              <option value="expired">已过期 · {platformStatusCounts.expired}</option>
+            </select>
+          </label>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={!canCreateMemberInvitation || busy === 'create-invitation'}
+            onClick={onCreatePlatformInvitation}
+          >
+            {busy === 'create-invitation' ? (
+              <LoaderCircle size={14} className="spin" />
+            ) : (
+              <MailPlus size={14} />
+            )}
+            邀请普通成员
+          </button>
+          <button className="row-button" type="button" disabled={platformLoading} onClick={onRefreshPlatform}>
+            {platformLoading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
+            刷新列表
+          </button>
+        </div>
+        <section className="organization-detail-head invitation-page-head">
+          <IdentityCell name="普通成员注册" detail="platform_registration" />
+          <div>
+            <span>待接受</span>
+            <strong>{platformStatusCounts.pending}</strong>
+          </div>
+          <div>
+            <span>已接受</span>
+            <strong>{platformStatusCounts.accepted}</strong>
+          </div>
+          <span className="invitation-scope-badge">个人空间</span>
+        </section>
+        {platformError && <div className="notice error">{platformError}</div>}
+        {platformLoading && !platformInvitations.length ? (
+          <LoadingScreen compact label="正在读取普通成员邀请" />
+        ) : (
+          <InvitationCards
+            invitations={visiblePlatformInvitations}
+            busy={busy}
+            revokeBusyPrefix="platform-invitation-revoke"
+            onRevoke={onRevokePlatform}
+          />
+        )}
+        <p className="modal-hint">
+          普通成员邀请只创建平台 member 账号；受邀人注册后自动获得个人空间，不进入企业组织列表。
+        </p>
+      </DataSection>
+
+      <DataSection title="企业组织邀请" count={visibleInvitations.length}>
         <div className="inline-filter-bar invitation-page-toolbar">
           <label>
             <Building2 size={14} />
@@ -3384,15 +3627,24 @@ function InvitationsPage({
           <button
             className="primary-button"
             type="button"
-            disabled={!canCreate || busy === 'create-invitation'}
-            onClick={onCreateInvitation}
+            disabled={!canCreateOrganizationMember || busy === 'create-invitation'}
+            onClick={() => onCreateOrganizationInvitation('organization_member')}
           >
             {busy === 'create-invitation' ? (
               <LoaderCircle size={14} className="spin" />
             ) : (
               <MailPlus size={14} />
             )}
-            创建邀请
+            邀请组织成员
+          </button>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!canCreateOrganizationAdmin || busy === 'create-invitation'}
+            onClick={() => onCreateOrganizationInvitation('organization_admin')}
+          >
+            {busy === 'create-invitation' ? <LoaderCircle size={14} className="spin" /> : <Crown size={14} />}
+            邀请组织管理员
           </button>
           <button
             className="row-button"
@@ -3418,7 +3670,7 @@ function InvitationsPage({
             <StatusBadge status={selectedOrganization.status} />
           </section>
         ) : (
-          <p className="panel-empty">暂无可管理的组织。</p>
+          <p className="panel-empty">暂无可管理的企业组织。</p>
         )}
         {error && <div className="notice error">{error}</div>}
         {loading && !invitations.length ? (
@@ -3426,7 +3678,10 @@ function InvitationsPage({
         ) : (
           <InvitationCards
             invitations={visibleInvitations}
-            canCreate={canCreate}
+            canReissueInvitation={(invitation) =>
+              selectedOrganization?.status === 'active' &&
+              invitation.roles.every((role) => organizationRoles.includes(role))
+            }
             busy={busy}
             onReissue={onReissue}
             onRevoke={onRevoke}
@@ -4803,6 +5058,11 @@ function OrganizationDetailDrawer({
   const canTransfer = canTransferOrganizationAdmin(session, organization)
   const canDisableTarget = canDisableOrganization(session, organization)
   const canAddExisting = canAddExistingOrganizationMember(session, organization)
+  const invitationRoles = organizationInvitationRoleOptions(session, organization)
+  const canInviteOrganizationMember =
+    organization.status === 'active' && invitationRoles.includes('organization_member')
+  const canInviteOrganizationAdmin =
+    organization.status === 'active' && invitationRoles.includes('organization_admin')
   const canLeaveTarget = canLeaveOrganization(session, organization, memberRows)
   const canReadBillingPool = canReadOrganizationBilling(session, organization)
 
@@ -4870,7 +5130,7 @@ function OrganizationDetailDrawer({
             onClick={() => onCreateUser(organization.id)}
           >
             <Plus size={14} />
-            添加账号
+            直接创建组织账号
           </button>
           <button
             className="row-button"
@@ -4888,11 +5148,20 @@ function OrganizationDetailDrawer({
           <button
             className="row-button"
             type="button"
-            disabled={!canCreate}
-            onClick={() => onCreateInvitation(organization.id)}
+            disabled={!canInviteOrganizationMember}
+            onClick={() => onCreateInvitation(organization.id, 'organization_member')}
           >
             <MailPlus size={14} />
-            创建邀请
+            邀请组织成员
+          </button>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!canInviteOrganizationAdmin}
+            onClick={() => onCreateInvitation(organization.id, 'organization_admin')}
+          >
+            <Crown size={14} />
+            邀请组织管理员
           </button>
           <button
             className="row-button"
@@ -6082,7 +6351,7 @@ function PasswordResetModal({ target, form, busy, onChange, onClose, onSubmit })
 function CreateOrganizationModal({ form, busy, onChange, onClose, onSubmit }) {
   const valid = form.name.trim().length > 0
   return (
-    <Modal title="创建组织" onClose={onClose}>
+    <Modal title="创建企业组织" onClose={onClose}>
       <form className="modal-form" onSubmit={onSubmit}>
         <label>
           <span>组织名称</span>
@@ -6093,8 +6362,70 @@ function CreateOrganizationModal({ form, busy, onChange, onClose, onSubmit }) {
             required
           />
         </label>
-        <p className="modal-hint">后台创建组织不会切换当前登录 session；创建后可加入已有账号或创建新账号。</p>
-        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="创建组织" />
+        <p className="modal-hint">
+          后台创建企业组织不会切换当前登录 session；创建后可加入已有账号或直接创建组织账号。
+        </p>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="创建企业组织" />
+      </form>
+    </Modal>
+  )
+}
+
+function CreateOrganizationWithAdminModal({ form, busy, onChange, onClose, onSubmit }) {
+  const valid =
+    form.organizationName.trim().length > 0 &&
+    form.adminEmail.trim().includes('@') &&
+    form.adminName.trim().length > 0 &&
+    form.adminPassword.length >= 8
+
+  return (
+    <Modal title="创建企业组织+首个管理员" onClose={onClose}>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <label>
+          <span>企业组织名称</span>
+          <input
+            value={form.organizationName}
+            onChange={(event) => onChange({ ...form, organizationName: event.target.value })}
+            maxLength={80}
+            required
+          />
+        </label>
+        <label>
+          <span>管理员邮箱</span>
+          <input
+            type="email"
+            value={form.adminEmail}
+            onChange={(event) => onChange({ ...form, adminEmail: event.target.value })}
+            autoComplete="off"
+            required
+          />
+        </label>
+        <label>
+          <span>管理员姓名</span>
+          <input
+            value={form.adminName}
+            onChange={(event) => onChange({ ...form, adminName: event.target.value })}
+            maxLength={80}
+            required
+          />
+        </label>
+        <label>
+          <span>初始临时密码</span>
+          <input
+            type="password"
+            value={form.adminPassword}
+            onChange={(event) => onChange({ ...form, adminPassword: event.target.value })}
+            minLength={8}
+            maxLength={128}
+            autoComplete="new-password"
+            required
+          />
+          <small>管理员首次登录后仍会被要求设置自己的新密码。</small>
+        </label>
+        <p className="modal-hint">
+          该向导会先创建企业组织，再直接创建 organization_admin 账号；如果第二步失败，已创建的企业组织会保留。
+        </p>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="创建组织和管理员" />
       </form>
     </Modal>
   )
@@ -6110,6 +6441,7 @@ function CreateOrganizationUserModal({
   onClose,
   onSubmit,
 }) {
+  const isOrganizationScope = form.scope === 'organization'
   const organizationOptions = organizations.filter(
     (organization) =>
       organization.status === 'active' && assignableRoleOptions(session, organization).includes(form.role),
@@ -6139,7 +6471,7 @@ function CreateOrganizationUserModal({
   }
 
   return (
-    <Modal title="添加账号" onClose={onClose}>
+    <Modal title={isOrganizationScope ? '直接创建组织账号' : '直接创建个人账号'} onClose={onClose}>
       <form className="modal-form" onSubmit={onSubmit}>
         <label>
           <span>邮箱</span>
@@ -6185,7 +6517,7 @@ function CreateOrganizationUserModal({
         </label>
         {needsOrganization ? (
           <label>
-            <span>组织</span>
+            <span>企业组织</span>
             <select
               value={form.organizationId}
               onChange={(event) => onChange({ ...form, organizationId: event.target.value })}
@@ -6202,7 +6534,12 @@ function CreateOrganizationUserModal({
         ) : (
           <p className="modal-hint">范围：{platformRoleScopeName(form.role)}</p>
         )}
-        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="创建账号" />
+        <ModalActions
+          busy={busy}
+          valid={valid}
+          onClose={onClose}
+          submitLabel={isOrganizationScope ? '直接创建组织账号' : '直接创建个人账号'}
+        />
       </form>
     </Modal>
   )
@@ -6290,54 +6627,27 @@ function AddExistingMemberModal({
   )
 }
 
-function CreateInvitationModal({
-  form,
-  organizations,
-  roleOptions,
-  session,
-  busy,
-  onChange,
-  onClose,
-  onSubmit,
-}) {
-  const organizationOptions = organizations.filter(
-    (organization) =>
-      organization.status === 'active' && assignableRoleOptions(session, organization).includes(form.role),
-  )
-  const needsOrganization = roleRequiresOrganization(form.role)
-  const valid =
-    (!needsOrganization || form.organizationId) &&
-    form.email.trim().includes('@') &&
-    roleOptions.includes(form.role)
+function CreateInvitationModal({ form, organizations, session, busy, onChange, onClose, onSubmit }) {
+  const needsOrganization = form.kind === 'organization'
+  const roleLabel = roleName(form.role)
+  const organizationOptions = needsOrganization
+    ? organizations.filter((organization) =>
+        organizationInvitationRoleOptions(session, organization).includes(form.role),
+      )
+    : []
+  const selectedOrganization =
+    organizationOptions.find((organization) => organization.id === form.organizationId) ?? null
+  const valid = form.email.trim().includes('@') && (!needsOrganization || Boolean(selectedOrganization))
 
   const selectOrganization = (organizationId) => {
-    const organization = organizationOptions.find((item) => item.id === organizationId)
-    const nextRoles = assignableRoleOptions(session, organization)
     onChange({
       ...form,
       organizationId,
-      role: nextRoles.includes(form.role) ? form.role : (nextRoles[0] ?? form.role),
-    })
-  }
-
-  const selectRole = (role) => {
-    const nextOrganizations = organizations.filter(
-      (organization) =>
-        organization.status === 'active' && assignableRoleOptions(session, organization).includes(role),
-    )
-    onChange({
-      ...form,
-      role,
-      organizationId: roleRequiresOrganization(role)
-        ? (nextOrganizations.find((organization) => organization.id === form.organizationId)?.id ??
-          nextOrganizations[0]?.id ??
-          '')
-        : '',
     })
   }
 
   return (
-    <Modal title="创建邀请" onClose={onClose}>
+    <Modal title={needsOrganization ? `邀请${roleLabel}` : '邀请普通成员'} onClose={onClose}>
       <form className="modal-form" onSubmit={onSubmit}>
         <label>
           <span>受邀邮箱</span>
@@ -6349,37 +6659,35 @@ function CreateInvitationModal({
             required
           />
         </label>
-        <label>
-          <span>注册后身份</span>
-          <select value={form.role} onChange={(event) => selectRole(event.target.value)} required>
-            {roleOptions.map((role) => (
-              <option key={role} value={role}>
-                {roleName(role)}
-              </option>
-            ))}
-          </select>
-        </label>
         {needsOrganization ? (
-          <label>
-            <span>组织</span>
-            <select
-              value={form.organizationId}
-              onChange={(event) => selectOrganization(event.target.value)}
-              disabled={!organizationOptions.length}
-              required
-            >
-              {organizationOptions.map((organization) => (
-                <option key={organization.id} value={organization.id}>
-                  {organization.name} · {organization.id}
-                </option>
-              ))}
-            </select>
-          </label>
+          <>
+            <p className="modal-hint">身份：{roleLabel}。邀请只面向企业组织，不会进入个人空间入口。</p>
+            <label>
+              <span>企业组织</span>
+              <select
+                value={form.organizationId}
+                onChange={(event) => selectOrganization(event.target.value)}
+                disabled={!organizationOptions.length}
+                required
+              >
+                {organizationOptions.map((organization) => (
+                  <option key={organization.id} value={organization.id}>
+                    {organization.name} · {organization.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
         ) : (
-          <p className="modal-hint">范围：{platformRoleScopeName(form.role)}</p>
+          <p className="modal-hint">身份：{roleLabel}。注册后会自动创建个人空间。</p>
         )}
         <p className="modal-hint">邀请码只在创建后显示一次，同时会按邮件配置发送邀请邮件。</p>
-        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="创建邀请" />
+        <ModalActions
+          busy={busy}
+          valid={valid}
+          onClose={onClose}
+          submitLabel={needsOrganization ? `邀请${roleLabel}` : '邀请普通成员'}
+        />
       </form>
     </Modal>
   )
@@ -6398,6 +6706,10 @@ function InvitationResultModal({ invitation, onClose, onCopy }) {
           <div>
             <dt>受邀邮箱</dt>
             <dd>{invitation.email}</dd>
+          </div>
+          <div>
+            <dt>类型</dt>
+            <dd>{invitationScopeName(invitation.scope)}</dd>
           </div>
           <div>
             <dt>身份</dt>
@@ -6452,7 +6764,15 @@ function InvitationResultModal({ invitation, onClose, onCopy }) {
   )
 }
 
-function InvitationCards({ invitations, canCreate, busy, onReissue, onRevoke }) {
+function InvitationCards({
+  invitations,
+  canReissueInvitation = () => false,
+  busy,
+  reissueBusyPrefix = 'invitation-reissue',
+  revokeBusyPrefix = 'invitation-revoke',
+  onReissue,
+  onRevoke,
+}) {
   return (
     <div className="invitation-list">
       {invitations.map((invitation) => (
@@ -6487,30 +6807,32 @@ function InvitationCards({ invitations, canCreate, busy, onReissue, onRevoke }) 
             </div>
           </div>
           <footer>
-            <button
-              className="row-button"
-              type="button"
-              disabled={
-                !canCreate ||
-                invitation.status === 'accepted' ||
-                busy === `invitation-reissue:${invitation.id}`
-              }
-              onClick={() => onReissue(invitation)}
-            >
-              {busy === `invitation-reissue:${invitation.id}` ? (
-                <LoaderCircle size={14} className="spin" />
-              ) : (
-                <RefreshCw size={14} />
-              )}
-              重新生成
-            </button>
+            {onReissue && (
+              <button
+                className="row-button"
+                type="button"
+                disabled={
+                  !canReissueInvitation(invitation) ||
+                  invitation.status === 'accepted' ||
+                  busy === `${reissueBusyPrefix}:${invitation.id}`
+                }
+                onClick={() => onReissue(invitation)}
+              >
+                {busy === `${reissueBusyPrefix}:${invitation.id}` ? (
+                  <LoaderCircle size={14} className="spin" />
+                ) : (
+                  <RefreshCw size={14} />
+                )}
+                重新生成
+              </button>
+            )}
             <button
               className="row-button danger"
               type="button"
-              disabled={invitation.status !== 'pending' || busy === `invitation-revoke:${invitation.id}`}
+              disabled={invitation.status !== 'pending' || busy === `${revokeBusyPrefix}:${invitation.id}`}
               onClick={() => onRevoke(invitation)}
             >
-              {busy === `invitation-revoke:${invitation.id}` ? (
+              {busy === `${revokeBusyPrefix}:${invitation.id}` ? (
                 <LoaderCircle size={14} className="spin" />
               ) : (
                 <Power size={14} />
@@ -6538,7 +6860,8 @@ function OrganizationInvitationsModal({
   onRevoke,
   onClose,
 }) {
-  const canCreate = organization.status === 'active' && canCreateOrganizationUser(session, organization)
+  const organizationRoles = organizationInvitationRoleOptions(session, organization)
+  const canCreate = organization.status === 'active' && organizationRoles.includes('organization_member')
   const pendingCount = invitations.filter((invitation) => invitation.status === 'pending').length
 
   return (
@@ -6561,7 +6884,7 @@ function OrganizationInvitationsModal({
         <div className="invitation-toolbar">
           <button className="primary-button" type="button" disabled={!canCreate} onClick={onCreate}>
             <MailPlus size={14} />
-            创建邀请
+            邀请组织成员
           </button>
           <button className="row-button" type="button" disabled={loading} onClick={onRefresh}>
             {loading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
@@ -6574,7 +6897,10 @@ function OrganizationInvitationsModal({
         ) : (
           <InvitationCards
             invitations={invitations}
-            canCreate={canCreate}
+            canReissueInvitation={(invitation) =>
+              organization.status === 'active' &&
+              invitation.roles.every((role) => organizationRoles.includes(role))
+            }
             busy={busy}
             onReissue={onReissue}
             onRevoke={onRevoke}

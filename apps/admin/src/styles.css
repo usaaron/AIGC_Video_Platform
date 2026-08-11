@@ -1722,6 +1722,17 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.invitation-scope-badge {
+  justify-self: end;
+  padding: 4px 7px;
+  border: 1px solid #b9c9bb;
+  border-radius: 6px;
+  color: #426047;
+  background: #edf5ed;
+  font-size: 10px;
+  font-weight: 800;
+}
+
 .invitation-page-layout .invitation-list {
   max-height: none;
 }
@@ -2355,5 +2366,9 @@ code {
   .invitation-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .invitation-scope-badge {
+    justify-self: start;
   }
 }

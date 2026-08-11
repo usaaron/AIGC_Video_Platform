@@ -53,6 +53,9 @@ const disableOrganization = (organizationId) =>
   request(`/admin/organizations/${encodeURIComponent(organizationId)}`, { method: 'DELETE' })
 const createPlatformUser = (input) => request('/admin/users', json('POST', input))
 const createPlatformInvitation = (input) => request('/admin/invitations', json('POST', input))
+const listPlatformInvitations = () => request('/admin/invitations')
+const revokePlatformInvitation = (invitationId) =>
+  request(`/admin/invitations/${encodeURIComponent(invitationId)}`, { method: 'DELETE' })
 const createOrganizationUser = (organizationId, input) =>
   request(`/admin/organizations/${encodeURIComponent(organizationId)}/users`, json('POST', input))
 const addExistingOrganizationMember = (organizationId, input) =>
@@ -85,6 +88,8 @@ export const api = {
   createPlatformUser,
   createPlatformInvitation: async (input) =>
     createdTenantInvitationSchema.parse(await createPlatformInvitation(input)),
+  listPlatformInvitations: async () => tenantInvitationSchema.array().parse(await listPlatformInvitations()),
+  revokePlatformInvitation,
   transferOrganizationAdmin: (organizationId, input) =>
     request(`/admin/organizations/${encodeURIComponent(organizationId)}/admin-transfer`, json('POST', input)),
   createOrganizationUser,
