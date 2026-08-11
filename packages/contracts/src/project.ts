@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export const projectStatusSchema = z.enum(['draft', 'producing', 'completed', 'archived'])
-export const assetKindSchema = z.enum(['character', 'scene', 'prop', 'costume', 'audio'])
+export const assetKindSchema = z.enum(['character', 'scene', 'prop', 'costume', 'brand', 'audio'])
 export const assetSourceSchema = z.enum(['import', 'generate'])
 export const promptModeSchema = z.enum(['standard', 'advanced'])
 export const customPromptModeSchema = z.enum(['append', 'replace'])
@@ -285,6 +285,17 @@ export const costumeAttributesSchema = z.object({
   turnaround: z.boolean(),
 })
 
+export const brandAttributesSchema = z.object({
+  type: z.literal('brand'),
+  brandType: z.enum(['logo', 'wordmark', 'combination', 'product-mark']),
+  usage: z.enum(['end-card', 'packaging', 'signage', 'interface', 'general']),
+  background: z.enum(['transparent', 'solid', 'environment']),
+  layout: z.enum(['centered', 'horizontal', 'vertical']),
+  exactText: z.string().max(120).default(''),
+  palette: z.string().max(120).default(''),
+  visualStyle: visualStyleSchema,
+})
+
 const scriptAssetSuggestionBaseSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().min(1).max(500),
@@ -310,6 +321,10 @@ export const scriptAssetSuggestionSchema = z.discriminatedUnion('kind', [
   scriptAssetSuggestionBaseSchema.extend({
     kind: z.literal('costume'),
     attributes: costumeAttributesSchema,
+  }),
+  scriptAssetSuggestionBaseSchema.extend({
+    kind: z.literal('brand'),
+    attributes: brandAttributesSchema,
   }),
 ])
 
@@ -348,6 +363,7 @@ export const assetAttributesSchema = z.discriminatedUnion('type', [
   sceneAttributesSchema,
   propAttributesSchema,
   costumeAttributesSchema,
+  brandAttributesSchema,
   audioAttributesSchema,
 ])
 

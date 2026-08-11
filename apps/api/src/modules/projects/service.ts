@@ -653,10 +653,10 @@ const SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT = `你是中文 AI 视频项目的�
 硬性规格：
 1. 只返回严格 JSON，不要 Markdown，不要代码块，不要解释。
 2. 顶层对象必须包含 summary、assets。
-3. assets 只允许包含 character、scene、prop、costume 四类，不要包含 audio。
+3. assets 只允许包含 character、scene、prop、costume、brand 五类，不要包含 audio。
 4. 每个资产必须包含 kind、name、description、prompt、negativePrompt、reason、priority、attributes。
 5. priority 是 1 到 5 的整数，5 表示最高优先级。
-6. 角色只保留推动主线或多次出现的人物，建议 1 到 4 个；场景只保留复用率高或制作成本高的地点，建议 1 到 4 个；道具只保留重要且会多次出现或承载剧情转折的物件，建议 1 到 5 个；服装只保留角色一致性需要的核心服装，建议 1 到 4 个。
+6. 角色只保留推动主线或多次出现的人物，建议 1 到 4 个；场景只保留复用率高或制作成本高的地点，建议 1 到 4 个；道具只保留重要且会多次出现或承载剧情转折的物件，建议 1 到 5 个；服装只保留角色一致性需要的核心服装，建议 1 到 4 个；广告或片尾出现的品牌、Logo、产品标识建议 1 到 2 个。
 7. 不要把一次性群众、背景摆件、普通环境装饰列成资产；不要重复已有资产。
 8. name 只能写稳定、可复用的资产实体名称，长度建议 2 到 16 个中文字符；动作、情绪、时间、天气、对白、镜头描述和完整句子只能写进 description 或 prompt，绝不能写进 name。
 9. 人物 name 只能使用剧本中的明确姓名或稳定身份称呼，例如“林川”“青云宗长老”“女剑客”“老船夫”；禁止使用“先神情紧张”“低头缩肩”“随后强装镇定”“站在”“走向”“看向”“等待”“说道”等动作或状态，也不要把一次性群众写成人物资产。
@@ -667,6 +667,7 @@ character.subjectType human/animal；gender male/female/unspecified；ageGroup c
 scene.space interior/exterior；sceneType city/street/residential/commercial/nature/ancient/industrial/fantasy；era ancient/recent/modern/future；time dawn/day/sunset/night；weather clear/cloudy/rain/snow/fog；mood warm/tense/mystery/romantic/epic/desolate；camera eye-level/overhead/low-angle/aerial/wide。
 prop.category weapon/vehicle/furniture/electronics/jewelry/food/daily/other；material wood/metal/glass/fabric/leather/ceramic/mixed；condition new/used/aged/damaged；view front/side/turnaround；background solid/transparent/environment。
 costume.audience male/female/unisex；category daily/formal/professional/uniform/ancient/ceremonial/fantasy/armor；season spring-summer/autumn-winter/all-season；design minimal/luxury/retro/future/chinese；presentation flat/model/worn。
+brand.brandType logo/wordmark/combination/product-mark；usage end-card/packaging/signage/interface/general；background transparent/solid/environment；layout centered/horizontal/vertical；exactText 为必须准确显示的文字；palette 为品牌配色描述；visualStyle 使用项目统一视觉风格。
 返回示例：
 {"summary":"建议先建立主角、核心场景、关键物品和主服装，保障后续分镜一致性。","assets":[{"kind":"character","name":"女剑客","description":"贯穿主线的退隐女剑客。","prompt":"人物角色，女性，青年，退隐女剑客，古风武侠，影视 CG 风格，透明背景，Alpha 通道，人物面部大头照，头部和肩部完整入镜，正面平视，自然中性表情，均匀平光，画面比例 1:1。","negativePrompt":"不要手部、文字、水印、边框、投影、环境反射、面部畸形。","reason":"主角多次出现，需要保持身份和面部一致。","priority":5,"attributes":{"type":"character","subjectType":"human","gender":"female","ageGroup":"young","exactAge":null,"ethnicity":"unspecified","skinTone":"unspecified","eyeColor":"unspecified","hairColor":"unspecified","species":"","anthropomorphic":false,"visualStyle":"cinematic-cg","framing":"portrait","bodyType":"balanced","background":"transparent","faceStatus":"pending","bodyStatus":"pending","faceReference":null,"bodyReference":null,"portraitSource":"ai-virtual","trustedPortrait":null,"legStretch":false,"turnaround":false,"turnaroundLayout":"sheet"}}]}`
 
@@ -1157,6 +1158,10 @@ const SCRIPT_ASSET_FIELD_BOUNDARIES = [
   '服装',
   '衣装',
   '外观',
+  '品牌',
+  '品牌标识',
+  'Logo',
+  'logo',
 ]
 const SCRIPT_ASSET_STOP_WORDS = new Set(SCRIPT_ASSET_FIELD_BOUNDARIES)
 
@@ -1247,7 +1252,7 @@ function hasSufficientWebSeriesDialogue(script: string): boolean {
     const dialogue = String(fields.对白 || '')
     return /\[(?:对白|画外音|内心独白)\]/u.test(dialogue) && !/无台词/u.test(dialogue)
   }).length
-    return spokenScenes === scenes.length
+  return spokenScenes === scenes.length
 }
 
 function assertWebSeriesDialogueCoverage(script: string, mode: ScriptContentMode): void {
@@ -1375,6 +1380,8 @@ const PROP_ASSET_NEGATIVE_PROMPT =
   '不要人物、手部、多个重复物品、额外零件、悬浮部件、断裂、变形、比例错误、材质塑料感、复杂场景、文字、水印、logo、二维码、边框、投影、强反射、低分辨率和模糊'
 const COSTUME_ASSET_NEGATIVE_PROMPT =
   '不要人物、模特、人体、脸、手部、衣架、多个重复服装、缺失部件、布料粘连、材质塑料感、复杂场景、文字、水印、logo、二维码、边框、投影、强反射、低分辨率和模糊'
+const BRAND_ASSET_NEGATIVE_PROMPT =
+  '不要人物、人体、手部、产品乱码、错别字、额外文字、水印、二维码、重复 Logo、变形图形、缺失字母、投影、环境反射、低分辨率和模糊'
 
 type ScriptAssetKind = ScriptAssetSuggestion['kind']
 type ScriptAssetNameIndex = Record<ScriptAssetKind, string[]>
@@ -1535,6 +1542,27 @@ function normalizeScriptAssetSuggestion(
     }
   }
 
+  if (namedSuggestion.kind === 'brand') {
+    return {
+      ...namedSuggestion,
+      prompt: composeAssetPrompt([
+        stylePrompt,
+        namedSuggestion.name,
+        namedSuggestion.prompt,
+        '品牌或 Logo 资产，图形结构完整，字形和字母准确，构图清晰，适合在片尾、包装、场景招牌或界面中复用，透明背景，Alpha 通道，无背景色，无投影，均匀平光，主体边缘清晰',
+        namedSuggestion.attributes.exactText
+          ? `必须准确显示文字“${namedSuggestion.attributes.exactText}”`
+          : '',
+      ]),
+      negativePrompt: composeAssetNegativePrompt(namedSuggestion.negativePrompt, BRAND_ASSET_NEGATIVE_PROMPT),
+      attributes: {
+        ...namedSuggestion.attributes,
+        visualStyle: projectVisualStyle || 'cinematic-cg',
+        background: 'transparent',
+      },
+    }
+  }
+
   return {
     ...namedSuggestion,
     prompt: composeAssetPrompt([
@@ -1594,6 +1622,7 @@ function fallbackAssetSuggestions(
   const scenes = extractAssetNames(script, ['场景', '地点'], [], 4, 'scene')
   const props = extractAssetNames(script, ['关键物件', '关键道具', '物件', '道具'], [], 5, 'prop')
   const costumes = extractAssetNames(script, ['服装', '衣装', '外观'], [], 4, 'costume')
+  const brands = extractAssetNames(script, ['品牌', '品牌标识', 'Logo', 'logo'], [], 2, 'brand')
   const assets: ScriptAssetSuggestion[] = [
     ...characters.map((name): ScriptAssetSuggestion => {
       const subjectType = inferScriptCharacterSubjectType(name)
@@ -1706,9 +1735,28 @@ function fallbackAssetSuggestions(
         turnaround: false,
       },
     })),
+    ...brands.map((name): ScriptAssetSuggestion => ({
+      kind: 'brand',
+      name,
+      description: `从剧本中提取的品牌或 Logo 资产：${name}`,
+      prompt: `${name}，品牌 Logo 设计，图形结构完整，文字准确，透明背景，Alpha 通道，居中构图，适合广告片尾落版和场景复用。`,
+      negativePrompt: '',
+      reason: '品牌标识需要在广告、片尾或场景中保持一致，建议独立建立资产。',
+      priority: 5,
+      attributes: {
+        type: 'brand',
+        brandType: 'logo',
+        usage: 'end-card',
+        background: 'transparent',
+        layout: 'centered',
+        exactText: name,
+        palette: '',
+        visualStyle,
+      },
+    })),
   ]
   return {
-    summary: '已根据剧本文本提取角色、场景、关键道具和核心服装建议，建议先确认高优先级资产。',
+    summary: '已根据剧本文本提取角色、场景、关键道具、核心服装和品牌标识建议，建议先确认高优先级资产。',
     assets,
   }
 }
@@ -1719,6 +1767,7 @@ function extractScriptAssetNameIndex(script: string): ScriptAssetNameIndex {
     scene: extractAssetNames(script, ['场景', '地点'], [], 8, 'scene'),
     prop: extractAssetNames(script, ['关键物件', '关键道具', '物件', '道具'], [], 10, 'prop'),
     costume: extractAssetNames(script, ['服装', '衣装', '外观'], [], 8, 'costume'),
+    brand: extractAssetNames(script, ['品牌', '品牌标识', 'Logo', 'logo'], [], 4, 'brand'),
   }
 }
 
@@ -3013,6 +3062,18 @@ function assetAttributeSummary(asset: Asset): string {
       .filter(Boolean)
       .join('、')}`
   }
+  if (attributes.type === 'brand') {
+    return `结构化品牌：${[
+      attributes.brandType,
+      attributes.usage,
+      attributes.layout,
+      attributes.exactText,
+      attributes.palette,
+      attributes.visualStyle,
+    ]
+      .filter(Boolean)
+      .join('、')}`
+  }
   return ''
 }
 
@@ -3285,7 +3346,7 @@ function normalizeScriptAssetKind(value: unknown): ScriptAssetKind | null {
   const normalized = value
     .trim()
     .toLowerCase()
-    .replace(/[\s_-]+/g, '')
+    .replace(/[\s_\/-]+/g, '')
   if (
     [
       'character',
@@ -3306,6 +3367,10 @@ function normalizeScriptAssetKind(value: unknown): ScriptAssetKind | null {
     return 'prop'
   if (['costume', 'costumes', 'outfit', 'outfits', '服装', '衣装', '服装资产'].includes(normalized))
     return 'costume'
+  if (
+    ['brand', 'branding', 'logo', 'logomark', '品牌', '品牌标识', 'logo资产', '品牌资产'].includes(normalized)
+  )
+    return 'brand'
   return null
 }
 
@@ -3442,6 +3507,30 @@ function normalizeScriptAssetAttributes(
       condition: pickEnum(read('condition'), ['new', 'used', 'aged', 'damaged'] as const, 'new'),
       view: pickEnum(read('view'), ['front', 'side', 'turnaround'] as const, 'front'),
       background: pickEnum(read('background'), ['solid', 'transparent', 'environment'] as const, 'solid'),
+      visualStyle: pickEnum(read('visualStyle'), visualStyles, 'cinematic-cg'),
+    }
+  }
+  if (kind === 'brand') {
+    return {
+      type: 'brand',
+      brandType: pickEnum(
+        read('brandType'),
+        ['logo', 'wordmark', 'combination', 'product-mark'] as const,
+        'logo',
+      ),
+      usage: pickEnum(
+        read('usage'),
+        ['end-card', 'packaging', 'signage', 'interface', 'general'] as const,
+        'general',
+      ),
+      background: pickEnum(
+        read('background'),
+        ['transparent', 'solid', 'environment'] as const,
+        'transparent',
+      ),
+      layout: pickEnum(read('layout'), ['centered', 'horizontal', 'vertical'] as const, 'centered'),
+      exactText: textValue(read('exactText'), '', 120),
+      palette: textValue(read('palette'), '', 120),
       visualStyle: pickEnum(read('visualStyle'), visualStyles, 'cinematic-cg'),
     }
   }

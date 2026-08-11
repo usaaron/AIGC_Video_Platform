@@ -15,6 +15,7 @@ export function AssetFields({ attributes, characterStage = 'face', characterAsse
       {attributes.type === 'costume' && (
         <CostumeFields value={attributes} characterAssets={characterAssets} update={update} />
       )}
+      {attributes.type === 'brand' && <BrandFields value={attributes} update={update} />}
       {attributes.type === 'audio' && <AudioFields value={attributes} update={update} />}
     </div>
   )
@@ -352,6 +353,58 @@ function AudioFields({ value, update }) {
         checked={value.loop}
         onChange={(next) => update('loop', next)}
       />
+    </>
+  )
+}
+
+function BrandFields({ value, update }) {
+  return (
+    <>
+      <ChoiceField
+        label="品牌资产形态"
+        value={value.brandType}
+        options={OPTIONS.brandType}
+        onChange={(next) => update('brandType', next)}
+      />
+      <ChoiceField
+        label="主要用途"
+        value={value.usage}
+        options={OPTIONS.usage}
+        onChange={(next) => update('usage', next)}
+      />
+      <ChoiceField
+        label="构图方式"
+        value={value.layout}
+        options={OPTIONS.layout}
+        onChange={(next) => update('layout', next)}
+      />
+      <ChoiceField
+        label="背景"
+        value={value.background}
+        options={OPTIONS.background.filter(([id]) => id !== 'environment')}
+        onChange={(next) => update('background', next)}
+      />
+      <div className="asset-inline-fields">
+        <label>
+          <span>必须正确显示的文字（可选）</span>
+          <input
+            value={value.exactText || ''}
+            placeholder="例如：序幕TV"
+            onChange={(event) => update('exactText', event.target.value)}
+          />
+        </label>
+        <label>
+          <span>品牌配色（可选）</span>
+          <input
+            value={value.palette || ''}
+            placeholder="例如：黑金、青绿色"
+            onChange={(event) => update('palette', event.target.value)}
+          />
+        </label>
+      </div>
+      <small className="asset-field-help">
+        品牌文字会原样注入提示词；生成模型可能仍会产生字形误差，建议将最终 Logo 作为原图导入并用于关键落版。
+      </small>
     </>
   )
 }

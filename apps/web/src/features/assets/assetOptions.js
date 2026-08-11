@@ -3,6 +3,7 @@ export const ASSET_TABS = [
   ['scene', '场景'],
   ['prop', '物品'],
   ['costume', '服装'],
+  ['brand', '品牌 / Logo'],
   ['audio', '音频'],
 ]
 
@@ -82,6 +83,16 @@ export const DEFAULT_ATTRIBUTES = {
     presentation: 'flat',
     visualStyle: 'cinematic-cg',
     turnaround: false,
+  },
+  brand: {
+    type: 'brand',
+    brandType: 'logo',
+    usage: 'general',
+    background: 'transparent',
+    layout: 'centered',
+    exactText: '',
+    palette: '',
+    visualStyle: 'cinematic-cg',
   },
   audio: {
     type: 'audio',
@@ -282,6 +293,24 @@ export const OPTIONS = {
     ['flat', '平铺'],
     ['model', '模特'],
     ['worn', '人物穿着'],
+  ],
+  brandType: [
+    ['logo', '图形标志'],
+    ['wordmark', '文字标志'],
+    ['combination', '图文组合标'],
+    ['product-mark', '产品标识'],
+  ],
+  usage: [
+    ['end-card', '片尾落版'],
+    ['packaging', '产品包装'],
+    ['signage', '场景招牌'],
+    ['interface', '界面 / UI'],
+    ['general', '通用品牌资产'],
+  ],
+  layout: [
+    ['centered', '居中构图'],
+    ['horizontal', '横向构图'],
+    ['vertical', '竖向构图'],
   ],
   audioType: [
     ['voice', '配音'],

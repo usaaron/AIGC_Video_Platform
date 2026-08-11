@@ -1325,9 +1325,17 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
 
-function imageAssetKind(task: GenerationTask): 'character' | 'scene' | 'prop' | 'costume' | 'storyboard' {
+function imageAssetKind(
+  task: GenerationTask,
+): 'character' | 'scene' | 'prop' | 'costume' | 'brand' | 'storyboard' {
   const assetKind = task.metadata.assetKind
-  if (assetKind === 'character' || assetKind === 'scene' || assetKind === 'prop' || assetKind === 'costume') {
+  if (
+    assetKind === 'character' ||
+    assetKind === 'scene' ||
+    assetKind === 'prop' ||
+    assetKind === 'costume' ||
+    assetKind === 'brand'
+  ) {
     return assetKind
   }
   return 'storyboard'

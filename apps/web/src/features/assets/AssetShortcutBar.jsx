@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
+  Badge,
   ChevronDown,
   Image,
   Link2,
@@ -16,6 +17,7 @@ const KIND_LABELS = {
   scene: '场景',
   prop: '物品',
   costume: '服装',
+  brand: '品牌 / Logo',
 }
 
 const KIND_ICONS = {
@@ -23,9 +25,10 @@ const KIND_ICONS = {
   scene: MapPinned,
   prop: Package,
   costume: Shirt,
+  brand: Badge,
 }
 
-const KIND_ORDER = ['character', 'scene', 'prop', 'costume']
+const KIND_ORDER = ['character', 'scene', 'prop', 'costume', 'brand']
 
 export function AssetShortcutBar({
   assets = [],

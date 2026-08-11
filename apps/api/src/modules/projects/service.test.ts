@@ -267,9 +267,7 @@ describe('ProjectService script billing', () => {
     )
 
     expect(textProvider.generate).toHaveBeenCalledTimes(2)
-    expect(vi.mocked(textProvider.generate).mock.calls[1]?.[0].systemPrompt).toContain(
-      '对白导演和声音设计',
-    )
+    expect(vi.mocked(textProvider.generate).mock.calls[1]?.[0].systemPrompt).toContain('对白导演和声音设计')
     expect(result.script).not.toContain('无台词')
     expect(result.script).toContain('[画外音]测试进入最后一关')
     expect(repository.update).toHaveBeenCalledOnce()

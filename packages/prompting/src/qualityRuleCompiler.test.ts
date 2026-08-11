@@ -67,4 +67,11 @@ describe('compileQualityRules', () => {
     expect(costume.presetIds).toContain('costume-isolated')
     expect(costume.negativePrompt).toContain('不要人物、人体、脸、手')
   })
+
+  it('protects brand and Logo generations from malformed text and human fragments', () => {
+    const brand = compileQualityRules({ mediaKind: 'image', assetKind: 'brand' })
+    expect(brand.presetIds).toContain('brand-isolated')
+    expect(brand.negativePrompt).toContain('保持指定文字、字形、字母和图形结构准确')
+    expect(brand.negativePrompt).toContain('不要人物、人体、手部')
+  })
 })

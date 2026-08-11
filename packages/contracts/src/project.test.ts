@@ -4,6 +4,7 @@ import {
   createAssetSchema,
   createShotSchema,
   costumeAttributesSchema,
+  brandAttributesSchema,
   enrichScriptRequestSchema,
   generateScriptAssetSuggestionsRequestSchema,
   generateScriptRequestSchema,
@@ -39,6 +40,24 @@ const character = {
 const reference = (index: number) => ({ id: `media-${index}`, url: `/media/${index}`, name: `${index}.png` })
 
 describe('asset contracts', () => {
+  it('accepts a generated brand and Logo asset', () => {
+    const attributes = brandAttributesSchema.parse({
+      type: 'brand',
+      brandType: 'wordmark',
+      usage: 'end-card',
+      background: 'transparent',
+      layout: 'horizontal',
+      visualStyle: 'cinematic-cg',
+    })
+    const parsed = createAssetSchema.parse({
+      kind: 'brand',
+      sourceMode: 'generate',
+      name: '序幕TV',
+      attributes,
+    })
+    expect(parsed.attributes).toMatchObject({ type: 'brand', exactText: '', palette: '' })
+  })
+
   it('accepts at most three imported reference images', () => {
     const input = {
       kind: 'character',

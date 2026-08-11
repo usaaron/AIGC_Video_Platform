@@ -593,12 +593,12 @@ export class StoreCreditLedger implements CreditLedger {
       referenceId: entryId,
       amount,
       description: reason,
-      audit: billingAudit(
-        'billing.organization_credits.adjusted',
-        principal.userId,
-        metadata,
-        { tenantId, referenceId: entryId, amount, reason },
-      ),
+      audit: billingAudit('billing.organization_credits.adjusted', principal.userId, metadata, {
+        tenantId,
+        referenceId: entryId,
+        amount,
+        reason,
+      }),
     })
     return this.ledgerRepository.organizationBillingSummary(principal, tenantId)
   }
@@ -824,12 +824,12 @@ export class StoreCreditLedger implements CreditLedger {
         grantMonthlyCredits,
         description: reason ?? 'Member monthly grant',
         createdByUserId: principal.userId,
-        audit: billingAudit(
-          'billing.plan.updated',
-          principal.userId,
-          metadata,
-          { targetMembershipId, plan, grantMonthlyCredits, reason: reason ?? null },
-        ),
+        audit: billingAudit('billing.plan.updated', principal.userId, metadata, {
+          targetMembershipId,
+          plan,
+          grantMonthlyCredits,
+          reason: reason ?? null,
+        }),
       })
       return this.billingSummary({
         userId: updated.userId,

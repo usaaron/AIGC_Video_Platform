@@ -1,4 +1,4 @@
-const KIND_PRIORITY = { scene: 20, character: 16, costume: 8, prop: 8 }
+const KIND_PRIORITY = { scene: 20, character: 16, brand: 10, costume: 8, prop: 8 }
 const COMMON_BIGRAMS = new Set([
   '人物',
   '角色',

@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  Badge,
   BadgeCheck,
   Boxes,
   Gauge,
@@ -22,7 +23,7 @@ import { GenerationProgress } from '../features/assets/GenerationProgress'
 import { getAssetPreviewUrl } from '../features/assets/assetPreview'
 import { summarizeAsset } from '../features/assets/promptCompiler'
 
-const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, audio: Music2 }
+const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, brand: Badge, audio: Music2 }
 
 export function AssetsPage({
   project,
@@ -69,7 +70,7 @@ export function AssetsPage({
       <PageHeader
         eyebrow="第 2 步 · 资产"
         title="建立可复用的视觉资产"
-        description="人物、场景、物品、服装和音频分别管理，并保持同一项目风格一致。"
+        description="人物、场景、物品、服装、品牌和音频分别管理，并保持同一项目风格一致。"
       >
         <span className="inherited-ratio">
           项目比例 <strong>{project.aspectRatio}</strong>
@@ -96,7 +97,7 @@ export function AssetsPage({
         )}
       </PageHeader>
 
-      <div className="asset-tabs asset-tabs-five">
+      <div className="asset-tabs asset-tabs-six">
         {ASSET_TABS.map(([kind, label]) => (
           <button key={kind} className={tab === kind ? 'active' : ''} onClick={() => setTab(kind)}>
             {label} <span>{assets.filter((asset) => asset.kind === kind).length}</span>

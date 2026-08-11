@@ -2,7 +2,7 @@ export const QUALITY_RULE_VERSION = 'quality-floor-v1'
 
 export type QualityRuleInput = {
   mediaKind: 'image' | 'video'
-  assetKind?: 'character' | 'scene' | 'prop' | 'costume' | 'storyboard'
+  assetKind?: 'character' | 'scene' | 'prop' | 'costume' | 'brand' | 'storyboard'
   contentType?: 'short-drama' | 'advertisement' | 'animation'
   visualStyles?: string[]
   emptyScene?: boolean
@@ -38,6 +38,9 @@ const PROP_BASE =
 const COSTUME_BASE =
   '只生成服装本体；不要人物、人体、脸、手、手臂、腿、脚、身体局部、模特、工作人员、穿着效果、人体轮廓和衣架'
 
+const BRAND_BASE =
+  '只生成单个品牌或 Logo 本体；不要人物、人体、手部、产品乱码、错别字、额外文字、水印、二维码、重复 Logo、变形图形、投影和环境反射；保持指定文字、字形、字母和图形结构准确'
+
 const SCENE_BASE = '不要悬浮物体、断开物体、穿帮接缝和无意重复纹理；不要色彩不自然、饱和度溢出和色温跳变'
 
 const PHOTOREAL_SCENE = '不要卡通、动漫、低质量3D渲染和塑料感'
@@ -70,6 +73,9 @@ export function compileQualityRules(input: QualityRuleInput): CompiledQualityRul
   }
   if (input.assetKind === 'costume') {
     presets.push(['costume-isolated', COSTUME_BASE])
+  }
+  if (input.assetKind === 'brand') {
+    presets.push(['brand-isolated', BRAND_BASE])
   }
   if (input.assetKind === 'scene' || input.assetKind === 'storyboard') {
     presets.push(['scene-integrity', SCENE_BASE])

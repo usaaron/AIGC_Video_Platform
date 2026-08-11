@@ -272,7 +272,11 @@ describe('admin console contracts', () => {
         plan: 'member',
         credits: 150,
         billingScope: 'organization',
-        organizationPool: { tenantId: 'tenant-enterprise', organizationId: 'tenant-enterprise', credits: 150 },
+        organizationPool: {
+          tenantId: 'tenant-enterprise',
+          organizationId: 'tenant-enterprise',
+          credits: 150,
+        },
         concurrency: 3,
         unlimitedConcurrency: false,
         planSelfServiceEnabled: false,

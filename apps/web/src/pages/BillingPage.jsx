@@ -6,7 +6,9 @@ import { api } from '../services/apiClient'
 export function BillingPage({ billing }) {
   const member = billing.plan === 'member'
   const organizationScoped = billing.billingScope === 'organization'
-  const availableCredits = organizationScoped ? (billing.organizationPool?.credits ?? billing.credits) : billing.credits
+  const availableCredits = organizationScoped
+    ? (billing.organizationPool?.credits ?? billing.credits)
+    : billing.credits
   const [paymentConfig, setPaymentConfig] = useState(null)
   const [paymentBusy, setPaymentBusy] = useState('')
   const [paymentMessage, setPaymentMessage] = useState('')
@@ -36,7 +38,8 @@ export function BillingPage({ billing }) {
   }, [])
 
   const paymentEnabled = paymentConfig?.enabled === true
-  const subscribeEnabled = paymentEnabled && paymentConfig.memberSubscriptionEnabled && !member && !organizationScoped
+  const subscribeEnabled =
+    paymentEnabled && paymentConfig.memberSubscriptionEnabled && !member && !organizationScoped
   const creditPurchaseEnabled = paymentEnabled && paymentConfig.creditPurchaseEnabled && !organizationScoped
 
   const startCheckout = async (type) => {
@@ -67,7 +70,8 @@ export function BillingPage({ billing }) {
             <Zap size={19} />
           </span>
           <p>
-            {organizationScoped ? '组织共享积分' : '可用积分'}<strong>{availableCredits}</strong>
+            {organizationScoped ? '组织共享积分' : '可用积分'}
+            <strong>{availableCredits}</strong>
           </p>
         </div>
         <div>
@@ -127,7 +131,11 @@ export function BillingPage({ billing }) {
                   disabled={!creditPurchaseEnabled || paymentBusy === 'credits'}
                   onClick={() => startCheckout('credits')}
                 >
-                  {paymentBusy === 'credits' ? <LoaderCircle size={15} className="spin" /> : <Zap size={15} />}
+                  {paymentBusy === 'credits' ? (
+                    <LoaderCircle size={15} className="spin" />
+                  ) : (
+                    <Zap size={15} />
+                  )}
                   充值 {paymentConfig?.creditPackCredits ?? '-'} 积分
                 </button>
               </>

@@ -20,6 +20,10 @@ export function ReferenceUploader({
   const handleFiles = async (files) => {
     const selected = [...files].slice(0, Math.max(0, limit - references.length))
     if (!selected.length) return
+    if (typeof onUpload !== 'function') {
+      setError('当前页面未连接文件上传服务，请刷新页面后重试。')
+      return
+    }
     setUploading(true)
     setError('')
     try {
@@ -27,7 +31,7 @@ export function ReferenceUploader({
       for (const file of selected) uploaded.push(await onUpload(file))
       onChange([...references, ...uploaded.map(({ id, url, name }) => ({ id, url, name }))])
     } catch (uploadError) {
-      setError(uploadError.message)
+      setError(uploadError instanceof Error ? uploadError.message : '文件上传失败，请稍后重试。')
     } finally {
       setUploading(false)
     }

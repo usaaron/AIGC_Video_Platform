@@ -163,6 +163,17 @@ function compileAutomatic(asset, aspectRatio) {
       '只生成服装本体，不生成人物、人体、脸、手、手臂、腿、脚、身体局部、模特、工作人员、穿着效果、人体轮廓和衣架',
     )
   }
+  if (attributes.type === 'brand') {
+    parts.push(
+      optionLabel('brandType', attributes.brandType),
+      optionLabel('usage', attributes.usage),
+      optionLabel('layout', attributes.layout),
+      attributes.exactText ? `必须准确显示文字“${attributes.exactText}”` : '',
+      attributes.palette ? `品牌配色：${attributes.palette}` : '',
+      '品牌标识完整清晰，保持字形、字母、比例和图形结构准确，适合片尾落版、产品包装或场景招牌复用',
+      '不出现人物、人体、手部、产品乱码、错别字、额外文字、水印、二维码、变形图形、重复 Logo、投影和环境反射',
+    )
+  }
   if (attributes.type === 'audio') {
     parts.push(
       optionLabel('audioType', attributes.audioType),
@@ -226,6 +237,14 @@ export function summarizeAsset(asset) {
       optionLabel('audience', attributes.audience),
       optionLabel('costumeCategory', attributes.category),
       optionLabel('design', attributes.design),
+    ]
+  }
+  if (attributes.type === 'brand') {
+    return [
+      optionLabel('brandType', attributes.brandType),
+      optionLabel('usage', attributes.usage),
+      attributes.exactText ? `文字：${attributes.exactText}` : '',
+      optionLabel('visualStyle', attributes.visualStyle),
     ]
   }
   return [

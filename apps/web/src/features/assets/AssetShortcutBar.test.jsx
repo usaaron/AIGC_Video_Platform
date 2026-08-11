@@ -7,6 +7,7 @@ const assets = [
   { id: 'scene-1', kind: 'scene', name: '天台', attributes: {} },
   { id: 'prop-1', kind: 'prop', name: '铜镜', attributes: {} },
   { id: 'costume-1', kind: 'costume', name: '黑色长袍', attributes: {} },
+  { id: 'brand-1', kind: 'brand', name: '序幕TV', attributes: {} },
 ]
 
 describe('asset shortcuts', () => {
@@ -31,5 +32,6 @@ describe('asset shortcuts', () => {
     expect(html).toContain('asset-shortcut-group kind-scene')
     expect(html).toContain('asset-shortcut-group kind-prop')
     expect(html).toContain('asset-shortcut-group kind-costume')
+    expect(html).toContain('asset-shortcut-group kind-brand')
   })
 })

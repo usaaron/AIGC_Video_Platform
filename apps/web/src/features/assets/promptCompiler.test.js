@@ -209,4 +209,24 @@ describe('asset prompt compiler', () => {
     expect(prompt).toContain('空场景，不出现人物')
     expect(prompt).toContain('预留人物表演和镜头运动空间')
   })
+
+  it('keeps brand text and logo constraints in the generated prompt', () => {
+    const attributes = createDefaultAttributes('brand')
+    attributes.exactText = '序幕TV'
+    attributes.brandType = 'wordmark'
+    const prompt = compileAssetPrompt(
+      {
+        name: '序幕TV',
+        description: '平台片尾标识',
+        sourceMode: 'generate',
+        promptMode: 'standard',
+        customPrompt: '',
+        attributes,
+      },
+      '16:9',
+    )
+    expect(prompt).toContain('必须准确显示文字“序幕TV”')
+    expect(prompt).toContain('不出现人物')
+    expect(prompt).toContain('画面比例16:9')
+  })
 })

@@ -316,7 +316,9 @@ export class BillingLedgerRepository {
           metadata: input.metadata,
           audit: input.audit,
         })
-        return recorded ? { entry: organizationEntryToLedgerEntry(recorded.entry), balance: recorded.balance } : null
+        return recorded
+          ? { entry: organizationEntryToLedgerEntry(recorded.entry), balance: recorded.balance }
+          : null
       }
 
       const duplicate = await client.query<{ id: string }>(
@@ -458,7 +460,11 @@ export class BillingLedgerRepository {
       if (!original.rows[0]) return null
       const organization = await ensureOrganizationBillingAccount(client, input.tenantId, true)
       if (!organization) {
-        throw new AppError(404, 'ORGANIZATION_BILLING_ACCOUNT_NOT_FOUND', 'Organization billing account does not exist')
+        throw new AppError(
+          404,
+          'ORGANIZATION_BILLING_ACCOUNT_NOT_FOUND',
+          'Organization billing account does not exist',
+        )
       }
       return await insertOrganizationLedgerEntryIfAbsent(client, {
         organization,
@@ -779,7 +785,11 @@ export class BillingLedgerRepository {
         }
       }
 
-      const entries = await listMembershipLedgerEntries(client, target.account.userId, target.account.tenantId)
+      const entries = await listMembershipLedgerEntries(
+        client,
+        target.account.userId,
+        target.account.tenantId,
+      )
       return {
         plan: target.account.plan,
         credits: target.account.credits,
@@ -796,7 +806,11 @@ export class BillingLedgerRepository {
     return this.database.transaction(async (client) => {
       const organization = await ensureOrganizationBillingAccount(client, tenantId, false)
       if (!organization) {
-        throw new AppError(404, 'ORGANIZATION_BILLING_ACCOUNT_NOT_FOUND', 'Organization billing account does not exist')
+        throw new AppError(
+          404,
+          'ORGANIZATION_BILLING_ACCOUNT_NOT_FOUND',
+          'Organization billing account does not exist',
+        )
       }
       if (!canReadOrganizationBilling(principal, organization)) {
         throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot read another organization billing account')
@@ -826,7 +840,11 @@ export class BillingLedgerRepository {
     return this.database.transaction(async (client) => {
       const organization = await ensureOrganizationBillingAccount(client, input.tenantId, true)
       if (!organization) {
-        throw new AppError(404, 'ORGANIZATION_BILLING_ACCOUNT_NOT_FOUND', 'Organization billing account does not exist')
+        throw new AppError(
+          404,
+          'ORGANIZATION_BILLING_ACCOUNT_NOT_FOUND',
+          'Organization billing account does not exist',
+        )
       }
       if (!canManageOrganizationBilling(input.principal, organization)) {
         throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot adjust another organization billing account')
@@ -1439,7 +1457,9 @@ function organizationEntryToLedgerEntry(entry: OrganizationLedgerEntry): LedgerE
   }
 }
 
-function monthlyUsageFromEntries(entries: readonly { id: string; type: LedgerEntry['type']; amount: number; createdAt: string }[]) {
+function monthlyUsageFromEntries(
+  entries: readonly { id: string; type: LedgerEntry['type']; amount: number; createdAt: string }[],
+) {
   const periodStart = startOfChinaMonth()
   const orderedEntries = [...entries].sort((left, right) => {
     const createdAtOrder = Date.parse(right.createdAt) - Date.parse(left.createdAt)
@@ -1930,8 +1950,7 @@ function canManageBillingAccount(
 function usesOrganizationBilling(account: BillingAccountRecord): boolean {
   return (
     account.organizationType === 'enterprise' &&
-    (account.roles.includes(ROLES.ORGANIZATION_ADMIN) ||
-      account.roles.includes(ROLES.ORGANIZATION_MEMBER))
+    (account.roles.includes(ROLES.ORGANIZATION_ADMIN) || account.roles.includes(ROLES.ORGANIZATION_MEMBER))
   )
 }
 

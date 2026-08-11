@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
   LoaderCircle,
+  Badge,
   MapPinned,
   Package,
   Pencil,
@@ -17,9 +18,10 @@ const KIND_META = {
   scene: { label: '场景', icon: MapPinned },
   prop: { label: '物品', icon: Package },
   costume: { label: '服装', icon: Shirt },
+  brand: { label: '品牌 / Logo', icon: Badge },
 }
 
-const KIND_ORDER = ['character', 'scene', 'prop', 'costume']
+const KIND_ORDER = ['character', 'scene', 'prop', 'costume', 'brand']
 
 export function AssetSuggestionsPanel({
   status,
@@ -29,6 +31,7 @@ export function AssetSuggestionsPanel({
   createdKeys,
   onRefresh,
   onCreate,
+  onCreateAndGenerate,
   onInspect,
   disabled = false,
   copy = {},
@@ -41,7 +44,7 @@ export function AssetSuggestionsPanel({
   const hasResult = Boolean(result)
   const labels = {
     eyebrow: '资产建议',
-    title: '从剧本提取人物、场景、物品、服装',
+    title: '从剧本提取人物、场景、物品、服装和品牌',
     refresh: hasResult ? '重新分析当前剧本' : '后台生成资产建议',
     loading: '资产建议正在后台生成，完成后会自动显示',
     empty: '提交后会在后台分析剧本，即使离开当前页面也会继续生成。',
@@ -163,38 +166,34 @@ export function AssetSuggestionsPanel({
                               <button
                                 type="button"
                                 className="button primary"
-                                disabled={disabled || isCreated || (!onInspect && isCreating)}
+                                disabled={disabled || isCreated || isCreating}
                                 onClick={() => {
                                   const nextAsset = { ...asset, prompt: promptValue }
-                                  if (onInspect) {
+                                  if (onCreateAndGenerate) {
+                                    void onCreateAndGenerate(nextAsset)
+                                  } else if (onInspect) {
                                     onInspect(nextAsset)
-                                    return
+                                  } else if (onCreate) {
+                                    void onCreate(nextAsset)
                                   }
-                                  void onCreate(nextAsset)
                                 }}
                               >
-                                {onInspect ? (
-                                  isCreated ? (
-                                    <Sparkles size={14} />
-                                  ) : (
-                                    <Plus size={14} />
-                                  )
-                                ) : isCreating ? (
+                                {isCreating ? (
                                   <LoaderCircle size={14} className="spin" />
                                 ) : isCreated ? (
                                   <Sparkles size={14} />
                                 ) : (
                                   <Plus size={14} />
                                 )}
-                                {onInspect
-                                  ? isCreated
-                                    ? '已审阅并保存'
-                                    : '先审阅后写入'
-                                  : isCreating
-                                    ? '正在加入'
-                                    : isCreated
-                                      ? '已加入资产库'
-                                      : '加入资产库'}
+                                {isCreating
+                                  ? '正在确认并生成'
+                                  : isCreated
+                                    ? '已确认并生成'
+                                    : onCreateAndGenerate
+                                      ? '确认并生成'
+                                      : onInspect
+                                        ? '先审阅后写入'
+                                        : '加入资产库'}
                               </button>
                             </div>
                             {isEditing && (
@@ -287,6 +286,20 @@ function buildSuggestionFacts(asset) {
       { label: '风格', value: attributes.design ? optionLabel('design', attributes.design) : '未指定' },
     ]
   }
+  if (asset.kind === 'brand') {
+    return [
+      {
+        label: '形态',
+        value: attributes.brandType ? optionLabel('brandType', attributes.brandType) : '未指定',
+      },
+      { label: '用途', value: attributes.usage ? optionLabel('usage', attributes.usage) : '未指定' },
+      { label: '文字', value: attributes.exactText || asset.name },
+      {
+        label: '背景',
+        value: attributes.background ? optionLabel('background', attributes.background) : '透明',
+      },
+    ]
+  }
   if (asset.kind === 'audio') {
     return [
       {
@@ -306,6 +319,6 @@ function groupAssets(assets) {
       ...groups,
       [asset.kind]: [...groups[asset.kind], asset],
     }),
-    { character: [], scene: [], prop: [], costume: [] },
+    { character: [], scene: [], prop: [], costume: [], brand: [] },
   )
 }

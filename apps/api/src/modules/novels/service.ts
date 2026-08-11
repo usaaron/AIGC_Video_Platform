@@ -1824,11 +1824,12 @@ function novelAssetSuggestionsPrompt(source: NovelAssetSuggestionSource, maxAsse
     '人物建议必须把性别、年龄段、身份职业写进 description 和 prompt。比如“老船夫/祖父/摆渡老人”必须识别为男性、老年、船夫/摆渡人。',
     '场景建议要优先保留核心地点；道具只保留重要或多次出现的，不要把一次性小物件都资产化；服装只建议主角或高频人物的稳定造型。',
     '请只返回严格 JSON，不要 Markdown，不要代码块。返回对象必须包含 summary 和 assets。',
-    'assets 每项必须完全符合现有资产建议结构：kind 为 character、scene、prop、costume 之一；必须包含 name、description、prompt、negativePrompt、reason、priority、attributes。',
+    'assets 每项必须完全符合现有资产建议结构：kind 为 character、scene、prop、costume、brand 之一；必须包含 name、description、prompt、negativePrompt、reason、priority、attributes。',
     'character.attributes 必须包含 type、subjectType、gender、ageGroup、exactAge、species、anthropomorphic、visualStyle、framing、bodyType、background、faceStatus、bodyStatus、faceReference、bodyReference、portraitSource、trustedPortrait、legStretch、turnaround、turnaroundLayout。',
     'scene.attributes 必须包含 type、space、sceneType、era、time、weather、mood、camera、visualStyle、emptyScene、activitySpace。',
     'prop.attributes 必须包含 type、category、material、condition、view、background、visualStyle。',
     'costume.attributes 必须包含 type、audience、category、season、design、presentation、visualStyle、turnaround。',
+    'brand.attributes 必须包含 type、brandType、usage、background、layout、exactText、palette、visualStyle。',
     '',
     summaryBlocks,
   ].join('\n')

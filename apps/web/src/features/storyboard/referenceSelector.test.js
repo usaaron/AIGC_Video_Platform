@@ -100,6 +100,16 @@ describe('selectShotAssetReferences', () => {
     expect(references).toEqual([])
   })
 
+  it('attaches a named brand asset to an advertising shot', () => {
+    const brand = asset('brand-xumu', 'brand', '序幕TV', '平台品牌 Logo', '/brand.png')
+    const references = selectShotAssetReferences([brand], {
+      title: '品牌落版',
+      prompt: '序幕TV 标志居中出现，保持文字和图形结构准确。',
+    })
+
+    expect(references).toMatchObject([{ id: 'brand-xumu', assetKind: 'brand', url: '/brand.png' }])
+  })
+
   it('generates video directly from assets when no storyboard image exists', () => {
     const references = selectShotAssetReferences(assets, {
       title: '林夏抵达',

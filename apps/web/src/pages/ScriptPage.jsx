@@ -156,6 +156,7 @@ export function ScriptPage({
   onGenerateNovelChapterAdaptation,
   onSuggestAssets,
   onCreateAsset,
+  onCreateAndGenerateAsset,
   onUpload,
   onCancelTask,
   onUpdateEpisodeDuration,
@@ -348,6 +349,25 @@ export function ScriptPage({
       suggestionKey: key,
       editorKey: crypto.randomUUID(),
     })
+  }
+
+  const createAndGenerateSuggestedAsset = async (asset) => {
+    if (!onCreateAndGenerateAsset) return
+    const key = assetSuggestionKey(asset)
+    setCreatingAssetKeys((current) => new Set(current).add(key))
+    setAssetSuggestionError('')
+    try {
+      await onCreateAndGenerateAsset(asset)
+      setCreatedAssetKeys((current) => new Set(current).add(key))
+    } catch (generationError) {
+      setAssetSuggestionError(generationError.message)
+    } finally {
+      setCreatingAssetKeys((current) => {
+        const next = new Set(current)
+        next.delete(key)
+        return next
+      })
+    }
   }
 
   const useAdaptedNovelScript = async (adaptedScript) => {
@@ -637,12 +657,11 @@ export function ScriptPage({
                   <span className="script-seconds-input">
                     <input
                       aria-label={`${contentConfig.durationLabel}（秒）`}
-                      type="number"
-                      min={contentConfig.minimumDuration}
-                      max={contentConfig.maximumDuration}
-                      step="1"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       value={episodeDurationSeconds}
-                      onChange={(event) => setEpisodeDurationSeconds(Number(event.target.value) || 0)}
+                      onChange={(event) => setEpisodeDurationSeconds(event.target.value.replace(/\D/g, ''))}
                       onBlur={() => void commitEpisodeDuration()}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') void commitEpisodeDuration()
@@ -651,7 +670,6 @@ export function ScriptPage({
                     <em>秒</em>
                   </span>
                 </label>
-                <span className="script-format-source">由新建影片的内容类型决定</span>
               </section>
 
               <section className="script-setting-block script-model-card" aria-label="生成模型">
@@ -862,12 +880,11 @@ export function ScriptPage({
                     <span className="script-seconds-input">
                       <input
                         aria-label={`${contentConfig.appendDurationLabel}（秒）`}
-                        type="number"
-                        min={contentConfig.minimumDuration}
-                        max={contentConfig.maximumDuration}
-                        step="1"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         value={segmentDurationSeconds}
-                        onChange={(event) => setSegmentDurationSeconds(Number(event.target.value) || 0)}
+                        onChange={(event) => setSegmentDurationSeconds(event.target.value.replace(/\D/g, ''))}
                         onBlur={() =>
                           setSegmentDurationSeconds(normalizeContentDuration(segmentDurationSeconds))
                         }
@@ -920,6 +937,7 @@ export function ScriptPage({
             createdKeys={createdAssetKeys}
             onRefresh={() => void suggestAssetsForScript(script)}
             onInspect={openSuggestedAssetEditor}
+            onCreateAndGenerate={createAndGenerateSuggestedAsset}
           />
 
           {error && (

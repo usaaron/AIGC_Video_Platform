@@ -35,12 +35,12 @@ describe('admin console helpers', () => {
   const superAdminSession = sessionFor('user-superadmin', 'tenant-a', ['super_admin'])
   const adminSession = sessionFor('user-admin', 'tenant-a', ['admin'])
   const memberSession = sessionFor('user-member', 'tenant-a', ['member'], ['project.read'])
-  const billingAdminSession = sessionFor('user-admin', 'tenant-a', ['admin'], [
-    'admin.dashboard.read',
-    'billing.read.all',
-    'billing.manage',
-    'user.manage',
-  ])
+  const billingAdminSession = sessionFor(
+    'user-admin',
+    'tenant-a',
+    ['admin'],
+    ['admin.dashboard.read', 'billing.read.all', 'billing.manage', 'user.manage'],
+  )
   const organizationAdminBillingSession = sessionFor(
     'user-org-admin',
     'tenant-enterprise-a',
@@ -165,14 +165,11 @@ describe('admin console helpers', () => {
       true,
     )
     expect(
-      canManageMembership(
-        sessionFor('user-org-admin', 'tenant-a', ['organization_admin']),
-        {
-          ...membershipFor('user-org-member', 'tenant-a', ['organization_member']),
-          id: 'membership-tenant-a-user-org-member',
-          organizationId: 'tenant-a',
-        },
-      ),
+      canManageMembership(sessionFor('user-org-admin', 'tenant-a', ['organization_admin']), {
+        ...membershipFor('user-org-member', 'tenant-a', ['organization_member']),
+        id: 'membership-tenant-a-user-org-member',
+        organizationId: 'tenant-a',
+      }),
     ).toBe(true)
     expect(
       canManageMembership(
@@ -268,20 +265,20 @@ describe('admin console helpers', () => {
   })
 
   it('separates personal accounts from organization scoped memberships', () => {
-    expect(isPersonalAccountMembership(membershipFor('user-member', 'tenant-personal', ['member'], 'personal'))).toBe(
-      true,
-    )
-    expect(isPersonalAccountMembership(membershipFor('user-admin', 'tenant-system', ['admin'], 'system'))).toBe(
-      true,
-    )
+    expect(
+      isPersonalAccountMembership(membershipFor('user-member', 'tenant-personal', ['member'], 'personal')),
+    ).toBe(true)
+    expect(
+      isPersonalAccountMembership(membershipFor('user-admin', 'tenant-system', ['admin'], 'system')),
+    ).toBe(true)
     expect(
       isPersonalAccountMembership(
         membershipFor('user-org-member', 'tenant-enterprise', ['organization_member'], 'enterprise'),
       ),
     ).toBe(false)
-    expect(isPersonalAccountMembership(membershipFor('user-owner', 'tenant-system', ['owner'], 'system'))).toBe(
-      false,
-    )
+    expect(
+      isPersonalAccountMembership(membershipFor('user-owner', 'tenant-system', ['owner'], 'system')),
+    ).toBe(false)
   })
 
   it('summarizes list totals from a console snapshot', () => {
@@ -386,13 +383,7 @@ function sessionFor(userId, tenantId, roles, permissions = ['admin.dashboard.rea
 function withBilling(session) {
   return {
     ...session,
-    permissions: [
-      ...new Set([
-        ...(session.permissions ?? []),
-        'billing.read.all',
-        'billing.manage',
-      ]),
-    ],
+    permissions: [...new Set([...(session.permissions ?? []), 'billing.read.all', 'billing.manage'])],
   }
 }
 

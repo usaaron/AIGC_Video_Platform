@@ -798,10 +798,7 @@ export class AdminRepository {
         tenantId: prompt.tenant_id,
         userId: prompt.user_id,
         actorUserId: principal.userId,
-        action:
-          input.action === 'warned'
-            ? 'compliance.prompt.warning_issued'
-            : 'compliance.prompt.reviewed',
+        action: input.action === 'warned' ? 'compliance.prompt.warning_issued' : 'compliance.prompt.reviewed',
         resourceType: 'compliance_prompt',
         resourceId: prompt.source_id,
         ipAddress: metadata?.ipAddress ?? null,
@@ -2195,7 +2192,18 @@ const complianceRiskRules: Array<{
     category: 'terrorism',
     label: '涉恐/爆炸物',
     severity: 'critical',
-    terms: ['恐怖袭击', '恐怖组织', '炸弹', '爆炸物', '自制炸药', '劫持', '人质', '袭击机场', 'jihad', 'terrorist'],
+    terms: [
+      '恐怖袭击',
+      '恐怖组织',
+      '炸弹',
+      '爆炸物',
+      '自制炸药',
+      '劫持',
+      '人质',
+      '袭击机场',
+      'jihad',
+      'terrorist',
+    ],
   },
   {
     category: 'sexual_content',

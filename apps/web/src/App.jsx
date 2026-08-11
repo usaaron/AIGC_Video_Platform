@@ -790,6 +790,32 @@ function App() {
             setToast(`已加入资产：${created.name}`)
             return created
           }}
+          onCreateAndGenerateAsset={async (input) => {
+            const created = await api.createAsset(project.id, input)
+            await refreshWorkspace()
+            const task =
+              created.kind === 'character'
+                ? await createCharacterFaceJob(created, 'img2-default', '资产建议 · 面部大头照')
+                : await createJob(`${created.name} · 资产建议生成`, '图片', 6, {
+                    prompt: created.prompt,
+                    model: 'img2-default',
+                    negativePrompt: created.negativePrompt,
+                    metadata: {
+                      assetId: created.id,
+                      assetKind: created.kind,
+                      generationStage: 'asset',
+                      aspectRatio: project.aspectRatio,
+                      sourceMode: created.sourceMode,
+                      references: assetGenerationReferences(created, [...(workspace?.assets || []), created]),
+                      attributes: created.attributes,
+                      turnaround:
+                        created.attributes.turnaround === true || created.attributes.view === 'turnaround',
+                    },
+                  })
+            if (!task) throw new Error('资产已写入，但生成任务未能加入队列，请到资产页重试')
+            return task
+          }}
+          onUpload={(file) => api.uploadMedia(project.id, file)}
           onCancelTask={async (taskId) => {
             await api.deleteTask(taskId)
             setTasks(await api.tasks(project.id))

@@ -701,6 +701,18 @@ export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes']
       turnaround: false,
     }
   }
+  if (kind === 'brand') {
+    return {
+      type: 'brand',
+      brandType: 'logo',
+      usage: 'general',
+      background: 'transparent',
+      layout: 'centered',
+      exactText: '',
+      palette: '',
+      visualStyle: 'cinematic-cg',
+    }
+  }
   return {
     type: 'audio',
     audioType: 'ambience',

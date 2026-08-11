@@ -10,6 +10,7 @@ import { startPostgresAuthFixture, type PostgresAuthFixture } from '../../testin
 
 let app: Awaited<ReturnType<typeof buildApp>> | undefined
 let postgres: PostgresAuthFixture | undefined
+const testUploadDirectory = resolve('./data/test-uploads-media-routes')
 
 beforeAll(async () => {
   postgres = await startPostgresAuthFixture()
@@ -22,7 +23,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await app?.close()
   app = undefined
-  await rm(resolve('./data/test-uploads'), { recursive: true, force: true })
+  await rm(testUploadDirectory, { recursive: true, force: true })
 })
 
 afterAll(async () => {
@@ -161,7 +162,7 @@ function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     DATABASE_URL: postgres.connectionString,
     DATA_FILE: ':memory:',
     STORAGE_DRIVER: 'local',
-    UPLOAD_DIR: resolve('./data/test-uploads'),
+    UPLOAD_DIR: testUploadDirectory,
     ...overrides,
   })
 }
