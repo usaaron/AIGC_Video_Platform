@@ -53,6 +53,7 @@ export function NovelImportPanel({
   onSuggestNovelAssets,
   onGenerateChapterAdaptation,
   onCreateAsset,
+  onImportAssets,
   onUpload,
   onUseAdaptedScript,
 }) {
@@ -804,6 +805,7 @@ export function NovelImportPanel({
           aspectRatio={aspectRatio}
           onUpload={onUpload}
           onCreateAsset={onCreateAsset}
+          onImportAssets={onImportAssets}
         />
       )}
     </section>

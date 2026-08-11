@@ -32,7 +32,7 @@ ENV FFMPEG_PATH=/usr/bin/ffmpeg
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+  && apt-get install -y --no-install-recommends ffmpeg ca-certificates fonts-noto-cjk \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /var/lib/seqora \
   && chown node:node /var/lib/seqora

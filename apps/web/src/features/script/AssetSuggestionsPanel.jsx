@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
+  CheckSquare2,
   LoaderCircle,
   Badge,
+  ListChecks,
   MapPinned,
   Package,
   Pencil,
@@ -9,6 +11,7 @@ import {
   RefreshCcw,
   Shirt,
   Sparkles,
+  Square,
   UserRound,
 } from 'lucide-react'
 import { optionLabel } from '../assets/assetOptions'
@@ -32,7 +35,9 @@ export function AssetSuggestionsPanel({
   onRefresh,
   onCreate,
   onCreateAndGenerate,
+  onImportSelected,
   onInspect,
+  importing = false,
   disabled = false,
   copy = {},
 }) {
@@ -40,8 +45,14 @@ export function AssetSuggestionsPanel({
   const grouped = groupAssets(assets)
   const [editingKeys, setEditingKeys] = useState(() => new Set())
   const [editedPrompts, setEditedPrompts] = useState({})
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set())
+  const [importingSelected, setImportingSelected] = useState(false)
   const isSuggesting = status === 'suggesting'
+  const importBusy = importing || importingSelected
   const hasResult = Boolean(result)
+  const creating = creatingKeys || new Set()
+  const created = createdKeys || new Set()
+  const selectedAssets = assets.filter((asset) => selectedKeys.has(assetSuggestionKey(asset)))
   const labels = {
     eyebrow: '资产建议',
     title: '从剧本提取人物、场景、物品、服装和品牌',
@@ -51,6 +62,50 @@ export function AssetSuggestionsPanel({
     ...copy,
   }
 
+  useEffect(() => {
+    setSelectedKeys(
+      new Set(
+        assets
+          .filter((asset) => !created.has(assetSuggestionKey(asset)))
+          .map((asset) => assetSuggestionKey(asset)),
+      ),
+    )
+  }, [result, createdKeys])
+
+  const toggleSelected = (key) => {
+    setSelectedKeys((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const toggleGroup = (items) => {
+    const keys = items.map(assetSuggestionKey)
+    const allSelected = keys.length > 0 && keys.every((key) => selectedKeys.has(key))
+    setSelectedKeys((current) => {
+      const next = new Set(current)
+      keys.forEach((key) => (allSelected ? next.delete(key) : next.add(key)))
+      return next
+    })
+  }
+
+  const importSelected = async () => {
+    if (!onImportSelected || !selectedAssets.length) return
+    const inputs = selectedAssets.map((asset) => ({
+      ...asset,
+      prompt: editedPrompts[assetSuggestionKey(asset)] ?? asset.prompt ?? '',
+    }))
+    setImportingSelected(true)
+    try {
+      await onImportSelected(inputs)
+      setSelectedKeys(new Set())
+    } finally {
+      setImportingSelected(false)
+    }
+  }
+
   return (
     <section className="script-asset-suggestions" aria-busy={isSuggesting}>
       <div className="script-asset-suggestions-head">
@@ -58,15 +113,30 @@ export function AssetSuggestionsPanel({
           <span className="eyebrow">{labels.eyebrow}</span>
           <h2>{labels.title}</h2>
         </div>
-        <button
-          className="button secondary"
-          type="button"
-          disabled={disabled || isSuggesting}
-          onClick={onRefresh}
-        >
-          {isSuggesting ? <LoaderCircle size={15} className="spin" /> : <RefreshCcw size={15} />}
-          {labels.refresh}
-        </button>
+        <div className="script-asset-suggestions-head-actions">
+          {onImportSelected && hasResult && (
+            <button
+              className="button primary"
+              type="button"
+              disabled={disabled || importBusy || !selectedAssets.length}
+              onClick={() => void importSelected()}
+            >
+              {importBusy ? <LoaderCircle size={15} className="spin" /> : <ListChecks size={15} />}
+              {importBusy
+                ? '正在导入'
+                : `一键导入资产${selectedAssets.length ? `（${selectedAssets.length}）` : ''}`}
+            </button>
+          )}
+          <button
+            className="button secondary"
+            type="button"
+            disabled={disabled || isSuggesting}
+            onClick={onRefresh}
+          >
+            {isSuggesting ? <LoaderCircle size={15} className="spin" /> : <RefreshCcw size={15} />}
+            {labels.refresh}
+          </button>
+        </div>
       </div>
 
       {isSuggesting && (
@@ -96,25 +166,52 @@ export function AssetSuggestionsPanel({
               const meta = KIND_META[kind]
               const Icon = meta.icon
               const items = grouped[kind] || []
+              const selectableItems = items.filter((asset) => !created.has(assetSuggestionKey(asset)))
               return (
                 <section className="script-asset-suggestion-group" key={kind}>
                   <div className="script-asset-suggestion-group-head">
                     <Icon size={16} />
                     <strong>{meta.label}</strong>
                     <span>{items.length}</span>
+                    {selectableItems.length > 0 && (
+                      <button
+                        type="button"
+                        className="script-asset-suggestion-select-group"
+                        disabled={disabled || importBusy}
+                        onClick={() => toggleGroup(selectableItems)}
+                      >
+                        {selectableItems.every((asset) => selectedKeys.has(assetSuggestionKey(asset))) ? (
+                          <CheckSquare2 size={13} />
+                        ) : (
+                          <Square size={13} />
+                        )}
+                        全选
+                      </button>
+                    )}
                   </div>
                   {items.length ? (
                     <div className="script-asset-suggestion-list">
                       {items.map((asset) => {
                         const key = assetSuggestionKey(asset)
-                        const isCreating = creatingKeys.has(key)
-                        const isCreated = createdKeys.has(key)
+                        const isCreating = creating.has(key)
+                        const isCreated = created.has(key)
                         const isEditing = editingKeys.has(key)
+                        const isSelected = selectedKeys.has(key)
                         const promptValue = editedPrompts[key] ?? asset.prompt ?? ''
                         return (
                           <article className="script-asset-suggestion-card" key={key}>
                             <div className="script-asset-suggestion-card-top">
-                              <strong>{asset.name}</strong>
+                              <label className="script-asset-suggestion-check">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  disabled={disabled || importBusy || isCreated}
+                                  onChange={() => toggleSelected(key)}
+                                  aria-label={`选择${asset.name}导入资产`}
+                                />
+                                {isSelected ? <CheckSquare2 size={16} /> : <Square size={16} />}
+                                <strong>{asset.name}</strong>
+                              </label>
                               <span>优先级 {asset.priority}</span>
                             </div>
                             <div className="script-asset-suggestion-facts">
@@ -151,6 +248,42 @@ export function AssetSuggestionsPanel({
                                 type="button"
                                 className="button secondary"
                                 disabled={disabled || isCreated}
+                                onClick={() => onInspect?.({ ...asset, prompt: promptValue })}
+                              >
+                                <Pencil size={14} />
+                                打开生成框
+                              </button>
+                              {(onCreateAndGenerate || onCreate) && (
+                                <button
+                                  type="button"
+                                  className="button primary"
+                                  disabled={disabled || isCreated || isCreating}
+                                  onClick={() => {
+                                    const nextAsset = { ...asset, prompt: promptValue }
+                                    if (onCreateAndGenerate) void onCreateAndGenerate(nextAsset)
+                                    else void onCreate(nextAsset)
+                                  }}
+                                >
+                                  {isCreating ? (
+                                    <LoaderCircle size={14} className="spin" />
+                                  ) : isCreated ? (
+                                    <Sparkles size={14} />
+                                  ) : (
+                                    <Plus size={14} />
+                                  )}
+                                  {isCreating
+                                    ? '正在确认并生成'
+                                    : isCreated
+                                      ? '已确认并生成'
+                                      : onCreateAndGenerate
+                                        ? '确认生成'
+                                        : '加入资产设计'}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="button ghost script-asset-suggestion-inline-edit"
+                                disabled={disabled || isCreated}
                                 onClick={() =>
                                   setEditingKeys((current) => {
                                     const next = new Set(current)
@@ -160,40 +293,8 @@ export function AssetSuggestionsPanel({
                                   })
                                 }
                               >
-                                <Pencil size={14} />
-                                {isEditing ? '收起编辑' : '编辑提示词'}
-                              </button>
-                              <button
-                                type="button"
-                                className="button primary"
-                                disabled={disabled || isCreated || isCreating}
-                                onClick={() => {
-                                  const nextAsset = { ...asset, prompt: promptValue }
-                                  if (onCreateAndGenerate) {
-                                    void onCreateAndGenerate(nextAsset)
-                                  } else if (onInspect) {
-                                    onInspect(nextAsset)
-                                  } else if (onCreate) {
-                                    void onCreate(nextAsset)
-                                  }
-                                }}
-                              >
-                                {isCreating ? (
-                                  <LoaderCircle size={14} className="spin" />
-                                ) : isCreated ? (
-                                  <Sparkles size={14} />
-                                ) : (
-                                  <Plus size={14} />
-                                )}
-                                {isCreating
-                                  ? '正在确认并生成'
-                                  : isCreated
-                                    ? '已确认并生成'
-                                    : onCreateAndGenerate
-                                      ? '确认并生成'
-                                      : onInspect
-                                        ? '先审阅后写入'
-                                        : '加入资产库'}
+                                <Pencil size={13} />
+                                {isEditing ? '收起提示词编辑' : '快速编辑提示词'}
                               </button>
                             </div>
                             {isEditing && (

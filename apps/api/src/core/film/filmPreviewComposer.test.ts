@@ -262,6 +262,22 @@ describe('FilmPreviewComposer', () => {
     expect(filter).toContain('concat=n=2:v=1:a=1[outv][outa]')
     expect(filter).toContain('[2:a]')
   })
+
+  it('adds exact advertisement text as a post-composition overlay', () => {
+    const args = createFfmpegCompositionArgs(
+      ['shot-1.mp4'],
+      'preview.mp4',
+      { width: 1920, height: 1080 },
+      [{ duration: 4, hasAudio: true }],
+      ['/tmp/overlay-001.txt'],
+      '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    )
+    const filter = args[args.indexOf('-filter_complex') + 1]
+
+    expect(filter).toContain('drawtext=fontfile=/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc')
+    expect(filter).toContain('textfile=/tmp/overlay-001.txt')
+    expect(filter).toContain('boxcolor=black@0.58')
+  })
 })
 
 function sourceTask(id: string, providerTaskId: string): GenerationTask {

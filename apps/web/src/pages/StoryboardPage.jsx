@@ -552,6 +552,25 @@ export function StoryboardPage({
             const field = kind === 'image' ? 'selectedImageTaskId' : 'selectedVideoTaskId'
             await onUpdate(historyShot.id, { [field]: taskId })
           }}
+          onOpenVersionEditor={(task) => {
+            const snapshot = task.metadata?.sourceShotSnapshot
+            const prompt =
+              (snapshot && typeof snapshot === 'object' && typeof snapshot.prompt === 'string'
+                ? snapshot.prompt
+                : null) ||
+              (typeof task.metadata?.sourcePromptSnapshot === 'string'
+                ? task.metadata.sourcePromptSnapshot
+                : historyShot.prompt)
+            const negativePrompt =
+              (snapshot && typeof snapshot === 'object' && typeof snapshot.negativePrompt === 'string'
+                ? snapshot.negativePrompt
+                : null) ||
+              (typeof task.metadata?.userNegativePrompt === 'string'
+                ? task.metadata.userNegativePrompt
+                : historyShot.negativePrompt)
+            setHistoryShotId(null)
+            setEditing({ ...historyShot, prompt, negativePrompt })
+          }}
         />
       )}
     </div>
@@ -744,7 +763,7 @@ function ShotRow({
   )
 }
 
-function ShotHistoryModal({ shot, tasks, onClose, onRestore }) {
+function ShotHistoryModal({ shot, tasks, onClose, onRestore, onOpenVersionEditor }) {
   const [restoring, setRestoring] = useState('')
   const [error, setError] = useState('')
   const videoVersions = shotVersionPair(tasks, shot, 'video')
@@ -782,6 +801,7 @@ function ShotHistoryModal({ shot, tasks, onClose, onRestore }) {
             selectedTaskId={selectedVersionTaskId(tasks, shot, 'video')}
             restoring={restoring}
             onRestore={restore}
+            onOpenVersionEditor={onOpenVersionEditor}
           />
         </div>
         {error && (
@@ -795,7 +815,15 @@ function ShotHistoryModal({ shot, tasks, onClose, onRestore }) {
   )
 }
 
-function ShotHistoryColumn({ title, kind, versions, selectedTaskId, restoring, onRestore }) {
+function ShotHistoryColumn({
+  title,
+  kind,
+  versions,
+  selectedTaskId,
+  restoring,
+  onRestore,
+  onOpenVersionEditor,
+}) {
   return (
     <section className="shot-history-column">
       <header>
@@ -827,21 +855,34 @@ function ShotHistoryColumn({ title, kind, versions, selectedTaskId, restoring, o
                     <strong>{task.model || (kind === 'video' ? 'Seedance' : 'Img2')}</strong>
                     <span>{formatVersionTime(task.updatedAt || task.createdAt)}</span>
                   </div>
-                  <button
-                    type="button"
-                    className={`button ${current ? 'secondary' : 'primary'}`}
-                    disabled={current || Boolean(restoring)}
-                    onClick={() => void onRestore(kind, task.id)}
-                  >
-                    {restoring === task.id ? (
-                      <LoaderCircle size={15} className="spin" />
-                    ) : current ? (
-                      <Check size={15} />
-                    ) : (
-                      <RotateCcw size={15} />
+                  <div className="shot-version-buttons">
+                    <button
+                      type="button"
+                      className={`button ${current ? 'secondary' : 'primary'}`}
+                      disabled={current || Boolean(restoring)}
+                      onClick={() => void onRestore(kind, task.id)}
+                    >
+                      {restoring === task.id ? (
+                        <LoaderCircle size={15} className="spin" />
+                      ) : current ? (
+                        <Check size={15} />
+                      ) : (
+                        <RotateCcw size={15} />
+                      )}
+                      {current ? '当前成片' : '设为当前成片'}
+                    </button>
+                    {onOpenVersionEditor && (
+                      <button
+                        type="button"
+                        className="button secondary"
+                        disabled={Boolean(restoring)}
+                        onClick={() => onOpenVersionEditor(task)}
+                      >
+                        <Pencil size={14} />
+                        打开生成框
+                      </button>
                     )}
-                    {current ? '正在使用' : '恢复此版本'}
-                  </button>
+                  </div>
                 </div>
               </article>
             )

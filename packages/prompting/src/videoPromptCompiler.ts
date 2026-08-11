@@ -1,4 +1,4 @@
-export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v11'
+export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v12'
 
 export type PromptProject = {
   aspectRatio: string
@@ -44,16 +44,19 @@ export function compileStoryboardVideoPrompt(input: {
 }): string {
   const { project, shot, assets = [], references = [], continuityMode = 'independent' } = input
   const duration = normalizedVideoDuration(shot.duration, project.contentType === 'short-drama' ? 3 : 4)
+  const sourcePrompt = String(shot.prompt || '')
+  const prompt =
+    project.contentType === 'advertisement' ? removeScreenTextInstructions(sourcePrompt) : sourcePrompt
   const referenceAssets = references
     .map((reference) => assets.find((asset) => asset.id === reference.id))
     .filter((asset): asset is PromptAsset => Boolean(asset))
-  const explicitTimeline = hasExplicitTimeline(shot.prompt)
-  const focusedPrompt = explicitTimeline ? '' : focusedShotPrompt(shot.prompt)
-  const actionSequence = actionSequenceFor(shot.prompt)
-  const shotFields = promptFields(String(shot.prompt || ''))
+  const explicitTimeline = hasExplicitTimeline(prompt)
+  const focusedPrompt = explicitTimeline ? '' : focusedShotPrompt(prompt)
+  const actionSequence = actionSequenceFor(prompt)
+  const shotFields = promptFields(prompt)
   const identityRules = referenceAssets.map((asset) => identityRuleFor(asset, referenceAssets)).join('；')
   const actorPerformance = actorPerformanceFor(shotFields.角色, actionSequence, shotFields.对白)
-  const soundPlan = soundPlanFor(shotFields.对白, shot.prompt, referenceAssets)
+  const soundPlan = soundPlanFor(shotFields.对白, prompt, referenceAssets)
   const subjectMotion = subjectMotionFor(
     shotFields.动作
       ? `动作：${actionSequence}`
@@ -85,7 +88,7 @@ export function compileStoryboardVideoPrompt(input: {
       : '',
     `【声音执行】${soundPlan}`,
     explicitTimeline ? '' : `【镜头运动】${cameraMotionFor(shot.framing)}`,
-    `【环境运动】${environmentMotionFor(shot.prompt, referenceAssets)}`,
+    `【环境运动】${environmentMotionFor(prompt, referenceAssets)}`,
     explicitTimeline
       ? ''
       : `【时间推进】0-1秒延续上镜状态并建立画面，1-${Math.max(2, duration - 1)}秒完整完成主动作与至少一次表情或视线变化，最后1秒停在下一镜可直接承接的结束姿态。`,
@@ -93,9 +96,27 @@ export function compileStoryboardVideoPrompt(input: {
       ? '【镜内剪辑】时间轴未明确要求切镜时保持同一时间、同一空间和连续动作线；不得插入时间轴之外的特写、回忆、下一事件或其他画面。'
       : '【镜内剪辑】全程保持同一时间、同一空间和同一条动作线，只完成当前镜头指定动作。禁止插入特写、钟表、回忆、下一事件或其他画面；禁止突然切镜、跳时、回切和蒙太奇。',
     '输出必须是真实连续动态视频，不是静止图片，不是幻灯片；人物不能全程冻结，避免只有缩放、平移或单帧抖动。保持角色面部、身材、服装、场景空间和光线方向跨帧稳定。必须生成可听见的现场声音、对白或旁白；不要输出静音视频。',
+    project.contentType === 'advertisement'
+      ? '【广告文字后期】本镜禁止生成任何汉字、字母、数字、Logo、字幕、招牌或包装文字；画面只保留干净的落版区域，准确文字由后期合成。'
+      : '',
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+export function extractScreenText(value: string | undefined): string {
+  return [...String(value || '').matchAll(/(?:屏幕文字|画面文字|字幕)\s*[：:]\s*([^｜\n。；;]+)/gu)]
+    .map((match) => match[1]?.trim().replace(/[。；;]+$/gu, '') || '')
+    .filter((text) => text && !/^(无|无文字|无屏幕文字)$/u.test(text))
+    .join('\n')
+}
+
+function removeScreenTextInstructions(value: string): string {
+  return value
+    .replace(/(?:屏幕文字|画面文字|字幕)\s*[：:]\s*[^｜\n。；;]+[。；;]?/gu, '')
+    .replace(/[；;]\s*[；;]/gu, '；')
+    .replace(/\n{3,}/gu, '\n\n')
+    .trim()
 }
 
 function visualStyleLabel(value: string | undefined): string {

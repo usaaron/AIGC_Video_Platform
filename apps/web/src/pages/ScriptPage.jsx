@@ -16,6 +16,7 @@ import { AssetEditor } from '../features/assets/AssetEditor'
 import { AssetAwareTextarea, AssetShortcutBar } from '../features/assets/AssetShortcutBar'
 import { NovelImportPanel } from '../features/novel/NovelImportPanel'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../features/script/AssetSuggestionsPanel'
+import { suggestionToAssetInput } from '../features/script/assetSuggestionInput'
 import { LongFormStudioPlaceholder } from '../features/script/LongFormStudioPlaceholder'
 import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
@@ -157,6 +158,7 @@ export function ScriptPage({
   onSuggestAssets,
   onCreateAsset,
   onCreateAndGenerateAsset,
+  onImportAssets,
   onUpload,
   onCancelTask,
   onUpdateEpisodeDuration,
@@ -357,7 +359,7 @@ export function ScriptPage({
     setCreatingAssetKeys((current) => new Set(current).add(key))
     setAssetSuggestionError('')
     try {
-      await onCreateAndGenerateAsset(asset)
+      await onCreateAndGenerateAsset(suggestionToAssetInput(asset))
       setCreatedAssetKeys((current) => new Set(current).add(key))
     } catch (generationError) {
       setAssetSuggestionError(generationError.message)
@@ -367,6 +369,25 @@ export function ScriptPage({
         next.delete(key)
         return next
       })
+    }
+  }
+
+  const importSuggestedAssets = async (suggestions) => {
+    if (!onImportAssets && !onCreateAsset) return
+    setAssetSuggestionError('')
+    try {
+      const inputs = suggestions.map(suggestionToAssetInput)
+      if (onImportAssets) await onImportAssets(inputs)
+      else {
+        for (const input of inputs) await onCreateAsset(input)
+      }
+      setCreatedAssetKeys((current) => {
+        const next = new Set(current)
+        suggestions.forEach((suggestion) => next.add(assetSuggestionKey(suggestion)))
+        return next
+      })
+    } catch (importError) {
+      setAssetSuggestionError(importError.message)
     }
   }
 
@@ -598,6 +619,7 @@ export function ScriptPage({
             onSuggestNovelAssets={onSuggestNovelAssets}
             onGenerateChapterAdaptation={onGenerateNovelChapterAdaptation}
             onCreateAsset={onCreateAsset}
+            onImportAssets={onImportAssets}
             onUpload={onUpload}
             aspectRatio={project.aspectRatio}
             onUseAdaptedScript={useAdaptedNovelScript}
@@ -938,6 +960,7 @@ export function ScriptPage({
             onRefresh={() => void suggestAssetsForScript(script)}
             onInspect={openSuggestedAssetEditor}
             onCreateAndGenerate={createAndGenerateSuggestedAsset}
+            onImportSelected={importSuggestedAssets}
           />
 
           {error && (

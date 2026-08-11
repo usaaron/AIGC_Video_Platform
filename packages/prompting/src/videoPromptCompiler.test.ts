@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   compileStoryboardVideoPrompt,
+  extractScreenText,
   normalizedVideoDuration,
   VIDEO_PROMPT_VERSION,
   type PromptShot,
@@ -41,7 +42,7 @@ describe('compileStoryboardVideoPrompt', () => {
       references: [{ id: 'lin' }, { id: 'station' }],
     })
 
-    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v11')
+    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v12')
     expect(prompt).toContain('连续4秒、9:16画幅')
     expect(prompt).toContain('【当前镜头】镜头，特写')
     expect(prompt).not.toContain('上一镜结束：场景：雨夜旧火车站。')
@@ -169,6 +170,19 @@ describe('compileStoryboardVideoPrompt', () => {
     expect(prompt).not.toContain('本镜只完成一个主动作')
     expect(prompt).not.toContain('【主动作】')
     expect(prompt).not.toContain('【时间推进】0-1秒')
+  })
+
+  it('removes advertisement text from the video prompt and preserves it for post composition', () => {
+    const source = '镜头展示清晨街景；屏幕文字：万柏林区。落版保持干净。'
+    const prompt = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '16:9', contentType: 'advertisement' },
+      shot: shot('ad', source, '大全景', 5),
+    })
+
+    expect(extractScreenText(source)).toBe('万柏林区')
+    expect(prompt).toContain('禁止生成任何汉字、字母、数字')
+    expect(prompt).not.toContain('屏幕文字：万柏林区')
+    expect(prompt).not.toContain('万柏林区')
   })
 })
 

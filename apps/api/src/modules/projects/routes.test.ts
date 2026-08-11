@@ -111,6 +111,8 @@ describe('project postgres api', { timeout: 30_000 }, () => {
         title: 'Updated opening shot',
         duration: 6,
         continuityNote: 'Keep the door half-open between cuts.',
+        selectedImageTaskId: 'image-version-1',
+        selectedVideoTaskId: 'video-version-1',
       },
     })
     expect(updatedShot.statusCode).toBe(200)
@@ -119,6 +121,8 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       title: 'Updated opening shot',
       duration: 6,
       continuityNote: 'Keep the door half-open between cuts.',
+      selectedImageTaskId: 'image-version-1',
+      selectedVideoTaskId: 'video-version-1',
     })
 
     const insertedShot = await app.inject({
@@ -147,7 +151,14 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       url: `/api/v1/projects/${projectId}`,
       headers: { cookie: memberCookie },
     })
-    expect(afterDelete.json().shots).toEqual([expect.objectContaining({ id: shotId, order: 1 })])
+    expect(afterDelete.json().shots).toEqual([
+      expect.objectContaining({
+        id: shotId,
+        order: 1,
+        selectedImageTaskId: 'image-version-1',
+        selectedVideoTaskId: 'video-version-1',
+      }),
+    ])
 
     await withDatabase(async (database) => {
       const persisted = await database.query<{

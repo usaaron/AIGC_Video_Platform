@@ -85,6 +85,8 @@ type GenerationShotRow = QueryResultRow & {
   prompt: string
   negative_prompt: string
   image_url: string | null
+  selected_image_task_id: string | null
+  selected_video_task_id: string | null
   continuity_mode: Shot['continuityMode']
   continuity_note: string
   episode_break_before: boolean
@@ -194,16 +196,32 @@ export class GenerationTaskRepository {
   async flushRuntimeCacheToDatabase(): Promise<number> {
     if (!this.database || !this.store) return 0
 
-    const tasks = this.store.read((state) => state.tasks.map(normalizeGenerationTaskLifecycle))
-    if (!tasks.length) return 0
+    const snapshot = this.store.read((state) => ({
+      tasks: state.tasks.map(normalizeGenerationTaskLifecycle),
+      shotSelections: new Map(
+        state.shots.map((shot) => [
+          shot.id,
+          {
+            imageTaskId: shot.selectedImageTaskId ?? null,
+            videoTaskId: shot.selectedVideoTaskId ?? null,
+          },
+        ]),
+      ),
+    }))
+    if (!snapshot.tasks.length) return 0
 
     return this.database.transaction(async (client) => {
       let updated = 0
-      for (const task of tasks) {
+      for (const task of snapshot.tasks) {
         const persisted = await updateGenerationTaskLifecycle(client, task)
         if (!persisted) continue
         updated += 1
-        await updateTaskResultTargets(client, persisted)
+        const shotId = metadataString(task.metadata, 'shotId')
+        await updateTaskResultTargets(
+          client,
+          persisted,
+          shotId ? snapshot.shotSelections.get(shotId) : undefined,
+        )
       }
       return updated
     })
@@ -263,7 +281,8 @@ export class GenerationTaskRepository {
           `
           SELECT
             id, project_id, tenant_id, shot_order, title, framing, duration_seconds,
-            prompt, negative_prompt, image_url, continuity_mode, continuity_note,
+            prompt, negative_prompt, image_url, selected_image_task_id, selected_video_task_id,
+            continuity_mode, continuity_note,
             episode_break_before, episode_number, episode_title, episode_kind,
             created_at, updated_at
           FROM shots
@@ -808,6 +827,8 @@ export class GenerationTaskRepository {
           prompt,
           negative_prompt,
           image_url,
+          selected_image_task_id,
+          selected_video_task_id,
           continuity_mode,
           continuity_note,
           episode_break_before,
@@ -844,7 +865,9 @@ export class GenerationTaskRepository {
     const tasks = taskResult.rows.map(taskFromRow)
     const sources = shots.map((shot) => ({
       shot,
-      task: tasks.find((task) => task.metadata.shotId === shot.id),
+      task:
+        (shot.selectedVideoTaskId ? tasks.find((task) => task.id === shot.selectedVideoTaskId) : undefined) ??
+        tasks.find((task) => task.metadata.shotId === shot.id),
     }))
     return { project, shots, sources }
   }
@@ -1186,11 +1209,15 @@ async function updateGenerationTaskLifecycle(
   return result.rows[0] ? taskFromRow(result.rows[0]) : null
 }
 
-async function updateTaskResultTargets(queryable: Queryable, task: GenerationTask): Promise<void> {
-  if (task.kind !== 'image' || task.status !== 'completed' || !task.resultUrl) return
+async function updateTaskResultTargets(
+  queryable: Queryable,
+  task: GenerationTask,
+  selectedVersions?: { imageTaskId: string | null; videoTaskId: string | null },
+): Promise<void> {
+  if (task.status !== 'completed') return
   const updatedAt = task.updatedAt
   const assetId = metadataString(task.metadata, 'assetId')
-  if (assetId) {
+  if (task.kind === 'image' && task.resultUrl && assetId) {
     await queryable.query(
       `
       UPDATE assets
@@ -1204,17 +1231,40 @@ async function updateTaskResultTargets(queryable: Queryable, task: GenerationTas
     )
   }
   const shotId = metadataString(task.metadata, 'shotId')
-  if (shotId) {
+  if (
+    task.kind === 'image' &&
+    task.resultUrl &&
+    shotId &&
+    (!selectedVersions?.imageTaskId || selectedVersions.imageTaskId === task.id)
+  ) {
     await queryable.query(
       `
       UPDATE shots
       SET image_url = $4,
+          selected_image_task_id = $5,
+          updated_at = $6
+      WHERE id = $1
+        AND project_id = $2
+        AND tenant_id = $3
+      `,
+      [shotId, task.projectId, task.tenantId, task.resultUrl, task.id, updatedAt],
+    )
+  }
+  if (
+    task.kind === 'video' &&
+    shotId &&
+    (!selectedVersions?.videoTaskId || selectedVersions.videoTaskId === task.id)
+  ) {
+    await queryable.query(
+      `
+      UPDATE shots
+      SET selected_video_task_id = $4,
           updated_at = $5
       WHERE id = $1
         AND project_id = $2
         AND tenant_id = $3
       `,
-      [shotId, task.projectId, task.tenantId, task.resultUrl, updatedAt],
+      [shotId, task.projectId, task.tenantId, task.id, updatedAt],
     )
   }
 }
@@ -1581,13 +1631,14 @@ function shotFromRow(row: GenerationShotRow): Shot {
     prompt: row.prompt,
     negativePrompt: row.negative_prompt,
     imageUrl: row.image_url,
+    selectedImageTaskId: row.selected_image_task_id,
     continuityMode: row.continuity_mode,
     continuityNote: row.continuity_note,
     episodeBreakBefore: row.episode_break_before,
     episodeNumber: Number(row.episode_number),
     episodeTitle: row.episode_title,
     episodeKind: row.episode_kind,
-    selectedVideoTaskId: null,
+    selectedVideoTaskId: row.selected_video_task_id,
     createdAt: isoString(row.created_at),
     updatedAt: isoString(row.updated_at),
   }

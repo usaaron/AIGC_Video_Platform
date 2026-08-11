@@ -3,6 +3,7 @@ import { BookMarked, Eye, LoaderCircle, RefreshCw, ScrollText, Sparkles, X } fro
 import { NOVEL_OPERATION_CREDITS } from '@seqora/contracts'
 import { AssetEditor } from '../assets/AssetEditor'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../script/AssetSuggestionsPanel'
+import { suggestionToAssetInput } from '../script/assetSuggestionInput'
 import { formatStoryOverviewText } from './storyOverviewText'
 
 const SUMMARY_BATCH_OPTIONS = [1, 4, 8, 12, 16, 24]
@@ -18,6 +19,7 @@ export function NovelDevelopmentPanel({
   aspectRatio,
   onUpload,
   onCreateAsset,
+  onImportAssets,
 }) {
   const [summariesResult, setSummariesResult] = useState(null)
   const [storyBibleResult, setStoryBibleResult] = useState(null)
@@ -151,6 +153,25 @@ export function NovelDevelopmentPanel({
       suggestionKey: key,
       editorKey: crypto.randomUUID(),
     })
+  }
+
+  const importSuggestedAssets = async (suggestions) => {
+    if (!onImportAssets && !onCreateAsset) return
+    setAssetSuggestionError('')
+    try {
+      const inputs = suggestions.map(suggestionToAssetInput)
+      if (onImportAssets) await onImportAssets(inputs)
+      else {
+        for (const input of inputs) await onCreateAsset(input)
+      }
+      setCreatedAssetKeys((current) => {
+        const next = new Set(current)
+        suggestions.forEach((suggestion) => next.add(assetSuggestionKey(suggestion)))
+        return next
+      })
+    } catch (importError) {
+      setAssetSuggestionError(importError.message)
+    }
   }
 
   return (
@@ -352,6 +373,7 @@ export function NovelDevelopmentPanel({
         disabled={disabled || isLoading || !summaryCount || !onSuggestAssets || !onCreateAsset}
         onRefresh={() => void handleSuggestAssets()}
         onInspect={openSuggestedAssetEditor}
+        onImportSelected={importSuggestedAssets}
         copy={{
           eyebrow: '小说资产建议',
           title: '根据章节概要、故事概要和世界观提取资产',

@@ -1,8 +1,9 @@
+import { extractScreenText } from '@seqora/prompting'
 import type { GenerationTask } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
@@ -26,6 +27,7 @@ type ComposeRunner = (
   target: PreviewTarget,
   ffmpegPath: string,
   timeoutMs: number,
+  overlayTexts?: string[],
 ) => Promise<void>
 
 type FilmPreviewComposerOptions = {
@@ -248,6 +250,13 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       const inputPaths = downloadedPaths.filter((inputPath): inputPath is string => Boolean(inputPath))
 
       const outputPath = join(temporaryDirectory, 'film-preview.mp4')
+      const overlayTexts = sourceTasks.map((source) =>
+        extractScreenText(
+          typeof source.metadata.sourcePromptSnapshot === 'string'
+            ? source.metadata.sourcePromptSnapshot
+            : source.prompt,
+        ),
+      )
       await this.updateProgress(taskId, 50, leaseToken, {
         compositionStage: 'composing',
         compositionSourceIndex: null,
@@ -259,6 +268,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         previewTarget(String(task.metadata.aspectRatio || '16:9')),
         this.ffmpegPath,
         this.timeoutMs,
+        overlayTexts,
       )
       await this.updateProgress(taskId, 92, leaseToken, {
         compositionStage: 'uploading',
@@ -448,11 +458,21 @@ export async function runFfmpegComposition(
   target: PreviewTarget,
   ffmpegPath: string,
   timeoutMs: number,
+  overlayTexts: string[] = [],
 ): Promise<void> {
   const media = await Promise.all(
     inputPaths.map((inputPath) => probeInputMedia(inputPath, ffmpegPath, timeoutMs)),
   )
-  const args = createFfmpegCompositionArgs(inputPaths, outputPath, target, media)
+  const overlayTextPaths = await Promise.all(
+    overlayTexts.map(async (text, index) => {
+      if (!text.trim()) return null
+      const path = join(dirname(outputPath), `overlay-${String(index + 1).padStart(3, '0')}.txt`)
+      await writeFile(path, text, 'utf8')
+      return path
+    }),
+  )
+  const fontFile = overlayTextPaths.some(Boolean) ? await findCjkFont() : undefined
+  const args = createFfmpegCompositionArgs(inputPaths, outputPath, target, media, overlayTextPaths, fontFile)
   await runProcess(ffmpegPath, args, timeoutMs, 'FFmpeg 合成失败')
 }
 
@@ -461,6 +481,8 @@ export function createFfmpegCompositionArgs(
   outputPath: string,
   target: PreviewTarget,
   media: FfmpegInputMedia[],
+  overlayTextPaths: Array<string | null> = [],
+  fontFile = '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
 ): string[] {
   if (inputPaths.length !== media.length || !inputPaths.length) {
     throw new Error('FFmpeg 合成输入不完整')
@@ -474,12 +496,20 @@ export function createFfmpegCompositionArgs(
     silenceInputs.push('-f', 'lavfi', '-t', ffmpegDuration(item.duration), '-i', 'anullsrc=r=48000:cl=stereo')
     return silenceIndex
   })
-  const filters = inputPaths.map(
-    (_, index) =>
+  const filters = inputPaths.map((_, index) => {
+    const overlayPath = overlayTextPaths[index]
+    const overlay = overlayPath
+      ? `drawtext=fontfile=${escapeFilterPath(fontFile)}:textfile=${escapeFilterPath(overlayPath)}:` +
+        'fontcolor=white:fontsize=42:box=1:boxcolor=black@0.58:boxborderw=12:' +
+        'x=(w-text_w)/2:y=h-text_h-80,'
+      : ''
+    return (
       `[${index}:v]scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,` +
       `pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=24,` +
-      `format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS[v${index}]`,
-  )
+      overlay +
+      `format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS[v${index}]`
+    )
+  })
   for (const [index, item] of media.entries()) {
     filters.push(
       `[${audioInputIndexes[index]}:a]aresample=48000:async=1:first_pts=0,` +
@@ -516,6 +546,29 @@ export function createFfmpegCompositionArgs(
     '+faststart',
     outputPath,
   ]
+}
+
+function escapeFilterPath(value: string): string {
+  return value.replace(/\\/gu, '\\\\').replace(/:/gu, '\\:').replace(/'/gu, "\\'")
+}
+
+async function findCjkFont(): Promise<string> {
+  const candidates = [
+    process.env.SEQORA_CJK_FONT,
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',
+    'C:/Windows/Fonts/msyh.ttc',
+    'C:/Windows/Fonts/simhei.ttf',
+  ].filter((value): value is string => Boolean(value))
+  for (const candidate of candidates) {
+    try {
+      await access(candidate)
+      return candidate
+    } catch {
+      continue
+    }
+  }
+  throw new Error('后期叠字需要中文字体，请配置 SEQORA_CJK_FONT')
 }
 
 async function probeInputMedia(

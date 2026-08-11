@@ -72,6 +72,8 @@ type ShotRow = QueryResultRow & {
   prompt: string
   negative_prompt: string
   image_url: string | null
+  selected_image_task_id: string | null
+  selected_video_task_id: string | null
   continuity_mode: Shot['continuityMode']
   continuity_note: string
   episode_break_before: boolean
@@ -142,6 +144,8 @@ const shotColumns = `
   prompt,
   negative_prompt,
   image_url,
+  selected_image_task_id,
+  selected_video_task_id,
   continuity_mode,
   continuity_note,
   episode_break_before,
@@ -778,6 +782,10 @@ export class ProjectRepository {
         prompt: input.prompt ?? current.prompt,
         negativePrompt: input.negativePrompt ?? current.negativePrompt,
         imageUrl: input.imageUrl === undefined ? current.imageUrl : input.imageUrl,
+        selectedImageTaskId:
+          input.selectedImageTaskId === undefined ? current.selectedImageTaskId : input.selectedImageTaskId,
+        selectedVideoTaskId:
+          input.selectedVideoTaskId === undefined ? current.selectedVideoTaskId : input.selectedVideoTaskId,
         continuityMode: input.continuityMode ?? current.continuityMode,
         continuityNote: input.continuityNote ?? current.continuityNote,
         episodeBreakBefore: input.episodeBreakBefore ?? current.episodeBreakBefore,
@@ -797,13 +805,15 @@ export class ProjectRepository {
           prompt = $8,
           negative_prompt = $9,
            image_url = $10,
-           continuity_mode = $11,
-           continuity_note = $12,
-           episode_break_before = $13,
-           episode_number = $14,
-           episode_title = $15,
-           episode_kind = $16,
-           updated_at = $17
+           selected_image_task_id = $11,
+           selected_video_task_id = $12,
+           continuity_mode = $13,
+           continuity_note = $14,
+           episode_break_before = $15,
+           episode_number = $16,
+           episode_title = $17,
+           episode_kind = $18,
+           updated_at = $19
         WHERE id = $1 AND project_id = $2 AND tenant_id = $3
         RETURNING ${shotColumns}
         `,
@@ -818,6 +828,8 @@ export class ProjectRepository {
           updated.prompt,
           updated.negativePrompt,
           updated.imageUrl,
+          updated.selectedImageTaskId ?? null,
+          updated.selectedVideoTaskId ?? null,
           updated.continuityMode,
           updated.continuityNote,
           updated.episodeBreakBefore,
@@ -1797,6 +1809,8 @@ function shotFromRow(row: ShotRow): Shot {
     prompt: row.prompt,
     negativePrompt: row.negative_prompt,
     imageUrl: row.image_url,
+    selectedImageTaskId: row.selected_image_task_id,
+    selectedVideoTaskId: row.selected_video_task_id,
     continuityMode: row.continuity_mode,
     continuityNote: row.continuity_note,
     episodeBreakBefore: row.episode_break_before,

@@ -790,6 +790,12 @@ function App() {
             setToast(`已加入资产：${created.name}`)
             return created
           }}
+          onImportAssets={async (inputs) => {
+            const created = await Promise.all(inputs.map((input) => api.createAsset(project.id, input)))
+            await refreshWorkspace()
+            setToast(`已导入 ${created.length} 个资产，等待在资产设计页生成`)
+            return created
+          }}
           onCreateAndGenerateAsset={async (input) => {
             const created = await api.createAsset(project.id, input)
             await refreshWorkspace()
