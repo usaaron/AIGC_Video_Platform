@@ -11,6 +11,7 @@ import { requirePermission } from '../../core/auth/authorization.js'
 import { hashPassword } from '../../core/auth/password.js'
 import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { AppError } from '../../core/errors.js'
+import { z } from 'zod'
 import {
   adminUserParams,
   parse,
@@ -63,6 +64,31 @@ export function registerAdminUsersRoutes(app: FastifyInstance, context: AdminRou
       ).adminCreatePlatformInvitation(request.principal!, parse(createTenantInvitationSchema, request.body))
       reply.header('Cache-Control', 'no-store')
       return reply.code(201).send(invitation)
+    },
+  )
+
+  app.get(
+    '/admin/invitations',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return await requireAccountManagementService(
+        context.accountManagementService,
+      ).adminListPlatformInvitations(request.principal!)
+    },
+  )
+
+  app.delete(
+    '/admin/invitations/:invitationId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request, reply) => {
+      const { invitationId } = parse(z.object({ invitationId: z.string().min(1).max(256) }), request.params)
+      await requireAccountManagementService(context.accountManagementService).adminRevokePlatformInvitation(
+        request.principal!,
+        invitationId,
+      )
+      reply.header('Cache-Control', 'no-store')
+      return reply.code(204).send()
     },
   )
 

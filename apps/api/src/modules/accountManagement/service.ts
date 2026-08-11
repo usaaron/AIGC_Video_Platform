@@ -535,6 +535,12 @@ export class AccountManagementService {
     return await this.accounts.listInvitations(tenantId)
   }
 
+  async adminListPlatformInvitations(principal: Principal): Promise<TenantInvitation[]> {
+    await this.requireCurrentAccount(principal)
+    this.requireAssignableRoles(principal, [ROLES.MEMBER])
+    return await this.accounts.listInvitationsByScope('platform_registration')
+  }
+
   async revokeInvitation(principal: Principal, tenantId: string, invitationId: string): Promise<void> {
     this.requireTenantScope(principal, tenantId)
     await this.requireCurrentAccount(principal)
@@ -547,6 +553,14 @@ export class AccountManagementService {
     this.requireAdminTenantScope(principal, tenantId)
     await this.requireCurrentAccount(principal)
     if (!(await this.accounts.revokeInvitation(tenantId, invitationId))) {
+      throw new AppError(404, 'INVITATION_NOT_FOUND', 'Invitation does not exist')
+    }
+  }
+
+  async adminRevokePlatformInvitation(principal: Principal, invitationId: string): Promise<void> {
+    await this.requireCurrentAccount(principal)
+    this.requireAssignableRoles(principal, [ROLES.MEMBER])
+    if (!(await this.accounts.revokeInvitationByScope('platform_registration', invitationId))) {
       throw new AppError(404, 'INVITATION_NOT_FOUND', 'Invitation does not exist')
     }
   }

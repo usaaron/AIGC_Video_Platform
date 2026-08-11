@@ -247,6 +247,14 @@ export class AccountManagementRepository {
     return result.rows.map(toTenantInvitation)
   }
 
+  async listInvitationsByScope(invitationScope: TenantInvitationScope): Promise<TenantInvitation[]> {
+    const result = await this.database.query<TenantInvitationRow>(
+      invitationSelectSql('WHERE i.invitation_scope = $1 ORDER BY i.created_at DESC'),
+      [invitationScope],
+    )
+    return result.rows.map(toTenantInvitation)
+  }
+
   async findInvitationByTokenHash(tokenSecretHash: string): Promise<TenantInvitation | null> {
     const result = await this.database.query<TenantInvitationRow>(
       invitationSelectSql('WHERE i.token_secret_hash = $1 LIMIT 1'),
@@ -394,6 +402,25 @@ export class AccountManagementRepository {
         AND status = 'pending'
       `,
       [tenantId, invitationId],
+    )
+    return (result.rowCount ?? 0) > 0
+  }
+
+  async revokeInvitationByScope(
+    invitationScope: TenantInvitationScope,
+    invitationId: string,
+  ): Promise<boolean> {
+    const result = await this.database.query(
+      `
+      UPDATE tenant_invitations
+      SET status = 'revoked',
+          revoked_at = now(),
+          updated_at = now()
+      WHERE invitation_scope = $1
+        AND id = $2
+        AND status = 'pending'
+      `,
+      [invitationScope, invitationId],
     )
     return (result.rowCount ?? 0) > 0
   }
@@ -1086,6 +1113,64 @@ export class AccountManagementRepository {
   }): Promise<CreateInvitationResult> {
     try {
       return await this.database.transaction(async (client) => {
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+          `platform-registration-invitation:${input.email.toLowerCase()}`,
+        ])
+        const activeMember = await client.query<{ id: string }>(
+          `
+          SELECT m.id
+          FROM tenant_memberships m
+          JOIN auth_identities ai ON ai.user_id = m.user_id
+          JOIN users u ON u.id = m.user_id AND u.status = 'active'
+          JOIN tenants t ON t.id = m.tenant_id
+          WHERE lower(ai.email) = lower($1)
+            AND ai.provider = 'local'
+            AND ai.status = 'active'
+            AND m.status = 'active'
+            AND t.organization_type = 'personal'
+            AND m.roles && $2::text[]
+          LIMIT 1
+          `,
+          [input.email, input.roles],
+        )
+        if (activeMember.rows.length) return { kind: 'membership_exists' as const }
+
+        const updated = await client.query<{ id: string }>(
+          `
+          WITH target AS (
+            SELECT id
+            FROM tenant_invitations
+            WHERE lower(email) = lower($1)
+              AND invitation_scope = 'platform_registration'
+              AND status IN ('pending', 'revoked')
+            ORDER BY created_at DESC
+            LIMIT 1
+            FOR UPDATE
+          )
+          UPDATE tenant_invitations i
+          SET roles = $2,
+              invited_by_user_id = $3,
+              token_secret_hash = $4,
+              status = 'pending',
+              expires_at = $5,
+              accepted_at = NULL,
+              revoked_at = NULL,
+              updated_at = now()
+          FROM target
+          WHERE i.id = target.id
+          RETURNING i.id
+          `,
+          [input.email, input.roles, input.invitedByUserId, input.tokenSecretHash, input.expiresAt],
+        )
+        if (updated.rows[0]) {
+          const invitation = await readInvitationById(client, updated.rows[0].id)
+          if (!invitation) throw new Error('Reissued invitation could not be read')
+          await client.query(`DELETE FROM registration_email_codes WHERE invitation_id = $1`, [
+            updated.rows[0].id,
+          ])
+          return { kind: 'created' as const, invitation: { ...invitation, token: input.token } }
+        }
+
         const tenantId = `tenant-${randomUUID()}`
         await client.query(
           `

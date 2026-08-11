@@ -1530,11 +1530,97 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(memberInvitation.json().tenantId).not.toBe('tenant-seqora-demo')
     const memberInvitationToken = memberInvitation.json().token as string
 
+    const listedPlatformInvitations = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/invitations',
+      headers: { cookie: adminCookie },
+    })
+    expect(listedPlatformInvitations.statusCode).toBe(200)
+    expect(listedPlatformInvitations.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: memberInvitation.json().id,
+          email: 'platform-invited-member@example.com',
+          scope: 'platform_registration',
+          status: 'pending',
+        }),
+      ]),
+    )
+
+    const reissuedMemberInvitation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/invitations',
+      headers: { cookie: adminCookie },
+      payload: {
+        email: 'platform-invited-member@example.com',
+        roles: ['member'],
+      },
+    })
+    expect(reissuedMemberInvitation.statusCode).toBe(201)
+    expect(reissuedMemberInvitation.json()).toMatchObject({
+      id: memberInvitation.json().id,
+      tenantId: memberInvitation.json().tenantId,
+      email: 'platform-invited-member@example.com',
+      scope: 'platform_registration',
+      status: 'pending',
+    })
+    expect(reissuedMemberInvitation.json().token).not.toBe(memberInvitationToken)
+    const activeMemberInvitationToken = reissuedMemberInvitation.json().token as string
+
+    const revocableMemberInvitation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/invitations',
+      headers: { cookie: adminCookie },
+      payload: {
+        email: 'revocable-platform-invited-member@example.com',
+        roles: ['member'],
+      },
+    })
+    expect(revocableMemberInvitation.statusCode).toBe(201)
+    const revokedPlatformInvitation = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/invitations/${revocableMemberInvitation.json().id}`,
+      headers: { cookie: adminCookie },
+    })
+    expect(revokedPlatformInvitation.statusCode).toBe(204)
+    const afterPlatformRevoke = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/invitations',
+      headers: { cookie: adminCookie },
+    })
+    expect(afterPlatformRevoke.statusCode).toBe(200)
+    expect(afterPlatformRevoke.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: revocableMemberInvitation.json().id,
+          email: 'revocable-platform-invited-member@example.com',
+          status: 'revoked',
+          revokedAt: expect.any(String),
+        }),
+      ]),
+    )
+
+    const recreatedRevokedInvitation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/invitations',
+      headers: { cookie: adminCookie },
+      payload: {
+        email: 'revocable-platform-invited-member@example.com',
+        roles: ['member'],
+      },
+    })
+    expect(recreatedRevokedInvitation.statusCode).toBe(201)
+    expect(recreatedRevokedInvitation.json()).toMatchObject({
+      id: revocableMemberInvitation.json().id,
+      tenantId: revocableMemberInvitation.json().tenantId,
+      status: 'pending',
+    })
+
     const directAcceptance = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/invitations/accept',
       payload: {
-        token: memberInvitationToken,
+        token: activeMemberInvitationToken,
         name: 'Platform Invited Member',
         password: 'PlatformInvitedMember123!',
       },
@@ -1548,7 +1634,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
       method: 'POST',
       url: '/api/v1/auth/registration-code/request',
       payload: {
-        token: memberInvitationToken,
+        token: activeMemberInvitationToken,
         email: 'platform-invited-member@example.com',
       },
     })
@@ -1558,7 +1644,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
       method: 'POST',
       url: '/api/v1/auth/register',
       payload: {
-        token: memberInvitationToken,
+        token: activeMemberInvitationToken,
         email: 'platform-invited-member@example.com',
         name: 'Platform Invited Member',
         password: 'PlatformInvitedMember123!',
