@@ -42,6 +42,7 @@ export const organizationTypeLabels = {
 }
 
 const systemOrganizationRoles = new Set(['owner', 'super_admin', 'admin'])
+const organizationScopedRoles = new Set(['organization_admin', 'organization_member'])
 
 export function canReadAdminConsole(session) {
   return session?.permissions?.includes(PERMISSIONS.ADMIN_DASHBOARD_READ) ?? false
@@ -49,6 +50,10 @@ export function canReadAdminConsole(session) {
 
 export function canManageBilling(session) {
   return session?.permissions?.includes(PERMISSIONS.BILLING_MANAGE) ?? false
+}
+
+export function canReadBillingAll(session) {
+  return session?.permissions?.includes(PERMISSIONS.BILLING_READ_ALL) ?? false
 }
 
 export function canManageUsers(session) {
@@ -168,6 +173,55 @@ export function canManageMembership(session, membership) {
   return false
 }
 
+export function canReadOrganizationBilling(session, organization) {
+  if (!canReadBillingAll(session)) return false
+  if (!isEnterpriseOrganization(organization)) return false
+  const organizationId = organizationIdFor(organization)
+  if (isPlatformAdminSession(session)) return true
+  const roles = session?.account?.roles ?? []
+  return session?.account?.tenantId === organizationId && roles.includes('organization_admin')
+}
+
+export function canManageOrganizationBilling(session, organization) {
+  if (!canManageBilling(session)) return false
+  if (!isEnterpriseOrganization(organization)) return false
+  const organizationId = organizationIdFor(organization)
+  if (isPlatformAdminSession(session)) return true
+  const roles = session?.account?.roles ?? []
+  return session?.account?.tenantId === organizationId && roles.includes('organization_admin')
+}
+
+export function canManageBillingAccount(session, account) {
+  if (!canManageBilling(session)) return false
+  const roles = account?.roles ?? []
+  if (!roles.length) return false
+  if (isPlatformAdminSession(session)) return true
+
+  const organizationType = account?.organizationType
+  if (session?.account?.roles?.includes('admin')) {
+    return (
+      roles.includes('member') &&
+      !roles.some((role) => organizationScopedRoles.has(role)) &&
+      organizationType !== 'enterprise'
+    )
+  }
+
+  if (session?.account?.roles?.includes('organization_admin')) {
+    return (
+      organizationIdFor(account) === session.account.tenantId &&
+      roles.includes('organization_member') &&
+      organizationType !== 'personal' &&
+      organizationType !== 'system'
+    )
+  }
+
+  return false
+}
+
+export function canUpdateMembershipPlan(session, membership) {
+  return canManageBillingAccount(session, membership)
+}
+
 export function roleName(role) {
   return roleLabels[role] ?? role
 }
@@ -196,14 +250,29 @@ export function classifyOrganization(organization) {
   const id = organization?.id ?? ''
   const name = organization?.name ?? ''
   const createdByEmail = organization?.createdByEmail ?? ''
+  const explicitType = organization?.organizationType
   const normalizedName = name.trim().toLowerCase()
   const normalizedEmail = createdByEmail.trim().toLowerCase()
 
-  if (isSystemOrganization(organization) || normalizedName === 'seqora local') {
+  if (explicitType === 'system' || isSystemOrganization(organization) || normalizedName === 'seqora local') {
     return {
       type: 'system',
       label: organizationTypeName('system'),
       description: '平台内部使用，不作为企业业务组织',
+    }
+  }
+  if (explicitType === 'enterprise') {
+    return {
+      type: 'enterprise',
+      label: organizationTypeName('enterprise'),
+      description: 'Enterprise organization',
+    }
+  }
+  if (explicitType) {
+    return {
+      type: 'standard',
+      label: organizationTypeName('standard'),
+      description: 'Standard organization',
     }
   }
   if (
@@ -245,9 +314,13 @@ export function isSystemOrganization(organization) {
   return organization.isSystem === true || id === 'tenant-seqora-demo'
 }
 
+function isEnterpriseOrganization(organization) {
+  return classifyOrganization(organization).type === 'enterprise'
+}
+
 function organizationIdFor(organization) {
   if (typeof organization === 'string') return organization
-  return organization?.id ?? organization?.tenantId ?? ''
+  return organization?.organizationId ?? organization?.tenantId ?? organization?.id ?? ''
 }
 
 export function formatDate(value) {

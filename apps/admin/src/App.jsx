@@ -6,6 +6,7 @@ import {
   Clock,
   Copy,
   CreditCard,
+  Crown,
   Filter,
   FileText,
   Gauge,
@@ -39,11 +40,15 @@ import {
   canDisableOrganization,
   canLeaveOrganization,
   canManageBilling,
+  canManageBillingAccount,
   canManageMembership,
   canManageOrganization,
+  canManageOrganizationBilling,
   canManageUsers,
   canReadAdminConsole,
+  canReadOrganizationBilling,
   canTransferOrganizationAdmin,
+  canUpdateMembershipPlan,
   classifyOrganization,
   filterRows,
   formatDate,
@@ -82,6 +87,8 @@ const tabs = [
 const loginInitialState = { email: '', password: '' }
 const adjustmentInitialState = { amount: '', reason: '' }
 const grantInitialState = { amount: '', reason: '' }
+const organizationBillingAdjustmentInitialState = { amount: '', reason: '' }
+const membershipPlanInitialState = { plan: 'free', grantMonthlyCredits: true, reason: '' }
 const passwordInitialState = { newPassword: '', requireChange: true, revokeSessions: true }
 const reconciliationAlertMessageDefaults = {
   acknowledged: '已确认，正在处理',
@@ -152,6 +159,15 @@ export function App() {
   const [adjustmentPageForm, setAdjustmentPageForm] = useState(adjustmentInitialState)
   const [grantOpen, setGrantOpen] = useState(false)
   const [grantForm, setGrantForm] = useState(grantInitialState)
+  const [organizationBillingTarget, setOrganizationBillingTarget] = useState(null)
+  const [organizationBillingSummary, setOrganizationBillingSummary] = useState(null)
+  const [organizationBillingLoading, setOrganizationBillingLoading] = useState(false)
+  const [organizationBillingError, setOrganizationBillingError] = useState('')
+  const [organizationBillingAdjustmentForm, setOrganizationBillingAdjustmentForm] = useState(
+    organizationBillingAdjustmentInitialState,
+  )
+  const [membershipPlanTarget, setMembershipPlanTarget] = useState(null)
+  const [membershipPlanForm, setMembershipPlanForm] = useState(membershipPlanInitialState)
   const [auditActionFilter, setAuditActionFilter] = useState('all')
   const [auditResourceFilter, setAuditResourceFilter] = useState('all')
   const [sessionRiskFilter, setSessionRiskFilter] = useState('all')
@@ -1020,6 +1036,10 @@ export function App() {
     event.preventDefault()
     if (!adjustTarget) return
     const membershipId = membershipIdFor(adjustTarget)
+    if (!canManageBillingAccount(session, adjustTarget)) {
+      setNotice('当前角色不能调整该 membership 的账单')
+      return
+    }
     const amount = Number(adjustmentForm.amount)
     const reason = adjustmentForm.reason.trim()
     const confirmed = window.confirm(
@@ -1040,6 +1060,10 @@ export function App() {
       (account) => membershipIdFor(account) === adjustmentPageMembershipId,
     )
     if (!target) return
+    if (!canManageBillingAccount(session, target)) {
+      setNotice('当前角色不能调整该 membership 的账单')
+      return
+    }
     const amount = Number(adjustmentPageForm.amount)
     const reason = adjustmentPageForm.reason.trim()
     const membershipId = membershipIdFor(target)
@@ -1067,6 +1091,89 @@ export function App() {
       setGrantForm(grantInitialState)
       await loadConsole()
       setNotice('充值已提交')
+    })
+  }
+
+  const loadOrganizationBillingSummary = async (organization = organizationBillingTarget) => {
+    if (!organization) return
+    setOrganizationBillingLoading(true)
+    setOrganizationBillingError('')
+    try {
+      const summary = await api.organizationBillingSummary(organization.id)
+      setOrganizationBillingSummary(summary)
+    } catch (requestError) {
+      setOrganizationBillingSummary(null)
+      setOrganizationBillingError(requestError.message)
+    } finally {
+      setOrganizationBillingLoading(false)
+    }
+  }
+
+  const openOrganizationBilling = async (organization) => {
+    if (!canReadOrganizationBilling(session, organization)) {
+      setNotice('当前角色不能查看该组织共享积分池')
+      return
+    }
+    setOrganizationBillingTarget(organization)
+    setOrganizationBillingSummary(null)
+    setOrganizationBillingError('')
+    setOrganizationBillingAdjustmentForm(organizationBillingAdjustmentInitialState)
+    await loadOrganizationBillingSummary(organization)
+  }
+
+  const submitOrganizationBillingAdjustment = async (event) => {
+    event.preventDefault()
+    if (!organizationBillingTarget) return
+    if (!canManageOrganizationBilling(session, organizationBillingTarget)) {
+      setNotice('当前角色不能调整该组织共享积分池')
+      return
+    }
+    const amount = Number(organizationBillingAdjustmentForm.amount)
+    const reason = organizationBillingAdjustmentForm.reason.trim()
+    const confirmed = window.confirm(
+      `确认调整组织共享积分池？\n\n组织：${organizationBillingTarget.name}\n积分变化：${formatSignedAmount(amount)}\n原因：${reason}`,
+    )
+    if (!confirmed) return
+    await runAction(`organization-adjust:${organizationBillingTarget.id}`, async () => {
+      await api.adjustOrganizationCredits(organizationBillingTarget.id, { amount, reason })
+      setOrganizationBillingAdjustmentForm(organizationBillingAdjustmentInitialState)
+      await loadOrganizationBillingSummary(organizationBillingTarget)
+      await loadConsole()
+      setNotice('组织共享池调账已提交')
+    })
+  }
+
+  const openMembershipPlan = (membership) => {
+    setMembershipPlanTarget(membership)
+    setMembershipPlanForm({
+      ...membershipPlanInitialState,
+      plan: membership.plan ?? 'free',
+    })
+  }
+
+  const submitMembershipPlan = async (event) => {
+    event.preventDefault()
+    if (!membershipPlanTarget) return
+    const membershipId = membershipIdFor(membershipPlanTarget)
+    if (!canUpdateMembershipPlan(session, membershipPlanTarget)) {
+      setNotice('当前角色不能修改该 membership 的套餐')
+      return
+    }
+    const reason = membershipPlanForm.reason.trim()
+    const confirmed = window.confirm(
+      `确认修改会员套餐？\n\n成员：${membershipPlanTarget.name}\nMembership：${membershipId}\n套餐：${planName(membershipPlanForm.plan)}\n发放月度积分：${membershipPlanForm.grantMonthlyCredits ? '是' : '否'}`,
+    )
+    if (!confirmed) return
+    await runAction(`membership-plan:${membershipId}`, async () => {
+      await api.updateMembershipPlan(membershipId, {
+        plan: membershipPlanForm.plan,
+        grantMonthlyCredits: membershipPlanForm.grantMonthlyCredits,
+        ...(reason ? { reason } : {}),
+      })
+      setMembershipPlanTarget(null)
+      setMembershipPlanForm(membershipPlanInitialState)
+      await loadConsole()
+      setNotice('会员套餐已更新')
     })
   }
 
@@ -1280,6 +1387,7 @@ export function App() {
                   onAddExistingMember={openAddExistingMember}
                   onCreateInvitation={openCreateInvitation}
                   onManageInvitations={openInvitationManager}
+                  onOpenOrganizationBilling={openOrganizationBilling}
                 />
               )}
               {activeTab === 'memberships' && (
@@ -1294,6 +1402,7 @@ export function App() {
                   onUpdateRole={updateMembershipRole}
                   onDisableMembership={disableMembership}
                   onAdjust={openAdjustment}
+                  onUpdatePlan={openMembershipPlan}
                 />
               )}
               {activeTab === 'invitations' && (
@@ -1327,9 +1436,11 @@ export function App() {
                   reconciliation={filtered.billingPaymentReconciliation}
                   alerts={filtered.billingReconciliationAlerts}
                   organizations={organizationItems}
+                  session={session}
                   canManage={canAdjustBilling}
                   busy={busy}
                   onAdjust={openAdjustment}
+                  onUpdatePlan={openMembershipPlan}
                   onGrant={() => setGrantOpen(true)}
                   onUpdateAlert={openReconciliationAlertAction}
                   onOpenAlertsPage={() => setActiveTab('reconciliation-alerts')}
@@ -1361,6 +1472,9 @@ export function App() {
                   onFormChange={setAdjustmentPageForm}
                   onSubmit={submitPageAdjustment}
                   onGrant={() => setGrantOpen(true)}
+                  onOpenOrganizationBilling={openOrganizationBilling}
+                  organizations={organizationItems}
+                  session={session}
                 />
               )}
               {activeTab === 'sessions' && (
@@ -1418,6 +1532,39 @@ export function App() {
           onChange={setGrantForm}
           onClose={() => setGrantOpen(false)}
           onSubmit={submitGrant}
+        />
+      )}
+      {organizationBillingTarget && (
+        <OrganizationBillingModal
+          organization={organizationBillingTarget}
+          summary={organizationBillingSummary}
+          loading={organizationBillingLoading}
+          error={organizationBillingError}
+          form={organizationBillingAdjustmentForm}
+          canManage={canManageOrganizationBilling(session, organizationBillingTarget)}
+          busy={busy === `organization-adjust:${organizationBillingTarget.id}`}
+          onChange={setOrganizationBillingAdjustmentForm}
+          onRefresh={() => loadOrganizationBillingSummary(organizationBillingTarget)}
+          onClose={() => {
+            setOrganizationBillingTarget(null)
+            setOrganizationBillingSummary(null)
+            setOrganizationBillingError('')
+            setOrganizationBillingAdjustmentForm(organizationBillingAdjustmentInitialState)
+          }}
+          onSubmit={submitOrganizationBillingAdjustment}
+        />
+      )}
+      {membershipPlanTarget && (
+        <MembershipPlanModal
+          membership={membershipPlanTarget}
+          form={membershipPlanForm}
+          busy={busy === `membership-plan:${membershipIdFor(membershipPlanTarget)}`}
+          onChange={setMembershipPlanForm}
+          onClose={() => {
+            setMembershipPlanTarget(null)
+            setMembershipPlanForm(membershipPlanInitialState)
+          }}
+          onSubmit={submitMembershipPlan}
         />
       )}
       {reconciliationAlertAction && (
@@ -1566,6 +1713,7 @@ export function App() {
           onUpdateRole={updateMembershipRole}
           onDisableMembership={disableMembership}
           onAdjust={openAdjustment}
+          onUpdatePlan={openMembershipPlan}
         />
       )}
       {auditDetailTarget && (
@@ -1626,6 +1774,7 @@ export function App() {
           onCreateInvitation={openCreateInvitation}
           onManageInvitations={openInvitationManager}
           onLeaveOrganization={leaveOrganization}
+          onOpenOrganizationBilling={openOrganizationBilling}
           onOpenAlertPage={() => setActiveTab('reconciliation-alerts')}
         />
       )}
@@ -2142,6 +2291,7 @@ function OrganizationsTable({
   onAddExistingMember,
   onCreateInvitation,
   onManageInvitations,
+  onOpenOrganizationBilling,
 }) {
   const visibleOrganizations =
     typeFilter === 'all'
@@ -2247,6 +2397,15 @@ function OrganizationsTable({
                     <button className="row-button" type="button" onClick={() => onOpenDetail(organization)}>
                       <FileText size={14} />
                       详情
+                    </button>
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={!canReadOrganizationBilling(session, organization)}
+                      onClick={() => onOpenOrganizationBilling(organization)}
+                    >
+                      <CreditCard size={14} />
+                      组织共享池
                     </button>
                     <button
                       className="row-button"
@@ -2375,6 +2534,7 @@ function MembershipsTable({
   onUpdateRole,
   onDisableMembership,
   onAdjust,
+  onUpdatePlan,
 }) {
   return (
     <DataSection title="成员关系查询" count={memberships.length}>
@@ -2450,11 +2610,20 @@ function MembershipsTable({
                   <button
                     className="row-button"
                     type="button"
-                    disabled={!canAdjustBilling}
+                    disabled={!canAdjustBilling || !canManageBillingAccount(session, membership)}
                     onClick={() => onAdjust(membership)}
                   >
                     <PencilLine size={14} />
                     调账
+                  </button>
+                  <button
+                    className="row-button"
+                    type="button"
+                    disabled={!canUpdateMembershipPlan(session, membership)}
+                    onClick={() => onUpdatePlan(membership)}
+                  >
+                    <Crown size={14} />
+                    改套餐/冲会员
                   </button>
                   <button
                     className="row-button danger"
@@ -2598,9 +2767,11 @@ function BillingPanel({
   reconciliation,
   alerts,
   organizations,
+  session,
   canManage,
   busy,
   onAdjust,
+  onUpdatePlan,
   onGrant,
   onUpdateAlert,
   onOpenAlertsPage,
@@ -2645,7 +2816,16 @@ function BillingPanel({
                   <button
                     className="row-button"
                     type="button"
-                    disabled={!canManage}
+                    disabled={!canUpdateMembershipPlan(session, account)}
+                    onClick={() => onUpdatePlan(account)}
+                  >
+                    <Crown size={14} />
+                    改套餐/冲会员
+                  </button>
+                  <button
+                    className="row-button"
+                    type="button"
+                    disabled={!canManage || !canManageBillingAccount(session, account)}
                     onClick={() => onAdjust(account)}
                   >
                     <PencilLine size={14} />
@@ -2753,6 +2933,8 @@ function BillingPanel({
 function BillingAdjustmentPage({
   accounts,
   entries,
+  organizations,
+  session,
   selectedMembershipId,
   form,
   canManage,
@@ -2761,6 +2943,7 @@ function BillingAdjustmentPage({
   onFormChange,
   onSubmit,
   onGrant,
+  onOpenOrganizationBilling,
 }) {
   const selectedAccount =
     accounts.find((account) => membershipIdFor(account) === selectedMembershipId) ?? accounts[0] ?? null
@@ -2770,6 +2953,9 @@ function BillingAdjustmentPage({
   const projectedBalance = selectedAccount && validAmount ? selectedAccount.credits + amount : null
   const adjustmentEntries = entries.filter((entry) => entry.type === 'adjustment' || entry.type === 'grant')
   const summary = summarizeBillingAdjustments(adjustmentEntries)
+  const readableOrganizationPools = organizations.filter((organization) =>
+    canReadOrganizationBilling(session, organization),
+  )
 
   return (
     <div className="adjustment-page">
@@ -2844,6 +3030,7 @@ function BillingAdjustmentPage({
             disabled={
               !canManage ||
               !selectedAccount ||
+              !canManageBillingAccount(session, selectedAccount) ||
               !validAmount ||
               !form.reason.trim() ||
               projectedBalance < 0 ||
@@ -2859,6 +3046,49 @@ function BillingAdjustmentPage({
           </button>
         </form>
       </section>
+
+      <DataSection title="组织共享积分池" count={readableOrganizationPools.length}>
+        <table className="data-table wide">
+          <thead>
+            <tr>
+              <th>组织</th>
+              <th>类型</th>
+              <th>状态</th>
+              <th>成员</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {readableOrganizationPools.map((organization) => (
+              <tr key={organization.id}>
+                <td>
+                  <IdentityCell name={organization.name} detail={organization.id} />
+                </td>
+                <td>
+                  <OrganizationTypeBadge organizationType={classifyOrganization(organization)} />
+                </td>
+                <td>
+                  <StatusBadge status={organization.status} />
+                </td>
+                <td>
+                  {organization.activeMembershipCount} / {organization.membershipCount}
+                </td>
+                <td>
+                  <button
+                    className="row-button"
+                    type="button"
+                    onClick={() => onOpenOrganizationBilling(organization)}
+                  >
+                    <CreditCard size={14} />
+                    查询余额/组织充积分
+                  </button>
+                </td>
+              </tr>
+            ))}
+            <EmptyRow visible={!readableOrganizationPools.length} columns={5} />
+          </tbody>
+        </table>
+      </DataSection>
 
       <section className="summary-strip">
         <MetricBlock icon={PencilLine} label="调账流水" value={summary.adjustments} />
@@ -3450,6 +3680,7 @@ function MembershipDetailDrawer({
   onUpdateRole,
   onDisableMembership,
   onAdjust,
+  onUpdatePlan,
 }) {
   const membershipId = membershipIdFor(membership)
   const organizationId = organizationIdFromRow(membership)
@@ -3536,11 +3767,20 @@ function MembershipDetailDrawer({
           <button
             className="row-button"
             type="button"
-            disabled={!canAdjustBilling}
+            disabled={!canAdjustBilling || !canManageBillingAccount(session, membership)}
             onClick={() => onAdjust(membership)}
           >
             <PencilLine size={14} />
             调账
+          </button>
+          <button
+            className="row-button"
+            type="button"
+            disabled={!canUpdateMembershipPlan(session, membership)}
+            onClick={() => onUpdatePlan(membership)}
+          >
+            <Crown size={14} />
+            改套餐/冲会员
           </button>
           <button
             className="row-button danger"
@@ -3755,6 +3995,7 @@ function OrganizationDetailDrawer({
   onCreateInvitation,
   onManageInvitations,
   onLeaveOrganization,
+  onOpenOrganizationBilling,
   onOpenAlertPage,
 }) {
   const organizationType = classifyOrganization(organization)
@@ -3771,6 +4012,7 @@ function OrganizationDetailDrawer({
   const canDisableTarget = canDisableOrganization(session, organization)
   const canAddExisting = canAddExistingOrganizationMember(session, organization)
   const canLeaveTarget = canLeaveOrganization(session, organization, memberRows)
+  const canReadBillingPool = canReadOrganizationBilling(session, organization)
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
@@ -3848,6 +4090,10 @@ function OrganizationDetailDrawer({
           <button className="row-button" type="button" disabled={!canManage} onClick={() => onManageInvitations(organization)}>
             <MailPlus size={14} />
             邀请管理
+          </button>
+          <button className="row-button" type="button" disabled={!canReadBillingPool} onClick={() => onOpenOrganizationBilling(organization)}>
+            <CreditCard size={14} />
+            组织共享池
           </button>
           <button className="row-button" type="button" disabled={!canTransfer || organization.activeOrganizationAdminCount < 1} onClick={() => onTransferOrganizationAdmin(organization)}>
             <ShieldCheck size={14} />
@@ -4764,6 +5010,184 @@ function GrantModal({ form, busy, onChange, onClose, onSubmit }) {
           />
         </label>
         <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="提交充值" />
+      </form>
+    </Modal>
+  )
+}
+
+function OrganizationBillingModal({
+  organization,
+  summary,
+  loading,
+  error,
+  form,
+  canManage,
+  busy,
+  onChange,
+  onRefresh,
+  onClose,
+  onSubmit,
+}) {
+  const amount = Number(form.amount)
+  const validAmount = Number.isInteger(amount) && amount !== 0
+  const currentCredits = summary?.credits ?? null
+  const projectedBalance = currentCredits !== null && validAmount ? currentCredits + amount : null
+  const valid =
+    canManage &&
+    Boolean(summary) &&
+    validAmount &&
+    form.reason.trim().length > 0 &&
+    projectedBalance !== null &&
+    projectedBalance >= 0
+  const entries = summary?.entries ?? []
+
+  return (
+    <Modal title="组织共享积分池" onClose={onClose} wide>
+      <div className="modal-form">
+        <div className="section-actions">
+          <IdentityCell name={organization.name} detail={organization.id} />
+          <button className="row-button" type="button" disabled={loading} onClick={onRefresh}>
+            {loading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
+            刷新余额
+          </button>
+        </div>
+        {error && <div className="notice error">{error}</div>}
+        <div className="drawer-summary-grid">
+          <div>
+            <span>当前组织余额</span>
+            <strong>{loading && !summary ? '读取中' : (summary?.credits ?? '-')}</strong>
+          </div>
+          <div>
+            <span>预计余额</span>
+            <strong>{projectedBalance === null ? '-' : projectedBalance}</strong>
+          </div>
+          <div>
+            <span>本月净消耗</span>
+            <strong>{summary?.monthlyUsage?.netCredits ?? '-'}</strong>
+          </div>
+          <div>
+            <span>本月任务</span>
+            <strong>{summary?.monthlyUsage?.generationCount ?? '-'}</strong>
+          </div>
+        </div>
+      </div>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <div className="adjustment-fields">
+          <label>
+            <span>组织积分变化</span>
+            <input
+              type="number"
+              value={form.amount}
+              onChange={(event) => onChange({ ...form, amount: event.target.value })}
+              min="-1000000"
+              max="1000000"
+              disabled={!canManage || loading}
+              required
+            />
+          </label>
+          <label>
+            <span>调账原因</span>
+            <input
+              value={form.reason}
+              onChange={(event) => onChange({ ...form, reason: event.target.value })}
+              maxLength={200}
+              disabled={!canManage || loading}
+              required
+            />
+          </label>
+        </div>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="提交组织调账" />
+      </form>
+      <DataSection title="组织池最近流水" count={entries.length}>
+        <table className="data-table ledger">
+          <thead>
+            <tr>
+              <th>类型</th>
+              <th>金额</th>
+              <th>余额</th>
+              <th>Membership</th>
+              <th>描述</th>
+              <th>时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.slice(0, 12).map((entry) => (
+              <tr key={entry.id}>
+                <td>{ledgerTypeName(entry.type)}</td>
+                <td className={entry.amount >= 0 ? 'amount positive' : 'amount negative'}>
+                  {formatSignedAmount(entry.amount)}
+                </td>
+                <td>{entry.balance}</td>
+                <td>{shortId(entry.membershipId)}</td>
+                <td>{entry.description}</td>
+                <td>{formatDate(entry.createdAt)}</td>
+              </tr>
+            ))}
+            <EmptyRow visible={!entries.length} columns={6} />
+          </tbody>
+        </table>
+      </DataSection>
+    </Modal>
+  )
+}
+
+function MembershipPlanModal({ membership, form, busy, onChange, onClose, onSubmit }) {
+  const valid = form.plan === 'free' || form.plan === 'member'
+  const nextGrantMonthlyCredits = form.plan === 'member' && form.grantMonthlyCredits
+
+  return (
+    <Modal title="改套餐 / 冲会员" onClose={onClose}>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <IdentityCell
+          name={membership.name}
+          detail={`${membership.tenantName ?? membership.tenantId} · ${membership.email ?? membership.userId}`}
+        />
+        <div className="drawer-summary-grid">
+          <div>
+            <span>当前套餐</span>
+            <strong>{planName(membership.plan)}</strong>
+          </div>
+          <div>
+            <span>当前积分</span>
+            <strong>{membership.credits}</strong>
+          </div>
+        </div>
+        <label>
+          <span>目标套餐</span>
+          <select
+            value={form.plan}
+            onChange={(event) =>
+              onChange({
+                ...form,
+                plan: event.target.value,
+                grantMonthlyCredits: event.target.value === 'member',
+              })
+            }
+            required
+          >
+            <option value="free">{planName('free')}</option>
+            <option value="member">{planName('member')}</option>
+          </select>
+        </label>
+        <label className="checkbox-field">
+          <input
+            type="checkbox"
+            checked={nextGrantMonthlyCredits}
+            disabled={form.plan !== 'member'}
+            onChange={(event) => onChange({ ...form, grantMonthlyCredits: event.target.checked })}
+          />
+          <span>升级/续费会员时发放本月会员积分</span>
+        </label>
+        <label>
+          <span>备注</span>
+          <input
+            value={form.reason}
+            onChange={(event) => onChange({ ...form, reason: event.target.value })}
+            maxLength={200}
+            placeholder="可选"
+          />
+        </label>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="保存套餐" />
       </form>
     </Modal>
   )

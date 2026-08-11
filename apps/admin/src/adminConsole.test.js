@@ -10,10 +10,14 @@ import {
   canAssignRole,
   canDisableOrganization,
   canLeaveOrganization,
+  canManageBillingAccount,
   canManageMembership,
   canManageOrganization,
+  canManageOrganizationBilling,
   canReadAdminConsole,
+  canReadOrganizationBilling,
   canTransferOrganizationAdmin,
+  canUpdateMembershipPlan,
   classifyOrganization,
   filterRows,
   formatSignedAmount,
@@ -29,6 +33,18 @@ describe('admin console helpers', () => {
   const superAdminSession = sessionFor('user-superadmin', 'tenant-a', ['super_admin'])
   const adminSession = sessionFor('user-admin', 'tenant-a', ['admin'])
   const memberSession = sessionFor('user-member', 'tenant-a', ['member'], ['project.read'])
+  const billingAdminSession = sessionFor('user-admin', 'tenant-a', ['admin'], [
+    'admin.dashboard.read',
+    'billing.read.all',
+    'billing.manage',
+    'user.manage',
+  ])
+  const organizationAdminBillingSession = sessionFor(
+    'user-org-admin',
+    'tenant-enterprise-a',
+    ['organization_admin'],
+    ['admin.dashboard.read', 'billing.read.all', 'billing.manage', 'user.manage'],
+  )
 
   it('checks admin console permission from the session', () => {
     expect(canReadAdminConsole({ permissions: ['admin.dashboard.read'] })).toBe(true)
@@ -145,7 +161,11 @@ describe('admin console helpers', () => {
     expect(
       canManageMembership(
         sessionFor('user-org-admin', 'tenant-a', ['organization_admin']),
-        membershipFor('user-org-member', 'tenant-a', ['organization_member']),
+        {
+          ...membershipFor('user-org-member', 'tenant-a', ['organization_member']),
+          id: 'membership-tenant-a-user-org-member',
+          organizationId: 'tenant-a',
+        },
       ),
     ).toBe(true)
     expect(
@@ -157,6 +177,39 @@ describe('admin console helpers', () => {
     expect(canManageMembership(adminSession, membershipFor('user-member-3', 'tenant-b', ['member']))).toBe(
       false,
     )
+  })
+
+  it('matches backend billing boundaries for organization pools and membership plans', () => {
+    const enterpriseA = { id: 'tenant-enterprise-a', organizationType: 'enterprise', status: 'active' }
+    const enterpriseB = { id: 'tenant-enterprise-b', organizationType: 'enterprise', status: 'active' }
+    const personalMember = membershipFor('user-member-2', 'tenant-personal-a', ['member'], 'personal')
+    const enterpriseMember = membershipFor(
+      'user-org-member',
+      'tenant-enterprise-a',
+      ['organization_member'],
+      'enterprise',
+    )
+    const enterpriseAdmin = membershipFor(
+      'user-org-admin-2',
+      'tenant-enterprise-a',
+      ['organization_admin'],
+      'enterprise',
+    )
+
+    expect(canReadOrganizationBilling(ownerSession, enterpriseA)).toBe(false)
+    expect(canReadOrganizationBilling(withBilling(ownerSession), enterpriseA)).toBe(true)
+    expect(canManageOrganizationBilling(withBilling(superAdminSession), enterpriseB)).toBe(true)
+    expect(canManageOrganizationBilling(billingAdminSession, enterpriseA)).toBe(false)
+    expect(canManageOrganizationBilling(organizationAdminBillingSession, enterpriseA)).toBe(true)
+    expect(canManageOrganizationBilling(organizationAdminBillingSession, enterpriseB)).toBe(false)
+    expect(canManageOrganizationBilling(withBilling(memberSession), enterpriseA)).toBe(false)
+
+    expect(canManageBillingAccount(billingAdminSession, personalMember)).toBe(true)
+    expect(canManageBillingAccount(billingAdminSession, enterpriseMember)).toBe(false)
+    expect(canUpdateMembershipPlan(organizationAdminBillingSession, enterpriseMember)).toBe(true)
+    expect(canUpdateMembershipPlan(organizationAdminBillingSession, enterpriseAdmin)).toBe(false)
+    expect(canUpdateMembershipPlan(withBilling(superAdminSession), enterpriseAdmin)).toBe(true)
+    expect(canUpdateMembershipPlan(withBilling(memberSession), personalMember)).toBe(false)
   })
 
   it('filters nested console rows', () => {
@@ -186,6 +239,13 @@ describe('admin console helpers', () => {
         name: 'Enterprise Customer A',
       }),
     ).toMatchObject({ type: 'enterprise', label: '企业组织' })
+    expect(
+      classifyOrganization({
+        id: 'tenant-random',
+        name: 'Studio Team',
+        organizationType: 'enterprise',
+      }),
+    ).toMatchObject({ type: 'enterprise' })
     expect(classifyOrganization({ id: 'tenant-normal', name: 'Studio Team' })).toMatchObject({
       type: 'standard',
       label: '普通组织',
@@ -291,6 +351,19 @@ function sessionFor(userId, tenantId, roles, permissions = ['admin.dashboard.rea
   }
 }
 
-function membershipFor(userId, tenantId, roles) {
-  return { userId, tenantId, roles, status: 'active' }
+function withBilling(session) {
+  return {
+    ...session,
+    permissions: [
+      ...new Set([
+        ...(session.permissions ?? []),
+        'billing.read.all',
+        'billing.manage',
+      ]),
+    ],
+  }
+}
+
+function membershipFor(userId, tenantId, roles, organizationType) {
+  return { userId, tenantId, roles, status: 'active', organizationType }
 }

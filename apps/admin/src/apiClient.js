@@ -3,6 +3,7 @@ import {
   adminBillingReconciliationAlertSchema,
   adminConsoleSchema,
   createdTenantInvitationSchema,
+  organizationBillingSummarySchema,
   sessionSchema,
   tenantInvitationSchema,
   usageSummarySchema,
@@ -119,4 +120,15 @@ export const api = {
       `/admin/billing/memberships/${encodeURIComponent(membershipId)}/adjustments`,
       json('POST', input),
     ),
+  organizationBillingSummary: async (organizationId) =>
+    organizationBillingSummarySchema.parse(
+      await request(`/admin/billing/organizations/${encodeURIComponent(organizationId)}`),
+    ),
+  adjustOrganizationCredits: (organizationId, input) =>
+    request(
+      `/admin/billing/organizations/${encodeURIComponent(organizationId)}/adjustments`,
+      json('POST', input),
+    ),
+  updateMembershipPlan: (membershipId, input) =>
+    request(`/admin/billing/memberships/${encodeURIComponent(membershipId)}/plan`, json('PATCH', input)),
 }
