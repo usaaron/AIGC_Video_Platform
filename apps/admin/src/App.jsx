@@ -60,6 +60,8 @@ import {
   roleName,
   shortId,
   statusName,
+  isEnterpriseOrganization,
+  isPersonalAccountMembership,
   summarizeAuditLogs,
   summarizeBillingAdjustments,
   summarizeConsole,
@@ -73,8 +75,9 @@ const tabs = [
   { id: 'usage-users', label: '用户用量', icon: UsersRound },
   { id: 'usage-organizations', label: '组织用量', icon: Building2 },
   { id: 'users', label: '用户', icon: UsersRound },
-  { id: 'organizations', label: '组织', icon: Building2 },
-  { id: 'memberships', label: '成员关系', icon: IdCard },
+  { id: 'personal-accounts', label: '个人账号', icon: IdCard },
+  { id: 'organizations', label: '企业组织', icon: Building2 },
+  { id: 'memberships', label: '账号归属', icon: IdCard },
   { id: 'invitations', label: '邀请', icon: MailPlus },
   { id: 'billing', label: '账单流水', icon: CreditCard },
   { id: 'reconciliation-alerts', label: '对账告警', icon: AlertTriangle },
@@ -171,7 +174,6 @@ export function App() {
   const [auditActionFilter, setAuditActionFilter] = useState('all')
   const [auditResourceFilter, setAuditResourceFilter] = useState('all')
   const [sessionRiskFilter, setSessionRiskFilter] = useState('all')
-  const [organizationTypeFilter, setOrganizationTypeFilter] = useState('all')
   const [invitationPageOrganizationId, setInvitationPageOrganizationId] = useState('')
   const [invitationStatusFilter, setInvitationStatusFilter] = useState('all')
   const [reconciliationAlertStatusFilter, setReconciliationAlertStatusFilter] = useState('open')
@@ -309,6 +311,14 @@ export function App() {
     () => snapshot?.organizations?.items ?? snapshot?.tenants?.items ?? [],
     [snapshot],
   )
+  const enterpriseOrganizationItems = useMemo(
+    () => organizationItems.filter(isEnterpriseOrganization),
+    [organizationItems],
+  )
+  const personalAccountMemberships = useMemo(
+    () => (snapshot?.memberships?.items ?? []).filter(isPersonalAccountMembership),
+    [snapshot],
+  )
   const organizationDetailTarget = useMemo(
     () => organizationItems.find((organization) => organization.id === organizationDetailId) ?? null,
     [organizationItems, organizationDetailId],
@@ -336,14 +346,14 @@ export function App() {
   )
   const creatableOrganizations = useMemo(
     () =>
-      organizationItems.filter(
+      enterpriseOrganizationItems.filter(
         (item) => item.status === 'active' && canCreateOrganizationUser(session, item),
       ),
-    [organizationItems, session],
+    [enterpriseOrganizationItems, session],
   )
   const manageableInvitationOrganizations = useMemo(
-    () => organizationItems.filter((item) => canManageOrganization(session, item)),
-    [organizationItems, session],
+    () => enterpriseOrganizationItems.filter((item) => canManageOrganization(session, item)),
+    [enterpriseOrganizationItems, session],
   )
   const invitationPageOrganization = useMemo(
     () =>
@@ -357,7 +367,8 @@ export function App() {
     if (!snapshot) return null
     return {
       users: snapshot.users.items,
-      organizations: organizationItems,
+      organizations: enterpriseOrganizationItems,
+      personalAccounts: personalAccountMemberships,
       memberships: snapshot.memberships.items,
       billingAccounts: snapshot.billingAccounts.items,
       billingLedgerEntries: snapshot.billingLedgerEntries.items,
@@ -366,7 +377,7 @@ export function App() {
       sessions: snapshot.sessions.items,
       auditLogs: snapshot.auditLogs.items,
     }
-  }, [snapshot, organizationItems])
+  }, [snapshot, enterpriseOrganizationItems, personalAccountMemberships])
 
   const summary = useMemo(() => summarizeConsole(snapshot), [snapshot])
   const createUserOrganization = useMemo(
@@ -397,11 +408,55 @@ export function App() {
     () => assignableRoleOptions(session, null),
     [session],
   )
-  const activeListMeta = useMemo(() => activeConsoleListMeta(snapshot, activeTab), [snapshot, activeTab])
-  const organizationFilterOptions = useMemo(
-    () => organizationOptionsForFilter(organizationItems, consoleFilters.tenantId),
-    [organizationItems, consoleFilters.tenantId],
-  )
+  const activeListMeta = useMemo(() => {
+    if (activeTab === 'organizations') return clientListMeta(enterpriseOrganizationItems.length, consoleFilters)
+    if (activeTab === 'personal-accounts') return clientListMeta(personalAccountMemberships.length, consoleFilters)
+    return activeConsoleListMeta(snapshot, activeTab)
+  }, [snapshot, activeTab, enterpriseOrganizationItems.length, personalAccountMemberships.length, consoleFilters])
+  const organizationFilterOptions = useMemo(() => {
+    if (activeTab === 'organizations') {
+      return organizationOptionsForFilter(enterpriseOrganizationItems, consoleFilters.tenantId)
+    }
+    if (activeTab === 'personal-accounts') {
+      return membershipOrganizationOptionsForFilter(personalAccountMemberships, consoleFilters.tenantId)
+    }
+    return organizationOptionsForFilter(organizationItems, consoleFilters.tenantId)
+  }, [
+    activeTab,
+    enterpriseOrganizationItems,
+    organizationItems,
+    personalAccountMemberships,
+    consoleFilters.tenantId,
+  ])
+  const organizationFilterLabel = useMemo(() => {
+    if (activeTab === 'organizations') return '全部企业组织'
+    if (activeTab === 'personal-accounts') return '全部个人/系统归属'
+    return '全部组织/空间'
+  }, [activeTab])
+
+  useEffect(() => {
+    if (!snapshot || !consoleFilters.tenantId) return
+    if (
+      activeTab === 'organizations' &&
+      !enterpriseOrganizationItems.some((organization) => organization.id === consoleFilters.tenantId)
+    ) {
+      setConsoleFilters((current) => ({ ...current, tenantId: '', offset: 0 }))
+    }
+    if (
+      activeTab === 'personal-accounts' &&
+      !personalAccountMemberships.some(
+        (membership) => (membership.tenantId ?? membership.organizationId) === consoleFilters.tenantId,
+      )
+    ) {
+      setConsoleFilters((current) => ({ ...current, tenantId: '', offset: 0 }))
+    }
+  }, [
+    activeTab,
+    consoleFilters.tenantId,
+    enterpriseOrganizationItems,
+    personalAccountMemberships,
+    snapshot,
+  ])
 
   const updateConsoleFilters = (patch, { resetOffset = true } = {}) => {
     setConsoleFilters((current) => ({
@@ -670,7 +725,7 @@ export function App() {
     if (!membershipId) return
     const membership = snapshot?.memberships?.items.find((item) => membershipIdFor(item) === membershipId)
     if (!membership) {
-      searchConsoleTab('memberships', membershipId, '当前快照未包含该 membership，已切到成员关系列表并按 ID 搜索')
+      searchConsoleTab('memberships', membershipId, '当前快照未包含该 membership，已切到账号归属列表并按 ID 搜索')
       return
     }
     setAuditDetailId('')
@@ -948,7 +1003,7 @@ export function App() {
     await runAction(`member-disable:${membership.id}`, async () => {
       await api.disableMembership(membership.id)
       await loadConsole()
-      setNotice('成员关系已禁用')
+      setNotice('账号归属已禁用')
     })
   }
 
@@ -1278,7 +1333,12 @@ export function App() {
               >
                 <tab.icon size={17} />
                 <span>{tab.label}</span>
-                <small>{tabCount(tab.id, summary)}</small>
+                <small>
+                  {tabCount(tab.id, summary, {
+                    enterpriseOrganizations: enterpriseOrganizationItems.length,
+                    personalAccounts: personalAccountMemberships.length,
+                  })}
+                </small>
               </button>
             ))}
           </nav>
@@ -1306,6 +1366,7 @@ export function App() {
               query={queryDraft}
               loading={loading}
               organizations={organizationFilterOptions}
+              organizationPlaceholder={organizationFilterLabel}
               activeMeta={activeListMeta}
               onFilterChange={updateConsoleFilters}
               onClear={clearConsoleFilters}
@@ -1371,13 +1432,27 @@ export function App() {
                   onForcePasswordReset={forcePasswordReset}
                 />
               )}
+              {activeTab === 'personal-accounts' && (
+                <PersonalAccountsTable
+                  memberships={filtered.personalAccounts}
+                  session={session}
+                  currentUserId={session.account.id}
+                  canManage={canManageAccountStatus}
+                  canAdjustBilling={canAdjustBilling}
+                  busy={busy}
+                  onOpenDetail={openMembershipDetail}
+                  onUpdateRole={updateMembershipRole}
+                  onAdjust={openAdjustment}
+                  onUpdatePlan={openMembershipPlan}
+                  onOpenPasswordReset={openPasswordReset}
+                  onSetStatus={setUserStatus}
+                />
+              )}
               {activeTab === 'organizations' && (
                 <OrganizationsTable
                   organizations={filtered.organizations}
                   session={session}
                   busy={busy}
-                  typeFilter={organizationTypeFilter}
-                  onTypeFilterChange={setOrganizationTypeFilter}
                   onOpenDetail={openOrganizationDetail}
                   onCreateOrganization={openCreateOrganization}
                   onRename={renameOrganization}
@@ -1622,7 +1697,7 @@ export function App() {
       {addExistingMemberOpen && (
         <AddExistingMemberModal
           form={addExistingMemberForm}
-          organizations={organizationItems}
+          organizations={manageableInvitationOrganizations}
           roleOptions={addExistingMemberRoleOptions}
           session={session}
           busy={busy === 'add-existing-member'}
@@ -1849,10 +1924,15 @@ function DeniedScreen({ session, busy, onLogout }) {
 }
 
 function OverviewPanel({ snapshot, summary, setActiveTab }) {
+  const enterpriseOrganizations = (snapshot?.organizations?.items ?? snapshot?.tenants?.items ?? []).filter(
+    isEnterpriseOrganization,
+  )
+  const personalAccounts = (snapshot?.memberships?.items ?? []).filter(isPersonalAccountMembership)
   const stats = [
     { label: '用户', value: summary.users, icon: UsersRound, tab: 'users' },
-    { label: '组织', value: summary.organizations, icon: Building2, tab: 'organizations' },
-    { label: '成员关系', value: summary.memberships, icon: IdCard, tab: 'memberships' },
+    { label: '个人账号', value: personalAccounts.length, icon: IdCard, tab: 'personal-accounts' },
+    { label: '企业组织', value: enterpriseOrganizations.length, icon: Building2, tab: 'organizations' },
+    { label: '账号归属', value: summary.memberships, icon: IdCard, tab: 'memberships' },
     { label: 'Session', value: summary.sessions, icon: KeyRound, tab: 'sessions' },
     { label: '账单账户', value: summary.billingAccounts, icon: CreditCard, tab: 'billing' },
     { label: '审计日志', value: summary.auditLogs, icon: FileText, tab: 'audit' },
@@ -2061,6 +2141,7 @@ function ConsoleServerControls({
   query,
   loading,
   organizations,
+  organizationPlaceholder,
   activeMeta,
   onFilterChange,
   onClear,
@@ -2085,7 +2166,7 @@ function ConsoleServerControls({
             value={filters.tenantId}
             onChange={(event) => onFilterChange({ tenantId: event.target.value })}
           >
-            <option value="">全部组织</option>
+            <option value="">{organizationPlaceholder}</option>
             {organizations.map((organization) => (
               <option key={organization.id} value={organization.id}>
                 {organization.name} · {organization.id}
@@ -2191,7 +2272,7 @@ function UsersTable({
             <th>状态</th>
             <th>安全</th>
             <th>角色</th>
-            <th>成员关系</th>
+            <th>账号归属</th>
             <th>更新时间</th>
             <th>操作</th>
           </tr>
@@ -2276,12 +2357,142 @@ function UsersTable({
   )
 }
 
+function PersonalAccountsTable({
+  memberships,
+  session,
+  currentUserId,
+  canManage,
+  canAdjustBilling,
+  busy,
+  onOpenDetail,
+  onUpdateRole,
+  onAdjust,
+  onUpdatePlan,
+  onOpenPasswordReset,
+  onSetStatus,
+}) {
+  return (
+    <DataSection title="个人账号" count={memberships.length}>
+      <table className="data-table wide">
+        <thead>
+          <tr>
+            <th>账号</th>
+            <th>身份</th>
+            <th>归属</th>
+            <th>套餐</th>
+            <th>积分</th>
+            <th>状态</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {memberships.map((membership) => {
+            const userTarget = userTargetForMembership(membership)
+            const accountBusy = busy === `user:${membership.userId}`
+            const passwordBusy = busy === `password:${membership.userId}`
+            return (
+              <tr key={membership.id}>
+                <td>
+                  <IdentityCell name={membership.name} detail={membership.email ?? membership.userId} />
+                </td>
+                <td>
+                  <RoleEditor
+                    membership={membership}
+                    session={session}
+                    busy={busy === `member-role:${membership.id}`}
+                    onUpdateRole={onUpdateRole}
+                  />
+                </td>
+                <td>
+                  <IdentityCell
+                    name={membership.tenantName}
+                    detail={organizationTypeName(classifyOrganization(membership).type)}
+                    compact
+                  />
+                </td>
+                <td>{planName(membership.plan)}</td>
+                <td>{membership.credits}</td>
+                <td>
+                  <StatusPair
+                    primary={membership.userStatus}
+                    secondary={membership.membershipStatus ?? membership.status}
+                  />
+                </td>
+                <td>
+                  <div className="row-actions">
+                    <button className="row-button" type="button" onClick={() => onOpenDetail(membership)}>
+                      <FileText size={14} />
+                      详情
+                    </button>
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={!canAdjustBilling || !canManageBillingAccount(session, membership)}
+                      onClick={() => onAdjust(membership)}
+                    >
+                      <PencilLine size={14} />
+                      调账
+                    </button>
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={!canUpdateMembershipPlan(session, membership)}
+                      onClick={() => onUpdatePlan(membership)}
+                    >
+                      <Crown size={14} />
+                      改套餐/冲会员
+                    </button>
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={!canManage || passwordBusy}
+                      onClick={() => onOpenPasswordReset(userTarget)}
+                    >
+                      {passwordBusy ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <KeyRound size={14} />
+                      )}
+                      设置密码
+                    </button>
+                    <button
+                      className="row-button danger"
+                      type="button"
+                      disabled={!canManage || membership.userId === currentUserId || accountBusy}
+                      onClick={() => onSetStatus(userTarget)}
+                    >
+                      {accountBusy ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <Power size={14} />
+                      )}
+                      {membership.userStatus === 'active' ? '禁用账号' : '启用账号'}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
+          <EmptyRow visible={!memberships.length} columns={7} />
+        </tbody>
+      </table>
+    </DataSection>
+  )
+}
+
+function userTargetForMembership(membership) {
+  return {
+    id: membership.userId,
+    name: membership.name,
+    email: membership.email,
+    status: membership.userStatus,
+  }
+}
+
 function OrganizationsTable({
   organizations,
   session,
   busy,
-  typeFilter,
-  onTypeFilterChange,
   onOpenDetail,
   onCreateOrganization,
   onRename,
@@ -2293,11 +2504,7 @@ function OrganizationsTable({
   onManageInvitations,
   onOpenOrganizationBilling,
 }) {
-  const visibleOrganizations =
-    typeFilter === 'all'
-      ? organizations
-      : organizations.filter((organization) => classifyOrganization(organization).type === typeFilter)
-  const typeCounts = summarizeOrganizationTypes(organizations)
+  const visibleOrganizations = organizations
   const canCreateInvitation = organizations.some(
     (organization) => organization.status === 'active' && canCreateOrganizationUser(session, organization),
   )
@@ -2307,18 +2514,8 @@ function OrganizationsTable({
   )
 
   return (
-    <DataSection title="组织列表" count={visibleOrganizations.length}>
+    <DataSection title="企业组织列表" count={visibleOrganizations.length}>
       <div className="inline-filter-bar organization-filter-bar">
-        <label>
-          <Building2 size={14} />
-          <select value={typeFilter} onChange={(event) => onTypeFilterChange(event.target.value)}>
-            {['all', 'system', 'test', 'enterprise', 'standard'].map((type) => (
-              <option key={type} value={type}>
-                {organizationTypeName(type)} · {typeCounts[type] ?? 0}
-              </option>
-            ))}
-          </select>
-        </label>
         <button
           className="primary-button"
           type="button"
@@ -2537,7 +2734,7 @@ function MembershipsTable({
   onUpdatePlan,
 }) {
   return (
-    <DataSection title="成员关系查询" count={memberships.length}>
+    <DataSection title="账号归属查询" count={memberships.length}>
       <div className="section-actions">
         <button
           className="row-button"
@@ -2565,8 +2762,8 @@ function MembershipsTable({
       <table className="data-table wide">
         <thead>
           <tr>
-            <th>成员</th>
-            <th>组织</th>
+            <th>账号</th>
+            <th>归属</th>
             <th>状态</th>
             <th>角色</th>
             <th>套餐</th>
@@ -3104,7 +3301,7 @@ function BillingAdjustmentPage({
               <th>类型</th>
               <th>金额</th>
               <th>余额</th>
-              <th>成员关系</th>
+              <th>账号归属</th>
               <th>描述</th>
               <th>Reference</th>
               <th>创建时间</th>
@@ -6099,14 +6296,15 @@ function usageRowKey(row) {
   return row.userId ?? row.organizationId ?? row.subjectType
 }
 
-function tabCount(tabId, summary) {
+function tabCount(tabId, summary, derivedCounts = {}) {
   const counts = {
     overview: '',
     'usage-realtime': '',
     'usage-users': '',
     'usage-organizations': '',
     users: summary.users,
-    organizations: summary.organizations,
+    'personal-accounts': derivedCounts.personalAccounts,
+    organizations: derivedCounts.enterpriseOrganizations,
     tenants: summary.organizations,
     memberships: summary.memberships,
     invitations: '',
@@ -6136,6 +6334,14 @@ function activeConsoleListMeta(snapshot, activeTab) {
   return metaByTab[activeTab] ?? null
 }
 
+function clientListMeta(total, filters) {
+  return {
+    limit: filters.limit,
+    offset: 0,
+    total,
+  }
+}
+
 function organizationOptionsForFilter(organizations, selectedOrganizationId) {
   const options = [...organizations]
   if (selectedOrganizationId && !options.some((organization) => organization.id === selectedOrganizationId)) {
@@ -6155,6 +6361,30 @@ function organizationOptionsForFilter(organizations, selectedOrganizationId) {
     })
   }
   return options
+}
+
+function membershipOrganizationOptionsForFilter(memberships, selectedOrganizationId) {
+  const optionsById = new Map()
+  memberships.forEach((membership) => {
+    const id = membership.tenantId ?? membership.organizationId
+    if (!id || optionsById.has(id)) return
+    optionsById.set(id, {
+      id,
+      name: membership.tenantName ?? id,
+      status: membership.membershipStatus ?? membership.status ?? 'active',
+      organizationType: membership.organizationType,
+      isSystem: membership.isSystem,
+      createdByUserId: null,
+      createdByEmail: null,
+      createdByName: null,
+      membershipCount: 0,
+      activeMembershipCount: 0,
+      activeOrganizationAdminCount: 0,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: membership.updatedAt ?? new Date(0).toISOString(),
+    })
+  })
+  return organizationOptionsForFilter([...optionsById.values()], selectedOrganizationId)
 }
 
 function summarizeInvitationStatuses(invitations) {
@@ -6479,17 +6709,5 @@ function summarizeReconciliationAlerts(alerts) {
       return summary
     },
     { total: 0, open: 0, acknowledged: 0, resolved: 0, critical: 0 },
-  )
-}
-
-function summarizeOrganizationTypes(organizations) {
-  return organizations.reduce(
-    (summary, organization) => {
-      summary.all += 1
-      const type = classifyOrganization(organization).type
-      summary[type] = (summary[type] ?? 0) + 1
-      return summary
-    },
-    { all: 0, system: 0, test: 0, enterprise: 0, standard: 0 },
   )
 }

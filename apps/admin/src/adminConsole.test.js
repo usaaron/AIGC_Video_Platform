@@ -21,6 +21,8 @@ import {
   classifyOrganization,
   filterRows,
   formatSignedAmount,
+  isEnterpriseOrganization,
+  isPersonalAccountMembership,
   roleName,
   summarizeAuditLogs,
   summarizeBillingAdjustments,
@@ -246,10 +248,36 @@ describe('admin console helpers', () => {
         organizationType: 'enterprise',
       }),
     ).toMatchObject({ type: 'enterprise' })
+    expect(
+      classifyOrganization({
+        id: 'tenant-personal-user-member',
+        name: 'Member 的个人空间',
+        organizationType: 'personal',
+      }),
+    ).toMatchObject({ type: 'personal', label: '个人空间' })
     expect(classifyOrganization({ id: 'tenant-normal', name: 'Studio Team' })).toMatchObject({
       type: 'standard',
-      label: '普通组织',
+      label: '其他空间',
     })
+    expect(isEnterpriseOrganization({ id: 'tenant-enterprise', organizationType: 'enterprise' })).toBe(true)
+    expect(isEnterpriseOrganization({ id: 'tenant-personal', organizationType: 'personal' })).toBe(false)
+  })
+
+  it('separates personal accounts from organization scoped memberships', () => {
+    expect(isPersonalAccountMembership(membershipFor('user-member', 'tenant-personal', ['member'], 'personal'))).toBe(
+      true,
+    )
+    expect(isPersonalAccountMembership(membershipFor('user-admin', 'tenant-system', ['admin'], 'system'))).toBe(
+      true,
+    )
+    expect(
+      isPersonalAccountMembership(
+        membershipFor('user-org-member', 'tenant-enterprise', ['organization_member'], 'enterprise'),
+      ),
+    ).toBe(false)
+    expect(isPersonalAccountMembership(membershipFor('user-owner', 'tenant-system', ['owner'], 'system'))).toBe(
+      false,
+    )
   })
 
   it('summarizes list totals from a console snapshot', () => {

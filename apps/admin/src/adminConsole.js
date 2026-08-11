@@ -38,7 +38,8 @@ export const organizationTypeLabels = {
   system: '系统组织',
   test: '测试组织',
   enterprise: '企业组织',
-  standard: '普通组织',
+  personal: '个人空间',
+  standard: '其他空间',
 }
 
 const systemOrganizationRoles = new Set(['owner', 'super_admin', 'admin'])
@@ -268,11 +269,25 @@ export function classifyOrganization(organization) {
       description: 'Enterprise organization',
     }
   }
+  if (explicitType === 'personal') {
+    return {
+      type: 'personal',
+      label: organizationTypeName('personal'),
+      description: '个人创作、个人积分和个人会员所在的工作区',
+    }
+  }
+  if (explicitType === 'synthetic') {
+    return {
+      type: 'test',
+      label: organizationTypeName('test'),
+      description: '本地测试或自动化验证创建的工作区',
+    }
+  }
   if (explicitType) {
     return {
       type: 'standard',
       label: organizationTypeName('standard'),
-      description: 'Standard organization',
+      description: '未归类的工作区',
     }
   }
   if (
@@ -303,7 +318,7 @@ export function classifyOrganization(organization) {
   return {
     type: 'standard',
     label: organizationTypeName('standard'),
-    description: '普通创作组织',
+    description: '未归类的工作区',
   }
 }
 
@@ -314,8 +329,16 @@ export function isSystemOrganization(organization) {
   return organization.isSystem === true || id === 'tenant-seqora-demo'
 }
 
-function isEnterpriseOrganization(organization) {
+export function isEnterpriseOrganization(organization) {
   return classifyOrganization(organization).type === 'enterprise'
+}
+
+export function isPersonalAccountMembership(membership) {
+  const roles = membership?.roles ?? []
+  if (!roles.some((role) => role === 'member' || role === 'admin')) return false
+  return !roles.some(
+    (role) => role === 'owner' || role === 'super_admin' || organizationScopedRoles.has(role),
+  )
 }
 
 function organizationIdFor(organization) {
