@@ -72,7 +72,7 @@ compose=(docker compose --env-file "$ROOT/deploy/demo.env" -f "$ROOT/compose.dem
 "${compose[@]}" build api web
 "${compose[@]}" up -d postgres redis
 "${compose[@]}" run --rm --no-deps api node dist/scripts/dbMigrate.js
-"${compose[@]}" up -d --remove-orphans
+"${compose[@]}" up -d --remove-orphans --force-recreate api worker web
 
 healthy=0
 for _ in $(seq 1 60); do
