@@ -199,6 +199,15 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
       return service.updateShot(projectId, shotId, parse(updateShotSchema, request.body), request.principal!)
     },
   )
+  app.delete(
+    '/projects/:projectId/shots/:shotId',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
+    async (request, reply) => {
+      const { projectId, shotId } = parse(shotParams, request.params)
+      await service.deleteShot(projectId, shotId, request.principal!)
+      return reply.code(204).send()
+    },
+  )
   app.post(
     '/projects/:projectId/shots/generate',
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },

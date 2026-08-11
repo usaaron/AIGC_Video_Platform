@@ -8,21 +8,21 @@ Database columns may still use `tenant_id` as an internal physical name.
 
 ## Metric Definitions
 
-| Metric                | Window       | Unit           | Type  | Definition                                                                                 |
-| --------------------- | ------------ | -------------- | ----- | ------------------------------------------------------------------------------------------ |
-| `apiConcurrency`      | realtime     | requests       | gauge | Current in-flight API requests for the subject.                                            |
-| `jobConcurrency`      | realtime     | count          | gauge | Current running generation tasks for the subject.                                          |
-| `providerConcurrency` | realtime     | count          | gauge | Current external AI provider calls for the subject.                                        |
-| `rpm`                 | rolling 60s  | requests       | count | API requests completed or observed during the last 60 seconds.                             |
-| `tpm`                 | rolling 60s  | tokens         | sum   | Model tokens reported during the last 60 seconds; mainly applies to LLM calls.             |
-| `requestCount`        | selected range | requests     | count | Total API requests in the selected range.                                                  |
-| `inputTokens`         | selected range | tokens       | sum   | Input or prompt tokens reported in the selected range.                                     |
-| `outputTokens`        | selected range | tokens       | sum   | Output or completion tokens reported in the selected range.                                |
-| `totalTokens`         | selected range | tokens       | sum   | Total model tokens reported in the selected range.                                         |
-| `creditsUsed`         | selected range | credits      | sum   | Actual credits deducted in the selected range.                                             |
-| `errorCount`          | selected range | count        | count | Failed requests in the selected range.                                                     |
-| `errorRate`           | selected range | ratio        | ratio | `errorCount / requestCount`; return `0` when `requestCount` is `0`.                        |
-| `providerUnits`       | selected range | provider units | sum | Provider-native image/video usage units when available and tokens do not apply.            |
+| Metric                | Window         | Unit           | Type  | Definition                                                                      |
+| --------------------- | -------------- | -------------- | ----- | ------------------------------------------------------------------------------- |
+| `apiConcurrency`      | realtime       | requests       | gauge | Current in-flight API requests for the subject.                                 |
+| `jobConcurrency`      | realtime       | count          | gauge | Current running generation tasks for the subject.                               |
+| `providerConcurrency` | realtime       | count          | gauge | Current external AI provider calls for the subject.                             |
+| `rpm`                 | rolling 60s    | requests       | count | API requests completed or observed during the last 60 seconds.                  |
+| `tpm`                 | rolling 60s    | tokens         | sum   | Model tokens reported during the last 60 seconds; mainly applies to LLM calls.  |
+| `requestCount`        | selected range | requests       | count | Total API requests in the selected range.                                       |
+| `inputTokens`         | selected range | tokens         | sum   | Input or prompt tokens reported in the selected range.                          |
+| `outputTokens`        | selected range | tokens         | sum   | Output or completion tokens reported in the selected range.                     |
+| `totalTokens`         | selected range | tokens         | sum   | Total model tokens reported in the selected range.                              |
+| `creditsUsed`         | selected range | credits        | sum   | Actual credits deducted in the selected range.                                  |
+| `errorCount`          | selected range | count          | count | Failed requests in the selected range.                                          |
+| `errorRate`           | selected range | ratio          | ratio | `errorCount / requestCount`; return `0` when `requestCount` is `0`.             |
+| `providerUnits`       | selected range | provider units | sum   | Provider-native image/video usage units when available and tokens do not apply. |
 
 The executable contract is `packages/contracts/src/usage.ts`. Contract tests freeze the
 metric names, units, windows, and response shape.
@@ -31,11 +31,11 @@ metric names, units, windows, and response shape.
 
 The first supported report ranges are:
 
-| Range   | Meaning                                                        |
-| ------- | -------------------------------------------------------------- |
-| `today` | Current local business day.                                    |
-| `week`  | Current local business week.                                   |
-| `month` | Current local business month.                                  |
+| Range   | Meaning                       |
+| ------- | ----------------------------- |
+| `today` | Current local business day.   |
+| `week`  | Current local business week.  |
+| `month` | Current local business month. |
 
 Realtime gauges and rolling 60-second metrics should come from Redis or an equivalent
 central realtime store. Historical `today`, `week`, and `month` metrics should come from
@@ -45,14 +45,14 @@ Postgres rollups, not from scanning request logs.
 
 Usage visibility follows `usageVisibilityFor()` in `apps/api/src/core/auth/roles.ts`:
 
-| Role                  | Scope                 |
-| --------------------- | --------------------- |
-| `owner`               | `all`                 |
-| `super_admin`         | `all`                 |
-| `admin`               | `platform_scope`      |
-| `organization_admin`  | `organization_scope`  |
-| `member`              | `self`                |
-| `organization_member` | `self`                |
+| Role                  | Scope                |
+| --------------------- | -------------------- |
+| `owner`               | `all`                |
+| `super_admin`         | `all`                |
+| `admin`               | `platform_scope`     |
+| `organization_admin`  | `organization_scope` |
+| `member`              | `self`               |
+| `organization_member` | `self`               |
 
 Admin usage APIs must authorize with `usage.read.self`, `usage.read.scoped`, or
 `usage.read.all`, then apply the scope above at repository/query level. Frontend hiding is
@@ -78,11 +78,11 @@ not sufficient.
 
 The first backend collection points are:
 
-| Point               | Current hook                                                                                           | Captured data                                                                                           |
-| ------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| API middleware      | `installObservabilityHooks()`                                                                          | active request lifecycle, status, latency, route, `userId`, `organizationId`, and rolling RPM           |
-| AI provider wrapper | `observeProviderCall()` plus text provider response parsing                                             | provider concurrency, provider latency, provider errors, provider-reported input/output/total tokens, TPM |
-| Worker / BullMQ     | `GenerationTaskRunner`, `AiJobRunner`, and BullMQ runner context                                       | job concurrency, completion/failure events, credits used on completed jobs, and propagated `traceId`     |
+| Point               | Current hook                                                     | Captured data                                                                                             |
+| ------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| API middleware      | `installObservabilityHooks()`                                    | active request lifecycle, status, latency, route, `userId`, `organizationId`, and rolling RPM             |
+| AI provider wrapper | `observeProviderCall()` plus text provider response parsing      | provider concurrency, provider latency, provider errors, provider-reported input/output/total tokens, TPM |
+| Worker / BullMQ     | `GenerationTaskRunner`, `AiJobRunner`, and BullMQ runner context | job concurrency, completion/failure events, credits used on completed jobs, and propagated `traceId`      |
 
 Provider calls that do not return token usage still emit a provider usage event with `estimated=true`
 and zero tokens. Image/video providers should report `creditsUsed` and `providerUnits` when those

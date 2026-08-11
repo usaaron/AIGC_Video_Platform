@@ -1,11 +1,20 @@
 import { Storage } from '@google-cloud/storage'
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import type { Readable } from 'node:stream'
 import type { AppConfig } from '../config.js'
+
+export type ObjectStorageStream = {
+  stream: Readable
+  size: number
+}
 
 export interface ObjectStorage {
   put(key: string, content: Buffer, contentType: string): Promise<void>
   get(key: string): Promise<Buffer>
+  getStream?(key: string, range?: { start: number; end: number }): Promise<ObjectStorageStream>
+  getSignedUrl?(key: string, expiresInMs?: number): Promise<string>
   delete(key: string): Promise<void>
 }
 
@@ -20,6 +29,15 @@ export class LocalObjectStorage implements ObjectStorage {
 
   get(key: string): Promise<Buffer> {
     return readFile(this.pathFor(key))
+  }
+
+  async getStream(key: string, range?: { start: number; end: number }): Promise<ObjectStorageStream> {
+    const path = this.pathFor(key)
+    const size = (await stat(path)).size
+    return {
+      stream: createReadStream(path, range),
+      size,
+    }
   }
 
   async delete(key: string): Promise<void> {
@@ -55,6 +73,24 @@ export class GoogleCloudObjectStorage implements ObjectStorage {
   async get(key: string): Promise<Buffer> {
     const [content] = await this.bucket.file(key).download()
     return content
+  }
+
+  async getStream(key: string, range?: { start: number; end: number }): Promise<ObjectStorageStream> {
+    const file = this.bucket.file(key)
+    const [metadata] = await file.getMetadata()
+    return {
+      stream: file.createReadStream(range),
+      size: Number(metadata.size ?? 0),
+    }
+  }
+
+  async getSignedUrl(key: string, expiresInMs = 10 * 60_000): Promise<string> {
+    const [url] = await this.bucket.file(key).getSignedUrl({
+      version: 'v4',
+      action: 'read',
+      expires: new Date(Date.now() + expiresInMs),
+    })
+    return url
   }
 
   async delete(key: string): Promise<void> {

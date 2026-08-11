@@ -27,10 +27,91 @@ const SCRIPT_MODEL_OPTIONS = [
   ['glm-5.2-fast', 'GLM 5.2 Fast'],
 ]
 
+const SCRIPT_CONTENT_CONFIGS = {
+  'short-drama': {
+    productionMode: 'web-series',
+    pageTitle: '网剧剧本',
+    pageDescription: '从一句想法生成按集、按场次衔接的网剧制作稿。',
+    initialTitle: '从想法生成可直接拆分的网剧场次',
+    generatedTitle: '当前网剧可以重新生成或继续精修',
+    modeLabel: '网剧创作模式',
+    modeNote: '按每集目标时长编排冲突、快切场次和结尾钩子。',
+    durationLabel: '每集时长',
+    durationSuffix: '/ 集',
+    minimumDuration: 30,
+    maximumDuration: 300,
+    defaultDuration: 60,
+    featureNote: '冲突节奏 · 光影运镜 · 多类台词 · 结尾钩子',
+    documentName: '网剧剧本',
+    placeholder: '写下本集故事、冲突或已有剧本，系统会结合项目资产扩写成可制作的网剧场次。',
+    progressText: '正在编排网剧冲突、表演节拍与结尾钩子',
+    revisionTitle: '完善当前网剧',
+    revisionHelp: '改写会按意见重写当前一集；续写只在末尾生成下一集，不会覆盖已有剧本。',
+    revisionPlaceholder: '例如：保留人物关系，加强中段阻力和结尾反击前的钩子',
+    appendTitle: '续写下一集',
+    appendHelp: '承接当前结尾的人物、动作和物件状态，生成下一集并保留新的结尾钩子。',
+    appendPlaceholder: '下一集要发生什么（可选）',
+    appendDurationLabel: '下一集时长',
+    appendAction: '追加下一集',
+  },
+  advertisement: {
+    productionMode: 'short-video',
+    pageTitle: '广告脚本',
+    pageDescription: '从传播想法生成带时间码、画面、文案、声音和品牌落版的广告制作稿。',
+    initialTitle: '从传播想法生成可直接分镜的广告脚本',
+    generatedTitle: '当前广告可以重新生成或继续优化',
+    modeLabel: '广告创作模式',
+    modeNote: '按目标秒数编排开场抓点、核心价值、可见证明与品牌落版。',
+    durationLabel: '广告时长',
+    durationSuffix: '成片',
+    minimumDuration: 5,
+    maximumDuration: 180,
+    defaultDuration: 30,
+    featureNote: '传播结构 · 产品画面 · 旁白文案 · 品牌落版',
+    documentName: '广告脚本',
+    placeholder: '写下品牌、产品、受众、核心卖点或一句广告想法，系统会扩写成可执行广告脚本。',
+    progressText: '正在编排广告抓点、核心价值与品牌落版',
+    revisionTitle: '优化当前广告',
+    revisionHelp: '改写会按意见优化整支广告；延长只在末尾补充新段落，不会覆盖已有内容。',
+    revisionPlaceholder: '例如：品牌更早出现，只保留一个核心卖点，结尾文案更克制',
+    appendTitle: '延长广告脚本',
+    appendHelp: '在现有广告末尾补充使用场景或可见证明，并重新完成品牌落版。',
+    appendPlaceholder: '希望补充什么场景或信息（可选）',
+    appendDurationLabel: '追加时长',
+    appendAction: '延长广告',
+  },
+  animation: {
+    productionMode: 'short-video',
+    pageTitle: '短片剧本',
+    pageDescription: '从一句想法生成有建立、阻力、转折和收束的独立短片制作稿。',
+    initialTitle: '从想法生成可直接分镜的完整短片',
+    generatedTitle: '当前短片可以重新生成或继续精修',
+    modeLabel: '短片创作模式',
+    modeNote: '按目标秒数完成角色目标、可见阻力、因果转折与情绪落点。',
+    durationLabel: '短片时长',
+    durationSuffix: '成片',
+    minimumDuration: 10,
+    maximumDuration: 300,
+    defaultDuration: 30,
+    featureNote: '叙事闭环 · 角色行动 · 对白声音 · 镜头衔接',
+    documentName: '短片剧本',
+    placeholder: '写下人物、处境、冲突或一句短片想法，系统会扩写成有完整结尾的独立短片。',
+    progressText: '正在编排短片行动、转折与结尾情绪',
+    revisionTitle: '完善当前短片',
+    revisionHelp: '改写会按意见优化整支短片；续写只在末尾增加新场次，不会覆盖已有内容。',
+    revisionPlaceholder: '例如：减少旁白，让转折由人物行动触发，结尾更有余韵',
+    appendTitle: '续写短片',
+    appendHelp: '承接当前人物和物件状态继续推进新场次，可按目标要求自然收尾。',
+    appendPlaceholder: '接下来要发生什么（可选）',
+    appendDurationLabel: '续写时长',
+    appendAction: '续写短片',
+  },
+}
+
 const SCRIPT_SECTIONS = [
   {
     id: 'writing',
-    label: '短剧本编写（建议小于1万字时使用）',
+    label: '脚本创作（建议小于1万字时使用）',
     description: '输入、保存和检查',
     icon: Clapperboard,
   },
@@ -80,8 +161,9 @@ export function ScriptPage({
   onUpdateEpisodeDuration,
   onNext,
 }) {
-  const productionMode = project.contentType === 'short-drama' ? 'web-series' : 'short-video'
-  const defaultEpisodeSeconds = project.episodeDurationSeconds || (productionMode === 'web-series' ? 60 : 30)
+  const contentConfig = SCRIPT_CONTENT_CONFIGS[project.contentType] || SCRIPT_CONTENT_CONFIGS.animation
+  const productionMode = contentConfig.productionMode
+  const defaultEpisodeSeconds = project.episodeDurationSeconds || contentConfig.defaultDuration
   const [script, setScript] = useState(project.script)
   const [direction] = useState(DEFAULT_SCRIPT_DIRECTION)
   const [scriptModel, setScriptModel] = useState(DEFAULT_SCRIPT_MODEL)
@@ -220,9 +302,14 @@ export function ScriptPage({
     setAssetSuggestionError('')
   }
 
+  const normalizeContentDuration = (value) =>
+    Math.min(
+      contentConfig.maximumDuration,
+      Math.max(contentConfig.minimumDuration, Math.round(Number(value) || contentConfig.defaultDuration)),
+    )
+
   const commitEpisodeDuration = async () => {
-    if (productionMode !== 'web-series') return
-    const next = Math.min(300, Math.max(30, Math.round(Number(episodeDurationSeconds) || 60)))
+    const next = normalizeContentDuration(episodeDurationSeconds)
     setEpisodeDurationSeconds(next)
     setSegmentDurationSeconds(next)
     if (next === project.episodeDurationSeconds || !onUpdateEpisodeDuration) return
@@ -315,7 +402,9 @@ export function ScriptPage({
       return
     }
     if (billing.credits < SCRIPT_OPERATION_CREDITS.generate) {
-      setError(`快速生成剧本需要 ${SCRIPT_OPERATION_CREDITS.generate} 积分，当前剩余 ${billing.credits} 积分`)
+      setError(
+        `智能生成${contentConfig.documentName}需要 ${SCRIPT_OPERATION_CREDITS.generate} 积分，当前剩余 ${billing.credits} 积分`,
+      )
       return
     }
     setGenerating(true)
@@ -323,17 +412,21 @@ export function ScriptPage({
     setGenerationWarnings([])
     setError('')
     try {
+      const targetDurationSeconds = normalizeContentDuration(episodeDurationSeconds)
+      setEpisodeDurationSeconds(targetDurationSeconds)
       const result = await onGenerate(
         script,
         direction,
         productionMode,
-        episodeDurationSeconds,
+        targetDurationSeconds,
         scriptModel,
         intent === 'revise' ? revisionNote : '',
         setGenerationPhase,
       )
       if (isQueuedTextTask(result)) {
-        setGenerationWarnings(['剧本已进入后台生成，可离开当前页面；完成或失败后会在右上角通知。'])
+        setGenerationWarnings([
+          `${contentConfig.documentName}已进入后台生成，可离开当前页面；完成或失败后会在右上角通知。`,
+        ])
         return
       }
       const next = readGenerationResult(result)
@@ -356,7 +449,9 @@ export function ScriptPage({
       return
     }
     if (billing.credits < SCRIPT_OPERATION_CREDITS.generate) {
-      setError(`生成下一段需要 ${SCRIPT_OPERATION_CREDITS.generate} 积分，当前剩余 ${billing.credits} 积分`)
+      setError(
+        `${contentConfig.appendAction}需要 ${SCRIPT_OPERATION_CREDITS.generate} 积分，当前剩余 ${billing.credits} 积分`,
+      )
       return
     }
     setGenerating(true)
@@ -364,13 +459,15 @@ export function ScriptPage({
     setGenerationWarnings([])
     setError('')
     try {
+      const targetSegmentSeconds = normalizeContentDuration(segmentDurationSeconds)
+      setSegmentDurationSeconds(targetSegmentSeconds)
       const result = await onGenerateSegment(
         script,
         direction,
         {
           goal: segmentGoal,
-          targetSeconds: segmentDurationSeconds,
-          targetMinutes: Math.max(1, Math.ceil(segmentDurationSeconds / 60)),
+          targetSeconds: targetSegmentSeconds,
+          targetMinutes: Math.max(1, Math.ceil(targetSegmentSeconds / 60)),
         },
         productionMode,
         episodeDurationSeconds,
@@ -425,9 +522,9 @@ export function ScriptPage({
   return (
     <div className="page editor-page script-page-redesign">
       <PageHeader
-        eyebrow="剧本工作台"
-        title={`《${project.name}》剧本`}
-        description="从一句想法生成可进入分镜的场次剧本。"
+        eyebrow="AI 创作工作台"
+        title={`《${project.name}》${contentConfig.pageTitle}`}
+        description={contentConfig.pageDescription}
       >
         <input ref={fileInput} className="hidden-input" type="file" accept=".txt,.md" onChange={upload} />
         <button className="button secondary" disabled={busy} onClick={() => fileInput.current?.click()}>
@@ -439,7 +536,7 @@ export function ScriptPage({
           onClick={() => void save()}
         >
           {saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
-          {saving ? '保存中' : saved ? '已保存' : '保存剧本'}
+          {saving ? '保存中' : saved ? '已保存' : `保存${contentConfig.documentName}`}
         </button>
       </PageHeader>
 
@@ -513,17 +610,13 @@ export function ScriptPage({
                 <div>
                   <span className="eyebrow">AI 编剧</span>
                   <strong>
-                    {hasGeneratedScript ? '当前剧本可以重新生成或继续精修' : '从想法生成可直接拆分的场次剧本'}
+                    {hasGeneratedScript ? contentConfig.generatedTitle : contentConfig.initialTitle}
                   </strong>
                 </div>
               </div>
               <div className="script-generation-summary">
                 <strong>{count.toLocaleString()} 字</strong>
-                <span>
-                  {productionMode === 'web-series'
-                    ? `${formatEpisodeDuration(episodeDurationSeconds)} / 集`
-                    : '15～30 秒短片'}
-                </span>
+                <span>{`${formatEpisodeDuration(episodeDurationSeconds)} ${contentConfig.durationSuffix}`}</span>
               </div>
             </header>
 
@@ -535,35 +628,29 @@ export function ScriptPage({
                   </span>
                   <div>
                     <span className="eyebrow">项目节奏已锁定</span>
-                    <strong>{productionMode === 'web-series' ? '网剧模式' : '短视频模式'}</strong>
+                    <strong>{contentConfig.modeLabel}</strong>
                   </div>
                 </div>
-                <span className="script-format-note">
-                  {productionMode === 'web-series'
-                    ? '每集结尾自动保留钩子，分镜将承接同一集时长。'
-                    : '以 15～30 秒为单位，快速确认故事骨架。'}
-                </span>
-                {productionMode === 'web-series' && (
-                  <label className="script-episode-seconds">
-                    <span>每集时长</span>
-                    <span className="script-seconds-input">
-                      <input
-                        aria-label="每集时长（秒）"
-                        type="number"
-                        min="30"
-                        max="300"
-                        step="1"
-                        value={episodeDurationSeconds}
-                        onChange={(event) => setEpisodeDurationSeconds(Number(event.target.value) || 0)}
-                        onBlur={() => void commitEpisodeDuration()}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') void commitEpisodeDuration()
-                        }}
-                      />
-                      <em>秒</em>
-                    </span>
-                  </label>
-                )}
+                <span className="script-format-note">{contentConfig.modeNote}</span>
+                <label className="script-episode-seconds">
+                  <span>{contentConfig.durationLabel}</span>
+                  <span className="script-seconds-input">
+                    <input
+                      aria-label={`${contentConfig.durationLabel}（秒）`}
+                      type="number"
+                      min={contentConfig.minimumDuration}
+                      max={contentConfig.maximumDuration}
+                      step="1"
+                      value={episodeDurationSeconds}
+                      onChange={(event) => setEpisodeDurationSeconds(Number(event.target.value) || 0)}
+                      onBlur={() => void commitEpisodeDuration()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void commitEpisodeDuration()
+                      }}
+                    />
+                    <em>秒</em>
+                  </span>
+                </label>
                 <span className="script-format-source">由新建影片的内容类型决定</span>
               </section>
 
@@ -614,7 +701,7 @@ export function ScriptPage({
                         ? '正在智能生成'
                         : `智能生成 · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
                 </button>
-                <span className="script-primary-generation-note">剧情结构 · 光影 · 运镜 · 台词</span>
+                <span className="script-primary-generation-note">{contentConfig.featureNote}</span>
               </div>
             </div>
           </section>
@@ -646,7 +733,7 @@ export function ScriptPage({
           <div className={`script-workspace ${hasGeneratedScript ? 'with-revision-tools' : 'full-width'}`}>
             <section className="script-document" aria-busy={generating}>
               <div className="script-document-toolbar">
-                <span className="script-document-toolbar-label">当前剧本正文</span>
+                <span className="script-document-toolbar-label">当前{contentConfig.documentName}</span>
                 <div className="script-document-status">
                   <span className={saved ? 'saved' : 'unsaved'}>
                     <BadgeCheck size={14} /> {saved ? '已同步' : '未保存'}
@@ -660,19 +747,15 @@ export function ScriptPage({
                   tasks={tasks}
                   value={script}
                   onChange={(event) => update(event.target.value)}
-                  placeholder="写下故事/想法,或导入小说/文本,系统会根据项目已创建的资产/项目概览等信息自动切分章节并生成剧本内容。"
+                  placeholder={contentConfig.placeholder}
                 />
                 {generating && (
                   <div className="script-processing-overlay" role="status" aria-live="polite">
                     <LoaderCircle size={25} className="spin" />
                     <strong>
                       {generationPhase === 'segment'
-                        ? productionMode === 'web-series'
-                          ? '正在承接钩子续写下一集'
-                          : '正在续写下一段'
-                        : productionMode === 'web-series'
-                          ? '正在编排网剧冲突与结尾钩子'
-                          : '正在整理快速剧本'}
+                        ? `正在${contentConfig.appendAction}`
+                        : contentConfig.progressText}
                     </strong>
                     <span>已等待 {generationSeconds} 秒 · 完成后自动保存并刷新，无需手动操作</span>
                   </div>
@@ -702,25 +785,23 @@ export function ScriptPage({
                 <header className="script-revision-panel-head">
                   <div>
                     <span className="eyebrow">后续编辑</span>
-                    <h2>完善当前剧本</h2>
+                    <h2>{contentConfig.revisionTitle}</h2>
                   </div>
-                  <ScriptHelp label="后续编辑说明">
-                    改写会根据意见重写当前内容；追加只在末尾续写新场次，不会覆盖已有剧本。
-                  </ScriptHelp>
+                  <ScriptHelp label="后续编辑说明">{contentConfig.revisionHelp}</ScriptHelp>
                 </header>
 
                 <section className="script-revision-tool">
                   <div className="script-revision-tool-title">
                     <strong>按要求改写</strong>
-                    <ScriptHelp label="剧本改写说明">
-                      根据你的修改意见重写当前剧本，保留已有故事和资产设定。
+                    <ScriptHelp label={`${contentConfig.documentName}改写说明`}>
+                      根据修改意见重写当前内容，同时保留项目资产和已有核心设定。
                     </ScriptHelp>
                   </div>
                   <textarea
                     value={revisionNote}
                     rows={4}
                     maxLength={2_000}
-                    placeholder="例如：保留人物关系，减少对白；加强结尾悬念"
+                    placeholder={contentConfig.revisionPlaceholder}
                     onChange={(event) => setRevisionNote(event.target.value)}
                   />
                   <span className="script-revision-panel-count">{revisionNote.length} / 2000</span>
@@ -764,32 +845,35 @@ export function ScriptPage({
 
                 <section className="script-revision-tool script-append-tool">
                   <div className="script-revision-tool-title">
-                    <strong>剧本追加</strong>
-                    <ScriptHelp label="剧本追加说明">
-                      读取末尾场次以及前两场连续性，只追加下一段或下一集；网剧模式会承接上一集钩子。
+                    <strong>{contentConfig.appendTitle}</strong>
+                    <ScriptHelp label={`${contentConfig.appendTitle}说明`}>
+                      {contentConfig.appendHelp}
                     </ScriptHelp>
                   </div>
                   <textarea
                     value={segmentGoal}
                     rows={3}
                     maxLength={500}
-                    placeholder="下一段要发生什么（可选）"
+                    placeholder={contentConfig.appendPlaceholder}
                     onChange={(event) => setSegmentGoal(event.target.value)}
                   />
                   <label className="script-append-duration">
-                    <span>目标时长</span>
-                    <select
-                      value={segmentDurationSeconds}
-                      onChange={(event) => setSegmentDurationSeconds(Number(event.target.value))}
-                    >
-                      {(productionMode === 'web-series' ? [30, 60, 90, 120, 180, 240, 300] : [15, 30]).map(
-                        (seconds) => (
-                          <option key={seconds} value={seconds}>
-                            {formatEpisodeDuration(seconds)}
-                          </option>
-                        ),
-                      )}
-                    </select>
+                    <span>{contentConfig.appendDurationLabel}</span>
+                    <span className="script-seconds-input">
+                      <input
+                        aria-label={`${contentConfig.appendDurationLabel}（秒）`}
+                        type="number"
+                        min={contentConfig.minimumDuration}
+                        max={contentConfig.maximumDuration}
+                        step="1"
+                        value={segmentDurationSeconds}
+                        onChange={(event) => setSegmentDurationSeconds(Number(event.target.value) || 0)}
+                        onBlur={() =>
+                          setSegmentDurationSeconds(normalizeContentDuration(segmentDurationSeconds))
+                        }
+                      />
+                      <em>秒</em>
+                    </span>
                   </label>
                   <button
                     type="button"
@@ -806,10 +890,7 @@ export function ScriptPage({
                     }
                     onClick={() =>
                       activeSegmentTask
-                        ? void stopScriptTask(
-                            activeSegmentTask,
-                            productionMode === 'web-series' ? '下一集追加' : '剧本追加',
-                          )
+                        ? void stopScriptTask(activeSegmentTask, contentConfig.appendTitle)
                         : void generateSegment()
                     }
                   >
@@ -824,7 +905,7 @@ export function ScriptPage({
                         ? '追加中 · 点击停止'
                         : generationPhase === 'segment'
                           ? '正在追加'
-                          : `${productionMode === 'web-series' ? '追加下一集' : '追加下一段'} · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
+                          : `${contentConfig.appendAction} · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
                   </button>
                 </section>
               </aside>

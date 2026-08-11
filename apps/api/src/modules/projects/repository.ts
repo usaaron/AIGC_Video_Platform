@@ -669,21 +669,38 @@ export class ProjectRepository {
       const project = await this.findWritableProject(client, projectId, principal, true)
       if (!project) return null
 
-      const orderResult = await client.query<{ next_order: number | string }>(
+      await client.query('SET CONSTRAINTS shots_project_order_unique DEFERRED')
+      const existingResult = await client.query<ShotRow>(
         `
-        SELECT (COALESCE(MAX(shot_order), 0) + 1)::integer AS next_order
+        SELECT ${shotColumns}
         FROM shots
         WHERE project_id = $1 AND tenant_id = $2
+        ORDER BY shot_order ASC
+        FOR UPDATE
         `,
         [projectId, principal.tenantId],
       )
+      const existing = existingResult.rows.map(shotFromRow)
+      const insertionOrder = insertionOrderFor(existing, input.insertAfterShotId)
+      if (insertionOrder === null) return null
+      if (insertionOrder <= existing.length) {
+        await client.query(
+          `
+          UPDATE shots
+          SET shot_order = shot_order + 1
+          WHERE project_id = $1 AND tenant_id = $2 AND shot_order >= $3
+          `,
+          [projectId, principal.tenantId, insertionOrder],
+        )
+      }
+      const { insertAfterShotId: _insertAfterShotId, ...shotInput } = input
       const now = new Date().toISOString()
       const shot: Shot = {
         id: randomUUID(),
         projectId,
         tenantId: principal.tenantId,
-        order: Number(orderResult.rows[0]?.next_order ?? 1),
-        ...input,
+        order: insertionOrder,
+        ...shotInput,
         createdAt: now,
         updatedAt: now,
       }
@@ -715,11 +732,17 @@ export class ProjectRepository {
         shotInsertParams(shot),
       )
       await touchProject(client, projectId, principal.tenantId, now)
-      return inserted.rows[0] ? shotFromRow(inserted.rows[0]) : null
+      if (!inserted.rows[0]) return null
+      const shots = await client.query<ShotRow>(
+        `SELECT ${shotColumns} FROM shots WHERE project_id = $1 AND tenant_id = $2 ORDER BY shot_order ASC`,
+        [projectId, principal.tenantId],
+      )
+      return { created: shotFromRow(inserted.rows[0]), shots: shots.rows.map(shotFromRow) }
     })
 
-    if (result) await this.mirrorShot(result)
-    return result
+    if (!result) return null
+    await this.mirrorReplacedShots(projectId, result.shots, principal.tenantId)
+    return result.created
   }
 
   async updateShot(
@@ -810,6 +833,73 @@ export class ProjectRepository {
 
     if (result) await this.mirrorShot(result)
     return result
+  }
+
+  async deleteShot(
+    projectId: string,
+    shotId: string,
+    principal: Principal,
+  ): Promise<'deleted' | 'not_found' | 'active'> {
+    if (!this.database) return this.deleteShotInStore(projectId, shotId, principal)
+
+    const result = await this.database.transaction(async (client) => {
+      const project = await this.findWritableProject(client, projectId, principal, true)
+      if (!project) return { outcome: 'not_found' as const, shots: [] as Shot[], updatedAt: '' }
+
+      const currentResult = await client.query<ShotRow>(
+        `
+        SELECT ${shotColumns}
+        FROM shots
+        WHERE id = $1 AND project_id = $2 AND tenant_id = $3
+        FOR UPDATE
+        `,
+        [shotId, projectId, principal.tenantId],
+      )
+      const current = currentResult.rows[0] ? shotFromRow(currentResult.rows[0]) : null
+      if (!current) return { outcome: 'not_found' as const, shots: [] as Shot[], updatedAt: '' }
+
+      const active = await client.query<{ id: string }>(
+        `
+        SELECT id
+        FROM generation_tasks
+        WHERE project_id = $1
+          AND tenant_id = $2
+          AND metadata->>'shotId' = $3
+          AND status IN ('queued', 'paused', 'running')
+          AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
+        LIMIT 1
+        `,
+        [projectId, principal.tenantId, shotId],
+      )
+      if (active.rows[0]) return { outcome: 'active' as const, shots: [] as Shot[], updatedAt: '' }
+
+      await client.query('SET CONSTRAINTS shots_project_order_unique DEFERRED')
+      await client.query('DELETE FROM shots WHERE id = $1 AND project_id = $2 AND tenant_id = $3', [
+        shotId,
+        projectId,
+        principal.tenantId,
+      ])
+      await client.query(
+        `
+        UPDATE shots
+        SET shot_order = shot_order - 1
+        WHERE project_id = $1 AND tenant_id = $2 AND shot_order > $3
+        `,
+        [projectId, principal.tenantId, current.order],
+      )
+      const now = new Date().toISOString()
+      await touchProject(client, projectId, principal.tenantId, now)
+      const shots = await client.query<ShotRow>(
+        `SELECT ${shotColumns} FROM shots WHERE project_id = $1 AND tenant_id = $2 ORDER BY shot_order ASC`,
+        [projectId, principal.tenantId],
+      )
+      return { outcome: 'deleted' as const, shots: shots.rows.map(shotFromRow), updatedAt: now }
+    })
+
+    if (result.outcome === 'deleted') {
+      await this.mirrorReplacedShots(projectId, result.shots, principal.tenantId, result.updatedAt)
+    }
+    return result.outcome
   }
 
   async replaceShots(projectId: string, shots: CreateShot[], principal: Principal): Promise<Shot[] | null> {
@@ -1079,20 +1169,63 @@ export class ProjectRepository {
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
       )
       if (!project) return null
-      const projectShots = state.shots.filter((shot) => shot.projectId === projectId)
+      const projectShots = state.shots
+        .filter((shot) => shot.projectId === projectId && shot.tenantId === principal.tenantId)
+        .sort((left, right) => left.order - right.order)
+      const insertionOrder = insertionOrderFor(projectShots, input.insertAfterShotId)
+      if (insertionOrder === null) return null
+      projectShots.forEach((shot) => {
+        if (shot.order >= insertionOrder) shot.order += 1
+      })
+      const { insertAfterShotId: _insertAfterShotId, ...shotInput } = input
       const now = new Date().toISOString()
       const shot: Shot = {
         id: randomUUID(),
         projectId,
         tenantId: principal.tenantId,
-        order: Math.max(0, ...projectShots.map((item) => item.order)) + 1,
-        ...input,
+        order: insertionOrder,
+        ...shotInput,
         createdAt: now,
         updatedAt: now,
       }
       state.shots.push(shot)
       project.updatedAt = now
       return shot
+    })
+  }
+
+  private async deleteShotInStore(
+    projectId: string,
+    shotId: string,
+    principal: Principal,
+  ): Promise<'deleted' | 'not_found' | 'active'> {
+    return this.requireStore().mutate((state) => {
+      const project = state.projects.find(
+        (item) =>
+          item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
+      )
+      const shot = state.shots.find(
+        (item) => item.id === shotId && item.projectId === projectId && item.tenantId === principal.tenantId,
+      )
+      if (!project || !shot) return 'not_found'
+      const active = state.tasks.some(
+        (task) =>
+          task.projectId === projectId &&
+          task.tenantId === principal.tenantId &&
+          task.metadata.shotId === shotId &&
+          (task.status === 'queued' || task.status === 'paused' || task.status === 'running') &&
+          typeof task.metadata.queueHiddenAt !== 'string',
+      )
+      if (active) return 'active'
+
+      state.shots = state.shots.filter((item) => item !== shot)
+      state.shots.forEach((item) => {
+        if (item.projectId === projectId && item.tenantId === principal.tenantId && item.order > shot.order) {
+          item.order -= 1
+        }
+      })
+      project.updatedAt = new Date().toISOString()
+      return 'deleted'
     })
   }
 
@@ -1306,10 +1439,15 @@ export class ProjectRepository {
     })
   }
 
-  private async mirrorReplacedShots(projectId: string, shots: Shot[]): Promise<void> {
+  private async mirrorReplacedShots(
+    projectId: string,
+    shots: Shot[],
+    tenantIdOverride?: string,
+    updatedAtOverride?: string,
+  ): Promise<void> {
     if (!this.store) return
     this.store.mutateProjectWorkspaceRuntimeCache((state) => {
-      const tenantId = shots[0]?.tenantId
+      const tenantId = shots[0]?.tenantId ?? tenantIdOverride
       state.shots = state.shots.filter(
         (shot) => shot.projectId !== projectId || (tenantId ? shot.tenantId !== tenantId : false),
       )
@@ -1317,7 +1455,7 @@ export class ProjectRepository {
       const project = state.projects.find(
         (item) => item.id === projectId && (!tenantId || item.tenantId === tenantId),
       )
-      const latest = shots[0]?.updatedAt
+      const latest = shots[0]?.updatedAt ?? updatedAtOverride
       if (project && latest && project.updatedAt < latest) project.updatedAt = latest
     })
   }
@@ -1328,6 +1466,13 @@ export class ProjectRepository {
     }
     return this.store
   }
+}
+
+function insertionOrderFor(shots: Shot[], insertAfterShotId: string | null | undefined): number | null {
+  if (insertAfterShotId === undefined) return shots.length + 1
+  if (insertAfterShotId === null) return 1
+  const anchor = shots.find((shot) => shot.id === insertAfterShotId)
+  return anchor ? anchor.order + 1 : null
 }
 
 async function insertProjectFromStore(client: PoolClient, project: Project): Promise<boolean> {

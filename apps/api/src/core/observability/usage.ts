@@ -142,7 +142,8 @@ export class UsageCollector {
       statusCode: input.statusCode,
       durationMs: Math.max(0, input.durationMs),
       tenantId: input.tenantId ?? active?.tenantId ?? null,
-      organizationId: input.organizationId ?? active?.organizationId ?? input.tenantId ?? active?.tenantId ?? null,
+      organizationId:
+        input.organizationId ?? active?.organizationId ?? input.tenantId ?? active?.tenantId ?? null,
       userId: input.userId ?? active?.userId ?? null,
       traceId: input.traceId ?? active?.traceId ?? input.requestId,
       occurredAt: input.now ?? Date.now(),
@@ -150,12 +151,14 @@ export class UsageCollector {
     trimToMax(this.apiRequestEvents)
   }
 
-  startJob(input: UsageIdentity & {
-    jobId: string
-    source: 'generation_task' | 'ai_job'
-    kind: string
-    now?: number
-  }): void {
+  startJob(
+    input: UsageIdentity & {
+      jobId: string
+      source: 'generation_task' | 'ai_job'
+      kind: string
+      now?: number
+    },
+  ): void {
     this.activeJobs.set(jobKey(input.source, input.jobId), {
       jobId: input.jobId,
       source: input.source,
@@ -166,15 +169,17 @@ export class UsageCollector {
     })
   }
 
-  finishJob(input: UsageIdentity & {
-    jobId: string
-    source: 'generation_task' | 'ai_job'
-    kind: string
-    status?: 'completed' | 'failed' | 'cancelled' | 'unknown'
-    creditsUsed?: number | null
-    recordUsage?: boolean
-    now?: number
-  }): void {
+  finishJob(
+    input: UsageIdentity & {
+      jobId: string
+      source: 'generation_task' | 'ai_job'
+      kind: string
+      status?: 'completed' | 'failed' | 'cancelled' | 'unknown'
+      creditsUsed?: number | null
+      recordUsage?: boolean
+      now?: number
+    },
+  ): void {
     const key = jobKey(input.source, input.jobId)
     const active = this.activeJobs.get(key)
     this.activeJobs.delete(key)
@@ -186,21 +191,24 @@ export class UsageCollector {
       status: input.status ?? 'unknown',
       creditsUsed: Math.max(0, Math.floor(input.creditsUsed ?? 0)),
       tenantId: input.tenantId ?? active?.tenantId ?? null,
-      organizationId: input.organizationId ?? active?.organizationId ?? input.tenantId ?? active?.tenantId ?? null,
+      organizationId:
+        input.organizationId ?? active?.organizationId ?? input.tenantId ?? active?.tenantId ?? null,
       userId: input.userId ?? active?.userId ?? null,
       traceId: input.traceId ?? active?.traceId ?? null,
       occurredAt: input.now ?? Date.now(),
     })
   }
 
-  recordJobTerminal(input: UsageIdentity & {
-    jobId: string
-    source: 'generation_task' | 'ai_job'
-    kind: string
-    status: 'completed' | 'failed' | 'cancelled'
-    creditsUsed?: number | null
-    now?: number
-  }): void {
+  recordJobTerminal(
+    input: UsageIdentity & {
+      jobId: string
+      source: 'generation_task' | 'ai_job'
+      kind: string
+      status: 'completed' | 'failed' | 'cancelled'
+      creditsUsed?: number | null
+      now?: number
+    },
+  ): void {
     this.pushJobEvent({
       jobId: input.jobId,
       source: input.source,
@@ -215,13 +223,15 @@ export class UsageCollector {
     })
   }
 
-  startProviderCall(input: UsageIdentity & {
-    provider: string
-    operation: string
-    taskId?: string | null
-    jobId?: string | null
-    now?: number
-  }): string {
+  startProviderCall(
+    input: UsageIdentity & {
+      provider: string
+      operation: string
+      taskId?: string | null
+      jobId?: string | null
+      now?: number
+    },
+  ): string {
     const callId = `provider-call-${Date.now()}-${(this.nextProviderCallSequence += 1)}`
     this.activeProviderCalls.set(callId, {
       callId,
@@ -240,19 +250,21 @@ export class UsageCollector {
     this.activeProviderCalls.delete(callId)
   }
 
-  recordProviderTokenUsage(input: UsageIdentity & {
-    provider: string
-    operation: string
-    model?: string | null
-    taskId?: string | null
-    jobId?: string | null
-    inputTokens?: number | null
-    outputTokens?: number | null
-    totalTokens?: number | null
-    providerUnits?: number | null
-    estimated?: boolean
-    now?: number
-  }): void {
+  recordProviderTokenUsage(
+    input: UsageIdentity & {
+      provider: string
+      operation: string
+      model?: string | null
+      taskId?: string | null
+      jobId?: string | null
+      inputTokens?: number | null
+      outputTokens?: number | null
+      totalTokens?: number | null
+      providerUnits?: number | null
+      estimated?: boolean
+      now?: number
+    },
+  ): void {
     const inputTokens = nonnegativeInteger(input.inputTokens)
     const outputTokens = nonnegativeInteger(input.outputTokens)
     const totalTokens = nonnegativeInteger(input.totalTokens ?? inputTokens + outputTokens)

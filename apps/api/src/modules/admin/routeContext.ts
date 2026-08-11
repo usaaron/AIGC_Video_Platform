@@ -168,9 +168,7 @@ export async function readAdminOverview(
   const today = startOfChinaDay()
   const scopedTenantId = principal && !isPlatformAdmin(principal) ? principal.tenantId : undefined
   const scopedAdminOptions =
-    principal && !isPlatformAdmin(principal)
-      ? scopeAdminOptions(principal, { limit: 1, offset: 0 })
-      : null
+    principal && !isPlatformAdmin(principal) ? scopeAdminOptions(principal, { limit: 1, offset: 0 }) : null
   const creditsConsumedToday = ledger
     ? await ledger.consumedCreditsSince(today, scopedTenantId)
     : store.read((state) =>

@@ -80,6 +80,7 @@ const configSchema = z
     STRINGX_SEEDANCE_PRO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
     STRINGX_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
     VIDEO_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).max(60_000).default(5_000),
+    VIDEO_PROCESSING_STALL_TIMEOUT_MS: z.coerce.number().int().min(60_000).max(1_800_000).default(360_000),
     ARK_API_BASE_URL: z.string().url().default('https://ark.cn-beijing.volces.com/api/v3'),
     ARK_API_KEY: z.string().default(''),
     ARK_VIDEO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
@@ -331,9 +332,12 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     Boolean(environment.DATA_FILE?.trim()) &&
     environment.TASK_QUEUE_DRIVER === 'inline' &&
     environment.DATABASE_URL === undefined
+  // Keep existing deployments working while operators migrate the legacy text key.
+  const rehdasuApiKey = environment.REHDASU_API_KEY?.trim() || environment.TEXT_API_KEY?.trim() || ''
 
   return configSchema.parse({
     ...environment,
+    REHDASU_API_KEY: rehdasuApiKey,
     TASK_QUEUE_DRIVER:
       environment.TASK_QUEUE_DRIVER ?? (environment.NODE_ENV === 'test' ? 'inline' : 'bullmq'),
     REDIS_URL:

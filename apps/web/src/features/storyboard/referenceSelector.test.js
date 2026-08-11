@@ -23,6 +23,31 @@ describe('selectShotAssetReferences', () => {
     expect(references[0].url).toBe('/body.png')
   })
 
+  it('automatically attaches one costume explicitly linked to a named character', () => {
+    const linkedAssets = [
+      assets[0],
+      {
+        ...assets[3],
+        name: '轻度战损变体',
+        description: '肩部破损的战斗服',
+        attributes: { type: 'costume', characterAssetId: 'character-lin' },
+      },
+      {
+        ...assets[3],
+        id: 'costume-lin-alt',
+        name: '林夏宴会礼服',
+        attributes: { type: 'costume', characterAssetId: 'character-lin' },
+      },
+    ]
+
+    const references = selectShotAssetReferences(linkedAssets, {
+      title: '林夏受伤',
+      prompt: '林夏从地面撑起身体，肩部衣料已经撕裂。',
+    })
+
+    expect(references.map((reference) => reference.id)).toEqual(['character-lin', 'costume-lin'])
+  })
+
   it('ranks a matching scene and prop from the shot description', () => {
     const references = selectShotAssetReferences(assets, {
       title: '打开铁盒',
@@ -105,6 +130,22 @@ describe('selectShotAssetReferences', () => {
 
     expect(references[0]).toMatchObject({ url: '/face.png', videoUrl: 'asset://asset-live-1' })
     expect(selectVideoReferenceImages(null, references)).toEqual(['asset://asset-live-1'])
+  })
+
+  it('keeps continuity references bounded so the tail frame remains the visual anchor', () => {
+    const references = [
+      { id: 'character-lin', url: '/character.png' },
+      { id: 'scene-station', url: '/scene.png' },
+      { id: 'prop-film', url: '/prop.png' },
+      { id: 'costume-lin', url: '/costume.png' },
+    ]
+
+    expect(selectVideoReferenceImages('/tail.png', references, 4)).toEqual([
+      '/tail.png',
+      '/character.png',
+      '/scene.png',
+      '/prop.png',
+    ])
   })
 })
 

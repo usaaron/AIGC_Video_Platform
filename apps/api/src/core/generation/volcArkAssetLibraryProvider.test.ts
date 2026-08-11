@@ -67,6 +67,32 @@ describe('VolcArkAssetLibraryProvider', () => {
     })
   })
 
+  it('can use a known group type without making an eventually-consistent group lookup', async () => {
+    let calls = 0
+    const fetcher = (async () => {
+      calls += 1
+      return Response.json({
+        ResponseMetadata: { RequestId: 'request-1' },
+        Result: {
+          Id: 'asset-aigc-processing',
+          GroupId: 'group-aigc-1',
+          Name: '角色甲',
+          AssetType: 'Image',
+          Status: 'Processing',
+          URL: '',
+        },
+      })
+    }) as typeof fetch
+
+    await expect(createProvider(fetcher).getPortrait('asset-aigc-processing', 'AIGC')).resolves.toMatchObject(
+      {
+        groupType: 'AIGC',
+        status: 'processing',
+      },
+    )
+    expect(calls).toBe(1)
+  })
+
   it('downloads an active portrait preview through the provider', async () => {
     const requests: string[] = []
     const fetcher = (async (input: RequestInfo | URL) => {

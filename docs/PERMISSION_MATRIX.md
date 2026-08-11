@@ -72,14 +72,14 @@ Usage metrics include realtime concurrency, RPM, TPM, request counts, token coun
 credit consumption, provider usage, and error rates. User-level usage data is high-cardinality
 operational data and must not be exposed through public metrics labels.
 
-| Actor                 | Usage visibility                                                                                                  | Required permission                                    |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `owner`               | All platform users, all organizations, global totals, and per-user/per-organization details                        | `usage.read.all`                                       |
-| `super_admin`         | All platform users, all organizations, global totals, and per-user/per-organization details                        | `usage.read.all`                                       |
-| `admin`               | Platform C-side `member` users and explicitly authorized platform operations scope; no owner/super_admin internals | `usage.read.scoped`; repository must apply scope rules |
+| Actor                 | Usage visibility                                                                                                   | Required permission                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `owner`               | All platform users, all organizations, global totals, and per-user/per-organization details                        | `usage.read.all`                                            |
+| `super_admin`         | All platform users, all organizations, global totals, and per-user/per-organization details                        | `usage.read.all`                                            |
+| `admin`               | Platform C-side `member` users and explicitly authorized platform operations scope; no owner/super_admin internals | `usage.read.scoped`; repository must apply scope rules      |
 | `organization_admin`  | Users, sessions, jobs, billing usage, and usage records inside the current organization only                       | `usage.read.scoped`; repository must filter by organization |
-| `member`              | Own usage only                                                                                                    | `usage.read.self`                                      |
-| `organization_member` | Own usage only inside the authorized organization                                                                 | `usage.read.self`                                      |
+| `member`              | Own usage only                                                                                                     | `usage.read.self`                                           |
+| `organization_member` | Own usage only inside the authorized organization                                                                  | `usage.read.self`                                           |
 
 The backend scope helper is `usageVisibilityFor()` in `apps/api/src/core/auth/roles.ts`:
 

@@ -140,6 +140,7 @@ const taskRunner = new GenerationTaskRunner(store, {
   objectStorage,
   creditLedger,
   providerPollIntervalMs: config.VIDEO_POLL_INTERVAL_MS,
+  providerStallTimeoutMs: config.VIDEO_PROCESSING_STALL_TIMEOUT_MS,
   ...(refreshProjectDomainRuntimeCache ? { beforeTick: refreshProjectDomainRuntimeCache } : {}),
   ...(database
     ? {

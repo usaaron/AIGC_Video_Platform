@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { Check, LoaderCircle, RefreshCw, X } from 'lucide-react'
+import { Check, LoaderCircle, LogOut, RefreshCw, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
 import { BrandMark } from './components/BrandMark'
@@ -24,6 +24,7 @@ import {
 import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 import { FUNCTION_STACK_IDS, FUNCTION_STACK_ITEMS } from './features/functionStack/config'
 import { compileCharacterStagePrompt } from './features/assets/promptCompiler'
+import { warmAssetPreviewCache } from './features/assets/assetPreview'
 
 const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const videoResolutions = new Set(['480p', '720p', '1080p', '4k'])
@@ -190,6 +191,12 @@ function App() {
   }, [workspace?.project.id])
 
   useEffect(() => {
+    warmAssetPreviewCache(
+      (workspace?.assets || []).filter((asset) => asset.kind === 'character').slice(0, 24),
+    )
+  }, [workspace?.assets])
+
+  useEffect(() => {
     if (!recentTasksLoaded) return
     if (!recentTasks.length) {
       taskStatusesRef.current = {}
@@ -281,6 +288,9 @@ function App() {
         <button className="button primary" type="button" onClick={() => setLoadAttempt((value) => value + 1)}>
           <RefreshCw size={16} /> 重新加载
         </button>
+        <button className="button secondary" type="button" onClick={() => void logout()}>
+          <LogOut size={16} /> 退出登录
+        </button>
       </div>
     )
 
@@ -291,6 +301,17 @@ function App() {
     const next = await api.project(projectId)
     setWorkspace(next)
     setProjects(await api.projects())
+  }
+
+  const mergeWorkspaceAsset = (updatedAsset) => {
+    if (!updatedAsset?.id) return
+    setWorkspace((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        assets: current.assets.map((asset) => (asset.id === updatedAsset.id ? updatedAsset : asset)),
+      }
+    })
   }
 
   const refreshBilling = async () => {
@@ -499,7 +520,11 @@ function App() {
     }
     const manualReferenceUrl =
       shot.imageUrl && !shot.imageUrl.startsWith('/api/v1/generation/tasks/') ? shot.imageUrl : null
-    const images = selectVideoReferenceImages(manualReferenceUrl, references)
+    const images = selectVideoReferenceImages(
+      manualReferenceUrl,
+      references,
+      actualContinuityMode === 'continue' ? 4 : 9,
+    )
     const selectedResolution = videoResolutions.has(resolution) ? resolution : '720p'
     const videoPrompt = compileStoryboardVideoPrompt({
       project,
@@ -622,15 +647,7 @@ function App() {
       )
     }
     if (!project) {
-      return (
-        <div className="page empty-workspace">
-          <h1>创建第一个项目</h1>
-          <p>从项目名称和画面比例开始。</p>
-          <button className="button primary" onClick={() => setNewProjectOpen(true)}>
-            新建项目
-          </button>
-        </div>
-      )
+      return <ProjectHomePage projects={[]} onCreate={() => setNewProjectOpen(true)} />
     }
 
     const pages = {
@@ -664,7 +681,11 @@ function App() {
           onUpdateEpisodeDuration={async (episodeDurationSeconds) => {
             await api.updateProject(project.id, { episodeDurationSeconds })
             await refreshWorkspace()
-            setToast(`已设置每集 ${episodeDurationSeconds} 秒，分镜会沿用该时长`)
+            setToast(
+              project.contentType === 'short-drama'
+                ? `已设置每集 ${episodeDurationSeconds} 秒，分镜会沿用该时长`
+                : `已设置目标成片 ${episodeDurationSeconds} 秒，脚本与分镜会沿用该时长`,
+            )
           }}
           onGenerate={async (
             draft,
@@ -676,7 +697,7 @@ function App() {
             setPhase,
           ) => {
             setPhase?.('submitting')
-            return createScriptJob(productionMode === 'web-series' ? '网剧剧本' : '快速剧本', 'generate', {
+            return createScriptJob(scriptGenerationTaskLabel(project.contentType), 'generate', {
               draft,
               direction,
               mode: 'quick',
@@ -698,21 +719,17 @@ function App() {
             setPhase,
           ) => {
             setPhase?.('submitting')
-            return createScriptJob(
-              productionMode === 'web-series' ? '续写下一集' : '续写下一段',
-              'generate',
-              {
-                draft,
-                direction,
-                mode: 'segment',
-                segment,
-                productionMode,
-                episodeDurationSeconds,
-                episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
-                model,
-                revisionNote,
-              },
-            )
+            return createScriptJob(scriptSegmentTaskLabel(project.contentType), 'generate', {
+              draft,
+              direction,
+              mode: 'segment',
+              segment,
+              productionMode,
+              episodeDurationSeconds,
+              episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
+              model,
+              revisionNote,
+            })
           }}
           onImportNovel={async (input) => {
             const result = await api.importNovel(project.id, input)
@@ -812,12 +829,12 @@ function App() {
           onRegisterVirtualPortrait={createTrustedPortraitJob}
           onBindTrustedPortrait={async (assetId, providerAssetId) => {
             const updated = await api.bindTrustedPortrait(project.id, assetId, providerAssetId)
-            await refreshWorkspace()
+            mergeWorkspaceAsset(updated)
             return updated
           }}
           onRefreshTrustedPortrait={async (assetId) => {
             const updated = await api.refreshTrustedPortrait(project.id, assetId)
-            await refreshWorkspace()
+            mergeWorkspaceAsset(updated)
             return updated
           }}
           onGenerateStage={(asset, stage, prompt, model) => {
@@ -853,6 +870,7 @@ function App() {
               return null
             }
             if (asset.kind === 'character') return createCharacterFaceJob(asset, model, '重新生成面部大头照')
+            const references = assetGenerationReferences(asset, workspace.assets)
             return createJob(`${asset.name} · 重新生成`, asset.kind === 'audio' ? '音频' : '图片', 6, {
               prompt: asset.prompt,
               model,
@@ -862,7 +880,7 @@ function App() {
                 assetKind: asset.kind,
                 aspectRatio: project.aspectRatio,
                 sourceMode: asset.sourceMode,
-                references: asset.references,
+                references,
                 attributes: asset.attributes,
                 turnaround: asset.attributes.turnaround === true || asset.attributes.view === 'turnaround',
               },
@@ -911,13 +929,18 @@ function App() {
           concurrency={billing.concurrency}
           unlimitedConcurrency={billing.unlimitedConcurrency}
           onRegenerate={async (mode = 'scene', episodeDurationSeconds = 60) => {
-            await api.generateShots(project.id, {
+            const generatedShots = await api.generateShots(project.id, {
               maxShots: project.contentType === 'short-drama' ? 120 : 48,
               mode,
               episodeDurationSeconds,
             })
             await refreshWorkspace()
-            setToast(mode === 'beat' ? '已按明确动作节拍细拆分镜' : '已按场次生成分镜，一场对应一个视频镜头')
+            setToast(
+              mode === 'beat'
+                ? `已批量拆分 ${generatedShots.length} 个动作镜头`
+                : `已扫描完整剧本，批量生成 ${generatedShots.length} 个分镜`,
+            )
+            return generatedShots
           }}
           onAutoSplitEpisodes={async (episodeDurationSeconds) => {
             await api.autoSplitShotEpisodes(project.id, { episodeDurationSeconds })
@@ -932,6 +955,11 @@ function App() {
             await api.updateShot(project.id, shotId, input)
             await refreshWorkspace()
             setToast('分镜已更新')
+          }}
+          onDelete={async (shotId) => {
+            await api.deleteShot(project.id, shotId)
+            await refreshWorkspace()
+            setToast('分镜已删除，后续镜头已重新编号')
           }}
           onUpload={(file) => api.uploadMedia(project.id, file)}
           onGenerateVideo={createStoryboardVideo}
@@ -969,6 +997,7 @@ function App() {
                         resolution,
                         continuityMode: shot.continuityMode,
                         previousTaskId: previousVideoTask?.id ?? null,
+                        sourcePromptSnapshot: shot.prompt,
                       }) &&
                       (!mustProvideLastFrame || hasLastFrame(task)),
                   )
@@ -1116,7 +1145,11 @@ function App() {
   return (
     <div className="app-shell">
       <AppHeader
-        projectName={activeStep === 'home' ? '项目库' : activeFunction?.title || project?.name || '选择项目'}
+        projectName={
+          activeStep === 'home' || !projects.length
+            ? '项目库'
+            : activeFunction?.title || project?.name || '选择项目'
+        }
         billing={billing}
         account={session.account}
         runningJobs={runningJobs}
@@ -1244,6 +1277,27 @@ function hasLastFrame(task) {
   return task?.outputs?.some((output) => output.view === 'last-frame') ?? false
 }
 
+function assetGenerationReferences(asset, assets) {
+  const references = [...(asset.references || [])]
+  if (asset.kind !== 'costume' || !asset.attributes?.characterAssetId) return references
+  const character = assets.find(
+    (item) => item.kind === 'character' && item.id === asset.attributes.characterAssetId,
+  )
+  if (!character || character.attributes?.type !== 'character') return references
+  const activeVariant = (character.attributes.appearanceVariants || []).find(
+    (variant) => variant.id === character.attributes.activeAppearanceVariantId,
+  )
+  const source =
+    activeVariant?.bodyReference ||
+    character.attributes.bodyReference ||
+    character.attributes.faceReference ||
+    (character.imageUrl
+      ? { id: `character-${character.id}`, url: character.imageUrl, name: `${character.name}-人物参考` }
+      : null)
+  if (!source?.url || references.some((reference) => reference?.url === source.url)) return references
+  return [source, ...references]
+}
+
 function ProjectMenu({ projects, currentId, onClose, onSelect, onCreate }) {
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -1278,6 +1332,18 @@ function ProjectMenu({ projects, currentId, onClose, onSelect, onCreate }) {
       </div>
     </div>
   )
+}
+
+function scriptGenerationTaskLabel(contentType) {
+  if (contentType === 'advertisement') return '广告脚本'
+  if (contentType === 'animation') return '短片剧本'
+  return '网剧剧本'
+}
+
+function scriptSegmentTaskLabel(contentType) {
+  if (contentType === 'advertisement') return '延长广告脚本'
+  if (contentType === 'animation') return '续写短片'
+  return '续写下一集'
 }
 
 function exportProject(workspace, tasks) {

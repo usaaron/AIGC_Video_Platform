@@ -316,7 +316,7 @@ describe('api contract layer', { timeout: 30_000 }, () => {
   })
 
   it('validates session device info, kick-out, forced password change and audit logs', async () => {
-    const admin = await login('admin@seqora.local', 'Admin123!', chromeWindowsUserAgent)
+    const admin = await login('superadmin@seqora.local', 'SuperAdmin123!', chromeWindowsUserAgent)
     const member = await login('member@seqora.local', 'MemberPassword123!', firefoxMacUserAgent)
     const adminHeaders = {
       cookie: cookieValue(admin),
@@ -376,7 +376,7 @@ describe('api contract layer', { timeout: 30_000 }, () => {
       action: 'admin.session.revoked',
       resourceType: 'session',
       resourceId: parsedSession.sessionId,
-      actorUserId: 'user-admin',
+      actorUserId: 'user-super-admin',
       userAgent: chromeWindowsUserAgent,
     })
     expect(revokedAuditEntry.metadata).toMatchObject({ scope: 'admin_console' })
@@ -423,7 +423,7 @@ describe('api contract layer', { timeout: 30_000 }, () => {
     expect(passwordAuditEntry).toMatchObject({
       action: 'admin.password.temporary_set',
       resourceType: 'auth_identity',
-      actorUserId: 'user-admin',
+      actorUserId: 'user-super-admin',
       userAgent: chromeWindowsUserAgent,
     })
     expect(passwordAuditEntry.metadata).toMatchObject({

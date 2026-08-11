@@ -108,6 +108,7 @@ export async function createRuntimeQueues(input: {
     objectStorage,
     creditLedger: repositories.creditLedger,
     providerPollIntervalMs: config.VIDEO_POLL_INTERVAL_MS,
+    providerStallTimeoutMs: config.VIDEO_PROCESSING_STALL_TIMEOUT_MS,
     ...(repositories.refreshProjectDomainRuntimeCache
       ? { beforeTick: repositories.refreshProjectDomainRuntimeCache }
       : {}),

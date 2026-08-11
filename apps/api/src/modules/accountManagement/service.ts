@@ -576,11 +576,7 @@ export class AccountManagementService {
     }
     this.requirePlatformRegistrationInvitationRoles(roles)
     if (roles.length !== 1) {
-      throw new AppError(
-        400,
-        'SINGLE_ROLE_REQUIRED',
-        'Platform invitations must assign exactly one role',
-      )
+      throw new AppError(400, 'SINGLE_ROLE_REQUIRED', 'Platform invitations must assign exactly one role')
     }
     this.requireAssignableRoles(principal, roles)
     const email = input.email ? normalizeEmail(input.email) : null

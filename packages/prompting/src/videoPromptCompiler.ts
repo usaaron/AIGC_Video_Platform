@@ -1,4 +1,4 @@
-export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v9'
+export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v11'
 
 export type PromptProject = {
   aspectRatio: string
@@ -47,10 +47,11 @@ export function compileStoryboardVideoPrompt(input: {
   const referenceAssets = references
     .map((reference) => assets.find((asset) => asset.id === reference.id))
     .filter((asset): asset is PromptAsset => Boolean(asset))
-  const focusedPrompt = focusedShotPrompt(shot.prompt)
+  const explicitTimeline = hasExplicitTimeline(shot.prompt)
+  const focusedPrompt = explicitTimeline ? '' : focusedShotPrompt(shot.prompt)
   const actionSequence = actionSequenceFor(shot.prompt)
   const shotFields = promptFields(String(shot.prompt || ''))
-  const identityRules = referenceAssets.map(identityRuleFor).join('；')
+  const identityRules = referenceAssets.map((asset) => identityRuleFor(asset, referenceAssets)).join('；')
   const actorPerformance = actorPerformanceFor(shotFields.角色, actionSequence, shotFields.对白)
   const soundPlan = soundPlanFor(shotFields.对白, shot.prompt, referenceAssets)
   const subjectMotion = subjectMotionFor(
@@ -64,24 +65,33 @@ export function compileStoryboardVideoPrompt(input: {
 
   return [
     `生成一段连续${duration}秒、${project.aspectRatio}画幅的${visualStyleLabel(project.visualStyle)}电影叙事视频。`,
-    `【当前镜头】${shot.title || '未命名镜头'}，${shot.framing || '中景'}。${sentence(focusedPrompt)}`,
+    explicitTimeline
+      ? `【当前镜头】${shot.title || '未命名镜头'}，${shot.framing || '中景'}。`
+      : `【当前镜头】${shot.title || '未命名镜头'}，${shot.framing || '中景'}。${sentence(focusedPrompt)}`,
+    explicitTimeline ? `【导演时间轴（最高优先级）】\n${String(shot.prompt || '').trim()}` : '',
     continuityMode === 'continue' && shot.continuityNote
       ? `【场景衔接上下文】${sentence(shot.continuityNote)}`
       : '',
     continuityMode === 'continue'
-      ? '【镜头衔接】严格承接上一镜头尾帧，人物身份、动作方向、视线、空间位置、光线和服装保持连续，首帧不要跳变。'
+      ? '【镜头衔接】严格承接上一镜头尾帧，人物身份、动作方向、视线、空间位置、光线和服装保持连续，首帧不要跳变。输入参考图列表的第一张是唯一的上一镜真实尾帧；后续参考图仅用于确认当前镜头的角色、场景和关键物品身份，不得用后续参考图重构首帧，不得重演上一镜已经完成的动作。'
       : '【独立镜头】本镜不读取、不复述上一镜或上一集的剧情、动作和状态；只依据当前镜头提示词与当前资产完成本镜。',
     identityRules ? `【资产一致性】${identityRules}。严格沿用输入参考图，不得更换人物或重设计资产。` : '',
-    `【动作执行】本镜只完成一个主动作，不追加第二个剧情动作。${subjectMotion}`,
+    explicitTimeline
+      ? '【时间轴执行】严格逐段执行导演时间轴；每个时间区间只执行该区间指定的动作、机位和状态，前一段的结果必须成为后一段的起始状态。不得省略、调换、合并或重复任何区间，不得把结尾状态提前到开头。'
+      : `【动作执行】本镜只完成一个主动作，不追加第二个剧情动作。${subjectMotion}`,
     `【群像表演】${actorPerformance}`,
-    actionSequence
+    !explicitTimeline && actionSequence
       ? `【主动作】必须完整拍完这一项，不得拆成第二个事件、不得凭空增加动作：${actionSequence}`
       : '',
     `【声音执行】${soundPlan}`,
-    `【镜头运动】${cameraMotionFor(shot.framing)}`,
+    explicitTimeline ? '' : `【镜头运动】${cameraMotionFor(shot.framing)}`,
     `【环境运动】${environmentMotionFor(shot.prompt, referenceAssets)}`,
-    `【时间推进】0-1秒延续上镜状态并建立画面，1-${Math.max(2, duration - 1)}秒完整完成主动作与至少一次表情或视线变化，最后1秒停在下一镜可直接承接的结束姿态。`,
-    '【镜内剪辑】全程保持同一时间、同一空间和同一条动作线，只完成当前镜头指定动作。禁止插入特写、钟表、回忆、下一事件或其他画面；禁止突然切镜、跳时、回切和蒙太奇。',
+    explicitTimeline
+      ? ''
+      : `【时间推进】0-1秒延续上镜状态并建立画面，1-${Math.max(2, duration - 1)}秒完整完成主动作与至少一次表情或视线变化，最后1秒停在下一镜可直接承接的结束姿态。`,
+    explicitTimeline
+      ? '【镜内剪辑】时间轴未明确要求切镜时保持同一时间、同一空间和连续动作线；不得插入时间轴之外的特写、回忆、下一事件或其他画面。'
+      : '【镜内剪辑】全程保持同一时间、同一空间和同一条动作线，只完成当前镜头指定动作。禁止插入特写、钟表、回忆、下一事件或其他画面；禁止突然切镜、跳时、回切和蒙太奇。',
     '输出必须是真实连续动态视频，不是静止图片，不是幻灯片；人物不能全程冻结，避免只有缩放、平移或单帧抖动。保持角色面部、身材、服装、场景空间和光线方向跨帧稳定。必须生成可听见的现场声音、对白或旁白；不要输出静音视频。',
   ]
     .filter(Boolean)
@@ -100,13 +110,19 @@ function visualStyleLabel(value: string | undefined): string {
   return labels[value || 'cinematic-cg'] || '统一项目视觉风格'
 }
 
+function hasExplicitTimeline(value: string | undefined): boolean {
+  const text = String(value || '')
+  const ranges = text.match(/(?:^|\n)\s*\d+(?:\.\d+)?\s*[-–—至到]\s*\d+(?:\.\d+)?\s*秒\s*[：:]/gu)
+  return (ranges?.length ?? 0) >= 2
+}
+
 export function normalizedVideoDuration(value: unknown, minimum = 4): number {
   const parsed = Number(value)
   const min = Math.min(15, Math.max(1, Math.round(minimum)))
   return Number.isFinite(parsed) ? Math.min(15, Math.max(min, Math.round(parsed))) : Math.max(5, min)
 }
 
-function identityRuleFor(asset: PromptAsset): string {
+function identityRuleFor(asset: PromptAsset, referenceAssets: PromptAsset[]): string {
   const label = ASSET_KIND_LABELS[asset.kind] || '资产'
   const detail = [
     asset.description,
@@ -116,9 +132,26 @@ function identityRuleFor(asset: PromptAsset): string {
     .filter(Boolean)
     .join('，')
   if (asset.kind === 'character') {
-    return `${label}“${asset.name}”保持参考图中的脸、发型、年龄、体型和服装完全一致${detail ? `（${detail}）` : ''}`
+    const linkedCostume = referenceAssets.find(
+      (reference) =>
+        reference.kind === 'costume' && costumeCharacterAssetId(reference.attributes) === asset.id,
+    )
+    return linkedCostume
+      ? `${label}“${asset.name}”保持参考图中的脸、发型、年龄和体型完全一致，服装造型以服装资产“${linkedCostume.name}”为唯一准则${detail ? `（${detail}）` : ''}`
+      : `${label}“${asset.name}”保持参考图中的脸、发型、年龄、体型和服装完全一致${detail ? `（${detail}）` : ''}`
+  }
+  if (asset.kind === 'costume') {
+    const characterId = costumeCharacterAssetId(asset.attributes)
+    const owner = referenceAssets.find((reference) => reference.id === characterId)
+    return `${label}“${asset.name}”的版型、材质、颜色和战损细节必须准确穿在${owner ? `人物“${owner.name}”` : '对应人物'}身上，不得退回人物参考图中的旧服装${detail ? `（${detail}）` : ''}`
   }
   return `${label}“${asset.name}”保持结构、材质、颜色和空间位置一致${detail ? `（${detail}）` : ''}`
+}
+
+function costumeCharacterAssetId(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const id = (value as Record<string, unknown>).characterAssetId
+  return typeof id === 'string' && id ? id : null
 }
 
 function subjectMotionFor(prompt: string | undefined, assets: PromptAsset[]): string {

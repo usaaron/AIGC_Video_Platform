@@ -110,7 +110,12 @@ export async function registerGenerationRoutes(
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
       const range = typeof request.headers.range === 'string' ? request.headers.range : undefined
       const content = await service.getVideoContent(parsed.data.taskId, request.principal!, range)
-      reply.header('Cache-Control', 'private, no-store').type(content.contentType)
+      if ('redirectUrl' in content) {
+        return reply.header('Cache-Control', 'private, max-age=300').redirect(content.redirectUrl, 307)
+      }
+      // Task IDs are immutable media versions; let the browser reuse the bytes while
+      // still keeping the response private to the signed-in user.
+      reply.header('Cache-Control', 'private, max-age=86400, immutable').type(content.contentType)
       if (content.contentLength) reply.header('Content-Length', content.contentLength)
       if (content.acceptRanges) reply.header('Accept-Ranges', content.acceptRanges)
       if (content.contentRange) reply.header('Content-Range', content.contentRange)

@@ -74,6 +74,7 @@ export const DEFAULT_ATTRIBUTES = {
   },
   costume: {
     type: 'costume',
+    characterAssetId: null,
     audience: 'unisex',
     category: 'daily',
     season: 'all-season',

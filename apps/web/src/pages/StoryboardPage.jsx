@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import JSZip from 'jszip'
 import {
   ArrowDown,
   ArrowRight,
@@ -9,6 +10,7 @@ import {
   ChevronRight,
   CircleHelp,
   Clock3,
+  Download,
   Film,
   History,
   ImagePlus,
@@ -20,6 +22,7 @@ import {
   RefreshCw,
   RotateCcw,
   Scissors,
+  Trash2,
   Video,
   Upload,
   X,
@@ -51,6 +54,7 @@ export function StoryboardPage({
   onAutoSplitEpisodes,
   onCreate,
   onUpdate,
+  onDelete,
   onUpload,
   onGenerateVideo,
   onGenerateAllVideos,
@@ -67,6 +71,9 @@ export function StoryboardPage({
   const [splittingEpisodes, setSplittingEpisodes] = useState(false)
   const [generatingAll, setGeneratingAll] = useState(false)
   const [operationError, setOperationError] = useState('')
+  const [operationNotice, setOperationNotice] = useState('')
+  const [downloadingVideos, setDownloadingVideos] = useState(false)
+  const [deletingShotId, setDeletingShotId] = useState('')
   const isWebSeries = project?.contentType === 'short-drama'
   const shotMinDuration = isWebSeries ? 3 : 4
   const totalDuration = shots.reduce(
@@ -86,6 +93,12 @@ export function StoryboardPage({
       : episodes.filter((episode) => episodeKey(episode) === selectedEpisode)
   const selectedEpisodeIndex = episodes.findIndex((episode) => episodeKey(episode) === selectedEpisode)
   const historyShot = shots.find((shot) => shot.id === historyShotId) || null
+  const downloadableVideos = shots.flatMap((shot) => {
+    const taskId = selectedVersionTaskId(tasks, shot, 'video')
+    const task = tasks.find((item) => item.id === taskId && item.status === 'completed')
+    const url = taskOutputUrl(task, 'video')
+    return task && url ? [{ shot, task, url }] : []
+  })
 
   useEffect(() => {
     setEpisodeDuration(projectEpisodeDurationSeconds)
@@ -102,8 +115,17 @@ export function StoryboardPage({
     if (controlsLocked) return
     setSplitting(mode)
     setOperationError('')
+    setOperationNotice('')
     try {
-      await onRegenerate(mode, episodeDuration)
+      const generatedShots = await onRegenerate(mode, episodeDuration)
+      const generatedCount = Array.isArray(generatedShots) ? generatedShots.length : 0
+      if (generatedCount) {
+        setOperationNotice(
+          mode === 'beat'
+            ? `已批量拆分 ${generatedCount} 个动作镜头`
+            : `已扫描完整剧本，批量生成 ${generatedCount} 个分镜`,
+        )
+      }
     } catch (error) {
       setOperationError(error.message)
     } finally {
@@ -115,6 +137,7 @@ export function StoryboardPage({
     if (controlsLocked || !shots.length) return
     setSplittingEpisodes(true)
     setOperationError('')
+    setOperationNotice('')
     try {
       await onAutoSplitEpisodes(episodeDuration)
     } catch (error) {
@@ -138,12 +161,44 @@ export function StoryboardPage({
       return
     setGeneratingAll(true)
     setOperationError('')
+    setOperationNotice('')
     try {
       await onGenerateAllVideos(shots, batchResolution, mode)
     } catch (error) {
       setOperationError(error.message)
     } finally {
       setGeneratingAll(false)
+    }
+  }
+
+  const downloadCompletedVideos = async () => {
+    if (!downloadableVideos.length || downloadingVideos) return
+    setDownloadingVideos(true)
+    setOperationError('')
+    setOperationNotice('')
+    try {
+      const zip = new JSZip()
+      const { successCount, failures } = await addStoryboardVideosToArchive(zip, downloadableVideos)
+      if (!successCount) {
+        throw new Error(
+          `没有可下载的视频；${failures.length} 条已完成记录的源文件暂不可用，请重新生成后再试。`,
+        )
+      }
+      const archive = await zip.generateAsync({
+        type: 'blob',
+        // MP4 is already compressed. Re-compressing it only burns CPU and delays the download.
+        compression: 'STORE',
+      })
+      downloadBlob(archive, `${safeFileName(project.name || '序幕TV项目')}-分镜视频.zip`)
+      setOperationNotice(
+        failures.length
+          ? `已打包 ${successCount} 条视频，另有 ${failures.length} 条源文件暂不可用，详情已写入压缩包。`
+          : `已打包 ${successCount} 条视频。`,
+      )
+    } catch (error) {
+      setOperationError(error.message)
+    } finally {
+      setDownloadingVideos(false)
     }
   }
 
@@ -165,6 +220,24 @@ export function StoryboardPage({
     episodeKind: 'standard',
   })
 
+  const deleteShot = async (shot) => {
+    const videoTask = taskFor(tasks, shot, 'video')
+    if (isActive(videoTask) || deletingShotId) return
+    if (!window.confirm(`确认删除“${shot.title}”吗？后续镜头会自动重新编号，已完成的视频历史不会被删除。`)) {
+      return
+    }
+    setDeletingShotId(shot.id)
+    setOperationError('')
+    try {
+      await onDelete(shot.id)
+      if (selected === shot.id) setSelected(null)
+    } catch (error) {
+      setOperationError(error.message)
+    } finally {
+      setDeletingShotId('')
+    }
+  }
+
   return (
     <div className="page storyboard-page">
       <PageHeader
@@ -176,10 +249,10 @@ export function StoryboardPage({
           className="button secondary"
           onClick={() => void splitFromScript('scene')}
           disabled={controlsLocked}
-          title="每个剧本场次生成一个视频镜头，不再自动把场内动作重复拆开"
+          title="扫描完整剧本并批量生成：标准剧本按场次拆分；只识别到一个超长文本块时自动按语义段落补充分镜"
         >
           {splitting === 'scene' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
-          {splitting === 'scene' ? '正在按场次智能生成' : '按场次智能生成'}
+          {splitting === 'scene' ? '正在批量拆分全剧本' : '批量智能分镜'}
         </button>
         <button
           className="button secondary"
@@ -187,7 +260,7 @@ export function StoryboardPage({
           disabled={controlsLocked}
         >
           {splitting === 'beat' ? <LoaderCircle size={16} className="spin" /> : <Scissors size={16} />}
-          {splitting === 'beat' ? '正在动作级细拆' : '高级：动作级细拆'}
+          {splitting === 'beat' ? '正在按动作拆分' : '按动作拆分镜头'}
         </button>
         <button
           type="button"
@@ -261,6 +334,15 @@ export function StoryboardPage({
         >
           <Zap size={16} /> 全部独立生成
         </button>
+        <button
+          className="button secondary"
+          onClick={() => void downloadCompletedVideos()}
+          disabled={!downloadableVideos.length || downloadingVideos}
+          title={`下载当前选中的已完成视频版本，共 ${downloadableVideos.length} 条`}
+        >
+          {downloadingVideos ? <LoaderCircle size={16} className="spin" /> : <Download size={16} />}
+          {downloadingVideos ? '正在打包' : `批量下载 ${downloadableVideos.length} 条`}
+        </button>
       </PageHeader>
       <div className="episode-split-toolbar">
         <div>
@@ -330,6 +412,11 @@ export function StoryboardPage({
           {operationError}
         </p>
       )}
+      {operationNotice && (
+        <p className="operation-notice" role="status">
+          {operationNotice}
+        </p>
+      )}
       {batchLocked && (
         <div className="storyboard-batch-lock" role="status">
           <LockKeyhole size={17} />
@@ -337,7 +424,7 @@ export function StoryboardPage({
             <strong>当前生成批次已锁定</strong>
             <span>
               有 {activeShotCount}{' '}
-              个分镜视频任务仍在排队、暂停或生成中。批次策略暂时锁定；仍可点击其他镜头的视频按钮，确认后强制独立生成。
+              个分镜视频任务仍在排队、暂停或生成中。批次策略暂时锁定；未在执行的镜头仍可编辑，也可确认后强制独立生成。
             </span>
           </div>
         </div>
@@ -420,6 +507,8 @@ export function StoryboardPage({
                     onUpdate={onUpdate}
                     onEdit={() => setEditing(shot)}
                     onHistory={() => setHistoryShotId(shot.id)}
+                    onDelete={() => void deleteShot(shot)}
+                    deleting={deletingShotId === shot.id}
                     onGenerateVideo={onGenerateVideo}
                   />
                 )
@@ -437,14 +526,15 @@ export function StoryboardPage({
       {editing && (
         <ShotEditor
           shot={editing}
+          shots={shots}
           minDuration={shotMinDuration}
           assets={assets}
           tasks={tasks}
           onUpload={onUpload}
           onClose={() => setEditing(null)}
           onSave={async (input) => {
-            if (batchLocked) {
-              setOperationError('当前生成批次已锁定，请先处理生成队列中的视频任务。')
+            if (editing.id && isActive(taskFor(tasks, editing, 'video'))) {
+              setOperationError('这个镜头正在生成，当前版本完成或取消后才能修改。')
               return
             }
             if (editing.id) await onUpdate(editing.id, input)
@@ -496,6 +586,8 @@ function ShotRow({
   onUpdate,
   onEdit,
   onHistory,
+  onDelete,
+  deleting,
   onGenerateVideo,
 }) {
   const videoTask = taskFor(tasks, shot, 'video')
@@ -525,7 +617,7 @@ function ShotRow({
               src={previewVideoUrl}
               controls
               playsInline
-              preload="metadata"
+              preload="none"
               aria-label={`${shot.title}成片预览`}
               onClick={(event) => event.stopPropagation()}
             />
@@ -626,13 +718,24 @@ function ShotRow({
             </IconButton>
             <IconButton
               label="编辑分镜"
-              disabled={batchLocked}
+              disabled={isActive(videoTask)}
               onClick={(event) => {
                 event.stopPropagation()
                 onEdit()
               }}
             >
               <Pencil size={17} />
+            </IconButton>
+            <IconButton
+              label="删除分镜"
+              className="danger"
+              disabled={isActive(videoTask) || deleting}
+              onClick={(event) => {
+                event.stopPropagation()
+                onDelete()
+              }}
+            >
+              {deleting ? <LoaderCircle size={17} className="spin" /> : <Trash2 size={17} />}
             </IconButton>
           </div>
         </div>
@@ -711,7 +814,7 @@ function ShotHistoryColumn({ title, kind, versions, selectedTaskId, restoring, o
               <article className={`shot-version-card ${current ? 'current' : ''}`} key={task.id}>
                 <div className="shot-version-media">
                   {kind === 'video' ? (
-                    <video src={url || undefined} controls preload="metadata" />
+                    <video src={url || undefined} controls preload="none" />
                   ) : url ? (
                     <img src={url} alt={`${title}${current ? '当前版' : '上一版'}`} />
                   ) : (
@@ -789,6 +892,71 @@ function taskOutputUrl(task, kind) {
   if (kind === 'video')
     return task.resultUrl || task.outputs?.find((output) => output.mediaType === 'video')?.url
   return task.resultUrl || task.outputs?.find((output) => output.mediaType === 'image')?.url
+}
+
+export async function addStoryboardVideosToArchive(zip, videos, fetchVideo = globalThis.fetch) {
+  const results = await mapWithConcurrency(videos, 4, async ({ shot, url }) => {
+    try {
+      const response = await fetchVideo(url, { credentials: 'include', cache: 'force-cache' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const episode = `第${String(shot.episodeNumber || 1).padStart(2, '0')}集`
+      const name = `${String(shot.order).padStart(2, '0')}-${safeFileName(shot.title || '未命名镜头')}.mp4`
+      zip.folder(episode)?.file(name, await response.blob())
+      return { ok: true, shot }
+    } catch (error) {
+      return { ok: false, shot, message: error instanceof Error ? error.message : String(error) }
+    }
+  })
+  const failures = results.filter((result) => !result.ok)
+  const successCount = results.length - failures.length
+  if (failures.length) {
+    zip.file(
+      '_下载失败清单.txt',
+      [
+        '以下分镜的已完成记录暂时无法读取源文件，可在分镜页重新生成后再次下载：',
+        ...failures.map(
+          ({ shot, message }) =>
+            `第 ${shot.episodeNumber || 1} 集 · ${shot.title || `镜头 ${shot.order}`}：${message}`,
+        ),
+      ].join('\n'),
+    )
+  }
+  return { successCount, failures }
+}
+
+async function mapWithConcurrency(items, concurrency, operation) {
+  const results = new Array(items.length)
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await operation(items[index], index)
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+function safeFileName(value) {
+  return [...String(value || '')]
+    .map((character) => (character.charCodeAt(0) < 32 ? '-' : character))
+    .join('')
+    .replace(/[<>:"/\\|?*]/gu, '-')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 80)
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
 }
 
 function formatVersionTime(value) {
@@ -927,7 +1095,18 @@ function resolutionLabel(value) {
   return VIDEO_RESOLUTIONS.find((option) => option.value === value)?.label || '720P'
 }
 
-function ShotEditor({ shot, minDuration = 4, assets = [], tasks = [], onUpload, onClose, onSave }) {
+function ShotEditor({
+  shot,
+  shots = [],
+  minDuration = 4,
+  assets = [],
+  tasks = [],
+  onUpload,
+  onClose,
+  onSave,
+}) {
+  const orderedShots = [...shots].sort((left, right) => left.order - right.order)
+  const [insertionIndex, setInsertionIndex] = useState(orderedShots.length)
   const [title, setTitle] = useState(shot.title || '')
   const [framing, setFraming] = useState(shot.framing || '中景')
   const [duration, setDuration] = useState(normalizedVideoDuration(shot.duration, minDuration))
@@ -941,6 +1120,26 @@ function ShotEditor({ shot, minDuration = 4, assets = [], tasks = [], onUpload, 
   const [episodeKind, setEpisodeKind] = useState(shot.episodeKind || 'standard')
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+
+  const insertionLabel =
+    insertionIndex === 0
+      ? '最前面'
+      : insertionIndex >= orderedShots.length
+        ? '末尾'
+        : `第 ${insertionIndex} 镜之后`
+
+  const changeInsertionIndex = (value) => {
+    const nextIndex = Math.max(0, Math.min(orderedShots.length, Number(value)))
+    setInsertionIndex(nextIndex)
+    const previous = nextIndex > 0 ? orderedShots[nextIndex - 1] : null
+    const next = orderedShots[nextIndex] || null
+    const episode = previous || next
+    if (episode) {
+      setEpisodeNumber(episode.episodeNumber || 1)
+      setEpisodeTitle(episode.episodeTitle || `第 ${episode.episodeNumber || 1} 集`)
+      setEpisodeKind('standard')
+    }
+  }
 
   const uploadReference = async (event) => {
     const file = event.target.files?.[0]
@@ -976,6 +1175,16 @@ function ShotEditor({ shot, minDuration = 4, assets = [], tasks = [], onUpload, 
             episodeNumber: Number(episodeNumber),
             episodeTitle: episodeTitle.trim() || `第 ${episodeNumber} 集`,
             episodeKind,
+            continuityMode: shot.id
+              ? shot.continuityMode || 'continue'
+              : insertionIndex === 0
+                ? 'independent'
+                : shot.continuityMode || 'continue',
+            ...(shot.id
+              ? {}
+              : {
+                  insertAfterShotId: insertionIndex === 0 ? null : orderedShots[insertionIndex - 1]?.id,
+                }),
           })
         }}
         onMouseDown={(event) => event.stopPropagation()}
@@ -1056,6 +1265,24 @@ function ShotEditor({ shot, minDuration = 4, assets = [], tasks = [], onUpload, 
             />
           </label>
         </div>
+        {!shot.id && (
+          <label className="shot-insertion-control">
+            <span>
+              <strong>插入位置</strong>
+              <em>{insertionLabel}</em>
+            </span>
+            <input
+              type="range"
+              min="0"
+              max={orderedShots.length}
+              step="1"
+              value={insertionIndex}
+              aria-label="新分镜插入位置"
+              onChange={(event) => changeInsertionIndex(event.target.value)}
+            />
+            <small>拖动滑块选择放在第几镜之后；末尾为追加</small>
+          </label>
+        )}
         <div className="shot-reference-editor">
           <div className="shot-reference-preview">
             {imageUrl ? <img src={imageUrl} alt="镜头参考" /> : <ImagePlus size={24} />}

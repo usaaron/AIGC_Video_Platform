@@ -1297,11 +1297,7 @@ function buildMembershipFilter(options: AdminListOptions): Filter {
   return builder.build()
 }
 
-function addVisibilityUserFilter(
-  builder: FilterBuilder,
-  options: AdminListOptions,
-  userIdSql: string,
-): void {
+function addVisibilityUserFilter(builder: FilterBuilder, options: AdminListOptions, userIdSql: string): void {
   const condition = visibilityMembershipExistsCondition(options, userIdSql)
   if (condition) builder.add(condition.clause, ...condition.params)
 }
@@ -2285,10 +2281,7 @@ function canManageElevatedRoles(principal: Principal, roles: Role[]): boolean {
   )
 }
 
-function canAccessMembershipRecord(
-  principal: Principal,
-  membership: MembershipAccessRow,
-): boolean {
+function canAccessMembershipRecord(principal: Principal, membership: MembershipAccessRow): boolean {
   if (isPlatformAdmin(principal)) return true
   if (membership.status !== 'active') return false
   if (principal.roles.includes(ROLES.ADMIN)) {

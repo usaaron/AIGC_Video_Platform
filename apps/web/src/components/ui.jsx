@@ -40,6 +40,17 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
     ) : (
       <Clock3 size={15} />
     )
+  const runningSeconds =
+    job.status === 'running'
+      ? Math.max(
+          0,
+          Math.floor(
+            (Date.now() -
+              Date.parse(job.metadata?.providerSubmittedAt || job.createdAt || job.updatedAt || '')) /
+              1_000,
+          ),
+        )
+      : 0
 
   return (
     <div className={`job-row ${compact ? 'compact' : ''}`}>
@@ -58,11 +69,17 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
         )}
         {job.status === 'running' && !canCancelRunning && (
           <p className="job-provider-note">
-            第三方生成中，暂不可暂停或删除；若第三方失败，平台会自动退回积分。
+            {job.provider === 'local-compose'
+              ? compositionStageLabel(job)
+              : '第三方生成中，暂不可暂停或删除；若第三方失败，平台会自动退回积分。'}
           </p>
         )}
         {canCancelRunning && (
-          <p className="job-provider-note">弦序生成中可取消；取消成功后会移出队列并退回平台积分。</p>
+          <p className={`job-provider-note ${runningSeconds >= 360 ? 'delayed' : ''}`}>
+            {runningSeconds >= 360
+              ? `上游仍在处理，已等待 ${formatRunningTime(runningSeconds)}；进度长时间不变时系统会自动取消旧任务并重试，无需一直等待。`
+              : `弦序生成中 · 已等待 ${formatRunningTime(runningSeconds)}；取消成功后会移出队列并退回平台积分。`}
+          </p>
         )}
         {job.status === 'failed' && <p className="job-error">{job.error || '生成失败，请重新提交'}</p>}
       </div>
@@ -116,6 +133,11 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
   )
 }
 
+function formatRunningTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 60) return `${Math.max(0, seconds || 0)} 秒`
+  return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
+}
+
 function jobStateLabel(job) {
   if (job.status === 'failed') return '失败'
   if (job.status === 'cancelled') return '已取消'
@@ -123,4 +145,19 @@ function jobStateLabel(job) {
   if (job.status === 'running') return `${job.progress}%`
   if (job.status === 'paused') return '已暂停'
   return '等待中'
+}
+
+function compositionStageLabel(job) {
+  const stage = job.metadata?.compositionStage
+  const index = Number(job.metadata?.compositionSourceIndex)
+  const count = Number(job.metadata?.compositionSourceCount)
+  if (stage === 'downloading' && Number.isInteger(index) && index > 0) {
+    return Number.isInteger(count) && count > 0
+      ? `正在读取第 ${index}/${count} 个镜头视频，完成后将自动合成。`
+      : `正在读取第 ${index} 个镜头视频，完成后将自动合成。`
+  }
+  if (stage === 'composing') return '镜头已就绪，FFmpeg 正在合成完整预览。'
+  if (stage === 'uploading') return '完整预览已合成，正在上传并写回项目。'
+  if (stage === 'preparing') return '正在准备镜头文件和合成任务。'
+  return '完整预览合成中，平台会持续处理。'
 }

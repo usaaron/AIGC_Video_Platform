@@ -123,6 +123,7 @@ describe('planVideoBatch', () => {
       status: 'completed',
       metadata: {
         shotId: 'shot-1',
+        sourcePromptSnapshot: 'same prompt',
         referenceAssetIds: ['character-1'],
         resolution: '720p',
         continuityMode: 'continue',
@@ -137,6 +138,7 @@ describe('planVideoBatch', () => {
         resolution: '720p',
         continuityMode: 'continue',
         previousTaskId: 'shot-0-task',
+        sourcePromptSnapshot: 'same prompt',
       }),
     ).toBe(true)
     expect(
@@ -145,6 +147,17 @@ describe('planVideoBatch', () => {
         referenceAssetIds: ['character-1'],
         resolution: '720p',
         continuityMode: 'independent',
+        sourcePromptSnapshot: 'same prompt',
+      }),
+    ).toBe(false)
+    expect(
+      isCompatibleCompletedVideoTask(task, {
+        shotId: 'shot-1',
+        referenceAssetIds: ['character-1'],
+        resolution: '720p',
+        continuityMode: 'continue',
+        previousTaskId: 'shot-0-task',
+        sourcePromptSnapshot: 'edited prompt',
       }),
     ).toBe(false)
   })

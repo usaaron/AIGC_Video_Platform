@@ -36,12 +36,12 @@
 
 ## 测试与质量
 
-| 文档                                                   | 用途                                |
-| ------------------------------------------------------ | ----------------------------------- |
-| [BACKEND_TESTING.md](BACKEND_TESTING.md)               | 单元、契约、集成和安全测试分层      |
-| [NON_FUNCTIONAL_QUALITY.md](NON_FUNCTIONAL_QUALITY.md) | k6、混沌和安全测试计划              |
-| [RELIABILITY_GATES.md](RELIABILITY_GATES.md)           | CI 与生产拨测门禁                   |
-| [OBSERVABILITY.md](OBSERVABILITY.md)                   | 日志、健康、readiness、指标和 trace |
+| 文档                                                   | 用途                                       |
+| ------------------------------------------------------ | ------------------------------------------ |
+| [BACKEND_TESTING.md](BACKEND_TESTING.md)               | 单元、契约、集成和安全测试分层             |
+| [NON_FUNCTIONAL_QUALITY.md](NON_FUNCTIONAL_QUALITY.md) | k6、混沌和安全测试计划                     |
+| [RELIABILITY_GATES.md](RELIABILITY_GATES.md)           | CI 与生产拨测门禁                          |
+| [OBSERVABILITY.md](OBSERVABILITY.md)                   | 日志、健康、readiness、指标和 trace        |
 | [USAGE_METRICS.md](USAGE_METRICS.md)                   | 用量指标名称、时间窗口、计数规则和可见范围 |
 
 ## 部署与运维

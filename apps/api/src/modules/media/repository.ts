@@ -285,10 +285,7 @@ export class MediaRepository {
     return this.store.read((state) => {
       const media = state.media.find(
         (item) =>
-          item.id === id &&
-          item.projectId === projectId &&
-          item.tenantId === tenantId &&
-          item.kind === kind,
+          item.id === id && item.projectId === projectId && item.tenantId === tenantId && item.kind === kind,
       )
       return media ? sourceFromMedia(media) : null
     })

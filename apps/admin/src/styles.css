@@ -1393,6 +1393,13 @@ button:disabled {
   line-height: 1.55;
 }
 
+.notice.dismissible {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .notice.success {
   border: 1px solid #cbdc90;
   background: #f4f8e5;
@@ -1403,6 +1410,23 @@ button:disabled {
   border: 1px solid #efc9c0;
   background: #fff4f1;
   color: var(--danger);
+}
+
+.notice-dismiss {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+}
+
+.notice-dismiss:hover {
+  background: rgb(0 0 0 / 0.06);
 }
 
 .loading-state {

@@ -309,6 +309,81 @@ describe('TrustedAssetService', () => {
     })
   })
 
+  it('keeps a processing portrait pending when the upstream lookup is eventually consistent', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    await store.mutate((state) => {
+      state.assets.push({
+        id: 'character-eventual',
+        projectId: 'project-midnight-film',
+        tenantId: 'tenant-seqora-demo',
+        kind: 'character',
+        sourceMode: 'generate',
+        name: '等待验证人物',
+        description: '',
+        prompt: '',
+        promptMode: 'standard',
+        customPromptMode: 'append',
+        customPrompt: '',
+        negativePrompt: '',
+        references: [],
+        attributes: {
+          ...defaultAssetAttributes('character'),
+          faceStatus: 'approved',
+          trustedPortrait: {
+            assetId: 'asset-eventual',
+            groupId: 'group-eventual',
+            groupType: 'AIGC',
+            name: '等待验证人物',
+            status: 'processing',
+            previewUrl: null,
+            errorCode: null,
+            errorMessage: null,
+            checkedAt: now,
+          },
+        },
+        imageUrl: null,
+        status: 'draft',
+        createdAt: now,
+        updatedAt: now,
+      })
+    })
+
+    let requestedGroupType = ''
+    const provider: AssetLibraryProvider = {
+      createVirtualGroup: async () => 'unused-group',
+      createVirtualAsset: async () => {
+        throw new Error('must not create')
+      },
+      getPortrait: async (_assetId, groupType) => {
+        requestedGroupType = groupType || ''
+        throw new Error('当前人物尚未能建立可靠资源验证')
+      },
+      listPortraits: async () => [],
+      listAuthorizedPortraits: async () => [],
+    }
+    const service = new TrustedAssetService(
+      store,
+      provider,
+      new MemoryStorage(),
+      'test-secret-with-at-least-32-characters',
+      'https://api.example.com',
+      'default',
+    )
+
+    const updated = await service.refresh('project-midnight-film', 'character-eventual', {
+      userId: 'user-member',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['member'],
+    })
+
+    expect(requestedGroupType).toBe('AIGC')
+    expect(updated.attributes).toMatchObject({
+      trustedPortrait: { assetId: 'asset-eventual', status: 'processing' },
+    })
+  })
+
   it('uploads the current approved local face instead of an older generated face', async () => {
     const store = new AppStore(null)
     await store.initialize()

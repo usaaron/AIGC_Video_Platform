@@ -121,6 +121,34 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       continuityNote: 'Keep the door half-open between cuts.',
     })
 
+    const insertedShot = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/shots`,
+      headers: { cookie: memberCookie },
+      payload: {
+        title: 'Inserted middle shot',
+        framing: 'Close',
+        duration: 5,
+        prompt: 'The marked storyboard is revealed.',
+        insertAfterShotId: shotId,
+      },
+    })
+    expect(insertedShot.statusCode).toBe(201)
+    expect(insertedShot.json()).toMatchObject({ order: 2, title: 'Inserted middle shot' })
+
+    const deletedShot = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/projects/${projectId}/shots/${insertedShot.json().id}`,
+      headers: { cookie: memberCookie },
+    })
+    expect(deletedShot.statusCode).toBe(204)
+    const afterDelete = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/${projectId}`,
+      headers: { cookie: memberCookie },
+    })
+    expect(afterDelete.json().shots).toEqual([expect.objectContaining({ id: shotId, order: 1 })])
+
     await withDatabase(async (database) => {
       const persisted = await database.query<{
         script: string

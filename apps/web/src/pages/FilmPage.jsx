@@ -337,7 +337,7 @@ export function FilmPage({
                   src={displayUrl}
                   className="film-frame"
                   controls
-                  preload="auto"
+                  preload="metadata"
                   playsInline
                   onCanPlay={() => {
                     setLoadedVideoUrl(displayUrl)

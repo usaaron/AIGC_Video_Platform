@@ -61,13 +61,26 @@ export function activeVideoTasksForShots(tasks, shots) {
 
 export function isCompatibleCompletedVideoTask(
   task,
-  { shotId, referenceAssetIds = [], resolution, continuityMode = 'independent', previousTaskId = null },
+  {
+    shotId,
+    referenceAssetIds = [],
+    resolution,
+    continuityMode = 'independent',
+    previousTaskId = null,
+    sourcePromptSnapshot,
+  },
 ) {
   if (
     task?.kind !== 'video' ||
     task.status !== 'completed' ||
     task.metadata?.shotId !== shotId ||
     task.metadata?.resolution !== resolution
+  ) {
+    return false
+  }
+  if (
+    typeof sourcePromptSnapshot === 'string' &&
+    task.metadata?.sourcePromptSnapshot !== sourcePromptSnapshot
   ) {
     return false
   }

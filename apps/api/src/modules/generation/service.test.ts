@@ -42,6 +42,72 @@ describe('GenerationService task creation', () => {
     })
     expect(dispatcher.dispatch).toHaveBeenCalledWith(task, { traceId: 'trace-service-create' })
   })
+
+  it('captures the current storyboard prompt instead of trusting a stale client prompt', async () => {
+    const input: CreateGenerationTask = {
+      clientRequestId: 'snapshot-current-shot',
+      projectId: 'project-midnight-film',
+      kind: 'video',
+      label: '镜头 01',
+      prompt: 'stale compiled client prompt',
+      provider: 'seedance',
+      estimatedCredits: 18,
+      metadata: { shotId: 'shot-1', continuityMode: 'independent', referenceAssetIds: [] },
+    }
+    const currentPrompt = [
+      '场次：S02｜时长：5秒｜场景：废弃戏楼屋顶。',
+      '0-2秒：侠客摘下斗笠。',
+      '2-5秒：雷霆人抬起左臂挡开斗笠。',
+    ].join('\n')
+    const repository = {
+      canCreate: vi.fn(() => true),
+      storyboardVideoContext: vi.fn(() => ({
+        project: {
+          id: input.projectId,
+          aspectRatio: '16:9',
+          contentType: 'short-drama',
+          visualStyle: 'cinematic-cg',
+          version: 3,
+        },
+        shot: {
+          id: 'shot-1',
+          order: 1,
+          title: '斗笠试探',
+          framing: '低机位',
+          duration: 5,
+          prompt: currentPrompt,
+          negativePrompt: '',
+          continuityMode: 'independent',
+          continuityNote: '',
+          episodeNumber: 1,
+          episodeBreakBefore: false,
+          updatedAt: '2026-08-08T02:00:00.000Z',
+        },
+        shots: [],
+        assets: [],
+      })),
+      blockedPortraitNames: vi.fn(() => []),
+      stringXPortraitNames: vi.fn(() => []),
+      createWithCharge: vi.fn(async (prepared: CreateGenerationTask) => generationTask(prepared)),
+    } as unknown as GenerationTaskRepository
+    const dispatcher = { dispatch: vi.fn(async () => undefined) } as unknown as TaskDispatcher
+    const service = new GenerationService(repository, dispatcher)
+
+    const task = await service.createTask(input, principal)
+
+    expect(task.prompt).toContain('斗笠试探')
+    expect(task.prompt).toContain('场景：废弃戏楼屋顶')
+    expect(task.prompt).toContain('0-2秒：侠客摘下斗笠。')
+    expect(task.prompt).toContain('2-5秒：雷霆人抬起左臂挡开斗笠。')
+    expect(task.prompt).not.toContain('stale compiled client prompt')
+    expect(task.metadata).toMatchObject({
+      sourcePromptSnapshot: currentPrompt,
+      sourceShotUpdatedAt: '2026-08-08T02:00:00.000Z',
+      sourceProjectVersion: 3,
+    })
+    expect(task.metadata.sourcePromptHash).toMatch(/^[a-f0-9]{64}$/)
+    expect(task.metadata.compiledPromptHash).toMatch(/^[a-f0-9]{64}$/)
+  })
 })
 
 describe('GenerationService film preview idempotency', () => {

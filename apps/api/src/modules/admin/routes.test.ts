@@ -101,10 +101,22 @@ describe('admin console api', { timeout: 30_000 }, () => {
         ]),
       },
       tenants: {
-        items: [expect.objectContaining({ id: personalMemberTenantId, status: 'active', organizationType: 'personal' })],
+        items: [
+          expect.objectContaining({
+            id: personalMemberTenantId,
+            status: 'active',
+            organizationType: 'personal',
+          }),
+        ],
       },
       organizations: {
-        items: [expect.objectContaining({ id: personalMemberTenantId, status: 'active', organizationType: 'personal' })],
+        items: [
+          expect.objectContaining({
+            id: personalMemberTenantId,
+            status: 'active',
+            organizationType: 'personal',
+          }),
+        ],
       },
       memberships: {
         items: expect.arrayContaining([
@@ -868,9 +880,13 @@ describe('admin console api', { timeout: 30_000 }, () => {
     })
     expect(personalMember.statusCode).toBe(201)
     const personalMemberUserId = personalMember.json().userId as string
-    const personalMemberLogin = await login('session-personal-member@example.com', 'SessionPersonalMember123!', {
-      'user-agent': 'MemberSessionDevice/1.0',
-    })
+    const personalMemberLogin = await login(
+      'session-personal-member@example.com',
+      'SessionPersonalMember123!',
+      {
+        'user-agent': 'MemberSessionDevice/1.0',
+      },
+    )
     expect(personalMemberLogin.statusCode).toBe(200)
 
     const activeMemberSessions = await app.inject({
@@ -973,12 +989,20 @@ describe('admin console api', { timeout: 30_000 }, () => {
       ],
     })
 
-    const memberSecondSession = await login('session-personal-member@example.com', 'SessionPersonalMember123!', {
-      'user-agent': 'MemberSecondDevice/1.0',
-    })
-    const memberThirdSession = await login('session-personal-member@example.com', 'SessionPersonalMember123!', {
-      'user-agent': 'MemberThirdDevice/1.0',
-    })
+    const memberSecondSession = await login(
+      'session-personal-member@example.com',
+      'SessionPersonalMember123!',
+      {
+        'user-agent': 'MemberSecondDevice/1.0',
+      },
+    )
+    const memberThirdSession = await login(
+      'session-personal-member@example.com',
+      'SessionPersonalMember123!',
+      {
+        'user-agent': 'MemberThirdDevice/1.0',
+      },
+    )
 
     const adminBulkRevokesSelf = await app.inject({
       method: 'DELETE',
@@ -1339,7 +1363,10 @@ describe('admin console api', { timeout: 30_000 }, () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const owner = await login('owner@seqora.local', 'OwnerPassword123!')
     const ownerCookie = cookieValue(owner)
-    const organization = await createWorkspaceFromCurrentSession(ownerCookie, 'Admin Console Invite Organization')
+    const organization = await createWorkspaceFromCurrentSession(
+      ownerCookie,
+      'Admin Console Invite Organization',
+    )
     const invitationUrl = `/api/v1/admin/organizations/${organization.tenantId}/invitations`
 
     const created = await app.inject({
@@ -1943,7 +1970,9 @@ describe('admin console api', { timeout: 30_000 }, () => {
     expect(scopedSnapshot.organizations.items.map((item: { id: string }) => item.id)).toEqual([
       organization.tenantId,
     ])
-    expect(scopedSnapshot.users.items.map((item: { id: string }) => item.id)).toContain(organizationMemberUserId)
+    expect(scopedSnapshot.users.items.map((item: { id: string }) => item.id)).toContain(
+      organizationMemberUserId,
+    )
     expect(scopedSnapshot.users.items.map((item: { id: string }) => item.id)).not.toContain(
       organizationAdminUserId,
     )

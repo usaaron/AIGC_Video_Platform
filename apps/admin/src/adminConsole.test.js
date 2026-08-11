@@ -82,12 +82,16 @@ describe('admin console helpers', () => {
         { id: 'tenant-a', status: 'active' },
       ),
     ).toEqual(['organization_member'])
-    expect(canLeaveOrganization(adminSession, { id: 'tenant-a', status: 'active' }, [
-      membershipFor('user-admin', 'tenant-a', ['admin']),
-    ])).toBe(true)
-    expect(canLeaveOrganization(adminSession, { id: 'tenant-b', status: 'active' }, [
-      membershipFor('user-admin', 'tenant-b', ['admin']),
-    ])).toBe(false)
+    expect(
+      canLeaveOrganization(adminSession, { id: 'tenant-a', status: 'active' }, [
+        membershipFor('user-admin', 'tenant-a', ['admin']),
+      ]),
+    ).toBe(true)
+    expect(
+      canLeaveOrganization(adminSession, { id: 'tenant-b', status: 'active' }, [
+        membershipFor('user-admin', 'tenant-b', ['admin']),
+      ]),
+    ).toBe(false)
   })
 
   it('protects system organizations in the admin console helpers', () => {

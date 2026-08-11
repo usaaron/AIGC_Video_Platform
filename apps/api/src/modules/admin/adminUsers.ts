@@ -60,10 +60,7 @@ export function registerAdminUsersRoutes(app: FastifyInstance, context: AdminRou
     async (request, reply) => {
       const invitation = await requireAccountManagementService(
         context.accountManagementService,
-      ).adminCreatePlatformInvitation(
-        request.principal!,
-        parse(createTenantInvitationSchema, request.body),
-      )
+      ).adminCreatePlatformInvitation(request.principal!, parse(createTenantInvitationSchema, request.body))
       reply.header('Cache-Control', 'no-store')
       return reply.code(201).send(invitation)
     },

@@ -476,6 +476,7 @@ function proposalsFor(analysis: ProviderAnalysis): QuickStartAssetProposal[] {
       negativePrompt: '',
       attributes: {
         type: 'costume',
+        characterAssetId: null,
         audience: costume.audience,
         category: costume.category,
         season: costume.season,

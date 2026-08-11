@@ -3,6 +3,7 @@ import {
   autoSplitShotsRequestSchema,
   createAssetSchema,
   createShotSchema,
+  costumeAttributesSchema,
   enrichScriptRequestSchema,
   generateScriptAssetSuggestionsRequestSchema,
   generateScriptRequestSchema,
@@ -72,6 +73,28 @@ describe('asset contracts', () => {
     expect(updateAssetSchema.parse({ status: 'confirmed' })).toEqual({ status: 'confirmed' })
     expect(updateAssetSchema.safeParse({}).success).toBe(false)
   })
+
+  it('keeps old costume assets compatible and validates an optional character binding', () => {
+    const costume = {
+      type: 'costume',
+      audience: 'male',
+      category: 'ancient',
+      season: 'all-season',
+      design: 'chinese',
+      presentation: 'flat',
+      visualStyle: 'cinematic-cg',
+      turnaround: false,
+    }
+
+    expect(costumeAttributesSchema.parse(costume).characterAssetId).toBeNull()
+    expect(
+      costumeAttributesSchema.parse({
+        ...costume,
+        characterAssetId: '123e4567-e89b-42d3-a456-426614174000',
+      }).characterAssetId,
+    ).toBe('123e4567-e89b-42d3-a456-426614174000')
+    expect(costumeAttributesSchema.safeParse({ ...costume, characterAssetId: '侠客' }).success).toBe(false)
+  })
 })
 
 describe('shot contracts', () => {
@@ -86,6 +109,12 @@ describe('shot contracts', () => {
     })
     expect(updateShotSchema.parse({ continuityNote: 'previous action continues' })).toEqual({
       continuityNote: 'previous action continues',
+    })
+    expect(createShotSchema.parse({ title: 'Inserted shot', insertAfterShotId: 'shot-2' })).toMatchObject({
+      insertAfterShotId: 'shot-2',
+    })
+    expect(createShotSchema.parse({ title: 'Opening shot', insertAfterShotId: null })).toMatchObject({
+      insertAfterShotId: null,
     })
   })
 
@@ -141,6 +170,12 @@ describe('script workflow contracts', () => {
     expect(autoSplitShotsRequestSchema.parse({})).toEqual({ episodeDurationSeconds: 60 })
     expect(autoSplitShotsRequestSchema.parse({ episodeDurationSeconds: 300 })).toEqual({
       episodeDurationSeconds: 300,
+    })
+    expect(generateScriptRequestSchema.parse({ episodeDurationSeconds: 15 })).toMatchObject({
+      episodeDurationSeconds: 15,
+    })
+    expect(generateShotsRequestSchema.parse({ episodeDurationSeconds: 15 })).toMatchObject({
+      episodeDurationSeconds: 15,
     })
     expect(generateShotsRequestSchema.parse({ episodeDurationSeconds: 90 })).toMatchObject({
       episodeDurationSeconds: 90,

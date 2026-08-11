@@ -200,9 +200,7 @@ describe('AiJobRepository postgres lifecycle', { timeout: 30_000 }, () => {
       await recoveredStore.initialize()
       const recoveredRepository = new AiJobRepository(recoveredStore, null, database)
       await recoveredRepository.refreshRuntimeCacheFromDatabase()
-      expect(
-        recoveredStore.read((state) => state.aiJobs.find((item) => item.id === job.id)),
-      ).toMatchObject({
+      expect(recoveredStore.read((state) => state.aiJobs.find((item) => item.id === job.id))).toMatchObject({
         status: 'completed',
         output: { recovered: true },
         leaseOwnerId: null,
