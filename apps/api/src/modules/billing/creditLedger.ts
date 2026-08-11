@@ -1,8 +1,11 @@
 import type {
   BillingSummary,
+  BillingScope,
   BillingWebhookEvent,
   GenerationTask,
   LedgerEntry,
+  OrganizationBillingSummary,
+  OrganizationBillingPool,
   Plan,
   Principal,
 } from '@seqora/contracts'
@@ -100,6 +103,13 @@ export interface CreditLedger {
     amount: number,
     reason: string,
   ): Promise<BillingSummary>
+  adjustOrganizationCredits(
+    principal: Principal,
+    tenantId: string,
+    amount: number,
+    reason: string,
+    metadata?: SessionMetadata,
+  ): Promise<OrganizationBillingSummary>
   adjustBalance(
     principal: Principal,
     amount: number,
@@ -116,9 +126,18 @@ export interface CreditLedger {
   ): Promise<BillingSummary>
   billingSummary(principal: Principal): Promise<BillingSummary>
   summary(principal: Principal): Promise<BillingSummary>
+  organizationBillingSummary(principal: Principal, tenantId: string): Promise<OrganizationBillingSummary>
   consumedCreditsSince(startIso: string, tenantId?: string): Promise<number>
   updatePlan(principal: Principal, plan: Plan): Promise<BillingSummary>
   updatePlanInState(state: AppState, principal: Principal, plan: Plan): Promise<BillingSummary>
+  updateMembershipPlan(
+    principal: Principal,
+    targetMembershipId: string,
+    plan: Plan,
+    grantMonthlyCredits?: boolean,
+    reason?: string,
+    metadata?: SessionMetadata,
+  ): Promise<BillingSummary>
   processBillingWebhook(provider: string, payload: BillingWebhookEvent): Promise<BillingWebhookProcessResult>
 }
 
@@ -555,6 +574,37 @@ export class StoreCreditLedger implements CreditLedger {
     )
   }
 
+  async adjustOrganizationCredits(
+    principal: Principal,
+    tenantId: string,
+    amount: number,
+    reason: string,
+    metadata?: SessionMetadata,
+  ): Promise<OrganizationBillingSummary> {
+    if (!isBillingAdmin(principal)) {
+      throw new AppError(403, 'PERMISSION_DENIED', 'Only administrators can adjust credits')
+    }
+    if (!this.ledgerRepository) {
+      throw new AppError(503, 'ACCOUNT_DATABASE_REQUIRED', 'Postgres account database is required')
+    }
+    const entryId = `organization-adjustment-${cryptoRandomId()}`
+    await this.ledgerRepository.recordAdjustmentForOrganization({
+      tenantId,
+      principal,
+      entryId,
+      referenceId: entryId,
+      amount,
+      description: reason,
+      audit: billingAudit(
+        'billing.organization_credits.adjusted',
+        principal.userId,
+        metadata,
+        { tenantId, referenceId: entryId, amount, reason },
+      ),
+    })
+    return this.ledgerRepository.organizationBillingSummary(principal, tenantId)
+  }
+
   async adjustBalance(
     principal: Principal,
     amount: number,
@@ -639,13 +689,24 @@ export class StoreCreditLedger implements CreditLedger {
   }
 
   async billingSummary(principal: Principal): Promise<BillingSummary> {
+    if (this.ledgerRepository) {
+      const summary = await this.ledgerRepository.billingSummaryForPrincipal(principal)
+      const summaryOptions: {
+        billingScope?: BillingScope
+        organizationPool?: OrganizationBillingPool
+      } = { billingScope: summary.billingScope }
+      if (summary.organizationPool) summaryOptions.organizationPool = summary.organizationPool
+      return buildSummaryFromEntries(
+        summary.entries,
+        summary.plan,
+        summary.credits,
+        this.planSelfServiceEnabled,
+        summaryOptions,
+      )
+    }
+
     const account = await this.users.findBillingAccount(principal.userId, principal.tenantId)
     if (!account) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
-
-    if (this.ledgerRepository) {
-      const entries = await this.ledgerRepository.listEntries(principal.userId, principal.tenantId)
-      return buildSummaryFromEntries(entries, account.plan, account.credits, this.planSelfServiceEnabled)
-    }
 
     return this.requireStore().read((state) =>
       buildSummaryFromEntries(
@@ -659,6 +720,16 @@ export class StoreCreditLedger implements CreditLedger {
 
   async summary(principal: Principal): Promise<BillingSummary> {
     return this.billingSummary(principal)
+  }
+
+  async organizationBillingSummary(
+    principal: Principal,
+    tenantId: string,
+  ): Promise<OrganizationBillingSummary> {
+    if (!this.ledgerRepository) {
+      throw new AppError(503, 'ACCOUNT_DATABASE_REQUIRED', 'Postgres account database is required')
+    }
+    return this.ledgerRepository.organizationBillingSummary(principal, tenantId)
   }
 
   async consumedCreditsSince(startIso: string, tenantId?: string): Promise<number> {
@@ -735,6 +806,77 @@ export class StoreCreditLedger implements CreditLedger {
       user.credits,
       this.planSelfServiceEnabled,
     )
+  }
+
+  async updateMembershipPlan(
+    principal: Principal,
+    targetMembershipId: string,
+    plan: Plan,
+    grantMonthlyCredits = true,
+    reason?: string,
+    metadata?: SessionMetadata,
+  ): Promise<BillingSummary> {
+    if (!isBillingAdmin(principal)) {
+      throw new AppError(403, 'PERMISSION_DENIED', 'Only administrators can update billing plans')
+    }
+    if (this.ledgerRepository) {
+      const updated = await this.ledgerRepository.updatePlanForMembership({
+        membershipId: targetMembershipId,
+        principal,
+        plan,
+        grantMonthlyCredits,
+        description: reason ?? 'Member monthly grant',
+        createdByUserId: principal.userId,
+        audit: billingAudit(
+          'billing.plan.updated',
+          principal.userId,
+          metadata,
+          { targetMembershipId, plan, grantMonthlyCredits, reason: reason ?? null },
+        ),
+      })
+      return this.billingSummary({
+        userId: updated.userId,
+        tenantId: updated.tenantId,
+        roles: [],
+      })
+    }
+
+    return this.requireStore().transaction((state) => {
+      const targetUser = state.users.find(
+        (item) => `membership-${item.tenantId}-${item.id}` === targetMembershipId,
+      )
+      if (!targetUser) {
+        throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
+      }
+      if (!isPlatformAdmin(principal) && targetUser.tenantId !== principal.tenantId) {
+        throw new AppError(403, 'TENANT_SCOPE_MISMATCH', 'Cannot update billing for another workspace')
+      }
+      targetUser.plan = plan
+      const grantId = monthlyGrantId(targetUser.id)
+      if (plan === 'member' && grantMonthlyCredits && !state.ledger.some((entry) => entry.id === grantId)) {
+        targetUser.credits += monthlyGrantCredits
+        mirrorLedgerEntry(state, {
+          id: grantId,
+          userId: targetUser.id,
+          tenantId: targetUser.tenantId,
+          amount: monthlyGrantCredits,
+          balance: targetUser.credits,
+          type: 'grant',
+          description: reason ?? 'Member monthly grant',
+          createdAt: new Date().toISOString(),
+        })
+      }
+      return buildSummaryFromEntries(
+        ledgerEntriesForPrincipal(state, {
+          userId: targetUser.id,
+          tenantId: targetUser.tenantId,
+          roles: [],
+        }),
+        targetUser.plan,
+        targetUser.credits,
+        this.planSelfServiceEnabled,
+      )
+    })
   }
 
   async processBillingWebhook(
@@ -827,6 +969,10 @@ function buildSummaryFromEntries(
   plan: Plan,
   credits: number,
   planSelfServiceEnabled: boolean,
+  options: {
+    billingScope?: BillingScope
+    organizationPool?: OrganizationBillingPool
+  } = {},
 ): BillingSummary {
   const periodStart = startOfChinaMonth()
   const orderedEntries = orderLedgerEntries(entries)
@@ -840,6 +986,8 @@ function buildSummaryFromEntries(
   return {
     plan,
     credits,
+    billingScope: options.billingScope ?? 'membership',
+    ...(options.organizationPool ? { organizationPool: options.organizationPool } : {}),
     concurrency: plan === 'member' ? 3 : 1,
     unlimitedConcurrency: false,
     planSelfServiceEnabled,
@@ -849,7 +997,8 @@ function buildSummaryFromEntries(
       refundedCredits,
       netCredits: Math.max(0, consumedCredits - refundedCredits),
       generationCount: generationEntries.length,
-      includedCredits: plan === 'member' ? monthlyGrantCredits : 0,
+      includedCredits:
+        options.billingScope === 'organization' ? 0 : plan === 'member' ? monthlyGrantCredits : 0,
     },
     entries: orderedEntries.slice(0, 30),
   }

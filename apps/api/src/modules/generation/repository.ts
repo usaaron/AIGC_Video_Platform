@@ -18,6 +18,12 @@ type Queryable = {
   ): Promise<QueryResult<T>>
 }
 
+type TaskBillingTarget = {
+  id: string
+  credits: number | null
+  billingScope: 'membership' | 'organization'
+}
+
 type GenerationTaskRow = QueryResultRow & {
   id: string
   client_request_id: string
@@ -774,49 +780,93 @@ export class GenerationTaskRepository {
       }
 
       const nextCredits = membership.credits - input.estimatedCredits
-      await client.query(
-        `
-        UPDATE billing_accounts
-        SET credits = $2,
-            updated_at = now()
-        WHERE membership_id = $1
-        `,
-        [membership.id, nextCredits],
-      )
-      await client.query(
-        `
-        INSERT INTO billing_ledger_entries (
-          id,
-          tenant_id,
-          user_id,
-          membership_id,
-          reference_id,
-          related_entry_id,
-          entry_type,
-          amount,
-          balance,
-          description,
-          created_by_user_id,
-          created_at,
-          updated_at,
-          metadata
+      if (membership.billingScope === 'organization') {
+        await client.query(
+          `
+          UPDATE organization_billing_accounts
+          SET credits = $2,
+              updated_at = now()
+          WHERE tenant_id = $1
+          `,
+          [principal.tenantId, nextCredits],
         )
-        VALUES ($1, $2, $3, $4, $5, NULL, 'generation', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
-        `,
-        [
-          `generation-${input.clientRequestId}`,
-          principal.tenantId,
-          principal.userId,
-          membership.id,
-          input.clientRequestId,
-          -input.estimatedCredits,
-          nextCredits,
-          input.label,
-          now,
-        ],
-      )
+        await client.query(
+          `
+          INSERT INTO organization_billing_ledger_entries (
+            id,
+            tenant_id,
+            user_id,
+            membership_id,
+            reference_id,
+            related_entry_id,
+            entry_type,
+            amount,
+            balance,
+            description,
+            created_by_user_id,
+            created_at,
+            updated_at,
+            metadata
+          )
+          VALUES ($1, $2, $3, $4, $5, NULL, 'generation', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
+          `,
+          [
+            `generation-${input.clientRequestId}`,
+            principal.tenantId,
+            principal.userId,
+            membership.id,
+            input.clientRequestId,
+            -input.estimatedCredits,
+            nextCredits,
+            input.label,
+            now,
+          ],
+        )
+      } else {
+        await client.query(
+          `
+          UPDATE billing_accounts
+          SET credits = $2,
+              updated_at = now()
+          WHERE membership_id = $1
+          `,
+          [membership.id, nextCredits],
+        )
+        await client.query(
+          `
+          INSERT INTO billing_ledger_entries (
+            id,
+            tenant_id,
+            user_id,
+            membership_id,
+            reference_id,
+            related_entry_id,
+            entry_type,
+            amount,
+            balance,
+            description,
+            created_by_user_id,
+            created_at,
+            updated_at,
+            metadata
+          )
+          VALUES ($1, $2, $3, $4, $5, NULL, 'generation', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
+          `,
+          [
+            `generation-${input.clientRequestId}`,
+            principal.tenantId,
+            principal.userId,
+            membership.id,
+            input.clientRequestId,
+            -input.estimatedCredits,
+            nextCredits,
+            input.label,
+            now,
+          ],
+        )
+      }
       await this.outbox?.enqueueGenerationTaskDispatch(client, inserted)
-      return { task: inserted, credits: nextCredits }
+      return { task: inserted, credits: membership.billingScope === 'organization' ? null : nextCredits }
     })
 
     await this.mirrorTask(created.task, created.credits)
@@ -1115,10 +1165,19 @@ async function resolveMembershipForTask(
   queryable: Queryable,
   principal: Principal,
   forUpdate: boolean,
-): Promise<{ id: string; credits: number | null } | null> {
-  const result = await queryable.query<{ id: string; credits: number | null }>(
+): Promise<TaskBillingTarget | null> {
+  const result = await queryable.query<{
+    id: string
+    credits: number | null
+    organization_type: string | null
+    roles: string[]
+  }>(
     `
-    SELECT m.id, ${forUpdate ? 'b.credits' : 'NULL::integer'} AS credits
+    SELECT
+      m.id,
+      ${forUpdate ? 'b.credits' : 'NULL::integer'} AS credits,
+      t.organization_type,
+      m.roles
     FROM tenant_memberships m
     JOIN users u ON u.id = m.user_id AND u.status = 'active'
     JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
@@ -1132,7 +1191,44 @@ async function resolveMembershipForTask(
     [principal.userId, principal.tenantId],
   )
   const row = result.rows[0]
-  return row ? { id: row.id, credits: row.credits === null ? null : Number(row.credits) } : null
+  if (!row) return null
+
+  const usesOrganizationPool =
+    row.organization_type === 'enterprise' &&
+    (row.roles.includes('organization_admin') || row.roles.includes('organization_member'))
+  if (!forUpdate || !usesOrganizationPool) {
+    return {
+      id: row.id,
+      credits: row.credits === null ? null : Number(row.credits),
+      billingScope: 'membership',
+    }
+  }
+
+  await queryable.query(
+    `
+    INSERT INTO organization_billing_accounts (tenant_id, credits, created_at, updated_at)
+    VALUES ($1, 0, now(), now())
+    ON CONFLICT (tenant_id) DO NOTHING
+    `,
+    [principal.tenantId],
+  )
+  const organizationAccount = await queryable.query<{ credits: number | string }>(
+    `
+    SELECT credits
+    FROM organization_billing_accounts
+    WHERE tenant_id = $1
+    LIMIT 1
+    FOR UPDATE
+    `,
+    [principal.tenantId],
+  )
+  const organizationCredits = organizationAccount.rows[0]?.credits
+  if (organizationCredits === undefined) return null
+  return {
+    id: row.id,
+    credits: Number(organizationCredits),
+    billingScope: 'organization',
+  }
 }
 
 async function insertCreatedTask(

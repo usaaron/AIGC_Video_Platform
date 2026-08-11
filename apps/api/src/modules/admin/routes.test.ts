@@ -2026,6 +2026,223 @@ describe('admin console api', { timeout: 30_000 }, () => {
     })
   })
 
+  it('manages organization credit pools and membership plans through admin billing APIs', async () => {
+    app = await buildApp({ config: localAuthConfig(), startWorker: false })
+    const owner = await login('owner@seqora.local', 'OwnerPassword123!')
+    const ownerCookie = cookieValue(owner)
+    const admin = await login('admin@seqora.local', 'Admin123!')
+    const adminCookie = cookieValue(admin)
+
+    const organization = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/organizations',
+      headers: { cookie: ownerCookie },
+      payload: { name: 'Billing Pool Organization' },
+    })
+    expect(organization.statusCode).toBe(201)
+    const tenantId = organization.json().id as string
+
+    const organizationAdmin = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/organizations/${tenantId}/users`,
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'billing-org-admin@example.com',
+        name: 'Billing Org Admin',
+        password: 'BillingOrgAdmin123!',
+        role: 'organization_admin',
+      },
+    })
+    expect(organizationAdmin.statusCode).toBe(201)
+    const organizationAdminLogin = await activateProvisionedAccount(
+      'billing-org-admin@example.com',
+      'BillingOrgAdmin123!',
+    )
+    const organizationAdminCookie = cookieValue(organizationAdminLogin)
+
+    const organizationMember = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/organizations/${tenantId}/users`,
+      headers: { cookie: ownerCookie },
+      payload: {
+        email: 'billing-org-member@example.com',
+        name: 'Billing Org Member',
+        password: 'BillingOrgMember123!',
+        role: 'organization_member',
+      },
+    })
+    expect(organizationMember.statusCode).toBe(201)
+    const organizationMemberUserId = organizationMember.json().userId as string
+    const organizationMemberMembershipId = organizationMember.json().id as string
+    const organizationMemberLogin = await activateProvisionedAccount(
+      'billing-org-member@example.com',
+      'BillingOrgMember123!',
+    )
+    const organizationMemberCookie = cookieValue(organizationMemberLogin)
+
+    const initialPool = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/billing/organizations/${tenantId}`,
+      headers: { cookie: ownerCookie },
+    })
+    expect(initialPool.statusCode).toBe(200)
+    expect(initialPool.json()).toMatchObject({ tenantId, organizationId: tenantId, credits: 0 })
+
+    const personalAdminTopUp = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/billing/organizations/${tenantId}/adjustments`,
+      headers: { cookie: adminCookie },
+      payload: { amount: 50, reason: 'Wrong scope top-up' },
+    })
+    expect(personalAdminTopUp.statusCode).toBe(403)
+
+    const ownerTopUp = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/billing/organizations/${tenantId}/adjustments`,
+      headers: { cookie: ownerCookie },
+      payload: { amount: 120, reason: 'Organization launch credits' },
+    })
+    expect(ownerTopUp.statusCode).toBe(200)
+    expect(ownerTopUp.json()).toMatchObject({
+      tenantId,
+      credits: 120,
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          type: 'adjustment',
+          amount: 120,
+          description: 'Organization launch credits',
+        }),
+      ]),
+    })
+
+    const organizationAdminTopUp = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/billing/organizations/${tenantId}/adjustments`,
+      headers: { cookie: organizationAdminCookie },
+      payload: { amount: 30, reason: 'Organization admin top-up' },
+    })
+    expect(organizationAdminTopUp.statusCode).toBe(200)
+    expect(organizationAdminTopUp.json()).toMatchObject({ tenantId, credits: 150 })
+
+    const organizationRouteSummary = await app.inject({
+      method: 'GET',
+      url: `/api/v1/organizations/${tenantId}/billing/summary`,
+      headers: { cookie: organizationAdminCookie },
+    })
+    expect(organizationRouteSummary.statusCode).toBe(200)
+    expect(organizationRouteSummary.json()).toMatchObject({ tenantId, credits: 150 })
+
+    const updatedPlan = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/billing/memberships/${organizationMemberMembershipId}/plan`,
+      headers: { cookie: ownerCookie },
+      payload: { plan: 'member', reason: 'Backend membership upgrade' },
+    })
+    expect(updatedPlan.statusCode).toBe(200)
+    expect(updatedPlan.json()).toMatchObject({
+      plan: 'member',
+      billingScope: 'organization',
+      credits: 150,
+      organizationPool: { tenantId, organizationId: tenantId, credits: 150 },
+    })
+
+    const memberBilling = await app.inject({
+      method: 'GET',
+      url: '/api/v1/billing/summary',
+      headers: { cookie: organizationMemberCookie },
+    })
+    expect(memberBilling.statusCode).toBe(200)
+    expect(memberBilling.json()).toMatchObject({
+      plan: 'member',
+      billingScope: 'organization',
+      credits: 150,
+    })
+
+    const project = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: { cookie: organizationMemberCookie },
+      payload: {
+        name: 'Organization Pool Generation',
+        contentType: 'short-drama',
+        aspectRatio: '9:16',
+      },
+    })
+    expect(project.statusCode).toBe(201)
+    const task = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks',
+      headers: { cookie: organizationMemberCookie },
+      payload: {
+        clientRequestId: 'organization-pool-generation',
+        projectId: project.json().id,
+        kind: 'image',
+        label: 'Organization pool render',
+        provider: 'img2',
+        estimatedCredits: 7,
+      },
+    })
+    expect(task.statusCode).toBe(202)
+
+    const afterGeneration = await app.inject({
+      method: 'GET',
+      url: '/api/v1/billing/summary',
+      headers: { cookie: organizationMemberCookie },
+    })
+    expect(afterGeneration.statusCode).toBe(200)
+    expect(afterGeneration.json()).toMatchObject({
+      billingScope: 'organization',
+      credits: 143,
+      monthlyUsage: { consumedCredits: 7, netCredits: 7 },
+    })
+
+    await withDatabase(async (database) => {
+      const rows = await database.query<{
+        organization_credits: number
+        membership_credits: number
+        membership_plan: string
+        organization_debits: number
+        membership_debits: number
+      }>(
+        `
+        SELECT
+          (SELECT credits FROM organization_billing_accounts WHERE tenant_id = $1) AS organization_credits,
+          (
+            SELECT credits
+            FROM billing_accounts
+            WHERE membership_id = $2
+          ) AS membership_credits,
+          (
+            SELECT plan
+            FROM billing_accounts
+            WHERE membership_id = $2
+          ) AS membership_plan,
+          (
+            SELECT count(*)::int
+            FROM organization_billing_ledger_entries
+            WHERE tenant_id = $1
+              AND reference_id = 'organization-pool-generation'
+              AND user_id = $3
+          ) AS organization_debits,
+          (
+            SELECT count(*)::int
+            FROM billing_ledger_entries
+            WHERE membership_id = $2
+              AND reference_id = 'organization-pool-generation'
+          ) AS membership_debits
+        `,
+        [tenantId, organizationMemberMembershipId, organizationMemberUserId],
+      )
+      expect(rows.rows[0]).toEqual({
+        organization_credits: 143,
+        membership_credits: 500,
+        membership_plan: 'member',
+        organization_debits: 1,
+        membership_debits: 0,
+      })
+    })
+  })
+
   it('denies non-admin accounts from admin console APIs', async () => {
     app = await buildApp({ config: localAuthConfig(), startWorker: false })
     const member = await login('member@seqora.local', 'MemberPassword123!')

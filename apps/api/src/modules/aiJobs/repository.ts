@@ -26,6 +26,12 @@ type Queryable = {
   ): Promise<QueryResult<T>>
 }
 
+type AiJobBillingTarget = {
+  id: string
+  credits: number | null
+  billingScope: 'membership' | 'organization'
+}
+
 type AiJobRow = QueryResultRow & {
   id: string
   client_request_id: string
@@ -472,49 +478,93 @@ export class AiJobRepository {
       }
 
       const nextCredits = membership.credits - input.costCredits
-      await client.query(
-        `
-        UPDATE billing_accounts
-        SET credits = $2,
-            updated_at = now()
-        WHERE membership_id = $1
-        `,
-        [membership.id, nextCredits],
-      )
-      await client.query(
-        `
-        INSERT INTO billing_ledger_entries (
-          id,
-          tenant_id,
-          user_id,
-          membership_id,
-          reference_id,
-          related_entry_id,
-          entry_type,
-          amount,
-          balance,
-          description,
-          created_by_user_id,
-          created_at,
-          updated_at,
-          metadata
+      if (membership.billingScope === 'organization') {
+        await client.query(
+          `
+          UPDATE organization_billing_accounts
+          SET credits = $2,
+              updated_at = now()
+          WHERE tenant_id = $1
+          `,
+          [principal.tenantId, nextCredits],
         )
-        VALUES ($1, $2, $3, $4, $5, NULL, 'generation', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
-        `,
-        [
-          `generation-${input.clientRequestId}`,
-          principal.tenantId,
-          principal.userId,
-          membership.id,
-          input.clientRequestId,
-          -input.costCredits,
-          nextCredits,
-          input.label,
-          now,
-        ],
-      )
+        await client.query(
+          `
+          INSERT INTO organization_billing_ledger_entries (
+            id,
+            tenant_id,
+            user_id,
+            membership_id,
+            reference_id,
+            related_entry_id,
+            entry_type,
+            amount,
+            balance,
+            description,
+            created_by_user_id,
+            created_at,
+            updated_at,
+            metadata
+          )
+          VALUES ($1, $2, $3, $4, $5, NULL, 'generation', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
+          `,
+          [
+            `generation-${input.clientRequestId}`,
+            principal.tenantId,
+            principal.userId,
+            membership.id,
+            input.clientRequestId,
+            -input.costCredits,
+            nextCredits,
+            input.label,
+            now,
+          ],
+        )
+      } else {
+        await client.query(
+          `
+          UPDATE billing_accounts
+          SET credits = $2,
+              updated_at = now()
+          WHERE membership_id = $1
+          `,
+          [membership.id, nextCredits],
+        )
+        await client.query(
+          `
+          INSERT INTO billing_ledger_entries (
+            id,
+            tenant_id,
+            user_id,
+            membership_id,
+            reference_id,
+            related_entry_id,
+            entry_type,
+            amount,
+            balance,
+            description,
+            created_by_user_id,
+            created_at,
+            updated_at,
+            metadata
+          )
+          VALUES ($1, $2, $3, $4, $5, NULL, 'generation', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
+          `,
+          [
+            `generation-${input.clientRequestId}`,
+            principal.tenantId,
+            principal.userId,
+            membership.id,
+            input.clientRequestId,
+            -input.costCredits,
+            nextCredits,
+            input.label,
+            now,
+          ],
+        )
+      }
       await this.outbox?.enqueueAiJobDispatch(client, inserted)
-      return { job: inserted, credits: nextCredits }
+      return { job: inserted, credits: membership.billingScope === 'organization' ? null : nextCredits }
     })
 
     await this.mirrorJob(created.job, created.credits)
@@ -631,10 +681,19 @@ async function resolveMembershipForJob(
   queryable: Queryable,
   principal: Principal,
   forUpdate: boolean,
-): Promise<{ id: string; credits: number | null } | null> {
-  const result = await queryable.query<{ id: string; credits: number | null }>(
+): Promise<AiJobBillingTarget | null> {
+  const result = await queryable.query<{
+    id: string
+    credits: number | null
+    organization_type: string | null
+    roles: string[]
+  }>(
     `
-    SELECT m.id, ${forUpdate ? 'b.credits' : 'NULL::integer'} AS credits
+    SELECT
+      m.id,
+      ${forUpdate ? 'b.credits' : 'NULL::integer'} AS credits,
+      t.organization_type,
+      m.roles
     FROM tenant_memberships m
     JOIN users u ON u.id = m.user_id AND u.status = 'active'
     JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
@@ -648,7 +707,44 @@ async function resolveMembershipForJob(
     [principal.userId, principal.tenantId],
   )
   const row = result.rows[0]
-  return row ? { id: row.id, credits: row.credits === null ? null : Number(row.credits) } : null
+  if (!row) return null
+
+  const usesOrganizationPool =
+    row.organization_type === 'enterprise' &&
+    (row.roles.includes('organization_admin') || row.roles.includes('organization_member'))
+  if (!forUpdate || !usesOrganizationPool) {
+    return {
+      id: row.id,
+      credits: row.credits === null ? null : Number(row.credits),
+      billingScope: 'membership',
+    }
+  }
+
+  await queryable.query(
+    `
+    INSERT INTO organization_billing_accounts (tenant_id, credits, created_at, updated_at)
+    VALUES ($1, 0, now(), now())
+    ON CONFLICT (tenant_id) DO NOTHING
+    `,
+    [principal.tenantId],
+  )
+  const organizationAccount = await queryable.query<{ credits: number | string }>(
+    `
+    SELECT credits
+    FROM organization_billing_accounts
+    WHERE tenant_id = $1
+    LIMIT 1
+    FOR UPDATE
+    `,
+    [principal.tenantId],
+  )
+  const organizationCredits = organizationAccount.rows[0]?.credits
+  if (organizationCredits === undefined) return null
+  return {
+    id: row.id,
+    credits: Number(organizationCredits),
+    billingScope: 'organization',
+  }
 }
 
 async function insertCreatedJob(
@@ -741,6 +837,99 @@ async function refundAiJobCredits(
 ): Promise<number | null> {
   const debitId = `generation-${job.clientRequestId}`
   const refundId = `refund-${job.clientRequestId}`
+  const organizationDebit = await queryable.query<{
+    id: string
+    membership_id: string | null
+    amount: number | string
+  }>(
+    `
+    SELECT id, membership_id, amount
+    FROM organization_billing_ledger_entries
+    WHERE id = $1
+      AND user_id = $2
+      AND tenant_id = $3
+    LIMIT 1
+    FOR UPDATE
+    `,
+    [debitId, job.userId, job.tenantId],
+  )
+  const originalOrganizationDebit = organizationDebit.rows[0]
+  if (originalOrganizationDebit) {
+    const existingOrganizationRefund = await queryable.query<{ id: string }>(
+      `
+      SELECT id
+      FROM organization_billing_ledger_entries
+      WHERE (id = $1 OR reference_id = $1)
+        AND tenant_id = $2
+      LIMIT 1
+      `,
+      [refundId, job.tenantId],
+    )
+    if (existingOrganizationRefund.rows[0]) return null
+
+    const amount = Math.abs(Number(originalOrganizationDebit.amount))
+    if (amount <= 0) return null
+
+    const account = await queryable.query<{ credits: number | string }>(
+      `
+      SELECT credits
+      FROM organization_billing_accounts
+      WHERE tenant_id = $1
+      LIMIT 1
+      FOR UPDATE
+      `,
+      [job.tenantId],
+    )
+    const current = account.rows[0]
+    if (!current) return null
+
+    const nextCredits = Number(current.credits) + amount
+    const now = new Date().toISOString()
+    await queryable.query(
+      `
+      UPDATE organization_billing_accounts
+      SET credits = $2,
+          updated_at = $3
+      WHERE tenant_id = $1
+      `,
+      [job.tenantId, nextCredits, now],
+    )
+    await queryable.query(
+      `
+      INSERT INTO organization_billing_ledger_entries (
+        id,
+        tenant_id,
+        user_id,
+        membership_id,
+        reference_id,
+        related_entry_id,
+        entry_type,
+        amount,
+        balance,
+        description,
+        created_by_user_id,
+        created_at,
+        updated_at,
+        metadata
+      )
+      VALUES ($1, $2, $3, $4, $1, $5, 'adjustment', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
+      ON CONFLICT DO NOTHING
+      `,
+      [
+        refundId,
+        job.tenantId,
+        job.userId,
+        originalOrganizationDebit.membership_id,
+        originalOrganizationDebit.id,
+        amount,
+        nextCredits,
+        description,
+        now,
+      ],
+    )
+    return amount
+  }
+
   const debit = await queryable.query<{
     id: string
     membership_id: string

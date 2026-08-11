@@ -95,6 +95,7 @@ export async function registerRuntimeRoutes(input: {
         services.accountManagementService,
         config.NODE_ENV === 'production',
         repositories.users,
+        repositories.creditLedger,
       )
       await registerProjectRoutes(api, services.projectService)
       await registerNovelRoutes(api, services.novelService)

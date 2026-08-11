@@ -99,6 +99,7 @@ export class AccountManagementRepository {
         `,
         [tenantId, name, organizationType, userId],
       )
+      await insertOrganizationBillingAccount(client, tenantId, organizationType)
       await client.query(
         `
         INSERT INTO tenant_memberships (
@@ -125,17 +126,20 @@ export class AccountManagementRepository {
     createdByUserId: string
   }): Promise<Workspace> {
     const tenantId = `tenant-${randomUUID()}`
-    const created = await this.database.query<WorkspaceRow>(
-      `
-      INSERT INTO tenants (id, name, status, is_system, organization_type, created_by_user_id, created_at, updated_at)
-      VALUES ($1, $2, 'active', false, 'enterprise', $3, now(), now())
-      RETURNING id, name, status, created_at, updated_at
-      `,
-      [tenantId, input.name, input.createdByUserId],
-    )
-    const row = created.rows[0]
-    if (!row) throw new Error(`Could not create organization ${tenantId}`)
-    return toWorkspaceSummary(row)
+    return this.database.transaction(async (client) => {
+      const created = await client.query<WorkspaceRow>(
+        `
+        INSERT INTO tenants (id, name, status, is_system, organization_type, created_by_user_id, created_at, updated_at)
+        VALUES ($1, $2, 'active', false, 'enterprise', $3, now(), now())
+        RETURNING id, name, status, created_at, updated_at
+        `,
+        [tenantId, input.name, input.createdByUserId],
+      )
+      await insertOrganizationBillingAccount(client, tenantId, 'enterprise')
+      const row = created.rows[0]
+      if (!row) throw new Error(`Could not create organization ${tenantId}`)
+      return toWorkspaceSummary(row)
+    })
   }
 
   async createInvitation(input: {
@@ -1419,6 +1423,22 @@ type Queryable = {
     text: string,
     params?: readonly unknown[],
   ): Promise<{ rows: T[]; rowCount?: number | null }>
+}
+
+async function insertOrganizationBillingAccount(
+  queryable: Queryable,
+  tenantId: string,
+  organizationType: OrganizationType,
+): Promise<void> {
+  if (organizationType !== 'enterprise') return
+  await queryable.query(
+    `
+    INSERT INTO organization_billing_accounts (tenant_id, credits, created_at, updated_at)
+    VALUES ($1, 0, now(), now())
+    ON CONFLICT (tenant_id) DO NOTHING
+    `,
+    [tenantId],
+  )
 }
 
 type AccountWorkspaceRow = MembershipRow & {

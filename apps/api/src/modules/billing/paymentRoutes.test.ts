@@ -150,7 +150,7 @@ describe('stripe sandbox billing api', { timeout: 30_000 }, () => {
     expect(summary.statusCode).toBe(200)
     expect(summary.json()).toMatchObject({ plan: 'free', credits: 1286 })
 
-    const adminCookie = await login('admin@seqora.local', 'Admin123!')
+    const adminCookie = await login('superadmin@seqora.local', 'SuperAdmin123!')
     const reconciliation = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/billing/reconciliation?membershipId=membership-tenant-seqora-demo-user-member',
@@ -269,7 +269,7 @@ describe('stripe sandbox billing api', { timeout: 30_000 }, () => {
       ]),
     )
 
-    const adminCookie = await login('admin@seqora.local', 'Admin123!')
+    const adminCookie = await login('superadmin@seqora.local', 'SuperAdmin123!')
     const consoleSnapshot = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/console?limit=20',

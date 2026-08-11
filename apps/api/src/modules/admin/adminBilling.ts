@@ -1,4 +1,9 @@
-import { adminAdjustCreditsSchema, adminGrantCreditsSchema, PERMISSIONS } from '@seqora/contracts'
+import {
+  adminAdjustCreditsSchema,
+  adminGrantCreditsSchema,
+  adminUpdateMembershipPlanSchema,
+  PERMISSIONS,
+} from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
@@ -7,6 +12,7 @@ import { AppError } from '../../core/errors.js'
 import {
   billingAlertParams,
   billingMembershipParams,
+  adminTenantParams,
   canAccessAdminMembership,
   parse,
   parseListQuery,
@@ -102,6 +108,16 @@ export function registerAdminBillingRoutes(app: FastifyInstance, context: AdminR
     },
   )
 
+  app.get(
+    '/admin/billing/organizations/:tenantId',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_ALL) },
+    async (request, reply) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireLedger(context.ledger).organizationBillingSummary(request.principal!, tenantId)
+    },
+  )
+
   app.post(
     '/admin/billing/grants',
     { preHandler: requirePermission(PERMISSIONS.BILLING_MANAGE) },
@@ -126,6 +142,39 @@ export function registerAdminBillingRoutes(app: FastifyInstance, context: AdminR
         request.principal!,
         membershipId,
         input.amount,
+        input.reason,
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+
+  app.post(
+    '/admin/billing/organizations/:tenantId/adjustments',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_MANAGE) },
+    async (request) => {
+      const { tenantId } = parse(adminTenantParams, request.params)
+      const input = parse(adminAdjustCreditsSchema, request.body)
+      return await requireLedger(context.ledger).adjustOrganizationCredits(
+        request.principal!,
+        tenantId,
+        input.amount,
+        input.reason,
+        sessionMetadataFromRequest(request),
+      )
+    },
+  )
+
+  app.patch(
+    '/admin/billing/memberships/:membershipId/plan',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_MANAGE) },
+    async (request) => {
+      const { membershipId } = parse(billingMembershipParams, request.params)
+      const input = parse(adminUpdateMembershipPlanSchema, request.body)
+      return await requireLedger(context.ledger).updateMembershipPlan(
+        request.principal!,
+        membershipId,
+        input.plan,
+        input.grantMonthlyCredits,
         input.reason,
         sessionMetadataFromRequest(request),
       )

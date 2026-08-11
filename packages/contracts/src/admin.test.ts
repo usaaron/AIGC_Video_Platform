@@ -6,7 +6,13 @@ import {
   adminSetUserPasswordSchema,
   adminUserSchema,
 } from './admin.js'
-import { adminAdjustCreditsSchema, adminGrantCreditsSchema } from './billing.js'
+import {
+  adminAdjustCreditsSchema,
+  adminGrantCreditsSchema,
+  adminUpdateMembershipPlanSchema,
+  billingSummarySchema,
+  organizationBillingSummarySchema,
+} from './billing.js'
 
 const now = '2026-08-01T00:00:00.000Z'
 const meta = { limit: 50, offset: 0, total: 1 }
@@ -199,5 +205,65 @@ describe('admin console contracts', () => {
     ).toEqual({ required: true, revokeSessions: true })
     expect(adminGrantCreditsSchema.safeParse({ amount: 50, reason: 'Manual top-up' }).success).toBe(true)
     expect(adminAdjustCreditsSchema.safeParse({ amount: 0, reason: 'No-op' }).success).toBe(false)
+    expect(adminUpdateMembershipPlanSchema.parse({ plan: 'member' })).toEqual({
+      plan: 'member',
+      grantMonthlyCredits: true,
+    })
+  })
+
+  it('accepts organization billing summaries', () => {
+    expect(
+      billingSummarySchema.parse({
+        plan: 'member',
+        credits: 150,
+        billingScope: 'organization',
+        organizationPool: { tenantId: 'tenant-enterprise', organizationId: 'tenant-enterprise', credits: 150 },
+        concurrency: 3,
+        unlimitedConcurrency: false,
+        planSelfServiceEnabled: false,
+        monthlyUsage: {
+          periodStart: now,
+          consumedCredits: 7,
+          refundedCredits: 0,
+          netCredits: 7,
+          generationCount: 1,
+          includedCredits: 0,
+        },
+        entries: [],
+      }),
+    ).toMatchObject({ billingScope: 'organization', organizationPool: { credits: 150 } })
+
+    expect(
+      organizationBillingSummarySchema.parse({
+        tenantId: 'tenant-enterprise',
+        organizationId: 'tenant-enterprise',
+        credits: 150,
+        monthlyUsage: {
+          periodStart: now,
+          consumedCredits: 0,
+          refundedCredits: 0,
+          netCredits: 0,
+          generationCount: 0,
+          includedCredits: 0,
+        },
+        entries: [
+          {
+            id: 'organization-adjustment-1',
+            userId: null,
+            tenantId: 'tenant-enterprise',
+            membershipId: null,
+            referenceId: 'organization-adjustment-1',
+            relatedEntryId: null,
+            amount: 150,
+            balance: 150,
+            type: 'adjustment',
+            description: 'Organization top-up',
+            createdByUserId: 'user-owner',
+            metadata: { source: 'contract-test' },
+            createdAt: now,
+          },
+        ],
+      }),
+    ).toMatchObject({ credits: 150, entries: [expect.objectContaining({ userId: null })] })
   })
 })

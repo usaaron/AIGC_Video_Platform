@@ -26,6 +26,15 @@ export const ledgerEntrySchema = z.object({
   createdAt: z.string().datetime(),
 })
 
+export const organizationLedgerEntrySchema = ledgerEntrySchema.extend({
+  userId: z.string().min(1).nullable(),
+  membershipId: z.string().min(1).nullable(),
+  referenceId: z.string().min(1),
+  relatedEntryId: z.string().min(1).nullable(),
+  createdByUserId: z.string().min(1).nullable(),
+  metadata: z.record(z.string(), z.unknown()),
+})
+
 export const monthlyUsageSchema = z.object({
   periodStart: z.string().datetime(),
   consumedCredits: z.number().int().nonnegative(),
@@ -35,14 +44,32 @@ export const monthlyUsageSchema = z.object({
   includedCredits: z.number().int().nonnegative(),
 })
 
+export const billingScopeSchema = z.enum(['membership', 'organization'])
+
+export const organizationBillingPoolSchema = z.object({
+  tenantId: z.string().min(1),
+  organizationId: z.string().min(1),
+  credits: z.number().int().nonnegative(),
+})
+
 export const billingSummarySchema = z.object({
   plan: planSchema,
   credits: z.number().int().nonnegative(),
+  billingScope: billingScopeSchema.default('membership'),
+  organizationPool: organizationBillingPoolSchema.optional(),
   concurrency: z.number().int().positive(),
   unlimitedConcurrency: z.boolean().default(false),
   planSelfServiceEnabled: z.boolean(),
   monthlyUsage: monthlyUsageSchema,
   entries: z.array(ledgerEntrySchema),
+})
+
+export const organizationBillingSummarySchema = z.object({
+  tenantId: z.string().min(1),
+  organizationId: z.string().min(1),
+  credits: z.number().int().nonnegative(),
+  monthlyUsage: monthlyUsageSchema,
+  entries: z.array(organizationLedgerEntrySchema),
 })
 
 export const updatePlanSchema = z.object({ plan: planSchema })
@@ -154,10 +181,19 @@ export const adminAdjustCreditsSchema = z.object({
     .refine((amount) => amount !== 0, { message: 'Adjustment amount cannot be zero' }),
   reason: z.string().min(1).max(200),
 })
+export const adminUpdateMembershipPlanSchema = z.object({
+  plan: planSchema,
+  grantMonthlyCredits: z.boolean().default(true),
+  reason: z.string().min(1).max(200).optional(),
+})
 
 export type LedgerEntry = z.infer<typeof ledgerEntrySchema>
+export type OrganizationLedgerEntry = z.infer<typeof organizationLedgerEntrySchema>
 export type MonthlyUsage = z.infer<typeof monthlyUsageSchema>
+export type BillingScope = z.infer<typeof billingScopeSchema>
+export type OrganizationBillingPool = z.infer<typeof organizationBillingPoolSchema>
 export type BillingSummary = z.infer<typeof billingSummarySchema>
+export type OrganizationBillingSummary = z.infer<typeof organizationBillingSummarySchema>
 export type BillingCheckoutType = z.infer<typeof billingCheckoutTypeSchema>
 export type BillingPaymentProvider = z.infer<typeof billingPaymentProviderSchema>
 export type BillingPaymentConfiguration = z.infer<typeof billingPaymentConfigurationSchema>
@@ -171,3 +207,4 @@ export type BillingWebhookEvent = z.infer<typeof billingWebhookEventSchema>
 export type BillingWebhookEventType = z.infer<typeof billingWebhookEventTypeSchema>
 export type AdminGrantCreditsInput = z.infer<typeof adminGrantCreditsSchema>
 export type AdminAdjustCreditsInput = z.infer<typeof adminAdjustCreditsSchema>
+export type AdminUpdateMembershipPlanInput = z.infer<typeof adminUpdateMembershipPlanSchema>

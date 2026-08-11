@@ -103,7 +103,13 @@ export class AdminRepository {
               AND amount > 0
               AND id LIKE 'refund-%'
           )::int AS refund_count
-        FROM billing_ledger_entries
+        FROM (
+          SELECT id, tenant_id, entry_type, amount, created_at
+          FROM billing_ledger_entries
+          UNION ALL
+          SELECT id, tenant_id, entry_type, amount, created_at
+          FROM organization_billing_ledger_entries
+        ) entries
         WHERE created_at >= $1::timestamptz
           AND ($2::text IS NULL OR tenant_id = $2)
         `,

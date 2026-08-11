@@ -25,6 +25,7 @@ import { requirePermission } from '../../core/auth/authorization.js'
 import { SESSION_COOKIE } from '../../core/auth/provider.js'
 import { sessionMetadataFromRequest } from '../../core/auth/requestMetadata.js'
 import { AppError } from '../../core/errors.js'
+import type { CreditLedger } from '../billing/creditLedger.js'
 import type { UserRepository } from '../users/repository.js'
 import type { AccountManagementService } from './service.js'
 
@@ -39,6 +40,7 @@ export async function registerAccountManagementRoutes(
   service: AccountManagementService | null,
   secureCookies: boolean,
   users: UserRepository,
+  ledger: CreditLedger | null = null,
 ): Promise<void> {
   app.post(
     '/auth/registration-code/request',
@@ -104,6 +106,16 @@ export async function registerAccountManagementRoutes(
     if (service) return await service.listOrganizations(request.principal!)
     return await listLocalOrganizations(request.principal!, users)
   })
+
+  app.get(
+    '/organizations/:tenantId/billing/summary',
+    { preHandler: requirePermission(PERMISSIONS.BILLING_READ_ALL) },
+    async (request, reply) => {
+      const { tenantId } = parse(tenantParams, request.params)
+      reply.header('Cache-Control', 'no-store')
+      return await requireLedger(ledger).organizationBillingSummary(request.principal!, tenantId)
+    },
+  )
 
   app.patch(
     '/workspaces/:tenantId',
@@ -692,6 +704,13 @@ function requireService(service: AccountManagementService | null): AccountManage
     throw new AppError(503, 'ACCOUNT_DATABASE_REQUIRED', 'Postgres account database is required')
   }
   return service
+}
+
+function requireLedger(ledger: CreditLedger | null): CreditLedger {
+  if (!ledger) {
+    throw new AppError(503, 'BILLING_LEDGER_REQUIRED', 'Billing ledger is required')
+  }
+  return ledger
 }
 
 function sendSession(

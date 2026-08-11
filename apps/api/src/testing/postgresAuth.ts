@@ -55,6 +55,8 @@ export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
             audit_log_entries,
             password_reset_tokens,
             sessions,
+            organization_billing_ledger_entries,
+            organization_billing_accounts,
             billing_accounts,
             tenant_invitations,
             tenant_memberships,

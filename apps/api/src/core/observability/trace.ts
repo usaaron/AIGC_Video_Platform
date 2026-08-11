@@ -10,7 +10,7 @@ export function traceMetadata(
 ): Record<string, unknown> {
   if (!traceId) return metadata ?? {}
   return {
-    ...(metadata ?? {}),
+    ...metadata,
     traceId,
   }
 }
