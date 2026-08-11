@@ -1,10 +1,12 @@
-import { CalendarClock, Check, Crown, Gauge, LoaderCircle, ReceiptText, Zap } from 'lucide-react'
+import { Building2, CalendarClock, Check, Crown, Gauge, LoaderCircle, ReceiptText, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { PageHeader } from '../components/ui'
 import { api } from '../services/apiClient'
 
 export function BillingPage({ billing }) {
   const member = billing.plan === 'member'
+  const organizationScoped = billing.billingScope === 'organization'
+  const availableCredits = organizationScoped ? (billing.organizationPool?.credits ?? billing.credits) : billing.credits
   const [paymentConfig, setPaymentConfig] = useState(null)
   const [paymentBusy, setPaymentBusy] = useState('')
   const [paymentMessage, setPaymentMessage] = useState('')
@@ -34,8 +36,8 @@ export function BillingPage({ billing }) {
   }, [])
 
   const paymentEnabled = paymentConfig?.enabled === true
-  const subscribeEnabled = paymentEnabled && paymentConfig.memberSubscriptionEnabled && !member
-  const creditPurchaseEnabled = paymentEnabled && paymentConfig.creditPurchaseEnabled
+  const subscribeEnabled = paymentEnabled && paymentConfig.memberSubscriptionEnabled && !member && !organizationScoped
+  const creditPurchaseEnabled = paymentEnabled && paymentConfig.creditPurchaseEnabled && !organizationScoped
 
   const startCheckout = async (type) => {
     setPaymentBusy(type)
@@ -65,7 +67,7 @@ export function BillingPage({ billing }) {
             <Zap size={19} />
           </span>
           <p>
-            可用积分<strong>{billing.credits}</strong>
+            {organizationScoped ? '组织共享积分' : '可用积分'}<strong>{availableCredits}</strong>
           </p>
         </div>
         <div>
@@ -86,11 +88,11 @@ export function BillingPage({ billing }) {
         </div>
         <div className="plan-summary">
           <span className="membership-icon">
-            <Crown size={19} />
+            {organizationScoped ? <Building2 size={19} /> : <Crown size={19} />}
           </span>
           <div>
-            <span className="eyebrow">当前套餐</span>
-            <h2>{member ? '创作会员' : '免费版'}</h2>
+            <span className="eyebrow">{organizationScoped ? '组织共享池' : '当前套餐'}</span>
+            <h2>{organizationScoped ? '组织统一结算' : member ? '创作会员' : '免费版'}</h2>
             <p>
               {member ? '每月 500 积分，最多 3 路并发。' : '逐个生成任务，按实际生成扣积分。'}
               本月 {billing.monthlyUsage.generationCount} 个任务
@@ -101,26 +103,35 @@ export function BillingPage({ billing }) {
             </p>
           </div>
           <div className="billing-actions">
-            <button
-              className="button primary"
-              disabled={!subscribeEnabled || paymentBusy === 'subscription'}
-              onClick={() => startCheckout('subscription')}
-            >
-              {paymentBusy === 'subscription' ? (
-                <LoaderCircle size={15} className="spin" />
-              ) : (
-                <Crown size={15} />
-              )}
-              {member ? '会员已开通' : '订阅会员'}
-            </button>
-            <button
-              className="button"
-              disabled={!creditPurchaseEnabled || paymentBusy === 'credits'}
-              onClick={() => startCheckout('credits')}
-            >
-              {paymentBusy === 'credits' ? <LoaderCircle size={15} className="spin" /> : <Zap size={15} />}
-              充值 {paymentConfig?.creditPackCredits ?? '-'} 积分
-            </button>
+            {organizationScoped ? (
+              <button className="button" disabled>
+                <Building2 size={15} />
+                组织池由后台充值
+              </button>
+            ) : (
+              <>
+                <button
+                  className="button primary"
+                  disabled={!subscribeEnabled || paymentBusy === 'subscription'}
+                  onClick={() => startCheckout('subscription')}
+                >
+                  {paymentBusy === 'subscription' ? (
+                    <LoaderCircle size={15} className="spin" />
+                  ) : (
+                    <Crown size={15} />
+                  )}
+                  {member ? '会员已开通' : '订阅会员'}
+                </button>
+                <button
+                  className="button"
+                  disabled={!creditPurchaseEnabled || paymentBusy === 'credits'}
+                  onClick={() => startCheckout('credits')}
+                >
+                  {paymentBusy === 'credits' ? <LoaderCircle size={15} className="spin" /> : <Zap size={15} />}
+                  充值 {paymentConfig?.creditPackCredits ?? '-'} 积分
+                </button>
+              </>
+            )}
           </div>
         </div>
       </section>

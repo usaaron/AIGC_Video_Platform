@@ -588,6 +588,39 @@ function App() {
     if (FUNCTION_STACK_IDS.has(activeStep)) {
       return <FunctionStackPage tool={activeStep} />
     }
+    if (activeStep === 'billing') {
+      return (
+        <BillingPage
+          billing={billing}
+          onPlanChange={async (plan) => {
+            setBilling(await api.updatePlan(plan))
+            await refreshSession()
+            setToast(plan === 'member' ? '会员已开通，赠送 500 积分' : '已切换为免费版')
+          }}
+        />
+      )
+    }
+    if (activeStep === 'settings') {
+      return (
+        <SettingsPage
+          key={session.account.id}
+          account={session.account}
+          billing={billing}
+          canOpenAdminConsole={canOpenAdminAccounts}
+          adminConsoleUrl={adminConsoleUrl}
+          organizations={accountOrganizations}
+          sessions={accountSessions}
+          onLoadAccountScope={loadAccountScope}
+          onSwitchOrganization={switchAccountOrganization}
+          onRevokeSession={revokeAccountSession}
+          onInviteOrganizationMember={inviteOrganizationMember}
+          onOpenBilling={() => navigateTo('billing')}
+          onChangePassword={(input) => api.changePassword(input)}
+          onRequestEmailVerification={() => api.requestEmailVerification({ email: session.account.email })}
+          onLogout={logout}
+        />
+      )
+    }
     if (!project) {
       return (
         <div className="page empty-workspace">
