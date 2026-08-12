@@ -17,6 +17,7 @@ import {
   LogOut,
   MailPlus,
   Monitor,
+  MoreHorizontal,
   PencilLine,
   Plus,
   Power,
@@ -73,6 +74,7 @@ import {
 
 const tabs = [
   { id: 'overview', label: '概览', icon: Gauge },
+  { id: 'delivery', label: '交付', icon: Check },
   { id: 'usage-realtime', label: '实时用量', icon: Activity },
   { id: 'usage-users', label: '用户用量', icon: UsersRound },
   { id: 'usage-organizations', label: '组织用量', icon: Building2 },
@@ -90,12 +92,26 @@ const tabs = [
   { id: 'audit', label: '审计日志', icon: FileText },
 ]
 
+const tabGroups = [
+  {
+    label: '概览与用量',
+    tabIds: ['overview', 'delivery', 'usage-realtime', 'usage-users', 'usage-organizations'],
+  },
+  {
+    label: '账号与组织',
+    tabIds: ['users', 'personal-accounts', 'organizations', 'memberships', 'invitations'],
+  },
+  { label: '账单', tabIds: ['billing', 'reconciliation-alerts', 'adjustments'] },
+  { label: '风控审计', tabIds: ['compliance', 'sessions', 'session-risk', 'audit'] },
+]
+
 const loginInitialState = { email: '', password: '' }
 const adjustmentInitialState = { amount: '', reason: '' }
 const grantInitialState = { amount: '', reason: '' }
 const organizationBillingAdjustmentInitialState = { amount: '', reason: '' }
 const membershipPlanInitialState = { plan: 'free', grantMonthlyCredits: true, reason: '' }
 const passwordInitialState = { newPassword: '', requireChange: true, revokeSessions: true }
+const renameOrganizationInitialState = { name: '' }
 const reconciliationAlertMessageDefaults = {
   acknowledged: '已确认，正在处理',
   resolved: '已解决，已完成对账',
@@ -117,6 +133,11 @@ const createUserInitialState = {
 }
 const addExistingMemberInitialState = { organizationId: '', email: '', role: 'organization_member' }
 const createInvitationInitialState = { kind: 'platform', organizationId: '', email: '', role: 'member' }
+const batchOrganizationInvitationInitialState = {
+  organizationId: '',
+  role: 'organization_member',
+  emails: '',
+}
 const sessionRiskAuditInitialState = { userId: '', items: [], loading: false, error: '' }
 const consoleFilterInitialState = { tenantId: '', role: '', status: '', limit: 50, offset: 0 }
 const complianceFilterInitialState = {
@@ -125,6 +146,7 @@ const complianceFilterInitialState = {
   tenantId: '',
   source: '',
   category: 'all',
+  queue: 'all',
   limit: 50,
   offset: 0,
   sample: false,
@@ -167,9 +189,14 @@ const organizationAdminTransferInitialState = {
 const WEB_ORIGIN = (import.meta.env.VITE_WEB_ORIGIN || 'http://localhost:5173').replace(/\/+$/, '')
 const organizationScopedRoles = new Set(['organization_admin', 'organization_member'])
 const usageTabIds = new Set(['usage-realtime', 'usage-users', 'usage-organizations'])
+const workflowTabIds = new Set(['delivery'])
 
 function isUsageTab(tabId) {
   return usageTabIds.has(tabId)
+}
+
+function usesConsoleServerControls(tabId) {
+  return !isUsageTab(tabId) && tabId !== 'compliance' && !workflowTabIds.has(tabId)
 }
 
 function roleRequiresOrganization(role) {
@@ -200,6 +227,32 @@ function invitationScopeName(scope) {
 
 function invitationUrlFor(token) {
   return `${WEB_ORIGIN}/register?token=${encodeURIComponent(token)}`
+}
+
+function disabledButtonProps(disabled, reason) {
+  return {
+    disabled,
+    title: disabled ? reason || '当前状态下不可操作' : undefined,
+  }
+}
+
+function billingAdjustmentDisabledReason({
+  canManage,
+  selectedAccount,
+  canManageTarget,
+  validAmount,
+  hasReason,
+  projectedBalance,
+  busy,
+}) {
+  if (!canManage) return '当前身份不能进行账单调账'
+  if (!selectedAccount) return '请先选择调账目标'
+  if (!canManageTarget) return '当前身份不能调整该账号归属的账单'
+  if (!validAmount) return '积分变化必须是非 0 整数'
+  if (!hasReason) return '请填写调账原因'
+  if (projectedBalance < 0) return '预计余额不能小于 0'
+  if (busy) return '正在提交调账'
+  return ''
 }
 
 export function App() {
@@ -254,6 +307,8 @@ export function App() {
   const [reconciliationAlertMessage, setReconciliationAlertMessage] = useState('')
   const [passwordTarget, setPasswordTarget] = useState(null)
   const [passwordForm, setPasswordForm] = useState(passwordInitialState)
+  const [renameOrganizationTarget, setRenameOrganizationTarget] = useState(null)
+  const [renameOrganizationForm, setRenameOrganizationForm] = useState(renameOrganizationInitialState)
   const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false)
   const [createOrganizationForm, setCreateOrganizationForm] = useState(createOrganizationInitialState)
   const [createOrganizationWithAdminOpen, setCreateOrganizationWithAdminOpen] = useState(false)
@@ -267,6 +322,11 @@ export function App() {
   const [createInvitationOpen, setCreateInvitationOpen] = useState(false)
   const [createInvitationForm, setCreateInvitationForm] = useState(createInvitationInitialState)
   const [createdInvitation, setCreatedInvitation] = useState(null)
+  const [batchOrganizationInvitationOpen, setBatchOrganizationInvitationOpen] = useState(false)
+  const [batchOrganizationInvitationForm, setBatchOrganizationInvitationForm] = useState(
+    batchOrganizationInvitationInitialState,
+  )
+  const [batchOrganizationInvitationResult, setBatchOrganizationInvitationResult] = useState(null)
   const [invitationManagerTarget, setInvitationManagerTarget] = useState(null)
   const [platformInvitationItems, setPlatformInvitationItems] = useState([])
   const [invitationItems, setInvitationItems] = useState([])
@@ -284,6 +344,24 @@ export function App() {
   const [organizationAdminTransferForm, setOrganizationAdminTransferForm] = useState(
     organizationAdminTransferInitialState,
   )
+  const [nextStepHint, setNextStepHint] = useState(null)
+  const [confirmRequest, setConfirmRequest] = useState(null)
+
+  const confirmAction = (request) =>
+    new Promise((resolve) => {
+      setConfirmRequest({
+        tone: 'default',
+        confirmLabel: '确认',
+        cancelLabel: '取消',
+        ...request,
+        resolve,
+      })
+    })
+
+  const closeConfirmAction = (confirmed) => {
+    if (confirmRequest?.resolve) confirmRequest.resolve(confirmed)
+    setConfirmRequest(null)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -311,6 +389,15 @@ export function App() {
     () => tabs.filter((tab) => !tab.platformOnly || canReviewCompliance),
     [canReviewCompliance],
   )
+  const visibleTabGroups = useMemo(() => {
+    const visibleTabById = new Map(visibleTabs.map((tab) => [tab.id, tab]))
+    return tabGroups
+      .map((group) => ({
+        ...group,
+        tabs: group.tabIds.map((tabId) => visibleTabById.get(tabId)).filter(Boolean),
+      }))
+      .filter((group) => group.tabs.length > 0)
+  }, [visibleTabs])
 
   const consoleRequestParams = useMemo(
     () => ({
@@ -440,14 +527,16 @@ export function App() {
   )
   const compliancePromptItems = useMemo(() => compliancePrompts?.items ?? [], [compliancePrompts])
   const visibleCompliancePromptItems = useMemo(() => {
-    if (complianceFilters.category === 'all') return compliancePromptItems
-    if (complianceFilters.category === 'none') {
-      return compliancePromptItems.filter((item) => item.riskTags.length === 0)
-    }
-    return compliancePromptItems.filter((item) =>
-      item.riskTags.some((tag) => tag.category === complianceFilters.category),
-    )
-  }, [complianceFilters.category, compliancePromptItems])
+    const categoryFiltered =
+      complianceFilters.category === 'all'
+        ? compliancePromptItems
+        : complianceFilters.category === 'none'
+          ? compliancePromptItems.filter((item) => item.riskTags.length === 0)
+          : compliancePromptItems.filter((item) =>
+              item.riskTags.some((tag) => tag.category === complianceFilters.category),
+            )
+    return categoryFiltered.filter((item) => complianceQueueMatches(item, complianceFilters.queue))
+  }, [complianceFilters.category, complianceFilters.queue, compliancePromptItems])
   const complianceDetailTarget = useMemo(
     () => compliancePromptItems.find((item) => item.id === complianceDetailId) ?? null,
     [compliancePromptItems, complianceDetailId],
@@ -685,9 +774,19 @@ export function App() {
 
   const setUserStatus = async (user) => {
     const nextStatus = user.status === 'active' ? 'disabled' : 'active'
-    const confirmed = window.confirm(
-      `确认${nextStatus === 'disabled' ? '禁用' : '启用'}账号 ${user.name}？\n\n账号：${user.email ?? user.id}`,
-    )
+    const confirmed = await confirmAction({
+      title: `${nextStatus === 'disabled' ? '禁用' : '启用'}账号`,
+      tone: nextStatus === 'disabled' ? 'danger' : 'default',
+      summary:
+        nextStatus === 'disabled' ? '该账号将无法继续登录和使用平台。' : '该账号将恢复登录和使用权限。',
+      details: [
+        { label: '账号', value: user.email ?? user.id },
+        { label: '用户', value: user.name },
+        { label: '目标状态', value: statusName(nextStatus) },
+      ],
+      confirmLabel: nextStatus === 'disabled' ? '确认禁用' : '确认启用',
+      busyId: `user:${user.id}`,
+    })
     if (!confirmed) return
     await runAction(`user:${user.id}`, async () => {
       await api.updateUserStatus(user.id, nextStatus)
@@ -703,9 +802,18 @@ export function App() {
   }
 
   const forcePasswordReset = async (user) => {
-    const confirmed = window.confirm(
-      `确认强制 ${user.name} 下次登录修改密码？\n\n账号：${user.email ?? user.id}\n现有 session 将被撤销。`,
-    )
+    const confirmed = await confirmAction({
+      title: '强制账号改密',
+      tone: 'danger',
+      summary: '系统会要求该账号下次登录修改密码，并撤销现有 session。',
+      details: [
+        { label: '账号', value: user.email ?? user.id },
+        { label: '用户', value: user.name },
+      ],
+      impact: '适用于疑似密码泄露、合规风险或交付临时密码后的安全收尾。',
+      confirmLabel: '强制改密',
+      busyId: `force-password:${user.id}`,
+    })
     if (!confirmed) return
     await runAction(`force-password:${user.id}`, async () => {
       await api.updatePasswordResetRequirement(user.id, { required: true, revokeSessions: true })
@@ -714,7 +822,7 @@ export function App() {
     })
   }
 
-  const openCreateUser = (organizationId = '') => {
+  const openCreateUser = (organizationId = '', preferredRole = '') => {
     const isOrganizationScope = Boolean(organizationId)
     const organization = isOrganizationScope
       ? (creatableOrganizations.find((item) => item.id === organizationId) ?? creatableOrganizations[0])
@@ -724,7 +832,7 @@ export function App() {
         ? assignableRoleOptions(session, organization).filter(roleRequiresOrganization)
         : []
       : assignableRoleOptions(session, null).filter((item) => item === 'member' || item === 'admin')
-    const role = roles[0]
+    const role = roles.includes(preferredRole) ? preferredRole : roles[0]
     if (!roles.length || !role) {
       setNotice('当前身份不允许添加账号')
       return
@@ -811,6 +919,24 @@ export function App() {
       role,
     })
     setCreateInvitationOpen(true)
+  }
+
+  const openBatchOrganizationInvitation = (organizationId = '', role = 'organization_member') => {
+    const candidates = invitableOrganizationItems.filter((organization) =>
+      organizationInvitationRoleOptions(session, organization).includes(role),
+    )
+    const organization = candidates.find((item) => item.id === organizationId) ?? candidates[0]
+    if (!organization) {
+      setNotice(`当前身份不能批量邀请${roleName(role)}`)
+      return
+    }
+    setBatchOrganizationInvitationForm({
+      ...batchOrganizationInvitationInitialState,
+      organizationId: organization.id,
+      role,
+    })
+    setBatchOrganizationInvitationResult(null)
+    setBatchOrganizationInvitationOpen(true)
   }
 
   async function loadOrganizationInvitations(organization = invitationManagerTarget) {
@@ -987,9 +1113,21 @@ export function App() {
     const scopeLine = needsOrganization
       ? `组织：${organizationName}`
       : `范围：${platformRoleScopeName(createUserForm.role)}`
-    const confirmed = window.confirm(
-      `确认创建 ${roleName(createUserForm.role)} 账号？\n\n邮箱：${createUserForm.email.trim()}\n${scopeLine}`,
-    )
+    const confirmed = await confirmAction({
+      title: `创建${roleName(createUserForm.role)}账号`,
+      summary: '将直接创建账号并设置初始临时密码。',
+      details: [
+        { label: '邮箱', value: createUserForm.email.trim() },
+        { label: '身份', value: roleName(createUserForm.role) },
+        {
+          label: needsOrganization ? '企业组织' : '范围',
+          value: needsOrganization ? organizationName : scopeLine,
+        },
+      ],
+      impact: '直接创建账号适合代建交付；优先让客户通过邀请自行注册以避免运营接触密码。',
+      confirmLabel: '创建账号',
+      busyId: 'create-user',
+    })
     if (!confirmed) return
     await runAction('create-user', async () => {
       const payload = {
@@ -1006,6 +1144,18 @@ export function App() {
       setCreateUserOpen(false)
       setCreateUserForm(createUserInitialState)
       await loadConsole()
+      setNextStepHint({
+        title: needsOrganization ? '组织账号已创建' : '个人账号已创建',
+        description: needsOrganization
+          ? '继续完成组织账号交付：需要时给成员改套餐，或在组织共享池给企业充值。'
+          : '继续完成个人交付：可以给个人账号充值、改套餐，并把临时密码交付给用户。',
+        actions: [
+          { label: '去账单调账', tabId: 'adjustments', icon: PencilLine },
+          needsOrganization
+            ? { label: '查看企业组织', tabId: 'organizations', icon: Building2 }
+            : { label: '查看个人账号', tabId: 'personal-accounts', icon: IdCard },
+        ],
+      })
       setNotice('账号已创建')
     })
   }
@@ -1013,9 +1163,14 @@ export function App() {
   const submitCreateOrganization = async (event) => {
     event.preventDefault()
     const name = createOrganizationForm.name.trim()
-    const confirmed = window.confirm(
-      `确认创建企业组织？\n\n组织名称：${name}\n创建后不会切换当前后台登录组织。`,
-    )
+    const confirmed = await confirmAction({
+      title: '创建企业组织',
+      summary: '创建后不会切换当前后台登录组织。',
+      details: [{ label: '企业组织', value: name }],
+      impact: '创建后还需要创建或邀请组织管理员，并给组织共享池充值。',
+      confirmLabel: '创建企业组织',
+      busyId: 'create-organization',
+    })
     if (!confirmed) return
     await runAction('create-organization', async () => {
       const organization = await api.createOrganization({ name })
@@ -1023,6 +1178,32 @@ export function App() {
       setCreateOrganizationForm(createOrganizationInitialState)
       await loadConsole()
       setOrganizationDetailId(organization.id)
+      setNextStepHint({
+        title: '企业组织已创建',
+        description: '下一步通常是创建或邀请组织管理员，再给组织共享积分池充值。',
+        actions: [
+          {
+            label: '直接创建组织管理员',
+            run: () => openCreateUser(organization.id, 'organization_admin'),
+            icon: Crown,
+          },
+          {
+            label: '邀请组织管理员',
+            run: () => openCreateOrganizationInvitation(organization.id, 'organization_admin'),
+            icon: MailPlus,
+          },
+          {
+            label: '邀请组织成员',
+            run: () => openCreateOrganizationInvitation(organization.id),
+            icon: MailPlus,
+          },
+          {
+            label: '组织共享池',
+            run: () => openOrganizationBilling(organization),
+            icon: CreditCard,
+          },
+        ],
+      })
       setNotice('组织已创建')
     })
   }
@@ -1032,9 +1213,17 @@ export function App() {
     const organizationName = createOrganizationWithAdminForm.organizationName.trim()
     const adminEmail = createOrganizationWithAdminForm.adminEmail.trim()
     const adminName = createOrganizationWithAdminForm.adminName.trim()
-    const confirmed = window.confirm(
-      `确认创建企业组织并直接创建首个组织管理员？\n\n组织：${organizationName}\n管理员：${adminName} <${adminEmail}>\n\n如果管理员账号创建失败，已创建的企业组织会保留。`,
-    )
+    const confirmed = await confirmAction({
+      title: '创建企业组织和首个管理员',
+      summary: '系统会先创建企业组织，再直接创建 organization_admin 账号。',
+      details: [
+        { label: '企业组织', value: organizationName },
+        { label: '管理员', value: `${adminName} <${adminEmail}>` },
+      ],
+      impact: '如果管理员账号创建失败，已创建的企业组织会保留，需要进入组织详情补建或邀请管理员。',
+      confirmLabel: '创建组织和管理员',
+      busyId: 'create-organization-with-admin',
+    })
     if (!confirmed) return
     await runAction('create-organization-with-admin', async () => {
       const organization = await api.createOrganization({ name: organizationName })
@@ -1058,6 +1247,19 @@ export function App() {
       setCreateOrganizationWithAdminForm(createOrganizationWithAdminInitialState)
       await loadConsole()
       setOrganizationDetailId(organization.id)
+      setNextStepHint({
+        title: '企业组织和首个管理员已创建',
+        description: '继续完成 B 端交付：给组织共享池充值、邀请成员，或查看组织详情核对成员。',
+        actions: [
+          { label: '组织共享池充值', run: () => openOrganizationBilling(organization), icon: CreditCard },
+          {
+            label: '邀请组织成员',
+            run: () => openCreateOrganizationInvitation(organization.id),
+            icon: MailPlus,
+          },
+          { label: '查看企业组织', tabId: 'organizations', icon: Building2 },
+        ],
+      })
       setNotice('企业组织和首个组织管理员已创建')
     })
   }
@@ -1067,9 +1269,18 @@ export function App() {
     const organization = addExistingMemberOrganization
     if (!organization) return
     const email = addExistingMemberForm.email.trim()
-    const confirmed = window.confirm(
-      `确认把已有账号加入组织？\n\n组织：${organization.name}\n账号：${email}\n身份：${roleName(addExistingMemberForm.role)}`,
-    )
+    const confirmed = await confirmAction({
+      title: '加入已有账号',
+      summary: '会把已有平台账号加入指定企业组织。',
+      details: [
+        { label: '企业组织', value: organization.name },
+        { label: '账号', value: email },
+        { label: '身份', value: roleName(addExistingMemberForm.role) },
+      ],
+      impact: '适合客户已有个人账号或历史账号，不会重复创建同邮箱账号。',
+      confirmLabel: '加入组织',
+      busyId: 'add-existing-member',
+    })
     if (!confirmed) return
     await runAction('add-existing-member', async () => {
       await api.addExistingOrganizationMember(organization.id, {
@@ -1079,6 +1290,18 @@ export function App() {
       setAddExistingMemberOpen(false)
       setAddExistingMemberForm(addExistingMemberInitialState)
       await loadConsole()
+      setNextStepHint({
+        title: '已有账号已加入企业组织',
+        description: '可以继续邀请成员，或打开组织共享池确认企业共享余额。',
+        actions: [
+          { label: '组织共享池', run: () => openOrganizationBilling(organization), icon: CreditCard },
+          {
+            label: '邀请组织成员',
+            run: () => openCreateOrganizationInvitation(organization.id),
+            icon: MailPlus,
+          },
+        ],
+      })
       setNotice('已有账号已加入组织')
     })
   }
@@ -1092,9 +1315,20 @@ export function App() {
     const scopeLine = needsOrganization
       ? `企业组织：${organizationName}`
       : '范围：普通成员个人空间（注册后自动创建）'
-    const confirmed = window.confirm(
-      `确认创建 ${roleName(invitationRole)} 邀请？\n\n邮箱：${email}\n${scopeLine}\n受邀人注册后会获得该身份。`,
-    )
+    const confirmed = await confirmAction({
+      title: `创建${roleName(invitationRole)}邀请`,
+      summary: '受邀人注册后会获得该身份。',
+      details: [
+        { label: '受邀邮箱', value: email },
+        { label: '身份', value: roleName(invitationRole) },
+        {
+          label: needsOrganization ? '企业组织' : '范围',
+          value: needsOrganization ? organizationName : scopeLine,
+        },
+      ],
+      confirmLabel: '创建邀请',
+      busyId: 'create-invitation',
+    })
     if (!confirmed) return
     await runAction('create-invitation', async () => {
       const payload = {
@@ -1121,15 +1355,98 @@ export function App() {
         await loadPlatformInvitations()
       }
       await loadConsole()
+      setNextStepHint({
+        title: needsOrganization ? '企业组织邀请已创建' : '普通成员邀请已创建',
+        description: needsOrganization
+          ? '把注册链接交给客户，受邀人完成注册后会进入指定企业组织。'
+          : '把注册链接交给 C 端用户，注册后会进入自己的个人空间。',
+        actions: [
+          {
+            label: '查看邀请',
+            tabId: 'invitations',
+            icon: MailPlus,
+          },
+          needsOrganization
+            ? { label: '查看企业组织', tabId: 'organizations', icon: Building2 }
+            : { label: '查看个人账号', tabId: 'personal-accounts', icon: IdCard },
+        ],
+      })
       setNotice('邀请已创建，请保存邀请码')
+    })
+  }
+
+  const submitBatchOrganizationInvitations = async (event) => {
+    event.preventDefault()
+    const organization =
+      enterpriseOrganizationItems.find(
+        (item) => item.id === batchOrganizationInvitationForm.organizationId,
+      ) ?? null
+    if (!organization) return
+    const emails = parseEmailLines(batchOrganizationInvitationForm.emails)
+    const roles = organizationInvitationRoleOptions(session, organization)
+    const role = roles.includes(batchOrganizationInvitationForm.role)
+      ? batchOrganizationInvitationForm.role
+      : roles[0]
+    if (!role || !emails.valid.length) return
+    const confirmed = await confirmAction({
+      title: '批量邀请企业成员',
+      summary: '系统会逐个生成组织邀请；已经存在或格式错误的邮箱会在结果里单独列出。',
+      details: [
+        { label: '企业组织', value: organization.name },
+        { label: '身份', value: roleName(role) },
+        { label: '有效邮箱', value: emails.valid.length },
+        { label: '格式错误', value: emails.invalid.length },
+      ],
+      impact: '批量邀请只发送注册入口，不会直接创建明文密码账号。',
+      confirmLabel: '开始批量邀请',
+      busyId: 'batch-organization-invitations',
+    })
+    if (!confirmed) return
+    await runAction('batch-organization-invitations', async () => {
+      const created = []
+      const failed = emails.invalid.map((email) => ({ email, message: '邮箱格式不正确' }))
+      for (const email of emails.valid) {
+        try {
+          const invitation = await api.createOrganizationInvitation(organization.id, {
+            email,
+            roles: [role],
+          })
+          created.push(invitation)
+        } catch (requestError) {
+          failed.push({ email, message: requestError.message })
+        }
+      }
+      setBatchOrganizationInvitationResult({ organization, role, created, failed })
+      if (activeTab === 'invitations' && invitationPageOrganization?.id === organization.id) {
+        await loadOrganizationInvitations(invitationPageOrganization)
+      }
+      await loadConsole()
+      setNextStepHint({
+        title: '批量邀请已处理',
+        description: `成功 ${created.length} 个，失败 ${failed.length} 个。请复制成功生成的注册链接并交付给客户。`,
+        actions: [
+          { label: '查看邀请', tabId: 'invitations', icon: MailPlus },
+          { label: '查看企业组织', tabId: 'organizations', icon: Building2 },
+        ],
+      })
+      setNotice(`批量邀请完成：成功 ${created.length} 个，失败 ${failed.length} 个`)
     })
   }
 
   const reissueInvitation = async (invitation, organization = invitationManagerTarget) => {
     if (!organization) return
-    const confirmed = window.confirm(
-      `确认重新生成邀请码？\n\n邮箱：${invitation.email}\n组织：${organization.name}\n身份：${invitation.roles.map(roleName).join('、')}\n旧邀请码将立即失效。`,
-    )
+    const confirmed = await confirmAction({
+      title: '重新生成邀请码',
+      tone: 'danger',
+      summary: '旧邀请码将立即失效。',
+      details: [
+        { label: '邮箱', value: invitation.email },
+        { label: '企业组织', value: organization.name },
+        { label: '身份', value: invitation.roles.map(roleName).join('、') },
+      ],
+      confirmLabel: '重新生成',
+      busyId: `invitation-reissue:${invitation.id}`,
+    })
     if (!confirmed) return
     await runAction(`invitation-reissue:${invitation.id}`, async () => {
       const nextInvitation = await api.createOrganizationInvitation(organization.id, {
@@ -1145,9 +1462,17 @@ export function App() {
 
   const revokeInvitation = async (invitation, organization = invitationManagerTarget) => {
     if (!organization) return
-    const confirmed = window.confirm(
-      `确认撤销邀请？\n\n邮箱：${invitation.email}\n组织：${organization.name}\n撤销后该邀请码不能再注册。`,
-    )
+    const confirmed = await confirmAction({
+      title: '撤销企业组织邀请',
+      tone: 'danger',
+      summary: '撤销后该邀请码不能再注册。',
+      details: [
+        { label: '邮箱', value: invitation.email },
+        { label: '企业组织', value: organization.name },
+      ],
+      confirmLabel: '撤销邀请',
+      busyId: `invitation-revoke:${invitation.id}`,
+    })
     if (!confirmed) return
     await runAction(`invitation-revoke:${invitation.id}`, async () => {
       await api.revokeOrganizationInvitation(organization.id, invitation.id)
@@ -1158,9 +1483,17 @@ export function App() {
   }
 
   const revokePlatformInvitation = async (invitation) => {
-    const confirmed = window.confirm(
-      `确认撤销普通成员邀请？\n\n邮箱：${invitation.email}\n撤销后该邀请码不能再注册。`,
-    )
+    const confirmed = await confirmAction({
+      title: '撤销普通成员邀请',
+      tone: 'danger',
+      summary: '撤销后该邀请码不能再注册。',
+      details: [
+        { label: '邮箱', value: invitation.email },
+        { label: '范围', value: '普通成员个人空间' },
+      ],
+      confirmLabel: '撤销邀请',
+      busyId: `platform-invitation-revoke:${invitation.id}`,
+    })
     if (!confirmed) return
     await runAction(`platform-invitation-revoke:${invitation.id}`, async () => {
       await api.revokePlatformInvitation(invitation.id)
@@ -1180,23 +1513,51 @@ export function App() {
     }
   }
 
-  const renameOrganization = async (organization) => {
-    const nextName = window.prompt('输入新的组织名称', organization.name)
-    const name = nextName?.trim()
-    if (!name || name === organization.name) return
-    const confirmed = window.confirm(`确认重命名组织？\n\n当前名称：${organization.name}\n新名称：${name}`)
+  const openRenameOrganization = (organization) => {
+    if (!canManageOrganization(session, organization)) {
+      setNotice('当前身份不能重命名该组织')
+      return
+    }
+    setRenameOrganizationTarget(organization)
+    setRenameOrganizationForm({ name: organization.name })
+  }
+
+  const submitRenameOrganization = async (event) => {
+    event.preventDefault()
+    if (!renameOrganizationTarget) return
+    const name = renameOrganizationForm.name.trim()
+    if (!name || name === renameOrganizationTarget.name) return
+    const confirmed = await confirmAction({
+      title: '重命名组织',
+      details: [
+        { label: '当前名称', value: renameOrganizationTarget.name },
+        { label: '新名称', value: name },
+      ],
+      confirmLabel: '重命名',
+      busyId: `organization-rename:${renameOrganizationTarget.id}`,
+    })
     if (!confirmed) return
-    await runAction(`organization-rename:${organization.id}`, async () => {
-      await api.updateOrganization(organization.id, { name })
+    await runAction(`organization-rename:${renameOrganizationTarget.id}`, async () => {
+      await api.updateOrganization(renameOrganizationTarget.id, { name })
+      setRenameOrganizationTarget(null)
+      setRenameOrganizationForm(renameOrganizationInitialState)
       await loadConsole()
       setNotice('组织已重命名')
     })
   }
 
   const disableOrganization = async (organization) => {
-    const confirmed = window.confirm(
-      `确认禁用组织 ${organization.name}？\n\n该组织下现有 session 将失效，创作端无法继续访问。`,
-    )
+    const confirmed = await confirmAction({
+      title: '禁用组织',
+      tone: 'danger',
+      summary: '该组织下现有 session 将失效，创作端无法继续访问。',
+      details: [
+        { label: '组织', value: organization.name },
+        { label: '组织 ID', value: organization.id },
+      ],
+      confirmLabel: '禁用组织',
+      busyId: `organization-disable:${organization.id}`,
+    })
     if (!confirmed) return
     await runAction(`organization-disable:${organization.id}`, async () => {
       await api.disableOrganization(organization.id)
@@ -1206,9 +1567,14 @@ export function App() {
   }
 
   const leaveOrganization = async (organization) => {
-    const confirmed = window.confirm(
-      `确认退出组织？\n\n组织：${organization.name}\n退出后当前组织下的 session 会失效。`,
-    )
+    const confirmed = await confirmAction({
+      title: '退出组织',
+      tone: 'danger',
+      summary: '退出后当前组织下的 session 会失效。',
+      details: [{ label: '组织', value: organization.name }],
+      confirmLabel: '退出组织',
+      busyId: `organization-leave:${organization.id}`,
+    })
     if (!confirmed) return
     await runAction(`organization-leave:${organization.id}`, async () => {
       const nextSession = await api.leaveOrganization(organization.id)
@@ -1258,9 +1624,21 @@ export function App() {
         membership.tenantId === organizationAdminTransferTarget.id &&
         membership.userId === organizationAdminTransferForm.currentOrganizationAdminUserId,
     )
-    const confirmed = window.confirm(
-      `确认更换组织负责人？\n\n组织：${organizationAdminTransferTarget.name}\n当前负责人：${current?.name ?? organizationAdminTransferForm.currentOrganizationAdminUserId}\n新负责人：${target?.name ?? organizationAdminTransferForm.targetUserId}\n当前负责人将降为组织成员`,
-    )
+    const confirmed = await confirmAction({
+      title: '更换组织负责人',
+      tone: 'danger',
+      summary: '当前负责人将降为组织成员。',
+      details: [
+        { label: '组织', value: organizationAdminTransferTarget.name },
+        {
+          label: '当前负责人',
+          value: current?.name ?? organizationAdminTransferForm.currentOrganizationAdminUserId,
+        },
+        { label: '新负责人', value: target?.name ?? organizationAdminTransferForm.targetUserId },
+      ],
+      confirmLabel: '更换负责人',
+      busyId: `organization-admin-change:${organizationAdminTransferTarget.id}`,
+    })
     if (!confirmed) return
     await runAction(`organization-admin-change:${organizationAdminTransferTarget.id}`, async () => {
       await api.transferOrganizationAdmin(organizationAdminTransferTarget.id, {
@@ -1275,9 +1653,16 @@ export function App() {
   }
 
   const updateMembershipRole = async (membership, role) => {
-    const confirmed = window.confirm(
-      `确认修改成员角色？\n\n成员：${membership.name}\n组织：${membership.tenantName}\n新角色：${roleName(role)}`,
-    )
+    const confirmed = await confirmAction({
+      title: '修改成员角色',
+      details: [
+        { label: '成员', value: membership.name },
+        { label: '组织', value: membership.tenantName },
+        { label: '新角色', value: roleName(role) },
+      ],
+      confirmLabel: '修改角色',
+      busyId: `member-role:${membership.id}`,
+    })
     if (!confirmed) return
     await runAction(`member-role:${membership.id}`, async () => {
       await api.updateMemberRoles(membership.id, [role])
@@ -1287,9 +1672,18 @@ export function App() {
   }
 
   const disableMembership = async (membership) => {
-    const confirmed = window.confirm(
-      `确认移除或禁用该成员？\n\n成员：${membership.name}\n组织：${membership.tenantName}\n角色：${membership.roles.map(roleName).join('、')}`,
-    )
+    const confirmed = await confirmAction({
+      title: '禁用账号归属',
+      tone: 'danger',
+      summary: '该成员在此组织/空间下的归属会被禁用。',
+      details: [
+        { label: '成员', value: membership.name },
+        { label: '组织', value: membership.tenantName },
+        { label: '角色', value: membership.roles.map(roleName).join('、') },
+      ],
+      confirmLabel: '禁用归属',
+      busyId: `member-disable:${membership.id}`,
+    })
     if (!confirmed) return
     await runAction(`member-disable:${membership.id}`, async () => {
       await api.disableMembership(membership.id)
@@ -1301,11 +1695,19 @@ export function App() {
   const submitPasswordReset = async (event) => {
     event.preventDefault()
     if (!passwordTarget) return
-    const confirmed = window.confirm(
-      `确认给 ${passwordTarget.name} 设置临时密码？\n\n账号：${passwordTarget.email ?? passwordTarget.id}\n${
-        passwordForm.requireChange ? '登录后必须再次修改密码。' : '登录后不会强制再次修改密码。'
-      }\n${passwordForm.revokeSessions ? '现有 session 将被撤销。' : '现有 session 将保留。'}`,
-    )
+    const confirmed = await confirmAction({
+      title: '设置临时密码',
+      tone: passwordForm.revokeSessions ? 'danger' : 'default',
+      details: [
+        { label: '账号', value: passwordTarget.email ?? passwordTarget.id },
+        { label: '用户', value: passwordTarget.name },
+        { label: '登录后改密', value: passwordForm.requireChange ? '必须修改' : '不强制' },
+        { label: '现有 session', value: passwordForm.revokeSessions ? '撤销' : '保留' },
+      ],
+      impact: '代建账号交付后建议要求用户首次登录修改密码，并撤销旧 session。',
+      confirmLabel: '设置临时密码',
+      busyId: `password:${passwordTarget.id}`,
+    })
     if (!confirmed) return
     await runAction(`password:${passwordTarget.id}`, async () => {
       await api.setUserPassword(passwordTarget.id, passwordForm)
@@ -1317,9 +1719,17 @@ export function App() {
   }
 
   const revokeSession = async (targetSession) => {
-    const confirmed = window.confirm(
-      `确认撤销 ${targetSession.name} 的 session？\n\n设备：${targetSession.deviceLabel ?? '未记录'}\nIP：${targetSession.ipAddress ?? '未记录'}`,
-    )
+    const confirmed = await confirmAction({
+      title: '撤销 Session',
+      tone: 'danger',
+      details: [
+        { label: '用户', value: targetSession.name },
+        { label: '设备', value: targetSession.deviceLabel ?? '未记录' },
+        { label: 'IP', value: targetSession.ipAddress ?? '未记录' },
+      ],
+      confirmLabel: '撤销 Session',
+      busyId: `session:${targetSession.sessionId}`,
+    })
     if (!confirmed) return
     await runAction(`session:${targetSession.sessionId}`, async () => {
       await api.revokeSession(targetSession.sessionId)
@@ -1329,9 +1739,17 @@ export function App() {
   }
 
   const revokeUserSessions = async (targetSession) => {
-    const confirmed = window.confirm(
-      `确认踢下线该用户的全部活跃 session？\n\n用户：${targetSession.name}\n账号：${targetSession.email ?? targetSession.userId}\n这个操作会撤销该用户当前所有活跃 session。`,
-    )
+    const confirmed = await confirmAction({
+      title: '踢用户下线',
+      tone: 'danger',
+      summary: '这个操作会撤销该用户当前所有活跃 session。',
+      details: [
+        { label: '用户', value: targetSession.name },
+        { label: '账号', value: targetSession.email ?? targetSession.userId },
+      ],
+      confirmLabel: '踢下线',
+      busyId: `user-sessions:${targetSession.userId}`,
+    })
     if (!confirmed) return
     await runAction(`user-sessions:${targetSession.userId}`, async () => {
       const result = await api.revokeUserSessions(targetSession.userId)
@@ -1388,9 +1806,24 @@ export function App() {
     }
     const amount = Number(adjustmentForm.amount)
     const reason = adjustmentForm.reason.trim()
-    const confirmed = window.confirm(
-      `确认对 ${adjustTarget.name} 执行调账？\n\nMembership：${membershipId}\n积分变化：${formatSignedAmount(amount)}\n原因：${reason}`,
-    )
+    const confirmed = await confirmAction({
+      title: '提交个人账号调账',
+      tone: amount < 0 ? 'danger' : 'default',
+      summary: '这是 membership 级调账，只影响该账号归属下的个人余额。',
+      details: [
+        { label: '账号', value: adjustTarget.name },
+        { label: '归属', value: adjustTarget.tenantName },
+        { label: 'Membership', value: membershipId },
+        { label: '积分变化', value: formatSignedAmount(amount), tone: amount < 0 ? 'negative' : 'positive' },
+        { label: '原因', value: reason },
+      ],
+      impact:
+        adjustTarget.organizationType === 'enterprise'
+          ? '该目标属于企业组织成员。企业客户公账付款通常应充值到组织共享池，不应充值到成员个人余额。'
+          : '请确认该笔款项属于个人账号，而不是企业组织共享池。',
+      confirmLabel: '提交调账',
+      busyId: `adjust:${membershipId}`,
+    })
     if (!confirmed) return
     await runAction(`adjust:${membershipId}`, async () => {
       await api.adjustCredits(membershipId, { amount, reason })
@@ -1413,9 +1846,24 @@ export function App() {
     const amount = Number(adjustmentPageForm.amount)
     const reason = adjustmentPageForm.reason.trim()
     const membershipId = membershipIdFor(target)
-    const confirmed = window.confirm(
-      `确认提交账单调账？\n\n目标：${target.name}\n组织：${target.tenantName}\nMembership：${membershipId}\n积分变化：${formatSignedAmount(amount)}\n原因：${reason}`,
-    )
+    const confirmed = await confirmAction({
+      title: '提交账单调账',
+      tone: amount < 0 ? 'danger' : 'default',
+      summary: '这是 membership 级调账，只影响选中的账号归属余额。',
+      details: [
+        { label: '目标', value: target.name },
+        { label: '归属', value: target.tenantName },
+        { label: 'Membership', value: membershipId },
+        { label: '积分变化', value: formatSignedAmount(amount), tone: amount < 0 ? 'negative' : 'positive' },
+        { label: '原因', value: reason },
+      ],
+      impact:
+        target.organizationType === 'enterprise'
+          ? '该目标属于企业组织成员。企业款项应优先充值组织共享池。'
+          : '请确认这是个人账号调账。',
+      confirmLabel: '提交调账',
+      busyId: `adjust-page:${membershipId}`,
+    })
     if (!confirmed) return
     await runAction(`adjust-page:${membershipId}`, async () => {
       await api.adjustCredits(membershipId, { amount, reason })
@@ -1429,7 +1877,17 @@ export function App() {
     event.preventDefault()
     const amount = Number(grantForm.amount)
     const reason = grantForm.reason.trim()
-    const confirmed = window.confirm(`确认给当前后台账号充值？\n\n积分：+${amount}\n原因：${reason}`)
+    const confirmed = await confirmAction({
+      title: '当前后台账号充值',
+      summary: '该入口只给当前登录后台账号充值，不会给客户账号或企业组织充值。',
+      details: [
+        { label: '积分', value: `+${amount}`, tone: 'positive' },
+        { label: '原因', value: reason },
+      ],
+      impact: '客户交付优先使用个人账号调账或企业组织共享池充值。',
+      confirmLabel: '提交充值',
+      busyId: 'grant',
+    })
     if (!confirmed) return
     await runAction('grant', async () => {
       await api.grantCredits({ amount, reason })
@@ -1476,9 +1934,20 @@ export function App() {
     }
     const amount = Number(organizationBillingAdjustmentForm.amount)
     const reason = organizationBillingAdjustmentForm.reason.trim()
-    const confirmed = window.confirm(
-      `确认调整组织共享积分池？\n\n组织：${organizationBillingTarget.name}\n积分变化：${formatSignedAmount(amount)}\n原因：${reason}`,
-    )
+    const confirmed = await confirmAction({
+      title: '调整组织共享积分池',
+      tone: amount < 0 ? 'danger' : 'default',
+      summary: '这是企业组织共享池调账，会影响该组织成员共用额度。',
+      details: [
+        { label: '企业组织', value: organizationBillingTarget.name },
+        { label: '组织 ID', value: organizationBillingTarget.id },
+        { label: '积分变化', value: formatSignedAmount(amount), tone: amount < 0 ? 'negative' : 'positive' },
+        { label: '原因', value: reason },
+      ],
+      impact: 'B 端公账付款应在这里给企业组织充值，不能充到组织管理员个人账号。',
+      confirmLabel: '提交组织调账',
+      busyId: `organization-adjust:${organizationBillingTarget.id}`,
+    })
     if (!confirmed) return
     await runAction(`organization-adjust:${organizationBillingTarget.id}`, async () => {
       await api.adjustOrganizationCredits(organizationBillingTarget.id, { amount, reason })
@@ -1506,9 +1975,19 @@ export function App() {
       return
     }
     const reason = membershipPlanForm.reason.trim()
-    const confirmed = window.confirm(
-      `确认修改会员套餐？\n\n成员：${membershipPlanTarget.name}\nMembership：${membershipId}\n套餐：${planName(membershipPlanForm.plan)}\n发放月度积分：${membershipPlanForm.grantMonthlyCredits ? '是' : '否'}`,
-    )
+    const confirmed = await confirmAction({
+      title: '修改会员套餐',
+      details: [
+        { label: '成员', value: membershipPlanTarget.name },
+        { label: 'Membership', value: membershipId },
+        { label: '套餐', value: planName(membershipPlanForm.plan) },
+        { label: '发放月度积分', value: membershipPlanForm.grantMonthlyCredits ? '是' : '否' },
+        { label: '备注', value: reason || '-' },
+      ],
+      impact: '请确认该套餐变更对应个人账号或指定 membership，不是企业组织共享池充值。',
+      confirmLabel: '保存套餐',
+      busyId: `membership-plan:${membershipId}`,
+    })
     if (!confirmed) return
     await runAction(`membership-plan:${membershipId}`, async () => {
       await api.updateMembershipPlan(membershipId, {
@@ -1638,22 +2117,27 @@ export function App() {
       <div className="admin-layout">
         <aside className="admin-sidebar">
           <nav>
-            {visibleTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                className={activeTab === tab.id ? 'active' : ''}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                <tab.icon size={17} />
-                <span>{tab.label}</span>
-                <small>
-                  {tabCount(tab.id, summary, {
-                    enterpriseOrganizations: enterpriseOrganizationItems.length,
-                    personalAccounts: personalAccountMemberships.length,
-                  })}
-                </small>
-              </button>
+            {visibleTabGroups.map((group) => (
+              <section className="sidebar-group" key={group.label}>
+                <h2>{group.label}</h2>
+                {group.tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={activeTab === tab.id ? 'active' : ''}
+                    onClick={() => setActiveTab(tab.id)}
+                  >
+                    <tab.icon size={17} />
+                    <span>{tab.label}</span>
+                    <small>
+                      {tabCount(tab.id, summary, {
+                        enterpriseOrganizations: enterpriseOrganizationItems.length,
+                        personalAccounts: personalAccountMemberships.length,
+                      })}
+                    </small>
+                  </button>
+                ))}
+              </section>
             ))}
           </nav>
         </aside>
@@ -1664,7 +2148,7 @@ export function App() {
               <span className="eyebrow">Admin Console</span>
               <h1>{visibleTabs.find((tab) => tab.id === activeTab)?.label ?? '概览'}</h1>
             </div>
-            {activeTab !== 'compliance' && (
+            {activeTab !== 'compliance' && !workflowTabIds.has(activeTab) && (
               <label className="search-field">
                 <Search size={16} />
                 <input
@@ -1676,7 +2160,9 @@ export function App() {
             )}
           </section>
 
-          {!isUsageTab(activeTab) && activeTab !== 'compliance' && (
+          <PermissionBoundaryBanner session={session} />
+
+          {usesConsoleServerControls(activeTab) && (
             <ConsoleServerControls
               filters={consoleFilters}
               query={queryDraft}
@@ -1701,12 +2187,39 @@ export function App() {
               {error}
             </DismissibleNotice>
           )}
+          {nextStepHint && (
+            <NextStepNotice
+              hint={nextStepHint}
+              onAction={(action) => {
+                if (action.tabId) setActiveTab(action.tabId)
+                if (action.run) action.run()
+              }}
+              onClose={() => setNextStepHint(null)}
+            />
+          )}
 
           {!snapshot && loading && <LoadingScreen compact label="正在读取 console 快照" />}
           {snapshot && filtered && (
             <>
               {activeTab === 'overview' && (
                 <OverviewPanel snapshot={snapshot} summary={summary} setActiveTab={setActiveTab} />
+              )}
+              {activeTab === 'delivery' && (
+                <DeliveryWorkbench
+                  session={session}
+                  organizations={enterpriseOrganizationItems}
+                  personalAccounts={personalAccountMemberships}
+                  busy={busy}
+                  onCreatePersonalAccount={() => openCreateUser()}
+                  onInvitePersonalAccount={openCreatePlatformInvitation}
+                  onOpenPersonalAccounts={() => setActiveTab('personal-accounts')}
+                  onOpenAdjustments={() => setActiveTab('adjustments')}
+                  onCreateOrganization={openCreateOrganization}
+                  onCreateOrganizationWithAdmin={openCreateOrganizationWithAdmin}
+                  onOpenOrganizations={() => setActiveTab('organizations')}
+                  onOpenInvitations={() => setActiveTab('invitations')}
+                  onOpenBatchOrganizationInvitation={openBatchOrganizationInvitation}
+                />
               )}
               {activeTab === 'usage-realtime' && (
                 <UsageRealtimePage
@@ -1782,7 +2295,7 @@ export function App() {
                   onOpenDetail={openOrganizationDetail}
                   onCreateOrganization={openCreateOrganization}
                   onCreateOrganizationWithAdmin={openCreateOrganizationWithAdmin}
-                  onRename={renameOrganization}
+                  onRename={openRenameOrganization}
                   onDisable={disableOrganization}
                   onTransferOrganizationAdmin={openOrganizationAdminTransfer}
                   onCreateUser={openCreateUser}
@@ -1863,6 +2376,9 @@ export function App() {
                   onCreatePlatformInvitation={openCreatePlatformInvitation}
                   onCreateOrganizationInvitation={(role) =>
                     openCreateOrganizationInvitation(invitationPageOrganization?.id ?? '', role)
+                  }
+                  onBatchOrganizationInvitation={(role) =>
+                    openBatchOrganizationInvitation(invitationPageOrganization?.id ?? '', role)
                   }
                   onRefreshPlatform={loadPlatformInvitations}
                   onRevokePlatform={revokePlatformInvitation}
@@ -2040,6 +2556,19 @@ export function App() {
           onSubmit={submitPasswordReset}
         />
       )}
+      {renameOrganizationTarget && (
+        <RenameOrganizationModal
+          organization={renameOrganizationTarget}
+          form={renameOrganizationForm}
+          busy={busy === `organization-rename:${renameOrganizationTarget.id}`}
+          onChange={setRenameOrganizationForm}
+          onClose={() => {
+            setRenameOrganizationTarget(null)
+            setRenameOrganizationForm(renameOrganizationInitialState)
+          }}
+          onSubmit={submitRenameOrganization}
+        />
+      )}
       {createUserOpen && (
         <CreateOrganizationUserModal
           form={createUserForm}
@@ -2091,6 +2620,23 @@ export function App() {
           onChange={setCreateInvitationForm}
           onClose={() => setCreateInvitationOpen(false)}
           onSubmit={submitCreateInvitation}
+        />
+      )}
+      {batchOrganizationInvitationOpen && (
+        <BatchOrganizationInvitationModal
+          form={batchOrganizationInvitationForm}
+          organizations={invitableOrganizationItems}
+          session={session}
+          busy={busy === 'batch-organization-invitations'}
+          result={batchOrganizationInvitationResult}
+          onChange={setBatchOrganizationInvitationForm}
+          onClose={() => {
+            setBatchOrganizationInvitationOpen(false)
+            setBatchOrganizationInvitationForm(batchOrganizationInvitationInitialState)
+            setBatchOrganizationInvitationResult(null)
+          }}
+          onSubmit={submitBatchOrganizationInvitations}
+          onCopy={copyText}
         />
       )}
       {createdInvitation && (
@@ -2197,6 +2743,14 @@ export function App() {
           onSubmit={submitComplianceAction}
         />
       )}
+      {confirmRequest && (
+        <ActionConfirmModal
+          request={confirmRequest}
+          busy={Boolean(confirmRequest.busyId && busy === confirmRequest.busyId)}
+          onCancel={() => closeConfirmAction(false)}
+          onConfirm={() => closeConfirmAction(true)}
+        />
+      )}
       {auditDetailTarget && (
         <AuditLogDetailDrawer
           entry={auditDetailTarget}
@@ -2247,7 +2801,7 @@ export function App() {
           session={session}
           busy={busy}
           onClose={() => setOrganizationDetailId('')}
-          onRename={renameOrganization}
+          onRename={openRenameOrganization}
           onDisable={disableOrganization}
           onTransferOrganizationAdmin={openOrganizationAdminTransfer}
           onCreateUser={openCreateUser}
@@ -2281,6 +2835,63 @@ function DismissibleNotice({ tone = 'success', children, onClose }) {
       </button>
     </div>
   )
+}
+
+function NextStepNotice({ hint, onAction, onClose }) {
+  return (
+    <section className="next-step-notice">
+      <div>
+        <strong>{hint.title}</strong>
+        <span>{hint.description}</span>
+      </div>
+      <div>
+        {(hint.actions ?? []).map((action) => (
+          <button key={action.label} className="row-button" type="button" onClick={() => onAction(action)}>
+            {action.icon ? <action.icon size={14} /> : <Check size={14} />}
+            {action.label}
+          </button>
+        ))}
+        <button className="icon-button" type="button" aria-label="关闭下一步提示" onClick={onClose}>
+          <X size={16} />
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function PermissionBoundaryBanner({ session }) {
+  const roles = session?.account?.roles ?? []
+  const scope = permissionScopeDescription(session)
+  const chips = [
+    canManageUsers(session) ? '账号管理' : '',
+    canManageBilling(session) ? '账单调账' : '',
+    isPlatformAdminSession(session) ? '合规审查' : '',
+    canCreateOrganization(session) ? '创建企业组织' : '',
+  ].filter(Boolean)
+
+  return (
+    <section className="permission-boundary">
+      <ShieldCheck size={16} />
+      <div>
+        <strong>当前身份：{roles.map(roleName).join('、')}</strong>
+        <span>{scope}</span>
+      </div>
+      <div>{chips.length ? chips.map((chip) => <span key={chip}>{chip}</span>) : <span>只读</span>}</div>
+    </section>
+  )
+}
+
+function permissionScopeDescription(session) {
+  const roles = session?.account?.roles ?? []
+  if (roles.includes('owner')) return '可管理全平台账号、企业组织、组织共享池、套餐、合规审查和系统级权限。'
+  if (roles.includes('super_admin'))
+    return '可管理全平台运营功能，但 owner 等最高权限账号仍受 owner 边界保护。'
+  if (roles.includes('admin')) return '主要管理 C 端普通成员和个人空间；企业组织池和组织管理员受限。'
+  if (roles.includes('organization_admin'))
+    return '只能管理当前企业组织内成员、邀请和组织共享池，不能管理其他企业或平台账号。'
+  if (roles.includes('organization_member'))
+    return '组织成员通常不能进入后台管理；如可见页面，多数操作为只读。'
+  return '普通成员通常不能进入后台管理；如可见页面，多数操作为只读。'
 }
 
 function LoginScreen({ form, busy, error, onChange, onSubmit }) {
@@ -2372,6 +2983,155 @@ function OverviewPanel({ snapshot, summary, setActiveTab }) {
         <time>{formatDate(snapshot.generatedAt)}</time>
       </section>
     </div>
+  )
+}
+
+function DeliveryWorkbench({
+  session,
+  organizations,
+  personalAccounts,
+  busy,
+  onCreatePersonalAccount,
+  onInvitePersonalAccount,
+  onOpenPersonalAccounts,
+  onOpenAdjustments,
+  onCreateOrganization,
+  onCreateOrganizationWithAdmin,
+  onOpenOrganizations,
+  onOpenInvitations,
+  onOpenBatchOrganizationInvitation,
+}) {
+  const canCreatePersonal = canManageUsers(session) && busy !== 'create-user'
+  const canInvitePersonal = canCreatePlatformInvitation(session) && busy !== 'create-invitation'
+  const canCreateEnterprise = canCreateOrganization(session)
+  const invitableOrganizations = organizations.filter(
+    (organization) =>
+      organization.status === 'active' &&
+      organizationInvitationRoleOptions(session, organization).includes('organization_member'),
+  )
+  const latestOrganization = organizations[0] ?? null
+  const latestPersonalAccount = personalAccounts[0] ?? null
+
+  return (
+    <div className="delivery-workbench">
+      <section className="delivery-grid">
+        <article className="delivery-lane">
+          <header>
+            <span className="eyebrow">C 端个人交付</span>
+            <h2>个人账号</h2>
+          </header>
+          <ol>
+            <li>确认公账或线下款项对应个人用户。</li>
+            <li>选择邀请普通成员，或直接创建个人账号。</li>
+            <li>在账单调账里给个人 membership 充值或改套餐。</li>
+            <li>交付注册链接或临时密码，并确认用户首次登录。</li>
+          </ol>
+          <div className="delivery-actions">
+            <button
+              className="primary-button"
+              type="button"
+              {...disabledButtonProps(!canCreatePersonal, '当前身份不能直接创建个人账号')}
+              onClick={onCreatePersonalAccount}
+            >
+              <Plus size={14} />
+              直接创建个人账号
+            </button>
+            <button
+              className="row-button"
+              type="button"
+              {...disabledButtonProps(!canInvitePersonal, '当前身份不能邀请普通成员')}
+              onClick={onInvitePersonalAccount}
+            >
+              <MailPlus size={14} />
+              邀请普通成员
+            </button>
+            <button className="row-button" type="button" onClick={onOpenAdjustments}>
+              <PencilLine size={14} />
+              个人充值/改套餐
+            </button>
+            <button className="row-button" type="button" onClick={onOpenPersonalAccounts}>
+              <IdCard size={14} />
+              查看个人账号
+            </button>
+          </div>
+          <DeliveryRecentTarget title="最近个人账号" empty="暂无个人账号" target={latestPersonalAccount} />
+        </article>
+
+        <article className="delivery-lane">
+          <header>
+            <span className="eyebrow">B 端企业交付</span>
+            <h2>企业组织</h2>
+          </header>
+          <ol>
+            <li>创建企业组织，推荐用一步式向导创建首个组织管理员。</li>
+            <li>邀请组织成员或把已有账号加入企业组织。</li>
+            <li>在组织共享池充值，避免把企业款充到管理员个人账号。</li>
+            <li>让组织管理员登录验收成员、共享池余额和套餐状态。</li>
+          </ol>
+          <div className="delivery-actions">
+            <button
+              className="primary-button"
+              type="button"
+              {...disabledButtonProps(
+                !canCreateEnterprise || busy === 'create-organization-with-admin',
+                '只有 owner 或 super_admin 可以创建企业组织',
+              )}
+              onClick={onCreateOrganizationWithAdmin}
+            >
+              <Crown size={14} />
+              创建企业组织+首个管理员
+            </button>
+            <button
+              className="row-button"
+              type="button"
+              {...disabledButtonProps(
+                !canCreateEnterprise || busy === 'create-organization',
+                '只有 owner 或 super_admin 可以创建企业组织',
+              )}
+              onClick={onCreateOrganization}
+            >
+              <Building2 size={14} />
+              创建企业组织
+            </button>
+            <button
+              className="row-button"
+              type="button"
+              {...disabledButtonProps(!invitableOrganizations.length, '没有当前身份可批量邀请的启用企业组织')}
+              onClick={() => onOpenBatchOrganizationInvitation(invitableOrganizations[0]?.id ?? '')}
+            >
+              <MailPlus size={14} />
+              批量邀请组织成员
+            </button>
+            <button className="row-button" type="button" onClick={onOpenOrganizations}>
+              <Building2 size={14} />
+              企业组织/共享池
+            </button>
+            <button className="row-button" type="button" onClick={onOpenInvitations}>
+              <MailPlus size={14} />
+              邀请管理
+            </button>
+          </div>
+          <DeliveryRecentTarget title="最近企业组织" empty="暂无企业组织" target={latestOrganization} />
+        </article>
+      </section>
+    </div>
+  )
+}
+
+function DeliveryRecentTarget({ title, empty, target }) {
+  return (
+    <section className="delivery-recent">
+      <span>{title}</span>
+      {target ? (
+        <IdentityCell
+          name={target.name}
+          detail={target.email ?? target.userId ?? target.id ?? target.tenantId}
+          compact
+        />
+      ) : (
+        <p>{empty}</p>
+      )}
+    </section>
   )
 }
 
@@ -2777,13 +3537,20 @@ function PersonalAccountsTable({
   onCreateUser,
   onCreateInvitation,
 }) {
+  const createUserDisabled = !canManageUsers(session) || busy === 'create-user'
+  const createUserDisabledReason = !canManageUsers(session) ? '当前身份不能直接创建个人账号' : '正在创建账号'
+  const createInvitationDisabled = !canCreatePlatformInvitation(session) || busy === 'create-invitation'
+  const createInvitationDisabledReason = !canCreatePlatformInvitation(session)
+    ? '当前身份不能邀请普通成员'
+    : '正在创建邀请'
+
   return (
     <DataSection title="个人账号" count={memberships.length}>
       <div className="section-actions">
         <button
           className="row-button"
           type="button"
-          disabled={!canManageUsers(session) || busy === 'create-user'}
+          {...disabledButtonProps(createUserDisabled, createUserDisabledReason)}
           onClick={() => onCreateUser()}
         >
           {busy === 'create-user' ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}
@@ -2792,7 +3559,7 @@ function PersonalAccountsTable({
         <button
           className="primary-button"
           type="button"
-          disabled={!canCreatePlatformInvitation(session) || busy === 'create-invitation'}
+          {...disabledButtonProps(createInvitationDisabled, createInvitationDisabledReason)}
           onClick={() => onCreateInvitation()}
         >
           {busy === 'create-invitation' ? (
@@ -2820,6 +3587,10 @@ function PersonalAccountsTable({
             const userTarget = userTargetForMembership(membership)
             const accountBusy = busy === `user:${membership.userId}`
             const passwordBusy = busy === `password:${membership.userId}`
+            const canAdjustTarget = canAdjustBilling && canManageBillingAccount(session, membership)
+            const canUpdatePlan = canUpdateMembershipPlan(session, membership)
+            const passwordDisabled = !canManage || passwordBusy
+            const accountDisabled = !canManage || membership.userId === currentUserId || accountBusy
             return (
               <tr key={membership.id}>
                 <td>
@@ -2857,7 +3628,10 @@ function PersonalAccountsTable({
                     <button
                       className="row-button"
                       type="button"
-                      disabled={!canAdjustBilling || !canManageBillingAccount(session, membership)}
+                      {...disabledButtonProps(
+                        !canAdjustTarget,
+                        !canAdjustBilling ? '当前身份不能调账' : '当前身份不能调整该账号归属的账单',
+                      )}
                       onClick={() => onAdjust(membership)}
                     >
                       <PencilLine size={14} />
@@ -2866,7 +3640,7 @@ function PersonalAccountsTable({
                     <button
                       className="row-button"
                       type="button"
-                      disabled={!canUpdateMembershipPlan(session, membership)}
+                      {...disabledButtonProps(!canUpdatePlan, '当前身份不能修改该账号归属的套餐')}
                       onClick={() => onUpdatePlan(membership)}
                     >
                       <Crown size={14} />
@@ -2875,7 +3649,10 @@ function PersonalAccountsTable({
                     <button
                       className="row-button"
                       type="button"
-                      disabled={!canManage || passwordBusy}
+                      {...disabledButtonProps(
+                        passwordDisabled,
+                        !canManage ? '当前身份不能设置密码' : '正在设置密码',
+                      )}
                       onClick={() => onOpenPasswordReset(userTarget)}
                     >
                       {passwordBusy ? <LoaderCircle size={14} className="spin" /> : <KeyRound size={14} />}
@@ -2884,7 +3661,14 @@ function PersonalAccountsTable({
                     <button
                       className="row-button danger"
                       type="button"
-                      disabled={!canManage || membership.userId === currentUserId || accountBusy}
+                      {...disabledButtonProps(
+                        accountDisabled,
+                        !canManage
+                          ? '当前身份不能变更账号状态'
+                          : membership.userId === currentUserId
+                            ? '不能禁用或启用当前登录账号'
+                            : '正在更新账号状态',
+                      )}
                       onClick={() => onSetStatus(userTarget)}
                     >
                       {accountBusy ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
@@ -2929,6 +3713,14 @@ function OrganizationsTable({
 }) {
   const visibleOrganizations = organizations
   const canCreateNewOrganization = canCreateOrganization(session)
+  const createOrganizationDisabled = !canCreateNewOrganization || busy === 'create-organization'
+  const createOrganizationReason = !canCreateNewOrganization
+    ? '只有 owner 或 super_admin 可以创建企业组织'
+    : '正在创建企业组织'
+  const createWithAdminDisabled = !canCreateNewOrganization || busy === 'create-organization-with-admin'
+  const createWithAdminReason = !canCreateNewOrganization
+    ? '只有 owner 或 super_admin 可以创建企业组织'
+    : '正在创建企业组织和管理员'
 
   return (
     <DataSection title="企业组织列表" count={visibleOrganizations.length}>
@@ -2936,7 +3728,7 @@ function OrganizationsTable({
         <button
           className="primary-button"
           type="button"
-          disabled={!canCreateNewOrganization || busy === 'create-organization'}
+          {...disabledButtonProps(createOrganizationDisabled, createOrganizationReason)}
           onClick={onCreateOrganization}
         >
           {busy === 'create-organization' ? (
@@ -2949,7 +3741,7 @@ function OrganizationsTable({
         <button
           className="row-button"
           type="button"
-          disabled={!canCreateNewOrganization || busy === 'create-organization-with-admin'}
+          {...disabledButtonProps(createWithAdminDisabled, createWithAdminReason)}
           onClick={onCreateOrganizationWithAdmin}
         >
           {busy === 'create-organization-with-admin' ? (
@@ -2977,10 +3769,22 @@ function OrganizationsTable({
           {visibleOrganizations.map((organization) => {
             const organizationType = classifyOrganization(organization)
             const invitationRoles = organizationInvitationRoleOptions(session, organization)
+            const canManageTarget = canManageOrganization(session, organization)
+            const canReadBillingPool = canReadOrganizationBilling(session, organization)
+            const canRenameTarget = canManageTarget
+            const canCreateTarget =
+              organization.status === 'active' && canCreateOrganizationUser(session, organization)
+            const canAddExistingTarget = canAddExistingOrganizationMember(session, organization)
+            const canTransferTarget =
+              canTransferOrganizationAdmin(session, organization) &&
+              organization.activeOrganizationAdminCount >= 1
+            const canDisableTarget =
+              organization.status === 'active' && canDisableOrganization(session, organization)
             const canInviteOrganizationMember =
               organization.status === 'active' && invitationRoles.includes('organization_member')
             const canInviteOrganizationAdmin =
               organization.status === 'active' && invitationRoles.includes('organization_admin')
+            const inactiveReason = organization.status !== 'active' ? '企业组织已禁用，不能执行该操作' : ''
             return (
               <tr key={organization.id}>
                 <td>
@@ -3007,7 +3811,12 @@ function OrganizationsTable({
                     <button
                       className="row-button"
                       type="button"
-                      disabled={!canReadOrganizationBilling(session, organization)}
+                      {...disabledButtonProps(
+                        !canReadBillingPool,
+                        organizationType.type !== 'enterprise'
+                          ? '只有企业组织有共享积分池'
+                          : '当前身份不能查看该组织共享积分池',
+                      )}
                       onClick={() => onOpenOrganizationBilling(organization)}
                     >
                       <CreditCard size={14} />
@@ -3016,25 +3825,10 @@ function OrganizationsTable({
                     <button
                       className="row-button"
                       type="button"
-                      disabled={
-                        !canManageOrganization(session, organization) ||
-                        busy === `organization-rename:${organization.id}`
-                      }
-                      onClick={() => onRename(organization)}
-                    >
-                      {busy === `organization-rename:${organization.id}` ? (
-                        <LoaderCircle size={14} className="spin" />
-                      ) : (
-                        <PencilLine size={14} />
+                      {...disabledButtonProps(
+                        !canCreateTarget,
+                        inactiveReason || '当前身份不能在该组织内直接创建账号',
                       )}
-                      改名
-                    </button>
-                    <button
-                      className="row-button"
-                      type="button"
-                      disabled={
-                        organization.status !== 'active' || !canCreateOrganizationUser(session, organization)
-                      }
                       onClick={() => onCreateUser(organization.id)}
                     >
                       <Plus size={14} />
@@ -3043,11 +3837,11 @@ function OrganizationsTable({
                     <button
                       className="row-button"
                       type="button"
-                      disabled={
-                        organization.status !== 'active' ||
-                        !canAddExistingOrganizationMember(session, organization) ||
-                        busy === 'add-existing-member'
-                      }
+                      {...disabledButtonProps(
+                        !canAddExistingTarget || busy === 'add-existing-member',
+                        inactiveReason ||
+                          (!canAddExistingTarget ? '当前身份不能把已有账号加入该组织' : '正在加入已有账号'),
+                      )}
                       onClick={() => onAddExistingMember(organization.id)}
                     >
                       {busy === 'add-existing-member' ? (
@@ -3060,7 +3854,11 @@ function OrganizationsTable({
                     <button
                       className="row-button"
                       type="button"
-                      disabled={!canInviteOrganizationMember || busy === 'create-invitation'}
+                      {...disabledButtonProps(
+                        !canInviteOrganizationMember || busy === 'create-invitation',
+                        inactiveReason ||
+                          (!canInviteOrganizationMember ? '当前身份不能邀请组织成员' : '正在创建邀请'),
+                      )}
                       onClick={() => onCreateInvitation(organization.id, 'organization_member')}
                     >
                       {busy === 'create-invitation' ? (
@@ -3073,7 +3871,11 @@ function OrganizationsTable({
                     <button
                       className="row-button"
                       type="button"
-                      disabled={!canInviteOrganizationAdmin || busy === 'create-invitation'}
+                      {...disabledButtonProps(
+                        !canInviteOrganizationAdmin || busy === 'create-invitation',
+                        inactiveReason ||
+                          (!canInviteOrganizationAdmin ? '当前身份不能邀请组织管理员' : '正在创建邀请'),
+                      )}
                       onClick={() => onCreateInvitation(organization.id, 'organization_admin')}
                     >
                       {busy === 'create-invitation' ? (
@@ -3083,49 +3885,78 @@ function OrganizationsTable({
                       )}
                       邀请组织管理员
                     </button>
-                    <button
-                      className="row-button"
-                      type="button"
-                      disabled={!canManageOrganization(session, organization)}
-                      onClick={() => onManageInvitations(organization)}
-                    >
-                      <MailPlus size={14} />
-                      邀请管理
-                    </button>
-                    <button
-                      className="row-button"
-                      type="button"
-                      disabled={
-                        !canTransferOrganizationAdmin(session, organization) ||
-                        organization.activeOrganizationAdminCount < 1 ||
-                        busy === `organization-admin-change:${organization.id}`
-                      }
-                      onClick={() => onTransferOrganizationAdmin(organization)}
-                    >
-                      {busy === `organization-admin-change:${organization.id}` ? (
-                        <LoaderCircle size={14} className="spin" />
-                      ) : (
-                        <ShieldCheck size={14} />
-                      )}
-                      更换组织负责人
-                    </button>
-                    <button
-                      className="row-button danger"
-                      type="button"
-                      disabled={
-                        organization.status !== 'active' ||
-                        !canDisableOrganization(session, organization) ||
-                        busy === `organization-disable:${organization.id}`
-                      }
-                      onClick={() => onDisable(organization)}
-                    >
-                      {busy === `organization-disable:${organization.id}` ? (
-                        <LoaderCircle size={14} className="spin" />
-                      ) : (
-                        <Power size={14} />
-                      )}
-                      禁用
-                    </button>
+                    <details className="row-more-menu">
+                      <summary title="打开低频组织操作">
+                        <MoreHorizontal size={14} />
+                        更多
+                      </summary>
+                      <div>
+                        <button
+                          className="row-button"
+                          type="button"
+                          {...disabledButtonProps(
+                            !canRenameTarget || busy === `organization-rename:${organization.id}`,
+                            !canRenameTarget ? '当前身份不能重命名该组织' : '正在重命名组织',
+                          )}
+                          onClick={() => onRename(organization)}
+                        >
+                          {busy === `organization-rename:${organization.id}` ? (
+                            <LoaderCircle size={14} className="spin" />
+                          ) : (
+                            <PencilLine size={14} />
+                          )}
+                          改名
+                        </button>
+                        <button
+                          className="row-button"
+                          type="button"
+                          {...disabledButtonProps(!canManageTarget, '当前身份不能管理该组织邀请')}
+                          onClick={() => onManageInvitations(organization)}
+                        >
+                          <MailPlus size={14} />
+                          邀请管理
+                        </button>
+                        <button
+                          className="row-button"
+                          type="button"
+                          {...disabledButtonProps(
+                            !canTransferTarget || busy === `organization-admin-change:${organization.id}`,
+                            !canTransferOrganizationAdmin(session, organization)
+                              ? '只有平台管理员可以更换组织负责人'
+                              : organization.activeOrganizationAdminCount < 1
+                                ? '该组织没有可更换的组织管理员'
+                                : '正在更换组织负责人',
+                          )}
+                          onClick={() => onTransferOrganizationAdmin(organization)}
+                        >
+                          {busy === `organization-admin-change:${organization.id}` ? (
+                            <LoaderCircle size={14} className="spin" />
+                          ) : (
+                            <ShieldCheck size={14} />
+                          )}
+                          更换组织负责人
+                        </button>
+                        <button
+                          className="row-button danger"
+                          type="button"
+                          {...disabledButtonProps(
+                            !canDisableTarget || busy === `organization-disable:${organization.id}`,
+                            inactiveReason ||
+                              (!canDisableOrganization(session, organization)
+                                ? '只有 owner 可以禁用企业组织'
+                                : '正在禁用组织'),
+                          )}
+                          onClick={() => onDisable(organization)}
+                        >
+                          {busy === `organization-disable:${organization.id}` ? (
+                            <LoaderCircle size={14} className="spin" />
+                          ) : (
+                            <Power size={14} />
+                          )}
+                          禁用
+                        </button>
+                      </div>
+                    </details>
                   </div>
                 </td>
               </tr>
@@ -3270,9 +4101,24 @@ function ComplianceReviewPage({
   const hasPrevious = offset > 0
   const hasNext = offset + meta.limit < meta.total && !filters.sample
   const riskCount = allPrompts.filter((item) => item.riskTags.length > 0).length
+  const queueSummary = summarizeComplianceQueues(allPrompts)
 
   return (
     <div className="compliance-page">
+      <section className="compliance-queue-grid" aria-label="审查队列">
+        {complianceQueueCards(queueSummary).map((card) => (
+          <button
+            key={card.id}
+            type="button"
+            className={filters.queue === card.id ? 'compliance-queue-card active' : 'compliance-queue-card'}
+            onClick={() => onFilterChange({ queue: card.id }, { resetOffset: false })}
+          >
+            <card.icon size={16} />
+            <span>{card.label}</span>
+            <strong>{card.value}</strong>
+          </button>
+        ))}
+      </section>
       <section className="server-list-controls compliance-controls">
         <div className="server-filter-row">
           <label>
@@ -3326,6 +4172,20 @@ function ComplianceReviewPage({
             </select>
           </label>
           <label>
+            <ShieldCheck size={14} />
+            <select
+              value={filters.queue}
+              onChange={(event) => onFilterChange({ queue: event.target.value }, { resetOffset: false })}
+            >
+              <option value="all">全部队列</option>
+              <option value="high-risk">高风险</option>
+              <option value="pending">待审查</option>
+              <option value="warned">已警告</option>
+              <option value="reviewed">已审查</option>
+              <option value="disabled">已封号</option>
+            </select>
+          </label>
+          <label>
             <FileText size={14} />
             <select
               value={filters.limit}
@@ -3360,6 +4220,7 @@ function ComplianceReviewPage({
                 : `审查分页 ${from}-${to} / ${meta.total}`}
             {generatedAt ? ` · ${formatDate(generatedAt)}` : ''}
             {filters.category !== 'all' ? ` · 当前风险筛选 ${prompts.length} 条` : ''}
+            {filters.queue !== 'all' ? ` · 队列筛选 ${prompts.length} 条` : ''}
             {riskCount ? ` · 风险命中 ${riskCount} 条` : ''}
           </span>
           <div>
@@ -3393,6 +4254,7 @@ function ComplianceReviewPage({
               <th>归属</th>
               <th>提示词预览</th>
               <th>风险</th>
+              <th>审查</th>
               <th>来源</th>
               <th>时间</th>
               <th>操作</th>
@@ -3424,6 +4286,9 @@ function ComplianceReviewPage({
                     <ComplianceRiskTags tags={item.riskTags} />
                   </td>
                   <td>
+                    <ComplianceReviewBadge item={item} />
+                  </td>
+                  <td>
                     <div className="source-stack">
                       <strong>{complianceSourceName(item.source)}</strong>
                       <small>
@@ -3449,7 +4314,7 @@ function ComplianceReviewPage({
                       <button
                         className="row-button"
                         type="button"
-                        disabled={actionBusy}
+                        {...disabledButtonProps(actionBusy, '正在记录审查动作')}
                         onClick={() => onReview(item)}
                       >
                         {actionBusy ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
@@ -3458,7 +4323,7 @@ function ComplianceReviewPage({
                       <button
                         className="row-button"
                         type="button"
-                        disabled={actionBusy}
+                        {...disabledButtonProps(actionBusy, '正在记录审查动作')}
                         onClick={() => onWarn(item)}
                       >
                         <AlertTriangle size={14} />
@@ -3467,9 +4332,14 @@ function ComplianceReviewPage({
                       <button
                         className="row-button danger"
                         type="button"
-                        disabled={
-                          item.userStatus !== 'active' || item.userId === currentUserId || accountBusy
-                        }
+                        {...disabledButtonProps(
+                          item.userStatus !== 'active' || item.userId === currentUserId || accountBusy,
+                          item.userStatus !== 'active'
+                            ? '账号已禁用'
+                            : item.userId === currentUserId
+                              ? '不能封禁当前登录账号'
+                              : '正在更新账号状态',
+                        )}
                         onClick={() => onDisableUser(item)}
                       >
                         {accountBusy ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
@@ -3480,7 +4350,7 @@ function ComplianceReviewPage({
                 </tr>
               )
             })}
-            <EmptyRow visible={!prompts.length && !loading} columns={7} />
+            <EmptyRow visible={!prompts.length && !loading} columns={8} />
           </tbody>
         </table>
       </DataSection>
@@ -3508,6 +4378,7 @@ function InvitationsPage({
   onSelectOrganization,
   onCreatePlatformInvitation,
   onCreateOrganizationInvitation,
+  onBatchOrganizationInvitation,
   onRefreshPlatform,
   onRevokePlatform,
   onRefresh,
@@ -3520,6 +4391,8 @@ function InvitationsPage({
     selectedOrganization?.status === 'active' && organizationRoles.includes('organization_member')
   const canCreateOrganizationAdmin =
     selectedOrganization?.status === 'active' && organizationRoles.includes('organization_admin')
+  const organizationInactiveReason =
+    selectedOrganization && selectedOrganization.status !== 'active' ? '企业组织已禁用，不能创建邀请' : ''
   const statusCounts = summarizeInvitationStatuses(invitations)
   const visibleInvitations = filterRows(
     statusFilter === 'all'
@@ -3555,7 +4428,10 @@ function InvitationsPage({
           <button
             className="primary-button"
             type="button"
-            disabled={!canCreateMemberInvitation || busy === 'create-invitation'}
+            {...disabledButtonProps(
+              !canCreateMemberInvitation || busy === 'create-invitation',
+              !canCreateMemberInvitation ? '当前身份不能邀请普通成员' : '正在创建邀请',
+            )}
             onClick={onCreatePlatformInvitation}
           >
             {busy === 'create-invitation' ? (
@@ -3565,7 +4441,12 @@ function InvitationsPage({
             )}
             邀请普通成员
           </button>
-          <button className="row-button" type="button" disabled={platformLoading} onClick={onRefreshPlatform}>
+          <button
+            className="row-button"
+            type="button"
+            {...disabledButtonProps(platformLoading, '正在刷新普通成员邀请')}
+            onClick={onRefreshPlatform}
+          >
             {platformLoading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
             刷新列表
           </button>
@@ -3605,7 +4486,7 @@ function InvitationsPage({
             <select
               value={selectedOrganizationId}
               onChange={(event) => onSelectOrganization(event.target.value)}
-              disabled={!organizations.length}
+              {...disabledButtonProps(!organizations.length, '暂无当前身份可管理的企业组织')}
             >
               {organizations.map((organization) => (
                 <option key={organization.id} value={organization.id}>
@@ -3627,7 +4508,11 @@ function InvitationsPage({
           <button
             className="primary-button"
             type="button"
-            disabled={!canCreateOrganizationMember || busy === 'create-invitation'}
+            {...disabledButtonProps(
+              !canCreateOrganizationMember || busy === 'create-invitation',
+              organizationInactiveReason ||
+                (!canCreateOrganizationMember ? '当前身份不能邀请组织成员' : '正在创建邀请'),
+            )}
             onClick={() => onCreateOrganizationInvitation('organization_member')}
           >
             {busy === 'create-invitation' ? (
@@ -3640,7 +4525,11 @@ function InvitationsPage({
           <button
             className="row-button"
             type="button"
-            disabled={!canCreateOrganizationAdmin || busy === 'create-invitation'}
+            {...disabledButtonProps(
+              !canCreateOrganizationAdmin || busy === 'create-invitation',
+              organizationInactiveReason ||
+                (!canCreateOrganizationAdmin ? '当前身份不能邀请组织管理员' : '正在创建邀请'),
+            )}
             onClick={() => onCreateOrganizationInvitation('organization_admin')}
           >
             {busy === 'create-invitation' ? <LoaderCircle size={14} className="spin" /> : <Crown size={14} />}
@@ -3649,7 +4538,27 @@ function InvitationsPage({
           <button
             className="row-button"
             type="button"
-            disabled={!selectedOrganization || loading}
+            {...disabledButtonProps(
+              !canCreateOrganizationMember || busy === 'batch-organization-invitations',
+              organizationInactiveReason ||
+                (!canCreateOrganizationMember ? '当前身份不能批量邀请组织成员' : '正在批量邀请'),
+            )}
+            onClick={() => onBatchOrganizationInvitation('organization_member')}
+          >
+            {busy === 'batch-organization-invitations' ? (
+              <LoaderCircle size={14} className="spin" />
+            ) : (
+              <MailPlus size={14} />
+            )}
+            批量邀请成员
+          </button>
+          <button
+            className="row-button"
+            type="button"
+            {...disabledButtonProps(
+              !selectedOrganization || loading,
+              !selectedOrganization ? '请先选择企业组织' : '正在刷新组织邀请',
+            )}
             onClick={onRefresh}
           >
             {loading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
@@ -3883,6 +4792,23 @@ function BillingAdjustmentPage({
   const amount = Number(form.amount)
   const validAmount = Number.isInteger(amount) && amount !== 0
   const projectedBalance = selectedAccount && validAmount ? selectedAccount.credits + amount : null
+  const submitDisabled =
+    !canManage ||
+    !selectedAccount ||
+    !canManageBillingAccount(session, selectedAccount) ||
+    !validAmount ||
+    !form.reason.trim() ||
+    projectedBalance < 0 ||
+    busy === `adjust-page:${selectedId}`
+  const submitDisabledReason = billingAdjustmentDisabledReason({
+    canManage,
+    selectedAccount,
+    canManageTarget: selectedAccount ? canManageBillingAccount(session, selectedAccount) : false,
+    validAmount,
+    hasReason: Boolean(form.reason.trim()),
+    projectedBalance,
+    busy: busy === `adjust-page:${selectedId}`,
+  })
   const adjustmentEntries = entries.filter((entry) => entry.type === 'adjustment' || entry.type === 'grant')
   const summary = summarizeBillingAdjustments(adjustmentEntries)
   const readableOrganizationPools = organizations.filter((organization) =>
@@ -3918,21 +4844,27 @@ function BillingAdjustmentPage({
             </select>
           </label>
           {selectedAccount && (
-            <div className="adjustment-target-card">
-              <IdentityCell
-                name={selectedAccount.name}
-                detail={`${selectedAccount.tenantName} · ${selectedAccount.email ?? selectedAccount.userId}`}
-              />
-              <div>
-                <span>当前余额</span>
-                <strong>{selectedAccount.credits}</strong>
+            <>
+              <div className="adjustment-target-card">
+                <IdentityCell
+                  name={selectedAccount.name}
+                  detail={`${selectedAccount.tenantName} · ${selectedAccount.email ?? selectedAccount.userId}`}
+                />
+                <div>
+                  <span>当前余额</span>
+                  <strong>{selectedAccount.credits}</strong>
+                </div>
+                <div>
+                  <span>预计余额</span>
+                  <strong>{projectedBalance === null ? '-' : projectedBalance}</strong>
+                </div>
+                <StatusPair
+                  primary={selectedAccount.membershipStatus}
+                  secondary={selectedAccount.userStatus}
+                />
               </div>
-              <div>
-                <span>预计余额</span>
-                <strong>{projectedBalance === null ? '-' : projectedBalance}</strong>
-              </div>
-              <StatusPair primary={selectedAccount.membershipStatus} secondary={selectedAccount.userStatus} />
-            </div>
+              <BillingOwnershipHint target={selectedAccount} />
+            </>
           )}
           <div className="adjustment-fields">
             <label>
@@ -3959,15 +4891,7 @@ function BillingAdjustmentPage({
           <button
             className="primary-button"
             type="submit"
-            disabled={
-              !canManage ||
-              !selectedAccount ||
-              !canManageBillingAccount(session, selectedAccount) ||
-              !validAmount ||
-              !form.reason.trim() ||
-              projectedBalance < 0 ||
-              busy === `adjust-page:${selectedId}`
-            }
+            {...disabledButtonProps(submitDisabled, submitDisabledReason)}
           >
             {busy === `adjust-page:${selectedId}` ? (
               <LoaderCircle size={15} className="spin" />
@@ -4315,21 +5239,44 @@ function CompliancePromptDetailDrawer({
             <span>状态</span>
             <strong>{item.userStatus}</strong>
           </div>
+          <div>
+            <span>审查状态</span>
+            <strong>
+              <ComplianceReviewBadge item={item} />
+            </strong>
+          </div>
         </div>
 
         <div className="drawer-actions">
-          <button className="row-button" type="button" disabled={actionBusy} onClick={() => onReview(item)}>
+          <button
+            className="row-button"
+            type="button"
+            {...disabledButtonProps(actionBusy, '正在记录审查动作')}
+            onClick={() => onReview(item)}
+          >
             {actionBusy ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
             标记已审查
           </button>
-          <button className="row-button" type="button" disabled={actionBusy} onClick={() => onWarn(item)}>
+          <button
+            className="row-button"
+            type="button"
+            {...disabledButtonProps(actionBusy, '正在记录审查动作')}
+            onClick={() => onWarn(item)}
+          >
             <AlertTriangle size={14} />
             发送警告
           </button>
           <button
             className="row-button danger"
             type="button"
-            disabled={item.userStatus !== 'active' || item.userId === currentUserId || accountBusy}
+            {...disabledButtonProps(
+              item.userStatus !== 'active' || item.userId === currentUserId || accountBusy,
+              item.userStatus !== 'active'
+                ? '账号已禁用'
+                : item.userId === currentUserId
+                  ? '不能封禁当前登录账号'
+                  : '正在更新账号状态',
+            )}
             onClick={() => onDisableUser(item)}
           >
             {accountBusy ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
@@ -4339,6 +5286,23 @@ function CompliancePromptDetailDrawer({
 
         <DrawerSection title="风险标签" count={item.riskTags.length}>
           <ComplianceRiskTags tags={item.riskTags} expanded />
+        </DrawerSection>
+
+        <DrawerSection title="审查动作历史" count={item.reviewActions?.length ?? 0}>
+          <div className="compliance-review-history">
+            {(item.reviewActions ?? []).map((action) => (
+              <article key={`${action.action}:${action.createdAt}`}>
+                <strong>{complianceReviewActionName(action.action)}</strong>
+                <span>{formatDate(action.createdAt)}</span>
+                <p>{action.reason ?? '-'}</p>
+                <small>
+                  {action.category ? complianceCategoryLabels[action.category] : '未指定类别'} ·{' '}
+                  {action.actorUserId ? shortId(action.actorUserId) : '未知处理人'}
+                </small>
+              </article>
+            ))}
+            {!(item.reviewActions ?? []).length && <p className="panel-empty compact">暂无人工处理动作。</p>}
+          </div>
         </DrawerSection>
 
         <DrawerSection title="提示词输入" count={item.promptText ? 1 : 0}>
@@ -6064,6 +7028,33 @@ function AuditReferenceGroup({ title, items, emptyLabel }) {
   )
 }
 
+function BillingOwnershipHint({ target, scope = 'membership' }) {
+  const organizationType = target ? classifyOrganization(target) : null
+  const isEnterprise = organizationType?.type === 'enterprise'
+  const title = scope === 'organization' ? '企业组织共享池' : '个人账号 / membership 余额'
+  const detail =
+    scope === 'organization'
+      ? '这里给企业组织共享池充值或扣减，组织成员共用；B 端公账付款应优先走这里。'
+      : isEnterprise
+        ? '当前目标是企业组织内的某个成员余额；不要把企业公账付款误充到管理员或成员个人余额。'
+        : '当前目标是个人账号余额；只适用于 C 端个人付款、补偿或个人套餐交付。'
+  return (
+    <section className={`billing-ownership-hint ${scope === 'organization' ? 'organization' : 'membership'}`}>
+      <CreditCard size={15} />
+      <div>
+        <strong>{title}</strong>
+        <span>{detail}</span>
+      </div>
+      {target && (
+        <code>
+          {target.tenantName ?? target.name ?? target.organizationName} ·{' '}
+          {organizationTypeName(organizationType?.type ?? target.organizationType ?? 'standard')}
+        </code>
+      )}
+    </section>
+  )
+}
+
 function AdjustmentModal({ target, form, busy, onChange, onClose, onSubmit }) {
   const amount = Number(form.amount)
   const valid = Number.isInteger(amount) && amount !== 0 && form.reason.trim().length > 0
@@ -6071,6 +7062,7 @@ function AdjustmentModal({ target, form, busy, onChange, onClose, onSubmit }) {
     <Modal title="后台调账" onClose={onClose}>
       <form className="modal-form" onSubmit={onSubmit}>
         <IdentityCell name={target.name} detail={`${target.tenantName} · ${target.email ?? target.userId}`} />
+        <BillingOwnershipHint target={target} />
         <label>
           <span>积分变化</span>
           <input
@@ -6166,6 +7158,7 @@ function OrganizationBillingModal({
           </button>
         </div>
         {error && <div className="notice error">{error}</div>}
+        <BillingOwnershipHint target={organization} scope="organization" />
         <div className="drawer-summary-grid">
           <div>
             <span>当前组织余额</span>
@@ -6256,6 +7249,7 @@ function MembershipPlanModal({ membership, form, busy, onChange, onClose, onSubm
           name={membership.name}
           detail={`${membership.tenantName ?? membership.tenantId} · ${membership.email ?? membership.userId}`}
         />
+        <BillingOwnershipHint target={membership} />
         <div className="drawer-summary-grid">
           <div>
             <span>当前套餐</span>
@@ -6343,6 +7337,28 @@ function PasswordResetModal({ target, form, busy, onChange, onClose, onSubmit })
           <span>撤销该账号现有 session</span>
         </label>
         <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="设置临时密码" />
+      </form>
+    </Modal>
+  )
+}
+
+function RenameOrganizationModal({ organization, form, busy, onChange, onClose, onSubmit }) {
+  const valid = form.name.trim().length > 0 && form.name.trim() !== organization.name
+  return (
+    <Modal title="重命名企业组织" onClose={onClose}>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <IdentityCell name={organization.name} detail={organization.id} />
+        <label>
+          <span>新组织名称</span>
+          <input
+            value={form.name}
+            onChange={(event) => onChange({ ...form, name: event.target.value })}
+            maxLength={80}
+            required
+          />
+        </label>
+        <p className="modal-hint">组织名称会影响运营检索和客户后台显示，不会改变组织 ID。</p>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="重命名组织" />
       </form>
     </Modal>
   )
@@ -6690,6 +7706,134 @@ function CreateInvitationModal({ form, organizations, session, busy, onChange, o
         />
       </form>
     </Modal>
+  )
+}
+
+function BatchOrganizationInvitationModal({
+  form,
+  organizations,
+  session,
+  busy,
+  result,
+  onChange,
+  onClose,
+  onSubmit,
+  onCopy,
+}) {
+  const selectedOrganization =
+    organizations.find((organization) => organization.id === form.organizationId) ?? organizations[0] ?? null
+  const roles = organizationInvitationRoleOptions(session, selectedOrganization)
+  const emails = parseEmailLines(form.emails)
+  const valid =
+    Boolean(selectedOrganization) &&
+    roles.includes(form.role) &&
+    emails.valid.length > 0 &&
+    emails.valid.length <= 100
+
+  const selectOrganization = (organizationId) => {
+    const organization = organizations.find((item) => item.id === organizationId)
+    const nextRoles = organizationInvitationRoleOptions(session, organization)
+    onChange({
+      ...form,
+      organizationId,
+      role: nextRoles.includes(form.role) ? form.role : (nextRoles[0] ?? 'organization_member'),
+    })
+  }
+
+  return (
+    <Modal title="批量邀请组织成员" onClose={onClose} wide>
+      <form className="modal-form" onSubmit={onSubmit}>
+        <label>
+          <span>企业组织</span>
+          <select
+            value={form.organizationId}
+            onChange={(event) => selectOrganization(event.target.value)}
+            disabled={!organizations.length}
+            required
+          >
+            {organizations.map((organization) => (
+              <option key={organization.id} value={organization.id}>
+                {organization.name} · {organization.id}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>邀请身份</span>
+          <select
+            value={form.role}
+            onChange={(event) => onChange({ ...form, role: event.target.value })}
+            disabled={!roles.length}
+            required
+          >
+            {roles.map((role) => (
+              <option key={role} value={role}>
+                {roleName(role)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>邮箱列表</span>
+          <textarea
+            value={form.emails}
+            onChange={(event) => onChange({ ...form, emails: event.target.value })}
+            placeholder="每行一个邮箱，最多 100 个"
+            rows={8}
+            required
+          />
+        </label>
+        <div className="batch-summary">
+          <span>有效 {emails.valid.length}</span>
+          <span>格式错误 {emails.invalid.length}</span>
+          <span>去重后邀请 {emails.valid.length}</span>
+        </div>
+        <p className="modal-hint">批量邀请不会直接创建账号密码；受邀人通过注册链接完成注册并进入企业组织。</p>
+        <ModalActions busy={busy} valid={valid} onClose={onClose} submitLabel="开始批量邀请" />
+      </form>
+      {result && <BatchInvitationResult result={result} onCopy={onCopy} />}
+    </Modal>
+  )
+}
+
+function BatchInvitationResult({ result, onCopy }) {
+  const successfulText = result.created
+    .map((invitation) => `${invitation.email} ${invitationUrlFor(invitation.token)}`)
+    .join('\n')
+  return (
+    <section className="batch-result">
+      <header>
+        <div>
+          <strong>{result.organization.name}</strong>
+          <span>
+            {roleName(result.role)} · 成功 {result.created.length} · 失败 {result.failed.length}
+          </span>
+        </div>
+        <button
+          className="row-button"
+          type="button"
+          {...disabledButtonProps(!result.created.length, '没有成功生成的邀请码')}
+          onClick={() => onCopy(successfulText, '已复制批量邀请链接')}
+        >
+          <Copy size={14} />
+          复制成功链接
+        </button>
+      </header>
+      <div className="batch-result-list">
+        {result.created.map((invitation) => (
+          <article key={invitation.id}>
+            <strong>{invitation.email}</strong>
+            <code>{invitationUrlFor(invitation.token)}</code>
+          </article>
+        ))}
+        {result.failed.map((item) => (
+          <article key={`failed:${item.email}`} className="failed">
+            <strong>{item.email}</strong>
+            <span>{item.message}</span>
+          </article>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -7080,6 +8224,43 @@ function CompliancePromptActionModal({ item, form, busy, onChange, onClose, onSu
   )
 }
 
+function ActionConfirmModal({ request, busy, onCancel, onConfirm }) {
+  const details = request.details ?? []
+  return (
+    <Modal title={request.title} onClose={busy ? () => {} : onCancel}>
+      <div className={`confirm-panel ${request.tone ?? 'default'}`}>
+        {request.summary && <p>{request.summary}</p>}
+        {request.message && <pre>{request.message}</pre>}
+        {details.length > 0 && (
+          <dl>
+            {details.map((detail) => (
+              <div key={detail.label}>
+                <dt>{detail.label}</dt>
+                <dd className={detail.tone ?? ''}>{detail.value ?? '-'}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {request.impact && <p className="confirm-impact">{request.impact}</p>}
+      </div>
+      <div className="modal-actions">
+        <button className="row-button" type="button" onClick={onCancel} disabled={busy}>
+          {request.cancelLabel ?? '取消'}
+        </button>
+        <button
+          className={request.tone === 'danger' ? 'row-button danger solid' : 'primary-button'}
+          type="button"
+          onClick={onConfirm}
+          disabled={busy}
+        >
+          {busy ? <LoaderCircle size={15} className="spin" /> : <ShieldCheck size={15} />}
+          {request.confirmLabel ?? '确认'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 function Modal({ title, children, onClose, wide = false }) {
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -7183,6 +8364,36 @@ function ComplianceRiskTags({ tags, expanded = false }) {
       ))}
     </div>
   )
+}
+
+function ComplianceReviewBadge({ item }) {
+  const status = item.userStatus !== 'active' ? 'disabled' : (item.reviewStatus ?? 'pending')
+  return (
+    <span className={`compliance-review-badge ${status}`} title={complianceReviewHint(item)}>
+      {complianceReviewStatusName(status)}
+    </span>
+  )
+}
+
+function complianceReviewStatusName(status) {
+  const labels = {
+    pending: '待审查',
+    warned: '已警告',
+    reviewed: '已审查',
+    disabled: '已封号',
+  }
+  return labels[status] ?? status
+}
+
+function complianceReviewActionName(action) {
+  return action === 'warned' ? '发送警告' : '标记已审查'
+}
+
+function complianceReviewHint(item) {
+  if (item.userStatus !== 'active') return '账号已禁用'
+  const action = item.lastReviewAction
+  if (!action) return '暂无人工审查动作'
+  return `${complianceReviewActionName(action.action)} · ${formatDate(action.createdAt)}`
 }
 
 function StatusBadge({ status }) {
@@ -7432,6 +8643,61 @@ function summarizeInvitationStatuses(invitations) {
     }),
     { pending: 0, accepted: 0, revoked: 0, expired: 0 },
   )
+}
+
+function summarizeComplianceQueues(items) {
+  return items.reduce(
+    (summary, item) => ({
+      all: summary.all + 1,
+      highRisk: summary.highRisk + (complianceQueueMatches(item, 'high-risk') ? 1 : 0),
+      pending: summary.pending + (complianceQueueMatches(item, 'pending') ? 1 : 0),
+      warned: summary.warned + (complianceQueueMatches(item, 'warned') ? 1 : 0),
+      reviewed: summary.reviewed + (complianceQueueMatches(item, 'reviewed') ? 1 : 0),
+      disabled: summary.disabled + (complianceQueueMatches(item, 'disabled') ? 1 : 0),
+    }),
+    { all: 0, highRisk: 0, pending: 0, warned: 0, reviewed: 0, disabled: 0 },
+  )
+}
+
+function complianceQueueCards(summary) {
+  return [
+    { id: 'all', label: '全部', value: summary.all, icon: FileText },
+    { id: 'high-risk', label: '高风险', value: summary.highRisk, icon: ShieldAlert },
+    { id: 'pending', label: '待审查', value: summary.pending, icon: Clock },
+    { id: 'warned', label: '已警告', value: summary.warned, icon: AlertTriangle },
+    { id: 'reviewed', label: '已审查', value: summary.reviewed, icon: ShieldCheck },
+    { id: 'disabled', label: '已封号', value: summary.disabled, icon: Power },
+  ]
+}
+
+function complianceQueueMatches(item, queue) {
+  if (queue === 'all') return true
+  if (queue === 'high-risk') {
+    return item.riskTags.some((tag) => tag.severity === 'high' || tag.severity === 'critical')
+  }
+  if (queue === 'pending')
+    return item.userStatus === 'active' && (item.reviewStatus ?? 'pending') === 'pending'
+  if (queue === 'warned') return (item.reviewStatus ?? 'pending') === 'warned'
+  if (queue === 'reviewed') return (item.reviewStatus ?? 'pending') === 'reviewed'
+  if (queue === 'disabled') return item.userStatus !== 'active'
+  return true
+}
+
+function parseEmailLines(value) {
+  const valid = []
+  const invalid = []
+  const seen = new Set()
+  for (const raw of value.split(/[\s,;，；]+/u)) {
+    const email = raw.trim().toLowerCase()
+    if (!email || seen.has(email)) continue
+    seen.add(email)
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      valid.push(email)
+    } else {
+      invalid.push(email)
+    }
+  }
+  return { valid, invalid }
 }
 
 function MetricBlock({ icon: Icon, label, value, tone = '' }) {
