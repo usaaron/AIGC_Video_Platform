@@ -4,12 +4,13 @@
 
 ## 当前事实
 
-| 文档                                           | 用途                                 | 状态                        |
-| ---------------------------------------------- | ------------------------------------ | --------------------------- |
-| [CURRENT_STATE.md](CURRENT_STATE.md)           | 当前功能矩阵、生产状态、限制和优先级 | 当前事实源，2026-08-03 核对 |
-| [HANDOFF_GUIDE.md](HANDOFF_GUIDE.md)           | 30 分钟项目总览和代码地图            | 当前交接入口                |
-| [DEVELOPMENT_MEMORY.md](DEVELOPMENT_MEMORY.md) | 历史决策、事故、验收和迁移记录       | 历史日志，顶部当前快照优先  |
-| [PRODUCT_VOCABULARY.md](PRODUCT_VOCABULARY.md) | 产品词汇和角色冻结                   | 有效                        |
+| 文档                                                   | 用途                                 | 状态                        |
+| ------------------------------------------------------ | ------------------------------------ | --------------------------- |
+| [CURRENT_STATE.md](CURRENT_STATE.md)                   | 当前功能矩阵、生产状态、限制和优先级 | 当前事实源，2026-08-03 核对 |
+| [HANDOFF_GUIDE.md](HANDOFF_GUIDE.md)                   | 30 分钟项目总览和代码地图            | 当前交接入口                |
+| [DEVELOPMENT_MEMORY.md](DEVELOPMENT_MEMORY.md)         | 历史决策、事故、验收和迁移记录       | 历史日志，顶部当前快照优先  |
+| [PRODUCT_VOCABULARY.md](PRODUCT_VOCABULARY.md)         | 产品词汇和角色冻结                   | 有效                        |
+| [ACCOUNT_DELIVERY_GUIDE.md](ACCOUNT_DELIVERY_GUIDE.md) | 公账付款后的 C 端/B 端账号交付 SOP   | 有效                        |
 
 ## 架构与开发
 
