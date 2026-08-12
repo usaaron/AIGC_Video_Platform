@@ -697,14 +697,15 @@ export class VideoTaskExecutor {
         }
       }
       const sourcePromptSnapshot = stringValue(stored.metadata.sourcePromptSnapshot, shot.prompt)
-      const hasTaskPromptSnapshot =
+      const hasCurrentTaskPromptSnapshot =
         typeof stored.metadata.sourcePromptHash === 'string' &&
-        typeof stored.metadata.compiledPrompt === 'string'
-      const compiledPrompt = hasTaskPromptSnapshot
+        typeof stored.metadata.compiledPrompt === 'string' &&
+        stored.metadata.videoPromptVersion === VIDEO_PROMPT_VERSION
+      const compiledPrompt = hasCurrentTaskPromptSnapshot
         ? stringValue(stored.metadata.compiledPrompt, stored.prompt)
         : compileStoryboardVideoPrompt({
             project: { ...project, visualStyle: project.visualStyle ?? 'cinematic-cg' },
-            shot,
+            shot: { ...shot, prompt: sourcePromptSnapshot },
             shots,
             assets,
             references: referenceAssetIds.map((id) => ({ id })),

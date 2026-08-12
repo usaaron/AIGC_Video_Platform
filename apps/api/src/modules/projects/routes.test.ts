@@ -355,7 +355,13 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       method: 'POST',
       url: '/api/v1/projects',
       headers: { cookie },
-      payload: { name: 'Database Project', contentType: 'animation', aspectRatio: '16:9' },
+      payload: {
+        name: 'Database Project',
+        contentType: 'animation',
+        visualStyle: 'photorealistic',
+        episodeDurationSeconds: 42,
+        aspectRatio: '16:9',
+      },
     })
     expect(created.statusCode).toBe(201)
     const projectId = created.json().id as string
@@ -366,7 +372,12 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       method: 'PATCH',
       url: `/api/v1/projects/${projectId}`,
       headers: { cookie },
-      payload: { synopsis: 'Stored in postgres', script },
+      payload: {
+        synopsis: 'Stored in postgres',
+        script,
+        visualStyle: 'chinese-2d',
+        episodeDurationSeconds: 55,
+      },
     })
     expect(updatedProject.statusCode).toBe(200)
 
@@ -445,12 +456,19 @@ describe('project postgres api', { timeout: 30_000 }, () => {
         synopsis: string
         script: string
         version: number
-      }>('SELECT name, synopsis, script, version FROM projects WHERE id = $1', [projectId])
+        visual_style: string
+        episode_duration_seconds: number
+      }>(
+        'SELECT name, synopsis, script, version, visual_style, episode_duration_seconds FROM projects WHERE id = $1',
+        [projectId],
+      )
       expect(project.rows[0]).toMatchObject({
         name: 'Database Project',
         synopsis: 'Stored in postgres',
         script,
         version: 2,
+        visual_style: 'chinese-2d',
+        episode_duration_seconds: 55,
       })
 
       const asset = await database.query<{ status: string; image_url: string | null }>(

@@ -31,6 +31,8 @@ type ProjectRow = QueryResultRow & {
   owner_user_id: string
   name: string
   content_type: Project['contentType']
+  visual_style: NonNullable<Project['visualStyle']>
+  episode_duration_seconds: number | string
   aspect_ratio: Project['aspectRatio']
   status: Project['status']
   synopsis: string
@@ -103,6 +105,8 @@ const projectColumns = `
   owner_user_id,
   name,
   content_type,
+  visual_style,
+  episode_duration_seconds,
   aspect_ratio,
   status,
   synopsis,
@@ -290,6 +294,8 @@ export class ProjectRepository {
       ownerId: principal.userId,
       name: input.name,
       contentType: input.contentType,
+      visualStyle: input.visualStyle,
+      episodeDurationSeconds: input.episodeDurationSeconds,
       aspectRatio: input.aspectRatio,
       status: 'draft',
       synopsis: '',
@@ -307,6 +313,8 @@ export class ProjectRepository {
         owner_user_id,
         name,
         content_type,
+        visual_style,
+        episode_duration_seconds,
         aspect_ratio,
         status,
         synopsis,
@@ -315,7 +323,7 @@ export class ProjectRepository {
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       `,
       [
         project.id,
@@ -323,6 +331,8 @@ export class ProjectRepository {
         project.ownerId,
         project.name,
         project.contentType,
+        project.visualStyle,
+        project.episodeDurationSeconds,
         project.aspectRatio,
         project.status,
         project.synopsis,
@@ -346,6 +356,8 @@ export class ProjectRepository {
       ...existing,
       name: input.name ?? existing.name,
       status: input.status ?? existing.status,
+      visualStyle: input.visualStyle ?? existing.visualStyle,
+      episodeDurationSeconds: input.episodeDurationSeconds ?? existing.episodeDurationSeconds,
       synopsis: input.synopsis ?? existing.synopsis,
       script: input.script ?? existing.script,
       updatedAt: new Date().toISOString(),
@@ -356,9 +368,11 @@ export class ProjectRepository {
       SET
         name = $4,
         status = $5,
-        synopsis = $6,
-        script = $7,
-        updated_at = $8
+        visual_style = $6,
+        episode_duration_seconds = $7,
+        synopsis = $8,
+        script = $9,
+        updated_at = $10
       WHERE id = $1 AND tenant_id = $2 AND owner_user_id = $3
       RETURNING ${projectColumns}
       `,
@@ -368,6 +382,8 @@ export class ProjectRepository {
         principal.userId,
         updated.name,
         updated.status,
+        updated.visualStyle,
+        updated.episodeDurationSeconds,
         updated.synopsis,
         updated.script,
         updated.updatedAt,
@@ -1067,6 +1083,8 @@ export class ProjectRepository {
       ownerId: principal.userId,
       name: input.name,
       contentType: input.contentType,
+      visualStyle: input.visualStyle,
+      episodeDurationSeconds: input.episodeDurationSeconds,
       aspectRatio: input.aspectRatio,
       status: 'draft',
       synopsis: '',
@@ -1499,6 +1517,8 @@ async function insertProjectFromStore(client: PoolClient, project: Project): Pro
       owner_user_id,
       name,
       content_type,
+      visual_style,
+      episode_duration_seconds,
       aspect_ratio,
       status,
       synopsis,
@@ -1507,7 +1527,7 @@ async function insertProjectFromStore(client: PoolClient, project: Project): Pro
       created_at,
       updated_at
     )
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
     WHERE EXISTS (SELECT 1 FROM tenants WHERE id = $2)
       AND EXISTS (SELECT 1 FROM users WHERE id = $3)
     ON CONFLICT (id) DO NOTHING
@@ -1519,6 +1539,8 @@ async function insertProjectFromStore(client: PoolClient, project: Project): Pro
       project.ownerId,
       project.name,
       project.contentType,
+      project.visualStyle ?? 'cinematic-cg',
+      project.episodeDurationSeconds ?? 60,
       project.aspectRatio,
       project.status,
       project.synopsis,
@@ -1767,6 +1789,8 @@ function projectFromRow(row: ProjectRow): Project {
     ownerId: row.owner_user_id,
     name: row.name,
     contentType: row.content_type,
+    visualStyle: row.visual_style,
+    episodeDurationSeconds: Number(row.episode_duration_seconds),
     aspectRatio: row.aspect_ratio,
     status: row.status,
     synopsis: row.synopsis,

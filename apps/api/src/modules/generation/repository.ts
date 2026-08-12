@@ -65,6 +65,8 @@ type GenerationProjectRow = QueryResultRow & {
   owner_user_id: string
   name: string
   content_type: Project['contentType']
+  visual_style: NonNullable<Project['visualStyle']>
+  episode_duration_seconds: number | string
   aspect_ratio: Project['aspectRatio']
   status: Project['status']
   synopsis: string
@@ -266,7 +268,8 @@ export class GenerationTaskRepository {
         this.database.query<GenerationProjectRow>(
           `
           SELECT
-            id, tenant_id, owner_user_id, name, content_type, aspect_ratio, status,
+            id, tenant_id, owner_user_id, name, content_type, visual_style,
+            episode_duration_seconds, aspect_ratio, status,
             synopsis, script, version, created_at, updated_at
           FROM projects
           WHERE id = $1
@@ -795,6 +798,8 @@ export class GenerationTaskRepository {
         owner_user_id,
         name,
         content_type,
+        visual_style,
+        episode_duration_seconds,
         aspect_ratio,
         status,
         synopsis,
@@ -1609,6 +1614,8 @@ function projectFromRow(row: GenerationProjectRow): Project {
     ownerId: row.owner_user_id,
     name: row.name,
     contentType: row.content_type,
+    visualStyle: row.visual_style,
+    episodeDurationSeconds: Number(row.episode_duration_seconds),
     aspectRatio: row.aspect_ratio,
     status: row.status,
     synopsis: row.synopsis,

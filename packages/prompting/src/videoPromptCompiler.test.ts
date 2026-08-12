@@ -42,7 +42,7 @@ describe('compileStoryboardVideoPrompt', () => {
       references: [{ id: 'lin' }, { id: 'station' }],
     })
 
-    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v12')
+    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v13')
     expect(prompt).toContain('连续4秒、9:16画幅')
     expect(prompt).toContain('【当前镜头】镜头，特写')
     expect(prompt).not.toContain('上一镜结束：场景：雨夜旧火车站。')
@@ -183,6 +183,32 @@ describe('compileStoryboardVideoPrompt', () => {
     expect(prompt).toContain('禁止生成任何汉字、字母、数字')
     expect(prompt).not.toContain('屏幕文字：万柏林区')
     expect(prompt).not.toContain('万柏林区')
+  })
+
+  it('does not mistake an aspect ratio for a structured prompt field', () => {
+    const source =
+      '5秒，16:9，仿真人电影广告。清晨的汾河西岸滨河绿道，远景为城市天际线。0-1秒建立河岸；1-4秒青年沿绿道晨跑；4-5秒保持跑者侧影与河面同框。'
+    const prompt = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '16:9', contentType: 'advertisement', visualStyle: 'photorealistic' },
+      shot: shot('ratio', source, '大全景', 5),
+    })
+
+    expect(prompt).toContain('【导演时间轴（最高优先级）】')
+    expect(prompt).toContain('清晨的汾河西岸滨河绿道')
+    expect(prompt).toContain('青年沿绿道晨跑')
+    expect(prompt).not.toContain('雨滴持续下落')
+    expect(prompt).toContain('不得凭空下雨')
+  })
+
+  it('keeps an unstructured aspect-ratio prompt as authoritative shot facts', () => {
+    const source = '16:9 仿真人广告，万柏林商务街区，两名青年白领并肩走出玻璃门。'
+    const prompt = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '16:9', contentType: 'advertisement', visualStyle: 'photorealistic' },
+      shot: shot('plain-ratio', source, '中景', 5),
+    })
+
+    expect(prompt).toContain('【当前分镜事实（最高优先级）】')
+    expect(prompt).toContain(source)
   })
 })
 

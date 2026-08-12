@@ -26,6 +26,8 @@ describe('GenerationTaskRepository charged creation', () => {
                 owner_user_id: memberPrincipal.userId,
                 name: 'Database project',
                 content_type: 'short-drama',
+                visual_style: 'photorealistic',
+                episode_duration_seconds: 60,
                 aspect_ratio: '16:9',
                 status: 'draft',
                 synopsis: '',
@@ -80,6 +82,8 @@ describe('GenerationTaskRepository charged creation', () => {
 
     expect(context?.shot.prompt).toBe(currentPrompt)
     expect(context?.project.version).toBe(8)
+    expect(context?.project.visualStyle).toBe('photorealistic')
+    expect(context?.project.episodeDurationSeconds).toBe(60)
   })
 
   it('keeps a selected completed video after the shot has been regenerated', async () => {

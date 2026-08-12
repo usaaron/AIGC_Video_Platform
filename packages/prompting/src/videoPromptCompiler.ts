@@ -1,4 +1,4 @@
-export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v12'
+export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v13'
 
 export type PromptProject = {
   aspectRatio: string
@@ -52,6 +52,7 @@ export function compileStoryboardVideoPrompt(input: {
     .filter((asset): asset is PromptAsset => Boolean(asset))
   const explicitTimeline = hasExplicitTimeline(prompt)
   const focusedPrompt = explicitTimeline ? '' : focusedShotPrompt(prompt)
+  const authoritativePrompt = (explicitTimeline ? prompt : focusedPrompt || prompt).trim()
   const actionSequence = actionSequenceFor(prompt)
   const shotFields = promptFields(prompt)
   const identityRules = referenceAssets.map((asset) => identityRuleFor(asset, referenceAssets)).join('；')
@@ -68,10 +69,12 @@ export function compileStoryboardVideoPrompt(input: {
 
   return [
     `生成一段连续${duration}秒、${project.aspectRatio}画幅的${visualStyleLabel(project.visualStyle)}电影叙事视频。`,
-    explicitTimeline
-      ? `【当前镜头】${shot.title || '未命名镜头'}，${shot.framing || '中景'}。`
-      : `【当前镜头】${shot.title || '未命名镜头'}，${shot.framing || '中景'}。${sentence(focusedPrompt)}`,
-    explicitTimeline ? `【导演时间轴（最高优先级）】\n${String(shot.prompt || '').trim()}` : '',
+    `【当前镜头】${shot.title || '未命名镜头'}，${shot.framing || '中景'}。`,
+    authoritativePrompt
+      ? explicitTimeline
+        ? `【导演时间轴（最高优先级）】\n${authoritativePrompt}`
+        : `【当前分镜事实（最高优先级）】${sentence(authoritativePrompt)}`
+      : '',
     continuityMode === 'continue' && shot.continuityNote
       ? `【场景衔接上下文】${sentence(shot.continuityNote)}`
       : '',
@@ -133,7 +136,7 @@ function visualStyleLabel(value: string | undefined): string {
 
 function hasExplicitTimeline(value: string | undefined): boolean {
   const text = String(value || '')
-  const ranges = text.match(/(?:^|\n)\s*\d+(?:\.\d+)?\s*[-–—至到]\s*\d+(?:\.\d+)?\s*秒\s*[：:]/gu)
+  const ranges = text.match(/(?:^|[\n。；;])\s*\d+(?:\.\d+)?\s*[-–—至到]\s*\d+(?:\.\d+)?\s*秒\s*[，,：:]?/gu)
   return (ranges?.length ?? 0) >= 2
 }
 
@@ -216,7 +219,8 @@ function soundPlanFor(
   const dialogueText = String(dialogue || '').trim()
   const source = `${prompt || ''} ${assets.map((asset) => `${asset.name} ${asset.description || ''} ${asset.prompt || ''}`).join(' ')}`
   const effects: string[] = []
-  if (/雨|水|湿|伞/u.test(source)) effects.push('雨声和水滴声')
+  if (/雨|雨水|雨滴|淋湿|湿漉|雨伞|撑伞/u.test(source)) effects.push('雨声和水滴声')
+  else if (/河|湖|海|溪|水面|水池|水流|波纹|浪/u.test(source)) effects.push('水流、波纹或远处河岸环境声')
   if (/门|脚步|走|跑|站台|列车|车/u.test(source)) effects.push('脚步、门响或远处交通声')
   if (/风|树|帘|衣/u.test(source)) effects.push('连续风声和环境物体轻微摩擦声')
   if (!effects.length) effects.push('与场景一致的低存在感环境底噪和动作音效')
@@ -244,7 +248,11 @@ function cameraMotionFor(framing: string | undefined): string {
 function environmentMotionFor(prompt: string | undefined, assets: PromptAsset[]): string {
   const source = `${prompt || ''} ${assets.map((asset) => `${asset.name} ${asset.prompt || ''}`).join(' ')}`
   const motions: string[] = []
-  if (/雨|水|湿|伞/.test(source)) motions.push('雨滴持续下落并在物体表面产生细小水流和反光变化')
+  if (/雨|雨水|雨滴|淋湿|湿漉|雨伞|撑伞/.test(source)) {
+    motions.push('雨滴持续下落并在物体表面产生细小水流和反光变化')
+  } else if (/河|湖|海|溪|水面|水池|水流|波纹|浪/.test(source)) {
+    motions.push('水面或水流只产生符合场景风力和物理规律的细小波纹与倒影变化，不得凭空下雨')
+  }
   if (/风|衣|发|树|帘/.test(source)) motions.push('风带动头发、衣摆或环境中的柔性物体自然摆动')
   if (/灯|光|夜|火|影/.test(source)) motions.push('环境光和阴影随动作产生细微、连续的变化')
   if (/车|列车|轨道/.test(source)) motions.push('远近物体保持正确视差，运动方向符合场景空间')
@@ -318,10 +326,39 @@ function promptFields(value: string): Record<string, string> {
   const fields: Record<string, string> = {}
   for (const segment of value.split('｜')) {
     const match = segment.trim().match(/^([^：:]+)[：:]([\s\S]*)$/)
-    if (match?.[1] && match[2]) fields[match[1].trim()] = match[2].trim()
+    if (!match) continue
+    const label = match?.[1]?.trim()
+    if (label && match[2] && PROMPT_FIELD_LABELS.has(label)) fields[label] = match[2].trim()
   }
   return fields
 }
+
+const PROMPT_FIELD_LABELS = new Set([
+  '场次',
+  '时长',
+  '剧情',
+  '核心信息',
+  '屏幕文字',
+  '目标',
+  '阻力',
+  '变化',
+  '场景',
+  '角色',
+  '镜头边界',
+  '关键物件',
+  '物件',
+  '道具',
+  '动作',
+  '对白',
+  '风格',
+  '构图',
+  '光影',
+  '运镜',
+  '衔接',
+  '入场状态',
+  '出场状态',
+  '导演节拍',
+])
 
 function actionSequenceFor(value: string | undefined): string {
   const text = String(value || '').trim()

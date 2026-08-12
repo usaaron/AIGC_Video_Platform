@@ -1641,6 +1641,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
         sourcePromptHash: 'captured-hash',
         compiledPrompt: 'compiled prompt from click time',
         compiledPromptHash: 'compiled-hash',
+        videoPromptVersion: VIDEO_PROMPT_VERSION,
         referenceAssetIds: [],
         images: [],
       },
@@ -1668,6 +1669,83 @@ describe('GenerationTaskRunner Seedance integration', () => {
     expect(videoProvider.submit).toHaveBeenCalledWith(
       expect.objectContaining({ prompt: 'compiled prompt from click time' }),
     )
+  })
+
+  it('recompiles an outdated prompt snapshot without replacing it with a later shot edit', async () => {
+    const videoProvider: VideoGenerationProvider = {
+      submit: vi.fn(async () => ({
+        providerTaskId: 'recompiled-video-remote',
+        status: 'queued',
+        progress: 0,
+      })),
+      getStatus: vi.fn(async () => ({ status: 'completed', progress: 100, error: null })),
+      getContent: vi.fn(),
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const sourcePrompt =
+      '5秒，16:9，仿真人电影广告。清晨的汾河西岸滨河绿道。0-1秒建立河岸；1-4秒青年沿绿道晨跑；4-5秒保持跑者侧影与河面同框。'
+    const task: GenerationTask = {
+      id: 'outdated-prompt-video',
+      clientRequestId: 'outdated-prompt-video-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-member',
+      kind: 'video',
+      label: '镜头 01',
+      prompt: 'generic old compiled prompt',
+      negativePrompt: '',
+      provider: 'seedance',
+      model: 'doubao-seedance-2-0-260128',
+      metadata: {
+        shotId: 'shot-1',
+        duration: 5,
+        aspectRatio: '16:9',
+        resolution: '720p',
+        sourcePromptSnapshot: sourcePrompt,
+        sourcePromptHash: 'captured-hash',
+        compiledPrompt: 'generic old compiled prompt',
+        compiledPromptHash: 'compiled-hash',
+        videoPromptVersion: 'seedance-storyboard-v12',
+        referenceAssetIds: [],
+        images: [],
+      },
+      status: 'queued',
+      progress: 0,
+      estimatedCredits: 18,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+    await store.mutate((state) => {
+      const project = state.projects.find((item) => item.id === task.projectId)
+      if (project) project.visualStyle = 'photorealistic'
+      const shot = state.shots.find((item) => item.id === 'shot-1')
+      if (shot) shot.prompt = 'later unrelated shot edit'
+      state.tasks.unshift(task)
+    })
+
+    const runner = new GenerationTaskRunner(store, {
+      videoProvider,
+      providerPollIntervalMs: 0,
+    })
+    await runner.tick()
+
+    expect(videoProvider.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('清晨的汾河西岸滨河绿道'),
+      }),
+    )
+    expect(videoProvider.submit).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.not.stringContaining('later unrelated shot edit') }),
+    )
+    expect(store.read((state) => state.tasks.find((item) => item.id === task.id)?.metadata)).toMatchObject({
+      videoPromptVersion: VIDEO_PROMPT_VERSION,
+      compiledPrompt: expect.stringContaining('青年沿绿道晨跑'),
+    })
   })
 })
 
