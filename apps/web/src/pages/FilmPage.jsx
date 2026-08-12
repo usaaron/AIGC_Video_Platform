@@ -92,8 +92,7 @@ export function FilmPage({
     previewIsCurrent,
     readyShotCount,
     scopedShots.length,
-    'full',
-    0,
+    episodeNumber ? '当集成片' : '全集',
   )
   const previewActive =
     previewIsCurrent &&
@@ -473,8 +472,7 @@ function stateFor(task) {
   }
 }
 
-function stateForFilmPreview(task, isCurrent, readyCount, shotCount, previewMode, contiguousCount) {
-  const targetName = previewMode === 'partial' ? '片段预览' : '完整成片'
+function stateForFilmPreview(task, isCurrent, readyCount, shotCount, targetName) {
   if (task && isCurrent && task.status === 'failed') {
     return {
       tone: 'failed',
@@ -495,30 +493,30 @@ function stateForFilmPreview(task, isCurrent, readyCount, shotCount, previewMode
     return {
       tone: 'idle',
       icon: <Film size={24} />,
-      title: contiguousCount >= 2 ? `可先合成前 ${contiguousCount} 镜` : '等待连续镜头完成',
-      detail: `当前 ${readyCount}/${shotCount} 镜已完成；连续承接模式会按顺序生成，全部完成后自动合成完整 MP4。`,
+      title: `等待${targetName}镜头完成`,
+      detail: `当前 ${readyCount}/${shotCount} 镜已完成；全部镜头生成后即可合成连续 MP4。`,
     }
   }
   if (!task || !isCurrent) {
     return {
       tone: 'idle',
       icon: <Film size={24} />,
-      title: task ? '镜头已更新，需要重新合成' : '完整预览尚未合成',
-      detail: '点击“合成完整预览”，系统会按分镜顺序生成一个连续 MP4。',
+      title: task ? `镜头已更新，需要重新合成${targetName}` : `${targetName}尚未合成`,
+      detail: `点击“合成${targetName}”，系统会按分镜顺序生成一个连续 MP4。`,
     }
   }
   if (task.status === 'failed') {
     return {
       tone: 'failed',
       icon: <TriangleAlert size={24} />,
-      title: '完整预览合成失败',
-      detail: task.error || '请重新合成完整预览',
+      title: `${targetName}合成失败`,
+      detail: task.error || `请重新合成${targetName}`,
     }
   }
   return {
     tone: 'active',
     icon: <LoaderCircle size={24} className="spin" />,
-    title: task.status === 'paused' ? '完整预览已暂停' : `正在合成完整预览 ${task.progress}%`,
+    title: task.status === 'paused' ? `${targetName}已暂停` : `正在合成${targetName} ${task.progress}%`,
     detail: '合成只处理已生成视频，不会再次调用 Seedance 或扣除积分。',
   }
 }

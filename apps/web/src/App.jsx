@@ -1158,7 +1158,8 @@ function App() {
             try {
               const task = await api.createFilmPreview(project.id, mode, true, episodeNumber)
               replaceTasks(project.id, await api.tasks(project.id))
-              const target = mode === 'partial' ? '已完成片段' : '完整预览'
+              const target =
+                mode === 'partial' ? '已完成片段' : episodeNumber ? `第 ${episodeNumber} 集成片` : '全集'
               setToast(task.status === 'completed' ? `${target}已是最新版本` : `${target}正在后台合成`)
               return task
             } catch (error) {
