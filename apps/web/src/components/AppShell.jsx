@@ -222,7 +222,7 @@ export function AppSidebar({
                 <Icon size={15} />
               </span>
               <span>{item.label}</span>
-              <small>开发中</small>
+              <small>{item.id === 'agent-studio' ? '已启用' : '开发中'}</small>
             </button>
           )
         })}

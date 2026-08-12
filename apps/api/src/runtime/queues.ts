@@ -15,6 +15,7 @@ import type { RuntimeRepositories } from './services.js'
 import { createLocalGenerationTaskHandler } from '../core/jobs/localTaskHandler.js'
 import type { ProjectService } from '../modules/projects/service.js'
 import type { TrustedAssetService } from '../modules/trustedAssets/service.js'
+import { AgentRunner } from '../modules/agent/runner.js'
 
 export type ManagedTaskDispatcher = TaskDispatcher & {
   close?: () => Promise<void>
@@ -25,7 +26,7 @@ export type RuntimeQueues = {
   aiJobDispatcher: ManagedTaskDispatcher
   bullMqDispatcher: BullMqTaskDispatcher | null
   outboxRelay: OutboxRelay | null
-  inlineRunners: Array<GenerationTaskRunner | AiJobRunner>
+  inlineRunners: Array<GenerationTaskRunner | AiJobRunner | AgentRunner>
 }
 
 export async function createRuntimeQueues(input: {
@@ -144,12 +145,17 @@ export async function createRuntimeQueues(input: {
       },
     },
   })
+  const agentRunner = new AgentRunner(
+    repositories.agentRunRepository,
+    getProjectService,
+    getGenerationService,
+  )
 
   return {
     taskDispatcher: generationRunner,
     aiJobDispatcher: aiJobRunner,
     bullMqDispatcher: null,
     outboxRelay: null,
-    inlineRunners: [generationRunner, aiJobRunner],
+    inlineRunners: [generationRunner, aiJobRunner, agentRunner],
   }
 }

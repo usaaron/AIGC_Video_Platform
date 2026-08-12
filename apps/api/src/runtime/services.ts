@@ -8,6 +8,8 @@ import type { AccountDatabase } from '../infra/postgres.js'
 import type { AppStore } from '../infra/store.js'
 import { AccountManagementRepository } from '../modules/accountManagement/repository.js'
 import { AccountManagementService } from '../modules/accountManagement/service.js'
+import { AgentRunRepository } from '../modules/agent/repository.js'
+import { AgentService } from '../modules/agent/service.js'
 import { AiJobRepository } from '../modules/aiJobs/repository.js'
 import { AiJobService } from '../modules/aiJobs/service.js'
 import { AdminRepository } from '../modules/admin/repository.js'
@@ -42,6 +44,7 @@ export type RuntimeRepositories = {
   mediaRepository: MediaRepository
   aiJobRepository: AiJobRepository
   outboxRepository: OutboxRepository | null
+  agentRunRepository: AgentRunRepository
   creditLedger: StoreCreditLedger
   refreshProjectDomainRuntimeCache: (() => Promise<void>) | null
 }
@@ -57,6 +60,7 @@ export type RuntimeServices = {
   mediaService: MediaService
   trustedAssetService: TrustedAssetService
   paymentService: BillingPaymentService | null
+  agentService: AgentService
 }
 
 export type RuntimeDispatchers = {
@@ -93,6 +97,7 @@ export async function createRuntimeRepositories(input: {
     outboxRepository,
   )
   await generationTaskRepository.refreshRuntimeCacheFromDatabase()
+  const agentRunRepository = new AgentRunRepository(database, store)
 
   const aiJobRepository = new AiJobRepository(store, creditLedger, database, outboxRepository)
   await aiJobRepository.refreshRuntimeCacheFromDatabase()
@@ -121,6 +126,7 @@ export async function createRuntimeRepositories(input: {
     mediaRepository,
     aiJobRepository,
     outboxRepository,
+    agentRunRepository,
     creditLedger,
     refreshProjectDomainRuntimeCache,
   }
@@ -221,6 +227,11 @@ export function createRuntimeServices(input: {
     dispatchers.aiJobDispatcher,
   )
   const aiJobService = new AiJobService(repositories.aiJobRepository)
+  const agentService = new AgentService(
+    repositories.agentRunRepository,
+    dispatchers.taskDispatcher,
+    repositories.creditLedger,
+  )
   const quickStartService = new QuickStartService(
     store,
     providers.textProvider,
@@ -272,6 +283,7 @@ export function createRuntimeServices(input: {
     mediaService,
     trustedAssetService,
     paymentService,
+    agentService,
   }
 }
 

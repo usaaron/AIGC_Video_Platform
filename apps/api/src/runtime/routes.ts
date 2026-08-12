@@ -9,6 +9,7 @@ import { registerObservabilityRoutes } from '../core/observability/routes.js'
 import type { AccountDatabase } from '../infra/postgres.js'
 import type { AppStore } from '../infra/store.js'
 import { registerAccountManagementRoutes } from '../modules/accountManagement/routes.js'
+import { registerAgentRoutes } from '../modules/agent/routes.js'
 import { registerAiJobRoutes } from '../modules/aiJobs/routes.js'
 import { registerAdminRoutes } from '../modules/admin/routes.js'
 import { registerAuthRoutes } from '../modules/auth/routes.js'
@@ -98,6 +99,7 @@ export async function registerRuntimeRoutes(input: {
         repositories.creditLedger,
       )
       await registerProjectRoutes(api, services.projectService)
+      await registerAgentRoutes(api, services.agentService)
       await registerNovelRoutes(api, services.novelService)
       await registerQuickStartRoutes(api, services.quickStartService)
       await registerMediaRoutes(api, services.mediaService, config.MAX_UPLOAD_BYTES)

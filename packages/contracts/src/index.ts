@@ -1,4 +1,5 @@
 export * from './admin.js'
+export * from './agent.js'
 export * from './aiJob.js'
 export * from './account.js'
 export * from './accountManagement.js'

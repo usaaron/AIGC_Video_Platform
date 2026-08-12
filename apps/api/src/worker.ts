@@ -22,6 +22,8 @@ import { AccountDatabase } from './infra/postgres.js'
 import { AppStore } from './infra/store.js'
 import { createObjectStorage } from './infra/objectStorage.js'
 import { StoreCreditLedger } from './modules/billing/creditLedger.js'
+import { AgentRunRepository } from './modules/agent/repository.js'
+import { AgentRunner } from './modules/agent/runner.js'
 import { AiJobRepository } from './modules/aiJobs/repository.js'
 import { GenerationTaskRepository } from './modules/generation/repository.js'
 import { GenerationService } from './modules/generation/service.js'
@@ -97,6 +99,7 @@ const outboxRepository =
   database && config.TASK_QUEUE_DRIVER === 'bullmq' ? new OutboxRepository(database) : null
 const generationTaskRepository = new GenerationTaskRepository(store, creditLedger, database, outboxRepository)
 await generationTaskRepository.refreshRuntimeCacheFromDatabase()
+const agentRunRepository = new AgentRunRepository(database, store)
 const aiJobRepository = new AiJobRepository(store, creditLedger, database, outboxRepository)
 await aiJobRepository.refreshRuntimeCacheFromDatabase()
 const refreshProjectDomainRuntimeCache = database
@@ -184,6 +187,7 @@ generationService = new GenerationService(
   objectStorage,
   filmPreviewComposer,
 )
+const agentRunner = new AgentRunner(agentRunRepository, projectService, () => generationService)
 
 let queueWorker: BullMqGenerationWorker | null = null
 let outboxDispatcher: BullMqTaskDispatcher | null = null
@@ -206,6 +210,7 @@ if (config.TASK_QUEUE_DRIVER === 'bullmq') {
     async tick(context?: TaskDispatchContext & { reason?: string }) {
       await taskRunner.tick(context)
       await aiJobRunner.tick(context)
+      await agentRunner.tick()
     },
   })
   await queueWorker.start()
@@ -215,6 +220,7 @@ if (config.TASK_QUEUE_DRIVER === 'bullmq') {
 } else if (config.TASK_QUEUE_DRIVER === 'inline') {
   taskRunner.start()
   aiJobRunner.start()
+  agentRunner.start(config.TASK_QUEUE_POLL_INTERVAL_MS)
   process.stdout.write('[worker] inline task runner started\n')
 } else {
   process.stdout.write('[worker] task queue disabled\n')
@@ -224,6 +230,7 @@ const shutdown = async (signal: string) => {
   process.stdout.write(`[worker] shutting down on ${signal}\n`)
   taskRunner.stop()
   aiJobRunner.stop()
+  agentRunner.stop()
   outboxRelay?.stop()
   await queueWorker?.close().catch(() => {})
   await outboxDispatcher?.close().catch(() => {})

@@ -642,7 +642,23 @@ function App() {
       )
     }
     if (FUNCTION_STACK_IDS.has(activeStep)) {
-      return <FunctionStackPage tool={activeStep} />
+      return (
+        <FunctionStackPage
+          tool={activeStep}
+          billing={billing}
+          onOpenProject={async (projectId) => {
+            replaceTasks(projectId, readProjectTaskCache(projectId))
+            await refreshWorkspace(projectId)
+            replaceTasks(projectId, await api.tasks(projectId))
+            navigateTo('overview')
+          }}
+          onProjectCreated={async (projectId) => {
+            setProjects(await api.projects())
+            await refreshBilling()
+            if (projectId) await refreshWorkspace(projectId)
+          }}
+        />
+      )
     }
     if (activeStep === 'billing') {
       return (
