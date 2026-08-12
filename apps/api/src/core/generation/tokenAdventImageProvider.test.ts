@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { TokenAdventImageProvider } from './tokenAdventImageProvider.js'
 
 describe('TokenAdventImageProvider', () => {
@@ -61,6 +61,26 @@ describe('TokenAdventImageProvider', () => {
     expect(capturedBody?.get('model')).toBe('gpt-image-2')
     expect(capturedBody?.get('size')).toBe('1536x1024')
     expect(capturedBody?.getAll('image[]')).toHaveLength(1)
+    expect(String(capturedBody?.get('prompt'))).toContain('参考图一是唯一主体与身份基准')
+  })
+
+  it('does not silently route an unconfigured image model through Img2', async () => {
+    const fetcher = vi.fn() as unknown as typeof fetch
+    const provider = createProvider(fetcher)
+
+    await expect(
+      provider.generate({
+        taskId: 'task-unconfigured-model',
+        assetId: 'asset-1',
+        model: 'hunyuan-image',
+        aspectRatio: '1:1',
+        prompt: '人物图',
+        negativePrompt: '',
+        references: [],
+        outputs: ['single'],
+      }),
+    ).rejects.toThrow('图片模型 hunyuan-image 的 Provider 尚未配置')
+    expect(fetcher).not.toHaveBeenCalled()
   })
 
   it('retries one transient network failure', async () => {

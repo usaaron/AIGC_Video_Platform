@@ -52,7 +52,7 @@ export function AssetsPage({
   const [busyAssetId, setBusyAssetId] = useState(null)
   const [batchGenerating, setBatchGenerating] = useState(false)
   const [imageModel, setImageModel] = useState('img2-default')
-  const nanoBananaConfigured = imageModels?.nanoBanana === 'configured'
+  const hunyuanConfigured = imageModels?.hunyuan === 'configured'
   const filtered = assets.filter(
     (asset) => asset.kind === tab && asset.name.toLowerCase().includes(search.toLowerCase()),
   )
@@ -122,20 +122,16 @@ export function AssetsPage({
           <select
             value={imageModel}
             onChange={(event) => {
-              if (event.target.value === 'nano-banana' && !nanoBananaConfigured) return
+              if (event.target.value === 'hunyuan-image' && !hunyuanConfigured) return
               setImageModel(event.target.value)
             }}
           >
             {IMAGE_MODEL_OPTIONS.map(([value, label]) => (
-              <option key={value} value={value} disabled={value === 'nano-banana' && !nanoBananaConfigured}>
+              <option key={value} value={value} disabled={value === 'hunyuan-image' && !hunyuanConfigured}>
                 {label}
-                {value === 'nano-banana' && !nanoBananaConfigured ? '（未配置）' : ''}
               </option>
             ))}
           </select>
-          <small>
-            {nanoBananaConfigured ? '已连接独立 Nano Banana 上游' : 'Nano Banana 需配置真实上游后可用'}
-          </small>
         </label>
       </div>
 

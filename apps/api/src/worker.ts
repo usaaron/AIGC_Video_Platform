@@ -25,6 +25,7 @@ import { StoreCreditLedger } from './modules/billing/creditLedger.js'
 import { AiJobRepository } from './modules/aiJobs/repository.js'
 import { GenerationTaskRepository } from './modules/generation/repository.js'
 import { GenerationService } from './modules/generation/service.js'
+import { MediaRepository } from './modules/media/repository.js'
 import { NovelRepository } from './modules/novels/repository.js'
 import { NovelService } from './modules/novels/service.js'
 import { ProjectRepository } from './modules/projects/repository.js'
@@ -78,6 +79,12 @@ const projectRepository = new ProjectRepository(store, database)
 await projectRepository.refreshRuntimeCacheFromDatabase()
 
 const objectStorage = createObjectStorage(config)
+const mediaRepository = new MediaRepository(
+  store,
+  database,
+  config.STORAGE_DRIVER,
+  config.STORAGE_DRIVER === 'gcs' ? config.GCS_BUCKET : null,
+)
 const videoProvider = createVideoProvider(config)
 const imageProvider = createImageProvider(config)
 const textProvider = createTextProvider(config)
@@ -128,6 +135,7 @@ const trustedAssetService = new TrustedAssetService(
   config.VOLC_ARK_PROJECT_NAME,
   config.ASSET_LIBRARY_CONSOLE_URL,
   projectRepository,
+  mediaRepository,
 )
 const novelService = new NovelService(
   new NovelRepository(store, database, objectStorage),
@@ -140,6 +148,7 @@ const taskRunner = new GenerationTaskRunner(store, {
   videoProvider,
   videoProviderName: videoProviderName(config),
   imageProvider,
+  mediaRepository,
   objectStorage,
   creditLedger,
   providerPollIntervalMs: config.VIDEO_POLL_INTERVAL_MS,

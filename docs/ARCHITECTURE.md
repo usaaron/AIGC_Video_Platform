@@ -96,7 +96,7 @@ Migration 文件位于 `apps/api/src/infra/migrations`。dev/test 启动时可�
 当前 Provider 路由：
 
 - 默认文本：Rehdasu OpenAI 兼容接口，`glm-5.2`，服务端变量 `REHDASU_*`。
-- GPT 文本和图片：TokenAdvent；图片只实现 GPT Image 2，Nano Banana 尚无 Provider。
+- GPT 文本和图片：TokenAdvent；图片只实现 GPT Image 2，混元图片模型尚无 Provider。
 - 视频：StringX Seedance；Volc Ark 是可配置的显式回滚。Aideos 只剩历史适配器源码/测试，当前 `VIDEO_PROVIDER` 枚举不再装配它。
 - 可信人像：StringX MaaS Assets OpenAPI，使用独立 AK/SK，不复用 Seedance Bearer Token。
 - 邮件：Resend，负责验证码、邮箱验证、邀请和密码重置。

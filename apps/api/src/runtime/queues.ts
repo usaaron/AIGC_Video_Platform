@@ -105,6 +105,7 @@ export async function createRuntimeQueues(input: {
     videoProvider: providers.videoProvider,
     videoProviderName: videoProviderName(config),
     imageProvider: providers.imageProvider,
+    mediaRepository: repositories.mediaRepository,
     objectStorage,
     creditLedger: repositories.creditLedger,
     providerPollIntervalMs: config.VIDEO_POLL_INTERVAL_MS,

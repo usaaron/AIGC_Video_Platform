@@ -9,7 +9,7 @@ export const ASSET_TABS = [
 
 export const IMAGE_MODEL_OPTIONS = [
   ['img2-default', 'Img2'],
-  ['nano-banana', 'Nano Banana'],
+  ['hunyuan-image', '混元图片模型'],
 ]
 
 export const VISUAL_STYLES = [

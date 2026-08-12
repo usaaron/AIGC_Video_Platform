@@ -160,7 +160,7 @@ function ImageStudio() {
           <dl className="image-output-settings">
             <div>
               <dt>模型</dt>
-              <dd>Nano Banana</dd>
+              <dd>混元图片模型</dd>
             </div>
             <div>
               <dt>比例</dt>

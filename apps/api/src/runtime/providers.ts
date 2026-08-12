@@ -3,6 +3,7 @@ import { observeProviderCall } from '../core/observability/metrics.js'
 import type { AssetLibraryProvider } from '../core/generation/volcArkAssetLibraryProvider.js'
 import { VolcArkAssetLibraryProvider } from '../core/generation/volcArkAssetLibraryProvider.js'
 import { DeepSeekTextProvider } from '../core/generation/deepSeekTextProvider.js'
+import { OpenAIChatTextProvider } from '../core/generation/openAIChatTextProvider.js'
 import type { ImageGenerationProvider } from '../core/generation/imageProvider.js'
 import { TokenAdventImageProvider } from '../core/generation/tokenAdventImageProvider.js'
 import type { TextGenerationProvider } from '../core/generation/textProvider.js'
@@ -95,6 +96,17 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
         requestTimeoutMs: config.DEEPSEEK_REQUEST_TIMEOUT_MS,
       })
     : null
+  const deepSeekV4Provider = config.DEEPSEEK_V4_API_KEY
+    ? new OpenAIChatTextProvider({
+        baseUrl: config.DEEPSEEK_V4_BASE_URL,
+        apiKey: config.DEEPSEEK_V4_API_KEY,
+        model: config.DEEPSEEK_V4_MODEL,
+        completionsPath: config.DEEPSEEK_V4_CHAT_COMPLETIONS_PATH,
+        requestTimeoutMs: config.DEEPSEEK_V4_REQUEST_TIMEOUT_MS,
+        providerLabel: 'DeepSeek V4 Flash',
+        providerName: 'deepseek-v4-flash',
+      })
+    : null
   const gptProvider = config.TOKENADVENT_API_KEY
     ? new TokenAdventTextProvider({
         baseUrl: config.TOKENADVENT_BASE_URL,
@@ -112,18 +124,21 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
         requestTimeoutMs: config.REHDASU_REQUEST_TIMEOUT_MS,
       })
     : null
-  if (!deepSeekProvider && !gptProvider && !rehdasuProvider) return null
+  if (!deepSeekProvider && !deepSeekV4Provider && !gptProvider && !rehdasuProvider) return null
   return new RoutedTextProvider(
     config.TEXT_MODEL,
     config.DEEPSEEK_MODEL,
+    config.DEEPSEEK_V4_MODEL,
     config.REHDASU_MODEL,
     deepSeekProvider,
+    deepSeekV4Provider,
     gptProvider,
     rehdasuProvider,
   )
 }
 
 export function textProviderName(config: AppConfig): string {
+  if (isDeepSeekV4Model(config.TEXT_MODEL)) return 'deepseek-v4-flash'
   if (isRehdasuModel(config.TEXT_MODEL)) return 'rehdasu'
   return isGptModel(config.TEXT_MODEL) ? 'tokenadvent-gpt' : 'deepseek-v3'
 }
@@ -132,14 +147,27 @@ class RoutedTextProvider implements TextGenerationProvider {
   constructor(
     private readonly defaultModel: string,
     private readonly deepSeekModel: string,
+    private readonly deepSeekV4Model: string,
     private readonly rehdasuModel: string,
     private readonly deepSeekProvider: TextGenerationProvider | null,
+    private readonly deepSeekV4Provider: TextGenerationProvider | null,
     private readonly gptProvider: TextGenerationProvider | null,
     private readonly rehdasuProvider: TextGenerationProvider | null,
   ) {}
 
   generate(request: TextGenerationRequest): Promise<string> {
     const requestedModel = (request.model || this.defaultModel).trim()
+    if (isDeepSeekV4Model(requestedModel)) {
+      if (!this.deepSeekV4Provider) throw modelNotConfigured(requestedModel)
+      return observeProviderCall(
+        { provider: 'deepseek-v4-flash', operation: 'text.generate', ...request.usageContext },
+        () =>
+          this.deepSeekV4Provider!.generate({
+            ...request,
+            model: this.deepSeekV4Model,
+          }),
+      )
+    }
     if (isGptModel(requestedModel)) {
       if (!this.gptProvider) throw modelNotConfigured(requestedModel)
       return observeProviderCall(
@@ -180,6 +208,10 @@ function isGptModel(model: string): boolean {
 
 function isDeepSeekModel(model: string): boolean {
   return model.trim().toLowerCase().startsWith('deepseek')
+}
+
+function isDeepSeekV4Model(model: string): boolean {
+  return model.trim().toLowerCase() === 'deepseek-v4-flash'
 }
 
 function isRehdasuModel(model: string): boolean {

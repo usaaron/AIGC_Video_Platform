@@ -98,6 +98,11 @@ const configSchema = z
     DEEPSEEK_MODEL: z.string().min(1).default('deepseekV3'),
     DEEPSEEK_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/api/v1/chat/completions'),
     DEEPSEEK_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
+    DEEPSEEK_V4_BASE_URL: z.string().url().default('https://openrouter.icu/v1'),
+    DEEPSEEK_V4_API_KEY: z.string().default(''),
+    DEEPSEEK_V4_MODEL: z.string().min(1).default('deepseek-v4-flash'),
+    DEEPSEEK_V4_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/chat/completions'),
+    DEEPSEEK_V4_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
     REHDASU_BASE_URL: z.string().url().default('https://tokenadvent.com'),
     REHDASU_API_KEY: z.string().default(''),
     REHDASU_MODEL: z.string().min(1).default('glm-5.2'),
@@ -288,13 +293,24 @@ const configSchema = z
     }
     if (
       config.NODE_ENV === 'production' &&
-      config.TEXT_MODEL.toLowerCase().startsWith('deepseek') &&
+      isDeepSeekV3TextModel(config.TEXT_MODEL) &&
       !config.DEEPSEEK_API_KEY
     ) {
       context.addIssue({
         code: 'custom',
         path: ['DEEPSEEK_API_KEY'],
         message: 'DEEPSEEK_API_KEY or STRINGX_API_KEY is required for production text generation',
+      })
+    }
+    if (
+      config.NODE_ENV === 'production' &&
+      isDeepSeekV4TextModel(config.TEXT_MODEL) &&
+      !config.DEEPSEEK_V4_API_KEY
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DEEPSEEK_V4_API_KEY'],
+        message: 'DEEPSEEK_V4_API_KEY is required for the selected production text model',
       })
     }
     if (
@@ -384,6 +400,14 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
 
 function isRehdasuTextModel(model: string): boolean {
   return /^(glm-5\.2|glm-5\.2-fast|kimi-k3|kimi-k3-thinking)$/i.test(model.trim())
+}
+
+function isDeepSeekV3TextModel(model: string): boolean {
+  return ['deepseekv3', 'deepseek-v3'].includes(model.trim().toLowerCase())
+}
+
+function isDeepSeekV4TextModel(model: string): boolean {
+  return model.trim().toLowerCase() === 'deepseek-v4-flash'
 }
 
 function normalizeCsv(value: string | undefined): string {

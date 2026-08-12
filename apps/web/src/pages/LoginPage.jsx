@@ -130,7 +130,7 @@ export function LoginPage() {
         <div className="login-scene-overlay" />
         <div className="login-scene-frame" aria-hidden="true">
           <span>01</span>
-          <span>序幕TV® ORIGINALS</span>
+          <span>序幕TV™ ORIGINALS</span>
         </div>
         <div className="login-scanline" aria-hidden="true" />
         <div className="login-brand">
@@ -139,13 +139,13 @@ export function LoginPage() {
           </span>
           <div>
             <strong>
-              序幕TV<sup className="login-brand-mark">®</sup>
+              序幕TV<sup className="login-brand-mark">™</sup>
             </strong>
             <small>序幕TV创作工作台</small>
           </div>
         </div>
         <div className="login-story">
-          <span>序幕TV® · AI CINEMATIC STUDIO</span>
+          <span>序幕TV™ · AI CINEMATIC STUDIO</span>
           <h1>
             “序幕起，<em>好戏生。</em>”
           </h1>
@@ -162,13 +162,13 @@ export function LoginPage() {
       </section>
       <section className="login-panel">
         <div className="login-panel-meta" aria-hidden="true">
-          <span>序幕TV®</span>
+          <span>序幕TV™</span>
           <i />
           <span>SECURE ACCESS</span>
         </div>
         <form onSubmit={submit} className="login-form login-entry-form">
           <div className="login-heading">
-            <span className="eyebrow">序幕TV® · 创作工作台</span>
+            <span className="eyebrow">序幕TV™ · 创作工作台</span>
             <h2>{isForgotPassword ? '找回密码' : isRegistering ? '验证邮箱并注册' : '欢迎回来'}</h2>
             <p>
               {isForgotPassword

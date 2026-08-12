@@ -318,6 +318,91 @@ describe('GenerationTaskRunner Seedance integration', () => {
     })
   })
 
+  it('loads uploaded image references from the media repository before calling Img2', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const task = imageTask('persisted-reference-task', 'asset-with-reference')
+    task.model = 'img2-default'
+    task.metadata = {
+      ...task.metadata,
+      generationStage: 'body',
+      references: [{ url: '/api/v1/media/uploaded-face', name: 'face.png' }],
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+    const imageProvider: ImageGenerationProvider = {
+      generate: vi.fn(async () => [
+        { view: 'single', contentType: 'image/png', content: Buffer.from('generated-body') },
+      ]),
+    }
+    const files = new Map([['media/uploaded-face.png', Buffer.from('uploaded-face-content')]])
+    const objectStorage: ObjectStorage = {
+      put: vi.fn(async (key, content) => void files.set(key, content)),
+      get: vi.fn(async (key) => files.get(key) ?? Buffer.alloc(0)),
+      delete: vi.fn(async (key) => void files.delete(key)),
+    }
+    const mediaRepository = {
+      findSourceById: vi.fn(async () => ({
+        storageKey: 'media/uploaded-face.png',
+        contentType: 'image/png',
+      })),
+    }
+
+    await new GenerationTaskRunner(store, {
+      imageProvider,
+      mediaRepository,
+      objectStorage,
+    }).tick()
+
+    await vi.waitFor(() => expect(imageProvider.generate).toHaveBeenCalledOnce())
+    expect(mediaRepository.findSourceById).toHaveBeenCalledWith(
+      'uploaded-face',
+      task.projectId,
+      task.tenantId,
+      'image',
+    )
+    expect(imageProvider.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'img2-default',
+        references: [
+          expect.objectContaining({
+            name: 'face.png',
+            contentType: 'image/png',
+            content: Buffer.from('uploaded-face-content'),
+          }),
+        ],
+      }),
+    )
+  })
+
+  it('fails an image task instead of dropping a missing requested reference', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const task = imageTask('missing-reference-task', 'asset-with-missing-reference')
+    task.metadata = {
+      ...task.metadata,
+      generationStage: 'body',
+      references: [{ url: '/api/v1/media/missing-face', name: 'face.png' }],
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+    const imageProvider: ImageGenerationProvider = {
+      generate: vi.fn(),
+    }
+
+    await new GenerationTaskRunner(store, {
+      imageProvider,
+      mediaRepository: { findSourceById: vi.fn(async () => null) },
+      objectStorage: memoryObjectStorage(),
+    }).tick()
+
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+        status: 'failed',
+        error: expect.stringContaining('参考图读取失败'),
+      }),
+    )
+    expect(imageProvider.generate).not.toHaveBeenCalled()
+  })
+
   it('marks a timed out Img2 submission as failed instead of leaving it submitting', async () => {
     const store = new AppStore(null)
     await store.initialize()

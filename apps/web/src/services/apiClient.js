@@ -138,6 +138,7 @@ export const api = {
       'seqora-op-5',
       'kimi-3',
       'deepseek-v3',
+      'deepseek-v4-flash',
       'qwen3.8',
       'gpt-5.6-terra',
       'kimi-k3',

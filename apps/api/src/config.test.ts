@@ -154,6 +154,28 @@ describe('production configuration', () => {
     ).toThrow('REHDASU_API_KEY is required')
   })
 
+  it('requires the independent DeepSeek V4 key only when that model is selected', () => {
+    expect(() =>
+      loadConfig({
+        ...productionConfig(),
+        TEXT_MODEL: 'deepseek-v4-flash',
+        DEEPSEEK_V4_API_KEY: '',
+      }),
+    ).toThrow('DEEPSEEK_V4_API_KEY is required')
+
+    expect(
+      loadConfig({
+        ...productionConfig(),
+        TEXT_MODEL: 'deepseek-v4-flash',
+        DEEPSEEK_V4_API_KEY: 'production-deepseek-v4-token',
+      }),
+    ).toMatchObject({
+      DEEPSEEK_V4_BASE_URL: 'https://openrouter.icu/v1',
+      DEEPSEEK_V4_MODEL: 'deepseek-v4-flash',
+      DEEPSEEK_V4_CHAT_COMPLETIONS_PATH: '/chat/completions',
+    })
+  })
+
   it('accepts the legacy text key as a Rehdasu migration fallback', () => {
     const config = loadConfig({
       ...productionConfig(),

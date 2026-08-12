@@ -5,6 +5,7 @@ import type { VideoGenerationProvider, VideoProviderName } from '../generation/v
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../../modules/billing/creditLedger.js'
+import type { MediaRepository } from '../../modules/media/repository.js'
 import { usageCollector } from '../observability/usage.js'
 import { traceIdFromGenerationTask } from '../observability/trace.js'
 import {
@@ -42,6 +43,7 @@ type GenerationTaskRunnerOptions = {
   videoProvider?: VideoGenerationProvider | null
   videoProviderName?: VideoProviderName
   imageProvider?: ImageGenerationProvider | null
+  mediaRepository?: Pick<MediaRepository, 'findSourceById'> | null
   objectStorage?: ObjectStorage | null
   creditLedger?: CreditLedger | null
   providerPollIntervalMs?: number
@@ -111,6 +113,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     })
     this.imageExecutor = new ImageTaskExecutor(store, {
       imageProvider,
+      mediaRepository: options.mediaRepository ?? null,
       objectStorage,
       leaseOwnerId,
       leaseTtlMs,

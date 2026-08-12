@@ -26,6 +26,7 @@ const SCRIPT_MODEL_OPTIONS = [
   ['kimi-k3', 'Kimi K3'],
   ['glm-5.2', 'GLM 5.2'],
   ['glm-5.2-fast', 'GLM 5.2 Fast'],
+  ['deepseek-v4-flash', 'DeepSeek V4 Flash'],
 ]
 
 const SCRIPT_CONTENT_CONFIGS = {

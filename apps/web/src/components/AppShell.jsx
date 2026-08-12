@@ -72,7 +72,7 @@ export function AppHeader({
         <div className="brand-name">
           序幕
           <span>
-            TV<sup className="brand-registered">®</sup>
+            TV<sup className="brand-registered">™</sup>
           </span>
         </div>
       </div>

@@ -22,6 +22,7 @@ import type {
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../../modules/billing/creditLedger.js'
+import type { MediaRepository } from '../../modules/media/repository.js'
 import { observabilityMetrics, observeProviderCall } from '../observability/metrics.js'
 import { traceIdFromGenerationTask } from '../observability/trace.js'
 import { usageCollector } from '../observability/usage.js'
@@ -820,6 +821,7 @@ export class ImageTaskExecutor {
     private readonly store: AppStore,
     private readonly options: {
       imageProvider: ImageGenerationProvider | null
+      mediaRepository: Pick<MediaRepository, 'findSourceById'> | null
       objectStorage: ObjectStorage | null
       leaseOwnerId: string
       leaseTtlMs: number
@@ -896,21 +898,45 @@ export class ImageTaskExecutor {
   }
 
   private async resolveImageReferences(task: GenerationTask): Promise<ImageReference[]> {
-    if (!this.options.objectStorage || !Array.isArray(task.metadata.references)) return []
+    if (!Array.isArray(task.metadata.references) || !task.metadata.references.length) return []
+    if (!this.options.objectStorage) {
+      throw new Error('参考图存储服务不可用，未向图片模型提交任务')
+    }
     const references: ImageReference[] = []
     for (const raw of task.metadata.references.slice(0, 3)) {
-      if (!raw || typeof raw !== 'object') continue
+      if (!raw || typeof raw !== 'object') {
+        throw new Error('参考图信息格式无效，未向图片模型提交任务')
+      }
       const reference = raw as { url?: unknown; name?: unknown }
-      if (typeof reference.url !== 'string') continue
-      const stored = findStoredReference(this.store, task, reference.url)
-      if (!stored) continue
+      if (typeof reference.url !== 'string' || !reference.url) {
+        throw new Error('参考图地址无效，未向图片模型提交任务')
+      }
+      const stored =
+        findStoredReference(this.store, task, reference.url) ??
+        (await this.findPersistedMediaReference(task, reference.url))
+      if (!stored) {
+        throw new Error('参考图读取失败，未向图片模型提交任务；请重新上传或选择有效参考图')
+      }
+      const content = await this.options.objectStorage.get(stored.storageKey)
+      if (!content.length) {
+        throw new Error('参考图内容为空，未向图片模型提交任务；请重新上传参考图')
+      }
       references.push({
         name: typeof reference.name === 'string' ? reference.name : `reference-${references.length + 1}.png`,
         contentType: stored.contentType,
-        content: await this.options.objectStorage.get(stored.storageKey),
+        content,
       })
     }
     return references
+  }
+
+  private async findPersistedMediaReference(
+    task: GenerationTask,
+    url: string,
+  ): Promise<{ storageKey: string; contentType: string } | null> {
+    const mediaId = /^\/api\/v1\/media\/([^/]+)$/.exec(url)?.[1]
+    if (!mediaId || !this.options.mediaRepository) return null
+    return await this.options.mediaRepository.findSourceById(mediaId, task.projectId, task.tenantId, 'image')
   }
 }
 
@@ -1253,6 +1279,7 @@ function imageRequestFor(task: GenerationTask, references: ImageReference[]): Im
     taskId: task.id,
     idempotencyKey: providerIdempotencyKeyFor(task),
     assetId: stringValue(task.metadata.assetId, ''),
+    model: task.model,
     aspectRatio: stringValue(task.metadata.aspectRatio, '1:1'),
     prompt: task.prompt,
     negativePrompt: task.negativePrompt,

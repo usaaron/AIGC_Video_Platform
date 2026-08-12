@@ -22,7 +22,7 @@ pnpm dev
 
 ## Provider routing
 
-- `textProvider`: defaults to Rehdasu `glm-5.2` for Chinese understanding, scripts, summaries, and asset suggestions. GLM/Kimi use `REHDASU_API_KEY`, GPT uses `TOKENADVENT_API_KEY`, and DeepSeek uses `DEEPSEEK_API_KEY`; a model is only usable when its route is configured.
+- `textProvider`: defaults to Rehdasu `glm-5.2` for Chinese understanding, scripts, summaries, and asset suggestions. GLM/Kimi use `REHDASU_API_KEY`, GPT uses `TOKENADVENT_API_KEY`, DeepSeek V3 uses `DEEPSEEK_API_KEY`, and DeepSeek V4 Flash uses its independent `DEEPSEEK_V4_API_KEY`; a model is only usable when its route is configured.
 - `imageProvider`: uses TokenAdvent GPT Image 2 / `image2` only for image asset generation and image edits.
 - `videoProvider`: uses Seedance with `tier: mini | fast | pro`; the API stores the selected tier and the Provider maps it to the configured model.
 - Secrets must stay in `apps/api/.env` or deployment secrets. Do not put API keys in code, frontend env, docs, or Git.

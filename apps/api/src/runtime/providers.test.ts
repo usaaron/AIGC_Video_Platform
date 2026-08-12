@@ -48,4 +48,31 @@ describe('runtime providers', () => {
     ).resolves.toBe('available')
     expect(JSON.parse(capturedBody).model).toBe('gpt-5.6')
   })
+
+  it('routes DeepSeek V4 Flash through its independent relay', async () => {
+    let capturedUrl = ''
+    let capturedBody = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        capturedUrl = String(input)
+        capturedBody = String(init?.body)
+        return Response.json({ choices: [{ message: { content: '可用' } }] })
+      }),
+    )
+
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      DEEPSEEK_V4_API_KEY: 'test-deepseek-v4-key',
+      TEXT_MODEL: 'deepseek-v4-flash',
+    })
+    const provider = createTextProvider(config)
+
+    await expect(
+      provider?.generate({ systemPrompt: '测试', userPrompt: '回复可用', model: 'deepseek-v4-flash' }),
+    ).resolves.toBe('可用')
+    expect(textProviderName(config)).toBe('deepseek-v4-flash')
+    expect(capturedUrl).toBe('https://openrouter.icu/v1/chat/completions')
+    expect(JSON.parse(capturedBody).model).toBe('deepseek-v4-flash')
+  })
 })

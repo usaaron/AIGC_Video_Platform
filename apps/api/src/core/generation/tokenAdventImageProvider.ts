@@ -31,13 +31,14 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
   }
 
   async generate(request: ImageGenerationRequest): Promise<ImageGenerationOutput[]> {
+    const model = modelForRequest(request.model, this.options.model)
     const outputs: ImageGenerationOutput[] = []
     for (const view of request.outputs) {
       const prompt = promptFor(request, view)
       const idempotencyKey = request.idempotencyKey ? `${request.idempotencyKey}:${view}` : undefined
       const response = request.references.length
-        ? await this.edit(prompt, request.aspectRatio, request.references, idempotencyKey)
-        : await this.create(prompt, request.aspectRatio, idempotencyKey)
+        ? await this.edit(model, prompt, request.aspectRatio, request.references, idempotencyKey)
+        : await this.create(model, prompt, request.aspectRatio, idempotencyKey)
       const parsed = imageResponseSchema.parse(response)
       outputs.push({
         view,
@@ -48,7 +49,12 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
     return outputs
   }
 
-  private create(prompt: string, aspectRatio: string, idempotencyKey?: string): Promise<unknown> {
+  private create(
+    model: string,
+    prompt: string,
+    aspectRatio: string,
+    idempotencyKey?: string,
+  ): Promise<unknown> {
     return this.requestJson('/v1/images/generations', {
       method: 'POST',
       headers: {
@@ -56,7 +62,7 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
         ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
       },
       body: JSON.stringify({
-        model: this.options.model,
+        model,
         prompt,
         n: 1,
         size: sizeFor(aspectRatio),
@@ -67,13 +73,14 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
   }
 
   private edit(
+    model: string,
     prompt: string,
     aspectRatio: string,
     references: ImageGenerationRequest['references'],
     idempotencyKey?: string,
   ): Promise<unknown> {
     const body = new FormData()
-    body.set('model', this.options.model)
+    body.set('model', model)
     body.set('prompt', prompt)
     body.set('size', sizeFor(aspectRatio))
     body.set('quality', this.options.quality)
@@ -133,9 +140,23 @@ function promptFor(request: ImageGenerationRequest, view: ImageGenerationRequest
     back: '仅生成角色背面全身视图，标准站姿，完整入镜。',
     detail: '生成关键细节特写，保持主体设计一致。',
   }[view]
-  return [request.prompt, viewPrompt, request.negativePrompt ? `避免出现：${request.negativePrompt}` : '']
+  const referenceConstraint = request.references.length
+    ? '参考图一是唯一主体与身份基准。严格保持其脸型、五官比例、年龄、肤色、发型和辨识特征；只按要求改变景别、姿态、服装或构图，不得替换成其他人物或重新设计主体。其余参考图仅用于补充造型细节。'
+    : ''
+  return [
+    referenceConstraint,
+    request.prompt,
+    viewPrompt,
+    request.negativePrompt ? `避免出现：${request.negativePrompt}` : '',
+  ]
     .filter(Boolean)
     .join('\n')
+}
+
+function modelForRequest(requestedModel: string | null | undefined, configuredModel: string): string {
+  const normalized = requestedModel?.trim().toLowerCase()
+  if (!normalized || normalized === 'img2-default' || normalized === 'gpt-image-2') return configuredModel
+  throw new Error(`图片模型 ${requestedModel} 的 Provider 尚未配置`)
 }
 
 function sizeFor(aspectRatio: string): string {

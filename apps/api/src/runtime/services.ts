@@ -39,6 +39,7 @@ export type RuntimeRepositories = {
   adminRepository: AdminRepository | null
   projectRepository: ProjectRepository
   generationTaskRepository: GenerationTaskRepository
+  mediaRepository: MediaRepository
   aiJobRepository: AiJobRepository
   outboxRepository: OutboxRepository | null
   creditLedger: StoreCreditLedger
@@ -95,6 +96,12 @@ export async function createRuntimeRepositories(input: {
 
   const aiJobRepository = new AiJobRepository(store, creditLedger, database, outboxRepository)
   await aiJobRepository.refreshRuntimeCacheFromDatabase()
+  const mediaRepository = new MediaRepository(
+    store,
+    database,
+    config.STORAGE_DRIVER,
+    config.STORAGE_DRIVER === 'gcs' ? config.GCS_BUCKET : null,
+  )
 
   const refreshProjectDomainRuntimeCache = database
     ? async () => {
@@ -111,6 +118,7 @@ export async function createRuntimeRepositories(input: {
     adminRepository: database ? new AdminRepository(database) : null,
     projectRepository,
     generationTaskRepository,
+    mediaRepository,
     aiJobRepository,
     outboxRepository,
     creditLedger,
@@ -220,12 +228,7 @@ export function createRuntimeServices(input: {
     Boolean(providers.imageProvider),
     repositories.creditLedger,
   )
-  const mediaRepository = new MediaRepository(
-    store,
-    database,
-    config.STORAGE_DRIVER,
-    config.STORAGE_DRIVER === 'gcs' ? config.GCS_BUCKET : null,
-  )
+  const mediaRepository = repositories.mediaRepository
   const mediaService = new MediaService(mediaRepository, objectStorage)
   const trustedAssetService = new TrustedAssetService(
     store,
