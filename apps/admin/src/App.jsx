@@ -165,7 +165,11 @@ const organizationAdminTransferInitialState = {
   currentOrganizationAdminUserId: '',
   targetUserId: '',
 }
-const WEB_ORIGIN = (import.meta.env.VITE_WEB_ORIGIN || 'http://localhost:5173').replace(/\/+$/, '')
+const WEB_ORIGIN = (
+  import.meta.env.VITE_WEB_ORIGIN ||
+  window.location.origin ||
+  'http://localhost:5173'
+).replace(/\/+$/, '')
 const organizationScopedRoles = new Set(['organization_admin', 'organization_member'])
 const usageTabIds = new Set(['usage-realtime', 'usage-users', 'usage-organizations'])
 
