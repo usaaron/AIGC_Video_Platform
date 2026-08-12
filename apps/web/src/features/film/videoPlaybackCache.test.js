@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  hasVideoMetadataLoaded,
-  markVideoMetadataLoaded,
-  warmVideoPlaybackCache,
-} from './videoPlaybackCache'
+import { hasVideoMetadataLoaded, markVideoMetadataLoaded, warmVideoPlaybackCache } from './videoPlaybackCache'
 
 afterEach(() => vi.unstubAllGlobals())
 

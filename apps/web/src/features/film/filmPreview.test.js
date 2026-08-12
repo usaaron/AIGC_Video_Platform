@@ -3,6 +3,7 @@ import {
   completedShotVideoTask,
   contiguousSourceVideoTaskIds,
   filmPreviewTaskFor,
+  isActiveFilmPreview,
   isCurrentFilmPreview,
   latestCompletedFilmPreviewTask,
   sourceVideoTaskIds,
@@ -40,6 +41,16 @@ describe('film preview task selection', () => {
     expect(filmPreviewTaskFor([full, partial], ['video-1'], 'partial')?.id).toBe('preview-partial')
     expect(isCurrentFilmPreview(partial, ['video-1'], 'partial')).toBe(true)
     expect(isCurrentFilmPreview(partial, ['video-1'], 'full')).toBe(false)
+  })
+
+  it('only locks composition while the current preview is active', () => {
+    const running = previewTask('preview-running', ['video-1', 'video-2'])
+    running.status = 'running'
+    const failed = previewTask('preview-failed', ['video-1', 'video-2'])
+    failed.status = 'failed'
+
+    expect(isActiveFilmPreview(running, ['video-1', 'video-2'], 'full')).toBe(true)
+    expect(isActiveFilmPreview(failed, ['video-1', 'video-2'], 'full')).toBe(false)
   })
 
   it('prefers a composition built from the current source videos', () => {

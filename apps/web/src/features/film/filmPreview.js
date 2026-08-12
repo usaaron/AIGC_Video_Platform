@@ -64,6 +64,12 @@ export function isCurrentFilmPreview(task, sourceTaskIds, mode = FILM_PREVIEW_MO
   )
 }
 
+export function isActiveFilmPreview(task, sourceTaskIds, mode = FILM_PREVIEW_MODE_FULL) {
+  return Boolean(
+    isCurrentFilmPreview(task, sourceTaskIds, mode) && ['queued', 'running', 'paused'].includes(task.status),
+  )
+}
+
 function previewModeFor(task) {
   return task.metadata?.previewMode === FILM_PREVIEW_MODE_PARTIAL
     ? FILM_PREVIEW_MODE_PARTIAL

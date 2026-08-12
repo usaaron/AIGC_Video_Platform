@@ -17,6 +17,7 @@ import {
   completedShotVideoTask,
   contiguousSourceVideoTaskIds,
   filmPreviewTaskFor,
+  isActiveFilmPreview,
   isCurrentFilmPreview,
   latestCompletedFilmPreviewTask,
   sourceVideoTaskIds,
@@ -75,8 +76,10 @@ export function FilmPage({
   )
   const fullPreviewTask = filmPreviewTaskFor(scopedPreviewTasks, sourceTaskIds, 'full')
   const fullPreviewIsCurrent = isCurrentFilmPreview(fullPreviewTask, sourceTaskIds, 'full')
+  const fullPreviewActive = isActiveFilmPreview(fullPreviewTask, sourceTaskIds, 'full')
   const partialPreviewTask = filmPreviewTaskFor(scopedPreviewTasks, partialSourceTaskIds, 'partial')
   const partialPreviewIsCurrent = isCurrentFilmPreview(partialPreviewTask, partialSourceTaskIds, 'partial')
+  const partialPreviewActive = isActiveFilmPreview(partialPreviewTask, partialSourceTaskIds, 'partial')
   const retainedFullPreviewTask = latestCompletedFilmPreviewTask(scopedPreviewTasks, 'full')
   const retainedPartialPreviewTask = latestCompletedFilmPreviewTask(scopedPreviewTasks, 'partial')
   const currentPreviewMode = fullPreviewIsCurrent
@@ -299,7 +302,7 @@ export function FilmPage({
                 disabled={
                   partialSourceTaskIds.length < 2 ||
                   allShotsReady ||
-                  partialPreviewIsCurrent ||
+                  partialPreviewActive ||
                   composeSubmitting !== null
                 }
                 onClick={() => void composePreview('partial')}
@@ -314,7 +317,7 @@ export function FilmPage({
               <button
                 className="button secondary"
                 type="button"
-                disabled={!allShotsReady || fullPreviewIsCurrent || composeSubmitting !== null}
+                disabled={!allShotsReady || fullPreviewActive || composeSubmitting !== null}
                 onClick={() => void composePreview('full')}
               >
                 {composeSubmitting === 'full' ? (

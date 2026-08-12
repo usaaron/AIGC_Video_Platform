@@ -11,6 +11,65 @@ const memberPrincipal: Principal = {
 }
 
 describe('GenerationTaskRepository charged creation', () => {
+  it('recovers an expired local film composition when project tasks are read', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new GenerationTaskRepository(store)
+    const expired = generationTask({
+      id: 'expired-film-preview',
+      provider: 'local-compose',
+      status: 'running',
+      progress: 92,
+      leaseOwnerId: 'stopped-api',
+      leaseToken: 'expired-token',
+      leaseExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+      metadata: { generationStage: 'film-preview', compositionStage: 'uploading' },
+    })
+    await store.mutate((state) => state.tasks.unshift(expired))
+
+    const tasks = await repository.listByProject('project-midnight-film', memberPrincipal)
+
+    expect(tasks.find((task) => task.id === expired.id)).toMatchObject({
+      status: 'failed',
+      progress: 100,
+      error: '成片预览合成进程已中断，请重新合成',
+      leaseOwnerId: null,
+      leaseToken: null,
+      leaseExpiresAt: null,
+      metadata: {
+        providerState: 'failed',
+        compositionStage: 'failed',
+        compositionRecoveredAt: expect.any(String),
+      },
+    })
+  })
+
+  it('does not recover a local film composition with an active lease', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new GenerationTaskRepository(store)
+    const active = generationTask({
+      id: 'active-film-preview',
+      provider: 'local-compose',
+      status: 'running',
+      progress: 50,
+      leaseOwnerId: 'active-api',
+      leaseToken: 'active-token',
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      metadata: { generationStage: 'film-preview', compositionStage: 'composing' },
+    })
+    await store.mutate((state) => state.tasks.unshift(active))
+
+    const tasks = await repository.listByProject('project-midnight-film', memberPrincipal)
+
+    expect(tasks.find((task) => task.id === active.id)).toMatchObject({
+      status: 'running',
+      progress: 50,
+      leaseOwnerId: 'active-api',
+      leaseToken: 'active-token',
+    })
+  })
+
   it('reads the canonical storyboard prompt from postgres instead of the runtime cache', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -242,6 +301,41 @@ describe('GenerationTaskRepository charged creation', () => {
     })
   })
 })
+
+function generationTask(overrides: Partial<GenerationTask> = {}): GenerationTask {
+  const now = new Date().toISOString()
+  return {
+    id: 'generation-task',
+    clientRequestId: 'generation-task-request',
+    projectId: 'project-midnight-film',
+    tenantId: memberPrincipal.tenantId,
+    userId: memberPrincipal.userId,
+    kind: 'video',
+    label: 'Film preview',
+    prompt: '',
+    negativePrompt: '',
+    provider: 'seedance',
+    model: null,
+    tier: null,
+    metadata: {},
+    status: 'queued',
+    progress: 0,
+    estimatedCredits: 0,
+    attempts: 1,
+    maxAttempts: 3,
+    leaseOwnerId: null,
+    leaseToken: null,
+    leaseAcquiredAt: null,
+    leaseHeartbeatAt: null,
+    leaseExpiresAt: null,
+    resultUrl: null,
+    outputs: [],
+    error: null,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  }
+}
 
 function taskInput(overrides: Partial<CreateGenerationTask> = {}): CreateGenerationTask {
   return {
