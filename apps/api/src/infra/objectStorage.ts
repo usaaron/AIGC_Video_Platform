@@ -10,11 +10,15 @@ export type ObjectStorageStream = {
   size: number
 }
 
+export type ObjectStorageSignedUrlOptions = {
+  downloadFileName?: string
+}
+
 export interface ObjectStorage {
   put(key: string, content: Buffer, contentType: string): Promise<void>
   get(key: string): Promise<Buffer>
   getStream?(key: string, range?: { start: number; end: number }): Promise<ObjectStorageStream>
-  getSignedUrl?(key: string, expiresInMs?: number): Promise<string>
+  getSignedUrl?(key: string, expiresInMs?: number, options?: ObjectStorageSignedUrlOptions): Promise<string>
   delete(key: string): Promise<void>
 }
 
@@ -84,11 +88,16 @@ export class GoogleCloudObjectStorage implements ObjectStorage {
     }
   }
 
-  async getSignedUrl(key: string, expiresInMs = 10 * 60_000): Promise<string> {
+  async getSignedUrl(
+    key: string,
+    expiresInMs = 10 * 60_000,
+    options: ObjectStorageSignedUrlOptions = {},
+  ): Promise<string> {
     const [url] = await this.bucket.file(key).getSignedUrl({
       version: 'v4',
       action: 'read',
       expires: new Date(Date.now() + expiresInMs),
+      ...(options.downloadFileName ? { promptSaveAs: options.downloadFileName } : {}),
     })
     return url
   }

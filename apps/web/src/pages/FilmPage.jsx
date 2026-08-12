@@ -1,7 +1,6 @@
 import {
   Check,
   Download,
-  ExternalLink,
   Film,
   History,
   LoaderCircle,
@@ -15,7 +14,6 @@ import { useEffect, useState } from 'react'
 import { PageHeader } from '../components/ui'
 import {
   completedShotVideoTask,
-  contiguousSourceVideoTaskIds,
   filmPreviewTaskFor,
   isActiveFilmPreview,
   isCurrentFilmPreview,
@@ -24,6 +22,7 @@ import {
 } from '../features/film/filmPreview'
 import { projectRatioMode } from '../features/film/projectRatio'
 import { hasVideoMetadataLoaded, markVideoMetadataLoaded } from '../features/film/videoPlaybackCache'
+import { videoDownloadUrl } from '../features/film/videoDownload'
 import { normalizedVideoDuration } from '@seqora/prompting'
 
 export function FilmPage({
@@ -65,10 +64,6 @@ export function FilmPage({
   const ratioMode = projectRatioMode(project.aspectRatio)
   const completedSources = scopedShots.map((item) => completedShotVideoTask(tasks, item))
   const readyShotCount = completedSources.filter(Boolean).length
-  const partialSourceTaskIds = contiguousSourceVideoTaskIds(tasks, scopedShots)
-  const partialDuration = scopedShots
-    .slice(0, partialSourceTaskIds.length)
-    .reduce((sum, item) => sum + normalizedVideoDuration(item.duration, shotMinDuration), 0)
   const sourceTaskIds = sourceVideoTaskIds(tasks, scopedShots)
   const allShotsReady = scopedShots.length > 0 && sourceTaskIds.length === scopedShots.length
   const scopedPreviewTasks = tasks.filter(
@@ -77,59 +72,28 @@ export function FilmPage({
   const fullPreviewTask = filmPreviewTaskFor(scopedPreviewTasks, sourceTaskIds, 'full')
   const fullPreviewIsCurrent = isCurrentFilmPreview(fullPreviewTask, sourceTaskIds, 'full')
   const fullPreviewActive = isActiveFilmPreview(fullPreviewTask, sourceTaskIds, 'full')
-  const partialPreviewTask = filmPreviewTaskFor(scopedPreviewTasks, partialSourceTaskIds, 'partial')
-  const partialPreviewIsCurrent = isCurrentFilmPreview(partialPreviewTask, partialSourceTaskIds, 'partial')
-  const partialPreviewActive = isActiveFilmPreview(partialPreviewTask, partialSourceTaskIds, 'partial')
   const retainedFullPreviewTask = latestCompletedFilmPreviewTask(scopedPreviewTasks, 'full')
-  const retainedPartialPreviewTask = latestCompletedFilmPreviewTask(scopedPreviewTasks, 'partial')
-  const currentPreviewMode = fullPreviewIsCurrent
-    ? 'full'
-    : partialPreviewIsCurrent
-      ? 'partial'
-      : retainedFullPreviewTask
-        ? 'full'
-        : retainedPartialPreviewTask
-          ? 'partial'
-          : 'full'
   const currentPreviewTask = fullPreviewIsCurrent
     ? fullPreviewTask
-    : partialPreviewIsCurrent
-      ? partialPreviewTask
-      : currentPreviewMode === 'full'
-        ? retainedFullPreviewTask || fullPreviewTask
-        : retainedPartialPreviewTask || partialPreviewTask
+    : retainedFullPreviewTask || fullPreviewTask
   const selectedHistoryTask = scopedPreviewTasks.find((task) => task.id === selectedPreviewTaskId)
-  const previewMode =
-    selectedHistoryTask?.metadata?.previewMode === 'partial' ? 'partial' : currentPreviewMode
   const previewTask = selectedHistoryTask || currentPreviewTask
   const previewIsCurrent = selectedHistoryTask
-    ? isCurrentFilmPreview(
-        selectedHistoryTask,
-        selectedHistoryTask.metadata?.previewMode === 'partial' ? partialSourceTaskIds : sourceTaskIds,
-        selectedHistoryTask.metadata?.previewMode === 'partial' ? 'partial' : 'full',
-      )
-    : currentPreviewMode === 'full'
-      ? fullPreviewIsCurrent
-      : partialPreviewIsCurrent
+    ? isCurrentFilmPreview(selectedHistoryTask, sourceTaskIds, 'full')
+    : fullPreviewIsCurrent
   const previewUrl = videoUrlFor(previewTask)
   const retainedPreviewVisible = Boolean(previewUrl && !previewIsCurrent)
   const previewShotCount = retainedPreviewVisible
     ? numericMetadata(previewTask, 'sourceShotCount', 0)
-    : previewMode === 'partial'
-      ? partialSourceTaskIds.length
-      : readyShotCount
-  const previewDuration = retainedPreviewVisible
-    ? numericMetadata(previewTask, 'duration', 0)
-    : previewMode === 'partial'
-      ? partialDuration
-      : totalDuration
+    : readyShotCount
+  const previewDuration = retainedPreviewVisible ? numericMetadata(previewTask, 'duration', 0) : totalDuration
   const previewState = stateForFilmPreview(
     previewTask,
     previewIsCurrent,
     readyShotCount,
     scopedShots.length,
-    previewMode,
-    partialSourceTaskIds.length,
+    'full',
+    0,
   )
   const previewActive =
     previewIsCurrent &&
@@ -143,13 +107,7 @@ export function FilmPage({
   )
   const displayVideoFailed = Boolean(displayUrl && failedVideoUrl === displayUrl)
   const previewDownloadName = `${safeFileName(project.name)}-${
-    retainedPreviewVisible
-      ? previewMode === 'partial'
-        ? `上一版前${previewShotCount}镜片段`
-        : '上一版完整成片'
-      : previewMode === 'partial'
-        ? `前${partialSourceTaskIds.length}镜片段`
-        : '完整成片'
+    retainedPreviewVisible ? '上一版完整成片' : episodeNumber ? '当集成片' : '全集成片'
   }-${episodeNumber ? `第${episodeNumber}集` : '全部剧集'}-v${numericMetadata(previewTask, 'projectVersion', project.version)}.mp4`
 
   useEffect(() => {
@@ -274,46 +232,23 @@ export function FilmPage({
               <Video size={15} />
             )}
             {previewActive
-              ? `正在合成${previewMode === 'partial' ? '片段' : '完整成片'} ${previewTask.progress}%`
+              ? `正在合成${episodeNumber ? '当集成片' : '全集'} ${previewTask.progress}%`
               : previewUrl
                 ? retainedPreviewVisible
-                  ? `上一版${previewMode === 'partial' ? '片段' : '完整成片'}已保留，当前分镜需重新生成`
-                  : previewMode === 'partial'
-                    ? `前 ${partialSourceTaskIds.length} 镜连续预览已就绪`
-                    : '完整成片已就绪'
+                  ? '上一版完整成片已保留，当前分镜需重新生成'
+                  : `${episodeNumber ? '当集' : '全集'}成片已就绪`
                 : `视频生成进度 ${readyShotCount}/${scopedShots.length}`}
           </span>
           {previewUrl && (
             <>
-              <a className="button secondary" href={previewUrl} target="_blank" rel="noreferrer">
-                <ExternalLink size={15} /> 打开播放
-              </a>
-              <a className="button primary" href={previewUrl} download={previewDownloadName}>
+              <a className="button primary" href={videoDownloadUrl(previewUrl, previewDownloadName)}>
                 <Download size={15} />
-                {previewMode === 'partial' ? '下载片段' : '下载完整视频'}
+                下载{episodeNumber ? '当集成片' : '全集'}
               </a>
             </>
           )}
           {(!previewUrl || !previewIsCurrent) && (
             <>
-              <button
-                className="button secondary"
-                type="button"
-                disabled={
-                  partialSourceTaskIds.length < 2 ||
-                  allShotsReady ||
-                  partialPreviewActive ||
-                  composeSubmitting !== null
-                }
-                onClick={() => void composePreview('partial')}
-              >
-                {composeSubmitting === 'partial' ? (
-                  <LoaderCircle size={15} className="spin" />
-                ) : (
-                  <Video size={15} />
-                )}
-                合成已完成片段
-              </button>
               <button
                 className="button secondary"
                 type="button"
@@ -325,9 +260,7 @@ export function FilmPage({
                 ) : (
                   <Film size={15} />
                 )}
-                {allShotsReady
-                  ? '合成当前范围成片'
-                  : `当前范围待完成 ${readyShotCount}/${scopedShots.length}`}
+                {filmCompositionButtonLabel(episodeNumber, allShotsReady, readyShotCount, scopedShots.length)}
               </button>
             </>
           )}
@@ -396,21 +329,19 @@ export function FilmPage({
           <span className="eyebrow">
             {viewMode === 'full'
               ? retainedPreviewVisible
-                ? previewMode === 'partial'
-                  ? '上一版片段'
-                  : '上一版完整成片'
-                : previewMode === 'partial'
-                  ? '已完成片段'
-                  : '完整成片'
+                ? '上一版完整成片'
+                : episodeNumber
+                  ? '当集成片'
+                  : '全集成片'
               : '当前镜头'}
           </span>
           <h2>
             {viewMode === 'full'
               ? retainedPreviewVisible
                 ? `《${project.name}》上一版成片快照`
-                : previewMode === 'partial'
-                  ? `《${project.name}》前 ${partialSourceTaskIds.length} 镜预览`
-                  : `《${project.name}》全片预览`
+                : episodeNumber
+                  ? `《${project.name}》第 ${episodeNumber} 集成片`
+                  : `《${project.name}》全集预览`
               : `${String(shot.order).padStart(2, '0')} · ${shot.title}`}
           </h2>
           <img className="film-info-thumb" src={shot.imageUrl || '/demo/station.jpg'} alt="当前镜头缩略图" />
@@ -421,9 +352,7 @@ export function FilmPage({
                 {viewMode === 'full'
                   ? retainedPreviewVisible
                     ? `${previewShotCount}（上一版）`
-                    : previewMode === 'partial'
-                      ? `${partialSourceTaskIds.length}/${scopedShots.length}`
-                      : `${readyShotCount}/${scopedShots.length}`
+                    : `${readyShotCount}/${scopedShots.length}`
                   : shot.framing}
               </dd>
             </div>
@@ -598,6 +527,11 @@ function safeFileName(value) {
   return String(value || 'seqora-video')
     .replace(/[<>:"/\\|?*]/g, '-')
     .slice(0, 80)
+}
+
+export function filmCompositionButtonLabel(episodeNumber, allShotsReady, readyCount, shotCount) {
+  if (allShotsReady) return episodeNumber ? '合成当集成片' : '合成全集'
+  return `${episodeNumber ? '当集' : '全集'}待完成 ${readyCount}/${shotCount}`
 }
 
 function numericMetadata(task, key, fallback) {

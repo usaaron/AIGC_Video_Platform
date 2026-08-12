@@ -1,4 +1,15 @@
-import { Check, Clock3, ExternalLink, Images, LoaderCircle, Pause, Play, Trash2, XCircle } from 'lucide-react'
+import {
+  Check,
+  Clock3,
+  ExternalLink,
+  Images,
+  LoaderCircle,
+  Pause,
+  Play,
+  Trash2,
+  Video,
+  XCircle,
+} from 'lucide-react'
 
 export function StatusDot({ status }) {
   return <span className={`status-dot ${status}`} aria-hidden="true" />
@@ -27,7 +38,7 @@ export function PageHeader({ eyebrow, title, description, children }) {
 
 export function JobRow({ job, compact = false, busy = false, onPause, onResume, onDelete, onPreviewResult }) {
   const canCancelRunning = job.status === 'running' && job.metadata?.providerName === 'stringx-seedance'
-  const canPreviewInApp = job.kind === 'image' && typeof onPreviewResult === 'function'
+  const canPreviewInApp = ['image', 'video'].includes(job.kind) && typeof onPreviewResult === 'function'
   const icon =
     job.status === 'failed' ? (
       <XCircle size={15} />
@@ -88,7 +99,8 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
           job.resultUrl &&
           (canPreviewInApp ? (
             <button className="job-result" type="button" onClick={() => onPreviewResult(job)}>
-              <Images size={13} /> 查看结果
+              {job.kind === 'video' ? <Video size={13} /> : <Images size={13} />}
+              {job.kind === 'video' ? '预览视频' : '查看结果'}
             </button>
           ) : (
             <a className="job-result" href={job.resultUrl} target="_blank" rel="noreferrer">

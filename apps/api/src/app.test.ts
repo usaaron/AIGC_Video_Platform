@@ -1040,7 +1040,7 @@ describe('API authorization', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: task.resultUrl!,
+      url: `${task.resultUrl}?download=1&filename=${encodeURIComponent('奋斗青年-第1集.mp4')}`,
       headers: {
         'x-demo-role': 'member',
         'x-demo-user-id': 'user-member',
@@ -1053,6 +1053,9 @@ describe('API authorization', () => {
     expect(response.headers['content-type']).toContain('video/mp4')
     expect(response.headers['accept-ranges']).toBe('bytes')
     expect(response.headers['content-range']).toBe('bytes 0-12/100')
+    expect(response.headers['content-disposition']).toBe(
+      `attachment; filename*=UTF-8''${encodeURIComponent('奋斗青年-第1集.mp4')}`,
+    )
     expect(response.body).toBe('video-content')
     expect(getContent).toHaveBeenCalledWith('remote-video-task', 'bytes=0-12')
 

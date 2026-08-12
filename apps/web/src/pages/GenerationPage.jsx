@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ArrowRight, Check, Clapperboard, Clock3, Crown, Info, LoaderCircle, Play, Zap } from 'lucide-react'
 import { ImagePreviewModal } from '../components/ImagePreviewModal'
+import { VideoPreviewModal } from '../components/VideoPreviewModal'
 import { JobRow, PageHeader } from '../components/ui'
 
 const filters = [
@@ -148,6 +149,7 @@ export function GenerationPage({
                     url: targetJob.resultUrl,
                     alt: targetJob.label || '生成结果',
                     fileName: targetJob.label || '生成结果',
+                    mediaType: targetJob.kind,
                   })
                 }
               />
@@ -161,7 +163,12 @@ export function GenerationPage({
           )}
         </div>
       </section>
-      {preview && <ImagePreviewModal image={preview} onClose={() => setPreview(null)} />}
+      {preview?.mediaType === 'video' && (
+        <VideoPreviewModal video={preview} onClose={() => setPreview(null)} />
+      )}
+      {preview && preview.mediaType !== 'video' && (
+        <ImagePreviewModal image={preview} onClose={() => setPreview(null)} />
+      )}
     </div>
   )
 }

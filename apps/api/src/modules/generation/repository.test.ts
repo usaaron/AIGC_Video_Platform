@@ -23,6 +23,7 @@ describe('GenerationTaskRepository charged creation', () => {
       leaseOwnerId: 'stopped-api',
       leaseToken: 'expired-token',
       leaseExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+      updatedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
       metadata: { generationStage: 'film-preview', compositionStage: 'uploading' },
     })
     await store.mutate((state) => state.tasks.unshift(expired))
@@ -41,6 +42,32 @@ describe('GenerationTaskRepository charged creation', () => {
         compositionStage: 'failed',
         compositionRecoveredAt: expect.any(String),
       },
+    })
+  })
+
+  it('keeps a recently updated composition during the recovery grace period', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new GenerationTaskRepository(store)
+    const recent = generationTask({
+      id: 'recent-film-preview',
+      provider: 'local-compose',
+      status: 'running',
+      progress: 45,
+      leaseOwnerId: 'slow-api',
+      leaseToken: 'recent-token',
+      leaseExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+      updatedAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+      metadata: { generationStage: 'film-preview', compositionStage: 'composing' },
+    })
+    await store.mutate((state) => state.tasks.unshift(recent))
+
+    const tasks = await repository.listByProject('project-midnight-film', memberPrincipal)
+
+    expect(tasks.find((task) => task.id === recent.id)).toMatchObject({
+      status: 'running',
+      progress: 45,
+      leaseOwnerId: 'slow-api',
     })
   })
 

@@ -135,6 +135,17 @@ p {
   gap: 9px;
 }
 
+.workbench-return,
+.denied-actions a {
+  text-decoration: none;
+}
+
+.denied-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
 .operator-chip {
   min-width: 188px;
   display: grid;
@@ -2268,6 +2279,11 @@ code {
   }
 
   .topbar-actions {
+    flex-wrap: wrap;
+  }
+
+  .workbench-return {
+    flex: 1;
     width: 100%;
     justify-content: space-between;
   }

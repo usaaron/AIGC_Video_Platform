@@ -1,6 +1,7 @@
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
   Building2,
   Check,
   Clock,
@@ -1609,6 +1610,10 @@ export function App() {
           </div>
         </div>
         <div className="topbar-actions">
+          <a className="icon-text-button workbench-return" href={WEB_ORIGIN}>
+            <ArrowLeft size={16} />
+            返回工作台
+          </a>
           <div className="operator-chip">
             <span>{session.account.name.slice(0, 1)}</span>
             <div>
@@ -2331,10 +2336,16 @@ function DeniedScreen({ session, busy, onLogout }) {
         <ShieldCheck size={24} />
         <h1>当前账号无后台权限</h1>
         <p>{session.account.email}</p>
-        <button className="primary-button" type="button" onClick={onLogout} disabled={busy}>
-          {busy ? <LoaderCircle size={16} className="spin" /> : <LogOut size={16} />}
-          退出
-        </button>
+        <div className="denied-actions">
+          <a className="icon-text-button" href={WEB_ORIGIN}>
+            <ArrowLeft size={16} />
+            返回工作台
+          </a>
+          <button className="primary-button" type="button" onClick={onLogout} disabled={busy}>
+            {busy ? <LoaderCircle size={16} className="spin" /> : <LogOut size={16} />}
+            退出
+          </button>
+        </div>
       </section>
     </main>
   )

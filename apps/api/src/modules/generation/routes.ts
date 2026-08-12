@@ -12,6 +12,10 @@ const filmPreviewBodySchema = z.object({
   episodeNumber: z.number().int().positive().nullable().default(null),
 })
 const taskParamsSchema = z.object({ taskId: z.string().min(1).max(128) })
+const taskContentQuerySchema = z.object({
+  download: z.enum(['1', 'true']).optional(),
+  filename: z.string().min(1).max(180).optional(),
+})
 const outputParamsSchema = taskParamsSchema.extend({
   view: z.enum(['single', 'front', 'side', 'back', 'detail', 'last-frame']),
 })
@@ -108,8 +112,16 @@ export async function registerGenerationRoutes(
     async (request, reply) => {
       const parsed = taskParamsSchema.safeParse(request.params)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      const query = taskContentQuerySchema.safeParse(request.query ?? {})
+      if (!query.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(query.error))
       const range = typeof request.headers.range === 'string' ? request.headers.range : undefined
-      const content = await service.getVideoContent(parsed.data.taskId, request.principal!, range)
+      const downloadFileName = query.data.download ? safeDownloadFileName(query.data.filename) : undefined
+      const content = await service.getVideoContent(
+        parsed.data.taskId,
+        request.principal!,
+        range,
+        downloadFileName,
+      )
       if ('redirectUrl' in content) {
         return reply.header('Cache-Control', 'private, max-age=300').redirect(content.redirectUrl, 307)
       }
@@ -119,6 +131,12 @@ export async function registerGenerationRoutes(
       if (content.contentLength) reply.header('Content-Length', content.contentLength)
       if (content.acceptRanges) reply.header('Accept-Ranges', content.acceptRanges)
       if (content.contentRange) reply.header('Content-Range', content.contentRange)
+      if (downloadFileName) {
+        reply.header(
+          'Content-Disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(downloadFileName)}`,
+        )
+      }
       return reply.code(content.statusCode).send(content.stream)
     },
   )
@@ -146,4 +164,13 @@ export async function registerGenerationRoutes(
       return { cleared: await service.clearCompleted(parsed.data.projectId, request.principal!) }
     },
   )
+}
+
+function safeDownloadFileName(value?: string): string {
+  const normalized = String(value || '序幕TV成片.mp4')
+    .replace(/[\r\n<>:"/\\|?*]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160)
+  return /\.mp4$/i.test(normalized) ? normalized : `${normalized || '序幕TV成片'}.mp4`
 }

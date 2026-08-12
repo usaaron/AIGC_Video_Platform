@@ -138,7 +138,10 @@ export function createRuntimeFilmPreviewComposer(input: {
     config.FILM_PREVIEW_TIMEOUT_MS,
     videoProviderName(config),
     generationTaskRepository
-      ? { onStateChange: () => generationTaskRepository.flushRuntimeCacheToDatabase().then(() => {}) }
+      ? {
+          onStateChange: (taskId) =>
+            generationTaskRepository.flushRuntimeTaskToDatabase(taskId).then(() => {}),
+        }
       : {},
   )
 }

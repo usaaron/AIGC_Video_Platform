@@ -229,6 +229,17 @@ export class GenerationTaskRepository {
     })
   }
 
+  async flushRuntimeTaskToDatabase(taskId: string): Promise<boolean> {
+    if (!this.database || !this.store) return false
+    const task = this.store.read((state) => {
+      const current = state.tasks.find((item) => item.id === taskId)
+      return current ? normalizeGenerationTaskLifecycle(current) : null
+    })
+    if (!task) return false
+    const persisted = await updateGenerationTaskLifecycle(this.database, task)
+    return Boolean(persisted)
+  }
+
   async canCreate(projectId: string, principal: Principal): Promise<boolean> {
     if (this.database) {
       const result = await this.database.query<{ id: string }>(
@@ -1098,6 +1109,7 @@ export class GenerationTaskRepository {
     projectId: string | null = null,
   ): Promise<void> {
     const recoveredAt = new Date().toISOString()
+    const recoveryCutoff = new Date(Date.parse(recoveredAt) - 5 * 60_000).toISOString()
     const error = '成片预览合成进程已中断，请重新合成'
     const canReadAll = canReadAllTenantContent(principal)
 
@@ -1125,9 +1137,10 @@ export class GenerationTaskRepository {
           AND ($2::boolean OR user_id = $3)
           AND ($4::text IS NULL OR project_id = $4)
           AND (lease_expires_at IS NULL OR lease_expires_at <= $6::timestamptz)
+          AND updated_at <= $7::timestamptz
         RETURNING ${generationTaskColumns}
         `,
-        [principal.tenantId, canReadAll, principal.userId, projectId, error, recoveredAt],
+        [principal.tenantId, canReadAll, principal.userId, projectId, error, recoveredAt, recoveryCutoff],
       )
       this.mirrorTasks(result.rows.map(taskFromRow))
       return
@@ -1146,6 +1159,7 @@ export class GenerationTaskRepository {
         }
         const expiresAt = task.leaseExpiresAt ? Date.parse(task.leaseExpiresAt) : Number.NaN
         if (Number.isFinite(expiresAt) && expiresAt > Date.parse(recoveredAt)) continue
+        if (Date.parse(task.updatedAt) > Date.parse(recoveryCutoff)) continue
         task.status = 'failed'
         task.progress = 100
         task.error = error
@@ -1261,6 +1275,7 @@ async function updateGenerationTaskLifecycle(
         error = $14,
         updated_at = $15
     WHERE id = $1
+      AND updated_at <= $15::timestamptz
     RETURNING ${generationTaskColumns}
     `,
     [

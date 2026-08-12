@@ -35,7 +35,7 @@ type FilmPreviewComposerOptions = {
   leaseTtlMs?: number
   ioTimeoutMs?: number
   stateChangeTimeoutMs?: number
-  onStateChange?: () => Promise<void>
+  onStateChange?: (taskId: string) => Promise<void>
 }
 
 export type FfmpegInputMedia = {
@@ -54,7 +54,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
   private readonly ioTimeoutMs: number
   private readonly stateChangeTimeoutMs: number
   private readonly composeRunner: ComposeRunner
-  private readonly onStateChange: () => Promise<void>
+  private readonly onStateChange: (taskId: string) => Promise<void>
 
   constructor(
     private readonly store: AppStore,
@@ -96,7 +96,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       return tasks
     })
     for (const task of recovered) recordPreviewTaskUsage(task)
-    if (recovered.length) await this.notifyStateChange()
+    for (const task of recovered) await this.notifyStateChange(task.id)
   }
 
   async start(task: GenerationTask): Promise<GenerationTask> {
@@ -118,7 +118,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       stored.updatedAt = nowIso
       return stored
     })
-    await this.notifyStateChange()
+    await this.notifyStateChange(task.id)
     if (
       started.id === task.id &&
       started.status === 'running' &&
@@ -306,7 +306,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         stored.updatedAt = now
         releaseGenerationTaskLease(stored)
       })
-      await this.notifyStateChange()
+      await this.notifyStateChange(taskId)
     } catch (error) {
       const message = error instanceof Error ? error.message : '完整预览合成失败'
       await this.store.mutate((state) => {
@@ -325,7 +325,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         releaseGenerationTaskLease(task)
         task.updatedAt = new Date().toISOString()
       })
-      await this.notifyStateChange()
+      await this.notifyStateChange(taskId)
     } finally {
       stopLeaseHeartbeat?.()
       const finalTask = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
@@ -390,7 +390,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       task.updatedAt = new Date().toISOString()
       return true
     })
-    if (updated) await this.notifyStateChange()
+    if (updated) await this.notifyStateChange(taskId)
   }
 
   private startLeaseHeartbeat(taskId: string, leaseToken: string): () => void {
@@ -411,11 +411,13 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       task.updatedAt = new Date().toISOString()
       return true
     })
-    if (renewed) await this.notifyStateChange()
+    if (renewed) await this.notifyStateChange(taskId)
   }
 
-  private async notifyStateChange(): Promise<void> {
-    await withTimeout(this.onStateChange(), this.stateChangeTimeoutMs, '合成任务状态同步超时').catch(() => {})
+  private async notifyStateChange(taskId: string): Promise<void> {
+    await withTimeout(this.onStateChange(taskId), this.stateChangeTimeoutMs, '合成任务状态同步超时').catch(
+      () => {},
+    )
   }
 }
 

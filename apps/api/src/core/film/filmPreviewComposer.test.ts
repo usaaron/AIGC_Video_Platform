@@ -107,6 +107,7 @@ describe('FilmPreviewComposer', () => {
     })
     expect(stored.get(String(completed.metadata.previewStorageKey))?.toString()).toBe('merged-video')
     expect(onStateChange).toHaveBeenCalled()
+    expect(onStateChange).toHaveBeenCalledWith(preview.id)
     expect(usageCollector.snapshot({ userId: preview.userId })).toMatchObject({
       jobConcurrency: 0,
       jobCount: 1,

@@ -230,7 +230,7 @@ export class GenerationService {
     }
   }
 
-  async getVideoContent(taskId: string, principal: Principal, range?: string) {
+  async getVideoContent(taskId: string, principal: Principal, range?: string, downloadFileName?: string) {
     const task = await this.repository.findById(taskId, principal)
     if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权访问')
     if (task.kind !== 'video') {
@@ -244,7 +244,7 @@ export class GenerationService {
       if (typeof storageKey !== 'string') {
         throw new AppError(404, 'VIDEO_CONTENT_UNAVAILABLE', '完整预览文件不存在')
       }
-      return await this.videoStorageContent(storageKey, range)
+      return await this.videoStorageContent(storageKey, range, downloadFileName)
     }
     if (task.provider !== 'seedance') {
       throw new AppError(400, 'VIDEO_CONTENT_UNAVAILABLE', '该任务没有可播放的视频内容')
@@ -261,7 +261,11 @@ export class GenerationService {
         )
       : null
     if (cachedVideo && this.objectStorage) {
-      return await this.videoStorageContent((cachedVideo as { storageKey: string }).storageKey, range)
+      return await this.videoStorageContent(
+        (cachedVideo as { storageKey: string }).storageKey,
+        range,
+        downloadFileName,
+      )
     }
     if (!this.videoProvider) {
       throw new AppError(503, 'SEEDANCE_NOT_CONFIGURED', 'Seedance 服务尚未配置')
@@ -314,10 +318,10 @@ export class GenerationService {
     }
   }
 
-  private async videoStorageContent(storageKey: string, range?: string) {
+  private async videoStorageContent(storageKey: string, range?: string, downloadFileName?: string) {
     const storage = this.objectStorage
     if (!storage) throw new AppError(503, 'VIDEO_STORAGE_UNAVAILABLE', '视频存储尚未配置')
-    const signedUrl = await signedStorageUrl(storage, storageKey)
+    const signedUrl = await signedStorageUrl(storage, storageKey, downloadFileName)
     if (signedUrl) return { redirectUrl: signedUrl, contentType: 'video/mp4' as const }
 
     if (storage.getStream) {
@@ -382,10 +386,14 @@ function streamVideoContent(content: ObjectStorageStream, range: { start: number
   }
 }
 
-async function signedStorageUrl(storage: ObjectStorage | null, storageKey: string): Promise<string | null> {
+async function signedStorageUrl(
+  storage: ObjectStorage | null,
+  storageKey: string,
+  downloadFileName?: string,
+): Promise<string | null> {
   if (!storage?.getSignedUrl) return null
   try {
-    return await storage.getSignedUrl(storageKey)
+    return await storage.getSignedUrl(storageKey, undefined, downloadFileName ? { downloadFileName } : {})
   } catch {
     return null
   }
