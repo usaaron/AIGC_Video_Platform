@@ -163,6 +163,16 @@ export const adminComplianceRiskTagSchema = z.object({
   hits: z.number().int().nonnegative(),
 })
 
+export const adminComplianceReviewStatusSchema = z.enum(['pending', 'reviewed', 'warned'])
+
+export const adminComplianceReviewActionEntrySchema = z.object({
+  action: z.enum(['reviewed', 'warned']),
+  reason: z.string().min(1).max(500).nullable(),
+  category: adminComplianceRiskCategorySchema.nullable(),
+  actorUserId: z.string().min(1).nullable(),
+  createdAt: z.string().datetime(),
+})
+
 export const adminCompliancePromptItemSchema = z.object({
   id: z.string().min(1),
   source: adminCompliancePromptSourceSchema,
@@ -188,6 +198,9 @@ export const adminCompliancePromptItemSchema = z.object({
   inputKeys: z.array(z.string().min(1).max(120)),
   riskTags: z.array(adminComplianceRiskTagSchema),
   riskScore: z.number().int().nonnegative(),
+  reviewStatus: adminComplianceReviewStatusSchema.default('pending'),
+  lastReviewAction: adminComplianceReviewActionEntrySchema.nullable().default(null),
+  reviewActions: z.array(adminComplianceReviewActionEntrySchema).default([]),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
@@ -326,6 +339,8 @@ export type AdminCompliancePromptSource = z.infer<typeof adminCompliancePromptSo
 export type AdminComplianceRiskCategory = z.infer<typeof adminComplianceRiskCategorySchema>
 export type AdminComplianceSeverity = z.infer<typeof adminComplianceSeveritySchema>
 export type AdminComplianceRiskTag = z.infer<typeof adminComplianceRiskTagSchema>
+export type AdminComplianceReviewStatus = z.infer<typeof adminComplianceReviewStatusSchema>
+export type AdminComplianceReviewActionEntry = z.infer<typeof adminComplianceReviewActionEntrySchema>
 export type AdminCompliancePromptItem = z.infer<typeof adminCompliancePromptItemSchema>
 export type AdminCompliancePromptList = z.infer<typeof adminCompliancePromptListSchema>
 export type AdminCompliancePromptActionInput = z.infer<typeof adminCompliancePromptActionSchema>

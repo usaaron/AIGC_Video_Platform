@@ -13,6 +13,8 @@ import type {
   AdminCompliancePromptActionInput,
   AdminCompliancePromptItem,
   AdminCompliancePromptList,
+  AdminComplianceReviewActionEntry,
+  AdminComplianceReviewStatus,
   AdminCompliancePromptSource,
   AdminComplianceRiskCategory,
   AdminComplianceRiskTag,
@@ -798,10 +800,7 @@ export class AdminRepository {
         tenantId: prompt.tenant_id,
         userId: prompt.user_id,
         actorUserId: principal.userId,
-        action:
-          input.action === 'warned'
-            ? 'compliance.prompt.warning_issued'
-            : 'compliance.prompt.reviewed',
+        action: input.action === 'warned' ? 'compliance.prompt.warning_issued' : 'compliance.prompt.reviewed',
         resourceType: 'compliance_prompt',
         resourceId: prompt.source_id,
         ipAddress: metadata?.ipAddress ?? null,
@@ -1227,8 +1226,17 @@ type AdminCompliancePromptRow = {
   prompt: string
   negative_prompt: string | null
   input: Record<string, unknown> | string
+  review_actions: AdminComplianceReviewActionRow[] | string | null
   created_at: Date | string
   updated_at: Date | string
+}
+
+type AdminComplianceReviewActionRow = {
+  action: 'reviewed' | 'warned'
+  reason: string | null
+  category: AdminComplianceRiskCategory | null
+  actorUserId: string | null
+  createdAt: string
 }
 
 type SqlCondition = {
@@ -1726,12 +1734,14 @@ function compliancePromptUnionSql(): string {
         'negativePrompt', gt.negative_prompt,
         'metadata', gt.metadata
       ) AS input,
+      review.review_actions,
       gt.created_at,
       gt.updated_at
     FROM generation_tasks gt
     JOIN users u ON u.id = gt.user_id
     JOIN tenants t ON t.id = gt.tenant_id
     LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
+    LEFT JOIN LATERAL (${complianceReviewActionSql('gt.id', 'generation_task')}) review ON true
     WHERE gt.prompt <> ''
       OR gt.negative_prompt <> ''
 
@@ -1764,13 +1774,42 @@ function compliancePromptUnionSql(): string {
       ) AS prompt,
       NULL::text AS negative_prompt,
       aj.input,
+      review.review_actions,
       aj.created_at,
       aj.updated_at
     FROM ai_jobs aj
     JOIN users u ON u.id = aj.user_id
     JOIN tenants t ON t.id = aj.tenant_id
     LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
+    LEFT JOIN LATERAL (${complianceReviewActionSql('aj.id', 'ai_job')}) review ON true
     WHERE aj.input <> '{}'::jsonb
+  `
+}
+
+function complianceReviewActionSql(sourceIdSql: string, source: AdminCompliancePromptSource): string {
+  return `
+    SELECT COALESCE(
+      jsonb_agg(
+        jsonb_build_object(
+          'action',
+          CASE e.action
+            WHEN 'compliance.prompt.warning_issued' THEN 'warned'
+            ELSE 'reviewed'
+          END,
+          'reason', e.metadata->>'reason',
+          'category', e.metadata->>'category',
+          'actorUserId', e.actor_user_id,
+          'createdAt', e.created_at
+        )
+        ORDER BY e.created_at DESC
+      ),
+      '[]'::jsonb
+    ) AS review_actions
+    FROM audit_log_entries e
+    WHERE e.resource_type = 'compliance_prompt'
+      AND e.resource_id = ${sourceIdSql}
+      AND e.action IN ('compliance.prompt.warning_issued', 'compliance.prompt.reviewed')
+      AND COALESCE(e.metadata->>'source', $review_source$${source}$review_source$) = $review_source$${source}$review_source$
   `
 }
 
@@ -2083,6 +2122,8 @@ function toAdminAuditLogEntry(row: AdminAuditLogEntryRow): AdminAuditLogEntry {
 function toAdminCompliancePromptItem(row: AdminCompliancePromptRow): AdminCompliancePromptItem {
   const promptText = promptTextFromComplianceRow(row)
   const riskTags = classifyComplianceRisk(promptText)
+  const reviewActions = complianceReviewActions(row.review_actions)
+  const lastReviewAction = reviewActions[0] ?? null
   return {
     id: `${row.source}:${row.source_id}`,
     source: row.source,
@@ -2108,8 +2149,59 @@ function toAdminCompliancePromptItem(row: AdminCompliancePromptRow): AdminCompli
     inputKeys: Object.keys(jsonRecord(row.input)).slice(0, 30),
     riskTags,
     riskScore: complianceRiskScore(riskTags),
+    reviewStatus: complianceReviewStatus(lastReviewAction),
+    lastReviewAction,
+    reviewActions,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
+  }
+}
+
+function complianceReviewStatus(
+  lastReviewAction: AdminComplianceReviewActionEntry | null,
+): AdminComplianceReviewStatus {
+  if (!lastReviewAction) return 'pending'
+  return lastReviewAction.action === 'warned' ? 'warned' : 'reviewed'
+}
+
+function complianceReviewActions(
+  value: AdminCompliancePromptRow['review_actions'],
+): AdminComplianceReviewActionEntry[] {
+  const actions = Array.isArray(value) ? value : parseJsonArray(value)
+  return actions
+    .map((item) => complianceReviewAction(item))
+    .filter((item): item is AdminComplianceReviewActionEntry => Boolean(item))
+}
+
+function complianceReviewAction(value: unknown): AdminComplianceReviewActionEntry | null {
+  if (!value || typeof value !== 'object') return null
+  const item = value as Record<string, unknown>
+  const action = item.action === 'warned' ? 'warned' : item.action === 'reviewed' ? 'reviewed' : null
+  if (!action) return null
+  return {
+    action,
+    reason: typeof item.reason === 'string' ? item.reason : null,
+    category: complianceCategoryOrNull(item.category),
+    actorUserId: typeof item.actorUserId === 'string' ? item.actorUserId : null,
+    createdAt: toIso(typeof item.createdAt === 'string' ? item.createdAt : new Date(0).toISOString()),
+  }
+}
+
+function complianceCategoryOrNull(value: unknown): AdminComplianceRiskCategory | null {
+  if (typeof value !== 'string') return null
+  return complianceRiskRules.some((rule) => rule.category === value)
+    ? (value as AdminComplianceRiskCategory)
+    : null
+}
+
+function parseJsonArray(value: unknown): unknown[] {
+  if (!value) return []
+  if (typeof value !== 'string') return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
   }
 }
 
@@ -2195,7 +2287,18 @@ const complianceRiskRules: Array<{
     category: 'terrorism',
     label: '涉恐/爆炸物',
     severity: 'critical',
-    terms: ['恐怖袭击', '恐怖组织', '炸弹', '爆炸物', '自制炸药', '劫持', '人质', '袭击机场', 'jihad', 'terrorist'],
+    terms: [
+      '恐怖袭击',
+      '恐怖组织',
+      '炸弹',
+      '爆炸物',
+      '自制炸药',
+      '劫持',
+      '人质',
+      '袭击机场',
+      'jihad',
+      'terrorist',
+    ],
   },
   {
     category: 'sexual_content',
