@@ -22,6 +22,7 @@ import {
 import { BillingPaymentService } from '../modules/billing/paymentService.js'
 import { GenerationTaskRepository } from '../modules/generation/repository.js'
 import { GenerationService } from '../modules/generation/service.js'
+import { Image2BatchService } from '../modules/image2/service.js'
 import { MediaRepository } from '../modules/media/repository.js'
 import { MediaService } from '../modules/media/service.js'
 import { NovelRepository } from '../modules/novels/repository.js'
@@ -49,6 +50,7 @@ export type RuntimeServices = {
   authService: AuthService
   accountManagementService: AccountManagementService | null
   generationService: GenerationService
+  image2BatchService: Image2BatchService
   projectService: ProjectService
   novelService: NovelService
   aiJobService: AiJobService
@@ -224,6 +226,12 @@ export function createRuntimeServices(input: {
     config.STORAGE_DRIVER === 'gcs' ? config.GCS_BUCKET : null,
   )
   const mediaService = new MediaService(mediaRepository, objectStorage)
+  const image2BatchService = new Image2BatchService(
+    repositories.generationTaskRepository,
+    mediaRepository,
+    dispatchers.taskDispatcher,
+    Boolean(providers.imageProvider),
+  )
   const trustedAssetService = new TrustedAssetService(
     store,
     providers.assetLibraryProvider,
@@ -259,6 +267,7 @@ export function createRuntimeServices(input: {
     authService,
     accountManagementService,
     generationService,
+    image2BatchService,
     projectService,
     novelService,
     aiJobService,

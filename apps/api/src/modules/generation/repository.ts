@@ -423,6 +423,16 @@ export class GenerationTaskRepository {
     return this.createWithChargeInStore(input, principal, options)
   }
 
+  async createBatchWithCharge(
+    inputs: CreateGenerationTask[],
+    principal: Principal,
+    options: { traceId?: string | null } = {},
+  ): Promise<GenerationTask[]> {
+    assertUniqueClientRequestIds(inputs)
+    if (this.database) return this.createBatchWithChargeInDatabase(inputs, principal, options)
+    return this.createBatchWithChargeInStore(inputs, principal, options)
+  }
+
   async listByProject(projectId: string, principal: Principal): Promise<GenerationTask[]> {
     if (!this.database) return this.listByProjectFromStore(projectId, principal)
 
@@ -1001,6 +1011,133 @@ export class GenerationTaskRepository {
     })
   }
 
+  private async createBatchWithChargeInDatabase(
+    inputs: CreateGenerationTask[],
+    principal: Principal,
+    options: { traceId?: string | null } = {},
+  ): Promise<GenerationTask[]> {
+    if (!inputs.length) return []
+    const created = await this.database!.transaction(async (client) => {
+      const tasksByClientRequest = new Map<string, GenerationTask>()
+      const newInputs: CreateGenerationTask[] = []
+
+      for (const input of inputs) {
+        await assertNoActiveShotTask(client, input, principal)
+        const replayed = await findTaskByClientRequest(client, input.clientRequestId, principal)
+        if (replayed) {
+          tasksByClientRequest.set(input.clientRequestId, replayed)
+          await this.outbox?.enqueueGenerationTaskDispatch(client, replayed)
+        } else {
+          newInputs.push(input)
+        }
+      }
+
+      const membership = await resolveMembershipForTask(client, principal, newInputs.length > 0)
+      if (!membership) {
+        throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
+      }
+
+      const totalCredits = newInputs.reduce((total, input) => total + Math.max(0, input.estimatedCredits), 0)
+      if (totalCredits > 0 && (membership.credits === null || membership.credits < totalCredits)) {
+        throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
+      }
+
+      let nextCredits = membership.credits
+      const now = new Date().toISOString()
+      for (const input of newInputs) {
+        const task = buildQueuedGenerationTask(input, principal, now, options)
+        const inserted = await insertCreatedTask(client, task, membership.id)
+        const selected = inserted ?? (await findTaskByClientRequest(client, input.clientRequestId, principal))
+        if (!selected) throw new AppError(409, 'TASK_CONFLICT', 'Generation task already exists')
+        tasksByClientRequest.set(input.clientRequestId, selected)
+
+        if (inserted && input.estimatedCredits > 0) {
+          if (nextCredits === null) throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
+          nextCredits -= input.estimatedCredits
+          await updateBillingBalanceForTask(
+            client,
+            principal,
+            membership,
+            nextCredits,
+            input.clientRequestId,
+            input.estimatedCredits,
+            input.label,
+            now,
+          )
+        }
+        await this.outbox?.enqueueGenerationTaskDispatch(client, selected)
+      }
+
+      return {
+        tasks: inputs.map((input) => tasksByClientRequest.get(input.clientRequestId)!),
+        credits: membership.billingScope === 'organization' ? null : nextCredits,
+      }
+    })
+
+    await this.mirrorTaskBatch(created.tasks, created.credits)
+    return created.tasks
+  }
+
+  private async createBatchWithChargeInStore(
+    inputs: CreateGenerationTask[],
+    principal: Principal,
+    options: { traceId?: string | null } = {},
+  ): Promise<GenerationTask[]> {
+    if (!inputs.length) return []
+    const creditLedger = this.creditLedger
+    return this.requireStore().transaction(async (state) => {
+      const tasksByClientRequest = new Map<string, GenerationTask>()
+      const newInputs: CreateGenerationTask[] = []
+      for (const input of inputs) {
+        const existing = state.tasks.find(
+          (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
+        )
+        if (existing) {
+          tasksByClientRequest.set(input.clientRequestId, existing)
+          continue
+        }
+        assertNoActiveShotTaskInState(state, input, principal)
+        newInputs.push(input)
+      }
+
+      const totalCredits = newInputs.reduce((total, input) => total + Math.max(0, input.estimatedCredits), 0)
+      const user = state.users.find(
+        (item) => item.id === principal.userId && item.tenantId === principal.tenantId,
+      )
+      if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
+      if (user.credits < totalCredits) throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
+
+      const now = new Date().toISOString()
+      for (const input of newInputs) {
+        const task = buildQueuedGenerationTask(input, principal, now, options)
+        if (creditLedger) {
+          await creditLedger.reserveCreditsInState(
+            state,
+            principal,
+            input.estimatedCredits,
+            input.clientRequestId,
+            input.label,
+          )
+        } else {
+          user.credits -= input.estimatedCredits
+          state.ledger.unshift({
+            id: `generation-${input.clientRequestId}`,
+            userId: user.id,
+            tenantId: user.tenantId,
+            amount: -input.estimatedCredits,
+            balance: user.credits,
+            type: 'generation',
+            description: input.label,
+            createdAt: now,
+          })
+        }
+        state.tasks.unshift(task)
+        tasksByClientRequest.set(input.clientRequestId, task)
+      }
+      return inputs.map((input) => tasksByClientRequest.get(input.clientRequestId)!)
+    })
+  }
+
   private async createWithChargeInStore(
     input: CreateGenerationTask,
     principal: Principal,
@@ -1091,6 +1228,18 @@ export class GenerationTaskRepository {
     if (!this.store) return
     this.store.mutateProjectWorkspaceRuntimeCache((state) => {
       for (const task of tasks) upsertTaskInState(state, task)
+    })
+  }
+
+  private async mirrorTaskBatch(tasks: GenerationTask[], credits: number | null): Promise<void> {
+    if (!this.store) return
+    await this.store.mutateProjectWorkspaceRuntimeCache((state) => {
+      for (const task of tasks) upsertTaskInState(state, task)
+      if (credits === null || !tasks[0]) return
+      const user = state.users.find(
+        (item) => item.id === tasks[0]!.userId && item.tenantId === tasks[0]!.tenantId,
+      )
+      if (user) user.credits = credits
     })
   }
 
@@ -1337,6 +1486,114 @@ async function resolveMembershipForTask(
     id: row.id,
     credits: Number(organizationCredits),
     billingScope: 'organization',
+  }
+}
+
+async function updateBillingBalanceForTask(
+  queryable: Queryable,
+  principal: Principal,
+  membership: TaskBillingTarget,
+  nextCredits: number,
+  clientRequestId: string,
+  credits: number,
+  description: string,
+  now: string,
+): Promise<void> {
+  if (membership.billingScope === 'organization') {
+    await queryable.query(
+      `
+      UPDATE organization_billing_accounts
+      SET credits = $2,
+          updated_at = now()
+      WHERE tenant_id = $1
+      `,
+      [principal.tenantId, nextCredits],
+    )
+    await queryable.query(
+      `
+      INSERT INTO organization_billing_ledger_entries (
+        id,
+        tenant_id,
+        user_id,
+        membership_id,
+        reference_id,
+        related_entry_id,
+        entry_type,
+        amount,
+        balance,
+        description,
+        created_by_user_id,
+        created_at,
+        updated_at,
+        metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, NULL, 'generation', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
+      `,
+      [
+        `generation-${clientRequestId}`,
+        principal.tenantId,
+        principal.userId,
+        membership.id,
+        clientRequestId,
+        -credits,
+        nextCredits,
+        description,
+        now,
+      ],
+    )
+    return
+  }
+
+  await queryable.query(
+    `
+    UPDATE billing_accounts
+    SET credits = $2,
+        updated_at = now()
+    WHERE membership_id = $1
+    `,
+    [membership.id, nextCredits],
+  )
+  await queryable.query(
+    `
+    INSERT INTO billing_ledger_entries (
+      id,
+      tenant_id,
+      user_id,
+      membership_id,
+      reference_id,
+      related_entry_id,
+      entry_type,
+      amount,
+      balance,
+      description,
+      created_by_user_id,
+      created_at,
+      updated_at,
+      metadata
+    )
+    VALUES ($1, $2, $3, $4, $5, NULL, 'generation', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
+    `,
+    [
+      `generation-${clientRequestId}`,
+      principal.tenantId,
+      principal.userId,
+      membership.id,
+      clientRequestId,
+      -credits,
+      nextCredits,
+      description,
+      now,
+    ],
+  )
+}
+
+function assertUniqueClientRequestIds(inputs: CreateGenerationTask[]): void {
+  const seen = new Set<string>()
+  for (const input of inputs) {
+    if (seen.has(input.clientRequestId)) {
+      throw new AppError(400, 'DUPLICATE_CLIENT_REQUEST_ID', 'Batch task client request ids must be unique')
+    }
+    seen.add(input.clientRequestId)
   }
 }
 
