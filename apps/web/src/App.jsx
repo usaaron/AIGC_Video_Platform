@@ -320,6 +320,20 @@ function App() {
     await refreshSession()
   }
 
+  const refreshCurrentProjectData = async () => {
+    if (!project?.id) return
+    const [nextWorkspace, nextTasks, nextBilling, nextProjects] = await Promise.all([
+      api.project(project.id),
+      api.tasks(project.id),
+      api.billing(),
+      api.projects(),
+    ])
+    setWorkspace(nextWorkspace)
+    setTasks(nextTasks)
+    setBilling(nextBilling)
+    setProjects(nextProjects)
+  }
+
   const createJob = async (label, type = '图片', cost = 6, options = {}) => {
     if (!project) return
     try {
@@ -611,7 +625,17 @@ function App() {
       )
     }
     if (FUNCTION_STACK_IDS.has(activeStep)) {
-      return <FunctionStackPage tool={activeStep} />
+      return (
+        <FunctionStackPage
+          tool={activeStep}
+          project={project}
+          billing={billing}
+          tasks={tasks}
+          image2ProviderStatus={providerHealth?.providers?.img2 ?? null}
+          onRefreshImageStudio={refreshCurrentProjectData}
+          onOpenBilling={() => navigateTo('billing')}
+        />
+      )
     }
     if (activeStep === 'billing') {
       return (

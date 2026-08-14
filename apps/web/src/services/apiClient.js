@@ -214,6 +214,7 @@ export const api = {
   tasks: (projectId) => request(`/projects/${projectId}/generation/tasks`),
   recentTasks: () => request('/generation/tasks/recent'),
   createTask: (input) => request('/generation/tasks', json('POST', input)),
+  createImage2Batch: (input) => request('/image2/batches', json('POST', input)),
   createFilmPreview: (projectId, mode = 'full', force = false, episodeNumber = null) =>
     request(`/projects/${projectId}/film-preview`, json('POST', { mode, force, episodeNumber })),
   pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, { method: 'POST' }),
