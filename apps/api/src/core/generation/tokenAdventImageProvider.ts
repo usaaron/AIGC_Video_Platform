@@ -49,6 +49,7 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
   }
 
   private create(prompt: string, aspectRatio: string, idempotencyKey?: string): Promise<unknown> {
+    const size = sizeFor(aspectRatio)
     return this.requestJson('/v1/images/generations', {
       method: 'POST',
       headers: {
@@ -59,7 +60,7 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
         model: this.options.model,
         prompt,
         n: 1,
-        size: sizeFor(aspectRatio),
+        ...(size ? { size } : {}),
         quality: this.options.quality,
         output_format: 'png',
       }),
@@ -72,10 +73,11 @@ export class TokenAdventImageProvider implements ImageGenerationProvider {
     references: ImageGenerationRequest['references'],
     idempotencyKey?: string,
   ): Promise<unknown> {
+    const size = sizeFor(aspectRatio)
     const body = new FormData()
     body.set('model', this.options.model)
     body.set('prompt', prompt)
-    body.set('size', sizeFor(aspectRatio))
+    if (size) body.set('size', size)
     body.set('quality', this.options.quality)
     body.set('output_format', 'png')
     for (const reference of references.slice(0, 3)) {
@@ -138,10 +140,22 @@ function promptFor(request: ImageGenerationRequest, view: ImageGenerationRequest
     .join('\n')
 }
 
-function sizeFor(aspectRatio: string): string {
-  if (aspectRatio === '9:16') return '1024x1536'
-  if (aspectRatio === '16:9') return '1536x1024'
-  return '1024x1024'
+function sizeFor(aspectRatio: string): string | undefined {
+  if (aspectRatio === 'auto') return undefined
+  if (/^\d+x\d+$/.test(aspectRatio)) return aspectRatio
+  return (
+    {
+      '1:1': '1024x1024',
+      '9:16': '864x1536',
+      '16:9': '1536x864',
+      '2:3': '1024x1536',
+      '3:2': '1536x1024',
+      '3:4': '1024x1365',
+      '4:3': '1365x1024',
+      '4:5': '1024x1280',
+      '5:4': '1280x1024',
+    }[aspectRatio] || '1024x1024'
+  )
 }
 
 async function fetchJsonWithTimeout(

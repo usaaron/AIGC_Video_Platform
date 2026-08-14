@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { loadConfig } from '../config.js'
-import { createTextProvider, textProviderName } from './providers.js'
+import { createImageProvider, createTextProvider, textProviderName } from './providers.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -47,5 +47,45 @@ describe('runtime providers', () => {
       provider?.generate({ systemPrompt: 'test', userPrompt: 'reply', model: 'seqora-5.6' }),
     ).resolves.toBe('available')
     expect(JSON.parse(capturedBody).model).toBe('gpt-5.6')
+  })
+
+  it('uses Seqora image2 aliases for image generation without configuring TokenAdvent text', async () => {
+    let capturedUrl = ''
+    let capturedAuthorization = ''
+    let capturedBody = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        capturedUrl = String(input)
+        capturedAuthorization = String(new Headers(init?.headers).get('Authorization'))
+        capturedBody = String(init?.body)
+        return Response.json({ data: [{ b64_json: 'eA==' }] })
+      }),
+    )
+
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      SEQORA_IMAGE2_BASE_URL: 'https://image2.example.com',
+      SEQORA_IMAGE2_API_KEY: 'seqora-image2-token',
+      SEQORA_IMAGE2_MODEL: 'seqora-image2-live',
+      TOKENADVENT_API_KEY: '',
+    })
+    const imageProvider = createImageProvider(config)
+
+    await expect(
+      imageProvider?.generate({
+        taskId: 'image2-test',
+        assetId: 'image2-asset',
+        aspectRatio: '1:1',
+        prompt: 'A production still',
+        negativePrompt: '',
+        references: [],
+        outputs: ['single'],
+      }),
+    ).resolves.toHaveLength(1)
+    expect(capturedUrl).toBe('https://image2.example.com/v1/images/generations')
+    expect(capturedAuthorization).toBe('Bearer seqora-image2-token')
+    expect(JSON.parse(capturedBody).model).toBe('seqora-image2-live')
+    expect(createTextProvider(config)).toBeNull()
   })
 })

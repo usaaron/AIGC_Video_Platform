@@ -16,7 +16,7 @@ describe('TokenAdventImageProvider', () => {
       taskId: 'task-1',
       idempotencyKey: 'generation:tenant-1:task-1',
       assetId: 'asset-1',
-      aspectRatio: '9:16',
+      aspectRatio: '1024x1536',
       prompt: '青年女性角色大头照',
       negativePrompt: '文字水印',
       references: [],
@@ -59,7 +59,7 @@ describe('TokenAdventImageProvider', () => {
 
     expect(capturedUrl).toBe('https://tokenadvent.example/v1/images/edits')
     expect(capturedBody?.get('model')).toBe('gpt-image-2')
-    expect(capturedBody?.get('size')).toBe('1536x1024')
+    expect(capturedBody?.get('size')).toBe('1536x864')
     expect(capturedBody?.getAll('image[]')).toHaveLength(1)
   })
 
@@ -84,6 +84,62 @@ describe('TokenAdventImageProvider', () => {
 
     expect(attempts).toBe(2)
     expect(outputs[0]?.content.toString()).toBe('recovered')
+  })
+
+  it('maps the studio aspect ratios to image2 size values', async () => {
+    const requests: Array<{ size: string | undefined }> = []
+    const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      requests.push({ size: body.size })
+      return Response.json({ data: [{ b64_json: Buffer.from('png').toString('base64') }] })
+    }) as typeof fetch
+    const provider = createProvider(fetcher)
+
+    for (const aspectRatio of [
+      'auto',
+      '1:1',
+      '9:16',
+      '16:9',
+      '2:3',
+      '3:2',
+      '3:4',
+      '4:3',
+      '4:5',
+      '5:4',
+      '2048x2048',
+      '2560x1440',
+      '1440x2560',
+      '3840x2160',
+      '2160x3840',
+    ]) {
+      await provider.generate({
+        taskId: `task-${aspectRatio}`,
+        assetId: 'asset-1',
+        aspectRatio,
+        prompt: 'CG角色图',
+        negativePrompt: '',
+        references: [],
+        outputs: ['single'],
+      })
+    }
+
+    expect(requests.map((request) => request.size)).toEqual([
+      undefined,
+      '1024x1024',
+      '864x1536',
+      '1536x864',
+      '1024x1536',
+      '1536x1024',
+      '1024x1365',
+      '1365x1024',
+      '1024x1280',
+      '1280x1024',
+      '2048x2048',
+      '2560x1440',
+      '1440x2560',
+      '3840x2160',
+      '2160x3840',
+    ])
   })
 
   it('does not retry a client validation error', async () => {
