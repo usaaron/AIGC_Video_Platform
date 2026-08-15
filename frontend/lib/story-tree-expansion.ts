@@ -17,9 +17,14 @@ import {
   mergeEpisodeRoadmaps,
   storyPlanNodeEpisodeSpan,
 } from "@/lib/episode-generation-planning";
+import { runAdaptiveDependencyQueue } from "@/lib/adaptive-dependency-queue";
 import type { EpisodeRoadmapItem, ScriptProject } from "@/lib/types";
 
-const FULL_TREE_CONCURRENCY = 4;
+const FULL_TREE_INITIAL_CONCURRENCY = 3;
+const FULL_TREE_MINIMUM_CONCURRENCY = 2;
+const FULL_TREE_MAXIMUM_CONCURRENCY = 4;
+const FULL_TREE_SUCCESSES_BEFORE_INCREASE = 3;
+const FULL_TREE_SLOW_TASK_THRESHOLD_MS = 120_000;
 
 export interface StoryTreeExpansionProgress {
   phase: "top_level" | "approving" | "decomposing" | "roadmap" | "complete";
@@ -66,143 +71,153 @@ export async function runFullStoryTreeExpansion(input: {
 
   let workingRoadmaps = project.episodeRoadmaps ?? [];
   let completedLeaves = 0;
-  let frontier = topLevelNodes;
-  let level = 1;
-
-  while (frontier.length) {
-    const currentLevel = level;
-    const totalNodes = frontier.length;
-    let completedNodes = 0;
-    await input.onProgress?.({
-      phase: "decomposing",
-      completedLeaves,
-      level: currentLevel,
-      completedNodes,
-      totalNodes,
+  let completedNodes = 0;
+  let totalNodes = topLevelNodes.length;
+  let deepestLevel = 1;
+  let roadmapMutationTail = Promise.resolve();
+  const checkpointRebasedRoadmaps = async (
+    previousSubtree: Map<string, number>,
+    nextVersions: Map<string, number>,
+  ) => {
+    const operation = roadmapMutationTail.then(async () => {
+      const remapped = remapRoadmapsToRebasedLineage(
+        workingRoadmaps,
+        previousSubtree,
+        nextVersions,
+      );
+      workingRoadmaps = remapped.items;
+      for (const checkpoint of remapped.changed) {
+        await input.onRoadmapCheckpoint?.(checkpoint);
+      }
     });
-    const nextLevels = await mapWithConcurrency(
-      frontier,
-      FULL_TREE_CONCURRENCY,
-      async (initialNode): Promise<StoryPlanNode[]> => {
-        try {
-          await input.beforeStep?.();
-          let node = initialNode;
-          let children = await loadChildStoryPlanNodes(
+    roadmapMutationTail = operation.catch(() => undefined);
+    await operation;
+  };
+
+  await input.onProgress?.({
+    phase: "decomposing",
+    completedLeaves,
+    level: 1,
+    completedNodes,
+    totalNodes,
+  });
+  await runAdaptiveDependencyQueue({
+    initialValues: topLevelNodes,
+    initialConcurrency: FULL_TREE_INITIAL_CONCURRENCY,
+    minimumConcurrency: FULL_TREE_MINIMUM_CONCURRENCY,
+    maximumConcurrency: FULL_TREE_MAXIMUM_CONCURRENCY,
+    successesBeforeIncrease: FULL_TREE_SUCCESSES_BEFORE_INCREASE,
+    slowTaskThresholdMs: FULL_TREE_SLOW_TASK_THRESHOLD_MS,
+    shouldReduceConcurrencyOnError: isPlanningPressureFailure,
+    process: async ({ value: initialNode, depth }): Promise<StoryPlanNode[]> => {
+      deepestLevel = Math.max(deepestLevel, depth);
+      await input.beforeStep?.();
+      let node = initialNode;
+      let children = await loadChildStoryPlanNodes(
+        project.id,
+        node.node_id,
+        node.story_bible_id,
+        node.story_bible_version,
+        node.version,
+      );
+
+      if (children.length && !hasCompleteStoryPlanChildCoverage(node, children)) {
+        children = [];
+      }
+
+      if (children.length) {
+        if (node.status !== "approved") {
+          await input.onProgress?.({
+            phase: "approving",
+            nodeTitle: node.title,
+            completedLeaves,
+            level: deepestLevel,
+            completedNodes,
+            totalNodes,
+          });
+          const previousLineage = await loadActiveStoryPlanNodes(
+            project.id,
+            node.story_bible_id,
+            node.story_bible_version,
+          );
+          const previousSubtree = collectSubtreeVersions(previousLineage, node);
+          node = await approveStoryPlanNode(node, "rebase");
+          const nextLineage = await loadActiveStoryPlanNodes(
+            project.id,
+            node.story_bible_id,
+            node.story_bible_version,
+          );
+          const nextVersions = new Map(nextLineage.map((item) => [item.node_id, item.version]));
+          await checkpointRebasedRoadmaps(previousSubtree, nextVersions);
+          children = await loadChildStoryPlanNodes(
             project.id,
             node.node_id,
             node.story_bible_id,
             node.story_bible_version,
             node.version,
           );
-
-          if (children.length && !hasCompleteStoryPlanChildCoverage(node, children)) {
-            children = [];
-          }
-
-          if (children.length) {
-            if (node.status !== "approved") {
-              await input.onProgress?.({
-                phase: "approving",
-                nodeTitle: node.title,
-                completedLeaves,
-                level: currentLevel,
-                completedNodes,
-                totalNodes,
-              });
-              const previousLineage = await loadActiveStoryPlanNodes(
-                project.id,
-                node.story_bible_id,
-                node.story_bible_version,
-              );
-              const previousSubtree = collectSubtreeVersions(previousLineage, node);
-              node = await approveStoryPlanNode(node, "rebase");
-              const nextLineage = await loadActiveStoryPlanNodes(
-                project.id,
-                node.story_bible_id,
-                node.story_bible_version,
-              );
-              const nextVersions = new Map(nextLineage.map((item) => [item.node_id, item.version]));
-              const remapped = remapRoadmapsToRebasedLineage(
-                workingRoadmaps,
-                previousSubtree,
-                nextVersions,
-              );
-              workingRoadmaps = remapped.items;
-              for (const checkpoint of remapped.changed) {
-                await input.onRoadmapCheckpoint?.(checkpoint);
-              }
-              children = await loadChildStoryPlanNodes(
-                project.id,
-                node.node_id,
-                node.story_bible_id,
-                node.story_bible_version,
-                node.version,
-              );
-            }
-            return children;
-          }
-
-          const span = storyPlanNodeEpisodeSpan(node);
-          if (span === null) {
-            throw new Error(`“${node.title}”缺少完整集数范围，无法继续一键拆分。`);
-          }
-          if (span < MIN_EPISODE_READY_SPAN || (span >= 13 && span <= 15)) {
-            throw new Error(`“${node.title}”覆盖 ${span} 集，需返回上一层与相邻部分共同调整。`);
-          }
-
-          if (node.status !== "approved") {
-            await input.onProgress?.({
-              phase: "approving",
-              nodeTitle: node.title,
-              completedLeaves,
-              level: currentLevel,
-              completedNodes,
-              totalNodes,
-            });
-            node = await approveStoryPlanNode(node);
-            await input.beforeStep?.();
-          }
-
-          if (span > MAX_EPISODE_READY_SPAN) {
-            await input.onProgress?.({
-              phase: "decomposing",
-              nodeTitle: node.title,
-              completedLeaves,
-              level: currentLevel,
-              completedNodes,
-              totalNodes,
-            });
-            children = await loadChildStoryPlanNodes(
-              project.id,
-              node.node_id,
-              node.story_bible_id,
-              node.story_bible_version,
-              node.version,
-            );
-            if (!children.length) children = await decomposeStoryPlanNode(project, node);
-            return children;
-          }
-
-          // Finish the complete tree before generating any episode roadmap. Leaves
-          // can sit at different depths, so generating here could process a later
-          // episode range before an earlier branch has finished decomposing.
-          return [];
-        } finally {
-          completedNodes += 1;
-          await input.onProgress?.({
-            phase: "decomposing",
-            nodeTitle: initialNode.title,
-            completedLeaves,
-            level: currentLevel,
-            completedNodes,
-            totalNodes,
-          });
         }
-      },
-    );
-    frontier = nextLevels.flat();
-    level += 1;
-  }
+        return children;
+      }
+
+      const span = storyPlanNodeEpisodeSpan(node);
+      if (span === null) {
+        throw new Error(`“${node.title}”缺少完整集数范围，无法继续一键拆分。`);
+      }
+      if (span < MIN_EPISODE_READY_SPAN || (span >= 13 && span <= 15)) {
+        throw new Error(`“${node.title}”覆盖 ${span} 集，需返回上一层与相邻部分共同调整。`);
+      }
+
+      if (node.status !== "approved") {
+        await input.onProgress?.({
+          phase: "approving",
+          nodeTitle: node.title,
+          completedLeaves,
+          level: deepestLevel,
+          completedNodes,
+          totalNodes,
+        });
+        node = await approveStoryPlanNode(node);
+        await input.beforeStep?.();
+      }
+
+      if (span > MAX_EPISODE_READY_SPAN) {
+        await input.onProgress?.({
+          phase: "decomposing",
+          nodeTitle: node.title,
+          completedLeaves,
+          level: deepestLevel,
+          completedNodes,
+          totalNodes,
+        });
+        children = await loadChildStoryPlanNodes(
+          project.id,
+          node.node_id,
+          node.story_bible_id,
+          node.story_bible_version,
+          node.version,
+        );
+        if (!children.length) children = await decomposeStoryPlanNode(project, node);
+        return children;
+      }
+
+      // Roadmaps remain sequential after the full dependency queue finishes.
+      return [];
+    },
+    onProgress: async ({ item, completed, scheduled }) => {
+      completedNodes = completed;
+      totalNodes = scheduled;
+      deepestLevel = Math.max(deepestLevel, item.depth);
+      await input.onProgress?.({
+        phase: "decomposing",
+        nodeTitle: item.value.title,
+        completedLeaves,
+        level: deepestLevel,
+        completedNodes,
+        totalNodes,
+      });
+    },
+  });
 
   const activeNodes = await loadActiveStoryPlanNodes(
     project.id,
@@ -317,31 +332,19 @@ function remapRoadmapsToRebasedLineage(
   return { items: mergeEpisodeRoadmaps([], remapped), changed };
 }
 
-async function mapWithConcurrency<T, R>(
-  values: T[],
-  concurrency: number,
-  worker: (value: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let cursor = 0;
-  let firstFailure: unknown;
-  const workers = Array.from(
-    { length: Math.min(concurrency, values.length) },
-    async () => {
-      while (cursor < values.length) {
-        const index = cursor;
-        cursor += 1;
-        try {
-          results[index] = await worker(values[index] as T);
-        } catch (error) {
-          firstFailure ??= error;
-        }
-      }
-    },
-  );
-  // Complete the whole level even after one parent fails. Successful sibling
-  // checkpoints make the next run resume only the missing parents in this level.
-  await Promise.all(workers);
-  if (firstFailure !== undefined) throw firstFailure;
-  return results;
+function isPlanningPressureFailure(error: unknown): boolean {
+  const metadata = error && typeof error === "object"
+    ? error as { status?: unknown; failureClass?: unknown; errorType?: unknown }
+    : {};
+  if ([408, 429, 502, 503, 504].includes(Number(metadata.status))) return true;
+  const classification = typeof metadata.failureClass === "string"
+    ? metadata.failureClass
+    : typeof metadata.errorType === "string"
+      ? metadata.errorType
+      : "";
+  if (/rate_limit|timeout|gateway|network|empty|incomplete/.test(
+    classification.toLocaleLowerCase(),
+  )) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /(?:^|\D)(?:408|429|502|503|504)(?:\D|$)|rate.?limit|too many requests|timed?\s*out|timeout|gateway|empty (?:response|output)|incomplete (?:response|output|stream)|network error/i.test(message);
 }

@@ -37,7 +37,7 @@ import {
 } from "@/lib/story-planning-client";
 import {
   enqueuePlanningTask,
-  usePlanningTask,
+  useTrackedPlanningTask,
   waitForPlanningTaskResume,
 } from "@/lib/story-planning-background";
 import {
@@ -83,7 +83,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   );
   const [autoExpansionRequested, setAutoExpansionRequested] = useState(false);
   const topLevelTaskKey = `full-tree:${project.id}:${storyBible.story_bible_id}:${storyBible.version}`;
-  const topLevelTask = usePlanningTask(topLevelTaskKey);
+  const topLevelTask = useTrackedPlanningTask(topLevelTaskKey);
   const topLevelTaskActive = topLevelTask?.status === "queued" || topLevelTask?.status === "running";
   const updateBranchInteraction = useCallback((key: string, active: boolean) => {
     setActiveBranchInteractions((current) => {
@@ -352,8 +352,8 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   const [roadmapDialogMessage, setRoadmapDialogMessage] = useState<string | null>(null);
   const decomposeTaskKey = `decompose:${project.id}:${node.node_id}:${node.version}`;
   const roadmapTaskKey = `episode-roadmap:${project.id}:${node.node_id}:${node.version}`;
-  const decomposeTask = usePlanningTask(decomposeTaskKey);
-  const roadmapTask = usePlanningTask(roadmapTaskKey);
+  const decomposeTask = useTrackedPlanningTask(decomposeTaskKey);
+  const roadmapTask = useTrackedPlanningTask(roadmapTaskKey);
   const decomposeTaskActive = decomposeTask?.status === "queued" || decomposeTask?.status === "running";
   const roadmapTaskActive = roadmapTask?.status === "queued" || roadmapTask?.status === "running";
   const interactionKey = `${node.node_id}:${node.version}`;

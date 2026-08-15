@@ -60,6 +60,9 @@ from app.modules.script_engine.story_planning_service import (
     TECHNICAL_STORY_ROOT_MARKER,
     StoryPlanningInputError,
     StoryPlanningService,
+    _bounded_decomposition_child_repair_sources,
+    _fallback_decomposition_spans,
+    _story_decomposition_output_token_budget,
     merge_story_bible_repair_candidates,
     normalize_story_bible_generation_output,
     normalize_story_plan_node_generation_output,
@@ -69,6 +72,72 @@ from app.modules.script_engine.story_planning_service import (
     story_bible_non_chinese_fields,
     story_bible_payload_for_validation,
 )
+
+
+@pytest.mark.parametrize(
+    ("parent_span", "requested_child_count", "expected"),
+    [
+        (16, None, 7_000),
+        (24, None, 9_000),
+        (32, None, 12_000),
+        (100, 2, 7_000),
+    ],
+)
+def test_story_decomposition_output_budget_scales_with_expected_children(
+    parent_span: int,
+    requested_child_count: int | None,
+    expected: int,
+) -> None:
+    assert _story_decomposition_output_token_budget(
+        configured_max_tokens=6_000,
+        parent_span=parent_span,
+        requested_child_count=requested_child_count,
+    ) == expected
+
+
+def test_story_decomposition_output_budget_preserves_explicit_larger_strategy() -> None:
+    assert _story_decomposition_output_token_budget(
+        configured_max_tokens=16_000,
+        parent_span=16,
+        requested_child_count=None,
+    ) == 16_000
+
+
+@pytest.mark.parametrize(
+    ("parent_span", "requested_child_count", "expected"),
+    [
+        (16, None, [8, 8]),
+        (20, None, [10, 10]),
+        (25, None, [9, 16]),
+        (29, None, [12, 17]),
+        (32, None, [16, 16]),
+        (24, 3, [8, 8, 8]),
+    ],
+)
+def test_segmented_decomposition_allocates_only_valid_child_spans(
+    parent_span: int,
+    requested_child_count: int | None,
+    expected: list[int],
+) -> None:
+    assert _fallback_decomposition_spans(
+        parent_span,
+        requested_child_count,
+    ) == expected
+
+
+def test_decomposition_child_repair_bounds_overproduced_candidates_to_parent_contract() -> None:
+    candidates = [
+        {"title": f"候选{index}", "planned_start_episode": index}
+        for index in range(1, 7)
+    ]
+
+    selected = _bounded_decomposition_child_repair_sources(
+        "Choose between 2 and 2 children according to genuine narrative boundaries.",
+        candidates,
+    )
+
+    assert len(selected) == 2
+    assert all(candidate in candidates for candidate in selected)
 
 
 def build_escalation_stages() -> list[dict[str, str]]:
@@ -764,6 +833,63 @@ class IncompleteChildDecompositionAdapter(FixedStoryBibleAdapter):
         self.child_repair_max_tokens.append(strategy.max_tokens)
         self.child_repair_prompt = prompt
         return self._decomposition(prompt, strategy=strategy)["children"][0]
+
+
+class RecordingSegmentedDecompositionAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+        self.max_tokens: list[int] = []
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        assert output_schema is not None
+        assert "recommended_next_step" in output_schema.get("properties", {})
+        self.prompts.append(prompt)
+        self.max_tokens.append(strategy.max_tokens)
+        index = len(self.prompts)
+        segment_synopses = [
+            "主角潜入档案库比对旧账本原件，为保护管理员暂缓公开，并带走被篡改的登记页。",
+            "对手追查登记页去向并绑架知情人家属，主角放弃跟踪资金账户，组织一次公开营救。",
+            "主角依据获救证人的口述重建转账路径，在听证开始前依法冻结账户并提交完整证据链。",
+        ]
+        return {
+            "title": f"分段推进{index}",
+            "narrative_purpose": f"完成第{index}段独立行动与阶段结算。",
+            "synopsis": segment_synopses[index - 1],
+            "entry_state": "模型返回的入口状态会被固定连续性契约替换。",
+            "central_conflict": f"第{index}段的证据时限与保护证人目标发生直接冲突。",
+            "turning_points": [
+                "父级转折一",
+                "父级转折二",
+                "父级转折三",
+                f"第{index}段新增局部转折",
+            ],
+            "emotional_direction": f"第{index}段从受压推进到主动承担代价。",
+            "exit_state": f"第{index}段形成可供下一段直接承接的新局势。",
+            "unit_story_beats": [
+                f"第{index}段出现直接威胁。",
+                f"第{index}段主角确认具体目标。",
+                f"第{index}段对手改变阻挠方式。",
+                f"第{index}段完成选择与结算。",
+            ],
+            "unit_resolution": f"第{index}段完成可见且不可撤销的阶段结算。",
+            "handoff_pressure": f"第{index}段的结果制造下一段必须承接的新压力。",
+            "character_refs": ["character.mara", "character.invalid"],
+            "story_line_refs": ["storyline.truth", "storyline.invalid"],
+            "setup_refs": [],
+            "payoff_refs": [],
+            "estimated_episode_count": 8,
+            "estimated_script_body_characters": 8_000,
+            "planned_start_episode": 1,
+            "planned_end_episode": 8,
+            "decomposition_reason": "该段具有独立行动、转折和阶段结算。",
+            "recommended_next_step": "episode_ready",
+        }
 
 
 class LegacyAliasDecompositionAdapter(FixedStoryBibleAdapter):
@@ -1794,6 +1920,89 @@ def test_decomposition_repairs_only_the_incomplete_child_after_batch_repair() ->
     assert "REPAIR ONE INCOMPLETE DECOMPOSITION CHILD" in adapter.child_repair_prompt
     assert len(output.children) == 4
     assert output.children[0].synopsis.startswith("主角发现")
+
+
+def test_decomposition_child_recovery_repairs_only_parent_allowed_candidates() -> None:
+    adapter = IncompleteChildDecompositionAdapter()
+    service = object.__new__(StoryPlanningService)
+    source_children = [
+        {"title": f"残缺候选{index}", "planned_start_episode": index}
+        for index in range(1, 7)
+    ]
+
+    output = service._recover_decomposition_child_contracts(
+        llm_adapter=adapter,
+        contract_prompt=(
+            "Plan a Chinese mainland serialized comic. "
+            "All human-readable output values must be written in Simplified Chinese. "
+            "knowledge_bundle.draft.cn_mainland_longform_foundation.v1 "
+            "Use these principles as bounded guidance, not rigid plot formulas. "
+            "Choose between 2 and 2 children according to genuine narrative boundaries."
+        ),
+        strategy=build_strategy(),
+        source_children=source_children,
+    )
+
+    assert len(output.children) == 2
+    assert adapter.child_repair_calls == 2
+
+
+def test_segmented_decomposition_recovery_preserves_ranges_and_continuity() -> None:
+    adapter = RecordingSegmentedDecompositionAdapter()
+    service = object.__new__(StoryPlanningService)
+    service._llm_adapter = adapter
+    service._story_architect_llm_adapter = adapter
+    parent = SimpleNamespace(
+        node_id="story-node.segmented-parent",
+        planned_start_episode=1,
+        planned_end_episode=24,
+        entry_state="主角刚取得一份来源不明的旧账本。",
+        exit_state="主角完成证据固定并锁定幕后责任人。",
+        turning_points=["父级转折一", "父级转折二", "父级转折三"],
+        synopsis="主角逐层验证旧案证据，在保护证人与公开真相之间承担持续升级的代价。",
+        decomposition_reason="该父节点需要继续拆分为完整剧情单元。",
+    )
+    story_bible = SimpleNamespace(
+        character_refs=["character.mara"],
+        story_lines=[SimpleNamespace(story_line_id="storyline.truth")],
+    )
+
+    output = service._generate_segmented_decomposition_recovery(
+        original_prompt="Chinese mainland serialized comic decomposition contract.",
+        strategy=build_strategy().model_copy(update={"max_tokens": 12_000}),
+        parent=parent,
+        story_bible=story_bible,
+        requested_child_count=3,
+        max_episode_ready_span=12,
+    )
+
+    assert adapter.max_tokens == [6_000, 6_000, 6_000]
+    assert [
+        (child.planned_start_episode, child.planned_end_episode)
+        for child in output.children
+    ] == [(1, 8), (9, 16), (17, 24)]
+    assert output.children[0].entry_state == parent.entry_state
+    assert output.children[1].entry_state == output.children[0].exit_state
+    assert output.children[2].entry_state == output.children[1].exit_state
+    assert output.children[-1].exit_state == parent.exit_state
+    assert [
+        turning_point
+        for child in output.children
+        for turning_point in child.turning_points
+        if turning_point in parent.turning_points
+    ] == parent.turning_points
+    assert all(
+        child.character_refs == ["character.mara"]
+        and child.story_line_refs == ["storyline.truth"]
+        for child in output.children
+    )
+    StoryPlanningService._validate_decomposition_output(
+        output,
+        parent=parent,
+        story_bible=story_bible,
+        requested_child_count=3,
+        max_episode_ready_span=12,
+    )
 
 
 def test_decomposition_normalizes_legacy_child_aliases_without_model_repair() -> None:
@@ -3527,6 +3736,64 @@ def test_decomposition_rechecks_parent_lineage_before_saving_children() -> None:
 
     assert model_calls == ["decompose"]
     assert long_story.saved_nodes == []
+
+
+def test_decomposition_uses_segmented_recovery_after_incomplete_batch() -> None:
+    source = build_active_lineage_story_node(
+        node_id="story_plan.inflight.segmented",
+        version=1,
+        start_episode=1,
+        end_episode=16,
+        expansion_status=StoryPlanExpansionStatus.expanded,
+    )
+    story_bible = build_active_lineage_story_bible()
+    long_story = MutableActiveLineageLongStoryService(
+        source,
+        source.model_copy(update={"version": 2}),
+        story_bible,
+    )
+    strategy = build_strategy()
+    child_candidates = build_active_lineage_decomposition_output(source).children
+    batch_calls = 0
+    child_calls = 0
+
+    service = object.__new__(StoryPlanningService)
+    service._long_story_service = long_story
+    service._generation_strategy_repository = SimpleNamespace(
+        get=lambda _strategy_id: strategy
+    )
+    service._content_spec_for_story_bible = lambda _story_bible: SimpleNamespace()
+    service._knowledge_context = lambda **_kwargs: ""
+
+    def generate_output(*, output_model, **_kwargs):
+        nonlocal batch_calls, child_calls
+        if output_model is StoryPlanNodeDecompositionOutput:
+            batch_calls += 1
+            raise StoryPlanningInputError("incomplete sibling array")
+        assert output_model is StoryPlanNodeChildOutput
+        candidate = child_candidates[child_calls]
+        child_calls += 1
+        return candidate
+
+    service._generate_planning_output = generate_output
+
+    children = service.decompose_story_plan_node(
+        StoryPlanNodeDecompositionRequest(
+            story_project_id=source.story_project_id,
+            parent_node_id=source.node_id,
+            parent_node_version=source.version,
+            generation_strategy_id=strategy.id,
+            requested_child_count=2,
+        )
+    )
+
+    assert batch_calls == 1
+    assert child_calls == 2
+    assert [(child.planned_start_episode, child.planned_end_episode) for child in children] == [
+        (1, 8),
+        (9, 16),
+    ]
+    assert len(long_story.saved_nodes) == 2
 
 
 def test_episode_item_generation_and_modification_recheck_lineage_once() -> None:

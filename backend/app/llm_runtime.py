@@ -201,8 +201,8 @@ def build_story_architect_llm_adapter_from_env() -> LLMAdapter:
         "LLM_STORY_ARCHITECT",
         fallback_prefixes=("LLM_PLANNING",),
         default_model_env="LLM_MODEL",
-        default_timeout_seconds=600,
-        default_max_retries=1,
+        default_timeout_seconds=240,
+        default_max_retries=0,
     )
     fallback_prefixes = (
         "LLM_STORY_ARCHITECT_FALLBACK",

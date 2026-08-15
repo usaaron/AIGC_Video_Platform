@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 
 export type PlanningTaskKind = "top_level" | "decompose" | "episode_roadmap" | "full_tree";
@@ -32,7 +32,8 @@ interface PlanningTaskRecord<T> extends PlanningTaskSnapshot {
 // remains available for Story Bible or recursive-tree work.
 const MAX_CONCURRENT_PLANNING_TASKS = 8;
 const MAX_CONCURRENT_EPISODE_ROADMAP_TASKS = 7;
-// A full-tree coordinator fans out four parent nodes within one level at a time.
+// A full-tree coordinator may fan out four dependency-ready parents while four
+// slots remain available to other projects.
 const FULL_TREE_RESERVED_SLOTS = 4;
 const PLANNING_TASK_HISTORY_STORAGE_KEY = "my-comic:planning-task-history:v1";
 const taskRecords = new Map<string, PlanningTaskRecord<unknown>>();
@@ -55,10 +56,16 @@ export function subscribePlanningTasks(listener: () => void): () => void {
 }
 
 export function getPlanningTask(key: string): PlanningTaskSnapshot | undefined {
-  const task = taskRecords.get(activeKeyToTask.get(key) ?? "")
-    ?? [...taskRecords.values()].reverse().find((candidate) => candidate.key === key);
+  const task = currentPlanningTaskRecord(key);
   if (task) return taskSnapshot(task);
   return readPersistedTaskHistory().find((candidate) => candidate.key === key);
+}
+
+function currentPlanningTaskRecord(
+  key: string,
+): PlanningTaskRecord<unknown> | undefined {
+  return taskRecords.get(activeKeyToTask.get(key) ?? "")
+    ?? [...taskRecords.values()].reverse().find((candidate) => candidate.key === key);
 }
 
 function taskSnapshot(task: PlanningTaskRecord<unknown>): PlanningTaskSnapshot {
@@ -98,6 +105,41 @@ export function usePlanningTask(key: string): PlanningTaskSnapshot | undefined {
   useEffect(() => {
     setTask(getPlanningTask(key));
     return subscribePlanningTasks(() => setTask(getPlanningTask(key)));
+  }, [key]);
+  return task;
+}
+
+export function resolveTrackedPlanningTask(
+  current: PlanningTaskSnapshot | undefined,
+  trackedTaskId: string | undefined,
+): {
+  task: PlanningTaskSnapshot | undefined;
+  trackedTaskId: string | undefined;
+} {
+  const active = current?.status === "queued" || current?.status === "running";
+  const nextTrackedTaskId = current && active ? current.id : trackedTaskId;
+  return {
+    trackedTaskId: nextTrackedTaskId,
+    task: current?.id === nextTrackedTaskId ? current : undefined,
+  };
+}
+
+export function useTrackedPlanningTask(key: string): PlanningTaskSnapshot | undefined {
+  const trackedTaskId = useRef<string | undefined>(undefined);
+  const [task, setTask] = useState<PlanningTaskSnapshot | undefined>(undefined);
+  useEffect(() => {
+    const update = () => {
+      const current = currentPlanningTaskRecord(key);
+      const resolved = resolveTrackedPlanningTask(
+        current ? taskSnapshot(current) : undefined,
+        trackedTaskId.current,
+      );
+      trackedTaskId.current = resolved.trackedTaskId;
+      setTask(resolved.task);
+    };
+    trackedTaskId.current = undefined;
+    update();
+    return subscribePlanningTasks(update);
   }, [key]);
   return task;
 }

@@ -447,6 +447,8 @@ def test_story_planning_roles_inherit_planning_chain(
     assert story_bible._reasoning_effort == "medium"
     assert story_bible._timeout_seconds == 300
     assert story_bible._max_retries == 0
+    assert architect._timeout_seconds == 240
+    assert architect._max_retries == 0
     for adapter in (architect, episode_plan, continuity):
         assert adapter._reasoning_effort == "high"
 

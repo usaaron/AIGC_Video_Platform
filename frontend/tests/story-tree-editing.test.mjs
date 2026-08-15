@@ -14,14 +14,18 @@ test("the recursive story tree has one resumable full-tree coordinator", async (
 
   assert.match(panel, /kind:\s*"full_tree"/);
   assert.match(panel, /runFullStoryTreeExpansion/);
-  assert.match(coordinator, /const FULL_TREE_CONCURRENCY = 4/);
-  assert.match(coordinator, /const currentLevel = level/);
-  assert.match(coordinator, /while \(cursor < values\.length\)/);
-  assert.doesNotMatch(coordinator, /while \(cursor < values\.length && firstFailure === undefined\)/);
+  assert.match(panel, /useTrackedPlanningTask/);
+  assert.doesNotMatch(panel, /usePlanningTask/);
+  assert.match(coordinator, /FULL_TREE_INITIAL_CONCURRENCY = 3/);
+  assert.match(coordinator, /FULL_TREE_MINIMUM_CONCURRENCY = 2/);
+  assert.match(coordinator, /FULL_TREE_MAXIMUM_CONCURRENCY = 4/);
+  assert.match(coordinator, /FULL_TREE_SLOW_TASK_THRESHOLD_MS = 120_000/);
+  assert.match(coordinator, /runAdaptiveDependencyQueue/);
+  assert.match(coordinator, /minimumConcurrency: FULL_TREE_MINIMUM_CONCURRENCY/);
+  assert.match(coordinator, /maximumConcurrency: FULL_TREE_MAXIMUM_CONCURRENCY/);
   assert.match(coordinator, /loadActiveStoryPlanNodes/);
   assert.match(coordinator, /onRoadmapCheckpoint/);
-  assert.match(coordinator, /await Promise\.all\(workers\)/);
-  assert.match(coordinator, /if \(firstFailure !== undefined\) throw firstFailure/);
+  assert.match(coordinator, /checkpointRebasedRoadmaps/);
   assert.match(coordinator, /const episodeReadyLeaves = activeNodes/);
   assert.match(coordinator, /for \(const leaf of episodeReadyLeaves\)/);
   assert.match(background, /"full_tree"/);

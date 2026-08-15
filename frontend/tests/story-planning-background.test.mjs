@@ -8,11 +8,50 @@ import {
   getPlanningTask,
   getPlanningTasks,
   requestPlanningPause,
+  resolveTrackedPlanningTask,
   resumePlanningTasks,
   waitForPlanningTaskResume,
 } from "../lib/story-planning-background.ts";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test("page-local task tracking ignores old failures but keeps current failures", () => {
+  const base = {
+    key: "project.current:node.current",
+    kind: "decompose",
+    projectId: "project.current",
+    createdAt: new Date().toISOString(),
+  };
+  const staleFailure = {
+    ...base,
+    id: "planning-task.stale",
+    status: "failed",
+    error: "old failure",
+  };
+  const ignored = resolveTrackedPlanningTask(staleFailure, undefined);
+  assert.equal(ignored.task, undefined);
+  assert.equal(ignored.trackedTaskId, undefined);
+
+  const running = {
+    ...base,
+    id: "planning-task.current",
+    status: "running",
+  };
+  const tracked = resolveTrackedPlanningTask(running, undefined);
+  assert.equal(tracked.task?.id, running.id);
+  assert.equal(tracked.trackedTaskId, running.id);
+
+  const currentFailure = {
+    ...running,
+    status: "failed",
+    error: "current failure",
+  };
+  const visible = resolveTrackedPlanningTask(
+    currentFailure,
+    tracked.trackedTaskId,
+  );
+  assert.equal(visible.task?.error, "current failure");
+});
 
 test("planning tasks continue outside components with bounded parallelism", async () => {
   const projectId = `project.background.${crypto.randomUUID()}`;
@@ -196,6 +235,7 @@ test("a queued full-tree task creates a same-project scheduling barrier", async 
   assert.equal(getPlanningTask(`${targetProjectId}:full-tree`)?.status, "queued");
   assert.equal(getPlanningTask(`${targetProjectId}:companion`)?.status, "queued");
 
+  // Four reserved slots keep four slots available to unrelated projects.
   blockerReleases.shift()();
   await tick();
   assert.equal(getPlanningTask(`${targetProjectId}:full-tree`)?.status, "running");

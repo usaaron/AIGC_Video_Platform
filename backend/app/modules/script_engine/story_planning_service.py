@@ -100,7 +100,10 @@ TECHNICAL_STORY_ROOT_MARKER = "system_story_bible_root.v1"
 # plan. A compact budget floor leaves enough room for the schema while avoiding
 # long latency caused by asking the planning model to expand downstream detail.
 STORY_BIBLE_MIN_OUTPUT_TOKENS = 9_000
-STORY_DECOMPOSITION_MIN_OUTPUT_TOKENS = 12_000
+STORY_DECOMPOSITION_MIN_OUTPUT_TOKENS = 7_000
+STORY_DECOMPOSITION_PER_CHILD_OUTPUT_TOKENS = 3_000
+STORY_DECOMPOSITION_MAX_OUTPUT_TOKENS = 12_000
+STORY_DECOMPOSITION_SEGMENT_MAX_OUTPUT_TOKENS = 6_000
 STORY_DECOMPOSITION_CHILD_REPAIR_MAX_OUTPUT_TOKENS = 4_000
 STORY_DECOMPOSITION_CHILD_REPAIR_LIMIT = 4
 # A roadmap contains compact contracts, not episode prose. Keeping the floor
@@ -114,6 +117,114 @@ EPISODE_ROADMAP_RECOVERY_CHUNK_SIZE = 4
 EPISODE_ROADMAP_RECOVERY_HARD_MAX_MODEL_CALLS = 24
 EPISODE_ROADMAP_SEGMENT_MIN_OUTPUT_TOKENS = 3_200
 EPISODE_ROADMAP_SEGMENT_MAX_OUTPUT_TOKENS = 5_000
+
+
+def _story_decomposition_output_token_budget(
+    *,
+    configured_max_tokens: int,
+    parent_span: int,
+    requested_child_count: int | None,
+) -> int:
+    possible_child_count = min(
+        12,
+        parent_span // MIN_EPISODE_READY_SPAN,
+    )
+    expected_child_count = requested_child_count or possible_child_count
+    bounded_budget = min(
+        STORY_DECOMPOSITION_MAX_OUTPUT_TOKENS,
+        max(
+            STORY_DECOMPOSITION_MIN_OUTPUT_TOKENS,
+            expected_child_count * STORY_DECOMPOSITION_PER_CHILD_OUTPUT_TOKENS,
+        ),
+    )
+    return max(configured_max_tokens, bounded_budget)
+
+
+def _bounded_decomposition_child_repair_sources(
+    contract_prompt: str,
+    source_children: list[object],
+) -> list[object]:
+    exact_match = re.search(
+        r"Return exactly\s+(\d+)\s+children",
+        contract_prompt,
+        flags=re.IGNORECASE,
+    )
+    maximum_match = re.search(
+        r"Choose between\s+2\s+and\s+(\d+)\s+children",
+        contract_prompt,
+        flags=re.IGNORECASE,
+    )
+    declared_count = int((exact_match or maximum_match).group(1)) if (
+        exact_match or maximum_match
+    ) else STORY_DECOMPOSITION_CHILD_REPAIR_LIMIT
+    repair_limit = max(
+        2,
+        min(STORY_DECOMPOSITION_CHILD_REPAIR_LIMIT, declared_count),
+    )
+    if len(source_children) <= repair_limit:
+        return source_children
+
+    def contract_error_count(item: object) -> int:
+        if not isinstance(item, dict):
+            return 10_000
+        normalized = normalize_story_plan_node_generation_output(item, child=True)
+        try:
+            StoryPlanNodeChildOutput.model_validate(normalized)
+        except ValidationError as error:
+            return len(error.errors())
+        return 0
+
+    selected_indexes = sorted(
+        sorted(
+            range(len(source_children)),
+            key=lambda index: (contract_error_count(source_children[index]), index),
+        )[:repair_limit]
+    )
+    return [source_children[index] for index in selected_indexes]
+
+
+def _fallback_decomposition_spans(
+    parent_span: int,
+    requested_child_count: int | None,
+) -> list[int]:
+    child_count = requested_child_count or 2
+    memo: dict[tuple[int, int], tuple[int, ...] | None] = {}
+
+    def valid_span(value: int) -> bool:
+        return MIN_EPISODE_READY_SPAN <= value <= MAX_EPISODE_READY_SPAN or value >= 16
+
+    def allocate(remaining: int, slots: int) -> tuple[int, ...] | None:
+        key = (remaining, slots)
+        if key in memo:
+            return memo[key]
+        if slots == 1:
+            result = (remaining,) if valid_span(remaining) else None
+            memo[key] = result
+            return result
+        maximum_first = remaining - MIN_EPISODE_READY_SPAN * (slots - 1)
+        candidates = [
+            value
+            for value in range(MIN_EPISODE_READY_SPAN, maximum_first + 1)
+            if valid_span(value)
+        ]
+        ideal = remaining / slots
+        candidates.sort(key=lambda value: (abs(value - ideal), value))
+        for value in candidates:
+            tail = allocate(remaining - value, slots - 1)
+            if tail is not None:
+                result = (value, *tail)
+                memo[key] = result
+                return result
+        memo[key] = None
+        return None
+
+    allocation = allocate(parent_span, child_count)
+    if allocation is None:
+        raise StoryPlanningInputError(
+            "The parent episode range cannot be allocated into valid segmented "
+            "decomposition children."
+        )
+    return list(allocation)
 
 
 def _episode_roadmap_recovery_call_limit(episode_count: int) -> int:
@@ -823,6 +934,8 @@ def planning_payload_for_validation(
             return {"children": normalized_children}
     if output_model is StoryPlanNodeGenerationOutput:
         return normalize_story_plan_node_generation_output(payload, child=False)
+    if output_model is StoryPlanNodeChildOutput:
+        return normalize_story_plan_node_generation_output(payload, child=True)
     if output_model is EpisodePlanBatchGenerationOutput:
         return normalize_episode_plan_batch_generation_output(
             payload,
@@ -2740,6 +2853,7 @@ Return only JSON matching the provided schema."""
         )
         decomposition_prompt: str | None = None
         decomposition_strategy: GenerationStrategy | None = None
+        used_segmented_recovery = False
         if is_technical_root and payload.requested_child_count is None:
             started = monotonic()
             output = self._compile_top_level_decomposition(
@@ -2773,18 +2887,35 @@ Return only JSON matching the provided schema."""
             )
             decomposition_strategy = strategy.model_copy(
                 update={
-                    "max_tokens": max(
-                        strategy.max_tokens,
-                        STORY_DECOMPOSITION_MIN_OUTPUT_TOKENS,
+                    "max_tokens": _story_decomposition_output_token_budget(
+                        configured_max_tokens=strategy.max_tokens,
+                        parent_span=parent_span,
+                        requested_child_count=payload.requested_child_count,
                     ),
                 }
             )
-            output = self._generate_planning_output(
-                prompt=decomposition_prompt,
-                strategy=decomposition_strategy,
-                output_model=StoryPlanNodeDecompositionOutput,
-                artifact_name="Story Plan Node decomposition",
-            )
+            try:
+                output = self._generate_planning_output(
+                    prompt=decomposition_prompt,
+                    strategy=decomposition_strategy,
+                    output_model=StoryPlanNodeDecompositionOutput,
+                    artifact_name="Story Plan Node decomposition",
+                )
+            except StoryPlanningInputError:
+                logger.warning(
+                    "Story plan decomposition batch transport remained incomplete; "
+                    "switching to segmented recovery node=%s",
+                    parent.node_id,
+                )
+                output = self._generate_segmented_decomposition_recovery(
+                    original_prompt=decomposition_prompt,
+                    strategy=decomposition_strategy,
+                    parent=parent,
+                    story_bible=story_bible,
+                    requested_child_count=payload.requested_child_count,
+                    max_episode_ready_span=episode_ready_ceiling,
+                )
+                used_segmented_recovery = True
         output = self._enforce_decomposition_episode_policy(
             output,
             parent=parent,
@@ -2801,28 +2932,58 @@ Return only JSON matching the provided schema."""
         except StoryPlanningInputError as first_error:
             if decomposition_prompt is None or decomposition_strategy is None:
                 raise
-            output = self._generate_planning_output(
-                prompt=self._build_decomposition_semantic_repair_prompt(
+            try:
+                output = self._generate_planning_output(
+                    prompt=self._build_decomposition_semantic_repair_prompt(
+                        original_prompt=decomposition_prompt,
+                        output=output,
+                        validation_error=first_error,
+                    ),
+                    strategy=decomposition_strategy,
+                    output_model=StoryPlanNodeDecompositionOutput,
+                    artifact_name="Story Plan Node decomposition repair",
+                )
+                output = self._enforce_decomposition_episode_policy(
+                    output,
+                    parent=parent,
+                    max_episode_ready_span=episode_ready_ceiling,
+                )
+                self._validate_decomposition_output(
+                    output,
+                    parent=parent,
+                    story_bible=story_bible,
+                    requested_child_count=payload.requested_child_count,
+                    max_episode_ready_span=episode_ready_ceiling,
+                )
+            except StoryPlanningInputError:
+                if used_segmented_recovery:
+                    raise
+                logger.warning(
+                    "Story plan decomposition semantic repair remained invalid; "
+                    "switching to segmented recovery node=%s",
+                    parent.node_id,
+                )
+                output = self._generate_segmented_decomposition_recovery(
                     original_prompt=decomposition_prompt,
-                    output=output,
-                    validation_error=first_error,
-                ),
-                strategy=decomposition_strategy,
-                output_model=StoryPlanNodeDecompositionOutput,
-                artifact_name="Story Plan Node decomposition repair",
-            )
-            output = self._enforce_decomposition_episode_policy(
-                output,
-                parent=parent,
-                max_episode_ready_span=episode_ready_ceiling,
-            )
-            self._validate_decomposition_output(
-                output,
-                parent=parent,
-                story_bible=story_bible,
-                requested_child_count=payload.requested_child_count,
-                max_episode_ready_span=episode_ready_ceiling,
-            )
+                    strategy=decomposition_strategy,
+                    parent=parent,
+                    story_bible=story_bible,
+                    requested_child_count=payload.requested_child_count,
+                    max_episode_ready_span=episode_ready_ceiling,
+                )
+                used_segmented_recovery = True
+                output = self._enforce_decomposition_episode_policy(
+                    output,
+                    parent=parent,
+                    max_episode_ready_span=episode_ready_ceiling,
+                )
+                self._validate_decomposition_output(
+                    output,
+                    parent=parent,
+                    story_bible=story_bible,
+                    requested_child_count=payload.requested_child_count,
+                    max_episode_ready_span=episode_ready_ceiling,
+                )
         if planning_output_chinese_issues(output):
             if decomposition_prompt is None or decomposition_strategy is None:
                 raise StoryPlanningInputError(
@@ -4274,6 +4435,18 @@ Requirements:
     ) -> StoryPlanNodeDecompositionOutput:
         """Repair only invalid children after the bounded whole-batch repair fails."""
 
+        bounded_source_children = _bounded_decomposition_child_repair_sources(
+            contract_prompt,
+            source_children,
+        )
+        if len(bounded_source_children) < len(source_children):
+            logger.info(
+                "Bounded decomposition child recovery reduced overproduced "
+                "candidate_count=%d repair_count=%d",
+                len(source_children),
+                len(bounded_source_children),
+            )
+        source_children = bounded_source_children
         normalized_children = [
             normalize_story_plan_node_generation_output(item, child=True)
             for item in source_children
@@ -4336,6 +4509,129 @@ Requirements:
             repaired_count,
         )
         return StoryPlanNodeDecompositionOutput(children=repaired_children)
+
+    def _generate_segmented_decomposition_recovery(
+        self,
+        *,
+        original_prompt: str,
+        strategy: GenerationStrategy,
+        parent: StoryPlanNode,
+        story_bible: StoryBible,
+        requested_child_count: int | None,
+        max_episode_ready_span: int,
+    ) -> StoryPlanNodeDecompositionOutput:
+        parent_span = self._story_plan_node_episode_span(parent)
+        spans = _fallback_decomposition_spans(parent_span, requested_child_count)
+        assert parent.planned_start_episode is not None
+        allowed_character_refs = set(story_bible.character_refs)
+        allowed_story_line_refs = {
+            item.story_line_id for item in story_bible.story_lines
+        }
+        turning_point_assignments: list[list[str]] = [[] for _ in spans]
+        parent_turning_points = set(parent.turning_points)
+        for index, turning_point in enumerate(parent.turning_points):
+            target = min(
+                len(spans) - 1,
+                index * len(spans) // max(1, len(parent.turning_points)),
+            )
+            turning_point_assignments[target].append(turning_point)
+
+        segment_strategy = strategy.model_copy(update={
+            "max_tokens": min(
+                strategy.max_tokens,
+                STORY_DECOMPOSITION_SEGMENT_MAX_OUTPUT_TOKENS,
+            ),
+        })
+        children: list[StoryPlanNodeChildOutput] = []
+        start_episode = parent.planned_start_episode
+        range_plan = []
+        range_cursor = start_episode
+        for span in spans:
+            range_plan.append([range_cursor, range_cursor + span - 1])
+            range_cursor += span
+
+        for index, (start, end) in enumerate(range_plan):
+            previous_child = children[-1] if children else None
+            required_entry_state = (
+                previous_child.exit_state if previous_child else parent.entry_state
+            )
+            required_exit_state = (
+                parent.exit_state if index == len(range_plan) - 1 else None
+            )
+            assigned_turning_points = turning_point_assignments[index]
+            child_prompt = f"""SEGMENTED STORY PLAN RECOVERY
+The full sibling-array transport was incomplete after bounded structural recovery.
+Generate exactly one high-quality child story movement for the approved parent. This is
+not a summary or placeholder. Preserve the original creative direction, Story Bible,
+parent conflict, references, dramatic escalation and short-drama quality requirements.
+
+Child position: {index + 1} of {len(range_plan)}
+Complete fixed sibling range plan: {json.dumps(range_plan, ensure_ascii=False)}
+This child fixed episode range: {start}-{end}
+Required entry_state, copy verbatim: {required_entry_state}
+Required final exit_state: {required_exit_state or 'Create a concrete causal state that the next sibling can copy verbatim.'}
+Approved parent turning points assigned to this child, copy each verbatim exactly once:
+{json.dumps(assigned_turning_points, ensure_ascii=False)}
+Previous accepted child, for distinctness and causal handoff:
+{json.dumps(previous_child.model_dump() if previous_child else None, ensure_ascii=False, separators=(',', ':'))}
+
+Return only one complete StoryPlanNodeChildOutput object. Use natural Simplified Chinese
+for every human-readable value. Keep the title, synopsis, unit_story_beats, resolution
+and handoff narratively distinct from every other sibling. Do not change the fixed range,
+entry state, assigned parent turning points or final parent exit state.
+
+Original authoritative decomposition contract:
+{original_prompt}"""
+            child = self._generate_planning_output(
+                prompt=child_prompt,
+                strategy=segment_strategy,
+                output_model=StoryPlanNodeChildOutput,
+                artifact_name="Story Plan Node segmented child recovery",
+            )
+            child_span = end - start + 1
+            child = child.model_copy(update={
+                "planned_start_episode": start,
+                "planned_end_episode": end,
+                "estimated_episode_count": child_span,
+                "recommended_next_step": (
+                    "episode_ready"
+                    if MIN_EPISODE_READY_SPAN <= child_span <= max_episode_ready_span
+                    else "expand"
+                ),
+                "entry_state": required_entry_state,
+                **(
+                    {"exit_state": required_exit_state}
+                    if required_exit_state is not None
+                    else {}
+                ),
+                "turning_points": list(dict.fromkeys([
+                    *assigned_turning_points,
+                    *(
+                        turning_point
+                        for turning_point in child.turning_points
+                        if turning_point not in parent_turning_points
+                    ),
+                ])),
+                "character_refs": [
+                    reference
+                    for reference in child.character_refs
+                    if reference in allowed_character_refs
+                ],
+                "story_line_refs": [
+                    reference
+                    for reference in child.story_line_refs
+                    if reference in allowed_story_line_refs
+                ],
+            })
+            children.append(child)
+
+        logger.info(
+            "Segmented story plan recovery completed node=%s child_count=%d spans=%s",
+            parent.node_id,
+            len(children),
+            spans,
+        )
+        return StoryPlanNodeDecompositionOutput(children=children)
 
     @staticmethod
     def _generate_structured_planning_response(
