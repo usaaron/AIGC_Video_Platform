@@ -92,7 +92,9 @@ Content-Type: multipart/form-data
 - `POST /v1/images/generations`：没有参考图的文本生成图片
 - `POST /v1/images/edits`：人物面部、全身、三视图等带参考图的一致性生成
 
-图片响应的 `b64_json` 由 API 解码后写入 `ObjectStorage`，前端只读取受登录保护的 `/api/v1/generation/tasks/:taskId/outputs/:view`。参考图最多三张，API 会从本地对象存储读取并以 multipart 文件上传，中转密钥和 Base64 内容不会进入前端状态或项目 JSON。
+两种请求都发送 `moderation: "low"`、`stream: true`、`partial_images: 2`。Provider 支持 JSON URL、`b64_json`、data URL，以及 SSE 中的 `b64_json` / `partial_image_b64`；存在最终图时优先使用最终图，只有最终图缺失时才回退最后一张 partial。远端 URL 由 API 下载后统一写入 `ObjectStorage`，不会把 Provider 鉴权头转发给图片地址。
+
+前端只读取受登录保护的 `/api/v1/generation/tasks/:taskId/outputs/:view`。输入图最多五张（主体图最多一张、其他引用图最多四张），API 会从本地对象存储读取并以 multipart 文件上传，中转密钥、远端 URL 和 Base64 内容不会进入前端状态或项目 JSON。
 
 前端创建图片任务时默认提交 `provider: "img2"`，并包含：
 
