@@ -22,6 +22,7 @@ import {
 import { BillingPaymentService } from '../modules/billing/paymentService.js'
 import { GenerationTaskRepository } from '../modules/generation/repository.js'
 import { GenerationService } from '../modules/generation/service.js'
+import { Image2AssistService } from '../modules/image2/assist.js'
 import { Image2BatchService } from '../modules/image2/service.js'
 import { MediaRepository } from '../modules/media/repository.js'
 import { MediaService } from '../modules/media/service.js'
@@ -226,11 +227,19 @@ export function createRuntimeServices(input: {
     config.STORAGE_DRIVER === 'gcs' ? config.GCS_BUCKET : null,
   )
   const mediaService = new MediaService(mediaRepository, objectStorage)
+  const image2AssistService = new Image2AssistService({
+    baseUrl: config.SEQORA_IMAGE2_BASE_URL,
+    apiKey: config.SEQORA_IMAGE2_API_KEY,
+    model: config.SEQORA_IMAGE2_ASSIST_MODEL,
+    requestTimeoutMs: config.SEQORA_IMAGE2_ASSIST_TIMEOUT_MS,
+    objectStorage,
+  })
   const image2BatchService = new Image2BatchService(
     repositories.generationTaskRepository,
     mediaRepository,
     dispatchers.taskDispatcher,
     Boolean(providers.imageProvider),
+    image2AssistService,
   )
   const trustedAssetService = new TrustedAssetService(
     store,

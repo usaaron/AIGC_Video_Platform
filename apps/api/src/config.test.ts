@@ -158,6 +158,7 @@ describe('production configuration', () => {
       SEQORA_IMAGE2_BASE_URL: 'https://image2.example.com',
       SEQORA_IMAGE2_API_KEY: 'seqora-image2-token',
       SEQORA_IMAGE2_MODEL: 'seqora-image2-live',
+      SEQORA_IMAGE2_ASSIST_MODEL: 'gpt-5.4',
       TOKENADVENT_API_KEY: 'text-tokenadvent-token',
       IMG2_MODEL: 'legacy-img2-model',
     })

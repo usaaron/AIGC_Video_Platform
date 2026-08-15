@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolve } from 'node:path'
 import { IMAGE2_CREDITS_PER_IMAGE, IMAGE2_MODEL_ID, IMAGE2_PROVIDER_DISPLAY_NAME } from '@seqora/contracts'
 import { buildApp } from '../../app.js'
@@ -20,12 +20,15 @@ afterEach(async () => {
   await app?.close()
   app = undefined
   store = undefined
+  vi.unstubAllGlobals()
 })
 
 describe('image2 batch api', { timeout: 30_000 }, () => {
   it('creates image tasks with server-owned pricing and provider metadata', async () => {
     const projectId = await startConfiguredAppAndCreateProject()
     const cookie = await login('member@seqora.local', 'MemberPassword123!')
+    const subjectMediaId = await uploadImage(projectId, cookie, 'subject.jpg', 'subject-image')
+    const clothingMediaId = await uploadImage(projectId, cookie, 'coat.jpg', 'coat-image')
 
     const response = await app!.inject({
       method: 'POST',
@@ -39,6 +42,10 @@ describe('image2 batch api', { timeout: 30_000 }, () => {
         aspectRatio: '16:9',
         quality: 'high',
         imageCount: 3,
+        references: [
+          { mediaId: subjectMediaId, role: 'subject', referenceNumber: 1 },
+          { mediaId: clothingMediaId, role: 'clothing', referenceNumber: 2 },
+        ],
       },
     })
 
@@ -61,6 +68,50 @@ describe('image2 batch api', { timeout: 30_000 }, () => {
         aspectRatio: '16:9',
         quality: 'high',
         providerDisplayName: IMAGE2_PROVIDER_DISPLAY_NAME,
+        references: [
+          expect.objectContaining({
+            id: subjectMediaId,
+            role: 'subject',
+            referenceNumber: 1,
+            name: 'image-1-subject.jpg',
+          }),
+          expect.objectContaining({
+            id: clothingMediaId,
+            role: 'clothing',
+            referenceNumber: 2,
+            name: 'image-2-clothing.jpg',
+          }),
+        ],
+        generationSnapshot: expect.objectContaining({
+          version: 1,
+          finalized: false,
+          model: IMAGE2_MODEL_ID,
+          prompt: 'A still frame from a quiet rehearsal room',
+          originalPrompt: 'A still frame from a quiet rehearsal room',
+          negativePrompt: 'watermark',
+          userNegativePrompt: 'watermark',
+          aspectRatio: '16:9',
+          quality: 'high',
+          imageCount: 3,
+          assist: {
+            promptOptimization: false,
+            referenceVision: false,
+          },
+          references: [
+            expect.objectContaining({
+              id: subjectMediaId,
+              role: 'subject',
+              referenceNumber: 1,
+              order: 1,
+            }),
+            expect.objectContaining({
+              id: clothingMediaId,
+              role: 'clothing',
+              referenceNumber: 2,
+              order: 2,
+            }),
+          ],
+        }),
       }),
     })
 
@@ -97,6 +148,113 @@ describe('image2 batch api', { timeout: 30_000 }, () => {
 
     expect(response.statusCode).toBe(400)
     expect(response.json().error.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('runs prompt optimization and reference vision through service-owned image2 chat', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  visual_description: 'red wool coat with brass buttons',
+                }),
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  optimized_prompt: '电影感半身肖像，使用图 1 的红色羊毛外套，柔和侧光，高细节',
+                }),
+              },
+            },
+          ],
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const projectId = await startConfiguredAppAndCreateProject({
+      config: {
+        SEQORA_IMAGE2_API_KEY: 'server-owned-image2-key',
+        SEQORA_IMAGE2_ASSIST_MODEL: 'gpt-5.4',
+      },
+    })
+    const cookie = await login('member@seqora.local', 'MemberPassword123!')
+    const clothingMediaId = await uploadImage(projectId, cookie, 'coat.jpg', 'coat-image')
+
+    const response = await app!.inject({
+      method: 'POST',
+      url: '/api/v1/image2/batches',
+      headers: { cookie },
+      payload: {
+        clientRequestId: 'image2-assisted',
+        projectId,
+        prompt: '生成角色肖像，参考图 1 的服装',
+        aspectRatio: 'auto',
+        quality: 'medium',
+        imageCount: 1,
+        assist: {
+          promptOptimization: true,
+          referenceVision: true,
+        },
+        references: [{ mediaId: clothingMediaId, role: 'clothing', referenceNumber: 1 }],
+      },
+    })
+
+    expect(response.statusCode).toBe(202)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(String(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('Authorization'))).toBe(
+      'Bearer server-owned-image2-key',
+    )
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      model: 'gpt-5.4',
+      messages: [
+        expect.any(Object),
+        {
+          role: 'user',
+          content: expect.arrayContaining([
+            expect.objectContaining({ type: 'text' }),
+            expect.objectContaining({ type: 'image_url' }),
+          ]),
+        },
+      ],
+    })
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).messages[1].content).toContain(
+      'red wool coat with brass buttons',
+    )
+    expect(response.json().tasks[0]).toMatchObject({
+      prompt: '电影感半身肖像，使用图 1 的红色羊毛外套，柔和侧光，高细节',
+      metadata: expect.objectContaining({
+        originalPrompt: '生成角色肖像，参考图 1 的服装',
+        promptOptimization: expect.objectContaining({
+          requested: true,
+          status: 'optimized',
+          model: 'gpt-5.4',
+        }),
+        referenceVision: expect.objectContaining({
+          requested: true,
+          status: 'analyzed',
+          analyzedCount: 1,
+          model: 'gpt-5.4',
+        }),
+        references: [
+          expect.objectContaining({
+            id: clothingMediaId,
+            role: 'clothing',
+            referenceNumber: 1,
+            visionDescription: 'red wool coat with brass buttons',
+            visionModel: 'gpt-5.4',
+          }),
+        ],
+      }),
+    })
   })
 
   it('does not partially create or charge tasks when credits are insufficient', async () => {
@@ -208,12 +366,15 @@ describe('image2 batch api', { timeout: 30_000 }, () => {
 })
 
 async function startConfiguredAppAndCreateProject(
-  overrides: { imageProvider?: ImageGenerationProvider | null } = {},
+  overrides: {
+    imageProvider?: ImageGenerationProvider | null
+    config?: Partial<AppConfig>
+  } = {},
 ): Promise<string> {
   store = new AppStore(null)
   await store.initialize()
   app = await buildApp({
-    config: localConfig(),
+    config: localConfig(overrides.config),
     store,
     startWorker: false,
     taskDispatcher: noopTaskDispatcher,
@@ -252,6 +413,31 @@ async function login(email: string, password: string): Promise<string> {
   })
   expect(response.statusCode).toBe(200)
   return cookieValue(response)
+}
+
+async function uploadImage(
+  projectId: string,
+  cookie: string,
+  filename: string,
+  content: string,
+): Promise<string> {
+  if (!app) throw new Error('App is not ready')
+  const boundary = `seqora-image2-${filename}`
+  const uploadPayload = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: image/jpeg\r\n\r\n`,
+    ),
+    Buffer.from(content),
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ])
+  const upload = await app.inject({
+    method: 'POST',
+    url: `/api/v1/projects/${projectId}/media`,
+    headers: { cookie, 'content-type': `multipart/form-data; boundary=${boundary}` },
+    payload: uploadPayload,
+  })
+  expect(upload.statusCode).toBe(201)
+  return upload.json().id as string
 }
 
 function memberCredits(): number {

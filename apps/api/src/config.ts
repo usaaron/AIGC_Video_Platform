@@ -108,6 +108,8 @@ const configSchema = z
     SEQORA_IMAGE2_BASE_URL: z.string().url().default('https://tokenadvent.com'),
     SEQORA_IMAGE2_API_KEY: z.string().default(''),
     SEQORA_IMAGE2_MODEL: z.string().min(1).default('gpt-image-2'),
+    SEQORA_IMAGE2_ASSIST_MODEL: z.string().min(1).default('gpt-5.4'),
+    SEQORA_IMAGE2_ASSIST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(180_000).default(60_000),
     IMG2_MODEL: z.string().min(1).default('gpt-image-2'),
     IMG2_QUALITY: z.enum(['low', 'medium', 'high']).default('low'),
     TEXT_MODEL: z.string().min(1).default('glm-5.2'),
