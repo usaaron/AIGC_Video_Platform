@@ -44,10 +44,11 @@ export async function apiRequest<T>(
   if (!response.ok) {
     const responseText = await response.text();
     const payload = parseErrorPayload(responseText);
+    const metadata = responseFailureMetadata(response);
     throw new ApiError(
-      formatApiError(payload?.detail, response.status, responseText),
+      formatApiError(payload?.detail, response.status, responseText, metadata.failureClass),
       response.status,
-      responseFailureMetadata(response),
+      metadata,
     );
   }
 
@@ -71,10 +72,11 @@ export async function apiEventStream<TEvent>(
   if (!response.ok) {
     const responseText = await response.text();
     const payload = parseErrorPayload(responseText);
+    const metadata = responseFailureMetadata(response);
     throw new ApiError(
-      formatApiError(payload?.detail, response.status, responseText),
+      formatApiError(payload?.detail, response.status, responseText, metadata.failureClass),
       response.status,
-      responseFailureMetadata(response),
+      metadata,
     );
   }
   if (!response.body) {
@@ -140,9 +142,14 @@ function parseErrorPayload(responseText: string): { detail?: unknown } | null {
   }
 }
 
-function formatApiError(detail: unknown, status: number, responseText: string): string {
+function formatApiError(
+  detail: unknown,
+  status: number,
+  responseText: string,
+  failureClass?: string,
+): string {
   if (typeof detail === "string" && detail.trim()) {
-    return visibleApiError(detail, status, CURRENT_MARKET_PROFILE);
+    return visibleApiError(detail, status, CURRENT_MARKET_PROFILE, failureClass);
   }
   if (Array.isArray(detail)) {
     const messages = detail.flatMap((item) => {
@@ -155,12 +162,22 @@ function formatApiError(detail: unknown, status: number, responseText: string): 
       return [location ? `${location}: ${candidate.msg}` : candidate.msg];
     });
     if (messages.length) {
-      return visibleApiError(messages.join("; "), status, CURRENT_MARKET_PROFILE);
+      return visibleApiError(
+        messages.join("; "),
+        status,
+        CURRENT_MARKET_PROFILE,
+        failureClass,
+      );
     }
   }
   const plainText = responseText.trim();
   if (plainText && !plainText.startsWith("<")) {
-    return visibleApiError(plainText.slice(0, 500), status, CURRENT_MARKET_PROFILE);
+    return visibleApiError(
+      plainText.slice(0, 500),
+      status,
+      CURRENT_MARKET_PROFILE,
+      failureClass,
+    );
   }
   return CURRENT_MARKET_PROFILE === "cn_mainland"
     ? "请求暂未完成，已保存的内容不会丢失，请稍后重试。"

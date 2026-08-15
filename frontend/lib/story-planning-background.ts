@@ -32,7 +32,8 @@ interface PlanningTaskRecord<T> extends PlanningTaskSnapshot {
 // remains available for Story Bible or recursive-tree work.
 const MAX_CONCURRENT_PLANNING_TASKS = 8;
 const MAX_CONCURRENT_EPISODE_ROADMAP_TASKS = 7;
-const FULL_TREE_RESERVED_SLOTS = 7;
+// A full-tree coordinator fans out four parent nodes within one level at a time.
+const FULL_TREE_RESERVED_SLOTS = 4;
 const PLANNING_TASK_HISTORY_STORAGE_KEY = "my-comic:planning-task-history:v1";
 const taskRecords = new Map<string, PlanningTaskRecord<unknown>>();
 const activeKeyToTask = new Map<string, string>();

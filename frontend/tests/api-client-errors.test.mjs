@@ -26,6 +26,18 @@ test("unknown 503 no longer asserts that the model provider is unavailable", () 
   assert.doesNotMatch(message, /上游模型服务暂时不可用/);
 });
 
+test("configuration failures tell the user to fix settings instead of retrying", () => {
+  const message = visibleApiError(
+    "LLM_REASONING_EFFORT is invalid",
+    503,
+    "cn_mainland",
+    "configuration",
+  );
+  assert.match(message, /配置当前不可用/);
+  assert.match(message, /检查模型设置/);
+  assert.doesNotMatch(message, /稍后重试|LLM_REASONING_EFFORT/);
+});
+
 test("direct rate-limit responses keep saved work safe without exposing retry internals", () => {
   const message = visibleApiError("429 Too Many Requests", 429);
   assert.match(message, /生成服务当前较忙/);

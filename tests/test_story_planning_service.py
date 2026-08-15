@@ -715,6 +715,57 @@ class StreamingInvalidDecompositionAdapter(FixedStoryBibleAdapter):
         )
 
 
+class IncompleteChildDecompositionAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.stream_calls = 0
+        self.batch_repair_calls = 0
+        self.child_repair_calls = 0
+        self.child_repair_max_tokens: list[int] = []
+        self.child_repair_prompt = ""
+
+    def _decomposition(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+    ) -> dict[str, Any]:
+        return super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=StoryPlanNodeDecompositionOutput.model_json_schema(),
+        )
+
+    def generate_structured_output_stream(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta=None,
+    ) -> dict[str, Any]:
+        self.stream_calls += 1
+        output = self._decomposition(prompt, strategy=strategy)
+        output["children"][0].pop("synopsis")
+        return output
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if output_schema and "children" in output_schema.get("properties", {}):
+            self.batch_repair_calls += 1
+            output = self._decomposition(prompt, strategy=strategy)
+            output["children"][0].pop("synopsis")
+            return output
+        self.child_repair_calls += 1
+        self.child_repair_max_tokens.append(strategy.max_tokens)
+        self.child_repair_prompt = prompt
+        return self._decomposition(prompt, strategy=strategy)["children"][0]
+
+
 class LegacyAliasDecompositionAdapter(FixedStoryBibleAdapter):
     def __init__(self) -> None:
         self.calls = 0
@@ -1716,6 +1767,33 @@ def test_decomposition_repairs_malformed_stream_with_raw_nonstream_response() ->
     assert adapter.nonstream_calls == 1
     assert '"title":"未闭合节点"' in adapter.repair_prompt
     assert len(output.children) == 4
+
+
+def test_decomposition_repairs_only_the_incomplete_child_after_batch_repair() -> None:
+    adapter = IncompleteChildDecompositionAdapter()
+    service = object.__new__(StoryPlanningService)
+    service._llm_adapter = adapter
+    service._story_architect_llm_adapter = adapter
+
+    output = service._generate_planning_output(
+        prompt=(
+            "Plan a Chinese mainland serialized comic. "
+            "All human-readable output values must be written in Simplified Chinese. "
+            "knowledge_bundle.draft.cn_mainland_longform_foundation.v1 "
+            "Use these principles as bounded guidance, not rigid plot formulas."
+        ),
+        strategy=build_strategy(),
+        output_model=StoryPlanNodeDecompositionOutput,
+        artifact_name="Story Plan Node decomposition",
+    )
+
+    assert adapter.stream_calls == 1
+    assert adapter.batch_repair_calls == 1
+    assert adapter.child_repair_calls == 1
+    assert adapter.child_repair_max_tokens == [min(build_strategy().max_tokens, 4000)]
+    assert "REPAIR ONE INCOMPLETE DECOMPOSITION CHILD" in adapter.child_repair_prompt
+    assert len(output.children) == 4
+    assert output.children[0].synopsis.startswith("主角发现")
 
 
 def test_decomposition_normalizes_legacy_child_aliases_without_model_repair() -> None:

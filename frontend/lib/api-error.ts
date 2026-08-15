@@ -4,7 +4,13 @@ export function visibleApiError(
   message: string,
   status: number,
   marketProfile: ProjectMarketProfile = "cn_mainland",
+  failureClass?: string,
 ): string {
+  if (failureClass?.trim().toLocaleLowerCase() === "configuration") {
+    return marketProfile === "cn_mainland"
+      ? "生成服务配置当前不可用，请联系管理员检查模型设置。已保存的内容不会丢失。"
+      : "The generation service configuration is unavailable. Please ask an administrator to check the model settings. Saved work is safe.";
+  }
   if (marketProfile !== "cn_mainland") {
     if (status === 422) return "The generated content was incomplete. Previously saved work is safe; please try again.";
     if (status === 429) return "The generation service is busy. Previously saved work is safe; please try again shortly.";

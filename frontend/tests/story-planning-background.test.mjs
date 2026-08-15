@@ -123,7 +123,7 @@ test("a full-tree coordinator exclusively owns its project while running", async
   assert.deepEqual(await Promise.all(companions.map((task) => task.promise)), [0, 1]);
 });
 
-test("a full-tree coordinator leaves the eighth slot available to another project", async () => {
+test("a full-tree coordinator leaves capacity available to another project", async () => {
   const fullTreeProjectId = `project.full-tree-cross-project.${crypto.randomUUID()}`;
   const companionProjectId = `project.full-tree-companion.${crypto.randomUUID()}`;
   let releaseFullTree;
@@ -160,7 +160,7 @@ test("a queued full-tree task creates a same-project scheduling barrier", async 
   const targetProjectId = `project.full-tree-barrier.${crypto.randomUUID()}`;
   const blockerProjectId = `project.full-tree-blockers.${crypto.randomUUID()}`;
   const blockerReleases = [];
-  const blockers = Array.from({ length: 2 }, (_, index) => enqueuePlanningTask({
+  const blockers = Array.from({ length: 5 }, (_, index) => enqueuePlanningTask({
     key: `${blockerProjectId}:blocker:${index}`,
     kind: "decompose",
     projectId: blockerProjectId,
@@ -209,7 +209,7 @@ test("a queued full-tree task creates a same-project scheduling barrier", async 
   while (blockerReleases.length) blockerReleases.shift()();
   assert.deepEqual(
     await Promise.all([companion.promise, ...blockers.map((task) => task.promise)]),
-    ["companion", 0, 1],
+    ["companion", 0, 1, 2, 3, 4],
   );
 });
 

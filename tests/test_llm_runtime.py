@@ -473,6 +473,28 @@ def test_story_architect_uses_script_route_after_retryable_glm_failure(
     assert adapter._fallback._use_strict_schema is False
 
 
+def test_invalid_script_repair_profile_does_not_disable_planning_primaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_MODEL", "glm-5.2")
+    monkeypatch.setenv("LLM_API_KEY", "glm-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://glm.example/v1")
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "high")
+    monkeypatch.setenv("LLM_SCRIPT_REPAIR_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_SCRIPT_REPAIR_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_SCRIPT_REPAIR_BASE_URL", "https://deepseek.example/v1")
+    monkeypatch.setenv("LLM_SCRIPT_REPAIR_REASONING_EFFORT", "mediun")
+
+    architect = build_story_architect_llm_adapter_from_env()
+    episode_plan = build_episode_plan_llm_adapter_from_env()
+
+    for adapter in (architect, episode_plan):
+        assert isinstance(adapter, RealLLMAdapter)
+        assert adapter.get_model_info().model_name == "glm-5.2"
+        assert adapter._reasoning_effort == "high"
+
+
 def test_story_bible_inherits_story_architect_profile_before_creative_profile(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

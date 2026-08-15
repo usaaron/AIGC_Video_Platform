@@ -101,6 +101,8 @@ TECHNICAL_STORY_ROOT_MARKER = "system_story_bible_root.v1"
 # long latency caused by asking the planning model to expand downstream detail.
 STORY_BIBLE_MIN_OUTPUT_TOKENS = 9_000
 STORY_DECOMPOSITION_MIN_OUTPUT_TOKENS = 12_000
+STORY_DECOMPOSITION_CHILD_REPAIR_MAX_OUTPUT_TOKENS = 4_000
+STORY_DECOMPOSITION_CHILD_REPAIR_LIMIT = 4
 # A roadmap contains compact contracts, not episode prose. Keeping the floor
 # below the long-form planning budgets prevents a provider from reserving a
 # large completion window for an 8-12 item response.
@@ -4195,6 +4197,30 @@ Requirements:
                 sorted(repaired_payload),
                 self._validation_error_details(repair_error),
             )
+            repaired_children = (
+                _story_plan_decomposition_children(repaired_payload)
+                if output_model is StoryPlanNodeDecompositionOutput
+                else None
+            )
+            if (
+                repaired_children is not None
+                and 2 <= len(repaired_children) <= 12
+                and all(isinstance(item, dict) for item in repaired_children)
+            ):
+                try:
+                    return self._recover_decomposition_child_contracts(
+                        llm_adapter=llm_adapter,
+                        contract_prompt=contract_prompt,
+                        strategy=strategy,
+                        source_children=repaired_children,
+                    )
+                except (LLMStructuredOutputError, ValidationError) as child_error:
+                    logger.warning(
+                        "Decomposition child-level contract recovery failed "
+                        "artifact=%s error=%s",
+                        artifact_name,
+                        str(child_error)[:500],
+                    )
             if (
                 output_model is StoryPlanNodeDecompositionOutput
                 and _has_invalid_decomposition_envelope(repaired_payload)
@@ -4237,6 +4263,79 @@ Requirements:
                 "one bounded format-repair attempt. "
                 + self._validation_error_summary(repair_error)
             ) from repair_error
+
+    def _recover_decomposition_child_contracts(
+        self,
+        *,
+        llm_adapter: LLMAdapter,
+        contract_prompt: str,
+        strategy: GenerationStrategy,
+        source_children: list[object],
+    ) -> StoryPlanNodeDecompositionOutput:
+        """Repair only invalid children after the bounded whole-batch repair fails."""
+
+        normalized_children = [
+            normalize_story_plan_node_generation_output(item, child=True)
+            for item in source_children
+            if isinstance(item, dict)
+        ]
+        _normalize_decomposition_body_weights(normalized_children)
+        invalid_indexes: list[int] = []
+        for index, child in enumerate(normalized_children):
+            try:
+                StoryPlanNodeChildOutput.model_validate(child)
+            except ValidationError:
+                invalid_indexes.append(index)
+        if len(invalid_indexes) > STORY_DECOMPOSITION_CHILD_REPAIR_LIMIT:
+            raise StoryPlanningInputError(
+                "The decomposition contained too many incomplete child nodes for bounded "
+                "child-level recovery."
+            )
+
+        child_schema = StoryPlanNodeChildOutput.model_json_schema()
+        repair_strategy = strategy.model_copy(update={
+            "max_tokens": min(
+                strategy.max_tokens,
+                STORY_DECOMPOSITION_CHILD_REPAIR_MAX_OUTPUT_TOKENS,
+            ),
+        })
+        repaired_children: list[StoryPlanNodeChildOutput] = []
+        repaired_count = 0
+        for index, normalized in enumerate(normalized_children):
+            try:
+                child = StoryPlanNodeChildOutput.model_validate(normalized)
+            except ValidationError as child_error:
+                repaired_count += 1
+                generated_child = self._generate_structured_planning_response(
+                    llm_adapter,
+                    self._build_decomposition_child_repair_prompt(
+                        contract_prompt=contract_prompt,
+                        source_children=source_children,
+                        child_index=index,
+                        validation_error=child_error,
+                    ),
+                    strategy=repair_strategy,
+                    output_schema=child_schema,
+                    artifact_name="Story Plan Node decomposition child repair",
+                    allow_stream=False,
+                )
+                nested_children = _story_plan_decomposition_children(generated_child)
+                candidate = (
+                    nested_children[0]
+                    if nested_children and isinstance(nested_children[0], dict)
+                    else generated_child
+                )
+                child = StoryPlanNodeChildOutput.model_validate(
+                    normalize_story_plan_node_generation_output(candidate, child=True)
+                )
+            repaired_children.append(child)
+        logger.info(
+            "Decomposition child-level contract recovery completed child_count=%d "
+            "repaired_count=%d",
+            len(repaired_children),
+            repaired_count,
+        )
+        return StoryPlanNodeDecompositionOutput(children=repaired_children)
 
     @staticmethod
     def _generate_structured_planning_response(
@@ -4689,6 +4788,42 @@ Original decomposition constraints:
 Final shape check before returning: the response has exactly one top-level field,
 children is a JSON array, and children contains at least two complete objects.
 Return only {{"children":[...]}} with at least two complete children."""
+
+    @staticmethod
+    def _build_decomposition_child_repair_prompt(
+        *,
+        contract_prompt: str,
+        source_children: list[object],
+        child_index: int,
+        validation_error: ValidationError,
+    ) -> str:
+        previous_child = source_children[child_index]
+        previous_sibling = source_children[child_index - 1] if child_index > 0 else None
+        next_sibling = (
+            source_children[child_index + 1]
+            if child_index + 1 < len(source_children)
+            else None
+        )
+        return f"""REPAIR ONE INCOMPLETE DECOMPOSITION CHILD
+Return one complete child object only, not a children array and not the whole decomposition.
+Preserve every usable value in the incomplete child. Fill only missing or invalid contract
+fields, while keeping its episode range, causal role, references and sibling handoffs intact.
+
+Child position: {child_index + 1} of {len(source_children)}
+Incomplete child:
+{json.dumps(previous_child, ensure_ascii=False, separators=(',', ':'))}
+Previous sibling, for entry-state handoff only:
+{json.dumps(previous_sibling, ensure_ascii=False, separators=(',', ':'))}
+Next sibling, for exit-state handoff only:
+{json.dumps(next_sibling, ensure_ascii=False, separators=(',', ':'))}
+Contract failures for this child:
+{json.dumps(validation_error.errors(include_input=False, include_url=False), ensure_ascii=False, separators=(',', ':'))}
+
+Original decomposition constraints remain authoritative:
+{contract_prompt}
+
+Return exactly one complete StoryPlanNodeChildOutput JSON object. Do not rewrite or return
+the other children. Do not use Markdown fences or explanatory text."""
 
     @staticmethod
     def _build_episode_plan_envelope_repair_prompt(

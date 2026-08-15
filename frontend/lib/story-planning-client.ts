@@ -11,6 +11,7 @@ import {
   MIN_EPISODE_READY_SPAN,
   storyPlanNodeEpisodeSpan,
 } from "@/lib/episode-generation-planning";
+import { hasCompleteStoryPlanChildCoverage as hasCompleteCoverage } from "@/lib/story-plan-coverage";
 import { recordProjectServerRevisions } from "@/lib/project-sync";
 import { normalizeEpisodeDurationSeconds } from "@/lib/generation-planning";
 import {
@@ -620,37 +621,7 @@ export function hasCompleteStoryPlanChildCoverage(
   parent: StoryPlanNode,
   children: StoryPlanNode[],
 ): boolean {
-  if (
-    parent.planned_start_episode === null
-    || parent.planned_end_episode === null
-  ) return false;
-  const parentSpan = parent.planned_end_episode - parent.planned_start_episode + 1;
-  if (children.length < (parentSpan > MAX_EPISODE_READY_SPAN ? 2 : 1)) return false;
-  const ordered = [...children].sort((left, right) => left.sequence_order - right.sequence_order);
-  let nextEpisode = parent.planned_start_episode;
-  for (let index = 0; index < ordered.length; index += 1) {
-    const child = ordered[index];
-    const predecessor = ordered[index - 1];
-    if (
-      child.parent_node_id !== parent.node_id
-      || child.parent_node_version !== parent.version
-      || child.sequence_order !== index + 1
-      || (index === 0 && (
-        child.predecessor_node_id !== null
-        || child.predecessor_node_version !== null
-      ))
-      || (index > 0 && (
-        child.predecessor_node_id !== predecessor?.node_id
-        || child.predecessor_node_version !== predecessor?.version
-      ))
-      || child.planned_start_episode !== nextEpisode
-      || child.planned_end_episode === null
-      || child.planned_end_episode < nextEpisode
-      || child.planned_end_episode > parent.planned_end_episode
-    ) return false;
-    nextEpisode = child.planned_end_episode + 1;
-  }
-  return nextEpisode === parent.planned_end_episode + 1;
+  return hasCompleteCoverage(parent, children, MAX_EPISODE_READY_SPAN);
 }
 
 export async function loadStoryPlanNodes(

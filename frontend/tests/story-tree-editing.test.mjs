@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { hasCompleteStoryPlanChildCoverage } from "../lib/story-plan-coverage.ts";
 
 async function source(path) {
   return readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -13,7 +14,10 @@ test("the recursive story tree has one resumable full-tree coordinator", async (
 
   assert.match(panel, /kind:\s*"full_tree"/);
   assert.match(panel, /runFullStoryTreeExpansion/);
-  assert.match(coordinator, /const FULL_TREE_CONCURRENCY = 7/);
+  assert.match(coordinator, /const FULL_TREE_CONCURRENCY = 4/);
+  assert.match(coordinator, /const currentLevel = level/);
+  assert.match(coordinator, /while \(cursor < values\.length\)/);
+  assert.doesNotMatch(coordinator, /while \(cursor < values\.length && firstFailure === undefined\)/);
   assert.match(coordinator, /loadActiveStoryPlanNodes/);
   assert.match(coordinator, /onRoadmapCheckpoint/);
   assert.match(coordinator, /await Promise\.all\(workers\)/);
@@ -21,9 +25,47 @@ test("the recursive story tree has one resumable full-tree coordinator", async (
   assert.match(coordinator, /const episodeReadyLeaves = activeNodes/);
   assert.match(coordinator, /for \(const leaf of episodeReadyLeaves\)/);
   assert.match(background, /"full_tree"/);
-  assert.match(background, /FULL_TREE_RESERVED_SLOTS = 7/);
+  assert.match(background, /FULL_TREE_RESERVED_SLOTS = 4/);
   assert.match(background, /const result = await task\.run\(\)/);
   assert.doesNotMatch(background, /generateWithFailurePolicy/);
+});
+
+test("approved sibling versions keep a complete saved layer resumable", () => {
+  const root = coverageNode({
+    node_id: "root",
+    version: 1,
+    sequence_order: 1,
+    planned_start_episode: 1,
+    planned_end_episode: 100,
+  });
+  const children = [
+    coverageNode({
+      node_id: "branch-1",
+      version: 14,
+      parent_node_id: "root",
+      parent_node_version: 1,
+      sequence_order: 1,
+      planned_start_episode: 1,
+      planned_end_episode: 50,
+    }),
+    coverageNode({
+      node_id: "branch-2",
+      version: 14,
+      parent_node_id: "root",
+      parent_node_version: 1,
+      predecessor_node_id: "branch-1",
+      predecessor_node_version: 13,
+      sequence_order: 2,
+      planned_start_episode: 51,
+      planned_end_episode: 100,
+    }),
+  ];
+
+  assert.equal(hasCompleteStoryPlanChildCoverage(root, children), true);
+  assert.equal(hasCompleteStoryPlanChildCoverage(root, [
+    children[0],
+    { ...children[1], predecessor_node_version: 15 },
+  ]), false);
 });
 
 test("parent revisions require an explicit descendant policy", async () => {
@@ -61,3 +103,18 @@ test("each episode roadmap exposes manual and AI revision with candidate review"
   assert.match(client, /episode-plans\/\$\{item\.episode_number\}\/modify/);
   assert.match(client, /predecessor_plan: predecessorPlan/);
 });
+
+function coverageNode(overrides) {
+  return {
+    node_id: "node",
+    version: 1,
+    parent_node_id: null,
+    parent_node_version: null,
+    predecessor_node_id: null,
+    predecessor_node_version: null,
+    sequence_order: 1,
+    planned_start_episode: 1,
+    planned_end_episode: 1,
+    ...overrides,
+  };
+}

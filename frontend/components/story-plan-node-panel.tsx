@@ -278,7 +278,12 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       {busy === "load" ? <p>{t("storyPlanNode.loading")}</p> : null}
       {busy === "generate" ? (
         <div className="inline-notice">
-          {expansionProgress?.nodeTitle
+          {expansionProgress?.level && expansionProgress.totalNodes !== undefined
+            ? t("storyPlanNode.expandLayerProgress")
+              .replace("{level}", String(expansionProgress.level))
+              .replace("{completed}", String(expansionProgress.completedNodes ?? 0))
+              .replace("{total}", String(expansionProgress.totalNodes))
+            : expansionProgress?.nodeTitle
             ? t("storyPlanNode.expandAllProgress")
               .replace("{title}", expansionProgress.nodeTitle)
               .replace("{count}", String(expansionProgress.completedLeaves))

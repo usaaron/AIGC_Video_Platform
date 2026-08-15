@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -11,6 +12,9 @@ from app.modules.script_engine.llm_adapter import (
     ModelFailoverLLMAdapter,
     RealLLMAdapter,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -211,14 +215,22 @@ def build_story_architect_llm_adapter_from_env() -> LLMAdapter:
         for key, value in os.environ.items()
     ):
         return primary
-    fallback = _build_role_adapter_from_env(
-        "LLM_STORY_ARCHITECT_FALLBACK",
-        fallback_prefixes=("LLM_SCRIPT_REPAIR", "LLM_SCRIPT"),
-        default_model_env="LLM_MODEL",
-        default_timeout_seconds=300,
-        default_max_retries=0,
-        default_use_strict_schema=False,
-    )
+    try:
+        fallback = _build_role_adapter_from_env(
+            "LLM_STORY_ARCHITECT_FALLBACK",
+            fallback_prefixes=("LLM_SCRIPT_REPAIR", "LLM_SCRIPT"),
+            default_model_env="LLM_MODEL",
+            default_timeout_seconds=300,
+            default_max_retries=0,
+            default_use_strict_schema=False,
+        )
+    except MissingLLMConfigurationError as exc:
+        logger.warning(
+            "Ignoring invalid story-architect fallback configuration; primary "
+            "planning model remains available: %s",
+            exc,
+        )
+        return primary
     primary_info = primary.get_model_info()
     fallback_info = fallback.get_model_info()
     if (
@@ -251,18 +263,26 @@ def build_episode_plan_llm_adapter_from_env() -> LLMAdapter:
         for key, value in os.environ.items()
     ):
         return primary
-    fallback = _build_role_adapter_from_env(
-        "LLM_EPISODE_PLAN_FALLBACK",
-        fallback_prefixes=(
-            "LLM_SCRIPT_REPAIR",
-            "LLM_SCRIPT_FALLBACK",
-            "LLM_SCRIPT",
-        ),
-        default_model_env="LLM_MODEL",
-        default_timeout_seconds=300,
-        default_max_retries=0,
-        default_use_strict_schema=False,
-    )
+    try:
+        fallback = _build_role_adapter_from_env(
+            "LLM_EPISODE_PLAN_FALLBACK",
+            fallback_prefixes=(
+                "LLM_SCRIPT_REPAIR",
+                "LLM_SCRIPT_FALLBACK",
+                "LLM_SCRIPT",
+            ),
+            default_model_env="LLM_MODEL",
+            default_timeout_seconds=300,
+            default_max_retries=0,
+            default_use_strict_schema=False,
+        )
+    except MissingLLMConfigurationError as exc:
+        logger.warning(
+            "Ignoring invalid episode-plan fallback configuration; primary planning "
+            "model remains available: %s",
+            exc,
+        )
+        return primary
     primary_info = primary.get_model_info()
     fallback_info = fallback.get_model_info()
     if (
