@@ -10,6 +10,8 @@ export interface DependencyQueueProgress<T> {
   active: number;
   targetConcurrency: number;
   durationMs: number;
+  depthCompleted: number;
+  depthScheduled: number;
   error?: unknown;
 }
 
@@ -21,6 +23,7 @@ export async function runAdaptiveDependencyQueue<T>(input: {
   maximumConcurrency: number;
   successesBeforeIncrease?: number;
   slowTaskThresholdMs?: number;
+  breadthFirst?: boolean;
   shouldReduceConcurrencyOnError?: (error: unknown) => boolean;
   onProgress?: (progress: DependencyQueueProgress<T>) => Promise<void> | void;
 }): Promise<void> {
@@ -41,7 +44,12 @@ export async function runAdaptiveDependencyQueue<T>(input: {
     ? undefined
     : Math.max(0, Math.floor(input.slowTaskThresholdMs));
   const pending = input.initialValues.map((value) => ({ value, depth: 1 }));
+  const scheduledByDepth = new Map<number, number>([
+    [1, input.initialValues.length],
+  ]);
+  const completedByDepth = new Map<number, number>();
   const active = new Map<number, Promise<QueueOutcome<T>>>();
+  let activeDepth = 1;
   let nextTaskId = 1;
   let completed = 0;
   let scheduled = pending.length;
@@ -51,6 +59,7 @@ export async function runAdaptiveDependencyQueue<T>(input: {
 
   const launchAvailable = () => {
     while (pending.length && active.size < targetConcurrency) {
+      if (input.breadthFirst && pending[0]?.depth !== activeDepth) break;
       const item = pending.shift();
       if (!item) break;
       const taskId = nextTaskId;
@@ -83,6 +92,10 @@ export async function runAdaptiveDependencyQueue<T>(input: {
     const outcome = await Promise.race(active.values());
     active.delete(outcome.taskId);
     completed += 1;
+    completedByDepth.set(
+      outcome.item.depth,
+      (completedByDepth.get(outcome.item.depth) ?? 0) + 1,
+    );
     const wasSlow = slowTaskThresholdMs !== undefined
       && outcome.durationMs >= slowTaskThresholdMs;
 
@@ -93,6 +106,13 @@ export async function runAdaptiveDependencyQueue<T>(input: {
       }));
       pending.push(...descendants);
       scheduled += descendants.length;
+      if (descendants.length) {
+        const childDepth = outcome.item.depth + 1;
+        scheduledByDepth.set(
+          childDepth,
+          (scheduledByDepth.get(childDepth) ?? 0) + descendants.length,
+        );
+      }
       if (wasSlow) {
         targetConcurrency = Math.max(minimumConcurrency, targetConcurrency - 1);
         consecutiveSuccesses = 0;
@@ -124,8 +144,18 @@ export async function runAdaptiveDependencyQueue<T>(input: {
       active: active.size,
       targetConcurrency,
       durationMs: outcome.durationMs,
+      depthCompleted: completedByDepth.get(outcome.item.depth) ?? 0,
+      depthScheduled: scheduledByDepth.get(outcome.item.depth) ?? 0,
       ...(!outcome.ok ? { error: outcome.error } : {}),
     });
+    if (
+      input.breadthFirst
+      && active.size === 0
+      && pending.length
+      && pending[0]?.depth !== activeDepth
+    ) {
+      activeDepth = pending[0]?.depth ?? activeDepth;
+    }
     launchAvailable();
   }
 

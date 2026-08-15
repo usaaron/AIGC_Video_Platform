@@ -1,7 +1,6 @@
 import {
   approveStoryPlanNode,
   decomposeStoryPlanNode,
-  generateEpisodePlanBatch,
   generateTopLevelStoryPlanNodes,
   hasCompleteStoryPlanChildCoverage,
   loadActiveStoryPlanNodes,
@@ -42,11 +41,21 @@ export interface StoryTreeExpansionResult {
   completedLeaves: number;
 }
 
+export interface StoryTreeCheckpoint {
+  topLevelNodes: StoryPlanNode[];
+  depth: number;
+  completedNodes: number;
+  totalNodes: number;
+  completedNodeId?: string;
+  refreshNodeIds?: string[];
+}
+
 export async function runFullStoryTreeExpansion(input: {
   project: ScriptProject;
   storyBible: StoryBible;
   beforeStep?: () => Promise<void> | void;
   onProgress?: (progress: StoryTreeExpansionProgress) => Promise<void> | void;
+  onTreeCheckpoint?: (checkpoint: StoryTreeCheckpoint) => Promise<void> | void;
   onRoadmapCheckpoint?: (item: EpisodeRoadmapItem) => Promise<void> | void;
 }): Promise<StoryTreeExpansionResult> {
   const { project, storyBible } = input;
@@ -68,6 +77,12 @@ export async function runFullStoryTreeExpansion(input: {
   if (!topLevelNodes.length) {
     topLevelNodes = await generateTopLevelStoryPlanNodes(project, storyBible);
   }
+  await input.onTreeCheckpoint?.({
+    topLevelNodes,
+    depth: 0,
+    completedNodes: 0,
+    totalNodes: topLevelNodes.length,
+  });
 
   let workingRoadmaps = project.episodeRoadmaps ?? [];
   let completedLeaves = 0;
@@ -108,6 +123,7 @@ export async function runFullStoryTreeExpansion(input: {
     maximumConcurrency: FULL_TREE_MAXIMUM_CONCURRENCY,
     successesBeforeIncrease: FULL_TREE_SUCCESSES_BEFORE_INCREASE,
     slowTaskThresholdMs: FULL_TREE_SLOW_TASK_THRESHOLD_MS,
+    breadthFirst: true,
     shouldReduceConcurrencyOnError: isPlanningPressureFailure,
     process: async ({ value: initialNode, depth }): Promise<StoryPlanNode[]> => {
       deepestLevel = Math.max(deepestLevel, depth);
@@ -201,18 +217,40 @@ export async function runFullStoryTreeExpansion(input: {
         return children;
       }
 
-      // Roadmaps remain sequential after the full dependency queue finishes.
+      // Episode-ready leaves are exposed to the interactive roadmap workflow.
       return [];
     },
-    onProgress: async ({ item, completed, scheduled }) => {
-      completedNodes = completed;
-      totalNodes = scheduled;
+    onProgress: async ({ item, depthCompleted, depthScheduled }) => {
+      completedNodes = depthCompleted;
+      totalNodes = depthScheduled;
       deepestLevel = Math.max(deepestLevel, item.depth);
+      topLevelNodes = await loadTopLevelStoryPlanNodes(
+        project.id,
+        storyBible.story_bible_id,
+        storyBible.version,
+      );
+      const checkpointNodes = await loadActiveStoryPlanNodes(
+        project.id,
+        storyBible.story_bible_id,
+        storyBible.version,
+      );
+      completedLeaves = episodeReadyLeafNodes(checkpointNodes).length;
+      await input.onTreeCheckpoint?.({
+        topLevelNodes,
+        depth: item.depth,
+        completedNodes,
+        totalNodes,
+        completedNodeId: item.value.node_id,
+        refreshNodeIds: [
+          item.value.node_id,
+          ...(item.value.parent_node_id ? [item.value.parent_node_id] : []),
+        ],
+      });
       await input.onProgress?.({
         phase: "decomposing",
         nodeTitle: item.value.title,
         completedLeaves,
-        level: deepestLevel,
+        level: item.depth,
         completedNodes,
         totalNodes,
       });
@@ -224,6 +262,17 @@ export async function runFullStoryTreeExpansion(input: {
     storyBible.story_bible_id,
     storyBible.version,
   );
+  completedLeaves = episodeReadyLeafNodes(activeNodes).length;
+
+  const activeTopLevelIds = new Set(topLevelNodes.map((node) => node.node_id));
+  topLevelNodes = activeNodes
+    .filter((node) => activeTopLevelIds.has(node.node_id))
+    .sort((left, right) => left.sequence_order - right.sequence_order);
+  await input.onProgress?.({ phase: "complete", completedLeaves });
+  return { activeNodes, topLevelNodes, episodeRoadmaps: workingRoadmaps, completedLeaves };
+}
+
+function episodeReadyLeafNodes(activeNodes: StoryPlanNode[]): StoryPlanNode[] {
   const activeParents = new Set(
     activeNodes
       .filter((candidate) => (
@@ -234,7 +283,7 @@ export async function runFullStoryTreeExpansion(input: {
         `${candidate.parent_node_id}:${candidate.parent_node_version}`
       )),
   );
-  const episodeReadyLeaves = activeNodes
+  return activeNodes
     .filter((candidate) => {
       const span = storyPlanNodeEpisodeSpan(candidate);
       return candidate.status === "approved"
@@ -248,40 +297,6 @@ export async function runFullStoryTreeExpansion(input: {
       (left.planned_start_episode ?? Number.MAX_SAFE_INTEGER)
       - (right.planned_start_episode ?? Number.MAX_SAFE_INTEGER)
     ));
-
-  // Roadmaps are intentionally sequential across leaves. The final checkpoint
-  // of an earlier leaf is part of the causal handoff into the next leaf.
-  for (const leaf of episodeReadyLeaves) {
-    await input.beforeStep?.();
-    await input.onProgress?.({
-      phase: "roadmap",
-      nodeTitle: leaf.title,
-      completedLeaves,
-    });
-    const generated = await generateEpisodePlanBatch(
-      { ...project, episodeRoadmaps: workingRoadmaps },
-      leaf,
-      async (checkpoint) => {
-        workingRoadmaps = mergeEpisodeRoadmaps(workingRoadmaps, [checkpoint]);
-        await input.onRoadmapCheckpoint?.(checkpoint);
-      },
-      input.beforeStep,
-    );
-    workingRoadmaps = mergeEpisodeRoadmaps(workingRoadmaps, generated);
-    completedLeaves += 1;
-    await input.onProgress?.({
-      phase: "roadmap",
-      nodeTitle: leaf.title,
-      completedLeaves,
-    });
-  }
-
-  const activeTopLevelIds = new Set(topLevelNodes.map((node) => node.node_id));
-  topLevelNodes = activeNodes
-    .filter((node) => activeTopLevelIds.has(node.node_id))
-    .sort((left, right) => left.sequence_order - right.sequence_order);
-  await input.onProgress?.({ phase: "complete", completedLeaves });
-  return { activeNodes, topLevelNodes, episodeRoadmaps: workingRoadmaps, completedLeaves };
 }
 
 function collectSubtreeVersions(

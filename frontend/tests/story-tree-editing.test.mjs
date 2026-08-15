@@ -23,11 +23,13 @@ test("the recursive story tree has one resumable full-tree coordinator", async (
   assert.match(coordinator, /runAdaptiveDependencyQueue/);
   assert.match(coordinator, /minimumConcurrency: FULL_TREE_MINIMUM_CONCURRENCY/);
   assert.match(coordinator, /maximumConcurrency: FULL_TREE_MAXIMUM_CONCURRENCY/);
+  assert.match(coordinator, /breadthFirst: true/);
   assert.match(coordinator, /loadActiveStoryPlanNodes/);
+  assert.match(coordinator, /onTreeCheckpoint/);
   assert.match(coordinator, /onRoadmapCheckpoint/);
   assert.match(coordinator, /checkpointRebasedRoadmaps/);
-  assert.match(coordinator, /const episodeReadyLeaves = activeNodes/);
-  assert.match(coordinator, /for \(const leaf of episodeReadyLeaves\)/);
+  assert.match(coordinator, /episodeReadyLeafNodes\(activeNodes\)/);
+  assert.doesNotMatch(coordinator, /generateEpisodePlanBatch/);
   assert.match(background, /"full_tree"/);
   assert.match(background, /FULL_TREE_RESERVED_SLOTS = 4/);
   assert.match(background, /const result = await task\.run\(\)/);
@@ -87,10 +89,14 @@ test("parent revisions require an explicit descendant policy", async () => {
   assert.match(panel, /onRequestResplit\?\.\(\)/);
   assert.match(panel, /autoExpansionRequested/);
   assert.match(panel, /onRoadmapCheckpoint: async/);
+  assert.match(panel, /onTreeCheckpoint:/);
   assert.match(panel, /await persistProjectUpdate/);
+  assert.doesNotMatch(panel, /result\.episodeRoadmaps/);
   assert.match(panel, /const branchLocked = operationLocked \|\| isEditing/);
+  assert.match(panel, /const concurrentLeafAccess = treeBusy/);
+  assert.match(panel, /treeUnlockedNodeIds/);
   assert.match(panel, /if \(treeBusy \|\| isEditing \|\| decomposeTaskActive\) return/);
-  assert.match(panel, /if \(treeBusy \|\| isEditing \|\| roadmapTaskActive\) return/);
+  assert.match(panel, /if \(treeInteractionLocked \|\| isEditing \|\| roadmapTaskActive/);
   assert.match(client, /descendant_policy=\$\{descendantPolicy\}/);
 });
 

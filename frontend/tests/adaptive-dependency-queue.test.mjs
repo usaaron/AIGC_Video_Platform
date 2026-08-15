@@ -29,6 +29,33 @@ test("a completed parent releases its children without waiting for slow siblings
   await running;
 });
 
+test("breadth-first mode completes one layer before starting its children", async () => {
+  let releaseSlowSibling;
+  let childStarted = false;
+  const running = runAdaptiveDependencyQueue({
+    initialValues: ["fast-parent", "slow-sibling"],
+    initialConcurrency: 2,
+    maximumConcurrency: 2,
+    breadthFirst: true,
+    process: async ({ value }) => {
+      if (value === "fast-parent") return ["fast-child"];
+      if (value === "slow-sibling") {
+        await new Promise((resolve) => { releaseSlowSibling = resolve; });
+        return [];
+      }
+      childStarted = true;
+      return [];
+    },
+  });
+
+  await tick();
+  assert.equal(childStarted, false);
+  releaseSlowSibling();
+  await tick();
+  assert.equal(childStarted, true);
+  await running;
+});
+
 test("successful work raises concurrency to the configured ceiling", async () => {
   const releases = [];
   let active = 0;

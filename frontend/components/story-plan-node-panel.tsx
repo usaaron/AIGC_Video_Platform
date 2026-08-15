@@ -14,6 +14,7 @@ import { SectionHelp } from "@/components/section-help";
 import { userFacingError } from "@/lib/api-error";
 import {
   approvedDirectScriptCoverageThrough,
+  contiguousEpisodeCoverageThrough,
   hasCompleteApprovedRoadmap,
   isDirectScriptNode,
   isOversizedStoryPlanNode,
@@ -77,6 +78,12 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const [message, setMessage] = useState<string | null>(null);
   const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
   const [treeRefreshToken, setTreeRefreshToken] = useState(0);
+  const [treeCheckpointRefreshes, setTreeCheckpointRefreshes] = useState<Map<string, number>>(
+    () => new Map(),
+  );
+  const [treeUnlockedNodeIds, setTreeUnlockedNodeIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [expansionProgress, setExpansionProgress] = useState<StoryTreeExpansionProgress | null>(null);
   const [activeBranchInteractions, setActiveBranchInteractions] = useState<Set<string>>(
     () => new Set(),
@@ -113,6 +120,9 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
           storyBible.version,
         );
         if (!active) return;
+        setTreeUnlockedNodeIds(new Set(
+          allNodes.filter(isDirectScriptNode).map((node) => node.node_id),
+        ));
         onProjectUpdate?.((current) => {
           const readyThrough = approvedDirectScriptCoverageThrough(allNodes, {
             episodeRoadmaps: current.episodeRoadmaps ?? [],
@@ -194,6 +204,27 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
         storyBible,
         beforeStep: async () => { await waitForPlanningTaskResume(topLevelTaskKey); },
         onProgress: (progress) => setExpansionProgress(progress),
+        onTreeCheckpoint: (checkpoint) => {
+          setTopLevelNodes(checkpoint.topLevelNodes);
+          const completedNodeId = checkpoint.completedNodeId;
+          if (completedNodeId) {
+            setTreeUnlockedNodeIds((current) => {
+              if (current.has(completedNodeId)) return current;
+              const next = new Set(current);
+              next.add(completedNodeId);
+              return next;
+            });
+          }
+          if (checkpoint.refreshNodeIds?.length) {
+            setTreeCheckpointRefreshes((current) => {
+              const next = new Map(current);
+              for (const nodeId of checkpoint.refreshNodeIds ?? []) {
+                next.set(nodeId, (next.get(nodeId) ?? 0) + 1);
+              }
+              return next;
+            });
+          }
+        },
         onRoadmapCheckpoint: async (checkpoint) => {
           await persistProjectUpdate(onProjectUpdate, (current) => ({
             episodeRoadmaps: mergeEpisodeRoadmaps(
@@ -206,10 +237,10 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       onSuccess: async (result) => {
         setTopLevelNodes(result.topLevelNodes);
         await persistProjectUpdate(onProjectUpdate, (current) => {
-          const episodeRoadmaps = mergeEpisodeRoadmaps(
-            current.episodeRoadmaps ?? [],
-            result.episodeRoadmaps,
-          );
+          // The full-tree coordinator no longer owns roadmap generation. Use
+          // the latest project snapshot so a leaf edit made during expansion
+          // cannot have an obsolete roadmap restored when the tree finishes.
+          const episodeRoadmaps = current.episodeRoadmaps ?? [];
           return {
             episodeRoadmaps,
             episodePlansReadyThrough: approvedDirectScriptCoverageThrough(result.activeNodes, {
@@ -310,13 +341,15 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
           onRequestResplit={() => setAutoExpansionRequested(true)}
           refreshToken={treeRefreshToken}
           treeBusy={busy === "generate" || topLevelTaskActive}
+          treeCheckpointRefreshes={treeCheckpointRefreshes}
+          treeUnlockedNodeIds={treeUnlockedNodeIds}
         />
       ))}
     </section>
   );
 }
 
-function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpdate, onRequestResplit, project, refreshToken = 0, treeBusy = false }: {
+function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpdate, onRequestResplit, project, refreshToken = 0, treeBusy = false, treeCheckpointRefreshes, treeUnlockedNodeIds }: {
   depth: number;
   initialNode: StoryPlanNode;
   project: ScriptProject;
@@ -325,6 +358,8 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   onRequestResplit?: () => void;
   refreshToken?: number;
   treeBusy?: boolean;
+  treeCheckpointRefreshes?: ReadonlyMap<string, number>;
+  treeUnlockedNodeIds?: ReadonlySet<string>;
 }) {
   const { t } = useLocale();
   const [node, setNode] = useState(initialNode);
@@ -356,6 +391,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   const roadmapTask = useTrackedPlanningTask(roadmapTaskKey);
   const decomposeTaskActive = decomposeTask?.status === "queued" || decomposeTask?.status === "running";
   const roadmapTaskActive = roadmapTask?.status === "queued" || roadmapTask?.status === "running";
+  const checkpointRefresh = treeCheckpointRefreshes?.get(node.node_id) ?? 0;
   const interactionKey = `${node.node_id}:${node.version}`;
   const localInteractionActive = (
     isEditing
@@ -390,7 +426,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
       })
       .finally(() => { if (active) setBusy(null); });
     return () => { active = false; };
-  }, [node.node_id, node.version, project.id, refreshToken, t]);
+  }, [checkpointRefresh, node.node_id, node.version, project.id, refreshToken, t]);
 
   useEffect(() => {
     if (decomposeTask?.status !== "completed") return;
@@ -425,7 +461,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   }, [failedPlanningTask?.error, failedPlanningTask?.id, failedPlanningTask?.kind, t]);
 
   async function approveNode() {
-    if (treeBusy || isEditing) return;
+    if (treeInteractionLocked || isEditing) return;
     setBusy("approve");
     setMessage(null);
     try {
@@ -490,12 +526,12 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   }
 
   async function saveNode() {
-    if (treeBusy || node.status === "superseded" || generatedRangeLocked) return;
+    if (treeInteractionLocked || node.status === "superseded" || generatedRangeLocked) return;
     await requestNodeSave(node, "manual");
   }
 
   async function requestNodeSave(candidate: StoryPlanNode, source: "manual" | "ai") {
-    if (treeBusy || candidate.status === "superseded" || generatedRangeLocked) return;
+    if (treeInteractionLocked || candidate.status === "superseded" || generatedRangeLocked) return;
     if (children.length > 0) {
       setDescendantDecision({ candidate, source });
       return;
@@ -511,7 +547,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
     source: "manual" | "ai",
     descendantPolicy: "invalidate" | "rebase",
   ) {
-    if (treeBusy) return;
+    if (treeInteractionLocked) return;
     setBusy("save");
     setMessage(null);
     try {
@@ -633,7 +669,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   }
 
   function generateRoadmap() {
-    if (treeBusy || isEditing || roadmapTaskActive) return;
+    if (treeInteractionLocked || isEditing || roadmapTaskActive || !roadmapPredecessorReady) return;
     setBusy("roadmap");
     setMessage(null);
     const background = enqueuePlanningTask({
@@ -674,7 +710,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   }
 
   async function approveRoadmap() {
-    if (treeBusy || isEditing) return;
+    if (treeInteractionLocked || isEditing) return;
     setBusy("roadmap");
     setMessage(null);
     try {
@@ -706,7 +742,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   }
 
   async function saveRoadmapEditor() {
-    if (treeBusy || isEditing || !roadmapEditor || generatedRangeLocked) return;
+    if (treeInteractionLocked || isEditing || !roadmapEditor || generatedRangeLocked) return;
     const validationError = validateRoadmapDraft(
       roadmapEditor,
       t("storyPlanNode.roadmapEditInvalid"),
@@ -755,7 +791,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   }
 
   async function applyRoadmapRevision(candidate: EpisodeRoadmapItem) {
-    if (treeBusy || isEditing) return;
+    if (treeInteractionLocked || isEditing) return;
     await persistProjectUpdate(onProjectUpdate, (current) => ({
       episodePlansReadyThrough: undefined,
       episodeRoadmaps: replaceEpisodeRoadmapDraft(
@@ -782,6 +818,10 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   const episodeSpan = storyPlanNodeEpisodeSpan(node);
   const requiresParentCoordination = episodeSpan !== null
     && (episodeSpan < 8 || (episodeSpan >= 13 && episodeSpan <= 15));
+  const episodeReadyShape = episodeSpan !== null
+    && episodeSpan >= 8
+    && episodeSpan <= 12
+    && node.expansion_status === "episode_ready";
   const roadmap = (project.episodeRoadmaps ?? [])
     .filter((item) => (
       item.source_node_id === node.node_id
@@ -803,6 +843,21 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
     ).every((episodeNumber) => roadmapEpisodes.has(episodeNumber));
   const roadmapApproved = hasCompleteApprovedRoadmap(node, project.episodeRoadmaps ?? []);
   const roadmapRequired = project.episodeRoadmapRequired === true;
+  const roadmapPredecessorReady = node.planned_start_episode === 1 || (
+    node.planned_start_episode !== null
+    && (project.episodeRoadmaps ?? []).some((item) => (
+      item.story_bible_version === node.story_bible_version
+      && item.episode_number === (node.planned_start_episode as number) - 1
+      && item.status === "approved"
+    ))
+  );
+  const generatedThrough = contiguousEpisodeCoverageThrough(
+    project.episodes.map((episode) => episode.episodeNumber),
+  );
+  const scriptPredecessorReady = node.planned_start_episode === 1 || (
+    node.planned_start_episode !== null
+    && generatedThrough >= node.planned_start_episode - 1
+  );
   const generatedRangeLocked = project.episodes.some((episode) => (
     node.planned_start_episode !== null
     && node.planned_end_episode !== null
@@ -813,9 +868,17 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   const nodeRevisionLockedMessage = generatedRangeLocked
     ? t("storyPlanNode.modificationLocked")
     : undefined;
-  const operationLocked = Boolean(busy) || treeBusy || decomposeTaskActive || roadmapTaskActive;
+  const concurrentLeafAccess = treeBusy
+    && episodeReadyShape
+    && Boolean(treeUnlockedNodeIds?.has(node.node_id))
+    && children.length === 0;
+  const treeInteractionLocked = treeBusy && !concurrentLeafAccess;
+  const operationLocked = Boolean(busy)
+    || treeInteractionLocked
+    || decomposeTaskActive
+    || roadmapTaskActive;
   const branchLocked = operationLocked || isEditing;
-  const effectiveEditing = isEditing && !treeBusy;
+  const effectiveEditing = isEditing && !treeInteractionLocked;
 
   function startEditing() {
     if (branchLocked || nodeRevisionLocked) return;
@@ -824,7 +887,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   }
 
   function cancelEditing() {
-    if (treeBusy) return;
+    if (treeInteractionLocked) return;
     if (editingSnapshot) setNode(editingSnapshot);
     setEditingSnapshot(null);
     setIsEditing(false);
@@ -879,7 +942,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
                 </button>
                 <button
                   className="outline-action"
-                  disabled={operationLocked || nodeRevisionLocked || isEditing || Boolean(aiCandidate)}
+                  disabled={operationLocked || treeBusy || nodeRevisionLocked || isEditing || Boolean(aiCandidate)}
                   onClick={() => { setAiInstruction(""); setAiRevisionMode("targeted"); setAiDialogMessage(null); setAiDialogOpen(true); }}
                   title={nodeRevisionLockedMessage}
                   type="button"
@@ -907,11 +970,13 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
               <>
                 <span className="planning-ready-badge">
                   {roadmapRequired && !roadmapApproved
-                    ? t("storyPlanNode.roadmapPending")
+                    ? roadmapPredecessorReady
+                      ? t("storyPlanNode.roadmapPending")
+                      : t("storyPlanNode.previousRoadmapPending")
                     : t("storyPlanNode.directScriptReady")}
                 </span>
                 {roadmapRequired && !roadmapComplete ? (
-                  <button className="primary-action" disabled={branchLocked || generatedRangeLocked} onClick={() => void generateRoadmap()} type="button">
+                  <button className="primary-action" disabled={branchLocked || generatedRangeLocked || !roadmapPredecessorReady} onClick={() => void generateRoadmap()} type="button">
                     {busy === "roadmap" || roadmapTaskActive
                       ? t("storyPlanNode.roadmapGenerating")
                       : roadmap.length
@@ -924,13 +989,18 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
                     {t("storyPlanNode.approveRoadmap")}
                   </button>
                 ) : null}
-                {(!roadmapRequired || roadmapApproved) && !branchLocked ? (
+                {(!roadmapRequired || roadmapApproved) && !branchLocked && scriptPredecessorReady ? (
                   <Link
                     className="primary-action"
                     href={`/projects/${project.id}/workspace?generate=1&start=${node.planned_start_episode}&end=${node.planned_end_episode}`}
                   >
                     {t("storyPlanNode.generateScriptDirectly")}
                   </Link>
+                ) : null}
+                {(!roadmapRequired || roadmapApproved) && !scriptPredecessorReady ? (
+                  <span className="planning-ready-badge">
+                    {t("storyPlanNode.previousScriptPending")}
+                  </span>
                 ) : null}
               </>
             ) : null}
@@ -961,7 +1031,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
                     </button>
                     <button
                       className="outline-action"
-                      disabled={branchLocked || generatedRangeLocked}
+                      disabled={branchLocked || treeBusy || generatedRangeLocked}
                       onClick={() => {
                         setRoadmapAiInstruction("");
                         setRoadmapAiRevisionMode("targeted");
@@ -1176,14 +1246,14 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
         </div>
       ) : null}
       {children.length && !directScriptReady ? (
-        <details className="story-plan-children-group" open={depth === 0}>
+        <details className="story-plan-children-group" open={treeBusy || depth === 0}>
           <summary>
             <span className="story-plan-node-toggle"><ArrowIcon /></span>
             {t("storyPlanNode.childCount").replace("{count}", String(children.length))}
           </summary>
           <div className="story-plan-children">
             {children.map((child) => (
-              <PlanNodeBranch depth={depth + 1} initialNode={child} key={`${child.node_id}-${child.version}`} onInteractionChange={onInteractionChange} onProjectUpdate={onProjectUpdate} onRequestResplit={onRequestResplit} project={project} refreshToken={refreshToken} treeBusy={treeBusy} />
+              <PlanNodeBranch depth={depth + 1} initialNode={child} key={`${child.node_id}-${child.version}`} onInteractionChange={onInteractionChange} onProjectUpdate={onProjectUpdate} onRequestResplit={onRequestResplit} project={project} refreshToken={refreshToken} treeBusy={treeBusy} treeCheckpointRefreshes={treeCheckpointRefreshes} treeUnlockedNodeIds={treeUnlockedNodeIds} />
             ))}
           </div>
         </details>

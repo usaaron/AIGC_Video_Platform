@@ -162,6 +162,40 @@ test("a full-tree coordinator exclusively owns its project while running", async
   assert.deepEqual(await Promise.all(companions.map((task) => task.promise)), [0, 1]);
 });
 
+test("an episode-ready leaf can build its roadmap while other tree layers continue", async () => {
+  const projectId = `project.full-tree-roadmap.${crypto.randomUUID()}`;
+  let releaseFullTree;
+  let releaseRoadmap;
+  const fullTree = enqueuePlanningTask({
+    key: `${projectId}:full-tree`,
+    kind: "full_tree",
+    projectId,
+    run: async () => {
+      await new Promise((resolve) => { releaseFullTree = resolve; });
+      return "full-tree";
+    },
+  });
+  const roadmap = enqueuePlanningTask({
+    key: `${projectId}:roadmap`,
+    kind: "episode_roadmap",
+    projectId,
+    run: async () => {
+      await new Promise((resolve) => { releaseRoadmap = resolve; });
+      return "roadmap";
+    },
+  });
+
+  await tick();
+  assert.equal(getPlanningTask(`${projectId}:full-tree`)?.status, "running");
+  assert.equal(getPlanningTask(`${projectId}:roadmap`)?.status, "running");
+  releaseRoadmap();
+  releaseFullTree();
+  assert.deepEqual(await Promise.all([fullTree.promise, roadmap.promise]), [
+    "full-tree",
+    "roadmap",
+  ]);
+});
+
 test("a full-tree coordinator leaves capacity available to another project", async () => {
   const fullTreeProjectId = `project.full-tree-cross-project.${crypto.randomUUID()}`;
   const companionProjectId = `project.full-tree-companion.${crypto.randomUUID()}`;

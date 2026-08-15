@@ -315,7 +315,10 @@ function hasProjectFullTreeBarrier(candidate: PlanningTaskRecord<unknown>): bool
       candidate.kind === "full_tree"
         ? task.status === "running"
         : task.kind === "full_tree"
-          && (task.status === "queued" || task.status === "running")
+          && (
+            task.status === "queued"
+            || (task.status === "running" && candidate.kind !== "episode_roadmap")
+          )
     )
   ));
 }
