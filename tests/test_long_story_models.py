@@ -7,15 +7,97 @@ from app.modules.script_engine.long_story_models import (
     ContinuityLedger,
     EpisodeArtifactCreate,
     EpisodePlan,
+    EpisodePlanBatchGenerationOutput,
+    EpisodePlanItemDraftRequest,
+    EpisodePlanItemModificationRequest,
     GenerationBatchPlan,
     GenerationJobCheckpoint,
     SetupPayoffRecord,
     StoryBible,
     StoryPlanNode,
+    StoryPlanNodeDecompositionOutput,
+    StoryPlanNodeDecompositionRequest,
     StoryProject,
     StoryProjectWorkspaceSave,
     StoryStagePlan,
 )
+
+
+def build_episode_plan_generation_item(episode_number: int = 1) -> dict:
+    return {
+        "episode_number": episode_number,
+        "episode_goal": "确认第一条线索并作出选择。",
+        "entry_state": "主角掌握一条可疑线索。",
+        "central_conflict": "对手正在销毁证据。",
+        "protagonist_decision": "主角决定先保护证人。",
+        "reveal": "证据来自更高层。",
+        "emotional_movement": "怀疑转为决心。",
+        "stage_opposition": "对手封锁档案。",
+        "episode_payoff": f"主角在第{episode_number}集保住证人并取得副本。",
+        "pressure_escalation": "副本暴露新的追查对象。",
+        "exit_state": "主角获得下一步线索。",
+        "cliffhanger": f"第{episode_number}集末，副本显示熟悉的签名。",
+        "character_refs": ["character.mara"],
+        "story_line_refs": ["storyline.main"],
+        "source_turning_points": [],
+        "source_unit_story_beats": [],
+    }
+
+
+def test_episode_plan_item_request_requires_a_contiguous_accepted_prefix() -> None:
+    item = build_episode_plan_generation_item()
+    with pytest.raises(ValueError, match="precede"):
+        EpisodePlanItemDraftRequest(
+            story_project_id="story_project.test",
+            source_node_id="story_plan.test",
+            source_node_version=1,
+            generation_strategy_id="strategy.test",
+            episode_number=1,
+            accepted_plans=[item],
+        )
+
+
+def test_episode_plan_item_request_accepts_a_separate_cross_leaf_predecessor() -> None:
+    request = EpisodePlanItemDraftRequest(
+        story_project_id="story_project.test",
+        source_node_id="story_plan.test",
+        source_node_version=1,
+        generation_strategy_id="strategy.test",
+        episode_number=9,
+        predecessor_plan=build_episode_plan_generation_item(8),
+        accepted_plans=[],
+    )
+
+    assert request.predecessor_plan is not None
+    assert request.predecessor_plan.episode_number == 8
+    assert request.accepted_plans == []
+
+
+def test_episode_plan_modification_allows_blank_instruction_only_for_rewrite() -> None:
+    item = build_episode_plan_generation_item()
+    common = {
+        "story_project_id": "story_project.test",
+        "source_node_id": "story_plan.test",
+        "source_node_version": 1,
+        "generation_strategy_id": "strategy.test",
+        "episode_number": 1,
+        "accepted_plans": [],
+        "current_plan": item,
+    }
+
+    rewrite = EpisodePlanItemModificationRequest(
+        **common,
+        revision_mode="rewrite",
+        instruction="",
+    )
+    assert rewrite.revision_mode.value == "rewrite"
+
+    with pytest.raises(ValueError, match="requires an instruction"):
+        EpisodePlanItemModificationRequest(
+            **common,
+            revision_mode="targeted",
+            instruction="",
+        )
 
 
 APPROVED_AT = datetime(2026, 8, 1, 8, 0, tzinfo=timezone.utc)
@@ -101,8 +183,8 @@ def test_story_project_uses_long_form_defaults_and_serializes() -> None:
 
     serialized = project.model_dump(mode="json")
     assert serialized["schema_version"] == "v1"
-    assert serialized["target_total_characters"] == 600_000
-    assert serialized["default_batch_size"] == 5
+    assert serialized["target_total_characters"] == 450_000
+    assert serialized["default_batch_size"] == 10
     assert serialized["status"] == "planning"
 
 
@@ -204,6 +286,7 @@ def test_story_stage_and_episode_plan_support_reviewable_hierarchy() -> None:
     assert stage.start_episode == 1
     assert episode.stage_id == stage.stage_id
     assert episode.model_dump(mode="json")["status"] == "draft"
+    assert episode.source_turning_points == []
 
 
 def test_story_stage_rejects_reversed_episode_range() -> None:
@@ -342,6 +425,47 @@ def test_generation_batch_requires_one_plan_per_episode() -> None:
             end_episode=5,
             episode_plan_ids=["episode_plan.mainland_demo.001"],
         )
+
+
+def test_decomposition_request_defaults_to_adaptive_child_count() -> None:
+    request = StoryPlanNodeDecompositionRequest(
+        story_project_id="story_project.mainland_demo",
+        parent_node_id="story_plan.mainland_demo.root",
+        parent_node_version=1,
+        generation_strategy_id="strategy.mainland_demo.v1",
+    )
+
+    assert request.requested_child_count is None
+    assert request.max_episode_ready_span == 12
+    assert (
+        StoryPlanNodeDecompositionOutput.model_json_schema()["properties"]
+        ["children"]["maxItems"]
+        == 12
+    )
+
+    explicit = request.model_copy(update={"requested_child_count": 12})
+    assert explicit.requested_child_count == 12
+
+
+def test_episode_plan_batch_output_supports_ten_episode_plans() -> None:
+    output = EpisodePlanBatchGenerationOutput(
+        episode_plans=[
+            {
+                "episode_number": episode_number,
+                "episode_goal": f"推进第{episode_number}集的关键行动。",
+                "entry_state": "主角掌握上一集留下的线索。",
+                "central_conflict": "主角必须在暴露身份前验证线索。",
+                "protagonist_decision": "主角选择冒险接触知情人。",
+                "emotional_movement": "戒备转为有限信任。",
+                "exit_state": "主角获得下一步可验证的信息。",
+                "cliffhanger": "新证据指向意料之外的内部人物。",
+                "character_refs": ["character.protagonist"],
+            }
+            for episode_number in range(1, 11)
+        ]
+    )
+
+    assert len(output.episode_plans) == 10
 
 
 def test_generation_job_checkpoint_rejects_conflicting_episode_status() -> None:

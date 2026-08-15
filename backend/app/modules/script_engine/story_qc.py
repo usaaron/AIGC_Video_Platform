@@ -174,6 +174,16 @@ class PlaceholderStoryQC(StoryQC):
             "confront",
             "reject",
             "take",
+            "选择",
+            "决定",
+            "拒绝",
+            "揭露",
+            "揭穿",
+            "对峙",
+            "反抗",
+            "要求",
+            "夺走",
+            "抢下",
         }
         agency_scenes = [
             scene

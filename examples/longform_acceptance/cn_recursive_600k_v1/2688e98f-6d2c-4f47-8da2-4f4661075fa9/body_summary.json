@@ -1,0 +1,20 @@
+{
+  "status": "generation_in_progress",
+  "project_id": "2688e98f-6d2c-4f47-8da2-4f4661075fa9",
+  "completed_episodes": 12,
+  "planned_episode_count": 334,
+  "effective_body_characters": 12759,
+  "target_total_characters": 600000,
+  "counting_scope": "generated_episode_character_actions_and_dialogue_text",
+  "excluded_artifacts": [
+    "story_bible",
+    "story_plan_nodes",
+    "story_stage_plans",
+    "episode_plans",
+    "episode_metadata"
+  ],
+  "completion_ratio": 0.0213,
+  "average_effective_body_characters": 1063,
+  "projected_total_characters": 355042,
+  "updated_at": "2026-08-06T11:50:57.267973+00:00"
+}

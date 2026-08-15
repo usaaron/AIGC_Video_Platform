@@ -13,6 +13,8 @@ roadmap_priority_changed: false
 
 本文最初定义未来创作输入层的最小边界。当前 Phase 1 已实现 `CreativeIntentInput`、`CharacterContext`、`ResolvedCreativeContext`、确定性 Resolution API 和 optional Draft Prompt 注入。本文其余 recommendation、Relationship、AI expansion、alias / unresolved tag 与完整 authoring lineage 仍是 Research，不创建第二套 Creative Brief、Tag 或 Ontology 系统。
 
+历史状态说明（2026-08-05）：本文中“Story Planning 冻结”的表述仅指当时的四集离线实验契约。后续中国大陆长篇产品已批准另一条人工受控链路：Story Bible → 可变深度 StoryPlanNode → EpisodePlan。Creative Intent 与该链路仍保持上游输入边界，当前状态以 `14_Script_Engine.md` 为准。
+
 ## 1. Motivation and Current Problem
 
 当前 `ContentSpec` 能稳定表达受众目标、商业目标、平台目标、故事目标、受控标签和紧凑 `CreativeBrief`。但它主要是标准化运行时规范，不是完整的用户创作表单。
@@ -72,7 +74,7 @@ Creative Intent
 → Existing Episode Script Generation
 ```
 
-Story Planning 当前仍被冻结为 Research Evidence，因此它不是 Creative Intent v1 的实现依赖，也不能因为本文而进入运行时。
+当时的四集 Story Planning 实验契约继续作为冻结的 Research Evidence；它不是 Creative Intent v1 的实现依赖，也不能因为本文被原样推进 runtime。后续长篇递归规划属于独立产品决策。
 
 ### 3.2 Compatibility With Existing CreativeBriefInput
 

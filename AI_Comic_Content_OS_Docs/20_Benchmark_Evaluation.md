@@ -542,6 +542,48 @@ PYTHONPATH=backend python -m app.modules.script_engine.revision_acceptance_calib
 - 扣分原因
 - 修改建议
 
+## Longform Planning Evaluation
+
+现有 Story QC 与 Prompt Evaluation 主要评估已经生成的单集 Draft，不能回答 Story Bible 或根节点是否真正足以支撑数十万字。长篇规划需要单独的离线评估切片，且不得用字段完整率、模型自评、目标集数或最终字数替代内容质量。
+
+### Evaluation Objects
+
+- StoryBible
+- Root StoryPlanNode
+- content-derived Macro Movement Map
+- selected recursive child nodes
+- representative EpisodePlans
+- 从开端、中段压力和后段回收区域抽取的有限正文样本
+
+### v1 Human Review Dimensions
+
+- `story_engine_sustainability`：能否持续产生有关联但不重复的新行动与后果
+- `capacity_credibility`：目标规模是否有人物、冲突、世界和故事线依据
+- `macro_movement_distinctness`：宏观部分是否具有不同策略、代价和不可逆退出状态
+- `protagonist_strategy_progression`：主角是否改变策略而非重复调查/等待
+- `antagonist_strategy_progression`：对手是否有独立目标并根据局势适应
+- `information_reveal_integrity`：证据、假设、人物认知和观众认知是否受控
+- `subplot_contribution`：支线是否独立运转并改变主线
+- `character_trajectory_continuity`：长期变化是否由选择和后果支撑
+- `setup_payoff_traceability`：铺垫、强化/重释与回收是否可定位
+- `repetition_and_filler_risk`：删除或合并节点后，后续状态是否实际受影响
+- `plan_to_script_alignment`：正文是否执行规划而不泄露未来事实或重置状态
+
+### Bounded Validation
+
+第一轮使用相同 Creative Intent、ContentSpec、模型和参数比较：
+
+```text
+Variant A: current StoryBible → Root → recursive planning
+Variant B: current flow + human-visible Readiness Review + bounded longform knowledge candidates
+```
+
+至少覆盖调查/悬疑、人物关系驱动和世界规则驱动三类固定故事。先比较规划，再生成 8-12 集代表性切片；不以直接烧完 60 万字作为首个质量实验。
+
+建议进入条件：至少 2/3 固定故事中，人工审阅明确优先 Variant B；没有重大单集质量回退；重复风险下降；规划与正文一致性提高；token、延迟和格式失败增量可接受。评估结论必须保留 reviewer evidence 和 uncertainty，不宣称专业或市场效果已经验证。
+
+该评估设计不修改现有 Benchmark Dataset 或 Ground Truth。实施前应建立独立的 longform planning fixtures 和报告，避免污染既有 Data Intelligence / Prompt Evaluation 基线。
+
 ## 当前 Benchmark API
 
 当前已提供：

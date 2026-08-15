@@ -13,6 +13,8 @@ roadmap_priority_changed: false
 
 本文收口未来 Creative Knowledge、Creative Skill 和 Knowledge Retrieval 的职责。它建立在现有 `Script Knowledge Framework`、`ScriptIndustryKnowledge` 和 Knowledge Base 设计之上，不创建第二套 Knowledge Base，也不批准 Knowledge Runtime、RAG 或 Skill Registry。
 
+历史状态说明（2026-08-05）：本文保留的“Serialized Story Planning 未通过 runtime-entry gate”只适用于旧四集实验。当前已经存在人工受控的 Story Bible → 可变深度 StoryPlanNode → EpisodePlan runtime slice，但动态 Knowledge Retrieval、RAG 与 Creative Skill runtime 仍未批准。长篇规划知识的新边界见 `Research/15_Longform_Script_Planning_Process_Optimization_v1.md`。
+
 相关现有研究：
 
 - `Research/06_Script_Knowledge_Framework.md`
@@ -102,7 +104,7 @@ v1 建议使用有限、面向 Script Generation 的知识分类。分类是治�
 - character arc and ending direction
 - continuity state transitions
 
-Serialized Story Planning 当前未通过 runtime-entry gate，因此该知识域只能继续 Research，不能借知识名义绕过冻结结论。
+当时的四集 Serialized Story Planning 契约未通过 runtime-entry gate，因此本文不能借知识名义把该实验原样推进 runtime。后续人工受控的递归长篇规划已独立进入最小 runtime slice，但本节知识分类仍需完成新的长篇规划验证。
 
 ### 2.4 Conflict and Escalation Knowledge
 

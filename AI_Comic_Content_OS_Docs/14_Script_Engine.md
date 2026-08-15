@@ -1,12 +1,18 @@
 # 14_Script_Engine
 
-Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复用的 Final `MasterScript`。
+Script Engine 的当前唯一产品目标是稳定产出优质、结构化、可追踪的中文长剧本母本，目标支持约 60 万字正文规模，并最终形成可复用的 Final `MasterScript` 集合。
 
-当前默认市场为 `cn_mainland`，不绑定单一发行平台，红果仅作参考。`overseas_tiktok` 能力完整保留但默认关闭。当前创作重点已转向中文长篇故事母本；现有 runtime 可把单集框架按有界阶段连续生成，但尚不能宣称已经具备专业 Story Blueprint、后端可恢复任务或自动完成 60 万字母本。
+当前默认市场为 `cn_mainland`，不绑定单一发行平台，红果仅作参考。`overseas_tiktok` 能力完整保留但默认关闭。60 万字不是单个 `MasterScript` 或单次模型调用，而是同一 Story Project 下由 Story Bible、非平衡递归规划树、单集线路图、分集 `MasterScript` 与 Continuity lineage 共同组成的累计作品规模。当前 runtime 已覆盖人工受控的根到分集路径，但尚不能宣称已具备无人值守后台任务或已经完成整部 60 万字真实验收。
 
 市场切换不重写历史项目。Frontend 根据项目 `marketProfile` 与既有 Generation Strategy 识别来源；当前 UI 只加载与 runtime 市场一致的项目。海外/TikTok 和来源不明项目在 `cn_mainland` 下完全隐藏，旧 URL 也不能进入，但底层数据不删除。由此避免跨市场混合 Prompt、Strategy 和产物 lineage。
 
 当前 `cn_mainland` 市场的输出语言固定为中文。Frontend 隐藏语言选择，Project Provider、持久化恢复和 Generation Client 均将大陆项目归一化为 `output_language=zh`；海外开关关闭时，浏览器曾保存的英文界面偏好不得覆盖当前市场。`BilingualScriptView` 与英文源产物继续保留为停用兼容能力，不进入当前大陆项目界面。
+
+当前正文采用强制双模型分工：`LLM_SCRIPT_*` 由 DeepSeek 承载完整 Draft 与初始长响应，`LLM_SCRIPT_REPAIR_*` 继续由 DeepSeek 处理 JSON、结构、格式、时长、连续性和有界重新生成；完整 Draft 通过结构与连续性校验后，`LLM_SCRIPT_EDITOR_*` 指向 GPT，对全部场景执行一次有界成片终审。GPT 只返回 `scene_number`、`character_actions` 与 `dialogues`，服务端合并回 DeepSeek Draft；场景标题、剧情职责、人物与关系状态、剧情线、伏笔及连续性字段均不可由 GPT 修改。终审结果必须继续满足当前 75–115 秒范围，未达到时最多执行一次定向修正。`SCRIPT_GPT_POST_EDIT_ENABLED=true` 时 GPT 阶段为正式正文必经步骤；旧 Creative Deepening 仍保持关闭，不承担终审职责。
+
+正文链路不继承 `LLM_STORY_ARCHITECT_*`，DeepSeek 使用 Chat Completions `json_object`，Prompt 同时携带完整 JSON 外形，并由本地 Pydantic 契约校验。GPT 编辑器使用独立 OpenAI-compatible Responses 配置与精简场景补丁 Schema，避免第二个模型重新生成十九字段根对象。供应商的账户级并发、额度或网关限制仍可能成为实际瓶颈；本地全局并发仍由现有任务队列控制，不把 DeepSeek 与 GPT 的上限叠加计算。
+
+`RealLLMAdapter` 当前兼容 `chat_completions` 与 `responses` 两种 OpenAI-compatible wire API，由 `LLM_WIRE_API` 显式选择。Responses 模式可通过 optional `LLM_REASONING_EFFORT=low|medium|high` 传递推理强度，并发送 `text.format` JSON Schema；具体网关和模型可能只提供 JSON mode 而不执行 OpenAI 原生 constrained decoding。Story Bible 因此同时在 Prompt 中携带权威 Schema、执行本地 Pydantic 校验、过滤不属于正式契约的输入元数据，并最多执行一次格式修复、一次中文语言修复和一次人物引用一致性修复，每类修复各自有界。Base URL 必须包含供应商实际 API 前缀，适配器只追加 `/chat/completions` 或 `/responses`，不会猜测或自动补 `/v1`。
 
 ## 当前阶段产物
 
@@ -30,17 +36,18 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 
 ## 当前推荐流程
 
-`ContentSpec`
-→ optional `ResolvedCreativeContext`
-→ `CreativeBrief`
-→ Orchestrator / Asset Retrieval
+`ContentSpec` / optional `ResolvedCreativeContext`
+→ exact-ID Mainland Long-form Knowledge Bundle
+→ approved `StoryBible`
+→ recursive `StoryPlanNode` tree
+→ approved semantically-ready leaf (natural episode span)
+→ current episode instruction derived from that leaf
 → Prompt Retrieval
-→ Static Creative Knowledge Selection（optional）
 → Prompt Builder
 → `LLMAdapter`
 → `DraftMasterScript`
-→ Creative Deepening Candidate（当前默认关闭）
-→ Source / Candidate Story QC Comparison（仅显式启用时）
+→ optional Creative Deepening Candidate（实现保留，当前产品流程关闭）
+→ optional Source / Candidate Story QC Comparison（当前不执行）
 → `StoryQCReport`
 → `RevisionDecision`
 → `RevisionStrategy`
@@ -96,8 +103,8 @@ Script Engine 的当前唯一目标是稳定产出高质量、结构化、可复
 - `MasterScript` 必须是结构化输出，而不是不可控长文本
 - Story QC 的结构化报告与 Explainability v1 已实现，但专业评分可信度仍属于实验性占位能力
 - 当前所有设计优先服务于剧本质量，而不是视频生成便利性
-- Creative Deepening 的实现与 preservation contract 保留，但当前中国大陆配置为 `disabled`，不进入默认创作路径
-- 后端 Draft 调用仍以单集为单位，但已支持 optional episode continuity context；Story Blueprint、Episode Plan 与服务端全集事务仍为 Research / Backlog
+- Creative Deepening 的实现与 preservation contract 保留，但当前中国大陆配置为 `disabled`；前端不展示入口，后端拒绝执行，不进入基础剧本产品路径
+- 产品不再暴露“逐集生成/全部生成”二选一。后端 Draft 调用仍以单集为原子单位，前端只从已批准的 episode-ready 叶子按有界批次调用；不同规划叶子和批次之间保持顺序，服务端全集事务仍为 Backlog
 
 ## 关键组件
 
@@ -140,7 +147,7 @@ ContentSpec + optional ResolvedCreativeContext
 → GenerationStrategy 声明 exact Draft bundle
 → StaticKnowledgeBundleCatalog
 → tag / platform applicability check
-→ Prompt Builder
+→ Story Bible / Recursive Planning / Episode Plan / Prompt Builder
 → LLMAdapter
 → DraftMasterScript
 ```
@@ -152,10 +159,12 @@ ContentSpec + optional ResolvedCreativeContext
 - Prompt Builder 只在 bundle 存在时注入独立 `CreativeKnowledgeUsage` / `CreativeKnowledgeBundle` 段
 - 注入内容限定为有来源的原则、应用规则、限制和反模式，不复制完整 Research 知识文件
 - bundle 与 `KnowledgeSelectionTrace` 保存在 `ScriptGenerationDraftRun`，支持后续评估与复现
+- 中国大陆长篇通用 bundle 也注入 Story Bible、递归节点拆分、Episode Plan 与 Draft 的模型上下文，当前包含因果顺序、角色选择、冲突代价、回收必然性、可见行动、文本通道分离和观众参与七项基础原则
+- 规划阶段当前未新增 lineage schema；bundle ID、knowledge IDs 和 selector version 存在实际模型 Prompt 中，独立规划 trace 持久化仍是后续兼容项
 - 未知 bundle、阶段错误或条件不匹配会明确失败，不静默降级为错误知识
 - Draft Generation 与 Creative Deepening 可分别使用独立的 exact-ID 静态 bundle；二者不自动复用，Story QC 与 Revision 不消费该 bundle
 
-这仍是静态知识能力，不等于完整 Knowledge Base、Retriever、RAG 或 Creative Skill runtime。当前唯一内置 bundle 面向 TikTok Dark Romance，并随海外模式关闭；中国大陆长篇知识 bundle 尚未进入 runtime，必须先完成来源治理和固定样本验证。
+这仍是静态知识能力，不等于完整 Knowledge Base、Retriever、RAG 或 Creative Skill runtime。当前大陆 bundle 是跨题材基础约束，不代表已经具备中国大陆类型知识、实时热门知识或完整长篇创作专家能力。
 
 ### Creative Deepening Shadow v1
 
@@ -267,13 +276,13 @@ Phase 1 当前状态：
 
 当前集成状态：
 
-- Frontend MVP 已将 Resolver、分集上下文 `generate-draft`、编辑后 `review-draft`、用户指令 `modify-draft` 和主动 `deepen-draft` 接入创作界面
-- 当前支持逐集生成与“全部生成（分阶段）”；逐集模式每次一集，全部模式每次最多生成使用者设定的有界批次，再由使用者决定何时继续下一阶段
+- Frontend MVP 已将 Resolver、递归规划、分集上下文 `generate-draft`、编辑后 `review-draft` 和用户指令 `modify-draft` 接入创作界面；`deepen-draft` 代码保留但当前 UI 与 runtime 均关闭
+- 当前只有一条产品流程：Story Bible → recursive Story Plan Node → 语义完整的内容驱动 episode-ready leaf → 单集线路图（兼容 EpisodePlan）→ 自适应执行批次 → 逐集正文；sequential/full 字段仅作历史兼容，不再由使用者选择
 - 每次阶段生成通过 optional `GenerationBatchContext` 保留阶段编号、起止集数与阶段指令；批次之间可更新 Creative Intent、标签、角色和连续性信息，新输入只影响后续集数
-- 当前阶段生成仍由前端顺序调用现有单集 API；项目状态先写 IndexedDB，再同步 PostgreSQL Project + Workspace Snapshot。用户确认稿、规则修订稿和终稿另存 immutable Episode Artifact；后台 Job 与断点重试尚未接入
+- 当前阶段仍由前端调用现有单集 API；已批准 Episode Plan 范围内的正文按集号串行生成，每集完成后更新连续性上下文再进入下一集。相邻正文不得并行调用；未来只有不存在因果依赖的独立任务经过显式依赖分析后才可并行。项目状态先写 IndexedDB，再同步 PostgreSQL Project + Workspace Snapshot。用户确认稿、规则修订稿和终稿另存 immutable Episode Artifact；后台 Job 与断点重试尚未接入
 - 每集保持独立编辑、确认、候选、Revision 与 Finalization 状态；确认后的手动稿先重新 QC，再允许进入受控质量链
 - Frontend 使用现有 `revise-draft` 和 `master-scripts/finalize` 步骤 API 完成受控质量链，不改变 Script Engine 契约
-- 项目与本地编辑版本存在 IndexedDB，并在数据库可用时同步版本化 Workspace Snapshot；ContentSpec、Prompt 等历史仓储仍有进程内实现，不能宣称整个系统已经全部 durable
+- 项目与本地编辑版本存在 IndexedDB，并在数据库可用时同步版本化 Workspace Snapshot；ContentSpec 已在配置 PostgreSQL 时持久化，Prompt、Strategy 等部分历史仓储仍为进程内实现，不能宣称整个系统已经全部 durable
 
 ### Long-Story Contract Foundation
 
@@ -286,8 +295,7 @@ Creative Intent / ContentSpec
 → Human-reviewed StoryBible
 → Recursive StoryPlanNode decomposition
 → Human-reviewed episode-ready leaf nodes
-→ EpisodePlan
-→ Existing Episode Draft Generation
+→ One Existing Episode Draft Generation call per episode
 → ContinuityLedger update
 → Next bounded batch
 ```
@@ -295,21 +303,67 @@ Creative Intent / ContentSpec
 职责边界：
 
 - `StoryBible` 固定整部故事事实、人物和长期方向。
+- 重新生成 Story Bible 会建立新的当前规划 lineage。生成成功后，服务端在同一事务中清空旧总纲派生的 Story Plan Tree、Stage、Episode Plan、Generation Batch / Checkpoint、Episode Artifact 和 Continuity Ledger，并重置 Project active lineage 与 Workspace Snapshot；新总纲审批后只能从新 lineage 重新生成根节点。Story Bible 的 immutable 版本历史继续保留；当前 schema 尚未为已清空的下游产物提供独立审计归档，因此这些产物不会继续显示、参与生成、与新总纲混用或用于版本回看。若新总纲生成失败，则不切换 lineage，也不清空当前有效工作区。
 - `StoryPlanNode` 递归表达任意深度的叙事片段；节点只有父子、同级顺序和因果前驱，不固定为卷、章或单元。拆分决策属于节点本身，各分支可以在不同深度停止，系统不得为了树形整齐而强制所有兄弟分支等深。
-- 未来系统可以根据叙事复杂度建议子节点数量和停止位置，但使用者必须能够编辑、批准、继续展开或将节点标记为 episode-ready；自动建议不取代创作控制。
-- 默认审核节奏为 Story Bible 根方向确认、关键递归节点确认和 episode-ready 叶子进入 Episode Plan 前确认；单集逐一确认可以作为可选工作方式，不强制成为整部长篇的唯一流程。
+- 系统可以根据叙事复杂度建议子节点数量和停止位置；当前 Story Bible 和草稿 Story Plan Node 已支持编辑、显式保存和批准。每次保存形成新的 immutable draft version，批准后再允许展开下级内容，自动建议不取代创作控制。
+- 同一父节点下的子部分不得默认平均分配集数或正文预算。运行时应依据冲突密度、有效转折数量、人物与关系变化、状态跨度以及伏笔设置/回收负载分配各部分容量；只有叙事负载确实相近时才允许近似均分。该规则只影响节点容量分配，不改变无固定层级的递归树结构。
+- Story Bible 只定义整部故事方向，必须保持集数无关。用户批准后，系统通过无固定层级的 Story Plan Tree 按剧情内容递归拆分；模型依据具体事件链、人物选择、后果、转折密度和退出状态判断是否 `episode_ready`，集数不参与终止判断。批准叶节点直接约束其中每一集的正文生成。
+- Story Bible、Story Plan Node、递归拆分和单集线路图均以 Prompt 内权威 JSON Schema、适配器结构化输出和本地 Pydantic 校验组成契约边界。首次返回非 JSON / 非合约字段时，每类规划产物只允许一次携带失败原因的格式修复；仍失败则停止且不保存。Story Bible 另外最多进行一次中文语言修复和一次人物引用一致性修复，三类修复都保持编号、引用、范围和既定剧情不变。
+- 中国大陆基础 Draft 同样执行可见文本全中文检查，覆盖标题、梗概、角色、场景、动作、因果语义和对白；技术字段、内部 ID、枚举与引用保持原值。修复后仍含英文的响应不得进入正式 Draft 持久化链路。
+- 默认审核节奏为 Story Bible 根方向确认、关键递归节点确认、episode-ready 叶子确认和单集线路图确认。线路图批准后才进入逐集正文。
 - `StoryStagePlan` 作为旧单层阶段契约继续兼容，但不限制新规划树的拆分深度。
-- `EpisodePlan` 定义单集目标、决定、状态变化和悬念。
-- 当前 Draft Generation 仍负责写具体单集场景与对白。
+- `EpisodePlan` 作为单集线路图的兼容数据契约继续由当前主路径生成。批准的内容驱动 Story Plan Node 提供阶段职责、进入状态、冲突、转折、情绪和退出状态；线路图再补充每集目标、选择、回报、退出状态和 Hook，生成器每次只生成一集完整正文。
+- 当前 Draft Generation 负责写具体单集场景、可见动作和可表演对白。中国大陆正文 Prompt 明确禁止返回提纲、节拍表或 Episode Plan，并要求将画面行动写入 `character_actions`、可说对白写入 `dialogues.text`，区分动作、对白、画外音、内心活动与屏幕文字。
 - `ContinuityLedger` 保存紧凑已发生状态，不替代历史剧本或 Story QC。
 - `GenerationJobCheckpoint` 只表达技术恢复状态，不评价内容质量。
 
-当前已完成 contract foundation、SQLModel / PostgreSQL + JSONB mapping、Alembic migration、事务型 Repository，以及 Project / Workspace Snapshot / Episode Artifact / Story Bible / Story Plan Node / Stage / Episode Plan 的 Application Service 和资源 API。递归节点 API 已校验唯一根节点、父子边界、同级顺序、前驱引用和 expansion lifecycle，并允许不同分支使用不同拆分深度。Frontend 已接入本地优先同步、恢复、冲突提示、版本保护软删除及确认/修订/终稿里程碑上报；尚未实现自动拆树、叶子到 EpisodePlan 映射、规划审核 UI、自动账本更新、后台 Job executor 或 Prompt 注入，因此现有生成质量链行为不变。
+当前已完成 contract foundation、SQLModel / PostgreSQL + JSONB mapping、Alembic migration、事务型 Repository，以及 Project / Workspace Snapshot / Episode Artifact / Story Bible / Story Plan Node / Stage / Episode Plan 的 Application Service 和资源 API。Frontend 独立规划页先展示和批准 Story Bible，再生成和批准第一层真实剧情分支；不同分支可在不同深度停止。模型依据冲突、转折、人物/关系变化、伏笔负载和状态闭环选择非均匀剧情边界，系统再执行 8–12 集叶节点、至少 16 集继续递归和非法碎片返回父层协调的硬门禁。父节点正文规模按子节点剧情深度估算权重分配，不按集数平均切块。批准叶节点先完整定义单位剧情并生成、确认单集线路图；每集仍独立请求并顺序更新连续性。尚未实现后台 Job executor、正式自动批准、权威 `ContinuityLedger` 自动更新和服务端跨批次续跑。
+
+`episode_ready` 的递归叶节点只能覆盖 8–12 集；至少 16 集必须继续拆分，不能进入分集线路图或正文。1–7 集或 13–15 集节点无法通过继续向下拆分获得合法叶节点，因此必须回到父层与兄弟节点协调整段剧情。剧情语义仍决定合法窗口内的自然边界，正文请求仍一次只生成一集。
+
+60 万字完成度只由已生成具体集中的动作正文和对白正文累计。Story Bible、递归树的大分支/小分支描述、StoryStagePlan、EpisodePlan、人物说明和其他规划文本全部不计入。节点上的 `estimated_script_body_characters` 只用于把未来正文容量预算沿树向下分配，不能显示或上报为已生成正文。
+
+当前连续性保护由三部分组成：上一集实际结果摘要、持续更新的人物/关系/故事线 bounded summary，以及用户输入角色字段的覆盖保护。它能降低相邻集漂移，但还不是完整的长篇一致性校验。角色年龄与身份、世界规则、道具状态、时间线、未回收伏笔和已确认事实的自动矛盾检测仍属于待实现的 `Continuity Gate`；在该 Gate 完成前，关键节点仍需人工复查，不得宣称长篇前后一致性已被自动保证。
+
+### Longform Planning Quality Boundary
+
+当前 runtime 已证明规划对象可以生成、校验、编辑、保存和批准，但 Schema 合法、根节点覆盖目标范围或填写目标字数，都不能证明当前故事材料足以支撑约 60 万字。产品目标和内容容量必须分开：
+
+- `product_target` 表示用户要求的正文规模、更新方式和交付目标；
+- `content_supported_capacity` 表示根据人物、世界、冲突、故事线和可持续 Story Engine 得到的有依据容量区间；
+- 规划服务不得为了匹配产品目标，静默把模型容量估算改写为目标值；容量不足时应让使用者选择缩短、补充材料或重做上层规划。
+
+进入大规模正文生成前，下一轮最小流程优化应先验证三个质量门槛：
+
+1. `StoryBible Readiness`：前提、主题、中心冲突、结局、人物轨迹和故事线一致，并存在可持续但不机械重复的故事引擎。
+2. `Root Capacity Gate`：根节点不只是复述 Story Bible，而是形成由内容决定的宏观叙事运动；各运动具有不同策略、代价、揭示/逆转和不可逆退出状态。
+3. `Episode-ready Gate`：叶节点的集数范围内具有足够的可区分事件、连续性前后状态、揭示/回报义务，且不依赖未批准人物或事实。
+
+规划流程还需要研究以下受控视图，但本轮不批准新增 Schema 或 Service：
+
+- `Series Engine Profile`
+- `Longform Capacity Assessment`
+- `Macro Movement Map`
+- `Narrative Information Map`
+- `Antagonist Strategy Track`
+- linked Relationship / Storyline state
+- versioned Setup / Payoff lifecycle
+
+人物可以随长篇发展逐步增加，但子节点只能提出人物候选。候选需说明叙事功能和首次生效节点，经人工确认并形成新的 Story Bible / Character version 后，后续节点才能正式引用；不得在下游 Prompt 中静默造出长期人物。
+
+人物关系网与故事线树继续保持两个互相引用的投影视图：前者记录信任、权力、依赖、秘密和债务，后者记录叙事目标、活跃状态、节点责任和收束义务。二者都不替代 Story Bible / Continuity 的事实源。
+
+悬疑、秘密和反转类故事不能把完整作者真相无差别注入每集。未来 Context Mapper 应区分作者事实、各角色认知、观众已知证据、当前假设和本节点允许发生的揭示，只把 bounded information slice 交给当前节点或 EpisodePlan。
+
+完整研究、来源和进入 runtime 前的固定验证方案见 `Research/15_Longform_Script_Planning_Process_Optimization_v1.md`。在规划 A/B 形成正向证据前，不调整现有模型、API、Prompt 或自动批准行为。
+
+`Save the Cat!` Beat Sheet 可以作为 Story Bible / Root 的可选结构诊断知识，但不能成为新的树结构：当前仍以内容驱动的非平衡递归为唯一规划骨架。不得固定 15 个节点、百分比、集号或层级，也不得在每个子树重复套用同一套节拍；可借鉴的只有重大转折、开端/结尾状态对照和中段重新定向等有界原则。
 
 持久化规则：
 
 - PostgreSQL 是生产目标；SQLite 只运行 Repository 与 migration tests。
 - Story Bible / Story Plan Node / Stage / Episode Plan / Ledger 采用 immutable version snapshot。
+- Story Plan Node / Stage / Episode Plan 的当前读取必须同时按 `story_bible_id + story_bible_version` 过滤；只按 Project 查询只能用于显式历史审计，不得作为当前创作工作区的数据源。
 - Project / Batch / Job 使用 optimistic revision，Repository 拒绝 stale write。
 - Batch / Job 状态必须按显式状态机推进，completed 不允许倒退。
 - 当前 migration 可完成 upgrade、downgrade，并通过 Alembic metadata drift check。
@@ -569,12 +623,15 @@ Frontend 本地项目已支持可编辑的故事线与人物关系视图：
 
 - 主线、支线和角色成长线记录跨集推进
 - 人物关系记录当前状态与每集变化
+- 分集结构化初稿中的新人物会按稳定本地标识补充为人物卡；同名已有角色优先合并，用户填写的非空设定不被自动覆盖
+- 只有同一场景中存在双方可定位证据时，才自动新增关系投影，避免为全部角色组合虚构关系
+- 人物节点和关系记录可点击查看人物卡、当前关系状态与逐集变化，并可进入人物编辑页
 - 新增角色从下一次生成或 AI 操作开始参与上下文，不自动改写旧集
 - 用户可根据当前剧本刷新确定性整理结果，也可手动修改
 - 后续分集生成会消费 bounded 连续性摘要，以延续用户确认的故事线和关系状态
 - 连续性摘要不触发对已生成分集的静默重写
 
-由于项目创建时人物输入可为空，关系网不是一次性静态设定。人物、关系和故事线可以在规划与剧本生成过程中逐渐被发现和完善。目标流程只从用户确认的规划、确认分集或显式人工编辑提取 continuity delta；未确认 Draft、被拒候选和 shadow artifact 不得直接成为后续生成事实。
+由于项目创建时人物输入可为空，关系网不是一次性静态设定。人物、关系和故事线可以在规划与剧本生成过程中逐渐被发现和完善。当前 Frontend 可以从分集 Draft 形成可见的本地 provisional projection；长期权威流程只从用户确认的规划、确认分集或显式人工编辑提取 continuity delta。未确认 Draft、被拒候选和 shadow artifact 不得写入后端权威 `ContinuityLedger`。
 
 目标可视化与修改策略：
 
@@ -588,7 +645,7 @@ Frontend 本地项目已支持可编辑的故事线与人物关系视图：
 - 后续生成只消费与当前规划节点/分集相关的 bounded continuity slice，包括活跃人物、相关关系、未完成故事线、近期变化和 Setup / Payoff，不把全量关系网和全部历史塞入 Prompt。
 - 每次确认规划节点或分集后生成 proposed continuity delta；进入正式后续约束前必须保留 provenance、evidence、effective point 和确认状态。
 
-该视图属于 authoring / continuity artifact，不进入单集 `MasterScript`，不替代 Story Blueprint / Episode Planning，也不改变 Script Generation Box 主链路。它既是检阅界面，也是长篇上下文压缩和连续性约束的来源，但必须通过受控 Context Mapper 进入生成上下文。
+该视图属于 authoring / continuity artifact，不进入单集 `MasterScript`，不替代 Story Blueprint / Episode Planning，也不改变 Script Generation Box 主链路。当前本地摘要可辅助已有分集续写；面向长篇跨批次的权威约束仍必须由批准内容生成版本化 `ContinuityLedger`，再通过受控 Context Mapper 进入生成上下文。
 
 ## Production Handoff
 

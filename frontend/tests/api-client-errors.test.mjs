@@ -1,0 +1,46 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { userFacingError, visibleApiError } from "../lib/api-error.ts";
+
+test("planning errors keep technical provider details out of the user interface", () => {
+  assert.match(
+    visibleApiError("LLM request timed out", 503),
+    /生成服务响应超时/,
+  );
+  for (const detail of [
+    "status 429: rate limit",
+    "status 502: bad gateway",
+    "Provider returned non-JSON success response (content-type text/html)",
+    "connect ECONNREFUSED 127.0.0.1:8000",
+  ]) {
+    const message = visibleApiError(detail, 503);
+    assert.match(message, /生成服务/);
+    assert.doesNotMatch(message, /LLM|JSON|Base URL|ECONNREFUSED|供应商|网关|后端|状态码/i);
+  }
+});
+
+test("unknown 503 no longer asserts that the model provider is unavailable", () => {
+  const message = visibleApiError("unclassified failure", 503);
+  assert.match(message, /生成服务暂时未完成请求/);
+  assert.doesNotMatch(message, /上游模型服务暂时不可用/);
+});
+
+test("direct rate-limit responses keep saved work safe without exposing retry internals", () => {
+  const message = visibleApiError("429 Too Many Requests", 429);
+  assert.match(message, /生成服务当前较忙/);
+  assert.match(message, /已保存的内容不会丢失/);
+  assert.doesNotMatch(message, /429|缺口|路线图|模型/);
+});
+
+test("user-facing errors preserve sanitized API diagnoses", () => {
+  const safeMessage = "生成服务连接暂时中断，系统已保留此前成功保存的内容，请稍后重试。";
+  assert.equal(
+    userFacingError({ status: 503, message: safeMessage }, "创作方向候选生成失败。"),
+    safeMessage,
+  );
+  assert.equal(
+    userFacingError(new Error("DATABASE_URL is missing"), "创作方向候选生成失败。"),
+    "创作方向候选生成失败。",
+  );
+});

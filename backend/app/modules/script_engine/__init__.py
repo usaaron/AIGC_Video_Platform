@@ -11,6 +11,7 @@ from app.modules.script_engine.creative_deepening import (
 from app.modules.script_engine.llm_adapter import (
     FailingLLMAdapter,
     LLMAdapter,
+    ModelFailoverLLMAdapter,
     MockLLMAdapter,
     RealLLMAdapter,
 )
@@ -108,6 +109,7 @@ __all__ = [
     "KnowledgeTargetStage",
     "LLMAdapter",
     "FailingLLMAdapter",
+    "ModelFailoverLLMAdapter",
     "LLMModelInfo",
     "MissingContentSpecError",
     "MissingGenerationStrategyError",

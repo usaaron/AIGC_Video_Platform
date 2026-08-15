@@ -6,9 +6,98 @@ from app.modules.master_script.models import (
     LLMGeneratedDraftMasterScript,
     MasterScriptCreate,
     MasterScriptFinalizeRequest,
+    RelationshipStateUpdate,
     SceneCausality,
+    SetupPayoffStateUpdate,
+    StoryLineStateUpdate,
+    ContinuationHookState,
+    normalize_generated_episode_title,
 )
 from tests.test_master_script_service import build_finalize_request
+
+
+def test_relationship_state_update_requires_a_concrete_two_sided_relationship() -> None:
+    update = RelationshipStateUpdate(
+        source_character_name="林夏",
+        target_character_name="周野",
+        relationship_type="临时救援同盟",
+        source_to_target="认可对方的医疗判断，但仍保留戒心。",
+        target_to_source="愿意保护对方，但要求共享污染数据。",
+        current_state="两人因共同关闭污染源建立有条件同盟。",
+        change_summary="共同冒险后建立临时合作。",
+        change_cause="两人必须协作关闭污染阀门。",
+        evidence_scene_numbers=[1],
+    )
+
+    assert update.relationship_type == "临时救援同盟"
+    with pytest.raises(ValidationError):
+        RelationshipStateUpdate(
+            **{
+                **update.model_dump(),
+                "target_character_name": "林夏",
+            }
+        )
+
+
+def test_story_line_and_hook_receipts_keep_plan_lineage() -> None:
+    update = StoryLineStateUpdate(
+        story_line_id="storyline.truth",
+        status="active",
+        progress_summary="林夏取得第一份原始账页。",
+        contribution_type="turning_point",
+        planned_beat_ref="storyline.truth",
+        planned_alignment="expanded",
+        alignment_note="额外确认了伪造时间。",
+        next_required_step="查明谁替换了账页。",
+        change_cause="林夏进入仓库封存原件。",
+        evidence_scene_numbers=[1],
+    )
+    hook = ContinuationHookState(
+        responds_to_episode=2,
+        previous_hook_response="旧信证明签名是临摹的。",
+        response_evidence_scene_numbers=[1],
+        ending_hook_type="证物危机",
+        ending_hook_summary="原始账页即将被销毁。",
+        next_episode_obligation="抢救原始账页。",
+        target_payoff_episode=4,
+    )
+
+    assert update.planned_alignment == "expanded"
+    assert hook.responds_to_episode == 2
+    setup = SetupPayoffStateUpdate(
+        setup_payoff_ref="setup.old_letter",
+        action="partial_payoff",
+        status="active",
+        progress_summary="墨水年份已确认，但涂改者仍未知。",
+        next_required_step="确认谁取得过原信。",
+        target_payoff_episode=8,
+        change_cause="林夏取得墨水检测结果。",
+        evidence_scene_numbers=[1],
+    )
+    assert setup.action == "partial_payoff"
+    with pytest.raises(ValidationError):
+        ContinuationHookState(
+            **{
+                **hook.model_dump(),
+                "previous_hook_response": None,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("第六集：床旁来客", "床旁来客"),
+        ("第 6 集 - 床旁来客", "床旁来客"),
+        ("Episode 6: Bedside Visitor", "Bedside Visitor"),
+        ("床旁来客", "床旁来客"),
+    ],
+)
+def test_generated_episode_title_excludes_the_episode_number(
+    source: str,
+    expected: str,
+) -> None:
+    assert normalize_generated_episode_title(source) == expected
 
 
 def build_payload() -> dict:
@@ -185,6 +274,20 @@ def test_llm_generated_script_requires_later_scene_to_reference_earlier_outcome(
                 "motivation": "Prove that evidence was removed before the public hearing.",
             }
         ],
+        "character_state_updates": [
+            {
+                "character_name": "Iris Vale",
+                "current_goal": "Learn why her mentor ordered the evidence removed.",
+                "emotional_state": "Shocked but committed to continuing publicly.",
+                "belief_or_attitude": "Her mentor can no longer be treated as a trusted ally.",
+                "knowledge_changes": ["Her mentor sponsored the evidence deletion."],
+                "active_constraints": ["Security is removing her from the hearing."],
+                "personality_change": None,
+                "change_summary": "Iris redirects the investigation toward her mentor.",
+                "change_cause": "The witness names her mentor during the public hearing.",
+                "evidence_scene_numbers": [2],
+            }
+        ],
         "scenes": [
             {
                 "scene_number": 1,
@@ -250,6 +353,75 @@ def test_draft_master_script_requires_final_cliffhanger() -> None:
         ValidationError, match="final draft scene must end with a cliffhanger"
     ):
         DraftMasterScript.model_validate(payload)
+
+
+def test_llm_state_ledger_requires_death_to_match_character_life_status() -> None:
+    payload = {
+        "title": "The Broken Vow",
+        "logline": "A witness survives a public confrontation that the ledger marks as fatal.",
+        "synopsis": "Nina protects the evidence during a confrontation and remains alive.",
+        "hook": "The attacker reaches Nina before security can intervene.",
+        "target_audience": "Serialized drama viewers",
+        "target_platform": "mainland_comic_drama",
+        "language": "en",
+        "tone": "intense",
+        "episode_goal": "Resolve the confrontation and preserve its physical consequences.",
+        "target_duration_seconds": 60,
+        "characters": [{
+            "name": "Nina",
+            "role": "lead witness",
+            "description": "A careful witness who protects the original evidence.",
+            "motivation": "Keep the evidence alive long enough to publish it.",
+        }],
+        "character_state_updates": [{
+            "character_name": "Nina",
+            "current_goal": "Publish the protected evidence.",
+            "emotional_state": "Shaken but resolved.",
+            "life_status": "alive",
+            "knowledge_changes": [],
+            "active_constraints": [],
+            "change_summary": "Nina survives the confrontation.",
+            "change_cause": "Security stops the attacker before the final blow.",
+            "evidence_scene_numbers": [1],
+        }],
+        "continuity_state_updates": [{
+            "entity_key": "character.nina",
+            "entity_type": "character",
+            "entity_name": "Nina",
+            "state_domain": "life",
+            "transition": "died",
+            "current_state": "Nina is dead.",
+            "persistence": "permanent",
+            "future_constraint": "Nina cannot perform new chronological actions.",
+            "change_cause": "The confrontation kills Nina.",
+            "evidence_scene_numbers": [1],
+        }],
+        "scenes": [{
+            "scene_number": 1,
+            "slug": "INT. HEARING ROOM - DAY",
+            "purpose": "Protect Nina and the evidence from the attacker.",
+            "setting": "A crowded public hearing room during lockdown.",
+            "beat_summary": "Security stops the attacker while Nina seals the evidence.",
+            "emotional_shift": "terror to resolve",
+            "emotional_objective": "Turn physical danger into public resolve.",
+            "character_actions": ["Nina shields the evidence as security restrains the attacker."],
+            "turning_point": "Nina survives and raises the sealed evidence for the cameras.",
+            "scene_causality": {
+                "goal": "Nina must protect the evidence until security reaches her.",
+                "conflict": "The attacker blocks the exit and closes in on Nina.",
+                "outcome": "Security restrains the attacker and Nina keeps the evidence.",
+            },
+            "cliffhanger": True,
+            "dialogues": [{
+                "character_name": "Nina",
+                "intent": "make the evidence public",
+                "text": "You cannot bury what everyone has already seen.",
+            }],
+        }],
+        "next_episode_question": "Can Nina publish the evidence before the hearing is sealed?",
+    }
+    with pytest.raises(ValidationError, match="matching dead life_status"):
+        LLMGeneratedDraftMasterScript.model_validate(payload)
 
 
 def test_master_script_finalize_request_accepts_valid_payload() -> None:

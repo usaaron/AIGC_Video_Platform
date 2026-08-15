@@ -9,7 +9,19 @@ from app.database import (
     create_database_runtime,
     database_url_from_env,
 )
-from app.llm_runtime import build_llm_adapter_from_env
+from app.llm_runtime import (
+    build_creative_llm_adapter_from_env,
+    build_continuity_llm_adapter_from_env,
+    build_dialogue_polish_adapter_from_env,
+    build_episode_plan_llm_adapter_from_env,
+    build_llm_adapter_from_env,
+    build_planning_llm_adapter_from_env,
+    build_script_generation_adapter_from_env,
+    build_script_editor_llm_adapter_from_env,
+    build_script_repair_llm_adapter_from_env,
+    build_story_architect_llm_adapter_from_env,
+    build_story_bible_llm_adapter_from_env,
+)
 from app.modules.asset.repository import AssetRepository
 from app.modules.asset.service import AssetService
 from app.modules.content_spec.repository import ContentSpecRepository
@@ -29,8 +41,12 @@ from app.modules.scheduled_ingestion.history_repository import DataIngestionRunH
 from app.modules.scheduled_ingestion.repository import DataIngestionJobRepository
 from app.modules.scheduled_ingestion.service import ScheduledIngestionService
 from app.modules.script_engine.generation_service import ScriptGenerationService
-from app.modules.script_engine.llm_adapter import FailingLLMAdapter, MissingLLMConfigurationError
+from app.modules.script_engine.llm_adapter import (
+    FailingLLMAdapter,
+    MissingLLMConfigurationError,
+)
 from app.modules.script_engine.long_story_service import LongStoryService
+from app.modules.script_engine.story_planning_service import StoryPlanningService
 from app.modules.script_engine.bilingual_view import BilingualScriptViewService
 from app.modules.script_engine.prompt_retrieval import PromptRetrievalService
 from app.modules.script_engine.revision_planner import RubricRevisionPlanner
@@ -61,7 +77,9 @@ ontology_node_repository = OntologyNodeRepository()
 asset_repository = AssetRepository()
 prompt_library_repository = PromptLibraryRepository()
 generation_strategy_repository = GenerationStrategyRepository()
-content_spec_repository = ContentSpecRepository()
+content_spec_repository = ContentSpecRepository(
+    database_runtime_factory=lambda: _optional_content_spec_database_runtime()
+)
 master_script_repository = MasterScriptRepository()
 orchestration_plan_repository = OrchestrationPlanRepository()
 data_ingestion_job_repository = DataIngestionJobRepository()
@@ -74,6 +92,23 @@ prompt_evaluation_result_repository = PromptEvaluationResultRepository()
 prompt_evaluation_runner = PromptEvaluationRunner()
 
 
+def _llm_service_cache_key() -> tuple[tuple[str, str], ...]:
+    """Share model pools until the process environment actually changes."""
+
+    return tuple(
+        sorted(
+            (name, value)
+            for name, value in os.environ.items()
+            if name.startswith("LLM_")
+            or name
+            in {
+                "SCRIPT_CREATIVE_DEEPENING_ENABLED",
+                "SCRIPT_GPT_POST_EDIT_ENABLED",
+            }
+        )
+    )
+
+
 @lru_cache(maxsize=1)
 def get_long_story_database_runtime() -> DatabaseRuntime:
     database_url = database_url_from_env()
@@ -82,6 +117,13 @@ def get_long_story_database_runtime() -> DatabaseRuntime:
             "DATABASE_URL is required for durable PostgreSQL persistence."
         )
     return create_database_runtime(database_url)
+
+
+def _optional_content_spec_database_runtime() -> DatabaseRuntime | None:
+    try:
+        return get_long_story_database_runtime()
+    except DatabaseConfigurationError:
+        return None
 
 
 def get_long_story_service() -> LongStoryService:
@@ -93,6 +135,51 @@ def get_long_story_service() -> LongStoryService:
             detail=str(exc),
         ) from exc
     return LongStoryService(runtime)
+
+
+def get_story_planning_service() -> StoryPlanningService:
+    return _get_story_planning_service(_llm_service_cache_key())
+
+
+@lru_cache(maxsize=8)
+def _get_story_planning_service(
+    _cache_key: tuple[tuple[str, str], ...],
+) -> StoryPlanningService:
+    try:
+        llm_adapter = build_llm_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        llm_adapter = FailingLLMAdapter(exc)
+    try:
+        decomposition_llm_adapter = build_planning_llm_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        decomposition_llm_adapter = FailingLLMAdapter(exc)
+    try:
+        creative_llm_adapter = build_creative_llm_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        creative_llm_adapter = FailingLLMAdapter(exc)
+    try:
+        story_bible_llm_adapter = build_story_bible_llm_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        story_bible_llm_adapter = FailingLLMAdapter(exc)
+    try:
+        story_architect_llm_adapter = build_story_architect_llm_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        story_architect_llm_adapter = FailingLLMAdapter(exc)
+    try:
+        episode_plan_llm_adapter = build_episode_plan_llm_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        episode_plan_llm_adapter = FailingLLMAdapter(exc)
+    return StoryPlanningService(
+        long_story_service=get_long_story_service(),
+        content_spec_repository=content_spec_repository,
+        generation_strategy_repository=generation_strategy_repository,
+        llm_adapter=llm_adapter,
+        decomposition_llm_adapter=decomposition_llm_adapter,
+        creative_llm_adapter=creative_llm_adapter,
+        story_bible_llm_adapter=story_bible_llm_adapter,
+        story_architect_llm_adapter=story_architect_llm_adapter,
+        episode_plan_llm_adapter=episode_plan_llm_adapter,
+    )
 
 
 def get_platform_profile_service() -> PlatformProfileService:
@@ -134,11 +221,29 @@ def get_prompt_retrieval_service() -> PromptRetrievalService:
 
 
 def get_script_generation_service() -> ScriptGenerationService:
-    try:
-        llm_adapter = build_llm_adapter_from_env()
-    except MissingLLMConfigurationError as exc:
-        llm_adapter = FailingLLMAdapter(exc)
+    return _get_script_generation_service(_llm_service_cache_key())
 
+
+@lru_cache(maxsize=8)
+def _get_script_generation_service(
+    _cache_key: tuple[tuple[str, str], ...],
+) -> ScriptGenerationService:
+    try:
+        primary_llm_adapter = build_script_generation_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        primary_llm_adapter = FailingLLMAdapter(exc)
+    try:
+        primary_repair_llm_adapter = build_script_repair_llm_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        primary_repair_llm_adapter = FailingLLMAdapter(exc)
+    try:
+        script_editor_llm_adapter = build_script_editor_llm_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        script_editor_llm_adapter = FailingLLMAdapter(exc)
+    try:
+        continuity_llm_adapter = build_continuity_llm_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        continuity_llm_adapter = FailingLLMAdapter(exc)
     return ScriptGenerationService(
         content_spec_repository=content_spec_repository,
         generation_strategy_repository=generation_strategy_repository,
@@ -146,7 +251,16 @@ def get_script_generation_service() -> ScriptGenerationService:
         prompt_retrieval_service=get_prompt_retrieval_service(),
         orchestrator_service=get_orchestrator_service(),
         retrieval_service=get_retrieval_service(),
-        llm_adapter=llm_adapter,
+        llm_adapter=primary_llm_adapter,
+        repair_llm_adapter=primary_repair_llm_adapter,
+        initial_fallback_llm_adapter=primary_repair_llm_adapter,
+        contract_fallback_llm_adapter=primary_repair_llm_adapter,
+        continuity_llm_adapter=continuity_llm_adapter,
+        script_editor_llm_adapter=script_editor_llm_adapter,
+        script_editor_enabled=_env_flag(
+            "SCRIPT_GPT_POST_EDIT_ENABLED",
+            default=True,
+        ),
         revision_planner=get_revision_planner(),
         creative_deepening_enabled=_env_flag(
             "SCRIPT_CREATIVE_DEEPENING_ENABLED",
@@ -164,7 +278,7 @@ def _env_flag(name: str, *, default: bool) -> bool:
 
 def get_bilingual_script_view_service() -> BilingualScriptViewService:
     try:
-        llm_adapter = build_llm_adapter_from_env()
+        llm_adapter = build_dialogue_polish_adapter_from_env()
     except MissingLLMConfigurationError as exc:
         llm_adapter = FailingLLMAdapter(exc)
 

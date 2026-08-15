@@ -14,7 +14,7 @@ import httpx
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "examples" / "longform_acceptance" / "cn_600k_v1"
-STRATEGY_ID = "strategy.cn_mainland.frontend_mvp.general.v1"
+STRATEGY_ID = "strategy.cn_mainland.longform_knowledge_candidate.v2"
 PLATFORM_PROFILE_ID = "cn_mainland_comic_drama_v1"
 TARGET_TOTAL_CHARACTERS = 600_000
 PLANNED_EPISODES = 334

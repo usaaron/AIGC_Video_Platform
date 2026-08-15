@@ -91,6 +91,130 @@ def test_default_catalog_selects_separate_deepening_bundle() -> None:
     assert trace.selected_knowledge_refs == bundle.knowledge_ids
 
 
+def test_default_catalog_selects_mainland_longform_foundation_bundle() -> None:
+    catalog = StaticKnowledgeBundleCatalog.load_default()
+    content_spec = build_content_spec().model_copy(
+        update={
+            "platform_goal": PlatformGoal(
+                platform_profile_id="cn_mainland_comic_drama_v1",
+                objective="Create a Chinese long-form serialized story",
+                target_duration_seconds=180,
+            )
+        }
+    )
+
+    bundle, items, trace = catalog.select_for_draft(
+        requested_bundle_id=(
+            "knowledge_bundle.draft.cn_mainland_longform_foundation.v1"
+        ),
+        content_spec=content_spec,
+        target_platform="mainland china comic drama",
+    )
+
+    assert len(items) == 7
+    assert all("tiktok" not in item.knowledge_id for item in items)
+    assert "knowledge.visual.channel_separation.v1" in bundle.knowledge_ids
+    assert trace.selected_knowledge_refs == bundle.knowledge_ids
+
+
+def test_default_catalog_selects_bounded_mainland_longform_candidate_bundle() -> None:
+    catalog = StaticKnowledgeBundleCatalog.load_default()
+    content_spec = build_content_spec().model_copy(
+        update={
+            "platform_goal": PlatformGoal(
+                platform_profile_id="cn_mainland_comic_drama_v1",
+                objective="Create a Chinese long-form serialized story",
+                target_duration_seconds=180,
+            )
+        }
+    )
+
+    bundle, items, trace = catalog.select_for_draft(
+        requested_bundle_id=(
+            "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2"
+        ),
+        content_spec=content_spec,
+        target_platform="mainland china comic drama",
+    )
+
+    assert bundle.version == "v2"
+    assert len(items) == 11
+    assert [item.knowledge_id for item in items] == bundle.knowledge_ids
+    assert "knowledge.serialization.sustainable_story_engine.v1" in bundle.knowledge_ids
+    assert "knowledge.story.macro_sequence_turning.v1" in bundle.knowledge_ids
+    assert "knowledge.character.long_arc_trajectory.v1" in bundle.knowledge_ids
+    assert (
+        "knowledge.storyline.character_driven_parallel_arcs.v1"
+        in bundle.knowledge_ids
+    )
+    assert "knowledge.visual.scene_context.v1" in bundle.knowledge_ids
+    assert "knowledge.visual.observable_action.v1" in bundle.knowledge_ids
+    assert "knowledge.visual.channel_separation.v1" in bundle.knowledge_ids
+    assert trace.selected_knowledge_refs == bundle.knowledge_ids
+
+
+def test_longform_knowledge_selection_prioritizes_current_task_categories() -> None:
+    catalog = StaticKnowledgeBundleCatalog.load_default()
+    content_spec = build_content_spec().model_copy(
+        update={
+            "platform_goal": PlatformGoal(
+                platform_profile_id="cn_mainland_comic_drama_v1",
+                objective="Create a Chinese long-form serialized story",
+                target_duration_seconds=180,
+            )
+        }
+    )
+
+    _bundle, items, trace = catalog.select_for_draft(
+        requested_bundle_id=(
+            "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2"
+        ),
+        content_spec=content_spec,
+        target_platform="mainland china comic drama",
+        preferred_categories=["visual_narrative", "character_design"],
+        max_items=5,
+    )
+
+    assert len(items) == 5
+    assert [item.category for item in items[:3]] == ["visual_narrative"] * 3
+    assert items[3].category == "character_design"
+    assert trace.selected_knowledge_refs == [item.knowledge_id for item in items]
+
+
+def test_episode_knowledge_selection_excludes_planning_only_principles() -> None:
+    catalog = StaticKnowledgeBundleCatalog.load_default()
+    content_spec = build_content_spec().model_copy(
+        update={
+            "platform_goal": PlatformGoal(
+                platform_profile_id="cn_mainland_comic_drama_v1",
+                objective="Create a Chinese long-form serialized story",
+                target_duration_seconds=180,
+            )
+        }
+    )
+    planning_only = {
+        "knowledge.serialization.sustainable_story_engine.v1",
+        "knowledge.story.macro_sequence_turning.v1",
+        "knowledge.character.long_arc_trajectory.v1",
+        "knowledge.storyline.character_driven_parallel_arcs.v1",
+    }
+
+    _bundle, items, trace = catalog.select_for_draft(
+        requested_bundle_id=(
+            "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2"
+        ),
+        content_spec=content_spec,
+        target_platform="mainland china comic drama",
+        excluded_knowledge_ids=planning_only,
+    )
+
+    selected_ids = [item.knowledge_id for item in items]
+    assert len(selected_ids) == 7
+    assert planning_only.isdisjoint(selected_ids)
+    assert "knowledge.visual.observable_action.v1" in selected_ids
+    assert trace.selected_knowledge_refs == selected_ids
+
+
 def test_catalog_rejects_unknown_bundle() -> None:
     catalog = StaticKnowledgeBundleCatalog.load_default()
 

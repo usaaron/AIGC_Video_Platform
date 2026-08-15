@@ -40,7 +40,8 @@ export async function completeScriptQualityLoop(
       body: JSON.stringify({
         script_generation_draft_run: generationRun,
         script_revision_run: revisionResponse.data,
-        dialogue_line_count_per_scene: 2,
+        // Legacy fallback only. Existing screenplay dialogue is preserved in full.
+        dialogue_line_count_per_scene: 6,
         speaker_name_cycle: speakerNames,
       }),
     },

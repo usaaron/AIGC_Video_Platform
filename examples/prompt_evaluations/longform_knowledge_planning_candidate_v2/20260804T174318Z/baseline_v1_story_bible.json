@@ -1,0 +1,235 @@
+{
+  "strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+  "comparison_project": {
+    "schema_version": "v1",
+    "project_id": "knowledge_ab.20260804t174318z.baseline_v1",
+    "revision": 1,
+    "title": "知识对照 baseline_v1：一个被家族抛弃的女孩多年后回到故乡，调查母亲死亡的真相，却发现帮助她的人可能正是仇...",
+    "content_spec_id": "c325e7d3-b1eb-4fa7-a29c-beb01551aa6b",
+    "output_language": "zh",
+    "target_total_characters": 600000,
+    "planned_episode_count": 334,
+    "default_batch_size": 5,
+    "status": "planning",
+    "active_story_bible_id": null,
+    "active_story_bible_version": null,
+    "created_at": "2026-08-04T17:43:18.715615Z",
+    "updated_at": "2026-08-04T17:43:18.715618Z"
+  },
+  "story_bible": {
+    "schema_version": "v1",
+    "story_bible_id": "story_bible.knowledge_ab.20260804t174318z.baseline_v1.main",
+    "story_project_id": "knowledge_ab.20260804t174318z.baseline_v1",
+    "content_spec_id": "c325e7d3-b1eb-4fa7-a29c-beb01551aa6b",
+    "version": 1,
+    "status": "draft",
+    "core_premise": "林若被外祖家族扫地出门时只有十二岁，母亲林雅婷的死被定性为意外坠亡。十五年后她以自由记者身份回到故乡榕城，表面做城市更新报道，实际追查母亲死亡的真相。她掌握的唯一线索是母亲死前寄出的一张旧照片，背面写着一个人名。顺着这条线索，她接触到了本地企业家沈氏集团的少东家沈淮序，此人主动提供资源和信息帮助她调查。但随着证据逐渐指向沈家上一代与林雅婷之死的深层关联，林若必须面对一个残酷的可能性：她最信赖的盟友，正是仇人之子。",
+    "series_goal": "构建一部长篇悬疑复仇故事，核心驱动力是真相逐层揭露与信任不断被试探。故事整体从'外部调查'逐步转向'身份与立场对决'，最终迫使主角在复仇与人性之间做出有代价的选择。全篇不追求简单的善恶清算，而是让每一步接近真相的进展都同时加深主角的情感困境和道德压力，使结局的冲击力来自逻辑必然性而非外部反转。",
+    "theme": "复仇的代价在于：当你终于看清真相时，你已无法全身而退。信任、血缘与正义之间的裂缝无法被简单缝合。",
+    "central_conflict": "林若需要沈淮序的帮助才能接近沈家内部信息，但每一条新证据都让沈家与母亲之死的关系更紧密，迫使她在'继续依赖仇人之子'与'独自冒险深挖'之间反复抉择。与此同时，沈淮序自身的立场也不断被质疑：他是在赎罪、在操控、还是在追求自己的目标？这条信任裂缝构成了全故事的中央张力，所有信息揭露、关系变化和道德抉择都围绕它展开。",
+    "ending_direction": "真相最终揭露：林雅婷之死是沈家上一代多人共谋的结果，但直接致死者并非沈淮序的父亲一人，而是涉及林若自己的外祖家族成员的默许与掩盖。沈淮序在关键时刻选择牺牲自身利益协助林若公开证据，但他无法否认自己早已知情并一度隐瞒。林若完成了真相公之于众的复仇，但代价是失去了唯一建立过真实信任的人，也发现自己家族并非纯粹的受害者。结局是开放而有重量的：正义以法律形式部分实现，但情感层面无人真正获胜。",
+    "world_rules": [
+      "故事设定在当代中国东南沿海虚构城市榕城，城市更新与旧城区改造是重要的社会背景，土地利益纠葛驱动部分人物动机。",
+      "沈氏集团是本地重要民营企业，涉足地产与文化产业，在榕城拥有深厚人脉和社会影响力。",
+      "林若的外祖家族林氏曾是本地旧式大家族，母亲林雅婷嫁入沈家后婚姻破裂，林若被林氏家族以'私生女'名义排斥。",
+      "信息获取遵循现实逻辑：关键证据分散在不同人手中，每次获取都伴随人际代价或风险，不存在轻易黑入或偶然捡到的核心证据。",
+      "法律与现实权力不对等：沈家能用法律手段、舆论引导和社会关系压制不利信息，主角的武器是公开曝光而非暴力。",
+      "时间线设定：母亲死亡发生在约十五年前，旧城区拆迁与土地利益重组是当年的间接背景因素。",
+      "人物不会获得超出现实的体能或技术能力，所有冲突通过信息、关系、社会资源来博弈。"
+    ],
+    "character_refs": [
+      "character.protagonist",
+      "character.ally_suspect",
+      "character.mother_deceased",
+      "character.family_patriarch",
+      "character.shen_senior",
+      "character.informant_elder"
+    ],
+    "character_arc_targets": [
+      {
+        "character_ref": "character.protagonist",
+        "external_goal": "查清母亲林雅婷死亡的真相，将责任人绳之以法或公之于众。",
+        "internal_need": "需要承认自己对'被抛弃'的愤怒背后，是对母亲未曾保护自己的深层悲伤，以及渴望被一个家人真正接纳的脆弱。",
+        "starting_state": "冷静、自持、以理性武装自己，对故乡和家族怀有压抑的愤怒，与人保持情感距离，习惯独自行动。",
+        "target_state": "经历了信任建立与崩塌后，学会接受复杂的人性灰度，不再以非黑即白的方式理解复仇与正义，愿意承受情感风险去面对真实的关系。",
+        "key_turning_points": [
+          "发现母亲旧照片背后的人名指向沈家，第一次意识到仇人可能就在身边。",
+          "沈淮序主动提供关键帮助，信任初步建立，但她始终保留警惕。",
+          "一条证据直接指向沈淮序的父亲，她面临是否向沈淮序摊牌的选择。",
+          "发现外祖家族成员也参与了掩盖，复仇对象的边界开始模糊。",
+          "沈淮序被揭露早已部分知情，信任彻底崩塌。",
+          "最终选择公开证据，但方式上留出了沈淮序协助的空间，表明她内心的矛盾未被仇恨完全吞噬。"
+        ],
+        "protected_traits": [
+          "调查能力强，善于从碎片信息中拼合逻辑链。",
+          "不依赖暴力解决问题，以信息和公开曝光为核心武器。",
+          "对母亲的记忆复杂而痛苦，不是单纯的怀念，夹杂着被抛弃的怨恨。",
+          "面对压力时倾向于独断而非寻求帮助，这是她的弱点也是她的韧性来源。"
+        ]
+      },
+      {
+        "character_ref": "character.ally_suspect",
+        "external_goal": "表面上协助林若调查，实际动机在故事中逐步揭露：他既想弄清父亲当年的所作所为，也在试图用自己的方式弥补家族的过错。",
+        "internal_need": "需要面对自己'知情却沉默'的道德污点，承认帮助林若的部分动机是自我救赎而非纯粹的正义。",
+        "starting_state": "温和、克制、资源丰富，表现得像一个可靠的同盟者，但对自己的真实立场有意保持模糊。",
+        "target_state": "被迫面对自己隐瞒行为的后果，在家族利益与个人良知之间做出有实际代价的选择，最终以牺牲自身利益的方式完成部分赎罪，但失去林若的信任。",
+        "key_turning_points": [
+          "主动接近林并提供资源，动机看似单纯。",
+          "林若发现第一条指向沈家的证据时，他选择继续协助而非退出，暴露了他自身的利益诉求。",
+          "被林若质问是否知情时，给出部分真实但不完整的回答，埋下信任裂痕。",
+          "家族内部施压要求他切断与林若的联系，他被迫在两难中表态。",
+          "最终选择向林若补全自己知道的信息，但为时已晚，信任无法完全修复。",
+          "在公开证据的关键环节提供帮助，以行动而非言语完成立场表态。"
+        ],
+        "protected_traits": [
+          "不是纯粹的骗子或反派，他的隐瞒出于自我保护和对家族的复杂情感。",
+          "具备真实的社会资源和行动能力，不是纸老虎。",
+          "对林若的情感是真实的，但真实不等于无私。",
+          "他的赎罪是有代价的，不是轻松的道德转向。"
+        ]
+      },
+      {
+        "character_ref": "character.family_patriarch",
+        "external_goal": "维护林氏家族的名声与既有利益，阻止旧事被重新翻出。",
+        "internal_need": null,
+        "starting_state": "作为林若的外祖父，当年主导了将她扫地出门的决定，对母亲之死的掩盖负有责任但以'家族利益'自我合理化。",
+        "target_state": "被揭露为共谋者之一，家族名誉崩塌，面临法律或社会层面的追责，但他至终拒绝承认道德过错，以'我是为了家族'自我辩护。",
+        "key_turning_points": [
+          "林若回归后试图切断她的调查渠道。",
+          "被林若发现当年他曾签署一份与沈家的协议，涉及母亲死亡后的利益交换。",
+          "最终在证据公开后被追究责任。"
+        ],
+        "protected_traits": [
+          "不是脸谱化的恶长辈，他的行为逻辑始终是'家族存续优先于个人'。",
+          "对林若的排斥有自己的一套说辞，在道德上自洽但不可原谅。"
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "relationship_id": "rel.protagonist_ally_suspect",
+        "source_character_ref": "character.protagonist",
+        "target_character_ref": "character.ally_suspect",
+        "relationship_type": "调查同盟与情感纠葛",
+        "initial_state": "因调查需要而合作，林若保持警惕但逐渐信任沈淮序，沈淮序主动靠近并提供实质帮助。",
+        "target_direction": "信任在反复试探中加深后因隐瞒被揭露而崩塌，最终在公开证据时形成短暂而痛苦的再度合作，但关系无法回到此前的状态。",
+        "locked": true
+      },
+      {
+        "relationship_id": "rel.protagonist_family_patriarch",
+        "source_character_ref": "character.protagonist",
+        "target_character_ref": "character.family_patriarch",
+        "relationship_type": "血缘对立",
+        "initial_state": "林若对外祖父怀有深重的怨恨和疏离，视其为当年抛弃自己和母亲的直接责任人。",
+        "target_direction": "随着调查深入，发现外祖父不仅是抛弃者，还是母亲之死掩盖链中的一环，对立从情感层面升级为法律与道德层面的对抗。",
+        "locked": false
+      },
+      {
+        "relationship_id": "rel.ally_suspect_shen_senior",
+        "source_character_ref": "character.ally_suspect",
+        "target_character_ref": "character.shen_senior",
+        "relationship_type": "父子与立场冲突",
+        "initial_state": "沈淮序对父亲既有敬意也有疑虑，知道父亲与旧事有关但不确定程度。",
+        "target_direction": "随着真相揭露，父子关系从隐性 tension 走向公开对立，沈淮序最终选择背叛家族利益协助林若。",
+        "locked": false
+      },
+      {
+        "relationship_id": "rel.protagonist_mother",
+        "source_character_ref": "character.protagonist",
+        "target_character_ref": "character.mother_deceased",
+        "relationship_type": "母女记忆与驱动力",
+        "initial_state": "林若对母亲的记忆模糊而矛盾，既有依恋也有被抛弃的困惑，母亲之死是她回到榕城的根本驱动力。",
+        "target_direction": "调查过程中通过他人视角和物证逐步拼出母亲的真实面貌，最终理解母亲当年试图保护她但无力对抗家族联手的困境，从怨恨走向带着悲伤的理解。",
+        "locked": true
+      },
+      {
+        "relationship_id": "rel.protagonist_informant",
+        "source_character_ref": "character.protagonist",
+        "target_character_ref": "character.informant_elder",
+        "relationship_type": "信息来源与依赖",
+        "initial_state": "林若通过一位当年与母亲相熟的旧城区老邻居获取零散线索，关系谨慎而有限。",
+        "target_direction": "老邻居在提供关键证词后遭受压力或威胁，成为林若意识到调查代价的第一个信号，推动她从'独自调查'转向'寻求同盟'。",
+        "locked": false
+      }
+    ],
+    "story_lines": [
+      {
+        "story_line_id": "line.main_truth_investigation",
+        "title": "母亲之死的真相调查",
+        "story_line_type": "main",
+        "premise": "林若凭借一张旧照片回到榕城，从零散线索开始追查母亲十五年前死亡的真相，调查路径从旧城区老邻居逐步深入到沈氏集团和林氏家族的内部。",
+        "planned_resolution": "真相以多层揭露的方式呈现：第一层指向沈家上一代的直接参与，第二层揭露林氏外祖家族的默许与掩盖，最终完整证据链被公之于众，部分责任人面临法律追责，但'完整正义'因证据灭失和权力干预而无法完全实现。",
+        "character_refs": [
+          "character.protagonist",
+          "character.ally_suspect",
+          "character.mother_deceased",
+          "character.family_patriarch",
+          "character.shen_senior",
+          "character.informant_elder"
+        ]
+      },
+      {
+        "story_line_id": "line.subplot_trust_betrayal",
+        "title": "信任与背叛的情感线",
+        "story_line_type": "subplot",
+        "premise": "林若与沈淮序在调查合作中建立起逐渐加深的信任和模糊的情感吸引力，但沈淮序对自身知情程度的隐瞒构成了一条贯穿始终的暗线。",
+        "planned_resolution": "信任在沈淮序被揭露早已部分知情时崩塌，两人关系进入对峙。最终沈淮序以牺牲自身利益的方式协助公开证据，形成短暂而痛苦的和解，但两人无法回到此前的关系状态，情感线以有距离的告别收束。",
+        "character_refs": [
+          "character.protagonist",
+          "character.ally_suspect"
+        ]
+      },
+      {
+        "story_line_id": "line.subplot_family_conspiracy",
+        "title": "两个家族的旧日共谋",
+        "story_line_type": "subplot",
+        "premise": "沈氏集团与林氏家族在十五年前的旧城区土地利益重组中存在深度交集，母亲林雅婷之死与这份利益交换有直接关联。这条线从社会背景层面逐步浮出水面。",
+        "planned_resolution": "共谋的全貌在故事后段被拼合：沈家直接参与，林氏默许掩盖以换取土地利益和家族名誉，两个家族都非无辜。这一揭露使林若的复仇对象从单一仇人扩展为一个共谋结构，复仇的道德边界因此模糊。",
+        "character_refs": [
+          "character.shen_senior",
+          "character.family_patriarch",
+          "character.mother_deceased"
+        ]
+      },
+      {
+        "story_line_id": "line.arc.protagonist_anger_to_understanding",
+        "title": "林若从愤怒到理解的内在转变",
+        "story_line_type": "character_arc",
+        "premise": "林若回到榕城时携带的是对被抛弃的愤怒和对母亲的怨恨混合情感，调查过程中她逐步理解母亲当年的处境和无力，同时发现自己家族的共谋身份，愤怒的对象开始分裂。",
+        "planned_resolution": "林若最终不再以单纯的受害者视角看待自己的过去，接受了母亲既爱她又无法保护她的复杂真相，也承认自己家族并非纯粹无辜。这一内在转变使她的复仇行动从情绪驱动转向理性与代价清醒的选择。",
+        "character_refs": [
+          "character.protagonist",
+          "character.mother_deceased",
+          "character.family_patriarch"
+        ]
+      }
+    ],
+    "major_setup_payoff_refs": [
+      "setup.mother_photo_name — 母亲旧照片背面的人名，故事开篇的唯一线索，最终指向沈家上一代的直接参与者。",
+      "setup.shen_family_agreement — 林氏外祖与沈家在母亲死后签署的利益交换协议，后期成为揭露共谋结构的核心证据。",
+      "setup.ally_early_resource — 沈淮序早期提供的调查资源，看似善意，后期成为'他早已知情'的反向证据。",
+      "setup.informant_intimidation — 旧城区老邻居被施压，建立'调查有现实代价'的规则，后期在林若决定是否独自深挖时产生约束力。",
+      "setup.protagonist_habit_solo — 林若习惯独断行动的特质，在信任崩塌后一度回归独断，最终因证据链需要沈淮序的协助而被迫打破这一模式。",
+      "payoff.truth_public_exposure — 真相以公开曝光形式部分实现正义，而非暴力复仇或法律完美清算，呼应主角以信息为武器的设定。"
+    ],
+    "locked_facts": [
+      "母亲林雅婷的死不是单纯的意外，涉及沈家上一代的直接参与和林氏家族的默许掩盖，是多人的共谋结果。",
+      "沈淮序是沈家上一代的儿子，在故事大部分时间内是林若的主要调查同盟，但他在某个时间点之前已经部分知情并选择了隐瞒。",
+      "林若以自由记者身份回到榕城，调查武器是信息和公开曝光，不是暴力或超自然手段。",
+      "故事最终以真相公开、部分法律追责实现收束，但情感层面无人真正获胜，结局开放而有重量。",
+      "沈淮序在关键时刻选择牺牲自身利益协助林若，但他的赎罪不被等同于无罪。",
+      "林若的外祖父是共谋结构的一部分，不是无辜的长辈。"
+    ],
+    "avoid_patterns": [
+      "避免将沈淮序写成纯粹的幕后黑手或纯粹的白莲花盟友，他的道德灰度是故事的核心张力，不可简化。",
+      "避免用突然的外部力量（如意外事故、第三方暴力介入）解决核心冲突，所有进展必须由信息揭露和人物选择驱动。",
+      "避免让林若的复仇以暴力手段实现，她的武器是社会曝光和法律途径。",
+      "避免在故事中段之前完全揭露沈淮序的知情程度，这条暗线需要逐步收紧。",
+      "避免将林氏家族写成纯粹的受害者，他们的共谋身份必须在后段揭露并产生道德冲击。",
+      "避免用浪漫爱情线取代信任与背叛的核心张力，情感纠葛服务于悬疑和复仇主线而非独立展开。",
+      "避免重复同类型的'找到一条线索→被打断→换一条线索'的循环结构，每条线索的获取必须改变可用的选择和关系状态。"
+    ],
+    "created_at": "2026-08-04T17:44:19.522056Z",
+    "approved_at": null
+  }
+}

@@ -65,6 +65,7 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
         )
         consumed_strategies = strategies if controlled else []
         revised = draft.model_copy(deep=True)
+        mainland_chinese_script = self._is_mainland_chinese_script(draft)
         revision_flags: dict[str, bool] = {}
         applied_notes: list[str] = []
         applied_actions: list[str] = []
@@ -73,6 +74,15 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
 
         for action in plan.actions:
             strategy = self._strategy_for_action(action, strategies) if controlled else None
+            if mainland_chinese_script:
+                skipped_actions.append(
+                    self._skipped_action(
+                        action,
+                        strategy,
+                        "mainland_script_requires_semantic_revision",
+                    )
+                )
+                continue
             skip_reason = self._controlled_skip_reason(plan, action, strategy, controlled)
             if skip_reason is not None:
                 skipped_actions.append(
@@ -116,12 +126,14 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
             applied_notes.extend(action_notes)
             applied_actions.append(action.action_id)
 
+        completion_note = (
+            "中国大陆终稿保留原正文，仅执行确定性验收；未应用旧版英文占位式改写。"
+            if mainland_chinese_script
+            else "Placeholder script revision pass completed from RevisionPlan actions."
+        )
         revised.qa_notes = self._merge_unique(
             revised.qa_notes,
-            applied_notes
-            + [
-                "Placeholder script revision pass completed from RevisionPlan actions.",
-            ],
+            applied_notes + [completion_note],
             max_items=self._MAX_QA_NOTES,
         )
         revised.llm_metadata = {
@@ -152,6 +164,14 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
                 revised.model_dump()
             ),
             execution_trace=trace,
+        )
+
+    @staticmethod
+    def _is_mainland_chinese_script(draft: DraftMasterScript) -> bool:
+        language = draft.language.strip().casefold()
+        platform = (draft.target_platform or "").strip().casefold()
+        return language in {"zh", "zh-cn", "chinese", "中文", "简体中文"} and (
+            "mainland" in platform or "cn_mainland" in platform or "中国大陆" in platform
         )
 
     def _controlled_skip_reason(

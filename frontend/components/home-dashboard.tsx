@@ -1,41 +1,56 @@
 "use client";
 
 import Link from "next/link";
-import type { CSSProperties } from "react";
-
+import { Trash2 } from "lucide-react";
+import { useState } from "react";
 import { ArrowIcon, PlusIcon, ScriptIcon } from "@/components/icons";
+import { SectionHelp } from "@/components/section-help";
 import { formatRelativeTime } from "@/lib/format";
 import { getLocalizedTagLabel, getTag } from "@/lib/tag-catalog";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 
 export function HomeDashboard() {
-  const { projects, isReady } = useProjects();
+  const { projects, isReady, deleteProject } = useProjects();
   const { locale, t } = useLocale();
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+
+  async function handleDelete(projectId: string): Promise<void> {
+    if (!window.confirm(t("nav.deleteConfirm"))) return;
+    setDeletingProjectId(projectId);
+    try {
+      await deleteProject(projectId);
+    } finally {
+      setDeletingProjectId(null);
+    }
+  }
 
   return (
     <main className="home-page">
-      <section className="home-hero page-reveal">
-        <div className="eyebrow"><span /> {t("home.eyebrow")}</div>
-        <p>{t("home.description")}</p>
+      <header className="library-page-header page-reveal">
+        <div>
+          <span className="eyebrow">{t("nav.scriptMaster")}</span>
+          <div className="section-title-with-help">
+            <h1>{t("home.libraryTitle")}</h1>
+            <SectionHelp content={t("guide.projectLibrary")} label={t("guide.openHelp")} />
+          </div>
+          <p>{t("home.libraryDescription")}</p>
+        </div>
         <Link className="primary-action" href="/projects/new">
           <PlusIcon />
           {t("home.start")}
         </Link>
-        <div className="hero-proof">
-          <span>01 {t("home.intent")}</span><i />
-          <span>02 {t("home.characters")}</span><i />
-          <span>03 {t("home.script")}</span>
-        </div>
-      </section>
+      </header>
 
       <section className="recent-section page-reveal delay-one">
         <div className="section-title-row">
           <div>
-            <span className="section-kicker">{t("home.shelf")}</span>
-            <h2>{t("home.recent")}</h2>
+            <div className="section-title-with-help">
+              <h2>{t("home.recent")}</h2>
+              <SectionHelp content={t("guide.recentProjects")} label={t("guide.openHelp")} />
+            </div>
+            <span>{projects.length} {t(projects.length === 1 ? "home.localProject" : "home.localProjects")}</span>
           </div>
-          {projects.length > 0 ? <span>{projects.length} {t(projects.length === 1 ? "home.localProject" : "home.localProjects")}</span> : null}
         </div>
 
         {!isReady ? (
@@ -50,33 +65,50 @@ export function HomeDashboard() {
             <ArrowIcon />
           </Link>
         ) : (
-          <div className="project-card-grid">
+          <div className="project-library-grid">
             {projects.slice(0, 6).map((project, index) => {
               const primaryTag = getTag(project.selectedTagIds[0] ?? "");
               const projectHref = project.episodes.length
                 ? `/projects/${project.id}/workspace`
-                : `/projects/${project.id}`;
+                : `/projects/${project.id}/planning`;
               return (
-                <Link
-                  className="project-card"
-                  href={projectHref}
+                <article
+                  className="project-folder-card"
                   key={project.id}
-                  style={{ "--card-index": index } as CSSProperties}
                 >
-                  <div className="project-card-topline">
-                    <span className={`project-status status-${project.status}`}>{t(`status.${project.status}`)}</span>
-                    <span>{formatRelativeTime(project.updatedAt, locale)}</span>
-                  </div>
-                  <div className="project-card-glyph">{project.title.slice(0, 1).toUpperCase()}</div>
-                  <h3>{project.title}</h3>
-                  <p>{project.creativePrompt || t("home.waiting")}</p>
-                  <div className="project-card-footer">
-                    <span>{primaryTag ? getLocalizedTagLabel(primaryTag, locale) : t("home.unclassified")}</span>
-                    <span>{project.episodes.length} {t("workspace.episodes")} · {project.characters.length} {t(project.characters.length === 1 ? "home.character" : "home.characterPlural")}</span>
-                  </div>
-                </Link>
+                  <span className="project-folder-index">PROJECT / {String(index + 1).padStart(2, "0")}</span>
+                  <button
+                    aria-label={`${t("nav.delete")} ${project.title}`}
+                    className="project-folder-delete"
+                    disabled={deletingProjectId === project.id}
+                    onClick={() => void handleDelete(project.id)}
+                    title={t("nav.delete")}
+                    type="button"
+                  >
+                    <Trash2 aria-hidden="true" size={14} />
+                  </button>
+                  <Link className="project-folder-open" href={projectHref}>
+                    <span className="project-folder-body">
+                      <span className="project-folder-mark">
+                        <ScriptIcon />
+                        <small>{String(index + 1).padStart(2, "0")}</small>
+                      </span>
+                      <span className="project-folder-copy">
+                        <small>{primaryTag ? getLocalizedTagLabel(primaryTag, locale) : t("home.unclassified")} · {project.episodes.length} {t("workspace.episodes")}</small>
+                        <strong>{project.title}</strong>
+                        <span>{formatRelativeTime(project.updatedAt, locale)}</span>
+                        <em className={`project-status status-${project.status}`}>{t(`status.${project.status}`)}</em>
+                      </span>
+                      <span className="project-folder-arrow"><ArrowIcon /></span>
+                    </span>
+                  </Link>
+                </article>
               );
             })}
+            <Link className="project-folder-create" href="/projects/new">
+              <span><PlusIcon /></span>
+              <strong>{t("home.start")}</strong>
+            </Link>
           </div>
         )}
       </section>

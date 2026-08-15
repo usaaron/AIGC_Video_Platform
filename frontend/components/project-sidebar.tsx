@@ -33,13 +33,13 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
         type="button"
       />
       <aside className={`project-sidebar ${isOpen ? "is-open" : ""}`}>
-        <Link className="brand-mark" href="/" onClick={onClose}>
-          <span className="brand-glyph">A</span>
+        <div className="sidebar-module-head">
+          <span className="sidebar-module-icon"><ScriptIcon /></span>
           <span>
-            <strong>{t("brand.name")}</strong>
-            <small>{t("brand.system")}</small>
+            <strong>{t("nav.scriptMaster")}</strong>
+            <small>{t("nav.scriptWorkspace")}</small>
           </span>
-        </Link>
+        </div>
 
         <Link className="new-script-button" href="/projects/new" onClick={onClose}>
           <PlusIcon />
@@ -71,7 +71,7 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
               const active = pathname.includes(project.id);
               const projectHref = project.episodes.length
                 ? `/projects/${project.id}/workspace`
-                : `/projects/${project.id}`;
+                : `/projects/${project.id}/planning`;
               return (
                 <div className={`project-history-row ${active ? "is-active" : ""}`} key={project.id}>
                   <Link className="project-history-item" href={projectHref} onClick={onClose}>

@@ -31,7 +31,9 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 
 本地真实模型生成可能持续数十秒或更久。`start-local.sh` 当前让浏览器通过 `NEXT_PUBLIC_API_BASE_URL` 直接访问 FastAPI，并由 `FRONTEND_ORIGINS` 控制允许来源，避免 Next.js 开发 rewrite 代理提前断开长请求。生产环境仍应由正式同域网关配置请求超时、鉴权和可观测性；该本地连接策略不改变 API 契约。
 
-长篇规划当前另有一组版本化资源 API，用于保存人工可审阅的 Project / Story Bible / Stage / Episode Plan。它们是 Script Generation Box 的上游规划资源，不是新的生成 Engine，也不自动调用 LLM。
+长篇规划当前另有一组版本化资源 API，用于保存人工可审阅的 Project / Story Bible / 递归 Story Plan Node / Stage / Episode Plan。它们是 Script Generation Box 的上游规划资源，不是新的生成 Engine。
+
+当前已实现第一步规划 runtime：`POST /story-projects/{project_id}/story-bibles/draft` 复用现有 ContentSpec、GenerationStrategy 与 LLMAdapter 生成一个 `draft` 版本并保存；若项目已有 Story Bible，该操作会在同一事务中失效并清空旧规划树、Stage、Episode Plan、生成批次/检查点、分集 Artifact、Continuity Ledger 和 Workspace 下游投影，同时返回新的 Project / Workspace revision 供 Frontend 继续同步。Frontend 的独立 `/projects/{project_id}/planning` 页面先展示并批准总纲，再继续剧情树，不在确认前展示正文。批准后通过 `POST /story-projects/{project_id}/plan-nodes/top-level/draft` 直接生成第一层真实剧情分支；服务端同步建立自动批准且前端隐藏的确定性技术根。批准的可展开分支通过 `POST /story-projects/{project_id}/plan-nodes/{node_id}/decompose` 按连续区间递归拆分；模型选择自然剧情边界，服务端强制叶节点为 8–12 集，至少 16 集的节点保持待展开，1–7 集或 13–15 集碎片返回父层协调。批准的 episode-ready 叶节点通过 `POST /story-projects/{project_id}/plan-nodes/{node_id}/episode-plans/draft` 生成单集线路图（兼容 `EpisodePlan` 契约），线路图只能分配已定义的单位剧情事件，批准后才允许进入区间内逐集正文请求。后台 Job、全自动递归和跨批次自动执行仍未实现。
 
 当前最小迁移方向：
 
@@ -55,6 +57,10 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 
 - 保留 `MockLLMAdapter`
 - 已支持一个 OpenAI-compatible `RealLLMAdapter`
+- `RealLLMAdapter` 支持 `LLM_WIRE_API=chat_completions|responses`；Responses 模式可选传递 `LLM_REASONING_EFFORT=low|medium|high`
+- OpenAI-compatible 不等于所有供应商都执行 strict JSON Schema；Story Bible 当前使用 Prompt 内权威 Schema + canonical field projection + Pydantic validation，并最多执行一次格式修复、一次中文语言修复和一次人物引用一致性修复，每类修复各自有界，不对业务语义做无限重写
+- 已支持可选的服务端 `LLM_API_KEY_01` 到 `LLM_API_KEY_XX` 正文 Key Pool；主 `LLM_API_KEY` 继续服务总纲与规划接口，编号 Key 只服务正文生成适配器
+- Key Pool 通过现有 `LLMAdapter` 抽象提供轮换和每 Key 有界并发，不改变 `POST /script-generation/generate-draft` 的请求/响应契约
 - 真实模型当前只用于能力验证和手动 integration
 - 业务层仍然只依赖 `LLMAdapter` 抽象
 - 不允许绑定单一供应商
@@ -1071,7 +1077,7 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 
 ## 长篇规划资源 API
 
-以下接口已接入 PostgreSQL persistence foundation。生产运行前必须配置 `DATABASE_URL` 并执行 Alembic migration；未配置时返回 `503`。
+以下长篇资源接口已接入 PostgreSQL persistence foundation。ContentSpec API 在配置 PostgreSQL 时也使用 durable Repository；生产运行前必须配置 `DATABASE_URL` 并执行 Alembic migration。长篇资源未配置数据库时返回 `503`，ContentSpec 则保留无数据库测试所需的进程内兼容路径。
 
 ### PUT `/story-projects/{project_id}`
 
@@ -1100,7 +1106,7 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 
 - 保存 Frontend 完整工作区 JSONB snapshot，要求 workspace payload ID 与项目 ID 一致
 - 使用独立单调递增 workspace revision；同 revision 相同 payload 可幂等重放，不同 payload 返回 `409`
-- 服务端记录 payload schema、client instance、checksum 和字节数；超过 10 MB 返回 `413`
+- 服务端记录 payload schema、client instance、checksum 和字节数；超过 50 MB 返回 `413`
 
 ### GET `/story-projects/{project_id}/workspace`
 
@@ -1154,7 +1160,7 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 - Frontend 已调用 Project、Workspace Snapshot 与 Episode Artifact 接口，并保留 IndexedDB 作为即时本地缓存和服务不可用时的离线回退
 - 合并以 `updated_at` 比较并使用 revision 防止 lost update；冲突只报告，不静默覆盖
 - 尚未开放 Continuity Ledger、Generation Batch / Job 的公共写接口
-- 尚未实现权限、租户、后台 worker、自动规划或长篇生成 facade
+- 尚未实现权限、租户、后台 worker、无人值守全树规划、跨批次自动续跑或长篇生成 facade
 - 这些接口不改变现有单集 Draft、Story QC、Revision、Acceptance 或 Finalization 行为
 
 ## 设计说明
@@ -1169,5 +1175,5 @@ Frontend MVP 当前已作为一个兼容调用方编排 `resolve-creative-intent
 - `ContentSpec` 创建时会校验引用的 `OntologyNode` 是否已存在且定义一致
 - `MasterScript` 创建时会校验引用的 `ContentSpec` 是否已存在
 - `OrchestrationPlan` 创建时会校验引用的 `ContentSpec` 是否已存在
-- 现有 ContentSpec、Prompt、Script Generation 等历史仓储仍以进程内实现为主
+- ContentSpec 已使用 PostgreSQL persistence foundation，并保持原有 API payload；Prompt、Strategy 与部分历史 Script Generation 仓储仍以进程内实现为主
 - 长篇规划资源、Frontend Workspace Snapshot 与确认/修订/终稿 Episode Artifact 已使用 PostgreSQL persistence foundation；编辑过程细粒度历史仍由 Workspace Snapshot 承载

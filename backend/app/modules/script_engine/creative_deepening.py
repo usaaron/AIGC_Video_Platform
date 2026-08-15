@@ -194,11 +194,19 @@ class CreativeDeepeningService:
             hook=generated.hook,
             synopsis=generated.synopsis,
             episode_goal=generated.episode_goal,
-            target_duration_seconds=generated.target_duration_seconds,
+            # Runtime is a project/roadmap constraint, not an editable creative field.
+            target_duration_seconds=source.target_duration_seconds,
             characters=[
                 CharacterProfile.model_validate(character.model_dump())
                 for character in generated.characters
             ],
+            # Deepening may improve expression but cannot rewrite episode consequences.
+            character_state_updates=source.character_state_updates,
+            relationship_state_updates=source.relationship_state_updates,
+            continuity_state_updates=source.continuity_state_updates,
+            story_line_updates=source.story_line_updates,
+            setup_payoff_updates=source.setup_payoff_updates,
+            continuation_hook=source.continuation_hook,
             scenes=[
                 DraftSceneCard(
                     scene_number=scene.scene_number,

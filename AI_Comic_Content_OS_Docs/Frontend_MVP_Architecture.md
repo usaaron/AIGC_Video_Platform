@@ -4,11 +4,11 @@
 
 ```yaml
 document_type: frontend_mvp_design_and_implementation_boundary
-implementation_status: usable_episode_authoring_workflow
+implementation_status: usable_human_controlled_longform_planning_and_episode_authoring
 backend_change: compatible_extension
 api_change: compatible_internal_step_endpoints
 authentication: excluded
-primary_runtime_scope: bounded_staged_episode_authoring
+primary_runtime_scope: story_bible_recursive_planning_episode_plan_bounded_draft_batches
 ```
 
 The Frontend MVP is a creator workspace over the existing Script Generation Box. Its purpose is to make the current capabilities usable without presenting research-only or shadow behavior as production features.
@@ -31,14 +31,14 @@ Phase 1 is implemented under `frontend/` with Next.js App Router and TypeScript:
 - IndexedDB local-first persistence plus versioned PostgreSQL Workspace Snapshot sync;
 - active backend Ontology tag loading with an explicitly labeled local-authoring fallback;
 - dedicated local character create/edit routes plus character-card delete actions;
-- English/Chinese UI switching with browser-local preference and stable language-neutral project data;
+- fixed Chinese UI/output under `cn_mainland`; dormant overseas locale assets remain isolated behind the market switch;
 - a typed API client and same-origin backend proxy.
 
-The frontend connects Creative Intent Resolution, episode-context Draft Generation, edit review, AI modification candidates, controlled Revision and Finalization through a same-origin Next.js proxy. Projects save immediately to IndexedDB and, when PostgreSQL is configured, synchronize a versioned complete Workspace Snapshot. Sequential mode generates one confirmed episode at a time. Full mode is executed through bounded batches; users may update inputs and add an optional stage instruction before continuing. Creative Deepening code is retained but hidden and blocked by the current frontend/backend feature flag. This is not a Story Planning runtime and does not claim series-level blueprint quality.
+The frontend connects Creative Intent Resolution, Story Bible generation and approval, recursive Story Plan Node authoring, single-episode roadmap approval, per-episode Draft generation, edit review, controlled Revision and Finalization through the existing backend APIs. Projects save immediately to IndexedDB and, when PostgreSQL is configured, synchronize a versioned complete Workspace Snapshot. The product no longer exposes Sequential / Full modes: every project follows the same human-controlled planning path before episode body generation. Creative Deepening code is retained but hidden and blocked by the current frontend/backend feature flag. This is a partial Story Planning runtime, not an unattended whole-series generator.
 
 Every project records its market profile. The frontend exposes only projects matching the active runtime market. Under `cn_mainland`, overseas/TikTok and unknown legacy projects are absent from the sidebar, dashboard and direct project routes while their persisted records remain untouched. The frontend must never silently rewrite, reveal or continue a project under a different Prompt / Strategy lineage.
 
-Under `cn_mainland`, the interface locale and generation output are fixed to Chinese; language controls and overseas UI entry points are hidden. This constraint is enforced when projects are created, restored and sent to generation. Bilingual and English presentation assets remain dormant and are restored only under `overseas_tiktok`.
+Under `cn_mainland`, the interface locale and generation output are fixed to Chinese; language controls and overseas UI entry points are hidden. Missing mainland translations must expose the untranslated key rather than silently falling back to English. Story Bible, planning nodes, Episode Plans and episode Drafts reject visible English leakage after one bounded language-repair attempt, while technical IDs and internal enum values remain unchanged. Bilingual and English presentation assets remain dormant and are restored only under `overseas_tiktok`.
 
 The frontend currently orchestrates existing step APIs. This makes the product usable but does not mean `ScriptGenerationFacade`, formal `ScriptGenerationRequest / Result`, or `generate_script()` has been implemented.
 
@@ -49,6 +49,8 @@ The frontend currently orchestrates existing step APIs. This makes the product u
 - Resolve `CreativeIntentInput` into `ContentSpec + ResolvedCreativeContext`.
 - List controlled Ontology tags and Platform Profiles.
 - List versioned Generation Strategies.
+- Generate, edit, version and approve Story Bible, recursive Story Plan Node and single-episode roadmap drafts.
+- Decompose approved planning branches along content-driven boundaries until every `episode_ready` leaf covers 8–12 episodes; branches of at least 16 episodes remain expandable, while 1–7 and 13–15 episode fragments return to their parent for sibling story coordination.
 - Generate one structured `DraftMasterScript` with Scene Causality.
 - Retain an optional Creative Deepening shadow candidate contract; current runtime flag disables generation and the explicit API.
 - Build or consume the generated `RevisionPlan`.
@@ -62,12 +64,12 @@ The frontend currently orchestrates existing step APIs. This makes the product u
 - Character CRUD independent of `CreativeIntentInput`.
 - Draft update or version persistence.
 - Fine-grained edit history and Artifact audit/restore UI; confirmed Draft / Revised / Final milestones are persisted independently.
-- Story Blueprint or Episode Planning runtime.
-- Server-side multi-episode transaction/facade; current Full mode is bounded frontend orchestration.
+- Unattended whole-tree planning, automatic approval or cross-leaf scheduling.
+- Server-side multi-episode transaction/facade; current body generation remains bounded frontend orchestration over single-episode Draft calls.
 - Trending-tag recommendations from Data Intelligence.
 - Authentication or user ownership.
 
-Current repositories are in memory. Backend restart can invalidate stored ContentSpec, Strategy or MasterScript IDs. The frontend must not imply durable cloud persistence.
+ContentSpec, Story Project, Workspace Snapshot, planning versions and Episode milestone Artifacts use PostgreSQL when configured. Strategy and some legacy Script Engine repositories remain process-local and are bootstrapped for the current local runtime; the frontend must not imply authentication-scoped cloud persistence or unattended recovery.
 
 ## 3. MVP Product Boundary
 
@@ -76,7 +78,8 @@ Current repositories are in memory. Backend restart can invalidate stored Conten
 - Local creation and management of multiple script projects.
 - Structured Creative Intent form with selected/excluded tags.
 - Local Character Builder mapped deterministically to current `CharacterContext`.
-- Sequential and bounded full-framework generation through existing APIs plus optional episode context.
+- Story Bible and recursive planning tree authoring with explicit edit/save/approve controls.
+- Bounded episode body generation through existing single-episode APIs plus approved leaf and episode-roadmap context.
 - Source Draft reading, local editing and export.
 - Bounded staged generation with editable inputs between stages and local batch lineage.
 - Controlled Revision and Finalization using an unchanged generated lineage.
@@ -84,7 +87,7 @@ Current repositories are in memory. Backend restart can invalidate stored Conten
 
 ### Still Disabled / Deferred
 
-- Story Blueprint / Episode Planning runtime.
+- Unattended whole-tree planning, automatic planning approval and backend cross-batch execution.
 - Creative Deepening UI and backend execution while the feature flag remains disabled.
 - Deepen All as one server transaction.
 - Fine-grained server-side editing history beyond the current milestone artifacts and workspace snapshot.
@@ -93,7 +96,7 @@ Current repositories are in memory. Backend restart can invalidate stored Conten
 
 - Authentication, payment, community and social features.
 - Admin tools, analytics dashboard and Data Intelligence dashboard.
-- Story Planning, RAG, Knowledge management UI and Prompt editing.
+- Dynamic RAG, Knowledge management UI and Prompt editing.
 - Video, Storyboard, Voice, Animation and Seedance workflows.
 - Automatic application of Deepening shadow candidates.
 
@@ -105,12 +108,21 @@ Recommended routes:
 /
 /projects/new
 /projects/:projectId
+/projects/:projectId/planning
 /projects/:projectId/characters/new
 /projects/:projectId/characters/:characterId
 /projects/:projectId/workspace
 ```
 
 Character routes may render as modal routes on desktop and full pages on mobile.
+
+The recursive Story Plan Tree uses progressive disclosure rather than rendering every
+node body at once. Each node first appears as a compact summary containing planning
+depth, episode range, title, estimated body-character budget, version and approval
+status. The creator can independently expand node details and each child branch.
+Only the root child group opens by default; deeper branches remain folded until the
+creator chooses to inspect them. Editing, approval and decomposition actions remain
+inside the expanded node and retain their existing backend contracts.
 
 ### 4.1 App Shell
 
@@ -274,18 +286,14 @@ This composition is a compatibility compromise, not the future Character Profile
 
 #### Section D: Generation Settings
 
-- Mode selector.
-- Output language.
-- Target duration.
-- Desired scene count, constrained to 2-8.
-- Custom instructions.
+- Target total body characters, defaulting to 600,000 as a product target rather than a single-call limit.
+- Recommended or user-specified episode count.
+- Preferred episode duration and story density for capacity estimation.
+- Bounded batch size, constrained to 1-20.
+- Story-adaptive scene reference per episode, normally 2-5 according to the approved episode plan's dramatic load.
+- Custom instructions that apply to future, not already approved, planning/body content.
 
-Mode states:
-
-| Mode | MVP state | Behavior |
-|---|---|---|
-| Sequential Generation | Enabled | Generate and confirm one episode, then optionally guide the next episode |
-| Full Generation | Enabled, staged | Generate a bounded batch, review or update the brief, then explicitly continue later batches |
+The persisted `mode` field remains only for legacy payload compatibility and is normalized internally. There is no creator-facing mode selector. Output language is fixed to Chinese under `cn_mainland`.
 
 The user does not choose internal Prompt IDs, bundle IDs or model provider. The frontend maps product settings to an approved GenerationStrategy configured for the environment.
 
@@ -303,8 +311,8 @@ Episode actions in MVP:
 
 - Every generated episode supports View, structured Edit, Save and Confirm.
 - AI modification creates a separate candidate that requires explicit user application; Creative Deepening is currently hidden and backend-disabled.
-- Sequential `Generate Next Episode` accepts an optional instruction; skipping continues from confirmed context.
-- Full mode switches among generated episodes; at the batch boundary it opens an optional stage-instruction dialog before generating the next bounded batch.
+- The next bounded body batch can start only when every requested episode is covered by an approved semantically ready direct-script leaf; long leaves are processed through balanced resumable execution batches around ten episodes.
+- Generated episodes remain individually selectable, editable and exportable even though the product exposes one long-form workflow.
 - Per-episode and whole-series Markdown/JSON export are enabled; global `Deepen All` remains deferred.
 
 Main tabs:
@@ -379,9 +387,10 @@ Version numbering belongs to the local project UX and must not overwrite backend
 - 双语视图按 Draft ID 缓存在本地项目中，不污染正式 `MasterScript`
 - 英文界面不显示中文译文
 - 工作区提供“分集剧本”和“故事线与人物关系”两个项目视图
-- 故事线与关系网是可编辑 continuity artifact，不是 Story Planning runtime
-- 目标人物关系网使用角色节点和方向性关系边，直观展示关系类型、当前状态和跨集变化；目标故事线视图使用主线/支线/人物弧分支并关联规划节点与分集推进
-- 人物节点可点击进入人物详情页/侧栏，查看简介、设定、动机、首次出现位置和变化历史；关系连线可点击进入关系详情，查看方向、关系说明、成立原因、关键事件、证据集数和状态变化
+- 故事线与关系网是 Story Bible / Planning / Continuity facts 的辅助投影，不替代递归 Story Plan Tree 的权威规划对象
+- 当前基础关系图使用可点击角色节点与关系记录，展示关系类型、当前状态和跨集变化；正式自由布局连线图及故事线树联动仍是后续 UI 增强
+- 人物节点当前可查看人物卡并进入人物编辑页；关系记录可展开当前状态与逐集证据。首次出现位置、完整变化历史和关系/故事线交叉跳转仍依赖后端 Continuity lifecycle
+- 分集结构化输出中的新人物会补充到本地人物卡；用户输入字段优先，自动来源只补空缺或更新 generated 字段。新关系必须具备同场景双方证据才进入本地投影
 - 人物输入在创建项目时可为空；生成过程中新出现的人物、关系和支线先显示为待确认更新，确认后才成为后续生成约束
 - 关系网与故事线在统一“故事地图”入口中切换或联动展示，但不合并底层对象；关系详情可以跳转到相关故事线，故事线可以筛选参与人物与关系变化
 - 修改默认只对明确生效点之后的未生成内容生效；已有分集不得自动同步改写。未来先展示影响范围，再允许 future-only、创建项目分支、重规划未确认内容或显式历史再生成
@@ -576,12 +585,16 @@ interface CharacterDraft {
 }
 
 interface GenerationSettings {
-  mode: "single_episode" | "sequential" | "full";
-  outputLanguage: string;
-  desiredSceneCount: number;
-  targetDurationSeconds: number;
-  prepareDeepeningPreview: boolean;
-  customInstructions: string[];
+  mode: "sequential" | "full"; // persisted compatibility; runtime normalizes to full
+  episodeCountMode: "recommended" | "custom";
+  episodeCount: number;
+  targetTotalCharacters: number;
+  preferredEpisodeDurationMinutes: number;
+  storyDensity: "compact" | "balanced" | "detailed";
+  batchSize: number;
+  outputLanguage: "en" | "zh";
+  sceneCount: number;
+  customInstructions: string;
 }
 
 interface ProjectVersion {
@@ -706,16 +719,23 @@ Implemented:
 7. Controlled Revision, Re-QC, Acceptance shadow display and Finalization flow.
 8. Responsive UI and retained bilingual capability; current `cn_mainland` mode fixes the interface/output to Chinese and hides the language switch.
 9. Local-first Project + Workspace Snapshot server synchronization, recovery, conflict reporting and revision-protected soft deletion.
+10. Story Bible and recursive Story Plan Node authoring with LLM draft generation, editing, immutable version saves and explicit approval.
+11. Approved episode-ready leaves feeding approved single-episode roadmaps and bounded episode body batches through the existing single-episode Draft API.
+12. Progressive-disclosure Story Plan Tree navigation with compact node summaries and independently collapsible child branches.
+13. Recursive planning stops when a node is semantically ready for episode roadmapping, regardless of episode span. The leaf and approved roadmap together constrain one independent full-script request per episode; runtime groups those requests into balanced batches around the configured preference.
+14. Episode Plan history remains immutable on the backend, while the main workspace shows and consumes only the highest version for each episode so v1/v2/v3 do not appear as duplicate episodes.
 
 Still pending:
 
 - browser-level automated interaction coverage;
 - Artifact audit/restore UI and fine-grained intermediate editing versions;
 - standalone re-QC for locally edited Drafts;
-- Story Bible / recursive Story Plan / Episode Plan authoring and approval UI;
-- backend durable generation jobs and resumable multi-episode execution. Current sequential and bounded staged generation already reuse the single-episode API from the frontend.
+- backend durable generation jobs and resumable cross-batch execution. Current approved leaves reuse the single-episode API from the frontend.
+- automatic Continuity Ledger updates and bounded continuity context selection across batches.
 
-Do not start with multi-episode orchestration or a frontend-specific backend facade.
+Do not add a second frontend-specific generation workflow or bypass the recursive planning contracts with a parallel facade.
+
+剧情边界决定递归树怎样非均匀拆分，但系统集数门禁不可覆盖：episode-ready 叶节点必须为 8–12 集，至少 16 集的节点必须继续递归；1–7 集或 13–15 集碎片不得批准，必须回到父层与相邻分支协调整段事件、状态交接和范围。叶节点先完整定义单位剧情因果链、局部结算和后续压力，再形成逐集线路图；正文严格按集号串行执行，每一集完成后先更新人物卡、人物关系、故事线和上一集状态摘要，再生成下一集。
 
 ## 14. Future Extension Points
 
@@ -724,7 +744,7 @@ Do not start with multi-episode orchestration or a frontend-specific backend fac
 - Relationship Context authoring.
 - Standalone re-QC/rebase for manually edited Drafts.
 - Standalone Deepening request and an evidence-approved apply decision.
-- Story Blueprint, Episode Plans and sequential/full generation.
+- Unattended whole-tree planning, durable cross-leaf scheduling and resumable generation jobs.
 - Real trending recommendations from Data Intelligence.
 - Source-grounded Tag Knowledge Profile previews and provenance.
 - Project-scoped CustomTagContext interpretation and confirmation before an unknown tag affects synopsis generation.

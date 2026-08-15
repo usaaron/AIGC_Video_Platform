@@ -155,6 +155,72 @@ def test_template_prompt_builder_injects_only_resolved_creative_context() -> Non
     assert "Preserve locked fields" in result.prompt_text
 
 
+def test_template_prompt_builder_keeps_chinese_json_context_compact() -> None:
+    builder = TemplatePromptBuilder(builder_version="v0.test")
+    prompt = PromptLibraryItem.model_validate(build_prompt_item())
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    context = PromptBuildContext.model_validate(
+        {
+            "content_spec_id": "content_spec_001",
+            "content_spec_title": "长篇悬疑",
+            "creative_brief_summary": "调查母亲死亡真相",
+            "platform_profile_id": "cn_mainland_comic_drama_v1",
+            "audience_profile_summary": "中国大陆漫剧受众",
+            "commercial_goal_summary": "持续追更",
+            "generation_strategy_id": strategy.id,
+            "extra_variables": {
+                "episode_context_json": json.dumps(
+                    {
+                        "episode_number": 1,
+                        "episode_instruction": "从母亲遗物切入调查。",
+                    },
+                    ensure_ascii=True,
+                ),
+            },
+        }
+    )
+
+    result = builder.build_master_prompt(
+        prompts=[prompt],
+        context=context,
+        strategy=strategy,
+    )
+
+    assert "从母亲遗物切入调查" in result.prompt_text
+    assert "\\u4ece\\u6bcd\\u4eb2" not in result.prompt_text
+
+
+def test_template_prompt_builder_supports_longform_prompt_over_30000_characters() -> None:
+    builder = TemplatePromptBuilder(builder_version="v0.test")
+    prompt = PromptLibraryItem.model_validate(build_prompt_item())
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    context = PromptBuildContext.model_validate(
+        {
+            "content_spec_id": "content_spec_longform",
+            "content_spec_title": "长篇故事",
+            "creative_brief_summary": "保持连续性",
+            "platform_profile_id": "cn_mainland_comic_drama_v1",
+            "audience_profile_summary": "中国大陆漫剧受众",
+            "commercial_goal_summary": "长篇持续追更",
+            "generation_strategy_id": strategy.id,
+            "extra_variables": {
+                "episode_context_json": json.dumps(
+                    {"project_continuity_summary": "剧情状态" * 8_000},
+                    ensure_ascii=False,
+                ),
+            },
+        }
+    )
+
+    result = builder.build_master_prompt(
+        prompts=[prompt],
+        context=context,
+        strategy=strategy,
+    )
+
+    assert len(result.prompt_text) > 30_000
+
+
 def test_template_prompt_builder_injects_bounded_knowledge_bundle() -> None:
     builder = TemplatePromptBuilder(builder_version="v0.test")
     prompt = PromptLibraryItem.model_validate(build_prompt_item())
@@ -206,7 +272,7 @@ def test_template_prompt_builder_injects_bounded_knowledge_bundle() -> None:
     assert "Do not state agency without an action" in result.prompt_text
 
 
-def test_template_prompt_builder_injects_bounded_script_body_target() -> None:
+def test_template_prompt_builder_injects_flexible_script_body_range() -> None:
     builder = TemplatePromptBuilder(builder_version="v0.3-test")
     prompt = PromptLibraryItem.model_validate(build_prompt_item())
     strategy = GenerationStrategy.model_validate(build_strategy())
@@ -219,7 +285,10 @@ def test_template_prompt_builder_injects_bounded_script_body_target() -> None:
             "audience_profile_summary": "Mainland serialized comic audience",
             "commercial_goal_summary": "Build a durable long-form story",
             "generation_strategy_id": strategy.id,
-            "extra_variables": {"target_script_body_characters": "1797"},
+            "extra_variables": {
+                "target_script_body_characters": "1797",
+                "desired_scene_count": "3",
+            },
         }
     )
 
@@ -231,5 +300,85 @@ def test_template_prompt_builder_injects_bounded_script_body_target() -> None:
 
     assert "ScriptBodyLengthContract:" in result.prompt_text
     assert "TargetScriptBodyCharacters: 1797" in result.prompt_text
+    assert "reference midpoint" in result.prompt_text
+    assert "1258-2516 effective characters" in result.prompt_text
+    assert "There is no per-scene character quota" in result.prompt_text
+    assert "plot movement" in result.prompt_text
     assert "character_actions and dialogues.text" in result.prompt_text
-    assert "Do not pad with repetition" in result.prompt_text
+    assert "Do not add or repeat content to reach the midpoint" in result.prompt_text
+
+
+def test_template_prompt_builder_requires_mainland_production_script_body() -> None:
+    builder = TemplatePromptBuilder(builder_version="v0.3-test")
+    prompt = PromptLibraryItem.model_validate(build_prompt_item())
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    context = PromptBuildContext.model_validate(
+        {
+            "content_spec_id": "content_spec_mainland_001",
+            "content_spec_title": "中国大陆长篇漫剧",
+            "creative_brief_summary": "以可视化行动推进每一场戏。",
+            "platform_profile_id": "cn_mainland_comic_drama_v1",
+            "audience_profile_summary": "中国大陆漫剧受众",
+            "commercial_goal_summary": "形成可持续的长篇追更动力",
+            "generation_strategy_id": strategy.id,
+            "extra_variables": {"output_language": "zh"},
+        }
+    )
+
+    result = builder.build_master_prompt(
+        prompts=[prompt],
+        context=context,
+        strategy=strategy,
+    )
+
+    assert "PartnerScreenplayDeliveryContract:" in result.prompt_text
+    assert "不写小说、提纲、分集计划或框架" in result.prompt_text
+    assert "不得少于75秒、不得超过115秒" in result.prompt_text
+    assert "INT.或EXT." in result.prompt_text
+    assert "（O.S.）、（V.O.）" in result.prompt_text
+    assert "美国短剧" in result.prompt_text
+    assert "整部作品的目标成片总时长不少于100分钟" in result.prompt_text
+    assert "通常安排2至3次短循环" in result.prompt_text
+    assert "character_actions" in result.prompt_text
+    assert "dialogues" in result.prompt_text
+    assert "统一添加△" in result.prompt_text
+    assert "不写特写、镜头推进等镜头语言" in result.prompt_text
+    assert "SerialEpisodeHookContract:" in result.prompt_text
+    assert "previous_episode_question" in result.prompt_text
+    assert "For every non-final episode" in result.prompt_text
+    assert "For the series finale" in result.prompt_text
+    assert "每项是一个可独立拍摄" in result.prompt_text
+
+
+def test_partner_delivery_contract_localizes_only_overseas_dialogue_path() -> None:
+    builder = TemplatePromptBuilder(builder_version="v0.3-test")
+    prompt = PromptLibraryItem.model_validate(build_prompt_item())
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    context = PromptBuildContext.model_validate(
+        {
+            "content_spec_id": "content_spec_overseas_001",
+            "content_spec_title": "Overseas short drama",
+            "creative_brief_summary": "Escalate a visible betrayal.",
+            "platform_profile_id": "overseas_tiktok_v1",
+            "audience_profile_summary": "US vertical drama viewers",
+            "commercial_goal_summary": "Sustain episodic viewing",
+            "generation_strategy_id": strategy.id,
+            "extra_variables": {
+                "output_language": "en",
+                "target_duration_seconds": "108",
+            },
+        }
+    )
+
+    result = builder.build_master_prompt(
+        prompts=[prompt],
+        context=context,
+        strategy=strategy,
+    )
+
+    assert "PartnerScreenplayDeliveryContract:" in result.prompt_text
+    assert "海外路径的动作与画面描述使用简体中文" in result.prompt_text
+    assert "人物使用稳定英文名" in result.prompt_text
+    assert "dialogues.text使用自然的美国短剧英语" in result.prompt_text
+    assert "TargetDurationSeconds: 108" in result.prompt_text
+    assert "不得少于75秒、不得超过115秒" in result.prompt_text

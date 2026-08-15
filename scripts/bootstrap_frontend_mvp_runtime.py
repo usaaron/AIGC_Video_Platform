@@ -196,7 +196,11 @@ def _bootstrap_payloads(
         platform_payload = _build_mainland_platform_profile_payload(profile_id)
         prompt_payloads = _build_mainland_prompt_library_payload(suffix)
         strategy_payloads = [
-            _build_mainland_generation_strategy_payload(suffix, model_config)
+            _build_mainland_generation_strategy_payload(suffix, model_config),
+            _build_mainland_longform_knowledge_candidate_strategy_payload(
+                suffix,
+                model_config,
+            ),
         ]
         ontology_nodes = MAINLAND_FRONTEND_ONTOLOGY_NODES
     else:
@@ -336,7 +340,8 @@ def _build_mainland_prompt_library_payload(suffix: str) -> list[dict[str, Any]]:
             "target_audience": "Mainland China serialized comic-drama audience",
             "version": "v1",
             "prompt_template": (
-                "根据结构化创作意图生成中文连载故事的单集框架。优先保持人物动机、关系、世界规则和前后状态一致；"
+                "根据结构化创作意图和已批准单集线路图，生成中文连载漫剧的单集正式可拍摄剧本正文。"
+                "线路图负责约束本集目标、冲突、转折和退出状态，不要重新规划剧情。优先保持人物动机、关系、世界规则和前后状态一致；"
                 "每个场景必须包含明确目标、有效阻力和改变故事状态的结果，后续场景应由此前结果推动。"
                 "不得套用 TikTok、海外短视频或固定付费卡点规则，不得擅自改变用户锁定的人物设定。"
             ),
@@ -354,7 +359,7 @@ def _build_mainland_prompt_library_payload(suffix: str) -> list[dict[str, Any]]:
             ],
             "output_schema": {"type": "object"},
             "evaluation_notes": [
-                "Current runtime still generates bounded episode frameworks, not a complete 600,000-character manuscript.",
+                "Generate one bounded production-readable episode body from the approved route.",
                 "Prefer continuity and consequential character choices over disconnected short-form shocks.",
                 "Hongguo is a market reference, not a hard platform contract.",
             ],
@@ -424,7 +429,9 @@ def _build_mainland_generation_strategy_payload(
             },
         ],
         "prompt_ids": [story_prompt_id, serialization_prompt_id],
-        "draft_knowledge_bundle_id": None,
+        "draft_knowledge_bundle_id": (
+            "knowledge_bundle.draft.cn_mainland_longform_foundation.v1"
+        ),
         "deepening_mode": "disabled",
         "deepening_prompt_ids": [],
         "deepening_knowledge_bundle_id": None,
@@ -433,8 +440,29 @@ def _build_mainland_generation_strategy_payload(
         "human_review_required": True,
         "output_schema": {"type": "object"},
         "version": "v1",
-        "status": "active",
+        # Keep the foundation strategy available for explicit comparisons, but
+        # make the long-form strategy below the only default mainland choice.
+        "status": "draft",
     }
+
+
+def _build_mainland_longform_knowledge_candidate_strategy_payload(
+    suffix: str,
+    model_config: Any,
+) -> dict[str, Any]:
+    payload = _build_mainland_generation_strategy_payload(suffix, model_config)
+    payload.update(
+        {
+            "id": "strategy.cn_mainland.longform_knowledge_candidate.v2",
+            "name": "Mainland China Longform Story Strategy v2",
+            "draft_knowledge_bundle_id": (
+                "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2"
+            ),
+            "version": "v2",
+            "status": "active",
+        }
+    )
+    return payload
 
 
 def _build_overseas_generation_strategy_payloads(

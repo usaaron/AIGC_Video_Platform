@@ -18,6 +18,49 @@ export interface CharacterDraft {
   background: string;
   appearance: string;
   description: string;
+  motivation?: string;
+  source?: "user" | "generated";
+  lastUpdatedEpisode?: number;
+  dynamicState?: CharacterDynamicState;
+  stateHistory?: CharacterStateChange[];
+}
+
+export type CharacterStateCommitStatus = "provisional" | "confirmed";
+
+export interface CharacterDynamicState {
+  currentGoal: string;
+  emotionalState: string;
+  beliefOrAttitude?: string;
+  lifeStatus?: "alive" | "dead" | "missing" | "unknown";
+  physicalState?: string;
+  location?: string;
+  currentKnowledge: string[];
+  knowledgeStates?: CharacterKnowledgeRecord[];
+  healthConditions?: string[];
+  actionCapabilities?: string[];
+  lastingMarks?: string[];
+  activeConstraints: string[];
+  personalityDevelopment?: string;
+  latestChangeSummary: string;
+  latestChangeCause: string;
+  lastUpdatedEpisode: number;
+}
+
+export interface CharacterKnowledgeRecord {
+  knowledgeKey: string;
+  statement: string;
+  status: "known" | "believed" | "suspected" | "disproved" | "forgotten";
+}
+
+export interface CharacterStateChange {
+  episodeNumber: number;
+  summary: string;
+  cause: string;
+  evidenceSceneNumbers: number[];
+  currentGoal: string;
+  emotionalState: string;
+  personalityChange?: string;
+  status: CharacterStateCommitStatus;
 }
 
 export interface CustomTagDraft {
@@ -26,9 +69,32 @@ export interface CustomTagDraft {
   createdAt: string;
 }
 
+export type ReferenceMaterialPurpose =
+  | "format_template"
+  | "story_reference"
+  | "world_setting"
+  | "character_reference"
+  | "style_reference"
+  | "other";
+
+export interface ProjectReferenceMaterial {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  purpose: ReferenceMaterialPurpose;
+  purposeNote: string;
+  extractedText: string;
+  originalCharacterCount: number;
+  truncated: boolean;
+  createdAt: string;
+}
+
 export type GenerationMode = "sequential" | "full";
 export type EpisodeCountMode = "recommended" | "custom";
 export type StoryDensity = "compact" | "balanced" | "detailed";
+export type FailureRetryMode = "automatic" | "manual";
+export type ReleaseRegion = "cn_mainland" | "overseas";
 
 export interface GenerationSettings {
   mode: GenerationMode;
@@ -40,19 +106,24 @@ export interface GenerationSettings {
   batchSize: number;
   outputLanguage: "en" | "zh";
   sceneCount: number;
+  failureRetryMode: FailureRetryMode;
+  releaseRegion: ReleaseRegion;
   customInstructions: string;
 }
 
 export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
-  mode: "sequential",
-  episodeCountMode: "recommended",
-  episodeCount: 334,
-  targetTotalCharacters: 600000,
-  preferredEpisodeDurationMinutes: 3,
+  // Retained for persisted payload compatibility; the product exposes one recursive workflow.
+  mode: "full",
+  episodeCountMode: "custom",
+  episodeCount: 300,
+  targetTotalCharacters: 140000,
+  preferredEpisodeDurationMinutes: 1.5,
   storyDensity: "balanced",
-  batchSize: 5,
+  batchSize: 10,
   outputLanguage: "zh",
   sceneCount: 3,
+  failureRetryMode: "automatic",
+  releaseRegion: "cn_mainland",
   customInstructions: "",
 };
 
@@ -62,16 +133,32 @@ export interface ScriptProject {
   titleSource: ProjectTitleSource;
   marketProfile: ProjectMarketProfile;
   creativePrompt: string;
+  referenceMaterials: ProjectReferenceMaterial[];
   selectedTagIds: string[];
   customTags: CustomTagDraft[];
   characters: CharacterDraft[];
   generationSettings: GenerationSettings;
   episodes: EpisodeWorkspace[];
   generationBatches: GenerationBatchRecord[];
+  activeGenerationTask?: GenerationRecoveryTask;
   activeEpisodeNumber: number;
   storyLines: ProjectStoryLine[];
   characterRelationships: CharacterRelationship[];
+  continuationHooks?: ContinuationHookRecord[];
+  setupPayoffs?: PlotSetupPayoffRecord[];
+  continuityStates?: ContinuityStateRecord[];
   contentSpecId?: string;
+  resolvedCreativeContext?: unknown;
+  generationStrategyId?: string;
+  creativeDirectionCandidates?: CreativeDirectionCandidate[];
+  creativeDirectionInputSignature?: string;
+  selectedCreativeDirection?: CreativeDirectionCandidate;
+  storyBibleInputSignature?: string;
+  storyBibleVersion?: number;
+  storyBibleStatus?: "draft" | "approved" | "superseded";
+  episodePlansReadyThrough?: number;
+  episodeRoadmapRequired?: boolean;
+  episodeRoadmaps?: EpisodeRoadmapItem[];
   sourceProjectId?: string;
   serverSync?: ProjectServerSyncState;
   // Legacy single-episode fields remain readable during local project migration.
@@ -83,6 +170,12 @@ export interface ScriptProject {
   status: ProjectStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CreativeDirectionCandidate {
+  title: string;
+  style_description: string;
+  content_description: string;
 }
 
 export type ProjectServerSyncStatus =
@@ -113,6 +206,66 @@ export interface GenerationBatchRecord {
   status: GenerationBatchStatus;
   createdAt: string;
   completedAt?: string;
+}
+
+export type GenerationRecoveryStatus =
+  | "running"
+  | "paused"
+  | "completed"
+  | "partial"
+  | "failed";
+
+export interface GenerationRecoveryTask {
+  batchId: string;
+  batchRevision: number;
+  jobId: string;
+  jobRevision: number;
+  batchNumber: number;
+  startEpisode: number;
+  endEpisode: number;
+  episodePlanIds: string[];
+  instruction?: string;
+  status: GenerationRecoveryStatus;
+  attemptCount: number;
+  completedEpisodeNumbers: number[];
+  failedEpisodeNumbers: number[];
+  lastError?: string;
+  createdAt: string;
+  checkpointedAt: string;
+  completedAt?: string;
+  serverBacked?: boolean;
+}
+
+export interface EpisodeRoadmapItem {
+  source_node_id: string;
+  source_node_version: number;
+  story_bible_version: number;
+  status: "draft" | "approved";
+  episode_number: number;
+  target_duration_seconds: number;
+  planned_scene_count: number;
+  planned_shot_count: number;
+  episode_goal: string;
+  entry_state: string;
+  central_conflict: string;
+  protagonist_decision: string;
+  reveal: string | null;
+  emotional_movement: string;
+  stage_opposition: string;
+  episode_payoff: string;
+  pressure_escalation: string;
+  setup_refs: string[];
+  payoff_refs: string[];
+  exit_state: string;
+  cliffhanger: string;
+  character_refs: string[];
+  story_line_refs: string[];
+  continuity_requirements: string[];
+  source_turning_points: string[];
+  source_unit_story_beats: string[];
+  ending_hook_type: string;
+  next_episode_obligation: string;
+  hook_payoff_target_episode: number | null;
 }
 
 export type EpisodeStatus =
@@ -159,6 +312,14 @@ export type StoryLineStatus = "setup" | "active" | "resolved";
 export interface StoryLineEpisodeBeat {
   episodeNumber: number;
   summary: string;
+  cause?: string;
+  evidenceSceneNumbers?: number[];
+  contributionType?: "setup" | "progress" | "turning_point" | "payoff" | "resolution";
+  plannedBeatRef?: string;
+  plannedBeat?: string;
+  alignment?: "aligned" | "expanded" | "deviated" | "missing";
+  alignmentNote?: string;
+  nextRequiredStep?: string;
 }
 
 export interface ProjectStoryLine {
@@ -170,11 +331,83 @@ export interface ProjectStoryLine {
   characterIds: string[];
   episodeBeats: StoryLineEpisodeBeat[];
   userEdited: boolean;
+  source?: "story_bible" | "generated" | "user";
+  plannedResolution?: string;
+  currentState?: string;
+  lastProgressedEpisode?: number;
+  health?: "on_track" | "attention" | "resolved";
+  warnings?: string[];
+  nextRequiredStep?: string;
+}
+
+export interface ContinuationHookRecord {
+  episodeNumber: number;
+  hookType: string;
+  summary: string;
+  nextEpisodeObligation: string;
+  targetPayoffEpisode?: number;
+  status: "open" | "overdue" | "fulfilled";
+  fulfilledEpisode?: number;
+  respondsToEpisode?: number;
+  responseSummary?: string;
+  evidenceSceneNumbers: number[];
+}
+
+export interface PlotSetupPayoffChange {
+  episodeNumber: number;
+  action: "setup" | "reinforce" | "partial_payoff" | "payoff" | "defer";
+  summary: string;
+  cause: string;
+  evidenceSceneNumbers: number[];
+}
+
+export interface PlotSetupPayoffRecord {
+  ref: string;
+  description: string;
+  status: "open" | "overdue" | "paid_off";
+  setupEpisode?: number;
+  lastUpdatedEpisode: number;
+  targetPayoffEpisode?: number;
+  payoffEpisode?: number;
+  nextRequiredStep?: string;
+  warnings: string[];
+  history: PlotSetupPayoffChange[];
+}
+
+export interface ContinuityStateChange {
+  episodeNumber: number;
+  transition: GeneratedContinuityStateUpdate["transition"];
+  currentState: string;
+  persistence: GeneratedContinuityStateUpdate["persistence"];
+  futureConstraint?: string;
+  cause: string;
+  evidenceSceneNumbers: number[];
+  status: CharacterStateCommitStatus;
+}
+
+export interface ContinuityStateRecord {
+  entityKey: string;
+  entityType: GeneratedContinuityStateUpdate["entity_type"];
+  entityName: string;
+  stateDomain: GeneratedContinuityStateUpdate["state_domain"];
+  currentState: string;
+  persistence: GeneratedContinuityStateUpdate["persistence"];
+  futureConstraint?: string;
+  lastUpdatedEpisode: number;
+  history: ContinuityStateChange[];
 }
 
 export interface RelationshipEpisodeChange {
   episodeNumber: number;
   summary: string;
+  sourceCharacterId?: string;
+  targetCharacterId?: string;
+  relationshipType?: string;
+  sourceToTarget?: string;
+  targetToSource?: string;
+  currentState?: string;
+  cause?: string;
+  evidenceSceneNumbers?: number[];
 }
 
 export interface CharacterRelationship {
@@ -183,6 +416,9 @@ export interface CharacterRelationship {
   targetCharacterId: string;
   relationshipType: string;
   currentState: string;
+  sourceToTarget?: string;
+  targetToSource?: string;
+  lastUpdatedEpisode?: number;
   episodeChanges: RelationshipEpisodeChange[];
   userEdited: boolean;
 }
@@ -226,9 +462,98 @@ export interface GeneratedDraft {
   episode_goal?: string;
   language: string;
   characters: Array<{ name: string; role: string; description: string; motivation: string }>;
+  character_state_updates?: GeneratedCharacterStateUpdate[];
+  relationship_state_updates?: GeneratedRelationshipStateUpdate[];
+  continuity_state_updates?: GeneratedContinuityStateUpdate[];
+  story_line_updates?: GeneratedStoryLineStateUpdate[];
+  setup_payoff_updates?: GeneratedSetupPayoffStateUpdate[];
+  continuation_hook?: GeneratedContinuationHookState | null;
   scenes: GeneratedScene[];
   next_episode_question: string | null;
   [key: string]: unknown;
+}
+
+export interface GeneratedStoryLineStateUpdate {
+  story_line_id: string;
+  status: StoryLineStatus;
+  progress_summary: string;
+  contribution_type?: "setup" | "progress" | "turning_point" | "payoff" | "resolution";
+  planned_beat_ref?: string | null;
+  planned_alignment?: "aligned" | "expanded" | "deviated";
+  alignment_note?: string | null;
+  next_required_step?: string | null;
+  change_cause: string;
+  evidence_scene_numbers: number[];
+}
+
+export interface GeneratedContinuationHookState {
+  responds_to_episode?: number | null;
+  previous_hook_response?: string | null;
+  response_evidence_scene_numbers: number[];
+  ending_hook_type: string;
+  ending_hook_summary: string;
+  next_episode_obligation: string;
+  target_payoff_episode?: number | null;
+}
+
+export interface GeneratedSetupPayoffStateUpdate {
+  setup_payoff_ref: string;
+  action: PlotSetupPayoffChange["action"];
+  status: "setup" | "active" | "paid_off";
+  progress_summary: string;
+  next_required_step?: string | null;
+  target_payoff_episode?: number | null;
+  change_cause: string;
+  evidence_scene_numbers: number[];
+}
+
+export interface GeneratedCharacterStateUpdate {
+  character_name: string;
+  current_goal: string;
+  emotional_state: string;
+  belief_or_attitude?: string | null;
+  life_status?: "alive" | "dead" | "missing" | "unknown" | null;
+  physical_state?: string | null;
+  location?: string | null;
+  knowledge_changes: string[];
+  knowledge_states?: Array<{
+    knowledge_key: string;
+    statement: string;
+    status: CharacterKnowledgeRecord["status"];
+  }> | null;
+  health_conditions?: string[] | null;
+  action_capabilities?: string[] | null;
+  lasting_marks?: string[] | null;
+  active_constraints: string[];
+  personality_change?: string | null;
+  change_summary: string;
+  change_cause: string;
+  evidence_scene_numbers: number[];
+}
+
+export interface GeneratedRelationshipStateUpdate {
+  source_character_name: string;
+  target_character_name: string;
+  relationship_type: string;
+  source_to_target: string;
+  target_to_source: string;
+  current_state: string;
+  change_summary: string;
+  change_cause: string;
+  evidence_scene_numbers: number[];
+}
+
+export interface GeneratedContinuityStateUpdate {
+  entity_key: string;
+  entity_type: "character" | "item" | "location" | "organization" | "environment" | "society" | "time";
+  entity_name: string;
+  state_domain: "existence" | "life" | "health" | "ability" | "condition" | "ownership" | "possession" | "location" | "access" | "affiliation" | "authority" | "identity" | "resource" | "rule" | "schedule" | "weather" | "reputation" | "legal_status" | "technology" | "knowledge" | "obligation" | "environment";
+  transition: "established" | "changed" | "resolved" | "acquired" | "lost" | "moved" | "transferred" | "destroyed" | "died" | "recovered" | "repaired";
+  current_state: string;
+  persistence: "temporary" | "ongoing" | "permanent";
+  future_constraint?: string | null;
+  change_cause: string;
+  evidence_scene_numbers: number[];
 }
 
 export interface BilingualScriptText {
@@ -251,10 +576,42 @@ export interface ScriptGenerationRun {
   generation_strategy_id: string;
   generation_strategy_version: string;
   draft_master_script: GeneratedDraft;
+  episode_context?: GeneratedEpisodeGenerationContext | null;
+  continuity_qc_report?: ContinuityQCReport | null;
   story_qc_report: StoryQCReport;
   revision_plan: Record<string, unknown>;
   creative_deepening_run?: CreativeDeepeningRun | null;
   [key: string]: unknown;
+}
+
+export interface GeneratedEpisodeGenerationContext {
+  episode_number: number;
+  relevant_character_refs?: string[];
+  planned_story_line_refs?: string[];
+  planned_setup_refs?: string[];
+  planned_payoff_refs?: string[];
+  planned_story_beat?: string | null;
+}
+
+export interface ContinuityQCReport {
+  status: "not_applicable" | "passed" | "warnings" | "blocked";
+  checked_through_episode_number?: number | null;
+  current_episode_number?: number | null;
+  blocking_issue_count: number;
+  warning_count: number;
+  issues: Array<{
+    issue_id: string;
+    issue_type: string;
+    severity: "warning" | "blocking";
+    entity_key: string;
+    entity_name: string;
+    summary: string;
+    prior_state: string;
+    current_evidence: string;
+    prior_episode_number?: number | null;
+    scene_numbers: number[];
+    suggested_action: string;
+  }>;
 }
 
 export interface ScriptDraftModificationResult {
@@ -315,6 +672,7 @@ export interface ProjectDraft {
   title: string;
   titleSource: ProjectTitleSource;
   creativePrompt: string;
+  referenceMaterials: ProjectReferenceMaterial[];
   selectedTagIds: string[];
   customTags: CustomTagDraft[];
   characters: CharacterDraft[];

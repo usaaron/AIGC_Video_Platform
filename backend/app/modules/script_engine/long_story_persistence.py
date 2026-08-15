@@ -354,7 +354,7 @@ class StoryProjectWorkspaceSnapshotRecord(SQLModel, table=True):
         Index("ix_story_workspace_updated", "updated_at"),
         CheckConstraint("revision >= 1", name="ck_story_workspace_revision"),
         CheckConstraint(
-            "payload_size_bytes BETWEEN 2 AND 10000000",
+            "payload_size_bytes BETWEEN 2 AND 50000000",
             name="ck_story_workspace_payload_size",
         ),
     )

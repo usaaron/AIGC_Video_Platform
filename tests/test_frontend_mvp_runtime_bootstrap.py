@@ -55,21 +55,36 @@ def test_frontend_runtime_bootstrap_defaults_to_mainland_china() -> None:
         for payload in asset_payloads
     )
     assert len(prompt_payloads) == 2
-    assert len(strategy_payloads) == 1
+    assert len(strategy_payloads) == 2
     assert platform_payload["metadata"]["market_profile"] == "cn_mainland"
     assert platform_payload["metadata"]["runtime_status"] == "active"
     assert general_strategy["model_provider"] == "openai_compatible"
     assert general_strategy["model_name"] == "test-real-model"
     assert general_strategy["target_platform"] == "mainland china comic drama"
+    assert general_strategy["status"] == "draft"
+    assert general_strategy["draft_knowledge_bundle_id"] == (
+        "knowledge_bundle.draft.cn_mainland_longform_foundation.v1"
+    )
     assert general_strategy["deepening_mode"] == "disabled"
     assert general_strategy["deepening_prompt_ids"] == []
     assert general_strategy.get("deepening_knowledge_bundle_id") is None
+    candidate_strategy = next(
+        payload
+        for payload in strategy_payloads
+        if payload["id"] == "strategy.cn_mainland.longform_knowledge_candidate.v2"
+    )
+    assert candidate_strategy["status"] == "active"
+    assert candidate_strategy["draft_knowledge_bundle_id"] == (
+        "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2"
+    )
+    assert candidate_strategy["version"] == "v2"
     PlatformProfileCreate.model_validate(platform_payload)
     for ontology_payload in ontology_payloads:
         OntologyNodeCreate.model_validate(ontology_payload)
     for prompt_payload in prompt_payloads:
         PromptLibraryItemCreate.model_validate(prompt_payload)
-    GenerationStrategy.model_validate(general_strategy)
+    for strategy_payload in strategy_payloads:
+        GenerationStrategy.model_validate(strategy_payload)
 
 
 def test_overseas_tiktok_runtime_remains_switchable_but_is_not_default() -> None:

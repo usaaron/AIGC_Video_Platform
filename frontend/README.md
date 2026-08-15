@@ -1,6 +1,6 @@
-# AI Comic Content OS Frontend
+# 剧本大师 Frontend | 序幕 TV
 
-The frontend is a local creator workspace for review-first serialized script generation.
+剧本大师是序幕 TV 旗下的长剧本创作工作区，采用先审阅、再推进的连续剧本生成流程。
 
 ## Included
 
@@ -8,14 +8,12 @@ The frontend is a local creator workspace for review-first serialized script gen
 - Local script project creation and selection
 - Creative Input editor
 - Backend Ontology-driven tag selection with an explicit local-authoring fallback
-- Dedicated character create/edit pages and character-card deletion
-- English and Chinese interface toggle with browser-local preference
+- Mainland Chinese interface and output; overseas locale assets remain dormant behind the market switch
 - IndexedDB project persistence
 - Startup restoration of every episode framework, edit, candidate, revision and final snapshot
 - Generated projects open directly from Home/Sidebar into the episode workspace
 - Searchable/deletable local project history
-- Dedicated character create/edit routes
-- Sequential and full generation settings; both produce editable episode frameworks first
+- One review-first Story Bible → recursive planning → single-episode roadmap → bounded script workflow
 - Real multi-episode generation through bounded calls to the existing backend when runtime resources are initialized
 - Episode rail, structured editing, Save/Confirm, optional AI modification and on-demand Deepening candidates
 - Per-episode and whole-series Markdown/JSON export
@@ -27,19 +25,18 @@ The frontend is a local creator workspace for review-first serialized script gen
 
 ## Boundary
 
-The frontend reuses the existing Creative Intent and single-episode Draft APIs. Full mode performs a bounded sequence of episode calls and carries forward continuity context; it is not a Story Planning runtime. It uses active backend Ontology nodes when available, while user-created tags remain explicit creative notes rather than fake Ontology IDs. Authentication, backend project persistence, Story Blueprint runtime, and automatic candidate application remain excluded.
+The frontend uses the Creative Intent, Story Bible, recursive Story Plan Node, single-episode roadmap and Draft APIs. It carries forward continuity context while keeping each body request strictly single-episode. It uses active backend Ontology nodes when available, while user-created tags remain explicit creative notes rather than fake Ontology IDs. Authentication, unattended whole-tree jobs and automatic candidate application remain excluded.
 
 ## Run
 
 From the repository root, the recommended complete local startup is:
 
 ```bash
-cp .env.example .env.local
-# Fill in the real LLM settings, then:
+# Fill in the real LLM settings in the project-root .env.local file, then:
 ./start-local.sh
 ```
 
-The launcher starts the API, initializes its in-memory generation resources, and starts this frontend. Without `.env.local`, it starts in an explicitly labeled Mock demo mode.
+The launcher starts the API, applies database migrations, bootstraps idempotent generation resources, and starts this frontend. When `DATABASE_URL` is absent it uses `.cache/local-runtime/my-comic.db`, because story planning requires durable project revisions. Without real LLM settings, generation remains in the explicitly labeled Mock demo mode.
 
 For frontend-only development:
 
@@ -59,7 +56,7 @@ npm run build
 
 The default Next.js proxy targets `http://127.0.0.1:8000`. `start-local.sh` intentionally sets `NEXT_PUBLIC_API_BASE_URL` to the backend URL so long-running real-LLM generation does not time out in the development rewrite proxy. FastAPI limits cross-origin access to `FRONTEND_ORIGINS`. Set `BACKEND_API_URL` when the backend runs elsewhere.
 
-Because the current backend repositories are in memory, initialize the running API after each restart:
+The launcher performs the runtime bootstrap automatically. Run it manually only when starting the backend outside `start-local.sh`:
 
 ```bash
 cd ..

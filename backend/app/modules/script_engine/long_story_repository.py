@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from datetime import datetime, timezone
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy import func, update
+from sqlalchemy import delete, func, update
 from sqlmodel import Session, col, select
 
 from app.modules.script_engine.long_story_models import (
@@ -189,6 +192,203 @@ class LongStoryRepository:
             return None
         return self._workspace_from_record(record)
 
+    def reset_workspace_generation_state(
+        self,
+        project_id: str,
+        *,
+        story_bible_version: int,
+    ) -> StoryProjectWorkspaceSnapshot | None:
+        snapshot = self.get_workspace_snapshot(project_id)
+        if snapshot is None:
+            return None
+
+        workspace_payload = dict(snapshot.workspace_payload)
+        workspace_payload.update(
+            {
+                "episodes": [],
+                "generationBatches": [],
+                "activeEpisodeNumber": 1,
+                "storyLines": [],
+                "characterRelationships": [],
+                "storyBibleVersion": story_bible_version,
+                "storyBibleStatus": "draft",
+                "status": "idea",
+            }
+        )
+        for field_name in (
+            "episodePlansReadyThrough",
+            "generationRun",
+            "revisionRun",
+            "finalizationResult",
+            "workingDraftJson",
+        ):
+            workspace_payload.pop(field_name, None)
+
+        updated_at = datetime.now(timezone.utc)
+        encoded_payload = json.dumps(
+            workspace_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        reset_snapshot = snapshot.model_copy(
+            update={
+                "revision": snapshot.revision + 1,
+                "workspace_payload": workspace_payload,
+                "updated_at": updated_at,
+                "payload_checksum": hashlib.sha256(encoded_payload).hexdigest(),
+                "payload_size_bytes": len(encoded_payload),
+            }
+        )
+        return self.save_workspace_snapshot(reset_snapshot)
+
+    def delete_generated_story_descendants(self, story_project_id: str) -> dict[str, int]:
+        """Remove generated descendants while retaining Story Bible history."""
+
+        batch_ids = select(GenerationBatchPlanRecord.batch_id).where(
+            GenerationBatchPlanRecord.story_project_id == story_project_id
+        )
+        artifact_ids = select(EpisodeArtifactVersionRecord.artifact_id).where(
+            EpisodeArtifactVersionRecord.story_project_id == story_project_id
+        )
+
+        self._session.execute(
+            update(EpisodeArtifactVersionRecord)
+            .where(EpisodeArtifactVersionRecord.source_artifact_id.in_(artifact_ids))
+            .values(source_artifact_id=None)
+        )
+        results = {
+            "generation_job_checkpoints": self._session.execute(
+                delete(GenerationJobCheckpointRecord).where(
+                    GenerationJobCheckpointRecord.batch_id.in_(batch_ids)
+                )
+            ).rowcount,
+            "episode_artifact_versions": self._session.execute(
+                delete(EpisodeArtifactVersionRecord).where(
+                    EpisodeArtifactVersionRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+            "generation_batches": self._session.execute(
+                delete(GenerationBatchPlanRecord).where(
+                    GenerationBatchPlanRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+            "continuity_ledger_versions": self._session.execute(
+                delete(ContinuityLedgerVersionRecord).where(
+                    ContinuityLedgerVersionRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+            "episode_plan_versions": self._session.execute(
+                delete(EpisodePlanVersionRecord).where(
+                    EpisodePlanVersionRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+        }
+        self._session.execute(
+            update(StoryPlanNodeVersionRecord)
+            .where(StoryPlanNodeVersionRecord.story_project_id == story_project_id)
+            .values(
+                parent_node_id=None,
+                parent_node_version=None,
+                predecessor_node_id=None,
+                predecessor_node_version=None,
+            )
+        )
+        results["story_plan_node_versions"] = self._session.execute(
+            delete(StoryPlanNodeVersionRecord).where(
+                StoryPlanNodeVersionRecord.story_project_id == story_project_id
+            )
+        ).rowcount
+        results["story_stage_plan_versions"] = self._session.execute(
+            delete(StoryStagePlanVersionRecord).where(
+                StoryStagePlanVersionRecord.story_project_id == story_project_id
+            )
+        ).rowcount
+        self._session.flush()
+        return results
+
+    def delete_project_permanently(self, story_project_id: str) -> dict[str, int]:
+        """Delete one project and every project-owned planning and script record."""
+
+        batch_ids = select(GenerationBatchPlanRecord.batch_id).where(
+            GenerationBatchPlanRecord.story_project_id == story_project_id
+        )
+        artifact_ids = select(EpisodeArtifactVersionRecord.artifact_id).where(
+            EpisodeArtifactVersionRecord.story_project_id == story_project_id
+        )
+
+        # Break same-table references before deleting the referenced rows.
+        self._session.execute(
+            update(EpisodeArtifactVersionRecord)
+            .where(EpisodeArtifactVersionRecord.source_artifact_id.in_(artifact_ids))
+            .values(source_artifact_id=None)
+        )
+        self._session.execute(
+            update(StoryPlanNodeVersionRecord)
+            .where(StoryPlanNodeVersionRecord.story_project_id == story_project_id)
+            .values(
+                parent_node_id=None,
+                parent_node_version=None,
+                predecessor_node_id=None,
+                predecessor_node_version=None,
+            )
+        )
+
+        results = {
+            "generation_job_checkpoints": self._session.execute(
+                delete(GenerationJobCheckpointRecord).where(
+                    GenerationJobCheckpointRecord.batch_id.in_(batch_ids)
+                )
+            ).rowcount,
+            "episode_artifact_versions": self._session.execute(
+                delete(EpisodeArtifactVersionRecord).where(
+                    EpisodeArtifactVersionRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+            "generation_batches": self._session.execute(
+                delete(GenerationBatchPlanRecord).where(
+                    GenerationBatchPlanRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+            "episode_plan_versions": self._session.execute(
+                delete(EpisodePlanVersionRecord).where(
+                    EpisodePlanVersionRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+            "continuity_ledger_versions": self._session.execute(
+                delete(ContinuityLedgerVersionRecord).where(
+                    ContinuityLedgerVersionRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+            "story_plan_node_versions": self._session.execute(
+                delete(StoryPlanNodeVersionRecord).where(
+                    StoryPlanNodeVersionRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+            "story_stage_plan_versions": self._session.execute(
+                delete(StoryStagePlanVersionRecord).where(
+                    StoryStagePlanVersionRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+            "story_project_workspace_snapshots": self._session.execute(
+                delete(StoryProjectWorkspaceSnapshotRecord).where(
+                    StoryProjectWorkspaceSnapshotRecord.project_id == story_project_id
+                )
+            ).rowcount,
+            "story_bible_versions": self._session.execute(
+                delete(StoryBibleVersionRecord).where(
+                    StoryBibleVersionRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+            "story_projects": self._session.execute(
+                delete(StoryProjectRecord).where(
+                    StoryProjectRecord.project_id == story_project_id
+                )
+            ).rowcount,
+        }
+        self._session.flush()
+        return results
+
     def save_episode_artifact(self, artifact: EpisodeArtifact) -> EpisodeArtifact:
         payload = artifact.model_dump(mode="json")
         existing = self._session.get(
@@ -369,10 +569,20 @@ class LongStoryRepository:
         *,
         parent_node_id: str | None = None,
         roots_only: bool = False,
+        story_bible_id: str | None = None,
+        story_bible_version: int | None = None,
     ) -> list[StoryPlanNode]:
         statement = select(StoryPlanNodeVersionRecord).where(
             StoryPlanNodeVersionRecord.story_project_id == story_project_id
         )
+        if story_bible_id is not None:
+            statement = statement.where(
+                StoryPlanNodeVersionRecord.story_bible_id == story_bible_id
+            )
+        if story_bible_version is not None:
+            statement = statement.where(
+                StoryPlanNodeVersionRecord.story_bible_version == story_bible_version
+            )
         if roots_only:
             statement = statement.where(
                 StoryPlanNodeVersionRecord.parent_node_id.is_(None)
@@ -412,11 +622,26 @@ class LongStoryRepository:
         )
         return stage
 
-    def list_story_stages(self, story_project_id: str) -> list[StoryStagePlan]:
+    def list_story_stages(
+        self,
+        story_project_id: str,
+        *,
+        story_bible_id: str | None = None,
+        story_bible_version: int | None = None,
+    ) -> list[StoryStagePlan]:
+        statement = select(StoryStagePlanVersionRecord).where(
+            StoryStagePlanVersionRecord.story_project_id == story_project_id
+        )
+        if story_bible_id is not None:
+            statement = statement.where(
+                StoryStagePlanVersionRecord.story_bible_id == story_bible_id
+            )
+        if story_bible_version is not None:
+            statement = statement.where(
+                StoryStagePlanVersionRecord.story_bible_version == story_bible_version
+            )
         records = self._session.exec(
-            select(StoryStagePlanVersionRecord)
-            .where(StoryStagePlanVersionRecord.story_project_id == story_project_id)
-            .order_by(
+            statement.order_by(
                 StoryStagePlanVersionRecord.stage_number,
                 StoryStagePlanVersionRecord.version,
             )
@@ -471,10 +696,20 @@ class LongStoryRepository:
         *,
         start_episode: int | None = None,
         end_episode: int | None = None,
+        story_bible_id: str | None = None,
+        story_bible_version: int | None = None,
     ) -> list[EpisodePlan]:
         statement = select(EpisodePlanVersionRecord).where(
             EpisodePlanVersionRecord.story_project_id == story_project_id
         )
+        if story_bible_id is not None:
+            statement = statement.where(
+                EpisodePlanVersionRecord.story_bible_id == story_bible_id
+            )
+        if story_bible_version is not None:
+            statement = statement.where(
+                EpisodePlanVersionRecord.story_bible_version == story_bible_version
+            )
         if start_episode is not None:
             statement = statement.where(
                 EpisodePlanVersionRecord.episode_number >= start_episode
@@ -587,7 +822,7 @@ class LongStoryRepository:
                 "created_at",
             )
             for field_name in immutable_fields:
-                if getattr(record, field_name) != values[field_name]:
+                if getattr(current, field_name) != getattr(batch, field_name):
                     raise LongStoryPersistenceConflictError(
                         f"Generation batch cannot change {field_name}."
                     )
@@ -604,6 +839,14 @@ class LongStoryRepository:
     def get_batch(self, batch_id: str) -> GenerationBatchPlan | None:
         record = self._session.get(GenerationBatchPlanRecord, batch_id)
         return self._from_payload(GenerationBatchPlan, record)
+
+    def list_batches(self, story_project_id: str) -> list[GenerationBatchPlan]:
+        records = self._session.exec(
+            select(GenerationBatchPlanRecord)
+            .where(GenerationBatchPlanRecord.story_project_id == story_project_id)
+            .order_by(col(GenerationBatchPlanRecord.batch_number).desc())
+        ).all()
+        return [GenerationBatchPlan.model_validate(record.payload) for record in records]
 
     def save_job_checkpoint(
         self,
@@ -662,6 +905,17 @@ class LongStoryRepository:
 
     def get_job_checkpoint(self, job_id: str) -> GenerationJobCheckpoint | None:
         record = self._session.get(GenerationJobCheckpointRecord, job_id)
+        return self._from_payload(GenerationJobCheckpoint, record)
+
+    def get_latest_job_checkpoint_for_batch(
+        self,
+        batch_id: str,
+    ) -> GenerationJobCheckpoint | None:
+        record = self._session.exec(
+            select(GenerationJobCheckpointRecord)
+            .where(GenerationJobCheckpointRecord.batch_id == batch_id)
+            .order_by(col(GenerationJobCheckpointRecord.checkpointed_at).desc())
+        ).first()
         return self._from_payload(GenerationJobCheckpoint, record)
 
     def _save_immutable(
@@ -729,16 +983,21 @@ class LongStoryRepository:
                 StoryProjectStatus.archived,
             },
             StoryProjectStatus.generating: {
+                StoryProjectStatus.planning,
                 StoryProjectStatus.review,
                 StoryProjectStatus.completed,
                 StoryProjectStatus.archived,
             },
             StoryProjectStatus.review: {
+                StoryProjectStatus.planning,
                 StoryProjectStatus.generating,
                 StoryProjectStatus.completed,
                 StoryProjectStatus.archived,
             },
-            StoryProjectStatus.completed: {StoryProjectStatus.archived},
+            StoryProjectStatus.completed: {
+                StoryProjectStatus.planning,
+                StoryProjectStatus.archived,
+            },
             StoryProjectStatus.archived: set(),
         }
         if target != current and target not in allowed[current]:

@@ -14,6 +14,8 @@ scope: script_generation_only
 
 以下设计讨论保留其实施前研究语境；如与当前 runtime 状态冲突，以正式 `02_Data_Model.md`、`05_API_Design.md`、`14_Script_Engine.md` 为准。
 
+历史状态说明（2026-08-05）：本文中继续冻结 Story Planning 的结论针对当时的四集规划实验，不否定后续已经实现的人工受控、可变深度长篇规划切片。Creative Deepening 当前仍默认关闭，不参与中国大陆基础长剧本主流程。
+
 当前直接证据来自：
 
 - `examples/prompt_evaluations/creative_control_combined_v1/comparison_report.json`
@@ -377,7 +379,7 @@ Creative Deepening **不应现在直接成为已承诺 runtime 阶段**。当前
 
 1. Structured Creative Control 已有直接正向证据，优先进入最小 contract / compatibility design。
 2. Creative Deepening 进入 bounded offline validation Backlog，使用冻结 structured drafts 验证边际收益。
-3. Serialized Story Planning 继续冻结，不因 Deepening 研究重新开放。
+3. 当时的四集 Serialized Story Planning 实验契约继续冻结，不因 Deepening 研究重新开放；后续递归长篇规划属于独立产品决策。
 4. 只有 Deepening A/B 通过预注册 gate，才讨论是否作为 Script Generation Box 内部 optional GenerationStrategy step。
 
 该建议没有修改当前 `17_MVP_Roadmap.md`。原因是“值得验证”不等于“批准实现”；本次只建立评估假设、责任边界和停止条件。

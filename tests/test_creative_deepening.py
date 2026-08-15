@@ -118,6 +118,26 @@ def build_generated_payload(source: DraftMasterScript) -> dict[str, object]:
         "episode_goal": source.episode_goal,
         "target_duration_seconds": source.target_duration_seconds,
         "characters": [character.model_dump(mode="json") for character in source.characters],
+        "character_state_updates": [
+            {
+                "character_name": "Lena",
+                "current_goal": "Trace the warning's impossible origin without reconnecting Morrow.",
+                "emotional_state": "Controlled dread hardened into resolve.",
+                "belief_or_attitude": "Morrow's documented limits can no longer be trusted.",
+                "physical_state": None,
+                "location": "Inside the isolated laboratory.",
+                "knowledge_changes": [
+                    "The warning carries Lena's own future credentials."
+                ],
+                "active_constraints": [
+                    "She must investigate without restoring Morrow's network access."
+                ],
+                "personality_change": None,
+                "change_summary": "Lena shifts from preserving evidence to investigating a future version of herself.",
+                "change_cause": "Morrow identifies tomorrow's Lena as the warning's sender.",
+                "evidence_scene_numbers": [2],
+            }
+        ],
         "scenes": [
             {
                 "scene_number": scene.scene_number,

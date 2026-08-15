@@ -11,6 +11,7 @@ from app.modules.master_script.models import (
 from app.modules.master_script.service import (
     DirectMasterScriptCreationDeprecatedError,
     FinalizationThresholdNotMetError,
+    InvalidFinalScriptAcceptanceError,
     InvalidFinalizationChainError,
     MasterScriptService,
     MissingContentSpecError,
@@ -92,7 +93,11 @@ def finalize_master_script(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
-    except (InvalidFinalizationChainError, FinalizationThresholdNotMetError) as exc:
+    except (
+        InvalidFinalizationChainError,
+        FinalizationThresholdNotMetError,
+        InvalidFinalScriptAcceptanceError,
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),

@@ -1040,7 +1040,7 @@ Frontend MVP 已实现 presentation-only `BilingualScriptView`：
 
 边界：
 
-- bundle 最多包含 8 条知识；已实现的 TikTok Dark Romance Draft / Deepening bundle 随 `overseas_tiktok` 默认关闭，中国大陆 bundle 尚未进入 runtime
+- bundle 最多包含 12 条知识；已实现的 TikTok Dark Romance Draft / Deepening bundle 随 `overseas_tiktok` 默认关闭；中国大陆长篇正文 bundle 由大陆 Generation Strategy 启用，并有界注入长篇结构、因果推进、角色选择、冲突代价、回收必然性、场景语境、可见行动和文本通道分离等原则
 - `Research/Knowledge_Items/` 是知识来源与治理资产，runtime 不解析 Research Markdown
 - runtime 静态目录只复制 Prompt 所需的最小原则、限制和反模式，并保留来源引用
 - 当前没有 RAG、向量检索、语义排名、自动学习或 Knowledge Agent
@@ -1335,7 +1335,7 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 - `storyLines[]`：主线、支线、角色成长线及各集推进
 - `characterRelationships[]`：角色关系、当前状态及各集变化
 
-这些字段由当前分集和角色确定性整理、允许用户编辑并保存在 IndexedDB。后续分集生成时，前端将其压缩为 bounded `project_continuity_summary` 注入 `episode_context`；它约束后续集延续已有故事线和关系状态，但不会改写已经生成的分集。它们不是 `MasterScript` 正式字段，也不代表 Story Planning runtime 已实现。已有分集项目禁止在项目设定页直接重新生成覆盖；重新生成通过复制新的本地项目版本完成。
+这些字段由当前分集和角色确定性整理、允许用户编辑并保存在 IndexedDB。生成结果中的新人物可补充为本地人物卡；用户设定优先保留，自动补充只更新空缺或 generated 来源字段。关系自动投影要求同一场景存在双方证据，并保存逐集变化，避免无证据地组合所有人物。后续分集生成时，前端将其压缩为 bounded `project_continuity_summary` 注入 `episode_context`；它约束后续集延续已有故事线和关系状态，但不会改写已经生成的分集。它们不是 `MasterScript` 正式字段，也不代表后端 Continuity 自动更新已实现。已有分集项目禁止在项目设定页直接重新生成覆盖；重新生成通过复制新的本地项目版本完成。
 
 ### Relationship And Story-Line View Boundary
 
@@ -1343,7 +1343,7 @@ Frontend 本地 `ScriptProject` 还保存项目级连续性视图：
 
 - 关系网以角色为节点、方向性关系为边，可展示关系类型、当前状态、变化历史和锁定状态；视觉上可参考游戏人物关系图的直观交互，但不引入图数据库。
 - 故事线以主线、支线和人物弧为分支，关联 Story Plan Node、Setup / Payoff 和分集推进；它是切换检阅视角，不替代递归 Story Plan Tree。
-- Frontend 本地视图当前保存 `storyLines[] / characterRelationships[]`；长期权威版本应来自 Story Bible、Continuity Ledger 和 versioned planning refs。
+- Frontend 本地视图当前保存 `characters[] / storyLines[] / characterRelationships[]`，并提供可点击的人物节点、关系记录和详情投影；长期权威版本应来自 Story Bible、Continuity Ledger 和 versioned planning refs。
 
 人物关系与故事线不合并为同一个领域对象。人物关系回答“谁与谁目前是什么关系、关系为何改变”，故事线回答“哪条目标、冲突、伏笔或人物弧正在推进”。二者可以在统一“故事地图 / Continuity Workspace”中组合展示，并通过 `character_ref`、`story_line_ref`、`story_plan_node_ref` 和 episode evidence 相互跳转，但必须保持独立版本和职责。
 
@@ -1374,13 +1374,13 @@ Character Context 在项目创建时是 optional，因此长篇生成允许渐�
 3. 显式重规划尚未确认的范围；
 4. 对历史范围发起单独、可审计的再生成任务。
 
-新增角色遵循相同规则：默认从指定未来节点或集数进入，不补写历史存在。当前模型尚未实现 proposed/confirmed fact lifecycle、effective point、影响分析、bounded continuity slice 或图形关系网的正式后端契约。
+新增角色遵循相同规则：默认从指定未来节点或集数进入，不补写历史存在。当前 Frontend 已实现本地人物/关系增量投影和基础关系图交互；后端模型尚未实现 proposed/confirmed fact lifecycle、effective point、影响分析、bounded continuity slice 或权威图关系 authoring 契约。
 
 `ScriptProject.marketProfile` 记录 authoring project 的市场来源，当前取值为 `cn_mainland`、`overseas_tiktok` 或兼容旧数据的 `legacy_unknown`。该字段不进入 `MasterScript`，用于按当前 runtime 市场过滤项目，并阻止不同市场配置之间直接续写、AI 修改、审核或终稿操作。旧 payload 缺少该字段时，Frontend 优先从已有 `generation_strategy_id` 推断；无法推断时保守标记为历史项目。非当前市场项目保留在持久化层，但不进入项目列表、首页或直接项目路由。
 
 ## Long-Story Planning Contracts v1
 
-当前已在 `script_engine/long_story_models.py` 实现长篇核心的版本化 Pydantic 契约。Project / Story Bible / 递归 Story Plan Node / Stage / Episode Plan 已接入持久化 Application Service 与版本化资源 API；它们仍未接入 Prompt Builder、自动规划或生成运行时。
+当前已在 `script_engine/long_story_models.py` 实现长篇核心的版本化 Pydantic 契约。Project / Story Bible / 递归 Story Plan Node / Stage / Episode Plan 已接入持久化 Application Service 与版本化资源 API。`StoryPlanningService` 已通过现有 `LLMAdapter` 和 Generation Strategy 生成 Story Bible、根节点、递归子节点与有界 Episode Plan，并注入大陆静态 Knowledge Bundle；批准的 Episode Plan 已能作为现有单集 Draft 的本集约束。Story Bible 是集数无关的整部故事方向契约，不负责集号、集数区间或单集节拍；这些信息只能在后续递归节点达到可分集粒度后进入 Episode Plan。`EpisodePlan.source_turning_points` 是向后兼容的来源字段，用于保证一个有界规划批次完整且不重复地承接父节点批准转折；旧计划缺失该字段时仍按空列表读取。批次容量由项目 `default_batch_size` 控制，当前支持 1–20 集。尚未实现无人值守全树规划、正式持久化 Context Mapper、Continuity 自动更新或后台生成 Job。
 
 ### `StoryProject`
 
@@ -1399,7 +1399,7 @@ Character Context 在项目创建时是 optional，因此长篇生成允许渐�
 - optional `active_story_bible_id` + `active_story_bible_version`
 - 创建与更新时间
 
-默认目标字数为 600,000、默认批次为 5 集，但二者是产品默认值而非行业硬规则。批次大小不得超过计划总集数。
+默认目标字数为 600,000、默认批次为 10 集，但二者是产品默认值而非行业硬规则。批次大小不得超过计划总集数。`target_total_characters` 的完成值只累计已经生成到具体集的 `character_actions` 与 `dialogues.text` 有效字符；Story Bible、任意层级 Story Plan Node、StoryStagePlan、EpisodePlan 及其描述均为规划资产，字符数一律不进入目标累计。Story Plan Node 的 `estimated_script_body_characters` 只是该分支未来分集正文的容量预算，不是已生成字数。
 
 ### `StoryBible`
 
@@ -1415,6 +1415,8 @@ Character Context 在项目创建时是 optional，因此长篇生成允许渐�
 
 所有人物弧、关系和故事线必须引用已声明角色；approved 状态必须有 `approved_at`。
 
+同一 `StoryProject` 可以保留多个 immutable Story Bible 版本，但只能有一条当前规划 lineage。重新生成总纲成功后，新 Story Bible 版本成为待审阅的当前 authoring lineage，旧版本派生的 Story Plan Node、StoryStagePlan、EpisodePlan、正文与 Continuity 投影不得继续出现在当前工作区；它们不物理删除，只能通过显式历史版本读取。规划资源的当前查询必须携带成对的 `story_bible_id + story_bible_version`，避免只按 Project 聚合导致新旧规划混用。生成失败不改变当前 lineage。
+
 ### `StoryPlanNode`
 
 `StoryPlanNode` 是 `StoryBible` 与 `EpisodePlan` 之间不绑定固定层级的递归叙事片段。系统不预设“卷 → 篇章 → 单元”的固定深度，每个节点只表达：
@@ -1429,7 +1431,7 @@ Character Context 在项目创建时是 optional，因此长篇生成允许渐�
 - `unexpanded / expanded / episode_ready` 拆分状态
 - version、draft / approved / superseded 状态及批准时间
 
-节点没有 `depth` 或固定 `node_type`。是否继续拆分由每个节点自身的叙事复杂度、状态跨度、转折数量和预计容量独立决定，不使用全局统一拆分层数。同一父节点下允许一条分支较浅地成为 `episode_ready`，另一条分支继续递归多层，因此规划结果是非平衡树。`episode_ready` 只表示当前片段已经足够具体，可以继续产生 `EpisodePlan`，不是固定树深度；只有 `expanded` 节点可以拥有子节点。
+节点没有 `depth` 或固定 `node_type`。是否继续拆分由每个节点自身的叙事复杂度、状态跨度、转折数量和预计容量独立决定，不使用全局统一拆分层数。同一父节点下允许一条分支较浅地成为 `episode_ready`，另一条分支继续递归多层，因此规划结果是非平衡树。默认拆分请求不指定固定子节点数，模型在 2–12 个子节点之间按叙事边界选择；`requested_child_count` 仅保留给旧调用兼容。服务端校验连续范围、父转折承接、引用合法性、标题唯一性以及父子/兄弟梗概差异，防止每层机械四等分或重复复述。`episode_ready` 只表示当前片段已经足够具体且满足 8–12 集叶节点范围，可以继续产生 `EpisodePlan`，不是固定树深度；只有 `expanded` 节点可以拥有子节点。
 
 Application Service 当前校验唯一有效根节点、父子归属、同级顺序、显式前驱、Story Bible 人物/故事线引用，以及子节点集数和正文预算不得超出父节点。跨分支 Setup / Payoff 和故事线使用轻量引用，不引入图引擎。
 
@@ -1445,7 +1447,7 @@ Application Service 当前校验唯一有效根节点、父子归属、同级顺
 
 ### `EpisodePlan`
 
-`EpisodePlan` 回答“这一集为什么存在”，而不是提前写正文。当前要求：
+`EpisodePlan` 回答“这一集为什么存在”，是供正文模型执行的结构化分集施工单，而不是剧本正文，也不计入目标字数。当前要求：
 
 - episode goal
 - entry state
@@ -1459,6 +1461,8 @@ Application Service 当前校验唯一有效根节点、父子归属、同级顺
 - character refs 与 continuity requirements
 
 `entry_state → protagonist_decision → exit_state` 为后续连续性验证提供结构化依据。
+
+实际中文漫剧正文由 `DraftMasterScript` 承载：场景可见行动进入 `character_actions`，可表演对白进入 `dialogues.text`，并保留场景因果、角色、场景状态和结尾悬念。只有这些具体集的动作与对白有效字符进入长篇完成字数。
 
 ### `ContinuityLedger`
 
@@ -1488,6 +1492,7 @@ Application Service 当前校验唯一有效根节点、父子归属、同级顺
 
 当前已实现 SQLModel / PostgreSQL 持久化映射和首个 Alembic migration：
 
+- `content_specs`
 - `story_projects`
 - `story_bible_versions`
 - `story_plan_node_versions`
@@ -1504,21 +1509,24 @@ Application Service 当前校验唯一有效根节点、父子归属、同级顺
 - ID、FK、version / revision、status、集数范围和时间用于查询、唯一性与数据库约束。
 - 完整 Pydantic payload 保存为 JSONB，保证契约版本可以完整复原和审计。
 - Story Bible、Story Plan Node、Stage、Episode Plan 与 Ledger 使用复合版本主键，已有版本写入后不可覆盖。
+- Story Plan Node、Stage 与 Episode Plan 的列表读取支持 Story Bible lineage 过滤；当前工作区必须使用该过滤，未过滤查询仅保留给兼容和审计用途。
 - Project、Batch 与 Job 允许受控更新，但 Repository 要求 revision 连续增长并校验状态迁移。
 - PostgreSQL 使用 JSONB；SQLite 测试使用 JSON compatibility variant。
 - 时间列使用 timezone-aware 类型。
 
-`StoryProjectWorkspaceSnapshot` 是 Frontend authoring aggregate 的兼容持久化边界，包含 `project_id`、单调递增 `revision`、payload schema version、client instance、完整 workspace JSONB、SHA-256 checksum、payload size 与更新时间。它不替代正式 Story Bible / Episode Plan / Episode Artifact 领域模型；当前单条 payload 限制为 10 MB，stale revision 返回冲突。
+`content_specs` 保存标准 ContentSpec payload，并为 `status`、`platform_profile_id` 与时间字段提供稳定查询列。Repository 在配置数据库时同时写入 durable record；未配置数据库时保留原有进程内兼容路径。该变化不修改 ContentSpec schema 或 API payload，但消除了后端重启后长篇规划无法重新取得 ContentSpec 的生命周期断点。
+
+`StoryProjectWorkspaceSnapshot` 是 Frontend authoring aggregate 的兼容持久化边界，包含 `project_id`、单调递增 `revision`、payload schema version、client instance、完整 workspace JSONB、SHA-256 checksum、payload size 与更新时间。它不替代正式 Story Bible / Episode Plan / Episode Artifact 领域模型；由于兼容快照会同时包含结构化稿件和编辑态文本，当前单条 payload 限制为 50 MB，stale revision 返回冲突。
 
 `EpisodeArtifact` 保存单集明确内容里程碑，而不是每次键盘输入。当前类型为 `draft / revised / final`，每条包含服务端分配的同类型版本号、content schema version、正文 JSONB、checksum、字节数、optional source artifact、client 和 bounded lineage refs。`artifact_id` 支持相同 payload 幂等重放但禁止覆盖；同项目、同集、同类型版本连续增长，单条正文限制 5 MB。
 
-当前持久化已完成 schema、migration、Repository，以及 Project / Workspace Snapshot / Episode Artifact / Story Bible / Story Plan Node / Stage / Episode Plan 的 Application Service 与资源 API。Frontend 已进行本地优先同步与服务端恢复，并在确认和质量闭环里程碑写入 Draft / Revised / Final Artifact；尚未实现编辑过程细粒度版本、递归自动拆分、Continuity 自动更新或后台 worker。
+当前持久化已完成 ContentSpec 与长篇资源的 schema、migration、Repository，以及 Project / Workspace Snapshot / Episode Artifact / Story Bible / Story Plan Node / Stage / Episode Plan 的 Application Service 与资源 API。Frontend 已进行本地优先同步与服务端恢复，并在确认和质量闭环里程碑写入 Draft / Revised / Final Artifact；尚未实现编辑过程细粒度版本、递归自动拆分、Continuity 自动更新或后台 worker。
 
 ### Compatibility Boundary
 
 - 未修改 `ContentSpec`、`DraftMasterScript`、Final `MasterScript` 或现有生成步骤 API contract。
-- 未启用 Story Planning LLM call、Continuity 自动抽取或生成运行时 persistence integration。
-- `StoryBible` / `StoryPlanNode` / `StoryStagePlan` / `EpisodePlan` 进入生成上下文前，仍需后续 mapper 和固定样本验证。
+- Story Planning LLM call、规划对象持久化和 Episode Plan 到现有 Draft 约束的首条兼容路径已启用；未启用自动批准、Continuity 自动抽取或后台全量生成执行。
+- 当前 Episode Plan 由 Frontend 转换为 bounded episode instruction；正式、持久化且可独立测试的 Context Mapper 仍待实现，跨批次固定样本验证仍不充分。
 - 新契约不代表完整 60 万字 runtime 已经完成。
 
 ## OrchestrationPlan 当前字段

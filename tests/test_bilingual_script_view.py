@@ -114,10 +114,22 @@ class TranslationAdapter(LLMAdapter):
         import json
 
         source_items = json.loads(source_payload)
+        american_dialogue = "STABLE CHARACTER NAMES:" in prompt
         items = [
             {
                 "path": item["path"],
-                "translated_text": f"中文：{item['source_text']}",
+                "translated_text": (
+                    "LENA HART"
+                    if american_dialogue
+                    and (
+                        item["path"].endswith(".character_name")
+                        or (
+                            item["path"].startswith("characters.")
+                            and item["path"].endswith(".name")
+                        )
+                    )
+                    else f"中文：{item['source_text']}"
+                ),
             }
             for item in source_items
         ]
@@ -176,6 +188,52 @@ def test_bilingual_view_rejects_missing_translation_path() -> None:
                 draft_master_script=source,
             )
         )
+
+
+def test_american_dialogue_view_only_polishes_speaker_names_and_spoken_lines() -> None:
+    source = build_draft().model_copy(update={"language": "zh-CN", "title": "消失的信号"})
+    result = build_service(TranslationAdapter()).build(
+        BilingualScriptViewRequest(
+            generation_strategy_id=source.generation_strategy_id,
+            draft_master_script=source,
+            target_language="en-US-short-drama",
+        )
+    )
+
+    paths = {item.path for item in result.items}
+    assert paths == {
+        "characters.0.name",
+        "scenes.0.dialogues.0.character_name",
+        "scenes.0.dialogues.0.text",
+    }
+    assert "hook" not in paths
+    assert result.view_version == "bilingual_script_view.v2"
+    assert next(
+        item.translated_text
+        for item in result.items
+        if item.path.endswith(".character_name")
+    ) == "LENA HART"
+
+
+def test_american_dialogue_view_reuses_the_project_character_name_map() -> None:
+    source = build_draft().model_copy(update={"language": "zh-CN", "title": "消失的信号"})
+    source.characters[0].name = "林夏"
+    source.scenes[0].dialogues[0].character_name = "林夏"
+    result = build_service(TranslationAdapter()).build(
+        BilingualScriptViewRequest(
+            generation_strategy_id=source.generation_strategy_id,
+            draft_master_script=source,
+            target_language="en-US-short-drama",
+            character_name_map={"林夏": "LENA HART"},
+        )
+    )
+
+    speaker = next(
+        item.translated_text
+        for item in result.items
+        if item.path.endswith(".character_name")
+    )
+    assert speaker == "LENA HART"
 
 
 def test_bilingual_view_supports_mock_functional_placeholder() -> None:

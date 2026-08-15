@@ -1,10 +1,24 @@
 import type { ProjectMarketProfile, ScriptProject } from "@/lib/types";
 import { normalizeGenerationSettings } from "@/lib/generation-planning";
+import { approvedEpisodeRoadmapCoverageThrough } from "@/lib/planning-coverage";
 
 const DATABASE_NAME = "ai-comic-content-os";
 const DATABASE_VERSION = 1;
 const PROJECT_STORE = "projects";
 const pendingProjectOperations = new Map<string, Promise<void>>();
+const pendingProjectSaves = new Map<string, ScriptProject>();
+const activeProjectSaveFlushes = new Map<string, Promise<void>>();
+
+export function nextProjectUpdatedAt(
+  previousUpdatedAt: string,
+  nowMilliseconds = Date.now(),
+): string {
+  const previousMilliseconds = Date.parse(previousUpdatedAt);
+  const nextMilliseconds = Number.isFinite(previousMilliseconds)
+    ? Math.max(nowMilliseconds, previousMilliseconds + 1)
+    : nowMilliseconds;
+  return new Date(nextMilliseconds).toISOString();
+}
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -65,10 +79,15 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
                 updatedAt: project.updatedAt,
               }]
             : [];
+        const episodeRoadmaps = project.episodeRoadmaps ?? [];
+        const recoveredPlanningCoverage = project.episodeRoadmapRequired === true
+          ? approvedEpisodeRoadmapCoverageThrough(episodeRoadmaps)
+          : project.episodePlansReadyThrough ?? 0;
         return {
           ...project,
           marketProfile,
           customTags: project.customTags ?? [],
+          referenceMaterials: project.referenceMaterials ?? [],
           episodes,
           generationBatches: project.generationBatches ?? (episodes.length ? [{
             id: `legacy-batch-${project.id}-1`,
@@ -84,6 +103,9 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
           activeEpisodeNumber: project.activeEpisodeNumber ?? 1,
           storyLines: project.storyLines ?? [],
           characterRelationships: project.characterRelationships ?? [],
+          episodeRoadmaps,
+          episodePlansReadyThrough: recoveredPlanningCoverage || undefined,
+          setupPayoffs: project.setupPayoffs ?? [],
           serverSync: project.serverSync ?? {
             status: "local_only" as const,
             projectRevision: 0,
@@ -158,9 +180,28 @@ function enqueueProjectOperation(
 }
 
 export function saveStoredProject(project: ScriptProject): Promise<void> {
-  return enqueueProjectOperation(project.id, () => writeStoredProject(project));
+  pendingProjectSaves.set(project.id, project);
+  const active = activeProjectSaveFlushes.get(project.id);
+  if (active) return active;
+  const flush = enqueueProjectOperation(project.id, async () => {
+    while (true) {
+      const latest = pendingProjectSaves.get(project.id);
+      if (!latest) return;
+      pendingProjectSaves.delete(project.id);
+      await writeStoredProject(latest);
+    }
+  });
+  activeProjectSaveFlushes.set(project.id, flush);
+  return flush.finally(() => {
+    if (activeProjectSaveFlushes.get(project.id) === flush) {
+      activeProjectSaveFlushes.delete(project.id);
+    }
+    const latest = pendingProjectSaves.get(project.id);
+    if (latest) void saveStoredProject(latest);
+  });
 }
 
 export function deleteStoredProject(projectId: string): Promise<void> {
+  pendingProjectSaves.delete(projectId);
   return enqueueProjectOperation(projectId, () => removeStoredProject(projectId));
 }

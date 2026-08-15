@@ -1,0 +1,7 @@
+{
+  "episode_number": 13,
+  "story_plan_node_id": "story_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.child.61b8eddd7e4d.1",
+  "error_type": "RuntimeError",
+  "error": "POST /script-generation/generate-draft failed (503): {\"detail\":\"LLM request failed with status 524 after retries: <!DOCTYPE html>\\n<!--[if lt IE 7]> <html class=\\\"no-js ie6 oldie\\\" lang=\\\"en-US\\\"> <![endif]-->\\n<!--[if IE 7]>    <html class=\\\"no-js ie7 oldie\\\" lang=\\\"en-US\\\"> <![endif]-->\\n<!--[if IE 8]>    <html class=\\\"no-js ie8 oldie\\\" lang=\\\"en-US\\\"> <![endif]-->\\n<!--[if gt IE 8]><!--> <html class=\\\"no-js\\\" lang=\\\"en-US\\\"> <!--<![endif]-->\\n<head>\\n\\n<title>rehdasu.cn | 524: A timeout occurred</title>\\n<meta charset=\\\"UTF-8\\\" />\\n<meta http-equiv=\\\"Content-Type\\\" content=\\\"text/html; charset=UTF-8\\\" />\\n<meta http-equiv=\\\"X-UA-Compati\"}",
+  "failed_at": "2026-08-06T11:50:57.232360+00:00"
+}

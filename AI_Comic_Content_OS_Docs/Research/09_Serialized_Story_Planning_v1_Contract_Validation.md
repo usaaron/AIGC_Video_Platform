@@ -2,16 +2,18 @@
 
 ## Status and Boundary
 
+> Historical status note (2026-08-05): the `not approved` conclusion below applies to this fixed four-episode Story Blueprint / Episode Plan experiment. A later product decision approved a different, human-reviewed Story Bible → level-free recursive StoryPlanNode → EpisodePlan runtime slice for China-mainland longform work. This document remains evidence about over-constraint and Hook/Cliffhanger regression, not the authority for current runtime status; see `14_Script_Engine.md` and `21_Current_Status_Checklist.md`.
+
 This document records the first Serialized Story Planning v1 real-model A/B result, analyzes its failure mode, defines a reduced-constraint v1.1 candidate, and records the completed bounded revalidation.
 
 Current decision: **`revise_planning_concept`**.
 
 Current status:
 
-- The first v1 A/B is complete; planning is not approved for runtime integration.
+- The first v1 A/B is complete; this fixed four-episode planning contract was not approved for direct runtime integration.
 - Story Blueprint and Episode Plan remain documentation-level experimental contracts.
 - The v1.1 bounded revalidation is complete. Planned v1.1 was preferred in both retained cases and corrected the primary repetition failure, but aggregate Hook and Cliffhanger remained below Direct.
-- Story Planning is frozen as positive research evidence but is not approved as a final schema or runtime contract.
+- This experimental Story Planning contract is frozen as positive research evidence and was not adopted as the later longform runtime contract.
 - Existing `ContentSpec`, Prompt Builder, Generation Service, Story QC, Revision, Acceptance and `FinalMasterScript` behavior remain unchanged.
 - Fixtures are synthetic evaluation inputs, not production data or Benchmark Ground Truth.
 

@@ -1,9 +1,14 @@
 from copy import deepcopy
+import json
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.dependencies import get_script_generation_service
 from app.main import create_app
+from app.modules.script_engine.generation_service import (
+    InvalidDraftMasterScriptOutputError,
+)
 
 
 def build_platform_profile_payload(profile_id: str) -> dict:
@@ -315,6 +320,94 @@ async def test_generate_script_draft() -> None:
     assert data["knowledge_bundle"] is None
     assert data["knowledge_selection_trace"] is None
     assert "CreativeKnowledgeBundle:" not in data["prompt_build_result"]["prompt_text"]
+
+
+@pytest.mark.anyio
+async def test_generate_script_draft_stream_reports_progress_and_result() -> None:
+    suffix = "scriptgen_stream_api"
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()),
+        base_url="http://testserver",
+    ) as client:
+        content_spec_id, generation_strategy_id = await seed_script_generation_dependencies(
+            client, suffix
+        )
+        response = await client.post(
+            "/script-generation/generate-draft/stream",
+            json={
+                "content_spec_id": content_spec_id,
+                "generation_strategy_id": generation_strategy_id,
+                "output_language": "en",
+                "desired_scene_count": 3,
+                "episode_context": {
+                    "generation_mode": "full",
+                    "episode_number": 1,
+                    "total_episodes": 10,
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    events = [
+        json.loads(line[5:].strip())
+        for line in response.text.splitlines()
+        if line.startswith("data:")
+    ]
+    assert events[0]["type"] == "stage"
+    assert events[0]["stage"] == "preparing"
+    assert any(event["type"] == "draft_delta" for event in events)
+    result = next(event for event in events if event["type"] == "result")
+    assert result["episode_number"] == 1
+    assert result["data"]["draft_master_script"]["content_spec_id"] == content_spec_id
+    assert result["data"]["llm_raw_output"] == {}
+    assert result["data"]["prompt_build_result"]["rendered_variables"] == {}
+    assert result["data"]["prompt_build_result"]["prompt_text"] == (
+        "Prompt omitted after streamed generation."
+    )
+
+
+@pytest.mark.anyio
+async def test_generate_script_draft_stream_hides_internal_model_diagnostics() -> None:
+    private_diagnostic = (
+        "Real LLM output did not validate; Invalid paths: scenes.1.slug; "
+        "json_error=line:1,column:1"
+    )
+
+    class InvalidDraftService:
+        def generate_draft(self, _payload, *, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback("stage", {"stage": "validating_draft"})
+            raise InvalidDraftMasterScriptOutputError(private_diagnostic)
+
+    app = create_app()
+    app.dependency_overrides[get_script_generation_service] = InvalidDraftService
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/script-generation/generate-draft/stream",
+            json={
+                "content_spec_id": "content.private-diagnostic",
+                "generation_strategy_id": "strategy.private-diagnostic",
+                "output_language": "zh",
+                "desired_scene_count": 3,
+            },
+        )
+
+    events = [
+        json.loads(line[5:].strip())
+        for line in response.text.splitlines()
+        if line.startswith("data:")
+    ]
+    error = next(event for event in events if event["type"] == "error")
+    assert error["message"] == (
+        "本集正文结构尚未完整生成，已保存的内容不会丢失，请重试当前集。"
+    )
+    assert private_diagnostic not in response.text
+    assert error["error_type"] == "output_incomplete"
+    assert "InvalidDraftMasterScriptOutputError" not in response.text
 
 
 @pytest.mark.anyio
@@ -675,7 +768,7 @@ async def test_revise_draft_endpoint_returns_422_for_mismatched_plan() -> None:
 
 
 @pytest.mark.anyio
-async def test_generate_script_draft_returns_422_for_missing_real_llm_config(
+async def test_generate_script_draft_returns_503_for_missing_real_llm_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     suffix = "scriptgen_real_config_missing"
@@ -701,5 +794,7 @@ async def test_generate_script_draft_returns_422_for_missing_real_llm_config(
             },
         )
 
-    assert response.status_code == 422
-    assert "LLM_API_KEY" in response.json()["detail"]
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "生成服务配置尚未完成，请联系管理员检查模型角色配置。"
+    )

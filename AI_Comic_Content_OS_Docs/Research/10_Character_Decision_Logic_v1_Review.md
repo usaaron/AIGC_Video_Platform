@@ -2,13 +2,15 @@
 
 ## Status and Boundary
 
+> Historical status note (2026-08-05): references below to frozen Serialized Story Planning describe the earlier four-episode experimental contract. The current product later introduced a different human-reviewed, level-free recursive longform planning slice. Character Decision Logic itself remains Research and is still not a runtime prerequisite.
+
 This document reviews the current character path and defines one bounded offline experiment. It is Research, not an approved runtime contract.
 
 Current recommendation: **run one fixed six-generation A/B before considering runtime design**.
 
 Current boundaries:
 
-- Serialized Story Planning remains frozen. Its v1.1 evidence is positive for long-range structure, but it did not pass the strict Hook / Cliffhanger runtime-entry gate.
+- The earlier four-episode Serialized Story Planning v1.1 contract remains frozen. Its evidence is positive for long-range structure, but it did not pass its strict Hook / Cliffhanger runtime-entry gate and was not adopted unchanged by the later longform workflow.
 - No production model, Schema, API, Prompt Builder, Generation Service, Story QC, Revision, Acceptance or Finalization behavior changes in this work.
 - Character Decision Logic must remain compact. It is not a Character Bible, Character Agent, Knowledge runtime or personality taxonomy.
 - The proposed fields and fixtures below are experiment inputs only.

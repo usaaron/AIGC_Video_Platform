@@ -211,3 +211,48 @@ def test_story_qc_recognizes_visible_agency_and_unresolved_cliffhanger() -> None
     assert dimensions["character_agency"].revision_signals == []
     assert dimensions["cliffhanger_strength"].score == 5.0
     assert dimensions["cliffhanger_strength"].revision_signals == []
+
+
+def test_story_qc_recognizes_visible_chinese_character_agency() -> None:
+    qc = PlaceholderStoryQC()
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    report = qc.evaluate(
+        {
+            "language": "zh",
+            "target_platform": "mainland_china",
+            "hook": "林夏刚拿到证据，就发现出卖她的人站在会议室里。",
+            "next_episode_question": "林夏公开证据后，幕后主使会怎样反击？",
+            "target_duration_seconds": 75,
+            "scenes": [{
+                "scene_number": 1,
+                "purpose": "林夏拒绝交出证据，并决定当众揭露交易。",
+                "beat_summary": "林夏夺回证物，封住唯一出口。",
+                "emotional_shift": "怀疑转为决绝",
+                "turning_point": "林夏选择立即对峙。",
+                "character_actions": [
+                    "林夏抢下证物袋，反锁会议室大门，要求所有人留下。"
+                ],
+                "dialogues": [
+                    {"character_name": "林夏", "text": "谁也别走。"},
+                    {"character_name": "周岚", "text": "你没有资格命令我。"},
+                ],
+                "cliffhanger": True,
+            }],
+        },
+        strategy=strategy,
+    )
+
+    category = next(
+        item
+        for item in report.rubric_categories
+        if item.category_name == "Character Agency"
+    )
+    dimension = next(
+        item
+        for item in report.dimension_evaluations
+        if item.dimension.value == "character_agency"
+    )
+    assert category.score == 4.0
+    assert dimension.score == 4.0
+    assert dimension.revision_signals == []

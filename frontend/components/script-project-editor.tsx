@@ -1,38 +1,40 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Download } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
-import { CharacterCard } from "@/components/character-card";
-import { ArrowIcon, PlusIcon, ScriptIcon, UserIcon } from "@/components/icons";
+import { ArrowIcon, ScriptIcon, TrashIcon, UploadIcon } from "@/components/icons";
+import { SectionHelp } from "@/components/section-help";
+import { userFacingError } from "@/lib/api-error";
 import { TagSelector } from "@/components/tag-selector";
 import { apiRequest } from "@/lib/api-client";
-import { synchronizeContinuity } from "@/lib/continuity";
-import { deriveProjectTitle } from "@/lib/format";
-import { generateSingleEpisode } from "@/lib/generation-client";
+import {
+  createReferenceMaterial,
+  hasUsableCreativeSource,
+  MAX_REFERENCE_FILES,
+  MAX_REFERENCE_TOTAL_CHARACTERS,
+  REFERENCE_FILE_ACCEPT,
+} from "@/lib/reference-materials";
 import {
   nextBatchRange,
   normalizeGenerationSettings,
-  recommendEpisodeCount,
+  TARGET_BODY_SCALE_BANDS,
+  targetBodyScaleBand,
 } from "@/lib/generation-planning";
 import {
   CREATOR_TAGS,
   creatorTagFromOntology,
-  getLocalizedTagLabel,
-  getTag,
   isCreatorFacingOntologyNode,
   resolveLegacyTagId,
   type OntologyTagSource,
 } from "@/lib/tag-catalog";
+import { storyPlanningInputSignature } from "@/lib/story-planning-client";
 import {
-  CURRENT_MARKET_PROFILE,
   DEFAULT_GENERATION_SETTINGS,
   type CreatorTag,
-  type EpisodeWorkspace,
-  type GenerationBatchRecord,
-  type GeneratedDraft,
-  type GenerationMode,
   type ProjectDraft,
+  type ProjectReferenceMaterial,
   type ScriptProject,
 } from "@/lib/types";
 import { useLocale } from "@/providers/locale-provider";
@@ -47,6 +49,7 @@ const EMPTY_DRAFT: ProjectDraft = {
   title: "",
   titleSource: "derived",
   creativePrompt: "",
+  referenceMaterials: [],
   selectedTagIds: [],
   customTags: [],
   characters: [],
@@ -57,15 +60,24 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
   const router = useRouter();
   const { createProject, updateProject } = useProjects();
   const { locale, t } = useLocale();
+  const isReadOnly = mode === "edit" && Boolean(
+    project && (project.storyBibleStatus === "approved" || project.episodes.length > 0),
+  );
   const [draft, setDraft] = useState<ProjectDraft>(() => project ? toDraft(project) : EMPTY_DRAFT);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
-  const [phaseNotice, setPhaseNotice] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [availableTags, setAvailableTags] = useState<CreatorTag[]>(CREATOR_TAGS);
-  const [tagSource, setTagSource] = useState<"loading" | "backend" | "local">("loading");
+  const [referenceNotice, setReferenceNotice] = useState<string | null>(null);
+  const [isReadingReferences, setIsReadingReferences] = useState(false);
+  const [episodeCountInput, setEpisodeCountInput] = useState(() => (
+    project ? String(project.generationSettings.episodeCount) : ""
+  ));
+  const referenceInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (project) setDraft(toDraft(project));
+    if (project) {
+      setDraft(toDraft(project));
+      setEpisodeCountInput(String(project.generationSettings.episodeCount));
+    }
   }, [project?.id]);
 
   useEffect(() => {
@@ -79,7 +91,6 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
         if (backendTags.length > 0) {
           const backendTagIds = new Set(backendTags.map((tag) => tag.id));
           setAvailableTags(backendTags);
-          setTagSource("backend");
           setDraft((current) => ({
             ...current,
             selectedTagIds: Array.from(new Set(current.selectedTagIds.map((tagId) => {
@@ -87,13 +98,9 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
               return backendTagIds.has(resolvedTagId) ? resolvedTagId : tagId;
             }))),
           }));
-        } else {
-          setTagSource("local");
         }
       })
-      .catch(() => {
-        if (active) setTagSource("local");
-      });
+      .catch(() => undefined);
     return () => {
       active = false;
     };
@@ -111,20 +118,40 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
   }, [locale, mode]);
 
   useEffect(() => {
-    if (mode !== "edit" || !project) return;
+    if (mode !== "edit" || !project || isReadOnly) return;
     setSaveState("saving");
     const timer = window.setTimeout(() => {
       updateProject(project.id, draft);
       setSaveState("saved");
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [draft, mode, project?.id]);
+  }, [draft, isReadOnly, mode, project?.id]);
 
-  const hasCreativeSignal = Boolean(
-    draft.creativePrompt.trim()
-    || draft.selectedTagIds.length,
+  const hasRequiredCreativeInput = hasUsableCreativeSource(
+    draft.creativePrompt,
+    draft.referenceMaterials,
   );
+  const creativePromptCharacterCount = draft.creativePrompt.trim().length;
+  const usableReferenceCount = draft.referenceMaterials.filter(
+    (item) => item.extractedText.trim(),
+  ).length;
+  const parsedEpisodeCount = Number(episodeCountInput);
+  const episodeCountIsValid = /^\d+$/.test(episodeCountInput)
+    && Number.isInteger(parsedEpisodeCount)
+    && parsedEpisodeCount >= 8
+    && parsedEpisodeCount <= 2000;
   const hasExistingEpisodes = Boolean(project?.episodes.length);
+  const storyBibleReady = Boolean(
+    project
+    && project.storyBibleStatus === "approved"
+    && project.storyBibleInputSignature === storyPlanningInputSignature({ ...project, ...draft }),
+  );
+  const firstBatchPreview = nextBatchRange(0, draft.generationSettings);
+  const episodePlanningReady = Boolean(
+    firstBatchPreview
+    && project?.episodePlansReadyThrough
+    && project.episodePlansReadyThrough >= firstBatchPreview.endEpisode,
+  );
   const customTagOptions = draft.customTags.map((tag): CreatorTag => ({
     id: tag.id,
     label: tag.label,
@@ -135,9 +162,6 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     custom: true,
   }));
   const allAvailableTags = [...availableTags, ...customTagOptions];
-  const primaryTag = allAvailableTags.find((tag) => tag.id === draft.selectedTagIds[0])
-    ?? getTag(draft.selectedTagIds[0] ?? "");
-  const resolvedGenerationPrompt = buildResolvedPrompt(draft, allAvailableTags, locale).slice(0, 240);
   const syncStatus = project?.serverSync?.status;
   const isSaving = saveState === "saving" || syncStatus === "syncing";
   const saveLabel = mode === "create"
@@ -153,69 +177,84 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
             : t("editor.saved");
 
   function updatePrompt(value: string) {
+    if (isReadOnly) return;
     setDraft((current) => ({
       ...current,
       creativePrompt: value,
-      title: current.titleSource === "derived"
-        ? value.trim() ? deriveProjectTitle(value) : ""
-        : current.title,
     }));
   }
 
   function updateTitle(value: string) {
+    if (isReadOnly) return;
     setDraft((current) => ({
       ...current,
       title: value,
-      titleSource: "user",
+      titleSource: value.trim() ? "user" : "derived",
     }));
   }
 
-  function commitTitle() {
-    if (draft.title.trim()) return;
-    setDraft((current) => ({
-      ...current,
-      title: t("editor.untitled"),
-      titleSource: "user",
-    }));
-  }
-
-  async function openNewCharacter() {
-    if (mode === "edit" && project) {
-      router.push(`/projects/${project.id}/characters/new`);
+  async function addReferenceFiles(files: FileList | null) {
+    if (isReadOnly || !files?.length) return;
+    const remainingSlots = MAX_REFERENCE_FILES - draft.referenceMaterials.length;
+    if (remainingSlots <= 0) {
+      setReferenceNotice(t("reference.limitFiles"));
       return;
     }
-    const created = await createProject({
-      ...draft,
-      title: draft.title.trim()
-        || (draft.creativePrompt.trim()
-          ? deriveProjectTitle(draft.creativePrompt)
-          : t("editor.untitled")),
-    });
-    router.push(`/projects/${created.id}/characters/new`);
+    setIsReadingReferences(true);
+    setReferenceNotice(null);
+    try {
+      const added: ProjectReferenceMaterial[] = [];
+      let totalCharacters = draft.referenceMaterials.reduce(
+        (sum, item) => sum + item.extractedText.length,
+        0,
+      );
+      for (const file of Array.from(files).slice(0, remainingSlots)) {
+        const material = await createReferenceMaterial(file, "story_reference");
+        if (totalCharacters + material.extractedText.length > MAX_REFERENCE_TOTAL_CHARACTERS) {
+          throw new Error(t("reference.limitTotal"));
+        }
+        totalCharacters += material.extractedText.length;
+        added.push(material);
+      }
+      setDraft((current) => ({
+        ...current,
+        referenceMaterials: [...current.referenceMaterials, ...added],
+      }));
+      setReferenceNotice(t("reference.added").replace("{count}", String(added.length)));
+    } catch (error) {
+      setReferenceNotice(userFacingError(error, t("reference.readFailed")));
+    } finally {
+      setIsReadingReferences(false);
+      if (referenceInputRef.current) referenceInputRef.current.value = "";
+    }
   }
 
-  function removeCharacter(characterId: string) {
+  function removeReferenceMaterial(materialId: string) {
+    if (isReadOnly) return;
     setDraft((current) => ({
       ...current,
-      characters: current.characters.filter((character) => character.id !== characterId),
+      referenceMaterials: current.referenceMaterials.filter((item) => item.id !== materialId),
     }));
+    setReferenceNotice(null);
   }
 
   async function saveNewProject() {
-    if (!hasCreativeSignal) return;
+    if (!hasRequiredCreativeInput || !episodeCountIsValid) return;
     setSaveState("saving");
     const created = await createProject({
       ...draft,
-      title: draft.title.trim() || (draft.creativePrompt.trim() ? deriveProjectTitle(draft.creativePrompt) : t("editor.untitled")),
+      title: draft.title.trim() || t("editor.untitled"),
+      titleSource: draft.title.trim() ? "user" : "derived",
     });
     setSaveState("saved");
-    router.push(`/projects/${created.id}`);
+    router.push(`/projects/${created.id}/planning`);
   }
 
   function updateGenerationSetting<Key extends keyof ProjectDraft["generationSettings"]>(
     key: Key,
     value: ProjectDraft["generationSettings"][Key],
   ) {
+    if (isReadOnly) return;
     setDraft((current) => ({
       ...current,
       generationSettings: normalizeGenerationSettings({
@@ -225,10 +264,27 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     }));
   }
 
+  function updateEpisodeCount(value: string) {
+    if (isReadOnly) return;
+    setEpisodeCountInput(value);
+    if (!/^\d+$/.test(value)) return;
+    const episodeCount = Number(value);
+    if (!Number.isInteger(episodeCount) || episodeCount < 8 || episodeCount > 2000) return;
+    setDraft((current) => ({
+      ...current,
+      generationSettings: normalizeGenerationSettings({
+        ...current.generationSettings,
+        episodeCountMode: "custom",
+        episodeCount,
+      }),
+    }));
+  }
+
   function exportBrief() {
     const payload = JSON.stringify({
       title: draft.title,
       creative_prompt: draft.creativePrompt,
+      reference_materials: draft.referenceMaterials,
       selected_tag_ids: draft.selectedTagIds,
       custom_tags: draft.customTags,
       characters: draft.characters,
@@ -240,160 +296,6 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     anchor.download = `${draft.title.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, "-") || "script-project"}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-  }
-
-  function validateGenerationInput(): string | null {
-    if (tagSource !== "backend") return t("generation.runtimeUnavailable");
-    if (!draft.creativePrompt.trim() && draft.selectedTagIds.length === 0) {
-      return t("generation.creativeSignalRequired");
-    }
-    const customTagIds = new Set(draft.customTags.map((tag) => tag.id));
-    if (
-      !draft.creativePrompt.trim()
-      && !draft.selectedTagIds.some((tagId) => !customTagIds.has(tagId))
-    ) {
-      return t("generation.systemTagRequired");
-    }
-    return null;
-  }
-
-  function confirmTagDerivedDirection(): boolean {
-    return Boolean(
-      draft.creativePrompt.trim()
-      || window.confirm(`${t("generation.fallbackConfirm")}\n\n${resolvedGenerationPrompt}`),
-    );
-  }
-
-  async function createAndGenerate() {
-    const validationError = validateGenerationInput();
-    if (validationError) {
-      setPhaseNotice(validationError);
-      return;
-    }
-    if (!confirmTagDerivedDirection()) return;
-    setSaveState("saving");
-    const created = await createProject({
-      ...draft,
-      title: draft.title.trim()
-        || (draft.creativePrompt.trim()
-          ? deriveProjectTitle(draft.creativePrompt)
-          : t("editor.untitled")),
-    });
-    setSaveState("saved");
-    await generateProject(created);
-  }
-
-  async function generateScript() {
-    if (!project) return;
-    const validationError = validateGenerationInput();
-    if (validationError) {
-      setPhaseNotice(validationError);
-      return;
-    }
-    if (!confirmTagDerivedDirection()) return;
-    await generateProject(project);
-  }
-
-  async function generateProject(targetProject: ScriptProject) {
-    if (targetProject.episodes.length) {
-      setPhaseNotice(t("generation.existingProtected"));
-      return;
-    }
-    setIsGenerating(true);
-    setPhaseNotice(null);
-    updateProject(targetProject.id, { status: "generating" });
-    const generatedEpisodes: EpisodeWorkspace[] = [];
-    try {
-      const batchRange = nextBatchRange(0, draft.generationSettings);
-      if (!batchRange) return;
-      const targetCount = batchRange.endEpisode;
-      const batchNumber = 1;
-      let previousEpisode: GeneratedDraft | undefined;
-      for (let episodeNumber = 1; episodeNumber <= targetCount; episodeNumber += 1) {
-        setPhaseNotice(t("generation.progress")
-          .replace("{current}", String(episodeNumber))
-          .replace("{total}", String(targetCount)));
-        const continuity = synchronizeContinuity(
-          draft.creativePrompt,
-          draft.characters,
-          generatedEpisodes,
-          targetProject.storyLines,
-          targetProject.characterRelationships,
-        );
-        const generationRun = await generateSingleEpisode({
-          ...targetProject,
-          ...draft,
-          ...continuity,
-        }, {
-          generationMode: draft.generationSettings.mode,
-          episodeNumber,
-          totalEpisodes: batchRange.totalEpisodes,
-          previousEpisode,
-          batch: {
-            batchNumber,
-            startEpisode: batchRange.startEpisode,
-            endEpisode: batchRange.endEpisode,
-          },
-        });
-        const now = new Date().toISOString();
-        generatedEpisodes.push({
-          id: crypto.randomUUID(),
-          episodeNumber,
-          status: "framework",
-          generationRun,
-          workingDraftJson: JSON.stringify(generationRun.draft_master_script, null, 2),
-          hasLocalDraftEdits: false,
-          createdAt: now,
-          updatedAt: now,
-        });
-        previousEpisode = generationRun.draft_master_script;
-        const batchRecord: GenerationBatchRecord = {
-          id: `batch-${targetProject.id}-${batchNumber}`,
-          batchNumber,
-          startEpisode: batchRange.startEpisode,
-          endEpisode: batchRange.endEpisode,
-          requestedEpisodeCount: targetCount,
-          generatedEpisodeCount: generatedEpisodes.length,
-          status: generatedEpisodes.length === targetCount ? "completed" : "partial",
-          createdAt: generatedEpisodes[0].createdAt,
-          ...(generatedEpisodes.length === targetCount ? { completedAt: now } : {}),
-        };
-        const firstRun = generatedEpisodes[0].generationRun;
-        updateProject(targetProject.id, {
-          ...draft,
-          episodes: [...generatedEpisodes],
-          generationBatches: [batchRecord],
-          activeEpisodeNumber: 1,
-          ...synchronizeContinuity(
-            draft.creativePrompt,
-            draft.characters,
-            generatedEpisodes,
-            targetProject.storyLines,
-            targetProject.characterRelationships,
-          ),
-          generationRun: firstRun,
-          revisionRun: undefined,
-          finalizationResult: undefined,
-          workingDraftJson: generatedEpisodes[0].workingDraftJson,
-          hasLocalDraftEdits: false,
-          contentSpecId: firstRun.content_spec_id ?? targetProject.contentSpecId,
-          status: "draft",
-          ...(draft.titleSource === "user" ? {} : {
-            title: firstRun.draft_master_script.title,
-            titleSource: "generated" as const,
-          }),
-        });
-      }
-      router.push(`/projects/${targetProject.id}/workspace`);
-    } catch (error) {
-      updateProject(targetProject.id, {
-        status: generatedEpisodes.length || targetProject.generationRun ? "draft" : "idea",
-      });
-      setPhaseNotice(error instanceof Error ? error.message : t("generation.failed"));
-      if (generatedEpisodes.length) router.push(`/projects/${targetProject.id}/workspace`);
-    } finally {
-      setIsGenerating(false);
-    }
   }
 
   async function duplicateAsNewVersion() {
@@ -423,8 +325,10 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
           <input
             aria-label={t("editor.titleLabel")}
             className="project-title-input"
-            onBlur={commitTitle}
+            maxLength={120}
             onChange={(event) => updateTitle(event.target.value)}
+            placeholder={t("editor.titlePlaceholder")}
+            readOnly={isReadOnly}
             value={draft.title}
           />
           <p>{t("editor.intro")}</p>
@@ -436,9 +340,12 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
             <div className="creator-section-heading">
               <div>
                 <span className="section-kicker">{t("editor.creativeInput")}</span>
-                <h2>{t("editor.ideaQuestion")}</h2>
+                <div className="section-title-with-help">
+                  <h2>{t("editor.ideaQuestion")}</h2>
+                  <SectionHelp content={t("guide.creativeInput")} label={t("guide.openHelp")} />
+                </div>
               </div>
-              <span className="optional-label">{t("editor.optional")}</span>
+              <span className="optional-label">{t("editor.required")}</span>
             </div>
             <div className="prompt-editor-wrap">
               <textarea
@@ -446,12 +353,126 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
                 maxLength={240}
                 onChange={(event) => updatePrompt(event.target.value)}
                 placeholder={t("editor.ideaPlaceholder")}
+                readOnly={isReadOnly}
                 rows={7}
                 value={draft.creativePrompt}
               />
               <div className="prompt-editor-footer">
-                <span>{t("editor.primarySignal")}</span>
                 <span>{draft.creativePrompt.length}/240</span>
+              </div>
+            </div>
+            <div className="reference-upload-panel">
+              <div className="reference-upload-heading">
+                <div>
+                  <strong>{t("reference.title")}</strong>
+                  <p>{t("reference.help")}</p>
+                </div>
+                <span>{draft.referenceMaterials.length}/{MAX_REFERENCE_FILES}</span>
+              </div>
+              <div className="reference-upload-controls">
+                <input
+                  accept={REFERENCE_FILE_ACCEPT}
+                  disabled={isReadOnly}
+                  hidden
+                  multiple
+                  onChange={(event) => void addReferenceFiles(event.target.files)}
+                  ref={referenceInputRef}
+                  type="file"
+                />
+                <button
+                  className="outline-action reference-upload-button"
+                  disabled={isReadOnly || isReadingReferences || draft.referenceMaterials.length >= MAX_REFERENCE_FILES}
+                  onClick={() => referenceInputRef.current?.click()}
+                  type="button"
+                >
+                  <UploadIcon />
+                  {isReadingReferences ? t("reference.reading") : t("reference.chooseFiles")}
+                </button>
+              </div>
+              <p className="reference-format-help">{t("reference.formats")}</p>
+              {referenceNotice ? <p className="reference-notice" role="status">{referenceNotice}</p> : null}
+              {draft.referenceMaterials.length ? (
+                <div className="reference-material-list">
+                  {draft.referenceMaterials.map((material) => (
+                    <article className="reference-material-item" key={material.id}>
+                      <div className="reference-material-main">
+                        <ScriptIcon />
+                        <div>
+                          <strong>{material.fileName}</strong>
+                          <span>
+                            {material.extractedText.length.toLocaleString(locale === "zh" ? "zh-CN" : "en-US")} {t("reference.characters")}
+                            {material.truncated ? ` · ${t("reference.truncated")}` : ""}
+                          </span>
+                        </div>
+                      </div>
+                      {!isReadOnly ? (
+                        <button
+                          aria-label={`${t("reference.remove")} ${material.fileName}`}
+                          className="icon-action"
+                          onClick={() => removeReferenceMaterial(material.id)}
+                          title={t("reference.remove")}
+                          type="button"
+                        >
+                          <TrashIcon />
+                        </button>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="embedded-generation-settings" id="generation-settings">
+              <div className="embedded-generation-heading">
+                <div className="section-kicker-with-help">
+                  <span className="section-kicker">{t("generation.kicker")}</span>
+                  <SectionHelp content={t("guide.projectSettings")} label={t("guide.openHelp")} />
+                </div>
+              </div>
+              <div className="generation-form-grid generation-form-grid-compact">
+                <label className="form-field">
+                  <span>{t("generation.targetCharacters")}</span>
+                  <select
+                    disabled={isReadOnly}
+                    onChange={(event) => updateGenerationSetting("targetTotalCharacters", Number(event.target.value))}
+                    value={targetBodyScaleBand(draft.generationSettings.targetTotalCharacters).referenceCharacters}
+                  >
+                    {TARGET_BODY_SCALE_BANDS.map((band) => (
+                      <option key={band.id} value={band.referenceCharacters}>
+                        {t(`generation.targetCharacters.${band.id}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>{t("generation.episodes")}</span>
+                  <input
+                    aria-invalid={episodeCountInput.length > 0 && !episodeCountIsValid}
+                    disabled={isReadOnly}
+                    inputMode="numeric"
+                    max={2000}
+                    min={8}
+                    onChange={(event) => updateEpisodeCount(event.target.value)}
+                    placeholder={t("generation.episodeCountManualPlaceholder")}
+                    step={1}
+                    type="number"
+                    value={episodeCountInput}
+                  />
+                  <small className={episodeCountInput.length > 0 && !episodeCountIsValid ? "field-help is-error" : "field-help"}>
+                    {t("generation.episodeCountManualHelp")}
+                  </small>
+                </label>
+                <label className="form-field">
+                  <span>{t("generation.releaseRegion")}</span>
+                  <select
+                    disabled={isReadOnly}
+                    onChange={(event) => updateGenerationSetting("releaseRegion", event.target.value as "cn_mainland" | "overseas")}
+                    value={draft.generationSettings.releaseRegion}
+                  >
+                    <option value="cn_mainland">{t("generation.releaseRegion.cnMainland")}</option>
+                    <option value="overseas">{t("generation.releaseRegion.overseas")}</option>
+                  </select>
+                  <small className="field-help">{t("generation.releaseRegion.help")}</small>
+                </label>
               </div>
             </div>
           </div>
@@ -463,199 +484,143 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
             <div className="creator-section-heading">
               <div>
                 <span className="section-kicker">{t("editor.storySignals")}</span>
-                <h2>{t("editor.gravity")}</h2>
+                <div className="section-title-with-help">
+                  <h2>{t("editor.gravity")}</h2>
+                  <SectionHelp content={t("guide.storyTags")} label={t("guide.openHelp")} />
+                </div>
               </div>
-              <span className="optional-label">{t("editor.control")}</span>
+              <span className="optional-label">{t("editor.tagsOptional")}</span>
             </div>
             <TagSelector
               availableTags={availableTags}
               customTags={draft.customTags}
               onChange={(selectedTagIds) => setDraft((current) => ({ ...current, selectedTagIds }))}
               onCustomTagsChange={(customTags) => setDraft((current) => ({ ...current, customTags }))}
+              readOnly={isReadOnly}
               selectedTagIds={draft.selectedTagIds}
             />
-            <p className={`tag-source-note is-${tagSource}`}>
-              {t(`tags.source.${tagSource}`)}
-            </p>
           </div>
         </section>
 
-        <section className="creator-section" id="characters">
-          <div className="creator-section-marker">03</div>
-          <div className="creator-section-body">
-            <div className="creator-section-heading">
-              <div>
-                <span className="section-kicker">{t("editor.characterFiles")}</span>
-                <h2>{t("editor.characterPrompt")}</h2>
-              </div>
-              <button className="outline-action" onClick={() => void openNewCharacter()} type="button"><PlusIcon /> {t("editor.addCharacter")}</button>
-            </div>
-
-            {draft.characters.length === 0 ? (
-              <button className="character-empty-state" onClick={() => void openNewCharacter()} type="button">
-                <span><UserIcon /></span>
-                <strong>{t("editor.firstCharacter")}</strong>
-                <small>{t("editor.firstCharacterHelp")}</small>
-              </button>
-            ) : (
-              <div className="character-list">
-                {draft.characters.map((character, index) => (
-                  <CharacterCard
-                    character={character}
-                    index={index}
-                    key={character.id}
-                    onDelete={() => removeCharacter(character.id)}
-                    onEdit={() => project && router.push(`/projects/${project.id}/characters/${character.id}`)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="creator-section" id="generation-settings">
-          <div className="creator-section-marker">04</div>
-          <div className="creator-section-body">
-            <div className="creator-section-heading">
-              <div>
-                <span className="section-kicker">{t("generation.kicker")}</span>
-                <h2>{t("generation.title")}</h2>
-              </div>
-              <span className="optional-label">{t("generation.honestBoundary")}</span>
-            </div>
-            <div className="generation-mode-grid">
-              {(["sequential", "full"] as GenerationMode[]).map((generationMode) => (
-                <button
-                  aria-pressed={draft.generationSettings.mode === generationMode}
-                  className="generation-mode-card"
-                  key={generationMode}
-                  onClick={() => updateGenerationSetting("mode", generationMode)}
-                  type="button"
-                >
-                  <strong>{t(`generation.mode.${generationMode}`)}</strong>
-                  <span>{t(`generation.mode.${generationMode}.description`)}</span>
-                  {generationMode === "sequential" ? <small>{t("generation.recommended")}</small> : <small>{t("generation.generateAllFrameworks")}</small>}
-                </button>
-              ))}
-            </div>
-            <div className="generation-form-grid">
-              <label className="form-field">
-                <span>{t("generation.episodeCountMode")}</span>
-                <select onChange={(event) => updateGenerationSetting("episodeCountMode", event.target.value as "recommended" | "custom")} value={draft.generationSettings.episodeCountMode}>
-                  <option value="recommended">{t("generation.episodeCountMode.recommended")}</option>
-                  <option value="custom">{t("generation.episodeCountMode.custom")}</option>
-                </select>
-              </label>
-              <label className="form-field">
-                <span>{t("generation.targetCharacters")}</span>
-                <input min={1000} max={5000000} step={10000} onChange={(event) => updateGenerationSetting("targetTotalCharacters", Number(event.target.value))} type="number" value={draft.generationSettings.targetTotalCharacters} />
-              </label>
-              <label className="form-field">
-                <span>{t("generation.episodeDuration")}</span>
-                <input min={0.5} max={30} step={0.5} onChange={(event) => updateGenerationSetting("preferredEpisodeDurationMinutes", Number(event.target.value))} type="number" value={draft.generationSettings.preferredEpisodeDurationMinutes} />
-              </label>
-              <label className="form-field">
-                <span>{t("generation.storyDensity")}</span>
-                <select onChange={(event) => updateGenerationSetting("storyDensity", event.target.value as "compact" | "balanced" | "detailed")} value={draft.generationSettings.storyDensity}>
-                  <option value="compact">{t("generation.storyDensity.compact")}</option>
-                  <option value="balanced">{t("generation.storyDensity.balanced")}</option>
-                  <option value="detailed">{t("generation.storyDensity.detailed")}</option>
-                </select>
-              </label>
-              <label className="form-field">
-                <span>{t("generation.episodes")}</span>
-                <input disabled={draft.generationSettings.episodeCountMode === "recommended"} min={1} max={2000} onChange={(event) => updateGenerationSetting("episodeCount", Number(event.target.value))} type="number" value={draft.generationSettings.episodeCount} />
-                {draft.generationSettings.episodeCountMode === "recommended" ? <small>{t("generation.recommendationNote").replace("{count}", String(recommendEpisodeCount(draft.generationSettings)))}</small> : null}
-              </label>
-              <label className="form-field">
-                <span>{t("generation.batchSize")}</span>
-                <input disabled={draft.generationSettings.mode === "sequential"} min={1} max={20} onChange={(event) => updateGenerationSetting("batchSize", Number(event.target.value))} type="number" value={draft.generationSettings.mode === "sequential" ? 1 : draft.generationSettings.batchSize} />
-              </label>
-              {CURRENT_MARKET_PROFILE === "overseas_tiktok" ? (
-                <label className="form-field">
-                  <span>{t("generation.language")}</span>
-                  <select onChange={(event) => updateGenerationSetting("outputLanguage", event.target.value as "en" | "zh")} value={draft.generationSettings.outputLanguage}>
-                    <option value="en">English</option>
-                    <option value="zh">中文</option>
-                  </select>
-                </label>
-              ) : null}
-              <label className="form-field">
-                <span>{t("generation.scenes")}</span>
-                <input min={2} max={8} onChange={(event) => updateGenerationSetting("sceneCount", Number(event.target.value))} type="number" value={draft.generationSettings.sceneCount} />
-              </label>
-              <label className="form-field span-two">
-                <span>{t("generation.instructions")}</span>
-                <textarea maxLength={500} onChange={(event) => updateGenerationSetting("customInstructions", event.target.value)} placeholder={t("generation.instructionsPlaceholder")} rows={3} value={draft.generationSettings.customInstructions} />
-              </label>
-            </div>
-          </div>
-        </section>
       </div>
 
       <aside className="creator-inspector page-reveal delay-one">
         <div className="inspector-sticky">
           <div className="inspector-heading">
-            <span className="section-kicker">{t("editor.projectPulse")}</span>
-            <span className={`project-status status-${project?.status ?? "idea"}`}>{t(`status.${project?.status ?? "idea"}`)}</span>
+            <div className="section-kicker-with-help">
+              <span className="section-kicker">
+                {t(mode === "create" ? "editor.creationCheck" : "editor.currentProgress")}
+              </span>
+              <SectionHelp content={t("guide.creationCheck")} label={t("guide.openHelp")} />
+            </div>
           </div>
-          <div className="project-pulse-card">
-            <div className="pulse-glyph"><ScriptIcon /></div>
-            <strong>{draft.title || t("editor.untitled")}</strong>
-            <span>{primaryTag ? getLocalizedTagLabel(primaryTag, locale) : t("editor.noGenre")}</span>
-          </div>
-          <dl className="project-readiness">
-            <div><dt>{t("editor.creativeInput")}</dt><dd>{t(draft.creativePrompt.trim() ? "editor.ready" : "editor.open")}</dd></div>
-            <div><dt>{t("editor.selectedTags")}</dt><dd>{draft.selectedTagIds.length}</dd></div>
-            <div><dt>{t("home.characters")}</dt><dd>{draft.characters.length}</dd></div>
-            <div><dt>{t("editor.generationMode")}</dt><dd>{t(`generation.mode.${draft.generationSettings.mode}`)}</dd></div>
-          </dl>
-          <div className="phase-note">
-            <span>{t("editor.phaseLabel")}</span>
-            <p>{t("editor.phaseText")}</p>
-          </div>
-          <details className="generation-context-preview">
-            <summary>{t("generation.contextPreview")}</summary>
-            <dl>
-              <div><dt>{t("generation.resolvedIntent")}</dt><dd>{resolvedGenerationPrompt}</dd></div>
-              <div><dt>{t("editor.selectedTags")}</dt><dd>{draft.selectedTagIds.length ? draft.selectedTagIds.map((tagId) => {
-                const tag = allAvailableTags.find((item) => item.id === tagId);
-                return tag ? getLocalizedTagLabel(tag, locale) : tagId;
-              }).join("、") : t("generation.none")}</dd></div>
-              <div><dt>{t("home.characters")}</dt><dd>{draft.characters.length ? draft.characters.map((character) => `${character.name} (${character.role})`).join(", ") : t("generation.none")}</dd></div>
-            </dl>
-          </details>
-          {phaseNotice ? <div className="inline-notice">{phaseNotice}</div> : null}
-          {hasExistingEpisodes ? <div className="inline-notice">{t("generation.existingProtected")}</div> : null}
           {mode === "create" ? (
-            <>
-              <button className="primary-action full-width" disabled={!hasCreativeSignal || isGenerating || saveState === "saving"} onClick={() => void createAndGenerate()} type="button">
-                {isGenerating ? t("generation.generating") : t("generation.generate")} <ArrowIcon />
-              </button>
-              <button className="outline-action full-width" disabled={!hasCreativeSignal || saveState === "saving"} onClick={() => void saveNewProject()} type="button">
-                {t("editor.saveProject")}
-              </button>
-            </>
+            <dl className="inspector-summary">
+              <div>
+                <dt>{t("editor.storyContent")}</dt>
+                <dd className={hasRequiredCreativeInput ? "is-complete" : "is-required"}>
+                  {hasRequiredCreativeInput
+                    ? creativePromptCharacterCount && usableReferenceCount
+                      ? t("editor.creativeInputBoth")
+                        .replace("{characters}", String(creativePromptCharacterCount))
+                        .replace("{files}", String(usableReferenceCount))
+                      : creativePromptCharacterCount
+                        ? t("editor.characterCount").replace("{count}", String(creativePromptCharacterCount))
+                        : t("editor.referenceCount").replace("{count}", String(usableReferenceCount))
+                    : t("editor.requiredMissing")}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("generation.targetCharacters")}</dt>
+                <dd>{t(`generation.targetCharacters.${targetBodyScaleBand(draft.generationSettings.targetTotalCharacters).id}`)}</dd>
+              </div>
+              <div>
+                <dt>{t("generation.episodes")}</dt>
+                <dd className={episodeCountIsValid ? "is-complete" : "is-required"}>
+                  {episodeCountIsValid
+                    ? t("editor.episodeCountValue").replace("{count}", episodeCountInput)
+                    : t("editor.requiredMissing")}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("editor.episodeRuntime")}</dt>
+                <dd>{t("editor.episodeRuntimeValue")}</dd>
+              </div>
+              <div>
+                <dt>{t("generation.releaseRegion")}</dt>
+                <dd>{t(`generation.releaseRegion.${draft.generationSettings.releaseRegion === "overseas" ? "overseas" : "cnMainland"}`)}</dd>
+              </div>
+              <div>
+                <dt>{t("editor.selectedTags")}</dt>
+                <dd className="is-optional">{t("editor.optionalCount").replace("{count}", String(draft.selectedTagIds.length))}</dd>
+              </div>
+            </dl>
           ) : (
-            hasExistingEpisodes ? (
-              <>
+            <dl className="inspector-summary">
+              <div>
+                <dt>{t("editor.storyBibleProgress")}</dt>
+                <dd className={storyBibleReady ? "is-complete" : "is-pending"}>
+                  {storyBibleReady ? t("editor.approved") : project?.storyBibleStatus === "draft" ? t("editor.awaitingApproval") : t("editor.notStarted")}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("editor.episodePlanningProgress")}</dt>
+                <dd className={project?.episodePlansReadyThrough ? "is-complete" : "is-pending"}>
+                  {project?.episodePlansReadyThrough
+                    ? t("editor.plannedThroughEpisode").replace("{count}", String(project.episodePlansReadyThrough))
+                    : t("editor.notStarted")}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("editor.scriptProgress")}</dt>
+                <dd className={hasExistingEpisodes ? "is-complete" : "is-pending"}>
+                  {t("editor.scriptEpisodeProgress")
+                    .replace("{current}", String(project?.episodes.length ?? 0))
+                    .replace("{total}", String(draft.generationSettings.episodeCount))}
+                </dd>
+              </div>
+            </dl>
+          )}
+          {hasExistingEpisodes ? <div className="inline-notice">{t("generation.existingProtected")}</div> : null}
+          <div className="inspector-actions">
+            {mode === "create" ? (
+              <button className="primary-action full-width" disabled={!hasRequiredCreativeInput || !episodeCountIsValid || saveState === "saving"} onClick={() => void saveNewProject()} type="button">
+                {t("editor.createProjectAndPlan")} <ArrowIcon />
+              </button>
+            ) : (
+              hasExistingEpisodes ? (
+                <>
                 <button className="primary-action full-width" onClick={() => project && router.push(`/projects/${project.id}/workspace`)} type="button">
                   {t("generation.openWorkspace")} <ArrowIcon />
                 </button>
                 <button className="outline-action full-width" onClick={() => void duplicateAsNewVersion()} type="button">
                   {t("generation.createVersion")}
                 </button>
-                <button className="outline-action full-width" onClick={exportBrief} type="button">{t("generation.exportBrief")}</button>
+                <button className="outline-action full-width" onClick={exportBrief} type="button"><Download aria-hidden="true" size={15} />{t("generation.exportBrief")}</button>
+                </>
+              ) : <>
+                {episodePlanningReady ? (
+                  <button
+                    className="primary-action full-width"
+                    disabled={!episodeCountIsValid || saveState === "saving"}
+                    onClick={() => project && router.push(`/projects/${project.id}/planning`)}
+                    type="button"
+                  >
+                    {t("planningWorkspace.openPlanning")}
+                    <ArrowIcon />
+                  </button>
+                ) : (
+                  <button className="primary-action full-width" disabled={!episodeCountIsValid} onClick={() => project && router.push(`/projects/${project.id}/planning`)} type="button">
+                    {t("planningWorkspace.continuePlanning")}
+                    <ArrowIcon />
+                  </button>
+                )}
+                <button className="outline-action full-width" onClick={exportBrief} type="button"><Download aria-hidden="true" size={15} />{t("generation.exportBrief")}</button>
               </>
-            ) : <>
-              <button className="primary-action full-width" disabled={isGenerating || !hasCreativeSignal} onClick={() => void generateScript()} type="button">
-                {isGenerating ? t("generation.generating") : t("generation.generate")}
-                <ArrowIcon />
-              </button>
-              <button className="outline-action full-width" onClick={exportBrief} type="button">{t("generation.exportBrief")}</button>
-            </>
-          )}
-          {!hasCreativeSignal ? <small className="readiness-hint">{t("editor.beginHint")}</small> : null}
+            )}
+          </div>
+          {mode === "create" && !hasRequiredCreativeInput ? <small className="readiness-hint">{t("editor.beginHint")}</small> : null}
+          {mode === "edit" && !hasExistingEpisodes ? <small className="readiness-hint">{storyBibleReady ? t("generation.recursivePlanningPending") : t("generation.planRequired")}</small> : null}
         </div>
       </aside>
 
@@ -668,32 +633,15 @@ function toDraft(project: ScriptProject): ProjectDraft {
     title: project.title,
     titleSource: project.titleSource,
     creativePrompt: project.creativePrompt,
+    referenceMaterials: project.referenceMaterials ?? [],
     selectedTagIds: project.selectedTagIds,
     customTags: project.customTags ?? [],
     characters: project.characters,
-    generationSettings: normalizeGenerationSettings(project.generationSettings, {
+    generationSettings: normalizeGenerationSettings({
+      ...project.generationSettings,
+      episodeCountMode: "custom",
+    }, {
       legacy: project.generationSettings?.episodeCountMode === undefined,
     }),
   };
-}
-
-function buildResolvedPrompt(
-  draft: ProjectDraft,
-  availableTags: CreatorTag[],
-  locale: "en" | "zh",
-): string {
-  if (draft.creativePrompt.trim()) return draft.creativePrompt.trim();
-  const labels = draft.selectedTagIds.map((tagId) => {
-    const tag = availableTags.find((item) => item.id === tagId) ?? getTag(tagId);
-    return tag ? getLocalizedTagLabel(tag, locale) : tagId;
-  });
-  if (labels.length) {
-    return locale === "zh"
-      ? `创作一个包含${labels.join("、")}元素的故事。`
-      : `Create a story using ${labels.join(", ")}.`;
-  }
-  const names = draft.characters.map((character) => character.name).filter(Boolean);
-  return locale === "zh"
-    ? `创作一个以${names.join("、") || "这些角色"}为核心的故事。`
-    : `Create a story centered on ${names.join(", ") || "these characters"}.`;
 }

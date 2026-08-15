@@ -1,6 +1,21 @@
-import { apiRequest } from "@/lib/api-client";
+import { ApiError, apiEventStream, apiRequest } from "@/lib/api-client";
 import { buildContinuityGenerationSummary } from "@/lib/continuity";
-import { targetScriptBodyCharacters } from "@/lib/generation-planning";
+import { generateWithAutomaticTransientRetry } from "@/lib/generation-retry";
+import {
+  normalizeEpisodeDurationSeconds,
+  targetScriptBodyCharacters,
+} from "@/lib/generation-planning";
+import type {
+  EpisodeExecutionPlan,
+  StoryNodeExecutionContext,
+} from "@/lib/episode-generation-planning";
+import { buildProvisionalContinuityCheckpoint } from "@/lib/continuity-checkpoint";
+import { loadConfirmedContinuityCheckpoint } from "@/lib/project-sync";
+import {
+  buildEpisodeReferenceMaterialContext,
+  hasUsableCreativeSource,
+  referenceMaterialFallbackPrompt,
+} from "@/lib/reference-materials";
 import { getTag, resolveLegacyTagId } from "@/lib/tag-catalog";
 import type {
   BilingualScriptView,
@@ -35,12 +50,78 @@ interface ModificationResponse { data: ScriptDraftModificationResult }
 interface DeepeningResponse { data: CreativeDeepeningRun }
 interface BilingualViewResponse { data: BilingualScriptView }
 
+export interface EpisodeGenerationRuntime {
+  nodesResponse: ApiList<OntologyNode>;
+  profilesResponse: ApiList<PlatformProfile>;
+  strategiesResponse: ApiList<GenerationStrategy>;
+  confirmedCheckpoint: string | null;
+}
+
+let generationCatalogCache: {
+  expiresAt: number;
+  value: Promise<Pick<EpisodeGenerationRuntime, "nodesResponse" | "profilesResponse" | "strategiesResponse">>;
+} | null = null;
+
+async function loadGenerationCatalog(): Promise<Pick<EpisodeGenerationRuntime, "nodesResponse" | "profilesResponse" | "strategiesResponse">> {
+  const now = Date.now();
+  if (!generationCatalogCache || generationCatalogCache.expiresAt <= now) {
+    const value = Promise.all([
+      apiRequest<ApiList<OntologyNode>>("/ontology-nodes"),
+      apiRequest<ApiList<PlatformProfile>>("/platform-profiles"),
+      apiRequest<ApiList<GenerationStrategy>>("/generation-strategies"),
+    ]).then(([nodesResponse, profilesResponse, strategiesResponse]) => ({
+      nodesResponse,
+      profilesResponse,
+      strategiesResponse,
+    }));
+    generationCatalogCache = {
+      expiresAt: now + 5 * 60 * 1000,
+      value,
+    };
+    void value.catch(() => {
+      if (generationCatalogCache?.value === value) generationCatalogCache = null;
+    });
+  }
+  return generationCatalogCache.value;
+}
+
+export async function prepareEpisodeGenerationRuntime(
+  project: ScriptProject,
+): Promise<EpisodeGenerationRuntime> {
+  return generateWithAutomaticTransientRetry({
+    generate: async () => {
+      const [catalog, confirmedCheckpoint] = await Promise.all([
+        loadGenerationCatalog(),
+        loadConfirmedContinuityCheckpoint(project),
+      ]);
+      return { ...catalog, confirmedCheckpoint };
+    },
+  });
+}
+
 export interface EpisodeGenerationContext {
   generationMode: "sequential" | "full";
   episodeNumber: number;
   totalEpisodes: number;
+  targetScriptBodyCharacters?: number;
+  targetDurationSeconds?: number;
+  adaptiveSceneCount?: number;
+  plannedShotCount?: number;
   previousEpisode?: GeneratedDraft;
+  previousEpisodeSummary?: string;
+  previousEpisodeHandoff?: string;
+  previousEpisodeQuestion?: string;
   episodeInstruction?: string;
+  moduleHandoff?: string;
+  longRangeAnchor?: string;
+  relevantCharacterRefs?: string[];
+  plannedStoryLineRefs?: string[];
+  plannedSetupRefs?: string[];
+  plannedPayoffRefs?: string[];
+  plannedStoryBeat?: string;
+  approvedStoryNode?: StoryNodeExecutionContext;
+  approvedEpisodePlan?: EpisodeExecutionPlan;
+  storyBibleContext?: string;
   batch?: {
     batchNumber: number;
     startEpisode: number;
@@ -49,15 +130,85 @@ export interface EpisodeGenerationContext {
   };
 }
 
+export type ScriptGenerationStage =
+  | "preparing"
+  | "generating"
+  | "retrying_generation"
+  | "recovering_model_regeneration"
+  | "repairing_json"
+  | "validating_structure"
+  | "repairing_structure"
+  | "repairing_structure_fallback"
+  | "checking_language"
+  | "repairing_language"
+  | "checking_acceptance"
+  | "repairing_acceptance"
+  | "repairing_continuity"
+  | "checking_gpt_edit"
+  | "editing_with_gpt"
+  | "validating_gpt_edit"
+  | "checking_length"
+  | "expanding_body"
+  | "checking_screenplay_style"
+  | "repairing_screenplay_style"
+  | "assembling"
+  | "quality_checking"
+  | "completed";
+
+export type ScriptGenerationStreamEvent =
+  | {
+      type: "stage";
+      episode_number?: number;
+      timestamp: string;
+      stage: ScriptGenerationStage;
+      actual_characters?: number;
+      target_characters?: number;
+      preferred_min_characters?: number;
+      preferred_max_characters?: number;
+    }
+  | {
+      type: "draft_delta";
+      episode_number?: number;
+      timestamp: string;
+      phase: "draft" | "model_regeneration" | "json_repair" | "structure_repair" | "language_repair" | "body_expansion" | "screenplay_style_repair" | "acceptance_repair" | "continuity_repair";
+      delta: string;
+      reset: boolean;
+    }
+  | {
+      type: "result";
+      episode_number?: number;
+      timestamp: string;
+      data: ScriptGenerationRun;
+    }
+  | {
+      type: "error";
+      episode_number?: number;
+      timestamp: string;
+      error_type: string;
+      message: string;
+      status?: number;
+      recoverable?: boolean;
+    };
+
 export async function generateSingleEpisode(
   project: ScriptProject,
   episode?: EpisodeGenerationContext,
+  onStreamEvent?: (event: ScriptGenerationStreamEvent) => void,
+  runtime?: EpisodeGenerationRuntime,
 ): Promise<ScriptGenerationRun> {
-  const [nodesResponse, profilesResponse, strategiesResponse] = await Promise.all([
-    apiRequest<ApiList<OntologyNode>>("/ontology-nodes"),
-    apiRequest<ApiList<PlatformProfile>>("/platform-profiles"),
-    apiRequest<ApiList<GenerationStrategy>>("/generation-strategies"),
-  ]);
+  const isMainlandChina = CURRENT_MARKET_PROFILE === "cn_mainland";
+  const isOverseasRelease = project.generationSettings.releaseRegion === "overseas";
+  const targetDurationSeconds = normalizeEpisodeDurationSeconds(
+    episode?.targetDurationSeconds
+      ?? project.generationSettings.preferredEpisodeDurationMinutes * 60,
+  );
+  const preparedRuntime = runtime ?? await prepareEpisodeGenerationRuntime(project);
+  const {
+    nodesResponse,
+    profilesResponse,
+    strategiesResponse,
+    confirmedCheckpoint,
+  } = preparedRuntime;
   const activeNodeIds = new Set(nodesResponse.data.filter((node) => node.is_active).map((node) => node.id));
   const activeNodes = new Map(nodesResponse.data.filter((node) => node.is_active).map((node) => [node.id, node]));
   const customTags = project.customTags ?? [];
@@ -71,13 +222,20 @@ export async function generateSingleEpisode(
     .map((tagId) => customTagMap.get(tagId)?.label)
     .filter((label): label is string => Boolean(label));
   const missingTags = systemTagIds.filter((tagId) => !activeNodeIds.has(tagId));
-  if (missingTags.length) throw new Error(`Backend Ontology is missing selected tags: ${missingTags.join(", ")}`);
+  if (missingTags.length) {
+    throw new Error(isMainlandChina
+      ? `后端本体目录缺少已选标签：${missingTags.join("、")}`
+      : `Backend Ontology is missing selected tags: ${missingTags.join(", ")}`);
+  }
   const platform = profilesResponse.data.find(
     (item) => item.metadata?.runtime_status === "active",
   ) ?? profilesResponse.data[0];
-  if (!platform) throw new Error("Backend has no PlatformProfile. Initialize runtime resources first.");
-  const isMainlandChina = platform.metadata?.market_profile === "cn_mainland";
-  if (!project.creativePrompt.trim() && systemTagIds.length === 0) {
+  if (!platform) {
+    throw new Error(isMainlandChina
+      ? "后端缺少平台配置，请先初始化运行资源。"
+      : "Backend has no PlatformProfile. Initialize runtime resources first.");
+  }
+  if (!hasUsableCreativeSource(project.creativePrompt, project.referenceMaterials) && systemTagIds.length === 0) {
     throw new Error(isMainlandChina
       ? "仅使用“我的标签”时需要补充创作描述或选择至少一个系统标签。"
       : "My Tags require a creative description or at least one controlled system tag.");
@@ -87,16 +245,18 @@ export async function generateSingleEpisode(
     projectMarketProfile !== CURRENT_MARKET_PROFILE
     || platform.metadata?.market_profile !== CURRENT_MARKET_PROFILE
   ) {
-    throw new Error(
-      "This project belongs to a different market profile. Duplicate it as a new version before generating new episodes.",
-    );
+    throw new Error(isMainlandChina
+      ? "这个项目属于其他市场配置，请先复制为当前市场的新版本再继续生成。"
+      : "This project belongs to a different market profile. Duplicate it as a new version before generating new episodes.");
   }
   const platformName = platform.platform_name.trim().toLowerCase();
   const selectedTagIds = new Set(systemTagIds);
   const platformStrategies = strategiesResponse.data.filter((item) => (
     item.status === "active" && item.target_platform.trim().toLowerCase() === platformName
   ));
-  const strategy = platformStrategies
+  const strategy = strategiesResponse.data.find((item) => (
+    item.id === project.generationStrategyId && item.status === "active"
+  )) ?? platformStrategies
     .filter((item) => item.applicable_tags.every((tagId) => selectedTagIds.has(tagId)))
     .sort((left, right) => (
       Number(Boolean(right.draft_knowledge_bundle_id)) - Number(Boolean(left.draft_knowledge_bundle_id))
@@ -104,13 +264,30 @@ export async function generateSingleEpisode(
     ))[0]
     ?? strategiesResponse.data.find((item) => item.status === "active")
     ?? strategiesResponse.data[0];
-  if (!strategy) throw new Error("Backend has no GenerationStrategy. Initialize Prompt and Strategy resources first.");
+  if (!strategy) {
+    throw new Error(isMainlandChina
+      ? "后端缺少生成策略，请先初始化提示词和策略资源。"
+      : "Backend has no GenerationStrategy. Initialize Prompt and Strategy resources first.");
+  }
 
-  const safeTitle = project.title.trim().length >= 3 ? project.title.trim() : `${project.title.trim() || "New"} script`;
+  const safeTitle = (project.title.trim().length >= 3
+    ? project.title.trim()
+    : isMainlandChina
+      ? `${project.title.trim() || "未命名"}剧本`
+      : `${project.title.trim() || "New"} script`).slice(0, 120);
+  const effectiveCreativePrompt = project.creativePrompt.trim()
+    || referenceMaterialFallbackPrompt(project.referenceMaterials);
   const emotionTag = systemTagIds
     .map((tagId) => activeNodes.get(tagId))
     .find((node) => node?.category === "Emotion");
-  const resolution = await apiRequest<ResolutionResponse>("/content-specs/resolve-creative-intent", {
+  const resolution = project.contentSpecId && project.resolvedCreativeContext
+    ? {
+        data: {
+          content_spec: { id: project.contentSpecId },
+          resolved_creative_context: project.resolvedCreativeContext,
+        },
+      }
+    : await apiRequest<ResolutionResponse>("/content-specs/resolve-creative-intent", {
     method: "POST",
     body: JSON.stringify({
       schema_version: "v1",
@@ -122,9 +299,9 @@ export async function generateSingleEpisode(
         ? { summary: "建立可持续展开和后续漫剧改编的长篇故事基础", priority: "primary", success_metric: "连续性、人物稳定性与阶段性追读动力" }
         : { summary: "Build sustained audience interest", priority: "primary", success_metric: "completion and continuation" },
       platform_goal: isMainlandChina
-        ? { platform_profile_id: platform.id, objective: "生成适合中国大陆市场参考的连载故事单集框架", target_duration_seconds: Math.round(project.generationSettings.preferredEpisodeDurationMinutes * 60), target_aspect_ratio: "9:16" }
-        : { platform_profile_id: platform.id, objective: "Create a compelling AI comic episode", target_duration_seconds: Math.round(project.generationSettings.preferredEpisodeDurationMinutes * 60), target_aspect_ratio: "9:16" },
-      free_creative_prompt: project.creativePrompt.trim().slice(0, 240),
+        ? { platform_profile_id: platform.id, objective: "生成适合中国大陆漫剧制作的单集正式剧本正文，包含可视动作与实际对白", target_duration_seconds: targetDurationSeconds, target_aspect_ratio: "9:16" }
+        : { platform_profile_id: platform.id, objective: "Create a compelling AI comic episode", target_duration_seconds: targetDurationSeconds, target_aspect_ratio: "9:16" },
+      free_creative_prompt: effectiveCreativePrompt.slice(0, 240),
       quality_level: "high",
       budget_level: "medium",
       selected_tag_ids: systemTagIds,
@@ -144,36 +321,14 @@ export async function generateSingleEpisode(
               ? `用户自定义创作标签：${selectedCustomTagLabels.join("、")}。`
               : `User-defined creative tags: ${selectedCustomTagLabels.join(", ")}.`
             : "",
+          project.referenceMaterials?.length
+            ? isMainlandChina
+              ? `用户上传了${project.referenceMaterials.length}份创作参考资料；按文件用途约束生成。`
+              : `The user supplied ${project.referenceMaterials.length} creative reference files; use each only for its declared purpose.`
+            : "",
         ].filter(Boolean),
       },
-      character_contexts: project.characters.map((character, index) => {
-        const explicitRole = character.role.trim();
-        const role = explicitRole || (index === 0 ? "Protagonist" : "Supporting Character");
-        const descriptionParts = [
-          character.age.trim() ? `Age: ${character.age.trim()}` : "",
-          character.gender.trim() ? `Gender: ${character.gender.trim()}` : "",
-          character.background.trim() ? `Background: ${character.background.trim()}` : "",
-          character.appearance.trim() ? `Appearance: ${character.appearance.trim()}` : "",
-          character.description.trim(),
-        ].filter(Boolean);
-        const description = descriptionParts.join(". ").slice(0, 500);
-        return {
-          character_ref: `character.${character.id.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
-          name: character.name.trim(),
-          role,
-          ...(description ? { description } : {}),
-          locked_fields: [
-            "name",
-            ...(explicitRole ? ["role"] : []),
-            ...(description ? ["description"] : []),
-          ],
-          field_sources: {
-            name: "user_provided",
-            role: explicitRole ? "user_provided" : "ai_inferred",
-            ...(description ? { description: "user_provided" } : {}),
-          },
-        };
-      }),
+      character_contexts: [],
       request_metadata: {
         frontend_project_id: project.id,
         generation_planning: {
@@ -186,32 +341,84 @@ export async function generateSingleEpisode(
         },
       },
     }),
-  });
-  const generated = await apiRequest<GenerationResponse>("/script-generation/generate-draft", {
-    method: "POST",
-    body: JSON.stringify({
+      });
+  // Later episodes have a current structured ledger. Sending that ledger plus
+  // the older confirmed checkpoint and the prose summary duplicates most of
+  // the same state and makes model latency grow with every episode.
+  const provisionalContinuityCheckpoint = episode
+    ? buildProvisionalContinuityCheckpoint(project, {
+        characterRefs: episode.relevantCharacterRefs,
+        storyLineRefs: episode.plannedStoryLineRefs,
+        setupPayoffRefs: [
+          ...(episode.plannedSetupRefs ?? []),
+          ...(episode.plannedPayoffRefs ?? []),
+        ],
+      })
+    : null;
+  const projectContinuitySummary = episode
+    ? buildContinuityGenerationSummary(
+        project.storyLines,
+        project.characterRelationships,
+        project.characters,
+        project.continuationHooks,
+        project.continuityStates,
+        project.setupPayoffs,
+      ) || null
+    : null;
+  const generationRequest = {
       content_spec_id: resolution.data.content_spec.id,
       generation_strategy_id: strategy.id,
-      output_language: isMainlandChina ? "zh" : project.generationSettings.outputLanguage,
-      desired_scene_count: project.generationSettings.sceneCount,
-      target_script_body_characters: isMainlandChina
-        ? targetScriptBodyCharacters(project.generationSettings)
+      output_language: isOverseasRelease
+        ? "en"
+        : isMainlandChina
+          ? "zh"
+          : project.generationSettings.outputLanguage,
+      desired_scene_count: episode?.adaptiveSceneCount
+        ?? project.generationSettings.sceneCount,
+      target_episode_duration_seconds: targetDurationSeconds,
+      target_script_body_characters: isMainlandChina && !isOverseasRelease
+        ? episode?.targetScriptBodyCharacters
+          ?? targetScriptBodyCharacters(project.generationSettings)
         : null,
       resolved_creative_context: resolution.data.resolved_creative_context,
       episode_context: episode ? {
         generation_mode: episode.generationMode,
         episode_number: episode.episodeNumber,
         total_episodes: episode.totalEpisodes,
-        previous_episode_summary: episode.previousEpisode
-          ? buildEpisodeContinuitySummary(episode.previousEpisode)
-          : null,
-        previous_episode_question: episode.previousEpisode?.next_episode_question ?? null,
+        previous_episode_summary: episode.previousEpisodeSummary?.trim()
+          || (episode.previousEpisode
+            ? buildEpisodeContinuitySummary(episode.previousEpisode)
+            : null),
+        previous_episode_handoff: episode.previousEpisodeHandoff?.trim()
+          || (episode.previousEpisode ? buildEpisodeHandoff(episode.previousEpisode) : null),
+        previous_episode_question: episode.previousEpisodeQuestion?.trim()
+          || episode.previousEpisode?.next_episode_question
+          || null,
         episode_instruction: episode.episodeInstruction?.trim() || null,
-        project_continuity_summary: buildContinuityGenerationSummary(
-          project.storyLines,
-          project.characterRelationships,
-          project.characters,
+        module_handoff: episode.approvedStoryNode
+          ? null
+          : episode.moduleHandoff?.trim() || null,
+        long_range_anchor: episode.storyBibleContext
+          ? null
+          : episode.longRangeAnchor?.trim() || null,
+        relevant_character_refs: episode.relevantCharacterRefs ?? [],
+        planned_story_line_refs: episode.plannedStoryLineRefs ?? [],
+        planned_setup_refs: episode.plannedSetupRefs ?? [],
+        planned_payoff_refs: episode.plannedPayoffRefs ?? [],
+        planned_story_beat: episode.plannedStoryBeat?.trim() || null,
+        approved_story_node: episode.approvedStoryNode ?? null,
+        approved_episode_plan: episode.approvedEpisodePlan ?? null,
+        story_bible_context: episode.storyBibleContext?.trim() || null,
+        reference_material_context: buildEpisodeReferenceMaterialContext(
+          project.referenceMaterials,
         ) || null,
+        project_continuity_summary: provisionalContinuityCheckpoint
+          ? null
+          : projectContinuitySummary,
+        confirmed_continuity_checkpoint: provisionalContinuityCheckpoint
+          ? null
+          : confirmedCheckpoint,
+        provisional_continuity_checkpoint: provisionalContinuityCheckpoint,
         batch_context: episode.batch ? {
           batch_number: episode.batch.batchNumber,
           start_episode: episode.batch.startEpisode,
@@ -219,7 +426,54 @@ export async function generateSingleEpisode(
           batch_instruction: episode.batch.instruction?.trim() || null,
         } : null,
       } : null,
-    }),
+  };
+  if (onStreamEvent) {
+    let result: ScriptGenerationRun | undefined;
+    let streamError: Error | undefined;
+    await apiEventStream<ScriptGenerationStreamEvent>(
+      "/script-generation/generate-draft/stream",
+      {
+        method: "POST",
+        body: JSON.stringify(generationRequest),
+      },
+      (event) => {
+        onStreamEvent(event);
+        if (event.type === "result") result = event.data;
+        if (event.type === "error") {
+          const isTransientUpstream = event.error_type === "upstream_unavailable";
+          streamError = new ApiError(
+            event.message,
+            event.status ?? (event.error_type === "upstream_unavailable" ? 503 : 422),
+            {
+              retryable: isTransientUpstream && event.recoverable !== false,
+              failureClass: isTransientUpstream
+                ? "transient_upstream"
+                : event.error_type === "configuration_unavailable"
+                  ? "configuration"
+                  : "contract",
+              errorType: event.error_type,
+            },
+          );
+        }
+      },
+    );
+    if (streamError) throw streamError;
+    if (!result) {
+      throw new ApiError(
+        "The generation stream ended without a completed episode.",
+        503,
+        { retryable: true, failureClass: "stream_incomplete", errorType: "stream_incomplete" },
+      );
+    }
+    return {
+      ...result,
+      content_spec_id: resolution.data.content_spec.id,
+    };
+  }
+
+  const generated = await apiRequest<GenerationResponse>("/script-generation/generate-draft", {
+    method: "POST",
+    body: JSON.stringify(generationRequest),
   });
   return {
     ...generated.data,
@@ -274,6 +528,8 @@ export async function deepenEpisodeDraft(
 export async function buildBilingualScriptView(
   generationStrategyId: string,
   draft: GeneratedDraft,
+  targetLanguage = "zh-CN",
+  characterNameMap: Record<string, string> = {},
 ): Promise<BilingualScriptView> {
   const response = await apiRequest<BilingualViewResponse>(
     "/script-generation/build-bilingual-view",
@@ -282,7 +538,8 @@ export async function buildBilingualScriptView(
       body: JSON.stringify({
         generation_strategy_id: generationStrategyId,
         draft_master_script: draft,
-        target_language: "zh-CN",
+        target_language: targetLanguage,
+        character_name_map: characterNameMap,
       }),
     },
   );
@@ -292,11 +549,30 @@ export async function buildBilingualScriptView(
 function buildEpisodeContinuitySummary(draft: GeneratedDraft): string {
   const finalScene = draft.scenes[draft.scenes.length - 1];
   return [
-    `Episode title: ${draft.title}`,
-    `Synopsis: ${draft.synopsis}`,
-    finalScene?.scene_causality?.outcome ? `Final state change: ${finalScene.scene_causality.outcome}` : "",
-    finalScene?.turning_point ? `Final turning point: ${finalScene.turning_point}` : "",
+    `本集标题：${draft.title}`,
+    `剧情梗概：${draft.synopsis}`,
+    finalScene?.scene_causality?.outcome ? `结尾状态变化：${finalScene.scene_causality.outcome}` : "",
+    finalScene?.turning_point ? `结尾关键转折：${finalScene.turning_point}` : "",
   ].filter(Boolean).join("\n").slice(0, 2000);
+}
+
+export function buildEpisodeHandoff(draft: GeneratedDraft): string {
+  const finalScene = draft.scenes[draft.scenes.length - 1];
+  const stateUpdates = (draft.character_state_updates ?? []).slice(-8).map((item) => (
+    `${item.character_name}：${item.change_summary}（原因：${item.change_cause}）`
+  ));
+  const openObligations = (draft.setup_payoff_updates ?? [])
+    .filter((item) => item.status !== "paid_off")
+    .slice(-6)
+    .map((item) => `${item.setup_payoff_ref}：${item.next_required_step ?? item.progress_summary}`);
+  return [
+    `上一集可见结果：${finalScene?.scene_causality?.outcome ?? draft.episode_goal}`,
+    finalScene?.turning_point ? `结尾转折：${finalScene.turning_point}` : "",
+    finalScene?.cliffhanger ? `结尾钩子：${draft.hook}` : "",
+    stateUpdates.length ? `人物状态变化：${stateUpdates.join("；")}` : "",
+    openObligations.length ? `未完成义务：${openObligations.join("；")}` : "",
+    `下一集问题：${draft.next_episode_question}`,
+  ].filter(Boolean).join("\n").slice(0, 3200);
 }
 
 function resolveScriptTone(emotionTagId?: string): "intense" | "melodramatic" | "suspenseful" | "emotional" {

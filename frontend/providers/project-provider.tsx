@@ -5,16 +5,19 @@ import {
   type ReactNode,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
 import {
   deleteStoredProject,
   listStoredProjects,
+  nextProjectUpdatedAt,
   saveStoredProject,
 } from "@/lib/project-store";
 import {
-  archiveProjectOnServer,
+  deleteProjectPermanentlyOnServer,
+  forceWorkspaceOverwrite,
   loadServerProjects,
   queueProjectServerSync,
 } from "@/lib/project-sync";
@@ -22,6 +25,7 @@ import {
   CURRENT_MARKET_PROFILE,
   DEFAULT_GENERATION_SETTINGS,
   type ProjectDraft,
+  type ProjectServerSyncState,
   type ScriptProject,
 } from "@/lib/types";
 
@@ -31,7 +35,16 @@ interface ProjectContextValue {
   storageError: string | null;
   serverPersistenceAvailable: boolean | null;
   createProject: (draft: ProjectDraft) => Promise<ScriptProject>;
-  updateProject: (projectId: string, patch: Partial<ScriptProject>) => void;
+  updateProject: (
+    projectId: string,
+    patch: Partial<ScriptProject> | ((current: ScriptProject) => Partial<ScriptProject>),
+  ) => Promise<boolean>;
+  syncProjectSnapshot: (project: ScriptProject) => Promise<ProjectServerSyncState>;
+  retryProjectSync: (projectId: string) => Promise<ProjectServerSyncState | null>;
+  resolveProjectSyncConflict: (
+    projectId: string,
+    resolution: "use_local" | "use_cloud",
+  ) => Promise<ProjectServerSyncState | null>;
   deleteProject: (projectId: string) => Promise<boolean>;
   getProject: (projectId: string) => ScriptProject | undefined;
 }
@@ -47,6 +60,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [isReady, setIsReady] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [serverPersistenceAvailable, setServerPersistenceAvailable] = useState<boolean | null>(null);
+  const automaticConflictRetries = useRef(new Set<string>());
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
 
   useEffect(() => {
     let active = true;
@@ -59,7 +75,23 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         const serverResult = await loadServerProjects();
         if (!active) return;
         setServerPersistenceAvailable(serverResult.available);
-        if (!serverResult.available) return;
+        if (!serverResult.available) {
+          const offlineProjects = localProjects.map((project) => (
+            project.serverSync?.status === "conflict"
+              ? {
+                  ...project,
+                  serverSync: {
+                    ...project.serverSync,
+                    status: "unavailable" as const,
+                    error: serverResult.error,
+                  },
+                }
+              : project
+          ));
+          setProjects(sortProjects(offlineProjects));
+          await Promise.all(offlineProjects.map((project) => saveStoredProject(project)));
+          return;
+        }
 
         const merged = mergeProjects(localProjects, serverResult.projects);
         setProjects(sortProjects(merged.projects));
@@ -87,6 +119,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const project: ScriptProject = {
       id: crypto.randomUUID(),
       ...draft,
+      referenceMaterials: draft.referenceMaterials ?? [],
       marketProfile: CURRENT_MARKET_PROFILE,
       generationSettings: {
         ...generationSettings,
@@ -96,6 +129,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       },
       episodes: [],
       generationBatches: [],
+      episodeRoadmaps: [],
+      continuationHooks: [],
+      setupPayoffs: [],
+      continuityStates: [],
       activeEpisodeNumber: 1,
       storyLines: [],
       characterRelationships: [],
@@ -114,49 +151,65 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     return project;
   }
 
-  function updateProject(projectId: string, patch: Partial<ScriptProject>): void {
-    setProjects((current) => {
-      const existing = current.find((project) => project.id === projectId);
-      if (!existing) return current;
+  function updateProject(
+    projectId: string,
+    patch: Partial<ScriptProject> | ((current: ScriptProject) => Partial<ScriptProject>),
+  ): Promise<boolean> {
+    return new Promise((resolve) => {
+      setProjects((current) => {
+        const existing = current.find((project) => project.id === projectId);
+        if (!existing) {
+          resolve(true);
+          return current;
+        }
+        const resolvedPatch = typeof patch === "function" ? patch(existing) : patch;
+        if (!Object.keys(resolvedPatch).length) {
+          resolve(true);
+          return current;
+        }
 
-      const updated: ScriptProject = {
-        ...existing,
-        ...patch,
-        generationSettings: patch.generationSettings
-          ? {
-              ...patch.generationSettings,
-              outputLanguage: existing.marketProfile === "cn_mainland"
-                ? "zh"
-                : patch.generationSettings.outputLanguage,
-            }
-          : existing.generationSettings,
-        id: existing.id,
-        createdAt: existing.createdAt,
-        updatedAt: new Date().toISOString(),
-        serverSync: {
-          status: "syncing",
-          projectRevision: existing.serverSync?.projectRevision ?? 0,
-          workspaceRevision: existing.serverSync?.workspaceRevision ?? 0,
-          lastSyncedAt: existing.serverSync?.lastSyncedAt,
-        },
-      };
-      void saveStoredProject(updated).catch((error: unknown) => {
-        setStorageError(
-          error instanceof Error ? error.message : "Unable to save the project.",
+        const updated: ScriptProject = {
+          ...existing,
+          ...resolvedPatch,
+          generationSettings: resolvedPatch.generationSettings
+            ? {
+                ...resolvedPatch.generationSettings,
+                outputLanguage: existing.marketProfile === "cn_mainland"
+                  ? "zh"
+                  : resolvedPatch.generationSettings.outputLanguage,
+              }
+            : existing.generationSettings,
+          id: existing.id,
+          createdAt: existing.createdAt,
+          updatedAt: nextProjectUpdatedAt(existing.updatedAt),
+          serverSync: {
+            status: "syncing",
+            projectRevision: existing.serverSync?.projectRevision ?? 0,
+            workspaceRevision: existing.serverSync?.workspaceRevision ?? 0,
+            lastSyncedAt: existing.serverSync?.lastSyncedAt,
+          },
+        };
+        void saveStoredProject(updated)
+          .then(() => resolve(true))
+          .catch((error: unknown) => {
+            setStorageError(
+              error instanceof Error ? error.message : "Unable to save the project.",
+            );
+            resolve(false);
+          });
+        requestServerSync(updated);
+        return sortProjects(
+          current.map((project) => (project.id === projectId ? updated : project)),
         );
       });
-      requestServerSync(updated);
-      return sortProjects(
-        current.map((project) => (project.id === projectId ? updated : project)),
-      );
     });
   }
 
   async function deleteProject(projectId: string): Promise<boolean> {
     const project = projects.find((item) => item.id === projectId);
     if (!project) return true;
-    const result = await archiveProjectOnServer(project);
-    if (!result.archived) {
+    const result = await deleteProjectPermanentlyOnServer(project);
+    if (!result.deleted) {
       setProjects((current) => current.map((item) => (
         item.id === projectId ? { ...item, serverSync: result.serverSync } : item
       )));
@@ -184,31 +237,113 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     ));
   }
 
-  function requestServerSync(project: ScriptProject): void {
-    void queueProjectServerSync(project).then((serverSync) => {
-      setServerPersistenceAvailable(serverSync.status !== "unavailable");
-      setProjects((current) => {
-        const existing = current.find((item) => item.id === project.id);
-        if (!existing) return current;
-        const syncState = existing.updatedAt === project.updatedAt
-          ? serverSync
-          : {
-              ...serverSync,
+  async function syncProjectSnapshot(
+    project: ScriptProject,
+    options: { forceWorkspaceOverwrite?: boolean } = {},
+  ): Promise<ProjectServerSyncState> {
+    setProjects((current) => current.map((item) => (
+      item.id === project.id && item.serverSync?.status === "conflict"
+        ? {
+            ...item,
+            serverSync: {
+              ...item.serverSync,
               status: "syncing" as const,
               error: undefined,
-            };
-        const updated = { ...existing, serverSync: syncState };
-        void saveStoredProject(updated).catch((error: unknown) => {
-          setStorageError(
-            error instanceof Error ? error.message : "Unable to save sync state.",
-          );
-        });
-        return sortProjects(
-          current.map((item) => (item.id === project.id ? updated : item)),
-        );
-      });
-    });
+            },
+          }
+        : item
+    )));
+    const serverSync = options.forceWorkspaceOverwrite
+      ? await forceWorkspaceOverwrite(project)
+      : await queueProjectServerSync(project);
+    setServerPersistenceAvailable(serverSync.status !== "unavailable");
+    if (serverSync.status !== "conflict") clearAutomaticConflictRetries(project.id);
+
+    const existing = projectsRef.current.find((item) => item.id === project.id);
+    if (!existing) return serverSync;
+    const syncState = syncStateForSnapshot(existing, project, serverSync);
+    const persisted = { ...existing, serverSync: syncState };
+    try {
+      await saveStoredProject(persisted);
+    } catch (error) {
+      setStorageError(
+        error instanceof Error ? error.message : "Unable to save sync state.",
+      );
+      throw error;
+    }
+    setProjects((current) => sortProjects(current.map((item) => {
+      if (item.id !== project.id) return item;
+      return {
+        ...item,
+        serverSync: syncStateForSnapshot(item, project, serverSync),
+      };
+    })));
+    return serverSync;
   }
+
+  async function retryProjectSync(
+    projectId: string,
+  ): Promise<ProjectServerSyncState | null> {
+    const project = projectsRef.current.find((item) => item.id === projectId);
+    if (!project) return null;
+    return syncProjectSnapshot(project);
+  }
+
+  async function resolveProjectSyncConflict(
+    projectId: string,
+    resolution: "use_local" | "use_cloud",
+  ): Promise<ProjectServerSyncState | null> {
+    const project = projectsRef.current.find((item) => item.id === projectId);
+    if (!project) return null;
+    if (resolution === "use_local") {
+      return syncProjectSnapshot(project, { forceWorkspaceOverwrite: true });
+    }
+
+    const serverResult = await loadServerProjects();
+    setServerPersistenceAvailable(serverResult.available);
+    if (!serverResult.available) {
+      throw new Error(serverResult.error ?? "Server persistence is unavailable.");
+    }
+    const remoteProject = serverResult.projects.find((item) => item.id === projectId);
+    if (!remoteProject) {
+      throw new Error("The cloud project no longer exists.");
+    }
+    await saveStoredProject(remoteProject);
+    clearAutomaticConflictRetries(projectId);
+    setProjects((current) => sortProjects(current.map((item) => (
+      item.id === projectId ? remoteProject : item
+    ))));
+    return remoteProject.serverSync ?? null;
+  }
+
+  function clearAutomaticConflictRetries(projectId: string): void {
+    for (const retryKey of automaticConflictRetries.current) {
+      if (retryKey.startsWith(`${projectId}:`)) {
+        automaticConflictRetries.current.delete(retryKey);
+      }
+    }
+  }
+
+  function requestServerSync(project: ScriptProject): void {
+    void syncProjectSnapshot(project).catch(() => undefined);
+  }
+
+  const conflictRetrySignature = projects
+    .filter((project) => project.serverSync?.status === "conflict")
+    .map((project) => `${project.id}:${project.updatedAt}`)
+    .sort()
+    .join("|");
+
+  useEffect(() => {
+    if (!isReady || serverPersistenceAvailable !== true || !conflictRetrySignature) return;
+    for (const project of projects) {
+      if (project.serverSync?.status !== "conflict") continue;
+      const retryKey = `${project.id}:${project.updatedAt}`;
+      if (automaticConflictRetries.current.has(retryKey)) continue;
+      automaticConflictRetries.current.add(retryKey);
+      void syncProjectSnapshot(project).catch(() => undefined);
+    }
+  }, [conflictRetrySignature, isReady, serverPersistenceAvailable]);
 
   return (
     <ProjectContext.Provider
@@ -221,6 +356,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         serverPersistenceAvailable,
         createProject,
         updateProject,
+        syncProjectSnapshot,
+        retryProjectSync,
+        resolveProjectSyncConflict,
         deleteProject,
         getProject,
       }}
@@ -228,6 +366,19 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       {children}
     </ProjectContext.Provider>
   );
+}
+
+function syncStateForSnapshot(
+  current: ScriptProject,
+  synchronizedSnapshot: ScriptProject,
+  serverSync: ProjectServerSyncState,
+): ProjectServerSyncState {
+  if (current.updatedAt <= synchronizedSnapshot.updatedAt) return serverSync;
+  return {
+    ...serverSync,
+    status: "syncing",
+    error: undefined,
+  };
 }
 
 
@@ -243,7 +394,14 @@ function mergeProjects(
       merged.set(remote.id, remote);
       continue;
     }
-    if (local.updatedAt > remote.updatedAt) localNewer.push(local);
+    if (local.updatedAt > remote.updatedAt) {
+      localNewer.push(local);
+      continue;
+    }
+    merged.set(remote.id, {
+      ...local,
+      serverSync: remote.serverSync,
+    });
   }
   for (const local of localProjects) {
     if (!serverProjects.some((remote) => remote.id === local.id)) {

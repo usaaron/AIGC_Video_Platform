@@ -8,7 +8,7 @@
 
 ### 1.0 当前 MVP 聚焦
 
-当前 MVP 的唯一目标不是视频生产，而是稳定产出高质量 `MasterScript`。
+当前 MVP 的唯一目标是稳定产出优质中文长剧本母本，目标支持约 60 万字正文规模。60 万字是完整作品的累计正文目标，必须通过可审阅、可暂停、可恢复的递归规划与有界批次完成，不是一次 LLM 请求的输出长度。
 
 自 2026-08-01 起，默认市场配置从海外 TikTok 切换为中国大陆漫剧市场：
 
@@ -16,7 +16,7 @@
 - 红果为参考平台，不形成供应商或平台硬绑定
 - `overseas_tiktok` 完整保留但默认 disabled
 - Creative Deepening 前后端运行开关默认关闭，不进入当前创作路径
-- 当前已加入基础阶段生成边界：按项目总集数分有界批次生成，批次间允许更新创作输入；PostgreSQL/JSONB schema、migration、Repository、长篇规划资源 API、Frontend Workspace Snapshot 同步和确认/修订/终稿 Episode Artifact 已实现，但后台任务恢复与专业长篇规划仍待实现
+- 当前已加入长篇生成边界：Story Bible、可变深度递归 Story Plan Node、Episode Plan 和有界正文批次逐层推进，批次间允许更新创作输入；PostgreSQL/JSONB schema、migration、Repository、长篇规划资源 API、Frontend Workspace Snapshot 同步和确认/修订/终稿 Episode Artifact 已实现，但后台任务恢复与整部 60 万字真实验收仍待完成
 - Frontend 项目保存 `marketProfile` 来源。`cn_mainland` 模式只向 UI 暴露大陆项目；海外/TikTok 与来源不明项目保留在持久化层但前端隐藏，旧 URL 也不能进入。禁止跨市场混合 Prompt、Strategy 和产物 lineage
 - `cn_mainland` Frontend 固定 `zh-CN` 界面和中文 Script Generation 输出，不暴露语言切换或海外入口。海外界面能力只在显式启用 `overseas_tiktok` 后恢复
 
@@ -24,15 +24,17 @@
 
 当前主链路统一为：
 
-Data Intelligence
-→ `ContentSpec`
-→ optional `ResolvedCreativeContext`
-→ Orchestrator / Asset Retrieval
-→ Prompt Retrieval
-→ Static Creative Knowledge Selection（optional, strategy-declared）
-→ Prompt Builder
-→ `LLMAdapter`
-→ Draft `MasterScript`
+Creative Prompt and/or Effective Tags
+→ optional Character Input
+→ `ContentSpec` / optional `ResolvedCreativeContext`
+→ exact-ID Mainland Long-form Knowledge Bundle
+→ approved `StoryBible`
+→ level-free, non-balanced recursive `StoryPlanNode` tree
+→ approved episode-ready leaves
+→ `EpisodePlan`
+→ bounded Draft generation batches
+→ Continuity updates and cumulative body-length accounting
+→ Draft `MasterScript` episodes
 → Creative Deepening Candidate（当前默认关闭；保留可切换能力）
 → Source / Candidate QC Comparison（仅在显式启用 Deepening 时存在）
 → Story QC
@@ -60,9 +62,9 @@ User → Selected Tags / Added Tags / Excluded Tags / Creative Prompt
 
 以上输入 → Creative Brief Resolution → Final `ContentSpec` → 现有 Script Generation
 
-其中 Phase 1 已通过现有 `ContentSpecService` 实现确定性 `CreativeIntentInput -> ContentSpec + ResolvedCreativeContext` Resolution API。Script Engine 的标准化需求输入仍是 `ContentSpec`，Character Context、字段 provenance、locked fields 和 exclusions 通过独立 optional 上下文进入 Draft Generation，不写入 `ContentSpec.metadata`。Phase 2 已接入由 `GenerationStrategy` 显式声明、按 tag / platform / stage 校验的静态 Draft 与 Deepening Knowledge Bundle。Creative Deepening 代码保留，但当前由独立前后端开关关闭。Frontend MVP 已通过现有步骤 API 支持逐集和分阶段全部生成；每个阶段保存集数范围、阶段指令和完成状态，并允许下一阶段读取更新后的标签、角色、故事线与人物关系。该能力仍是对单集 API 的有界编排，不是 Story Blueprint / Episode Planning runtime。后端已建立 PostgreSQL 长篇 schema、Alembic migration、事务型 Repository和版本化资源 API；Frontend 采用 IndexedDB 本地优先并同步完整 Workspace Snapshot，确认/修订/终稿另存不可变 Episode Artifact，服务端版本冲突不会静默覆盖。推荐标签 fallback、alias / unresolved tag、正式后端 Relationship Contract、AI 自动补全、动态 Knowledge Retrieval / RAG 仍未实现。
+其中 Phase 1 已通过现有 `ContentSpecService` 实现确定性 `CreativeIntentInput -> ContentSpec + ResolvedCreativeContext` Resolution API。Script Engine 的标准化需求输入仍是 `ContentSpec`，Character Context、字段 provenance、locked fields 和 exclusions 通过独立 optional 上下文进入生成，不写入 `ContentSpec.metadata`。大陆 Generation Strategy 已精确绑定有来源、版本化的静态长篇 Knowledge Bundle，并将同一组有界原则用于 Story Bible、递归拆分、单集线路图和 Draft。Creative Deepening 代码保留，但当前由独立前后端开关关闭。Frontend 不再暴露“逐集/全部生成”产品模式，统一进入 Story Bible → 递归剧情树拆至语义完整的 episode-ready 叶节点 → 单集线路图 → 自适应执行批次 → 逐集正文；每个规划对象可编辑、保存新版本和批准。后端已建立 PostgreSQL 长篇 schema、Alembic migration、事务型 Repository 和版本化资源 API；Frontend 采用 IndexedDB 本地优先并同步完整 Workspace Snapshot，确认/修订/终稿另存不可变 Episode Artifact，服务端版本冲突不会静默覆盖。后台自动递归、跨批次自动续跑、Continuity 自动更新、失败恢复 Job、推荐标签 fallback、alias / unresolved tag、正式后端 Relationship Contract、AI 自动补全和动态 Knowledge Retrieval / RAG 仍未实现。
 
-中国大陆长篇目标链路已经确定，但尚未完整进入 runtime：
+中国大陆长篇目标链路已经部分进入 runtime，但尚未完成整部 60 万字端到端验收：
 
 ```text
 Creative Prompt and/or Effective Tags
@@ -71,14 +73,14 @@ Creative Prompt and/or Effective Tags
 → Reviewable Story Synopsis / Story Direction
 → Approved Story Bible Root
 → Level-free, Non-balanced Recursive StoryPlanNode Tree
-→ Episode-ready Leaves
-→ Episode Plans
-→ Bounded Episode Generation Batches
+→ Approved Semantically-ready Leaves (content-driven episode span)
+→ Approved Single-episode Roadmaps / Episode Plans
+→ One Full-script Generation Call per Episode
 → Continuity Updates
 → Long-form Story Body
 ```
 
-当前已实现 Story Bible、递归 Story Plan Node、Episode Plan 的契约、PostgreSQL persistence 和资源 API；尚未实现自动形成梗概、自动拆树、规划审核 UI、叶子映射、Continuity 自动更新和后台可恢复 Job。标签当前只直接影响 ContentSpec / Prompt；source-grounded Tag Profile、实时 Trend Signal 和 project-scoped CustomTagContext 仍是未来能力。
+当前已实现 Story Bible、递归 Story Plan Node、PostgreSQL persistence、资源 API、规划编辑/批准 UI，以及 episode-ready 叶节点的单集线路图和按接近 10 集的均衡执行批次逐集生成正文。EpisodePlan 仍作为线路图的兼容数据契约使用；尚未实现全树无人值守递归、跨批次自动续跑、Continuity 自动更新和后台可恢复 Job。标签当前只直接影响 ContentSpec / Prompt；source-grounded Tag Profile、实时 Trend Signal 和 project-scoped CustomTagContext 仍是未来能力。
 
 人物关系网和故事线树是 Story Bible / Planning / Continuity facts 的辅助检阅投影。人物初始输入允许为空，后续从已确认规划和分集逐渐形成 proposed character / relationship / story-line delta，确认后才进入连续性事实。关系对象与故事线对象不合并，但可在统一 Story Map 中相互引用；后续生成只读取当前规划节点相关的 bounded continuity slice。关系或故事线修改默认只从指定未来节点/集数生效，不自动改写历史；显式历史调整必须经过 impact analysis、版本分支和可审计再生成。
 

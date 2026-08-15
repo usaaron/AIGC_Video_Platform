@@ -157,7 +157,7 @@ class ResolvedCreativeContext(BaseModel):
 
     schema_version: str = Field(default="v1", pattern=r"^v\d+$")
     content_spec_id: str = Field(min_length=3, max_length=120)
-    characters: list[CharacterContext] = Field(default_factory=list, max_length=12)
+    characters: list[CharacterContext] = Field(default_factory=list, max_length=20)
     excluded_tag_ids: list[str] = Field(default_factory=list, max_length=20)
     excluded_patterns: list[str] = Field(default_factory=list, max_length=20)
     resolution_warnings: list[str] = Field(default_factory=list, max_length=20)
@@ -198,7 +198,7 @@ class CreativeIntentInput(BaseModel):
     excluded_tag_ids: list[str] = Field(default_factory=list, max_length=20)
     excluded_patterns: list[str] = Field(default_factory=list, max_length=20)
     creative_brief: CreativeBrief
-    character_contexts: list[CharacterContext] = Field(default_factory=list, max_length=12)
+    character_contexts: list[CharacterContext] = Field(default_factory=list, max_length=20)
     request_metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator(

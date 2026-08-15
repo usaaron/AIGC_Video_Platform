@@ -73,12 +73,18 @@ class StaticKnowledgeBundleCatalog:
         requested_bundle_id: str,
         content_spec: ContentSpec,
         target_platform: str,
+        preferred_categories: list[str] | None = None,
+        max_items: int | None = None,
+        excluded_knowledge_ids: set[str] | None = None,
     ) -> tuple[KnowledgeBundle, list[StaticKnowledgeItem], KnowledgeSelectionTrace]:
         return self._select(
             requested_bundle_id=requested_bundle_id,
             content_spec=content_spec,
             target_platform=target_platform,
             target_stage=KnowledgeTargetStage.draft_generation,
+            preferred_categories=preferred_categories,
+            max_items=max_items,
+            excluded_knowledge_ids=excluded_knowledge_ids,
         )
 
     def select_for_deepening(
@@ -102,6 +108,9 @@ class StaticKnowledgeBundleCatalog:
         content_spec: ContentSpec,
         target_platform: str,
         target_stage: KnowledgeTargetStage,
+        preferred_categories: list[str] | None = None,
+        max_items: int | None = None,
+        excluded_knowledge_ids: set[str] | None = None,
     ) -> tuple[KnowledgeBundle, list[StaticKnowledgeItem], KnowledgeSelectionTrace]:
         bundle = self._bundles.get(requested_bundle_id)
         if bundle is None:
@@ -126,14 +135,42 @@ class StaticKnowledgeBundleCatalog:
             )
 
         selected_items = [self._items[item_id] for item_id in bundle.knowledge_ids]
+        if excluded_knowledge_ids:
+            selected_items = [
+                item
+                for item in selected_items
+                if item.knowledge_id not in excluded_knowledge_ids
+            ]
+        if preferred_categories:
+            category_order = {
+                category.casefold(): index
+                for index, category in enumerate(preferred_categories)
+            }
+            original_order = {
+                knowledge_id: index
+                for index, knowledge_id in enumerate(bundle.knowledge_ids)
+            }
+            selected_items.sort(key=lambda item: (
+                category_order.get(item.category.casefold(), len(category_order)),
+                original_order[item.knowledge_id],
+            ))
+        if max_items is not None:
+            if max_items < 1:
+                raise InvalidKnowledgeBundleError("Knowledge selection max_items must be positive.")
+            selected_items = selected_items[:max_items]
+        selected_refs = [item.knowledge_id for item in selected_items]
         trace = KnowledgeSelectionTrace(
             selector_version=self.catalog_version,
             target_stage=target_stage,
             requested_bundle_id=requested_bundle_id,
             selected_bundle_id=bundle.bundle_id,
-            selected_knowledge_refs=bundle.knowledge_ids,
+            selected_knowledge_refs=selected_refs,
             selection_reason=(
                 "The exact GenerationStrategy bundle matched its target stage, "
+                "ContentSpec tags, and target platform; task categories were "
+                "prioritized within the governed bundle."
+                if preferred_categories or max_items is not None or excluded_knowledge_ids
+                else "The exact GenerationStrategy bundle matched its target stage, "
                 "ContentSpec tags, and target platform."
             ),
         )

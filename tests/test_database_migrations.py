@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, inspect
 
 EXPECTED_LONG_STORY_TABLES = {
     "alembic_version",
+    "content_specs",
     "continuity_ledger_versions",
     "episode_artifact_versions",
     "episode_plan_versions",
@@ -35,6 +36,15 @@ def test_long_story_migration_upgrades_without_metadata_drift(
         column["name"]: column for column in inspector.get_columns("story_projects")
     }
     assert project_columns["content_spec_id"]["nullable"] is True
+    workspace_checks = inspector.get_check_constraints(
+        "story_project_workspace_snapshots"
+    )
+    payload_check = next(
+        check
+        for check in workspace_checks
+        if check["name"] == "ck_story_workspace_payload_size"
+    )
+    assert "50000000" in payload_check["sqltext"]
     engine.dispose()
 
     command.check(config)

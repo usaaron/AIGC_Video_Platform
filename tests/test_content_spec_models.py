@@ -149,6 +149,32 @@ def test_creative_intent_input_serializes_character_context_separately() -> None
     assert "character_contexts" not in payload["metadata"]
 
 
+def test_creative_intent_accepts_twenty_planning_characters() -> None:
+    payload = build_payload()
+    intent = CreativeIntentInput.model_validate(
+        {
+            "title": payload["title"],
+            "audience_goal": payload["audience_goal"],
+            "commercial_goal": payload["commercial_goal"],
+            "platform_goal": payload["platform_goal"],
+            "free_creative_prompt": payload["story_goal"],
+            "quality_level": payload["quality_level"],
+            "budget_level": payload["budget_level"],
+            "creative_brief": payload["creative_brief"],
+            "character_contexts": [
+                {
+                    "character_ref": f"character.person_{index}",
+                    "name": f"角色{index}",
+                    "role": "配角",
+                }
+                for index in range(20)
+            ],
+        }
+    )
+
+    assert len(intent.character_contexts) == 20
+
+
 def test_creative_intent_rejects_selected_and_added_overlap() -> None:
     payload = build_payload()
     with pytest.raises(ValidationError, match="must not overlap"):

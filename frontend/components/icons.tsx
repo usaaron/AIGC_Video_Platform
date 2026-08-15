@@ -25,6 +25,20 @@ export function PlusIcon(props: IconProps) {
   );
 }
 
+export function ApertureIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      <path d="m14.31 8 5.74 9.94" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      <path d="M9.69 8h11.48" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      <path d="m7.38 12 5.74-9.94" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      <path d="M9.69 16 3.95 6.06" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      <path d="M14.31 16H2.83" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      <path d="m16.62 12-5.74 9.94" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+    </IconBase>
+  );
+}
+
 export function ScriptIcon(props: IconProps) {
   return (
     <IconBase {...props}>
@@ -89,6 +103,14 @@ export function TrashIcon(props: IconProps) {
   return (
     <IconBase {...props}>
       <path d="M5 7h14M9 7V4h6v3M7.5 7l.7 13h7.6l.7-13" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" />
+    </IconBase>
+  );
+}
+
+export function UploadIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5V20h14v-5.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
     </IconBase>
   );
 }

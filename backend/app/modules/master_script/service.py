@@ -14,6 +14,16 @@ from app.modules.master_script.models import (
     DialogueLine,
 )
 from app.modules.master_script.repository import MasterScriptRepository
+from app.modules.script_engine.continuity_qc import evaluate_episode_continuity
+from app.script_delivery_contract import (
+    EPISODE_RUNTIME_MAX_SECONDS,
+    EPISODE_RUNTIME_MIN_SECONDS,
+)
+from app.modules.script_engine.mainland_language import (
+    blocking_draft_script_chinese_issues,
+)
+from app.modules.script_engine.mainland_screenplay import draft_screenplay_style_issues
+from app.modules.script_engine.screenplay_duration import estimate_screenplay_duration
 from app.runtime_policies import MASTER_SCRIPT_FINALIZATION_POLICY
 
 
@@ -31,6 +41,10 @@ class InvalidFinalizationChainError(ValueError):
 
 class FinalizationThresholdNotMetError(ValueError):
     """Raised when the revised draft does not satisfy the configured Re-QC threshold."""
+
+
+class InvalidFinalScriptAcceptanceError(ValueError):
+    """Raised when a mainland final script violates a production contract."""
 
 
 class MasterScriptService:
@@ -84,6 +98,10 @@ class MasterScriptService:
                 "Re-QC score is below the minimum finalization threshold. "
                 f"Required {minimum_re_qc_score:.3f}, received {re_qc_score:.3f}."
             )
+        self._validate_mainland_final_script(
+            revised_draft_master_script,
+            episode_context=draft_run.episode_context,
+        )
 
         mapping_notes = [
             "Final MasterScript was finalized from a validated revised draft chain.",
@@ -102,6 +120,12 @@ class MasterScriptService:
             episode_goal=revised_draft_master_script.episode_goal,
             target_duration_seconds=revised_draft_master_script.target_duration_seconds,
             characters=revised_draft_master_script.characters,
+            character_state_updates=revised_draft_master_script.character_state_updates,
+            relationship_state_updates=revised_draft_master_script.relationship_state_updates,
+            continuity_state_updates=revised_draft_master_script.continuity_state_updates,
+            story_line_updates=revised_draft_master_script.story_line_updates,
+            setup_payoff_updates=revised_draft_master_script.setup_payoff_updates,
+            continuation_hook=revised_draft_master_script.continuation_hook,
             scenes=[
                 self._map_scene_card(
                     scene=scene,
@@ -247,7 +271,9 @@ class MasterScriptService:
         speaker_name_cycle: list[str],
     ) -> list[DialogueLine]:
         if scene.dialogues:
-            return scene.dialogues[:dialogue_line_count_per_scene]
+            # This legacy limit controls only prompt-to-dialogue fallback. A real
+            # screenplay must never lose model-written or user-edited dialogue.
+            return list(scene.dialogues)
 
         prompts = scene.dialogue_prompts[:dialogue_line_count_per_scene]
         if not prompts:
@@ -264,6 +290,49 @@ class MasterScriptService:
                 )
             )
         return dialogues
+
+    @staticmethod
+    def _validate_mainland_final_script(
+        draft: DraftMasterScript,
+        *,
+        episode_context,
+    ) -> None:
+        if not MasterScriptService._is_mainland_chinese_script(draft):
+            return
+
+        language_issues = blocking_draft_script_chinese_issues(draft)
+        screenplay_issues = draft_screenplay_style_issues(draft)
+        duration = estimate_screenplay_duration(draft)
+        continuity = evaluate_episode_continuity(draft, episode_context)
+        failures: list[str] = []
+        if language_issues:
+            failures.append("存在非简体中文正文：" + "、".join(language_issues[:6]))
+        if screenplay_issues:
+            failures.append("存在不可拍摄或小说化动作：" + "、".join(screenplay_issues[:6]))
+        if not (
+            EPISODE_RUNTIME_MIN_SECONDS
+            <= duration.total_seconds
+            <= EPISODE_RUNTIME_MAX_SECONDS
+        ):
+            failures.append(
+                f"预计成片时长为 {duration.total_seconds} 秒，不在 "
+                f"{EPISODE_RUNTIME_MIN_SECONDS}–{EPISODE_RUNTIME_MAX_SECONDS} 秒范围内"
+            )
+        if continuity.blocking_issue_count:
+            failures.append(
+                "存在硬连续性冲突："
+                + "、".join(issue.summary for issue in continuity.issues[:6])
+            )
+        if failures:
+            raise InvalidFinalScriptAcceptanceError("；".join(failures))
+
+    @staticmethod
+    def _is_mainland_chinese_script(draft: DraftMasterScript) -> bool:
+        language = draft.language.strip().casefold()
+        platform = (draft.target_platform or "").strip().casefold()
+        return language in {"zh", "zh-cn", "chinese", "中文", "简体中文"} and (
+            "mainland" in platform or "cn_mainland" in platform or "中国大陆" in platform
+        )
 
     def _build_intent(self, scene: DraftSceneCard) -> str:
         return scene.purpose[:120]

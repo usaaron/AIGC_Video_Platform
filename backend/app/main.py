@@ -1,7 +1,11 @@
 import os
+import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from app.api.routes.assets import router as asset_router
 from app.api.routes.benchmarks import router as benchmark_router
@@ -21,18 +25,56 @@ from app.api.routes.script_generation import router as script_generation_router
 from app.api.routes.trend_snapshots import router as trend_snapshot_router
 
 
+logger = logging.getLogger(__name__)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="AI Comic Content OS",
         version="0.1.0",
         description="Backend scaffold for the AI Comic Content OS MVP content planning engine.",
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error_handler(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        """Keep the standard 422 contract while making field drift diagnosable."""
+
+        errors = [
+            {
+                key: value
+                for key, value in error.items()
+                if key not in {"input", "url"}
+            }
+            for error in exc.errors()
+        ]
+        logger.warning(
+            "Request validation failed method=%s path=%s errors=%s",
+            request.method,
+            request.url.path,
+            errors,
+        )
+        return JSONResponse(
+            status_code=422,
+            content=jsonable_encoder(
+                {"detail": errors},
+                custom_encoder={Exception: str},
+            ),
+        )
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_frontend_origins(),
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[
+            "X-Generation-Retryable",
+            "X-Generation-Failure-Class",
+            "X-Generation-Error-Type",
+        ],
     )
     app.include_router(asset_router)
     app.include_router(benchmark_router)

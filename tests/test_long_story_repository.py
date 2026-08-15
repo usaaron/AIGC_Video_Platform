@@ -556,3 +556,139 @@ def test_batch_and_job_checkpoint_support_state_progression(database_runtime) ->
         repository = LongStoryRepository(session)
         with pytest.raises(LongStoryPersistenceConflictError, match="transition"):
             repository.save_job_checkpoint(invalid_regression)
+
+
+def test_repository_deletes_generated_descendants_and_resets_workspace(
+    database_runtime,
+) -> None:
+    batch = GenerationBatchPlan(
+        batch_id="batch.mainland_demo.001",
+        story_project_id="story_project.mainland_demo",
+        batch_number=1,
+        start_episode=1,
+        end_episode=1,
+        stage_id="stage.evidence_returns",
+        stage_version=1,
+        episode_plan_ids=["episode_plan.mainland_demo.001"],
+        created_at=NOW,
+    )
+    checkpoint = GenerationJobCheckpoint(
+        job_id="job.mainland_demo.001",
+        batch_id=batch.batch_id,
+        status="running",
+        attempt_count=1,
+        checkpointed_at=NOW,
+    )
+    root = build_story_plan_node()
+    child = build_story_plan_node(
+        node_id="story_plan.mainland_demo.child.001",
+        parent_node_id=root.node_id,
+    )
+    workspace_payload = {
+        "id": "story_project.mainland_demo",
+        "episodes": [{"episodeNumber": 1}],
+        "generationBatches": [{"id": batch.batch_id}],
+        "activeEpisodeNumber": 1,
+        "storyLines": [{"id": "storyline.hidden_ledger"}],
+        "characterRelationships": [{"id": "relationship.mara_adrian"}],
+        "storyBibleInputSignature": "signature.current",
+        "storyBibleVersion": 1,
+        "storyBibleStatus": "approved",
+        "episodePlansReadyThrough": 1,
+        "generationRun": {"id": "run.1"},
+        "workingDraftJson": "stale draft",
+        "status": "generating",
+    }
+    encoded_workspace = json.dumps(
+        workspace_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    with database_runtime.session() as session:
+        repository = LongStoryRepository(session)
+        repository.save_project(build_project())
+        repository.save_story_bible(build_story_bible())
+        repository.save_story_stage(build_stage())
+        repository.save_episode_plan(build_episode_plan(1))
+        repository.save_story_plan_node(root)
+        repository.save_story_plan_node(child)
+        repository.save_continuity_ledger(
+            ContinuityLedger(
+                ledger_id="continuity.mainland_demo",
+                story_project_id="story_project.mainland_demo",
+                story_bible_id="story_bible.mainland_demo",
+                story_bible_version=1,
+                through_episode_number=1,
+                updated_at=NOW,
+            )
+        )
+        repository.save_batch(batch)
+        repository.save_job_checkpoint(checkpoint)
+        repository.save_episode_artifact(build_episode_artifact())
+        repository.save_workspace_snapshot(
+            StoryProjectWorkspaceSnapshot(
+                project_id="story_project.mainland_demo",
+                client_instance_id="client.mainland_demo",
+                workspace_payload=workspace_payload,
+                updated_at=NOW,
+                payload_checksum=hashlib.sha256(encoded_workspace).hexdigest(),
+                payload_size_bytes=len(encoded_workspace),
+            )
+        )
+
+    with database_runtime.session() as session:
+        repository = LongStoryRepository(session)
+        deleted = repository.delete_generated_story_descendants(
+            "story_project.mainland_demo"
+        )
+        reset_workspace = repository.reset_workspace_generation_state(
+            "story_project.mainland_demo",
+            story_bible_version=2,
+        )
+
+        assert deleted == {
+            "generation_job_checkpoints": 1,
+            "episode_artifact_versions": 1,
+            "generation_batches": 1,
+            "continuity_ledger_versions": 1,
+            "episode_plan_versions": 1,
+            "story_plan_node_versions": 2,
+            "story_stage_plan_versions": 1,
+        }
+        assert repository.get_story_bible("story_bible.mainland_demo") is not None
+        assert repository.list_story_plan_nodes("story_project.mainland_demo") == []
+        assert repository.list_story_stages("story_project.mainland_demo") == []
+        assert repository.list_episode_plans("story_project.mainland_demo") == []
+        assert repository.get_latest_continuity_ledger(
+            "story_project.mainland_demo"
+        ) is None
+        assert repository.get_batch(batch.batch_id) is None
+        assert repository.get_job_checkpoint(checkpoint.job_id) is None
+        assert repository.list_episode_artifacts("story_project.mainland_demo") == []
+        assert reset_workspace is not None
+        assert reset_workspace.revision == 2
+        assert reset_workspace.workspace_payload["storyBibleInputSignature"] == (
+            "signature.current"
+        )
+        assert reset_workspace.workspace_payload["storyBibleVersion"] == 2
+        assert reset_workspace.workspace_payload["storyBibleStatus"] == "draft"
+        assert reset_workspace.workspace_payload["episodes"] == []
+        assert reset_workspace.workspace_payload["generationBatches"] == []
+        assert "episodePlansReadyThrough" not in reset_workspace.workspace_payload
+        assert "generationRun" not in reset_workspace.workspace_payload
+        assert "workingDraftJson" not in reset_workspace.workspace_payload
+
+    with database_runtime.session() as session:
+        repository = LongStoryRepository(session)
+        deleted_project = repository.delete_project_permanently(
+            "story_project.mainland_demo"
+        )
+
+        assert deleted_project["story_projects"] == 1
+        assert deleted_project["story_bible_versions"] == 1
+        assert deleted_project["story_project_workspace_snapshots"] == 1
+        assert repository.get_project("story_project.mainland_demo") is None
+        assert repository.get_story_bible("story_bible.mainland_demo") is None
+        assert repository.get_workspace_snapshot("story_project.mainland_demo") is None

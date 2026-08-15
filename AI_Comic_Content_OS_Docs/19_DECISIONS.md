@@ -487,16 +487,16 @@ Raw Data
 
 - 中国大陆资料提高的是市场适用度，不自动提高来源可信度；未经验证的爆款公式仍不得成为硬规则
 - 当前 Story QC 的平台维度改为通用 `Platform Fit`，中文不再被 Cultural Fit 默认降分
-- 中国大陆长篇 Knowledge Bundle 和 planning runtime 尚未实现；Story Bible、递归 Story Plan Node、兼容 Stage、Episode Plan 与 Continuity Ledger 已完成契约，其中主要规划对象已接入 PostgreSQL 资源 API
+- 中国大陆长篇静态 Knowledge Bundle 已接入 Story Bible、递归 Story Plan Node、Episode Plan 和基础 Draft；Planning runtime 已实现人工受控的根到分集路径，后台全树自动递归、Continuity 自动更新和跨批次恢复仍未实现
 - D-002 被本决策取代；D-015 只在重新启用海外模式时继续适用
 
 ---
 
 ## D-021 长篇项目采用使用者可控的有界阶段生成
 
-状态：Accepted
+状态：Superseded by D-023 and D-026
 
-决策：
+原决策：
 
 - 保留“逐集生成”和“全部生成”两个产品模式
 - 逐集模式一次生成一集；全部模式通过使用者设定的有界批次逐步完成总集数，不一次请求完整长篇
@@ -504,6 +504,13 @@ Raw Data
 - 每个阶段保留批次编号、起止集数、阶段指令、完成进度和时间；批次间允许更新标签、角色、关系、故事线和创作说明，更新只影响后续剧集
 - `GenerationBatchContext` 是兼容式单集请求 lineage，不是新的 Workflow Engine、热点检索器或 Story Planning runtime
 - Creative Deepening 代码保留，但由独立前后端 feature flag 统一关闭；默认 `SCRIPT_CREATIVE_DEEPENING_ENABLED=false`
+
+当前替代状态：
+
+- 产品不再向使用者暴露“逐集生成 / 全部生成”二选一
+- 唯一入口是 Story Bible → 可变深度递归 Story Plan Node → 叶节点单集路线图 → 按集生成正文；叶节点可覆盖自然数量的连续剧集，不按固定配额拆分
+- 原有单集 Draft 与 `GenerationBatchContext` 继续作为叶子节点下的内部执行原子和 lineage 兼容能力
+- 使用者仍可在批次之间暂停、编辑、加入后续指令和继续，但不能绕过已批准的上层规划
 
 原因：
 
@@ -513,8 +520,9 @@ Raw Data
 
 影响：
 
+- 本决策的双模式入口已停止生效，当前行为以 D-023 与 D-026 为准
 - 当前批次 authoring history 仍主要保存在 IndexedDB / Workspace Snapshot；PostgreSQL Project 与 Workspace Snapshot 已接入，后端 Generation Job executor 和断点恢复仍是下一阶段能力
-- 阶段生成提高了创作可控性，但不解决 Story Bible、跨阶段 Setup/Payoff、长期人物弧和专业连续性规划
+- Story Bible、递归拆分和 Episode Plan 已进入人工受控 runtime；跨批次 Setup/Payoff 自动校验、长期人物状态更新和专业连续性控制仍待补齐
 - 后续热点或 Data Intelligence 推荐必须由使用者确认后进入下一阶段输入，不得自动改写已确认剧集
 
 ---
@@ -555,12 +563,13 @@ Raw Data
 
 决策：
 
-- 产品最终仍按“集”交付，但从整体故事方向到 Episode Plan 的内部拆分不固定为卷、章或单元
+- 产品最终仍按“集”交付，但从整体故事方向到 episode-ready 叶节点的内部拆分不固定为卷、章或单元
 - `StoryPlanNode` 通过 parent、同级 sequence 和 predecessor 表达叙事片段；每个节点根据自身复杂度独立决定继续展开或进入 `episode_ready`
+- `episode_ready` 不是固定树深度，但有不可覆盖的集数门禁：叶节点必须为 8–12 集，至少 16 集必须继续展开；1–7 集或 13–15 集碎片必须回到父层与相邻分支协调整段事件和状态交接。剧情段的事件链、冲突密度、选择后果、转折和状态闭环决定合法窗口内的非均匀边界
 - 不同分支允许使用不同拆分深度，不为视觉整齐强制平衡树
 - 系统可以建议拆分，但使用者保留编辑、批准、继续展开和停止拆分的控制权
 - `StoryStagePlan` 兼容保留，但不再限制未来拆分层级
-- 人工审核采用 Story Bible 根方向确认 + 关键展开节点确认 + episode-ready 叶子进入 Episode Plan 前确认；不强制每个节点或每集都人工阻断
+- 人工审核采用 Story Bible 根方向确认 + 关键展开节点确认 + episode-ready 叶子确认 + 单集线路图确认；线路图批准后才进入逐集正文
 
 原因：
 
@@ -570,8 +579,10 @@ Raw Data
 
 影响：
 
-- 已完成模型、PostgreSQL persistence、migration、Repository、Application Service 和资源 API
-- 自动梗概、自动拆树、审核 UI、叶子到 Episode Plan 映射和 Prompt 注入尚未实现
+- 已完成模型、PostgreSQL persistence、migration、Repository、Application Service、资源 API、规划 UI，以及 Story Bible / Plan Node / 单集线路图的 LLM 草稿生成、编辑、版本保存和批准；Episode Plan 作为线路图兼容契约保留
+- 已完成批准分支的人工触发递归拆分、8–12 集强制停止、非法碎片阻断，以及同一叶节点对区间内每一集独立 Draft 请求的直接约束
+- 尚未实现无人值守全树递归、自动批准、后台跨叶子调度、Continuity Ledger 自动更新和可恢复 Generation Job
+- 已实现“一个终止语义节点 → 多个逐集独立请求”的映射；尚未实现叶节点转折点在各集间的权威自动分配与校验
 - 该决策不批准多 Agent、无限规划循环或一次请求生成完整 60 万字
 
 ---
@@ -630,3 +641,36 @@ Raw Data
 - 当前已实现大陆受控标签目录、选择 UI、静态灵感推荐和项目自定义关键词
 - Prompt-only 与受控 Ontology Tag-only 已兼容；Tag Evidence / Profile、动态 retrieval、CustomTagContext、实时趋势和 confirmed CustomTagContext-only 输入尚未实现
 - 第一轮实现应以少量高使用大陆标签和固定梗概质量对比验证，不建设大而全标签百科
+
+---
+
+## D-026 当前产品核心锁定为优质长剧本生成
+
+状态：Accepted
+
+决策：
+
+- 当前唯一产品核心是面向中国大陆漫剧市场生成优质中文长剧本母本；用户按 10 万字量级选档，当前最大档为约 40–50 万字有效正文
+- 目标量级是同一 Story Project 下完整作品的累计正文规模，不是单个 Prompt、单次 LLM 请求或单个 `MasterScript` 的输出要求
+- 字数只累计已生成到具体集的动作与对白有效字符；总纲、任意层级剧情分支、分集计划及其他规划描述不计入，规划节点的正文估算仅为未来容量参考
+- 唯一产品路径为 Creative Intent / Tags → ContentSpec → Story Bible → 可变深度非平衡递归 Story Plan Tree → 语义完整的 episode-ready 叶节点 → 单集线路图 → 自适应执行批次 → 逐集正文 → Continuity / 字数规模参考 → 完整长篇产物
+- 总纲、剧情节点和正文均须可编辑、版本化保存和受控确认；生成必须可暂停、恢复、重试和追踪成本
+- episode-ready 叶节点必须覆盖 8–12 集且完整讲清单位剧情；至少 16 集的节点继续拆分，1–7 集或 13–15 集碎片返回父层与相邻分支协调整段剧情。剧情决定合法窗口内的自然边界，相邻集仍按集号顺序、每集一次模型请求生成并逐集更新连续性
+- 当前 bounded continuity summary 用于降低漂移，不等于自动一致性证明；世界规则、人物稳定事实、时间线、道具状态和伏笔回收需要后续 Continuity Gate 校验，关键规划节点在此之前保留人工复查
+- 既有 ContentSpec、Creative Intent、标签、角色上下文、Knowledge Bundle、Prompt、LLM Adapter、单集 Draft、Story QC、Revision、Acceptance、Evaluation、Artifact 与导出能力，只要能够服从长篇主链路并保持市场隔离，就继续作为内部能力保留和适配，不重复建设
+- 旧能力的“实现保留”与“产品入口启用”必须分开判断：可保留底层契约和代码，但与递归长篇流程冲突的旧模式不得重新成为默认入口
+- Creative Deepening、海外 TikTok 默认适配、视频生产、Agent runtime 和大型架构重构保持关闭或 Backlog，除非明确阻碍长篇核心目标
+- “支持某一量级”只有在完成整部真实生成，并验证连续性、质量、失败恢复、成本和耗时后，才能升级为已验收能力；当前不得用单集成功或字数投影夸大成熟度
+
+原因：
+
+- 长剧本的主要难点是长程结构、人物和关系状态、支线、伏笔回收、跨批次连续性与恢复能力，而不是一次性输出长度
+- 固定层级或一次拆到全部分集会放大上下文膨胀、规划僵化和模型漂移
+- 锁定唯一核心可防止开发资源重新分散到深化、视频、海外适配或新架构扩张
+
+影响：
+
+- Roadmap、Script Engine 和验收优先级统一围绕整部长篇端到端闭环
+- 现有单集 Draft API 继续作为叶子节点下的正文执行原子，不再被描述为完整产品流程
+- 既有质量闭环和评估资产继续用于分集质量与长篇能力回归；后续按跨集连续性需求扩展，而不是另建平行系统
+- 当前第一优先级是完整作品验收、后台可恢复执行和长程连续性，不是新增内容能力

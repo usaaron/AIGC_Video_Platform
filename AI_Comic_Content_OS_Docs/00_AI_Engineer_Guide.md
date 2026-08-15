@@ -21,24 +21,24 @@
 
 ## Project Goal
 
-当前项目目标是为中国大陆漫剧市场稳定生成高质量、可控、可追踪的中文故事母本与后续结构化剧本。当前不绑定单一发行平台，红果只作为市场和产品形态参考。
+当前产品唯一核心是为中国大陆漫剧市场稳定生成优质、可控、可追踪的中文长剧本母本，目标支持约 60 万字正文规模。长篇必须通过 Story Bible、可变深度递归剧情树、Episode Plan 和有界正文批次逐步完成；不得把“支持 60 万字”解释为单次模型调用或未经验证的全自动能力。当前不绑定单一发行平台，红果只作为市场和产品形态参考。
 
 当前运行配置：
 
 - `cn_mainland`：`active`，默认启动配置
 - `overseas_tiktok`：`disabled`，原有 Profile、Prompt、Knowledge 与 Benchmark 资产保留，可显式切换恢复
-- `creative_deepening`：`disabled`，能力保留，长篇故事结构稳定前不作为当前重点
-- `longform_source_story`：当前能力优化方向；完整 60 万字故事母本 runtime 尚未实现
-- `staged_generation`：基础有界批次已启用；允许批次间更新创作输入，但不等同于 Story Blueprint、自动热点采集或完整长篇生成
+- `creative_deepening`：`disabled`，能力和历史数据兼容位保留，当前基础剧本产品流程不展示入口、不执行候选生成
+- `longform_source_story`：当前唯一产品核心；60 万字级契约、规划资源和有界正文路径已部分实现，完整端到端生成、恢复与质量验收尚未完成
+- `recursive_story_planning`：当前唯一长篇产品流程；Story Bible 经过确认后进入可变深度、非平衡的 Story Plan Node 递归拆分，再从已批准的 episode-ready 叶子生成 Episode Plan 和有界基础剧本批次
 
 市场切换不得通过删除海外资产或把中国大陆经验硬编码进核心领域完成。当前本地启动使用 `SCRIPT_MARKET_PROFILE=cn_mainland`；只有显式设置 `overseas_tiktok` 才恢复旧海外验证配置。Creative Deepening 由独立的 `SCRIPT_CREATIVE_DEEPENING_ENABLED` 控制，当前默认 `false`，不能仅因切换市场而自动启用。
 
 默认优先级：
 
 ```text
-剧本质量
-> 可解释性与可验证性
-> 系统稳定性
+长篇规划可持续性、容量诚实性与整体质量
+> 60 万字端到端可完成性、可恢复性与可验证性
+> 单集正文质量
 > 媒体生产能力
 ```
 
@@ -50,11 +50,19 @@
 - 用户 Creative Intent 与 Character Context 应先经过受控解析，不允许原始自由文本绕过契约直接支配业务逻辑。
 - 平台规则进入 `PlatformProfile` / Platform Adapter，不硬编码进核心领域。
 - Prompt 来自 Prompt Library、Generation Strategy 与 Prompt Builder，不散落在业务代码中。
+- 中国大陆长篇模型调用必须通过 GenerationStrategy 精确选择有来源、版本化且有界的静态 Knowledge Bundle；总纲、递归规划、分集计划与基础正文应保持知识约束一致，不得把整个 Research 目录或所有知识无差别注入。
 - 所有模型调用通过 `LLMAdapter` 或等价 Port，不绑定单一供应商。
+- 长篇正文可使用服务端编号 Key Pool：`LLM_API_KEY_01` 到 `LLM_API_KEY_XX` 只用于独立正文生成请求；总纲、故事树和 Episode Plan 继续使用主 `LLM_API_KEY`。
+- Key Pool 必须保持在后端环境变量或正式 Secret 管理中，不能进入前端、日志、lineage 或导出文件。
 - LLM 输出必须先通过结构化 Schema 校验，不能直接成为 Final `MasterScript`。
 - Story QC、Revision、Acceptance 与 Finalization 职责必须分离。
 - Shadow / observational 信号不得被描述为生产强制 Gate。
 - 长篇生成必须分阶段、有边界、可暂停并保存 lineage；不得用单次超长 LLM 请求生成完整母本。
+- 产品目标字数/集数、Schema 合法和模型自评都不是内容容量证明；在大规模正文生成前，必须先验证 Story Engine、宏观叙事运动、人物/反派策略、信息揭示、支线贡献和重复风险。容量不足时应缩短目标或补充上层故事材料，不得机械扩写。
+- 产品核心切换不等于删除既有能力。凡是能以清晰边界服务长篇规划、分集正文、连续性、质量检查、恢复、评估或导出的现有模块，应优先复用和适配；不得仅因其最初服务单集或海外验证而重复实现。
+- 旧能力复用时必须服从当前长篇主链路和市场开关。可以保留底层原子能力、兼容契约和历史资产，但不得重新暴露与递归长篇流程冲突的旧产品模式，也不得把停用的海外规则或 Creative Deepening 静默带回当前生成上下文。
+- 同一已确认 Episode Plan 叶子批次可以进行有界并行；不同叶子和批次之间仍保持规划顺序与人工控制，不得以并行绕过总纲、递归节点或分集计划确认。
+- Story Bible、草稿状态的 Story Plan Node 和 Episode Plan 必须支持显式编辑、保存和批准；保存产生新的 immutable draft version，批准后的上层规划不得被原地覆盖。
 - Production Artifact 与 Developer Artifact 分离；评估、双语审阅和调试信息不得污染正式剧本。
 - Script Engine 长期仍以版本化单入口、单出口能力盒子为目标；正式 Facade 在内部契约稳定前保持 Backlog。
 - 上游变化优先通过 Mapper 适配；下游变化优先通过 Handoff Adapter 适配。

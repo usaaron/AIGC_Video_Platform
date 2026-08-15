@@ -2,6 +2,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.modules.script_engine.models import (
+    ApprovedEpisodePlanContext,
+    ApprovedStoryNodeContext,
     AcceptanceDecision,
     GenerationStrategy,
     GenerationBatchContext,
@@ -92,6 +94,9 @@ def test_episode_generation_context_accepts_bounded_stage_lineage() -> None:
         generation_mode="full",
         episode_number=121,
         total_episodes=334,
+        reference_material_context=(
+            "资料：客户格式模板.docx；用途：只参考场景标题与字段顺序。"
+        ),
         batch_context=GenerationBatchContext(
             batch_number=25,
             start_episode=121,
@@ -103,6 +108,93 @@ def test_episode_generation_context_accepts_bounded_stage_lineage() -> None:
     serialized = context.model_dump(mode="json")
     assert serialized["batch_context"]["start_episode"] == 121
     assert serialized["batch_context"]["end_episode"] == 125
+    assert "格式模板" in serialized["reference_material_context"]
+
+
+def test_episode_generation_context_accepts_module_and_episode_handoffs() -> None:
+    context = EpisodeGenerationContext(
+        generation_mode="sequential",
+        episode_number=121,
+        total_episodes=334,
+        previous_episode_handoff="上一集结果、人物变化和未完成义务。",
+        module_handoff="上一模块出口与当前模块入口状态。",
+        long_range_anchor="全剧目标、结局方向和锁定规则。",
+    )
+
+    serialized = context.model_dump(mode="json")
+    assert serialized["previous_episode_handoff"].startswith("上一集结果")
+    assert serialized["module_handoff"].startswith("上一模块出口")
+    assert serialized["long_range_anchor"].startswith("全剧目标")
+
+
+def test_episode_generation_context_keeps_the_approved_episode_plan_structured() -> None:
+    context = EpisodeGenerationContext(
+        generation_mode="sequential",
+        episode_number=3,
+        total_episodes=10,
+        approved_story_node=ApprovedStoryNodeContext(
+            node_id="story_plan.truth_leaf",
+            node_version=2,
+            title="证人营救",
+            start_episode=1,
+            end_episode=8,
+            episode_position=3,
+            episode_function="增加阻力并迫使主角调整行动",
+            narrative_purpose="让调查从取证转为救援",
+            entry_state="证人即将公开作证",
+            central_conflict="救人和固定证据无法同时完成",
+            turning_points=["主角确认转移车辆"],
+            unit_story_beats=["证人失踪", "主角追车"],
+            unit_resolution="主角救出证人但证据被毁",
+            handoff_pressure="主角必须寻找替代证据",
+            emotional_direction="愤怒转为承担",
+            exit_state="证人获救但关键证据被销毁",
+        ),
+        approved_episode_plan=ApprovedEpisodePlanContext(
+            episode_number=3,
+            target_duration_seconds=114,
+            planned_scene_count=5,
+            planned_shot_count=22,
+            episode_goal="夺回被扣押的账本",
+            entry_state="主角知道账本仍在中间人手里",
+            central_conflict="公开抢夺会暴露证人位置",
+            protagonist_decision="先制造交易假象再换取账本",
+            emotional_movement="戒备转为孤注一掷",
+            exit_state="账本到手但证人身份暴露",
+            cliffhanger="对手公开发布证人的真实姓名",
+            character_refs=["character.protagonist"],
+            story_line_refs=["storyline.truth"],
+            source_turning_points=["主角放弃公开抢夺"],
+            source_unit_story_beats=["制造交易", "换取账本"],
+        ),
+    )
+
+    serialized = context.model_dump(mode="json")
+    assert serialized["approved_story_node"]["episode_position"] == 3
+    assert serialized["approved_episode_plan"]["episode_goal"] == "夺回被扣押的账本"
+    assert serialized["approved_episode_plan"]["target_duration_seconds"] == 114
+    assert serialized["approved_episode_plan"]["planned_scene_count"] == 5
+    assert serialized["approved_episode_plan"]["planned_shot_count"] == 22
+    assert serialized["approved_episode_plan"]["source_unit_story_beats"] == [
+        "制造交易",
+        "换取账本",
+    ]
+
+    legacy = context.model_dump(mode="json")
+    legacy["approved_episode_plan"]["target_duration_seconds"] = 60
+    normalized = EpisodeGenerationContext.model_validate(legacy)
+    assert normalized.approved_episode_plan is not None
+    assert normalized.approved_episode_plan.target_duration_seconds == 75
+
+    invalid = context.model_dump(mode="json")
+    invalid["approved_episode_plan"]["episode_number"] = 4
+    with pytest.raises(ValidationError, match="approved_episode_plan.episode_number"):
+        EpisodeGenerationContext.model_validate(invalid)
+
+    invalid_node = context.model_dump(mode="json")
+    invalid_node["approved_story_node"]["episode_position"] = 4
+    with pytest.raises(ValidationError, match="episode_position"):
+        EpisodeGenerationContext.model_validate(invalid_node)
 
 
 def test_episode_generation_context_rejects_episode_outside_stage() -> None:

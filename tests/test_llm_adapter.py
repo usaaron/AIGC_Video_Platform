@@ -8,8 +8,11 @@ from app.modules.script_engine.llm_adapter import (
     LLMStructuredOutputError,
     MockLLMAdapter,
     MissingLLMConfigurationError,
+    ModelFailoverLLMAdapter,
+    PooledLLMAdapter,
     RealLLMAdapter,
 )
+from app.modules.script_engine.long_story_models import StoryPlanNodeDecompositionOutput
 from app.modules.script_engine.models import GenerationStrategy
 
 
@@ -67,6 +70,24 @@ def build_openai_compatible_response(content: str) -> dict:
     }
 
 
+def build_responses_api_response(content: str) -> dict:
+    return {
+        "id": "resp_test",
+        "usage": {
+            "input_tokens": 80,
+            "output_tokens": 20,
+            "total_tokens": 100,
+        },
+        "output": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": content}],
+            }
+        ],
+    }
+
+
 def test_mock_llm_adapter_returns_text() -> None:
     adapter = MockLLMAdapter()
     strategy = GenerationStrategy.model_validate(build_strategy())
@@ -117,6 +138,1812 @@ def test_real_llm_adapter_returns_structured_output_from_mock_http() -> None:
     assert result["_meta"]["usage"]["total_tokens"] == 360
 
 
+def test_real_llm_adapter_supports_responses_wire_api() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/responses"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert "messages" not in payload
+        assert payload["reasoning"] == {"effort": "medium"}
+        assert payload["text"]["format"]["type"] == "json_schema"
+        assert payload["text"]["format"]["schema"]["required"] == ["title"]
+        return httpx.Response(
+            200,
+            json=build_responses_api_response('{"title":"Responses Title"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="kimi-k3",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        reasoning_effort="medium",
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "Responses Title"
+    assert result["_meta"]["response_id"] == "resp_test"
+    assert result["_meta"]["usage"]["total_tokens"] == 100
+
+
+def test_responses_empty_payload_gets_one_bounded_protocol_retry() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        if request_count == 1:
+            return httpx.Response(200, json={"id": "resp_empty", "output": []})
+        return httpx.Response(
+            200,
+            json=build_responses_api_response('{"title":"Recovered"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "Recovered"
+    assert request_count == 2
+
+
+def test_responses_nested_wrapper_text_is_extractable() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "response": {
+                    "output": [
+                        {"content": [{"type": "output_text", "text": '{"title":"Nested"}'}]}
+                    ]
+                }
+            },
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "Nested"
+
+
+def test_responses_prefers_convenience_output_text_without_duplicate_parsing() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "output_text": '{"title":"Direct"}',
+                "output": [
+                    {"content": [{"type": "output_text", "text": '{"title":"Direct"}'}]}
+                ],
+            },
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "Direct"
+
+
+def test_responses_refusal_is_not_retried_as_an_empty_payload() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(
+            200,
+            json={
+                "output": [
+                    {"content": [{"type": "refusal", "refusal": "内容不可用"}]}
+                ]
+            },
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMStructuredOutputError, match="refusal") as raised:
+        adapter.generate_structured_output(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        )
+
+    assert raised.value.refusal == "内容不可用"
+    assert request_count == 1
+
+
+def test_json_parser_accepts_safe_python_literal_object_from_gateway() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response(
+                "模型说明：\n{'title': '兼容标题', 'enabled': True}"
+            ),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "enabled": {"type": "boolean"},
+            },
+        },
+    )
+
+    assert result["title"] == "兼容标题"
+    assert result["enabled"] is True
+
+
+def test_real_llm_adapter_streams_responses_output_deltas() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    seen_deltas: list[tuple[str, bool]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["stream"] is True
+        events = [
+            {"type": "response.created", "response": {"id": "resp_stream"}},
+            {"type": "response.output_text.delta", "delta": '{"title":'},
+            {"type": "response.output_text.delta", "delta": '"流式标题"}'},
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_stream",
+                    "usage": {"input_tokens": 10, "output_tokens": 6},
+                },
+            },
+        ]
+        body = "".join(
+            f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            for event in events
+        ) + "data: [DONE]\n\n"
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output_stream(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        on_delta=lambda delta, reset: seen_deltas.append((delta, reset)),
+    )
+
+    assert result["title"] == "流式标题"
+    assert result["_meta"]["streamed"] is True
+    assert result["_meta"]["response_id"] == "resp_stream"
+    assert result["_meta"]["usage"]["output_tokens"] == 6
+    assert seen_deltas == [('{"title":"流式标题"}', True)]
+
+
+def test_streaming_structured_error_records_json_position_and_incomplete_reason() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        events = [
+            {"type": "response.output_text.delta", "delta": '{\n  "title": ,\n  "scenes": []'},
+            {
+                "type": "response.incomplete",
+                "response": {
+                    "id": "resp_incomplete",
+                    "status": "incomplete",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                },
+            },
+        ]
+        body = "".join(
+            f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            for event in events
+        ) + "data: [DONE]\n\n"
+        return httpx.Response(
+            200,
+            text=body,
+            headers={"content-type": "text/event-stream"},
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMStructuredOutputError) as exc_info:
+        adapter.generate_structured_output_stream(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "scenes": {"type": "array"},
+                },
+                "required": ["title", "scenes"],
+            },
+        )
+
+    error = exc_info.value
+    assert error.json_error_line == 2
+    assert error.json_error_column == 12
+    assert error.stream_termination == (
+        "response.incomplete:incomplete:max_output_tokens"
+    )
+
+
+def test_streaming_structured_error_records_missing_terminal_event() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        event = {
+            "type": "response.output_text.delta",
+            "delta": '{"title":',
+        }
+        body = f"data: {json.dumps(event)}\n\ndata: [DONE]\n\n"
+        return httpx.Response(
+            200,
+            text=body,
+            headers={"content-type": "text/event-stream"},
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMStructuredOutputError) as exc_info:
+        adapter.generate_structured_output_stream(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={
+                "type": "object",
+                "properties": {"title": {"type": "string"}},
+                "required": ["title"],
+            },
+        )
+
+    assert (
+        exc_info.value.stream_termination
+        == "stream_ended_without_terminal_event"
+    )
+
+
+def test_json_object_responses_transport_receives_native_shape_contract() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["text"]["format"] == {"type": "json_object"}
+        prompt = payload["input"][1]["content"][0]["text"]
+        assert "JSON OUTPUT SHAPE CONTRACT" in prompt
+        assert '"children":[{"title":"值"}]' in prompt
+        return httpx.Response(
+            200,
+            json=build_responses_api_response(
+                '{"children":[{"title":"第一阶段"}]}'
+            ),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        use_strict_schema=False,
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a roadmap envelope.",
+        strategy=strategy,
+        output_schema={
+            "type": "object",
+            "properties": {
+                "children": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"title": {"type": "string"}},
+                    },
+                }
+            },
+            "required": ["children"],
+        },
+    )
+
+    assert result["children"][0]["title"] == "第一阶段"
+
+
+def test_real_llm_adapter_falls_back_when_gateway_rejects_streaming() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    seen_deltas: list[tuple[str, bool]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8"))
+        if payload.get("stream") is True:
+            return httpx.Response(400, json={"error": {"message": "stream unsupported"}})
+        return httpx.Response(
+            200,
+            json=build_responses_api_response('{"title":"同步回退"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="compatible-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output_stream(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        on_delta=lambda delta, reset: seen_deltas.append((delta, reset)),
+    )
+
+    assert result["title"] == "同步回退"
+    assert result["_meta"]["stream_fallback"] is True
+    assert seen_deltas == [('{"title": "同步回退"}', True)]
+
+
+def test_real_llm_adapter_does_not_repeat_a_timed_out_stream_as_non_streaming() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        payload = json.loads(request.content.decode("utf-8"))
+        if payload.get("stream") is True:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return httpx.Response(
+            200,
+            json=build_responses_api_response('{"title":"不应执行的同步回退"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="compatible-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMRequestError, match="timed out"):
+        adapter.generate_structured_output_stream(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        )
+
+    assert request_count == 1
+
+
+def test_real_llm_adapter_supports_json_object_mode() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["response_format"] == {"type": "json_object"}
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response('{"title":"JSON Object Title"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="kimi-k3",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="chat_completions",
+        use_strict_schema=False,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a JSON object matching the supplied schema.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "JSON Object Title"
+
+
+def test_deepseek_uses_chat_json_contract_and_explicit_thinking() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    schema = {
+        "$defs": {
+            "Child": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "title": {"type": "string"},
+                },
+                "required": ["id", "title"],
+            }
+        },
+        "type": "object",
+        "properties": {
+            "children": {
+                "type": "array",
+                "minItems": 2,
+                "items": {"$ref": "#/$defs/Child"},
+            }
+        },
+        "required": ["children"],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert "response_format" not in payload
+        assert payload["thinking"] == {"type": "enabled"}
+        assert payload["reasoning_effort"] == "medium"
+        assert "temperature" not in payload
+        assert "top_p" not in payload
+        prompt = payload["messages"][1]["content"]
+        assert "DEEPSEEK JSON OUTPUT CONTRACT" in prompt
+        assert '"children":[{"id":"值","title":"值"}' in prompt
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response(
+                '{"children":[{"id":"one","title":"一"},'
+                '{"id":"two","title":"二"}]}'
+            ),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        reasoning_effort="medium",
+        thinking_mode="enabled",
+        use_strict_schema=True,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Generate the requested story plan.",
+        strategy=strategy,
+        output_schema=schema,
+    )
+
+    assert adapter._wire_api == "chat_completions"
+    assert adapter._use_strict_schema is False
+    assert len(result["children"]) == 2
+    assert result["_meta"]["thinking_mode"] == "enabled"
+
+
+def test_deepseek_story_tree_shape_uses_native_objects_and_valid_semantic_examples() -> None:
+    shape = RealLLMAdapter._json_shape_example(
+        StoryPlanNodeDecompositionOutput.model_json_schema()
+    )
+
+    assert len(shape["children"]) == 2
+    assert all(isinstance(child, dict) for child in shape["children"])
+    first = shape["children"][0]
+    assert first["recommended_next_step"] == "episode_ready"
+    assert first["planned_start_episode"] == 1
+    assert first["planned_end_episode"] == 8
+    assert len(first["unit_story_beats"]) == 4
+    assert first["unit_resolution"]
+    assert first["handoff_pressure"]
+
+
+def test_deepseek_accepts_string_wrapped_parsed_object_from_compatible_gateway() -> None:
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+    )
+    content = json.dumps(
+        json.dumps({"children": [{"title": "第一阶段"}]}, ensure_ascii=False),
+        ensure_ascii=False,
+    )
+
+    parsed = adapter._extract_structured_output(
+        {"choices": [{"message": {"parsed": content}}]},
+        output_schema=StoryPlanNodeDecompositionOutput.model_json_schema(),
+    )
+
+    assert parsed == {"children": [{"title": "第一阶段"}]}
+
+
+def test_deepseek_non_thinking_repair_keeps_sampling_controls() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["thinking"] == {"type": "disabled"}
+        assert payload["temperature"] == strategy.temperature
+        assert payload["top_p"] == strategy.top_p
+        assert "reasoning_effort" not in payload
+        assert payload["response_format"] == {"type": "json_object"}
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response('{"title":"已修复"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        thinking_mode="disabled",
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Repair this JSON object.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "已修复"
+    assert result["_meta"]["thinking_mode"] == "disabled"
+
+
+def test_deepseek_retries_one_documented_empty_json_response() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    payloads: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content.decode("utf-8")))
+        content = "" if len(payloads) == 1 else '{"title":"第二次成功"}'
+        return httpx.Response(200, json=build_openai_compatible_response(content))
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return the story JSON.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "第二次成功"
+    assert len(payloads) == 2
+    assert "previous JSON Output response was empty" in payloads[1]["messages"][-1]["content"]
+
+
+def test_compatible_adapter_does_not_repeat_an_empty_structured_response() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    payloads: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(200, json=build_openai_compatible_response(""))
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMStructuredOutputError) as error:
+        adapter.generate_structured_output(
+            "Return the Episode roadmap JSON.",
+            strategy=strategy,
+            output_schema={
+                "type": "object",
+                "properties": {"episode_plans": {"type": "array", "items": {}}},
+            },
+        )
+
+    assert error.value.raw_content == ""
+    assert len(payloads) == 1
+
+
+def test_real_llm_adapter_decodes_nested_structured_containers() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="planning-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json=build_openai_compatible_response(
+                    r'''{"episode_plans":["{\"episode_number\":1,\"episode_goal\":\"推进\"}", "{'episode_number': 2, 'episode_goal': '反转'}"]}'''
+                ),
+            )
+        ),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return the Episode roadmap JSON.",
+        strategy=strategy,
+        output_schema={
+            "type": "object",
+            "properties": {"episode_plans": {"type": "array", "items": {}}},
+        },
+    )
+
+    assert result["episode_plans"] == [
+        {"episode_number": 1, "episode_goal": "推进"},
+        {"episode_number": 2, "episode_goal": "反转"},
+    ]
+
+
+def test_real_llm_adapter_decodes_string_items_in_top_level_collection() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="planning-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json=build_openai_compatible_response(
+                    r'''["{\"title\":\"第一阶段\"}", "{'title': '第二阶段'}"]'''
+                ),
+            )
+        ),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return child stages.",
+        strategy=strategy,
+        output_schema={
+            "type": "object",
+            "properties": {"children": {"type": "array", "items": {}}},
+        },
+    )
+
+    assert result["children"] == [{"title": "第一阶段"}, {"title": "第二阶段"}]
+
+
+def test_responses_adapter_regenerates_non_native_schema_containers() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    requests: list[dict] = []
+    schema = {
+        "title": "EpisodePlanBatchGenerationOutput",
+        "$defs": {
+            "Episode": {
+                "type": "object",
+                "properties": {
+                    "episode_number": {"type": "integer"},
+                    "episode_goal": {"type": "string"},
+                },
+                "required": ["episode_number", "episode_goal"],
+            }
+        },
+        "type": "object",
+        "properties": {
+            "episode_plans": {
+                "type": "array",
+                "items": {"$ref": "#/$defs/Episode"},
+            }
+        },
+        "required": ["episode_plans"],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content.decode("utf-8")))
+        content = (
+            '{"episode_plans":["第1集计划","第2集计划"]}'
+            if len(requests) == 1
+            else '{"episode_plans":[{"episode_number":1,"episode_goal":"推进"},'
+            '{"episode_number":2,"episode_goal":"反转"}]}'
+        )
+        return httpx.Response(200, json=build_responses_api_response(content))
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    result = adapter.generate_structured_output(
+        "Return the Episode roadmap.",
+        strategy=strategy,
+        output_schema=schema,
+    )
+
+    assert [item["episode_number"] for item in result["episode_plans"]] == [1, 2]
+    assert len(requests) == 2
+    response_format = requests[0]["text"]["format"]
+    assert response_format["name"] == "episodeplanbatchgenerationoutput"
+    assert "$defs" not in response_format["schema"]
+    retry_text = requests[1]["input"][-1]["content"][0]["text"]
+    assert "Never place an object or array inside a quoted string" in retry_text
+
+
+def test_container_repair_rejects_nested_fragment_response() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+    schema = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "scenes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"scene_number": {"type": "integer"}},
+                    "required": ["scene_number"],
+                },
+            },
+        },
+        "required": ["title", "scenes"],
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        content = (
+            '{"title":"正文","scenes":"错误数组"}'
+            if request_count == 1
+            else '{"scene_number":1,"slug":"错误降级片段"}'
+        )
+        return httpx.Response(200, json=build_openai_compatible_response(content))
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        use_strict_schema=False,
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMStructuredOutputError, match="wrong schema root"):
+        adapter.generate_structured_output(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema=schema,
+        )
+
+    assert request_count == 2
+
+
+def test_streaming_adapter_regenerates_non_native_schema_containers() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+    deltas: list[tuple[str, bool]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        payload = json.loads(request.content.decode("utf-8"))
+        if payload.get("stream"):
+            body = (
+                'data: {"type":"response.output_text.delta","delta":"{\\"children\\":[\\"阶段一\\",\\"阶段二\\"]}"}\n\n'
+                "data: [DONE]\n\n"
+            )
+            return httpx.Response(
+                200,
+                text=body,
+                headers={"content-type": "text/event-stream"},
+            )
+        return httpx.Response(
+            200,
+            json=build_responses_api_response(
+                '{"children":[{"title":"阶段一"},{"title":"阶段二"}]}'
+            ),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    result = adapter.generate_structured_output_stream(
+        "Return child stages.",
+        strategy=strategy,
+        output_schema={
+            "type": "object",
+            "properties": {
+                "children": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"title": {"type": "string"}},
+                    },
+                }
+            },
+        },
+        on_delta=lambda delta, reset: deltas.append((delta, reset)),
+    )
+
+    assert result["children"] == [{"title": "阶段一"}, {"title": "阶段二"}]
+    assert request_count == 2
+    assert deltas[-1][1] is True
+
+
+def test_deepseek_stream_ignores_reasoning_content() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    seen_deltas: list[tuple[str, bool]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["stream"] is True
+        events = [
+            {"choices": [{"delta": {"reasoning_content": "internal reasoning"}}]},
+            {"choices": [{"delta": {"content": '{"title":'}}]},
+            {"choices": [{"delta": {"content": '"流式正文"}'}}]},
+        ]
+        body = "".join(f"data: {json.dumps(event, ensure_ascii=False)}\n\n" for event in events)
+        body += "data: [DONE]\n\n"
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        thinking_mode="enabled",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output_stream(
+        "Return the story JSON.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        on_delta=lambda delta, reset: seen_deltas.append((delta, reset)),
+    )
+
+    assert result["title"] == "流式正文"
+    assert seen_deltas == [('{"title":"流式正文"}', True)]
+
+
+def test_streaming_adapter_reads_provider_error_and_retries_502() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        if request_count == 1:
+            return httpx.Response(
+                502,
+                json={"error": {"message": "temporary upstream failure"}},
+            )
+        return httpx.Response(
+            200,
+            text='data: {"choices":[{"delta":{"content":"{\\"title\\":\\"恢复成功\\"}"}}]}\n\n'
+            "data: [DONE]\n\n",
+            headers={"content-type": "text/event-stream"},
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        max_retries=1,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output_stream(
+        "Return the script JSON.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "恢复成功"
+    assert request_count == 2
+
+
+def test_streaming_adapter_changes_to_non_streaming_after_gateway_502() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    seen_stream_modes: list[bool] = []
+    seen_deltas: list[tuple[str, bool]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8"))
+        streaming = payload.get("stream") is True
+        seen_stream_modes.append(streaming)
+        if streaming:
+            return httpx.Response(
+                502,
+                json={"error": {"message": "SSE route temporarily unavailable"}},
+            )
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response('{"title":"非流式恢复成功"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output_stream(
+        "Return the script JSON.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        on_delta=lambda delta, reset: seen_deltas.append((delta, reset)),
+    )
+
+    assert result["title"] == "非流式恢复成功"
+    assert result["_meta"]["stream_fallback"] is True
+    assert seen_stream_modes == [True, False]
+    assert seen_deltas == [('{"title": "非流式恢复成功"}', True)]
+
+
+def test_streaming_adapter_reports_502_detail_without_response_not_read() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                502,
+                json={"error": {"message": "upstream model unavailable"}},
+            )
+        ),
+    )
+
+    with pytest.raises(
+        LLMRequestError,
+        match="status 502 after retries: upstream model unavailable",
+    ) as exc_info:
+        adapter.generate_structured_output_stream(
+            "Return the script JSON.",
+            strategy=strategy,
+            output_schema={
+                "type": "object",
+                "properties": {"title": {"type": "string"}},
+            },
+        )
+
+    assert getattr(exc_info.value, "stream_fallback_attempted") is True
+
+
+def test_streaming_adapter_sanitizes_html_gateway_error_page() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                502,
+                text="<!DOCTYPE html><html><head><title>502 Bad gateway</title></head></html>",
+                headers={"content-type": "text/html; charset=UTF-8"},
+            )
+        ),
+    )
+
+    with pytest.raises(LLMRequestError) as exc_info:
+        adapter.generate_structured_output_stream(
+            "Return the script JSON.",
+            strategy=strategy,
+            output_schema={
+                "type": "object",
+                "properties": {"title": {"type": "string"}},
+            },
+        )
+
+    message = str(exc_info.value)
+    assert "provider gateway returned an HTML error page" in message
+    assert "DOCTYPE" not in message
+    assert "<html" not in message
+
+
+def test_streaming_pool_fails_over_to_second_key_after_502() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    authorization_headers: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        authorization = request.headers.get("authorization", "")
+        authorization_headers.append(authorization)
+        if authorization == "Bearer first-key":
+            return httpx.Response(
+                502,
+                json={"error": {"message": "first route unavailable"}},
+            )
+        return httpx.Response(
+            200,
+            text='data: {"choices":[{"delta":{"content":"{\\"title\\":\\"第二通道成功\\"}"}}]}\n\n'
+            "data: [DONE]\n\n",
+            headers={"content-type": "text/event-stream"},
+        )
+
+    adapter = PooledLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_keys=("first-key", "second-key"),
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output_stream(
+        "Return the script JSON.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "第二通道成功"
+    assert authorization_headers == [
+        "Bearer first-key",
+        "Bearer first-key",
+        "Bearer second-key",
+    ]
+
+
+def test_pooled_adapter_bounds_gateway_outage_to_one_backup_key() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    seen_authorizations: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_authorizations.append(request.headers["Authorization"])
+        return httpx.Response(
+            502,
+            json={"error": {"message": "shared gateway unavailable"}},
+        )
+
+    adapter = PooledLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_keys=["script-key-1", "script-key-2", "script-key-3", "script-key-4"],
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMRequestError) as exc_info:
+        adapter.generate_structured_output(
+            "Return the script JSON.",
+            strategy=strategy,
+            output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        )
+
+    assert seen_authorizations == ["Bearer script-key-1", "Bearer script-key-2"]
+    assert getattr(exc_info.value, "pool_key_attempt_count") == 2
+
+
+def test_model_failover_rebuilds_deepseek_chat_as_glm_responses_request() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    requests: list[tuple[str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8"))
+        requests.append((str(request.url), payload))
+        if request.url.host == "deepseek.test":
+            return httpx.Response(
+                502,
+                json={"error": {"message": "deepseek route unavailable"}},
+            )
+        body = (
+            'data: {"type":"response.output_text.delta","delta":"{\\"title\\":\\"GLM保底正文\\"}"}\n\n'
+            "data: [DONE]\n\n"
+        )
+        return httpx.Response(
+            200,
+            text=body,
+            headers={"content-type": "text/event-stream"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    primary = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="deepseek-key",
+        base_url="https://deepseek.test/v1",
+        wire_api="chat_completions",
+        thinking_mode="disabled",
+        max_retries=0,
+        transport=transport,
+    )
+    fallback = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="glm-key",
+        base_url="https://glm.test/v1",
+        wire_api="responses",
+        reasoning_effort="high",
+        use_strict_schema=False,
+        max_retries=0,
+        transport=transport,
+    )
+    adapter = ModelFailoverLLMAdapter(primary=primary, fallback=fallback)
+    deltas: list[tuple[str, bool]] = []
+
+    result = adapter.generate_structured_output_stream(
+        "Return the screenplay JSON.",
+        strategy=strategy,
+        output_schema={
+            "type": "object",
+            "properties": {"title": {"type": "string"}},
+            "required": ["title"],
+        },
+        on_delta=lambda delta, reset: deltas.append((delta, reset)),
+    )
+
+    assert result["title"] == "GLM保底正文"
+    assert result["_meta"]["model_failover_used"] is True
+    assert result["_meta"]["primary_model_name"] == "deepseek-v4-flash"
+    assert result["_meta"]["fallback_model_name"] == "glm-5.2"
+    assert "status 502" in result["_meta"]["model_failover_reason"]
+    assert len(requests) == 3
+    primary_url, primary_payload = requests[0]
+    primary_sync_url, primary_sync_payload = requests[1]
+    fallback_url, fallback_payload = requests[2]
+    assert primary_url.endswith("/v1/chat/completions")
+    assert primary_payload["response_format"] == {"type": "json_object"}
+    assert primary_payload["stream"] is True
+    assert "messages" in primary_payload
+    assert primary_sync_url.endswith("/v1/chat/completions")
+    assert "stream" not in primary_sync_payload
+    assert primary_sync_payload["response_format"] == {"type": "json_object"}
+    assert fallback_url.endswith("/v1/responses")
+    assert fallback_payload["text"]["format"] == {"type": "json_object"}
+    assert "input" in fallback_payload
+    assert "messages" not in fallback_payload
+    assert "JSON OUTPUT SHAPE CONTRACT" in fallback_payload["input"][1]["content"][0]["text"]
+    assert deltas[-1] == ('{"title":"GLM保底正文"}', True)
+
+
+def test_model_failover_uses_fallback_after_invalid_primary_json() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    primary = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="deepseek-key",
+        base_url="https://deepseek.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json=build_openai_compatible_response("not-json"),
+            )
+        ),
+    )
+    fallback = MockLLMAdapter(provider="mock", model_name="glm-5.2")
+    adapter = ModelFailoverLLMAdapter(primary=primary, fallback=fallback)
+
+    result = adapter.generate_structured_output(
+        "Return the screenplay JSON.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["_meta"]["model_failover_used"] is True
+    assert result["_meta"]["fallback_model_name"] == "glm-5.2"
+    assert "LLMStructuredOutputError" in result["_meta"]["model_failover_reason"]
+
+
+def test_model_failover_does_not_hide_a_non_retryable_400() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    fallback_calls = 0
+
+    class CountingFallbackAdapter(MockLLMAdapter):
+        def generate_structured_output(self, *args, **kwargs):
+            nonlocal fallback_calls
+            fallback_calls += 1
+            return super().generate_structured_output(*args, **kwargs)
+
+    primary = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="deepseek-key",
+        base_url="https://deepseek.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                400,
+                json={"error": {"message": "invalid user request"}},
+            )
+        ),
+    )
+    adapter = ModelFailoverLLMAdapter(
+        primary=primary,
+        fallback=CountingFallbackAdapter(model_name="glm-5.2"),
+    )
+
+    with pytest.raises(LLMRequestError, match="non-retryable status 400"):
+        adapter.generate_structured_output(
+            "Return the screenplay JSON.",
+            strategy=strategy,
+            output_schema={
+                "type": "object",
+                "properties": {"title": {"type": "string"}},
+            },
+        )
+
+    assert fallback_calls == 0
+
+
+def test_real_llm_adapter_supports_prompt_only_structured_output() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert "response_format" not in payload
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response('{"title":"Prompt Only Title"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="kimi-k3",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="chat_completions",
+        use_strict_schema=False,
+        send_response_format=False,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a JSON object matching the schema included in this prompt.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "Prompt Only Title"
+
+
+def test_real_llm_adapter_accepts_json_code_fence_from_responses_gateway() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test",
+        wire_api="responses",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json=build_responses_api_response(
+                    '```json\n{"title":"Fenced Responses Title"}\n```'
+                ),
+            )
+        ),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "Fenced Responses Title"
+
+
+def test_real_llm_adapter_extracts_json_wrapped_in_commentary() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test",
+        wire_api="responses",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json=build_responses_api_response(
+                    'I have prepared the script.\n```json\n{"title":"Recovered Wrapped Title"}\n'
+                ),
+            )
+        ),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "Recovered Wrapped Title"
+
+
+def test_real_llm_adapter_extracts_fenced_json_after_trailing_commentary() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test",
+        wire_api="responses",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json=build_responses_api_response(
+                    "结果如下：\n```json\n{\"title\":\"带说明的正文\"}\n```\n已完成。"
+                ),
+            )
+        ),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "带说明的正文"
+
+
+def test_real_llm_adapter_does_not_promote_nested_object_from_truncated_root() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(
+            200,
+            json=build_responses_api_response(
+                '{"title":"截断正文","scenes":[{"scene_number":1,"slug":"开场"}]'
+            ),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMStructuredOutputError, match="invalid JSON content"):
+        adapter.generate_structured_output(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "scenes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "scene_number": {"type": "integer"},
+                                "slug": {"type": "string"},
+                            },
+                        },
+                    },
+                },
+                "required": ["title", "scenes"],
+            },
+        )
+
+    assert request_count == 1
+
+
+def test_real_llm_adapter_repairs_nested_fragment_to_schema_root_once() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    requests: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8"))
+        requests.append(payload)
+        content = (
+            '{"scene_number":1,"slug":"开场","purpose":"建立冲突"}'
+            if len(requests) == 1
+            else '{"title":"完整正文","scenes":[{"scene_number":1,"slug":"开场"}]}'
+        )
+        return httpx.Response(200, json=build_openai_compatible_response(content))
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        use_strict_schema=False,
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "scenes": {"type": "array", "items": {"type": "object"}},
+            },
+            "required": ["title", "scenes"],
+        },
+    )
+
+    assert result["title"] == "完整正文"
+    assert result["_meta"]["schema_root_repaired"] is True
+    assert result["_meta"]["adapter_model_pass_count"] == 2
+    assert len(requests) == 2
+    retry_text = requests[1]["messages"][-1]["content"]
+    assert "valid nested fragment" in retry_text
+    assert "complete requested root object" in retry_text
+
+
+def test_real_llm_adapter_unwraps_complete_schema_root_without_retry() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response(
+                '{"data":{"draft_master_script":{"title":"已包装正文",'
+                '"scenes":[]}}}'
+            ),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        use_strict_schema=False,
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "scenes": {"type": "array", "items": {"type": "object"}},
+            },
+            "required": ["title", "scenes"],
+        },
+    )
+
+    assert result["title"] == "已包装正文"
+    assert result["_meta"]["schema_root_unwrapped"] is True
+    assert result["_meta"]["adapter_model_pass_count"] == 1
+    assert request_count == 1
+
+
+def test_real_llm_adapter_leaves_partial_root_for_artifact_validation() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response('{"title":"字段不完整正文"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        use_strict_schema=False,
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "scenes": {"type": "array", "items": {"type": "object"}},
+            },
+            "required": ["title", "scenes"],
+        },
+    )
+
+    assert result["title"] == "字段不完整正文"
+    assert request_count == 1
+
+
+def test_real_llm_adapter_repairs_trailing_json_commas_locally() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test",
+        wire_api="responses",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json=build_responses_api_response(
+                    '{"children":[{"title":"保留,}字符串",},],}'
+                ),
+            )
+        ),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object"},
+    )
+
+    assert result["children"] == [{"title": "保留,}字符串"}]
+
+
+def test_real_llm_adapter_reports_non_json_success_response() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test",
+        max_retries=0,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                text="<html>not an API response</html>",
+                headers={"content-type": "text/html"},
+            )
+        ),
+    )
+
+    with pytest.raises(LLMRequestError, match="non-JSON success response"):
+        adapter.generate_text("Return text.", strategy=strategy)
+
+
+def test_pooled_adapter_rotates_script_keys() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    seen_authorizations: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_authorizations.append(request.headers["Authorization"])
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response('{"title":"Pooled Title"}'),
+        )
+
+    adapter = PooledLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_keys=["script-key-1", "script-key-2", "script-key-3"],
+        base_url="https://example.test/v1",
+        transport=httpx.MockTransport(handler),
+    )
+
+    results = [
+        adapter.generate_structured_output(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        )
+        for _ in range(3)
+    ]
+
+    assert [item["_meta"]["key_slot"] for item in results] == [1, 2, 3]
+    assert set(seen_authorizations) == {
+        "Bearer script-key-1",
+        "Bearer script-key-2",
+        "Bearer script-key-3",
+    }
+
+
+def test_pooled_adapter_does_not_multiply_structured_output_failures() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response("not-json"),
+        )
+
+    adapter = PooledLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_keys=["script-key-1", "script-key-2", "script-key-3"],
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMStructuredOutputError):
+        adapter.generate_structured_output(
+            "Return a structured draft.",
+            strategy=strategy,
+        )
+
+    assert request_count == 1
+
+
+def test_pooled_adapter_uses_one_backup_key_for_empty_structured_output() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    seen_authorizations: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        authorization = request.headers["Authorization"]
+        seen_authorizations.append(authorization)
+        content = "" if authorization == "Bearer script-key-1" else '{"title":"恢复"}'
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response(content),
+        )
+
+    adapter = PooledLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_keys=["script-key-1", "script-key-2", "script-key-3"],
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "恢复"
+    assert result["_meta"]["key_slot"] == 2
+    assert result["_meta"]["pool_key_attempt_count"] == 2
+    assert result["_meta"]["pool_key_failover_used"] is True
+    assert seen_authorizations == ["Bearer script-key-1", "Bearer script-key-2"]
+
+
+def test_pooled_adapter_bounds_persistently_empty_output_to_two_keys() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(200, json=build_openai_compatible_response(""))
+
+    adapter = PooledLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_keys=["script-key-1", "script-key-2", "script-key-3"],
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMStructuredOutputError) as exc_info:
+        adapter.generate_structured_output(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        )
+
+    assert request_count == 2
+    assert getattr(exc_info.value, "pool_key_attempt_count") == 2
+
+
 def test_real_llm_adapter_normalizes_nested_schema_for_strict_output() -> None:
     strategy = GenerationStrategy.model_validate(build_strategy())
 
@@ -127,6 +1954,7 @@ def test_real_llm_adapter_normalizes_nested_schema_for_strict_output() -> None:
         assert schema["additionalProperties"] is False
         assert schema["$defs"]["Scene"]["required"] == ["title", "cliffhanger"]
         assert schema["$defs"]["Scene"]["additionalProperties"] is False
+        assert schema["properties"]["scene"]["$ref"] == "#/$defs/Scene"
         return httpx.Response(
             200,
             json=build_openai_compatible_response('{"scene":{"title":"Reveal"}}'),
@@ -165,17 +1993,98 @@ def test_real_llm_adapter_normalizes_nested_schema_for_strict_output() -> None:
     assert source_schema["$defs"]["Scene"]["required"] == ["title"]
 
 
-def test_real_llm_adapter_retries_invalid_json_output() -> None:
+def test_real_llm_adapter_inlines_root_collection_item_schema() -> None:
     strategy = GenerationStrategy.model_validate(build_strategy())
-    responses = iter(
-        [
-            build_openai_compatible_response("not-json"),
-            build_openai_compatible_response('{"title":"Recovered Title"}'),
-        ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8"))
+        schema = payload["response_format"]["json_schema"]["schema"]
+        items = schema["properties"]["children"]["items"]
+        assert "$ref" not in items
+        assert items["properties"]["title"]["type"] == "string"
+        assert items["required"] == ["title"]
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response(
+                '{"children":[{"title":"第一阶段"},{"title":"第二阶段"}]}'
+            ),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="planning-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    result = adapter.generate_structured_output(
+        "Return child stages.",
+        strategy=strategy,
+        output_schema={
+            "$defs": {
+                "Child": {
+                    "type": "object",
+                    "properties": {"title": {"type": "string"}},
+                    "required": ["title"],
+                }
+            },
+            "type": "object",
+            "properties": {
+                "children": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/Child"},
+                }
+            },
+            "required": ["children"],
+        },
     )
 
+    assert len(result["children"]) == 2
+
+
+def test_real_llm_adapter_wraps_top_level_array_for_single_collection_schema() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="planning-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        use_strict_schema=False,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json=build_openai_compatible_response(
+                    '结果如下：\n[{"title":"第一阶段"},{"title":"第二阶段"}]\n以上。'
+                ),
+            )
+        ),
+    )
+    result = adapter.generate_structured_output(
+        "Return child stages.",
+        strategy=strategy,
+        output_schema={
+            "type": "object",
+            "properties": {
+                "children": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                }
+            },
+            "required": ["children"],
+        },
+    )
+
+    assert result["children"][0]["title"] == "第一阶段"
+
+
+def test_real_llm_adapter_does_not_regenerate_invalid_json_output() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+
     def handler(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=next(responses))
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(200, json=build_openai_compatible_response("not-json"))
 
     adapter = RealLLMAdapter(
         provider="openai_compatible",
@@ -186,13 +2095,52 @@ def test_real_llm_adapter_retries_invalid_json_output() -> None:
         transport=httpx.MockTransport(handler),
     )
 
-    result = adapter.generate_structured_output(
-        "Return a structured draft.",
-        strategy=strategy,
-        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    with pytest.raises(LLMStructuredOutputError) as error:
+        adapter.generate_structured_output(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+        )
+
+    assert request_count == 1
+    assert error.value.raw_content == "not-json"
+
+
+def test_real_llm_adapter_does_not_restart_a_malformed_stream() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+    seen_deltas: list[tuple[str, bool]] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        body = (
+            'data: {"type":"response.output_text.delta","delta":"visible draft text"}\n\n'
+            "data: [DONE]\n\n"
+        )
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=2,
+        transport=httpx.MockTransport(handler),
     )
 
-    assert result["title"] == "Recovered Title"
+    with pytest.raises(LLMStructuredOutputError) as error:
+        adapter.generate_structured_output_stream(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+            on_delta=lambda delta, reset: seen_deltas.append((delta, reset)),
+        )
+
+    assert request_count == 1
+    assert seen_deltas == [("visible draft text", True)]
+    assert error.value.raw_content == "visible draft text"
 
 
 def test_real_llm_adapter_raises_for_invalid_json_after_retries() -> None:
@@ -349,3 +2297,108 @@ def test_real_llm_adapter_exposes_model_info_contract() -> None:
     )
     assert adapter.validate_output({"title": "x"}, required_keys=["title"]) is True
     assert adapter.get_model_info().model_name == "validator-model"
+
+
+def test_pooled_adapter_rotates_after_incomplete_chunked_transport() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    seen_authorizations: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        authorization = request.headers["Authorization"]
+        seen_authorizations.append(authorization)
+        if authorization == "Bearer script-key-1":
+            raise httpx.RemoteProtocolError(
+                "peer closed connection without sending complete message body "
+                "(incomplete chunked read)"
+            )
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response('{"title":"Recovered"}'),
+        )
+
+    adapter = PooledLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_keys=["script-key-1", "script-key-2"],
+        base_url="https://example.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert result["title"] == "Recovered"
+    assert result["_meta"]["pool_key_failover_used"] is True
+    assert seen_authorizations == ["Bearer script-key-1", "Bearer script-key-2"]
+
+
+def test_model_failover_preserves_both_transport_failures() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def adapter_for(model_name: str, detail: str) -> RealLLMAdapter:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.RemoteProtocolError(detail)
+
+        return RealLLMAdapter(
+            provider="openai_compatible",
+            model_name=model_name,
+            api_key=f"{model_name}-key",
+            base_url=f"https://{model_name}.test/v1",
+            max_retries=0,
+            transport=httpx.MockTransport(handler),
+        )
+
+    adapter = ModelFailoverLLMAdapter(
+        primary=adapter_for("primary-model", "primary peer closed"),
+        fallback=adapter_for("fallback-model", "fallback incomplete chunked read"),
+    )
+
+    with pytest.raises(LLMRequestError) as exc_info:
+        adapter.generate_structured_output(
+            "Return a structured draft.",
+            strategy=strategy,
+            output_schema={"type": "object"},
+        )
+
+    assert exc_info.value.category == "failover_exhausted"
+    assert exc_info.value.recoverable is True
+    assert "primary peer closed" in str(exc_info.value)
+    assert "fallback incomplete chunked read" in str(exc_info.value)
+
+
+def test_model_failover_preserves_primary_structure_error_when_fallback_transport_fails() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    primary = MockLLMAdapter(model_name="primary-model")
+    fallback = MockLLMAdapter(model_name="fallback-model")
+    primary_error = LLMStructuredOutputError(
+        "Model encoded episode plan objects as strings."
+    )
+
+    def fail_primary(*args, **kwargs):
+        raise primary_error
+
+    def fail_fallback(*args, **kwargs):
+        raise LLMRequestError(
+            "Provider returned non-JSON success response (content-type text/html).",
+            status_code=200,
+            category="invalid_success_response",
+            recoverable=True,
+        )
+
+    primary.generate_structured_output = fail_primary
+    fallback.generate_structured_output = fail_fallback
+    adapter = ModelFailoverLLMAdapter(primary=primary, fallback=fallback)
+
+    with pytest.raises(LLMStructuredOutputError) as exc_info:
+        adapter.generate_structured_output(
+            "Return episode plans.",
+            strategy=strategy,
+            output_schema={"type": "object"},
+        )
+
+    assert exc_info.value is primary_error
+    assert "text/html" in exc_info.value.fallback_request_failure

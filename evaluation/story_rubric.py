@@ -130,6 +130,16 @@ class StoryRubricEvaluator:
             "stops",
             "take",
             "takes",
+            "选择",
+            "决定",
+            "拒绝",
+            "揭露",
+            "揭穿",
+            "对峙",
+            "反抗",
+            "要求",
+            "夺走",
+            "抢下",
         }
         agency = any(
             self._scene_contains_terms(scene, agency_terms)
@@ -256,7 +266,10 @@ class StoryRubricEvaluator:
                 *[str(action) for action in scene.get("character_actions", [])],
             ]
         )
-        return bool(self._tokens(text) & terms)
+        normalized = text.casefold()
+        return bool(self._tokens(normalized) & terms) or any(
+            term in normalized for term in terms if not term.isascii()
+        )
 
     def _tokens(self, value: str) -> set[str]:
         return set(re.findall(r"[a-z]+", value.casefold()))

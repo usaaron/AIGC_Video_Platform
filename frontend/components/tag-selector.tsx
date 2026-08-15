@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { CloseIcon, PlusIcon } from "@/components/icons";
+import { SectionHelp } from "@/components/section-help";
 import {
   CREATOR_TAGS,
   getLocalizedTagDescription,
@@ -16,6 +17,7 @@ import { useLocale } from "@/providers/locale-provider";
 interface TagSelectorProps {
   availableTags?: CreatorTag[];
   customTags: CustomTagDraft[];
+  readOnly?: boolean;
   selectedTagIds: string[];
   onChange: (tagIds: string[]) => void;
   onCustomTagsChange: (tags: CustomTagDraft[]) => void;
@@ -24,6 +26,7 @@ interface TagSelectorProps {
 export function TagSelector({
   availableTags = CREATOR_TAGS,
   customTags,
+  readOnly = false,
   selectedTagIds,
   onChange,
   onCustomTagsChange,
@@ -50,6 +53,7 @@ export function TagSelector({
   });
 
   function toggleTag(tagId: string) {
+    if (readOnly) return;
     if (selectedTagIds.includes(tagId)) {
       onChange(selectedTagIds.filter((id) => id !== tagId));
       return;
@@ -58,6 +62,7 @@ export function TagSelector({
   }
 
   function openCustomTagDialog() {
+    if (readOnly) return;
     setCustomTagName("");
     setCustomTagNotice(null);
     setIsDialogOpen(true);
@@ -69,6 +74,7 @@ export function TagSelector({
   }
 
   function addCustomTag() {
+    if (readOnly) return;
     const label = customTagName.trim().replace(/\s+/g, " ");
     if (!label) return;
     const existing = customTags.find((tag) => tag.label.toLocaleLowerCase() === label.toLocaleLowerCase());
@@ -107,7 +113,7 @@ export function TagSelector({
             const tag = allTags.find((item) => item.id === tagId) ?? getTag(tagId);
             if (!tag) return null;
             return (
-              <button className="selected-tag-chip" key={tagId} onClick={() => toggleTag(tagId)} type="button">
+              <button className="selected-tag-chip" disabled={readOnly} key={tagId} onClick={() => toggleTag(tagId)} type="button">
                 <span>{getLocalizedTagLabel(tag, locale)}</span>
                 <small>{t(`category.${tag.category}`)}</small>
                 <CloseIcon />
@@ -135,10 +141,12 @@ export function TagSelector({
             </button>
           ))}
         </div>
-        <button className="tag-add-custom" onClick={openCustomTagDialog} type="button">
-          <PlusIcon />
-          {t("tags.addCustom")}
-        </button>
+        {!readOnly ? (
+          <button className="tag-add-custom" onClick={openCustomTagDialog} type="button">
+            <PlusIcon />
+            {t("tags.addCustom")}
+          </button>
+        ) : null}
       </div>
 
       {activeCategory === "Trending" ? (
@@ -154,6 +162,7 @@ export function TagSelector({
             <button
               aria-pressed={selected}
               className={`tag-option ${selected ? "is-selected" : ""}`}
+              disabled={readOnly}
               key={tag.id}
               onClick={() => toggleTag(tag.id)}
               type="button"
@@ -167,7 +176,6 @@ export function TagSelector({
       </div>
       <div className="tag-limit">
         {selectedTagIds.length}/12 {t("tags.selectedSuffix")}
-        <small>{t("tags.limitHelp")}</small>
       </div>
       {customTagNotice ? <div className="inline-notice">{customTagNotice}</div> : null}
 
@@ -178,7 +186,10 @@ export function TagSelector({
           <div aria-labelledby="custom-tag-title" aria-modal="true" className="tag-dialog" role="dialog">
             <button aria-label={t("tags.cancelCustom")} className="tag-dialog-close" onClick={closeCustomTagDialog} type="button"><CloseIcon /></button>
             <span className="section-kicker">{t("category.My Tags")}</span>
-            <h3 id="custom-tag-title">{t("tags.customTitle")}</h3>
+            <div className="section-title-with-help">
+              <h3 id="custom-tag-title">{t("tags.customTitle")}</h3>
+              <SectionHelp content={t("guide.customTags")} label={t("guide.openHelp")} />
+            </div>
             <p>{t("tags.customHelp")}</p>
             <input
               autoFocus

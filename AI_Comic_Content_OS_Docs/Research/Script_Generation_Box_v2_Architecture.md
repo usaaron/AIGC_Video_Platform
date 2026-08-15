@@ -12,7 +12,9 @@ professional_validation: false
 roadmap_change: false
 ```
 
-This document consolidates recent Script Generation evidence into one coherent target architecture. Creative Intent, Character Context, static knowledge, and Creative Deepening shadow were subsequently implemented through existing services. It still does not approve dynamic Knowledge Retrieval, Creative Deepening apply, or Story Planning runtime. The existing authoritative QC, revision, acceptance-shadow, and finalization path remains unchanged.
+This document consolidates recent Script Generation evidence into one coherent target architecture. Creative Intent, Character Context, static knowledge, and Creative Deepening shadow were subsequently implemented through existing services. It does not approve dynamic Knowledge Retrieval, Creative Deepening apply, or the earlier fixed four-episode Story Planning contract as a direct runtime replacement. The existing authoritative QC, revision, acceptance-shadow, and finalization path remains unchanged.
+
+Historical status note (2026-08-05): `Story Planning runtime` in the paragraph above refers to the earlier fixed four-episode planning proposal. A later China-mainland product decision approved a different, human-reviewed Story Bible → level-free recursive StoryPlanNode → EpisodePlan slice. Dynamic Knowledge Retrieval and Creative Deepening apply remain unapproved; current runtime authority is `14_Script_Engine.md`.
 
 The v2 direction preserves the long-term box contract:
 
@@ -35,7 +37,7 @@ Recent validation establishes different levels of evidence, not one uniform runt
 | Character / Relationship Context | Included in the same three-case comparison and preferred in 3/3 cases | Character Context Phase 1 implemented; Relationship Context remains Research |
 | Creative Knowledge Bootstrap | Bounded, source-grounded knowledge assets created | Static exact-ID Draft / Deepening projection implemented; dynamic retrieval and broad selection quality remain unimplemented |
 | Knowledge-Guided Creative Deepening | One fixed offline comparison plus shadow runtime contracts and deterministic checks | Shadow observation implemented; apply is not production-ready |
-| Serialized Story Planning v1.1 | Improved setup/payoff, continuity, and repetition control, but lost Hook / Cliffhanger parity | Frozen positive research evidence; runtime integration not approved |
+| Serialized Story Planning v1.1 | Improved setup/payoff, continuity, and repetition control, but lost Hook / Cliffhanger parity | Frozen historical evidence; not adopted unchanged by the later recursive longform workflow |
 
 The current production runtime is still:
 
@@ -398,7 +400,7 @@ This classification does not claim that QC scoring or rule-based revision has re
 
 ### 6.3 Research Only
 
-- Serialized Story Planning runtime;
+- the earlier fixed four-episode Serialized Story Planning runtime proposal;
 - Creative Skill Layer or Skill Registry;
 - automatic Knowledge learning;
 - vector RAG or autonomous knowledge reasoning;
@@ -460,7 +462,7 @@ Controlled Inputs
 
 The immediate architecture priority is not a new Engine or workflow framework. With minimal input control, static task-scoped knowledge, and Creative Deepening shadow implemented, the next checkpoint is bounded Deepening quality validation; apply remains unapproved.
 
-Story Planning remains available as future serialized-story research evidence. It does not enter the default Script Generation Box v2 runtime until it preserves the continuity gains without reducing Hook, Cliffhanger, or episode-level quality.
+The earlier Story Planning experiment remains serialized-story research evidence and did not enter this Script Generation Box v2 target unchanged. The later China-mainland recursive planning workflow is governed separately by `14_Script_Engine.md` and must still prove longform capacity without reducing Hook, Cliffhanger, or episode-level quality.
 
 ## 10. Non-Goals And Confirmation
 

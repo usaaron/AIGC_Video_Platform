@@ -14,18 +14,19 @@
 
 ## Current Durable Resources
 
+- `content_specs`
 - `story_projects`
-- `frontend_workspace_snapshots`
+- `story_project_workspace_snapshots`
 - `episode_artifact_versions`
 - `story_bible_versions`
 - `story_plan_node_versions`
 - `story_stage_plan_versions`
 - `episode_plan_versions`
 - `continuity_ledger_versions`
-- `generation_batch_plans`
+- `generation_batches`
 - `generation_job_checkpoints`
 
-Project、Workspace Snapshot 和 Episode Artifact 已接入 Frontend 同步/里程碑；Story Bible、递归 Story Plan Node、兼容 Stage 和 Episode Plan 已具备版本化资源 API。自动规划、Continuity 更新和后台 Job executor 尚未接入。
+ContentSpec、Project、Workspace Snapshot 和 Episode Artifact 已接入 PostgreSQL；Story Bible、递归 Story Plan Node、兼容 Stage 和 Episode Plan 已具备版本化资源 API。ContentSpec 仍保持原有 API contract，并通过 Repository 的 optional database runtime 兼容无数据库测试。自动规划、Continuity 更新和后台 Job executor 尚未接入。
 
 ## Storage Strategy
 

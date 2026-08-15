@@ -1,0 +1,319 @@
+{
+  "strategy_id": "strategy.cn_mainland.frontend_mvp.general.v1",
+  "comparison_project": {
+    "schema_version": "v1",
+    "project_id": "knowledge_ab.20260805t022637z.baseline_v1",
+    "revision": 1,
+    "title": "知识对照 baseline_v1：末日断电后的生存共同体",
+    "content_spec_id": "0a6b67b6-6768-41e1-a6e2-ede4cfa8a2ca",
+    "output_language": "zh",
+    "target_total_characters": 600000,
+    "planned_episode_count": 334,
+    "default_batch_size": 5,
+    "status": "planning",
+    "active_story_bible_id": null,
+    "active_story_bible_version": null,
+    "created_at": "2026-08-05T02:26:37.370305Z",
+    "updated_at": "2026-08-05T02:26:37.370308Z"
+  },
+  "story_bible": {
+    "schema_version": "v1",
+    "story_bible_id": "story_bible.knowledge_ab.20260805t022637z.baseline_v1.main",
+    "story_project_id": "knowledge_ab.20260805t022637z.baseline_v1",
+    "content_spec_id": "0a6b67b6-6768-41e1-a6e2-ede4cfa8a2ca",
+    "version": 1,
+    "status": "draft",
+    "core_premise": "一场原因不明的全球断电骤然发生，现代城市在数日内陷入彻底失序。电力、通信、供水、物流全部归零，社会信任迅速崩塌。在南方某城市的一个普通居民社区里，一名社区医生因专业能力被推到领头位置，不得不带着一群互不相识的邻居在断水断粮、秩序瓦解的环境中求生，并在逐渐积累的线索中发现灾难并非纯粹的自然事件，背后可能存在人为设计。",
+    "series_goal": "整部故事的目标是展现一个普通人如何在系统性崩溃中被迫成长为共同体组织者，同时带领群体从被动求生走向主动追查真相。故事最终回答两个问题：人在失去一切现代依赖后能否重建互信与协作；以及这场灾难究竟是天灾还是人祸，其背后动机是什么。两条线在结局交汇：共同体的存续方式本身成为对灾难制造者逻辑的回应。",
+    "theme": "在秩序真空里，信任是比物资更稀缺的生存资源；而真相的代价往往高于谎言的代价。",
+    "central_conflict": "核心冲突有三层。表层是人与环境的对抗：断电后资源枯竭、疾病蔓延、暴力抢夺，共同体必须不断解决即时生存危机。中层是人与人之间的信任冲突：不同背景的邻居对资源分配、安全策略、是否接纳外来者产生持续分歧，医生必须在效率与公平之间做出代价高昂的裁决。深层是人与真相的冲突：随着线索浮出，追查灾难原因的行为本身会威胁共同体安全，有人希望掩盖、有人希望公开，医生必须在共同体存续与真相揭露之间做出选择。",
+    "ending_direction": "结局方向：共同体经历分裂与重组后，以一种不完美但稳定的方式存续下来，建立了内部自治理的雏形。灾难真相部分揭开——断电由一个跨国技术组织蓄意触发，动机是强制重置全球社会结构以实施其技术治理理念，但该组织内部存在分裂，完整真相仍留有残留悬念。主角最终选择将已获取的证据通过非电子手段向外扩散，而非用它换取个人安全。结局不是全面胜利，而是付出重大代价后的有限重建：部分核心成员牺牲或离去，共同体规模缩小但信任结构更坚固，世界仍处于漫长恢复中。",
+    "world_rules": [
+      "断电是全球性的，且伴随所有依赖电力的基础设施失效，包括通信网络、电子点火、医疗设备、水泵增压。",
+      "断电发生时无明显自然灾害迹象，无爆炸、地震、辐射等可观测物理破坏。",
+      "断电后仍有少量不依赖电网的设备可用，如手摇设备、机械工具、纸质书籍、自行车。",
+      "断电持续数周以上，社会秩序在第一周内快速瓦解，第二周后局部出现自发组织。",
+      "城市比乡村更脆弱，人口密度使资源竞争更激烈，但也使协作潜力更大。",
+      "信息和谣言只能通过口口相传和手写传播，信息不对称成为重要冲突来源。",
+      "疾病因卫生系统崩溃而迅速蔓延，医疗知识成为高价值生存资源。",
+      "无统一救援力量出现，政府机构在断电初期失联，后期仅零星可见局部民兵式组织。",
+      "灾难背后存在人为因素，线索以碎片形式出现：特定地点的异常设备、特定人员的失踪、断电前的可疑采购记录等。",
+      "食物和饮水在两周内成为第一稀缺资源，药品在三周后成为第二稀缺资源。",
+      "断电不等于永久失去电力，后期个别区域出现极不稳定的局部发电恢复，但无法支撑现代生活。",
+      "社会结构逐渐碎片化为社区壁垒组织，外来者被普遍排斥，跨社区协作极其困难。"
+    ],
+    "character_refs": [
+      "character.protagonist",
+      "character.practical_ally",
+      "character.skeptic",
+      "character.protective_elder",
+      "character.outsider_arriver",
+      "character.antagonist_hidden"
+    ],
+    "character_arc_targets": [
+      {
+        "character_ref": "character.protagonist",
+        "external_goal": "带领社区邻居在断电环境中存活，并查明灾难是否有人为原因",
+        "internal_need": "克服对承担责任的恐惧，接受自己无法拯救所有人这一事实",
+        "starting_state": "习惯于按流程工作的社区医生，对权威有依赖心理，回避领导角色，在人际冲突中倾向退让",
+        "target_state": "能够在信息不完整、代价不可逆的情况下做出并承担决策，接受有限胜利，成为共同体事实上的组织者",
+        "key_turning_points": [
+          "首次被迫在两名患者间分配有限药品，意识到中立不再是选项",
+          "群体内第一次暴力冲突中选择了站在某一方，失去了另一方的信任",
+          "发现第一批指向人为原因的线索，决定追查而非隐瞒",
+          "共同体面临外部威胁时选择接纳外来者，引发内部分裂",
+          "真相部分揭露后，面临是否公开证据的抉择",
+          "结局中选择扩散证据而非自保，接受由此带来的个人风险"
+        ],
+        "protected_traits": [
+          "始终以医疗伦理为道德锚点，即使被迫妥协也以此为代价来源",
+          "不是天生领袖，成长通过被迫选择而非顿悟",
+          "对真相的执着源于职业本能而非英雄主义"
+        ]
+      },
+      {
+        "character_ref": "character.practical_ally",
+        "external_goal": "确保共同体有足够的物资和安全保障",
+        "internal_need": "在实用主义与道德底线之间找到可接受的平衡",
+        "starting_state": "有动手能力和资源管理经验的普通居民，起初只关心自保和小圈子利益",
+        "target_state": "愿意为更大共同体承担风险，但仍保留务实底色，不理想化",
+        "key_turning_points": [
+          "在物资搜寻中与主角建立互补协作关系",
+          "一次外出搜寻中目睹其他社区的极端行为，道德底线受到冲击",
+          "在是否接纳外来者的争论中从反对转为支持，承担了实际风险",
+          "后期面对外部威胁时成为共同体的实际防卫组织者"
+        ],
+        "protected_traits": [
+          "决策始终基于资源现实而非情感",
+          "与主角的关系是互补而非从属",
+          "不做道德说教，但行动中体现底线"
+        ]
+      },
+      {
+        "character_ref": "character.skeptic",
+        "external_goal": "在共同体中维护自身和家人的安全，对集体决策保持警惕",
+        "internal_need": "处理对他人失去信任的深层恐惧，学会在依赖他人与保持自主间取得平衡",
+        "starting_state": "对集体行动持怀疑态度，认为共同体只是暂时的利益捆绑，随时可能崩解",
+        "target_state": "仍保持批判性，但在关键时刻选择信任集体而非独自脱身",
+        "key_turning_points": [
+          "在一次集体决策失误后强化了怀疑立场",
+          "主角的一次透明妥协使其开始重新评估信任问题",
+          "面临个人危机时被共同体接纳，内心发生松动",
+          "结局前面临独自离开与留下的选择，选择留下但拒绝任何正式头衔"
+        ],
+        "protected_traits": [
+          "怀疑不是恶意，而是自我保护机制",
+          "不会突然变得乐观或顺从",
+          "其质疑经常指向真实风险，不总是错的"
+        ]
+      },
+      {
+        "character_ref": "character.protective_elder",
+        "external_goal": "保护社区中的弱势成员，维持基本的人际温情",
+        "internal_need": "面对衰老和无助感，找到在危机中仍有价值的方式",
+        "starting_state": "退休长者，有丰富生活经验和社区人脉，但身体条件限制其行动力",
+        "target_state": "成为共同体的非正式记忆者和调解者，用经验弥补体力不足",
+        "key_turning_points": [
+          "在早期混乱中用本地人脉帮助社区获取关键信息",
+          "一次健康危机暴露其脆弱性，迫使共同体正视老年成员的照护问题",
+          "在内部分裂时承担调解角色，其建议虽未被完全采纳但缓和了冲突"
+        ],
+        "protected_traits": [
+          "不充当精神导师，其建议有时无效",
+          "脆弱性是真实的，不因叙事需要而突然恢复",
+          "代表被末世叙事忽略的老年群体视角"
+        ]
+      },
+      {
+        "character_ref": "character.outsider_arriver",
+        "external_goal": "在被原社区驱逐后寻找新的庇护所",
+        "internal_need": "处理被驱逐的创伤和对归属感的渴望，决定是否值得信任新群体",
+        "starting_state": "带着有限物资和不确定背景的外来者，警觉、自保、信息不对称",
+        "target_state": "在共同体中找到有限但真实的归属感，同时携带的关键信息成为真相线的催化剂",
+        "key_turning_points": [
+          "到达时遭遇排斥，主角力排众议给予有限接纳",
+          "其携带的线索触发真相线的重大推进",
+          "身份被部分揭开后信任再次动摇",
+          "最终在共同体面临外部威胁时以行动证明归属"
+        ],
+        "protected_traits": [
+          "外来者身份带来的信息不对称是真实而非刻意的欺骗",
+          "不是万能信息的提供者，线索是碎片化的",
+          "其融入过程充满反复"
+        ]
+      },
+      {
+        "character_ref": "character.antagonist_hidden",
+        "external_goal": "确保断电事件的真实原因不被完整揭露，维护组织计划的继续推进",
+        "internal_need": null,
+        "starting_state": "隐藏在普通幸存者中或通过信息操控间接影响共同体，身份不明",
+        "target_state": "在真相逼近时被迫暴露意图，其行动直接导致共同体面临最大危机",
+        "key_turning_points": [
+          "早期通过误导信息延缓主角的追查",
+          "在关键线索即将汇合时制造内部信任危机",
+          "身份暴露后与主角形成直接对峙",
+          "结局中其计划被部分挫败但组织并未被彻底消灭"
+        ],
+        "protected_traits": [
+          "不是单一人格的恶人，而是一个组织和理念的执行者",
+          "其逻辑自洽，有可理解甚至部分可同情的动机",
+          "始终通过信息操控而非暴力直接行动"
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "relationship_id": "rel.protagonist_practical_ally",
+        "source_character_ref": "character.protagonist",
+        "target_character_ref": "character.practical_ally",
+        "relationship_type": "互补协作",
+        "initial_state": "因断电初期的物资危机被迫合作，彼此只是功能性互补，缺乏深层信任",
+        "target_direction": "发展为共同体核心决策搭档，但在道德边界上持续存在张力，最终形成基于尊重差异的稳固协作",
+        "locked": false
+      },
+      {
+        "relationship_id": "rel.protagonist_skeptic",
+        "source_character_ref": "character.protagonist",
+        "target_character_ref": "character.skeptic",
+        "relationship_type": "信任博弈",
+        "initial_state": "主角试图争取其支持，怀疑者对主角的领导资格和动机持续质疑",
+        "target_direction": "经历多次信任测试后，怀疑者仍不盲从但愿意在关键时刻配合，形成有条件的信任",
+        "locked": false
+      },
+      {
+        "relationship_id": "rel.protagonist_outsider",
+        "source_character_ref": "character.protagonist",
+        "target_character_ref": "character.outsider_arriver",
+        "relationship_type": "接纳与风险",
+        "initial_state": "主角基于医疗伦理和直觉给予有限接纳，但无法确认其背景真实性",
+        "target_direction": "外来者的线索推动真相线发展，两人关系从功能性庇护发展为共同承担风险的盟友，但信任始终带有裂痕",
+        "locked": false
+      },
+      {
+        "relationship_id": "rel.protagonist_antagonist",
+        "source_character_ref": "character.protagonist",
+        "target_character_ref": "character.antagonist_hidden",
+        "relationship_type": "隐蔽对抗",
+        "initial_state": "主角不知道对方存在，对方以普通幸存者或间接信息源身份出现",
+        "target_direction": "随着真相逼近，对抗从隐蔽走向显性，最终形成理念层面的直接对峙",
+        "locked": false
+      },
+      {
+        "relationship_id": "rel.skeptic_outsider",
+        "source_character_ref": "character.skeptic",
+        "target_character_ref": "character.outsider_arriver",
+        "relationship_type": "排斥与试探",
+        "initial_state": "怀疑者最强烈地反对外来者加入，视其为安全风险",
+        "target_direction": "外来者的行动逐渐改变怀疑者看法，但两人关系始终紧张，最终形成一种互相不喜欢但互不否认对方价值的冷峻共处",
+        "locked": false
+      },
+      {
+        "relationship_id": "rel.practical_ally_protective_elder",
+        "source_character_ref": "character.practical_ally",
+        "target_character_ref": "character.protective_elder",
+        "relationship_type": "代际张力与协作",
+        "initial_state": "实用者起初认为长者在危机中是负担",
+        "target_direction": "长者的经验和人脉多次证明实用价值后，实用者重新评估，形成有限的代际尊重",
+        "locked": false
+      }
+    ],
+    "story_lines": [
+      {
+        "story_line_id": "sl.main.survival_to_community",
+        "title": "从被动求生到共同体自治",
+        "story_line_type": "main",
+        "premise": "断电后社区从各自为政的混乱状态开始，主角因医疗能力被推到协调位置，逐步建立最基本的物资分配、安全巡逻和疾病应对机制。每一次机制建立都伴随信任代价和资源博弈。",
+        "planned_resolution": "共同体经历分裂、外部冲击和内部权力争夺后，以不完美但稳定的方式存续。最终不是一个理想化乌托邦，而是一个有裂缝但能运转的自治理雏形，主角接受其作为组织者而非拯救者的角色。",
+        "character_refs": [
+          "character.protagonist",
+          "character.practical_ally",
+          "character.skeptic",
+          "character.protective_elder"
+        ]
+      },
+      {
+        "story_line_id": "sl.main.truth_investigation",
+        "title": "灾难真相的碎片化追查",
+        "story_line_type": "main",
+        "premise": "主角在日常求生过程中偶然接触到第一批异常线索——断电前某机构的可疑设备采购记录残片。线索以碎片形式逐步积累，每获取一条都带来新的风险和代价，追查行为本身威胁共同体安全。",
+        "planned_resolution": "真相部分揭开：断电由跨国技术组织蓄意触发，组织内部分裂，完整动机和全部参与者仍留有悬念。主角最终选择将已获取证据以非电子手段扩散，而非用于个人谈判，付出重大个人代价。",
+        "character_refs": [
+          "character.protagonist",
+          "character.outsider_arriver",
+          "character.antagonist_hidden"
+        ]
+      },
+      {
+        "story_line_id": "sl.subplot.resource_moral_choices",
+        "title": "资源分配中的道德抉择",
+        "story_line_type": "subplot",
+        "premise": "随着物资枯竭，共同体反复面临分配难题：有限药品优先救治谁、是否接纳可能带来额外消耗的外来者、是否以暴力手段从其他社区获取物资。每个选择都在改变共同体内部信任结构。",
+        "planned_resolution": "共同体没有形成统一道德标准，而是形成一套有争议但可执行的临时规则。主角在多次抉择中付出信任代价，最终接受道德妥协是生存的常态而非例外，但坚持以透明方式承担后果。",
+        "character_refs": [
+          "character.protagonist",
+          "character.practical_ally",
+          "character.skeptic"
+        ]
+      },
+      {
+        "story_line_id": "sl.character_arc.protagonist_growth",
+        "title": "主角从回避者到承担者的转变",
+        "story_line_type": "character_arc",
+        "premise": "主角在断电前是一个按流程行事、回避冲突、依赖系统框架的普通医生。断电消除了所有外部框架后，被迫在无标准答案的处境中做决策，每一次决策都有不可逆后果。",
+        "planned_resolution": "主角最终成为能承受不完美决策的组织者，其成长不通过顿悟而是通过反复的被迫选择和代价承担完成。结局中其选择扩散真相证据而非自保，标志其完成了从回避者到承担者的弧线，但代价是个人安全和部分关系的永久损失。",
+        "character_refs": [
+          "character.protagonist"
+        ]
+      },
+      {
+        "story_line_id": "sl.subplot.information_warfare",
+        "title": "信息真空中的谣言与操控",
+        "story_line_type": "subplot",
+        "premise": "断电后信息只能口口相传，谣言与真实线索混杂。隐藏对手利用信息不对称延缓真相追查，共同体内部也因信息不透明产生多次信任危机。信息本身成为争夺对象。",
+        "planned_resolution": "主角逐步建立社区内部的信息共享机制以对抗操控，但该机制本身因暴露真相线索而引发更大分裂。最终共同体学会在信息不完整中做判断，但付出了分裂代价。隐藏对手的信息操控被部分识破，但其组织未完全暴露。",
+        "character_refs": [
+          "character.protagonist",
+          "character.antagonist_hidden",
+          "character.skeptic",
+          "character.outsider_arriver"
+        ]
+      }
+    ],
+    "major_setup_payoff_refs": [
+      "setup:断电发生时主角注意到社区诊所一台旧式机械设备仍可运转——payoff:后期该设备成为关键医疗资源，且其不依赖电力的特性暗示断电的选择性",
+      "setup:主角在诊所储物间发现一份断电前某机构的多余设备采购单——payoff:该采购单成为追查人为原因的第一条线索链起点",
+      "setup:实用者在早期物资搜寻中救下一名濒死的外来者——payoff:该外来者携带的信息碎片后来成为真相线的关键拼图",
+      "setup:怀疑者反复质疑共同体决策透明度——payoff:其坚持的透明要求最终帮助主角识破隐藏对手的信息操控",
+      "setup:长者在早期用旧人脉获取了一条关于邻社区异常的情报——payoff:该情报在共同体面临外部威胁时成为关键预警",
+      "setup:主角第一次分配药品时被迫牺牲一名患者的优先权——payoff:该决定的后果在后期以该患者家属的报复行为回响，迫使主角直面决策代价",
+      "setup:隐藏对手以普通幸存者身份在社区中植入误导信息——payoff:主角在真相逼近时回溯信息源，识破其身份，形成直接对峙",
+      "setup:外来者到达时携带的一件看似无用的旧物件——payoff:该物件在最终证据扩散环节成为非电子信息传递的关键工具"
+    ],
+    "locked_facts": [
+      "断电是全球性的，非局部事件，且无明显自然灾害伴随。",
+      "断电原因包含人为因素，由一个跨国技术组织蓄意触发。",
+      "该组织内部存在分裂，完整真相在结局时仍部分保密。",
+      "主角的社区医生身份是贯穿全故事的稳定设定。",
+      "主角最终选择扩散真相证据而非用于个人安全谈判。",
+      "结局时共同体以不完美但稳定的方式存续，非全面胜利也非毁灭。",
+      "隐藏对手通过信息操控而非直接暴力行动，其身份在后期才暴露。",
+      "断电后无统一救援力量出现，政府机构在初期失联。",
+      "外来者携带的线索是碎片化的，不是完整真相的提供者。",
+      "主角的成长路径是被迫选择而非顿悟驱动。"
+    ],
+    "avoid_patterns": [
+      "避免将主角塑造为天生的英雄领袖，其领导力必须通过被迫选择逐步显现",
+      "避免给每个角色安排同等的弧线深度，怀疑者和长者等角色可以保持较平的轨迹",
+      "避免用单一暴力事件反复制造紧张感，冲突应通过资源、信任、信息等不同维度升级",
+      "避免在真相线中过早揭露完整原因，线索必须碎片化累积且每条都有获取代价",
+      "避免让隐藏对手成为纯粹的恶人，其动机必须自洽且部分可理解",
+      "避免结局中外部救援力量突然出现解决问题",
+      "避免将共同体描写为理想化的平等协作乌托邦，内部张力必须持续存在",
+      "避免用角色内心独白替代可观测的行为来表达情感和动机",
+      "避免在每次危机后完全恢复到危机前状态，每次冲突应留下不可逆的痕迹",
+      "避免以单一色调贯穿全篇，生存困境中应保留日常温情和黑色幽默的呼吸空间"
+    ],
+    "created_at": "2026-08-05T02:28:28.876188Z",
+    "approved_at": null
+  }
+}

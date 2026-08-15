@@ -62,6 +62,40 @@ def test_script_revision_service_revises_draft_and_re_qcs() -> None:
     assert result.improved is True
 
 
+def test_mainland_revision_does_not_apply_english_placeholder_rewrites() -> None:
+    generation_service, content_spec_id = seed_dependencies()
+    draft_run = generation_service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+        )
+    )
+    mainland_draft = draft_run.draft_master_script.model_copy(
+        deep=True,
+        update={"language": "zh", "target_platform": "mainland_china"},
+    )
+    service = ScriptRevisionService(
+        generation_strategy_repository=generation_service._generation_strategy_repository,  # noqa: SLF001
+    )
+
+    result = service.revise(
+        ScriptRevisionRequest(
+            draft_master_script=mainland_draft,
+            revision_plan=draft_run.revision_plan,
+        )
+    )
+
+    assert result.applied_action_ids == []
+    assert result.revised_draft_master_script.hook == mainland_draft.hook
+    assert result.revised_draft_master_script.scenes == mainland_draft.scenes
+    assert result.execution_trace is not None
+    assert {
+        item.reason for item in result.execution_trace.skipped_actions
+    } == {"mainland_script_requires_semantic_revision"}
+
+
 def test_script_revision_service_records_rejected_shadow_acceptance() -> None:
     generation_service, content_spec_id = seed_dependencies()
     draft_run = generation_service.generate_draft(

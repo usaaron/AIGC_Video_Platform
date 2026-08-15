@@ -10,8 +10,11 @@
 
 - TikTok Knowledge Items 与两个 Dark Romance Bundle 保留，但随 `overseas_tiktok` 默认关闭
 - 中国大陆资料的 market applicability 可以提高，但来源 authority 与 confidence 不会因市场切换自动提高
-- 当前中国大陆 runtime 尚未声明正式 Knowledge Bundle，不得把 Research 文档直接注入 Prompt
+- 中国大陆默认 runtime 已启用 `knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2`，用于长篇 Story Bible、递归剧情树和正文生成；基础 `foundation.v1` 保留给显式对照，不直接读取 Research Markdown，也不包含已关闭的 TikTok 平台规则
 - 下一批知识资产优先服务长篇结构、人物长期发展、连续性、伏笔回收和漫剧改编可读性
+- 当前默认长篇 bundle 将可持续故事引擎、宏观叙事运动、人物长期弧线和人物驱动的并行故事线，与场景因果、人物选择、冲突升级和铺垫回报一并注入生成。它仍不能单独证明完整 60 万字作品的容量、悬疑信息状态或跨批次连续性，需要正文验收与人工审阅。
+- `Research/Longform_Creative_Knowledge_Bootstrap_v1.md` 已增加 9 条 source-grounded 长篇规划知识，其中 4 条投影为默认 `knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2`。基础 `v1` bundle 保留用于对照；默认启用不等于知识原则成为绝对语义校验。
+- `scripts/run_longform_knowledge_candidate_comparison.py` 可以从一个已持久化项目创建两个隔离测试项目，对同一输入各生成一次基础 `v1` / 长篇 `v2` Story Bible；该工具是单样本 smoke comparison，不批准总纲、不生成正文，也不能单独证明默认策略质量。
 
 ## 长期范围
 
@@ -157,6 +160,26 @@ OntologyNode
 - 海外短剧 / Webtoon 叙事经验
 - 国内 AI 漫剧工业化经验的抽象方法论
 
+### Longform Planning Knowledge Coverage And Gaps
+
+当前长篇压力样本说明，“将现有场景知识注入 Story Bible”不足以形成可靠长篇规划。默认 `v2` 已投入以下四类长篇知识：
+
+- `Sustainable Story Engine`：故事通过什么机制持续产生有关联但不重复的新目标、阻力、选择和代价
+- `Macro Movement`：如何用升级、揭示、逆转和不可逆状态变化划分由内容决定的宏观部分
+- `Long Character Trajectory`：人物长期挣扎、矛盾、选择和发展/抵抗方向
+- `Character-driven Parallel Storylines`：A/B/C 或主线/支线如何独立运转并通过后果互相改变
+
+下一批知识研究和 runtime 投影仍应优先覆盖：
+
+- `Episode Contribution`：每集对大故事的独特贡献、局部回报和向后传递的叙事义务
+- `Narrative Information Design`：作者事实、人物认知、观众认知、证据、假设、揭示和重新解释的分层
+- `Antagonist Strategy`：对手独立目标、资源、反制和适应，而不是被动重复阻拦主角
+- `Longform Capacity`：以内容运动和状态变化评估容量，不以目标字数或集数倒推内容充分性
+
+已投入项仍是有界生成指引，不是商业成功保证或固定创作公式；剩余分类是知识治理候选，不代表已进入 runtime。完整流程设计见 `Research/15_Longform_Script_Planning_Process_Optimization_v1.md`。
+
+《Save the Cat!》当前只作为来源明确的结构诊断知识：重大转折骨架、开端/结尾状态对照和中段重新定向。不得把完整 15 节拍、固定页码或比例硬编码到 Script Engine，也不得要求每个递归节点重复电影结构。对应 3 条候选 Knowledge Item 已进入 Research，尚未进入 runtime bundle。
+
 当前推荐字段包括：
 
 - `knowledge_id`
@@ -293,7 +316,9 @@ GenerationStrategy.deepening_knowledge_bundle_id
 - 选择结果通过 `KnowledgeSelectionTrace` 保留 selector、bundle 与 knowledge lineage
 - 未声明 bundle 时不生成知识 Prompt section，原路径保持不变
 - Draft 与 Deepening bundle 不自动复用，也不能跨阶段误用
-- 当前只有 TikTok Dark Romance 的 Draft / Deepening bundle，且随海外模式默认关闭；中国大陆 bundle 尚未通过提取、验证和 runtime promotion
+- TikTok Dark Romance 的 Draft / Deepening bundle 随海外模式默认关闭
+- 中国大陆默认长篇 Draft bundle 已进入 runtime，包含因果、角色选择、冲突升级、铺垫回报、可持续故事引擎、宏观运动、人物长期弧线和人物驱动并行故事线八项 source-grounded 原则；基础 `foundation.v1` 的可视行动、通道分离和情绪留白条目保留用于显式对照
+- 默认长篇 bundle 同时约束 Story Bible、递归 Story Plan Node、Episode Plan 与基础 Draft；规划阶段目前保留 bundle ID 和知识 ID 于实际 Prompt，但尚未把独立 `KnowledgeSelectionTrace` 持久化到规划领域对象
 - Deepening knowledge refs 当前只支持候选生成与复现，不自动成为 Story QC 规则
 
 `Research/Knowledge_Items/` 仍是来源完整的知识资产。runtime 不读取或解析 Research Markdown，避免文档格式成为生产依赖。

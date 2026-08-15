@@ -1,0 +1,539 @@
+{
+  "snapshot_version": 12,
+  "through_episode_number": 12,
+  "character_cards": [
+    {
+      "character_ref": "character.generated.苏晚",
+      "name": "苏晚",
+      "role": "主角",
+      "description": "隐姓埋名回到故乡调查母亲死因的年轻女性，以求职身份渗透母亲生前社交圈，当前掩护身份逼近临界点。",
+      "motivation": "在暴露风险失控前确认身边是否存在任何可信赖的人，决定调查策略是否需要根本性调整。",
+      "first_seen_episode": 1,
+      "last_updated_episode": 12,
+      "source": "generated"
+    },
+    {
+      "character_ref": "character.generated.林婶",
+      "name": "林婶",
+      "role": "配角",
+      "description": "苏晚租住处的房东兼邻居，对苏晚近期状态有异有所察觉，善意但缺乏承担秘密的能力。",
+      "motivation": "出于日常关心提醒苏晚注意作息和安全。",
+      "first_seen_episode": 1,
+      "last_updated_episode": 12,
+      "source": "generated"
+    },
+    {
+      "character_ref": "character.generated.保安",
+      "name": "保安",
+      "role": "配角",
+      "description": "仁安医院旧楼夜班值班人员，例行巡查，想尽快回值班室看电视。无恶意但尽职。",
+      "motivation": "完成夜间巡查，确认各楼层门窗正常后回值班室。",
+      "first_seen_episode": 2,
+      "last_updated_episode": 3,
+      "source": "generated"
+    },
+    {
+      "character_ref": "character.generated.何美琴",
+      "name": "何美琴",
+      "role": "配角",
+      "description": "布庄管理者，配合商场管理要求维持正常运转，不希望员工带来额外麻烦。",
+      "motivation": "维持布庄正常经营，不被排查牵连。",
+      "first_seen_episode": 6,
+      "last_updated_episode": 11,
+      "source": "generated"
+    },
+    {
+      "character_ref": "character.generated.方秀兰",
+      "name": "方秀兰",
+      "role": "配角",
+      "description": "母亲社交圈中此前回避苏母的人，经营一家小茶馆，对旧事本能回避，对突然出现的苏晚高度警觉。",
+      "motivation": "不想被拉回与苏母有关的旧事中，同时警觉这个突然出现的年轻人来路不明。",
+      "first_seen_episode": 7,
+      "last_updated_episode": 11,
+      "source": "generated"
+    },
+    {
+      "character_ref": "character.generated.老陈",
+      "name": "老陈",
+      "role": "配角",
+      "description": "街边杂货店主，母亲生前常来买东西，是社交圈边缘人物，知道一些碎片信息。",
+      "motivation": "不想惹麻烦，只想经营店铺，对苏母的事本能回避。",
+      "first_seen_episode": 7,
+      "last_updated_episode": 7,
+      "source": "generated"
+    },
+    {
+      "character_ref": "character.generated.陌生女人",
+      "name": "陌生女人",
+      "role": "配角",
+      "description": "方秀兰楼下的邻居，与苏母无直接交集，但长期观察旧城区的人来人往。",
+      "motivation": "出于好奇与警觉，注意到苏晚近日频繁在附近打听。",
+      "first_seen_episode": 7,
+      "last_updated_episode": 7,
+      "source": "generated"
+    },
+    {
+      "character_ref": "character.generated.报刊亭摊主",
+      "name": "报刊亭摊主",
+      "role": "配角",
+      "description": "城区东南片的报刊亭经营者，对陌生人打听旧租户保持本能警觉。",
+      "motivation": "不想被卷入与己无关的麻烦。",
+      "first_seen_episode": 8,
+      "last_updated_episode": 8,
+      "source": "generated"
+    },
+    {
+      "character_ref": "character.generated.陆景行",
+      "name": "陆景行",
+      "role": "盟友与潜在恋人",
+      "description": "陆正则之子，尚未与苏晚有直接接触，但其名字即将在苏晚的信息整理中浮出。",
+      "motivation": "本集未直接出场，仅作为信息链终点出现。",
+      "first_seen_episode": 9,
+      "last_updated_episode": 12,
+      "source": "generated"
+    },
+    {
+      "character_ref": "character.generated.周叔",
+      "name": "周叔",
+      "role": "暗中援助者",
+      "description": "因对苏母的旧日情义暗中有限度帮助苏晚的知情者，不暴露自身存在。",
+      "motivation": "在不暴露自己的前提下为苏晚提供微弱的掩护，但他能做的极其有限。",
+      "first_seen_episode": 9,
+      "last_updated_episode": 9,
+      "source": "generated"
+    },
+    {
+      "character_ref": "character.generated.商场管理员赵姐",
+      "name": "商场管理员赵姐",
+      "role": "配角",
+      "description": "商场物业管理部门工作人员，负责传达安全排查通知并协调各商户配合。",
+      "motivation": "按上级要求完成排查配合工作，不走漏风声。",
+      "first_seen_episode": 10,
+      "last_updated_episode": 10,
+      "source": "generated"
+    }
+  ],
+  "relationships": [
+    {
+      "relationship_id": "rel.suwan_lujingxing",
+      "source_character_ref": "character.protagonist",
+      "target_character_ref": "character.ally",
+      "relationship_type": "盟友与潜在恋人",
+      "current_state": "苏晚以化名接近陆景行，对其有利用也有真实好感；陆景行因好奇与同情帮助她，不知她真实身份与目的。",
+      "changes": []
+    },
+    {
+      "relationship_id": "rel.suwan_luzhengze",
+      "source_character_ref": "character.protagonist",
+      "target_character_ref": "character.antagonist",
+      "relationship_type": "复仇者与仇人",
+      "current_state": "苏晚暗中怀疑陆正则与母亲之死有关，陆正则尚不知苏晚存在或已回城。",
+      "changes": []
+    },
+    {
+      "relationship_id": "rel.lujingxing_luzhengze",
+      "source_character_ref": "character.ally",
+      "target_character_ref": "character.antagonist",
+      "relationship_type": "父子",
+      "current_state": "表面维系父子关系，实际情感疏离，陆景行对父亲有本能不安但无确凿怀疑。",
+      "changes": []
+    },
+    {
+      "relationship_id": "rel.suwan_mother",
+      "source_character_ref": "character.protagonist",
+      "target_character_ref": "character.mother",
+      "relationship_type": "母女",
+      "current_state": "母亲已逝，苏晚对母亲的记忆与愧疚是全部行动起点。",
+      "changes": []
+    },
+    {
+      "relationship_id": "rel.zhou_suwan",
+      "source_character_ref": "character.mole",
+      "target_character_ref": "character.protagonist",
+      "relationship_type": "暗中援助者",
+      "current_state": "周叔因对苏母的旧日情义在暗中有限度地帮助苏晚，但不暴露自身。",
+      "changes": []
+    },
+    {
+      "relationship_id": "rel.lujingyan_lujingxing",
+      "source_character_ref": "character.rival",
+      "target_character_ref": "character.ally",
+      "relationship_type": "兄弟竞争",
+      "current_state": "陆景言视陆景行为继承权竞争对手，关系冷淡而戒备。",
+      "changes": []
+    },
+    {
+      "relationship_id": "rel.luzhengze_mother",
+      "source_character_ref": "character.antagonist",
+      "target_character_ref": "character.mother",
+      "relationship_type": "加害者与受害者",
+      "current_state": "陆正则与苏母之死有直接或间接责任，但真相被多层掩盖，外界视为意外或病逝。",
+      "changes": []
+    },
+    {
+      "relationship_id": "relationship.generated.苏晚.林婶",
+      "source_character_ref": "character.generated.苏晚",
+      "target_character_ref": "character.generated.林婶",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚确认掩护身份效能逼近临界点，决定在找到可信盟友之前暂停主动渗透，转入被动观察与信息整理模式。",
+      "changes": [
+        {
+          "episode_number": 1,
+          "summary": "苏晚在母亲通讯录中锁定林婶为第一个接触对象，决定以远房侄女的假身份登门拜访，并提前收集了仁字头医院信息备用"
+        },
+        {
+          "episode_number": 4,
+          "summary": "苏晚确立以'陈维'为锚点的证据导向调查路径，但暴露困境未解——她持有方向却没有工具，监控定时炸弹倒计时已开始，且没有任何缓冲身份可以依靠"
+        },
+        {
+          "episode_number": 5,
+          "summary": "苏晚确认自己的行动已经引起注意，但不知道追踪者身份。她意识到身份构建不能再拖，但也不知道该信任谁来帮忙建立身份"
+        },
+        {
+          "episode_number": 6,
+          "summary": "苏晚获得布庄临时店员身份，得以在日常工作中与何美琴自然接触，为下一步试探创造了条件"
+        },
+        {
+          "episode_number": 8,
+          "summary": "苏晚确认两条信息线在时间上高度重叠，标注出'异常期'，并决定以模式分析替代直接接触。"
+        },
+        {
+          "episode_number": 10,
+          "summary": "苏晚确认孤军深入的处境不可持续，但当前环境中没有任何人可以信任或分担风险，她的下一步行动必须在这个约束下做出"
+        },
+        {
+          "episode_number": 12,
+          "summary": "苏晚确认掩护身份效能逼近临界点，决定在找到可信盟友之前暂停主动渗透，转入被动观察与信息整理模式。"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.苏晚.保安",
+      "source_character_ref": "character.generated.苏晚",
+      "target_character_ref": "character.generated.保安",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚成功从消防通道上到地面层离开旧楼，未被保安直接看到。但保安进入档案室后将发现铜锁被撬，异常将被记录上报。",
+      "changes": [
+        {
+          "episode_number": 2,
+          "summary": "苏晚确认病案室位于旧楼地下一层，铁门铜锁可撬开，夜间仅一名保安值班且巡查间隔约二十分钟，监控探头存在死角"
+        },
+        {
+          "episode_number": 3,
+          "summary": "苏晚成功从消防通道上到地面层离开旧楼，未被保安直接看到。但保安进入档案室后将发现铜锁被撬，异常将被记录上报。"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.苏晚.何美琴",
+      "source_character_ref": "character.generated.苏晚",
+      "target_character_ref": "character.generated.何美琴",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚确认档案复核在三天后，决定在此之前抢先接触方秀兰获取母亲异常联系的性质线索。",
+      "changes": [
+        {
+          "episode_number": 6,
+          "summary": "苏晚获得布庄临时店员身份，得以在日常工作中与何美琴自然接触，为下一步试探创造了条件"
+        },
+        {
+          "episode_number": 9,
+          "summary": "苏晚确认何美琴对母亲死前特定时段的反应具有指向性——她知道哪段时期有问题，但不愿被触碰。间接策略获得了一个间接信号但无法深入。苏晚意识到仅靠自己已难以推进，需要外部支援。"
+        },
+        {
+          "episode_number": 10,
+          "summary": "苏晚确认安全排查已蔓延至工作场所，她的日常活动空间不再是安全区域，必须立即调整行为策略"
+        },
+        {
+          "episode_number": 11,
+          "summary": "苏晚确认档案复核在三天后，决定在此之前抢先接触方秀兰获取母亲异常联系的性质线索。"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.何美琴.林婶",
+      "source_character_ref": "character.generated.何美琴",
+      "target_character_ref": "character.generated.林婶",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚确认孤军深入的处境不可持续，但当前环境中没有任何人可以信任或分担风险，她的下一步行动必须在这个约束下做出",
+      "changes": [
+        {
+          "episode_number": 6,
+          "summary": "苏晚获得布庄临时店员身份，得以在日常工作中与何美琴自然接触，为下一步试探创造了条件"
+        },
+        {
+          "episode_number": 10,
+          "summary": "苏晚确认孤军深入的处境不可持续，但当前环境中没有任何人可以信任或分担风险，她的下一步行动必须在这个约束下做出"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.苏晚.方秀兰",
+      "source_character_ref": "character.generated.苏晚",
+      "target_character_ref": "character.generated.方秀兰",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚确认档案复核在三天后，决定在此之前抢先接触方秀兰获取母亲异常联系的性质线索。",
+      "changes": [
+        {
+          "episode_number": 7,
+          "summary": "苏晚确认回避反应不止一人，并获得母亲死前数月行为异常的具体线索——性情大变、频繁外出。"
+        },
+        {
+          "episode_number": 11,
+          "summary": "苏晚确认档案复核在三天后，决定在此之前抢先接触方秀兰获取母亲异常联系的性质线索。"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.苏晚.老陈",
+      "source_character_ref": "character.generated.苏晚",
+      "target_character_ref": "character.generated.老陈",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚获得关键碎片——母亲死前在找一个特定的人且不肯告诉任何人名字——同时注意到老陈回避时的视线方向，为下一场景的交叉验证埋下锚点。",
+      "changes": [
+        {
+          "episode_number": 7,
+          "summary": "苏晚获得关键碎片——母亲死前在找一个特定的人且不肯告诉任何人名字——同时注意到老陈回避时的视线方向，为下一场景的交叉验证埋下锚点。"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.苏晚.陌生女人",
+      "source_character_ref": "character.generated.苏晚",
+      "target_character_ref": "character.generated.陌生女人",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚被旁观者当面反问动机，调查者与被审视者的位置在一句话中翻转——求职身份的保护力因活动频率增加而在旁观者直觉面前出现裂缝，结尾悬念成立。",
+      "changes": [
+        {
+          "episode_number": 7,
+          "summary": "苏晚被旁观者当面反问动机，调查者与被审视者的位置在一句话中翻转——求职身份的保护力因活动频率增加而在旁观者直觉面前出现裂缝，结尾悬念成立。"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.方秀兰.老陈",
+      "source_character_ref": "character.generated.方秀兰",
+      "target_character_ref": "character.generated.老陈",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚获得关键碎片——母亲死前在找一个特定的人且不肯告诉任何人名字——同时注意到老陈回避时的视线方向，为下一场景的交叉验证埋下锚点。",
+      "changes": [
+        {
+          "episode_number": 7,
+          "summary": "苏晚获得关键碎片——母亲死前在找一个特定的人且不肯告诉任何人名字——同时注意到老陈回避时的视线方向，为下一场景的交叉验证埋下锚点。"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.方秀兰.陌生女人",
+      "source_character_ref": "character.generated.方秀兰",
+      "target_character_ref": "character.generated.陌生女人",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚被旁观者当面反问动机，调查者与被审视者的位置在一句话中翻转——求职身份的保护力因活动频率增加而在旁观者直觉面前出现裂缝，结尾悬念成立。",
+      "changes": [
+        {
+          "episode_number": 7,
+          "summary": "苏晚被旁观者当面反问动机，调查者与被审视者的位置在一句话中翻转——求职身份的保护力因活动频率增加而在旁观者直觉面前出现裂缝，结尾悬念成立。"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.苏晚.报刊亭摊主",
+      "source_character_ref": "character.generated.苏晚",
+      "target_character_ref": "character.generated.报刊亭摊主",
+      "relationship_type": "剧情关联",
+      "current_state": "实地验证未能获取新信息，求职身份在摊主反问中再次承压，苏晚决定退回桌面分析而非继续实地接触。",
+      "changes": [
+        {
+          "episode_number": 8,
+          "summary": "实地验证未能获取新信息，求职身份在摊主反问中再次承压，苏晚决定退回桌面分析而非继续实地接触。"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.苏晚.陆景行",
+      "source_character_ref": "character.generated.苏晚",
+      "target_character_ref": "character.generated.陆景行",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚发现该地点关联到陆家产业板块，实际负责人是陆景行——调查的下一个入口指向她尚未接触且最不该接近的人。",
+      "changes": [
+        {
+          "episode_number": 9,
+          "summary": "苏晚做出了选择：有限度地透露，只请求查一个人的去向，不涉及母亲和调查全貌。陆景行答应了。但他的反应暗示他察觉到苏晚的处境比她说的更复杂。苏晚的信任边界已被突破一个缺口，这个缺口的后果尚未显现。"
+        },
+        {
+          "episode_number": 12,
+          "summary": "苏晚发现该地点关联到陆家产业板块，实际负责人是陆景行——调查的下一个入口指向她尚未接触且最不该接近的人。"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.苏晚.商场管理员赵姐",
+      "source_character_ref": "character.generated.苏晚",
+      "target_character_ref": "character.generated.商场管理员赵姐",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚确认安全排查已蔓延至工作场所，她的日常活动空间不再是安全区域，必须立即调整行为策略",
+      "changes": [
+        {
+          "episode_number": 10,
+          "summary": "苏晚确认安全排查已蔓延至工作场所，她的日常活动空间不再是安全区域，必须立即调整行为策略"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.何美琴.商场管理员赵姐",
+      "source_character_ref": "character.generated.何美琴",
+      "target_character_ref": "character.generated.商场管理员赵姐",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚确认安全排查已蔓延至工作场所，她的日常活动空间不再是安全区域，必须立即调整行为策略",
+      "changes": [
+        {
+          "episode_number": 10,
+          "summary": "苏晚确认安全排查已蔓延至工作场所，她的日常活动空间不再是安全区域，必须立即调整行为策略"
+        }
+      ]
+    },
+    {
+      "relationship_id": "relationship.generated.方秀兰.何美琴",
+      "source_character_ref": "character.generated.方秀兰",
+      "target_character_ref": "character.generated.何美琴",
+      "relationship_type": "剧情关联",
+      "current_state": "苏晚确认档案复核在三天后，决定在此之前抢先接触方秀兰获取母亲异常联系的性质线索。",
+      "changes": [
+        {
+          "episode_number": 11,
+          "summary": "苏晚确认档案复核在三天后，决定在此之前抢先接触方秀兰获取母亲异常联系的性质线索。"
+        }
+      ]
+    }
+  ],
+  "story_lines": [
+    {
+      "story_line_id": "line.investigation",
+      "title": "母亲死因调查主线",
+      "status": "active",
+      "current_state": "苏晚以求职身份成功渗透母亲生前社会关系网络，初步勾勒出母亲死前数月行为异常的轮廓——频繁出入特定场所、与某些人产生异常联系，但具体指向尚不清晰。档案室潜入的安全隐患尚未爆发但持续存在，排查已波及她的工作环境。她尚未建立任何可信赖的同盟关系，所有风险由她独自承担，开始意识到孤军深入不可持续。",
+      "last_progressed_episode": 12
+    },
+    {
+      "story_line_id": "line.trust_betrayal",
+      "title": "信任与身份撕裂线",
+      "status": "active",
+      "current_state": "苏晚以求职身份成功渗透母亲生前社会关系网络，初步勾勒出母亲死前数月行为异常的轮廓——频繁出入特定场所、与某些人产生异常联系，但具体指向尚不清晰。档案室潜入的安全隐患尚未爆发但持续存在，排查已波及她的工作环境。她尚未建立任何可信赖的同盟关系，所有风险由她独自承担，开始意识到孤军深入不可持续。",
+      "last_progressed_episode": 12
+    },
+    {
+      "story_line_id": "line.lujia_internal",
+      "title": "陆家内部权力裂痕",
+      "status": "setup",
+      "current_state": "陆景言为争夺继承权，主动利用苏晚的存在打击陆景行，并向陆正则告密。这条线独立于苏晚的调查，但通过加速陆正则对苏晚的察觉、制造陆家内部信任崩塌，直接改变调查线的难度与节奏。",
+      "last_progressed_episode": 0
+    },
+    {
+      "story_line_id": "line.arc.revenge_conscience",
+      "title": "苏晚复仇信念与良知拷问",
+      "status": "active",
+      "current_state": "苏晚已开始着手建立掩护身份但尚未完成。她发现签名不符的档案登记人与母亲遗物旧信件存在交集，确立了下一个追查锚点。档案室监控记录的隐患仍在持续施压，她清醒地意识到每一次行动都在提高暴露风险，而她没有任何后援可以依靠。",
+      "last_progressed_episode": 5
+    },
+    {
+      "story_line_id": "line.arc.lujingxing_identity",
+      "title": "陆景行身份认同挣扎",
+      "status": "setup",
+      "current_state": "陆景行从'陆家继承人'的预设身份出发，在接触苏晚后发现父亲的真实面目，经历从否认到确认到被迫选边的过程。他的挣扎不是背叛父亲还是忠于家族的简单选择，而是在血缘赋予的身份与自我良知之间找到自己究竟是谁。",
+      "last_progressed_episode": 0
+    }
+  ],
+  "recent_episode_summaries": [
+    {
+      "episode_number": 3,
+      "entry_state": "苏晚已在档案室中发现母亲死亡记录存在修改痕迹，值班人员脚步声正在逼近，她处于极高压迫状态，时间窗口正在急速收窄。",
+      "exit_state": "苏晚成功带出部分证据撤离档案室，未被值班人员直接发现。但她的潜入行为已被档案室安全监控记录了她出现的时段，值班人员巡查时可能注意到档案室异常。她手中持有部分死亡记录证据，尚未详细分析。",
+      "consequence": "苏晚确认母亲死亡记录存在涉及多个字段的系统性篡改，不像是笔误而是刻意掩盖。她对手层级的判断从'怀疑有人改写'升级为'有能力系统篡改医院记录链的人'，下一步必须查清篡改者的身份与权限。",
+      "next_episode_question": "保安发现铜锁被撬后会上报，苏晚的潜入行为在医院内部留下痕迹——她能否在被追查到之前从签名页查到篡改者的身份？谁有权限系统性地改写一整条死亡记录链？",
+      "source_node_id": "story_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.child.6bc0f9e135ba.1",
+      "episode_plan_id": "episode_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.0003"
+    },
+    {
+      "episode_number": 4,
+      "entry_state": "苏晚已成功带出部分死亡记录证据撤离档案室，未被值班人员直接发现。初步判断修改痕迹疑似刻意篡改且涉及多个字段，但尚未详细分析。档案室安全监控已记录她出现的时段，构成潜在暴露威胁。",
+      "exit_state": "苏晚已确认母亲死因存在隐情，调查方向从模糊复仇直觉转向有据可查的具体路径。她持有关键日期涂改与签名不符的证据，但档案室监控记录成为定时炸弹，她尚未建立任何掩护身份，需要解决合法接近母亲社会关系网络的途径问题。",
+      "consequence": "苏晚确立以'陈维'为锚点的证据导向调查路径，但暴露困境未解——她持有方向却没有工具，监控定时炸弹倒计时已开始，且没有任何缓冲身份可以依靠",
+      "next_episode_question": "苏晚能否在被监控排查到之前建立掩护身份？签名页上查无此人的'陈维'背后，究竟是谁在有组织地改写一整条死亡记录链？",
+      "source_node_id": "story_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.child.6bc0f9e135ba.1",
+      "episode_plan_id": "episode_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.0004"
+    },
+    {
+      "episode_number": 5,
+      "entry_state": "苏晚已确认母亲死因存在隐情，调查方向从模糊复仇直觉转向有据可查的具体路径。她持有关键日期涂改与签名不符的证据，但档案室监控记录成为定时炸弹，她尚未建立任何掩护身份，需要解决合法接近母亲社会关系网络的途径问题。",
+      "exit_state": "苏晚已开始着手建立掩护身份但尚未完成。她发现签名不符的档案登记人与母亲遗物旧信件存在交集，确立了下一个追查锚点。档案室监控记录的隐患仍在持续施压，她清醒地意识到每一次行动都在提高暴露风险，而她没有任何后援可以依靠。",
+      "consequence": "苏晚决定去找旧信中的人，将其同时作为线索追查锚点和身份构建切入点。她开始搜索可用于身份过渡的物品，行动窗口被追踪压力压缩到极限",
+      "next_episode_question": "苏晚要接近的旧信中人既是篡改链的参与者又是母亲旧识——这个人会帮她建立身份，还是会成为将她引入陷阱的引线？而在暗中打听她行踪的那个人，究竟来自医院系统还是陆家方向？",
+      "source_node_id": "story_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.child.6bc0f9e135ba.1",
+      "episode_plan_id": "episode_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.0005"
+    },
+    {
+      "episode_number": 6,
+      "entry_state": "苏晚已获取档案室修改痕迹证据，掌握单一线索但缺乏更广泛的社会关系信息支撑。她尚未接触母亲生前社交圈，求职身份尚未启用，档案室潜入事件的安全隐患暂时沉寂但未消除。",
+      "exit_state": "苏晚已以求职身份首次接触母亲生前社交圈中的人，遭遇明显的回避反应，回避本身成为新的调查线索。求职身份初步启用且保护力尚可，但被接触者事后向他人提及了苏晚的打听，社交圈内开始出现微弱的信息流动。",
+      "consequence": "苏晚听到何美琴拨通电话并提及姓苏的，确认回避背后有人在被通知；但她无法辨认通话全部内容和对方身份，求职身份的保护力尚可但已出现裂缝，社交圈内信息流动已经开始",
+      "next_episode_question": "何美琴在电话里说的你说的没错意味着什么——是有人提前告知她会有人来打听？那个电话的另一端，究竟是医院系统里的人，还是陆家方向？",
+      "source_node_id": "story_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.child.a78be86edebe.1",
+      "episode_plan_id": "episode_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.0006"
+    },
+    {
+      "episode_number": 7,
+      "entry_state": "苏晚已首次接触母亲社交圈并遭遇明显回避反应，回避成为新线索。求职身份初步启用且保护力尚可，但被接触者事后向他人提及了苏晚的打听，社交圈内开始出现微弱的信息流动。",
+      "exit_state": "苏晚已接触母亲社交圈中多人，确认回避反应的系统性而非个别现象，初步勾勒出母亲死前数月行为异常的轮廓。求职身份保护力因活动频率增加而开始下降，社交圈中已有人对她的频繁打听产生不自在。",
+      "consequence": "苏晚被旁观者当面反问动机，调查者与被审视者的位置在一句话中翻转——求职身份的保护力因活动频率增加而在旁观者直觉面前出现裂缝，结尾悬念成立。",
+      "next_episode_question": "那个陌生女人为什么对苏晚的频繁出现如此警觉——她只是一个普通邻居，还是沉默圈边缘的另一双眼睛？",
+      "source_node_id": "story_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.child.a78be86edebe.1",
+      "episode_plan_id": "episode_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.0007"
+    },
+    {
+      "episode_number": 8,
+      "entry_state": "苏晚已初步勾勒母亲死前数月行为异常轮廓，确认社交圈中回避反应的系统性。求职身份保护力因活动频率增加而开始下降，社交圈中已有人对她的频繁打听产生不自在。",
+      "exit_state": "苏晚拼凑出母亲死前频繁出入特定场所、与某些人产生此前社交记录中从未出现联系的轮廓，但联系性质——威胁、求助或秘密交换——尚无法判断。异常联系中某个场所与陆家有间接关联。求职身份保护力明显下降。",
+      "consequence": "苏晚确认母亲死前最后接触的人在死后从该区域彻底消失，非正常离开，仿佛从未存在过。",
+      "next_episode_question": "母亲死前最后接触的那个人究竟是谁——他消失是因为逃走了，还是因为有人不想让他存在？",
+      "source_node_id": "story_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.child.a78be86edebe.1",
+      "episode_plan_id": "episode_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.0008"
+    },
+    {
+      "episode_number": 9,
+      "entry_state": "苏晚已拼凑出母亲死前行为异常轮廓但联系性质不明，异常联系中某个场所与陆家有间接关联。求职身份保护力明显下降，母亲最后接触的某个人在母亲死后不久便消失。",
+      "exit_state": "苏晚的求职身份保护力明显下降，社交圈中已有人对她产生微妙戒备。行为异常轮廓已初步勾勒但联系性质尚无法判断，消失之人的痕迹被刻意清除。档案室事件安全隐患持续潜伏但尚未爆发。苏晚已向陆景行有限度地透露了部分调查进展。",
+      "consequence": "苏晚发现自己正在被暗中调查真实身份，调查者通过正常渠道收集她的过往信息，线索指向档案室潜入事件中的登记细节。她的调查者身份与被调查者身份在同一刻重叠，此后的每一步行动都必须同时考虑推进调查与防止暴露两个维度。",
+      "next_episode_question": "暗中调查苏晚真实身份的人是谁——是陆家的人，是某个独立于陆家的力量，还是那个被清除痕迹的消失之人留下的另一条暗线？",
+      "source_node_id": "story_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.child.a78be86edebe.1",
+      "episode_plan_id": "episode_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.0009"
+    },
+    {
+      "episode_number": 10,
+      "entry_state": "苏晚已初步勾勒出母亲死前数月行为异常的轮廓，但联系性质尚无法判断。求职身份保护力明显下降，社交圈中已有人对她的打听产生微妙戒备。档案室事件安全隐患持续潜伏但尚未爆发。",
+      "exit_state": "苏晚通过职场观察确认安全排查已覆盖外人进出记录，虽尚未锁定她本人，但排查范围持续扩大且回溯深度超出预期。她在工作场所的日常行为被迫进一步收敛，求职身份的掩护效能开始实质性衰减。她首次明确意识到孤军深入的状态不可持续，但环顾工作环境，没有任何同事关系深到可以信任或分担风险。",
+      "consequence": "苏晚确认下一轮审查将直接复核她的临时聘用档案，暴露风险进入具体倒计时，她必须在审查落地前做出决定：修正信息、提前离开，还是找到其他方式度过复核",
+      "next_episode_question": "苏晚会选择修正档案中的模糊信息以度过复核，还是在审查落地前主动离开布庄——而离开之后，她还剩什么身份可以继续追查母亲死因？",
+      "source_node_id": "story_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.child.a78be86edebe.2",
+      "episode_plan_id": "episode_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.0010"
+    },
+    {
+      "episode_number": 11,
+      "entry_state": "苏晚通过职场观察确认安全排查已覆盖外人进出记录，虽尚未锁定她本人，但排查范围持续扩大且回溯深度超出预期。她在工作场所的日常行为被迫进一步收敛，求职身份的掩护效能开始实质性衰减。她首次明确意识到孤军深入的状态不可持续，但环顾工作环境，没有任何同事关系深到可以信任或分担风险。",
+      "exit_state": "苏晚策略性后撤后，确认至少一名母亲社交圈内的人已开始核实她的来路，信息在小范围内传播。她的求职身份掩护效能逼近临界点，无法再以同一套身份安全接触更多圈内人。调查仍停留在母亲异常行为的轮廓层面，联系性质未能推进。她确认工作场所和社会关系圈两个方向同时收紧，暴露风险已不可仅靠收缩行为来对冲。",
+      "consequence": "苏晚发现核实她来路的方秀兰与一名本地商界人士有近期合影，而那人与陆家存在关联，母亲社交圈与陆家之间的暗线首次浮现。",
+      "next_episode_question": "方秀兰与陆家关联人的合影意味着什么——母亲社交圈内回避苏母的人，是否从一开始就和陆家有隐秘联系，而苏晚的后撤是否反而暴露了自己正在追查陆家的方向？",
+      "source_node_id": "story_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.child.a78be86edebe.2",
+      "episode_plan_id": "episode_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.0011"
+    },
+    {
+      "episode_number": 12,
+      "entry_state": "苏晚策略性后撤后，确认至少一名母亲社交圈内的人已开始核实她的来路，信息在小范围内传播。她的求职身份掩护效能逼近临界点，无法再以同一套身份安全接触更多圈内人。调查仍停留在母亲异常行为的轮廓层面，联系性质未能推进。她确认工作场所和社会关系圈两个方向同时收紧，暴露风险已不可仅靠收缩行为来对冲。",
+      "exit_state": "苏晚以求职身份成功渗透母亲生前社会关系网络，初步勾勒出母亲死前数月行为异常的轮廓——频繁出入特定场所、与某些人产生异常联系，但具体指向尚不清晰。档案室潜入的安全隐患尚未爆发但持续存在，排查已波及她的工作环境。她尚未建立任何可信赖的同盟关系，所有风险由她独自承担，开始意识到孤军深入不可持续。",
+      "consequence": "苏晚发现该地点关联到陆家产业板块，实际负责人是陆景行——调查的下一个入口指向她尚未接触且最不该接近的人。",
+      "next_episode_question": "母亲死前反复出入的地点指向陆景行——苏晚是否应该主动接近仇人之子来推进调查，而这次接近会不会让她在还没准备好面对真相时就已经踏入无法回头的境地？",
+      "source_node_id": "story_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.child.a78be86edebe.2",
+      "episode_plan_id": "episode_plan.2688e98f-6d2c-4f47-8da2-4f4661075fa9.0012"
+    }
+  ],
+  "warnings": [],
+  "updated_at": "2026-08-06T10:24:51.863404+00:00"
+}

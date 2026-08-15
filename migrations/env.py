@@ -7,12 +7,13 @@ from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
 from app.database import database_url_from_env
+from app.modules.content_spec import persistence as content_spec_persistence  # noqa: F401
 from app.modules.script_engine import long_story_persistence  # noqa: F401
 
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 database_url = database_url_from_env()
 config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))

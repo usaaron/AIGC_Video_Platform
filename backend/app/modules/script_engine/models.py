@@ -10,6 +10,10 @@ from app.modules.content_spec.models import ResolvedCreativeContext
 from app.modules.master_script.models import DraftMasterScript
 from app.modules.orchestrator.models import OrchestrationPlan
 from app.modules.retrieval.models import RetrievalPlanResult
+from app.script_delivery_contract import (
+    EPISODE_RUNTIME_MAX_SECONDS,
+    EPISODE_RUNTIME_MIN_SECONDS,
+)
 
 
 class PromptType(str, Enum):
@@ -91,6 +95,38 @@ class EpisodeGenerationMode(str, Enum):
     full = "full"
 
 
+class ContinuityQCStatus(str, Enum):
+    not_applicable = "not_applicable"
+    passed = "passed"
+    warnings = "warnings"
+    blocked = "blocked"
+
+
+class ContinuityQCIssueSeverity(str, Enum):
+    warning = "warning"
+    blocking = "blocking"
+
+
+class ContinuityQCIssueType(str, Enum):
+    dead_character_action = "dead_character_action"
+    dead_character_revived = "dead_character_revived"
+    capability_conflict = "capability_conflict"
+    knowledge_conflict = "knowledge_conflict"
+    irreversible_state_conflict = "irreversible_state_conflict"
+    unavailable_entity_usage = "unavailable_entity_usage"
+    unknown_story_line = "unknown_story_line"
+    missing_planned_story_line_progress = "missing_planned_story_line_progress"
+    story_line_plan_deviation = "story_line_plan_deviation"
+    premature_story_line_resolution = "premature_story_line_resolution"
+    missing_hook_response = "missing_hook_response"
+    unknown_hook_response = "unknown_hook_response"
+    overdue_hook = "overdue_hook"
+    missing_planned_setup = "missing_planned_setup"
+    missing_planned_payoff = "missing_planned_payoff"
+    unknown_setup_payoff = "unknown_setup_payoff"
+    setup_payoff_plan_deviation = "setup_payoff_plan_deviation"
+
+
 class CreativeDeepeningStatus(str, Enum):
     shadow_candidate = "shadow_candidate"
     rejected_preservation = "rejected_preservation"
@@ -167,7 +203,7 @@ class KnowledgeBundle(BaseModel):
         pattern=r"^[a-z0-9_.-]+$",
     )
     version: str = Field(min_length=1, max_length=40)
-    knowledge_ids: list[str] = Field(min_length=1, max_length=8)
+    knowledge_ids: list[str] = Field(min_length=1, max_length=12)
     applicable_conditions: KnowledgeApplicabilityConditions = Field(
         default_factory=KnowledgeApplicabilityConditions
     )
@@ -190,7 +226,7 @@ class KnowledgeSelectionTrace(BaseModel):
     target_stage: KnowledgeTargetStage
     requested_bundle_id: str = Field(min_length=3, max_length=120)
     selected_bundle_id: str = Field(min_length=3, max_length=120)
-    selected_knowledge_refs: list[str] = Field(min_length=1, max_length=8)
+    selected_knowledge_refs: list[str] = Field(min_length=1, max_length=12)
     selection_reason: str = Field(min_length=5, max_length=500)
     warnings: list[str] = Field(default_factory=list, max_length=10)
 
@@ -413,14 +449,14 @@ class PromptBuildTrace(BaseModel):
     prompt_ids: list[str] = Field(min_length=1, max_length=20)
     builder_version: str = Field(min_length=1, max_length=40)
     build_purpose: KnowledgeTargetStage = KnowledgeTargetStage.draft_generation
-    knowledge_refs: list[str] = Field(default_factory=list, max_length=8)
+    knowledge_refs: list[str] = Field(default_factory=list, max_length=12)
     creative_context_version: str | None = Field(default=None, min_length=1, max_length=40)
 
 
 class PromptBuildResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    prompt_text: str = Field(min_length=10, max_length=30000)
+    prompt_text: str = Field(min_length=10)
     rendered_variables: dict[str, str] = Field(default_factory=dict)
     trace: PromptBuildTrace
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -522,6 +558,68 @@ class StoryQCReport(BaseModel):
         return values
 
 
+class ContinuityQCIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    issue_id: str = Field(min_length=3, max_length=120, pattern=r"^[a-zA-Z0-9_.:-]+$")
+    issue_type: ContinuityQCIssueType
+    severity: ContinuityQCIssueSeverity
+    entity_key: str = Field(min_length=3, max_length=120)
+    entity_name: str = Field(min_length=1, max_length=160)
+    summary: str = Field(min_length=3, max_length=500)
+    prior_state: str = Field(min_length=2, max_length=500)
+    current_evidence: str = Field(min_length=2, max_length=500)
+    prior_episode_number: int | None = Field(default=None, ge=0, le=2_000)
+    scene_numbers: list[int] = Field(default_factory=list, max_length=20)
+    suggested_action: str = Field(min_length=3, max_length=500)
+
+    @field_validator("scene_numbers")
+    @classmethod
+    def ensure_unique_continuity_qc_scenes(cls, values: list[int]) -> list[int]:
+        if len(set(values)) != len(values):
+            raise ValueError("Continuity QC scene numbers must be unique.")
+        return values
+
+
+class ContinuityQCReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ContinuityQCStatus
+    checked_through_episode_number: int | None = Field(default=None, ge=0, le=2_000)
+    current_episode_number: int | None = Field(default=None, ge=1, le=2_000)
+    issues: list[ContinuityQCIssue] = Field(default_factory=list, max_length=50)
+    blocking_issue_count: int = Field(default=0, ge=0, le=50)
+    warning_count: int = Field(default=0, ge=0, le=50)
+    check_version: str = Field(default="continuity_qc.v1", min_length=3, max_length=80)
+
+    @model_validator(mode="after")
+    def validate_continuity_qc_counts(self) -> "ContinuityQCReport":
+        blocking = sum(
+            issue.severity == ContinuityQCIssueSeverity.blocking
+            for issue in self.issues
+        )
+        warnings = sum(
+            issue.severity == ContinuityQCIssueSeverity.warning
+            for issue in self.issues
+        )
+        if blocking != self.blocking_issue_count or warnings != self.warning_count:
+            raise ValueError("Continuity QC issue counts must match issues.")
+        if self.status == ContinuityQCStatus.not_applicable:
+            if self.issues:
+                raise ValueError("A not-applicable Continuity QC report cannot contain issues.")
+            return self
+        expected_status = (
+            ContinuityQCStatus.blocked
+            if blocking
+            else ContinuityQCStatus.warnings
+            if warnings
+            else ContinuityQCStatus.passed
+        )
+        if self.status != expected_status:
+            raise ValueError("Continuity QC status must match issue severity.")
+        return self
+
+
 class CreativeDeepeningChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -556,7 +654,7 @@ class CreativeDeepeningRequest(BaseModel):
     source_draft_master_script: DraftMasterScript
     resolved_creative_context: ResolvedCreativeContext | None = None
     knowledge_bundle: KnowledgeBundle | None = None
-    knowledge_items: list[StaticKnowledgeItem] = Field(default_factory=list, max_length=8)
+    knowledge_items: list[StaticKnowledgeItem] = Field(default_factory=list, max_length=12)
     knowledge_selection_trace: KnowledgeSelectionTrace | None = None
     max_expressive_growth_ratio: float = Field(default=0.35, ge=0.0, le=1.0)
 
@@ -922,12 +1020,23 @@ class ScriptGenerationDraftRequest(BaseModel):
     generation_strategy_id: str = Field(min_length=3, max_length=120)
     output_language: str = Field(min_length=2, max_length=20)
     desired_scene_count: int = Field(default=3, ge=2, le=8)
+    target_episode_duration_seconds: int | None = Field(
+        default=None,
+        ge=EPISODE_RUNTIME_MIN_SECONDS,
+        le=EPISODE_RUNTIME_MAX_SECONDS,
+        description=(
+            "Optional vertical-short-drama runtime target. The generated episode must remain "
+            f"inside the inclusive {EPISODE_RUNTIME_MIN_SECONDS}-"
+            f"{EPISODE_RUNTIME_MAX_SECONDS} second delivery window."
+        ),
+    )
     target_script_body_characters: int | None = Field(
         default=None,
         ge=300,
         le=10_000,
         description=(
-            "Optional effective-character budget for visible actions and dialogue only."
+            "Optional effective-character reference midpoint for visible actions and dialogue. "
+            "It defines a broad preference, not a hard per-episode quota."
         ),
     )
     resolved_creative_context: ResolvedCreativeContext | None = None
@@ -951,6 +1060,105 @@ class GenerationBatchContext(BaseModel):
         return self
 
 
+class ApprovedEpisodePlanContext(BaseModel):
+    """Executable per-episode contract handed from roadmap planning to writing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    episode_number: int = Field(ge=1, le=2_000)
+    target_duration_seconds: int = Field(
+        default=90,
+        ge=EPISODE_RUNTIME_MIN_SECONDS,
+        le=EPISODE_RUNTIME_MAX_SECONDS,
+    )
+    planned_scene_count: int = Field(default=3, ge=2, le=5)
+    planned_shot_count: int = Field(default=16, ge=8, le=24)
+    episode_goal: str = Field(min_length=5, max_length=800)
+    entry_state: str = Field(min_length=5, max_length=1_000)
+    central_conflict: str = Field(min_length=5, max_length=800)
+    protagonist_decision: str = Field(min_length=5, max_length=800)
+    reveal: str | None = Field(default=None, min_length=3, max_length=800)
+    emotional_movement: str = Field(min_length=3, max_length=500)
+    stage_opposition: str | None = Field(default=None, min_length=3, max_length=800)
+    episode_payoff: str | None = Field(default=None, min_length=3, max_length=800)
+    pressure_escalation: str | None = Field(default=None, min_length=3, max_length=800)
+    setup_refs: list[str] = Field(default_factory=list, max_length=20)
+    payoff_refs: list[str] = Field(default_factory=list, max_length=20)
+    exit_state: str = Field(min_length=5, max_length=1_000)
+    cliffhanger: str = Field(min_length=5, max_length=800)
+    character_refs: list[str] = Field(default_factory=list, max_length=30)
+    story_line_refs: list[str] = Field(default_factory=list, max_length=20)
+    continuity_requirements: list[str] = Field(default_factory=list, max_length=30)
+    source_turning_points: list[str] = Field(default_factory=list, max_length=30)
+    source_unit_story_beats: list[str] = Field(default_factory=list, max_length=12)
+    ending_hook_type: str | None = Field(default=None, min_length=2, max_length=80)
+    next_episode_obligation: str | None = Field(default=None, min_length=3, max_length=500)
+    hook_payoff_target_episode: int | None = Field(default=None, ge=1, le=2_000)
+
+    @field_validator("target_duration_seconds", mode="before")
+    @classmethod
+    def normalize_legacy_target_duration(cls, value: Any) -> Any:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return value
+        return min(115, max(75, round(value)))
+
+    @field_validator(
+        "setup_refs",
+        "payoff_refs",
+        "character_refs",
+        "story_line_refs",
+        "continuity_requirements",
+        "source_turning_points",
+        "source_unit_story_beats",
+    )
+    @classmethod
+    def ensure_unique_episode_plan_values(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Approved episode plan values must be unique.")
+        return values
+
+
+class ApprovedStoryNodeContext(BaseModel):
+    """Compact approved recursive-node boundary handed to episode writing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str = Field(min_length=3, max_length=120)
+    node_version: int = Field(ge=1)
+    title: str = Field(min_length=2, max_length=160)
+    start_episode: int = Field(ge=1, le=2_000)
+    end_episode: int = Field(ge=1, le=2_000)
+    episode_position: int = Field(ge=1, le=12)
+    episode_function: str = Field(min_length=5, max_length=500)
+    narrative_purpose: str = Field(min_length=5, max_length=1_000)
+    entry_state: str = Field(min_length=5, max_length=1_500)
+    central_conflict: str = Field(min_length=5, max_length=1_500)
+    turning_points: list[str] = Field(default_factory=list, max_length=30)
+    unit_story_beats: list[str] = Field(default_factory=list, max_length=12)
+    unit_resolution: str | None = Field(default=None, min_length=5, max_length=1_500)
+    handoff_pressure: str | None = Field(default=None, min_length=5, max_length=1_500)
+    emotional_direction: str = Field(min_length=3, max_length=800)
+    exit_state: str = Field(min_length=5, max_length=1_500)
+
+    @field_validator("turning_points", "unit_story_beats")
+    @classmethod
+    def ensure_unique_story_node_values(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Approved story node values must be unique.")
+        return values
+
+    @model_validator(mode="after")
+    def ensure_valid_story_node_range(self) -> "ApprovedStoryNodeContext":
+        if self.end_episode < self.start_episode:
+            raise ValueError("end_episode must not be lower than start_episode.")
+        expected_position_max = self.end_episode - self.start_episode + 1
+        if self.episode_position > expected_position_max:
+            raise ValueError("episode_position must be inside the story node range.")
+        return self
+
+
 class EpisodeGenerationContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -958,19 +1166,66 @@ class EpisodeGenerationContext(BaseModel):
     episode_number: int = Field(ge=1, le=2000)
     total_episodes: int = Field(ge=1, le=2000)
     previous_episode_summary: str | None = Field(default=None, max_length=2000)
+    previous_episode_handoff: str | None = Field(default=None, max_length=3200)
     previous_episode_question: str | None = Field(default=None, max_length=240)
-    episode_instruction: str | None = Field(default=None, max_length=1000)
-    project_continuity_summary: str | None = Field(default=None, max_length=4000)
+    episode_instruction: str | None = Field(default=None, max_length=4000)
+    module_handoff: str | None = Field(default=None, max_length=3600)
+    long_range_anchor: str | None = Field(default=None, max_length=2400)
+    relevant_character_refs: list[str] = Field(default_factory=list, max_length=20)
+    planned_story_line_refs: list[str] = Field(default_factory=list, max_length=20)
+    planned_setup_refs: list[str] = Field(default_factory=list, max_length=30)
+    planned_payoff_refs: list[str] = Field(default_factory=list, max_length=30)
+    planned_story_beat: str | None = Field(default=None, max_length=1_000)
+    approved_story_node: ApprovedStoryNodeContext | None = None
+    approved_episode_plan: ApprovedEpisodePlanContext | None = None
+    story_bible_context: str | None = Field(default=None, max_length=7000)
+    reference_material_context: str | None = Field(default=None, max_length=6000)
+    project_continuity_summary: str | None = Field(default=None, max_length=7000)
+    confirmed_continuity_checkpoint: str | None = Field(default=None, max_length=7000)
+    provisional_continuity_checkpoint: str | None = Field(default=None, max_length=7000)
     batch_context: GenerationBatchContext | None = None
+
+    @field_validator(
+        "planned_story_line_refs",
+        "planned_setup_refs",
+        "planned_payoff_refs",
+        "relevant_character_refs",
+    )
+    @classmethod
+    def ensure_unique_planning_refs(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Episode planning references must be unique.")
+        return values
 
     @model_validator(mode="after")
     def ensure_episode_number_within_series(self) -> "EpisodeGenerationContext":
         if self.episode_number > self.total_episodes:
             raise ValueError("episode_number must not exceed total_episodes.")
         if self.episode_number == 1 and (
-            self.previous_episode_summary or self.previous_episode_question
+            self.previous_episode_summary
+            or self.previous_episode_handoff
+            or self.previous_episode_question
         ):
             raise ValueError("Episode 1 cannot reference a previous episode.")
+        if (
+            self.approved_episode_plan is not None
+            and self.approved_episode_plan.episode_number != self.episode_number
+        ):
+            raise ValueError(
+                "approved_episode_plan.episode_number must match episode_number."
+            )
+        if self.approved_story_node is not None:
+            node = self.approved_story_node
+            if not node.start_episode <= self.episode_number <= node.end_episode:
+                raise ValueError(
+                    "episode_number must be inside approved_story_node range."
+                )
+            expected_position = self.episode_number - node.start_episode + 1
+            if node.episode_position != expected_position:
+                raise ValueError(
+                    "approved_story_node.episode_position must match episode_number."
+                )
         if self.batch_context is not None:
             if self.batch_context.end_episode > self.total_episodes:
                 raise ValueError("Batch end_episode must not exceed total_episodes.")
@@ -1002,6 +1257,7 @@ class ScriptGenerationDraftRun(BaseModel):
     knowledge_selection_trace: KnowledgeSelectionTrace | None = None
     creative_deepening_run: CreativeDeepeningRun | None = None
     draft_master_script: DraftMasterScript
+    continuity_qc_report: ContinuityQCReport | None = None
     story_qc_report: StoryQCReport
     revision_plan: RevisionPlan
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -1083,6 +1339,7 @@ class BilingualScriptViewRequest(BaseModel):
     generation_strategy_id: str = Field(min_length=3, max_length=120)
     draft_master_script: DraftMasterScript
     target_language: str = Field(default="zh-CN", min_length=2, max_length=20)
+    character_name_map: dict[str, str] = Field(default_factory=dict, max_length=100)
 
 
 class BilingualScriptViewResponse(BaseModel):

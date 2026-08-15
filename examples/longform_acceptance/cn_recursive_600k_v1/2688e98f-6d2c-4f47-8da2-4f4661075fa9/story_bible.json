@@ -1,0 +1,304 @@
+{
+  "schema_version": "v1",
+  "story_bible_id": "story_bible.2688e98f-6d2c-4f47-8da2-4f4661075fa9.main",
+  "story_project_id": "2688e98f-6d2c-4f47-8da2-4f4661075fa9",
+  "content_spec_id": "66f9126f-4162-4e10-8f54-785c778b79cd",
+  "version": 3,
+  "status": "approved",
+  "core_premise": "少女苏晚幼年被苏家逐出大门，与母亲相依为命多年后母亲离奇身亡。她隐姓埋名回到故乡城市，暗中调查母亲死因，逐步将矛头指向本地商界权贵陆正则。在此过程中，她最关键的盟友与情感依靠竟是陆正则之子陆景行——她所信任的人可能正是仇人的血脉。复仇、真相与感情在三方博弈中不断撕裂重组。",
+  "series_goal": "构建一部长篇悬疑复仇故事：苏晚从外部弱者位置一步步逼近母亲死亡真相，在权力、谎言与情感纠葛中完成对自身复仇信念的拷问。故事最终回答——当帮助你的双手沾满你至亲的血时，你该如何选择。整体走向是真相层层揭开、代价逐级加重、关系不可逆转地崩塌或重建。",
+  "theme": "复仇、家庭秘密、情感纠葛——当仇恨的边界侵入最亲密的信任时，人如何在真相与情感之间做出不可调和的选择。",
+  "central_conflict": "苏晚追查母亲死因的外部调查行动，与陆家势力层层掩盖真相形成直接对抗；同时她与陆景行之间日益加深的信任和情感，和她对陆家的复仇意图形成内在撕裂。核心张力在于：每接近真相一步，她与陆景行的关系就多一层毁灭性风险；每获得一份情感支撑，她离复仇的纯粹性就更远。",
+  "ending_direction": "真相最终指向陆正则对苏母之死负有不可推卸的责任，但陆景行并非知情共谋者，甚至在关键时刻以自身代价帮助苏晚。苏晚面临终极选择：完成复仇将毁灭唯一信任她的人的家族与情感；放弃复仇则背叛母亲与自己的信念。结局方向为带有永久代价的有限正义——陆正则受到法律或社会性制裁，但苏晚与陆景行的关系无法完好如初，复仇的完成同时也是情感与身份的永久伤痕。结局不走纯大团圆或纯悲剧，而是承担代价后的前行。",
+  "world_rules": [
+    "故事发生在当代中国都市，商界家族拥有可观社会资源与信息控制力，普通人对抗成本极高。",
+    "母亲的死亡存在被人为制造的'意外'或'病逝'表象，真实死因被多层掩盖。",
+    "苏家与陆家存在多年前的利益纠葛，这是苏晚被逐出与母亲之死的深层背景。",
+    "信息不对称是核心权力工具：掌握信息的一方始终占据主动。",
+    "社会关系网络（旧仆人、医院、企业内部人员）是调查的关键通路，但每条通路都带有被陆家察觉的风险。",
+    "苏晚使用化名与伪装身份行动，她的真实身份一旦暴露将丧失所有调查空间。"
+  ],
+  "character_refs": [
+    "character.protagonist",
+    "character.ally",
+    "character.antagonist",
+    "character.mother",
+    "character.mole",
+    "character.rival"
+  ],
+  "character_registry": [
+    {
+      "character_ref": "character.protagonist",
+      "name": "苏晚",
+      "role": "主角"
+    },
+    {
+      "character_ref": "character.ally",
+      "name": "陆景行",
+      "role": "第二主角"
+    },
+    {
+      "character_ref": "character.antagonist",
+      "name": "陆正则",
+      "role": "主要反派"
+    },
+    {
+      "character_ref": "character.mother",
+      "name": "母亲",
+      "role": "背景催化角色"
+    },
+    {
+      "character_ref": "character.mole",
+      "name": "周叔",
+      "role": "配角"
+    },
+    {
+      "character_ref": "character.rival",
+      "name": "陆景言",
+      "role": "反派配角"
+    }
+  ],
+  "character_arc_targets": [
+    {
+      "character_ref": "character.protagonist",
+      "external_goal": "查明母亲死亡的真正原因并让责任人付出代价。",
+      "internal_need": "在复仇的执念与对信任的渴望之间找到不至于毁灭自我的平衡。",
+      "starting_state": "隐忍多年、以化名回归故乡，内心充满仇恨但对真相所知有限，对他人高度防备。",
+      "target_state": "掌握完整真相后仍能做出有意识而非被仇恨驱动的选择，接受复仇必然带来永久代价，带着伤痕继续前行。",
+      "key_turning_points": [
+        "第一次获得母亲死因并非意外的直接证据。",
+        "发现陆景行的身份使信任与复仇形成直接冲突。",
+        "调查触及陆家核心利益，遭到实质性威胁。",
+        "确认陆正则的直接责任但发现陆景行的无辜与牺牲。",
+        "面临终极选择：复仇手段是否要波及无辜之人。"
+      ],
+      "protected_traits": [
+        "对母亲的记忆是她行动的底层驱动，不会动摇。",
+        "高度警觉与自主判断力，不轻易被他人引导。",
+        "对欺骗有强烈反感，因为她曾被家族抛弃。"
+      ]
+    },
+    {
+      "character_ref": "character.ally",
+      "external_goal": "起初因对父亲的怀疑与对苏晚的好感而主动帮助她，后逐步发现父亲真实面目。",
+      "internal_need": "在家族忠诚与个人良知之间做出选择，确定自己是谁而非父亲是谁。",
+      "starting_state": "陆家继承人，表面光鲜但与父亲关系疏离，对家族事业背后的黑暗面有模糊不安。",
+      "target_state": "了解父亲罪行后选择以自身代价阻止更大伤害，与苏晚形成不可复原但彼此理解的终结关系。",
+      "key_turning_points": [
+        "初次接触苏晚并因同情或好奇提供帮助。",
+        "发现苏晚调查目标直指自己的父亲。",
+        "在父亲与苏晚之间被迫选边。",
+        "以自身行动证明自己并非父亲的延续。"
+      ],
+      "protected_traits": [
+        "对父亲既无盲从也无纯粹恨意，处于持续的矛盾中。",
+        "有自己的道德底线，不会为家族利益不择手段。",
+        "对苏晚的情感是真实的，但不会因此完全放弃对父亲的基本判断。"
+      ]
+    },
+    {
+      "character_ref": "character.antagonist",
+      "external_goal": "维持陆家商业帝国与家族声誉，掩盖过去一切不当行为。",
+      "internal_need": null,
+      "starting_state": "权势稳固，对过去的秘密有信心，视苏晚为微不足道的威胁。",
+      "target_state": "因苏晚调查逐步失去控制力，最终在真相与法律面前受到制裁或社会性崩塌。",
+      "key_turning_points": [
+        "察觉苏晚的真实身份与调查意图。",
+        "动用资源压制调查，造成苏晚实质性困难。",
+        "内部出现背叛或信息泄露。",
+        "罪行证据链形成无法否认的闭环。"
+      ],
+      "protected_traits": [
+        "精明且资源丰富，不会犯低级错误。",
+        "对家族声誉的执念超过对任何个人的关心。",
+        "不会主动承认罪行，只会在证据链前失去否认空间。"
+      ]
+    },
+    {
+      "character_ref": "character.mole",
+      "external_goal": "因对苏母的旧日情义或愧疚，暗中为苏晚提供关键信息。",
+      "internal_need": "弥补当年未能保护苏母的内疚。",
+      "starting_state": "陆家旧仆人，了解部分内幕但长期沉默自保。",
+      "target_state": "在关键时刻提供决定性证据或证词，自身付出被陆家报复的代价。",
+      "key_turning_points": [
+        "初次向苏晚透露母亲死因可疑。",
+        "因帮助苏晚而遭到陆家施压或威胁。",
+        "在最终阶段做出是否公开作证的选择。"
+      ],
+      "protected_traits": [
+        "对苏母有真实情义，不是纯粹的利益交换者。",
+        "胆小但良知未泯，恐惧与愧疚并存。"
+      ]
+    },
+    {
+      "character_ref": "character.rival",
+      "external_goal": "维护自己在陆家继承序列中的地位，视苏晚为威胁。",
+      "internal_need": null,
+      "starting_state": "陆景行的兄弟，对家族利益更忠诚也更冷酷，觊觎继承权。",
+      "target_state": "成为陆正则压制苏晚的工具性力量，但也因自身贪婪最终加速陆家内部瓦解。",
+      "key_turning_points": [
+        "发现陆景行与苏晚的关系并加以利用。",
+        "主动向陆正则告密或独立采取打压行动。",
+        "因自身利益计算失误导致陆家内部裂痕扩大。"
+      ],
+      "protected_traits": [
+        "将家族利益与个人野心捆绑，比陆正则更短视。",
+        "对陆景行有竞争敌意，不会与他和解。"
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "relationship_id": "rel.suwan_lujingxing",
+      "source_character_ref": "character.protagonist",
+      "target_character_ref": "character.ally",
+      "relationship_type": "盟友与潜在恋人",
+      "initial_state": "苏晚以化名接近陆景行，对其有利用也有真实好感；陆景行因好奇与同情帮助她，不知她真实身份与目的。",
+      "target_direction": "信任与情感逐步加深，但身份与目的的对立使关系在真相面前经历不可逆撕裂，最终走向带着永久伤痕的理解与分离或疏离。",
+      "locked": false
+    },
+    {
+      "relationship_id": "rel.suwan_luzhengze",
+      "source_character_ref": "character.protagonist",
+      "target_character_ref": "character.antagonist",
+      "relationship_type": "复仇者与仇人",
+      "initial_state": "苏晚暗中怀疑陆正则与母亲之死有关，陆正则尚不知苏晚存在或已回城。",
+      "target_direction": "对抗逐步公开化，从暗中调查走向正面博弈，最终陆正则因证据链暴露而失去控制。",
+      "locked": true
+    },
+    {
+      "relationship_id": "rel.lujingxing_luzhengze",
+      "source_character_ref": "character.ally",
+      "target_character_ref": "character.antagonist",
+      "relationship_type": "父子",
+      "initial_state": "表面维系父子关系，实际情感疏离，陆景行对父亲有本能不安但无确凿怀疑。",
+      "target_direction": "随着真相揭露，父子关系从疏离走向对立，陆景行被迫在血缘与良知间做出不可逆选择。",
+      "locked": false
+    },
+    {
+      "relationship_id": "rel.suwan_mother",
+      "source_character_ref": "character.protagonist",
+      "target_character_ref": "character.mother",
+      "relationship_type": "母女",
+      "initial_state": "母亲已逝，苏晚对母亲的记忆与愧疚是全部行动起点。",
+      "target_direction": "随着真相揭开，苏晚对母亲的理解从理想化记忆走向复杂完整认知，但母爱作为行动底层驱动不变。",
+      "locked": true
+    },
+    {
+      "relationship_id": "rel.zhou_suwan",
+      "source_character_ref": "character.mole",
+      "target_character_ref": "character.protagonist",
+      "relationship_type": "暗中援助者",
+      "initial_state": "周叔因对苏母的旧日情义在暗中有限度地帮助苏晚，但不暴露自身。",
+      "target_direction": "援助逐步加深，最终在关键节点做出决定性贡献，自身承受陆家报复代价。",
+      "locked": false
+    },
+    {
+      "relationship_id": "rel.lujingyan_lujingxing",
+      "source_character_ref": "character.rival",
+      "target_character_ref": "character.ally",
+      "relationship_type": "兄弟竞争",
+      "initial_state": "陆景言视陆景行为继承权竞争对手，关系冷淡而戒备。",
+      "target_direction": "竞争随家族危机加剧而恶化，陆景言利用苏晚的存在打击陆景行，最终兄弟关系破裂。",
+      "locked": false
+    },
+    {
+      "relationship_id": "rel.luzhengze_mother",
+      "source_character_ref": "character.antagonist",
+      "target_character_ref": "character.mother",
+      "relationship_type": "加害者与受害者",
+      "initial_state": "陆正则与苏母之死有直接或间接责任，但真相被多层掩盖，外界视为意外或病逝。",
+      "target_direction": "随着证据链逐步形成，陆正则的责任被确认为不可推卸，掩盖行为本身成为另一层罪证。",
+      "locked": true
+    }
+  ],
+  "story_lines": [
+    {
+      "story_line_id": "line.investigation",
+      "title": "母亲死因调查主线",
+      "story_line_type": "main",
+      "premise": "苏晚以化名回到故乡，从母亲死亡表象的缝隙入手，逐步建立证据链。每一步调查都使她更接近陆正则，也使陆家的反制力度升级。调查的推进不是线性收集线索，而是每次突破都改变她的处境、资源与风险。",
+      "planned_resolution": "证据链在多个来源（周叔证词、医院记录、企业内部文件）交汇后形成闭环，确认陆正则对苏母之死的直接责任。真相揭露不是单一爆发时刻，而是多源汇聚后的不可否认。",
+      "character_refs": [
+        "character.protagonist",
+        "character.antagonist",
+        "character.mole",
+        "character.mother"
+      ]
+    },
+    {
+      "story_line_id": "line.trust_betrayal",
+      "title": "信任与身份撕裂线",
+      "story_line_type": "main",
+      "premise": "苏晚与陆景行的关系从利用性的接近开始，逐步产生真实信任与情感。当陆景行身份的完整含义被揭示——他是她头号嫌疑人的儿子——信任本身成为最大的风险。这条线不是独立的感情副线，而是直接决定调查线可否推进的关键变量。",
+      "planned_resolution": "陆景行在得知全部真相后以自身行动证明他不是父亲的延续，在关键时刻帮助苏晚突破陆正则的最后防线。但两人关系无法回到信任建立时的状态，以带着永久伤痕的理解收束。",
+      "character_refs": [
+        "character.protagonist",
+        "character.ally",
+        "character.antagonist"
+      ]
+    },
+    {
+      "story_line_id": "line.lujia_internal",
+      "title": "陆家内部权力裂痕",
+      "story_line_type": "subplot",
+      "premise": "陆景言为争夺继承权，主动利用苏晚的存在打击陆景行，并向陆正则告密。这条线独立于苏晚的调查，但通过加速陆正则对苏晚的察觉、制造陆家内部信任崩塌，直接改变调查线的难度与节奏。",
+      "planned_resolution": "陆景言的短视操作在短期内加重了苏晚的危机，但长期反而加速陆家内部瓦解，为苏晚最终突破提供了意料外的缺口。陆景言自身也因贪婪失误而失去继承资格。",
+      "character_refs": [
+        "character.rival",
+        "character.ally",
+        "character.antagonist"
+      ]
+    },
+    {
+      "story_line_id": "line.arc.revenge_conscience",
+      "title": "苏晚复仇信念与良知拷问",
+      "story_line_type": "character_arc",
+      "premise": "苏晚的复仇信念在故事推进中不断被测试：当她信任的人可能是仇人之子时，当她发现真相比想象更复杂时，当她的行动可能波及无辜时。这不是一个复仇还是放下的简单二选一，而是在不同阶段面对不同代价的持续拷问。",
+      "planned_resolution": "苏晚最终确认复仇的正当性但不接受无差别伤害，选择以有代价的方式让陆正则承担责任，同时接受自己无法全身而退。她的终点不是释然也不是沉沦，而是带着清醒伤痕的继续。",
+      "character_refs": [
+        "character.protagonist",
+        "character.mother"
+      ]
+    },
+    {
+      "story_line_id": "line.arc.lujingxing_identity",
+      "title": "陆景行身份认同挣扎",
+      "story_line_type": "character_arc",
+      "premise": "陆景行从'陆家继承人'的预设身份出发，在接触苏晚后发现父亲的真实面目，经历从否认到确认到被迫选边的过程。他的挣扎不是背叛父亲还是忠于家族的简单选择，而是在血缘赋予的身份与自我良知之间找到自己究竟是谁。",
+      "planned_resolution": "陆景行选择以自身行动而非与父亲决裂来定义自己，在关键时刻阻止更大伤害，但付出家族关系与个人代价。他不是英雄化角色，而是一个在压力下做出了有限但真实正确选择的人。",
+      "character_refs": [
+        "character.ally",
+        "character.antagonist"
+      ]
+    }
+  ],
+  "major_setup_payoff_refs": [
+    "setup:苏晚被苏家逐出与母亲之死的深层关联——payoff:逐出事件是陆家施压的结果，苏母之死与陆正则直接相关",
+    "setup:苏晚以化名行动——payoff:身份暴露成为中段危机转折，改变她的处境与可用策略",
+    "setup:周叔对苏母的旧日情义——payoff:周叔最终证词成为证据链闭环的关键一环",
+    "setup:陆景行对父亲的模糊不安——payoff:不安被确认为父亲真实罪行后，转化为关键选择时刻的行动依据",
+    "setup:陆景言对继承权的觊觎——payoff:其告密行为短期压制苏晚但长期制造陆家内部裂痕，提供意外突破口",
+    "setup:苏晚对信任的反感（因被家族抛弃）——payoff:她最终选择信任陆景行是基于证据与行动的判断，而非情感冲动，这与她的核心特质形成呼应"
+  ],
+  "locked_facts": [
+    "母亲确实死于非自然原因，陆正则负有直接责任。",
+    "陆景行在母亲之死中不知情、未参与，不是共谋者。",
+    "苏晚幼年被逐出苏家与陆家的施压有关联。",
+    "母亲的死亡表象被人为制造成意外或病逝。",
+    "周叔是当年知情者之一，掌握部分关键信息。",
+    "陆正则不会主动认罪，只会在证据链面前失去否认空间。",
+    "结局中陆正则受到制裁但苏晚与陆景行关系不可完全恢复。"
+  ],
+  "avoid_patterns": [
+    "不要让苏晚的调查变成反复更换嫌疑人名字和地点而策略与风险不变的重复循环。",
+    "不要将苏晚与陆景行的关系处理为纯粹装饰性感情线，它必须直接影响调查的推进与阻碍。",
+    "不要让陆正则成为脸谱化反派，他应有合理的自我逻辑与资源运作。",
+    "不要让真相通过单一外部救星或偶然发现突然解决，证据链须由苏晚主动行动串联。",
+    "不要让陆景行在无内心挣扎的情况下直接倒向苏晚，他的选择须有代价与过程。",
+    "不要让每个调查节点都在相同的威胁模式下展开，应通过关系性、信息性、道德性、时间性等不同维度升级冲突。",
+    "不要为了延长篇幅而反复搁置核心真相揭示，应让每次搁置都伴随可用策略或关系的实质变化。"
+  ],
+  "created_at": "2026-08-06T07:40:31.854841Z",
+  "approved_at": "2026-08-06T07:43:42.165922Z"
+}

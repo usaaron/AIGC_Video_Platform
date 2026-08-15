@@ -1,0 +1,1213 @@
+{
+  "data": {
+    "content_spec_id": "66f9126f-4162-4e10-8f54-785c778b79cd",
+    "generation_strategy_id": "strategy.cn_mainland.longform_knowledge_candidate.v2",
+    "generation_strategy_version": "v2",
+    "orchestration_plan": {
+      "id": "371ba826-e91a-4412-a12e-141ecc372a82",
+      "content_spec_id": "66f9126f-4162-4e10-8f54-785c778b79cd",
+      "platform_profile_id": "cn_mainland_comic_drama_v1",
+      "title": "一个被家族抛弃的女孩多年后回到故乡，调查母亲死亡的真相，却发现帮助她的人可能正是仇...",
+      "creative_hook": "先明确整部故事的核心矛盾和长期追读动力，再进入递归拆分。",
+      "episode_goal": "一个被家族抛弃的女孩多年后回到故乡，调查母亲死亡的真相，却发现帮助她的人可能正是仇人的儿子。希望生成一部长篇悬疑复仇故事。",
+      "target_duration_seconds": 180,
+      "desired_scene_count": 4,
+      "asset_requests": [
+        {
+          "request_id": "characters_core",
+          "asset_type": "character",
+          "reason": "Retrieve reusable character assets aligned with primary story tags.",
+          "required_tag_ids": [
+            "genre.urban",
+            "genre.mystery"
+          ],
+          "optional_tag_ids": [],
+          "limit": 3
+        },
+        {
+          "request_id": "scenes_supporting",
+          "asset_type": "scene",
+          "reason": "Retrieve environment assets that support the episode hook and pacing.",
+          "required_tag_ids": [
+            "genre.urban"
+          ],
+          "optional_tag_ids": [
+            "genre.mystery",
+            "theme.revenge"
+          ],
+          "limit": 3
+        }
+      ],
+      "script_constraints": [
+        {
+          "source": "creative_brief",
+          "rule": "Open with the hook: 先明确整部故事的核心矛盾和长期追读动力，再进入递归拆分。",
+          "priority": "high"
+        },
+        {
+          "source": "platform_goal",
+          "rule": "Keep pacing aligned with a 180 second short-form episode.",
+          "priority": "high"
+        },
+        {
+          "source": "platform_profile",
+          "rule": "Respect platform best practice: Build a coherent story foundation before adapting it into production episodes.",
+          "priority": "medium"
+        }
+      ],
+      "scene_blueprints": [
+        {
+          "scene_number": 1,
+          "purpose": "Establish the hook and the public-facing conflict immediately.",
+          "target_emotion": "持续期待",
+          "recommended_focus": "hook"
+        },
+        {
+          "scene_number": 2,
+          "purpose": "Increase pressure on the protagonist and sharpen the episode goal.",
+          "target_emotion": "持续期待",
+          "recommended_focus": "conflict"
+        },
+        {
+          "scene_number": 3,
+          "purpose": "Increase pressure on the protagonist and sharpen the episode goal.",
+          "target_emotion": "持续期待",
+          "recommended_focus": "conflict"
+        },
+        {
+          "scene_number": 4,
+          "purpose": "Escalate the conflict and land the cliffhanger ending.",
+          "target_emotion": "suspense",
+          "recommended_focus": "cliffhanger"
+        }
+      ],
+      "status": "ready",
+      "blocking_issues": [],
+      "created_at": "2026-08-06T08:12:58.031718Z",
+      "updated_at": "2026-08-06T08:12:58.031722Z"
+    },
+    "retrieval_result": {
+      "plan_id": "371ba826-e91a-4412-a12e-141ecc372a82",
+      "content_spec_id": "66f9126f-4162-4e10-8f54-785c778b79cd",
+      "platform_profile_id": "cn_mainland_comic_drama_v1",
+      "status": "partial",
+      "resolved_requests": [
+        {
+          "request_id": "characters_core",
+          "asset_type": "character",
+          "reason": "Retrieve reusable character assets aligned with primary story tags.",
+          "required_tag_ids": [
+            "genre.urban",
+            "genre.mystery"
+          ],
+          "optional_tag_ids": [],
+          "candidates": []
+        },
+        {
+          "request_id": "scenes_supporting",
+          "asset_type": "scene",
+          "reason": "Retrieve environment assets that support the episode hook and pacing.",
+          "required_tag_ids": [
+            "genre.urban"
+          ],
+          "optional_tag_ids": [
+            "genre.mystery",
+            "theme.revenge"
+          ],
+          "candidates": [
+            {
+              "asset_id": "scene.frontend_mvp_genre_urban",
+              "asset_type": "scene",
+              "title": "可适配的都市创作参考",
+              "summary": "用于中国大陆长篇漫剧创作的通用标签参考，不预设固定情节。",
+              "matched_required_tag_ids": [
+                "genre.urban"
+              ],
+              "matched_optional_tag_ids": [],
+              "score": 0.75,
+              "rationale": [
+                "Matched all 1 required tags.",
+                "Asset is explicitly scoped to the target platform profile."
+              ]
+            }
+          ]
+        }
+      ],
+      "unresolved_request_ids": [
+        "characters_core"
+      ],
+      "notes": [
+        "Resolved 1 of 2 asset requests.",
+        "Current retrieval uses deterministic rule-based matching on asset type and controlled tags."
+      ],
+      "generated_at": "2026-08-06T08:12:58.032089Z"
+    },
+    "prompt_retrieval_result": {
+      "generation_strategy_id": "strategy.cn_mainland.longform_knowledge_candidate.v2",
+      "strategy_name": "Mainland China Longform Knowledge Candidate v2",
+      "prompt_ids": [
+        "prompt.story_planning.frontend_mvp_cn",
+        "prompt.mainland_serialization.frontend_mvp_cn"
+      ],
+      "prompts": [
+        {
+          "id": "prompt.story_planning.frontend_mvp_cn",
+          "name": "China Mainland Story Foundation Prompt",
+          "prompt_type": "story_planning",
+          "target_module": "script_engine",
+          "applicable_tags": [],
+          "target_platform": "mainland_china",
+          "target_audience": "Mainland China serialized comic-drama audience",
+          "version": "v1",
+          "prompt_template": "根据结构化创作意图生成中文连载故事的单集框架。优先保持人物动机、关系、世界规则和前后状态一致；每个场景必须包含明确目标、有效阻力和改变故事状态的结果，后续场景应由此前结果推动。不得套用 TikTok、海外短视频或固定付费卡点规则，不得擅自改变用户锁定的人物设定。",
+          "input_variables": [
+            "content_spec_json",
+            "creative_brief_json",
+            "platform_profile_json",
+            "retrieved_assets_json",
+            "generation_strategy_json",
+            "output_language",
+            "desired_scene_count",
+            "target_duration_seconds",
+            "target_script_body_characters",
+            "output_json_schema"
+          ],
+          "output_schema": {
+            "type": "object"
+          },
+          "evaluation_notes": [
+            "Current runtime still generates bounded episode frameworks, not a complete 600,000-character manuscript.",
+            "Prefer continuity and consequential character choices over disconnected short-form shocks.",
+            "Hongguo is a market reference, not a hard platform contract."
+          ],
+          "created_at": "2026-08-06T08:11:32.241238Z",
+          "updated_at": "2026-08-06T08:11:32.241239Z"
+        },
+        {
+          "id": "prompt.mainland_serialization.frontend_mvp_cn",
+          "name": "Mainland China Serialization Prompt",
+          "prompt_type": "commercial_evaluation",
+          "target_module": "script_engine",
+          "applicable_tags": [],
+          "target_platform": "mainland_china",
+          "target_audience": "Mainland China serialized comic-drama audience",
+          "version": "v1",
+          "prompt_template": "检查本集是否推进主线或人物关系、是否留下可追踪的后续责任，并避免重复冲突、空转场景和无依据反转。只使用当前输入提供的题材、人物和约束，不把特定平台爆款公式当作强制结构。",
+          "input_variables": [
+            "content_spec_json",
+            "platform_constraints",
+            "hook_requirement",
+            "cliffhanger_requirement",
+            "cultural_fit_requirement"
+          ],
+          "output_schema": {
+            "type": "object"
+          },
+          "evaluation_notes": [
+            "This is a bounded generation instruction, not professional mainland-market validation.",
+            "Long-form planning and continuity ledger remain pending capabilities."
+          ],
+          "created_at": "2026-08-06T08:11:32.242861Z",
+          "updated_at": "2026-08-06T08:11:32.242863Z"
+        }
+      ],
+      "retrieval_mode": "exact_ids",
+      "notes": [
+        "Current MVP prompt retrieval uses exact strategy-declared prompt IDs.",
+        "Draft and Creative Deepening prompt sets remain purpose-scoped."
+      ],
+      "resolved_at": "2026-08-06T08:12:58.032117Z"
+    },
+    "selected_prompt_ids": [
+      "prompt.story_planning.frontend_mvp_cn",
+      "prompt.mainland_serialization.frontend_mvp_cn"
+    ],
+    "prompt_build_result": {
+      "prompt_text": "[story_planning:prompt.story_planning.frontend_mvp_cn]\n根据结构化创作意图生成中文连载故事的单集框架。优先保持人物动机、关系、世界规则和前后状态一致；每个场景必须包含明确目标、有效阻力和改变故事状态的结果，后续场景应由此前结果推动。不得套用 TikTok、海外短视频或固定付费卡点规则，不得擅自改变用户锁定的人物设定。\n\n[commercial_evaluation:prompt.mainland_serialization.frontend_mvp_cn]\n检查本集是否推进主线或人物关系、是否留下可追踪的后续责任，并避免重复冲突、空转场景和无依据反转。只使用当前输入提供的题材、人物和约束，不把特定平台爆款公式当作强制结构。\n\n[structured_context]\nReturn only valid JSON that satisfies OutputJsonSchema.\nSerializedEpisodeContract: Write only the requested episode. Treat previous episode state as established continuity, not optional inspiration. The new episode must begin from its consequences, advance the series conflict, avoid repeating resolved beats, and end with a question or payoff appropriate to its position in the requested episode count. An optional episode instruction may shape this episode but must not contradict locked character facts. When a project continuity summary is supplied, preserve its active story lines and relationship states without treating it as permission to repeat earlier scenes.\nEpisodeContext: {\"generation_mode\": \"full\", \"episode_number\": 1, \"total_episodes\": 334, \"previous_episode_summary\": null, \"previous_episode_question\": null, \"episode_instruction\": \"本集目标：苏晚以化名回到母亲生前所在城市，通过母亲遗物中的碎片线索接触母亲生前社会关系，寻找调查切入点，首次触及母亲死亡表象与真实死因之间的裂缝。；进入状态：苏晚携带假身份准备回到母亲生前所在城市。她手中仅有母亲遗物中零散的线索指向母亲曾就诊的医院，尚未建立任何本地社会关系，调查资源极度匮乏。她心中只有模糊的复仇直觉和母亲遗物中的碎片信息，尚无任何确凿证据指向母亲死因存在隐情。；中心冲突：苏晚在零资源、零人脉的条件下需要打开调查缺口，而她的第一个挑战是：在不暴露假身份的前提下，如何从母亲遗物中的零散线索找到可追踪的调查方向。；主角决定：苏晚决定以化名回乡，从母亲生前社会关系入手开启调查，而非直接去找医院——她需要先理解母亲生前的人际网络，才能判断哪些线索值得追查。；揭示：母亲生前一位旧识在提及母亲就诊医院时突然沉默回避，暗示那里有不为人知的事。；情绪推进：从复仇的模糊直觉与孤身回乡的压抑感，到初次触及母亲死亡表象下可能隐藏裂缝时的震动与不安。；退出状态：苏晚已回到母亲生前所在城市，以化名安顿。她初步接触了母亲生前的社会关系，获得指向医院的碎片线索，第一次感到母亲死亡可能有隐情，但尚无确凿证据。母亲旧识对医院的回避态度成为她下一步追查的锚点。；结尾悬念或回报：母亲旧识在被追问医院相关情况后匆忙告辞，临走时低声说了一句\\\"那家医院的事别查了\\\"，随即消失在楼道里。\", \"project_continuity_summary\": \"核心前提：少女苏晚幼年被苏家逐出大门，与母亲相依为命多年后母亲离奇身亡。她隐姓埋名回到故乡城市，暗中调查母亲死因，逐步将矛头指向本地商界权贵陆正则。在此过程中，她最关键的盟友与情感依靠竟是陆正则之子陆景行——她所信任的人可能正是仇人的血脉。复仇、真相与感情在三方博弈中不断撕裂重组。\\n整部目标：构建一部长篇悬疑复仇故事：苏晚从外部弱者位置一步步逼近母亲死亡真相，在权力、谎言与情感纠葛中完成对自身复仇信念的拷问。故事最终回答——当帮助你的双手沾满你至亲的血时，你该如何选择。整体走向是真相层层揭开、代价逐级加重、关系不可逆转地崩塌或重建。\\n主题：复仇、家庭秘密、情感纠葛——当仇恨的边界侵入最亲密的信任时，人如何在真相与情感之间做出不可调和的选择。\\n中心冲突：苏晚追查母亲死因的外部调查行动，与陆家势力层层掩盖真相形成直接对抗；同时她与陆景行之间日益加深的信任和情感，和她对陆家的复仇意图形成内在撕裂。核心张力在于：每接近真相一步，她与陆景行的关系就多一层毁灭性风险；每获得一份情感支撑，她离复仇的纯粹性就更远。\\n结局方向：真相最终指向陆正则对苏母之死负有不可推卸的责任，但陆景行并非知情共谋者，甚至在关键时刻以自身代价帮助苏晚。苏晚面临终极选择：完成复仇将毁灭唯一信任她的人的家族与情感；放弃复仇则背叛母亲与自己的信念。结局方向为带有永久代价的有限正义——陆正则受到法律或社会性制裁，但苏晚与陆景行的关系无法完好如初，复仇的完成同时也是情感与身份的永久伤痕。结局不走纯大团圆或纯悲剧，而是承担代价后的前行。\\n锁定事实：母亲确实死于非自然原因，陆正则负有直接责任。；陆景行在母亲之死中不知情、未参与，不是共谋者。；苏晚幼年被逐出苏家与陆家的施压有关联。；母亲的死亡表象被人为制造成意外或病逝。；周叔是当年知情者之一，掌握部分关键信息。；陆正则不会主动认罪，只会在证据链面前失去否认空间。；结局中陆正则受到制裁但苏晚与陆景行关系不可完全恢复。\", \"batch_context\": {\"batch_number\": 1, \"start_episode\": 1, \"end_episode\": 5, \"batch_instruction\": \"承接既有状态推进当前规划节点，不得重置冲突或重复上一集。\"}}\nContentSpec: {\"title\": \"一个被家族抛弃的女孩多年后回到故乡，调查母亲死亡的真相，却发现帮助她的人可能正是仇...\", \"audience_goal\": {\"summary\": \"中国大陆连载漫剧与网络故事受众\", \"priority\": \"primary\", \"success_metric\": \"持续阅读与分集追更意愿\"}, \"commercial_goal\": {\"summary\": \"建立可持续展开和后续漫剧改编的长篇故事基础\", \"priority\": \"primary\", \"success_metric\": \"连续性、人物稳定性与阶段性追读动力\"}, \"platform_goal\": {\"platform_profile_id\": \"cn_mainland_comic_drama_v1\", \"objective\": \"生成可递归规划的中国大陆中文长篇故事母本\", \"target_duration_seconds\": 180, \"target_aspect_ratio\": \"9:16\"}, \"story_goal\": \"一个被家族抛弃的女孩多年后回到故乡，调查母亲死亡的真相，却发现帮助她的人可能正是仇人的儿子。希望生成一部长篇悬疑复仇故事。\", \"quality_level\": \"high\", \"budget_level\": \"medium\", \"tags\": [{\"ontology_node_id\": \"genre.urban\", \"label\": \"都市\", \"category\": \"Genre\", \"confidence\": 1.0}, {\"ontology_node_id\": \"genre.mystery\", \"label\": \"悬疑\", \"category\": \"Genre\", \"confidence\": 1.0}, {\"ontology_node_id\": \"theme.revenge\", \"label\": \"复仇\", \"category\": \"Theme\", \"confidence\": 1.0}], \"creative_brief\": {\"hook\": \"先明确整部故事的核心矛盾和长期追读动力，再进入递归拆分。\", \"tone\": \"有张力\", \"pacing\": \"长线递进\", \"target_emotion\": \"持续期待\", \"asset_constraints\": [], \"generation_notes\": [\"用户自定义创作标签：家庭秘密、情感纠葛。\"]}, \"metadata\": {\"source\": \"creative_intent_resolution_v1\", \"story_goal_source\": \"user_provided\", \"creative_intent_schema_version\": \"v1\"}, \"id\": \"66f9126f-4162-4e10-8f54-785c778b79cd\", \"status\": \"draft\", \"created_at\": \"2026-08-06T03:37:28.108183Z\", \"updated_at\": \"2026-08-06T03:37:28.108212Z\"}\nCreativeBrief: {\"hook\": \"先明确整部故事的核心矛盾和长期追读动力，再进入递归拆分。\", \"tone\": \"有张力\", \"pacing\": \"长线递进\", \"target_emotion\": \"持续期待\", \"asset_constraints\": [], \"generation_notes\": [\"用户自定义创作标签：家庭秘密、情感纠葛。\"]}\nCreativeContextUsage: Treat resolved character fields and exclusions as bounded creative constraints. Preserve locked fields. Express character motivation, belief, contradiction, decision pattern, and moral boundaries through visible choices and consequences. Field provenance is lineage, not dialogue or story exposition.\nResolvedCreativeContext: {\"schema_version\": \"v1\", \"content_spec_id\": \"66f9126f-4162-4e10-8f54-785c778b79cd\", \"characters\": [], \"excluded_tag_ids\": [], \"excluded_patterns\": [\"不要让苏晚的调查变成反复更换嫌疑人名字和地点而策略与风险不变的重复循环。\", \"不要将苏晚与陆景行的关系处理为纯粹装饰性感情线，它必须直接影响调查的推进与阻碍。\", \"不要让陆正则成为脸谱化反派，他应有合理的自我逻辑与资源运作。\", \"不要让真相通过单一外部救星或偶然发现突然解决，证据链须由苏晚主动行动串联。\", \"不要让陆景行在无内心挣扎的情况下直接倒向苏晚，他的选择须有代价与过程。\", \"不要让每个调查节点都在相同的威胁模式下展开，应通过关系性、信息性、道德性、时间性等不同维度升级冲突。\", \"不要为了延长篇幅而反复搁置核心真相揭示，应让每次搁置都伴随可用策略或关系的实质变化。\"], \"resolution_warnings\": []}\nCreativeKnowledgeUsage: Apply only the supplied principles that fit the ContentSpec and resolved creative constraints. Respect every limitation, avoid the listed anti-patterns, and do not copy examples or override user, platform, safety, character-lock, or story-direction constraints.\nCreativeKnowledgeBundle: {\"bundle_id\": \"knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2\", \"version\": \"v2\", \"knowledge_items\": [{\"knowledge_id\": \"knowledge.story.causal_sequence.v1\", \"version\": \"v1\", \"category\": \"story_structure\", \"principle\": \"Arrange major incidents so later events arise plausibly or necessarily from earlier events rather than merely following them.\", \"application_rules\": [\"Record what state changes after each scene.\", \"Make a later goal, obstacle, reveal, or cost depend on that changed state.\"], \"limitations\": [\"Do not eliminate deliberate ambiguity or associative structures with clear organizing logic.\", \"Do not require literal dialogue references to prior scenes.\"], \"anti_patterns\": [\"Repeating parallel scenes without changing available choices.\", \"Ignoring the consequences of the prior scene outcome.\"]}, {\"knowledge_id\": \"knowledge.character.choice_reveals_character.v1\", \"version\": \"v1\", \"category\": \"character_design\", \"principle\": \"Reveal character through consequential choices under pressure, especially when attractive values or outcomes conflict.\", \"application_rules\": [\"Present at least two meaningful options with distinct costs.\", \"Let the chosen action affect later trust, risk, or opportunity.\"], \"limitations\": [\"Do not make every choice extreme or irreversible.\", \"Allow low-pressure choices when intentionally establishing routine.\"], \"anti_patterns\": [\"Labeling a character brave without showing a risky choice.\", \"Presenting a choice with only one plausible option and no cost.\"]}, {\"knowledge_id\": \"knowledge.conflict.progressive_cost.v1\", \"version\": \"v1\", \"category\": \"conflict_and_emotion\", \"principle\": \"Escalate conflict by increasing cost, narrowing options, or deepening opposition created by earlier actions.\", \"application_rules\": [\"Track what becomes harder, riskier, or less reversible after each outcome.\", \"Vary escalation through relational, informational, moral, temporal, or physical cost.\"], \"limitations\": [\"Do not make every beat louder or more violent.\", \"Allow temporary release when it makes the next escalation legible.\"], \"anti_patterns\": [\"Repeating the same threat across multiple scenes.\", \"Announcing larger stakes while available choices remain unchanged.\"]}, {\"knowledge_id\": \"knowledge.payoff.logical_necessity.v1\", \"version\": \"v1\", \"category\": \"conflict_and_emotion\", \"principle\": \"Prepare a payoff through connected choices so it can surprise in form while feeling logically necessary in retrospect.\", \"application_rules\": [\"Identify the setup, intervening choices, and payoff transformation.\", \"Make the payoff answer an established desire, fear, or dramatic question.\"], \"limitations\": [\"Do not make the outcome fully predictable.\", \"Do not require a positive reward when the intended payoff is costly or tragic.\"], \"anti_patterns\": [\"Resolving the conflict through an unprepared outside rescue.\", \"Repeating a setup without changing its meaning or consequence.\"]}, {\"knowledge_id\": \"knowledge.serialization.sustainable_story_engine.v1\", \"version\": \"v1\", \"category\": \"story_structure_and_serialization\", \"principle\": \"A continuing story needs a sustainable dramatic engine that creates related but non-repetitive goals, opposition, choices, and accumulating consequences.\", \"application_rules\": [\"Name the repeatable source of dramatic action and explain how its consequences accumulate instead of resetting.\", \"Show how protagonist action and opposition response can evolve across multiple major movements.\", \"Identify when the engine should end, transform, or receive genuinely new story material.\"], \"limitations\": [\"Do not force an episodic reset pattern onto a finite serialized story.\", \"Do not use a target episode count as proof that the premise is sustainable.\"], \"anti_patterns\": [\"Repeating the same investigation or confrontation while only changing names and locations.\", \"Stretching one unresolved problem without changing strategy, power, relationships, or consequences.\"]}, {\"knowledge_id\": \"knowledge.story.macro_sequence_turning.v1\", \"version\": \"v1\", \"category\": \"story_structure\", \"principle\": \"Organize a long story into content-derived movements whose escalations, revelations, or reversals change narrative direction or power balance.\", \"application_rules\": [\"Give each major movement a dramatic question, strategy, opposition, and irreversible exit state.\", \"Make every major turn change subsequent goals, choices, resources, knowledge, or power.\", \"Pass a concrete unresolved obligation into the next movement.\"], \"limitations\": [\"Do not impose a fixed act count, equal branch size, or equal recursive depth.\", \"Do not label ordinary activity as a turning point without a state change.\"], \"anti_patterns\": [\"Planning nodes differ only by episode range while repeating the same strategy and stakes.\", \"A reveal changes exposition but not character choice or power.\"]}, {\"knowledge_id\": \"knowledge.character.long_arc_trajectory.v1\", \"version\": \"v1\", \"category\": \"character_design\", \"principle\": \"A major serialized character needs an ongoing struggle, contradiction, and trajectory so repeated pressure creates development without arbitrary personality changes.\", \"application_rules\": [\"Define a persistent struggle and contradiction that can be tested in different ways.\", \"Connect trajectory milestones to consequential choices rather than only backstory revelations.\", \"Allow change, resistance, deterioration, or stabilization according to the story direction.\"], \"limitations\": [\"Do not require every character to transform positively.\", \"Do not predetermine choices so tightly that scenes lose discovery and surprise.\"], \"anti_patterns\": [\"A character changes values only because the plot requires a twist.\", \"The same emotional lesson is learned and forgotten in every movement.\"]}, {\"knowledge_id\": \"knowledge.storyline.character_driven_parallel_arcs.v1\", \"version\": \"v1\", \"category\": \"story_structure_and_serialization\", \"principle\": \"Parallel storylines should arise from characters with distinct goals and alter one another through consequential intersections rather than decorative side plots.\", \"application_rules\": [\"Assign each active line a character owner, goal, conflict, local resolution, and effect on another line.\", \"Plan intersections around choices or consequences rather than coincidental meetings.\", \"Allow a line to pause, conclude, or change ownership when its dramatic function is complete.\"], \"limitations\": [\"Do not require three storylines in every episode or planning node.\", \"Do not keep a subplot active after it has no independent question or consequence.\"], \"anti_patterns\": [\"A relationship line only comments emotionally on the main investigation.\", \"A supporting character exists only to deliver one clue and disappear.\"]}]}\nPlatformProfile: {\"id\": \"cn_mainland_comic_drama_v1\", \"platform_name\": \"Mainland China Comic Drama\", \"version\": \"v1\", \"content_mode\": \"longform_story_to_comic_drama\", \"primary_regions\": [\"CN\"], \"supported_aspect_ratios\": [\"9:16\", \"16:9\"], \"recommendation_rules\": [{\"code\": \"serialized_continuity\", \"title\": \"Serialized Continuity\", \"summary\": \"Prioritize coherent long-form progression and recoverable setup/payoff.\"}], \"creator_rewards\": [{\"code\": \"platform_neutral\", \"title\": \"Platform Neutral\", \"summary\": \"Do not assume one distributor's monetization or release rules.\"}], \"ai_policies\": [{\"code\": \"ai_provenance\", \"title\": \"AI Provenance Readiness\", \"summary\": \"Preserve source and AI-generation lineage for later review and disclosure.\"}], \"community_guidelines\": [{\"code\": \"mainland_review\", \"title\": \"Mainland Content Review\", \"summary\": \"Keep content suitable for applicable mainland China review and filing workflows.\"}], \"best_practices\": [{\"code\": \"source_story_first\", \"title\": \"Source Story First\", \"summary\": \"Build a coherent story foundation before adapting it into production episodes.\"}], \"publishing_strategy\": {\"recommended_posts_per_day\": 1, \"preferred_time_windows\": [\"platform_defined\"], \"notes\": [\"Reference profile only; publishing cadence is selected by the eventual platform.\"]}, \"metadata\": {\"source\": \"frontend_mvp_runtime_bootstrap\", \"market_profile\": \"cn_mainland\", \"runtime_status\": \"active\", \"reference_platforms\": [\"hongguo\"], \"platform_binding\": \"none\"}, \"created_at\": \"2026-08-06T08:11:32.049887Z\", \"updated_at\": \"2026-08-06T08:11:32.049894Z\"}\nRetrievedAssets: [{\"request_id\": \"characters_core\", \"asset_type\": \"character\", \"candidates\": []}, {\"request_id\": \"scenes_supporting\", \"asset_type\": \"scene\", \"candidates\": [{\"asset_id\": \"scene.frontend_mvp_genre_urban\", \"asset_type\": \"scene\", \"score\": 0.75, \"title\": \"可适配的都市创作参考\", \"matched_required_tag_ids\": [\"genre.urban\"], \"matched_optional_tag_ids\": []}]}]\nGenerationStrategy: {\"id\": \"strategy.cn_mainland.longform_knowledge_candidate.v2\", \"name\": \"Mainland China Longform Knowledge Candidate v2\", \"target_platform\": \"mainland china comic drama\", \"target_content_type\": \"serialized_ai_comic_source_story\", \"applicable_tags\": [], \"model_provider\": \"openai_compatible\", \"model_name\": \"glm-5.2\", \"temperature\": 0.6, \"top_p\": 0.9, \"max_tokens\": 6000, \"workflow_steps\": [{\"step_order\": 1, \"name\": \"story_foundation\", \"description\": \"Generate a causally connected Chinese episode framework.\", \"prompt_id\": \"prompt.story_planning.frontend_mvp_cn\", \"multi_turn_enabled\": false, \"structured_output_required\": true}, {\"step_order\": 2, \"name\": \"mainland_serialization_check\", \"description\": \"Preserve continuity and avoid unsupported platform formulas.\", \"prompt_id\": \"prompt.mainland_serialization.frontend_mvp_cn\", \"multi_turn_enabled\": false, \"structured_output_required\": true}], \"prompt_ids\": [\"prompt.story_planning.frontend_mvp_cn\", \"prompt.mainland_serialization.frontend_mvp_cn\"], \"draft_knowledge_bundle_id\": \"knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2\", \"deepening_mode\": \"disabled\", \"deepening_prompt_ids\": [], \"deepening_knowledge_bundle_id\": null, \"deepening_max_tokens\": null, \"deepening_max_expressive_growth_ratio\": 0.35, \"qc_enabled\": true, \"self_check_enabled\": true, \"human_review_required\": true, \"output_schema\": {\"type\": \"object\"}, \"version\": \"v2\", \"status\": \"draft\"}\nOutputLanguage: zh\nDesiredSceneCount: 4\nTargetDurationSeconds: 180\nScriptBodyLengthContract: Aim for 90%-110% of TargetScriptBodyCharacters across only character_actions and dialogues.text. Distribute useful dramatic content across scenes. Do not pad with repetition, exposition, extra speaker labels, planning fields, or redundant dialogue. Preserve scene causality and stop at the requested episode boundary.\nTargetScriptBodyCharacters: 1977\nHookRequirement: 先明确整部故事的核心矛盾和长期追读动力，再进入递归拆分。\nCliffhangerRequirement: 一个被家族抛弃的女孩多年后回到故乡，调查母亲死亡的真相，却发现帮助她的人可能正是仇人的儿子。希望生成一部长篇悬疑复仇故事。\nCharacterAgencyRequirement: The protagonist must make a visible choice, refusal, or public move.\nCulturalFitRequirement: Write for 中国大陆连载漫剧与网络故事受众 in zh with clear, export-ready language.\nPlatformConstraints: {\"platform_name\": \"Mainland China Comic Drama\", \"best_practices\": [\"Build a coherent story foundation before adapting it into production episodes.\"], \"recommendation_rules\": [\"Prioritize coherent long-form progression and recoverable setup/payoff.\"], \"ai_policies\": [\"Preserve source and AI-generation lineage for later review and disclosure.\"]}\nSceneCausalityContract: Use one embedded scene plan before drafting. For every scene, populate scene_causality.goal with the focal character's immediate objective, scene_causality.conflict with the obstacle or increased cost, and scene_causality.outcome with the concrete state change at scene end. The outcome must not restate the goal. The first scene uses null for caused_by_scene_number and causal_link. Every later scene must reference an earlier scene number and explain in causal_link how that earlier outcome forces or enables the current scene. The final outcome must create the requested cliffhanger or payoff. Do not introduce plot details that are not supported by the supplied context.\nOutputJsonSchema: {\"$defs\": {\"CharacterProfile\": {\"additionalProperties\": false, \"properties\": {\"name\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Name\", \"type\": \"string\"}, \"role\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Role\", \"type\": \"string\"}, \"description\": {\"maxLength\": 300, \"minLength\": 10, \"title\": \"Description\", \"type\": \"string\"}, \"motivation\": {\"maxLength\": 200, \"minLength\": 5, \"title\": \"Motivation\", \"type\": \"string\"}}, \"required\": [\"name\", \"role\", \"description\", \"motivation\"], \"title\": \"CharacterProfile\", \"type\": \"object\"}, \"DialogueLine\": {\"additionalProperties\": false, \"properties\": {\"character_name\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Character Name\", \"type\": \"string\"}, \"intent\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Intent\", \"type\": \"string\"}, \"text\": {\"maxLength\": 280, \"minLength\": 3, \"title\": \"Text\", \"type\": \"string\"}}, \"required\": [\"character_name\", \"intent\", \"text\"], \"title\": \"DialogueLine\", \"type\": \"object\"}, \"LLMGeneratedSceneCard\": {\"additionalProperties\": false, \"properties\": {\"scene_number\": {\"maximum\": 50, \"minimum\": 1, \"title\": \"Scene Number\", \"type\": \"integer\"}, \"slug\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Slug\", \"type\": \"string\"}, \"purpose\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Purpose\", \"type\": \"string\"}, \"setting\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Setting\", \"type\": \"string\"}, \"beat_summary\": {\"maxLength\": 300, \"minLength\": 5, \"title\": \"Beat Summary\", \"type\": \"string\"}, \"emotional_shift\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Emotional Shift\", \"type\": \"string\"}, \"emotional_objective\": {\"maxLength\": 160, \"minLength\": 3, \"title\": \"Emotional Objective\", \"type\": \"string\"}, \"character_actions\": {\"items\": {\"type\": \"string\"}, \"maxItems\": 10, \"minItems\": 1, \"title\": \"Character Actions\", \"type\": \"array\"}, \"turning_point\": {\"maxLength\": 240, \"minLength\": 3, \"title\": \"Turning Point\", \"type\": \"string\"}, \"scene_causality\": {\"$ref\": \"#/$defs/SceneCausality\"}, \"cliffhanger\": {\"default\": false, \"title\": \"Cliffhanger\", \"type\": \"boolean\"}, \"dialogues\": {\"items\": {\"$ref\": \"#/$defs/DialogueLine\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Dialogues\", \"type\": \"array\"}}, \"required\": [\"scene_number\", \"slug\", \"purpose\", \"setting\", \"beat_summary\", \"emotional_shift\", \"emotional_objective\", \"character_actions\", \"turning_point\", \"scene_causality\", \"dialogues\"], \"title\": \"LLMGeneratedSceneCard\", \"type\": \"object\"}, \"SceneCausality\": {\"additionalProperties\": false, \"properties\": {\"goal\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Goal\", \"type\": \"string\"}, \"conflict\": {\"maxLength\": 300, \"minLength\": 5, \"title\": \"Conflict\", \"type\": \"string\"}, \"outcome\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Outcome\", \"type\": \"string\"}, \"caused_by_scene_number\": {\"anyOf\": [{\"maximum\": 50, \"minimum\": 1, \"type\": \"integer\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Caused By Scene Number\"}, \"causal_link\": {\"anyOf\": [{\"maxLength\": 240, \"minLength\": 5, \"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Causal Link\"}}, \"required\": [\"goal\", \"conflict\", \"outcome\"], \"title\": \"SceneCausality\", \"type\": \"object\"}, \"ScriptTone\": {\"enum\": [\"intense\", \"melodramatic\", \"suspenseful\", \"emotional\"], \"title\": \"ScriptTone\", \"type\": \"string\"}}, \"additionalProperties\": false, \"properties\": {\"title\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Title\", \"type\": \"string\"}, \"logline\": {\"maxLength\": 240, \"minLength\": 10, \"title\": \"Logline\", \"type\": \"string\"}, \"synopsis\": {\"maxLength\": 500, \"minLength\": 10, \"title\": \"Synopsis\", \"type\": \"string\"}, \"hook\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Hook\", \"type\": \"string\"}, \"target_audience\": {\"maxLength\": 200, \"minLength\": 3, \"title\": \"Target Audience\", \"type\": \"string\"}, \"target_platform\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Target Platform\", \"type\": \"string\"}, \"language\": {\"maxLength\": 20, \"minLength\": 2, \"title\": \"Language\", \"type\": \"string\"}, \"tone\": {\"$ref\": \"#/$defs/ScriptTone\"}, \"episode_goal\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Episode Goal\", \"type\": \"string\"}, \"target_duration_seconds\": {\"maximum\": 600, \"minimum\": 5, \"title\": \"Target Duration Seconds\", \"type\": \"integer\"}, \"characters\": {\"items\": {\"$ref\": \"#/$defs/CharacterProfile\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Characters\", \"type\": \"array\"}, \"scenes\": {\"items\": {\"$ref\": \"#/$defs/LLMGeneratedSceneCard\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Scenes\", \"type\": \"array\"}, \"next_episode_question\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Next Episode Question\", \"type\": \"string\"}}, \"required\": [\"title\", \"logline\", \"synopsis\", \"hook\", \"target_audience\", \"target_platform\", \"language\", \"tone\", \"episode_goal\", \"target_duration_seconds\", \"characters\", \"scenes\", \"next_episode_question\"], \"title\": \"LLMGeneratedDraftMasterScript\", \"type\": \"object\"}",
+      "rendered_variables": {
+        "content_spec_id": "66f9126f-4162-4e10-8f54-785c778b79cd",
+        "content_spec_title": "一个被家族抛弃的女孩多年后回到故乡，调查母亲死亡的真相，却发现帮助她的人可能正是仇...",
+        "creative_brief_summary": "先明确整部故事的核心矛盾和长期追读动力，再进入递归拆分。",
+        "platform_profile_id": "cn_mainland_comic_drama_v1",
+        "audience_profile_summary": "中国大陆连载漫剧与网络故事受众",
+        "commercial_goal_summary": "建立可持续展开和后续漫剧改编的长篇故事基础",
+        "retrieved_asset_ids": "scene.frontend_mvp_genre_urban",
+        "generation_strategy_id": "strategy.cn_mainland.longform_knowledge_candidate.v2",
+        "content_spec_json": "{\"title\": \"\\u4e00\\u4e2a\\u88ab\\u5bb6\\u65cf\\u629b\\u5f03\\u7684\\u5973\\u5b69\\u591a\\u5e74\\u540e\\u56de\\u5230\\u6545\\u4e61\\uff0c\\u8c03\\u67e5\\u6bcd\\u4eb2\\u6b7b\\u4ea1\\u7684\\u771f\\u76f8\\uff0c\\u5374\\u53d1\\u73b0\\u5e2e\\u52a9\\u5979\\u7684\\u4eba\\u53ef\\u80fd\\u6b63\\u662f\\u4ec7...\", \"audience_goal\": {\"summary\": \"\\u4e2d\\u56fd\\u5927\\u9646\\u8fde\\u8f7d\\u6f2b\\u5267\\u4e0e\\u7f51\\u7edc\\u6545\\u4e8b\\u53d7\\u4f17\", \"priority\": \"primary\", \"success_metric\": \"\\u6301\\u7eed\\u9605\\u8bfb\\u4e0e\\u5206\\u96c6\\u8ffd\\u66f4\\u610f\\u613f\"}, \"commercial_goal\": {\"summary\": \"\\u5efa\\u7acb\\u53ef\\u6301\\u7eed\\u5c55\\u5f00\\u548c\\u540e\\u7eed\\u6f2b\\u5267\\u6539\\u7f16\\u7684\\u957f\\u7bc7\\u6545\\u4e8b\\u57fa\\u7840\", \"priority\": \"primary\", \"success_metric\": \"\\u8fde\\u7eed\\u6027\\u3001\\u4eba\\u7269\\u7a33\\u5b9a\\u6027\\u4e0e\\u9636\\u6bb5\\u6027\\u8ffd\\u8bfb\\u52a8\\u529b\"}, \"platform_goal\": {\"platform_profile_id\": \"cn_mainland_comic_drama_v1\", \"objective\": \"\\u751f\\u6210\\u53ef\\u9012\\u5f52\\u89c4\\u5212\\u7684\\u4e2d\\u56fd\\u5927\\u9646\\u4e2d\\u6587\\u957f\\u7bc7\\u6545\\u4e8b\\u6bcd\\u672c\", \"target_duration_seconds\": 180, \"target_aspect_ratio\": \"9:16\"}, \"story_goal\": \"\\u4e00\\u4e2a\\u88ab\\u5bb6\\u65cf\\u629b\\u5f03\\u7684\\u5973\\u5b69\\u591a\\u5e74\\u540e\\u56de\\u5230\\u6545\\u4e61\\uff0c\\u8c03\\u67e5\\u6bcd\\u4eb2\\u6b7b\\u4ea1\\u7684\\u771f\\u76f8\\uff0c\\u5374\\u53d1\\u73b0\\u5e2e\\u52a9\\u5979\\u7684\\u4eba\\u53ef\\u80fd\\u6b63\\u662f\\u4ec7\\u4eba\\u7684\\u513f\\u5b50\\u3002\\u5e0c\\u671b\\u751f\\u6210\\u4e00\\u90e8\\u957f\\u7bc7\\u60ac\\u7591\\u590d\\u4ec7\\u6545\\u4e8b\\u3002\", \"quality_level\": \"high\", \"budget_level\": \"medium\", \"tags\": [{\"ontology_node_id\": \"genre.urban\", \"label\": \"\\u90fd\\u5e02\", \"category\": \"Genre\", \"confidence\": 1.0}, {\"ontology_node_id\": \"genre.mystery\", \"label\": \"\\u60ac\\u7591\", \"category\": \"Genre\", \"confidence\": 1.0}, {\"ontology_node_id\": \"theme.revenge\", \"label\": \"\\u590d\\u4ec7\", \"category\": \"Theme\", \"confidence\": 1.0}], \"creative_brief\": {\"hook\": \"\\u5148\\u660e\\u786e\\u6574\\u90e8\\u6545\\u4e8b\\u7684\\u6838\\u5fc3\\u77db\\u76fe\\u548c\\u957f\\u671f\\u8ffd\\u8bfb\\u52a8\\u529b\\uff0c\\u518d\\u8fdb\\u5165\\u9012\\u5f52\\u62c6\\u5206\\u3002\", \"tone\": \"\\u6709\\u5f20\\u529b\", \"pacing\": \"\\u957f\\u7ebf\\u9012\\u8fdb\", \"target_emotion\": \"\\u6301\\u7eed\\u671f\\u5f85\", \"asset_constraints\": [], \"generation_notes\": [\"\\u7528\\u6237\\u81ea\\u5b9a\\u4e49\\u521b\\u4f5c\\u6807\\u7b7e\\uff1a\\u5bb6\\u5ead\\u79d8\\u5bc6\\u3001\\u60c5\\u611f\\u7ea0\\u845b\\u3002\"]}, \"metadata\": {\"source\": \"creative_intent_resolution_v1\", \"story_goal_source\": \"user_provided\", \"creative_intent_schema_version\": \"v1\"}, \"id\": \"66f9126f-4162-4e10-8f54-785c778b79cd\", \"status\": \"draft\", \"created_at\": \"2026-08-06T03:37:28.108183Z\", \"updated_at\": \"2026-08-06T03:37:28.108212Z\"}",
+        "creative_brief_json": "{\"hook\": \"\\u5148\\u660e\\u786e\\u6574\\u90e8\\u6545\\u4e8b\\u7684\\u6838\\u5fc3\\u77db\\u76fe\\u548c\\u957f\\u671f\\u8ffd\\u8bfb\\u52a8\\u529b\\uff0c\\u518d\\u8fdb\\u5165\\u9012\\u5f52\\u62c6\\u5206\\u3002\", \"tone\": \"\\u6709\\u5f20\\u529b\", \"pacing\": \"\\u957f\\u7ebf\\u9012\\u8fdb\", \"target_emotion\": \"\\u6301\\u7eed\\u671f\\u5f85\", \"asset_constraints\": [], \"generation_notes\": [\"\\u7528\\u6237\\u81ea\\u5b9a\\u4e49\\u521b\\u4f5c\\u6807\\u7b7e\\uff1a\\u5bb6\\u5ead\\u79d8\\u5bc6\\u3001\\u60c5\\u611f\\u7ea0\\u845b\\u3002\"]}",
+        "platform_profile_json": "{\"id\": \"cn_mainland_comic_drama_v1\", \"platform_name\": \"Mainland China Comic Drama\", \"version\": \"v1\", \"content_mode\": \"longform_story_to_comic_drama\", \"primary_regions\": [\"CN\"], \"supported_aspect_ratios\": [\"9:16\", \"16:9\"], \"recommendation_rules\": [{\"code\": \"serialized_continuity\", \"title\": \"Serialized Continuity\", \"summary\": \"Prioritize coherent long-form progression and recoverable setup/payoff.\"}], \"creator_rewards\": [{\"code\": \"platform_neutral\", \"title\": \"Platform Neutral\", \"summary\": \"Do not assume one distributor's monetization or release rules.\"}], \"ai_policies\": [{\"code\": \"ai_provenance\", \"title\": \"AI Provenance Readiness\", \"summary\": \"Preserve source and AI-generation lineage for later review and disclosure.\"}], \"community_guidelines\": [{\"code\": \"mainland_review\", \"title\": \"Mainland Content Review\", \"summary\": \"Keep content suitable for applicable mainland China review and filing workflows.\"}], \"best_practices\": [{\"code\": \"source_story_first\", \"title\": \"Source Story First\", \"summary\": \"Build a coherent story foundation before adapting it into production episodes.\"}], \"publishing_strategy\": {\"recommended_posts_per_day\": 1, \"preferred_time_windows\": [\"platform_defined\"], \"notes\": [\"Reference profile only; publishing cadence is selected by the eventual platform.\"]}, \"metadata\": {\"source\": \"frontend_mvp_runtime_bootstrap\", \"market_profile\": \"cn_mainland\", \"runtime_status\": \"active\", \"reference_platforms\": [\"hongguo\"], \"platform_binding\": \"none\"}, \"created_at\": \"2026-08-06T08:11:32.049887Z\", \"updated_at\": \"2026-08-06T08:11:32.049894Z\"}",
+        "retrieved_assets_json": "[{\"request_id\": \"characters_core\", \"asset_type\": \"character\", \"candidates\": []}, {\"request_id\": \"scenes_supporting\", \"asset_type\": \"scene\", \"candidates\": [{\"asset_id\": \"scene.frontend_mvp_genre_urban\", \"asset_type\": \"scene\", \"score\": 0.75, \"title\": \"\\u53ef\\u9002\\u914d\\u7684\\u90fd\\u5e02\\u521b\\u4f5c\\u53c2\\u8003\", \"matched_required_tag_ids\": [\"genre.urban\"], \"matched_optional_tag_ids\": []}]}]",
+        "generation_strategy_json": "{\"id\": \"strategy.cn_mainland.longform_knowledge_candidate.v2\", \"name\": \"Mainland China Longform Knowledge Candidate v2\", \"target_platform\": \"mainland china comic drama\", \"target_content_type\": \"serialized_ai_comic_source_story\", \"applicable_tags\": [], \"model_provider\": \"openai_compatible\", \"model_name\": \"glm-5.2\", \"temperature\": 0.6, \"top_p\": 0.9, \"max_tokens\": 6000, \"workflow_steps\": [{\"step_order\": 1, \"name\": \"story_foundation\", \"description\": \"Generate a causally connected Chinese episode framework.\", \"prompt_id\": \"prompt.story_planning.frontend_mvp_cn\", \"multi_turn_enabled\": false, \"structured_output_required\": true}, {\"step_order\": 2, \"name\": \"mainland_serialization_check\", \"description\": \"Preserve continuity and avoid unsupported platform formulas.\", \"prompt_id\": \"prompt.mainland_serialization.frontend_mvp_cn\", \"multi_turn_enabled\": false, \"structured_output_required\": true}], \"prompt_ids\": [\"prompt.story_planning.frontend_mvp_cn\", \"prompt.mainland_serialization.frontend_mvp_cn\"], \"draft_knowledge_bundle_id\": \"knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2\", \"deepening_mode\": \"disabled\", \"deepening_prompt_ids\": [], \"deepening_knowledge_bundle_id\": null, \"deepening_max_tokens\": null, \"deepening_max_expressive_growth_ratio\": 0.35, \"qc_enabled\": true, \"self_check_enabled\": true, \"human_review_required\": true, \"output_schema\": {\"type\": \"object\"}, \"version\": \"v2\", \"status\": \"draft\"}",
+        "output_language": "zh",
+        "desired_scene_count": "4",
+        "target_duration_seconds": "180",
+        "hook_requirement": "先明确整部故事的核心矛盾和长期追读动力，再进入递归拆分。",
+        "cliffhanger_requirement": "一个被家族抛弃的女孩多年后回到故乡，调查母亲死亡的真相，却发现帮助她的人可能正是仇人的儿子。希望生成一部长篇悬疑复仇故事。",
+        "character_agency_requirement": "The protagonist must make a visible choice, refusal, or public move.",
+        "cultural_fit_requirement": "Write for 中国大陆连载漫剧与网络故事受众 in zh with clear, export-ready language.",
+        "platform_constraints": "{\"platform_name\": \"Mainland China Comic Drama\", \"best_practices\": [\"Build a coherent story foundation before adapting it into production episodes.\"], \"recommendation_rules\": [\"Prioritize coherent long-form progression and recoverable setup/payoff.\"], \"ai_policies\": [\"Preserve source and AI-generation lineage for later review and disclosure.\"]}",
+        "output_json_schema": "{\"$defs\": {\"CharacterProfile\": {\"additionalProperties\": false, \"properties\": {\"name\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Name\", \"type\": \"string\"}, \"role\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Role\", \"type\": \"string\"}, \"description\": {\"maxLength\": 300, \"minLength\": 10, \"title\": \"Description\", \"type\": \"string\"}, \"motivation\": {\"maxLength\": 200, \"minLength\": 5, \"title\": \"Motivation\", \"type\": \"string\"}}, \"required\": [\"name\", \"role\", \"description\", \"motivation\"], \"title\": \"CharacterProfile\", \"type\": \"object\"}, \"DialogueLine\": {\"additionalProperties\": false, \"properties\": {\"character_name\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Character Name\", \"type\": \"string\"}, \"intent\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Intent\", \"type\": \"string\"}, \"text\": {\"maxLength\": 280, \"minLength\": 3, \"title\": \"Text\", \"type\": \"string\"}}, \"required\": [\"character_name\", \"intent\", \"text\"], \"title\": \"DialogueLine\", \"type\": \"object\"}, \"LLMGeneratedSceneCard\": {\"additionalProperties\": false, \"properties\": {\"scene_number\": {\"maximum\": 50, \"minimum\": 1, \"title\": \"Scene Number\", \"type\": \"integer\"}, \"slug\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Slug\", \"type\": \"string\"}, \"purpose\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Purpose\", \"type\": \"string\"}, \"setting\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Setting\", \"type\": \"string\"}, \"beat_summary\": {\"maxLength\": 300, \"minLength\": 5, \"title\": \"Beat Summary\", \"type\": \"string\"}, \"emotional_shift\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Emotional Shift\", \"type\": \"string\"}, \"emotional_objective\": {\"maxLength\": 160, \"minLength\": 3, \"title\": \"Emotional Objective\", \"type\": \"string\"}, \"character_actions\": {\"items\": {\"type\": \"string\"}, \"maxItems\": 10, \"minItems\": 1, \"title\": \"Character Actions\", \"type\": \"array\"}, \"turning_point\": {\"maxLength\": 240, \"minLength\": 3, \"title\": \"Turning Point\", \"type\": \"string\"}, \"scene_causality\": {\"$ref\": \"#/$defs/SceneCausality\"}, \"cliffhanger\": {\"default\": false, \"title\": \"Cliffhanger\", \"type\": \"boolean\"}, \"dialogues\": {\"items\": {\"$ref\": \"#/$defs/DialogueLine\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Dialogues\", \"type\": \"array\"}}, \"required\": [\"scene_number\", \"slug\", \"purpose\", \"setting\", \"beat_summary\", \"emotional_shift\", \"emotional_objective\", \"character_actions\", \"turning_point\", \"scene_causality\", \"dialogues\"], \"title\": \"LLMGeneratedSceneCard\", \"type\": \"object\"}, \"SceneCausality\": {\"additionalProperties\": false, \"properties\": {\"goal\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Goal\", \"type\": \"string\"}, \"conflict\": {\"maxLength\": 300, \"minLength\": 5, \"title\": \"Conflict\", \"type\": \"string\"}, \"outcome\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Outcome\", \"type\": \"string\"}, \"caused_by_scene_number\": {\"anyOf\": [{\"maximum\": 50, \"minimum\": 1, \"type\": \"integer\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Caused By Scene Number\"}, \"causal_link\": {\"anyOf\": [{\"maxLength\": 240, \"minLength\": 5, \"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Causal Link\"}}, \"required\": [\"goal\", \"conflict\", \"outcome\"], \"title\": \"SceneCausality\", \"type\": \"object\"}, \"ScriptTone\": {\"enum\": [\"intense\", \"melodramatic\", \"suspenseful\", \"emotional\"], \"title\": \"ScriptTone\", \"type\": \"string\"}}, \"additionalProperties\": false, \"properties\": {\"title\": {\"maxLength\": 120, \"minLength\": 3, \"title\": \"Title\", \"type\": \"string\"}, \"logline\": {\"maxLength\": 240, \"minLength\": 10, \"title\": \"Logline\", \"type\": \"string\"}, \"synopsis\": {\"maxLength\": 500, \"minLength\": 10, \"title\": \"Synopsis\", \"type\": \"string\"}, \"hook\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Hook\", \"type\": \"string\"}, \"target_audience\": {\"maxLength\": 200, \"minLength\": 3, \"title\": \"Target Audience\", \"type\": \"string\"}, \"target_platform\": {\"maxLength\": 80, \"minLength\": 2, \"title\": \"Target Platform\", \"type\": \"string\"}, \"language\": {\"maxLength\": 20, \"minLength\": 2, \"title\": \"Language\", \"type\": \"string\"}, \"tone\": {\"$ref\": \"#/$defs/ScriptTone\"}, \"episode_goal\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Episode Goal\", \"type\": \"string\"}, \"target_duration_seconds\": {\"maximum\": 600, \"minimum\": 5, \"title\": \"Target Duration Seconds\", \"type\": \"integer\"}, \"characters\": {\"items\": {\"$ref\": \"#/$defs/CharacterProfile\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Characters\", \"type\": \"array\"}, \"scenes\": {\"items\": {\"$ref\": \"#/$defs/LLMGeneratedSceneCard\"}, \"maxItems\": 20, \"minItems\": 1, \"title\": \"Scenes\", \"type\": \"array\"}, \"next_episode_question\": {\"maxLength\": 240, \"minLength\": 5, \"title\": \"Next Episode Question\", \"type\": \"string\"}}, \"required\": [\"title\", \"logline\", \"synopsis\", \"hook\", \"target_audience\", \"target_platform\", \"language\", \"tone\", \"episode_goal\", \"target_duration_seconds\", \"characters\", \"scenes\", \"next_episode_question\"], \"title\": \"LLMGeneratedDraftMasterScript\", \"type\": \"object\"}",
+        "target_script_body_characters": "1977",
+        "resolved_creative_context_json": "{\"schema_version\": \"v1\", \"content_spec_id\": \"66f9126f-4162-4e10-8f54-785c778b79cd\", \"characters\": [], \"excluded_tag_ids\": [], \"excluded_patterns\": [\"\\u4e0d\\u8981\\u8ba9\\u82cf\\u665a\\u7684\\u8c03\\u67e5\\u53d8\\u6210\\u53cd\\u590d\\u66f4\\u6362\\u5acc\\u7591\\u4eba\\u540d\\u5b57\\u548c\\u5730\\u70b9\\u800c\\u7b56\\u7565\\u4e0e\\u98ce\\u9669\\u4e0d\\u53d8\\u7684\\u91cd\\u590d\\u5faa\\u73af\\u3002\", \"\\u4e0d\\u8981\\u5c06\\u82cf\\u665a\\u4e0e\\u9646\\u666f\\u884c\\u7684\\u5173\\u7cfb\\u5904\\u7406\\u4e3a\\u7eaf\\u7cb9\\u88c5\\u9970\\u6027\\u611f\\u60c5\\u7ebf\\uff0c\\u5b83\\u5fc5\\u987b\\u76f4\\u63a5\\u5f71\\u54cd\\u8c03\\u67e5\\u7684\\u63a8\\u8fdb\\u4e0e\\u963b\\u788d\\u3002\", \"\\u4e0d\\u8981\\u8ba9\\u9646\\u6b63\\u5219\\u6210\\u4e3a\\u8138\\u8c31\\u5316\\u53cd\\u6d3e\\uff0c\\u4ed6\\u5e94\\u6709\\u5408\\u7406\\u7684\\u81ea\\u6211\\u903b\\u8f91\\u4e0e\\u8d44\\u6e90\\u8fd0\\u4f5c\\u3002\", \"\\u4e0d\\u8981\\u8ba9\\u771f\\u76f8\\u901a\\u8fc7\\u5355\\u4e00\\u5916\\u90e8\\u6551\\u661f\\u6216\\u5076\\u7136\\u53d1\\u73b0\\u7a81\\u7136\\u89e3\\u51b3\\uff0c\\u8bc1\\u636e\\u94fe\\u987b\\u7531\\u82cf\\u665a\\u4e3b\\u52a8\\u884c\\u52a8\\u4e32\\u8054\\u3002\", \"\\u4e0d\\u8981\\u8ba9\\u9646\\u666f\\u884c\\u5728\\u65e0\\u5185\\u5fc3\\u6323\\u624e\\u7684\\u60c5\\u51b5\\u4e0b\\u76f4\\u63a5\\u5012\\u5411\\u82cf\\u665a\\uff0c\\u4ed6\\u7684\\u9009\\u62e9\\u987b\\u6709\\u4ee3\\u4ef7\\u4e0e\\u8fc7\\u7a0b\\u3002\", \"\\u4e0d\\u8981\\u8ba9\\u6bcf\\u4e2a\\u8c03\\u67e5\\u8282\\u70b9\\u90fd\\u5728\\u76f8\\u540c\\u7684\\u5a01\\u80c1\\u6a21\\u5f0f\\u4e0b\\u5c55\\u5f00\\uff0c\\u5e94\\u901a\\u8fc7\\u5173\\u7cfb\\u6027\\u3001\\u4fe1\\u606f\\u6027\\u3001\\u9053\\u5fb7\\u6027\\u3001\\u65f6\\u95f4\\u6027\\u7b49\\u4e0d\\u540c\\u7ef4\\u5ea6\\u5347\\u7ea7\\u51b2\\u7a81\\u3002\", \"\\u4e0d\\u8981\\u4e3a\\u4e86\\u5ef6\\u957f\\u7bc7\\u5e45\\u800c\\u53cd\\u590d\\u6401\\u7f6e\\u6838\\u5fc3\\u771f\\u76f8\\u63ed\\u793a\\uff0c\\u5e94\\u8ba9\\u6bcf\\u6b21\\u6401\\u7f6e\\u90fd\\u4f34\\u968f\\u53ef\\u7528\\u7b56\\u7565\\u6216\\u5173\\u7cfb\\u7684\\u5b9e\\u8d28\\u53d8\\u5316\\u3002\"], \"resolution_warnings\": []}",
+        "knowledge_bundle_json": "{\"bundle_id\": \"knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2\", \"version\": \"v2\", \"knowledge_items\": [{\"knowledge_id\": \"knowledge.story.causal_sequence.v1\", \"version\": \"v1\", \"category\": \"story_structure\", \"principle\": \"Arrange major incidents so later events arise plausibly or necessarily from earlier events rather than merely following them.\", \"application_rules\": [\"Record what state changes after each scene.\", \"Make a later goal, obstacle, reveal, or cost depend on that changed state.\"], \"limitations\": [\"Do not eliminate deliberate ambiguity or associative structures with clear organizing logic.\", \"Do not require literal dialogue references to prior scenes.\"], \"anti_patterns\": [\"Repeating parallel scenes without changing available choices.\", \"Ignoring the consequences of the prior scene outcome.\"]}, {\"knowledge_id\": \"knowledge.character.choice_reveals_character.v1\", \"version\": \"v1\", \"category\": \"character_design\", \"principle\": \"Reveal character through consequential choices under pressure, especially when attractive values or outcomes conflict.\", \"application_rules\": [\"Present at least two meaningful options with distinct costs.\", \"Let the chosen action affect later trust, risk, or opportunity.\"], \"limitations\": [\"Do not make every choice extreme or irreversible.\", \"Allow low-pressure choices when intentionally establishing routine.\"], \"anti_patterns\": [\"Labeling a character brave without showing a risky choice.\", \"Presenting a choice with only one plausible option and no cost.\"]}, {\"knowledge_id\": \"knowledge.conflict.progressive_cost.v1\", \"version\": \"v1\", \"category\": \"conflict_and_emotion\", \"principle\": \"Escalate conflict by increasing cost, narrowing options, or deepening opposition created by earlier actions.\", \"application_rules\": [\"Track what becomes harder, riskier, or less reversible after each outcome.\", \"Vary escalation through relational, informational, moral, temporal, or physical cost.\"], \"limitations\": [\"Do not make every beat louder or more violent.\", \"Allow temporary release when it makes the next escalation legible.\"], \"anti_patterns\": [\"Repeating the same threat across multiple scenes.\", \"Announcing larger stakes while available choices remain unchanged.\"]}, {\"knowledge_id\": \"knowledge.payoff.logical_necessity.v1\", \"version\": \"v1\", \"category\": \"conflict_and_emotion\", \"principle\": \"Prepare a payoff through connected choices so it can surprise in form while feeling logically necessary in retrospect.\", \"application_rules\": [\"Identify the setup, intervening choices, and payoff transformation.\", \"Make the payoff answer an established desire, fear, or dramatic question.\"], \"limitations\": [\"Do not make the outcome fully predictable.\", \"Do not require a positive reward when the intended payoff is costly or tragic.\"], \"anti_patterns\": [\"Resolving the conflict through an unprepared outside rescue.\", \"Repeating a setup without changing its meaning or consequence.\"]}, {\"knowledge_id\": \"knowledge.serialization.sustainable_story_engine.v1\", \"version\": \"v1\", \"category\": \"story_structure_and_serialization\", \"principle\": \"A continuing story needs a sustainable dramatic engine that creates related but non-repetitive goals, opposition, choices, and accumulating consequences.\", \"application_rules\": [\"Name the repeatable source of dramatic action and explain how its consequences accumulate instead of resetting.\", \"Show how protagonist action and opposition response can evolve across multiple major movements.\", \"Identify when the engine should end, transform, or receive genuinely new story material.\"], \"limitations\": [\"Do not force an episodic reset pattern onto a finite serialized story.\", \"Do not use a target episode count as proof that the premise is sustainable.\"], \"anti_patterns\": [\"Repeating the same investigation or confrontation while only changing names and locations.\", \"Stretching one unresolved problem without changing strategy, power, relationships, or consequences.\"]}, {\"knowledge_id\": \"knowledge.story.macro_sequence_turning.v1\", \"version\": \"v1\", \"category\": \"story_structure\", \"principle\": \"Organize a long story into content-derived movements whose escalations, revelations, or reversals change narrative direction or power balance.\", \"application_rules\": [\"Give each major movement a dramatic question, strategy, opposition, and irreversible exit state.\", \"Make every major turn change subsequent goals, choices, resources, knowledge, or power.\", \"Pass a concrete unresolved obligation into the next movement.\"], \"limitations\": [\"Do not impose a fixed act count, equal branch size, or equal recursive depth.\", \"Do not label ordinary activity as a turning point without a state change.\"], \"anti_patterns\": [\"Planning nodes differ only by episode range while repeating the same strategy and stakes.\", \"A reveal changes exposition but not character choice or power.\"]}, {\"knowledge_id\": \"knowledge.character.long_arc_trajectory.v1\", \"version\": \"v1\", \"category\": \"character_design\", \"principle\": \"A major serialized character needs an ongoing struggle, contradiction, and trajectory so repeated pressure creates development without arbitrary personality changes.\", \"application_rules\": [\"Define a persistent struggle and contradiction that can be tested in different ways.\", \"Connect trajectory milestones to consequential choices rather than only backstory revelations.\", \"Allow change, resistance, deterioration, or stabilization according to the story direction.\"], \"limitations\": [\"Do not require every character to transform positively.\", \"Do not predetermine choices so tightly that scenes lose discovery and surprise.\"], \"anti_patterns\": [\"A character changes values only because the plot requires a twist.\", \"The same emotional lesson is learned and forgotten in every movement.\"]}, {\"knowledge_id\": \"knowledge.storyline.character_driven_parallel_arcs.v1\", \"version\": \"v1\", \"category\": \"story_structure_and_serialization\", \"principle\": \"Parallel storylines should arise from characters with distinct goals and alter one another through consequential intersections rather than decorative side plots.\", \"application_rules\": [\"Assign each active line a character owner, goal, conflict, local resolution, and effect on another line.\", \"Plan intersections around choices or consequences rather than coincidental meetings.\", \"Allow a line to pause, conclude, or change ownership when its dramatic function is complete.\"], \"limitations\": [\"Do not require three storylines in every episode or planning node.\", \"Do not keep a subplot active after it has no independent question or consequence.\"], \"anti_patterns\": [\"A relationship line only comments emotionally on the main investigation.\", \"A supporting character exists only to deliver one clue and disappear.\"]}]}",
+        "episode_context_json": "{\"generation_mode\": \"full\", \"episode_number\": 1, \"total_episodes\": 334, \"previous_episode_summary\": null, \"previous_episode_question\": null, \"episode_instruction\": \"\\u672c\\u96c6\\u76ee\\u6807\\uff1a\\u82cf\\u665a\\u4ee5\\u5316\\u540d\\u56de\\u5230\\u6bcd\\u4eb2\\u751f\\u524d\\u6240\\u5728\\u57ce\\u5e02\\uff0c\\u901a\\u8fc7\\u6bcd\\u4eb2\\u9057\\u7269\\u4e2d\\u7684\\u788e\\u7247\\u7ebf\\u7d22\\u63a5\\u89e6\\u6bcd\\u4eb2\\u751f\\u524d\\u793e\\u4f1a\\u5173\\u7cfb\\uff0c\\u5bfb\\u627e\\u8c03\\u67e5\\u5207\\u5165\\u70b9\\uff0c\\u9996\\u6b21\\u89e6\\u53ca\\u6bcd\\u4eb2\\u6b7b\\u4ea1\\u8868\\u8c61\\u4e0e\\u771f\\u5b9e\\u6b7b\\u56e0\\u4e4b\\u95f4\\u7684\\u88c2\\u7f1d\\u3002\\uff1b\\u8fdb\\u5165\\u72b6\\u6001\\uff1a\\u82cf\\u665a\\u643a\\u5e26\\u5047\\u8eab\\u4efd\\u51c6\\u5907\\u56de\\u5230\\u6bcd\\u4eb2\\u751f\\u524d\\u6240\\u5728\\u57ce\\u5e02\\u3002\\u5979\\u624b\\u4e2d\\u4ec5\\u6709\\u6bcd\\u4eb2\\u9057\\u7269\\u4e2d\\u96f6\\u6563\\u7684\\u7ebf\\u7d22\\u6307\\u5411\\u6bcd\\u4eb2\\u66fe\\u5c31\\u8bca\\u7684\\u533b\\u9662\\uff0c\\u5c1a\\u672a\\u5efa\\u7acb\\u4efb\\u4f55\\u672c\\u5730\\u793e\\u4f1a\\u5173\\u7cfb\\uff0c\\u8c03\\u67e5\\u8d44\\u6e90\\u6781\\u5ea6\\u532e\\u4e4f\\u3002\\u5979\\u5fc3\\u4e2d\\u53ea\\u6709\\u6a21\\u7cca\\u7684\\u590d\\u4ec7\\u76f4\\u89c9\\u548c\\u6bcd\\u4eb2\\u9057\\u7269\\u4e2d\\u7684\\u788e\\u7247\\u4fe1\\u606f\\uff0c\\u5c1a\\u65e0\\u4efb\\u4f55\\u786e\\u51ff\\u8bc1\\u636e\\u6307\\u5411\\u6bcd\\u4eb2\\u6b7b\\u56e0\\u5b58\\u5728\\u9690\\u60c5\\u3002\\uff1b\\u4e2d\\u5fc3\\u51b2\\u7a81\\uff1a\\u82cf\\u665a\\u5728\\u96f6\\u8d44\\u6e90\\u3001\\u96f6\\u4eba\\u8109\\u7684\\u6761\\u4ef6\\u4e0b\\u9700\\u8981\\u6253\\u5f00\\u8c03\\u67e5\\u7f3a\\u53e3\\uff0c\\u800c\\u5979\\u7684\\u7b2c\\u4e00\\u4e2a\\u6311\\u6218\\u662f\\uff1a\\u5728\\u4e0d\\u66b4\\u9732\\u5047\\u8eab\\u4efd\\u7684\\u524d\\u63d0\\u4e0b\\uff0c\\u5982\\u4f55\\u4ece\\u6bcd\\u4eb2\\u9057\\u7269\\u4e2d\\u7684\\u96f6\\u6563\\u7ebf\\u7d22\\u627e\\u5230\\u53ef\\u8ffd\\u8e2a\\u7684\\u8c03\\u67e5\\u65b9\\u5411\\u3002\\uff1b\\u4e3b\\u89d2\\u51b3\\u5b9a\\uff1a\\u82cf\\u665a\\u51b3\\u5b9a\\u4ee5\\u5316\\u540d\\u56de\\u4e61\\uff0c\\u4ece\\u6bcd\\u4eb2\\u751f\\u524d\\u793e\\u4f1a\\u5173\\u7cfb\\u5165\\u624b\\u5f00\\u542f\\u8c03\\u67e5\\uff0c\\u800c\\u975e\\u76f4\\u63a5\\u53bb\\u627e\\u533b\\u9662\\u2014\\u2014\\u5979\\u9700\\u8981\\u5148\\u7406\\u89e3\\u6bcd\\u4eb2\\u751f\\u524d\\u7684\\u4eba\\u9645\\u7f51\\u7edc\\uff0c\\u624d\\u80fd\\u5224\\u65ad\\u54ea\\u4e9b\\u7ebf\\u7d22\\u503c\\u5f97\\u8ffd\\u67e5\\u3002\\uff1b\\u63ed\\u793a\\uff1a\\u6bcd\\u4eb2\\u751f\\u524d\\u4e00\\u4f4d\\u65e7\\u8bc6\\u5728\\u63d0\\u53ca\\u6bcd\\u4eb2\\u5c31\\u8bca\\u533b\\u9662\\u65f6\\u7a81\\u7136\\u6c89\\u9ed8\\u56de\\u907f\\uff0c\\u6697\\u793a\\u90a3\\u91cc\\u6709\\u4e0d\\u4e3a\\u4eba\\u77e5\\u7684\\u4e8b\\u3002\\uff1b\\u60c5\\u7eea\\u63a8\\u8fdb\\uff1a\\u4ece\\u590d\\u4ec7\\u7684\\u6a21\\u7cca\\u76f4\\u89c9\\u4e0e\\u5b64\\u8eab\\u56de\\u4e61\\u7684\\u538b\\u6291\\u611f\\uff0c\\u5230\\u521d\\u6b21\\u89e6\\u53ca\\u6bcd\\u4eb2\\u6b7b\\u4ea1\\u8868\\u8c61\\u4e0b\\u53ef\\u80fd\\u9690\\u85cf\\u88c2\\u7f1d\\u65f6\\u7684\\u9707\\u52a8\\u4e0e\\u4e0d\\u5b89\\u3002\\uff1b\\u9000\\u51fa\\u72b6\\u6001\\uff1a\\u82cf\\u665a\\u5df2\\u56de\\u5230\\u6bcd\\u4eb2\\u751f\\u524d\\u6240\\u5728\\u57ce\\u5e02\\uff0c\\u4ee5\\u5316\\u540d\\u5b89\\u987f\\u3002\\u5979\\u521d\\u6b65\\u63a5\\u89e6\\u4e86\\u6bcd\\u4eb2\\u751f\\u524d\\u7684\\u793e\\u4f1a\\u5173\\u7cfb\\uff0c\\u83b7\\u5f97\\u6307\\u5411\\u533b\\u9662\\u7684\\u788e\\u7247\\u7ebf\\u7d22\\uff0c\\u7b2c\\u4e00\\u6b21\\u611f\\u5230\\u6bcd\\u4eb2\\u6b7b\\u4ea1\\u53ef\\u80fd\\u6709\\u9690\\u60c5\\uff0c\\u4f46\\u5c1a\\u65e0\\u786e\\u51ff\\u8bc1\\u636e\\u3002\\u6bcd\\u4eb2\\u65e7\\u8bc6\\u5bf9\\u533b\\u9662\\u7684\\u56de\\u907f\\u6001\\u5ea6\\u6210\\u4e3a\\u5979\\u4e0b\\u4e00\\u6b65\\u8ffd\\u67e5\\u7684\\u951a\\u70b9\\u3002\\uff1b\\u7ed3\\u5c3e\\u60ac\\u5ff5\\u6216\\u56de\\u62a5\\uff1a\\u6bcd\\u4eb2\\u65e7\\u8bc6\\u5728\\u88ab\\u8ffd\\u95ee\\u533b\\u9662\\u76f8\\u5173\\u60c5\\u51b5\\u540e\\u5306\\u5fd9\\u544a\\u8f9e\\uff0c\\u4e34\\u8d70\\u65f6\\u4f4e\\u58f0\\u8bf4\\u4e86\\u4e00\\u53e5\\\"\\u90a3\\u5bb6\\u533b\\u9662\\u7684\\u4e8b\\u522b\\u67e5\\u4e86\\\"\\uff0c\\u968f\\u5373\\u6d88\\u5931\\u5728\\u697c\\u9053\\u91cc\\u3002\", \"project_continuity_summary\": \"\\u6838\\u5fc3\\u524d\\u63d0\\uff1a\\u5c11\\u5973\\u82cf\\u665a\\u5e7c\\u5e74\\u88ab\\u82cf\\u5bb6\\u9010\\u51fa\\u5927\\u95e8\\uff0c\\u4e0e\\u6bcd\\u4eb2\\u76f8\\u4f9d\\u4e3a\\u547d\\u591a\\u5e74\\u540e\\u6bcd\\u4eb2\\u79bb\\u5947\\u8eab\\u4ea1\\u3002\\u5979\\u9690\\u59d3\\u57cb\\u540d\\u56de\\u5230\\u6545\\u4e61\\u57ce\\u5e02\\uff0c\\u6697\\u4e2d\\u8c03\\u67e5\\u6bcd\\u4eb2\\u6b7b\\u56e0\\uff0c\\u9010\\u6b65\\u5c06\\u77db\\u5934\\u6307\\u5411\\u672c\\u5730\\u5546\\u754c\\u6743\\u8d35\\u9646\\u6b63\\u5219\\u3002\\u5728\\u6b64\\u8fc7\\u7a0b\\u4e2d\\uff0c\\u5979\\u6700\\u5173\\u952e\\u7684\\u76df\\u53cb\\u4e0e\\u60c5\\u611f\\u4f9d\\u9760\\u7adf\\u662f\\u9646\\u6b63\\u5219\\u4e4b\\u5b50\\u9646\\u666f\\u884c\\u2014\\u2014\\u5979\\u6240\\u4fe1\\u4efb\\u7684\\u4eba\\u53ef\\u80fd\\u6b63\\u662f\\u4ec7\\u4eba\\u7684\\u8840\\u8109\\u3002\\u590d\\u4ec7\\u3001\\u771f\\u76f8\\u4e0e\\u611f\\u60c5\\u5728\\u4e09\\u65b9\\u535a\\u5f08\\u4e2d\\u4e0d\\u65ad\\u6495\\u88c2\\u91cd\\u7ec4\\u3002\\n\\u6574\\u90e8\\u76ee\\u6807\\uff1a\\u6784\\u5efa\\u4e00\\u90e8\\u957f\\u7bc7\\u60ac\\u7591\\u590d\\u4ec7\\u6545\\u4e8b\\uff1a\\u82cf\\u665a\\u4ece\\u5916\\u90e8\\u5f31\\u8005\\u4f4d\\u7f6e\\u4e00\\u6b65\\u6b65\\u903c\\u8fd1\\u6bcd\\u4eb2\\u6b7b\\u4ea1\\u771f\\u76f8\\uff0c\\u5728\\u6743\\u529b\\u3001\\u8c0e\\u8a00\\u4e0e\\u60c5\\u611f\\u7ea0\\u845b\\u4e2d\\u5b8c\\u6210\\u5bf9\\u81ea\\u8eab\\u590d\\u4ec7\\u4fe1\\u5ff5\\u7684\\u62f7\\u95ee\\u3002\\u6545\\u4e8b\\u6700\\u7ec8\\u56de\\u7b54\\u2014\\u2014\\u5f53\\u5e2e\\u52a9\\u4f60\\u7684\\u53cc\\u624b\\u6cbe\\u6ee1\\u4f60\\u81f3\\u4eb2\\u7684\\u8840\\u65f6\\uff0c\\u4f60\\u8be5\\u5982\\u4f55\\u9009\\u62e9\\u3002\\u6574\\u4f53\\u8d70\\u5411\\u662f\\u771f\\u76f8\\u5c42\\u5c42\\u63ed\\u5f00\\u3001\\u4ee3\\u4ef7\\u9010\\u7ea7\\u52a0\\u91cd\\u3001\\u5173\\u7cfb\\u4e0d\\u53ef\\u9006\\u8f6c\\u5730\\u5d29\\u584c\\u6216\\u91cd\\u5efa\\u3002\\n\\u4e3b\\u9898\\uff1a\\u590d\\u4ec7\\u3001\\u5bb6\\u5ead\\u79d8\\u5bc6\\u3001\\u60c5\\u611f\\u7ea0\\u845b\\u2014\\u2014\\u5f53\\u4ec7\\u6068\\u7684\\u8fb9\\u754c\\u4fb5\\u5165\\u6700\\u4eb2\\u5bc6\\u7684\\u4fe1\\u4efb\\u65f6\\uff0c\\u4eba\\u5982\\u4f55\\u5728\\u771f\\u76f8\\u4e0e\\u60c5\\u611f\\u4e4b\\u95f4\\u505a\\u51fa\\u4e0d\\u53ef\\u8c03\\u548c\\u7684\\u9009\\u62e9\\u3002\\n\\u4e2d\\u5fc3\\u51b2\\u7a81\\uff1a\\u82cf\\u665a\\u8ffd\\u67e5\\u6bcd\\u4eb2\\u6b7b\\u56e0\\u7684\\u5916\\u90e8\\u8c03\\u67e5\\u884c\\u52a8\\uff0c\\u4e0e\\u9646\\u5bb6\\u52bf\\u529b\\u5c42\\u5c42\\u63a9\\u76d6\\u771f\\u76f8\\u5f62\\u6210\\u76f4\\u63a5\\u5bf9\\u6297\\uff1b\\u540c\\u65f6\\u5979\\u4e0e\\u9646\\u666f\\u884c\\u4e4b\\u95f4\\u65e5\\u76ca\\u52a0\\u6df1\\u7684\\u4fe1\\u4efb\\u548c\\u60c5\\u611f\\uff0c\\u548c\\u5979\\u5bf9\\u9646\\u5bb6\\u7684\\u590d\\u4ec7\\u610f\\u56fe\\u5f62\\u6210\\u5185\\u5728\\u6495\\u88c2\\u3002\\u6838\\u5fc3\\u5f20\\u529b\\u5728\\u4e8e\\uff1a\\u6bcf\\u63a5\\u8fd1\\u771f\\u76f8\\u4e00\\u6b65\\uff0c\\u5979\\u4e0e\\u9646\\u666f\\u884c\\u7684\\u5173\\u7cfb\\u5c31\\u591a\\u4e00\\u5c42\\u6bc1\\u706d\\u6027\\u98ce\\u9669\\uff1b\\u6bcf\\u83b7\\u5f97\\u4e00\\u4efd\\u60c5\\u611f\\u652f\\u6491\\uff0c\\u5979\\u79bb\\u590d\\u4ec7\\u7684\\u7eaf\\u7cb9\\u6027\\u5c31\\u66f4\\u8fdc\\u3002\\n\\u7ed3\\u5c40\\u65b9\\u5411\\uff1a\\u771f\\u76f8\\u6700\\u7ec8\\u6307\\u5411\\u9646\\u6b63\\u5219\\u5bf9\\u82cf\\u6bcd\\u4e4b\\u6b7b\\u8d1f\\u6709\\u4e0d\\u53ef\\u63a8\\u5378\\u7684\\u8d23\\u4efb\\uff0c\\u4f46\\u9646\\u666f\\u884c\\u5e76\\u975e\\u77e5\\u60c5\\u5171\\u8c0b\\u8005\\uff0c\\u751a\\u81f3\\u5728\\u5173\\u952e\\u65f6\\u523b\\u4ee5\\u81ea\\u8eab\\u4ee3\\u4ef7\\u5e2e\\u52a9\\u82cf\\u665a\\u3002\\u82cf\\u665a\\u9762\\u4e34\\u7ec8\\u6781\\u9009\\u62e9\\uff1a\\u5b8c\\u6210\\u590d\\u4ec7\\u5c06\\u6bc1\\u706d\\u552f\\u4e00\\u4fe1\\u4efb\\u5979\\u7684\\u4eba\\u7684\\u5bb6\\u65cf\\u4e0e\\u60c5\\u611f\\uff1b\\u653e\\u5f03\\u590d\\u4ec7\\u5219\\u80cc\\u53db\\u6bcd\\u4eb2\\u4e0e\\u81ea\\u5df1\\u7684\\u4fe1\\u5ff5\\u3002\\u7ed3\\u5c40\\u65b9\\u5411\\u4e3a\\u5e26\\u6709\\u6c38\\u4e45\\u4ee3\\u4ef7\\u7684\\u6709\\u9650\\u6b63\\u4e49\\u2014\\u2014\\u9646\\u6b63\\u5219\\u53d7\\u5230\\u6cd5\\u5f8b\\u6216\\u793e\\u4f1a\\u6027\\u5236\\u88c1\\uff0c\\u4f46\\u82cf\\u665a\\u4e0e\\u9646\\u666f\\u884c\\u7684\\u5173\\u7cfb\\u65e0\\u6cd5\\u5b8c\\u597d\\u5982\\u521d\\uff0c\\u590d\\u4ec7\\u7684\\u5b8c\\u6210\\u540c\\u65f6\\u4e5f\\u662f\\u60c5\\u611f\\u4e0e\\u8eab\\u4efd\\u7684\\u6c38\\u4e45\\u4f24\\u75d5\\u3002\\u7ed3\\u5c40\\u4e0d\\u8d70\\u7eaf\\u5927\\u56e2\\u5706\\u6216\\u7eaf\\u60b2\\u5267\\uff0c\\u800c\\u662f\\u627f\\u62c5\\u4ee3\\u4ef7\\u540e\\u7684\\u524d\\u884c\\u3002\\n\\u9501\\u5b9a\\u4e8b\\u5b9e\\uff1a\\u6bcd\\u4eb2\\u786e\\u5b9e\\u6b7b\\u4e8e\\u975e\\u81ea\\u7136\\u539f\\u56e0\\uff0c\\u9646\\u6b63\\u5219\\u8d1f\\u6709\\u76f4\\u63a5\\u8d23\\u4efb\\u3002\\uff1b\\u9646\\u666f\\u884c\\u5728\\u6bcd\\u4eb2\\u4e4b\\u6b7b\\u4e2d\\u4e0d\\u77e5\\u60c5\\u3001\\u672a\\u53c2\\u4e0e\\uff0c\\u4e0d\\u662f\\u5171\\u8c0b\\u8005\\u3002\\uff1b\\u82cf\\u665a\\u5e7c\\u5e74\\u88ab\\u9010\\u51fa\\u82cf\\u5bb6\\u4e0e\\u9646\\u5bb6\\u7684\\u65bd\\u538b\\u6709\\u5173\\u8054\\u3002\\uff1b\\u6bcd\\u4eb2\\u7684\\u6b7b\\u4ea1\\u8868\\u8c61\\u88ab\\u4eba\\u4e3a\\u5236\\u9020\\u6210\\u610f\\u5916\\u6216\\u75c5\\u901d\\u3002\\uff1b\\u5468\\u53d4\\u662f\\u5f53\\u5e74\\u77e5\\u60c5\\u8005\\u4e4b\\u4e00\\uff0c\\u638c\\u63e1\\u90e8\\u5206\\u5173\\u952e\\u4fe1\\u606f\\u3002\\uff1b\\u9646\\u6b63\\u5219\\u4e0d\\u4f1a\\u4e3b\\u52a8\\u8ba4\\u7f6a\\uff0c\\u53ea\\u4f1a\\u5728\\u8bc1\\u636e\\u94fe\\u9762\\u524d\\u5931\\u53bb\\u5426\\u8ba4\\u7a7a\\u95f4\\u3002\\uff1b\\u7ed3\\u5c40\\u4e2d\\u9646\\u6b63\\u5219\\u53d7\\u5230\\u5236\\u88c1\\u4f46\\u82cf\\u665a\\u4e0e\\u9646\\u666f\\u884c\\u5173\\u7cfb\\u4e0d\\u53ef\\u5b8c\\u5168\\u6062\\u590d\\u3002\", \"batch_context\": {\"batch_number\": 1, \"start_episode\": 1, \"end_episode\": 5, \"batch_instruction\": \"\\u627f\\u63a5\\u65e2\\u6709\\u72b6\\u6001\\u63a8\\u8fdb\\u5f53\\u524d\\u89c4\\u5212\\u8282\\u70b9\\uff0c\\u4e0d\\u5f97\\u91cd\\u7f6e\\u51b2\\u7a81\\u6216\\u91cd\\u590d\\u4e0a\\u4e00\\u96c6\\u3002\"}}"
+      },
+      "trace": {
+        "generation_strategy_id": "strategy.cn_mainland.longform_knowledge_candidate.v2",
+        "prompt_ids": [
+          "prompt.story_planning.frontend_mvp_cn",
+          "prompt.mainland_serialization.frontend_mvp_cn"
+        ],
+        "builder_version": "v0.3",
+        "build_purpose": "draft_generation",
+        "knowledge_refs": [
+          "knowledge.story.causal_sequence.v1",
+          "knowledge.character.choice_reveals_character.v1",
+          "knowledge.conflict.progressive_cost.v1",
+          "knowledge.payoff.logical_necessity.v1",
+          "knowledge.serialization.sustainable_story_engine.v1",
+          "knowledge.story.macro_sequence_turning.v1",
+          "knowledge.character.long_arc_trajectory.v1",
+          "knowledge.storyline.character_driven_parallel_arcs.v1"
+        ],
+        "creative_context_version": "v1"
+      },
+      "created_at": "2026-08-06T08:12:58.036935Z"
+    },
+    "llm_model_info": {
+      "provider": "openai_compatible",
+      "model_name": "glm-5.2",
+      "supports_structured_output": true,
+      "max_context_tokens": 128000
+    },
+    "llm_raw_output": {
+      "title": "归途裂痕",
+      "logline": "苏晚以化名回到母亲生前所在城市，从遗物碎片中拼出线索，第一次触碰母亲死亡表象下可能隐藏的裂缝。",
+      "synopsis": "苏晚带着假身份证和母亲遗物回到母亲生前所在城市。她在一间小旅馆安顿后翻看遗物，发现一张被撕去大半的医院缴费残片，上面只剩一个'仁'字。通过母亲通讯录中反复圈注的'林婶'，她找到母亲生前一位旧识的住址。苏晚登门拜访，林婶起初热情念旧，但一提到医院便含糊回避。苏晚亮出残片追问，林婶脸色骤变，匆忙逃离，临走低声警告'那家医院的事别查了'。苏晚第一次确信，母亲的死并非表象那么简单。",
+      "hook": "一个被家族抛弃的女孩回到故乡调查母亲死因，却发现唯一指向真相的线索是一家无人敢提及的医院。",
+      "target_audience": "中国大陆连载漫剧与网络故事受众",
+      "target_platform": "Mainland China Comic Drama",
+      "language": "zh",
+      "tone": "suspenseful",
+      "episode_goal": "苏晚以化名回到母亲生前所在城市，通过遗物碎片线索接触母亲生前旧识，首次触及母亲死亡表象与真实死因之间的裂缝。",
+      "target_duration_seconds": 180,
+      "characters": [
+        {
+          "name": "苏晚",
+          "role": "主角",
+          "description": "幼年被苏家逐出大门的少女，与母亲相依为命多年后母亲离奇身亡。她隐姓埋名回到故乡城市，暗中调查母亲死因。",
+          "motivation": "在零资源零人脉的条件下寻找母亲死亡真相，复仇的模糊直觉驱使她回到一切开始的地方。"
+        },
+        {
+          "name": "林婶",
+          "role": "配角",
+          "description": "苏晚母亲生前的旧识与邻居，与母亲关系密切，对母亲就诊医院的事知情却刻意回避。",
+          "motivation": "不愿卷入旧事，害怕触及与那家医院相关的秘密，试图用沉默保护自己也保护他人。"
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "归乡·遗物中的碎片",
+          "purpose": "建立苏晚的孤身回乡处境与调查起点，从母亲遗物中发现指向医院的碎片线索。",
+          "setting": "城中村小旅馆，逼仄的出租房间，夜晚",
+          "beat_summary": "苏晚用假身份证在城中村小旅馆落脚，将母亲遗物摊开检查，从一堆模糊单据中翻到一张被撕去大半的医院缴费残片，抬头只剩一个'仁'字。她搜索本市仁字头医院，锁定三家。",
+          "emotional_shift": "从孤身回乡的压抑与茫然，到发现线索时微弱的紧迫感",
+          "emotional_objective": "让观众感受到苏晚在失去至亲后独自面对陌生城市的孤独与压抑，同时被碎片线索勾起好奇",
+          "character_actions": [
+            "苏晚拖着行李箱走出长途汽车站，刻意避开有监控的主干道，穿过城中村错窄巷弄，用假身份证在一家无营业执照的小旅馆登记入住房间",
+            "她锁好房间门，拉上窗帘，确认走廊无人后，把母亲遗物从行李袋里取出逐一摊在折叠桌上：一部旧手机、几张折叠的药费单据、一本磨损严重的通讯录、一个装着零散票据的牛皮纸信封",
+            "她逐一翻看药费单据，大部分已褪色模糊，只有一张被撕去大半的医院缴费单残片，抬头只剩一个'仁'字和一串看不清的日期编码",
+            "苏晚拿起旧手机长按开机键，屏幕亮了一瞬闪过未读消息提示便彻底熄灭，她放下手机，盯着残片上那个'仁'字，指尖无意识地摩挲边缘",
+            "她在折叠桌旁坐下来，拿出手机搜索本市所有带'仁'字的医院，搜索结果列出三家：仁济、仁和、仁安",
+            "她把残片收进内袋，将其余遗物重新归拢，在折叠桌前坐了很久，窗外城市的灯火透过窗帘缝隙照进来"
+          ],
+          "turning_point": "苏晚从无序的遗物中提取到第一个可追踪的碎片线索——一个只剩'仁'字的医院缴费残片，将模糊的复仇直觉转化为具体的追查方向。",
+          "scene_causality": {
+            "goal": "从母亲遗物中找到可以追查的线索",
+            "conflict": "遗物零散模糊，大部分单据已褪色，信息极度有限，苏晚零资源零人脉，无法直接向任何机构查询",
+            "outcome": "苏晚找到一张被撕去大半的医院缴费残片，抬头只剩'仁'字，并搜索到本市三家仁字头医院，获得初步追查方向",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "苏晚",
+              "intent": "对自己也是对母亲的亡灵低语，确认她已回到起点",
+              "text": "妈，我回来了。这一次，没有人知道我是谁。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "表达对母亲突然离世、未留下任何解释的痛苦与困惑",
+              "text": "你走之前什么都没跟我解释，只留下这些东西。我连从哪里开始都不知道。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "凝视残片上的字，试图推断母亲最后就诊的医院",
+              "text": "仁……什么医院。你最后去的地方，连名字都只留给我一半。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "自言自语，将三家医院列为目标",
+              "text": "三家医院，三个名字。总有一个是你最后去的地方。"
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "slug": "通讯录·被圈注的名字",
+          "purpose": "从残片线索过渡到母亲人际网络的追查，锁定第一个可接触的知情人林婶。",
+          "setting": "小旅馆房间，次日清晨",
+          "beat_summary": "苏晚翻看母亲通讯录，发现'林婶'被反复圈注，最后一次标注就在母亲去世前两周。她决定先找林婶而非直接去医院，理由是先理解母亲生前人际网络才能判断线索价值。她搜索三家仁字头医院信息备查后出门。",
+          "emotional_shift": "从线索发现后的紧迫感，到制定策略时的冷静与决断",
+          "emotional_objective": "让观众看到苏晚并非冲动行事，她在极度匮乏的条件下仍然选择有条理地接近真相",
+          "character_actions": [
+            "苏晚翻开母亲通讯录，逐页扫看，发现'林婶'这个名字被反复用圆珠笔圈注，最后一次圈注旁标了日期，正是母亲去世前两周",
+            "通讯录里林婶名字旁写着详细地址：翠园北路旧居民楼三栋502，字迹是母亲的",
+            "苏晚注意到通讯录中另有一个名字被涂黑，涂痕上还用指甲掐出了痕迹，就在林婶名字上方",
+            "她将缴费残片的'仁'字和通讯录中的线索对照，推测母亲生前曾频繁联系林婶，且就医行为集中在生命最后几周",
+            "苏晚决定先去找林婶而不是直接去医院——零资源零人脉的处境下，贸然闯入医院只会暴露身份，她需要先理解母亲生前的人际网络才能判断哪条线索值得追查",
+            "她用手机搜索三家仁字头医院的信息，浏览地址和科室页面，把页面截图存下来备用",
+            "她把残片和通讯录塞进内袋，检查假身份证件，换上朴素外套，对着镜子调整表情让自己看起来不那么紧绷",
+            "出门前她把假身份证又看了一遍，确认名字栏写的是'林苏'，照片是近期拍的短发证件照"
+          ],
+          "turning_point": "苏晚从碎片线索转向人际追查策略，锁定林婶作为第一个接触对象，确立了'先理解人再追查线索'的调查逻辑。",
+          "scene_causality": {
+            "goal": "从遗物中找到可以接触的知情人，确定调查的切入路径",
+            "conflict": "苏晚无法直接去医院查询，假身份经不起深入核实，她必须在暴露风险最小的前提下找到能开口的人",
+            "outcome": "苏晚在母亲通讯录中锁定林婶为第一个接触对象，决定以远房侄女的假身份登门拜访，并提前收集了仁字头医院信息备用",
+            "caused_by_scene_number": 1,
+            "causal_link": "上一场景苏晚从遗物中找到'仁'字残片和母亲通讯录，通讯录中被反复圈注的林婶成为从残片线索过渡到人际追查的自然桥梁。"
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "苏晚",
+              "intent": "对着通讯录自语，思考林婶与母亲的关系",
+              "text": "通讯录里就你被圈得最多，林婶。你和我妈到底是什么关系？"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "提醒自己不要冲动暴露，策略优先",
+              "text": "不能去医院，至少现在不能。我连那家医院全名都拼不出来。"
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "slug": "旧识·温情的裂缝",
+          "purpose": "苏晚首次接触母亲生前社会关系，从林婶的热情念旧过渡到医院话题时的回避，制造第一个悬念信号。",
+          "setting": "翠园北路旧居民楼，林婶家中，下午",
+          "beat_summary": "苏晚以远房侄女假身份登门拜访林婶。林婶起初热情，端茶倒水，念叨苏晚母亲生前不易。苏晚顺势提及母亲就诊的医院，林婶笑容收了半拍，含糊回答'哪家都去'。苏晚注意到她的回避，确认追问方向。",
+          "emotional_shift": "从重逢旧识的温情与感慨，到对方回避医院话题时的警觉与不安",
+          "emotional_objective": "让观众从林婶的温情中感到母亲生前的人际温度，又在她的回避中察觉到不安的暗流",
+          "character_actions": [
+            "苏晚按地址找到翠园北路老旧居民楼，楼道昏暗潮湿，墙皮大面积脱落，走到三栋502门前她停下，调整呼吸后抬手敲门",
+            "门开了一条缝，林婶隔着防盗链上下打量苏晚，苏晚报上假名，自称是母亲老家的远房侄女，在外地时受过照顾，这次回乡顺道探望",
+            "林婶犹豫了几秒，取下防盗链，侧身让苏晚进门，转身去厨房倒茶，苏晚站在玄关观察屋内陈设，注意到墙上贴着一张和母亲的合照",
+            "林婶端茶过来，神情从警惕转为感慨，念叨苏晚母亲生前独居不易，说她常提起有个女儿在外地工作，却从不肯说具体在哪里做什么",
+            "苏晚顺着话头温和地试探，问母亲生前身体怎么样，有没有定期去哪家医院做检查",
+            "林婶端茶的手顿了一下，嘴角的笑容收了半拍，目光掠向窗外，说母亲只是年纪大了量量血压做做体检，没什么大病",
+            "苏晚注意到林婶的回避——她回答'体检'时说的是'都去'而非具体哪家医院，这种含糊让苏晚确认了追问方向"
+          ],
+          "turning_point": "林婶在被问及医院时的回避反应，成为苏晚确认母亲死亡存在隐情的第一个信号。",
+          "scene_causality": {
+            "goal": "以假身份接触林婶，从她口中了解母亲生前就医情况",
+            "conflict": "林婶对医院话题明显回避，用'哪家都去'的含糊说法堵住追问，苏晚不能暴露真实身份逼问",
+            "outcome": "林婶的回避反应让苏晚确认医院是敏感话题，她决定亮出残片直接试探，将暗中的警觉升级为正面的交锋",
+            "caused_by_scene_number": 2,
+            "causal_link": "上一场景苏晚锁定林婶为接触对象并制定假身份策略，本场景是她执行该策略的必然下一步。林婶的回避反应直接推动苏晚在下一场景亮出残片追问。"
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "林婶",
+              "intent": "确认来客身份后表示接纳，用念旧拉近距离",
+              "text": "你是……哦，老家那边的远房侄女？你妈以前提过老家有人。进来坐吧。"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "感慨苏晚母亲生前的孤独与对女儿的牵挂",
+              "text": "你妈一个人住在这边，其实挺难的。她老跟我说，她闺女在外面有出息了，可就是见不着人。"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "叹惋，流露对老友的怀念",
+              "text": "她要是还在就好了，你们娘俩也好聚聚。可惜了。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "温和试探母亲就医情况，不暴露真实目的",
+              "text": "林婶，我妈走之前身体还好吗？她有没有常去哪家医院？"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "回避具体医院名称，用模糊回答堵住追问",
+              "text": "医院？就是……年纪大了嘛，量个血压做个体检，哪家都去，哪有什么大病。"
+            }
+          ]
+        },
+        {
+          "scene_number": 4,
+          "slug": "警告·那家医院的事别查了",
+          "purpose": "苏晚亮出残片追问，林婶恐慌逃离并留下警告，将本集悬念推至顶点。",
+          "setting": "林婶家中及老旧居民楼楼道，傍晚",
+          "beat_summary": "苏晚掏出医院缴费残片摊在茶几上追问，林婶脸色发白，茶杯碰倒，匆忙推人离开。苏晚追到楼道口，林婶在楼梯拐角停住，压低声音说'那家医院的事别查了'，随即消失在楼道尽头。苏晚攥着残片站在昏暗走廊，第一次确信母亲的死有隐情。",
+          "emotional_shift": "从试探追问的警觉，到林婶恐慌逃离时的震动与确信",
+          "emotional_objective": "让观众在林婶的恐惧中感受到那家医院背后隐藏的危险，与苏晚一起完成从怀疑到确信的转变",
+          "character_actions": [
+            "苏晚从内袋掏出那半张医院缴费残片，轻轻摊在茶几上，问林婶认不认得这个医院抬头",
+            "林婶低头看了一眼残片，脸色瞬间发白，猛地站起身来，茶杯碰倒在桌上，水洒了一片",
+            "她把残片推回苏晚面前，开始往外推人，语气急促地说今天就这样吧自己还有事要出门",
+            "苏晚站着不动，追问林婶认不认得上面的字，是不是'仁济'或者'仁和'，林婶的手在发抖",
+            "林婶慌乱地披上外套，从半开的门缝挤出去，快步走向昏暗的楼道，苏晚紧跟其后",
+            "苏晚追到楼道口，林婶在楼梯拐角处突然停住脚步，回过头来，压低声音说了一句话",
+            "苏晚想要追上去拉住她，但停住了——她知道逼迫太紧只会让林婶彻底关闭",
+            "说完这句话，林婶转身快步下楼，脚步声越来越远，消失在楼道尽头，苏晚站在昏暗走廊里手里攥着那半张残片",
+            "苏晚低头看手中的残片，'仁'字在昏暗的灯光下模糊不清，但林婶的反应已经说明了一切"
+          ],
+          "turning_point": "林婶的恐慌逃离和临别警告，将苏晚从'碎片线索'推进到'确信母亲死亡有隐情'的状态，并留下一个无人愿提及的医院作为下一步追查的锚点。",
+          "scene_causality": {
+            "goal": "用残片逼林婶说出医院名称，打开调查缺口",
+            "conflict": "林婶对残片反应剧烈却拒绝透露任何信息，恐慌中逃离，苏晚无法在暴露身份的风险下强行追截",
+            "outcome": "林婶留下'那家医院的事别查了'的警告后消失，苏晚第一次确信母亲死亡存在隐情，但手上仍只有半张残片和三家仁字头医院，调查锚点已锁定但突破尚未实现",
+            "caused_by_scene_number": 3,
+            "causal_link": "上一场景林婶回避医院话题的含糊态度，直接推动苏晚在本场景亮出残片正面追问，林婶的恐慌反应是前一场景回避行为的升级爆发。"
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "苏晚",
+              "intent": "亮出残片，正面追问林婶是否认识医院抬头",
+              "text": "林婶，这张单子您见过吗？上面只剩一个'仁'字了。"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "恐慌，试图让苏晚收回残片并终止谈话",
+              "text": "你这孩子怎么还带着这种东西！收起来，快收起来！"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "趁势追问，试图从林婶口中逼出医院全名",
+              "text": "您认得上面对不对？是仁济还是仁和？"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "拒绝回答，急于摆脱苏晚",
+              "text": "别问了，你赶紧走，我什么都不知道，什么都不知道！"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "试图叫住正在逃离的林婶",
+              "text": "林婶！"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "临别警告，暗示那家医院背后有不可触及的秘密",
+              "text": "那家医院的事别查了。"
+            }
+          ]
+        }
+      ],
+      "next_episode_question": "林婶口中'别查了'的那家医院究竟是仁济、仁和还是仁安？母亲去世前最后几周在那里经历了什么？",
+      "_meta": {
+        "provider": "openai_compatible",
+        "model_name": "glm-5.2",
+        "strategy_id": "strategy.cn_mainland.longform_knowledge_candidate.v2",
+        "usage": {
+          "input_tokens": 10777,
+          "output_tokens": 18754,
+          "total_tokens": 29531,
+          "input_tokens_details": {
+            "cached_tokens": 10624
+          }
+        },
+        "response_id": "chatcmpl-be4e32d8-f7cc-94be-88cb-bee406024525"
+      }
+    },
+    "resolved_creative_context": {
+      "schema_version": "v1",
+      "content_spec_id": "66f9126f-4162-4e10-8f54-785c778b79cd",
+      "characters": [],
+      "excluded_tag_ids": [],
+      "excluded_patterns": [
+        "不要让苏晚的调查变成反复更换嫌疑人名字和地点而策略与风险不变的重复循环。",
+        "不要将苏晚与陆景行的关系处理为纯粹装饰性感情线，它必须直接影响调查的推进与阻碍。",
+        "不要让陆正则成为脸谱化反派，他应有合理的自我逻辑与资源运作。",
+        "不要让真相通过单一外部救星或偶然发现突然解决，证据链须由苏晚主动行动串联。",
+        "不要让陆景行在无内心挣扎的情况下直接倒向苏晚，他的选择须有代价与过程。",
+        "不要让每个调查节点都在相同的威胁模式下展开，应通过关系性、信息性、道德性、时间性等不同维度升级冲突。",
+        "不要为了延长篇幅而反复搁置核心真相揭示，应让每次搁置都伴随可用策略或关系的实质变化。"
+      ],
+      "resolution_warnings": []
+    },
+    "episode_context": {
+      "generation_mode": "full",
+      "episode_number": 1,
+      "total_episodes": 334,
+      "previous_episode_summary": null,
+      "previous_episode_question": null,
+      "episode_instruction": "本集目标：苏晚以化名回到母亲生前所在城市，通过母亲遗物中的碎片线索接触母亲生前社会关系，寻找调查切入点，首次触及母亲死亡表象与真实死因之间的裂缝。；进入状态：苏晚携带假身份准备回到母亲生前所在城市。她手中仅有母亲遗物中零散的线索指向母亲曾就诊的医院，尚未建立任何本地社会关系，调查资源极度匮乏。她心中只有模糊的复仇直觉和母亲遗物中的碎片信息，尚无任何确凿证据指向母亲死因存在隐情。；中心冲突：苏晚在零资源、零人脉的条件下需要打开调查缺口，而她的第一个挑战是：在不暴露假身份的前提下，如何从母亲遗物中的零散线索找到可追踪的调查方向。；主角决定：苏晚决定以化名回乡，从母亲生前社会关系入手开启调查，而非直接去找医院——她需要先理解母亲生前的人际网络，才能判断哪些线索值得追查。；揭示：母亲生前一位旧识在提及母亲就诊医院时突然沉默回避，暗示那里有不为人知的事。；情绪推进：从复仇的模糊直觉与孤身回乡的压抑感，到初次触及母亲死亡表象下可能隐藏裂缝时的震动与不安。；退出状态：苏晚已回到母亲生前所在城市，以化名安顿。她初步接触了母亲生前的社会关系，获得指向医院的碎片线索，第一次感到母亲死亡可能有隐情，但尚无确凿证据。母亲旧识对医院的回避态度成为她下一步追查的锚点。；结尾悬念或回报：母亲旧识在被追问医院相关情况后匆忙告辞，临走时低声说了一句\"那家医院的事别查了\"，随即消失在楼道里。",
+      "project_continuity_summary": "核心前提：少女苏晚幼年被苏家逐出大门，与母亲相依为命多年后母亲离奇身亡。她隐姓埋名回到故乡城市，暗中调查母亲死因，逐步将矛头指向本地商界权贵陆正则。在此过程中，她最关键的盟友与情感依靠竟是陆正则之子陆景行——她所信任的人可能正是仇人的血脉。复仇、真相与感情在三方博弈中不断撕裂重组。\n整部目标：构建一部长篇悬疑复仇故事：苏晚从外部弱者位置一步步逼近母亲死亡真相，在权力、谎言与情感纠葛中完成对自身复仇信念的拷问。故事最终回答——当帮助你的双手沾满你至亲的血时，你该如何选择。整体走向是真相层层揭开、代价逐级加重、关系不可逆转地崩塌或重建。\n主题：复仇、家庭秘密、情感纠葛——当仇恨的边界侵入最亲密的信任时，人如何在真相与情感之间做出不可调和的选择。\n中心冲突：苏晚追查母亲死因的外部调查行动，与陆家势力层层掩盖真相形成直接对抗；同时她与陆景行之间日益加深的信任和情感，和她对陆家的复仇意图形成内在撕裂。核心张力在于：每接近真相一步，她与陆景行的关系就多一层毁灭性风险；每获得一份情感支撑，她离复仇的纯粹性就更远。\n结局方向：真相最终指向陆正则对苏母之死负有不可推卸的责任，但陆景行并非知情共谋者，甚至在关键时刻以自身代价帮助苏晚。苏晚面临终极选择：完成复仇将毁灭唯一信任她的人的家族与情感；放弃复仇则背叛母亲与自己的信念。结局方向为带有永久代价的有限正义——陆正则受到法律或社会性制裁，但苏晚与陆景行的关系无法完好如初，复仇的完成同时也是情感与身份的永久伤痕。结局不走纯大团圆或纯悲剧，而是承担代价后的前行。\n锁定事实：母亲确实死于非自然原因，陆正则负有直接责任。；陆景行在母亲之死中不知情、未参与，不是共谋者。；苏晚幼年被逐出苏家与陆家的施压有关联。；母亲的死亡表象被人为制造成意外或病逝。；周叔是当年知情者之一，掌握部分关键信息。；陆正则不会主动认罪，只会在证据链面前失去否认空间。；结局中陆正则受到制裁但苏晚与陆景行关系不可完全恢复。",
+      "batch_context": {
+        "batch_number": 1,
+        "start_episode": 1,
+        "end_episode": 5,
+        "batch_instruction": "承接既有状态推进当前规划节点，不得重置冲突或重复上一集。"
+      }
+    },
+    "knowledge_bundle": {
+      "bundle_id": "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2",
+      "version": "v2",
+      "knowledge_ids": [
+        "knowledge.story.causal_sequence.v1",
+        "knowledge.character.choice_reveals_character.v1",
+        "knowledge.conflict.progressive_cost.v1",
+        "knowledge.payoff.logical_necessity.v1",
+        "knowledge.serialization.sustainable_story_engine.v1",
+        "knowledge.story.macro_sequence_turning.v1",
+        "knowledge.character.long_arc_trajectory.v1",
+        "knowledge.storyline.character_driven_parallel_arcs.v1"
+      ],
+      "applicable_conditions": {
+        "any_tag_ids": [],
+        "any_tag_labels": [],
+        "target_platforms": [
+          "mainland china comic drama"
+        ],
+        "platform_profile_ids": [
+          "cn_mainland_comic_drama_v1"
+        ]
+      },
+      "source_reference": "AI_Comic_Content_OS_Docs/Research/Longform_Creative_Knowledge_Bootstrap_v1.md",
+      "target_stage": "draft_generation"
+    },
+    "knowledge_selection_trace": {
+      "selector_version": "static_knowledge_catalog.v1",
+      "target_stage": "draft_generation",
+      "requested_bundle_id": "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2",
+      "selected_bundle_id": "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2",
+      "selected_knowledge_refs": [
+        "knowledge.story.causal_sequence.v1",
+        "knowledge.character.choice_reveals_character.v1",
+        "knowledge.conflict.progressive_cost.v1",
+        "knowledge.payoff.logical_necessity.v1",
+        "knowledge.serialization.sustainable_story_engine.v1",
+        "knowledge.story.macro_sequence_turning.v1",
+        "knowledge.character.long_arc_trajectory.v1",
+        "knowledge.storyline.character_driven_parallel_arcs.v1"
+      ],
+      "selection_reason": "The exact GenerationStrategy bundle matched its target stage, ContentSpec tags, and target platform.",
+      "warnings": []
+    },
+    "creative_deepening_run": null,
+    "draft_master_script": {
+      "content_spec_id": "66f9126f-4162-4e10-8f54-785c778b79cd",
+      "generation_strategy_id": "strategy.cn_mainland.longform_knowledge_candidate.v2",
+      "title": "归途裂痕",
+      "logline": "苏晚以化名回到母亲生前所在城市，从遗物碎片中拼出线索，第一次触碰母亲死亡表象下可能隐藏的裂缝。",
+      "language": "zh",
+      "target_audience": "中国大陆连载漫剧与网络故事受众",
+      "target_platform": "Mainland China Comic Drama",
+      "tone": "suspenseful",
+      "hook": "一个被家族抛弃的女孩回到故乡调查母亲死因，却发现唯一指向真相的线索是一家无人敢提及的医院。",
+      "synopsis": "苏晚带着假身份证和母亲遗物回到母亲生前所在城市。她在一间小旅馆安顿后翻看遗物，发现一张被撕去大半的医院缴费残片，上面只剩一个'仁'字。通过母亲通讯录中反复圈注的'林婶'，她找到母亲生前一位旧识的住址。苏晚登门拜访，林婶起初热情念旧，但一提到医院便含糊回避。苏晚亮出残片追问，林婶脸色骤变，匆忙逃离，临走低声警告'那家医院的事别查了'。苏晚第一次确信，母亲的死并非表象那么简单。",
+      "episode_goal": "苏晚以化名回到母亲生前所在城市，通过遗物碎片线索接触母亲生前旧识，首次触及母亲死亡表象与真实死因之间的裂缝。",
+      "target_duration_seconds": 180,
+      "characters": [
+        {
+          "name": "苏晚",
+          "role": "主角",
+          "description": "幼年被苏家逐出大门的少女，与母亲相依为命多年后母亲离奇身亡。她隐姓埋名回到故乡城市，暗中调查母亲死因。",
+          "motivation": "在零资源零人脉的条件下寻找母亲死亡真相，复仇的模糊直觉驱使她回到一切开始的地方。"
+        },
+        {
+          "name": "林婶",
+          "role": "配角",
+          "description": "苏晚母亲生前的旧识与邻居，与母亲关系密切，对母亲就诊医院的事知情却刻意回避。",
+          "motivation": "不愿卷入旧事，害怕触及与那家医院相关的秘密，试图用沉默保护自己也保护他人。"
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "归乡·遗物中的碎片",
+          "purpose": "建立苏晚的孤身回乡处境与调查起点，从母亲遗物中发现指向医院的碎片线索。",
+          "setting_hint": "城中村小旅馆，逼仄的出租房间，夜晚",
+          "beat_summary": "苏晚用假身份证在城中村小旅馆落脚，将母亲遗物摊开检查，从一堆模糊单据中翻到一张被撕去大半的医院缴费残片，抬头只剩一个'仁'字。她搜索本市仁字头医院，锁定三家。",
+          "emotional_shift": "从孤身回乡的压抑与茫然，到发现线索时微弱的紧迫感",
+          "emotional_objective": "让观众感受到苏晚在失去至亲后独自面对陌生城市的孤独与压抑，同时被碎片线索勾起好奇",
+          "character_actions": [
+            "苏晚拖着行李箱走出长途汽车站，刻意避开有监控的主干道，穿过城中村错窄巷弄，用假身份证在一家无营业执照的小旅馆登记入住房间",
+            "她锁好房间门，拉上窗帘，确认走廊无人后，把母亲遗物从行李袋里取出逐一摊在折叠桌上：一部旧手机、几张折叠的药费单据、一本磨损严重的通讯录、一个装着零散票据的牛皮纸信封",
+            "她逐一翻看药费单据，大部分已褪色模糊，只有一张被撕去大半的医院缴费单残片，抬头只剩一个'仁'字和一串看不清的日期编码",
+            "苏晚拿起旧手机长按开机键，屏幕亮了一瞬闪过未读消息提示便彻底熄灭，她放下手机，盯着残片上那个'仁'字，指尖无意识地摩挲边缘",
+            "她在折叠桌旁坐下来，拿出手机搜索本市所有带'仁'字的医院，搜索结果列出三家：仁济、仁和、仁安",
+            "她把残片收进内袋，将其余遗物重新归拢，在折叠桌前坐了很久，窗外城市的灯火透过窗帘缝隙照进来"
+          ],
+          "turning_point": "苏晚从无序的遗物中提取到第一个可追踪的碎片线索——一个只剩'仁'字的医院缴费残片，将模糊的复仇直觉转化为具体的追查方向。",
+          "scene_causality": {
+            "goal": "从母亲遗物中找到可以追查的线索",
+            "conflict": "遗物零散模糊，大部分单据已褪色，信息极度有限，苏晚零资源零人脉，无法直接向任何机构查询",
+            "outcome": "苏晚找到一张被撕去大半的医院缴费残片，抬头只剩'仁'字，并搜索到本市三家仁字头医院，获得初步追查方向",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogue_prompts": [
+            "妈，我回来了。这一次，没有人知道我是谁。",
+            "你走之前什么都没跟我解释，只留下这些东西。我连从哪里开始都不知道。",
+            "仁……什么医院。你最后去的地方，连名字都只留给我一半。",
+            "三家医院，三个名字。总有一个是你最后去的地方。"
+          ],
+          "dialogues": [
+            {
+              "character_name": "苏晚",
+              "intent": "对自己也是对母亲的亡灵低语，确认她已回到起点",
+              "text": "妈，我回来了。这一次，没有人知道我是谁。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "表达对母亲突然离世、未留下任何解释的痛苦与困惑",
+              "text": "你走之前什么都没跟我解释，只留下这些东西。我连从哪里开始都不知道。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "凝视残片上的字，试图推断母亲最后就诊的医院",
+              "text": "仁……什么医院。你最后去的地方，连名字都只留给我一半。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "自言自语，将三家医院列为目标",
+              "text": "三家医院，三个名字。总有一个是你最后去的地方。"
+            }
+          ],
+          "supporting_asset_ids": []
+        },
+        {
+          "scene_number": 2,
+          "slug": "通讯录·被圈注的名字",
+          "purpose": "从残片线索过渡到母亲人际网络的追查，锁定第一个可接触的知情人林婶。",
+          "setting_hint": "小旅馆房间，次日清晨",
+          "beat_summary": "苏晚翻看母亲通讯录，发现'林婶'被反复圈注，最后一次标注就在母亲去世前两周。她决定先找林婶而非直接去医院，理由是先理解母亲生前人际网络才能判断线索价值。她搜索三家仁字头医院信息备查后出门。",
+          "emotional_shift": "从线索发现后的紧迫感，到制定策略时的冷静与决断",
+          "emotional_objective": "让观众看到苏晚并非冲动行事，她在极度匮乏的条件下仍然选择有条理地接近真相",
+          "character_actions": [
+            "苏晚翻开母亲通讯录，逐页扫看，发现'林婶'这个名字被反复用圆珠笔圈注，最后一次圈注旁标了日期，正是母亲去世前两周",
+            "通讯录里林婶名字旁写着详细地址：翠园北路旧居民楼三栋502，字迹是母亲的",
+            "苏晚注意到通讯录中另有一个名字被涂黑，涂痕上还用指甲掐出了痕迹，就在林婶名字上方",
+            "她将缴费残片的'仁'字和通讯录中的线索对照，推测母亲生前曾频繁联系林婶，且就医行为集中在生命最后几周",
+            "苏晚决定先去找林婶而不是直接去医院——零资源零人脉的处境下，贸然闯入医院只会暴露身份，她需要先理解母亲生前的人际网络才能判断哪条线索值得追查",
+            "她用手机搜索三家仁字头医院的信息，浏览地址和科室页面，把页面截图存下来备用",
+            "她把残片和通讯录塞进内袋，检查假身份证件，换上朴素外套，对着镜子调整表情让自己看起来不那么紧绷",
+            "出门前她把假身份证又看了一遍，确认名字栏写的是'林苏'，照片是近期拍的短发证件照"
+          ],
+          "turning_point": "苏晚从碎片线索转向人际追查策略，锁定林婶作为第一个接触对象，确立了'先理解人再追查线索'的调查逻辑。",
+          "scene_causality": {
+            "goal": "从遗物中找到可以接触的知情人，确定调查的切入路径",
+            "conflict": "苏晚无法直接去医院查询，假身份经不起深入核实，她必须在暴露风险最小的前提下找到能开口的人",
+            "outcome": "苏晚在母亲通讯录中锁定林婶为第一个接触对象，决定以远房侄女的假身份登门拜访，并提前收集了仁字头医院信息备用",
+            "caused_by_scene_number": 1,
+            "causal_link": "上一场景苏晚从遗物中找到'仁'字残片和母亲通讯录，通讯录中被反复圈注的林婶成为从残片线索过渡到人际追查的自然桥梁。"
+          },
+          "cliffhanger": false,
+          "dialogue_prompts": [
+            "通讯录里就你被圈得最多，林婶。你和我妈到底是什么关系？",
+            "不能去医院，至少现在不能。我连那家医院全名都拼不出来。"
+          ],
+          "dialogues": [
+            {
+              "character_name": "苏晚",
+              "intent": "对着通讯录自语，思考林婶与母亲的关系",
+              "text": "通讯录里就你被圈得最多，林婶。你和我妈到底是什么关系？"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "提醒自己不要冲动暴露，策略优先",
+              "text": "不能去医院，至少现在不能。我连那家医院全名都拼不出来。"
+            }
+          ],
+          "supporting_asset_ids": []
+        },
+        {
+          "scene_number": 3,
+          "slug": "旧识·温情的裂缝",
+          "purpose": "苏晚首次接触母亲生前社会关系，从林婶的热情念旧过渡到医院话题时的回避，制造第一个悬念信号。",
+          "setting_hint": "翠园北路旧居民楼，林婶家中，下午",
+          "beat_summary": "苏晚以远房侄女假身份登门拜访林婶。林婶起初热情，端茶倒水，念叨苏晚母亲生前不易。苏晚顺势提及母亲就诊的医院，林婶笑容收了半拍，含糊回答'哪家都去'。苏晚注意到她的回避，确认追问方向。",
+          "emotional_shift": "从重逢旧识的温情与感慨，到对方回避医院话题时的警觉与不安",
+          "emotional_objective": "让观众从林婶的温情中感到母亲生前的人际温度，又在她的回避中察觉到不安的暗流",
+          "character_actions": [
+            "苏晚按地址找到翠园北路老旧居民楼，楼道昏暗潮湿，墙皮大面积脱落，走到三栋502门前她停下，调整呼吸后抬手敲门",
+            "门开了一条缝，林婶隔着防盗链上下打量苏晚，苏晚报上假名，自称是母亲老家的远房侄女，在外地时受过照顾，这次回乡顺道探望",
+            "林婶犹豫了几秒，取下防盗链，侧身让苏晚进门，转身去厨房倒茶，苏晚站在玄关观察屋内陈设，注意到墙上贴着一张和母亲的合照",
+            "林婶端茶过来，神情从警惕转为感慨，念叨苏晚母亲生前独居不易，说她常提起有个女儿在外地工作，却从不肯说具体在哪里做什么",
+            "苏晚顺着话头温和地试探，问母亲生前身体怎么样，有没有定期去哪家医院做检查",
+            "林婶端茶的手顿了一下，嘴角的笑容收了半拍，目光掠向窗外，说母亲只是年纪大了量量血压做做体检，没什么大病",
+            "苏晚注意到林婶的回避——她回答'体检'时说的是'都去'而非具体哪家医院，这种含糊让苏晚确认了追问方向"
+          ],
+          "turning_point": "林婶在被问及医院时的回避反应，成为苏晚确认母亲死亡存在隐情的第一个信号。",
+          "scene_causality": {
+            "goal": "以假身份接触林婶，从她口中了解母亲生前就医情况",
+            "conflict": "林婶对医院话题明显回避，用'哪家都去'的含糊说法堵住追问，苏晚不能暴露真实身份逼问",
+            "outcome": "林婶的回避反应让苏晚确认医院是敏感话题，她决定亮出残片直接试探，将暗中的警觉升级为正面的交锋",
+            "caused_by_scene_number": 2,
+            "causal_link": "上一场景苏晚锁定林婶为接触对象并制定假身份策略，本场景是她执行该策略的必然下一步。林婶的回避反应直接推动苏晚在下一场景亮出残片追问。"
+          },
+          "cliffhanger": false,
+          "dialogue_prompts": [
+            "你是……哦，老家那边的远房侄女？你妈以前提过老家有人。进来坐吧。",
+            "你妈一个人住在这边，其实挺难的。她老跟我说，她闺女在外面有出息了，可就是见不着人。",
+            "她要是还在就好了，你们娘俩也好聚聚。可惜了。",
+            "林婶，我妈走之前身体还好吗？她有没有常去哪家医院？",
+            "医院？就是……年纪大了嘛，量个血压做个体检，哪家都去，哪有什么大病。"
+          ],
+          "dialogues": [
+            {
+              "character_name": "林婶",
+              "intent": "确认来客身份后表示接纳，用念旧拉近距离",
+              "text": "你是……哦，老家那边的远房侄女？你妈以前提过老家有人。进来坐吧。"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "感慨苏晚母亲生前的孤独与对女儿的牵挂",
+              "text": "你妈一个人住在这边，其实挺难的。她老跟我说，她闺女在外面有出息了，可就是见不着人。"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "叹惋，流露对老友的怀念",
+              "text": "她要是还在就好了，你们娘俩也好聚聚。可惜了。"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "温和试探母亲就医情况，不暴露真实目的",
+              "text": "林婶，我妈走之前身体还好吗？她有没有常去哪家医院？"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "回避具体医院名称，用模糊回答堵住追问",
+              "text": "医院？就是……年纪大了嘛，量个血压做个体检，哪家都去，哪有什么大病。"
+            }
+          ],
+          "supporting_asset_ids": []
+        },
+        {
+          "scene_number": 4,
+          "slug": "警告·那家医院的事别查了",
+          "purpose": "苏晚亮出残片追问，林婶恐慌逃离并留下警告，将本集悬念推至顶点。",
+          "setting_hint": "林婶家中及老旧居民楼楼道，傍晚",
+          "beat_summary": "苏晚掏出医院缴费残片摊在茶几上追问，林婶脸色发白，茶杯碰倒，匆忙推人离开。苏晚追到楼道口，林婶在楼梯拐角停住，压低声音说'那家医院的事别查了'，随即消失在楼道尽头。苏晚攥着残片站在昏暗走廊，第一次确信母亲的死有隐情。",
+          "emotional_shift": "从试探追问的警觉，到林婶恐慌逃离时的震动与确信",
+          "emotional_objective": "让观众在林婶的恐惧中感受到那家医院背后隐藏的危险，与苏晚一起完成从怀疑到确信的转变",
+          "character_actions": [
+            "苏晚从内袋掏出那半张医院缴费残片，轻轻摊在茶几上，问林婶认不认得这个医院抬头",
+            "林婶低头看了一眼残片，脸色瞬间发白，猛地站起身来，茶杯碰倒在桌上，水洒了一片",
+            "她把残片推回苏晚面前，开始往外推人，语气急促地说今天就这样吧自己还有事要出门",
+            "苏晚站着不动，追问林婶认不认得上面的字，是不是'仁济'或者'仁和'，林婶的手在发抖",
+            "林婶慌乱地披上外套，从半开的门缝挤出去，快步走向昏暗的楼道，苏晚紧跟其后",
+            "苏晚追到楼道口，林婶在楼梯拐角处突然停住脚步，回过头来，压低声音说了一句话",
+            "苏晚想要追上去拉住她，但停住了——她知道逼迫太紧只会让林婶彻底关闭",
+            "说完这句话，林婶转身快步下楼，脚步声越来越远，消失在楼道尽头，苏晚站在昏暗走廊里手里攥着那半张残片",
+            "苏晚低头看手中的残片，'仁'字在昏暗的灯光下模糊不清，但林婶的反应已经说明了一切"
+          ],
+          "turning_point": "林婶的恐慌逃离和临别警告，将苏晚从'碎片线索'推进到'确信母亲死亡有隐情'的状态，并留下一个无人愿提及的医院作为下一步追查的锚点。",
+          "scene_causality": {
+            "goal": "用残片逼林婶说出医院名称，打开调查缺口",
+            "conflict": "林婶对残片反应剧烈却拒绝透露任何信息，恐慌中逃离，苏晚无法在暴露身份的风险下强行追截",
+            "outcome": "林婶留下'那家医院的事别查了'的警告后消失，苏晚第一次确信母亲死亡存在隐情，但手上仍只有半张残片和三家仁字头医院，调查锚点已锁定但突破尚未实现",
+            "caused_by_scene_number": 3,
+            "causal_link": "上一场景林婶回避医院话题的含糊态度，直接推动苏晚在本场景亮出残片正面追问，林婶的恐慌反应是前一场景回避行为的升级爆发。"
+          },
+          "cliffhanger": true,
+          "dialogue_prompts": [
+            "林婶，这张单子您见过吗？上面只剩一个'仁'字了。",
+            "你这孩子怎么还带着这种东西！收起来，快收起来！",
+            "您认得上面对不对？是仁济还是仁和？",
+            "别问了，你赶紧走，我什么都不知道，什么都不知道！",
+            "林婶！",
+            "那家医院的事别查了。"
+          ],
+          "dialogues": [
+            {
+              "character_name": "苏晚",
+              "intent": "亮出残片，正面追问林婶是否认识医院抬头",
+              "text": "林婶，这张单子您见过吗？上面只剩一个'仁'字了。"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "恐慌，试图让苏晚收回残片并终止谈话",
+              "text": "你这孩子怎么还带着这种东西！收起来，快收起来！"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "趁势追问，试图从林婶口中逼出医院全名",
+              "text": "您认得上面对不对？是仁济还是仁和？"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "拒绝回答，急于摆脱苏晚",
+              "text": "别问了，你赶紧走，我什么都不知道，什么都不知道！"
+            },
+            {
+              "character_name": "苏晚",
+              "intent": "试图叫住正在逃离的林婶",
+              "text": "林婶！"
+            },
+            {
+              "character_name": "林婶",
+              "intent": "临别警告，暗示那家医院背后有不可触及的秘密",
+              "text": "那家医院的事别查了。"
+            }
+          ],
+          "supporting_asset_ids": []
+        }
+      ],
+      "next_episode_question": "林婶口中'别查了'的那家医院究竟是仁济、仁和还是仁安？母亲去世前最后几周在那里经历了什么？",
+      "qa_notes": [
+        "Draft generated by RealLLMAdapter structured output.",
+        "Story QC and revision loop must still review platform fit and consistency."
+      ],
+      "llm_metadata": {
+        "provider": "openai_compatible",
+        "model_name": "glm-5.2",
+        "strategy_id": "strategy.cn_mainland.longform_knowledge_candidate.v2",
+        "usage": {
+          "input_tokens": 10777,
+          "output_tokens": 18754,
+          "total_tokens": 29531,
+          "input_tokens_details": {
+            "cached_tokens": 10624
+          }
+        },
+        "response_id": "chatcmpl-be4e32d8-f7cc-94be-88cb-bee406024525",
+        "prompt_versions": [
+          "v1",
+          "v1"
+        ],
+        "generation_strategy_version": "v2"
+      },
+      "id": "913bf3f7-177d-4f79-915a-bbde05649ee4",
+      "created_at": "2026-08-06T08:17:02.155927Z",
+      "updated_at": "2026-08-06T08:17:02.155931Z"
+    },
+    "story_qc_report": {
+      "overall_score": 0.914,
+      "status": "placeholder",
+      "checks": [
+        {
+          "check_name": "hook_present",
+          "passed": true,
+          "score": 1.0,
+          "note": "Rubric-aligned check for hook presence."
+        },
+        {
+          "check_name": "scenes_present",
+          "passed": true,
+          "score": 1.0,
+          "note": "Rubric-aligned check for scene structure presence."
+        },
+        {
+          "check_name": "strategy_qc_enabled",
+          "passed": true,
+          "score": 0.8,
+          "note": "Rubric-aligned check for strategy QC configuration."
+        },
+        {
+          "check_name": "rubric_score",
+          "passed": true,
+          "score": 0.855,
+          "note": "Story quality rubric aggregate score."
+        }
+      ],
+      "recommended_actions": [
+        "Use the story rubric deductions and suggestions to build a revision plan."
+      ],
+      "rubric_overall_score": 0.855,
+      "rubric_categories": [
+        {
+          "category_name": "Hook",
+          "score": 5.0,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Strengthen the opening reveal or contradiction."
+          ]
+        },
+        {
+          "category_name": "Narrative Logic",
+          "score": 4.5,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Clarify why each scene triggers the next escalation."
+          ]
+        },
+        {
+          "category_name": "Character Consistency",
+          "score": 4.0,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Align dialogue and actions with the character objective."
+          ]
+        },
+        {
+          "category_name": "Character Agency",
+          "score": 2.5,
+          "max_score": 5,
+          "deduction_reasons": [
+            "Protagonist choices are not visible enough."
+          ],
+          "revision_suggestions": [
+            "Add an explicit choice or refusal beat for the protagonist."
+          ]
+        },
+        {
+          "category_name": "Emotional Progression",
+          "score": 4.5,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Sharpen the emotional turn between scenes."
+          ]
+        },
+        {
+          "category_name": "Conflict Escalation",
+          "score": 4.5,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Increase public, relational, or status consequences in later scenes."
+          ]
+        },
+        {
+          "category_name": "Dialogue Quality",
+          "score": 4.0,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Replace generic lines with concrete, high-stakes phrasing."
+          ]
+        },
+        {
+          "category_name": "Platform Fit",
+          "score": 4.5,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Align pacing and presentation with the selected profile."
+          ]
+        },
+        {
+          "category_name": "Cultural Fit",
+          "score": 4.0,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Reduce ambiguous references and sharpen audience framing."
+          ]
+        },
+        {
+          "category_name": "Commercial Potential",
+          "score": 4.5,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "Strengthen episode-end curiosity and future payoff."
+          ]
+        },
+        {
+          "category_name": "Cliffhanger Strength",
+          "score": 5.0,
+          "max_score": 5,
+          "deduction_reasons": [],
+          "revision_suggestions": [
+            "End on a sharper unanswered reveal or power reversal."
+          ]
+        }
+      ],
+      "report_version": "story_qc_report.v1",
+      "explainability_status": "partial",
+      "dimension_evaluations": [
+        {
+          "dimension": "hook_quality",
+          "score": 5.0,
+          "summary": "Opening hook establishes a clear contradiction and viewing question.",
+          "score_reason": "The current score is driven by whether the draft hook is specific and whether the opening scene establishes immediate pressure.",
+          "deduction_reasons": [],
+          "scene_refs": [
+            1
+          ],
+          "evidence": [
+            "Hook: 一个被家族抛弃的女孩回到故乡调查母亲死因，却发现唯一指向真相的线索是一家无人敢提及的医院。",
+            "Scene 1 purpose: 建立苏晚的孤身回乡处境与调查起点，从母亲遗物中发现指向医院的碎片线索。"
+          ],
+          "revision_signals": []
+        },
+        {
+          "dimension": "character_agency",
+          "score": 2.5,
+          "summary": "The protagonist is present, but their agency is not explicit enough yet.",
+          "score_reason": "The current score reflects whether the protagonist initiates, refuses, exposes, or otherwise changes the scene outcome through visible action.",
+          "deduction_reasons": [
+            "Protagonist choices are not visible enough."
+          ],
+          "scene_refs": [
+            1
+          ],
+          "evidence": [],
+          "revision_signals": [
+            "show_protagonist_choice",
+            "increase_visible_action_risk"
+          ]
+        },
+        {
+          "dimension": "conflict_escalation",
+          "score": 4.5,
+          "summary": "The scenes build toward a stronger public or relational threat by the ending.",
+          "score_reason": "The current score reflects whether later scenes meaningfully raise pressure over earlier scenes and whether the episode ends under stronger threat than it began.",
+          "deduction_reasons": [],
+          "scene_refs": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "evidence": [
+            "Scene 1 purpose: 建立苏晚的孤身回乡处境与调查起点，从母亲遗物中发现指向医院的碎片线索。",
+            "Scene 2 purpose: 从残片线索过渡到母亲人际网络的追查，锁定第一个可接触的知情人林婶。",
+            "Scene 3 purpose: 苏晚首次接触母亲生前社会关系，从林婶的热情念旧过渡到医院话题时的回避，制造第一个悬念信号。",
+            "Final scene cliffhanger: True"
+          ],
+          "revision_signals": []
+        },
+        {
+          "dimension": "emotional_payoff",
+          "score": 4.5,
+          "summary": "The script sets up emotional expectation and lands meaningful turns between scenes.",
+          "score_reason": "The current score reflects whether emotional shifts change across scenes and whether turning points deliver a satisfying escalation or reversal.",
+          "deduction_reasons": [],
+          "scene_refs": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "evidence": [
+            "Scene 1 emotional shift: 从孤身回乡的压抑与茫然，到发现线索时微弱的紧迫感",
+            "Scene 2 emotional shift: 从线索发现后的紧迫感，到制定策略时的冷静与决断",
+            "Scene 3 emotional shift: 从重逢旧识的温情与感慨，到对方回避医院话题时的警觉与不安",
+            "Scene 1 turning point: 苏晚从无序的遗物中提取到第一个可追踪的碎片线索——一个只剩'仁'字的医院缴费残片，将模糊的复仇直觉转化为具体的追查方向。",
+            "Scene 2 turning point: 苏晚从碎片线索转向人际追查策略，锁定林婶作为第一个接触对象，确立了'先理解人再追查线索'的调查逻辑。",
+            "Scene 3 turning point: 林婶在被问及医院时的回避反应，成为苏晚确认母亲死亡存在隐情的第一个信号。"
+          ],
+          "revision_signals": []
+        },
+        {
+          "dimension": "cliffhanger_strength",
+          "score": 5.0,
+          "summary": "The ending creates strong unresolved pressure that should pull viewers into the next episode.",
+          "score_reason": "The current score reflects whether the last scene ends with unresolved pressure, suspense, or a reversal strong enough to create immediate next-episode demand.",
+          "deduction_reasons": [],
+          "scene_refs": [
+            4
+          ],
+          "evidence": [
+            "Final scene turning point: 林婶的恐慌逃离和临别警告，将苏晚从'碎片线索'推进到'确信母亲死亡有隐情'的状态，并留下一个无人愿提及的医院作为下一步追查的锚点。",
+            "Final emotional shift: 从试探追问的警觉，到林婶恐慌逃离时的震动与确信",
+            "Next episode question: 林婶口中'别查了'的那家医院究竟是仁济、仁和还是仁安？母亲去世前最后几周在那里经历了什么？"
+          ],
+          "revision_signals": []
+        }
+      ],
+      "evidence_summary": [
+        "hook_quality: Hook: 一个被家族抛弃的女孩回到故乡调查母亲死因，却发现唯一指向真相的线索是一家无人敢提及的医院。",
+        "character_agency: Protagonist choices are not visible enough.",
+        "conflict_escalation: Scene 1 purpose: 建立苏晚的孤身回乡处境与调查起点，从母亲遗物中发现指向医院的碎片线索。",
+        "emotional_payoff: Scene 1 emotional shift: 从孤身回乡的压抑与茫然，到发现线索时微弱的紧迫感",
+        "cliffhanger_strength: Final scene turning point: 林婶的恐慌逃离和临别警告，将苏晚从'碎片线索'推进到'确信母亲死亡有隐情'的状态，并留下一个无人愿提及的医院作为下一步追查的锚点。"
+      ],
+      "knowledge_refs": [],
+      "created_at": "2026-08-06T08:17:02.165397Z"
+    },
+    "revision_plan": {
+      "draft_master_script_id": "913bf3f7-177d-4f79-915a-bbde05649ee4",
+      "content_spec_id": "66f9126f-4162-4e10-8f54-785c778b79cd",
+      "generation_strategy_id": "strategy.cn_mainland.longform_knowledge_candidate.v2",
+      "story_qc_status": "placeholder",
+      "overall_priority": "high",
+      "focus_summary": "Strengthen character agency",
+      "revision_decision": {
+        "revision_required": true,
+        "decision_reason": "Selected character_agency as the highest-impact evidence-backed revision targets.",
+        "selected_dimensions": [
+          "character_agency"
+        ],
+        "deferred_dimensions": [],
+        "protected_dimensions": [
+          "hook_quality",
+          "conflict_escalation",
+          "emotional_payoff",
+          "cliffhanger_strength"
+        ],
+        "primary_scene_refs": [
+          1
+        ],
+        "confidence": 0.85
+      },
+      "revision_strategies": [
+        {
+          "target_dimension": "character_agency",
+          "problem_type": "show_protagonist_choice",
+          "problem_reason": "Protagonist choices are not visible enough.",
+          "revision_goal": "Give the protagonist an active choice with visible consequences.",
+          "revision_method": "Replace a reactive beat in Scene 1 with an irreversible protagonist decision.",
+          "expected_effect": "Improves protagonist agency through a visible, consequential choice.",
+          "priority": 1,
+          "confidence": 0.85,
+          "scene_refs": [
+            1
+          ],
+          "do_not_touch": [
+            "Preserve hook_quality while applying the targeted revision.",
+            "Preserve conflict_escalation while applying the targeted revision.",
+            "Preserve emotional_payoff while applying the targeted revision.",
+            "Preserve cliffhanger_strength while applying the targeted revision."
+          ],
+          "knowledge_refs": []
+        }
+      ],
+      "actions": [
+        {
+          "action_id": "revision.913bf3f7-177d-4f79-915a-bbde05649ee4.character",
+          "target_type": "character",
+          "priority": "high",
+          "title": "Strengthen character agency",
+          "rationale": "Protagonist choices are not visible enough.",
+          "based_on_checks": [
+            "dimension.character_agency"
+          ],
+          "related_scene_numbers": [
+            1
+          ],
+          "instructions": [
+            "Give the protagonist an active choice with visible consequences.",
+            "Replace a reactive beat in Scene 1 with an irreversible protagonist decision.",
+            "Preserve hook_quality while applying the targeted revision."
+          ],
+          "expected_impact": "Improves protagonist agency through a visible, consequential choice."
+        }
+      ],
+      "must_re_qc": true,
+      "notes": [
+        "RevisionDecision: Selected character_agency as the highest-impact evidence-backed revision targets.",
+        "Generated 1 evidence-driven revision strategies.",
+        "After revisions, run Story QC again before promoting to Final MasterScript.",
+        "Protected dimensions: hook_quality, conflict_escalation, emotional_payoff, cliffhanger_strength."
+      ],
+      "created_at": "2026-08-06T08:17:02.169684Z"
+    },
+    "generated_at": "2026-08-06T08:17:02.170113Z"
+  }
+}

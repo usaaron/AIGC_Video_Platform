@@ -10,18 +10,32 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import DatabaseRuntime
 from app.modules.script_engine.long_story_models import (
+    ContinuityLedger,
     EpisodeArtifact,
     EpisodeArtifactCreate,
     EpisodeArtifactKind,
     EpisodePlan,
+    GenerationBatchPlan,
+    GenerationBatchStatus,
+    GenerationJobCheckpoint,
+    GenerationJobStatus,
+    GenerationTaskCheckpoint,
+    MAX_EPISODE_READY_SPAN,
+    MIN_EPISODE_READY_SPAN,
+    MAX_WORKSPACE_PAYLOAD_BYTES,
     StoryBible,
+    PlanningApprovalStatus,
     StoryPlanNode,
     StoryPlanExpansionStatus,
     StoryProject,
+    StoryProjectDeletionResult,
     StoryProjectStatus,
     StoryProjectWorkspaceSave,
     StoryProjectWorkspaceSnapshot,
     StoryStagePlan,
+)
+from app.modules.script_engine.continuity_ledger import (
+    project_episode_artifact_to_ledger,
 )
 from app.modules.script_engine.long_story_repository import (
     LongStoryPersistenceConflictError,
@@ -119,6 +133,30 @@ class LongStoryService:
 
         return self._run(operation)
 
+    def delete_project_permanently(
+        self,
+        project_id: str,
+        *,
+        expected_revision: int,
+    ) -> StoryProjectDeletionResult:
+        def operation(repository: LongStoryRepository) -> StoryProjectDeletionResult:
+            project = self._require_project(repository, project_id, for_update=True)
+            if project.revision != expected_revision:
+                raise LongStoryPersistenceConflictError(
+                    "Story Project revision is stale; reload before deleting."
+                )
+            deleted_records = repository.delete_project_permanently(project_id)
+            if deleted_records.get("story_projects") != 1:
+                raise LongStoryPersistenceConflictError(
+                    "Story Project could not be deleted atomically."
+                )
+            return StoryProjectDeletionResult(
+                project_id=project_id,
+                deleted_records=deleted_records,
+            )
+
+        return self._run(operation)
+
     def save_workspace_snapshot(
         self,
         payload: StoryProjectWorkspaceSave,
@@ -130,9 +168,9 @@ class LongStoryService:
             separators=(",", ":"),
         ).encode("utf-8")
         payload_size = len(encoded_payload)
-        if payload_size > 10_000_000:
+        if payload_size > MAX_WORKSPACE_PAYLOAD_BYTES:
             raise LongStoryPayloadTooLargeError(
-                "Workspace snapshot exceeds the 10 MB payload limit."
+                "Workspace snapshot exceeds the 50 MB payload limit."
             )
         snapshot = StoryProjectWorkspaceSnapshot(
             **payload.model_dump(),
@@ -162,6 +200,80 @@ class LongStoryService:
                     f"Workspace snapshot for Story Project '{project_id}' was not found."
                 )
             return snapshot
+
+        return self._run(operation)
+
+    def save_generation_task(
+        self,
+        story_project_id: str,
+        task: GenerationTaskCheckpoint,
+    ) -> GenerationTaskCheckpoint:
+        def operation(repository: LongStoryRepository) -> GenerationTaskCheckpoint:
+            project = self._require_project(
+                repository,
+                story_project_id,
+                for_update=True,
+            )
+            batch = task.batch
+            checkpoint = task.checkpoint
+            if batch.story_project_id != story_project_id:
+                raise LongStoryReferenceError(
+                    "Generation batch must belong to the requested Story Project."
+                )
+            if checkpoint.batch_id != batch.batch_id:
+                raise LongStoryReferenceError(
+                    "Generation checkpoint must reference its generation batch."
+                )
+            if batch.end_episode > project.planned_episode_count:
+                raise LongStoryReferenceError(
+                    "Generation batch range exceeds the Story Project episode count."
+                )
+            allowed_episodes = set(range(batch.start_episode, batch.end_episode + 1))
+            recorded_episodes = set(checkpoint.completed_episode_numbers).union(
+                checkpoint.failed_episode_numbers
+            )
+            if not recorded_episodes.issubset(allowed_episodes):
+                raise LongStoryReferenceError(
+                    "Generation checkpoint contains episodes outside its batch range."
+                )
+            if batch.status == GenerationBatchStatus.completed:
+                if checkpoint.status != GenerationJobStatus.completed:
+                    raise LongStoryReferenceError(
+                        "A completed generation batch requires a completed job checkpoint."
+                    )
+                if set(checkpoint.completed_episode_numbers) != allowed_episodes:
+                    raise LongStoryReferenceError(
+                        "A completed generation task must include every episode in its batch."
+                    )
+            repository.save_batch(batch)
+            repository.save_job_checkpoint(checkpoint)
+            return task
+
+        return self._run(operation)
+
+    def get_recoverable_generation_task(
+        self,
+        story_project_id: str,
+    ) -> GenerationTaskCheckpoint | None:
+        def operation(
+            repository: LongStoryRepository,
+        ) -> GenerationTaskCheckpoint | None:
+            self._require_project(repository, story_project_id)
+            for batch in repository.list_batches(story_project_id):
+                checkpoint = repository.get_latest_job_checkpoint_for_batch(
+                    batch.batch_id
+                )
+                if checkpoint is None:
+                    continue
+                if (
+                    batch.status != GenerationBatchStatus.completed
+                    and checkpoint.status != GenerationJobStatus.completed
+                ):
+                    return GenerationTaskCheckpoint(
+                        batch=batch,
+                        checkpoint=checkpoint,
+                    )
+            return None
 
         return self._run(operation)
 
@@ -206,6 +318,11 @@ class LongStoryService:
                     raise LongStoryPersistenceConflictError(
                         "Episode Artifact ID already exists with different content."
                     )
+                self._save_artifact_continuity_checkpoint(
+                    repository,
+                    project,
+                    existing,
+                )
                 return existing
             if payload.source_artifact_id is not None:
                 source = repository.get_episode_artifact(payload.source_artifact_id)
@@ -230,7 +347,78 @@ class LongStoryService:
                 payload_checksum=hashlib.sha256(encoded_payload).hexdigest(),
                 payload_size_bytes=payload_size,
             )
-            return repository.save_episode_artifact(artifact)
+            saved = repository.save_episode_artifact(artifact)
+            self._save_artifact_continuity_checkpoint(repository, project, saved)
+            return saved
+
+        return self._run(operation)
+
+    @staticmethod
+    def _save_artifact_continuity_checkpoint(
+        repository: LongStoryRepository,
+        project: StoryProject,
+        artifact: EpisodeArtifact,
+    ) -> None:
+        if (
+            project.active_story_bible_id is None
+            or project.active_story_bible_version is None
+        ):
+            return
+        story_bible = repository.get_story_bible(
+            project.active_story_bible_id,
+            version=project.active_story_bible_version,
+        )
+        if story_bible is None:
+            raise LongStoryReferenceError(
+                "Active Story Bible for continuity checkpoint was not found."
+            )
+        latest = repository.get_latest_continuity_ledger(project.project_id)
+        if latest is None:
+            rank = {
+                EpisodeArtifactKind.draft: 1,
+                EpisodeArtifactKind.revised: 2,
+                EpisodeArtifactKind.final: 3,
+            }
+            selected: dict[int, EpisodeArtifact] = {}
+            for candidate in repository.list_episode_artifacts(project.project_id):
+                if candidate.episode_number > artifact.episode_number:
+                    continue
+                current = selected.get(candidate.episode_number)
+                if current is None or (
+                    rank[candidate.artifact_kind],
+                    candidate.artifact_version,
+                ) > (
+                    rank[current.artifact_kind],
+                    current.artifact_version,
+                ):
+                    selected[candidate.episode_number] = candidate
+            for candidate in sorted(
+                selected.values(), key=lambda item: item.episode_number
+            ):
+                latest = project_episode_artifact_to_ledger(
+                    artifact=candidate,
+                    story_bible=story_bible,
+                    previous=latest,
+                )
+                repository.save_continuity_ledger(latest)
+            return
+        if artifact.episode_number < latest.through_episode_number:
+            return
+        repository.save_continuity_ledger(
+            project_episode_artifact_to_ledger(
+                artifact=artifact,
+                story_bible=story_bible,
+                previous=latest,
+            )
+        )
+
+    def get_latest_continuity_ledger(
+        self,
+        story_project_id: str,
+    ) -> ContinuityLedger | None:
+        def operation(repository: LongStoryRepository) -> ContinuityLedger | None:
+            self._require_project(repository, story_project_id)
+            return repository.get_latest_continuity_ledger(story_project_id)
 
         return self._run(operation)
 
@@ -284,7 +472,86 @@ class LongStoryService:
                 requested_version=story_bible.version,
                 label="Story Bible",
             )
-            return repository.save_story_bible(story_bible)
+            saved = repository.save_story_bible(story_bible)
+            if story_bible.status == PlanningApprovalStatus.approved:
+                activated_project = project.model_copy(
+                    update={
+                        "revision": project.revision + 1,
+                        "active_story_bible_id": story_bible.story_bible_id,
+                        "active_story_bible_version": story_bible.version,
+                        "updated_at": datetime.now(timezone.utc),
+                    }
+                )
+                repository.save_project(activated_project)
+            return saved
+
+        return self._run(operation)
+
+    def save_generated_story_bible_draft(self, candidate: StoryBible) -> StoryBible:
+        """Persist a regenerated draft and invalidate its prior generation lineage."""
+
+        if candidate.status != PlanningApprovalStatus.draft:
+            raise LongStoryReferenceError(
+                "Generated Story Bible replacement must be a draft."
+            )
+
+        def operation(repository: LongStoryRepository) -> StoryBible:
+            project = self._require_project(
+                repository,
+                candidate.story_project_id,
+                for_update=True,
+            )
+            if project.status == StoryProjectStatus.archived:
+                raise LongStoryReferenceError(
+                    "An archived Story Project cannot regenerate its Story Bible."
+                )
+            if candidate.content_spec_id != project.content_spec_id:
+                raise LongStoryReferenceError(
+                    "Story Bible content_spec_id must match its Story Project."
+                )
+
+            current = repository.get_story_bible(candidate.story_bible_id)
+            if current is not None and current.story_project_id != project.project_id:
+                raise LongStoryReferenceError(
+                    "Story Bible identity already belongs to another Story Project."
+                )
+            workspace = repository.get_workspace_snapshot(project.project_id)
+            workspace_episodes = (
+                workspace.workspace_payload.get("episodes", [])
+                if workspace is not None
+                else []
+            )
+            if workspace_episodes or repository.list_episode_artifacts(
+                project.project_id
+            ):
+                raise LongStoryReferenceError(
+                    "Story Bible regeneration is locked after episode generation "
+                    "has started. Create a new project version instead."
+                )
+            saved = repository.save_story_bible(
+                candidate.model_copy(
+                    update={"version": 1 if current is None else current.version + 1}
+                )
+            )
+
+            if current is not None:
+                repository.delete_generated_story_descendants(project.project_id)
+                repository.save_project(
+                    project.model_copy(
+                        update={
+                            "revision": project.revision + 1,
+                            "status": StoryProjectStatus.planning,
+                            "active_story_bible_id": None,
+                            "active_story_bible_version": None,
+                            "updated_at": datetime.now(timezone.utc),
+                        }
+                    )
+                )
+            repository.reset_workspace_generation_state(
+                project.project_id,
+                story_bible_version=saved.version,
+            )
+            return saved
 
         return self._run(operation)
 
@@ -310,7 +577,16 @@ class LongStoryService:
 
         return self._run(operation)
 
-    def save_story_plan_node(self, node: StoryPlanNode) -> StoryPlanNode:
+    def save_story_plan_node(
+        self,
+        node: StoryPlanNode,
+        *,
+        descendant_policy: str = "invalidate",
+    ) -> StoryPlanNode:
+        if descendant_policy not in {"invalidate", "rebase"}:
+            raise LongStoryReferenceError(
+                "descendant_policy must be either invalidate or rebase."
+            )
         def operation(repository: LongStoryRepository) -> StoryPlanNode:
             project = self._require_project(
                 repository,
@@ -332,6 +608,38 @@ class LongStoryService:
                 raise LongStoryReferenceError(
                     "Story Plan Node episode range exceeds the Story Project episode count."
                 )
+            if (
+                node.status == PlanningApprovalStatus.approved
+                and node.planned_start_episode is not None
+                and node.planned_end_episode is not None
+            ):
+                node_span = node.planned_end_episode - node.planned_start_episode + 1
+                if node_span < MIN_EPISODE_READY_SPAN or 13 <= node_span <= 15:
+                    raise LongStoryReferenceError(
+                        "A 1-7 or 13-15 episode Story Plan Node cannot be approved. "
+                        "Return it to the parent and coordinate its complete story "
+                        "movement with adjacent siblings."
+                    )
+                if (
+                    node.expansion_status == StoryPlanExpansionStatus.episode_ready
+                    and node_span > MAX_EPISODE_READY_SPAN
+                ):
+                    raise LongStoryReferenceError(
+                        "An approved episode-ready Story Plan Node must cover "
+                        f"{MIN_EPISODE_READY_SPAN}-{MAX_EPISODE_READY_SPAN} episodes."
+                    )
+                if (
+                    node.expansion_status == StoryPlanExpansionStatus.episode_ready
+                    and (
+                        len(node.unit_story_beats) < 4
+                        or not node.unit_resolution
+                        or not node.handoff_pressure
+                    )
+                ):
+                    raise LongStoryReferenceError(
+                        "An episode-ready Story Plan Node must complete its unit story "
+                        "before approval."
+                    )
             if not set(node.character_refs).issubset(story_bible.character_refs):
                 raise LongStoryReferenceError(
                     "Story Plan Node character_refs must exist in its Story Bible."
@@ -359,7 +667,23 @@ class LongStoryService:
                     raise LongStoryReferenceError(
                         "Story Plan Node parent must use the same Story Bible version."
                     )
-                if parent.expansion_status != StoryPlanExpansionStatus.expanded:
+                parent_span = (
+                    (parent.planned_end_episode - parent.planned_start_episode + 1)
+                    if (
+                        parent.planned_start_episode is not None
+                        and parent.planned_end_episode is not None
+                    )
+                    else None
+                )
+                legacy_oversized_leaf = (
+                    parent.expansion_status == StoryPlanExpansionStatus.episode_ready
+                    and parent_span is not None
+                    and parent_span > MAX_EPISODE_READY_SPAN
+                )
+                if (
+                    parent.expansion_status != StoryPlanExpansionStatus.expanded
+                    and not legacy_oversized_leaf
+                ):
                     raise LongStoryReferenceError(
                         "A Story Plan Node must be expanded before it can have children."
                     )
@@ -394,13 +718,29 @@ class LongStoryService:
                     "A non-first child Story Plan Node requires an explicit predecessor."
                 )
 
+            current_node = repository.get_story_plan_node(node.node_id)
+            if (
+                current_node is not None
+                and node.version == current_node.version
+                and node.status == current_node.status
+                and self._same_plan_node_content(current_node, node)
+            ):
+                # A versioned save can be retried after a lost response. Returning
+                # the immutable result also prevents a rebase retry from cloning
+                # the same descendant lineage more than once.
+                return current_node
+
             self._validate_version_sequence(
-                current=repository.get_story_plan_node(node.node_id),
+                current=current_node,
                 requested_version=node.version,
                 label="Story Plan Node",
             )
             latest_nodes = self._latest_versions_by_id(
-                repository.list_story_plan_nodes(node.story_project_id),
+                repository.list_story_plan_nodes(
+                    node.story_project_id,
+                    story_bible_id=node.story_bible_id,
+                    story_bible_version=node.story_bible_version,
+                ),
                 "node_id",
             )
             for existing in latest_nodes:
@@ -422,9 +762,97 @@ class LongStoryService:
                         raise LongStoryPersistenceConflictError(
                             "A Story Bible version can have only one active root plan node."
                         )
-            return repository.save_story_plan_node(node)
+            saved = repository.save_story_plan_node(node)
+            if descendant_policy == "rebase" and current_node is not None:
+                self._rebase_story_plan_descendants(
+                    repository,
+                    project_id=node.story_project_id,
+                    old_parent=current_node,
+                    new_parent=saved,
+                    preserve_approval_state=(
+                        saved.status == PlanningApprovalStatus.approved
+                        and self._same_plan_node_content(current_node, saved)
+                    ),
+                )
+            return saved
 
         return self._run(operation)
+
+    def _rebase_story_plan_descendants(
+        self,
+        repository: LongStoryRepository,
+        *,
+        project_id: str,
+        old_parent: StoryPlanNode,
+        new_parent: StoryPlanNode,
+        preserve_approval_state: bool = False,
+    ) -> None:
+        """Copy the old child lineage under the new immutable parent version.
+
+        Narrative edits copy descendants as drafts so stale content cannot silently
+        authorize downstream generation. A pure approval transition may preserve
+        descendant approval state because the parent narrative did not change.
+        """
+        all_nodes = repository.list_story_plan_nodes(
+            project_id,
+            story_bible_id=old_parent.story_bible_id,
+            story_bible_version=old_parent.story_bible_version,
+        )
+        latest_version_by_id: dict[str, int] = {}
+        for candidate in all_nodes:
+            latest_version_by_id[candidate.node_id] = max(
+                latest_version_by_id.get(candidate.node_id, 0),
+                candidate.version,
+            )
+        rebased_versions: dict[tuple[str, int], int] = {}
+
+        def children_for(parent_id: str, parent_version: int) -> list[StoryPlanNode]:
+            latest_by_id: dict[str, StoryPlanNode] = {}
+            for candidate in all_nodes:
+                if (
+                    candidate.parent_node_id == parent_id
+                    and candidate.parent_node_version == parent_version
+                ):
+                    current = latest_by_id.get(candidate.node_id)
+                    if current is None or candidate.version > current.version:
+                        latest_by_id[candidate.node_id] = candidate
+            return sorted(latest_by_id.values(), key=lambda item: item.sequence_order)
+
+        def clone_level(
+            parent_id: str,
+            old_parent_version: int,
+            new_parent_version: int,
+        ) -> None:
+            for child in children_for(parent_id, old_parent_version):
+                new_version = latest_version_by_id.get(child.node_id, child.version) + 1
+                predecessor_version = None
+                if child.predecessor_node_id is not None:
+                    predecessor_version = rebased_versions.get(
+                        (child.predecessor_node_id, child.predecessor_node_version or 0),
+                        child.predecessor_node_version,
+                    )
+                cloned = child.model_copy(
+                    update={
+                        "version": new_version,
+                        "parent_node_version": new_parent_version,
+                        "predecessor_node_version": predecessor_version,
+                        "status": (
+                            child.status
+                            if preserve_approval_state
+                            else PlanningApprovalStatus.draft
+                        ),
+                        "approved_at": (
+                            child.approved_at if preserve_approval_state else None
+                        ),
+                        "created_at": datetime.now(timezone.utc),
+                    }
+                )
+                repository.save_story_plan_node(cloned)
+                latest_version_by_id[child.node_id] = new_version
+                rebased_versions[(child.node_id, child.version)] = new_version
+                clone_level(child.node_id, child.version, new_version)
+
+        clone_level(old_parent.node_id, old_parent.version, new_parent.version)
 
     def get_story_plan_node(
         self,
@@ -451,9 +879,17 @@ class LongStoryService:
         *,
         parent_node_id: str | None = None,
         roots_only: bool = False,
+        story_bible_id: str | None = None,
+        story_bible_version: int | None = None,
     ) -> list[StoryPlanNode]:
         def operation(repository: LongStoryRepository) -> list[StoryPlanNode]:
             self._require_project(repository, story_project_id)
+            self._validate_story_bible_lineage_filter(
+                repository,
+                story_project_id,
+                story_bible_id=story_bible_id,
+                story_bible_version=story_bible_version,
+            )
             if parent_node_id is not None:
                 parent = repository.get_story_plan_node(parent_node_id)
                 if parent is None or parent.story_project_id != story_project_id:
@@ -465,6 +901,8 @@ class LongStoryService:
                 story_project_id,
                 parent_node_id=parent_node_id,
                 roots_only=roots_only,
+                story_bible_id=story_bible_id,
+                story_bible_version=story_bible_version,
             )
 
         return self._run(operation)
@@ -494,7 +932,11 @@ class LongStoryService:
                 label="Story Stage",
             )
             latest_stages = self._latest_versions_by_id(
-                repository.list_story_stages(stage.story_project_id),
+                repository.list_story_stages(
+                    stage.story_project_id,
+                    story_bible_id=stage.story_bible_id,
+                    story_bible_version=stage.story_bible_version,
+                ),
                 "stage_id",
             )
             for existing in latest_stages:
@@ -515,10 +957,26 @@ class LongStoryService:
 
         return self._run(operation)
 
-    def list_story_stages(self, story_project_id: str) -> list[StoryStagePlan]:
+    def list_story_stages(
+        self,
+        story_project_id: str,
+        *,
+        story_bible_id: str | None = None,
+        story_bible_version: int | None = None,
+    ) -> list[StoryStagePlan]:
         def operation(repository: LongStoryRepository) -> list[StoryStagePlan]:
             self._require_project(repository, story_project_id)
-            return repository.list_story_stages(story_project_id)
+            self._validate_story_bible_lineage_filter(
+                repository,
+                story_project_id,
+                story_bible_id=story_bible_id,
+                story_bible_version=story_bible_version,
+            )
+            return repository.list_story_stages(
+                story_project_id,
+                story_bible_id=story_bible_id,
+                story_bible_version=story_bible_version,
+            )
 
         return self._run(operation)
 
@@ -562,7 +1020,11 @@ class LongStoryService:
                 label="Episode Plan",
             )
             latest_plans = self._latest_versions_by_id(
-                repository.list_episode_plans(project.project_id),
+                repository.list_episode_plans(
+                    project.project_id,
+                    story_bible_id=episode_plan.story_bible_id,
+                    story_bible_version=episode_plan.story_bible_version,
+                ),
                 "episode_plan_id",
             )
             for existing in latest_plans:
@@ -584,13 +1046,23 @@ class LongStoryService:
         *,
         start_episode: int | None = None,
         end_episode: int | None = None,
+        story_bible_id: str | None = None,
+        story_bible_version: int | None = None,
     ) -> list[EpisodePlan]:
         def operation(repository: LongStoryRepository) -> list[EpisodePlan]:
             self._require_project(repository, story_project_id)
+            self._validate_story_bible_lineage_filter(
+                repository,
+                story_project_id,
+                story_bible_id=story_bible_id,
+                story_bible_version=story_bible_version,
+            )
             return repository.list_episode_plans(
                 story_project_id,
                 start_episode=start_episode,
                 end_episode=end_episode,
+                story_bible_id=story_bible_id,
+                story_bible_version=story_bible_version,
             )
 
         return self._run(operation)
@@ -620,6 +1092,36 @@ class LongStoryService:
                 f"Story Project '{project_id}' was not found."
             )
         return project
+
+    @staticmethod
+    def _validate_story_bible_lineage_filter(
+        repository: LongStoryRepository,
+        story_project_id: str,
+        *,
+        story_bible_id: str | None,
+        story_bible_version: int | None,
+    ) -> None:
+        if (story_bible_id is None) != (story_bible_version is None):
+            raise LongStoryReferenceError(
+                "Story Bible lineage filtering requires both ID and version."
+            )
+        if story_bible_id is None or story_bible_version is None:
+            return
+        story_bible = repository.get_story_bible(
+            story_bible_id,
+            version=story_bible_version,
+        )
+        if story_bible is None or story_bible.story_project_id != story_project_id:
+            raise LongStoryNotFoundError(
+                "The requested Story Bible lineage was not found in this project."
+            )
+
+    @staticmethod
+    def _same_plan_node_content(left: StoryPlanNode, right: StoryPlanNode) -> bool:
+        ignored_fields = {"version", "status", "created_at", "approved_at"}
+        return left.model_dump(exclude=ignored_fields) == right.model_dump(
+            exclude=ignored_fields
+        )
 
     @staticmethod
     def _validate_version_sequence(

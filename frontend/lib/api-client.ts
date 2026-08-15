@@ -1,12 +1,31 @@
+import { CURRENT_MARKET_PROFILE } from "@/lib/types";
+import { visibleApiError } from "@/lib/api-error";
+
+export { visibleApiError } from "@/lib/api-error";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
 export class ApiError extends Error {
+  readonly status: number;
+  readonly retryable?: boolean;
+  readonly failureClass?: string;
+  readonly errorType?: string;
+
   constructor(
     message: string,
-    readonly status: number,
+    status: number,
+    metadata: {
+      retryable?: boolean;
+      failureClass?: string;
+      errorType?: string;
+    } = {},
   ) {
     super(message);
     this.name = "ApiError";
+    this.status = status;
+    this.retryable = metadata.retryable;
+    this.failureClass = metadata.failureClass;
+    this.errorType = metadata.errorType;
   }
 }
 
@@ -28,10 +47,88 @@ export async function apiRequest<T>(
     throw new ApiError(
       formatApiError(payload?.detail, response.status, responseText),
       response.status,
+      responseFailureMetadata(response),
     );
   }
 
   return response.json() as Promise<T>;
+}
+
+export async function apiEventStream<TEvent>(
+  path: string,
+  init: RequestInit,
+  onEvent: (event: TEvent) => void,
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      "Accept": "text/event-stream",
+      "Content-Type": "application/json",
+      ...init.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+    const payload = parseErrorPayload(responseText);
+    throw new ApiError(
+      formatApiError(payload?.detail, response.status, responseText),
+      response.status,
+      responseFailureMetadata(response),
+    );
+  }
+  if (!response.body) {
+    throw new ApiError(
+      "The streaming response did not contain a body.",
+      response.status,
+      { retryable: true, failureClass: "stream_incomplete", errorType: "stream_incomplete" },
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  function consumeFrame(frame: string) {
+    const data = frame
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n")
+      .trim();
+    if (!data) return;
+    onEvent(JSON.parse(data) as TEvent);
+  }
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      consumeFrame(buffer.slice(0, boundary));
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf("\n\n");
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) consumeFrame(buffer);
+}
+
+function responseFailureMetadata(response: Response): {
+  retryable?: boolean;
+  failureClass?: string;
+  errorType?: string;
+} {
+  const retryable = response.headers.get("x-generation-retryable");
+  const failureClass = response.headers.get("x-generation-failure-class") ?? undefined;
+  const errorType = response.headers.get("x-generation-error-type") ?? undefined;
+  return {
+    ...(retryable === "true" || retryable === "false"
+      ? { retryable: retryable === "true" }
+      : {}),
+    ...(failureClass ? { failureClass } : {}),
+    ...(errorType ? { errorType } : {}),
+  };
 }
 
 function parseErrorPayload(responseText: string): { detail?: unknown } | null {
@@ -44,7 +141,9 @@ function parseErrorPayload(responseText: string): { detail?: unknown } | null {
 }
 
 function formatApiError(detail: unknown, status: number, responseText: string): string {
-  if (typeof detail === "string" && detail.trim()) return detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return visibleApiError(detail, status, CURRENT_MARKET_PROFILE);
+  }
   if (Array.isArray(detail)) {
     const messages = detail.flatMap((item) => {
       if (!item || typeof item !== "object") return [];
@@ -55,9 +154,15 @@ function formatApiError(detail: unknown, status: number, responseText: string): 
         : "";
       return [location ? `${location}: ${candidate.msg}` : candidate.msg];
     });
-    if (messages.length) return messages.join("; ");
+    if (messages.length) {
+      return visibleApiError(messages.join("; "), status, CURRENT_MARKET_PROFILE);
+    }
   }
   const plainText = responseText.trim();
-  if (plainText && !plainText.startsWith("<")) return plainText.slice(0, 500);
-  return `The API request failed (HTTP ${status}).`;
+  if (plainText && !plainText.startsWith("<")) {
+    return visibleApiError(plainText.slice(0, 500), status, CURRENT_MARKET_PROFILE);
+  }
+  return CURRENT_MARKET_PROFILE === "cn_mainland"
+    ? "请求暂未完成，已保存的内容不会丢失，请稍后重试。"
+    : "The request could not be completed. Previously saved work is safe; please try again.";
 }

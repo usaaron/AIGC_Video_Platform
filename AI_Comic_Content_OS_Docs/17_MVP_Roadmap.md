@@ -8,9 +8,13 @@
 
 当前阶段：`Capability Optimization / System Validation`
 
-当前产品目标：面向中国大陆漫剧市场，稳定生成高质量、可控、可追踪的中文长篇故事母本，并为后续分集漫剧改编保留结构化基础。
+当前唯一产品目标：面向中国大陆漫剧市场，稳定生成优质、可控、可追踪的中文长剧本母本，目标支持约 60 万字正文规模，并为后续漫剧改编保留结构化基础。60 万字必须由递归规划和可恢复有界批次累计完成，不是单次模型输出。
 
-当前状态：市场默认配置已切换为 `cn_mainland`；红果仅作参考，`overseas_tiktok` 保留但关闭。基础阶段生成已进入 runtime，允许按批次生成并在批次间更新创作输入；当前继续补齐长篇规划、后端持久化和可恢复执行，不扩展视频生产，Creative Deepening 前后端默认关闭。
+当前状态：市场默认配置已切换为 `cn_mainland`；红果仅作参考，`overseas_tiktok` 保留但关闭。产品已取消“逐集/全部生成”的入口选择，统一采用 Story Bible → 可变深度递归剧情树 → Episode Plan → 有界基础剧本批次；当前继续补齐全量续跑、连续性和可恢复执行，不扩展视频生产，Creative Deepening 前后端默认关闭。
+
+本轮规划修复：新递归拆分请求不再固定四个子节点，模型按每个父节点自身的叙事复杂度选择 2–12 个不同部分；不同分支允许不同宽度和深度。服务端新增父子/兄弟内容差异校验，叶节点严格执行 8–12 集范围。Episode Plan 仍是正文前的分集施工单，最终质量与目标量级完成度必须由具体集的动作、对白和连续性验收证明。
+
+验收口径：旧固定 334 集串行脚本只用于单集正文容量校准，不代表当前递归长篇架构。当前端到端验收必须从总纲开始，经过经人工确认的非平衡递归规划树与 Episode Plan，再累计基础剧本正文。
 
 ## Completed Foundations
 
@@ -29,8 +33,10 @@
 - Benchmark、Prompt Evaluation 与固定能力样本
 - Creative Intent、Character Context 与静态 Knowledge Bundle
 - Creative Deepening Shadow（实现保留，当前默认关闭）
-- Frontend MVP 的本地项目、分集创作、候选版本、导出与中英文审阅
-- 有界阶段生成与批次 lineage（前端编排；非后端 Job）
+- Frontend MVP 的本地项目、递归规划、分集基础剧本、候选版本、导出与历史中英文审阅兼容
+- Story Bible、Story Plan Node 与 Episode Plan 的草稿编辑、版本化保存和人工批准
+- 有界基础剧本批次与 batch lineage（前端编排；非后端 Job）
+- 正文编号 Key Pool：规划继续使用主 Key，已批准 Episode Plan 叶子的有界批次可并行
 
 “已建立”不等于“专业化或生产校准完成”。Story QC、规则 Revision、Acceptance 阈值、跨供应商真实模型稳定性仍有明确限制。
 
@@ -38,7 +44,7 @@
 
 - Scene Causality v1：三样本真实模型 A/B 中 2/3 更优，无重大结构回退；存在 token 增长与表达机械化风险。
 - Structured Creative Control：Creative Intent + Character Context 的固定实验获得正向结果。
-- Serialized Story Planning v1.1：长程因果和 Setup/Payoff 有改善，但 Hook / Cliffhanger 未通过 runtime gate，保持 Research。
+- 旧 Serialized Story Planning v1.1 四集实验：长程因果和 Setup/Payoff 有改善，但 Hook / Cliffhanger 未通过其 runtime gate，保持历史 Research；当前人工受控的 Story Bible → 可变深度 StoryPlanNode → EpisodePlan 是后续独立产品决策，不把旧实验误写为已直接上线。
 - Creative Knowledge / Deepening：已有有界正向证据，当前仅进入静态 bundle 与 shadow candidate，不扩展为动态 Retrieval 或自动 apply。
 - Acceptance Calibration：保留 `review_required` shadow 结论，不启用 enforcement。
 
@@ -48,15 +54,17 @@
 
 当前默认顺序：
 
-1. 已完成第一轮长篇 contract foundation：`StoryProject`、`StoryBible`、level-free recursive `StoryPlanNode`、兼容 `StoryStagePlan`、`EpisodePlan`、`ContinuityLedger`、bounded batch / checkpoint models。
-2. 已完成 PostgreSQL / JSONB schema、Alembic migration、事务型 Repository、immutable version 与 optimistic revision foundation。
-3. 已完成 Project / Story Bible / Stage / Episode Plan 的 Application Service 与版本化资源 API。
-4. 已完成 Frontend Project + Workspace Snapshot 的 IndexedDB 本地优先同步、服务端恢复、冲突报告和版本保护软删除。
-5. 已完成确认 Draft / Revised / Final Episode Artifact 的不可变版本持久化和前端里程碑写入。
-6. 当前下一步是递归规划 runtime 最小切片：生成并人工确认 Story Bible 根方向，按每个 Story Plan Node 自身复杂度展开当前分支，并在各自达到 `episode_ready` 后映射到 Episode Plan；不固定全局拆分层级，不要求各分支等深，也不一次展开全部集数。
-7. 60 万字真实生成验收在递归规划进入 runtime 前暂停继续烧取单集；已有单集正文预算和动态集数校准证据保留，后续从通过审核的叶子 Episode Plan 恢复有界生成，并验证连续性、热点增量、持久化恢复和失败续跑。
-8. 扩充并治理中国大陆长篇创作与漫剧改编知识资产。
-9. 在长篇结构稳定后，再决定 Creative Deepening、Agent 和 DDD-lite 的进入时点。
+1. 先完成长篇规划质量与容量验证：区分产品目标与内容实际容量，验证 Story Engine、宏观叙事运动、反派策略、悬疑信息控制、支线贡献和 Setup / Payoff 可追踪性；不得把合法 Schema、目标集数或模型自评当作可持续性证明。
+2. 在通过规划门槛的固定样本上完成一部约 60 万字基础长剧本的端到端真实验收：从已批准 Story Bible 和非平衡递归规划树开始，逐叶生成 Episode Plan 与正文批次，累计有效正文并形成完整作品。
+3. 补齐长任务可靠性：后台可恢复 Job、失败重试、跨批次自动续跑、暂停/恢复、幂等写入和成本/耗时记录。
+4. 补齐长程质量控制：Continuity Ledger 自动更新、人物/关系/故事线 bounded context、伏笔回收检查、跨批次漂移和重复检测。
+5. 保持 Creative Deepening、海外 TikTok 默认适配、视频生产、Agent runtime 和大型架构重构关闭，除非它们明确阻碍上述长篇目标。
+
+当前压力样本已证明 Story Bible 与根节点可以生成、保存、批准，但也暴露出“摘要合法不等于内容足以支撑数百集”。流程优化设计与进入 runtime 前的验证门槛见 `Research/15_Longform_Script_Planning_Process_Optimization_v1.md`。
+
+已完成的 Contract、PostgreSQL persistence、版本化资源 API、规划编辑/批准 UI、首条根到分集 runtime 和不可变 Episode Artifact 以 `21_Current_Status_Checklist.md` 为准，不再作为待办重复维护。
+
+既有 `ContentSpec`、标签与角色输入、Knowledge Bundle、Prompt Library / Builder、`LLMAdapter`、单集 Draft 原子能力、Story QC、Revision、Acceptance Shadow、Prompt Evaluation、Benchmark、版本化 Artifact 和导出能力继续保留。它们应作为长篇主链路内部能力复用和逐步适配，不因产品核心调整而删除；只有与当前入口冲突的旧“逐集/全部生成”模式、海外默认配置和 Creative Deepening 入口保持关闭。
 
 ## Near-Term Candidates
 
@@ -67,7 +75,7 @@
 - Story QC 专业可信度提升
 - Revision 创意执行质量提升
 - 真实模型失败率、成本和跨供应商稳定性校准
-- 后端 durable project persistence
+- 后台可恢复 Generation Job 与跨批次续跑
 - Script Generation Box 正式 Request / Result 与统一 Facade
 
 Agent 是合作方需求，但不预设为多 Agent。默认候选是单一 Creator Copilot，通过受控用例调用现有生成能力，并保留用户确认、停止条件和 lineage。
@@ -76,13 +84,11 @@ Agent 是合作方需求，但不预设为多 Agent。默认候选是单一 Crea
 
 以下已有研究尚未获得 runtime 批准：
 
-- Serialized Story Planning runtime（递归节点契约、持久化与 API 已实现；自动拆分、审核 UI 和生成上下文接入待实现）
 - Character Decision Logic runtime
 - 动态 Creative Knowledge Retrieval / RAG
 - Creative Skill Registry
 - 自动 Prompt 学习或自动知识更新
 - Acceptance enforcement 与多轮 Revision loop
-- 60 万字故事母本完整 runtime、自动故事阶段规划与 Continuity Ledger 更新
 
 Research 结论不得直接写入 Prompt、Schema 或业务规则。
 

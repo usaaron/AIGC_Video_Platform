@@ -6,7 +6,17 @@ import {
   calculateSeriesTextMetrics,
   countEffectiveCharacters,
 } from "../lib/script-metrics.ts";
-import { nextBatchRange } from "../lib/generation-planning.ts";
+import {
+  adaptiveExecutionBatchSize,
+  nextLeafBatchRange,
+  nextBatchRange,
+  minimumEpisodesForSeriesRuntime,
+  normalizeGenerationSettings,
+  plannedSeriesRuntime,
+  recommendEpisodeCount,
+  scriptBodyLengthGuidance,
+  targetScriptBodyCharacters,
+} from "../lib/generation-planning.ts";
 
 function buildDraft() {
   return {
@@ -51,7 +61,7 @@ test("series metrics project a 600k target from the observed episode average", (
   assert.equal(metrics.remainingCharacters, 599_992);
 });
 
-test("recommended episode planning extends to the observed body requirement", () => {
+test("recommended episode planning stops at the planned story boundary", () => {
   const settings = {
     mode: "full",
     episodeCountMode: "recommended",
@@ -65,14 +75,32 @@ test("recommended episode planning extends to the observed body requirement", ()
     customInstructions: "",
   };
 
-  assert.deepEqual(
-    nextBatchRange(334, settings, { generatedBodyCharacters: 557_780 }),
-    { startEpisode: 335, endEpisode: 339, totalEpisodes: 360 },
-  );
-  assert.equal(
-    nextBatchRange(360, settings, { generatedBodyCharacters: 600_000 }),
-    null,
-  );
+  assert.equal(nextBatchRange(334, settings, { generatedBodyCharacters: 557_780 }), null);
+  assert.equal(nextBatchRange(334, settings, { generatedBodyCharacters: 650_000 }), null);
+});
+
+test("16-20 wan scale stays inside the reduced client word-count range", () => {
+  assert.equal(recommendEpisodeCount({
+    targetTotalCharacters: 180_000,
+    preferredEpisodeDurationMinutes: 1.5,
+    storyDensity: "balanced",
+  }), 100);
+});
+
+test("client runtime floor requires at least 100 produced minutes", () => {
+  assert.equal(minimumEpisodesForSeriesRuntime(1.25), 80);
+  assert.deepEqual(plannedSeriesRuntime({
+    episodeCount: 84,
+    preferredEpisodeDurationMinutes: 1.25,
+  }), {
+    minutes: 105,
+    minimumEpisodes: 80,
+    meetsClientMinimum: true,
+  });
+  assert.equal(plannedSeriesRuntime({
+    episodeCount: 70,
+    preferredEpisodeDurationMinutes: 1.25,
+  }).meetsClientMinimum, false);
 });
 
 test("custom episode planning stops at the user-defined episode count", () => {
@@ -93,4 +121,147 @@ test("custom episode planning stops at the user-defined episode count", () => {
     nextBatchRange(334, settings, { generatedBodyCharacters: 557_780 }),
     null,
   );
+});
+
+test("legacy sequential settings normalize to the single recursive batch workflow", () => {
+  const settings = normalizeGenerationSettings({
+    mode: "sequential",
+    episodeCountMode: "custom",
+    episodeCount: 20,
+    batchSize: 4,
+  });
+
+  assert.equal(settings.mode, "full");
+  assert.equal(settings.preferredEpisodeDurationMinutes, 1.5);
+  assert.deepEqual(
+    nextBatchRange(0, settings),
+    { startEpisode: 1, endEpisode: 7, totalEpisodes: 20 },
+  );
+});
+
+test("recommended legacy mode preserves the manually entered episode count", () => {
+  const settings = normalizeGenerationSettings({
+    episodeCountMode: "recommended",
+    episodeCount: 123,
+    targetTotalCharacters: 180_000,
+  });
+
+  assert.equal(settings.episodeCountMode, "custom");
+  assert.equal(settings.episodeCount, 123);
+});
+
+test("short projects keep persistence batch size inside the episode boundary", () => {
+  const settings = normalizeGenerationSettings({
+    episodeCountMode: "custom",
+    episodeCount: 4,
+    batchSize: 8,
+  });
+
+  assert.equal(settings.episodeCount, 4);
+  assert.equal(settings.batchSize, 4);
+  assert.deepEqual(
+    nextBatchRange(0, settings),
+    { startEpisode: 1, endEpisode: 4, totalEpisodes: 4 },
+  );
+});
+
+test("generation settings stay inside the backend total-character contract", () => {
+  const settings = normalizeGenerationSettings({
+    targetTotalCharacters: 5_000_000,
+  });
+
+  assert.equal(settings.targetTotalCharacters, 200_000);
+});
+
+test("execution batches balance a natural story segment around the preferred size", () => {
+  assert.equal(adaptiveExecutionBatchSize(18, 10), 9);
+  assert.equal(adaptiveExecutionBatchSize(29, 10), 10);
+  assert.equal(adaptiveExecutionBatchSize(9, 10), 9);
+
+  const settings = normalizeGenerationSettings({
+    episodeCountMode: "custom",
+    episodeCount: 40,
+    batchSize: 10,
+  });
+  assert.deepEqual(
+    nextLeafBatchRange(0, settings, { startEpisode: 1, endEpisode: 18 }),
+    { status: "ready", range: { startEpisode: 1, endEpisode: 9, totalEpisodes: 40 } },
+  );
+  assert.deepEqual(
+    nextLeafBatchRange(9, settings, { startEpisode: 1, endEpisode: 18 }),
+    { status: "ready", range: { startEpisode: 10, endEpisode: 18, totalEpisodes: 40 } },
+  );
+});
+
+test("direct-script generation consumes the full selected approved leaf", () => {
+  const settings = normalizeGenerationSettings({
+    episodeCountMode: "custom",
+    episodeCount: 40,
+    batchSize: 5,
+  });
+
+  assert.deepEqual(
+    nextLeafBatchRange(0, settings, { startEpisode: 1, endEpisode: 10 }),
+    {
+      status: "ready",
+      range: { startEpisode: 1, endEpisode: 10, totalEpisodes: 40 },
+    },
+  );
+  assert.deepEqual(
+    nextLeafBatchRange(5, settings, { startEpisode: 1, endEpisode: 10 }),
+    {
+      status: "ready",
+      range: { startEpisode: 6, endEpisode: 10, totalEpisodes: 40 },
+    },
+  );
+  assert.deepEqual(
+    nextLeafBatchRange(5, settings, { startEpisode: 11, endEpisode: 20 }),
+    { status: "gap", nextEpisode: 6 },
+  );
+  assert.deepEqual(
+    nextLeafBatchRange(10, settings, { startEpisode: 1, endEpisode: 10 }),
+    { status: "complete" },
+  );
+});
+
+test("episode body guidance treats reduced total characters as a bounded reference", () => {
+  const settings = normalizeGenerationSettings({
+    episodeCountMode: "custom",
+    episodeCount: 334,
+    targetTotalCharacters: 600_000,
+  });
+
+  const initial = targetScriptBodyCharacters(settings);
+  const observed = targetScriptBodyCharacters(settings, {
+    generatedEpisodeCount: 1,
+    generatedBodyCharacters: 1200,
+  });
+  assert.ok(initial >= 600 && initial <= 2400);
+  assert.ok(observed >= 600 && observed <= 2400);
+  assert.ok(
+    targetScriptBodyCharacters(settings, {
+      generatedEpisodeCount: 12,
+      generatedBodyCharacters: 4_800,
+    }) > initial,
+  );
+  assert.ok(
+    targetScriptBodyCharacters(settings, {
+      generatedEpisodeCount: 12,
+      generatedBodyCharacters: 28_800,
+    }) < initial,
+  );
+  assert.equal(
+    targetScriptBodyCharacters(settings, {
+      generatedEpisodeCount: 1,
+      generatedBodyCharacters: 2000,
+    }),
+    initial,
+  );
+  assert.deepEqual(scriptBodyLengthGuidance(1797), {
+    referenceCharacters: 1797,
+    preferredMinCharacters: 1258,
+    preferredMaxCharacters: 2516,
+    truncationFloorCharacters: 449,
+  });
+  assert.equal(settings.failureRetryMode, "automatic");
 });

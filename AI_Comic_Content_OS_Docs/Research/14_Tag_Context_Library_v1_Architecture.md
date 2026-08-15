@@ -4,6 +4,8 @@
 
 本文定义中国大陆长篇漫剧创作中标签系统的长期目标。它属于 Research / Contract Direction，不批准新的 runtime、RAG、自动爬虫或动态建库实现。
 
+状态说明（2026-08-05）：Story Bible、可变深度递归 StoryPlanNode、EpisodePlan 及人工批准界面已经形成最小 runtime slice；本文仍未批准的是 Tag Evidence、Tag Knowledge Profile、动态 Tag Context Retrieval、自定义标签即时语义库和实时热门接入。
+
 标签系统的产品价值不是“给 Prompt 多塞几个词”，而是让创作者通过一个简短标签，安全地引用一组有来源、可解释、可版本化的创作上下文，用于更准确地形成故事梗概和剧情大方向。
 
 目标链路分为两个阶段：
@@ -226,7 +228,7 @@ Licensed / Permitted Content References
 | Real-time popular tags | Not implemented | Data Intelligence ingestion, trend snapshot and recommendation UI required |
 | Prompt-or-tag acceptance | Partially implemented | Prompt-only and controlled Ontology Tag-only work; confirmed CustomTagContext-only is pending |
 | Tag context to synopsis | Partial indirect Prompt influence | No explicit reviewable Story Synopsis / Story Direction result |
-| Synopsis to 600K expansion | Contract foundations only | Recursive planning runtime, approval UI and durable jobs pending |
+| Synopsis to 600K expansion | Human-reviewed Story Bible, recursive planning and EpisodePlan runtime slice implemented | Planning quality/capacity gates, continuity automation and durable background jobs pending |
 
 ## Recommended Implementation Sequence
 
