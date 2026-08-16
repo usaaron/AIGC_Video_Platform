@@ -10,7 +10,40 @@ const memberPrincipal: Principal = {
   roles: ['member'],
 }
 
+const ownerPrincipal: Principal = {
+  userId: 'user-owner',
+  tenantId: 'tenant-seqora-demo',
+  roles: ['owner'],
+}
+
 describe('GenerationTaskRepository charged creation', () => {
+  it('allows a tenant owner to generate for another member project', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new GenerationTaskRepository(store)
+
+    await expect(repository.canCreate('project-midnight-film', ownerPrincipal)).resolves.toBe(true)
+  })
+
+  it('passes the tenant manager scope into the database creation check', async () => {
+    let capturedParams: readonly unknown[] = []
+    const database = {
+      query: async (_sql: string, params: readonly unknown[]) => {
+        capturedParams = params
+        return { rows: params[2] === true ? [{ id: 'project-midnight-film' }] : [] }
+      },
+    } as unknown as AccountDatabase
+    const repository = new GenerationTaskRepository(null, null, database)
+
+    await expect(repository.canCreate('project-midnight-film', ownerPrincipal)).resolves.toBe(true)
+    expect(capturedParams).toEqual([
+      'project-midnight-film',
+      ownerPrincipal.tenantId,
+      true,
+      ownerPrincipal.userId,
+    ])
+  })
+
   it('recovers an expired local film composition when project tasks are read', async () => {
     const store = new AppStore(null)
     await store.initialize()

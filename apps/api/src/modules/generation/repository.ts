@@ -248,11 +248,11 @@ export class GenerationTaskRepository {
         FROM projects
         WHERE id = $1
           AND tenant_id = $2
-          AND owner_user_id = $3
+          AND ($3::boolean OR owner_user_id = $4)
           AND status <> 'archived'
         LIMIT 1
         `,
-        [projectId, principal.tenantId, principal.userId],
+        [projectId, principal.tenantId, canReadAllTenantContent(principal), principal.userId],
       )
       return result.rows.length > 0
     }
@@ -261,7 +261,8 @@ export class GenerationTaskRepository {
         (project) =>
           project.id === projectId &&
           project.tenantId === principal.tenantId &&
-          project.ownerId === principal.userId,
+          project.status !== 'archived' &&
+          (project.ownerId === principal.userId || canReadAllTenantContent(principal)),
       ),
     )
   }
