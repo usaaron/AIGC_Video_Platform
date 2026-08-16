@@ -28,6 +28,8 @@ describe('app shell account entry', () => {
     expect(html).toContain('一句成片')
     expect(html).toContain('序幕 image2')
     expect(html).toContain('剧本大师')
+    expect(html.match(/已启用/g)).toHaveLength(2)
+    expect(html.match(/开发中/g)).toHaveLength(1)
   })
 
   it('hides the admin console link from ordinary members', () => {
