@@ -43,6 +43,9 @@ export type FfmpegInputMedia = {
   hasAudio: boolean
 }
 
+const FFMPEG_COMPOSITION_BATCH_SIZE = 6
+const FFMPEG_PROBE_CONCURRENCY = 4
+
 export interface FilmPreviewDispatcher {
   recoverInterrupted(): Promise<void>
   start(task: GenerationTask): Promise<GenerationTask>
@@ -462,8 +465,8 @@ export async function runFfmpegComposition(
   timeoutMs: number,
   overlayTexts: string[] = [],
 ): Promise<void> {
-  const media = await Promise.all(
-    inputPaths.map((inputPath) => probeInputMedia(inputPath, ffmpegPath, timeoutMs)),
+  const media = await mapWithConcurrency(inputPaths, FFMPEG_PROBE_CONCURRENCY, (inputPath) =>
+    probeInputMedia(inputPath, ffmpegPath, timeoutMs),
   )
   const overlayTextPaths = await Promise.all(
     overlayTexts.map(async (text, index) => {
@@ -474,8 +477,47 @@ export async function runFfmpegComposition(
     }),
   )
   const fontFile = overlayTextPaths.some(Boolean) ? await findCjkFont() : undefined
-  const args = createFfmpegCompositionArgs(inputPaths, outputPath, target, media, overlayTextPaths, fontFile)
-  await runProcess(ffmpegPath, args, timeoutMs, 'FFmpeg 合成失败')
+  if (inputPaths.length <= FFMPEG_COMPOSITION_BATCH_SIZE) {
+    const args = createFfmpegCompositionArgs(
+      inputPaths,
+      outputPath,
+      target,
+      media,
+      overlayTextPaths,
+      fontFile,
+    )
+    await runProcess(ffmpegPath, args, timeoutMs, 'FFmpeg 合成失败')
+    return
+  }
+
+  const batchPaths: string[] = []
+  for (let start = 0; start < inputPaths.length; start += FFMPEG_COMPOSITION_BATCH_SIZE) {
+    const batchIndex = batchPaths.length + 1
+    const batchPath = join(
+      dirname(outputPath),
+      `composition-batch-${String(batchIndex).padStart(3, '0')}.mp4`,
+    )
+    const end = start + FFMPEG_COMPOSITION_BATCH_SIZE
+    const args = createFfmpegCompositionArgs(
+      inputPaths.slice(start, end),
+      batchPath,
+      target,
+      media.slice(start, end),
+      overlayTextPaths.slice(start, end),
+      fontFile,
+    )
+    await runProcess(ffmpegPath, args, timeoutMs, `FFmpeg 第 ${batchIndex} 批合成失败`)
+    batchPaths.push(batchPath)
+  }
+
+  const manifestPath = join(dirname(outputPath), 'composition-batches.txt')
+  await writeFile(manifestPath, createFfmpegConcatManifest(batchPaths), 'utf8')
+  await runProcess(
+    ffmpegPath,
+    createFfmpegConcatArgs(manifestPath, outputPath),
+    timeoutMs,
+    'FFmpeg 批次汇总失败',
+  )
 }
 
 export function createFfmpegCompositionArgs(
@@ -490,7 +532,7 @@ export function createFfmpegCompositionArgs(
     throw new Error('FFmpeg 合成输入不完整')
   }
 
-  const inputs = inputPaths.flatMap((path) => ['-i', path])
+  const inputs = inputPaths.flatMap((path) => ['-threads', '1', '-i', path])
   const silenceInputs: string[] = []
   const audioInputIndexes = media.map((item, index) => {
     if (item.hasAudio) return index
@@ -528,6 +570,8 @@ export function createFfmpegCompositionArgs(
     '-y',
     ...inputs,
     ...silenceInputs,
+    '-filter_complex_threads',
+    '2',
     '-filter_complex',
     filters.join(';'),
     '-map',
@@ -538,12 +582,39 @@ export function createFfmpegCompositionArgs(
     'libx264',
     '-preset',
     'veryfast',
+    '-threads',
+    '4',
     '-crf',
     '23',
     '-c:a',
     'aac',
     '-b:a',
     '192k',
+    '-movflags',
+    '+faststart',
+    outputPath,
+  ]
+}
+
+export function createFfmpegConcatManifest(inputPaths: string[]): string {
+  if (!inputPaths.length) throw new Error('FFmpeg 批次汇总输入不完整')
+  return `${inputPaths
+    .map((path) => `file '${path.replace(/\\/gu, '/').replace(/'/gu, "'\\''")}'`)
+    .join('\n')}\n`
+}
+
+export function createFfmpegConcatArgs(manifestPath: string, outputPath: string): string[] {
+  return [
+    '-hide_banner',
+    '-y',
+    '-f',
+    'concat',
+    '-safe',
+    '0',
+    '-i',
+    manifestPath,
+    '-c',
+    'copy',
     '-movflags',
     '+faststart',
     outputPath,

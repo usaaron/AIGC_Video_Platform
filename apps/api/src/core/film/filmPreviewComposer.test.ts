@@ -6,7 +6,12 @@ import type { VideoGenerationProvider } from '../generation/videoProvider.js'
 import { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { usageCollector } from '../observability/usage.js'
-import { createFfmpegCompositionArgs, FilmPreviewComposer } from './filmPreviewComposer.js'
+import {
+  createFfmpegCompositionArgs,
+  createFfmpegConcatArgs,
+  createFfmpegConcatManifest,
+  FilmPreviewComposer,
+} from './filmPreviewComposer.js'
 
 describe('FilmPreviewComposer', () => {
   beforeEach(() => {
@@ -278,6 +283,46 @@ describe('FilmPreviewComposer', () => {
     expect(filter).toContain('drawtext=fontfile=/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc')
     expect(filter).toContain('textfile=/tmp/overlay-001.txt')
     expect(filter).toContain('boxcolor=black@0.58')
+  })
+
+  it('limits decoder and filter threads for each composition batch', () => {
+    const args = createFfmpegCompositionArgs(
+      Array.from({ length: 6 }, (_, index) => `shot-${index + 1}.mp4`),
+      'batch.mp4',
+      { width: 1920, height: 1080 },
+      Array.from({ length: 6 }, () => ({ duration: 5, hasAudio: true })),
+    )
+
+    expect(args.filter((value) => value === '-threads')).toHaveLength(7)
+    expect(args).toContain('-filter_complex_threads')
+    expect(args[args.indexOf('-filter_complex_threads') + 1]).toBe('2')
+  })
+
+  it('creates a stream-copy manifest for a 29-shot composition split into batches', () => {
+    const batchPaths = Array.from(
+      { length: Math.ceil(29 / 6) },
+      (_, index) => `C:\\temp\\composition-batch-${String(index + 1).padStart(3, '0')}.mp4`,
+    )
+    const manifest = createFfmpegConcatManifest(batchPaths)
+    const args = createFfmpegConcatArgs('C:\\temp\\composition-batches.txt', 'film-preview.mp4')
+
+    expect(manifest.trim().split('\n')).toHaveLength(5)
+    expect(manifest).toContain("file 'C:/temp/composition-batch-005.mp4'")
+    expect(args).toEqual([
+      '-hide_banner',
+      '-y',
+      '-f',
+      'concat',
+      '-safe',
+      '0',
+      '-i',
+      'C:\\temp\\composition-batches.txt',
+      '-c',
+      'copy',
+      '-movflags',
+      '+faststart',
+      'film-preview.mp4',
+    ])
   })
 })
 

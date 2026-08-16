@@ -195,7 +195,14 @@ function promptFor(request: ImageGenerationRequest, view: ImageGenerationRequest
 
 function modelForRequest(requestedModel: string | null | undefined, configuredModel: string): string {
   const normalized = requestedModel?.trim().toLowerCase()
-  if (!normalized || normalized === 'img2-default' || normalized === 'gpt-image-2') return configuredModel
+  if (
+    !normalized ||
+    normalized === 'seqora-image2' ||
+    normalized === 'img2-default' ||
+    normalized === 'gpt-image-2'
+  ) {
+    return configuredModel
+  }
   throw new Error(`图片模型 ${requestedModel} 的 Provider 尚未配置`)
 }
 
@@ -606,6 +613,9 @@ function providerError(status: number, body: string): TokenAdventImageHttpError 
   }
   if (status === 429) {
     message = '上游图片服务限流（429），请稍后重试'
+  }
+  if (status === 502 || status === 503 || status === 504) {
+    message = `上游图片服务暂时不可用（${status}），已自动重试仍未恢复；请稍后重试`
   }
   return new TokenAdventImageHttpError(
     status,

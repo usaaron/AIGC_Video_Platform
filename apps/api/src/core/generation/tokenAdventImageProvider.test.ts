@@ -77,7 +77,9 @@ describe('TokenAdventImageProvider', () => {
     expect(capturedBody?.get('moderation')).toBe('low')
     expect(capturedBody?.get('stream')).toBe('true')
     expect(capturedBody?.get('partial_images')).toBe('2')
-    expect(capturedBody?.get('prompt')).toContain('图 2（image-2-subject.jpg）：主体角色，只保留身份、脸部、姿态')
+    expect(capturedBody?.get('prompt')).toContain(
+      '图 2（image-2-subject.jpg）：主体角色，只保留身份、脸部、姿态',
+    )
     expect(capturedBody?.get('prompt')).toContain('视觉描述：black leather jacket with silver zippers')
     expect(capturedBody?.get('prompt')).toContain('用户需求：保持人物身份一致，生成全身图')
     expect(capturedBody?.get('size')).toBe('1536x864')
@@ -102,6 +104,27 @@ describe('TokenAdventImageProvider', () => {
       }),
     ).rejects.toThrow('图片模型 hunyuan-image 的 Provider 尚未配置')
     expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('maps the public Image2 studio model id to the configured upstream model', async () => {
+    let capturedBody: { model?: string } = {}
+    const provider = createProvider((async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body)) as { model?: string }
+      return Response.json({ data: [{ b64_json: Buffer.from('png').toString('base64') }] })
+    }) as typeof fetch)
+
+    await provider.generate({
+      taskId: 'task-image2-studio',
+      assetId: 'image2-studio',
+      model: 'seqora-image2',
+      aspectRatio: '1:1',
+      prompt: '电影感人物海报',
+      negativePrompt: '',
+      references: [],
+      outputs: ['single'],
+    })
+
+    expect(capturedBody.model).toBe('gpt-image-2')
   })
 
   it('downloads image content from a JSON URL response', async () => {
@@ -211,17 +234,13 @@ describe('TokenAdventImageProvider', () => {
 
   it('decodes data URL and raw Base64 JSON image fields', async () => {
     let calls = 0
-    const provider = createProvider(
-      (async () => {
-        calls += 1
-        const encoded = Buffer.from(calls === 1 ? 'data-url-image' : 'raw-base64-image').toString(
-          'base64',
-        )
-        return calls === 1
-          ? Response.json({ data: [{ image_url: `data:image/webp;base64,${encoded}` }] })
-          : Response.json({ data: [{ b64_json: encoded, media_type: 'image/jpeg' }] })
-      }) as typeof fetch,
-    )
+    const provider = createProvider((async () => {
+      calls += 1
+      const encoded = Buffer.from(calls === 1 ? 'data-url-image' : 'raw-base64-image').toString('base64')
+      return calls === 1
+        ? Response.json({ data: [{ image_url: `data:image/webp;base64,${encoded}` }] })
+        : Response.json({ data: [{ b64_json: encoded, media_type: 'image/jpeg' }] })
+    }) as typeof fetch)
 
     const first = await provider.generate({
       taskId: 'task-data-url',
@@ -403,6 +422,28 @@ describe('TokenAdventImageProvider', () => {
       }),
     ).rejects.toThrow('上游图片服务超时（524）')
     expect(attempts).toBe(1)
+  })
+
+  it('retries an upstream 502 and returns an actionable error after exhaustion', async () => {
+    let attempts = 0
+    const provider = createProvider((async () => {
+      attempts += 1
+      return new Response('<html><head><title>Bad gateway</title></head></html>', { status: 502 })
+    }) as typeof fetch)
+
+    await expect(
+      provider.generate({
+        taskId: 'task-bad-gateway',
+        assetId: 'asset-1',
+        model: 'seqora-image2',
+        aspectRatio: '1:1',
+        prompt: '电影感人物海报',
+        negativePrompt: '',
+        references: [],
+        outputs: ['single'],
+      }),
+    ).rejects.toThrow('上游图片服务暂时不可用（502），已自动重试仍未恢复')
+    expect(attempts).toBe(3)
   })
 
   it('enforces a total response timeout without retrying the same image request', async () => {
