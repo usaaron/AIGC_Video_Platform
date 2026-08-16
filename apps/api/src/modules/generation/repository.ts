@@ -1312,7 +1312,7 @@ async function updateTaskResultTargets(
       `
       UPDATE assets
       SET image_url = $4,
-          updated_at = $5
+          updated_at = GREATEST(updated_at, $5::timestamptz)
       WHERE id = $1
         AND project_id = $2
         AND tenant_id = $3
@@ -1332,7 +1332,7 @@ async function updateTaskResultTargets(
       UPDATE shots
       SET image_url = $4,
           selected_image_task_id = $5,
-          updated_at = $6
+          updated_at = GREATEST(updated_at, $6::timestamptz)
       WHERE id = $1
         AND project_id = $2
         AND tenant_id = $3
@@ -1686,6 +1686,7 @@ function taskFromRow(row: GenerationTaskRow): GenerationTask {
 function upsertTaskInState(state: AppState, task: GenerationTask): void {
   const index = state.tasks.findIndex((item) => item.id === task.id)
   if (index >= 0) {
+    if (Date.parse(state.tasks[index]!.updatedAt) > Date.parse(task.updatedAt)) return
     state.tasks[index] = task
   } else {
     state.tasks.unshift(task)

@@ -1,7 +1,7 @@
 import type { AssetLibraryProvider } from '../../core/generation/volcArkAssetLibraryProvider.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { AppStore, defaultAssetAttributes } from '../../infra/store.js'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { TrustedAssetService } from './service.js'
 
 describe('TrustedAssetService', () => {
@@ -383,6 +383,294 @@ describe('TrustedAssetService', () => {
       trustedPortrait: { assetId: 'asset-eventual', status: 'processing' },
     })
   })
+
+  it('refreshes every processing portrait in a project from one upstream list', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const base = store.read((state) => state.assets[0]!)
+    await store.mutate((state) => {
+      for (const [id, assetId] of [
+        ['character-batch-1', 'asset-batch-1'],
+        ['character-batch-2', 'asset-batch-2'],
+      ] as const) {
+        state.assets.push({
+          ...structuredClone(base),
+          id,
+          kind: 'character',
+          name: id,
+          attributes: {
+            ...defaultAssetAttributes('character'),
+            trustedPortrait: {
+              assetId,
+              groupId: `group-${assetId}`,
+              groupType: 'AIGC',
+              name: id,
+              status: 'processing',
+              previewUrl: null,
+              errorCode: null,
+              errorMessage: null,
+              checkedAt: now,
+            },
+          },
+          createdAt: now,
+          updatedAt: now,
+        })
+      }
+    })
+    const listPortraits = vi.fn(async () =>
+      ['asset-batch-1', 'asset-batch-2'].map((assetId) => ({
+        assetId,
+        groupId: `group-${assetId}`,
+        groupType: 'AIGC' as const,
+        name: assetId,
+        assetType: 'Image' as const,
+        status: 'active' as const,
+        previewUrl: null,
+        errorCode: null,
+        errorMessage: null,
+      })),
+    )
+    const getPortrait = vi.fn()
+    const provider: AssetLibraryProvider = {
+      createVirtualGroup: async () => 'unused-group',
+      createVirtualAsset: async () => {
+        throw new Error('must not create')
+      },
+      getPortrait,
+      listPortraits,
+      listAuthorizedPortraits: async () => [],
+    }
+    const service = new TrustedAssetService(
+      store,
+      provider,
+      new MemoryStorage(),
+      'test-secret-with-at-least-32-characters',
+      'https://api.example.com',
+      'default',
+    )
+
+    const updated = await service.refreshProcessing('project-midnight-film', {
+      userId: 'user-member',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['member'],
+    })
+
+    expect(listPortraits).toHaveBeenCalledOnce()
+    expect(getPortrait).not.toHaveBeenCalled()
+    expect(updated).toHaveLength(2)
+    expect(updated.every((asset) => asset.attributes.trustedPortrait?.status === 'active')).toBe(true)
+  })
+
+  it('refreshes from the repository when the API process cache is stale', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const persisted = {
+      id: 'character-cross-process',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      kind: 'character' as const,
+      sourceMode: 'generate' as const,
+      name: '林夏',
+      description: '',
+      prompt: '',
+      promptMode: 'standard' as const,
+      customPromptMode: 'append' as const,
+      customPrompt: '',
+      negativePrompt: '',
+      references: [],
+      attributes: {
+        ...defaultAssetAttributes('character'),
+        faceStatus: 'approved' as const,
+        trustedPortrait: {
+          assetId: 'maas-cross-process',
+          groupId: 'group-cross-process',
+          groupType: 'AIGC' as const,
+          name: '林夏-面部基准',
+          status: 'processing' as const,
+          previewUrl: null,
+          errorCode: null,
+          errorMessage: null,
+          checkedAt: now,
+        },
+      },
+      imageUrl: null,
+      status: 'draft' as const,
+      createdAt: now,
+      updatedAt: now,
+    }
+    let stored = structuredClone(persisted)
+    const provider: AssetLibraryProvider = {
+      createVirtualGroup: async () => 'unused-group',
+      createVirtualAsset: async () => {
+        throw new Error('must not create')
+      },
+      getPortrait: async () => ({
+        assetId: 'maas-cross-process',
+        groupId: 'group-cross-process',
+        groupType: 'AIGC',
+        name: '林夏-面部基准',
+        assetType: 'Image',
+        status: 'active',
+        previewUrl: null,
+        errorCode: null,
+        errorMessage: null,
+      }),
+      listPortraits: async () => [],
+      listAuthorizedPortraits: async () => [],
+    }
+    const service = new TrustedAssetService(
+      store,
+      provider,
+      new MemoryStorage(),
+      'test-secret-with-at-least-32-characters',
+      'https://api.example.com',
+      'default',
+      '',
+      {
+        findOwnedAsset: async () => structuredClone(stored),
+        listOwnedAssets: async () => [structuredClone(stored)],
+        updateAsset: async (_projectId, _assetId, input) => {
+          stored = {
+            ...stored,
+            attributes: input.attributes ?? stored.attributes,
+            updatedAt: new Date().toISOString(),
+          }
+          return structuredClone(stored)
+        },
+      },
+    )
+
+    const updated = await service.refresh('project-midnight-film', 'character-cross-process', {
+      userId: 'user-member',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['member'],
+    })
+
+    expect(
+      store.read((state) => state.assets.find((asset) => asset.id === 'character-cross-process')),
+    ).toBeUndefined()
+    expect(updated.attributes).toMatchObject({
+      trustedPortrait: { assetId: 'maas-cross-process', status: 'active' },
+    })
+  })
+
+  it.each(['processing', 'failed'] as const)(
+    'recovers an active historical portrait when a duplicate submission becomes %s',
+    async (duplicateStatus) => {
+      const store = new AppStore(null)
+      await store.initialize()
+      const now = new Date().toISOString()
+      await store.mutate((state) => {
+        state.assets.push({
+          id: 'character-duplicate',
+          projectId: 'project-midnight-film',
+          tenantId: 'tenant-seqora-demo',
+          kind: 'character',
+          sourceMode: 'generate',
+          name: '女摄影师',
+          description: '',
+          prompt: '',
+          promptMode: 'standard',
+          customPromptMode: 'append',
+          customPrompt: '',
+          negativePrompt: '',
+          references: [],
+          attributes: {
+            ...defaultAssetAttributes('character'),
+            faceStatus: 'approved',
+            trustedPortrait: {
+              assetId: 'asset-duplicate-processing',
+              groupId: 'group-duplicate',
+              groupType: 'AIGC',
+              name: '女摄影师-面部基准',
+              status: 'processing',
+              previewUrl: null,
+              errorCode: null,
+              errorMessage: null,
+              checkedAt: now,
+            },
+          },
+          imageUrl: null,
+          status: 'draft',
+          createdAt: now,
+          updatedAt: now,
+        })
+        state.tasks.unshift({
+          id: 'trusted-portrait-old-task',
+          clientRequestId: 'trusted-portrait-old-client',
+          projectId: 'project-midnight-film',
+          tenantId: 'tenant-seqora-demo',
+          userId: 'user-member',
+          kind: 'text',
+          label: '女摄影师可信人像',
+          prompt: '',
+          negativePrompt: '',
+          provider: 'asset-library',
+          model: null,
+          metadata: {
+            assetId: 'character-duplicate',
+            generationStage: 'trusted-portrait',
+            textResult: {
+              attributes: { trustedPortrait: { assetId: 'asset-original-active' } },
+            },
+          },
+          status: 'completed',
+          progress: 100,
+          estimatedCredits: 1,
+          createdAt: now,
+          updatedAt: now,
+          resultUrl: null,
+          outputs: [],
+          error: null,
+        })
+      })
+
+      const requestedIds: string[] = []
+      const provider: AssetLibraryProvider = {
+        createVirtualGroup: async () => 'unused-group',
+        createVirtualAsset: async () => {
+          throw new Error('must not create')
+        },
+        getPortrait: async (assetId) => {
+          requestedIds.push(assetId)
+          return {
+            assetId,
+            groupId: assetId === 'asset-original-active' ? 'group-original' : 'group-duplicate',
+            groupType: 'AIGC',
+            name: '女摄影师-面部基准',
+            assetType: 'Image',
+            status: assetId === 'asset-original-active' ? 'active' : duplicateStatus,
+            previewUrl: null,
+            errorCode: null,
+            errorMessage: null,
+          }
+        },
+        listPortraits: async () => [],
+        listAuthorizedPortraits: async () => [],
+      }
+      const service = new TrustedAssetService(
+        store,
+        provider,
+        new MemoryStorage(),
+        'test-secret-with-at-least-32-characters',
+        'https://api.example.com',
+        'default',
+      )
+
+      const updated = await service.refresh('project-midnight-film', 'character-duplicate', {
+        userId: 'user-member',
+        tenantId: 'tenant-seqora-demo',
+        roles: ['member'],
+      })
+
+      expect(requestedIds).toEqual(['asset-duplicate-processing', 'asset-original-active'])
+      expect(updated.attributes).toMatchObject({
+        trustedPortrait: { assetId: 'asset-original-active', status: 'active' },
+      })
+    },
+  )
 
   it('uploads the current approved local face instead of an older generated face', async () => {
     const store = new AppStore(null)

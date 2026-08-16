@@ -34,7 +34,10 @@ export class TrustedAssetService {
     private readonly publicApiBaseUrl: string,
     private readonly projectName: string,
     private readonly consoleUrl = '',
-    private readonly projectRepository: Pick<ProjectRepository, 'updateAsset'> | null = null,
+    private readonly projectRepository: Pick<
+      ProjectRepository,
+      'findOwnedAsset' | 'listOwnedAssets' | 'updateAsset'
+    > | null = null,
     private readonly mediaRepository: Pick<
       MediaRepository,
       'findSourceById' | 'findSourceByReferenceIds'
@@ -51,7 +54,7 @@ export class TrustedAssetService {
   }
 
   async listPortraits(groupType: PortraitGroupType, principal: Principal): Promise<ProviderPortrait[]> {
-    const visibleIds = this.visiblePortraitIds(principal, groupType)
+    const visibleIds = await this.visiblePortraitIds(principal, groupType)
     if (!visibleIds.size) return []
     const portraits = await this.callProvider(() => this.requireProvider().listPortraits(groupType))
     return portraits
@@ -60,7 +63,7 @@ export class TrustedAssetService {
   }
 
   async preview(assetId: string, principal: Principal): Promise<PortraitPreview> {
-    if (!this.visiblePortraitIds(principal).has(assetId)) {
+    if (!(await this.visiblePortraitIds(principal)).has(assetId)) {
       throw new AppError(404, 'TRUSTED_PORTRAIT_NOT_FOUND', '人像资源不存在或无权访问')
     }
     const provider = this.requireProvider()
@@ -91,7 +94,7 @@ export class TrustedAssetService {
         '自动入库需要配置公网 API 地址；本地 localhost 无法供弦序素材库下载素材',
       )
     }
-    const asset = this.requireCharacterAsset(projectId, assetId, principal)
+    const asset = await this.requireCharacterAsset(projectId, assetId, principal)
     if (asset.attributes.subjectType !== 'human') {
       throw new AppError(400, 'HUMAN_CHARACTER_REQUIRED', '只有人物素材需要创建人像资源')
     }
@@ -103,8 +106,13 @@ export class TrustedAssetService {
     const current = asset.attributes.trustedPortrait
     if (current?.groupType === 'AIGC' && current.status === 'processing') {
       const portrait = await this.readProcessingPortrait(provider, current)
-      if (!portrait) return asset
-      return this.savePortrait(asset, portrait, 'ai-virtual', principal)
+      const recovered = await this.recoverHistoricalPortrait(asset, current, portrait)
+      if (!recovered) return asset
+      return this.savePortrait(asset, recovered, 'ai-virtual', principal)
+    }
+    if (current?.groupType === 'AIGC' && current.status === 'failed') {
+      const recovered = await this.recoverHistoricalPortrait(asset, current)
+      if (recovered) return this.savePortrait(asset, recovered, 'ai-virtual', principal)
     }
 
     const source = await this.findSource(asset)
@@ -134,7 +142,7 @@ export class TrustedAssetService {
     providerAssetId: string,
     principal: Principal,
   ): Promise<Asset> {
-    const asset = this.requireCharacterAsset(projectId, localAssetId, principal)
+    const asset = await this.requireCharacterAsset(projectId, localAssetId, principal)
     const portrait = await this.callProvider(() => this.requireProvider().getPortrait(providerAssetId))
     if (portrait.assetType !== 'Image') {
       throw new AppError(400, 'PORTRAIT_IMAGE_REQUIRED', '人物面部基准必须绑定图片类型的 Asset ID')
@@ -148,7 +156,7 @@ export class TrustedAssetService {
   }
 
   async refresh(projectId: string, assetId: string, principal: Principal): Promise<Asset> {
-    const asset = this.requireCharacterAsset(projectId, assetId, principal)
+    const asset = await this.requireCharacterAsset(projectId, assetId, principal)
     const current = asset.attributes.trustedPortrait
     if (!current) throw new AppError(409, 'TRUSTED_PORTRAIT_REQUIRED', '当前人物尚未绑定弦序素材资源')
     const portrait =
@@ -157,12 +165,52 @@ export class TrustedAssetService {
         : await this.callProvider(() =>
             this.requireProvider().getPortrait(current.assetId, current.groupType),
           )
-    if (!portrait) return asset
+    const recovered =
+      current.groupType === 'AIGC' ? await this.recoverHistoricalPortrait(asset, current, portrait) : portrait
+    if (!recovered) return asset
     return this.savePortrait(
       asset,
-      portrait,
-      portrait.groupType === 'LivenessFace' ? 'authorized-real' : 'ai-virtual',
+      recovered,
+      recovered.groupType === 'LivenessFace' ? 'authorized-real' : 'ai-virtual',
       principal,
+    )
+  }
+
+  async refreshProcessing(projectId: string, principal: Principal): Promise<Asset[]> {
+    const assets = this.projectRepository
+      ? await this.projectRepository.listOwnedAssets(principal)
+      : this.store.read((state) => {
+          const ownsProject = state.projects.some(
+            (project) =>
+              project.id === projectId &&
+              project.tenantId === principal.tenantId &&
+              project.ownerId === principal.userId,
+          )
+          if (!ownsProject) return []
+          return state.assets.filter(
+            (asset) => asset.projectId === projectId && asset.tenantId === principal.tenantId,
+          )
+        })
+    const processing = assets.filter(
+      (asset): asset is CharacterAsset =>
+        asset.projectId === projectId &&
+        asset.attributes.type === 'character' &&
+        asset.attributes.trustedPortrait?.groupType === 'AIGC' &&
+        asset.attributes.trustedPortrait.status === 'processing',
+    )
+    if (!processing.length) return []
+
+    const listed = await this.callProvider(() => this.requireProvider().listPortraits('AIGC'))
+    const listedById = new Map(listed.map((portrait) => [portrait.assetId, portrait]))
+    return await Promise.all(
+      processing.map(async (asset) => {
+        const current = asset.attributes.trustedPortrait!
+        let portrait = listedById.get(current.assetId) ?? null
+        if (!portrait) portrait = await this.readPortraitIfAvailable(current)
+        const recovered = await this.recoverHistoricalPortrait(asset, current, portrait)
+        if (!recovered || recovered.status === 'processing') return asset
+        return this.savePortrait(asset, recovered, 'ai-virtual', principal)
+      }),
     )
   }
 
@@ -186,31 +234,37 @@ export class TrustedAssetService {
     return this.provider
   }
 
-  private visiblePortraitIds(principal: Principal, groupType?: PortraitGroupType): Set<string> {
-    return this.store.read((state) => {
-      const projectIds = new Set(
-        state.projects
-          .filter(
-            (project) => project.tenantId === principal.tenantId && project.ownerId === principal.userId,
+  private async visiblePortraitIds(
+    principal: Principal,
+    groupType?: PortraitGroupType,
+  ): Promise<Set<string>> {
+    const assets = this.projectRepository
+      ? await this.projectRepository.listOwnedAssets(principal)
+      : this.store.read((state) => {
+          const projectIds = new Set(
+            state.projects
+              .filter(
+                (project) => project.tenantId === principal.tenantId && project.ownerId === principal.userId,
+              )
+              .map((project) => project.id),
           )
-          .map((project) => project.id),
-      )
-      return new Set(
-        state.assets
-          .filter(
-            (asset) =>
-              asset.tenantId === principal.tenantId &&
-              projectIds.has(asset.projectId) &&
-              asset.attributes.type === 'character' &&
-              Boolean(asset.attributes.trustedPortrait?.assetId) &&
-              (!groupType || asset.attributes.trustedPortrait?.groupType === groupType),
+          return state.assets.filter(
+            (asset) => asset.tenantId === principal.tenantId && projectIds.has(asset.projectId),
           )
-          .map((asset) =>
-            asset.attributes.type === 'character' ? asset.attributes.trustedPortrait!.assetId : '',
-          )
-          .filter(Boolean),
-      )
-    })
+        })
+    return new Set(
+      assets
+        .filter(
+          (asset) =>
+            asset.attributes.type === 'character' &&
+            Boolean(asset.attributes.trustedPortrait?.assetId) &&
+            (!groupType || asset.attributes.trustedPortrait?.groupType === groupType),
+        )
+        .map((asset) =>
+          asset.attributes.type === 'character' ? asset.attributes.trustedPortrait!.assetId : '',
+        )
+        .filter(Boolean),
+    )
   }
 
   private async callProvider<T>(operation: () => Promise<T>): Promise<T> {
@@ -226,11 +280,55 @@ export class TrustedAssetService {
     current: TrustedPortrait,
   ): Promise<ProviderPortrait | null> {
     try {
-      return await provider.getPortrait(current.assetId, current.groupType)
+      const portrait = await provider.getPortrait(current.assetId, current.groupType)
+      if (portrait.status === 'active') return portrait
+      const listed = await provider.listPortraits(current.groupType)
+      return listed.find((candidate) => candidate.assetId === current.assetId) ?? portrait
     } catch (error) {
       if (isPendingPortraitLookupError(error)) return null
       throw this.providerError(error)
     }
+  }
+
+  private async readPortraitIfAvailable(current: TrustedPortrait): Promise<ProviderPortrait | null> {
+    try {
+      return await this.requireProvider().getPortrait(current.assetId, current.groupType)
+    } catch (error) {
+      if (isPendingPortraitLookupError(error)) return null
+      throw this.providerError(error)
+    }
+  }
+
+  private async recoverHistoricalPortrait(
+    asset: CharacterAsset,
+    current: TrustedPortrait,
+    currentPortrait: ProviderPortrait | null = null,
+  ): Promise<ProviderPortrait | null> {
+    if (currentPortrait?.status === 'active') return currentPortrait
+
+    const candidateIds = this.store.read((state) =>
+      state.tasks
+        .filter(
+          (task) =>
+            task.projectId === asset.projectId &&
+            task.tenantId === asset.tenantId &&
+            task.metadata.assetId === asset.id &&
+            task.metadata.generationStage === 'trusted-portrait',
+        )
+        .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+        .map((task) => historicalPortraitId(task.metadata.textResult))
+        .filter((assetId): assetId is string => Boolean(assetId) && assetId !== current.assetId),
+    )
+
+    for (const candidateId of new Set(candidateIds)) {
+      try {
+        const candidate = await this.requireProvider().getPortrait(candidateId, 'AIGC')
+        if (candidate.status === 'active') return candidate
+      } catch (error) {
+        if (!isPendingPortraitLookupError(error)) throw this.providerError(error)
+      }
+    }
+    return currentPortrait
   }
 
   private providerError(error: unknown): AppError {
@@ -239,25 +337,31 @@ export class TrustedAssetService {
     return new AppError(502, 'ASSET_LIBRARY_REQUEST_FAILED', `弦序素材库请求失败：${detail}`)
   }
 
-  private requireCharacterAsset(projectId: string, assetId: string, principal: Principal): CharacterAsset {
-    const asset = this.store.read((state) => {
-      const ownsProject = state.projects.some(
-        (project) =>
-          project.id === projectId &&
-          project.tenantId === principal.tenantId &&
-          project.ownerId === principal.userId,
-      )
-      if (!ownsProject) return null
-      return (
-        state.assets.find(
-          (item) =>
-            item.id === assetId &&
-            item.projectId === projectId &&
-            item.tenantId === principal.tenantId &&
-            item.kind === 'character',
-        ) ?? null
-      )
-    })
+  private async requireCharacterAsset(
+    projectId: string,
+    assetId: string,
+    principal: Principal,
+  ): Promise<CharacterAsset> {
+    const asset = this.projectRepository
+      ? await this.projectRepository.findOwnedAsset(projectId, assetId, principal)
+      : this.store.read((state) => {
+          const ownsProject = state.projects.some(
+            (project) =>
+              project.id === projectId &&
+              project.tenantId === principal.tenantId &&
+              project.ownerId === principal.userId,
+          )
+          if (!ownsProject) return null
+          return (
+            state.assets.find(
+              (item) =>
+                item.id === assetId &&
+                item.projectId === projectId &&
+                item.tenantId === principal.tenantId &&
+                item.kind === 'character',
+            ) ?? null
+          )
+        })
     if (!asset || asset.attributes.type !== 'character') {
       throw new AppError(404, 'CHARACTER_ASSET_NOT_FOUND', '人物资产不存在或无权操作')
     }
@@ -450,4 +554,14 @@ function isPendingPortraitLookupError(error: unknown): boolean {
   return /尚未能建立可靠资源验证|尚未就绪|暂未就绪|处理中|processing|not ready|not found|does not exist|resource[^\n]*missing|请求超时|网络暂时不可达/i.test(
     error.message,
   )
+}
+
+function historicalPortraitId(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const attributes = (value as { attributes?: unknown }).attributes
+  if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes)) return null
+  const portrait = (attributes as { trustedPortrait?: unknown }).trustedPortrait
+  if (!portrait || typeof portrait !== 'object' || Array.isArray(portrait)) return null
+  const assetId = (portrait as { assetId?: unknown }).assetId
+  return typeof assetId === 'string' && assetId.length > 0 ? assetId : null
 }

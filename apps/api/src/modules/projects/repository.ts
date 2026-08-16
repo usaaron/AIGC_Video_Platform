@@ -284,6 +284,71 @@ export class ProjectRepository {
     }
   }
 
+  async findOwnedAsset(projectId: string, assetId: string, principal: Principal): Promise<Asset | null> {
+    if (!this.database) {
+      return this.requireStore().read((state) => {
+        const ownsProject = state.projects.some(
+          (project) =>
+            project.id === projectId &&
+            project.tenantId === principal.tenantId &&
+            project.ownerId === principal.userId,
+        )
+        if (!ownsProject) return null
+        return (
+          state.assets.find(
+            (asset) =>
+              asset.id === assetId && asset.projectId === projectId && asset.tenantId === principal.tenantId,
+          ) ?? null
+        )
+      })
+    }
+
+    const result = await this.database.query<AssetRow>(
+      `
+      SELECT ${prefixedAssetColumns('asset')}
+      FROM assets asset
+      INNER JOIN projects project
+        ON project.id = asset.project_id AND project.tenant_id = asset.tenant_id
+      WHERE asset.id = $1
+        AND asset.project_id = $2
+        AND asset.tenant_id = $3
+        AND project.owner_user_id = $4
+      `,
+      [assetId, projectId, principal.tenantId, principal.userId],
+    )
+    return result.rows[0] ? assetFromRow(result.rows[0]) : null
+  }
+
+  async listOwnedAssets(principal: Principal): Promise<Asset[]> {
+    if (!this.database) {
+      return this.requireStore().read((state) => {
+        const projectIds = new Set(
+          state.projects
+            .filter(
+              (project) => project.tenantId === principal.tenantId && project.ownerId === principal.userId,
+            )
+            .map((project) => project.id),
+        )
+        return state.assets.filter(
+          (asset) => asset.tenantId === principal.tenantId && projectIds.has(asset.projectId),
+        )
+      })
+    }
+
+    const result = await this.database.query<AssetRow>(
+      `
+      SELECT ${prefixedAssetColumns('asset')}
+      FROM assets asset
+      INNER JOIN projects project
+        ON project.id = asset.project_id AND project.tenant_id = asset.tenant_id
+      WHERE asset.tenant_id = $1 AND project.owner_user_id = $2
+      ORDER BY asset.updated_at DESC, asset.created_at DESC
+      `,
+      [principal.tenantId, principal.userId],
+    )
+    return result.rows.map(assetFromRow)
+  }
+
   async create(input: CreateProject, principal: Principal): Promise<Project> {
     if (!this.database) return this.createInStore(input, principal)
 
@@ -609,7 +674,7 @@ export class ProjectRepository {
         customPrompt: input.customPrompt ?? current.customPrompt,
         negativePrompt: input.negativePrompt ?? current.negativePrompt,
         references: input.references ?? current.references,
-        attributes: input.attributes ?? current.attributes,
+        attributes: mergeAssetAttributes(current, input.attributes),
         imageUrl: input.imageUrl === undefined ? current.imageUrl : input.imageUrl,
         status: input.status ?? current.status,
         updatedAt: new Date().toISOString(),
@@ -1655,6 +1720,43 @@ function assetInsertParams(asset: Asset): unknown[] {
     asset.createdAt,
     asset.updatedAt,
   ]
+}
+
+function prefixedAssetColumns(alias: string): string {
+  return assetColumns
+    .split(',')
+    .map((column) => `${alias}.${column.trim()}`)
+    .join(',\n')
+}
+
+export function mergeAssetAttributes(
+  current: Asset,
+  incoming: Asset['attributes'] | undefined,
+): Asset['attributes'] {
+  if (!incoming || current.attributes.type !== 'character' || incoming.type !== 'character') {
+    return incoming ?? current.attributes
+  }
+
+  const currentPortrait = current.attributes.trustedPortrait
+  const incomingPortrait = incoming.trustedPortrait
+  if (!currentPortrait) return incoming
+  if (!incomingPortrait) {
+    return {
+      ...incoming,
+      portraitSource: current.attributes.portraitSource,
+      trustedPortrait: currentPortrait,
+    }
+  }
+
+  const preserveCurrent =
+    (currentPortrait.status === 'active' && incomingPortrait.status !== 'active') ||
+    Date.parse(currentPortrait.checkedAt) > Date.parse(incomingPortrait.checkedAt)
+  if (!preserveCurrent) return incoming
+  return {
+    ...incoming,
+    portraitSource: current.attributes.portraitSource,
+    trustedPortrait: currentPortrait,
+  }
 }
 
 function shotInsertParams(shot: Shot): unknown[] {

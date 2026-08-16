@@ -102,6 +102,7 @@ export class ProjectService {
       direction,
       workspace.project.visualStyle ?? 'cinematic-cg',
     )
+    const assetEvidence = buildScriptAssetEvidence(source)
     let warnings: string[] = []
     let result: { summary: string; assets: ScriptAssetSuggestion[] }
 
@@ -112,8 +113,8 @@ export class ProjectService {
       try {
         const response = await this.textProvider.generate({
           systemPrompt: SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
-          userPrompt: `${projectContext}\n\n剧本：\n${headExcerpt(source, 30_000)}`,
-          maxOutputTokens: SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS,
+          userPrompt: `${projectContext}\n\n全剧资产证据（已覆盖开头、中段和结尾；只基于这些证据筛选核心资产）：\n${assetEvidence.text}`,
+          maxOutputTokens: scriptAssetSuggestionMaxTokens(assetEvidence.candidateCount),
           responseFormat: 'json',
           model,
           usageContext: usageContextForPrincipal(principal),
@@ -149,14 +150,19 @@ export class ProjectService {
       )
       return normalized ? [normalized] : []
     })
-    const representedKinds = new Set(normalizedAssets.map((suggestion) => suggestion.kind))
+    const representedAssets = new Set(normalizedAssets.map(assetSuggestionKey))
+    if (!normalizedAssets.length && !warnings.length) {
+      warnings = ['模型未返回可用资产，已根据全剧结构化字段补齐基础资产建议']
+    }
 
     return {
       summary: result.summary,
       assets: deduplicateAssetSuggestions(
         [
           ...normalizedAssets,
-          ...normalizedFallbackAssets.filter((suggestion) => !representedKinds.has(suggestion.kind)),
+          ...normalizedFallbackAssets.filter(
+            (suggestion) => !representedAssets.has(assetSuggestionKey(suggestion)),
+          ),
         ],
         workspace.assets,
       ).slice(0, 16),
@@ -248,16 +254,7 @@ export class ProjectService {
             model,
           )
           if (!segmentText) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', '分段剧本为空')
-          if (scriptMode === 'web-series' && !hasSufficientWebSeriesDialogue(segmentText)) {
-            segmentText = await repairWebSeriesDialogue(
-              this.textProvider!,
-              projectContext,
-              segmentText,
-              model,
-              segmentMaxOutputTokens(segmentSeconds),
-              principal,
-            )
-          }
+          segmentText = completeMissingWebSeriesDialogue(segmentText, scriptMode)
           assertWebSeriesDialogueCoverage(segmentText, scriptMode)
           const script = appendScriptSegment(draft.trim() || workspace.project.script.trim(), segmentText)
           const updated = await this.repository.update(projectId, { script }, principal)
@@ -321,17 +318,7 @@ export class ProjectService {
           })
           candidate = await ensureChineseScriptOutput(this.textProvider!, repaired, model)
         }
-        if (scriptMode === 'web-series' && !hasSufficientWebSeriesDialogue(candidate)) {
-          const repaired = await repairWebSeriesDialogue(
-            this.textProvider!,
-            projectContext,
-            candidate,
-            model,
-            webSeriesMaxOutputTokens(episodeSeconds),
-            principal,
-          )
-          candidate = structuredSource ? alignEnrichedSceneRows(source, repaired) : repaired
-        }
+        candidate = completeMissingWebSeriesDialogue(candidate, scriptMode)
         assertRequestedSceneCount(source, candidate)
         assertWebSeriesDialogueCoverage(candidate, scriptMode)
         if (enforceWebSeriesSceneBudget && countStructuredScenes(candidate) < sceneBudget.minimum) {
@@ -410,17 +397,7 @@ export class ProjectService {
         )
         const candidateWithBreaks = preserveScriptBreakMarkers(source, candidate)
         let sceneAlignedCandidate = alignEnrichedSceneRows(source, candidateWithBreaks)
-        if (scriptMode === 'web-series' && !hasSufficientWebSeriesDialogue(sceneAlignedCandidate)) {
-          const repaired = await repairWebSeriesDialogue(
-            this.textProvider!,
-            projectContext,
-            sceneAlignedCandidate,
-            model,
-            isProtectedLongScript(source) ? longScriptMaxOutputTokens(source) : SCRIPT_DETAIL_MAX_TOKENS,
-            principal,
-          )
-          sceneAlignedCandidate = alignEnrichedSceneRows(source, repaired)
-        }
+        sceneAlignedCandidate = completeMissingWebSeriesDialogue(sceneAlignedCandidate, scriptMode)
         assertWebSeriesDialogueCoverage(sceneAlignedCandidate, scriptMode)
         const preserved = isProtectedLongScript(source) && candidateIsTooShort(source, sceneAlignedCandidate)
         const enriched = preserved ? source : sceneAlignedCandidate
@@ -654,24 +631,25 @@ const SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT = `你是中文 AI 视频项目的�
 1. 只返回严格 JSON，不要 Markdown，不要代码块，不要解释。
 2. 顶层对象必须包含 summary、assets。
 3. assets 只允许包含 character、scene、prop、costume、brand 五类，不要包含 audio。
-4. 每个资产必须包含 kind、name、description、prompt、negativePrompt、reason、priority、attributes。
+4. 每个资产只需包含 kind、name、description、visualNotes、reason、priority；character 可额外返回 attributes，其他可明确判断的属性也可放入 attributes。不要返回完整生产提示词、negativePrompt、项目风格、背景、构图和固定默认属性，这些由后端统一补齐。
 5. priority 是 1 到 5 的整数，5 表示最高优先级。
 6. 角色只保留推动主线或多次出现的人物，建议 1 到 4 个；场景只保留复用率高或制作成本高的地点，建议 1 到 4 个；道具只保留重要且会多次出现或承载剧情转折的物件，建议 1 到 5 个；服装只保留角色一致性需要的核心服装，建议 1 到 4 个；广告或片尾出现的品牌、Logo、产品标识建议 1 到 2 个。
 7. 不要把一次性群众、背景摆件、普通环境装饰列成资产；不要重复已有资产。
-8. name 只能写稳定、可复用的资产实体名称，长度建议 2 到 16 个中文字符；动作、情绪、时间、天气、对白、镜头描述和完整句子只能写进 description 或 prompt，绝不能写进 name。
+8. name 只能写稳定、可复用的资产实体名称，长度建议 2 到 16 个中文字符；动作、情绪、时间、天气、对白、镜头描述和完整句子只能写进 description 或 visualNotes，绝不能写进 name。
 9. 人物 name 只能使用剧本中的明确姓名或稳定身份称呼，例如“林川”“青云宗长老”“女剑客”“老船夫”；禁止使用“先神情紧张”“低头缩肩”“随后强装镇定”“站在”“走向”“看向”“等待”“说道”等动作或状态，也不要把一次性群众写成人物资产。
-10. 场景 name 只能使用稳定地点，例如“青云宗山门广场”“边城药铺”“旧火车站三号站台”；禁止使用“清晨冷雾未散”“四周站满等待试炼的弟子”“石阶尽头立着测灵石”等时间、天气、人物活动或陈设描述。地点的空间、陈设、氛围和光线写进 description 或 prompt。
-11. prompt 必须是可直接进入资产生成的完整中文视觉描述，不能只是几个关键词。人物必须继承用户选择的项目视觉风格，并使用 1:1 面部大头照、头肩完整、正面平视、中性表情、透明 Alpha 背景和均匀平光，不出现手部、文字或饰边；动物不得出现青年、男性、女性等人类年龄和性别词。场景必须是无人空场并预留表演和运镜空间；物品必须是单个物品独立展示；服装只描述服装本身，不写脸和人体。
-12. 所有 attributes 必须严格使用下列枚举：
-character.subjectType human/animal；gender male/female/unspecified；ageGroup child/teen/young/middle/senior；ethnicity unspecified/east-asian/south-asian/southeast-asian/white/black/latino/middle-eastern/mixed/other；skinTone unspecified/fair/light/medium/tan/deep/dark；eyeColor unspecified/black/dark-brown/brown/hazel/green/blue/gray/amber；hairColor unspecified/black/dark-brown/brown/blonde/red/gray/white/other；visualStyle photorealistic/cinematic-cg/chinese-3d/chinese-2d/anime/storybook；framing portrait/half/full；bodyType slim/balanced/athletic/full；background solid/transparent/environment；faceStatus pending；bodyStatus pending；portraitSource ai-virtual；turnaroundLayout sheet/separate。
-scene.space interior/exterior；sceneType city/street/residential/commercial/nature/ancient/industrial/fantasy；era ancient/recent/modern/future；time dawn/day/sunset/night；weather clear/cloudy/rain/snow/fog；mood warm/tense/mystery/romantic/epic/desolate；camera eye-level/overhead/low-angle/aerial/wide。
-prop.category weapon/vehicle/furniture/electronics/jewelry/food/daily/other；material wood/metal/glass/fabric/leather/ceramic/mixed；condition new/used/aged/damaged；view front/side/turnaround；background solid/transparent/environment。
-costume.audience male/female/unisex；category daily/formal/professional/uniform/ancient/ceremonial/fantasy/armor；season spring-summer/autumn-winter/all-season；design minimal/luxury/retro/future/chinese；presentation flat/model/worn。
-brand.brandType logo/wordmark/combination/product-mark；usage end-card/packaging/signage/interface/general；background transparent/solid/environment；layout centered/horizontal/vertical；exactText 为必须准确显示的文字；palette 为品牌配色描述；visualStyle 使用项目统一视觉风格。
+10. 场景 name 只能使用稳定地点，例如“青云宗山门广场”“边城药铺”“旧火车站三号站台”；禁止使用“清晨冷雾未散”“四周站满等待试炼的弟子”“石阶尽头立着测灵石”等时间、天气、人物活动或陈设描述。地点的空间、陈设、氛围和光线写进 description 或 visualNotes。
+11. visualNotes 只写剧本能够证明的身份、外形、材质、颜色、年代、空间或品牌文字等关键视觉事实，保持一句到两句中文，不要重复固定生成规范。角色要区分人类和动物，动物不得使用人类年龄和性别词；服装只描述服装本身。
+12. attributes 只返回剧本能够明确判断的字段，无法判断的字段不要猜测、不要返回。允许字段及枚举：
+character.subjectType human/animal；gender male/female/unspecified；ageGroup child/teen/young/middle/senior；exactAge 数字或 null；ethnicity unspecified/east-asian/south-asian/southeast-asian/white/black/latino/middle-eastern/mixed/other；skinTone unspecified/fair/light/medium/tan/deep/dark；eyeColor unspecified/black/dark-brown/brown/hazel/green/blue/gray/amber；hairColor unspecified/black/dark-brown/brown/blonde/red/gray/white/other；species；anthropomorphic。
+scene.space interior/exterior；sceneType city/street/residential/commercial/nature/ancient/industrial/fantasy；era ancient/recent/modern/future；time dawn/day/sunset/night；weather clear/cloudy/rain/snow/fog；mood warm/tense/mystery/romantic/epic/desolate。
+prop.category weapon/vehicle/furniture/electronics/jewelry/food/daily/other；material wood/metal/glass/fabric/leather/ceramic/mixed；condition new/used/aged/damaged。
+costume.audience male/female/unisex；category daily/formal/professional/uniform/ancient/ceremonial/fantasy/armor；season spring-summer/autumn-winter/all-season；design minimal/luxury/retro/future/chinese。
+brand.brandType logo/wordmark/combination/product-mark；usage end-card/packaging/signage/interface/general；exactText 为必须准确显示的文字；palette 为品牌配色描述。
 返回示例：
-{"summary":"建议先建立主角、核心场景、关键物品和主服装，保障后续分镜一致性。","assets":[{"kind":"character","name":"女剑客","description":"贯穿主线的退隐女剑客。","prompt":"人物角色，女性，青年，退隐女剑客，古风武侠，影视 CG 风格，透明背景，Alpha 通道，人物面部大头照，头部和肩部完整入镜，正面平视，自然中性表情，均匀平光，画面比例 1:1。","negativePrompt":"不要手部、文字、水印、边框、投影、环境反射、面部畸形。","reason":"主角多次出现，需要保持身份和面部一致。","priority":5,"attributes":{"type":"character","subjectType":"human","gender":"female","ageGroup":"young","exactAge":null,"ethnicity":"unspecified","skinTone":"unspecified","eyeColor":"unspecified","hairColor":"unspecified","species":"","anthropomorphic":false,"visualStyle":"cinematic-cg","framing":"portrait","bodyType":"balanced","background":"transparent","faceStatus":"pending","bodyStatus":"pending","faceReference":null,"bodyReference":null,"portraitSource":"ai-virtual","trustedPortrait":null,"legStretch":false,"turnaround":false,"turnaroundLayout":"sheet"}}]}`
+{"summary":"优先建立主角、核心场景和关键物件。","assets":[{"kind":"character","name":"女剑客","description":"贯穿主线的退隐女剑客。","visualNotes":"青年女性，克制冷静，古风武侠身份。","reason":"主角跨场出现，需要保持身份一致。","priority":5,"attributes":{"subjectType":"human","gender":"female","ageGroup":"young"}}]}`
 
-const SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS = 6_000
+const SCRIPT_ASSET_SUGGESTIONS_MIN_TOKENS = 2_800
+const SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS = 4_000
 
 const SCENE_PRODUCTION_RULES = `每个场次是一条可以直接交给分镜师和视频模型的制作记录，不要只写镜头语言，也不要用“氛围感”“人物展开”“镜头表现”等空泛占位语。
 - 每个场次必须写清“谁想做什么→遇到什么阻力→发生什么可见变化→场尾留下什么结果或悬念”，剧情字段不能只复述故事梗概。
@@ -834,12 +812,6 @@ const WEB_SERIES_DETAIL_SYSTEM_PROMPT = `你是中文网剧漫剧的视觉导演
 6. 最后一个场次保留并强化高波动钩子，不提前揭示结果；原稿中的“【强制下一集】”必须独占一行并原样保留；不要增加拍摄设备、文字、水印或无关人物。
 7. ${SCENE_PRODUCTION_RULES}
 只输出补齐后的剧本正文。`
-
-const WEB_SERIES_DIALOGUE_REPAIR_SYSTEM_PROMPT = `你是中文网剧的对白导演和声音设计。输入是一份场次数量已经确定的网剧制作稿，请只补强对白与声音，不改变场次数量、编号、剧情因果、人物、动作、地点、物件、构图、光影、运镜和衔接。
-1. 每个场次必须有一句可听见的[对白]、[画外音]或[内心独白]；不得返回“无台词”或空白对白。
-2. 台词必须短、口语化，并改变信息、选择、关系或冲突，不能只是重复画面；[对白]注明说话者，[画外音]和[内心独白]不得要求人物对口型。
-3. 每场对白字段同时保留或补充[音效]与[环境声/音乐]，声音随动作进入并在镜尾自然收束，禁止静音。
-4. 每个原场次仍单独占一行并完整保留全部制作字段，只输出修复后的完整剧本正文。`
 
 const SCRIPT_INITIAL_EXPANSION_THRESHOLD = 1_500
 const SINGLE_REWRITE_MAX_LENGTH = 10_000
@@ -1255,6 +1227,57 @@ function hasSufficientWebSeriesDialogue(script: string): boolean {
   return spokenScenes === scenes.length
 }
 
+function completeMissingWebSeriesDialogue(script: string, mode: ScriptContentMode): string {
+  if (mode !== 'web-series' || hasSufficientWebSeriesDialogue(script)) return script
+
+  return splitScriptParagraphs(script)
+    .map((paragraph) => {
+      const fields = parseShotFields(paragraph.text)
+      if (!fields.场次 || sceneHasSpokenDialogue(fields.对白)) return paragraph.text
+
+      const plot = compactDialogueContext(fields.剧情 || fields.动作)
+      const existingSound = String(fields.对白 || '')
+        .replace(/无台词[\s，,;；。]*/gu, '')
+        .replace(/静音[\s，,;；。]*/gu, '')
+        .trim()
+      const dialogue = [
+        `[画外音]${plot || '本场的选择正在改变局面。'}`,
+        existingSound,
+        existingSound ? '' : '[音效]现场动作声；[环境声]延续当前场景环境声。',
+      ]
+        .filter(Boolean)
+        .join('；')
+      const replacement = `对白：${dialogue}`
+      const text = /(^|｜)\s*对白\s*[：:][^｜]*/u.test(paragraph.text)
+        ? paragraph.text.replace(/(^|｜)\s*对白\s*[：:][^｜]*/u, `$1${replacement}`)
+        : `${paragraph.text}｜${replacement}`
+      return [
+        paragraph.forceEpisodeBreakBefore ? FORCE_EPISODE_BREAK_MARKER : '',
+        paragraph.forceShotBreakBefore ? FORCE_SHOT_BREAK_MARKER : '',
+        text,
+      ]
+        .filter(Boolean)
+        .join('\n')
+    })
+    .join('\n')
+}
+
+function sceneHasSpokenDialogue(dialogue: string | undefined): boolean {
+  return (
+    /\[(?:对白|画外音|内心独白)\]/u.test(String(dialogue || '')) && !/无台词/u.test(String(dialogue || ''))
+  )
+}
+
+function compactDialogueContext(value: string | undefined): string {
+  const normalized = String(value || '')
+    .replace(/动作\s*\d+\s*[：:]/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  if (!normalized) return ''
+  const sentence = normalized.split(/(?<=[。！？!?])/u)[0] || normalized
+  return sentence.length <= 52 ? sentence : `${sentence.slice(0, 52)}。`
+}
+
 function assertWebSeriesDialogueCoverage(script: string, mode: ScriptContentMode): void {
   if (mode !== 'web-series' || hasSufficientWebSeriesDialogue(script)) return
   throw new AppError(
@@ -1262,28 +1285,6 @@ function assertWebSeriesDialogueCoverage(script: string, mode: ScriptContentMode
     'PROVIDER_RESPONSE_INVALID',
     '网剧对白生成不完整：每个场次都需要可听见的对白、画外音或内心独白；原剧本未被覆盖，请重试或切换模型',
   )
-}
-
-async function repairWebSeriesDialogue(
-  provider: TextGenerationProvider,
-  projectContext: string,
-  script: string,
-  model: ScriptModel,
-  maxOutputTokens: number,
-  principal: Principal,
-): Promise<string> {
-  const repaired = await ensureChineseScriptOutput(
-    provider,
-    await provider.generate({
-      systemPrompt: withChineseScriptRules(WEB_SERIES_DIALOGUE_REPAIR_SYSTEM_PROMPT),
-      userPrompt: `${projectContext}\n\n以下网剧的场次数量和剧情已经确定，但可听台词不足。请保持场次与全部制作信息不变，只补强对白与声音后完整返回：\n${script}`,
-      maxOutputTokens,
-      model,
-      usageContext: usageContextForPrincipal(principal),
-    }),
-    model,
-  )
-  return alignEnrichedSceneRows(script, repaired)
 }
 
 function hasUnexpectedEnglish(script: string): boolean {
@@ -3300,6 +3301,9 @@ function normalizeProviderAssetSuggestion(value: unknown): Record<string, unknow
     ),
     prompt: textValue(
       source.prompt ??
+        source.visualNotes ??
+        source.visual_notes ??
+        source['视觉要点'] ??
         source.visualPrompt ??
         source.generationPrompt ??
         source.visual_prompt ??
@@ -3318,6 +3322,134 @@ function normalizeProviderAssetSuggestion(value: unknown): Record<string, unknow
     priority: normalizePriority(source.priority ?? source.importance ?? source['优先级']),
     attributes: normalizeScriptAssetAttributes(kind, read),
   }
+}
+
+function scriptAssetSuggestionMaxTokens(candidateCount: number): number {
+  const expectedAssetCount = Math.min(16, Math.max(8, candidateCount))
+  return Math.min(
+    SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS,
+    Math.max(SCRIPT_ASSET_SUGGESTIONS_MIN_TOKENS, 2_200 + expectedAssetCount * 110),
+  )
+}
+
+function buildScriptAssetEvidence(script: string): { text: string; candidateCount: number } {
+  const names = extractScriptAssetEvidenceNameIndex(script)
+  const labels: Record<ScriptAssetKind, string> = {
+    character: '人物',
+    scene: '场景',
+    prop: '物品',
+    costume: '服装',
+    brand: '品牌',
+  }
+  const indexLines = (Object.entries(names) as [ScriptAssetKind, string[]][])
+    .filter(([, values]) => values.length)
+    .map(([kind, values]) => `${labels[kind]}候选：${values.join('、')}`)
+
+  const rankedNames = (Object.entries(names) as [ScriptAssetKind, string[]][])
+    .flatMap(([kind, values]) =>
+      values.map((name, index) => ({
+        kind,
+        name,
+        index,
+        occurrences: countTextOccurrences(script, name),
+      })),
+    )
+    .sort((left, right) => right.occurrences - left.occurrences || left.index - right.index)
+    .slice(0, 16)
+  const detailLines = rankedNames.flatMap(({ kind, name }) => {
+    const evidence = assetEvidenceSnippets(name, script)
+    return evidence ? [`${labels[kind]}「${name}」证据：${evidence}`] : []
+  })
+  const sceneSamples = distributedScriptParagraphs(script, 6, 340)
+  const candidateCount = new Set(rankedNames.map(({ kind, name }) => `${kind}:${name}`)).size
+
+  return {
+    text: [
+      indexLines.length ? `全剧结构化字段索引：\n${indexLines.join('\n')}` : '',
+      detailLines.length ? `核心候选上下文：\n${detailLines.join('\n')}` : '',
+      sceneSamples.length ? `分布式场次采样：\n${sceneSamples.join('\n')}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    candidateCount,
+  }
+}
+
+function extractScriptAssetEvidenceNameIndex(script: string): ScriptAssetNameIndex {
+  return {
+    character: extractAssetNames(script, ['角色', '人物', '主角'], [], 24, 'character'),
+    scene: extractAssetNames(script, ['场景', '地点'], [], 24, 'scene'),
+    prop: extractAssetNames(script, ['关键物件', '关键道具', '物件', '道具'], [], 32, 'prop'),
+    costume: extractAssetNames(script, ['服装', '衣装', '外观'], [], 20, 'costume'),
+    brand: extractAssetNames(script, ['品牌', '品牌标识', 'Logo', 'logo'], [], 12, 'brand'),
+  }
+}
+
+function countTextOccurrences(text: string, search: string): number {
+  if (!search) return 0
+  let count = 0
+  let from = 0
+  while (from < text.length) {
+    const index = text.indexOf(search, from)
+    if (index < 0) break
+    count += 1
+    from = index + search.length
+  }
+  return count
+}
+
+function assetEvidenceSnippets(name: string, script: string): string {
+  if (!name || !script) return ''
+  const snippets: string[] = []
+  let from = 0
+  while (from < script.length && snippets.length < 6) {
+    const index = script.indexOf(name, from)
+    if (index < 0) break
+    const start = Math.max(0, index - 100)
+    const end = Math.min(script.length, index + name.length + 150)
+    const snippet = script
+      .slice(start, end)
+      .replace(/\s+/gu, ' ')
+      .replace(/^.*?(?=(?:场次|剧情|场景|角色|人物|主角|关键物件|道具|服装|品牌)\s*[：:])/u, '')
+      .trim()
+    const compactSnippet = headExcerpt(snippet, 170)
+    if (compactSnippet && !snippets.includes(compactSnippet)) snippets.push(compactSnippet)
+    from = index + name.length
+  }
+  if (snippets.length <= 2) return snippets.join('；')
+  return [snippets[0], snippets.at(-1)].filter(Boolean).join('；')
+}
+
+function distributedScriptParagraphs(script: string, limit: number, paragraphLimit: number): string[] {
+  const paragraphs = splitScriptParagraphs(script)
+    .map(({ text }) => text.trim())
+    .filter(Boolean)
+  if (paragraphs.length <= 1 && script.length > paragraphLimit) {
+    return distributedTextExcerpts(script, limit, paragraphLimit)
+  }
+  if (!paragraphs.length) return []
+  if (paragraphs.length <= limit) return paragraphs.map((paragraph) => headExcerpt(paragraph, paragraphLimit))
+
+  const indexes = new Set<number>()
+  for (let index = 0; index < limit; index += 1) {
+    indexes.add(Math.round((index * (paragraphs.length - 1)) / (limit - 1)))
+  }
+  return [...indexes].map((index) => headExcerpt(paragraphs[index] || '', paragraphLimit)).filter(Boolean)
+}
+
+function distributedTextExcerpts(text: string, limit: number, excerptLimit: number): string[] {
+  const normalized = text.replace(/\s+/gu, ' ').trim()
+  if (!normalized) return []
+  if (normalized.length <= excerptLimit) return [normalized]
+
+  const maxStart = Math.max(0, normalized.length - excerptLimit)
+  const excerpts: string[] = []
+  for (let index = 0; index < limit; index += 1) {
+    const start = Math.round((index * maxStart) / Math.max(1, limit - 1))
+    const excerpt = normalized.slice(start, start + excerptLimit).trim()
+    if (excerpt && !excerpts.includes(excerpt)) excerpts.push(excerpt)
+  }
+  return excerpts
 }
 
 function hasAssetCategory(value: Record<string, unknown>): boolean {
@@ -3346,7 +3478,7 @@ function normalizeScriptAssetKind(value: unknown): ScriptAssetKind | null {
   const normalized = value
     .trim()
     .toLowerCase()
-    .replace(/[\s_\/-]+/g, '')
+    .replace(/[\s_/-]+/g, '')
   if (
     [
       'character',

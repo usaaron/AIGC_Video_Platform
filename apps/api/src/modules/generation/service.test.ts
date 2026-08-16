@@ -43,6 +43,37 @@ describe('GenerationService task creation', () => {
     expect(dispatcher.dispatch).toHaveBeenCalledWith(task, { traceId: 'trace-service-create' })
   })
 
+  it('reuses an active trusted portrait task without charging or dispatching another task', async () => {
+    const input: CreateGenerationTask = {
+      clientRequestId: 'trusted-portrait-duplicate',
+      projectId: 'project-midnight-film',
+      kind: 'text',
+      label: 'Character - create trusted portrait',
+      provider: 'asset-library',
+      estimatedCredits: 1,
+      metadata: {
+        assetId: 'character-1',
+        generationStage: 'trusted-portrait',
+        trustedAssetOperation: 'register-virtual',
+      },
+    }
+    const active = generationTask({ ...input, clientRequestId: 'trusted-portrait-active' })
+    active.id = 'trusted-portrait-active-task'
+    active.status = 'running'
+    const repository = {
+      canCreate: vi.fn(() => true),
+      listByProject: vi.fn(async () => [active]),
+      createWithCharge: vi.fn(),
+    } as unknown as GenerationTaskRepository
+    const dispatcher = { dispatch: vi.fn() } as unknown as TaskDispatcher
+    const service = new GenerationService(repository, dispatcher)
+
+    await expect(service.createTask(input, principal)).resolves.toBe(active)
+    expect(repository.listByProject).toHaveBeenCalledWith(input.projectId, principal)
+    expect(repository.createWithCharge).not.toHaveBeenCalled()
+    expect(dispatcher.dispatch).not.toHaveBeenCalled()
+  })
+
   it('captures the current storyboard prompt instead of trusting a stale client prompt', async () => {
     const input: CreateGenerationTask = {
       clientRequestId: 'snapshot-current-shot',

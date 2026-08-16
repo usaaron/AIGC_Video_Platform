@@ -39,7 +39,7 @@ describe('runtime providers', () => {
     const config = loadConfig({
       NODE_ENV: 'test',
       TOKENADVENT_API_KEY: 'test-tokenadvent-key',
-      TEXT_MODEL: 'gpt-5.6',
+      REHDASU_API_KEY: 'test-rehdasu-key',
     })
     const provider = createTextProvider(config)
 
@@ -74,5 +74,63 @@ describe('runtime providers', () => {
     expect(textProviderName(config)).toBe('deepseek-v4-flash')
     expect(capturedUrl).toBe('https://openrouter.icu/v1/chat/completions')
     expect(JSON.parse(capturedBody).model).toBe('deepseek-v4-flash')
+  })
+
+  it('falls back to GLM 5.2 when the DeepSeek V4 relay is unavailable', async () => {
+    const requests: Array<{ url: string; model: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as { model: string }
+        requests.push({ url: String(input), model: body.model })
+        if (String(input).includes('openrouter.icu')) {
+          return new Response('Bad gateway', { status: 502 })
+        }
+        return Response.json({ choices: [{ message: { content: 'GLM 回退可用' } }] })
+      }),
+    )
+
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      DEEPSEEK_V4_API_KEY: 'test-deepseek-v4-key',
+      REHDASU_API_KEY: 'test-rehdasu-key',
+      TEXT_MODEL: 'deepseek-v4-flash',
+    })
+    const provider = createTextProvider(config)
+
+    await expect(
+      provider?.generate({ systemPrompt: '测试', userPrompt: '回复可用', model: 'deepseek-v4-flash' }),
+    ).resolves.toBe('GLM 回退可用')
+    expect(requests.filter((request) => request.url.includes('openrouter.icu'))).toHaveLength(1)
+    expect(requests.at(-1)).toMatchObject({ model: 'glm-5.2' })
+  })
+
+  it('falls back without retrying a timed out DeepSeek V4 request', async () => {
+    const requests: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        requests.push(String(input))
+        if (String(input).includes('openrouter.icu')) {
+          const timeout = new Error('The operation was aborted due to timeout')
+          timeout.name = 'TimeoutError'
+          throw timeout
+        }
+        return Response.json({ choices: [{ message: { content: 'GLM timeout fallback' } }] })
+      }),
+    )
+
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      DEEPSEEK_V4_API_KEY: 'test-deepseek-v4-key',
+      REHDASU_API_KEY: 'test-rehdasu-key',
+    })
+    const provider = createTextProvider(config)
+
+    await expect(
+      provider?.generate({ systemPrompt: 'test', userPrompt: 'reply', model: 'deepseek-v4-flash' }),
+    ).resolves.toBe('GLM timeout fallback')
+    expect(requests.filter((url) => url.includes('openrouter.icu'))).toHaveLength(1)
+    expect(requests.at(-1)).toContain('tokenadvent.com')
   })
 })

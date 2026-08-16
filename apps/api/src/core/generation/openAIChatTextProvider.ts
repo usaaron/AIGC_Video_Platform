@@ -18,6 +18,7 @@ export type OpenAIChatTextOptions = {
   providerName?: string
   completionsPath?: string
   maxTokensMode?: 'both' | 'max_tokens' | 'max_completion_tokens'
+  maxAttempts?: 1 | 2
   fetcher?: typeof fetch
 }
 
@@ -34,12 +35,13 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
 
   async generate(request: TextGenerationRequest): Promise<string> {
     let lastError: unknown
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    const maxAttempts = this.options.maxAttempts ?? 2
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
         return await this.generateOnce(request, attempt === 0)
       } catch (error) {
         lastError = error
-        if (attempt > 0 || !isRetryable(error)) break
+        if (attempt >= maxAttempts - 1 || !isRetryable(error)) break
         await new Promise((resolve) => setTimeout(resolve, 300))
       }
     }

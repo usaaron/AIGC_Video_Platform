@@ -590,8 +590,8 @@ function TrustedPortraitPanel({
             disabled={
               (!assetId && !onEnsureAsset) ||
               attributes.faceStatus !== 'approved' ||
-              (portrait?.status !== 'failed' && Boolean(portrait) && !registrationTaskFailed) ||
-              (portrait?.status === 'processing' && !registrationTaskFailed) ||
+              portrait?.status === 'processing' ||
+              portrait?.status === 'active' ||
               registrationTaskActive ||
               busyAction !== null
             }
@@ -686,6 +686,17 @@ function TrustedPortraitPanel({
               const items = await onListTrustedPortraits(libraryGroupType)
               setLibraryPortraits(items)
               setLibraryLoaded(true)
+              const currentIsActive = items.some(
+                (item) => item.assetId === portrait?.assetId && item.status === 'active',
+              )
+              if (
+                assetId &&
+                portrait?.status === 'processing' &&
+                currentIsActive &&
+                onRefreshTrustedPortrait
+              ) {
+                return onRefreshTrustedPortrait(assetId)
+              }
               return null
             })
           }

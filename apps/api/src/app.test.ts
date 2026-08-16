@@ -1155,20 +1155,188 @@ describe('API authorization', () => {
       generatedAt: expect.any(String),
       warnings: [],
     })
-    expect(response.json().assets.map((asset: { kind: string }) => asset.kind)).toEqual([
-      'character',
-      'prop',
-      'scene',
-      'costume',
-    ])
+    expect(response.json().assets.map((asset: { kind: string }) => asset.kind)).toEqual(
+      expect.arrayContaining(['character', 'prop', 'scene', 'costume']),
+    )
+    expect(
+      response
+        .json()
+        .assets.some(
+          (asset: { kind: string; name: string }) => asset.kind === 'character' && asset.name === '药师',
+        ),
+    ).toBe(true)
     expect(after.json().assets).toHaveLength(before.json().assets.length)
     expect(after.json().project.script).toBe(before.json().project.script)
     expect(generate).toHaveBeenCalledOnce()
     expect(generate.mock.calls[0][0]).toMatchObject({
       systemPrompt: expect.stringContaining('资产制片'),
       userPrompt: expect.stringContaining('已有资产'),
-      maxOutputTokens: 6_000,
+      maxOutputTokens: 3_080,
     })
+    expect(generate.mock.calls[0][0].systemPrompt).toContain('不要返回完整生产提示词')
+    expect(generate.mock.calls[0][0].userPrompt).toContain('全剧结构化字段索引')
+    expect(generate.mock.calls[0][0].userPrompt).toContain('服装候选：女剑客雪夜衣装')
+  })
+
+  it('keeps late-scene asset evidence while compacting a long script suggestion request', async () => {
+    const generate = vi.fn(async () =>
+      JSON.stringify({
+        summary: '优先建立贯穿全剧和结尾揭晓所需的核心资产。',
+        assets: [
+          {
+            kind: 'prop',
+            name: '星图密钥',
+            description: '结尾揭晓真相所需的关键物件。',
+            visualNotes: '黑色金属圆盘，表面有星轨刻线和蓝色微光。',
+            reason: '承担结尾转折，后续镜头必须保持外观一致。',
+            priority: 5,
+          },
+        ],
+      }),
+    )
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const middleScenes = Array.from(
+      { length: 40 },
+      (_, index) =>
+        `场次：${index + 2}｜剧情：调查继续推进，线索发生第${index + 1}次变化。｜场景：调查室｜角色：林川｜动作：林川核对记录并标记疑点。｜对白：[内心独白]林川：还缺最后一块证据。`,
+    )
+    const script = [
+      '场次：1｜剧情：林川开始调查。｜场景：档案馆｜角色：林川｜动作：林川打开旧档案。',
+      ...middleScenes,
+      '场次：42｜剧情：真相在天台揭晓。｜场景：观星台｜角色：林川｜关键物件：星图密钥｜动作：林川举起黑色金属圆盘，蓝色星轨亮起。',
+    ].join('\n')
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers,
+      payload: {
+        script,
+        direction: {
+          style: 'cinematic-cg',
+          composition: 'rule-of-thirds',
+          lighting: 'low-key',
+          camera: 'restrained',
+          focus: 'character',
+        },
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'prop',
+          name: '星图密钥',
+          prompt: expect.stringContaining('蓝色微光'),
+        }),
+      ]),
+    )
+    expect(generate).toHaveBeenCalledOnce()
+    expect(generate.mock.calls[0][0].userPrompt).toContain('星图密钥')
+    expect(generate.mock.calls[0][0].userPrompt.length).toBeLessThan(script.length)
+    expect(generate.mock.calls[0][0].maxOutputTokens).toBeLessThanOrEqual(4_000)
+  })
+
+  it('samples the ending of an unstructured long script for asset suggestions', async () => {
+    const generate = vi.fn(async () =>
+      JSON.stringify({
+        summary: '已覆盖全文筛选核心资产。',
+        assets: [
+          {
+            kind: 'brand',
+            name: '启明计划',
+            description: '结尾出现的公益计划品牌。',
+            visualNotes: '准确文字“启明计划”，蓝绿色组合标识。',
+            reason: '片尾需要准确复用品牌标识。',
+            priority: 5,
+            attributes: { exactText: '启明计划' },
+          },
+        ],
+      }),
+    )
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const script = `林川开始调查。${'调查经过反复推进，人物关系逐渐变化。'.repeat(500)}片尾出现启明计划品牌标识。`
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers: {
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        script,
+        direction: {
+          style: 'cinematic-cg',
+          composition: 'rule-of-thirds',
+          lighting: 'low-key',
+          camera: 'restrained',
+          focus: 'character',
+        },
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(generate.mock.calls[0][0].userPrompt).toContain('启明计划品牌标识')
+    expect(generate.mock.calls[0][0].userPrompt.length).toBeLessThan(script.length)
+  })
+
+  it('fills all structured asset categories when the compact provider result is empty', async () => {
+    const generate = vi.fn(async () => JSON.stringify({ summary: '未识别出核心资产。', assets: [] }))
+    app = await buildApp({
+      config: testConfig,
+      textProvider: { generate },
+      startWorker: false,
+    })
+    const rows = Array.from({ length: 42 }, (_, index) => {
+      const scene = index < 14 ? '旧城档案馆' : index < 28 ? '地下交通站' : '天台观星台'
+      const prop = index === 41 ? '星图密钥' : index % 5 === 0 ? '旧档案盒' : '加密记录本'
+      return `场次：S${String(index + 1).padStart(2, '0')}｜剧情：林川与苏遥继续调查。｜场景：${scene}，夜晚｜角色：林川、苏遥｜关键物件：${prop}｜服装：林川深色调查员外套、苏遥浅灰研究员制服｜动作：林川核对记录，苏遥移动关键物件。`
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/asset-suggestions',
+      headers: {
+        'x-demo-role': 'member',
+        'x-demo-user-id': 'user-member',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+      payload: {
+        script: rows.join('\n'),
+        direction: {
+          style: 'cinematic-cg',
+          composition: 'rule-of-thirds',
+          lighting: 'low-key',
+          camera: 'restrained',
+          focus: 'character',
+        },
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().warnings).toEqual([expect.stringContaining('模型未返回可用资产')])
+    expect(response.json().assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'character', name: '林川' }),
+        expect.objectContaining({ kind: 'scene', name: '天台观星台' }),
+        expect.objectContaining({ kind: 'prop', name: '星图密钥' }),
+        expect.objectContaining({ kind: 'costume', name: '苏遥浅灰研究员制服' }),
+      ]),
+    )
   })
 
   it('normalizes usable script asset JSON instead of falling back when optional provider fields are missing', async () => {

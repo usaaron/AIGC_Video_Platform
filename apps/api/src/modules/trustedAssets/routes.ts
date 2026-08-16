@@ -77,6 +77,15 @@ export async function registerTrustedAssetRoutes(
       return service.refresh(params.projectId, params.assetId, request.principal!)
     },
   )
+
+  app.post(
+    '/projects/:projectId/trusted-portraits/refresh-processing',
+    { preHandler: requirePermission(PERMISSIONS.ASSET_WRITE) },
+    async (request) => {
+      const params = parse(z.object({ projectId: z.string().min(1).max(128) }), request.params)
+      return service.refreshProcessing(params.projectId, request.principal!)
+    },
+  )
 }
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {

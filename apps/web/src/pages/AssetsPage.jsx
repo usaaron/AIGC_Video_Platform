@@ -62,8 +62,21 @@ export function AssetsPage({
   useEffect(() => {
     if (!editing?.id) return
     const updated = assets.find((asset) => asset.id === editing.id)
-    if (updated && updated.updatedAt !== editing.updatedAt) setEditing(updated)
-  }, [assets, editing?.id, editing?.updatedAt])
+    const currentPortrait = editing.attributes?.trustedPortrait
+    const updatedPortrait = updated?.attributes?.trustedPortrait
+    const portraitChanged =
+      currentPortrait?.assetId !== updatedPortrait?.assetId ||
+      currentPortrait?.status !== updatedPortrait?.status ||
+      currentPortrait?.checkedAt !== updatedPortrait?.checkedAt
+    if (updated && (updated.updatedAt !== editing.updatedAt || portraitChanged)) setEditing(updated)
+  }, [
+    assets,
+    editing?.id,
+    editing?.updatedAt,
+    editing?.attributes?.trustedPortrait?.assetId,
+    editing?.attributes?.trustedPortrait?.status,
+    editing?.attributes?.trustedPortrait?.checkedAt,
+  ])
 
   return (
     <div className="page assets-page">

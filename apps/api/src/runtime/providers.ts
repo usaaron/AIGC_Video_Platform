@@ -102,7 +102,8 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
         apiKey: config.DEEPSEEK_V4_API_KEY,
         model: config.DEEPSEEK_V4_MODEL,
         completionsPath: config.DEEPSEEK_V4_CHAT_COMPLETIONS_PATH,
-        requestTimeoutMs: config.DEEPSEEK_V4_REQUEST_TIMEOUT_MS,
+        requestTimeoutMs: Math.min(config.DEEPSEEK_V4_REQUEST_TIMEOUT_MS, 15_000),
+        maxAttempts: 1,
         providerLabel: 'DeepSeek V4 Flash',
         providerName: 'deepseek-v4-flash',
       })
@@ -155,24 +156,29 @@ class RoutedTextProvider implements TextGenerationProvider {
     private readonly rehdasuProvider: TextGenerationProvider | null,
   ) {}
 
-  generate(request: TextGenerationRequest): Promise<string> {
+  async generate(request: TextGenerationRequest): Promise<string> {
     const requestedModel = (request.model || this.defaultModel).trim()
     if (isDeepSeekV4Model(requestedModel)) {
-      if (!this.deepSeekV4Provider) throw modelNotConfigured(requestedModel)
-      return observeProviderCall(
-        { provider: 'deepseek-v4-flash', operation: 'text.generate', ...request.usageContext },
-        () =>
-          this.deepSeekV4Provider!.generate({
-            ...request,
-            model: this.deepSeekV4Model,
-          }),
-      )
+      if (!this.deepSeekV4Provider) return this.generateWithDeepSeekV4Fallback(request, requestedModel)
+      try {
+        return await observeProviderCall(
+          { provider: 'deepseek-v4-flash', operation: 'text.generate', ...request.usageContext },
+          () =>
+            this.deepSeekV4Provider!.generate({
+              ...request,
+              model: this.deepSeekV4Model,
+            }),
+        )
+      } catch (error) {
+        if (!isProviderAvailabilityError(error)) throw error
+        return this.generateWithDeepSeekV4Fallback(request, requestedModel, error)
+      }
     }
     if (isGptModel(requestedModel)) {
       if (!this.gptProvider) throw modelNotConfigured(requestedModel)
       return observeProviderCall(
         { provider: 'tokenadvent-gpt', operation: 'text.generate', ...request.usageContext },
-        () => this.gptProvider!.generate({ ...request, model: requestedModel }),
+        () => this.gptProvider!.generate({ ...request, model: resolveGptModel(requestedModel) }),
       )
     }
     if (isDeepSeekModel(requestedModel)) {
@@ -199,11 +205,30 @@ class RoutedTextProvider implements TextGenerationProvider {
     }
     throw new TextGenerationProviderError(`文本模型 ${requestedModel} 尚未接入`)
   }
+
+  private generateWithDeepSeekV4Fallback(
+    request: TextGenerationRequest,
+    requestedModel: string,
+    originalError?: unknown,
+  ): Promise<string> {
+    if (!this.rehdasuProvider) {
+      if (originalError) throw originalError
+      throw modelNotConfigured(requestedModel)
+    }
+    return observeProviderCall(
+      { provider: 'rehdasu', operation: 'text.generate.fallback', ...request.usageContext },
+      () => this.rehdasuProvider!.generate({ ...request, model: this.rehdasuModel }),
+    )
+  }
 }
 
 function isGptModel(model: string): boolean {
   const normalized = model.trim().toLowerCase()
   return normalized === 'seqora-5.6' || normalized.startsWith('gpt-')
+}
+
+function resolveGptModel(model: string): string {
+  return model.trim().toLowerCase() === 'seqora-5.6' ? 'gpt-5.6' : model
 }
 
 function isDeepSeekModel(model: string): boolean {
@@ -228,6 +253,19 @@ function isRehdasuPublicAlias(model: string): boolean {
 
 function modelNotConfigured(model: string): TextGenerationProviderError {
   return new TextGenerationProviderError(`文本模型 ${model} 的 Provider 尚未配置`)
+}
+
+function isProviderAvailabilityError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const messages: string[] = []
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    messages.push(`${current.name} ${current.message}`)
+    current = current.cause
+  }
+  return /\((?:408|425|429|5\d\d)\)|bad gateway|timeout|timed out|fetch failed|network|连接中断|等待超时|格式异常/i.test(
+    messages.join(' '),
+  )
 }
 
 export function createAssetLibraryProvider(config: AppConfig): AssetLibraryProvider | null {

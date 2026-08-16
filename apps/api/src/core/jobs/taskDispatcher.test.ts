@@ -290,6 +290,123 @@ describe('GenerationTaskRunner Seedance integration', () => {
     )
   })
 
+  it('keeps the worker alive when a lease heartbeat temporarily cannot acquire the mutation lock', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const task = imageTask('heartbeat-lock-image', 'heartbeat-lock-asset')
+    await store.mutate((state) => state.tasks.unshift(task))
+    let releaseGeneration: (() => void) | null = null
+    let blockMutationLock = false
+    const imageProvider: ImageGenerationProvider = {
+      generate: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            releaseGeneration = () =>
+              resolve([{ view: 'single', contentType: 'image/png', content: Buffer.from('generated-image') }])
+          }),
+      ),
+    }
+    const taskRunnerLock: TaskRunnerLock = {
+      runExclusive: vi.fn(async (operation) => {
+        if (blockMutationLock) return false
+        await operation()
+        return true
+      }),
+    }
+    const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {})
+    const runner = new GenerationTaskRunner(store, {
+      imageProvider,
+      objectStorage: memoryObjectStorage(),
+      leaseTtlMs: 3_000,
+      taskMutationLockTimeoutMs: 20,
+      taskRunnerLock,
+    })
+
+    await runner.tick()
+    await vi.waitFor(() => expect(imageProvider.generate).toHaveBeenCalledOnce())
+    blockMutationLock = true
+    await vi.waitFor(
+      () =>
+        expect(warning).toHaveBeenCalledWith(
+          expect.stringContaining(`lease heartbeat failed for ${task.id}`),
+          expect.objectContaining({ code: 'SEQORA_GENERATION_TASK_BACKGROUND_FAILURE' }),
+        ),
+      { timeout: 1_500 },
+    )
+
+    blockMutationLock = false
+    releaseGeneration!()
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((item) => item.id === task.id)?.status)).toBe(
+        'completed',
+      ),
+    )
+    await runner.tick()
+
+    expect(imageProvider.generate).toHaveBeenCalledOnce()
+    expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+      status: 'completed',
+      progress: 100,
+      leaseOwnerId: null,
+      leaseToken: null,
+    })
+    warning.mockRestore()
+  })
+
+  it('keeps accepting work when the final remote-task refresh cannot acquire the mutation lock', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const firstTask = imageTask('final-refresh-image-1', 'final-refresh-asset-1')
+    await store.mutate((state) => state.tasks.unshift(firstTask))
+    let blockMutationLock = false
+    let failCompletedTaskRefresh = true
+    const imageProvider: ImageGenerationProvider = {
+      generate: vi.fn(async () => [
+        { view: 'single', contentType: 'image/png', content: Buffer.from('generated-image') },
+      ]),
+    }
+    const taskRunnerLock: TaskRunnerLock = {
+      runExclusive: vi.fn(async (operation) => {
+        const firstCompleted = store.read(
+          (state) => state.tasks.find((item) => item.id === firstTask.id)?.status === 'completed',
+        )
+        if (blockMutationLock || (failCompletedTaskRefresh && firstCompleted)) return false
+        await operation()
+        return true
+      }),
+    }
+    const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {})
+    const runner = new GenerationTaskRunner(store, {
+      imageProvider,
+      objectStorage: memoryObjectStorage(),
+      taskMutationLockTimeoutMs: 20,
+      taskRunnerLock,
+    })
+
+    await runner.tick()
+    await vi.waitFor(() =>
+      expect(warning).toHaveBeenCalledWith(
+        expect.stringContaining(`final state refresh failed for ${firstTask.id}`),
+        expect.objectContaining({ code: 'SEQORA_GENERATION_TASK_BACKGROUND_FAILURE' }),
+      ),
+    )
+    expect(store.read((state) => state.tasks.find((item) => item.id === firstTask.id)?.status)).toBe(
+      'completed',
+    )
+
+    blockMutationLock = false
+    failCompletedTaskRefresh = false
+    const secondTask = imageTask('final-refresh-image-2', 'final-refresh-asset-2')
+    await store.mutate((state) => state.tasks.unshift(secondTask))
+    await runner.tick()
+    await vi.waitFor(() => expect(imageProvider.generate).toHaveBeenCalledTimes(2))
+
+    expect(store.read((state) => state.tasks.find((item) => item.id === secondTask.id)?.status)).toBe(
+      'completed',
+    )
+    warning.mockRestore()
+  })
+
   it('passes a stable idempotency key to Img2 provider submissions', async () => {
     const store = new AppStore(null)
     await store.initialize()

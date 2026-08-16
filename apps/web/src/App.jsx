@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, LoaderCircle, LogOut, RefreshCw, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
@@ -210,6 +210,71 @@ function App() {
       (workspace?.assets || []).filter((asset) => asset.kind === 'character').slice(0, 24),
     )
   }, [workspace?.assets])
+
+  const processingTrustedPortraitKey = useMemo(
+    () =>
+      (workspace?.assets || [])
+        .filter(
+          (asset) =>
+            asset.attributes?.type === 'character' &&
+            asset.attributes.trustedPortrait?.status === 'processing',
+        )
+        .map((asset) => `${asset.id}:${asset.attributes.trustedPortrait.assetId}`)
+        .sort()
+        .join('|'),
+    [workspace?.assets],
+  )
+
+  useEffect(() => {
+    const projectId = workspace?.project.id
+    if (!projectId || !processingTrustedPortraitKey) return undefined
+    let cancelled = false
+    let requestInFlight = false
+    let timer = null
+
+    const schedule = (delay) => {
+      if (cancelled) return
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => void synchronize(), delay)
+    }
+    const synchronize = async () => {
+      if (cancelled || requestInFlight) return
+      requestInFlight = true
+      try {
+        const updatedAssets = await api.refreshProcessingTrustedPortraits(projectId)
+        if (cancelled) return
+        const byId = new Map(updatedAssets.map((asset) => [asset.id, asset]))
+        setWorkspace((current) =>
+          current?.project.id === projectId
+            ? {
+                ...current,
+                assets: current.assets.map((asset) => byId.get(asset.id) || asset),
+              }
+            : current,
+        )
+      } catch {
+        // The per-character refresh button remains available if an upstream status check is transiently unavailable.
+      } finally {
+        requestInFlight = false
+        schedule(document.hidden ? BACKGROUND_TASK_POLL_MS : 8_000)
+      }
+    }
+    const handleVisibilityChange = () => {
+      window.clearTimeout(timer)
+      if (document.hidden) schedule(BACKGROUND_TASK_POLL_MS)
+      else void synchronize()
+    }
+
+    void synchronize()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', synchronize)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', synchronize)
+    }
+  }, [processingTrustedPortraitKey, workspace?.project.id])
 
   useEffect(() => {
     warmVideoPlaybackCache(tasks)

@@ -97,6 +97,51 @@ describe('GenerationTaskRepository charged creation', () => {
     })
   })
 
+  it('does not replace a newer runtime composition lease with a stale database snapshot', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const stale = generationTask({
+      id: 'stale-database-film-preview',
+      provider: 'local-compose',
+      status: 'running',
+      progress: 50,
+      leaseOwnerId: 'composer-before-heartbeat',
+      leaseToken: 'stale-token',
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      updatedAt: new Date(Date.now() - 60_000).toISOString(),
+      metadata: { generationStage: 'film-preview', compositionStage: 'composing' },
+    })
+    const current = {
+      ...stale,
+      progress: 92,
+      leaseOwnerId: 'active-composer',
+      leaseToken: 'current-token',
+      leaseHeartbeatAt: new Date().toISOString(),
+      leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(),
+      updatedAt: new Date().toISOString(),
+      metadata: { generationStage: 'film-preview', compositionStage: 'uploading' },
+    }
+    await store.mutate((state) => state.tasks.unshift(current))
+    const database = {
+      query: async (sql: string) => {
+        if (sql.includes('UPDATE generation_tasks')) return { rows: [] }
+        if (sql.includes('SELECT')) return { rows: [generationTaskRow(stale)] }
+        throw new Error(`Unexpected query: ${sql}`)
+      },
+    } as unknown as AccountDatabase
+    const repository = new GenerationTaskRepository(store, null, database)
+
+    const tasks = await repository.listByProject('project-midnight-film', memberPrincipal)
+
+    expect(tasks[0]).toMatchObject({ progress: 50, leaseToken: 'stale-token' })
+    expect(store.read((state) => state.tasks.find((task) => task.id === current.id))).toMatchObject({
+      progress: 92,
+      leaseOwnerId: 'active-composer',
+      leaseToken: 'current-token',
+      metadata: { compositionStage: 'uploading' },
+    })
+  })
+
   it('reads the canonical storyboard prompt from postgres instead of the runtime cache', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -361,6 +406,39 @@ function generationTask(overrides: Partial<GenerationTask> = {}): GenerationTask
     createdAt: now,
     updatedAt: now,
     ...overrides,
+  }
+}
+
+function generationTaskRow(task: GenerationTask) {
+  return {
+    id: task.id,
+    client_request_id: task.clientRequestId,
+    project_id: task.projectId,
+    tenant_id: task.tenantId,
+    user_id: task.userId,
+    kind: task.kind,
+    label: task.label,
+    prompt: task.prompt,
+    negative_prompt: task.negativePrompt,
+    provider: task.provider,
+    model: task.model,
+    tier: task.tier ?? null,
+    metadata: task.metadata,
+    status: task.status,
+    progress: task.progress,
+    estimated_credits: task.estimatedCredits,
+    attempts: task.attempts ?? 0,
+    max_attempts: task.maxAttempts ?? 3,
+    lease_owner_id: task.leaseOwnerId ?? null,
+    lease_token: task.leaseToken ?? null,
+    lease_acquired_at: task.leaseAcquiredAt ?? null,
+    lease_heartbeat_at: task.leaseHeartbeatAt ?? null,
+    lease_expires_at: task.leaseExpiresAt ?? null,
+    result_url: task.resultUrl,
+    outputs: task.outputs,
+    error: task.error,
+    created_at: task.createdAt,
+    updated_at: task.updatedAt,
   }
 }
 

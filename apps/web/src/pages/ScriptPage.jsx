@@ -25,7 +25,6 @@ const SCRIPT_MODEL_OPTIONS = [
   ['gpt-5.6-terra', '序幕TV 5.6 Terra'],
   ['kimi-k3', 'Kimi K3'],
   ['glm-5.2', 'GLM 5.2'],
-  ['glm-5.2-fast', 'GLM 5.2 Fast'],
   ['deepseek-v4-flash', 'DeepSeek V4 Flash'],
 ]
 

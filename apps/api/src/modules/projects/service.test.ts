@@ -221,7 +221,7 @@ describe('ProjectService script billing', () => {
     expect(result.script).not.toContain('围观弟子')
   })
 
-  it('repairs a web-series script when any scene is missing spoken dialogue', async () => {
+  it('completes missing web-series dialogue without a second provider request', async () => {
     const scene = (index: number, dialogue: string) =>
       `场次：S0${index}｜剧情：林砚在测试中推进第${index}步。｜场景：宗门大殿。｜角色：林砚；长老。｜动作：动作1：林砚向前一步；动作2：长老抬眼回应。｜对白：${dialogue}｜风格：影视CG。｜构图：中景。｜光影：冷色顶光。｜运镜：稳定推进。｜衔接：两人位置和视线保持连续。`
     const source = [
@@ -229,12 +229,6 @@ describe('ProjectService script billing', () => {
       scene(2, '[对白]长老：继续。'),
       scene(3, '[对白]林砚：我来。'),
       scene(4, '无台词；[音效]脚步声；[环境声]殿内回响。'),
-    ].join('\n')
-    const repaired = [
-      scene(1, '[内心独白]林砚：不能退；[音效]衣料摩擦；[环境声]殿内回响。'),
-      scene(2, '[对白]长老：继续；[音效]袖摆声；[环境声]殿内回响。'),
-      scene(3, '[对白]林砚：我来；[音效]脚步声；[环境声]殿内回响。'),
-      scene(4, '[画外音]测试进入最后一关；[音效]铜铃声；[环境声]殿内回响。'),
     ].join('\n')
     const repository = {
       workspace: () => ({
@@ -250,7 +244,7 @@ describe('ProjectService script billing', () => {
       update: vi.fn(async (_projectId, input) => ({ script: input.script })),
     } as unknown as ProjectRepository
     const textProvider: TextGenerationProvider = {
-      generate: vi.fn().mockResolvedValueOnce(source).mockResolvedValueOnce(repaired),
+      generate: vi.fn().mockResolvedValueOnce(source),
     }
     const service = new ProjectService(repository, textProvider)
 
@@ -266,10 +260,52 @@ describe('ProjectService script billing', () => {
       { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
     )
 
-    expect(textProvider.generate).toHaveBeenCalledTimes(2)
-    expect(vi.mocked(textProvider.generate).mock.calls[1]?.[0].systemPrompt).toContain('对白导演和声音设计')
+    expect(textProvider.generate).toHaveBeenCalledTimes(1)
     expect(result.script).not.toContain('无台词')
-    expect(result.script).toContain('[画外音]测试进入最后一关')
+    expect(result.script).toContain('[画外音]林砚在测试中推进第4步。')
+    expect(repository.update).toHaveBeenCalledOnce()
+  })
+
+  it('keeps a generated web-series script when the provider dialogue repair still misses a scene', async () => {
+    const scene = (index: number, dialogue: string) =>
+      `场次：S0${index}｜剧情：林砚在大殿中推进第${index}个冲突节点。｜场景：宗门大殿。｜角色：林砚；长老。｜动作：动作1：林砚向前一步；动作2：长老抬眼回应。｜对白：${dialogue}｜风格：影视CG。｜构图：中景。｜光影：冷色顶光。｜运镜：稳定推进。｜衔接：两人位置和视线保持连续。`
+    const incomplete = [
+      scene(1, '[对白]林砚：我不会退。'),
+      scene(2, '无台词；[音效]脚步声；[环境声]殿内回响。'),
+    ].join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '宗门测试',
+          contentType: 'short-drama',
+          synopsis: '林砚参加试炼。',
+          aspectRatio: '9:16',
+          script: incomplete,
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = {
+      generate: vi.fn().mockResolvedValue(incomplete),
+    }
+    const service = new ProjectService(repository, textProvider)
+
+    const result = await service.generateScript(
+      'project-1',
+      incomplete,
+      DEFAULT_SCRIPT_DIRECTION,
+      'quick',
+      { goal: '', targetMinutes: 1 },
+      'web-series',
+      1,
+      'complete-provider-dialogue-gap',
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(result.script).not.toContain('无台词')
+    expect(result.script).toContain('[画外音]')
+    expect(splitScriptParagraphs(result.script)).toHaveLength(2)
     expect(repository.update).toHaveBeenCalledOnce()
   })
 

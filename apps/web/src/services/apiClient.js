@@ -152,7 +152,6 @@ export const api = {
       'gpt-5.6-terra',
       'kimi-k3',
       'glm-5.2',
-      'glm-5.2-fast',
     ])
     const hasModel = modelValues.has(modelOrClientRequestId)
     return request(
@@ -212,6 +211,8 @@ export const api = {
     ),
   refreshTrustedPortrait: (projectId, assetId) =>
     request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/refresh`, { method: 'POST' }),
+  refreshProcessingTrustedPortraits: (projectId) =>
+    request(`/projects/${projectId}/trusted-portraits/refresh-processing`, { method: 'POST' }),
   uploadMedia: (projectId, file) => request(`/projects/${projectId}/media`, upload(file)),
   createShot: (projectId, input) => request(`/projects/${projectId}/shots`, json('POST', input)),
   updateShot: (projectId, shotId, input) =>

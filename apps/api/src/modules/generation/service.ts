@@ -31,6 +31,9 @@ export class GenerationService {
     if (!(await this.repository.canCreate(input.projectId, principal))) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成')
     }
+    const existingTrustedPortraitTask = await this.findActiveTrustedPortraitTask(input, principal)
+    if (existingTrustedPortraitTask) return existingTrustedPortraitTask
+
     const taskInput = await this.snapshotStoryboardVideoTask(input, principal)
     const blockedPortraitNames = await this.repository.blockedPortraitNames(taskInput, principal)
     if (blockedPortraitNames.length) {
@@ -51,6 +54,31 @@ export class GenerationService {
     const task = await this.repository.createWithCharge(taskInput, principal, traceContext(traceId))
     await this.dispatcher.dispatch(task, { traceId: traceId ?? traceIdFromGenerationTask(task) })
     return task
+  }
+
+  private async findActiveTrustedPortraitTask(
+    input: CreateGenerationTask,
+    principal: Principal,
+  ): Promise<GenerationTask | null> {
+    const assetId = input.metadata?.assetId
+    if (
+      input.provider !== 'asset-library' ||
+      input.metadata?.generationStage !== 'trusted-portrait' ||
+      typeof assetId !== 'string'
+    ) {
+      return null
+    }
+
+    const tasks = await this.repository.listByProject(input.projectId, principal)
+    return (
+      tasks.find(
+        (task) =>
+          task.provider === 'asset-library' &&
+          task.metadata.generationStage === 'trusted-portrait' &&
+          task.metadata.assetId === assetId &&
+          (task.status === 'queued' || task.status === 'paused' || task.status === 'running'),
+      ) ?? null
+    )
   }
 
   private async snapshotStoryboardVideoTask(

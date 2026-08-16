@@ -49,6 +49,7 @@ type GenerationTaskRunnerOptions = {
   providerPollIntervalMs?: number
   providerStallTimeoutMs?: number
   leaseTtlMs?: number
+  taskMutationLockTimeoutMs?: number
   beforeTick?: () => Promise<void>
   afterTick?: () => Promise<void>
   taskRunnerLock?: TaskRunnerLock | null
@@ -71,6 +72,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly localTaskHandler: LocalGenerationTaskHandler | null
   private readonly activeExecutions = new Set<string>()
   private readonly leaseTtlMs: number
+  private readonly taskMutationLockTimeoutMs: number
 
   constructor(
     private readonly store: AppStore,
@@ -82,6 +84,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const objectStorage = options.objectStorage ?? null
     const leaseTtlMs = options.leaseTtlMs ?? 120_000
     this.leaseTtlMs = leaseTtlMs
+    this.taskMutationLockTimeoutMs = Math.max(1, options.taskMutationLockTimeoutMs ?? 30_000)
     const leaseOwnerId = `generation-task-runner-${process.pid}-${randomUUID()}`
     const dependencyResolver = new DependencyResolver()
 
@@ -230,23 +233,36 @@ export class GenerationTaskRunner implements TaskDispatcher {
         traceId: traceIdFromGenerationTask(task),
       })
       const execution = withHeartbeat ? this.executeRemoteTask(task, execute) : execute(task)
-      void execution.finally(() => {
-        const stored = this.store.read((state) => state.tasks.find((item) => item.id === task.id) ?? task)
-        const status = usageStatusForTask(stored)
-        usageCollector.finishJob({
-          jobId: task.id,
-          source: 'generation_task',
-          kind: task.kind,
-          status,
-          creditsUsed: status === 'completed' ? stored.estimatedCredits : 0,
-          recordUsage: false,
-          tenantId: stored.tenantId,
-          organizationId: stored.tenantId,
-          userId: stored.userId,
-          traceId: traceIdFromGenerationTask(stored),
-        })
-        this.activeExecutions.delete(task.id)
+      void execution.then(
+        () => this.finishScheduledExecution(task),
+        (error) => {
+          this.warnTaskRunnerFailure('execution', task.id, error)
+          this.finishScheduledExecution(task)
+        },
+      )
+    }
+  }
+
+  private finishScheduledExecution(task: GenerationTask): void {
+    try {
+      const stored = this.store.read((state) => state.tasks.find((item) => item.id === task.id) ?? task)
+      const status = usageStatusForTask(stored)
+      usageCollector.finishJob({
+        jobId: task.id,
+        source: 'generation_task',
+        kind: task.kind,
+        status,
+        creditsUsed: status === 'completed' ? stored.estimatedCredits : 0,
+        recordUsage: false,
+        tenantId: stored.tenantId,
+        organizationId: stored.tenantId,
+        userId: stored.userId,
+        traceId: traceIdFromGenerationTask(stored),
       })
+    } catch (error) {
+      this.warnTaskRunnerFailure('execution cleanup', task.id, error)
+    } finally {
+      this.activeExecutions.delete(task.id)
     }
   }
 
@@ -261,7 +277,11 @@ export class GenerationTaskRunner implements TaskDispatcher {
       await execute(task)
     } finally {
       stopHeartbeat()
-      await this.runTaskMutation(async () => {}, false)
+      try {
+        await this.runTaskMutation(async () => {}, false)
+      } catch (error) {
+        this.warnTaskRunnerFailure('final state refresh', task.id, error)
+      }
     }
   }
 
@@ -287,6 +307,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
       heartbeatRunning = true
       try {
         await this.runTaskMutation(() => this.writeback.renewLocalTaskLease(taskId, leaseToken))
+      } catch (error) {
+        this.warnTaskRunnerFailure('lease heartbeat', taskId, error)
       } finally {
         heartbeatRunning = false
       }
@@ -297,16 +319,24 @@ export class GenerationTaskRunner implements TaskDispatcher {
   }
 
   private async runTaskMutation(operation: () => Promise<void>, refreshFirst = true): Promise<void> {
-    for (let attempt = 0; attempt < 50; attempt += 1) {
+    const deadline = Date.now() + this.taskMutationLockTimeoutMs
+    do {
       const acquired = await this.taskRunnerLock.runExclusive(async () => {
         if (refreshFirst) await this.beforeTick?.()
         await operation()
         await this.afterTick?.()
       })
       if (acquired) return
-      await delay(100)
-    }
+      const remainingMs = deadline - Date.now()
+      if (remainingMs > 0) await delay(Math.min(100, remainingMs))
+    } while (Date.now() < deadline)
     throw new Error('Timed out while persisting local generation task state')
+  }
+
+  private warnTaskRunnerFailure(operation: string, taskId: string, error: unknown): void {
+    process.emitWarning(`Generation task ${operation} failed for ${taskId}: ${localTaskError(error)}`, {
+      code: 'SEQORA_GENERATION_TASK_BACKGROUND_FAILURE',
+    })
   }
 }
 
