@@ -289,6 +289,39 @@ describe('api client', () => {
     expect(options.headers).not.toHaveProperty('Content-Type')
   })
 
+  it('creates image2 batches through the dedicated server endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        batchId: 'image2-demo',
+        providerName: '序幕 image2',
+        model: 'seqora-image2',
+        creditsPerImage: 6,
+        estimatedCredits: 12,
+        tasks: [],
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.createImage2Batch({
+      projectId: 'project-1',
+      prompt: 'A quiet rehearsal still',
+      imageCount: 2,
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/image2/batches',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          projectId: 'project-1',
+          prompt: 'A quiet rehearsal still',
+          imageCount: 2,
+        }),
+      }),
+    )
+  })
+
   it('calls the task pause, resume and delete endpoints', async () => {
     const fetchMock = vi
       .fn()

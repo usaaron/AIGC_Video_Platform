@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { IMAGE2_PROVIDER_DISPLAY_NAME } from '@seqora/contracts'
 import type { AppConfig } from '../config.js'
 import { installAuth } from '../core/auth/installAuth.js'
 import { createAuthProvider } from '../core/auth/provider.js'
@@ -15,6 +16,7 @@ import { registerAdminRoutes } from '../modules/admin/routes.js'
 import { registerAuthRoutes } from '../modules/auth/routes.js'
 import { registerBillingRoutes } from '../modules/billing/routes.js'
 import { registerGenerationRoutes } from '../modules/generation/routes.js'
+import { registerImage2Routes } from '../modules/image2/routes.js'
 import { registerMediaRoutes } from '../modules/media/routes.js'
 import { registerNovelRoutes } from '../modules/novels/routes.js'
 import { registerProjectRoutes } from '../modules/projects/routes.js'
@@ -105,6 +107,7 @@ export async function registerRuntimeRoutes(input: {
       await registerMediaRoutes(api, services.mediaService, config.MAX_UPLOAD_BYTES)
       await registerTrustedAssetRoutes(api, services.trustedAssetService)
       await registerAiJobRoutes(api, services.aiJobService)
+      await registerImage2Routes(api, services.image2BatchService)
       await registerGenerationRoutes(api, services.generationService)
       await registerObservabilityRoutes(api, store, repositories.adminRepository)
       await registerBillingRoutes(api, repositories.creditLedger, {
@@ -136,7 +139,7 @@ function runtimeHealth(config: AppConfig, providers: RuntimeProviders) {
     },
     providerNames: {
       seedance: providers.videoProvider ? videoProviderName(config) : 'local-mock',
-      img2: providers.imageProvider ? 'tokenadvent-img2' : 'local-mock',
+      img2: providers.imageProvider ? IMAGE2_PROVIDER_DISPLAY_NAME : 'local-mock',
       text: providers.textProvider ? textProviderName(config) : 'unavailable',
       assetLibrary: providers.assetLibraryProvider ? 'stringx-maas' : 'unavailable',
     },

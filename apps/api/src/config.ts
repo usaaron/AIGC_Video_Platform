@@ -110,6 +110,11 @@ const configSchema = z
     REHDASU_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
     TOKENADVENT_BASE_URL: z.string().url().default('https://tokenadvent.com'),
     TOKENADVENT_API_KEY: z.string().default(''),
+    SEQORA_IMAGE2_BASE_URL: z.string().url().default('https://tokenadvent.com'),
+    SEQORA_IMAGE2_API_KEY: z.string().default(''),
+    SEQORA_IMAGE2_MODEL: z.string().min(1).default('gpt-image-2'),
+    SEQORA_IMAGE2_ASSIST_MODEL: z.string().min(1).default('gpt-5.4'),
+    SEQORA_IMAGE2_ASSIST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(180_000).default(60_000),
     IMG2_MODEL: z.string().min(1).default('gpt-image-2'),
     IMG2_QUALITY: z.enum(['low', 'medium', 'high']).default('low'),
     TEXT_MODEL: z.string().min(1).default('glm-5.2'),
@@ -324,11 +329,11 @@ const configSchema = z
         message: 'REHDASU_API_KEY is required for the selected production text model',
       })
     }
-    if (config.NODE_ENV === 'production' && !config.TOKENADVENT_API_KEY) {
+    if (config.NODE_ENV === 'production' && !config.SEQORA_IMAGE2_API_KEY) {
       context.addIssue({
         code: 'custom',
-        path: ['TOKENADVENT_API_KEY'],
-        message: 'TOKENADVENT_API_KEY is required for production GPT Image 2 generation',
+        path: ['SEQORA_IMAGE2_API_KEY'],
+        message: 'SEQORA_IMAGE2_API_KEY or legacy TOKENADVENT_API_KEY is required for production image2 generation',
       })
     }
     if (Boolean(config.VOLC_ACCESS_KEY) !== Boolean(config.VOLC_SECRET_KEY)) {
@@ -350,10 +355,20 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     environment.DATABASE_URL === undefined
   // Keep existing deployments working while operators migrate the legacy text key.
   const rehdasuApiKey = environment.REHDASU_API_KEY?.trim() || environment.TEXT_API_KEY?.trim() || ''
+  // Keep the legacy image provider keys as a compatibility fallback without wiring image2 keys into text generation.
+  const seqoraImage2BaseUrl =
+    environment.SEQORA_IMAGE2_BASE_URL?.trim() || environment.TOKENADVENT_BASE_URL?.trim() || undefined
+  const seqoraImage2ApiKey =
+    environment.SEQORA_IMAGE2_API_KEY?.trim() || environment.TOKENADVENT_API_KEY?.trim() || ''
+  const seqoraImage2Model =
+    environment.SEQORA_IMAGE2_MODEL?.trim() || environment.IMG2_MODEL?.trim() || undefined
 
   return configSchema.parse({
     ...environment,
     REHDASU_API_KEY: rehdasuApiKey,
+    SEQORA_IMAGE2_BASE_URL: seqoraImage2BaseUrl,
+    SEQORA_IMAGE2_API_KEY: seqoraImage2ApiKey,
+    SEQORA_IMAGE2_MODEL: seqoraImage2Model,
     TASK_QUEUE_DRIVER:
       environment.TASK_QUEUE_DRIVER ?? (environment.NODE_ENV === 'test' ? 'inline' : 'bullmq'),
     REDIS_URL:

@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { hasDownloadedImageName, imageDownloadFileName, rememberDownloadedImageName } from './imageDownload'
+import {
+  hasDownloadedImageName,
+  imageArchiveFileName,
+  imageDownloadFileName,
+  rememberDownloadedImageName,
+} from './imageDownload'
 
 describe('image download helpers', () => {
   it('builds safe local image file names from preview labels', () => {
     expect(imageDownloadFileName('老船夫:面部/基准.png', 'image/jpeg')).toBe('老船夫-面部-基准.jpg')
     expect(imageDownloadFileName('', 'image/webp')).toBe('资产图片.webp')
     expect(imageDownloadFileName('黄狗-资产预览', 'image/png')).toBe('黄狗-资产预览.png')
+    expect(imageArchiveFileName('批次:01/生成结果.zip')).toBe('批次-01-生成结果.zip')
   })
 
   it('tracks duplicate download names as a browser-side hint', () => {

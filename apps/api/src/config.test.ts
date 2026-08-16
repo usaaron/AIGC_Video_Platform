@@ -141,7 +141,40 @@ describe('production configuration', () => {
         ...productionConfig(),
         TOKENADVENT_API_KEY: '',
       }),
-    ).toThrow('TOKENADVENT_API_KEY is required')
+    ).toThrow('SEQORA_IMAGE2_API_KEY or legacy TOKENADVENT_API_KEY is required')
+  })
+
+  it('supports Seqora image2 aliases while keeping legacy image variables as a fallback', () => {
+    expect(
+      loadConfig({
+        NODE_ENV: 'test',
+        SEQORA_IMAGE2_BASE_URL: 'https://image2.example.com',
+        SEQORA_IMAGE2_API_KEY: 'seqora-image2-token',
+        SEQORA_IMAGE2_MODEL: 'seqora-image2-live',
+        TOKENADVENT_API_KEY: 'text-tokenadvent-token',
+        IMG2_MODEL: 'legacy-img2-model',
+      }),
+    ).toMatchObject({
+      SEQORA_IMAGE2_BASE_URL: 'https://image2.example.com',
+      SEQORA_IMAGE2_API_KEY: 'seqora-image2-token',
+      SEQORA_IMAGE2_MODEL: 'seqora-image2-live',
+      SEQORA_IMAGE2_ASSIST_MODEL: 'gpt-5.4',
+      TOKENADVENT_API_KEY: 'text-tokenadvent-token',
+      IMG2_MODEL: 'legacy-img2-model',
+    })
+
+    expect(
+      loadConfig({
+        NODE_ENV: 'test',
+        TOKENADVENT_BASE_URL: 'https://legacy-image2.example.com',
+        TOKENADVENT_API_KEY: 'legacy-image2-token',
+        IMG2_MODEL: 'legacy-img2-model',
+      }),
+    ).toMatchObject({
+      SEQORA_IMAGE2_BASE_URL: 'https://legacy-image2.example.com',
+      SEQORA_IMAGE2_API_KEY: 'legacy-image2-token',
+      SEQORA_IMAGE2_MODEL: 'legacy-img2-model',
+    })
   })
 
   it('requires the selected Rehdasu text provider key in production', () => {

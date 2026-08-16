@@ -8,17 +8,13 @@ import {
   CircleDashed,
   Download,
   FileText,
-  ImagePlus,
   Layers3,
   LoaderCircle,
-  MessageSquareText,
   Mic2,
   Pause,
-  Palette,
   Play,
   Plus,
   RefreshCw,
-  Settings2,
   Sparkles,
   UsersRound,
   WandSparkles,
@@ -26,9 +22,20 @@ import {
 import { BrandMark } from '../components/BrandMark'
 import { PageHeader } from '../components/ui'
 import { FUNCTION_STACK_ITEMS } from '../features/functionStack/config'
+import { ImageStudioPage } from '../features/imageStudio/ImageStudioPage'
 import { api } from '../services/apiClient'
 
-export function FunctionStackPage({ tool, billing = null, onOpenProject, onProjectCreated }) {
+export function FunctionStackPage({
+  tool,
+  project,
+  billing,
+  tasks,
+  image2ProviderStatus = null,
+  onRefreshImageStudio,
+  onOpenBilling,
+  onOpenProject,
+  onProjectCreated,
+}) {
   const item = FUNCTION_STACK_ITEMS.find((entry) => entry.id === tool) ?? FUNCTION_STACK_ITEMS[0]
 
   return (
@@ -38,16 +45,25 @@ export function FunctionStackPage({ tool, billing = null, onOpenProject, onProje
           <span className="tool-development-badge agent-live-badge">
             <i /> 自动编排已启用
           </span>
-        ) : (
+        ) : item.id === 'writing-studio' ? (
           <span className="tool-development-badge">
             <CircleDashed size={13} /> UI 预览 · 开发中
           </span>
-        )}
+        ) : null}
       </PageHeader>
       {item.id === 'agent-studio' ? (
         <AgentStudio billing={billing} onOpenProject={onOpenProject} onProjectCreated={onProjectCreated} />
       ) : null}
-      {item.id === 'image-studio' ? <ImageStudio /> : null}
+      {item.id === 'image-studio' ? (
+        <ImageStudioPage
+          project={project}
+          billing={billing}
+          tasks={tasks}
+          image2ProviderStatus={image2ProviderStatus}
+          onRefresh={onRefreshImageStudio}
+          onOpenBilling={onOpenBilling}
+        />
+      ) : null}
       {item.id === 'writing-studio' ? <WritingStudio /> : null}
     </div>
   )
@@ -631,93 +647,6 @@ function formatTime(value) {
 }
 function upsertRun(setter, run) {
   setter((current) => [run, ...current.filter((item) => item.id !== run.id)])
-}
-
-function ImageStudio() {
-  const references = [
-    ['/demo/room.jpg', '暖光书房', '场景'],
-    ['/demo/station.jpg', '霓虹街区', '场景'],
-    ['/demo/rain.jpg', '荒漠公路', '视觉'],
-  ]
-
-  return (
-    <section className="tool-studio-frame image-studio-frame" aria-label="图片大师预览">
-      <header className="tool-frame-header">
-        <div className="tool-frame-identity">
-          <span className="tool-frame-mark">
-            <ImagePlus size={18} />
-          </span>
-          <div>
-            <strong>新建视觉任务</strong>
-            <span>人物 · 场景 · 物品 · 参考图</span>
-          </div>
-        </div>
-        <div className="tool-frame-status muted">未保存草稿</div>
-      </header>
-      <div className="image-studio-layout">
-        <aside className="image-control-rail">
-          <span className="tool-section-label">生成类型</span>
-          <div className="image-mode-list">
-            {[
-              ['人物设定', UsersRound],
-              ['场景概念', Palette],
-              ['物品设计', Sparkles],
-            ].map(([label, Icon], index) => (
-              <button type="button" className={index === 0 ? 'active' : ''} key={label} disabled>
-                <Icon size={15} /> {label} <ChevronRight size={14} />
-              </button>
-            ))}
-          </div>
-          <span className="tool-section-label">输出设置</span>
-          <dl className="image-output-settings">
-            <div>
-              <dt>模型</dt>
-              <dd>混元图片模型</dd>
-            </div>
-            <div>
-              <dt>比例</dt>
-              <dd>1:1</dd>
-            </div>
-            <div>
-              <dt>数量</dt>
-              <dd>4 张</dd>
-            </div>
-          </dl>
-          <button className="tool-settings-button" type="button" disabled>
-            <Settings2 size={15} /> 高级设置
-          </button>
-        </aside>
-        <div className="image-studio-canvas">
-          <div className="image-prompt-line">
-            <MessageSquareText size={17} />
-            <span>年轻女性调查员，冷静神情，影视 CG 角色设定，透明背景，均匀平光...</span>
-            <button type="button" disabled>
-              生成
-            </button>
-          </div>
-          <div className="image-reference-grid">
-            {references.map(([src, label, type]) => (
-              <figure key={label}>
-                <img src={src} alt={label} />
-                <figcaption>
-                  <span>{type}</span>
-                  <strong>{label}</strong>
-                </figcaption>
-              </figure>
-            ))}
-            <div className="image-reference-empty">
-              <ImagePlus size={22} />
-              <span>新结果</span>
-            </div>
-          </div>
-          <footer className="image-canvas-footer">
-            <span>参考图不会自动写入项目资产</span>
-            <strong>0 / 4 正在生成</strong>
-          </footer>
-        </div>
-      </div>
-    </section>
-  )
 }
 
 function WritingStudio() {

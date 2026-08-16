@@ -1,9 +1,12 @@
-import type { Asset } from '@seqora/contracts'
+import type { Asset, Image2Quality, Image2ReferenceRole } from '@seqora/contracts'
 
 export type ImageReference = {
   name: string
   contentType: string
   content: Buffer
+  role?: Image2ReferenceRole
+  referenceNumber?: number
+  visionDescription?: string
 }
 
 export type ImageGenerationRequest = {
@@ -12,6 +15,7 @@ export type ImageGenerationRequest = {
   assetId: string
   model?: string | null
   aspectRatio: string
+  quality?: Image2Quality
   prompt: string
   negativePrompt: string
   references: ImageReference[]

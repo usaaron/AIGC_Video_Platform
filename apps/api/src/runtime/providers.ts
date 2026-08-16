@@ -76,11 +76,11 @@ export function videoProviderName(config: AppConfig): VideoProviderName {
 }
 
 export function createImageProvider(config: AppConfig): ImageGenerationProvider | null {
-  if (!config.TOKENADVENT_API_KEY) return null
+  if (!config.SEQORA_IMAGE2_API_KEY) return null
   return new TokenAdventImageProvider({
-    baseUrl: config.TOKENADVENT_BASE_URL,
-    apiKey: config.TOKENADVENT_API_KEY,
-    model: config.IMG2_MODEL,
+    baseUrl: config.SEQORA_IMAGE2_BASE_URL,
+    apiKey: config.SEQORA_IMAGE2_API_KEY,
+    model: config.SEQORA_IMAGE2_MODEL,
     quality: config.IMG2_QUALITY,
     requestTimeoutMs: config.TOKENADVENT_REQUEST_TIMEOUT_MS,
   })

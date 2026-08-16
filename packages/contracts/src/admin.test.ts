@@ -256,6 +256,23 @@ describe('admin console contracts', () => {
               },
             ],
             riskScore: 71,
+            reviewStatus: 'warned',
+            lastReviewAction: {
+              action: 'warned',
+              reason: 'Manual compliance warning',
+              category: 'graphic_violence',
+              actorUserId: 'user-super-admin',
+              createdAt: now,
+            },
+            reviewActions: [
+              {
+                action: 'warned',
+                reason: 'Manual compliance warning',
+                category: 'graphic_violence',
+                actorUserId: 'user-super-admin',
+                createdAt: now,
+              },
+            ],
             createdAt: now,
             updatedAt: now,
           },

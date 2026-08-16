@@ -887,6 +887,15 @@ export class ImageTaskExecutor {
         qualityPresetIds: quality.presetIds,
         compiledNegativePrompt: quality.negativePrompt,
         userNegativePrompt,
+        ...(stored.metadata.generationStage === 'image2-studio'
+          ? {
+              generationSnapshot: finalizeImage2GenerationSnapshot(
+                stored,
+                quality.negativePrompt,
+                userNegativePrompt,
+              ),
+            }
+          : {}),
       }
       const now = new Date()
       if (leaseToken) {
@@ -903,11 +912,17 @@ export class ImageTaskExecutor {
       throw new Error('参考图存储服务不可用，未向图片模型提交任务')
     }
     const references: ImageReference[] = []
-    for (const raw of task.metadata.references.slice(0, 3)) {
+    for (const raw of task.metadata.references.slice(0, 5)) {
       if (!raw || typeof raw !== 'object') {
         throw new Error('参考图信息格式无效，未向图片模型提交任务')
       }
-      const reference = raw as { url?: unknown; name?: unknown }
+      const reference = raw as {
+        url?: unknown
+        name?: unknown
+        role?: unknown
+        referenceNumber?: unknown
+        visionDescription?: unknown
+      }
       if (typeof reference.url !== 'string' || !reference.url) {
         throw new Error('参考图地址无效，未向图片模型提交任务')
       }
@@ -921,10 +936,17 @@ export class ImageTaskExecutor {
       if (!content.length) {
         throw new Error('参考图内容为空，未向图片模型提交任务；请重新上传参考图')
       }
+      const role = image2ReferenceRole(reference.role)
+      const referenceNumber = positiveInteger(reference.referenceNumber) ?? references.length + 1
       references.push({
         name: typeof reference.name === 'string' ? reference.name : `reference-${references.length + 1}.png`,
         contentType: stored.contentType,
         content,
+        ...(role ? { role } : {}),
+        referenceNumber,
+        ...(typeof reference.visionDescription === 'string' && reference.visionDescription.trim()
+          ? { visionDescription: reference.visionDescription.trim() }
+          : {}),
       })
     }
     return references
@@ -1275,12 +1297,14 @@ export class ProviderPoller {
 function imageRequestFor(task: GenerationTask, references: ImageReference[]): ImageGenerationRequest {
   const outputs: ImageGenerationRequest['outputs'] =
     task.metadata.turnaround === true ? ['front', 'side', 'back'] : ['single']
+  const quality = image2Quality(task.metadata.quality)
   return {
     taskId: task.id,
     idempotencyKey: providerIdempotencyKeyFor(task),
     assetId: stringValue(task.metadata.assetId, ''),
     model: task.model,
     aspectRatio: stringValue(task.metadata.aspectRatio, '1:1'),
+    ...(quality ? { quality } : {}),
     prompt: task.prompt,
     negativePrompt: task.negativePrompt,
     references,
@@ -1353,6 +1377,68 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
 
+function image2ReferenceRole(value: unknown): ImageReference['role'] {
+  return value === 'subject' ||
+    value === 'clothing' ||
+    value === 'accessory' ||
+    value === 'style' ||
+    value === 'composition' ||
+    value === 'color'
+    ? value
+    : undefined
+}
+
+function image2Quality(value: unknown): ImageGenerationRequest['quality'] {
+  return value === 'low' || value === 'medium' || value === 'high' ? value : undefined
+}
+
+function finalizeImage2GenerationSnapshot(
+  task: GenerationTask,
+  negativePrompt: string,
+  userNegativePrompt: string,
+): Record<string, unknown> {
+  const existing = objectValue(task.metadata.generationSnapshot)
+  const existingReferences = Array.isArray(existing.references) ? existing.references : null
+  const references =
+    existingReferences ?? (Array.isArray(task.metadata.references) ? task.metadata.references : [])
+  const existingAssist = objectValue(existing.assist)
+  const existingAssistResults = objectValue(existing.assistResults)
+  const promptOptimization = objectValue(task.metadata.promptOptimization)
+  const referenceVision = objectValue(task.metadata.referenceVision)
+
+  return {
+    ...existing,
+    version: 1,
+    finalized: true,
+    model: stringValue(existing.model, task.model ?? 'seqora-image2'),
+    prompt: task.prompt,
+    originalPrompt: stringValue(
+      existing.originalPrompt,
+      stringValue(task.metadata.originalPrompt, task.prompt),
+    ),
+    negativePrompt,
+    userNegativePrompt,
+    aspectRatio: stringValue(existing.aspectRatio, stringValue(task.metadata.aspectRatio, 'auto')),
+    quality: image2Quality(existing.quality) ?? image2Quality(task.metadata.quality) ?? 'low',
+    imageCount: positiveInteger(existing.imageCount) ?? positiveInteger(task.metadata.batchSize) ?? 1,
+    references,
+    assist: {
+      promptOptimization: existingAssist.promptOptimization === true || promptOptimization.requested === true,
+      referenceVision: existingAssist.referenceVision === true || referenceVision.requested === true,
+    },
+    assistResults: {
+      promptOptimization:
+        Object.keys(existingAssistResults.promptOptimization ?? {}).length > 0
+          ? existingAssistResults.promptOptimization
+          : promptOptimization,
+      referenceVision:
+        Object.keys(existingAssistResults.referenceVision ?? {}).length > 0
+          ? existingAssistResults.referenceVision
+          : referenceVision,
+    },
+  }
+}
+
 function imageAssetKind(
   task: GenerationTask,
 ): 'character' | 'scene' | 'prop' | 'costume' | 'brand' | 'storyboard' {
@@ -1392,6 +1478,10 @@ function boundedInteger(value: unknown, fallback: number, min: number, max: numb
 
 function optionalInteger(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) ? value : null
+}
+
+function positiveInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null
 }
 
 function optionalBoolean(value: unknown): boolean | null {
