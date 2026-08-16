@@ -554,10 +554,20 @@ export class TaskWritebackService {
     return this.resultWriteback.persistVideoLastFrame(task, providerTaskId, videoProvider)
   }
 
+  async persistVideoContent(
+    task: GenerationTask,
+    providerTaskId: string,
+    videoProvider: VideoGenerationProvider,
+  ): Promise<GeneratedOutputDescriptor> {
+    return this.resultWriteback.persistVideoContent(task, providerTaskId, videoProvider)
+  }
+
   async writeVideoPollResult(input: {
     taskId: string
     leaseToken: string
     status: VideoGenerationStatus
+    videoDescriptor?: GeneratedOutputDescriptor | null
+    videoCacheError?: string | null
     lastFrameDescriptor?: GeneratedOutputDescriptor | null
     lastFrameError?: string | null
   }): Promise<GenerationTask | null> {
@@ -1150,6 +1160,30 @@ export class ProviderPoller {
           if (stalled) this.cancelStalledProviderTask(providerTaskId)
           continue
         }
+        let videoDescriptor: GeneratedOutputDescriptor | null = null
+        let videoCacheError: string | null = null
+        const hasCachedVideo = generatedDescriptors(task).some(
+          (item) => item.view === 'single' && item.contentType.startsWith('video/'),
+        )
+        if (status.status === 'completed' && !hasCachedVideo && this.options.objectStorage) {
+          try {
+            videoDescriptor = await observeProviderCall(
+              {
+                provider: this.options.videoProviderName,
+                operation: 'video.getContent',
+                tenantId: task.tenantId,
+                organizationId: task.tenantId,
+                userId: task.userId,
+                taskId: task.id,
+                traceId: traceIdFromGenerationTask(task),
+              },
+              () =>
+                this.options.writeback.persistVideoContent(task, providerTaskId, this.options.videoProvider!),
+            )
+          } catch (error) {
+            videoCacheError = messageFor(error)
+          }
+        }
         let lastFrameDescriptor: GeneratedOutputDescriptor | null = null
         let lastFrameError: string | null = null
         const hasLastFrame = generatedDescriptors(task).some((item) => item.view === 'last-frame')
@@ -1185,6 +1219,8 @@ export class ProviderPoller {
           taskId: task.id,
           leaseToken,
           status,
+          videoDescriptor,
+          videoCacheError,
           lastFrameDescriptor,
           lastFrameError,
         })

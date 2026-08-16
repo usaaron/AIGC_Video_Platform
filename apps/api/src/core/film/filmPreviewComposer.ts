@@ -239,6 +239,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
             destination.destroy()
             throw error
           }
+          await this.cacheDownloadedSource(source, inputPath).catch(() => {})
         }
         downloadedCount += 1
         await this.updateProgress(
@@ -375,6 +376,42 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       }
       if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true })
     }
+  }
+
+  private async cacheDownloadedSource(source: GenerationTask, inputPath: string): Promise<void> {
+    const content = await readFile(inputPath)
+    const contentType = 'video/mp4'
+    const storageKey = `${source.tenantId}/${source.projectId}/generated/${source.id}-video.mp4`
+    await withTimeout(
+      this.objectStorage.put(storageKey, content, contentType),
+      this.ioTimeoutMs,
+      'Cache downloaded shot video timed out',
+    )
+    await this.store.mutate((state) => {
+      const stored = state.tasks.find(
+        (item) =>
+          item.id === source.id &&
+          item.projectId === source.projectId &&
+          item.tenantId === source.tenantId &&
+          item.kind === 'video',
+      )
+      if (!stored || cachedVideoOutput(stored)) return
+      const descriptor = { view: 'single', storageKey, contentType, size: content.length } as const
+      const generatedOutputs = Array.isArray(stored.metadata.generatedOutputs)
+        ? stored.metadata.generatedOutputs.filter(
+            (item) => !item || typeof item !== 'object' || (item as { view?: unknown }).view !== 'single',
+          )
+        : []
+      stored.metadata = {
+        ...stored.metadata,
+        generatedOutputs: [...generatedOutputs, descriptor],
+        videoStorageKey: storageKey,
+        videoContentType: contentType,
+        videoSize: content.length,
+        videoCachedAt: new Date().toISOString(),
+      }
+      stored.updatedAt = new Date().toISOString()
+    })
   }
 
   private async updateProgress(

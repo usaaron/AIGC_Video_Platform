@@ -948,17 +948,23 @@ describe('GenerationTaskRunner Seedance integration', () => {
   })
 
   it('submits and completes configured video tasks through the remote provider', async () => {
+    const files = new Map<string, Buffer>()
     const provider: VideoGenerationProvider = {
       submit: vi.fn(async () => ({ providerTaskId: 'remote-task-1', status: 'queued', progress: 0 })),
       getStatus: vi.fn(async () => ({ status: 'completed', progress: 100, error: null })),
       getContent: vi.fn(async () => ({
-        stream: Readable.from([]),
+        stream: Readable.from([Buffer.from('generated-video')]),
         contentType: 'video/mp4',
         contentLength: null,
         statusCode: 200,
         acceptRanges: null,
         contentRange: null,
       })),
+    }
+    const objectStorage: ObjectStorage = {
+      put: vi.fn(async (key, content) => files.set(key, content)),
+      get: vi.fn(async (key) => files.get(key) ?? Buffer.alloc(0)),
+      delete: vi.fn(async (key) => files.delete(key)),
     }
     const store = new AppStore(null)
     await store.initialize()
@@ -999,6 +1005,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
     const runner = new GenerationTaskRunner(store, {
       videoProvider: provider,
+      objectStorage,
       providerPollIntervalMs: 0,
       onVideoCompleted,
     })
@@ -1041,6 +1048,10 @@ describe('GenerationTaskRunner Seedance integration', () => {
         providerTaskId: 'remote-task-1',
         providerIdempotencyKey: `generation:${task.tenantId}:${task.id}`,
         providerState: 'completed',
+        videoStorageKey: `${task.tenantId}/${task.projectId}/generated/${task.id}-video.mp4`,
+        generatedOutputs: expect.arrayContaining([
+          expect.objectContaining({ view: 'single', contentType: 'video/mp4', size: 15 }),
+        ]),
       },
       outputs: [
         {
@@ -1053,6 +1064,9 @@ describe('GenerationTaskRunner Seedance integration', () => {
     expect(onVideoCompleted).toHaveBeenCalledOnce()
     expect(onVideoCompleted).toHaveBeenCalledWith(
       expect.objectContaining({ id: task.id, status: 'completed' }),
+    )
+    expect(files.get(`${task.tenantId}/${task.projectId}/generated/${task.id}-video.mp4`)).toEqual(
+      Buffer.from('generated-video'),
     )
   })
 

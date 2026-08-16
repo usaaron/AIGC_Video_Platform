@@ -96,6 +96,17 @@ describe('FilmPreviewComposer', () => {
     const completed = store.read((state) => state.tasks.find((task) => task.id === preview.id)!)
     expect(target).toEqual({ width: 1080, height: 1920 })
     expect(provider.getContent).toHaveBeenCalledTimes(1)
+    expect(stored.get(`${sources[0].tenantId}/${sources[0].projectId}/generated/source-1-video.mp4`)).toEqual(
+      Buffer.from('video-provider-1'),
+    )
+    expect(store.read((state) => state.tasks.find((task) => task.id === sources[0].id))).toMatchObject({
+      metadata: {
+        videoStorageKey: `${sources[0].tenantId}/${sources[0].projectId}/generated/source-1-video.mp4`,
+        generatedOutputs: expect.arrayContaining([
+          expect.objectContaining({ view: 'single', contentType: 'video/mp4' }),
+        ]),
+      },
+    })
     expect(completed).toMatchObject({
       progress: 100,
       resultUrl: `/api/v1/generation/tasks/${preview.id}/content`,
