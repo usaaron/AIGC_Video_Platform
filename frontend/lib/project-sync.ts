@@ -3,7 +3,7 @@ import { shouldStartPersistenceCooldown } from "@/lib/persistence-availability";
 import { compactContinuityLedgerForGeneration } from "@/lib/continuity-checkpoint";
 import { inferProjectMarketProfile } from "@/lib/project-store";
 import { normalizeGenerationSettings } from "@/lib/generation-planning";
-import { approvedEpisodeRoadmapCoverageThrough } from "@/lib/planning-coverage";
+import { episodeRoadmapCoverageThrough } from "@/lib/planning-coverage";
 import type {
   EpisodeArtifactKind,
   EpisodeArtifactReference,
@@ -253,7 +253,7 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
         }
         const episodeRoadmaps = payload.episodeRoadmaps ?? [];
         const recoveredPlanningCoverage = payload.episodeRoadmapRequired === true
-          ? approvedEpisodeRoadmapCoverageThrough(episodeRoadmaps)
+          ? episodeRoadmapCoverageThrough(episodeRoadmaps)
           : payload.episodePlansReadyThrough ?? 0;
         const restored: ScriptProject = {
           ...payload,

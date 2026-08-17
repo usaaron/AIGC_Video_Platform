@@ -121,7 +121,14 @@ class OrchestratorService:
     ) -> list[SceneBlueprint]:
         blueprints: list[SceneBlueprint] = []
         for index in range(1, desired_scene_count + 1):
-            if index == 1:
+            if desired_scene_count == 1:
+                purpose = (
+                    "Establish the hook, execute the central conflict, and land the "
+                    "cliffhanger in one continuous scene."
+                )
+                focus = "hook, conflict, and cliffhanger"
+                emotion = content_spec.creative_brief.target_emotion
+            elif index == 1:
                 purpose = "Establish the hook and the public-facing conflict immediately."
                 focus = "hook"
                 emotion = content_spec.creative_brief.target_emotion

@@ -37,21 +37,22 @@ class EditorialPatchAdapter(LLMAdapter):
     ) -> dict[str, Any]:
         self.call_count += 1
         assert "DeepSeek已经完成一集完整初稿" in prompt
+        assert "总数只能为1–5个" in prompt
+        assert "dialogues合计必须为20–30条" in prompt
+        assert "character_actions合计必须为15–20项" in prompt
         assert output_schema is not None
         line = (
             "Stop."
             if self.short
-            else (
-                "You can keep calling this mercy, but everyone in this room can see "
-                "the price you expect me to pay before you let me walk away tonight."
-            )
+            else "You know exactly what this contract costs us tonight, Damian."
         )
         return {
             "scenes": [
                 {
                     "scene_number": scene_number,
                     "character_actions": [
-                        "Elena blocks the doorway while Damian places the signed contract on the table."
+                        f"Action {index} changes the physical balance around the signed contract."
+                        for index in range(1, 9 if scene_number == 1 else 8)
                     ],
                     "dialogues": [
                         {
@@ -63,7 +64,7 @@ class EditorialPatchAdapter(LLMAdapter):
                             "intent": "force the other person to reveal the hidden price",
                             "text": line,
                         }
-                        for speaker in ("Elena", "Damian", "Elena", "Damian")
+                        for speaker in ("Elena", "Damian") * 5
                     ],
                 }
                 for scene_number in (1, 2)
@@ -184,6 +185,9 @@ def test_gpt_editor_changes_only_scene_bodies_and_records_model_metadata() -> No
     assert result.draft.continuity_state_updates == source.continuity_state_updates
     assert result.draft.llm_metadata["script_editor_applied"] is True
     assert result.draft.llm_metadata["script_editor_model"] == "gpt-screenplay-editor"
+    assert result.draft.llm_metadata["episode_scene_count"] == 2
+    assert result.draft.llm_metadata["episode_dialogue_line_count"] == 20
+    assert result.draft.llm_metadata["episode_shot_unit_count"] == 15
     assert adapter.call_count == 1
 
 

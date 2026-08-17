@@ -312,13 +312,15 @@ def stream_script_draft(
                 runtime_metadata = result.draft_master_script.llm_metadata
                 logger.info(
                     "Episode generation completed episode=%s elapsed_ms=%s "
-                    "first_delta_ms=%s initial_model_ms=%s passes=%s prompt_chars=%s",
+                    "first_delta_ms=%s initial_model_ms=%s passes=%s prompt_chars=%s "
+                    "execution_context_chars=%s",
                     episode_number,
                     runtime_metadata.get("generation_elapsed_ms"),
                     runtime_metadata.get("first_draft_delta_elapsed_ms"),
                     runtime_metadata.get("initial_model_elapsed_ms"),
                     runtime_metadata.get("model_pass_count"),
                     runtime_metadata.get("prompt_characters"),
+                    runtime_metadata.get("episode_execution_context_characters"),
                 )
                 result_payload = result.model_dump(mode="json")
                 # The streamed draft already contains the parsed screenplay. The

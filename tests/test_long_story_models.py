@@ -8,6 +8,7 @@ from app.modules.script_engine.long_story_models import (
     EpisodeArtifactCreate,
     EpisodePlan,
     EpisodePlanBatchGenerationOutput,
+    EpisodePlanGenerationItem,
     EpisodePlanItemDraftRequest,
     EpisodePlanItemModificationRequest,
     GenerationBatchPlan,
@@ -42,6 +43,61 @@ def build_episode_plan_generation_item(episode_number: int = 1) -> dict:
         "source_turning_points": [],
         "source_unit_story_beats": [],
     }
+
+
+def build_scene_execution_plan() -> list[dict[str, object]]:
+    return [
+        {
+            "scene_number": 1,
+            "scene_heading": "INT. 档案室 日",
+            "character_refs": ["character.mara"],
+            "scene_objective": "确认旧账本的来源。",
+            "visible_action": "主角比对封存档案与账本上的时间戳。",
+            "turn_or_reveal": "档案显示时间戳曾被改写。",
+            "dialogue_objective": "逼管理员说明谁接触过原始档案。",
+            "dialogue_line_target": 12,
+            "shot_target": 8,
+            "exit_state": "主角锁定提供账本的证人。",
+        },
+        {
+            "scene_number": 2,
+            "scene_heading": "EXT. 档案馆后巷 日",
+            "character_refs": ["character.mara"],
+            "scene_objective": "保护证人并固定原始凭证。",
+            "visible_action": "主角带证人躲开追踪者并拍下原始凭证。",
+            "turn_or_reveal": "原始凭证暴露更高层的签名。",
+            "dialogue_objective": "让证人交代凭证的流转路径。",
+            "dialogue_line_target": 12,
+            "shot_target": 8,
+            "exit_state": "主角取得下一步可验证的资金入口。",
+        },
+    ]
+
+
+def test_episode_plan_scene_execution_plan_enforces_episode_budgets() -> None:
+    payload = {
+        **build_episode_plan_generation_item(),
+        "planned_scene_count": 2,
+        "planned_dialogue_line_count": 24,
+        "planned_shot_count": 16,
+        "scene_execution_plan": build_scene_execution_plan(),
+    }
+
+    item = EpisodePlanGenerationItem.model_validate(payload)
+
+    assert len(item.scene_execution_plan) == 2
+    assert sum(scene.dialogue_line_target for scene in item.scene_execution_plan) == 24
+    assert sum(scene.shot_target for scene in item.scene_execution_plan) == 16
+
+    invalid = {
+        **payload,
+        "scene_execution_plan": [
+            {**scene, "shot_target": 7}
+            for scene in build_scene_execution_plan()
+        ],
+    }
+    with pytest.raises(ValidationError, match="planned_shot_count"):
+        EpisodePlanGenerationItem.model_validate(invalid)
 
 
 def test_episode_plan_item_request_requires_a_contiguous_accepted_prefix() -> None:

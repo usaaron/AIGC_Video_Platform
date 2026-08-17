@@ -1,4 +1,7 @@
 import json
+import logging
+import threading
+import time
 
 import httpx
 import pytest
@@ -86,6 +89,185 @@ def build_responses_api_response(content: str) -> dict:
             }
         ],
     }
+
+
+def test_route_diagnostics_log_gateway_timing_without_prompt_or_secret(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response('{"title":"Logged"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="route-secret-key",
+        base_url="https://openrouter.icu/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    caplog.set_level(
+        logging.WARNING,
+        logger="app.modules.script_engine.llm_adapter",
+    )
+
+    result = adapter.generate_structured_output(
+        "PRIVATE STORY PROMPT",
+        strategy=strategy,
+    )
+
+    assert result["title"] == "Logged"
+    logs = caplog.text
+    assert "LLM route request started" in logs
+    assert "LLM route request finished" in logs
+    assert "gateway=openrouter.icu" in logs
+    assert "model=glm-5.2" in logs
+    assert "transport=non_stream" in logs
+    assert "status_code=200" in logs
+    assert "duration_seconds=" in logs
+    assert "content_chars=18" in logs
+    assert "route-secret-key" not in logs
+    assert "PRIVATE STORY PROMPT" not in logs
+
+
+def test_route_diagnostics_identify_reasoning_only_empty_response(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    reasoning = "先完成内部推理，但没有来得及输出最终 JSON。"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "reasoning_content": reasoning,
+                        },
+                        "finish_reason": "length",
+                    }
+                ]
+            },
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://tokenadvent.com/v1",
+        max_retries=0,
+        retry_empty_response=False,
+        transport=httpx.MockTransport(handler),
+    )
+    caplog.set_level(
+        logging.WARNING,
+        logger="app.modules.script_engine.llm_adapter",
+    )
+
+    with pytest.raises(LLMStructuredOutputError) as exc_info:
+        adapter.generate_structured_output(
+            "Return one JSON object.",
+            strategy=strategy,
+        )
+
+    assert exc_info.value.empty_response is True
+    logs = caplog.text
+    assert "gateway=tokenadvent.com" in logs
+    assert "content_chars=0" in logs
+    assert f"reasoning_chars={len(reasoning)}" in logs
+    assert "finish_reason=length" in logs
+    assert "LLM route output rejected" in logs
+    assert "category=empty_response" in logs
+
+
+def test_route_diagnostics_log_timeout_category(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("upstream read timed out", request=request)
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://rehdasu.cn",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    caplog.set_level(
+        logging.WARNING,
+        logger="app.modules.script_engine.llm_adapter",
+    )
+
+    with pytest.raises(LLMRequestError):
+        adapter.generate_structured_output(
+            "Return one JSON object.",
+            strategy=strategy,
+        )
+
+    logs = caplog.text
+    assert "gateway=rehdasu.cn" in logs
+    assert "outcome=failure" in logs
+    assert "category=timeout" in logs
+    assert "will_retry=false" in logs
+
+
+def test_route_diagnostics_log_failover_gateway_pair(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    primary = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="primary-secret",
+        base_url="https://primary.test/v1",
+        max_retries=0,
+        retry_empty_response=False,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json={"choices": []})
+        ),
+    )
+    fallback = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="fallback-secret",
+        base_url="https://fallback.test/v1",
+        max_retries=0,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json=build_openai_compatible_response('{"title":"Recovered"}'),
+            )
+        ),
+    )
+    adapter = ModelFailoverLLMAdapter(primary=primary, fallback=fallback)
+    caplog.set_level(
+        logging.WARNING,
+        logger="app.modules.script_engine.llm_adapter",
+    )
+
+    result = adapter.generate_structured_output(
+        "Return one JSON object.",
+        strategy=strategy,
+    )
+
+    assert result["title"] == "Recovered"
+    logs = caplog.text
+    assert "LLM route failover selected" in logs
+    assert "from_gateway=primary.test" in logs
+    assert "to_gateway=fallback.test" in logs
+    assert "primary-secret" not in logs
+    assert "fallback-secret" not in logs
 
 
 def test_mock_llm_adapter_returns_text() -> None:
@@ -674,7 +856,7 @@ def test_deepseek_uses_chat_json_contract_and_explicit_thinking() -> None:
         payload = json.loads(request.content.decode("utf-8"))
         assert "response_format" not in payload
         assert payload["thinking"] == {"type": "enabled"}
-        assert payload["reasoning_effort"] == "medium"
+        assert payload["reasoning_effort"] == "high"
         assert "temperature" not in payload
         assert "top_p" not in payload
         prompt = payload["messages"][1]["content"]
@@ -694,7 +876,7 @@ def test_deepseek_uses_chat_json_contract_and_explicit_thinking() -> None:
         api_key="secret-key",
         base_url="https://example.test/v1",
         wire_api="responses",
-        reasoning_effort="medium",
+        reasoning_effort="high",
         thinking_mode="enabled",
         use_strict_schema=True,
         transport=httpx.MockTransport(handler),
@@ -710,6 +892,45 @@ def test_deepseek_uses_chat_json_contract_and_explicit_thinking() -> None:
     assert adapter._use_strict_schema is False
     assert len(result["children"]) == 2
     assert result["_meta"]["thinking_mode"] == "enabled"
+
+
+def test_glm_chat_uses_native_json_object_and_explicit_thinking_toggle() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["thinking"] == {"type": "disabled"}
+        assert payload["response_format"] == {"type": "json_object"}
+        assert payload["reasoning_effort"] == "none"
+        assert payload["temperature"] == strategy.temperature
+        assert payload["top_p"] == strategy.top_p
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response('{"title":"GLM路线图"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="chat_completions",
+        thinking_mode="disabled",
+        use_strict_schema=True,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return the episode roadmap JSON.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert adapter._is_glm is True
+    assert adapter._use_strict_schema is False
+    assert result["title"] == "GLM路线图"
+    assert result["_meta"]["thinking_mode"] == "disabled"
 
 
 def test_deepseek_story_tree_shape_uses_native_objects_and_valid_semantic_examples() -> None:
@@ -839,6 +1060,35 @@ def test_compatible_adapter_does_not_repeat_an_empty_structured_response() -> No
         )
 
     assert error.value.raw_content == ""
+    assert len(payloads) == 1
+
+
+def test_responses_adapter_can_disable_its_internal_empty_response_retry() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    payloads: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(200, json={"id": "empty", "output": []})
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="glm-5.2",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api="responses",
+        max_retries=0,
+        retry_empty_response=False,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMStructuredOutputError):
+        adapter.generate_structured_output(
+            "Return one episode roadmap JSON object.",
+            strategy=strategy,
+            output_schema=None,
+        )
+
     assert len(payloads) == 1
 
 
@@ -1013,6 +1263,100 @@ def test_container_repair_rejects_nested_fragment_response() -> None:
     assert request_count == 2
 
 
+def test_deepseek_script_route_defers_unambiguous_container_repair() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+    schema = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "scenes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"scene_number": {"type": "integer"}},
+                    "required": ["scene_number"],
+                },
+            },
+        },
+        "required": ["title", "scenes"],
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response(
+                '{"title":"正文","scenes":"待正文合同修复"}'
+            ),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        use_strict_schema=False,
+        defer_schema_container_repair=True,
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return a structured draft.",
+        strategy=strategy,
+        output_schema=schema,
+    )
+
+    assert request_count == 1
+    assert result["title"] == "正文"
+    assert result["_meta"]["schema_container_repair_deferred"] is True
+    assert result["_meta"]["schema_container_issues"] == [
+        "$.scenes: expected array, got str"
+    ]
+
+
+def test_adapter_normalizes_scalar_array_without_model_round_trip() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+    schema = {
+        "type": "object",
+        "properties": {
+            "children": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["children"],
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response('{"children":"阶段一"}'),
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        use_strict_schema=False,
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = adapter.generate_structured_output(
+        "Return child stages.",
+        strategy=strategy,
+        output_schema=schema,
+    )
+
+    assert request_count == 1
+    assert result["children"] == ["阶段一"]
+    assert result["_meta"]["schema_container_locally_normalized"] is True
+
+
 def test_streaming_adapter_regenerates_non_native_schema_containers() -> None:
     strategy = GenerationStrategy.model_validate(build_strategy())
     request_count = 0
@@ -1185,6 +1529,91 @@ def test_streaming_adapter_changes_to_non_streaming_after_gateway_502() -> None:
     assert result["_meta"]["stream_fallback"] is True
     assert seen_stream_modes == [True, False]
     assert seen_deltas == [('{"title": "非流式恢复成功"}', True)]
+
+
+def test_script_route_skips_same_gateway_after_upstream_502() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    request_count = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(
+            502,
+            json={"error": {"message": "Upstream access forbidden"}},
+        )
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        retry_gateway_stream_as_non_stream=False,
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(LLMRequestError, match="Upstream access forbidden") as exc_info:
+        adapter.generate_structured_output_stream(
+            "Return the script JSON.",
+            strategy=strategy,
+            output_schema={
+                "type": "object",
+                "properties": {"title": {"type": "string"}},
+            },
+        )
+
+    assert request_count == 1
+    assert not getattr(exc_info.value, "stream_fallback_attempted", False)
+
+
+def test_reasoning_only_length_stream_fails_over_without_same_route_repeat() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    primary_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal primary_calls
+        primary_calls += 1
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload.get("stream") is True
+        events = [
+            {"choices": [{"delta": {"reasoning_content": "持续推理却没有输出正文"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "length"}]},
+        ]
+        body = "".join(
+            f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            for event in events
+        ) + "data: [DONE]\n\n"
+        return httpx.Response(
+            200,
+            text=body,
+            headers={"content-type": "text/event-stream"},
+        )
+
+    primary = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="deepseek-v4-flash",
+        api_key="primary-key",
+        base_url="https://primary.test/v1",
+        thinking_mode="disabled",
+        max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    adapter = ModelFailoverLLMAdapter(
+        primary=primary,
+        fallback=MockLLMAdapter(model_name="deepseek-v4-flash"),
+        circuit_failure_threshold=1,
+    )
+
+    result = adapter.generate_structured_output_stream(
+        "Return the screenplay JSON.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert primary_calls == 1
+    assert result["_meta"]["model_failover_used"] is True
+    assert result["_meta"]["fallback_model_name"] == "deepseek-v4-flash"
 
 
 def test_streaming_adapter_reports_502_detail_without_response_not_read() -> None:
@@ -1434,6 +1863,226 @@ def test_model_failover_uses_fallback_after_invalid_primary_json() -> None:
     assert result["_meta"]["model_failover_used"] is True
     assert result["_meta"]["fallback_model_name"] == "glm-5.2"
     assert "LLMStructuredOutputError" in result["_meta"]["model_failover_reason"]
+
+
+def test_same_model_hedge_uses_fast_complete_fallback_and_cancels_primary() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    primary_cancelled = threading.Event()
+    fallback_called = threading.Event()
+    deltas: list[tuple[str, bool]] = []
+
+    class SlowPrimary(MockLLMAdapter):
+        def generate_structured_output_stream_cancellable(
+            self,
+            prompt,
+            *,
+            strategy,
+            output_schema=None,
+            on_delta=None,
+            cancel_event,
+        ):
+            del prompt, strategy, output_schema, on_delta
+            assert cancel_event.wait(timeout=1.0)
+            primary_cancelled.set()
+            return {"title": "Primary completed too late", "_meta": {}}
+
+    class FastFallback(MockLLMAdapter):
+        def generate_structured_output_stream_cancellable(
+            self,
+            prompt,
+            *,
+            strategy,
+            output_schema=None,
+            on_delta=None,
+            cancel_event,
+        ):
+            del prompt, strategy, output_schema, on_delta, cancel_event
+            fallback_called.set()
+            return {"title": "Fallback winner", "_meta": {}}
+
+    adapter = ModelFailoverLLMAdapter(
+        primary=SlowPrimary(
+            provider="openai_compatible",
+            model_name="deepseek-v4-flash",
+        ),
+        fallback=FastFallback(
+            provider="openai_compatible",
+            model_name="deepseek-v4-flash",
+        ),
+        hedge_delay_seconds=0.02,
+    )
+
+    started = time.monotonic()
+    result = adapter.generate_structured_output_stream(
+        "Return complete screenplay JSON.",
+        strategy=strategy,
+        output_schema={
+            "type": "object",
+            "properties": {"title": {"type": "string"}},
+            "required": ["title"],
+        },
+        on_delta=lambda delta, reset: deltas.append((delta, reset)),
+    )
+
+    assert time.monotonic() - started < 0.5
+    assert result["title"] == "Fallback winner"
+    assert result["_meta"]["model_hedge_used"] is True
+    assert result["_meta"]["model_hedge_winner"] == "fallback"
+    assert fallback_called.is_set()
+    assert primary_cancelled.wait(timeout=0.5)
+    assert len(deltas) == 1
+    assert deltas[0][1] is True
+    assert json.loads(deltas[0][0])["title"] == "Fallback winner"
+
+
+def test_same_model_hedge_does_not_start_after_primary_output_is_visible() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    fallback_call_count = 0
+    deltas: list[tuple[str, bool]] = []
+
+    class StreamingPrimary(MockLLMAdapter):
+        def generate_structured_output_stream_cancellable(
+            self,
+            prompt,
+            *,
+            strategy,
+            output_schema=None,
+            on_delta=None,
+            cancel_event,
+        ):
+            del prompt, strategy, output_schema, cancel_event
+            assert on_delta is not None
+            on_delta('{"title":', True)
+            time.sleep(0.04)
+            on_delta('"Primary winner"}', False)
+            return {"title": "Primary winner", "_meta": {}}
+
+    class UnusedFallback(MockLLMAdapter):
+        def generate_structured_output_stream_cancellable(
+            self,
+            prompt,
+            *,
+            strategy,
+            output_schema=None,
+            on_delta=None,
+            cancel_event,
+        ):
+            nonlocal fallback_call_count
+            del prompt, strategy, output_schema, on_delta, cancel_event
+            fallback_call_count += 1
+            return {"title": "Unexpected fallback", "_meta": {}}
+
+    adapter = ModelFailoverLLMAdapter(
+        primary=StreamingPrimary(
+            provider="openai_compatible",
+            model_name="deepseek-v4-flash",
+        ),
+        fallback=UnusedFallback(
+            provider="openai_compatible",
+            model_name="deepseek-v4-flash",
+        ),
+        hedge_delay_seconds=0.01,
+    )
+
+    result = adapter.generate_structured_output_stream(
+        "Return complete screenplay JSON.",
+        strategy=strategy,
+        on_delta=lambda delta, reset: deltas.append((delta, reset)),
+    )
+
+    assert result["title"] == "Primary winner"
+    assert fallback_call_count == 0
+    assert deltas == [('{"title":', True), ('"Primary winner"}', False)]
+    assert "model_hedge_started" not in result["_meta"]
+
+
+def test_model_failover_circuit_bypasses_route_after_empty_response() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    primary_calls = 0
+    fallback_calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal primary_calls
+        primary_calls += 1
+        return httpx.Response(200, json={"choices": []})
+
+    class CountingFallbackAdapter(MockLLMAdapter):
+        def generate_structured_output(self, *args, **kwargs):
+            nonlocal fallback_calls
+            fallback_calls += 1
+            return super().generate_structured_output(*args, **kwargs)
+
+    primary = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="unstable-planning-model",
+        api_key="primary-key",
+        base_url="https://primary.test/v1",
+        max_retries=0,
+        retry_empty_response=False,
+        transport=httpx.MockTransport(handler),
+    )
+    adapter = ModelFailoverLLMAdapter(
+        primary=primary,
+        fallback=CountingFallbackAdapter(model_name="healthy-fallback"),
+        circuit_failure_threshold=1,
+        circuit_cooldown_seconds=120,
+    )
+
+    first = adapter.generate_structured_output(
+        "Return the episode roadmap JSON.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+    second = adapter.generate_structured_output(
+        "Return the next episode roadmap JSON.",
+        strategy=strategy,
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+
+    assert primary_calls == 1
+    assert fallback_calls == 2
+    assert first["_meta"]["model_failover_used"] is True
+    assert second["_meta"]["primary_circuit_open"] is True
+    assert "temporarily bypassed" in second["_meta"]["model_failover_reason"]
+
+
+def test_model_failover_does_not_open_circuit_for_ordinary_invalid_json() -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    primary_calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal primary_calls
+        primary_calls += 1
+        return httpx.Response(
+            200,
+            json=build_openai_compatible_response("not-json"),
+        )
+
+    adapter = ModelFailoverLLMAdapter(
+        primary=RealLLMAdapter(
+            provider="openai_compatible",
+            model_name="planning-model",
+            api_key="primary-key",
+            base_url="https://primary.test/v1",
+            max_retries=0,
+            transport=httpx.MockTransport(handler),
+        ),
+        fallback=MockLLMAdapter(model_name="healthy-fallback"),
+        circuit_failure_threshold=1,
+        circuit_cooldown_seconds=120,
+    )
+
+    for _ in range(2):
+        adapter.generate_structured_output(
+            "Return the episode roadmap JSON.",
+            strategy=strategy,
+            output_schema={
+                "type": "object",
+                "properties": {"title": {"type": "string"}},
+            },
+        )
+
+    assert primary_calls == 2
 
 
 def test_model_failover_does_not_hide_a_non_retryable_400() -> None:
@@ -2366,6 +3015,10 @@ def test_model_failover_preserves_both_transport_failures() -> None:
 
     assert exc_info.value.category == "failover_exhausted"
     assert exc_info.value.recoverable is True
+    assert getattr(exc_info.value, "route_failure_categories") == (
+        "transport",
+        "transport",
+    )
     assert "primary peer closed" in str(exc_info.value)
     assert "fallback incomplete chunked read" in str(exc_info.value)
 

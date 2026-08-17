@@ -3,10 +3,10 @@ import type {
   StoryBible,
   StoryPlanNode,
 } from "@/lib/story-planning-client";
-import type { EpisodeRoadmapItem } from "@/lib/types";
+import type { EpisodeRoadmapItem, EpisodeSceneExecutionBeat } from "@/lib/types";
 import { normalizeEpisodeDurationSeconds } from "./generation-planning.ts";
 
-export { approvedEpisodeRoadmapCoverageThrough } from "./planning-coverage.ts";
+export { episodeRoadmapCoverageThrough } from "./planning-coverage.ts";
 
 export interface EpisodeGenerationConstraint {
   episodeNumber: number;
@@ -31,6 +31,7 @@ export interface EpisodeExecutionPlan {
   target_duration_seconds: number;
   planned_scene_count: number;
   planned_shot_count: number;
+  planned_dialogue_line_count: number;
   episode_goal: string;
   entry_state: string;
   central_conflict: string;
@@ -52,6 +53,7 @@ export interface EpisodeExecutionPlan {
   ending_hook_type?: string | null;
   next_episode_obligation?: string | null;
   hook_payoff_target_episode?: number | null;
+  scene_execution_plan: EpisodeSceneExecutionBeat[];
 }
 
 export interface StoryNodeExecutionContext {
@@ -96,11 +98,15 @@ export function episodeGenerationExecutionPlan(
       ? normalizeEpisodeDurationSeconds(plan.target_duration_seconds)
       : 90,
     planned_scene_count: "planned_scene_count" in plan
-      ? plan.planned_scene_count
+      ? Math.min(5, Math.max(1, Math.round(plan.planned_scene_count)))
       : 3,
     planned_shot_count: "planned_shot_count" in plan
-      ? plan.planned_shot_count
+      ? Math.min(20, Math.max(15, Math.round(plan.planned_shot_count)))
       : 16,
+    planned_dialogue_line_count: "planned_dialogue_line_count" in plan
+      && typeof plan.planned_dialogue_line_count === "number"
+      ? Math.min(30, Math.max(20, Math.round(plan.planned_dialogue_line_count)))
+      : 24,
     episode_goal: plan.episode_goal,
     entry_state: plan.entry_state,
     central_conflict: plan.central_conflict,
@@ -126,6 +132,10 @@ export function episodeGenerationExecutionPlan(
     hook_payoff_target_episode: "hook_payoff_target_episode" in plan
       ? plan.hook_payoff_target_episode
       : null,
+    scene_execution_plan: "scene_execution_plan" in plan
+      && Array.isArray(plan.scene_execution_plan)
+      ? plan.scene_execution_plan
+      : [],
   };
 }
 
@@ -172,7 +182,7 @@ export function adaptiveEpisodeSceneCount(
     "planned_scene_count" in plan
     && typeof plan.planned_scene_count === "number"
   ) {
-    return Math.min(5, Math.max(2, Math.round(plan.planned_scene_count)));
+    return Math.min(5, Math.max(1, Math.round(plan.planned_scene_count)));
   }
 
   let complexity = 0;
@@ -187,9 +197,10 @@ export function adaptiveEpisodeSceneCount(
     && (plan.story_line_refs?.length ?? 0) >= 2
   ) complexity += 1;
 
-  if (complexity <= 1) return 2;
-  if (complexity <= 3) return 3;
-  if (complexity <= 5) return 4;
+  if (complexity <= 1) return 1;
+  if (complexity <= 3) return 2;
+  if (complexity <= 5) return 3;
+  if (complexity <= 7) return 4;
   return 5;
 }
 
@@ -209,7 +220,7 @@ export function plannedEpisodeShotCount(
   const plan = constraint?.episodeRoadmap;
   const value = plan?.planned_shot_count;
   return typeof value === "number" && Number.isFinite(value)
-    ? Math.min(24, Math.max(8, Math.round(value)))
+    ? Math.min(20, Math.max(15, Math.round(value)))
     : 16;
 }
 
@@ -275,7 +286,7 @@ export function mergeEpisodeRoadmaps(
   ));
 }
 
-export function replaceEpisodeRoadmapDraft(
+export function replaceEpisodeRoadmapItem(
   current: EpisodeRoadmapItem[],
   replacement: EpisodeRoadmapItem,
 ): EpisodeRoadmapItem[] {
@@ -283,7 +294,7 @@ export function replaceEpisodeRoadmapDraft(
     item.story_bible_version === replacement.story_bible_version
     && item.episode_number >= replacement.episode_number
   ));
-  return mergeEpisodeRoadmaps(retained, [{ ...replacement, status: "draft" }]);
+  return mergeEpisodeRoadmaps(retained, [replacement]);
 }
 
 export function storySegmentBodyReference(
@@ -338,7 +349,7 @@ export type ApprovedScriptLeafDecision =
   | { status: "unapproved"; nextEpisode: number }
   | { status: "complete" };
 
-export function hasCompleteApprovedRoadmap(
+export function hasCompleteEpisodeRoadmap(
   node: StoryPlanNode,
   episodeRoadmaps: EpisodeRoadmapItem[],
 ): boolean {
@@ -350,17 +361,13 @@ export function hasCompleteApprovedRoadmap(
     && item.source_node_version === node.version
     && item.story_bible_version === node.story_bible_version
   ));
-  const approvedEpisodes = new Set(
-    matchingItems
-      .filter((item) => item.status === "approved")
-      .map((item) => item.episode_number),
-  );
+  const plannedEpisodes = new Set(matchingItems.map((item) => item.episode_number));
   return matchingItems.length === endEpisode - startEpisode + 1
-    && approvedEpisodes.size === endEpisode - startEpisode + 1
+    && plannedEpisodes.size === endEpisode - startEpisode + 1
     && Array.from(
       { length: endEpisode - startEpisode + 1 },
       (_, index) => startEpisode + index,
-    ).every((episodeNumber) => approvedEpisodes.has(episodeNumber));
+    ).every((episodeNumber) => plannedEpisodes.has(episodeNumber));
 }
 
 export function approvedScriptLeafRanges(
@@ -370,7 +377,7 @@ export function approvedScriptLeafRanges(
 ): ApprovedScriptLeafRange[] {
   return storyPlanNodes
     .filter(isDirectScriptNode)
-    .filter((node) => !roadmapRequired || hasCompleteApprovedRoadmap(node, episodeRoadmaps))
+    .filter((node) => !roadmapRequired || hasCompleteEpisodeRoadmap(node, episodeRoadmaps))
     .map((node) => ({
       startEpisode: node.planned_start_episode as number,
       endEpisode: node.planned_end_episode as number,
@@ -426,7 +433,7 @@ export function approvedDirectScriptCoverageThrough(
 ): number {
   const ranges = storyPlanNodes
     .filter(isDirectScriptNode)
-    .filter((node) => !options.roadmapRequired || hasCompleteApprovedRoadmap(
+    .filter((node) => !options.roadmapRequired || hasCompleteEpisodeRoadmap(
       node,
       options.episodeRoadmaps ?? [],
     ))
@@ -458,10 +465,8 @@ export function resolveEpisodeGenerationConstraints(
       .map((plan) => [plan.episode_number, plan]),
   );
   const directNodes = new Map<number, StoryPlanNode>();
-  const approvedRoadmaps = new Map(
-    episodeRoadmaps
-      .filter((item) => item.status === "approved")
-      .map((item) => [
+  const savedRoadmaps = new Map(
+    episodeRoadmaps.map((item) => [
         `${item.source_node_id}:${item.source_node_version}:${item.story_bible_version}:${item.episode_number}`,
         item,
       ]),
@@ -487,7 +492,7 @@ export function resolveEpisodeGenerationConstraints(
     const episodePlan = approvedPlans.get(episodeNumber);
     const storyPlanNode = directNodes.get(episodeNumber);
     const episodeRoadmap = storyPlanNode
-      ? approvedRoadmaps.get(
+      ? savedRoadmaps.get(
         `${storyPlanNode.node_id}:${storyPlanNode.version}:${storyPlanNode.story_bible_version}:${episodeNumber}`,
       )
       : undefined;

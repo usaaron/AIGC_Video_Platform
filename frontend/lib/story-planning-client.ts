@@ -4,6 +4,7 @@ import {
   generateWithAutomaticTransientRetry,
   generateWithFailurePolicy,
   isTransientGenerationFailure,
+  MAX_EPISODE_ROADMAP_API_ATTEMPTS,
   roadmapRetryDelayMs,
 } from "@/lib/generation-retry";
 import {
@@ -514,7 +515,7 @@ export async function modifyStoryBibleDraft(
   return response.data;
 }
 
-export async function approveStoryBible(storyBible: StoryBible): Promise<StoryBible> {
+export async function confirmStoryBible(storyBible: StoryBible): Promise<StoryBible> {
   assertMainlandNarrative(storyBibleNarrative(storyBible));
   const approved: StoryBible = {
     ...storyBible,
@@ -762,7 +763,7 @@ export async function generateTopLevelStoryPlanNodes(
   return response.data.sort((left, right) => left.sequence_order - right.sequence_order);
 }
 
-export async function approveStoryPlanNode(
+export async function confirmStoryPlanNode(
   node: StoryPlanNode,
   descendantPolicy: DescendantRevisionPolicy = "invalidate",
 ): Promise<StoryPlanNode> {
@@ -785,7 +786,7 @@ export async function approveStoryPlanNode(
   ) {
     throw new Error("最小剧情单元尚未讲完整：至少需要四个因果事件、单位剧情结算和下一段交接压力。");
   }
-  const approved: StoryPlanNode = {
+  const confirmed: StoryPlanNode = {
     ...node,
     version: node.version + 1,
     status: "approved",
@@ -797,9 +798,9 @@ export async function approveStoryPlanNode(
     approved_at: new Date().toISOString(),
   };
   const response = await apiRequest<StoryPlanNodeResponse>(
-    `/story-projects/${node.story_project_id}/plan-nodes/${node.node_id}/versions/${approved.version}`
+    `/story-projects/${node.story_project_id}/plan-nodes/${node.node_id}/versions/${confirmed.version}`
       + `?descendant_policy=${descendantPolicy}`,
-    { method: "PUT", body: JSON.stringify(approved) },
+    { method: "PUT", body: JSON.stringify(confirmed) },
   );
   return response.data;
 }
@@ -1023,7 +1024,7 @@ export async function generateEpisodePlanBatch(
       mode: "automatic",
       shouldRetry: isTransientGenerationFailure,
       retryDelay: roadmapRetryDelayMs,
-      maxAutomaticAttempts: 3,
+      maxAutomaticAttempts: MAX_EPISODE_ROADMAP_API_ATTEMPTS,
       wait: waitForSharedPlanningRetry,
     });
     const checkpoint: EpisodeRoadmapItem = {
@@ -1031,7 +1032,7 @@ export async function generateEpisodePlanBatch(
       source_node_id: node.node_id,
       source_node_version: node.version,
       story_bible_version: node.story_bible_version,
-      status: "draft",
+      status: "approved",
     };
     accepted.push(checkpoint);
     await onCheckpoint?.(checkpoint);
@@ -1098,7 +1099,7 @@ export async function modifyEpisodePlanItem(
     source_node_id: node.node_id,
     source_node_version: node.version,
     story_bible_version: node.story_bible_version,
-    status: "draft",
+    status: "approved",
   };
 }
 

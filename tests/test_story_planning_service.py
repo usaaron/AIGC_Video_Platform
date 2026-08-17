@@ -27,6 +27,7 @@ from app.modules.script_engine.long_story_models import (
     CreativeDirectionGenerationOutput,
     EpisodePlanBatchDraftRequest,
     EpisodePlanBatchGenerationOutput,
+    EpisodePlanGenerationItem,
     EpisodePlanItemDraftRequest,
     EpisodePlanItemModificationRequest,
     PlanningApprovalStatus,
@@ -60,6 +61,7 @@ from app.modules.script_engine.story_planning_service import (
     TECHNICAL_STORY_ROOT_MARKER,
     StoryPlanningInputError,
     StoryPlanningService,
+    StoryPlanningTransientOutputError,
     _bounded_decomposition_child_repair_sources,
     _fallback_decomposition_spans,
     _story_decomposition_output_token_budget,
@@ -227,8 +229,10 @@ class FixedStoryBibleAdapter(LLMAdapter):
         ):
             assert "knowledge_bundle.draft.cn_mainland_longform_foundation.v1" in prompt
             assert "Use these principles as bounded guidance, not rigid plot formulas" in prompt
-        assert output_schema is not None
-        if "episode_number" in output_schema.get("properties", {}):
+        is_single_episode_item = "SINGLE EPISODE ROADMAP CONTRACT" in prompt
+        assert output_schema is not None or is_single_episode_item
+        properties = output_schema.get("properties", {}) if output_schema else {}
+        if is_single_episode_item or "episode_number" in properties:
             number_match = re.search(r"Create only Episode (\d+)", prompt)
             assert number_match is not None
             number = int(number_match.group(1))
@@ -275,7 +279,7 @@ class FixedStoryBibleAdapter(LLMAdapter):
                     else []
                 ),
             }
-        if "children" in output_schema.get("properties", {}):
+        if "children" in properties:
             ranges = [(1, 84), (85, 167), (168, 251), (252, 334)]
             stage_details = [
                 {
@@ -784,6 +788,70 @@ class StreamingInvalidDecompositionAdapter(FixedStoryBibleAdapter):
         )
 
 
+class EmptyPlanningOutputAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_structured_output_stream(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta=None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        raise LLMStructuredOutputError(
+            "Model stream returned no readable content.",
+            raw_content="",
+            empty_response=True,
+            stream_termination="stream_ended_without_terminal_event",
+        )
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        raise LLMStructuredOutputError(
+            "Model response returned no readable content.",
+            raw_content="",
+            empty_response=True,
+        )
+
+
+class RelaxedTransportDecompositionAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.schema: dict[str, Any] | None = None
+
+    def generate_structured_output_stream(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta=None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        if output_schema is not None:
+            self.schema = output_schema
+            raise LLMStructuredOutputError(
+                "Structured response transport returned no content.",
+                raw_content="",
+                empty_response=True,
+            )
+        assert self.schema is not None
+        return super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=self.schema,
+        )
+
+
 class IncompleteChildDecompositionAdapter(FixedStoryBibleAdapter):
     def __init__(self) -> None:
         self.stream_calls = 0
@@ -833,6 +901,32 @@ class IncompleteChildDecompositionAdapter(FixedStoryBibleAdapter):
         self.child_repair_max_tokens.append(strategy.max_tokens)
         self.child_repair_prompt = prompt
         return self._decomposition(prompt, strategy=strategy)["children"][0]
+
+
+class StructurallyEmptyDecompositionAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_structured_output_stream(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta=None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        return {"children": [{}, {}]}
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        return {"children": [{}, {}]}
 
 
 class RecordingSegmentedDecompositionAdapter(FixedStoryBibleAdapter):
@@ -1893,6 +1987,68 @@ def test_decomposition_repairs_malformed_stream_with_raw_nonstream_response() ->
     assert adapter.nonstream_calls == 1
     assert '"title":"未闭合节点"' in adapter.repair_prompt
     assert len(output.children) == 4
+
+
+def test_empty_decomposition_transport_is_exposed_as_transient_after_repair() -> None:
+    adapter = EmptyPlanningOutputAdapter()
+    service = object.__new__(StoryPlanningService)
+    service._llm_adapter = adapter
+    service._story_architect_llm_adapter = adapter
+
+    with pytest.raises(StoryPlanningTransientOutputError):
+        service._generate_planning_output(
+            prompt=(
+                "Plan a Chinese mainland serialized comic. "
+                "All human-readable output values must be written in Simplified Chinese."
+            ),
+            strategy=build_strategy(),
+            output_model=StoryPlanNodeDecompositionOutput,
+            artifact_name="Story Plan Node decomposition",
+        )
+
+    assert adapter.calls == 2
+
+
+def test_empty_structured_decomposition_retries_once_without_response_schema() -> None:
+    adapter = RelaxedTransportDecompositionAdapter()
+    service = object.__new__(StoryPlanningService)
+    service._llm_adapter = adapter
+    service._story_architect_llm_adapter = adapter
+
+    output = service._generate_planning_output(
+        prompt=(
+            "Plan a Chinese mainland serialized comic. "
+            "All human-readable output values must be written in Simplified Chinese. "
+            "knowledge_bundle.draft.cn_mainland_longform_foundation.v1 "
+            "Use these principles as bounded guidance, not rigid plot formulas."
+        ),
+        strategy=build_strategy(),
+        output_model=StoryPlanNodeDecompositionOutput,
+        artifact_name="Story Plan Node decomposition",
+    )
+
+    assert adapter.calls == 2
+    assert len(output.children) == 4
+
+
+def test_empty_decomposition_children_skip_redundant_repair_cascade() -> None:
+    adapter = StructurallyEmptyDecompositionAdapter()
+    service = object.__new__(StoryPlanningService)
+    service._llm_adapter = adapter
+    service._story_architect_llm_adapter = adapter
+
+    with pytest.raises(StoryPlanningInputError, match="structurally empty"):
+        service._generate_planning_output(
+            prompt=(
+                "Plan a Chinese mainland serialized comic. "
+                "All human-readable output values must be written in Simplified Chinese."
+            ),
+            strategy=build_strategy(),
+            output_model=StoryPlanNodeDecompositionOutput,
+            artifact_name="Story Plan Node decomposition",
+        )
+
+    assert adapter.calls == 1
 
 
 def test_decomposition_repairs_only_the_incomplete_child_after_batch_repair() -> None:
@@ -3277,6 +3433,70 @@ def build_active_lineage_story_bible() -> SimpleNamespace:
     )
 
 
+def test_compiled_top_level_decomposition_normalizes_stage_punctuation() -> None:
+    parent = build_active_lineage_story_node(
+        node_id="story_plan.inflight.root",
+        version=1,
+        start_episode=1,
+        end_episode=16,
+        expansion_status=StoryPlanExpansionStatus.expanded,
+    )
+    story_bible = build_active_lineage_story_bible()
+    story_bible.story_lines[0].story_line_type = "main"
+    story_bible.escalation_stages = [
+        SimpleNamespace(
+            title="触发",
+            stage_goal="完成目标甲。",
+            stage_opposition="面对阻力甲。",
+            stage_payoff="取得回报甲。",
+            escalation_to_next="引出升级甲。",
+        ),
+        SimpleNamespace(
+            title="反击",
+            stage_goal="完成目标乙。",
+            stage_opposition="面对阻力乙。",
+            stage_payoff="取得回报乙。",
+            escalation_to_next="引出升级乙。",
+        ),
+        SimpleNamespace(
+            title="结算",
+            stage_goal="完成目标丙。",
+            stage_opposition="面对阻力丙。",
+            stage_payoff="取得回报丙。",
+            escalation_to_next="完成本段结算。",
+        ),
+    ]
+
+    output = StoryPlanningService._compile_top_level_decomposition(
+        parent=parent,
+        story_bible=story_bible,
+        max_episode_ready_span=12,
+    )
+
+    assert len(output.children) == 2
+    assert "完成目标甲；完成目标乙为行动目标" in output.children[0].synopsis
+    visible_text = [
+        value
+        for child in output.children
+        for value in (
+            child.narrative_purpose,
+            child.synopsis,
+            child.entry_state,
+            child.central_conflict,
+            child.emotional_direction,
+            child.exit_state,
+            child.unit_resolution,
+            child.handoff_pressure,
+            *child.unit_story_beats,
+        )
+    ]
+    assert all(
+        marker not in value
+        for value in visible_text
+        for marker in ("。；", "；。", "。。", "。，")
+    )
+
+
 def build_active_lineage_node_output(
     node: StoryPlanNode,
 ) -> StoryPlanNodeGenerationOutput:
@@ -3395,6 +3615,351 @@ def build_active_lineage_episode_item(episode_number: int = 1) -> dict[str, obje
         "next_episode_obligation": "下一集必须在入口关闭前验证上层签名。",
         "hook_payoff_target_episode": 2,
     }
+
+
+def test_episode_item_fallback_builds_an_executable_scene_blueprint() -> None:
+    item = EpisodePlanGenerationItem.model_validate(build_active_lineage_episode_item())
+
+    prepared = StoryPlanningService._ensure_episode_item_short_drama_fields(item)
+
+    assert len(prepared.scene_execution_plan) == prepared.planned_scene_count
+    assert [scene.scene_number for scene in prepared.scene_execution_plan] == [1, 2, 3]
+    assert sum(scene.dialogue_line_target for scene in prepared.scene_execution_plan) == 24
+    assert sum(scene.shot_target for scene in prepared.scene_execution_plan) == 16
+    assert all(scene.scene_heading.startswith(("INT.", "EXT.")) for scene in prepared.scene_execution_plan)
+    assert all(scene.character_refs == ["character.mara"] for scene in prepared.scene_execution_plan)
+
+
+def test_episode_item_normalizes_english_hook_type_without_model_repair() -> None:
+    payload = {
+        **build_active_lineage_episode_item(),
+        "ending_hook_type": "Evidence threat",
+    }
+
+    normalized = planning_payload_for_validation(
+        {"episode_plans": [payload]},
+        EpisodePlanBatchGenerationOutput,
+        expected_episode_numbers=[1],
+    )
+    item = EpisodePlanBatchGenerationOutput.model_validate(normalized).episode_plans[0]
+
+    assert item.ending_hook_type == "因果压力"
+    assert planning_output_chinese_issues(
+        EpisodePlanBatchGenerationOutput(episode_plans=[item])
+    ) == []
+
+
+def test_episode_item_extracts_hook_label_from_overlong_provider_explanation() -> None:
+    verbose_hook_type = (
+        "分道裂痕型悬念——砝码被重新摆上桌面后，双方表面达成合作，实际却因隐藏证据"
+        "产生新的不信任；下一集还必须验证授权编号、处理公开后果并重新确认合作条件，"
+        "同时防止对手销毁剩余凭证。"
+    )
+    assert len(verbose_hook_type) > 80
+    payload = {
+        **build_active_lineage_episode_item(),
+        "ending_hook_type": verbose_hook_type,
+    }
+
+    normalized = planning_payload_for_validation(
+        {"episode_plans": [payload]},
+        EpisodePlanBatchGenerationOutput,
+        expected_episode_numbers=[1],
+    )
+    item = EpisodePlanBatchGenerationOutput.model_validate(normalized).episode_plans[0]
+
+    assert item.ending_hook_type == "分道裂痕型悬念"
+
+
+def test_episode_item_falls_back_when_hook_type_is_long_unclassified_prose() -> None:
+    payload = {
+        **build_active_lineage_episode_item(),
+        "ending_hook_type": "这是一段没有分类标签的详细解释" * 10,
+    }
+
+    normalized = planning_payload_for_validation(
+        {"episode_plans": [payload]},
+        EpisodePlanBatchGenerationOutput,
+        expected_episode_numbers=[1],
+    )
+    item = EpisodePlanBatchGenerationOutput.model_validate(normalized).episode_plans[0]
+
+    assert item.ending_hook_type == "因果压力"
+
+
+def test_incomplete_scene_blueprint_falls_back_without_rejecting_the_episode() -> None:
+    payload = {
+        **build_active_lineage_episode_item(),
+        "scene_execution_plan": [
+            {
+                "scene_number": 1,
+                "scene_heading": "档案室 日",
+                "character_refs": ["character.unapproved"],
+                "scene_objective": "确认账本来源。",
+                "visible_action": "主角核对档案。",
+                "turn_or_reveal": "时间戳被改写。",
+                "dialogue_objective": "逼问管理员。",
+                "dialogue_line_target": 24,
+                "shot_target": 16,
+            }
+        ],
+    }
+
+    normalized = planning_payload_for_validation(
+        {"episode_plans": [payload]},
+        EpisodePlanBatchGenerationOutput,
+        expected_episode_numbers=[1],
+    )
+    item = EpisodePlanBatchGenerationOutput.model_validate(normalized).episode_plans[0]
+    prepared = StoryPlanningService._ensure_episode_item_short_drama_fields(item)
+
+    assert len(prepared.scene_execution_plan) == 3
+    assert all(scene.character_refs == ["character.mara"] for scene in prepared.scene_execution_plan)
+
+
+def build_episode_item_generation_service(adapter: object) -> tuple[
+    StoryPlanningService,
+    StoryPlanNode,
+]:
+    source = build_active_lineage_story_node(
+        node_id="story_plan.inflight.episode_transport",
+        version=1,
+        start_episode=1,
+        end_episode=8,
+        expansion_status=StoryPlanExpansionStatus.episode_ready,
+    )
+    replacement = source.model_copy(update={"version": 2})
+    service = object.__new__(StoryPlanningService)
+    service._long_story_service = MutableActiveLineageLongStoryService(
+        source,
+        replacement,
+        build_active_lineage_story_bible(),
+    )
+    service._generation_strategy_repository = SimpleNamespace(
+        get=lambda _strategy_id: build_strategy()
+    )
+    service._llm_adapter = adapter
+    service._episode_plan_llm_adapter = adapter
+    service._content_spec_for_story_bible = lambda _story_bible: SimpleNamespace()
+    service._knowledge_context = lambda **_kwargs: ""
+    return service, source
+
+
+def episode_item_request(source: StoryPlanNode) -> EpisodePlanItemDraftRequest:
+    return EpisodePlanItemDraftRequest(
+        story_project_id=source.story_project_id,
+        source_node_id=source.node_id,
+        source_node_version=source.version,
+        generation_strategy_id="strategy.test",
+        episode_number=1,
+        accepted_plans=[],
+    )
+
+
+def test_episode_item_uses_native_json_without_schema_transport() -> None:
+    class NativeJsonEpisodeItemAdapter(FixedStoryBibleAdapter):
+        def __init__(self) -> None:
+            self.schemas: list[dict[str, Any] | None] = []
+            self.max_tokens: list[int] = []
+
+        def generate_structured_output(
+            self,
+            _prompt: str,
+            *,
+            strategy: GenerationStrategy,
+            output_schema: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            self.schemas.append(output_schema)
+            self.max_tokens.append(strategy.max_tokens)
+            return build_active_lineage_episode_item()
+
+    adapter = NativeJsonEpisodeItemAdapter()
+    service, source = build_episode_item_generation_service(adapter)
+
+    item = service.generate_episode_plan_item(episode_item_request(source))
+
+    assert adapter.schemas == [None]
+    assert adapter.max_tokens == [2_800]
+    assert len(item.scene_execution_plan) == item.planned_scene_count
+
+
+def test_episode_item_accepts_verbose_hook_type_without_full_item_repair() -> None:
+    class VerboseHookTypeAdapter(FixedStoryBibleAdapter):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate_structured_output(
+            self,
+            _prompt: str,
+            *,
+            strategy: GenerationStrategy,
+            output_schema: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            self.calls += 1
+            return {
+                **build_active_lineage_episode_item(),
+                "ending_hook_type": (
+                    "对峙型悬念——主角将证据摆上桌面，对手表面妥协却暗中调动人手，"
+                    "双方的合作条件因此改变，下一集必须处理公开证据后的直接反制。"
+                ),
+            }
+
+    adapter = VerboseHookTypeAdapter()
+    service, source = build_episode_item_generation_service(adapter)
+
+    item = service.generate_episode_plan_item(episode_item_request(source))
+
+    assert adapter.calls == 1
+    assert item.ending_hook_type == "对峙型悬念"
+
+
+def test_episode_item_empty_transport_is_retryable_and_skips_semantic_repair() -> None:
+    adapter = EmptyPlanningOutputAdapter()
+    service, source = build_episode_item_generation_service(adapter)
+
+    with pytest.raises(StoryPlanningTransientOutputError, match="empty or interrupted"):
+        service.generate_episode_plan_item(episode_item_request(source))
+
+    assert adapter.calls == 1
+
+
+def test_episode_item_repairs_only_duplicate_payoff_and_hook_fields() -> None:
+    class DiversityRepairAdapter(FixedStoryBibleAdapter):
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
+            self.max_tokens: list[int] = []
+
+        def generate_structured_output(
+            self,
+            prompt: str,
+            *,
+            strategy: GenerationStrategy,
+            output_schema: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            assert output_schema is None
+            self.prompts.append(prompt)
+            self.max_tokens.append(strategy.max_tokens)
+            if len(self.prompts) == 1:
+                return build_active_lineage_episode_item(2)
+            return {
+                "episode_payoff": "主角当众截停销毁流程并取得可核验的转账回执。",
+                "pressure_escalation": "转账回执显示核心账户将在次日清零。",
+                "cliffhanger": "回执背面的授权编号指向主角最信任的同事。",
+                "ending_hook_type": "关系压力",
+                "next_episode_obligation": "下一集必须核对授权编号并确认同事是否被冒名。",
+            }
+
+    adapter = DiversityRepairAdapter()
+    service, source = build_episode_item_generation_service(adapter)
+    accepted = EpisodePlanGenerationItem.model_validate(
+        build_active_lineage_episode_item(1)
+    )
+    original_goal = build_active_lineage_episode_item(2)["episode_goal"]
+
+    item = service.generate_episode_plan_item(EpisodePlanItemDraftRequest(
+        story_project_id=source.story_project_id,
+        source_node_id=source.node_id,
+        source_node_version=source.version,
+        generation_strategy_id="strategy.test",
+        episode_number=2,
+        accepted_plans=[accepted],
+    ))
+
+    assert len(adapter.prompts) == 2
+    assert adapter.max_tokens == [2_800, 1_200]
+    assert "DIVERSITY-ONLY EPISODE ROADMAP REPAIR" in adapter.prompts[1]
+    assert item.episode_goal == original_goal
+    assert item.episode_payoff.startswith("主角当众截停")
+    assert item.cliffhanger.startswith("回执背面的授权编号")
+    assert item.scene_execution_plan[-1].scene_objective == item.episode_payoff
+    assert item.scene_execution_plan[-1].turn_or_reveal == item.cliffhanger
+
+
+def test_episode_item_keeps_complete_result_when_diversity_repair_is_invalid() -> None:
+    class InvalidDiversityRepairAdapter(FixedStoryBibleAdapter):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate_structured_output(
+            self,
+            _prompt: str,
+            *,
+            strategy: GenerationStrategy,
+            output_schema: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            assert output_schema is None
+            self.calls += 1
+            if self.calls == 1:
+                return build_active_lineage_episode_item(2)
+            return {"episode_payoff": "缺少其他局部修复字段"}
+
+    adapter = InvalidDiversityRepairAdapter()
+    service, source = build_episode_item_generation_service(adapter)
+    accepted = EpisodePlanGenerationItem.model_validate(
+        build_active_lineage_episode_item(1)
+    )
+
+    item = service.generate_episode_plan_item(EpisodePlanItemDraftRequest(
+        story_project_id=source.story_project_id,
+        source_node_id=source.node_id,
+        source_node_version=source.version,
+        generation_strategy_id="strategy.test",
+        episode_number=2,
+        accepted_plans=[accepted],
+    ))
+
+    assert adapter.calls == 2
+    assert item.episode_payoff == accepted.episode_payoff
+    assert item.cliffhanger == accepted.cliffhanger
+    assert len(item.scene_execution_plan) == item.planned_scene_count
+
+
+def test_episode_item_accepts_complete_result_when_diversity_repair_still_repeats() -> None:
+    class RepeatedDiversityRepairAdapter(FixedStoryBibleAdapter):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate_structured_output(
+            self,
+            _prompt: str,
+            *,
+            strategy: GenerationStrategy,
+            output_schema: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            assert output_schema is None
+            self.calls += 1
+            original = build_active_lineage_episode_item(2)
+            if self.calls == 1:
+                return original
+            return {
+                field_name: original[field_name]
+                for field_name in (
+                    "episode_payoff",
+                    "pressure_escalation",
+                    "cliffhanger",
+                    "ending_hook_type",
+                    "next_episode_obligation",
+                )
+            }
+
+    adapter = RepeatedDiversityRepairAdapter()
+    service, source = build_episode_item_generation_service(adapter)
+    accepted = EpisodePlanGenerationItem.model_validate(
+        build_active_lineage_episode_item(1)
+    )
+
+    item = service.generate_episode_plan_item(EpisodePlanItemDraftRequest(
+        story_project_id=source.story_project_id,
+        source_node_id=source.node_id,
+        source_node_version=source.version,
+        generation_strategy_id="strategy.test",
+        episode_number=2,
+        accepted_plans=[accepted],
+    ))
+
+    assert adapter.calls == 2
+    assert item.episode_payoff == accepted.episode_payoff
+    assert item.cliffhanger == accepted.cliffhanger
 
 
 class MutableActiveLineageLongStoryService:
@@ -4026,6 +4591,7 @@ def test_episode_plan_modification_preserves_approved_assignments() -> None:
     class ModificationAdapter(FixedStoryBibleAdapter):
         def __init__(self) -> None:
             self.prompts: list[str] = []
+            self.schemas: list[dict[str, Any] | None] = []
 
         def generate_structured_output(
             self,
@@ -4035,6 +4601,7 @@ def test_episode_plan_modification_preserves_approved_assignments() -> None:
             output_schema: dict[str, Any] | None = None,
         ) -> dict[str, Any]:
             self.prompts.append(prompt)
+            self.schemas.append(output_schema)
             return {
                 **current,
                 "episode_number": 999,
@@ -4080,6 +4647,7 @@ def test_episode_plan_modification_preserves_approved_assignments() -> None:
     assert revised.payoff_refs == current["payoff_refs"]
     assert revised.source_turning_points == []
     assert revised.source_unit_story_beats == []
+    assert adapter.schemas == [None]
     assert "Revision mode: rewrite" in adapter.prompts[0]
 
 
@@ -4466,7 +5034,7 @@ def test_top_level_generation_compiles_approved_escalation_stages_without_llm(
         for stage, node in zip(approved_bible.escalation_stages, top_level)
     )
     assert all(
-        stage.stage_goal in node.narrative_purpose
+        stage.stage_goal.rstrip("，,。；;：:！？!?、 ") in node.narrative_purpose
         for stage, node in zip(approved_bible.escalation_stages, top_level)
     )
     assert top_level[0].entry_state == technical_root.entry_state

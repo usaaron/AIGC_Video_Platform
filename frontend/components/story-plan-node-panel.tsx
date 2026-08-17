@@ -1,6 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import {
+  Check,
+  ChevronDown,
+  Eye,
+  GitBranch,
+  ListTree,
+  Pencil,
+  Play,
+  Save,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -15,15 +27,18 @@ import { userFacingError } from "@/lib/api-error";
 import {
   approvedDirectScriptCoverageThrough,
   contiguousEpisodeCoverageThrough,
-  hasCompleteApprovedRoadmap,
   isDirectScriptNode,
   isOversizedStoryPlanNode,
   mergeEpisodeRoadmaps,
-  replaceEpisodeRoadmapDraft,
+  replaceEpisodeRoadmapItem,
   storyPlanNodeEpisodeSpan,
 } from "@/lib/episode-generation-planning";
 import {
-  approveStoryPlanNode,
+  runFullEpisodeRoadmapGeneration,
+  type EpisodeRoadmapGenerationProgress,
+} from "@/lib/episode-roadmap-generation";
+import {
+  confirmStoryPlanNode,
   decomposeStoryPlanNode,
   generateEpisodePlanBatch,
   loadChildStoryPlanNodes,
@@ -38,6 +53,7 @@ import {
 } from "@/lib/story-planning-client";
 import {
   enqueuePlanningTask,
+  planningTaskElapsedSeconds,
   useTrackedPlanningTask,
   waitForPlanningTaskResume,
 } from "@/lib/story-planning-background";
@@ -45,7 +61,14 @@ import {
   runFullStoryTreeExpansion,
   type StoryTreeExpansionProgress,
 } from "@/lib/story-tree-expansion";
-import type { EpisodeRoadmapItem, ScriptProject } from "@/lib/types";
+import { resolveStoryPlanNodeWorkflow } from "@/lib/story-plan-node-actions";
+import { summarizeStoryPlanTreeProgress } from "@/lib/story-plan-tree-progress";
+import { compactTopLevelSynopsis } from "@/lib/planning-text";
+import type {
+  EpisodeRoadmapItem,
+  EpisodeSceneExecutionBeat,
+  ScriptProject,
+} from "@/lib/types";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 
@@ -74,9 +97,13 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const { t } = useLocale();
   const { syncProjectSnapshot } = useProjects();
   const [topLevelNodes, setTopLevelNodes] = useState<StoryPlanNode[]>([]);
-  const [busy, setBusy] = useState<"load" | "generate" | null>("load");
+  const [activeTreeNodes, setActiveTreeNodes] = useState<StoryPlanNode[]>([]);
+  const [busy, setBusy] = useState<"load" | "generate" | "roadmap" | null>("load");
   const [message, setMessage] = useState<string | null>(null);
   const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
+  const [roadmapGenerationProgress, setRoadmapGenerationProgress] = useState<
+    EpisodeRoadmapGenerationProgress | null
+  >(null);
   const [treeRefreshToken, setTreeRefreshToken] = useState(0);
   const [treeCheckpointRefreshes, setTreeCheckpointRefreshes] = useState<Map<string, number>>(
     () => new Map(),
@@ -92,6 +119,10 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const topLevelTaskKey = `full-tree:${project.id}:${storyBible.story_bible_id}:${storyBible.version}`;
   const topLevelTask = useTrackedPlanningTask(topLevelTaskKey);
   const topLevelTaskActive = topLevelTask?.status === "queued" || topLevelTask?.status === "running";
+  const roadmapBatchTaskKey = `episode-roadmap-all:${project.id}:${storyBible.story_bible_id}:${storyBible.version}`;
+  const roadmapBatchTask = useTrackedPlanningTask(roadmapBatchTaskKey);
+  const roadmapBatchTaskActive = roadmapBatchTask?.status === "queued"
+    || roadmapBatchTask?.status === "running";
   const updateBranchInteraction = useCallback((key: string, active: boolean) => {
     setActiveBranchInteractions((current) => {
       if (current.has(key) === active) return current;
@@ -106,6 +137,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
     let active = true;
     setBusy("load");
     setTopLevelNodes([]);
+    setActiveTreeNodes([]);
     loadTopLevelStoryPlanNodes(
       project.id,
       storyBible.story_bible_id,
@@ -120,6 +152,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
           storyBible.version,
         );
         if (!active) return;
+        setActiveTreeNodes(allNodes);
         setTreeUnlockedNodeIds(new Set(
           allNodes.filter(isDirectScriptNode).map((node) => node.node_id),
         ));
@@ -140,26 +173,58 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   }, [project.id, storyBible.story_bible_id, storyBible.version, t]);
 
   useEffect(() => {
-    if (busy !== "generate" && !topLevelTaskActive) {
+    if (
+      busy !== "generate"
+      && busy !== "roadmap"
+      && !topLevelTaskActive
+      && !roadmapBatchTaskActive
+    ) {
       setGenerationElapsedSeconds(0);
       return;
     }
-    const startedAt = Date.now();
+    const activeTask = roadmapBatchTaskActive
+      ? roadmapBatchTask
+      : topLevelTaskActive
+        ? topLevelTask
+        : undefined;
+    const localStartedAt = Date.now();
+    const updateElapsed = () => {
+      const elapsed = activeTask
+        ? planningTaskElapsedSeconds(activeTask)
+        : Math.round((Date.now() - localStartedAt) / 1_000);
+      setGenerationElapsedSeconds(Math.max(1, elapsed));
+    };
+    updateElapsed();
     const timer = window.setInterval(() => {
-      setGenerationElapsedSeconds(Math.max(1, Math.round((Date.now() - startedAt) / 1000)));
+      updateElapsed();
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [busy, topLevelTaskActive]);
+  }, [
+    busy,
+    roadmapBatchTask,
+    roadmapBatchTaskActive,
+    topLevelTask,
+    topLevelTaskActive,
+  ]);
 
   useEffect(() => {
     if (topLevelTask?.status !== "completed") return;
     let active = true;
-    loadTopLevelStoryPlanNodes(
-      project.id,
-      storyBible.story_bible_id,
-      storyBible.version,
-    ).then((value) => {
-      if (active) setTopLevelNodes(value);
+    Promise.all([
+      loadTopLevelStoryPlanNodes(
+        project.id,
+        storyBible.story_bible_id,
+        storyBible.version,
+      ),
+      loadActiveStoryPlanNodes(
+        project.id,
+        storyBible.story_bible_id,
+        storyBible.version,
+      ),
+    ]).then(([topLevel, allNodes]) => {
+      if (!active) return;
+      setTopLevelNodes(topLevel);
+      setActiveTreeNodes(allNodes);
     }).catch(() => undefined);
     return () => { active = false; };
   }, [project.id, storyBible.story_bible_id, storyBible.version, topLevelTask?.status]);
@@ -174,18 +239,28 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   }, [topLevelTask?.error, topLevelTask?.status, t]);
 
   useEffect(() => {
+    if (roadmapBatchTask?.status !== "failed") return;
+    setBusy(null);
+    setMessage((current) => current ?? userFacingError(
+      new Error(roadmapBatchTask.error ?? ""),
+      t("storyPlanNode.roadmapAllFailed"),
+    ));
+  }, [roadmapBatchTask?.error, roadmapBatchTask?.status, t]);
+
+  useEffect(() => {
     if (
       !autoExpansionRequested
       || busy
       || topLevelTaskActive
+      || roadmapBatchTaskActive
       || activeBranchInteractions.size > 0
     ) return;
     setAutoExpansionRequested(false);
     void expandFullTree();
-  }, [activeBranchInteractions.size, autoExpansionRequested, busy, topLevelTaskActive]);
+  }, [activeBranchInteractions.size, autoExpansionRequested, busy, roadmapBatchTaskActive, topLevelTaskActive]);
 
   async function expandFullTree() {
-    if (topLevelTaskActive || activeBranchInteractions.size > 0) return;
+    if (topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0) return;
     setBusy("generate");
     setMessage(null);
     const syncState = await syncProjectSnapshot(project);
@@ -236,6 +311,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       }),
       onSuccess: async (result) => {
         setTopLevelNodes(result.topLevelNodes);
+        setActiveTreeNodes(result.activeNodes);
         await persistProjectUpdate(onProjectUpdate, (current) => {
           // The full-tree coordinator no longer owns roadmap generation. Use
           // the latest project snapshot so a leaf edit made during expansion
@@ -270,6 +346,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
             storyBible.story_bible_id,
             storyBible.version,
           );
+          setActiveTreeNodes(activeNodes);
           await persistProjectUpdate(onProjectUpdate, (current) => ({
             episodePlansReadyThrough: approvedDirectScriptCoverageThrough(activeNodes, {
               episodeRoadmaps: current.episodeRoadmaps ?? [],
@@ -287,6 +364,78 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
     void background.promise.catch(() => undefined);
   }
 
+  async function generateAllEpisodeRoadmaps() {
+    if (
+      topLevelTaskActive
+      || roadmapBatchTaskActive
+      || activeBranchInteractions.size > 0
+    ) return;
+    setBusy("roadmap");
+    setMessage(null);
+    const syncState = await syncProjectSnapshot(project);
+    if (syncState.status !== "synced") {
+      setBusy(null);
+      setMessage(t("storyBible.syncRequired"));
+      return;
+    }
+    const background = enqueuePlanningTask({
+      key: roadmapBatchTaskKey,
+      kind: "episode_roadmap",
+      projectId: project.id,
+      label: t("storyPlanNode.roadmapAllRunning"),
+      run: () => runFullEpisodeRoadmapGeneration({
+        project,
+        storyBible,
+        beforeStep: async () => { await waitForPlanningTaskResume(roadmapBatchTaskKey); },
+        onProgress: (progress) => setRoadmapGenerationProgress(progress),
+        onCheckpoint: async (checkpoint) => {
+          await persistProjectUpdate(onProjectUpdate, (current) => ({
+            episodeRoadmaps: mergeEpisodeRoadmaps(
+              current.episodeRoadmaps ?? [],
+              [checkpoint],
+            ),
+          }));
+        },
+      }),
+      onSuccess: async (result) => {
+        setActiveTreeNodes(result.activeNodes);
+        await persistProjectUpdate(onProjectUpdate, (current) => {
+          const episodeRoadmaps = mergeEpisodeRoadmaps(
+            current.episodeRoadmaps ?? [],
+            result.episodeRoadmaps,
+          );
+          return {
+            episodeRoadmaps,
+            episodePlansReadyThrough: approvedDirectScriptCoverageThrough(
+              result.activeNodes,
+              { episodeRoadmaps, roadmapRequired: true },
+            ) || undefined,
+          };
+        });
+        setRoadmapGenerationProgress(null);
+        setMessage(t("storyPlanNode.roadmapAllComplete"));
+        setBusy(null);
+      },
+      onFailure: (error) => {
+        setRoadmapGenerationProgress(null);
+        setMessage(userFacingError(error, t("storyPlanNode.roadmapAllFailed")));
+        setBusy(null);
+      },
+    });
+    void background.promise.catch(() => undefined);
+  }
+
+  const treeProgress = summarizeStoryPlanTreeProgress(
+    activeTreeNodes,
+    project.episodeRoadmaps ?? [],
+    project.generationSettings.episodeCount,
+  );
+  const roadmapGenerationComplete = treeProgress.plannedEpisodeCount > 0
+    && treeProgress.generatedRoadmapCount === treeProgress.plannedEpisodeCount;
+  const roadmapProgressLabel = t("storyPlanNode.roadmapOverallProgress")
+    .replace("{generated}", String(treeProgress.generatedRoadmapCount))
+    .replace("{total}", String(treeProgress.plannedEpisodeCount));
+
   return (
     <section className="story-bible-panel story-plan-node-panel">
       <div className="story-bible-heading">
@@ -297,14 +446,58 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
             <SectionHelp content={t("guide.storyTree")} label={t("guide.openHelp")} />
           </div>
         </div>
-        <button className="primary-action" disabled={Boolean(busy) || topLevelTaskActive || activeBranchInteractions.size > 0} onClick={() => void expandFullTree()} type="button">
-          {busy === "generate" || topLevelTaskActive
-            ? t("storyPlanNode.expandAllElapsed")
-              .replace("{seconds}", String(generationElapsedSeconds))
-            : topLevelNodes.length
-              ? t("storyPlanNode.continueExpandAll")
-              : t("storyPlanNode.expandAll")}
-        </button>
+        <div className="story-plan-stage-actions">
+          <div className="story-plan-stage-action">
+            <span className="story-plan-stage-index">{t("storyPlanNode.treeStage")}</span>
+            {treeProgress.expansionComplete && !topLevelTaskActive ? (
+              <span className="planning-ready-badge is-tree-complete">
+                <Check aria-hidden="true" size={14} />
+                {t("storyPlanNode.treeCompleteBadge")}
+              </span>
+            ) : (
+              <button
+                className="primary-action"
+                disabled={Boolean(busy) || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0}
+                onClick={() => void expandFullTree()}
+                type="button"
+              >
+                <GitBranch aria-hidden="true" size={15} />
+                {busy === "generate" || topLevelTaskActive
+                  ? t("storyPlanNode.expandAllElapsed")
+                    .replace("{seconds}", String(generationElapsedSeconds))
+                  : topLevelNodes.length
+                    ? t("storyPlanNode.continueExpandAll")
+                    : t("storyPlanNode.expandAll")}
+              </button>
+            )}
+          </div>
+          <div className="story-plan-stage-action">
+            <span className="story-plan-stage-index">{t("storyPlanNode.roadmapStage")}</span>
+            {roadmapGenerationComplete && !roadmapBatchTaskActive ? (
+              <span className="planning-ready-badge is-tree-complete">
+                <Check aria-hidden="true" size={14} />
+                {t("storyPlanNode.roadmapCompleteBadge")}
+              </span>
+            ) : (
+              <button
+                className="primary-action"
+                disabled={Boolean(busy) || !treeProgress.expansionComplete || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0}
+                onClick={() => void generateAllEpisodeRoadmaps()}
+                title={!treeProgress.expansionComplete ? t("storyPlanNode.roadmapAllBlocked") : undefined}
+                type="button"
+              >
+                <ListTree aria-hidden="true" size={15} />
+                {busy === "roadmap" || roadmapBatchTaskActive
+                  ? t("storyPlanNode.roadmapAllElapsed")
+                    .replace("{seconds}", String(generationElapsedSeconds))
+                  : treeProgress.generatedRoadmapCount > 0
+                    ? t("storyPlanNode.continueAllRoadmaps")
+                    : t("storyPlanNode.generateAllRoadmaps")}
+              </button>
+            )}
+          </div>
+          <span className="story-plan-stage-progress">{roadmapProgressLabel}</span>
+        </div>
       </div>
       {busy === "load" ? <p>{t("storyPlanNode.loading")}</p> : null}
       {busy === "generate" ? (
@@ -321,10 +514,20 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
             : t("storyPlanNode.expandAllHelp")}
         </div>
       ) : null}
+      {busy === "roadmap" || roadmapBatchTaskActive ? (
+        <div className="inline-notice">
+          {roadmapGenerationProgress?.currentEpisode
+            ? t("storyPlanNode.roadmapAllProgress")
+              .replace("{episode}", String(roadmapGenerationProgress.currentEpisode))
+              .replace("{completed}", String(roadmapGenerationProgress.completedEpisodes))
+              .replace("{total}", String(roadmapGenerationProgress.totalEpisodes))
+            : t("storyPlanNode.roadmapAllHelp")}
+        </div>
+      ) : null}
       {message ? (
         <div
-          className={`inline-notice${topLevelTask?.status === "failed" ? " is-error" : ""}`}
-          role={topLevelTask?.status === "failed" ? "alert" : undefined}
+          className={`inline-notice${topLevelTask?.status === "failed" || roadmapBatchTask?.status === "failed" ? " is-error" : ""}`}
+          role={topLevelTask?.status === "failed" || roadmapBatchTask?.status === "failed" ? "alert" : undefined}
         >
           {message}
         </div>
@@ -336,23 +539,25 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
           initialNode={node}
           key={`${node.node_id}-${node.version}`}
           project={project}
+          storyPlanNodes={activeTreeNodes}
           onProjectUpdate={onProjectUpdate}
           onInteractionChange={updateBranchInteraction}
           onRequestResplit={() => setAutoExpansionRequested(true)}
           refreshToken={treeRefreshToken}
-          treeBusy={busy === "generate" || topLevelTaskActive}
+          treeBusy={busy === "generate" || topLevelTaskActive || busy === "roadmap" || roadmapBatchTaskActive}
           treeCheckpointRefreshes={treeCheckpointRefreshes}
-          treeUnlockedNodeIds={treeUnlockedNodeIds}
+          treeUnlockedNodeIds={busy === "roadmap" || roadmapBatchTaskActive ? new Set() : treeUnlockedNodeIds}
         />
       ))}
     </section>
   );
 }
 
-function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpdate, onRequestResplit, project, refreshToken = 0, treeBusy = false, treeCheckpointRefreshes, treeUnlockedNodeIds }: {
+function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpdate, onRequestResplit, project, refreshToken = 0, storyPlanNodes, treeBusy = false, treeCheckpointRefreshes, treeUnlockedNodeIds }: {
   depth: number;
   initialNode: StoryPlanNode;
   project: ScriptProject;
+  storyPlanNodes: StoryPlanNode[];
   onInteractionChange?: (key: string, active: boolean) => void;
   onProjectUpdate?: ProjectUpdateHandler;
   onRequestResplit?: () => void;
@@ -367,7 +572,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
   const [isEditing, setIsEditing] = useState(false);
   const [editingSnapshot, setEditingSnapshot] = useState<StoryPlanNode | null>(null);
   const [busy, setBusy] = useState<
-    "load" | "save" | "approve" | "decompose" | "roadmap" | "ai" | "roadmap-edit" | "roadmap-ai" | null
+    "load" | "save" | "confirm" | "decompose" | "roadmap" | "ai" | "roadmap-edit" | "roadmap-ai" | null
   >("load");
   const [message, setMessage] = useState<string | null>(null);
   const [aiCandidate, setAiCandidate] = useState<StoryPlanNode | null>(null);
@@ -460,9 +665,9 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
     ));
   }, [failedPlanningTask?.error, failedPlanningTask?.id, failedPlanningTask?.kind, t]);
 
-  async function approveNode() {
+  async function confirmNode() {
     if (treeInteractionLocked || isEditing) return;
-    setBusy("approve");
+    setBusy("confirm");
     setMessage(null);
     try {
       const previousTree = children.length
@@ -473,13 +678,13 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
         )
         : [];
       const previousSubtree = collectStoryPlanSubtreeVersions(previousTree, node);
-      const approved = await approveStoryPlanNode(node, children.length ? "rebase" : "invalidate");
-      setNode(approved);
+      const confirmed = await confirmStoryPlanNode(node, children.length ? "rebase" : "invalidate");
+      setNode(confirmed);
       if (children.length) {
         const nextTree = await loadActiveStoryPlanNodes(
           project.id,
-          approved.story_bible_id,
-          approved.story_bible_version,
+          confirmed.story_bible_id,
+          confirmed.story_bible_version,
         );
         const nextVersions = new Map(nextTree.map((item) => [item.node_id, item.version]));
         await persistProjectUpdate(onProjectUpdate, (current) => {
@@ -498,17 +703,17 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
         });
         setChildren(await loadChildStoryPlanNodes(
           project.id,
-          approved.node_id,
-          approved.story_bible_id,
-          approved.story_bible_version,
-          approved.version,
+          confirmed.node_id,
+          confirmed.story_bible_id,
+          confirmed.story_bible_version,
+          confirmed.version,
         ));
       }
-      if (isDirectScriptNode(approved)) {
+      if (isDirectScriptNode(confirmed)) {
         const allNodes = await loadActiveStoryPlanNodes(
           project.id,
-          approved.story_bible_id,
-          approved.story_bible_version,
+          confirmed.story_bible_id,
+          confirmed.story_bible_version,
         );
         await persistProjectUpdate(onProjectUpdate, (current) => ({
           episodePlansReadyThrough: approvedDirectScriptCoverageThrough(allNodes, {
@@ -517,9 +722,9 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
           }) || undefined,
         }));
       }
-      setMessage(t("storyPlanNode.approved"));
+      setMessage(t("storyPlanNode.confirmed"));
     } catch (error) {
-      setMessage(userFacingError(error, t("storyPlanNode.approveFailed")));
+      setMessage(userFacingError(error, t("storyPlanNode.confirmFailed")));
     } finally {
       setBusy(null);
     }
@@ -536,7 +741,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
       setDescendantDecision({ candidate, source });
       return;
     }
-    if (candidate.status === "approved" && !window.confirm(t("storyPlanNode.modifyApprovedConfirm"))) {
+    if (candidate.status === "approved" && !window.confirm(t("storyPlanNode.modifyConfirmedConfirm"))) {
       return;
     }
     await persistNode(candidate, source, "invalidate");
@@ -682,22 +887,36 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
         project,
         node,
         async (checkpoint) => {
-          await persistProjectUpdate(onProjectUpdate, (current) => ({
-            episodeRoadmaps: mergeEpisodeRoadmaps(
+          await persistProjectUpdate(onProjectUpdate, (current) => {
+            const episodeRoadmaps = mergeEpisodeRoadmaps(
               current.episodeRoadmaps ?? [],
               [checkpoint],
-            ),
-          }));
+            );
+            return {
+              episodeRoadmaps,
+              episodePlansReadyThrough: approvedDirectScriptCoverageThrough(storyPlanNodes, {
+                episodeRoadmaps,
+                roadmapRequired: true,
+              }) || undefined,
+            };
+          });
         },
         async () => { await waitForPlanningTaskResume(roadmapTaskKey); },
       ),
       onSuccess: async (generated) => {
-        await persistProjectUpdate(onProjectUpdate, (current) => ({
-          episodeRoadmaps: mergeEpisodeRoadmaps(
+        await persistProjectUpdate(onProjectUpdate, (current) => {
+          const episodeRoadmaps = mergeEpisodeRoadmaps(
             current.episodeRoadmaps ?? [],
             generated,
-          ),
-        }));
+          );
+          return {
+            episodeRoadmaps,
+            episodePlansReadyThrough: approvedDirectScriptCoverageThrough(storyPlanNodes, {
+              episodeRoadmaps,
+              roadmapRequired: true,
+            }) || undefined,
+          };
+        });
         setMessage(t("storyPlanNode.roadmapGenerated"));
         setBusy(null);
       },
@@ -707,38 +926,6 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
       },
     });
     void background.promise.catch(() => undefined);
-  }
-
-  async function approveRoadmap() {
-    if (treeInteractionLocked || isEditing) return;
-    setBusy("roadmap");
-    setMessage(null);
-    try {
-      const allNodes = await loadActiveStoryPlanNodes(
-        project.id,
-        node.story_bible_id,
-        node.story_bible_version,
-      );
-      await persistProjectUpdate(onProjectUpdate, (current) => {
-        const approvedRoadmaps = (current.episodeRoadmaps ?? []).map((item) => (
-          item.source_node_id === node.node_id && item.source_node_version === node.version
-            ? { ...item, status: "approved" as const }
-            : item
-        ));
-        return {
-          episodeRoadmaps: approvedRoadmaps,
-          episodePlansReadyThrough: approvedDirectScriptCoverageThrough(allNodes, {
-            episodeRoadmaps: approvedRoadmaps,
-            roadmapRequired: true,
-          }) || undefined,
-        };
-      });
-      setMessage(t("storyPlanNode.roadmapApproved"));
-    } catch (error) {
-      setMessage(userFacingError(error, t("storyPlanNode.roadmapFailed")));
-    } finally {
-      setBusy(null);
-    }
   }
 
   async function saveRoadmapEditor() {
@@ -792,13 +979,19 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
 
   async function applyRoadmapRevision(candidate: EpisodeRoadmapItem) {
     if (treeInteractionLocked || isEditing) return;
-    await persistProjectUpdate(onProjectUpdate, (current) => ({
-      episodePlansReadyThrough: undefined,
-      episodeRoadmaps: replaceEpisodeRoadmapDraft(
+    await persistProjectUpdate(onProjectUpdate, (current) => {
+      const episodeRoadmaps = replaceEpisodeRoadmapItem(
         current.episodeRoadmaps ?? [],
-        { ...candidate, status: "draft" },
-      ),
-    }));
+        { ...candidate, status: "approved" },
+      );
+      return {
+        episodeRoadmaps,
+        episodePlansReadyThrough: approvedDirectScriptCoverageThrough(storyPlanNodes, {
+          episodeRoadmaps,
+          roadmapRequired: true,
+        }) || undefined,
+      };
+    });
   }
 
   async function applyRoadmapAiCandidate() {
@@ -841,15 +1034,10 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
       { length: expectedRoadmapCount },
       (_, index) => (node.planned_start_episode as number) + index,
     ).every((episodeNumber) => roadmapEpisodes.has(episodeNumber));
-  const roadmapApproved = hasCompleteApprovedRoadmap(node, project.episodeRoadmaps ?? []);
   const roadmapRequired = project.episodeRoadmapRequired === true;
   const roadmapPredecessorReady = node.planned_start_episode === 1 || (
     node.planned_start_episode !== null
-    && (project.episodeRoadmaps ?? []).some((item) => (
-      item.story_bible_version === node.story_bible_version
-      && item.episode_number === (node.planned_start_episode as number) - 1
-      && item.status === "approved"
-    ))
+    && (project.episodePlansReadyThrough ?? 0) >= node.planned_start_episode - 1
   );
   const generatedThrough = contiguousEpisodeCoverageThrough(
     project.episodes.map((episode) => episode.episodeNumber),
@@ -858,12 +1046,16 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
     node.planned_start_episode !== null
     && generatedThrough >= node.planned_start_episode - 1
   );
-  const generatedRangeLocked = project.episodes.some((episode) => (
+  const generatedEpisodesInRange = project.episodes.filter((episode) => (
     node.planned_start_episode !== null
     && node.planned_end_episode !== null
     && episode.episodeNumber >= node.planned_start_episode
     && episode.episodeNumber <= node.planned_end_episode
   ));
+  const generatedEpisodeCount = new Set(
+    generatedEpisodesInRange.map((episode) => episode.episodeNumber),
+  ).size;
+  const generatedRangeLocked = generatedEpisodeCount > 0;
   const nodeRevisionLocked = generatedRangeLocked;
   const nodeRevisionLockedMessage = generatedRangeLocked
     ? t("storyPlanNode.modificationLocked")
@@ -879,6 +1071,23 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
     || roadmapTaskActive;
   const branchLocked = operationLocked || isEditing;
   const effectiveEditing = isEditing && !treeInteractionLocked;
+  const canDecompose = node.status === "approved"
+    && (node.expansion_status === "expanded" || requiresFurtherDecomposition)
+    && !directScriptReady
+    && children.length === 0;
+  const workflow = resolveStoryPlanNodeWorkflow({
+    status: node.status,
+    isEditing,
+    canDecompose,
+    directScriptReady,
+    roadmapRequired,
+    roadmapComplete,
+    roadmapItemCount: roadmap.length,
+    roadmapPredecessorReady,
+    scriptPredecessorReady,
+    generatedEpisodeCount,
+    expectedEpisodeCount: expectedRoadmapCount,
+  });
 
   function startEditing() {
     if (branchLocked || nodeRevisionLocked) return;
@@ -892,6 +1101,63 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
     setEditingSnapshot(null);
     setIsEditing(false);
   }
+
+  function startAiRevision() {
+    if (operationLocked || treeBusy || nodeRevisionLocked || isEditing || aiCandidate) return;
+    setAiInstruction("");
+    setAiRevisionMode("targeted");
+    setAiDialogMessage(null);
+    setAiDialogOpen(true);
+  }
+
+  function runPrimaryWorkflowAction() {
+    if (workflow.action === "confirm") {
+      void confirmNode();
+    } else if (workflow.action === "decompose") {
+      decomposeNode();
+    } else if (
+      workflow.action === "generate-roadmap"
+      || workflow.action === "continue-roadmap"
+    ) {
+      generateRoadmap();
+    }
+  }
+
+  const workflowStatusLabel = workflow.status === "roadmap-blocked"
+    ? t("storyPlanNode.previousRoadmapPending")
+    : workflow.status === "roadmap-pending"
+      ? t("storyPlanNode.roadmapPending")
+      : workflow.status === "script-blocked"
+          ? t("storyPlanNode.previousScriptPending")
+          : workflow.status === "script-progress"
+            ? t("storyPlanNode.scriptProgress")
+              .replace("{completed}", String(generatedEpisodeCount))
+              .replace("{total}", String(expectedRoadmapCount))
+            : workflow.status === "script-complete"
+              ? t("storyPlanNode.scriptComplete")
+              : workflow.status === "script-ready"
+                ? t("storyPlanNode.directScriptReady")
+                : null;
+
+  const primaryWorkflowLabel = workflow.action === "confirm"
+    ? busy === "confirm" ? t("storyPlanNode.confirming") : t("storyPlanNode.confirm")
+    : workflow.action === "decompose"
+      ? busy === "decompose" || decomposeTaskActive
+        ? t("storyPlanNode.decomposing")
+        : t("storyPlanNode.decompose")
+      : workflow.action === "generate-roadmap"
+        ? busy === "roadmap" || roadmapTaskActive
+          ? t("storyPlanNode.roadmapGenerating")
+          : t("storyPlanNode.generateRoadmap")
+        : workflow.action === "continue-roadmap"
+          ? busy === "roadmap" || roadmapTaskActive
+            ? t("storyPlanNode.roadmapGenerating")
+            : t("storyPlanNode.continueRoadmap")
+          : workflow.action === "continue-script"
+              ? t("storyPlanNode.continueScriptDirectly")
+              : workflow.action === "view-script"
+                ? t("storyPlanNode.viewGeneratedScript")
+                : t("storyPlanNode.generateScriptDirectly");
   return (
     <div className="story-plan-branch" style={{ marginLeft: `${Math.min(depth, 5) * 18}px` }}>
       <details className="story-plan-node-card">
@@ -907,103 +1173,145 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
               ? ` · ${t("storyPlanNode.characterBudget").replace("{count}", String(node.estimated_script_body_characters))}`
               : ""}
           </span>
-          <span className={`story-plan-node-state is-${node.status}`}>
-            {node.status === "approved" ? t("storyPlanNode.statusApproved") : t("storyPlanNode.statusDraft")}
-          </span>
         </summary>
         <div className="story-plan-node-content">
           <div className="story-plan-node-help-row">
             <span>{t("storyPlanNode.branchDetails")}</span>
             <SectionHelp content={t("guide.storyBranch")} label={t("guide.openHelp")} />
           </div>
-          <PlanField editing={effectiveEditing} label={t("storyPlanNode.nodeTitle")} onChange={(value) => updateNodeField("title", value)} value={node.title} />
-          <PlanField editing={effectiveEditing} label={t("storyPlanNode.narrativePurpose")} onChange={(value) => updateNodeField("narrative_purpose", value)} value={node.narrative_purpose} />
-          <PlanField editing={effectiveEditing} label={t("storyPlanNode.synopsis")} onChange={(value) => updateNodeField("synopsis", value)} value={node.synopsis} />
-          <PlanField editing={effectiveEditing} label={t("storyPlanNode.entryState")} onChange={(value) => updateNodeField("entry_state", value)} value={node.entry_state} />
-          <PlanField editing={effectiveEditing} label={t("storyPlanNode.centralConflict")} onChange={(value) => updateNodeField("central_conflict", value)} value={node.central_conflict} />
-          <PlanField editing={effectiveEditing} label={t("storyPlanNode.emotionalDirection")} onChange={(value) => updateNodeField("emotional_direction", value)} value={node.emotional_direction} />
-          <PlanField editing={effectiveEditing} label={t("storyPlanNode.exitState")} onChange={(value) => updateNodeField("exit_state", value)} value={node.exit_state} />
-          <PlanListField
-            editing={effectiveEditing}
-            label={t("storyPlanNode.storyProgression")}
-            onChange={(value) => setNode((current) => ({ ...current, unit_story_beats: value }))}
-            values={node.unit_story_beats ?? []}
-          />
-          <PlanField editing={effectiveEditing} label={t("storyPlanNode.partResolution")} onChange={(value) => updateNodeField("unit_resolution", value)} value={node.unit_resolution ?? ""} />
-          <PlanField editing={effectiveEditing} label={t("storyPlanNode.nextPartPressure")} onChange={(value) => updateNodeField("handoff_pressure", value)} value={node.handoff_pressure ?? ""} />
+          {depth === 0 && !effectiveEditing ? (
+            <PlanField
+              editing={false}
+              label={t("storyPlanNode.synopsis")}
+              onChange={(value) => updateNodeField("synopsis", value)}
+              value={compactTopLevelSynopsis(node.synopsis)}
+            />
+          ) : depth === 1 && !effectiveEditing ? (
+            <>
+              <PlanField
+                editing={false}
+                label={t("storyPlanNode.synopsis")}
+                onChange={(value) => updateNodeField("synopsis", value)}
+                value={node.synopsis}
+              />
+              <PlanListField
+                editing={false}
+                label={t("storyPlanNode.storyProgression")}
+                onChange={(value) => setNode((current) => ({ ...current, unit_story_beats: value }))}
+                values={node.unit_story_beats ?? []}
+              />
+              <PlanField
+                editing={false}
+                label={t("storyPlanNode.partResolution")}
+                onChange={(value) => updateNodeField("unit_resolution", value)}
+                value={node.unit_resolution ?? ""}
+              />
+              <PlanField
+                editing={false}
+                label={t("storyPlanNode.nextPartPressure")}
+                onChange={(value) => updateNodeField("handoff_pressure", value)}
+                value={node.handoff_pressure ?? ""}
+              />
+            </>
+          ) : (
+            <>
+              <PlanField editing={effectiveEditing} label={t("storyPlanNode.nodeTitle")} onChange={(value) => updateNodeField("title", value)} value={node.title} />
+              <PlanField editing={effectiveEditing} label={t("storyPlanNode.narrativePurpose")} onChange={(value) => updateNodeField("narrative_purpose", value)} value={node.narrative_purpose} />
+              <PlanField editing={effectiveEditing} label={t("storyPlanNode.synopsis")} onChange={(value) => updateNodeField("synopsis", value)} value={node.synopsis} />
+              <PlanField editing={effectiveEditing} label={t("storyPlanNode.entryState")} onChange={(value) => updateNodeField("entry_state", value)} value={node.entry_state} />
+              <PlanField editing={effectiveEditing} label={t("storyPlanNode.centralConflict")} onChange={(value) => updateNodeField("central_conflict", value)} value={node.central_conflict} />
+              <PlanField editing={effectiveEditing} label={t("storyPlanNode.emotionalDirection")} onChange={(value) => updateNodeField("emotional_direction", value)} value={node.emotional_direction} />
+              <PlanField editing={effectiveEditing} label={t("storyPlanNode.exitState")} onChange={(value) => updateNodeField("exit_state", value)} value={node.exit_state} />
+              <PlanListField
+                editing={effectiveEditing}
+                label={t("storyPlanNode.storyProgression")}
+                onChange={(value) => setNode((current) => ({ ...current, unit_story_beats: value }))}
+                values={node.unit_story_beats ?? []}
+              />
+              <PlanField editing={effectiveEditing} label={t("storyPlanNode.partResolution")} onChange={(value) => updateNodeField("unit_resolution", value)} value={node.unit_resolution ?? ""} />
+              <PlanField editing={effectiveEditing} label={t("storyPlanNode.nextPartPressure")} onChange={(value) => updateNodeField("handoff_pressure", value)} value={node.handoff_pressure ?? ""} />
+            </>
+          )}
           {requiresParentCoordination ? (
             <div className="inline-notice">{t("storyPlanNode.rangeNeedsAdjustment")}</div>
           ) : null}
           <div className="story-plan-node-actions">
-            {node.status !== "superseded" ? (
-              <>
-                <button className="outline-action" disabled={operationLocked || nodeRevisionLocked} onClick={isEditing ? cancelEditing : startEditing} title={nodeRevisionLockedMessage} type="button">
-                  {isEditing ? t("storyPlanNode.cancelEdit") : t("storyPlanNode.edit")}
+            <div className="story-plan-node-secondary-actions">
+              {isEditing ? (
+                <button className="outline-action" disabled={operationLocked} onClick={cancelEditing} type="button">
+                  <X aria-hidden="true" size={14} />
+                  {t("storyPlanNode.cancelEdit")}
                 </button>
+              ) : null}
+              {!isEditing && node.status === "draft" && !operationLocked ? (
+                <>
+                  <button className="outline-action" disabled={nodeRevisionLocked} onClick={startEditing} title={nodeRevisionLockedMessage} type="button">
+                    <Pencil aria-hidden="true" size={14} />
+                    {t("storyPlanNode.edit")}
+                  </button>
+                  <button className="outline-action" disabled={treeBusy || nodeRevisionLocked || Boolean(aiCandidate)} onClick={startAiRevision} title={nodeRevisionLockedMessage} type="button">
+                    <Sparkles aria-hidden="true" size={14} />
+                    {t("workspace.aiModify")}
+                  </button>
+                </>
+              ) : null}
+              {!isEditing && node.status === "approved" && !operationLocked && !nodeRevisionLocked ? (
+                <details className="story-plan-node-action-menu">
+                  <summary className="outline-action">
+                    <Pencil aria-hidden="true" size={14} />
+                    {t("storyPlanNode.reviseContent")}
+                    <ChevronDown aria-hidden="true" className="story-plan-node-menu-chevron" size={14} />
+                  </summary>
+                  <div className="story-plan-node-action-menu-popover">
+                    <button onClick={startEditing} type="button">
+                      <Pencil aria-hidden="true" size={14} />
+                      {t("storyPlanNode.edit")}
+                    </button>
+                    <button onClick={startAiRevision} type="button">
+                      <Sparkles aria-hidden="true" size={14} />
+                      {t("workspace.aiModify")}
+                    </button>
+                  </div>
+                </details>
+              ) : null}
+            </div>
+            <div className="story-plan-node-primary-step">
+              {workflowStatusLabel ? <span className={`planning-ready-badge is-${workflow.status}`}>{workflowStatusLabel}</span> : null}
+              {isEditing ? (
+                <button className="primary-action" disabled={operationLocked} onClick={() => void saveNode()} type="button">
+                  <Save aria-hidden="true" size={15} />
+                  {busy === "save" ? t("storyPlanNode.saving") : t("storyPlanNode.save")}
+                </button>
+              ) : null}
+              {workflow.action && !["generate-script", "continue-script", "view-script"].includes(workflow.action) ? (
                 <button
-                  className="outline-action"
-                  disabled={operationLocked || treeBusy || nodeRevisionLocked || isEditing || Boolean(aiCandidate)}
-                  onClick={() => { setAiInstruction(""); setAiRevisionMode("targeted"); setAiDialogMessage(null); setAiDialogOpen(true); }}
-                  title={nodeRevisionLockedMessage}
+                  className="primary-action"
+                  disabled={branchLocked || Boolean(aiCandidate) || requiresParentCoordination || (workflow.action.includes("roadmap") && generatedRangeLocked)}
+                  onClick={runPrimaryWorkflowAction}
                   type="button"
                 >
-                  {t("workspace.aiModify")}
+                  {workflow.action === "confirm" ? <Check aria-hidden="true" size={15} /> : null}
+                  {workflow.action === "decompose" ? <GitBranch aria-hidden="true" size={15} /> : null}
+                  {workflow.action.includes("roadmap") ? <ListTree aria-hidden="true" size={15} /> : null}
+                  {primaryWorkflowLabel}
                 </button>
-                {isEditing ? (
-                  <button className="primary-action" disabled={operationLocked} onClick={() => void saveNode()} type="button">
-                    {busy === "save" ? t("storyPlanNode.saving") : t("storyPlanNode.save")}
-                  </button>
-                ) : null}
-                {node.status === "draft" ? (
-                  <button className="primary-action" disabled={branchLocked || isEditing || Boolean(aiCandidate) || requiresParentCoordination} onClick={() => void approveNode()} type="button">
-                    {busy === "approve" ? t("storyPlanNode.approving") : t("storyPlanNode.approve")}
-                  </button>
-                ) : null}
-              </>
-            ) : null}
-            {node.status === "approved" && (node.expansion_status === "expanded" || requiresFurtherDecomposition) && !directScriptReady && children.length === 0 ? (
-              <button className="outline-action" disabled={branchLocked} onClick={() => void decomposeNode()} type="button">
-                {busy === "decompose" || decomposeTaskActive ? t("storyPlanNode.decomposing") : t("storyPlanNode.decompose")}
-              </button>
-            ) : null}
-            {directScriptReady ? (
-              <>
-                <span className="planning-ready-badge">
-                  {roadmapRequired && !roadmapApproved
-                    ? roadmapPredecessorReady
-                      ? t("storyPlanNode.roadmapPending")
-                      : t("storyPlanNode.previousRoadmapPending")
-                    : t("storyPlanNode.directScriptReady")}
-                </span>
-                {roadmapRequired && !roadmapComplete ? (
-                  <button className="primary-action" disabled={branchLocked || generatedRangeLocked || !roadmapPredecessorReady} onClick={() => void generateRoadmap()} type="button">
-                    {busy === "roadmap" || roadmapTaskActive
-                      ? t("storyPlanNode.roadmapGenerating")
-                      : roadmap.length
-                        ? t("storyPlanNode.continueRoadmap")
-                        : t("storyPlanNode.generateRoadmap")}
-                  </button>
-                ) : null}
-                {roadmapRequired && roadmapComplete && !roadmapApproved ? (
-                  <button className="primary-action" disabled={branchLocked || generatedRangeLocked} onClick={() => void approveRoadmap()} type="button">
-                    {t("storyPlanNode.approveRoadmap")}
-                  </button>
-                ) : null}
-                {(!roadmapRequired || roadmapApproved) && !branchLocked && scriptPredecessorReady ? (
-                  <Link
-                    className="primary-action"
-                    href={`/projects/${project.id}/workspace?generate=1&start=${node.planned_start_episode}&end=${node.planned_end_episode}`}
-                  >
-                    {t("storyPlanNode.generateScriptDirectly")}
-                  </Link>
-                ) : null}
-                {(!roadmapRequired || roadmapApproved) && !scriptPredecessorReady ? (
-                  <span className="planning-ready-badge">
-                    {t("storyPlanNode.previousScriptPending")}
-                  </span>
-                ) : null}
-              </>
-            ) : null}
+              ) : null}
+              {(workflow.action === "generate-script" || workflow.action === "continue-script") && !branchLocked ? (
+                <Link
+                  className="primary-action"
+                  href={`/projects/${project.id}/workspace?generate=1&start=${node.planned_start_episode}&end=${node.planned_end_episode}`}
+                >
+                  <Play aria-hidden="true" size={15} />
+                  {primaryWorkflowLabel}
+                </Link>
+              ) : null}
+              {workflow.action === "view-script" && !branchLocked ? (
+                <Link className="outline-action" href={`/projects/${project.id}/workspace`}>
+                  <Eye aria-hidden="true" size={15} />
+                  {primaryWorkflowLabel}
+                </Link>
+              ) : null}
+            </div>
           </div>
           {roadmap.length ? (
             <div className="story-plan-children">
@@ -1016,14 +1324,36 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
                   <strong>{t("workspace.episodeLabel").replace("{number}", String(item.episode_number))} · {item.episode_goal}</strong>
                   <p>{item.central_conflict}</p>
                   <small>
-                    {item.target_duration_seconds ?? 90} 秒 · {item.planned_scene_count ?? 3} 场 · {item.planned_shot_count ?? 16} 镜头
+                    {item.target_duration_seconds ?? 90} 秒 · {item.planned_scene_count ?? 3} 场 · {item.planned_dialogue_line_count ?? 24} 条台词 · {item.planned_shot_count ?? 16} 镜头
                   </small>
                   <small>{item.ending_hook_type}：{item.cliffhanger}</small>
+                  {item.scene_execution_plan?.length ? (
+                    <details className="roadmap-scene-blueprint">
+                      <summary>
+                        {t("storyPlanNode.sceneExecutionPlan").replace(
+                          "{count}",
+                          String(item.scene_execution_plan.length),
+                        )}
+                      </summary>
+                      <ol>
+                        {item.scene_execution_plan.map((scene) => (
+                          <li key={`${item.episode_number}-scene-${scene.scene_number}`}>
+                            <strong>{scene.scene_number}. {scene.scene_heading}</strong>
+                            <span>{scene.scene_objective}</span>
+                            <small>{scene.dialogue_line_target} 条台词 · {scene.shot_target} 镜头</small>
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  ) : null}
                   <div className="roadmap-card-actions">
                     <button
                       className="outline-action"
                       disabled={branchLocked || generatedRangeLocked}
-                      onClick={() => { setRoadmapDialogMessage(null); setRoadmapEditor({ ...item }); }}
+                      onClick={() => {
+                        setRoadmapDialogMessage(null);
+                        setRoadmapEditor(prepareRoadmapEditorItem(item));
+                      }}
                       title={nodeRevisionLockedMessage}
                       type="button"
                     >
@@ -1253,7 +1583,7 @@ function PlanNodeBranch({ depth, initialNode, onInteractionChange, onProjectUpda
           </summary>
           <div className="story-plan-children">
             {children.map((child) => (
-              <PlanNodeBranch depth={depth + 1} initialNode={child} key={`${child.node_id}-${child.version}`} onInteractionChange={onInteractionChange} onProjectUpdate={onProjectUpdate} onRequestResplit={onRequestResplit} project={project} refreshToken={refreshToken} treeBusy={treeBusy} treeCheckpointRefreshes={treeCheckpointRefreshes} treeUnlockedNodeIds={treeUnlockedNodeIds} />
+              <PlanNodeBranch depth={depth + 1} initialNode={child} key={`${child.node_id}-${child.version}`} onInteractionChange={onInteractionChange} onProjectUpdate={onProjectUpdate} onRequestResplit={onRequestResplit} project={project} refreshToken={refreshToken} storyPlanNodes={storyPlanNodes} treeBusy={treeBusy} treeCheckpointRefreshes={treeCheckpointRefreshes} treeUnlockedNodeIds={treeUnlockedNodeIds} />
             ))}
           </div>
         </details>
@@ -1306,6 +1636,19 @@ function EpisodeRoadmapEditorDialog({ busy, error, onCancel, onChange, onSave, t
   t: (key: string) => string;
   value: EpisodeRoadmapItem;
 }) {
+  const sceneExecutionPlan = value.scene_execution_plan ?? [];
+  function updateScene(
+    index: number,
+    patch: Partial<EpisodeSceneExecutionBeat>,
+  ) {
+    onChange({
+      ...value,
+      scene_execution_plan: sceneExecutionPlan.map((scene, sceneIndex) => (
+        sceneIndex === index ? { ...scene, ...patch } : scene
+      )),
+    });
+  }
+
   return (
     <div
       className="tag-dialog-backdrop"
@@ -1337,25 +1680,48 @@ function EpisodeRoadmapEditorDialog({ busy, error, onCancel, onChange, onSave, t
               <span>{t("storyPlanNode.plannedScenes")}</span>
               <input
                 disabled={busy}
+                onChange={(event) => onChange(resizeRoadmapSceneExecutionPlan(
+                  value,
+                  Number(event.target.value),
+                ))}
+                min={1}
                 max={5}
-                min={2}
-                onChange={(event) => onChange({ ...value, planned_scene_count: Number(event.target.value) })}
                 type="number"
                 value={value.planned_scene_count}
               />
-              <small>2-5</small>
+              <small>1-5</small>
+            </label>
+            <label>
+              <span>{t("storyPlanNode.plannedDialogues")}</span>
+              <input
+                disabled={busy}
+                onChange={(event) => onChange(rebalanceRoadmapSceneMetric(
+                  { ...value, planned_dialogue_line_count: Number(event.target.value) },
+                  "dialogue_line_target",
+                  Number(event.target.value),
+                ))}
+                min={20}
+                max={30}
+                type="number"
+                value={value.planned_dialogue_line_count ?? 24}
+              />
+              <small>20-30</small>
             </label>
             <label>
               <span>{t("storyPlanNode.plannedShots")}</span>
               <input
                 disabled={busy}
-                max={24}
-                min={8}
-                onChange={(event) => onChange({ ...value, planned_shot_count: Number(event.target.value) })}
+                onChange={(event) => onChange(rebalanceRoadmapSceneMetric(
+                  { ...value, planned_shot_count: Number(event.target.value) },
+                  "shot_target",
+                  Number(event.target.value),
+                ))}
+                min={15}
+                max={20}
                 type="number"
                 value={value.planned_shot_count}
               />
-              <small>8-24</small>
+              <small>15-20</small>
             </label>
           </div>
           <div className="roadmap-editor-fields">
@@ -1385,6 +1751,80 @@ function EpisodeRoadmapEditorDialog({ busy, error, onCancel, onChange, onSave, t
               />
             </label>
           </div>
+          <section className="roadmap-scene-editor-list">
+            <div className="section-title-with-help">
+              <h4>{t("storyPlanNode.sceneExecutionPlanEditor")}</h4>
+              <small>{t("storyPlanNode.sceneExecutionPlanHelp")}</small>
+            </div>
+            {sceneExecutionPlan.map((scene, index) => (
+              <fieldset key={`scene-editor-${scene.scene_number}`}>
+                <legend>
+                  {t("storyPlanNode.sceneNumber").replace(
+                    "{number}",
+                    String(scene.scene_number),
+                  )}
+                </legend>
+                <label>
+                  <span>{t("storyPlanNode.sceneHeading")}</span>
+                  <input
+                    disabled={busy}
+                    maxLength={200}
+                    onChange={(event) => updateScene(index, { scene_heading: event.target.value })}
+                    value={scene.scene_heading}
+                  />
+                </label>
+                <small className="roadmap-scene-character-refs">
+                  {t("storyPlanNode.sceneCharacters")}：{scene.character_refs.join("、")}
+                </small>
+                {([
+                  ["scene_objective", "storyPlanNode.sceneObjective"],
+                  ["visible_action", "storyPlanNode.visibleAction"],
+                  ["turn_or_reveal", "storyPlanNode.turnOrReveal"],
+                  ["dialogue_objective", "storyPlanNode.dialogueObjective"],
+                  ["exit_state", "storyPlanNode.sceneExitState"],
+                ] as Array<[keyof EpisodeSceneExecutionBeat, string]>).map(([field, labelKey]) => (
+                  <label key={field}>
+                    <span>{t(labelKey)}</span>
+                    <textarea
+                      disabled={busy}
+                      maxLength={800}
+                      onChange={(event) => updateScene(index, { [field]: event.target.value })}
+                      rows={2}
+                      value={String(scene[field])}
+                    />
+                  </label>
+                ))}
+                <div className="roadmap-scene-metrics">
+                  <label>
+                    <span>{t("storyPlanNode.sceneDialogueTarget")}</span>
+                    <input
+                      disabled={busy}
+                      max={30}
+                      min={0}
+                      onChange={(event) => updateScene(index, {
+                        dialogue_line_target: Number(event.target.value),
+                      })}
+                      type="number"
+                      value={scene.dialogue_line_target}
+                    />
+                  </label>
+                  <label>
+                    <span>{t("storyPlanNode.sceneShotTarget")}</span>
+                    <input
+                      disabled={busy}
+                      max={20}
+                      min={1}
+                      onChange={(event) => updateScene(index, {
+                        shot_target: Number(event.target.value),
+                      })}
+                      type="number"
+                      value={scene.shot_target}
+                    />
+                  </label>
+                </div>
+              </fieldset>
+            ))}
+          </section>
           <p className="roadmap-editor-boundary-note">{t("storyPlanNode.roadmapBoundaryLocked")}</p>
         </div>
         <div className="tag-dialog-actions">
@@ -1415,6 +1855,13 @@ function EpisodeRoadmapCandidatePreview({ candidate, t }: {
       <CandidatePreviewField label={t("storyPlanNode.cliffhanger")} value={`${candidate.ending_hook_type}：${candidate.cliffhanger}`} />
       <CandidatePreviewField label={t("storyPlanNode.nextEpisodeObligation")} value={candidate.next_episode_obligation} />
       <CandidatePreviewList label={t("storyPlanNode.continuityRequirements")} values={candidate.continuity_requirements} />
+      <CandidatePreviewList
+        label={t("storyPlanNode.sceneExecutionPlanEditor")}
+        values={(candidate.scene_execution_plan ?? []).map((scene) => (
+          `${scene.scene_number}. ${scene.scene_heading}｜${scene.scene_objective}｜`
+          + `${scene.dialogue_line_target} 条台词 / ${scene.shot_target} 镜头`
+        ))}
+      />
     </div>
   );
 }
@@ -1423,26 +1870,163 @@ function splitPlanningLines(value: string): string[] {
   return Array.from(new Set(value.split("\n").map((item) => item.trim()).filter(Boolean)));
 }
 
+function distributeRoadmapMetric(total: number, count: number): number[] {
+  const base = Math.floor(total / count);
+  const remainder = total % count;
+  return Array.from(
+    { length: count },
+    (_, index) => base + (index < remainder ? 1 : 0),
+  );
+}
+
+function roadmapSceneTemplate(
+  item: EpisodeRoadmapItem,
+  sceneNumber: number,
+): EpisodeSceneExecutionBeat {
+  const finalScene = sceneNumber === item.planned_scene_count;
+  return {
+    scene_number: sceneNumber,
+    scene_heading: `INT. 第${sceneNumber}场主要行动地点 日`,
+    character_refs: item.character_refs.slice(0, Math.max(1, item.character_refs.length)),
+    scene_objective: sceneNumber === 1 ? item.episode_goal : item.central_conflict,
+    visible_action: sceneNumber === 1
+      ? `人物以可见行动进入本集冲突：${item.central_conflict}`
+      : `主角执行选择并改变当前局面：${item.protagonist_decision}`,
+    turn_or_reveal: finalScene ? item.cliffhanger : item.reveal ?? item.protagonist_decision,
+    dialogue_objective: `通过交锋推进情绪变化并逼出选择：${item.emotional_movement}`,
+    dialogue_line_target: 0,
+    shot_target: 1,
+    exit_state: finalScene ? item.exit_state : item.pressure_escalation,
+  };
+}
+
+function rebuildRoadmapSceneExecutionPlan(
+  item: EpisodeRoadmapItem,
+): EpisodeRoadmapItem {
+  const sceneCount = Math.min(5, Math.max(1, Math.round(item.planned_scene_count || 1)));
+  const dialogueCount = Math.min(
+    30,
+    Math.max(20, Math.round(item.planned_dialogue_line_count ?? 24)),
+  );
+  const shotCount = Math.min(20, Math.max(15, Math.round(item.planned_shot_count || 16)));
+  const dialogueTargets = distributeRoadmapMetric(dialogueCount, sceneCount);
+  const shotTargets = distributeRoadmapMetric(shotCount, sceneCount);
+  const existing = item.scene_execution_plan ?? [];
+  const sceneExecutionPlan = Array.from({ length: sceneCount }, (_, index) => {
+    const sceneNumber = index + 1;
+    const base = existing[index] ?? roadmapSceneTemplate(
+      { ...item, planned_scene_count: sceneCount },
+      sceneNumber,
+    );
+    const characterRefs = base.character_refs.filter((reference) => (
+      item.character_refs.includes(reference)
+    ));
+    return {
+      ...base,
+      scene_number: sceneNumber,
+      character_refs: characterRefs.length ? characterRefs : item.character_refs.slice(0, 1),
+      dialogue_line_target: dialogueTargets[index],
+      shot_target: shotTargets[index],
+    };
+  });
+  return {
+    ...item,
+    planned_scene_count: sceneCount,
+    planned_dialogue_line_count: dialogueCount,
+    planned_shot_count: shotCount,
+    scene_execution_plan: sceneExecutionPlan,
+  };
+}
+
+function prepareRoadmapEditorItem(item: EpisodeRoadmapItem): EpisodeRoadmapItem {
+  const scenes = item.scene_execution_plan ?? [];
+  const dialogueCount = item.planned_dialogue_line_count
+    ?? (scenes.reduce((total, scene) => total + scene.dialogue_line_target, 0) || 24);
+  const structurallyComplete = scenes.length === item.planned_scene_count
+    && scenes.every((scene, index) => scene.scene_number === index + 1)
+    && scenes.reduce((total, scene) => total + scene.shot_target, 0) === item.planned_shot_count
+    && scenes.reduce((total, scene) => total + scene.dialogue_line_target, 0) === dialogueCount;
+  if (structurallyComplete) {
+    return {
+      ...item,
+      planned_dialogue_line_count: dialogueCount,
+      scene_execution_plan: scenes.map((scene) => ({ ...scene })),
+    };
+  }
+  return rebuildRoadmapSceneExecutionPlan({
+    ...item,
+    planned_dialogue_line_count: dialogueCount,
+  });
+}
+
+function resizeRoadmapSceneExecutionPlan(
+  item: EpisodeRoadmapItem,
+  sceneCount: number,
+): EpisodeRoadmapItem {
+  return rebuildRoadmapSceneExecutionPlan({
+    ...item,
+    planned_scene_count: sceneCount,
+  });
+}
+
+function rebalanceRoadmapSceneMetric(
+  item: EpisodeRoadmapItem,
+  field: "dialogue_line_target" | "shot_target",
+  _total: number,
+): EpisodeRoadmapItem {
+  const prepared = prepareRoadmapEditorItem(item);
+  const normalizedTotal = field === "dialogue_line_target"
+    ? prepared.planned_dialogue_line_count ?? 24
+    : prepared.planned_shot_count;
+  const targets = distributeRoadmapMetric(
+    normalizedTotal,
+    prepared.planned_scene_count,
+  );
+  return {
+    ...prepared,
+    scene_execution_plan: (prepared.scene_execution_plan ?? []).map((scene, index) => ({
+      ...scene,
+      [field]: targets[index],
+    })),
+  };
+}
+
 function normalizeRoadmapDraft(item: EpisodeRoadmapItem): EpisodeRoadmapItem {
-  const normalized = { ...item };
+  const normalized = prepareRoadmapEditorItem(item);
   for (const field of ROADMAP_EDITABLE_TEXT_FIELDS) {
     const value = normalized[field.key];
     if (field.key === "reveal") {
       normalized.reveal = value?.trim() || null;
     } else {
-      (normalized as Record<string, unknown>)[field.key] = value?.trim() ?? "";
+      (normalized as unknown as Record<string, unknown>)[field.key] = value?.trim() ?? "";
     }
   }
   normalized.continuity_requirements = Array.from(new Set(
     normalized.continuity_requirements.map((value) => value.trim()).filter(Boolean),
   ));
+  normalized.scene_execution_plan = (normalized.scene_execution_plan ?? []).map(
+    (scene, index) => ({
+      ...scene,
+      scene_number: index + 1,
+      scene_heading: scene.scene_heading.trim(),
+      character_refs: Array.from(new Set(
+        scene.character_refs.map((value) => value.trim()).filter(Boolean),
+      )),
+      scene_objective: scene.scene_objective.trim(),
+      visible_action: scene.visible_action.trim(),
+      turn_or_reveal: scene.turn_or_reveal.trim(),
+      dialogue_objective: scene.dialogue_objective.trim(),
+      exit_state: scene.exit_state.trim(),
+    }),
+  );
   return normalized;
 }
 
 function validateRoadmapDraft(item: EpisodeRoadmapItem, fallbackMessage: string): string | null {
   if (!Number.isInteger(item.target_duration_seconds) || item.target_duration_seconds < 75 || item.target_duration_seconds > 115) return fallbackMessage;
-  if (!Number.isInteger(item.planned_scene_count) || item.planned_scene_count < 2 || item.planned_scene_count > 5) return fallbackMessage;
-  if (!Number.isInteger(item.planned_shot_count) || item.planned_shot_count < 8 || item.planned_shot_count > 24) return fallbackMessage;
+  if (!Number.isInteger(item.planned_scene_count) || item.planned_scene_count < 1 || item.planned_scene_count > 5) return fallbackMessage;
+  if (!Number.isInteger(item.planned_shot_count) || item.planned_shot_count < 15 || item.planned_shot_count > 20) return fallbackMessage;
+  if (!Number.isInteger(item.planned_dialogue_line_count) || (item.planned_dialogue_line_count ?? 0) < 20 || (item.planned_dialogue_line_count ?? 0) > 30) return fallbackMessage;
   const minimumLengths: Partial<Record<RoadmapEditableTextField, number>> = {
     episode_goal: 5,
     entry_state: 5,
@@ -1461,6 +2045,25 @@ function validateRoadmapDraft(item: EpisodeRoadmapItem, fallbackMessage: string)
     if ((item[field] ?? "").trim().length < minimum) return fallbackMessage;
   }
   if (item.reveal !== null && item.reveal.trim() && item.reveal.trim().length < 3) return fallbackMessage;
+  const scenes = item.scene_execution_plan ?? [];
+  if (scenes.length !== item.planned_scene_count) return fallbackMessage;
+  if (scenes.reduce((total, scene) => total + scene.dialogue_line_target, 0) !== item.planned_dialogue_line_count) return fallbackMessage;
+  if (scenes.reduce((total, scene) => total + scene.shot_target, 0) !== item.planned_shot_count) return fallbackMessage;
+  const allowedCharacters = new Set(item.character_refs);
+  for (const [index, scene] of scenes.entries()) {
+    if (scene.scene_number !== index + 1) return fallbackMessage;
+    if (!/^(INT\.|EXT\.)/.test(scene.scene_heading.trim())) return fallbackMessage;
+    if (!scene.character_refs.length || scene.character_refs.some((value) => !allowedCharacters.has(value))) return fallbackMessage;
+    if (!Number.isInteger(scene.dialogue_line_target) || scene.dialogue_line_target < 0 || scene.dialogue_line_target > 30) return fallbackMessage;
+    if (!Number.isInteger(scene.shot_target) || scene.shot_target < 1 || scene.shot_target > 20) return fallbackMessage;
+    if (
+      scene.scene_objective.trim().length < 3
+      || scene.visible_action.trim().length < 5
+      || scene.turn_or_reveal.trim().length < 3
+      || scene.dialogue_objective.trim().length < 3
+      || scene.exit_state.trim().length < 3
+    ) return fallbackMessage;
+  }
   return null;
 }
 

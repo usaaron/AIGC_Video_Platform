@@ -111,8 +111,13 @@ def test_default_catalog_selects_mainland_longform_foundation_bundle() -> None:
         target_platform="mainland china comic drama",
     )
 
-    assert len(items) == 7
+    assert len(items) == 10
     assert all("tiktok" not in item.knowledge_id for item in items)
+    assert "knowledge.short_drama.compact_episode_cycle.v1" in bundle.knowledge_ids
+    assert (
+        "knowledge.serialization.short_drama_escalation_engine.v1"
+        in bundle.knowledge_ids
+    )
     assert "knowledge.visual.channel_separation.v1" in bundle.knowledge_ids
     assert trace.selected_knowledge_refs == bundle.knowledge_ids
 
@@ -138,15 +143,13 @@ def test_default_catalog_selects_bounded_mainland_longform_candidate_bundle() ->
     )
 
     assert bundle.version == "v2"
-    assert len(items) == 11
+    assert len(items) == 10
     assert [item.knowledge_id for item in items] == bundle.knowledge_ids
-    assert "knowledge.serialization.sustainable_story_engine.v1" in bundle.knowledge_ids
-    assert "knowledge.story.macro_sequence_turning.v1" in bundle.knowledge_ids
-    assert "knowledge.character.long_arc_trajectory.v1" in bundle.knowledge_ids
     assert (
-        "knowledge.storyline.character_driven_parallel_arcs.v1"
+        "knowledge.serialization.short_drama_escalation_engine.v1"
         in bundle.knowledge_ids
     )
+    assert "knowledge.short_drama.compact_episode_cycle.v1" in bundle.knowledge_ids
     assert "knowledge.visual.scene_context.v1" in bundle.knowledge_ids
     assert "knowledge.visual.observable_action.v1" in bundle.knowledge_ids
     assert "knowledge.visual.channel_separation.v1" in bundle.knowledge_ids
@@ -181,6 +184,38 @@ def test_longform_knowledge_selection_prioritizes_current_task_categories() -> N
     assert trace.selected_knowledge_refs == [item.knowledge_id for item in items]
 
 
+def test_mainland_episode_selection_prioritizes_short_drama_contract() -> None:
+    catalog = StaticKnowledgeBundleCatalog.load_default()
+    content_spec = build_content_spec().model_copy(
+        update={
+            "platform_goal": PlatformGoal(
+                platform_profile_id="cn_mainland_comic_drama_v1",
+                objective="Create a serialized Chinese short drama",
+                target_duration_seconds=90,
+            )
+        }
+    )
+
+    _bundle, items, _trace = catalog.select_for_draft(
+        requested_bundle_id=(
+            "knowledge_bundle.draft.cn_mainland_serial_short_drama.v1"
+        ),
+        content_spec=content_spec,
+        target_platform="mainland china comic drama",
+        preferred_categories=[
+            "short_drama_structure",
+            "story_structure",
+            "conflict_and_emotion",
+            "character_design",
+            "visual_narrative",
+        ],
+        max_items=7,
+    )
+
+    assert items[0].knowledge_id == "knowledge.short_drama.compact_episode_cycle.v1"
+    assert len(items) == 7
+
+
 def test_episode_knowledge_selection_excludes_planning_only_principles() -> None:
     catalog = StaticKnowledgeBundleCatalog.load_default()
     content_spec = build_content_spec().model_copy(
@@ -193,10 +228,7 @@ def test_episode_knowledge_selection_excludes_planning_only_principles() -> None
         }
     )
     planning_only = {
-        "knowledge.serialization.sustainable_story_engine.v1",
-        "knowledge.story.macro_sequence_turning.v1",
-        "knowledge.character.long_arc_trajectory.v1",
-        "knowledge.storyline.character_driven_parallel_arcs.v1",
+        "knowledge.serialization.short_drama_escalation_engine.v1",
     }
 
     _bundle, items, trace = catalog.select_for_draft(
@@ -209,10 +241,43 @@ def test_episode_knowledge_selection_excludes_planning_only_principles() -> None
     )
 
     selected_ids = [item.knowledge_id for item in items]
-    assert len(selected_ids) == 7
+    assert len(selected_ids) == 9
     assert planning_only.isdisjoint(selected_ids)
     assert "knowledge.visual.observable_action.v1" in selected_ids
     assert trace.selected_knowledge_refs == selected_ids
+
+
+def test_mainland_catalog_contains_no_retired_conventional_long_drama_items() -> None:
+    catalog = StaticKnowledgeBundleCatalog.load_default()
+    content_spec = build_content_spec().model_copy(
+        update={
+            "platform_goal": PlatformGoal(
+                platform_profile_id="cn_mainland_comic_drama_v1",
+                objective="Create a serialized Chinese short drama",
+                target_duration_seconds=90,
+            )
+        }
+    )
+    retired_ids = {
+        "knowledge.serialization.sustainable_story_engine.v1",
+        "knowledge.story.macro_sequence_turning.v1",
+        "knowledge.character.long_arc_trajectory.v1",
+        "knowledge.storyline.character_driven_parallel_arcs.v1",
+    }
+
+    for bundle_id in (
+        "knowledge_bundle.draft.cn_mainland_serial_short_drama.v1",
+        "knowledge_bundle.draft.cn_mainland_longform_foundation.v1",
+        "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2",
+    ):
+        bundle, items, _trace = catalog.select_for_draft(
+            requested_bundle_id=bundle_id,
+            content_spec=content_spec,
+            target_platform="mainland china comic drama",
+        )
+        selected_ids = {item.knowledge_id for item in items}
+        assert retired_ids.isdisjoint(selected_ids)
+        assert selected_ids == set(bundle.knowledge_ids)
 
 
 def test_catalog_rejects_unknown_bundle() -> None:

@@ -13,8 +13,14 @@ from app.modules.master_script.models import (
     LLMScriptEditorialPatch,
 )
 from app.script_delivery_contract import (
+    EPISODE_DIALOGUE_LINE_MAX,
+    EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
     EPISODE_RUNTIME_MIN_SECONDS,
+    EPISODE_SCENE_MAX,
+    EPISODE_SCENE_MIN,
+    EPISODE_SHOT_UNIT_MAX,
+    EPISODE_SHOT_UNIT_MIN,
 )
 from app.modules.script_engine.llm_adapter import LLMAdapter
 from app.modules.script_engine.mainland_language import (
@@ -127,6 +133,9 @@ class ScriptPostEditor:
                 duration=duration,
             )
             if not correction_issues:
+                scene_count, dialogue_count, shot_count = self._production_counts(
+                    candidate
+                )
                 metadata = {
                     **candidate.llm_metadata,
                     "script_editor_applied": True,
@@ -139,6 +148,12 @@ class ScriptPostEditor:
                         EDITOR_DURATION_MIN_SECONDS,
                         EDITOR_DURATION_MAX_SECONDS,
                     ],
+                    "episode_scene_count": scene_count,
+                    "episode_dialogue_line_count": dialogue_count,
+                    "episode_shot_unit_count": shot_count,
+                    "episode_production_count_policy": (
+                        "scenes_1_5_dialogues_20_30_shots_15_20_v1"
+                    ),
                 }
                 return ScriptPostEditResult(
                     draft=candidate.model_copy(update={"llm_metadata": metadata}),
@@ -149,7 +164,10 @@ class ScriptPostEditor:
 
         raise InvalidScriptPostEditError(
             f"GPT正文终审后仍未满足当前项目的{EDITOR_DURATION_MIN_SECONDS}–"
-            f"{EDITOR_DURATION_MAX_SECONDS}秒、人物和场景保护规则："
+            f"{EDITOR_DURATION_MAX_SECONDS}秒、台词{EPISODE_DIALOGUE_LINE_MIN}–"
+            f"{EPISODE_DIALOGUE_LINE_MAX}条、镜头{EPISODE_SHOT_UNIT_MIN}–"
+            f"{EPISODE_SHOT_UNIT_MAX}个、场景{EPISODE_SCENE_MIN}–"
+            f"{EPISODE_SCENE_MAX}个、人物和场景保护规则："
             + "；".join(correction_issues[:6])
         )
 
@@ -276,7 +294,33 @@ class ScriptPostEditor:
                 "动作描述包含镜头语言、内心叙述或过长段落："
                 + "、".join(screenplay_issues[:5])
             )
+        scene_count, dialogue_count, shot_count = ScriptPostEditor._production_counts(
+            candidate
+        )
+        if not EPISODE_SCENE_MIN <= scene_count <= EPISODE_SCENE_MAX:
+            issues.append(
+                f"全集场景共{scene_count}个，必须为"
+                f"{EPISODE_SCENE_MIN}–{EPISODE_SCENE_MAX}个"
+            )
+        if not EPISODE_DIALOGUE_LINE_MIN <= dialogue_count <= EPISODE_DIALOGUE_LINE_MAX:
+            issues.append(
+                f"全集台词共{dialogue_count}条，必须为"
+                f"{EPISODE_DIALOGUE_LINE_MIN}–{EPISODE_DIALOGUE_LINE_MAX}条"
+            )
+        if not EPISODE_SHOT_UNIT_MIN <= shot_count <= EPISODE_SHOT_UNIT_MAX:
+            issues.append(
+                f"全集镜头执行单元共{shot_count}个，必须为"
+                f"{EPISODE_SHOT_UNIT_MIN}–{EPISODE_SHOT_UNIT_MAX}个"
+            )
         return list(dict.fromkeys(issues))
+
+    @staticmethod
+    def _production_counts(draft: DraftMasterScript) -> tuple[int, int, int]:
+        return (
+            len(draft.scenes),
+            sum(len(scene.dialogues) for scene in draft.scenes),
+            sum(len(scene.character_actions) for scene in draft.scenes),
+        )
 
     @staticmethod
     def _build_prompt(
@@ -313,15 +357,17 @@ class ScriptPostEditor:
 
 当前项目规则：
 1. 单集最终成片范围为{EDITOR_DURATION_MIN_SECONDS}–{EDITOR_DURATION_MAX_SECONDS}秒，目标约{target_duration}秒；当前程序估算约{source_duration.total_seconds}秒。
-2. 动作只写观众能看到或听到的外部动作、环境声、道具变化和演员调度；不写心理活动、镜头景别、角度、运镜、全知解释或无意义空镜。每项保持一个简洁可拍动作单元，导出层会自动添加△，不要在字段里重复添加。
-3. 对白采用美国短剧的短句、打断、反击和潜台词节奏；删除后不影响冲突、关系、信息或选择的台词不要保留。intent只放可表演提示，例如低声、头也不抬或beat。
-4. 保留原稿已有的（O.S.）、（V.O.）、（continued）和（pre-lap）语义；如确有表演必要，可把这些标记附在已批准人物名后，但不得借此新增人物。
-5. 保持短剧持续执行压力-行动-回报-升级循环，在原有剧情范围内强化动作、反应、交锋和事件后果，不能整集只等待、调查、解释或为最终对手做准备。
-6. 不得修改场景标题、场景顺序、转场语义或结尾钩子义务；最后可见动作或最后一句对白必须真正执行原稿的cliffhanger和next_episode_question。
-7. 不得新增人物；说话人只能来自原稿已经存在的人物。
-8. 必须返回全部原场景，每场只返回scene_number、character_actions、dialogues。
-9. 不要返回分析、解释、Markdown或完整DraftMasterScript。
-10. {language_rule}
+2. 本集必须保留原稿的场景数量，且总数只能为{EPISODE_SCENE_MIN}–{EPISODE_SCENE_MAX}个；一场足以完成剧情时不强行拆场。
+3. 动作只写观众能看到或听到的外部动作、环境声、道具变化和演员调度；不写心理活动、镜头景别、角度、运镜、全知解释或无意义空镜。每项保持一个简洁可拍动作单元，导出层会自动添加△，不要在字段里重复添加。
+4. 全集所有场景的character_actions合计必须为{EPISODE_SHOT_UNIT_MIN}–{EPISODE_SHOT_UNIT_MAX}项，每项按一个独立镜头执行单元计数；不得拆分同一动作、增加空镜或写镜头语言凑数。
+5. 全集所有场景的dialogues合计必须为{EPISODE_DIALOGUE_LINE_MIN}–{EPISODE_DIALOGUE_LINE_MAX}条，每项必须是演员实际说出的一句台词；采用美国短剧的短句、打断、反击和潜台词节奏，不得拆句、重复或添加解释性台词凑数。intent只放可表演提示，例如低声、头也不抬或beat。
+6. 保留原稿已有的（O.S.）、（V.O.）、（continued）和（pre-lap）语义；如确有表演必要，可把这些标记附在已批准人物名后，但不得借此新增人物。
+7. 保持短剧持续执行压力-行动-回报-升级循环，在原有剧情范围内强化动作、反应、交锋和事件后果，不能整集只等待、调查、解释或为最终对手做准备。
+8. 不得修改场景标题、场景顺序、转场语义或结尾钩子义务；最后可见动作或最后一句对白必须真正执行原稿的cliffhanger和next_episode_question。
+9. 不得新增人物；说话人只能来自原稿已经存在的人物。
+10. 必须返回全部原场景，每场只返回scene_number、character_actions、dialogues。
+11. 不要返回分析、解释、Markdown或完整DraftMasterScript。
+12. {language_rule}
 {correction_block}{previous_block}
 
 DeepSeek已校验初稿：

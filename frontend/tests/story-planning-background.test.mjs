@@ -7,6 +7,7 @@ import {
   getPlanningPauseState,
   getPlanningTask,
   getPlanningTasks,
+  planningTaskElapsedSeconds,
   requestPlanningPause,
   resolveTrackedPlanningTask,
   resumePlanningTasks,
@@ -14,6 +15,31 @@ import {
 } from "../lib/story-planning-background.ts";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test("planning task elapsed time keeps its original background start", () => {
+  const task = {
+    id: "planning-task.timer",
+    key: "episode-roadmap-all:project.timer",
+    kind: "episode_roadmap",
+    projectId: "project.timer",
+    status: "running",
+    createdAt: "2026-08-16T02:00:00.000Z",
+    startedAt: "2026-08-16T02:00:05.000Z",
+  };
+
+  assert.equal(
+    planningTaskElapsedSeconds(task, Date.parse("2026-08-16T02:02:15.000Z")),
+    130,
+  );
+  assert.equal(
+    planningTaskElapsedSeconds({
+      ...task,
+      status: "completed",
+      completedAt: "2026-08-16T02:02:05.000Z",
+    }, Date.parse("2026-08-16T03:00:00.000Z")),
+    120,
+  );
+});
 
 test("page-local task tracking ignores old failures but keeps current failures", () => {
   const base = {

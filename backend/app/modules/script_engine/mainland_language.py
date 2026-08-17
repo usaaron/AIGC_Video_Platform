@@ -124,6 +124,20 @@ def planning_output_chinese_issues(output: BaseModel) -> list[str]:
                 for item_index, value in enumerate(getattr(plan, field_name)):
                     if mainland_text_violates_language_contract(value):
                         issues.append(f"{prefix}.{field_name}.{item_index}")
+            for scene_index, scene in enumerate(plan.scene_execution_plan):
+                for field_name in (
+                    "scene_heading",
+                    "scene_objective",
+                    "visible_action",
+                    "turn_or_reveal",
+                    "dialogue_objective",
+                    "exit_state",
+                ):
+                    value = getattr(scene, field_name)
+                    if mainland_text_violates_language_contract(value):
+                        issues.append(
+                            f"{prefix}.scene_execution_plan.{scene_index}.{field_name}"
+                        )
         return issues
     raise TypeError(f"Unsupported mainland planning output: {type(output).__name__}")
 

@@ -334,6 +334,10 @@ def test_template_prompt_builder_requires_mainland_production_script_body() -> N
     assert "PartnerScreenplayDeliveryContract:" in result.prompt_text
     assert "不写小说、提纲、分集计划或框架" in result.prompt_text
     assert "不得少于75秒、不得超过115秒" in result.prompt_text
+    assert "每集场景总数必须为1至5个" in result.prompt_text
+    assert "一场可以完成本集时不得强行拆场" in result.prompt_text
+    assert "scene_execution_plan" in result.prompt_text
+    assert "不得重新设计场景结构" in result.prompt_text
     assert "INT.或EXT." in result.prompt_text
     assert "（O.S.）、（V.O.）" in result.prompt_text
     assert "美国短剧" in result.prompt_text
@@ -343,6 +347,12 @@ def test_template_prompt_builder_requires_mainland_production_script_body() -> N
     assert "dialogues" in result.prompt_text
     assert "统一添加△" in result.prompt_text
     assert "不写特写、镜头推进等镜头语言" in result.prompt_text
+    assert "character_actions合计必须为15至20项" in result.prompt_text
+    assert "dialogues合计必须为20至30条" in result.prompt_text
+    assert "不得拆句、重复或添加解释性台词凑数" in result.prompt_text
+    assert "LedgerCompressionContract:" in result.prompt_text
+    assert "normally no more than 80 visible characters" in result.prompt_text
+    assert "Compression must never omit a material death" in result.prompt_text
     assert "SerialEpisodeHookContract:" in result.prompt_text
     assert "previous_episode_question" in result.prompt_text
     assert "For every non-final episode" in result.prompt_text

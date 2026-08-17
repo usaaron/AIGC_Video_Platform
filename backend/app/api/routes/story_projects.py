@@ -62,6 +62,8 @@ from app.modules.script_engine.llm_adapter import (
 from app.modules.script_engine.story_planning_service import (
     StoryPlanningInputError,
     StoryPlanningService,
+    StoryPlanningTransientOutputError,
+    is_transient_story_planning_output_error,
 )
 
 
@@ -166,20 +168,30 @@ def _raise_planning_upstream_unavailable(
 
 
 def _raise_planning_output_incomplete(
-    exc: ValidationError | LLMStructuredOutputError,
+    exc: ValidationError | LLMStructuredOutputError | StoryPlanningTransientOutputError,
 ) -> NoReturn:
+    retryable = is_transient_story_planning_output_error(exc)
     logger.warning(
-        "Planning model output failed validation error_type=%s detail=%s",
+        "Planning model output failed validation error_type=%s retryable=%s detail=%s",
         type(exc).__name__,
+        retryable,
         str(exc)[:2000],
     )
     raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        detail="剧情规划模型本次未返回完整可用内容，请重试当前部分。",
+        status_code=(
+            status.HTTP_503_SERVICE_UNAVAILABLE
+            if retryable
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        ),
+        detail=(
+            "剧情规划模型连接出现短暂中断，已保存内容不会丢失。"
+            if retryable
+            else "剧情规划模型本次未返回完整可用内容，请重试当前部分。"
+        ),
         headers=_generation_failure_headers(
-            retryable=False,
-            failure_class="contract",
-            error_type="output_incomplete",
+            retryable=retryable,
+            failure_class="transient_upstream" if retryable else "contract",
+            error_type="stream_incomplete" if retryable else "output_incomplete",
         ),
     ) from exc
 

@@ -7,8 +7,14 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.script_delivery_contract import (
+    EPISODE_DIALOGUE_LINE_MAX,
+    EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
     EPISODE_RUNTIME_MIN_SECONDS,
+    EPISODE_SCENE_MAX,
+    EPISODE_SCENE_MIN,
+    EPISODE_SHOT_UNIT_MAX,
+    EPISODE_SHOT_UNIT_MIN,
 )
 
 
@@ -882,6 +888,39 @@ class EpisodePlanBatchDraftRequest(BaseModel):
     generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
 
 
+class EpisodeSceneExecutionBeat(BaseModel):
+    """Compact scene-level execution contract for one episode roadmap."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scene_number: int = Field(ge=1, le=EPISODE_SCENE_MAX)
+    scene_heading: str = Field(min_length=5, max_length=200)
+    character_refs: list[str] = Field(min_length=1, max_length=20)
+    scene_objective: str = Field(min_length=3, max_length=500)
+    visible_action: str = Field(min_length=5, max_length=800)
+    turn_or_reveal: str = Field(min_length=3, max_length=500)
+    dialogue_objective: str = Field(min_length=3, max_length=500)
+    dialogue_line_target: int = Field(ge=0, le=EPISODE_DIALOGUE_LINE_MAX)
+    shot_target: int = Field(ge=1, le=EPISODE_SHOT_UNIT_MAX)
+    exit_state: str = Field(min_length=3, max_length=500)
+
+    @field_validator("scene_heading")
+    @classmethod
+    def ensure_screenplay_scene_heading(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized.startswith(("INT.", "EXT.")):
+            raise ValueError("scene_heading must start with INT. or EXT.")
+        return normalized
+
+    @field_validator("character_refs")
+    @classmethod
+    def ensure_unique_scene_characters(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Scene character_refs must be unique.")
+        return values
+
+
 class EpisodePlanGenerationItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -891,8 +930,21 @@ class EpisodePlanGenerationItem(BaseModel):
         ge=EPISODE_RUNTIME_MIN_SECONDS,
         le=EPISODE_RUNTIME_MAX_SECONDS,
     )
-    planned_scene_count: int = Field(default=3, ge=2, le=5)
-    planned_shot_count: int = Field(default=16, ge=8, le=24)
+    planned_scene_count: int = Field(
+        default=3,
+        ge=EPISODE_SCENE_MIN,
+        le=EPISODE_SCENE_MAX,
+    )
+    planned_shot_count: int = Field(
+        default=16,
+        ge=EPISODE_SHOT_UNIT_MIN,
+        le=EPISODE_SHOT_UNIT_MAX,
+    )
+    planned_dialogue_line_count: int = Field(
+        default=24,
+        ge=EPISODE_DIALOGUE_LINE_MIN,
+        le=EPISODE_DIALOGUE_LINE_MAX,
+    )
     episode_goal: str = Field(min_length=5, max_length=800)
     entry_state: str = Field(min_length=5, max_length=1_000)
     central_conflict: str = Field(min_length=5, max_length=800)
@@ -930,6 +982,10 @@ class EpisodePlanGenerationItem(BaseModel):
         max_length=500,
     )
     hook_payoff_target_episode: int | None = Field(default=None, ge=1, le=2_000)
+    scene_execution_plan: list[EpisodeSceneExecutionBeat] = Field(
+        default_factory=list,
+        max_length=EPISODE_SCENE_MAX,
+    )
 
     @field_validator("target_duration_seconds", mode="before")
     @classmethod
@@ -940,6 +996,57 @@ class EpisodePlanGenerationItem(BaseModel):
             EPISODE_RUNTIME_MAX_SECONDS,
             max(EPISODE_RUNTIME_MIN_SECONDS, round(value)),
         )
+
+    @field_validator("planned_scene_count", mode="before")
+    @classmethod
+    def normalize_legacy_planned_scene_count(cls, value: Any) -> Any:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return value
+        return min(EPISODE_SCENE_MAX, max(EPISODE_SCENE_MIN, round(value)))
+
+    @field_validator("planned_shot_count", mode="before")
+    @classmethod
+    def normalize_legacy_planned_shot_count(cls, value: Any) -> Any:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return value
+        return min(EPISODE_SHOT_UNIT_MAX, max(EPISODE_SHOT_UNIT_MIN, round(value)))
+
+    @field_validator("planned_dialogue_line_count", mode="before")
+    @classmethod
+    def normalize_legacy_planned_dialogue_count(cls, value: Any) -> Any:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return value
+        return min(
+            EPISODE_DIALOGUE_LINE_MAX,
+            max(EPISODE_DIALOGUE_LINE_MIN, round(value)),
+        )
+
+    @model_validator(mode="after")
+    def validate_scene_execution_plan(self) -> "EpisodePlanGenerationItem":
+        if not self.scene_execution_plan:
+            return self
+        if len(self.scene_execution_plan) != self.planned_scene_count:
+            raise ValueError("scene_execution_plan must match planned_scene_count.")
+        if [item.scene_number for item in self.scene_execution_plan] != list(
+            range(1, self.planned_scene_count + 1)
+        ):
+            raise ValueError("scene_execution_plan must use consecutive scene numbers.")
+        if sum(item.shot_target for item in self.scene_execution_plan) != self.planned_shot_count:
+            raise ValueError("Scene shot targets must equal planned_shot_count.")
+        if (
+            sum(item.dialogue_line_target for item in self.scene_execution_plan)
+            != self.planned_dialogue_line_count
+        ):
+            raise ValueError(
+                "Scene dialogue targets must equal planned_dialogue_line_count."
+            )
+        allowed_characters = set(self.character_refs)
+        if any(
+            not set(item.character_refs).issubset(allowed_characters)
+            for item in self.scene_execution_plan
+        ):
+            raise ValueError("Scene character_refs must exist in the episode plan.")
+        return self
 
 
 class EpisodePlanBatchGenerationOutput(BaseModel):

@@ -69,9 +69,12 @@ def test_orchestration_plan_rejects_duplicate_scene_numbers() -> None:
         OrchestrationPlan.model_validate(payload)
 
 
-def test_orchestration_plan_create_rejects_invalid_scene_count() -> None:
+def test_orchestration_plan_create_accepts_one_scene_and_rejects_out_of_range() -> None:
     payload = build_create_payload()
     payload["desired_scene_count"] = 1
+    assert OrchestrationPlanCreate.model_validate(payload).desired_scene_count == 1
 
-    with pytest.raises(ValidationError):
-        OrchestrationPlanCreate.model_validate(payload)
+    for invalid_count in (0, 6):
+        payload["desired_scene_count"] = invalid_count
+        with pytest.raises(ValidationError):
+            OrchestrationPlanCreate.model_validate(payload)

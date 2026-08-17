@@ -61,6 +61,17 @@ export function getPlanningTask(key: string): PlanningTaskSnapshot | undefined {
   return readPersistedTaskHistory().find((candidate) => candidate.key === key);
 }
 
+export function planningTaskElapsedSeconds(
+  task: PlanningTaskSnapshot,
+  now = Date.now(),
+): number {
+  const startedAt = Date.parse(task.startedAt ?? task.createdAt);
+  if (!Number.isFinite(startedAt)) return 0;
+  const completedAt = task.completedAt ? Date.parse(task.completedAt) : now;
+  const endedAt = Number.isFinite(completedAt) ? completedAt : now;
+  return Math.max(0, Math.round((endedAt - startedAt) / 1_000));
+}
+
 function currentPlanningTaskRecord(
   key: string,
 ): PlanningTaskRecord<unknown> | undefined {

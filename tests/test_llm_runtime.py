@@ -2,6 +2,7 @@ import pytest
 
 from app import dependencies
 from app.llm_runtime import (
+    _build_explicit_episode_alternate,
     build_continuity_llm_adapter_from_env,
     build_creative_llm_adapter_from_env,
     build_dialogue_polish_adapter_from_env,
@@ -145,7 +146,7 @@ def test_script_generation_runtime_can_use_an_independent_fast_profile(
     assert script_adapter._wire_api == "responses"
 
 
-def test_script_generation_defaults_to_medium_reasoning_without_inheriting_planning(
+def test_script_generation_defaults_to_high_reasoning_without_inheriting_planning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
@@ -159,9 +160,11 @@ def test_script_generation_defaults_to_medium_reasoning_without_inheriting_plann
     script_adapter = build_script_generation_adapter(config)
 
     assert config.reasoning_effort == "high"
-    assert config.script_reasoning_effort == "medium"
+    assert config.script_reasoning_effort == "high"
+    assert config.script_thinking_mode == "enabled"
     assert isinstance(script_adapter, RealLLMAdapter)
-    assert script_adapter._reasoning_effort == "medium"
+    assert script_adapter._reasoning_effort == "high"
+    assert script_adapter._thinking_mode == "enabled"
 
 
 def test_script_service_uses_script_repair_profile_for_every_recovery_stage(
@@ -245,14 +248,30 @@ def test_script_runtime_can_use_an_explicit_same_model_alternate_route(
     monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_MODEL", "glm-5.2")
     monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_API_KEY", "official-key")
     monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_BASE_URL", "https://glm-backup.example")
+    monkeypatch.setenv("LLM_SCRIPT_HEDGE_DELAY_SECONDS", "45")
 
     adapter = build_script_generation_adapter_from_env()
+    repair_adapter = build_script_repair_llm_adapter_from_env()
 
     assert isinstance(adapter, ModelFailoverLLMAdapter)
     assert adapter._primary.get_model_info().model_name == "glm-5.2"
     assert adapter._fallback.get_model_info().model_name == "glm-5.2"
     assert adapter._primary._base_url == "https://gateway.example/v1"
     assert adapter._fallback._base_url == "https://glm-backup.example"
+    assert adapter._primary._reasoning_effort == "high"
+    assert adapter._fallback._reasoning_effort == "high"
+    assert adapter._primary._thinking_mode == "enabled"
+    assert adapter._fallback._thinking_mode == "enabled"
+    assert adapter._primary._retry_empty_response is False
+    assert adapter._fallback._retry_empty_response is False
+    assert adapter._primary._defer_schema_container_repair is True
+    assert adapter._fallback._defer_schema_container_repair is True
+    assert adapter._primary._retry_gateway_stream_as_non_stream is False
+    assert adapter._fallback._retry_gateway_stream_as_non_stream is False
+    assert adapter._circuit_failure_threshold == 1
+    assert adapter._hedge_delay_seconds == 45
+    assert isinstance(repair_adapter, ModelFailoverLLMAdapter)
+    assert repair_adapter._hedge_delay_seconds is None
 
 
 def test_script_runtime_rejects_a_different_alternate_model(
@@ -349,6 +368,8 @@ def test_role_adapters_route_each_story_artifact_to_its_configured_model(
     monkeypatch.setenv("LLM_STORY_ARCHITECT_REASONING_EFFORT", "high")
     monkeypatch.setenv("LLM_EPISODE_PLAN_MODEL", "glm-5.2-roadmap")
     monkeypatch.setenv("LLM_EPISODE_PLAN_REASONING_EFFORT", "medium")
+    monkeypatch.setenv("LLM_EPISODE_PLAN_RETRY_EMPTY_RESPONSE", "false")
+    monkeypatch.setenv("LLM_EPISODE_PLAN_FALLBACK_RETRY_EMPTY_RESPONSE", "false")
     monkeypatch.setenv("LLM_SCRIPT_MODEL", "deepseek-v4-flash")
     monkeypatch.setenv("LLM_SCRIPT_API_KEY", "deepseek-role-key")
     monkeypatch.setenv("LLM_SCRIPT_BASE_URL", "https://deepseek.example/v1")
@@ -383,16 +404,101 @@ def test_role_adapters_route_each_story_artifact_to_its_configured_model(
     assert isinstance(episode_plan, ModelFailoverLLMAdapter)
     assert episode_plan.get_model_info().model_name == "glm-5.2-roadmap"
     assert episode_plan._primary._reasoning_effort == "medium"
+    assert episode_plan._primary._thinking_mode == "disabled"
+    assert episode_plan._primary._retry_empty_response is False
     assert episode_plan._fallback.get_model_info().model_name == (
         "deepseek-v4-flash-repair"
     )
     assert episode_plan._fallback._base_url == "https://deepseek.example/v1"
+    assert episode_plan._fallback._retry_empty_response is False
     assert script_repair.get_model_info().model_name == "deepseek-v4-flash-repair"
     assert script_repair._wire_api == "chat_completions"
     assert script_repair._thinking_mode == "disabled"
     assert script_repair._use_strict_schema is False
     assert continuity.get_model_info().model_name == "glm-5.2-continuity"
     assert continuity._base_url == "https://glm.example/v1"
+
+
+def test_episode_plan_builds_explicit_cross_gateway_chain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_MODEL", "glm-5.2")
+    monkeypatch.setenv("LLM_API_KEY", "primary-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://primary.example/v1")
+    monkeypatch.setenv("LLM_EPISODE_PLAN_MODEL", "glm-5.2")
+    monkeypatch.setenv("LLM_EPISODE_PLAN_API_KEY", "episode-primary-key")
+    monkeypatch.setenv("LLM_EPISODE_PLAN_BASE_URL", "https://primary.example/v1")
+    monkeypatch.setenv("LLM_SCRIPT_REPAIR_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_SCRIPT_REPAIR_API_KEY", "legacy-fallback-key")
+    monkeypatch.setenv("LLM_SCRIPT_REPAIR_BASE_URL", "https://legacy.example/v1")
+    monkeypatch.setenv("LLM_EPISODE_PLAN_ALTERNATE_01_MODEL", "glm-5.2")
+    monkeypatch.setenv("LLM_EPISODE_PLAN_ALTERNATE_01_API_KEY", "cloudflare-key")
+    monkeypatch.setenv(
+        "LLM_EPISODE_PLAN_ALTERNATE_01_BASE_URL",
+        "https://openrouter.icu/v1",
+    )
+    monkeypatch.setenv("LLM_EPISODE_PLAN_ALTERNATE_01_RETRY_EMPTY_RESPONSE", "false")
+    monkeypatch.setenv("LLM_EPISODE_PLAN_ALTERNATE_02_MODEL", "glm-5.2")
+    monkeypatch.setenv("LLM_EPISODE_PLAN_ALTERNATE_02_API_KEY", "direct-key")
+    monkeypatch.setenv(
+        "LLM_EPISODE_PLAN_ALTERNATE_02_BASE_URL",
+        "https://tokenadvent.com/v1",
+    )
+    monkeypatch.setenv("LLM_EPISODE_PLAN_CIRCUIT_FAILURE_THRESHOLD", "1")
+    monkeypatch.setenv("LLM_EPISODE_PLAN_CIRCUIT_COOLDOWN_SECONDS", "240")
+
+    adapter = build_episode_plan_llm_adapter_from_env()
+
+    assert isinstance(adapter, ModelFailoverLLMAdapter)
+    cloudflare_route = adapter._fallback
+    assert isinstance(cloudflare_route, ModelFailoverLLMAdapter)
+    assert cloudflare_route._primary._base_url == "https://openrouter.icu/v1"
+    assert cloudflare_route._primary._client.headers["Authorization"] == (
+        "Bearer cloudflare-key"
+    )
+    assert cloudflare_route._primary._retry_empty_response is False
+    assert cloudflare_route._primary._thinking_mode == "disabled"
+    direct_route = cloudflare_route._fallback
+    assert isinstance(direct_route, ModelFailoverLLMAdapter)
+    assert direct_route._primary._base_url == "https://tokenadvent.com/v1"
+    assert direct_route._primary._client.headers["Authorization"] == "Bearer direct-key"
+    assert direct_route._primary._thinking_mode == "disabled"
+    assert direct_route._fallback._base_url == "https://legacy.example/v1"
+    assert direct_route._fallback._thinking_mode == "disabled"
+    assert adapter._circuit_failure_threshold == 1
+    assert adapter._circuit_cooldown_seconds == 240
+
+
+def test_episode_plan_thinking_default_does_not_inherit_architect_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_MODEL", "glm-5.2")
+    monkeypatch.setenv("LLM_API_KEY", "shared-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://shared.example/v1")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_THINKING_MODE", "enabled")
+
+    adapter = build_episode_plan_llm_adapter_from_env()
+
+    assert isinstance(adapter, RealLLMAdapter)
+    assert adapter._thinking_mode == "disabled"
+
+
+def test_episode_plan_alternate_never_inherits_primary_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prefix = "LLM_EPISODE_PLAN_ALTERNATE_01"
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_API_KEY", "must-not-cross-domains")
+    monkeypatch.setenv("LLM_BASE_URL", "https://primary.example/v1")
+    monkeypatch.setenv(f"{prefix}_MODEL", "glm-5.2")
+    monkeypatch.setenv(f"{prefix}_BASE_URL", "https://openrouter.icu/v1")
+    monkeypatch.delenv(f"{prefix}_API_KEY", raising=False)
+    for index in range(1, 101):
+        monkeypatch.delenv(f"{prefix}_API_KEY_{index:02d}", raising=False)
+
+    assert _build_explicit_episode_alternate(prefix) is None
 
 
 def test_role_adapter_supports_independent_numbered_key_pool(

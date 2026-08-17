@@ -174,7 +174,7 @@ def test_episode_generation_context_keeps_the_approved_episode_plan_structured()
     assert serialized["approved_episode_plan"]["episode_goal"] == "夺回被扣押的账本"
     assert serialized["approved_episode_plan"]["target_duration_seconds"] == 114
     assert serialized["approved_episode_plan"]["planned_scene_count"] == 5
-    assert serialized["approved_episode_plan"]["planned_shot_count"] == 22
+    assert serialized["approved_episode_plan"]["planned_shot_count"] == 20
     assert serialized["approved_episode_plan"]["source_unit_story_beats"] == [
         "制造交易",
         "换取账本",
@@ -185,6 +185,8 @@ def test_episode_generation_context_keeps_the_approved_episode_plan_structured()
     normalized = EpisodeGenerationContext.model_validate(legacy)
     assert normalized.approved_episode_plan is not None
     assert normalized.approved_episode_plan.target_duration_seconds == 75
+    assert normalized.approved_episode_plan.planned_scene_count == 5
+    assert normalized.approved_episode_plan.planned_shot_count == 20
 
     invalid = context.model_dump(mode="json")
     invalid["approved_episode_plan"]["episode_number"] = 4
@@ -226,6 +228,21 @@ def test_generation_request_keeps_body_target_optional_and_bounded() -> None:
 
     assert legacy.target_script_body_characters is None
     assert targeted.target_script_body_characters == 1797
+
+    one_scene = ScriptGenerationDraftRequest(
+        content_spec_id="content_spec_001",
+        generation_strategy_id="strategy.mainland.v1",
+        output_language="zh",
+        desired_scene_count=1,
+    )
+    legacy_scene_count = ScriptGenerationDraftRequest(
+        content_spec_id="content_spec_001",
+        generation_strategy_id="strategy.mainland.v1",
+        output_language="zh",
+        desired_scene_count=6,
+    )
+    assert one_scene.desired_scene_count == 1
+    assert legacy_scene_count.desired_scene_count == 5
 
     with pytest.raises(ValidationError, match="greater than or equal to 300"):
         ScriptGenerationDraftRequest(

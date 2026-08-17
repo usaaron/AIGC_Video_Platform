@@ -329,7 +329,6 @@ export function ScriptWorkspace() {
             t={t}
           />
         ) : null}
-        <section className="workspace-editor" />
       </main>
     );
   }

@@ -931,7 +931,7 @@ select:focus-visible {
 .story-plan-branch { position: relative; margin-top: 16px; }
 .story-plan-branch::before { position: absolute; top: 0; bottom: 0; left: -10px; width: 1px; background: var(--line); content: ""; }
 .story-plan-node-card { border: 1px solid var(--line); background: var(--paper-bright); }
-.story-plan-node-summary { display: grid; grid-template-columns: 22px 54px minmax(220px, 1fr) auto auto; gap: 10px; align-items: center; min-height: 64px; padding: 12px 16px; cursor: pointer; list-style: none; }
+.story-plan-node-summary { display: grid; grid-template-columns: 22px 54px minmax(220px, 1fr) auto; gap: 10px; align-items: center; min-height: 64px; padding: 12px 16px; cursor: pointer; list-style: none; }
 .story-plan-node-summary::-webkit-details-marker, .story-plan-children-group > summary::-webkit-details-marker { display: none; }
 .story-plan-node-summary:hover { background: color-mix(in srgb, var(--gold) 5%, var(--paper-bright)); }
 .story-plan-node-toggle { display: grid; width: 22px; height: 22px; place-items: center; color: var(--ink-faint); transition: transform 160ms ease; }
@@ -941,11 +941,54 @@ select:focus-visible {
 .story-plan-node-depth { color: var(--vermillion); font-size: 10px; font-weight: 700; }
 .story-plan-node-title { min-width: 0; font-weight: 650; line-height: 1.4; }
 .story-plan-node-meta { color: var(--ink-soft); font-size: 10px; white-space: nowrap; }
-.story-plan-node-state { padding: 6px 8px; border: 1px solid var(--line); color: var(--ink-soft); font-size: 9px; white-space: nowrap; }
-.story-plan-node-state.is-approved { border-color: var(--sage); color: var(--sage); }
 .story-plan-node-content { padding: 4px 18px 18px 104px; border-top: 1px solid var(--line); }
 .story-plan-node-card .story-bible-field { margin-top: 14px; }
-.story-plan-node-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.story-plan-node-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 18px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.story-plan-node-secondary-actions,
+.story-plan-node-primary-step { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.story-plan-node-primary-step { justify-content: flex-end; margin-left: auto; }
+.story-plan-node-actions .primary-action,
+.story-plan-node-actions .outline-action { min-height: 40px; padding: 0 14px; }
+.story-plan-node-actions svg { flex: 0 0 auto; }
+.story-plan-node-action-menu { position: relative; }
+.story-plan-node-action-menu > summary { list-style: none; }
+.story-plan-node-action-menu > summary::-webkit-details-marker { display: none; }
+.story-plan-node-menu-chevron { transition: transform 160ms ease; }
+.story-plan-node-action-menu[open] .story-plan-node-menu-chevron { transform: rotate(180deg); }
+.story-plan-node-action-menu-popover {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  width: 170px;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--paper-bright);
+  box-shadow: 0 12px 28px rgba(28, 34, 29, 0.12);
+}
+.story-plan-node-action-menu-popover button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 4px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  text-align: left;
+}
+.story-plan-node-action-menu-popover button:hover { background: var(--paper); color: var(--ink); }
 .story-plan-children-group { margin-top: 9px; }
 .story-plan-children-group > summary { display: flex; align-items: center; gap: 8px; width: fit-content; padding: 7px 10px; cursor: pointer; color: var(--ink-soft); font-size: 10px; list-style: none; }
 .story-plan-children-group > summary:hover { color: var(--ink); }
@@ -955,7 +998,42 @@ select:focus-visible {
 .story-plan-roadmap-heading h3 { margin: 0; font-size: 13px; }
 .roadmap-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
 .roadmap-card-actions .outline-action { min-height: 34px; padding: 0 12px; font-size: 10px; }
+.roadmap-scene-blueprint { margin-top: 6px; border-top: 1px solid var(--line); }
+.roadmap-scene-blueprint > summary { padding: 9px 0 5px; cursor: pointer; color: var(--vermillion-dark); font-size: 10px; font-weight: 700; list-style-position: inside; }
+.roadmap-scene-blueprint ol { display: grid; gap: 7px; margin: 4px 0 6px; padding-left: 20px; }
+.roadmap-scene-blueprint li { padding-left: 3px; color: var(--ink-soft); }
+.roadmap-scene-blueprint li strong,
+.roadmap-scene-blueprint li span,
+.roadmap-scene-blueprint li small { display: block; }
+.roadmap-scene-blueprint li strong { color: var(--ink); font-size: 10px; }
+.roadmap-scene-blueprint li span { margin-top: 2px; font-size: 10px; line-height: 1.5; }
 .planning-ready-badge { padding: 8px 10px; border: 1px solid var(--sage); color: var(--sage); font-size: 11px; font-weight: 600; }
+.planning-ready-badge.is-roadmap-blocked,
+.planning-ready-badge.is-script-blocked { border-color: var(--line-strong); color: var(--ink-soft); }
+.planning-ready-badge.is-script-progress { border-color: var(--gold); color: var(--vermillion-dark); }
+.planning-ready-badge.is-tree-complete { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.story-plan-tree-stage-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+.story-plan-stage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 14px;
+  max-width: 760px;
+}
+.story-plan-stage-action { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.story-plan-stage-index { color: var(--ink-soft); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.story-plan-stage-actions .primary-action { min-height: 38px; padding: 0 12px; }
+.story-plan-stage-actions svg { flex: 0 0 auto; }
+.story-plan-stage-progress { color: var(--ink-soft); font-size: 11px; white-space: nowrap; }
 .story-plan-episode-plans { margin: 12px 0 0 18px; padding: 14px; border-left: 2px solid var(--gold); background: var(--paper-bright); }
 .story-plan-episode-plans h3 { margin: 0 0 8px; font-size: 13px; }
 .story-plan-episode-plans article { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
@@ -3464,7 +3542,7 @@ select:focus-visible {
 }
 .roadmap-editor-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin: 4px 0 16px;
 }
@@ -3492,6 +3570,21 @@ select:focus-visible {
 .roadmap-editor-fields textarea { min-height: 74px; padding: 10px 12px; resize: vertical; }
 .roadmap-editor-metrics input:focus,
 .roadmap-editor-fields textarea:focus { border-color: var(--vermillion); outline: 0; }
+.roadmap-scene-editor-list { margin-top: 20px; border-top: 1px solid var(--line); }
+.roadmap-scene-editor-list > .section-title-with-help { display: flex; padding: 16px 0 4px; align-items: baseline; justify-content: space-between; gap: 16px; }
+.roadmap-scene-editor-list h4 { margin: 0; font-size: 13px; }
+.roadmap-scene-editor-list > .section-title-with-help small { color: var(--ink-faint); font-size: 9px; text-align: right; }
+.roadmap-scene-editor-list fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 14px; margin: 0; padding: 16px 0; border: 0; border-bottom: 1px solid var(--line); }
+.roadmap-scene-editor-list legend { grid-column: 1 / -1; padding: 0; color: var(--vermillion-dark); font-size: 11px; font-weight: 750; }
+.roadmap-scene-editor-list label { display: grid; gap: 6px; color: var(--ink-soft); font-size: 10px; font-weight: 650; }
+.roadmap-scene-editor-list input,
+.roadmap-scene-editor-list textarea { width: 100%; border: 1px solid var(--line-strong); background: var(--paper); color: var(--ink); font: 400 12px/1.5 var(--sans); }
+.roadmap-scene-editor-list input { min-height: 40px; padding: 8px 10px; }
+.roadmap-scene-editor-list textarea { min-height: 64px; padding: 9px 10px; resize: vertical; }
+.roadmap-scene-editor-list input:focus,
+.roadmap-scene-editor-list textarea:focus { border-color: var(--vermillion); outline: 0; }
+.roadmap-scene-character-refs { grid-column: 1 / -1; overflow-wrap: anywhere; color: var(--ink-faint); font-size: 9px; }
+.roadmap-scene-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .roadmap-editor-boundary-note { margin: 15px 0 0 !important; color: var(--ink-faint) !important; font-size: 10px !important; }
 .roadmap-editor-dialog .tag-dialog-actions {
   flex: 0 0 auto;
@@ -4311,13 +4404,25 @@ select:focus-visible {
   .story-bible-escalation article > p { grid-template-columns: 1fr; gap: 2px; }
   .story-bible-details-copy { grid-template-columns: 1fr; gap: 4px; }
   .story-plan-branch { margin-left: 0 !important; }
-  .story-plan-node-summary { grid-template-columns: 22px 44px minmax(0, 1fr) auto; gap: 7px; }
+  .story-plan-node-summary { grid-template-columns: 22px 44px minmax(0, 1fr); gap: 7px; }
   .story-plan-node-meta { grid-column: 3 / -1; white-space: normal; }
-  .story-plan-node-state { grid-column: 4; grid-row: 1; }
   .story-plan-node-content { padding: 4px 14px 16px; }
+  .story-plan-node-actions { display: grid; grid-template-columns: 1fr; }
+  .story-plan-node-secondary-actions,
+  .story-plan-node-primary-step { display: grid; grid-template-columns: 1fr; width: 100%; margin-left: 0; }
+  .story-plan-node-actions .primary-action,
+  .story-plan-node-actions .outline-action,
+  .story-plan-node-action-menu,
+  .story-plan-node-action-menu > summary { width: 100%; }
+  .story-plan-node-action-menu-popover { position: static; width: 100%; margin-top: 6px; box-shadow: none; }
+  .story-plan-tree-stage-status { align-items: flex-start; justify-content: flex-start; width: 100%; }
+  .story-plan-stage-actions { align-items: flex-start; justify-content: flex-start; width: 100%; }
   .planning-descendant-options,
   .roadmap-editor-metrics,
   .roadmap-editor-fields { grid-template-columns: 1fr; }
+  .roadmap-scene-editor-list fieldset { grid-template-columns: 1fr; }
+  .roadmap-scene-editor-list > .section-title-with-help { display: grid; gap: 5px; }
+  .roadmap-scene-editor-list > .section-title-with-help small { text-align: left; }
   .roadmap-editor-dialog {
     width: calc(100vw - 20px);
     max-height: calc(100vh - 20px);

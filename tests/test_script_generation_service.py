@@ -481,8 +481,15 @@ def test_episode_prompt_prefers_handoffs_and_newest_continuity_slice() -> None:
     assert "NEW_EPISODE_HANDOFF" in prompt
     assert "MODULE_HANDOFF" in prompt
     assert "LONG_RANGE_ANCHOR" in prompt
-    assert '\\"version\\": \\"provisional\\"' in prompt
-    assert '\\"through_episode_number\\": 8' in prompt
+    prompt_episode_context = json.loads(
+        result.prompt_build_result.rendered_variables["episode_context_json"]
+    )
+    assert prompt_episode_context["continuity_checkpoint"] == {
+        "version": "provisional",
+        "through_episode_number": 8,
+    }
+    assert "provisional_continuity_checkpoint" not in prompt_episode_context
+    assert "confirmed_continuity_checkpoint" not in prompt_episode_context
     assert "OLD_SUMMARY_SHOULD_BE_REMOVED" not in prompt
     assert "OLD_PROJECT_SUMMARY" not in prompt
     assert '\"version\": \"confirmed\"' not in prompt
@@ -540,6 +547,9 @@ def test_script_generation_service_preserves_serialized_episode_context() -> Non
         ),
         approved_episode_plan=ApprovedEpisodePlanContext(
             episode_number=2,
+            planned_scene_count=5,
+            planned_shot_count=24,
+            planned_dialogue_line_count=24,
             episode_goal="Force Mara to protect the suspected betrayer.",
             entry_state="Mara exposed the false evidence and lost her ally.",
             central_conflict="Protecting the suspected betrayer risks the evidence.",
@@ -551,6 +561,21 @@ def test_script_generation_service_preserves_serialized_episode_context() -> Non
             story_line_refs=["storyline.conspiracy"],
             source_turning_points=["Mara hides the witness"],
             source_unit_story_beats=["Find the witness", "Choose protection"],
+            scene_execution_plan=[
+                {
+                    "scene_number": index + 1,
+                    "scene_heading": f"INT. SAFE HOUSE {index + 1} - DAY",
+                    "character_refs": ["character.mara"],
+                    "scene_objective": "Keep the witness moving toward safety.",
+                    "visible_action": "Mara checks the exit and moves the witness past a blocked route.",
+                    "turn_or_reveal": "A new route exposes the second betrayer's access.",
+                    "dialogue_objective": "Force the witness to identify the person controlling the route.",
+                    "dialogue_line_target": 5 if index < 4 else 4,
+                    "shot_target": 4,
+                    "exit_state": "Mara clears one route but loses another safe option.",
+                }
+                for index in range(5)
+            ],
         ),
         project_continuity_summary=(
             "The conspiracy line remains active. Mara distrusts Adrian but needs his access."
@@ -622,9 +647,38 @@ def test_script_generation_service_preserves_serialized_episode_context() -> Non
     assert prompt_episode_context["approved_story_node"]["unit_resolution"] == (
         "The witness survives but the evidence becomes public."
     )
-    assert prompt_episode_context["approved_episode_plan"][
-        "source_unit_story_beats"
-    ] == ["Find the witness", "Choose protection"]
+    assert prompt_episode_context["approved_episode_plan"]["key_events"] == [
+        "Find the witness",
+        "Choose protection",
+        "Mara hides the witness",
+    ]
+    assert "source_unit_story_beats" not in prompt_episode_context[
+        "approved_episode_plan"
+    ]
+    assert "source_turning_points" not in prompt_episode_context[
+        "approved_episode_plan"
+    ]
+    assert "episode_number" not in prompt_episode_context["approved_episode_plan"]
+    assert "node_id" not in prompt_episode_context["approved_story_node"]
+    assert "node_version" not in prompt_episode_context["approved_story_node"]
+    assert prompt_episode_context["approved_episode_plan"]["planned_scene_count"] == 5
+    assert prompt_episode_context["approved_episode_plan"]["planned_shot_count"] == 20
+    assert prompt_episode_context["approved_episode_plan"]["planned_dialogue_line_count"] == 24
+    assert len(prompt_episode_context["approved_episode_plan"]["scene_execution_plan"]) == 5
+    assert prompt_episode_context["approved_episode_plan"]["scene_execution_plan"][0][
+        "scene_heading"
+    ] == "INT. SAFE HOUSE 1 - DAY"
+    assert "不得重新设计场景结构" in result.prompt_build_result.prompt_text
+    assert prompt_episode_context["continuity_checkpoint"] == (
+        "The conspiracy line remains active. Mara distrusts Adrian but needs his access."
+    )
+    assert len(episode_context_json) < len(json.dumps(
+        context.model_dump(mode="json"),
+        ensure_ascii=True,
+    ))
+    assert result.draft_master_script.llm_metadata[
+        "episode_execution_context_characters"
+    ] == len(episode_context_json)
     assert "Mara distrusts Adrian but needs his access" in result.prompt_build_result.prompt_text
     assert result.episode_context.batch_context is not None
     assert result.episode_context.batch_context.batch_number == 2
@@ -974,6 +1028,9 @@ class StubRealScriptAdapter(LLMAdapter):
                     "character_actions": [
                         "Elena tightens her grip on the bouquet until thorns cut her palm.",
                         "Damian leans close and steals the first move before she can retreat.",
+                        "Elena angles the bouquet between them and blocks his view of her cut palm.",
+                        "Damian turns her wrist just enough to expose the blood to the front row.",
+                        "The officiant lowers the vow book as the guests lean toward the altar.",
                     ],
                     "turning_point": "Damian whispers that if she walks away, he will play the old video for every guest.",
                     "scene_causality": {
@@ -995,6 +1052,14 @@ class StubRealScriptAdapter(LLMAdapter):
                             "intent": "buy time without surrendering",
                             "text": "Then you'd better hold my hand like you mean it, because I refuse to look hunted in my own revenge.",
                         },
+                        *[
+                            {
+                                "character_name": "Elena" if index % 2 else "Damian",
+                                "intent": "press the public confrontation forward",
+                                "text": f"The ceremony gives us one move before choice {index} becomes public.",
+                            }
+                            for index in range(1, 6)
+                        ],
                     ],
                 },
                 {
@@ -1008,6 +1073,9 @@ class StubRealScriptAdapter(LLMAdapter):
                     "character_actions": [
                         "Elena drops her prepared vow cards and speaks directly to the guests.",
                         "Damian stops smiling when he realizes she is rewriting the ceremony live.",
+                        "A guest lifts a phone while Elena steps away from Damian's waiting hand.",
+                        "Damian closes the ring box and leaves it where every guest can see it.",
+                        "Elena points toward the front row as her former friend grips the chair.",
                     ],
                     "turning_point": "Elena publicly toasts false friends who sleep in stolen rings, and her best friend goes pale in the front row.",
                     "scene_causality": {
@@ -1029,6 +1097,14 @@ class StubRealScriptAdapter(LLMAdapter):
                             "intent": "warn Elena the game is not hers alone",
                             "text": "Careful. Revenge is glamorous only until the wrong witness stands up.",
                         },
+                        *[
+                            {
+                                "character_name": "Damian" if index % 2 else "Elena",
+                                "intent": "force a choice under public pressure",
+                                "text": f"Everyone here will remember who refused to answer challenge {index}.",
+                            }
+                            for index in range(1, 6)
+                        ],
                     ],
                 },
                 {
@@ -1042,6 +1118,9 @@ class StubRealScriptAdapter(LLMAdapter):
                     "character_actions": [
                         "Guests turn as the footage floods the ballroom wall.",
                         "Damian catches Elena's wrist before she can lunge at the traitor.",
+                        "Elena tears free and stops beneath her mother's frozen image on the screen.",
+                        "Damian slides the payment record across the altar toward Elena.",
+                        "The ballroom doors lock as Elena reads the sender's name aloud.",
                     ],
                     "turning_point": "Damian reveals he never came to ruin Elena; he came because the betrayal was bigger than she knew.",
                     "scene_causality": {
@@ -1063,6 +1142,14 @@ class StubRealScriptAdapter(LLMAdapter):
                             "intent": "stop Elena and open the next mystery",
                             "text": "Don't waste your first victory on her. Ask why your mother paid me to keep you away from this wedding.",
                         },
+                        *[
+                            {
+                                "character_name": "Elena" if index % 2 else "Damian",
+                                "intent": "turn the reveal into the next obligation",
+                                "text": f"The payment record leaves one unanswered name at position {index}.",
+                            }
+                            for index in range(1, 5)
+                        ],
                     ],
                 },
             ],
@@ -1230,6 +1317,30 @@ class ExhaustedStreamAndSyncAdapter(GatewayFailingStreamAdapter):
             recoverable=True,
         )
         setattr(error, "stream_fallback_attempted", True)
+        raise error
+
+
+class ExhaustedGatewayRoutesAdapter(GatewayFailingStreamAdapter):
+    def generate_structured_output_stream(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema=None,
+        on_delta=None,
+    ) -> dict[str, object]:
+        self.stream_call_count += 1
+        error = LLMRequestError(
+            "All configured model routes failed.",
+            status_code=502,
+            category="failover_exhausted",
+            recoverable=True,
+        )
+        setattr(
+            error,
+            "route_failure_categories",
+            ("provider_gateway", "provider_gateway"),
+        )
         raise error
 
 
@@ -1632,7 +1743,25 @@ class ExpandingScriptBodyAdapter(StubRealScriptAdapter):
                 output_schema=output_schema,
             )
         )
-        if self.structured_call_count == 2:
+        if self.structured_call_count == 1:
+            scenes = payload["scenes"]
+            assert isinstance(scenes, list)
+            for scene_index, scene in enumerate(scenes, start=1):
+                assert isinstance(scene, dict)
+                actions = scene["character_actions"]
+                dialogues = scene["dialogues"]
+                assert isinstance(actions, list)
+                assert isinstance(dialogues, list)
+                scene["character_actions"] = [
+                    f"Elena moves to block Damian {scene_index}-{action_index}."
+                    for action_index, _ in enumerate(actions, start=1)
+                ]
+                for dialogue_index, dialogue in enumerate(dialogues, start=1):
+                    assert isinstance(dialogue, dict)
+                    dialogue["text"] = (
+                        f"Choose before the room sees us {scene_index}-{dialogue_index}."
+                    )
+        else:
             assert "episode script appears truncated" in prompt
             assert "truncation floor" in prompt
             assert "there is no per-scene character quota" in prompt
@@ -1769,6 +1898,67 @@ class ContinuityRepairAdapter(StubRealScriptAdapter):
                 "continuation_hook": payload.get("continuation_hook"),
                 "_meta": {"provider": "continuity-repair-test"},
             }
+        return payload
+
+
+class EpisodeProductionCountRepairAdapter(MockLLMAdapter):
+    def __init__(self, complete_payload: dict[str, object]) -> None:
+        super().__init__()
+        self.complete_payload = complete_payload
+        self.structured_call_count = 0
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema=None,
+    ) -> dict[str, object]:
+        self.structured_call_count += 1
+        assert "台词或镜头执行单元数量不符合交付规则" in prompt
+        assert "不得新增场景" in prompt
+        assert output_schema is not None
+        scenes = self.complete_payload["scenes"]
+        assert isinstance(scenes, list)
+        return {
+            "scenes": [
+                {
+                    "scene_number": scene["scene_number"],
+                    "character_actions": deepcopy(scene["character_actions"]),
+                    "dialogues": deepcopy(scene["dialogues"]),
+                }
+                for scene in scenes
+                if isinstance(scene, dict)
+            ],
+            "_meta": {"provider": "episode-production-count-repair-test"},
+        }
+
+
+class IncompleteEpisodeProductionCountAdapter(StubRealScriptAdapter):
+    def __init__(self) -> None:
+        self.structured_call_count = 0
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema=None,
+    ) -> dict[str, object]:
+        self.structured_call_count += 1
+        payload = deepcopy(
+            super().generate_structured_output(
+                prompt,
+                strategy=strategy,
+                output_schema=output_schema,
+            )
+        )
+        scenes = payload["scenes"]
+        assert isinstance(scenes, list)
+        for scene in scenes:
+            assert isinstance(scene, dict)
+            scene["character_actions"] = scene["character_actions"][:1]
+            scene["dialogues"] = scene["dialogues"][:1]
         return payload
 
 
@@ -1913,6 +2103,19 @@ def test_full_generation_keeps_valid_draft_when_postprocess_returns_198_chars() 
             payload = _mainland_single_scene_payload(
                 action="She realizes her ally betrayed her and feels hopeless."
             )
+            scene = payload["scenes"][0]
+            scene["character_actions"] = [
+                f"She realizes her ally betrayed her and feels hopeless {index}."
+                for index in range(1, 16)
+            ]
+            source_dialogue = scene["dialogues"][0]
+            scene["dialogues"] = [
+                {
+                    **source_dialogue,
+                    "text": f"把钥匙交出来，这是我最后一次警告，编号{index}。",
+                }
+                for index in range(1, 21)
+            ]
             payload["_meta"] = {"provider": "valid-initial-draft"}
             return payload
 
@@ -1932,9 +2135,10 @@ def test_full_generation_keeps_valid_draft_when_postprocess_returns_198_chars() 
     )
 
     assert result.draft_master_script.title == "雨夜追凶"
-    assert result.draft_master_script.scenes[0].character_actions == [
-        "She realizes her ally betrayed her and feels hopeless."
-    ]
+    assert len(result.draft_master_script.scenes[0].character_actions) == 15
+    assert result.draft_master_script.scenes[0].character_actions[0].startswith(
+        "She realizes her ally betrayed her"
+    )
     metadata = result.draft_master_script.llm_metadata
     assert metadata["postprocess_failure_preserved_valid_draft"] is True
     assert metadata["deferred_postprocess_phases"] == ["language_repair"]
@@ -2223,6 +2427,73 @@ def test_blocking_continuity_is_repaired_inside_the_same_generation_request() ->
     assert result.draft_master_script.llm_metadata["continuity_auto_repaired"] is True
 
 
+def test_episode_production_counts_are_repaired_and_recorded() -> None:
+    service, _ = seed_dependencies()
+    strategy = service._generation_strategy_repository.get(  # noqa: SLF001
+        "strategy.tiktok.service_generation.v1"
+    )
+    assert strategy is not None
+    complete = StubRealScriptAdapter().generate_structured_output(
+        "episode",
+        strategy=strategy,
+    )
+    incomplete = deepcopy(complete)
+    scenes = incomplete["scenes"]
+    assert isinstance(scenes, list)
+    for scene in scenes:
+        assert isinstance(scene, dict)
+        scene["character_actions"] = scene["character_actions"][:1]
+        scene["dialogues"] = scene["dialogues"][:1]
+
+    adapter = EpisodeProductionCountRepairAdapter(complete)
+    service._repair_llm_adapter = adapter  # noqa: SLF001
+    repaired = service._ensure_episode_production_counts(  # noqa: SLF001
+        output=incomplete,
+        strategy=strategy,
+    )
+
+    assert repaired["_meta"]["episode_scene_count"] == 3
+    assert repaired["_meta"]["episode_dialogue_line_count"] == 20
+    assert repaired["_meta"]["episode_shot_unit_count"] == 15
+    assert repaired["_meta"]["episode_production_counts_repaired"] is True
+    assert adapter.structured_call_count == 1
+
+
+def test_every_real_episode_request_enforces_production_counts_without_context() -> None:
+    draft_adapter = IncompleteEpisodeProductionCountAdapter()
+    seed_service, _ = seed_dependencies()
+    strategy = seed_service._generation_strategy_repository.get(  # noqa: SLF001
+        "strategy.tiktok.service_generation.v1"
+    )
+    assert strategy is not None
+    complete = StubRealScriptAdapter().generate_structured_output(
+        "episode",
+        strategy=strategy,
+    )
+    repair_adapter = EpisodeProductionCountRepairAdapter(complete)
+    service, content_spec_id = seed_dependencies(
+        llm_adapter=draft_adapter,
+        repair_llm_adapter=repair_adapter,
+    )
+
+    result = service.generate_draft(
+        ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=1,
+        )
+    )
+
+    metadata = result.draft_master_script.llm_metadata
+    assert metadata["episode_scene_count"] == 3
+    assert metadata["episode_dialogue_line_count"] == 20
+    assert metadata["episode_shot_unit_count"] == 15
+    assert metadata["episode_production_counts_repaired"] is True
+    assert draft_adapter.structured_call_count == 1
+    assert repair_adapter.structured_call_count == 1
+
+
 def test_empty_continuity_patch_fields_preserve_existing_ledgers_and_hook() -> None:
     original = _mainland_single_scene_payload(action="林夏把证物箱推到灯下。")
     original["relationship_state_updates"] = [{"sentinel": "relationship"}]
@@ -2453,7 +2724,7 @@ def test_script_generation_service_uses_independent_fallback_after_repeated_inva
     assert result.draft_master_script.title == "Bride of the Trap"
     assert draft_adapter.stream_call_count == 2
     assert repair_adapter.structured_call_count == 1
-    assert fallback_adapter.max_tokens_seen == [10_000]
+    assert fallback_adapter.max_tokens_seen == [16_000]
     assert metadata["initial_generation_fallback_used"] is True
     assert metadata["model_pass_count"] == 4
     assert metadata["model_repair_phases"] == [
@@ -2533,6 +2804,33 @@ def test_script_generation_service_does_not_repeat_after_both_transports_fail() 
         )
 
     assert exc_info.value.category == "script_generation_routes_exhausted"
+    assert draft_adapter.stream_call_count == 1
+    assert fallback_adapter.max_tokens_seen == []
+
+
+def test_script_generation_service_does_not_regenerate_after_all_gateways_fail() -> None:
+    draft_adapter = ExhaustedGatewayRoutesAdapter()
+    fallback_adapter = StrategyBudgetRecordingAdapter()
+    service, content_spec_id = seed_dependencies(
+        llm_adapter=draft_adapter,
+        initial_fallback_llm_adapter=fallback_adapter,
+    )
+
+    with pytest.raises(LLMRequestError) as exc_info:
+        service.generate_draft(
+            ScriptGenerationDraftRequest(
+                content_spec_id=content_spec_id,
+                generation_strategy_id="strategy.tiktok.service_generation.v1",
+                output_language="en",
+                desired_scene_count=3,
+            )
+        )
+
+    assert exc_info.value.category == "script_generation_routes_exhausted"
+    assert getattr(exc_info.value, "route_failure_categories") == (
+        "provider_gateway",
+        "provider_gateway",
+    )
     assert draft_adapter.stream_call_count == 1
     assert fallback_adapter.max_tokens_seen == []
 
@@ -2621,7 +2919,7 @@ def test_episode_generation_raises_output_budget_without_changing_saved_strategy
         )
     )
 
-    assert adapter.max_tokens_seen == [10_000]
+    assert adapter.max_tokens_seen == [16_000]
     assert saved_strategy.max_tokens == original_max_tokens
 
 
@@ -3042,6 +3340,242 @@ def test_draft_contract_fragment_normalizes_string_knowledge_states() -> None:
     assert knowledge_state.knowledge_key == "episode.knowledge.1"
     assert knowledge_state.statement == "知道钥匙来自母亲留下的旧宅。"
     assert knowledge_state.status == "known"
+
+
+def test_draft_contract_normalizes_observed_deepseek_ledger_aliases_locally() -> None:
+    payload = _mainland_single_scene_payload(
+        action="林夏按住账本，确认城内眼线已经开始集结。"
+    )
+    state = payload["character_state_updates"][0]
+    state["knowledge_states"] = "掌握剧团行进方向，并确认组织眼线标记。"
+    payload["continuity_state_updates"] = [
+        {
+            "entity_key": "network.city_watchers",
+            "entity_type": "organization",
+            "entity_name": "城内眼线",
+            "state_domain": "intelligence",
+            "transition": "activated",
+            "current_state": "眼线已经开始传递剧团位置",
+            "persistence": "persistent",
+            "future_constraint": "后续行动必须考虑眼线追踪",
+            "change_cause": "林夏识别出沿途留下的组织标记",
+            "evidence_scene_numbers": [1],
+        },
+        {
+            "entity_key": "operation.city_mobilization",
+            "entity_type": "organization",
+            "entity_name": "城内动员",
+            "state_domain": "mobilization",
+            "transition": "pending",
+            "current_state": "增援正在等待统一指令",
+            "persistence": "persistent",
+            "future_constraint": "下一集必须确认增援是否出动",
+            "change_cause": "眼线发出了集结信号",
+            "evidence_scene_numbers": [1],
+        },
+        {
+            "entity_key": "item.ledger",
+            "entity_type": "item",
+            "entity_name": "账本",
+            "state_domain": "possession",
+            "transition": "retained",
+            "current_state": "账本仍由林夏持有",
+            "persistence": "persistent",
+            "future_constraint": "账本必须继续用于核对线索",
+            "change_cause": "林夏阻止同伴夺走账本",
+            "evidence_scene_numbers": [1],
+        },
+    ]
+    payload["story_line_updates"] = [{
+        "story_line_id": "storyline.city_network",
+        "status": "active",
+        "progress_summary": "眼线网络首次被明确展示。",
+        "contribution_type": "exposition",
+        "planned_alignment": "aligned",
+        "change_cause": "林夏识别出组织标记。",
+        "evidence_scene_numbers": [1],
+    }]
+    payload["setup_payoff_updates"] = [{
+        "setup_payoff_ref": "砝码为送货员拖住追兵，送货员承诺提供眼线网络作为回报。",
+        "action": "setup",
+        "status": "setup",
+        "progress_summary": "送货员开始兑现眼线网络。",
+        "target_payoff_episode": 3,
+        "change_cause": "本集展示第一枚组织标记。",
+        "evidence_scene_numbers": [1],
+    }]
+
+    normalized = ScriptGenerationService._normalize_mechanical_draft_contract(payload)
+    validated = LLMGeneratedDraftMasterScript.model_validate(
+        {key: value for key, value in normalized.items() if key != "_meta"}
+    )
+
+    assert validated.character_state_updates[0].knowledge_states[0].status == "known"
+    assert [item.state_domain for item in validated.continuity_state_updates] == [
+        "knowledge",
+        "condition",
+        "possession",
+    ]
+    assert [item.transition for item in validated.continuity_state_updates] == [
+        "changed",
+        "changed",
+        "established",
+    ]
+    assert all(
+        item.persistence == "ongoing"
+        for item in validated.continuity_state_updates
+    )
+    assert validated.story_line_updates[0].contribution_type == "setup"
+    assert validated.setup_payoff_updates[0].setup_payoff_ref.startswith(
+        "generated.setup_payoff."
+    )
+
+
+def test_draft_contract_normalizes_live_high_reasoning_aliases_without_model_repair() -> None:
+    payload = _mainland_single_scene_payload(
+        action="林夏护住受伤的手臂，目送嫌疑人翻窗逃走。"
+    )
+    payload["continuity_state_updates"] = [
+        {
+            "entity_key": "character.lin_xia.health",
+            "entity_type": "character",
+            "entity_name": "林夏",
+            "state_domain": "health",
+            "transition": "injured",
+            "current_state": "手臂留下清晰伤痕",
+            "persistence": "lasting_mark",
+            "future_constraint": "后续动作必须体现手臂受伤",
+            "change_cause": "林夏撞上破碎的仓库玻璃",
+            "evidence_scene_numbers": [1],
+        },
+        {
+            "entity_key": "character.suspect.location",
+            "entity_type": "character",
+            "entity_name": "嫌疑人",
+            "state_domain": "location",
+            "transition": "escaped",
+            "current_state": "已经离开废弃仓库",
+            "persistence": "ongoing",
+            "future_constraint": "下一集必须继续追查逃跑路线",
+            "change_cause": "嫌疑人翻窗逃走",
+            "evidence_scene_numbers": [1],
+        },
+        {
+            "entity_key": "clue.window_mark",
+            "entity_type": "item",
+            "entity_name": "窗框标记",
+            "state_domain": "knowledge",
+            "transition": "observed",
+            "current_state": "林夏已经看见标记",
+            "persistence": "ongoing",
+            "future_constraint": "后续调查必须核对标记来源",
+            "change_cause": "手电光照亮了窗框",
+            "evidence_scene_numbers": [1],
+        },
+        {
+            "entity_key": "threat.reinforcements",
+            "entity_type": "organization",
+            "entity_name": "追兵增援",
+            "state_domain": "condition",
+            "transition": "impending",
+            "current_state": "增援即将抵达仓库",
+            "persistence": "pending",
+            "future_constraint": "林夏必须在增援抵达前离开",
+            "change_cause": "远处传来连续警笛声",
+            "evidence_scene_numbers": [1],
+        },
+        {
+            "entity_key": "item.warehouse_lock",
+            "entity_type": "item",
+            "entity_name": "仓库门锁",
+            "state_domain": "condition",
+            "transition": "destroyed",
+            "current_state": "门锁已经彻底损坏",
+            "persistence": "destroyed",
+            "future_constraint": "后续不能再依靠门锁封闭仓库",
+            "change_cause": "嫌疑人用铁棍砸坏门锁",
+            "evidence_scene_numbers": [1],
+        },
+    ]
+    payload["story_line_updates"] = [
+        {
+            "story_line_id": "storyline.escape",
+            "status": "progressing",
+            "progress_summary": "嫌疑人的逃跑路线开始显现。",
+            "contribution_type": "manifestation",
+            "planned_alignment": "aligned",
+            "change_cause": "林夏发现窗框标记。",
+            "evidence_scene_numbers": [1],
+        },
+        {
+            "story_line_id": "storyline.injury",
+            "status": "seeded",
+            "progress_summary": "林夏的伤势形成后续行动限制。",
+            "contribution_type": "foundation",
+            "planned_alignment": "aligned",
+            "change_cause": "林夏撞碎玻璃。",
+            "evidence_scene_numbers": [1],
+        },
+        {
+            "story_line_id": "storyline.decision",
+            "status": "progressing",
+            "progress_summary": "林夏决定放弃证物并追击嫌疑人。",
+            "contribution_type": "choice",
+            "planned_alignment": "aligned",
+            "change_cause": "追兵增援即将抵达。",
+            "evidence_scene_numbers": [1],
+        },
+    ]
+    payload["setup_payoff_updates"] = [
+        {
+            "setup_payoff_ref": f"setup.escape.{index}",
+            "action": "setup",
+            "status": "established",
+            "progress_summary": "窗框标记成为后续追查入口。",
+            "target_payoff_episode": index + 1,
+            "change_cause": "林夏看见嫌疑人留下的标记。",
+            "evidence_scene_numbers": [1],
+        }
+        for index in range(1, 4)
+    ]
+    payload["scenes"][0]["dialogues"].append({
+        "character_name": "林夏",
+        "intent": "短暂停顿",
+        "text": "",
+    })
+
+    normalized = ScriptGenerationService._normalize_mechanical_draft_contract(payload)
+    validated = LLMGeneratedDraftMasterScript.model_validate(
+        {key: value for key, value in normalized.items() if key != "_meta"}
+    )
+
+    assert [item.transition for item in validated.continuity_state_updates] == [
+        "changed",
+        "moved",
+        "established",
+        "established",
+        "destroyed",
+    ]
+    assert [item.persistence for item in validated.continuity_state_updates] == [
+        "permanent",
+        "ongoing",
+        "ongoing",
+        "ongoing",
+        "permanent",
+    ]
+    assert [item.status for item in validated.story_line_updates] == [
+        "active",
+        "setup",
+        "active",
+    ]
+    assert [item.contribution_type for item in validated.story_line_updates] == [
+        "progress",
+        "setup",
+        "turning_point",
+    ]
+    assert all(item.status == "setup" for item in validated.setup_payoff_updates)
+    assert len(validated.scenes[0].dialogues) == 1
+    assert normalized["_meta"]["draft_contract_locally_normalized"] is True
 
 
 def test_script_generation_service_merges_nested_contract_repair_fragment() -> None:

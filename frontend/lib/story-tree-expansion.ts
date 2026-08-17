@@ -1,5 +1,5 @@
 import {
-  approveStoryPlanNode,
+  confirmStoryPlanNode,
   decomposeStoryPlanNode,
   generateTopLevelStoryPlanNodes,
   hasCompleteStoryPlanChildCoverage,
@@ -157,7 +157,7 @@ export async function runFullStoryTreeExpansion(input: {
             node.story_bible_version,
           );
           const previousSubtree = collectSubtreeVersions(previousLineage, node);
-          node = await approveStoryPlanNode(node, "rebase");
+          node = await confirmStoryPlanNode(node, "rebase");
           const nextLineage = await loadActiveStoryPlanNodes(
             project.id,
             node.story_bible_id,
@@ -193,7 +193,7 @@ export async function runFullStoryTreeExpansion(input: {
           completedNodes,
           totalNodes,
         });
-        node = await approveStoryPlanNode(node);
+        node = await confirmStoryPlanNode(node);
         await input.beforeStep?.();
       }
 

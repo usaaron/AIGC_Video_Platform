@@ -1,15 +1,13 @@
 import type { EpisodeRoadmapItem } from "./types.ts";
 
-/** Return the first contiguous episode range fully covered by approved roadmaps. */
-export function approvedEpisodeRoadmapCoverageThrough(
+/** Return the first contiguous episode range covered by saved roadmaps. */
+export function episodeRoadmapCoverageThrough(
   episodeRoadmaps: EpisodeRoadmapItem[],
 ): number {
-  const approvedEpisodes = new Set(
-    episodeRoadmaps
-      .filter((item) => item.status === "approved")
-      .map((item) => item.episode_number),
+  const plannedEpisodes = new Set(
+    episodeRoadmaps.map((item) => item.episode_number),
   );
   let readyThrough = 0;
-  while (approvedEpisodes.has(readyThrough + 1)) readyThrough += 1;
+  while (plannedEpisodes.has(readyThrough + 1)) readyThrough += 1;
   return readyThrough;
 }

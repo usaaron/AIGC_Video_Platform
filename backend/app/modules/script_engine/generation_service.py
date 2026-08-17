@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from copy import deepcopy
+import hashlib
 import json
 import logging
 import re
@@ -42,8 +43,14 @@ from app.modules.script_engine.creative_deepening import (
     build_deepening_qc_comparison,
 )
 from app.script_delivery_contract import (
+    EPISODE_DIALOGUE_LINE_MAX,
+    EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
     EPISODE_RUNTIME_MIN_SECONDS,
+    EPISODE_SCENE_MAX,
+    EPISODE_SCENE_MIN,
+    EPISODE_SHOT_UNIT_MAX,
+    EPISODE_SHOT_UNIT_MIN,
 )
 from app.modules.script_engine.continuity_qc import (
     BlockingContinuityConflictError,
@@ -125,10 +132,7 @@ class CreativeDeepeningDisabledError(ValueError):
 # episode route exists, repeating them in every body-writing request adds prompt
 # cost without giving the model new episode-level information.
 EPISODE_PLANNING_ONLY_KNOWLEDGE_IDS = {
-    "knowledge.serialization.sustainable_story_engine.v1",
-    "knowledge.story.macro_sequence_turning.v1",
-    "knowledge.character.long_arc_trajectory.v1",
-    "knowledge.storyline.character_driven_parallel_arcs.v1",
+    "knowledge.serialization.short_drama_escalation_engine.v1",
 }
 
 # Runtime estimation is intentionally conservative. A small estimator drift should
@@ -148,13 +152,13 @@ INITIAL_DRAFT_GENERATION_MAX_ATTEMPTS = 2
 # ceiling can stop a valid screenplay in the middle of a JSON string. Raising a
 # ceiling does not force the model to consume it; it only gives the closing
 # scenes and contract fields enough room to finish.
-EPISODE_DRAFT_MIN_OUTPUT_TOKENS = 10_000
+EPISODE_DRAFT_MIN_OUTPUT_TOKENS = 16_000
 EPISODE_DRAFT_MAX_OUTPUT_TOKENS = 16_000
 
 # Non-creative repair calls should return only the requested patch. Keeping
 # these calls below the full-episode budget prevents a one-field correction
 # from spending time reproducing the entire screenplay.
-REPAIR_PATCH_MAX_OUTPUT_TOKENS = 4_500
+REPAIR_PATCH_MAX_OUTPUT_TOKENS = 8_000
 FULL_DRAFT_REPAIR_MIN_OUTPUT_TOKENS = 10_000
 
 DRAFT_RESPONSE_ENVELOPE_KEYS = (
@@ -614,6 +618,42 @@ class ScriptGenerationService:
         if continuity_qc_report.blocking_issue_count:
             raise BlockingContinuityConflictError(continuity_qc_report)
 
+        if not self._is_mock_output(draft_output):
+            previous_count_passes = self._episode_count_model_pass_count(draft_output)
+            draft_output = self._ensure_episode_production_counts(
+                output=draft_output,
+                strategy=generation_strategy,
+                progress_callback=progress_callback,
+            )
+            added_count_passes = (
+                self._episode_count_model_pass_count(draft_output)
+                - previous_count_passes
+            )
+            if added_count_passes > 0:
+                model_pass_count += added_count_passes
+                model_repair_phases.append("episode_production_counts")
+            draft_master_script = self._build_draft_master_script(
+                content_spec=content_spec,
+                generation_strategy=generation_strategy,
+                orchestration_plan=orchestration_plan,
+                retrieval_result=retrieval_result,
+                llm_raw_output=draft_output,
+                output_language=payload.output_language,
+                selected_prompt_versions=[
+                    prompt.version for prompt in prompt_retrieval_result.prompts
+                ],
+            ).model_copy(
+                update={"target_duration_seconds": effective_target_duration_seconds}
+            )
+            continuity_qc_report = evaluate_episode_continuity(
+                draft_master_script,
+                payload.episode_context,
+            )
+            if continuity_qc_report.blocking_issue_count:
+                raise InvalidDraftMasterScriptOutputError(
+                    "正文台词与镜头数量修订改变了本集必须保留的连续性证据。"
+                )
+
         if self._script_editor_enabled and not self._is_mock_output(draft_output):
             self._emit_progress(
                 progress_callback,
@@ -733,11 +773,19 @@ class ScriptGenerationService:
         generation_elapsed_ms = round(
             (time.perf_counter() - generation_started_at) * 1000
         )
+        episode_execution_context = prompt_build_result.rendered_variables.get(
+            "episode_context_json"
+        )
         runtime_metadata = {
             "generation_elapsed_ms": generation_elapsed_ms,
             "initial_model_elapsed_ms": initial_model_elapsed_ms,
             "first_draft_delta_elapsed_ms": first_draft_delta_elapsed_ms,
             "prompt_characters": len(prompt_build_result.prompt_text),
+            "episode_execution_context_characters": (
+                len(episode_execution_context)
+                if isinstance(episode_execution_context, str)
+                else 0
+            ),
             "approved_story_node_applied": bool(
                 payload.episode_context
                 and payload.episode_context.approved_story_node is not None
@@ -1080,11 +1128,11 @@ class ScriptGenerationService:
         # Repeating that large schema in the prompt slows every episode and increases
         # the chance that the model copies schema noise into the screenplay.
         output_schema = (
-            "Return one JSON object with these top-level fields: title, logline, synopsis, "
-            "hook, target_audience, target_platform, language, tone, episode_goal, "
-            "target_duration_seconds, characters, character_state_updates, "
+            "Return one JSON object with these top-level fields in this order when possible: "
+            "title, logline, synopsis, hook, target_audience, target_platform, language, tone, "
+            "episode_goal, target_duration_seconds, characters, scenes, character_state_updates, "
             "relationship_state_updates, continuity_state_updates, story_line_updates, "
-            "setup_payoff_updates, continuation_hook, scenes, next_episode_question. "
+            "setup_payoff_updates, continuation_hook, next_episode_question. "
             "The API response_format supplies the exact field types and enum constraints. "
             "Keep technical enum values in the schema's English form, numeric fields as "
             "whole integers, and array fields as arrays even when visible narrative text "
@@ -1223,66 +1271,12 @@ class ScriptGenerationService:
                 ensure_ascii=True,
             )
         if episode_context is not None:
-            episode_context_payload = episode_context.model_dump(mode="json")
-            # The approved episode plan and story node already carry the route, refs,
-            # and causal duties. Keep the complete context for storage/QC while sending
-            # the model one compact, authoritative planning view.
-            episode_context_payload.pop("planned_story_beat", None)
-            model_context_tokens = self._llm_adapter.get_model_info().max_context_tokens
-            supporting_context_scale = min(
-                1.0,
-                max(0.35, model_context_tokens / 128_000),
+            episode_context_payload = self._episode_execution_context_payload(
+                episode_context,
+                model_context_tokens=(
+                    self._llm_adapter.get_model_info().max_context_tokens
+                ),
             )
-            # The model needs the current episode contract and a bounded handoff,
-            # not the same continuity text duplicated in several fields.
-            for field_name, limit in (
-                ("previous_episode_summary", 1200),
-                ("previous_episode_handoff", 2800),
-                ("module_handoff", 3000),
-                ("long_range_anchor", 1800),
-                ("story_bible_context", 2200),
-                ("reference_material_context", 1800),
-                ("project_continuity_summary", 2400),
-            ):
-                value = episode_context_payload.get(field_name)
-                if isinstance(value, str):
-                    scaled_limit = max(480, round(limit * supporting_context_scale))
-                    episode_context_payload[field_name] = value[:scaled_limit]
-            if str(episode_context_payload.get("previous_episode_handoff") or "").strip():
-                episode_context_payload.pop("previous_episode_summary", None)
-            # The Story Bible context is the authoritative global anchor. The
-            # older long-range prose carries the same premise, goal and ending.
-            if str(episode_context_payload.get("story_bible_context") or "").strip():
-                episode_context_payload.pop("long_range_anchor", None)
-            # The approved story node is the module memory for every episode in
-            # its range, so a separate module handoff would repeat its entry and
-            # purpose at the boundary.
-            if episode_context_payload.get("approved_story_node") is not None:
-                episode_context_payload.pop("module_handoff", None)
-            if str(episode_context_payload.get("provisional_continuity_checkpoint") or "").strip():
-                episode_context_payload.pop("confirmed_continuity_checkpoint", None)
-                episode_context_payload.pop("project_continuity_summary", None)
-            elif str(episode_context_payload.get("confirmed_continuity_checkpoint") or "").strip():
-                episode_context_payload.pop("project_continuity_summary", None)
-            if episode_context.approved_episode_plan is not None:
-                episode_context_payload.pop("relevant_character_refs", None)
-                episode_context_payload.pop("planned_story_line_refs", None)
-                episode_context_payload.pop("planned_setup_refs", None)
-                episode_context_payload.pop("planned_payoff_refs", None)
-                story_node_payload = episode_context_payload.get("approved_story_node")
-                if isinstance(story_node_payload, dict):
-                    # Exact entry/conflict/emotion/exit duties live in the
-                    # approved episode plan. Keep only module-wide intent and
-                    # boundary pressure from the recursive tree.
-                    for redundant_field in (
-                        "entry_state",
-                        "central_conflict",
-                        "emotional_direction",
-                        "exit_state",
-                        "turning_points",
-                        "unit_story_beats",
-                    ):
-                        story_node_payload.pop(redundant_field, None)
             extra_variables["episode_context_json"] = json.dumps(
                 episode_context_payload,
                 ensure_ascii=True,
@@ -1305,6 +1299,131 @@ class ScriptGenerationService:
             generation_strategy_id=generation_strategy.id,
             extra_variables=extra_variables,
         )
+
+    @classmethod
+    def _episode_execution_context_payload(
+        cls,
+        episode_context: EpisodeGenerationContext,
+        *,
+        model_context_tokens: int,
+    ) -> dict[str, object]:
+        """Compile the stored episode context into one bounded writing packet."""
+
+        payload = episode_context.model_dump(mode="json", exclude_none=True)
+        supporting_context_scale = min(
+            1.0,
+            max(0.35, model_context_tokens / 128_000),
+        )
+        for field_name, limit in (
+            ("previous_episode_summary", 1_200),
+            ("previous_episode_handoff", 2_800),
+            ("module_handoff", 3_000),
+            ("long_range_anchor", 1_800),
+            ("story_bible_context", 2_200),
+            ("reference_material_context", 1_800),
+            ("project_continuity_summary", 2_400),
+        ):
+            value = payload.get(field_name)
+            if isinstance(value, str):
+                scaled_limit = max(480, round(limit * supporting_context_scale))
+                payload[field_name] = value[:scaled_limit]
+
+        payload.pop("planned_story_beat", None)
+        if str(payload.get("previous_episode_handoff") or "").strip():
+            payload.pop("previous_episode_summary", None)
+        if str(payload.get("story_bible_context") or "").strip():
+            payload.pop("long_range_anchor", None)
+        if payload.get("approved_story_node") is not None:
+            payload.pop("module_handoff", None)
+
+        continuity_checkpoint = (
+            payload.pop("provisional_continuity_checkpoint", None)
+            or payload.pop("confirmed_continuity_checkpoint", None)
+            or payload.pop("project_continuity_summary", None)
+        )
+        payload.pop("confirmed_continuity_checkpoint", None)
+        payload.pop("project_continuity_summary", None)
+        if continuity_checkpoint:
+            payload["continuity_checkpoint"] = cls._decode_json_context(
+                continuity_checkpoint
+            )
+
+        approved_plan = payload.get("approved_episode_plan")
+        if isinstance(approved_plan, dict):
+            approved_plan.pop("episode_number", None)
+            planned_scene_count = approved_plan.get("planned_scene_count")
+            if isinstance(planned_scene_count, int):
+                approved_plan["planned_scene_count"] = min(
+                    EPISODE_SCENE_MAX,
+                    max(EPISODE_SCENE_MIN, planned_scene_count),
+                )
+            planned_shot_count = approved_plan.get("planned_shot_count")
+            if isinstance(planned_shot_count, int):
+                approved_plan["planned_shot_count"] = min(
+                    EPISODE_SHOT_UNIT_MAX,
+                    max(EPISODE_SHOT_UNIT_MIN, planned_shot_count),
+                )
+            planned_dialogue_line_count = approved_plan.get(
+                "planned_dialogue_line_count"
+            )
+            if isinstance(planned_dialogue_line_count, int):
+                approved_plan["planned_dialogue_line_count"] = min(
+                    EPISODE_DIALOGUE_LINE_MAX,
+                    max(EPISODE_DIALOGUE_LINE_MIN, planned_dialogue_line_count),
+                )
+            source_beats = approved_plan.pop("source_unit_story_beats", [])
+            source_turns = approved_plan.pop("source_turning_points", [])
+            key_events: list[str] = []
+            for value in [*source_beats, *source_turns]:
+                if isinstance(value, str) and value.strip() and value not in key_events:
+                    key_events.append(value)
+                if len(key_events) >= 8:
+                    break
+            if key_events:
+                approved_plan["key_events"] = key_events
+            cls._drop_empty_context_values(approved_plan)
+
+            for redundant_field in (
+                "relevant_character_refs",
+                "planned_story_line_refs",
+                "planned_setup_refs",
+                "planned_payoff_refs",
+            ):
+                payload.pop(redundant_field, None)
+
+            story_node = payload.get("approved_story_node")
+            if isinstance(story_node, dict):
+                for redundant_field in (
+                    "node_id",
+                    "node_version",
+                    "entry_state",
+                    "central_conflict",
+                    "emotional_direction",
+                    "exit_state",
+                    "turning_points",
+                    "unit_story_beats",
+                ):
+                    story_node.pop(redundant_field, None)
+                cls._drop_empty_context_values(story_node)
+
+        cls._drop_empty_context_values(payload)
+        return payload
+
+    @staticmethod
+    def _decode_json_context(value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError):
+            return value
+        return decoded if isinstance(decoded, (dict, list)) else value
+
+    @staticmethod
+    def _drop_empty_context_values(payload: dict[str, object]) -> None:
+        for key in list(payload):
+            if payload[key] in (None, "", [], {}):
+                payload.pop(key, None)
 
     @staticmethod
     def _delivery_target_duration_seconds(
@@ -1528,6 +1647,182 @@ class ScriptGenerationService:
             ],
             llm_metadata=llm_metadata,
         )
+
+    def _ensure_episode_production_counts(
+        self,
+        *,
+        output: dict[str, object],
+        strategy: GenerationStrategy,
+        progress_callback: Callable[[str, dict[str, object]], None] | None = None,
+    ) -> dict[str, object]:
+        """Enforce one countable dialogue/shot contract on every real episode."""
+
+        validated = LLMGeneratedDraftMasterScript.model_validate(
+            {key: value for key, value in output.items() if key != "_meta"}
+        )
+        scene_count, dialogue_count, shot_count = self._episode_production_counts(
+            validated
+        )
+        self._emit_progress(
+            progress_callback,
+            "stage",
+            stage="checking_episode_production_counts",
+            scene_count=scene_count,
+            dialogue_count=dialogue_count,
+            shot_count=shot_count,
+        )
+        if not EPISODE_SCENE_MIN <= scene_count <= EPISODE_SCENE_MAX:
+            raise InvalidDraftMasterScriptOutputError(
+                f"本集正文场景数必须为{EPISODE_SCENE_MIN}至{EPISODE_SCENE_MAX}个。"
+            )
+        if self._episode_production_counts_are_valid(dialogue_count, shot_count):
+            self._record_episode_production_counts(
+                output,
+                scene_count=scene_count,
+                dialogue_count=dialogue_count,
+                shot_count=shot_count,
+                repaired=False,
+            )
+            return output
+
+        target_dialogue_count = min(
+            EPISODE_DIALOGUE_LINE_MAX,
+            max(EPISODE_DIALOGUE_LINE_MIN, dialogue_count),
+        )
+        target_shot_count = min(
+            EPISODE_SHOT_UNIT_MAX,
+            max(EPISODE_SHOT_UNIT_MIN, shot_count),
+        )
+        self._emit_progress(
+            progress_callback,
+            "stage",
+            stage="repairing_episode_production_counts",
+            dialogue_count=dialogue_count,
+            shot_count=shot_count,
+        )
+        raw_patch = self._generate_postprocess_output(
+            adapter=self._repair_llm_adapter,
+            prompt=self._build_episode_production_count_repair_prompt(
+                output=validated,
+                dialogue_count=dialogue_count,
+                shot_count=shot_count,
+                target_dialogue_count=target_dialogue_count,
+                target_shot_count=target_shot_count,
+            ),
+            strategy=self._with_repair_output_budget(strategy),
+            output_schema=LLMMainlandBodyRepairPatch.model_json_schema(),
+            phase="episode_production_count_repair",
+            progress_callback=progress_callback,
+        )
+        try:
+            normalized_patch = self._normalize_draft_fragment_contract(raw_patch)
+            repair_patch = LLMMainlandBodyRepairPatch.model_validate(
+                {
+                    key: value
+                    for key, value in normalized_patch.items()
+                    if key != "_meta"
+                }
+            )
+            expected_scene_numbers = {
+                scene.scene_number for scene in validated.scenes
+            }
+            actual_scene_numbers = {
+                scene.scene_number for scene in repair_patch.scenes
+            }
+            if actual_scene_numbers != expected_scene_numbers:
+                raise ValueError(
+                    "台词与镜头数量修订必须完整返回全部原场景。"
+                )
+            repaired = self._apply_mainland_body_repair_patch(output, repair_patch)
+            repaired_output = LLMGeneratedDraftMasterScript.model_validate(
+                {key: value for key, value in repaired.items() if key != "_meta"}
+            )
+        except (ValidationError, ValueError) as error:
+            raise InvalidDraftMasterScriptOutputError(
+                "正文台词与镜头数量修订未返回完整可用的场景正文。"
+            ) from error
+
+        repaired_scene_count, repaired_dialogue_count, repaired_shot_count = (
+            self._episode_production_counts(repaired_output)
+        )
+        if repaired_scene_count != scene_count:
+            raise InvalidDraftMasterScriptOutputError(
+                "正文台词与镜头数量修订不得改变场景数量。"
+            )
+        if not self._episode_production_counts_are_valid(
+            repaired_dialogue_count,
+            repaired_shot_count,
+        ):
+            raise InvalidDraftMasterScriptOutputError(
+                "本集正文未满足台词20至30条、镜头15至20个的交付规则。"
+            )
+        self._merge_output_metadata(source=output, target=repaired)
+        self._merge_output_metadata(source=raw_patch, target=repaired)
+        metadata = repaired.setdefault("_meta", {})
+        if isinstance(metadata, dict):
+            metadata["episode_production_count_model_pass_count"] = (
+                int(metadata.get("episode_production_count_model_pass_count", 0))
+                + 1
+            )
+        self._record_episode_production_counts(
+            repaired,
+            scene_count=repaired_scene_count,
+            dialogue_count=repaired_dialogue_count,
+            shot_count=repaired_shot_count,
+            repaired=True,
+        )
+        return repaired
+
+    @staticmethod
+    def _episode_production_counts(
+        script: LLMGeneratedDraftMasterScript | DraftMasterScript,
+    ) -> tuple[int, int, int]:
+        return (
+            len(script.scenes),
+            sum(len(scene.dialogues) for scene in script.scenes),
+            sum(len(scene.character_actions) for scene in script.scenes),
+        )
+
+    @staticmethod
+    def _episode_production_counts_are_valid(
+        dialogue_count: int,
+        shot_count: int,
+    ) -> bool:
+        return (
+            EPISODE_DIALOGUE_LINE_MIN <= dialogue_count <= EPISODE_DIALOGUE_LINE_MAX
+            and EPISODE_SHOT_UNIT_MIN <= shot_count <= EPISODE_SHOT_UNIT_MAX
+        )
+
+    @staticmethod
+    def _record_episode_production_counts(
+        output: dict[str, object],
+        *,
+        scene_count: int,
+        dialogue_count: int,
+        shot_count: int,
+        repaired: bool,
+    ) -> None:
+        metadata = output.setdefault("_meta", {})
+        if not isinstance(metadata, dict):
+            return
+        metadata.update({
+            "episode_scene_count": scene_count,
+            "episode_dialogue_line_count": dialogue_count,
+            "episode_shot_unit_count": shot_count,
+            "episode_production_count_policy": (
+                "scenes_1_5_dialogues_20_30_shots_15_20_v1"
+            ),
+            "episode_production_counts_repaired": repaired,
+        })
+        metadata.setdefault("episode_production_count_model_pass_count", 0)
+
+    @staticmethod
+    def _episode_count_model_pass_count(output: dict[str, object]) -> int:
+        metadata = output.get("_meta")
+        if not isinstance(metadata, dict):
+            return 0
+        value = metadata.get("episode_production_count_model_pass_count")
+        return value if isinstance(value, int) and value >= 0 else 0
 
     def _ensure_mainland_draft_acceptance(
         self,
@@ -3241,6 +3536,22 @@ class ScriptGenerationService:
                 if any(marker in compact for marker in ("physical", "physicalstate", "物理", "物理状态", "外观")):
                     target[field_name] = "condition"
                     return
+                fuzzy_aliases = (
+                    (("intelligence", "information", "awareness", "intel", "情报", "信息", "认知"), "knowledge"),
+                    (("mobilization", "readiness", "operational", "activation", "动员", "战备", "就绪"), "condition"),
+                    (("funding", "budget", "money", "supply", "资金", "预算", "物资"), "resource"),
+                    (("relationship", "membership", "alliance", "关系", "成员", "联盟"), "affiliation"),
+                )
+                for markers, canonical in fuzzy_aliases:
+                    if any(marker in compact for marker in markers):
+                        target[field_name] = canonical
+                        return
+                # The concrete state remains in current_state/change_cause.
+                # Falling back to the neutral condition bucket repairs only
+                # an unsupported classification label.
+                if compact or target.get("entity_key"):
+                    target[field_name] = "condition"
+                    return
 
         tone_aliases = {
             "intense": "intense",
@@ -3475,6 +3786,15 @@ class ScriptGenerationService:
                 dialogues = scene.get("dialogues")
                 if not isinstance(dialogues, list):
                     continue
+                non_empty_dialogues = [
+                    dialogue
+                    for dialogue in dialogues
+                    if not isinstance(dialogue, dict)
+                    or str(dialogue.get("text") or "").strip()
+                ]
+                if non_empty_dialogues:
+                    dialogues = non_empty_dialogues
+                    scene["dialogues"] = dialogues
                 for dialogue in dialogues:
                     if not isinstance(dialogue, dict):
                         continue
@@ -3604,8 +3924,10 @@ class ScriptGenerationService:
                         "legal_status": "legal_status", "法律状态": "legal_status",
                         "technology": "technology", "技术": "technology",
                         "knowledge": "knowledge", "知识": "knowledge", "认知": "knowledge",
+                        "intelligence": "knowledge", "information": "knowledge",
                         "obligation": "obligation", "义务": "obligation",
                         "environment": "environment", "环境": "environment",
+                        "mobilization": "condition", "readiness": "condition",
                     },
                 ),
                 (
@@ -3622,6 +3944,13 @@ class ScriptGenerationService:
                         "died": "died", "死亡": "died",
                         "recovered": "recovered", "恢复": "recovered",
                         "repaired": "repaired", "修复": "repaired",
+                        "retained": "established", "maintained": "established",
+                        "unchanged": "established", "保持": "established",
+                        "activated": "changed", "triggered": "changed",
+                        "pending": "changed", "escalated": "changed",
+                        "updated": "changed", "激活": "changed", "待定": "changed",
+                        "injured": "changed", "escaped": "moved",
+                        "observed": "established", "impending": "established",
                     },
                 ),
                 (
@@ -3629,7 +3958,10 @@ class ScriptGenerationService:
                     {
                         "temporary": "temporary", "临时": "temporary",
                         "ongoing": "ongoing", "持续": "ongoing",
+                        "persistent": "ongoing", "indefinite": "ongoing",
+                        "pending": "ongoing",
                         "permanent": "permanent", "永久": "permanent",
+                        "lasting_mark": "permanent", "destroyed": "permanent",
                     },
                 ),
             ),
@@ -3639,7 +3971,9 @@ class ScriptGenerationService:
                     {
                         "setup": "setup", "铺垫": "setup",
                         "active": "active", "进行中": "active",
+                        "progressing": "active",
                         "resolved": "resolved", "已解决": "resolved", "收束": "resolved",
+                        "seeded": "setup",
                     },
                 ),
                 (
@@ -3650,6 +3984,10 @@ class ScriptGenerationService:
                         "turning_point": "turning_point", "转折": "turning_point",
                         "payoff": "payoff", "回收": "payoff",
                         "resolution": "resolution", "收束": "resolution",
+                        "exposition": "setup", "reveal": "progress",
+                        "development": "progress", "escalation": "progress",
+                        "foundation": "setup", "manifestation": "progress",
+                        "choice": "turning_point",
                     },
                 ),
                 (
@@ -3680,6 +4018,7 @@ class ScriptGenerationService:
                         "partial_payoff": "active", "部分回收": "active",
                         "reinforced": "active", "加强": "active",
                         "deferred": "active", "延后": "active",
+                        "established": "setup",
                         "paid_off": "paid_off", "已回收": "paid_off",
                     },
                 ),
@@ -3726,7 +4065,7 @@ class ScriptGenerationService:
                         )
                 normalize_scene_number_list(item, "evidence_scene_numbers")
                 knowledge_states = item.get("knowledge_states")
-                if isinstance(knowledge_states, dict):
+                if isinstance(knowledge_states, (dict, str)):
                     knowledge_states = [knowledge_states]
                     item["knowledge_states"] = knowledge_states
                 if isinstance(knowledge_states, list):
@@ -3780,6 +4119,13 @@ class ScriptGenerationService:
                             normalized_ref = identifier.group().rstrip(".:-")
                             if len(normalized_ref) >= 3:
                                 item["setup_payoff_ref"] = normalized_ref
+                        else:
+                            digest = hashlib.sha256(
+                                setup_payoff_ref.encode("utf-8")
+                            ).hexdigest()[:12]
+                            item["setup_payoff_ref"] = (
+                                f"generated.setup_payoff.{digest}"
+                            )
                     target_episode = parse_int(item.get("target_payoff_episode"))
                     if target_episode is not None:
                         item["target_payoff_episode"] = target_episode
@@ -4432,7 +4778,7 @@ include analysis, Markdown fences, status text, or an explanation."""
         strategy: GenerationStrategy,
         progress_callback: Callable[[str, dict[str, object]], None] | None,
     ) -> dict[str, object]:
-        schema = LLMGeneratedDraftMasterScript.model_json_schema()
+        schema = self._initial_draft_output_schema()
         model_pass_count = 0
         last_error: LLMStructuredOutputError | None = None
         last_request_error: LLMRequestError | None = None
@@ -4490,6 +4836,43 @@ include analysis, Markdown fences, status text, or an explanation."""
                         error=error,
                     )
                 )
+                route_failure_categories = tuple(
+                    str(value)
+                    for value in getattr(error, "route_failure_categories", ())
+                    if value
+                )
+                infrastructure_categories = {
+                    "circuit_open",
+                    "provider_gateway",
+                    "provider_http",
+                    "provider_protocol",
+                    "rate_limit",
+                    "timeout",
+                    "transport",
+                }
+                if route_failure_categories and all(
+                    category in infrastructure_categories
+                    for category in route_failure_categories
+                ):
+                    logger.warning(
+                        "Initial draft routes exhausted before model output; "
+                        "deferring to outer retry categories=%s elapsed_ms=%d",
+                        route_failure_categories,
+                        round((time.perf_counter() - attempt_started_at) * 1000),
+                    )
+                    exhausted = LLMRequestError(
+                        "正文模型的全部可用网关均未开始返回本集内容；"
+                        "已生成并保存的其他集不受影响，可从当前失败集继续。",
+                        status_code=error.status_code,
+                        category="script_generation_routes_exhausted",
+                        recoverable=True,
+                    )
+                    setattr(
+                        exhausted,
+                        "route_failure_categories",
+                        route_failure_categories,
+                    )
+                    raise exhausted from error
                 logger.warning(
                     "Initial draft transport failed; switching to bounded model "
                     "regeneration attempt=%d/%d category=%s status=%s elapsed_ms=%d",
@@ -4772,6 +5155,61 @@ include analysis, Markdown fences, status text, or an explanation."""
         return strategy.model_copy(update={"max_tokens": output_tokens})
 
     @staticmethod
+    def _initial_draft_output_schema() -> dict[str, object]:
+        """Put the shootable episode body before compact continuity ledgers.
+
+        JSON object order is not semantically meaningful, but providers stream
+        it in order. Keeping scenes before ledgers makes a bounded response
+        useful even when a gateway truncates the tail of the metadata.
+        """
+
+        schema = deepcopy(LLMGeneratedDraftMasterScript.model_json_schema())
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            return schema
+        preferred_order = (
+            "title",
+            "logline",
+            "synopsis",
+            "hook",
+            "target_audience",
+            "target_platform",
+            "language",
+            "tone",
+            "episode_goal",
+            "target_duration_seconds",
+            "characters",
+            "scenes",
+            "character_state_updates",
+            "relationship_state_updates",
+            "continuity_state_updates",
+            "story_line_updates",
+            "setup_payoff_updates",
+            "continuation_hook",
+            "next_episode_question",
+        )
+        schema["properties"] = {
+            field_name: properties[field_name]
+            for field_name in preferred_order
+            if field_name in properties
+        }
+        schema["properties"].update(
+            {
+                field_name: field_schema
+                for field_name, field_schema in properties.items()
+                if field_name not in schema["properties"]
+            }
+        )
+        required = schema.get("required")
+        if isinstance(required, list):
+            schema["required"] = [
+                field_name
+                for field_name in preferred_order
+                if field_name in required
+            ] + [field_name for field_name in required if field_name not in preferred_order]
+        return schema
+
+    @staticmethod
     def _with_repair_output_budget(
         strategy: GenerationStrategy,
     ) -> GenerationStrategy:
@@ -4828,7 +5266,9 @@ include analysis, Markdown fences, status text, or an explanation."""
 The previous transport attempt returned empty, truncated, or invalid JSON. Generate the
 same requested episode again from the approved context. Do not change its planned story
 beat, continuity state, character references, or ending obligation. Return one complete
-native JSON object matching the supplied schema, with every scene and closing delimiter.
+native JSON object matching the supplied schema, with scenes before the compact state ledgers,
+every scene and closing delimiter. Use high reasoning only to verify the approved plan; do not
+re-plan the story or spend the output budget repeating the ledger.
 Do not use Markdown fences, reasoning, introductions, or trailing commentary."""
 
     @staticmethod
@@ -4838,9 +5278,10 @@ Do not use Markdown fences, reasoning, introductions, or trailing commentary."""
 The primary streamed screenplay request did not complete after bounded transport recovery. Generate
 the same episode from the approved plan and continuity context. Preserve all approved
 story obligations and character identities. Return one complete native JSON root object matching
-the supplied schema. Keep prose concise enough to finish every scene, character state update, the
-next-episode question, and all closing delimiters. Do not return a fragment, wrapper, Markdown,
-reasoning, introduction, or commentary."""
+the supplied schema. Output the shootable scenes before compact character/continuity ledgers.
+Keep prose concise enough to finish every scene, character state update, the next-episode question,
+and all closing delimiters. Do not re-plan, return a fragment, wrapper, Markdown, reasoning,
+introduction, or commentary."""
 
     @staticmethod
     def _build_malformed_json_repair_prompt(*, raw_content: str) -> str:
@@ -4855,6 +5296,37 @@ Malformed response:
 {raw_content}
 
 Return one complete JSON object only."""
+
+    @staticmethod
+    def _build_episode_production_count_repair_prompt(
+        *,
+        output: LLMGeneratedDraftMasterScript,
+        dialogue_count: int,
+        shot_count: int,
+        target_dialogue_count: int,
+        target_shot_count: int,
+    ) -> str:
+        return f"""本集正文已经通过剧情结构和连续性校验，但台词或镜头执行单元数量不符合交付规则。
+
+当前全集台词共{dialogue_count}条，修订后必须恰好为{target_dialogue_count}条，并始终位于
+{EPISODE_DIALOGUE_LINE_MIN}至{EPISODE_DIALOGUE_LINE_MAX}条范围内。所有场景的dialogues数组
+合计计数，每个条目必须是演员真正说出的一句台词。不得拆句、重复、复述或添加解释性台词凑数。
+
+当前全集镜头执行单元共{shot_count}个，修订后必须恰好为{target_shot_count}个，并始终位于
+{EPISODE_SHOT_UNIT_MIN}至{EPISODE_SHOT_UNIT_MAX}个范围内。所有场景的character_actions数组
+合计计数，每个条目视为一个可独立拍摄的动作单元。不得拆分同一动作、堆空镜或写景别、角度、
+运镜等镜头语言凑数。
+
+本集场景总数必须保持在{EPISODE_SCENE_MIN}至{EPISODE_SCENE_MAX}个。必须完整返回全部原场景，
+每场只返回scene_number、character_actions、dialogues。保持原场景数量、
+编号、顺序、人物身份、剧情事实、冲突、信息揭示、因果、状态变化、伏笔、结尾悬念和语言路径不变。
+只通过合并无效重复、补足必要反应、强化原有交锋或压缩解释性内容来达到数量。不得新增场景、人物、
+剧情事件、支线或设定。不要返回其他顶层字段、分析、Markdown或说明。
+
+已校验正文：
+{output.model_dump_json()}
+
+只返回包含全部原场景的局部补丁JSON。"""
 
     @staticmethod
     def _build_script_body_expansion_prompt(

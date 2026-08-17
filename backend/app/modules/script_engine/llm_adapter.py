@@ -3,16 +3,22 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import logging
 import re
 import threading
 import time
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from queue import Empty, Queue
 from typing import Any, Callable, Sequence
+from urllib.parse import urlparse
 
 import httpx
 
 from app.modules.script_engine.models import GenerationStrategy, LLMModelInfo
+
+
+logger = logging.getLogger(__name__)
 
 
 class MissingLLMConfigurationError(ValueError):
@@ -60,6 +66,10 @@ class LLMRequestError(RuntimeError):
         self.status_code = status_code
         self.category = category
         self.recoverable = recoverable
+
+
+class _HedgedRequestCancelled(Exception):
+    """Stop a losing same-model route after another route has completed."""
 
 
 def is_recoverable_llm_request_error(
@@ -141,6 +151,26 @@ class LLMAdapter(ABC):
             on_delta(json.dumps(preview, ensure_ascii=False), True)
         return output
 
+    def generate_structured_output_stream_cancellable(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta: Callable[[str, bool], None] | None = None,
+        cancel_event: threading.Event,
+    ) -> dict[str, Any]:
+        """Generate a stream that may be superseded by an equivalent route."""
+
+        if cancel_event.is_set():
+            raise _HedgedRequestCancelled()
+        return self.generate_structured_output_stream(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+            on_delta=on_delta,
+        )
+
     @abstractmethod
     def validate_output(
         self,
@@ -173,6 +203,9 @@ class RealLLMAdapter(LLMAdapter):
         thinking_mode: str | None = None,
         use_strict_schema: bool = True,
         send_response_format: bool = True,
+        retry_empty_response: bool = True,
+        defer_schema_container_repair: bool = False,
+        retry_gateway_stream_as_non_stream: bool = True,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         if not api_key.strip():
@@ -189,6 +222,8 @@ class RealLLMAdapter(LLMAdapter):
         )
         if normalized_reasoning_effort not in {
             None,
+            "none",
+            "minimal",
             "low",
             "medium",
             "high",
@@ -196,7 +231,8 @@ class RealLLMAdapter(LLMAdapter):
             "xhigh",
         }:
             raise MissingLLMConfigurationError(
-                "LLM_REASONING_EFFORT must be low, medium, high, max or xhigh."
+                "LLM_REASONING_EFFORT must be none, minimal, low, medium, high, "
+                "max or xhigh."
             )
         normalized_thinking_mode = (
             thinking_mode.strip().casefold() if thinking_mode else None
@@ -208,12 +244,19 @@ class RealLLMAdapter(LLMAdapter):
 
         self._provider = provider
         self._model_name = model_name
-        self._is_deepseek = "deepseek" in f"{provider} {model_name}".casefold()
+        model_identity = f"{provider} {model_name}".casefold()
+        self._is_deepseek = "deepseek" in model_identity
+        self._is_glm = bool(re.search(r"(?:^|[^a-z0-9])glm(?:[^a-z0-9]|$)", model_identity))
         if self._is_deepseek:
             # DeepSeek V4 exposes structured generation through the OpenAI
             # Chat Completions interface. Its JSON mode accepts json_object,
             # not OpenAI's provider-specific strict json_schema envelope.
             normalized_wire_api = "chat_completions"
+            use_strict_schema = False
+        elif self._is_glm and normalized_wire_api == "chat_completions":
+            # GLM's native structured-output transport is Chat Completions
+            # with json_object. OpenAI's strict json_schema envelope is not a
+            # portable contract across GLM-compatible gateways.
             use_strict_schema = False
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
@@ -224,6 +267,12 @@ class RealLLMAdapter(LLMAdapter):
         self._thinking_mode = normalized_thinking_mode
         self._use_strict_schema = use_strict_schema
         self._send_response_format = send_response_format
+        self._retry_empty_response = retry_empty_response
+        # Script responses are already validated by the artifact-aware service.
+        # Avoid asking a high-reasoning model to regenerate an entire episode
+        # merely because one JSON array/object was encoded as a scalar.
+        self._defer_schema_container_repair = defer_schema_container_repair
+        self._retry_gateway_stream_as_non_stream = retry_gateway_stream_as_non_stream
         self._client = httpx.Client(
             timeout=timeout_seconds,
             transport=transport,
@@ -262,11 +311,23 @@ class RealLLMAdapter(LLMAdapter):
                 response_payload,
                 output_schema=output_schema,
             )
-        except LLMStructuredOutputError:
+        except LLMStructuredOutputError as error:
+            response_is_empty = self._response_content_is_empty(response_payload)
+            if response_is_empty:
+                error.empty_response = True
+            self._log_route_output_rejected(
+                transport="non_stream",
+                error=error,
+                response_payload=response_payload,
+            )
             if (
-                self._wire_api != "responses"
-                and not self._is_deepseek
-            ) or not self._response_content_is_empty(response_payload):
+                not self._retry_empty_response
+                or (
+                    self._wire_api != "responses"
+                    and not self._is_deepseek
+                )
+                or not response_is_empty
+            ):
                 raise
             # A successful HTTP response can still contain no usable text
             # (empty ``output``, a gateway wrapper, or a missing message). Give
@@ -283,6 +344,11 @@ class RealLLMAdapter(LLMAdapter):
                 if self._response_content_is_empty(response_payload):
                     retry_error.empty_response = True
                     retry_error.empty_response_retry_attempted = True
+                self._log_route_output_rejected(
+                    transport="non_stream",
+                    error=retry_error,
+                    response_payload=response_payload,
+                )
                 raise
         original_structured_output = structured_output
         structured_output, root_repaired_response = self._repair_schema_root_shape(
@@ -301,6 +367,8 @@ class RealLLMAdapter(LLMAdapter):
             structured_output,
             container_repaired_response,
             container_repair_pass_count,
+            container_locally_normalized,
+            deferred_container_issues,
         ) = self._repair_schema_container_shape(
             payload,
             structured_output,
@@ -323,7 +391,12 @@ class RealLLMAdapter(LLMAdapter):
             structured_output["_meta"]["schema_root_repaired"] = True
         if container_repaired_response is not None:
             structured_output["_meta"]["schema_container_repaired"] = True
-        if self._is_deepseek:
+        if container_locally_normalized:
+            structured_output["_meta"]["schema_container_locally_normalized"] = True
+        if deferred_container_issues:
+            structured_output["_meta"]["schema_container_repair_deferred"] = True
+            structured_output["_meta"]["schema_container_issues"] = deferred_container_issues[:20]
+        if self._is_deepseek or self._is_glm:
             structured_output["_meta"]["thinking_mode"] = (
                 self._thinking_mode or "enabled"
             )
@@ -343,6 +416,40 @@ class RealLLMAdapter(LLMAdapter):
         output_schema: dict[str, Any] | None = None,
         on_delta: Callable[[str, bool], None] | None = None,
     ) -> dict[str, Any]:
+        return self._generate_structured_output_stream(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+            on_delta=on_delta,
+            cancel_event=None,
+        )
+
+    def generate_structured_output_stream_cancellable(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta: Callable[[str, bool], None] | None = None,
+        cancel_event: threading.Event,
+    ) -> dict[str, Any]:
+        return self._generate_structured_output_stream(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+            on_delta=on_delta,
+            cancel_event=cancel_event,
+        )
+
+    def _generate_structured_output_stream(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None,
+        on_delta: Callable[[str, bool], None] | None,
+        cancel_event: threading.Event | None,
+    ) -> dict[str, Any]:
         payload = self._build_payload(
             prompt=prompt,
             strategy=strategy,
@@ -353,10 +460,13 @@ class RealLLMAdapter(LLMAdapter):
             text, usage, response_id, stream_termination = self._stream_text(
                 payload,
                 on_delta=on_delta,
+                cancel_event=cancel_event,
             )
         except LLMRequestError as error:
             if not self._should_fallback_from_stream(error):
                 raise
+            if cancel_event is not None and cancel_event.is_set():
+                raise _HedgedRequestCancelled() from error
             try:
                 fallback = self.generate_structured_output(
                     prompt,
@@ -382,6 +492,9 @@ class RealLLMAdapter(LLMAdapter):
                 on_delta(json.dumps(preview, ensure_ascii=False), True)
             return fallback
 
+        if cancel_event is not None and cancel_event.is_set():
+            raise _HedgedRequestCancelled()
+
         try:
             structured_output = self._parse_json_content(
                 text,
@@ -389,7 +502,15 @@ class RealLLMAdapter(LLMAdapter):
             )
         except LLMStructuredOutputError as error:
             error.stream_termination = stream_termination
+            self._log_route_output_rejected(
+                transport="stream",
+                error=error,
+                content_chars=len(text),
+                finish_reason=stream_termination,
+            )
             raise
+        if cancel_event is not None and cancel_event.is_set():
+            raise _HedgedRequestCancelled()
         adapter_model_pass_count = 1
         original_structured_output = structured_output
         structured_output, root_repaired_response = self._repair_schema_root_shape(
@@ -408,6 +529,8 @@ class RealLLMAdapter(LLMAdapter):
             structured_output,
             container_repaired_response,
             container_repair_pass_count,
+            container_locally_normalized,
+            deferred_container_issues,
         ) = self._repair_schema_container_shape(
             payload,
             structured_output,
@@ -440,7 +563,12 @@ class RealLLMAdapter(LLMAdapter):
             structured_output["_meta"]["schema_root_repaired"] = True
         if container_repaired_response is not None:
             structured_output["_meta"]["schema_container_repaired"] = True
-        if self._is_deepseek:
+        if container_locally_normalized:
+            structured_output["_meta"]["schema_container_locally_normalized"] = True
+        if deferred_container_issues:
+            structured_output["_meta"]["schema_container_repair_deferred"] = True
+            structured_output["_meta"]["schema_container_issues"] = deferred_container_issues[:20]
+        if self._is_deepseek or self._is_glm:
             structured_output["_meta"]["thinking_mode"] = (
                 self._thinking_mode or "enabled"
             )
@@ -637,10 +765,14 @@ class RealLLMAdapter(LLMAdapter):
         structured_output: dict[str, Any],
         *,
         output_schema: dict[str, Any] | None,
-    ) -> tuple[dict[str, Any], dict[str, Any] | None, int]:
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, int, bool, list[str]]:
         if output_schema is None:
-            return structured_output, None, 0
-        latest_output = structured_output
+            return structured_output, None, 0, False, []
+        latest_output, locally_normalized = self._normalize_schema_container_shape(
+            structured_output,
+            output_schema,
+            root_schema=output_schema,
+        )
         latest_response: dict[str, Any] | None = None
         model_pass_count = 0
         for _attempt in range(2):
@@ -650,14 +782,41 @@ class RealLLMAdapter(LLMAdapter):
                 root_schema=output_schema,
             )
             if not issues:
-                return latest_output, latest_response, model_pass_count
+                return latest_output, latest_response, model_pass_count, locally_normalized, []
+            if self._defer_schema_container_repair:
+                logger.info(
+                    "Schema container repair deferred to artifact validator issues=%s",
+                    ", ".join(issues[:12]),
+                )
+                return (
+                    latest_output,
+                    latest_response,
+                    model_pass_count,
+                    locally_normalized,
+                    issues,
+                )
             retry_payload = self._container_shape_retry_payload(payload, issues)
             latest_response = self._post_with_retries(retry_payload)
             model_pass_count += 1
-            latest_output = self._extract_structured_output(
-                latest_response,
-                output_schema=output_schema,
+            try:
+                latest_output = self._extract_structured_output(
+                    latest_response,
+                    output_schema=output_schema,
+                )
+            except LLMStructuredOutputError as error:
+                # Preserve the last usable parsed root for the caller's
+                # artifact-aware repair path instead of replacing its
+                # diagnostic with an empty second response.
+                if not (error.raw_content or "").strip():
+                    error.raw_content = json.dumps(latest_output, ensure_ascii=False)
+                setattr(error, "schema_container_issues", issues)
+                raise
+            latest_output, normalized_this_pass = self._normalize_schema_container_shape(
+                latest_output,
+                output_schema,
+                root_schema=output_schema,
             )
+            locally_normalized = locally_normalized or normalized_this_pass
             latest_output = (
                 self._unwrap_schema_root_envelope(latest_output, output_schema)
                 or latest_output
@@ -682,7 +841,147 @@ class RealLLMAdapter(LLMAdapter):
                 + ", ".join(remaining[:20]),
                 raw_content=json.dumps(latest_output, ensure_ascii=False),
             )
-        return latest_output, latest_response, model_pass_count
+        return latest_output, latest_response, model_pass_count, locally_normalized, []
+
+    @classmethod
+    def _normalize_schema_container_shape(
+        cls,
+        value: Any,
+        schema: Any,
+        *,
+        root_schema: dict[str, Any],
+        depth: int = 0,
+    ) -> tuple[Any, bool]:
+        """Repair unambiguous JSON container drift without another model call."""
+
+        if depth > 12 or not isinstance(schema, dict):
+            return value, False
+        reference = schema.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/$defs/"):
+            definitions = root_schema.get("$defs")
+            target = (
+                definitions.get(reference.removeprefix("#/$defs/"))
+                if isinstance(definitions, dict)
+                else None
+            )
+            return (
+                cls._normalize_schema_container_shape(
+                    value,
+                    target,
+                    root_schema=root_schema,
+                    depth=depth + 1,
+                )
+                if isinstance(target, dict)
+                else (value, False)
+            )
+
+        variants = schema.get("anyOf") or schema.get("oneOf")
+        if isinstance(variants, list):
+            non_null = [item for item in variants if isinstance(item, dict) and item.get("type") != "null"]
+            for variant in non_null:
+                if cls._schema_accepts_native_value(value, variant):
+                    return cls._normalize_schema_container_shape(
+                        value,
+                        variant,
+                        root_schema=root_schema,
+                        depth=depth + 1,
+                    )
+            if non_null:
+                return cls._normalize_schema_container_shape(
+                    value,
+                    non_null[0],
+                    root_schema=root_schema,
+                    depth=depth + 1,
+                )
+            return value, False
+
+        schema_type = schema.get("type")
+        changed = False
+        if schema_type == "object" or isinstance(schema.get("properties"), dict):
+            if isinstance(value, list) and len(value) == 1 and isinstance(value[0], dict):
+                value = value[0]
+                changed = True
+            if not isinstance(value, dict):
+                return value, changed
+            properties = schema.get("properties")
+            if isinstance(properties, dict):
+                for field_name, field_schema in properties.items():
+                    if field_name not in value:
+                        continue
+                    normalized, field_changed = cls._normalize_schema_container_shape(
+                        value[field_name],
+                        field_schema,
+                        root_schema=root_schema,
+                        depth=depth + 1,
+                    )
+                    if field_changed:
+                        value[field_name] = normalized
+                        changed = True
+            return value, changed
+
+        if schema_type == "array":
+            item_schema = schema.get("items")
+            if isinstance(value, dict) and cls._schema_is_object(item_schema):
+                value = [value]
+                changed = True
+            elif isinstance(value, str) and cls._schema_is_scalar(item_schema):
+                if value.strip():
+                    value = [value.strip()]
+                    changed = True
+                else:
+                    value = []
+                    changed = True
+            elif cls._schema_is_scalar(item_schema) and not isinstance(value, list):
+                value = [value]
+                changed = True
+            if not isinstance(value, list):
+                return value, changed
+            if isinstance(item_schema, dict):
+                for index, item in enumerate(value):
+                    normalized, item_changed = cls._normalize_schema_container_shape(
+                        item,
+                        item_schema,
+                        root_schema=root_schema,
+                        depth=depth + 1,
+                    )
+                    if item_changed:
+                        value[index] = normalized
+                        changed = True
+            return value, changed
+        return value, changed
+
+    @classmethod
+    def _schema_accepts_native_value(cls, value: Any, schema: dict[str, Any]) -> bool:
+        schema_type = schema.get("type")
+        if schema_type == "object" or isinstance(schema.get("properties"), dict):
+            return isinstance(value, dict)
+        if schema_type == "array":
+            return isinstance(value, list)
+        if schema_type == "string":
+            return isinstance(value, str)
+        if schema_type == "integer":
+            return isinstance(value, int) and not isinstance(value, bool)
+        if schema_type == "number":
+            return isinstance(value, (int, float)) and not isinstance(value, bool)
+        if schema_type == "boolean":
+            return isinstance(value, bool)
+        if schema_type == "null":
+            return value is None
+        return True
+
+    @classmethod
+    def _schema_is_object(cls, schema: Any) -> bool:
+        return isinstance(schema, dict) and (
+            schema.get("type") == "object" or isinstance(schema.get("properties"), dict) or "$ref" in schema
+        )
+
+    @classmethod
+    def _schema_is_scalar(cls, schema: Any) -> bool:
+        if not isinstance(schema, dict):
+            return False
+        if schema.get("$ref") or schema.get("anyOf") or schema.get("oneOf"):
+            return False
+        return schema.get("type") in {"string", "integer", "number", "boolean"}
 
     @classmethod
     def _schema_container_issues(
@@ -696,6 +995,32 @@ class RealLLMAdapter(LLMAdapter):
     ) -> list[str]:
         if depth > 12 or not isinstance(schema, dict):
             return []
+        variants = schema.get("anyOf") or schema.get("oneOf")
+        if isinstance(variants, list):
+            viable: list[list[str]] = []
+            for variant in variants:
+                if not isinstance(variant, dict):
+                    continue
+                if cls._schema_accepts_native_value(value, variant):
+                    return cls._schema_container_issues(
+                        value,
+                        variant,
+                        root_schema=root_schema,
+                        path=path,
+                        depth=depth + 1,
+                    )
+                if variant.get("type") == "null":
+                    continue
+                viable.append(
+                    cls._schema_container_issues(
+                        value,
+                        variant,
+                        root_schema=root_schema,
+                        path=path,
+                        depth=depth + 1,
+                    )
+                )
+            return min(viable, key=len, default=[])
         reference = schema.get("$ref")
         prefix = "#/$defs/"
         if isinstance(reference, str) and reference.startswith(prefix):
@@ -779,11 +1104,34 @@ class RealLLMAdapter(LLMAdapter):
             )
         return retry_payload
 
-    @staticmethod
-    def _should_fallback_from_stream(error: LLMRequestError) -> bool:
+    def _should_fallback_from_stream(self, error: LLMRequestError) -> bool:
         # Some compatible gateways fail only on the long-lived SSE path. A
         # bounded non-streaming attempt on the same key changes the transport
         # without changing model, prompt, or screenplay obligations.
+        stream_termination = str(
+            getattr(error, "stream_termination", "") or ""
+        ).casefold()
+        reasoning_characters = getattr(error, "reasoning_characters", 0)
+        if (
+            error.category == "empty_response"
+            and isinstance(reasoning_characters, int)
+            and reasoning_characters > 0
+            and "length" in stream_termination
+        ):
+            # This route exhausted the answer budget on hidden reasoning. A
+            # non-streaming repeat uses the same budget and only doubles the
+            # wait; let an outer model-route adapter fail over instead.
+            return False
+        if (
+            not self._retry_gateway_stream_as_non_stream
+            and (
+                error.category == "provider_gateway"
+                or (error.status_code is not None and error.status_code >= 500)
+            )
+        ):
+            # A host/upstream outage is not an SSE compatibility problem.
+            # Let the outer route failover move to another gateway immediately.
+            return False
         message = str(error).casefold()
         return (
             error.category in {"empty_response", "provider_protocol", "provider_gateway"}
@@ -871,11 +1219,25 @@ class RealLLMAdapter(LLMAdapter):
             else:
                 payload["temperature"] = strategy.temperature
                 payload["top_p"] = strategy.top_p
+        elif self._is_glm:
+            # GLM exposes the same explicit thinking switch, but unlike
+            # DeepSeek it continues to accept the normal sampling controls.
+            # Some compatible gateways ignore thinking.type but honor the
+            # native reasoning_effort switch. Send both controls so a disabled
+            # episode route cannot return only reasoning_content.
+            thinking_mode = self._thinking_mode or "enabled"
+            payload["thinking"] = {"type": thinking_mode}
+            if thinking_mode == "disabled":
+                payload["reasoning_effort"] = "none"
+            elif self._reasoning_effort is not None:
+                payload["reasoning_effort"] = self._reasoning_effort
+            payload["temperature"] = strategy.temperature
+            payload["top_p"] = strategy.top_p
         else:
             payload["temperature"] = strategy.temperature
             payload["top_p"] = strategy.top_p
         supports_response_format = not (
-            self._is_deepseek
+            (self._is_deepseek or self._is_glm)
             and payload.get("thinking") == {"type": "enabled"}
         )
         if output_schema and self._send_response_format and supports_response_format:
@@ -1247,9 +1609,239 @@ Return exactly one JSON object now."""
         normalized = re.sub(r"[^a-zA-Z0-9_-]+", "_", source).strip("_").casefold()
         return (normalized or "structured_output")[:64]
 
+    def _route_log_context(self) -> tuple[str, str, str, str]:
+        parsed = urlparse(self._base_url)
+        gateway = parsed.hostname or self._base_url.split("/", 1)[0] or "unknown"
+        return self._provider, self._model_name, gateway, self._wire_api
+
+    def _log_route_started(
+        self,
+        *,
+        transport: str,
+        attempt: int,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        provider, model, gateway, wire_api = self._route_log_context()
+        prompt_chars = 0
+        if isinstance(payload, dict):
+            messages = payload.get("messages")
+            if isinstance(messages, list):
+                prompt_chars = sum(
+                    len(str(message.get("content") or ""))
+                    for message in messages
+                    if isinstance(message, dict)
+                )
+            response_input = payload.get("input")
+            if isinstance(response_input, list):
+                prompt_chars = max(
+                    prompt_chars,
+                    sum(
+                        len(str(item.get("content") or ""))
+                        for item in response_input
+                        if isinstance(item, dict)
+                    ),
+                )
+        output_budget = (
+            payload.get("max_tokens")
+            if isinstance(payload, dict)
+            else None
+        )
+        if output_budget is None and isinstance(payload, dict):
+            output_budget = payload.get("max_output_tokens")
+        logger.warning(
+            "LLM route request started provider=%s model=%s gateway=%s "
+            "wire_api=%s transport=%s attempt=%d/%d prompt_chars=%d "
+            "output_budget=%s reasoning=%s thinking=%s",
+            provider,
+            model,
+            gateway,
+            wire_api,
+            transport,
+            attempt + 1,
+            self._max_retries + 1,
+            prompt_chars,
+            output_budget if output_budget is not None else "none",
+            self._reasoning_effort or "provider_default",
+            self._thinking_mode or "provider_default",
+        )
+
+    def _log_route_finished(
+        self,
+        *,
+        transport: str,
+        attempt: int,
+        started: float,
+        outcome: str,
+        status_code: int | None = None,
+        category: str,
+        will_retry: bool = False,
+        error: Exception | None = None,
+        response_payload: Any = None,
+        content_chars: int | None = None,
+        reasoning_chars: int | None = None,
+        finish_reason: str | None = None,
+    ) -> None:
+        provider, model, gateway, wire_api = self._route_log_context()
+        diagnostics = self._response_diagnostics(response_payload)
+        if content_chars is None:
+            content_chars = diagnostics["content_chars"]
+        if reasoning_chars is None:
+            reasoning_chars = diagnostics["reasoning_chars"]
+        if finish_reason is None:
+            finish_reason = diagnostics["finish_reason"]
+        error_type = type(error).__name__ if error is not None else "none"
+        detail = self._safe_route_log_detail(error)
+        logger.warning(
+            "LLM route request finished provider=%s model=%s gateway=%s "
+            "wire_api=%s transport=%s attempt=%d/%d outcome=%s "
+            "duration_seconds=%.2f status_code=%s category=%s will_retry=%s "
+            "content_chars=%d reasoning_chars=%d finish_reason=%s "
+            "error_type=%s detail=%s",
+            provider,
+            model,
+            gateway,
+            wire_api,
+            transport,
+            attempt + 1,
+            self._max_retries + 1,
+            outcome,
+            time.monotonic() - started,
+            status_code if status_code is not None else "none",
+            category,
+            str(will_retry).lower(),
+            content_chars,
+            reasoning_chars,
+            finish_reason or "none",
+            error_type,
+            detail,
+        )
+
+    @staticmethod
+    def _safe_route_log_detail(error: Exception | None) -> str:
+        if error is None:
+            return "none"
+        detail = " ".join(str(error).split()).strip()
+        return (detail or type(error).__name__)[:300]
+
+    def _log_route_output_rejected(
+        self,
+        *,
+        transport: str,
+        error: LLMStructuredOutputError,
+        response_payload: Any = None,
+        content_chars: int | None = None,
+        reasoning_chars: int | None = None,
+        finish_reason: str | None = None,
+    ) -> None:
+        provider, model, gateway, wire_api = self._route_log_context()
+        diagnostics = self._response_diagnostics(response_payload)
+        logger.warning(
+            "LLM route output rejected provider=%s model=%s gateway=%s "
+            "wire_api=%s transport=%s category=%s empty_response=%s "
+            "content_chars=%d reasoning_chars=%d finish_reason=%s "
+            "stream_termination=%s error_type=%s detail=%s",
+            provider,
+            model,
+            gateway,
+            wire_api,
+            transport,
+            "empty_response" if error.empty_response else "structured_output",
+            str(error.empty_response).lower(),
+            diagnostics["content_chars"] if content_chars is None else content_chars,
+            diagnostics["reasoning_chars"] if reasoning_chars is None else reasoning_chars,
+            finish_reason or diagnostics["finish_reason"] or "none",
+            error.stream_termination or "none",
+            type(error).__name__,
+            self._safe_route_log_detail(error),
+        )
+
+    @staticmethod
+    def _response_diagnostics(response_payload: Any) -> dict[str, Any]:
+        diagnostics: dict[str, Any] = {
+            "content_chars": 0,
+            "reasoning_chars": 0,
+            "finish_reason": None,
+        }
+        if not isinstance(response_payload, dict):
+            return diagnostics
+
+        choices = response_payload.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                finish_reason = first.get("finish_reason")
+                if isinstance(finish_reason, str) and finish_reason.strip():
+                    diagnostics["finish_reason"] = finish_reason.strip().casefold()
+                message = first.get("message")
+                if isinstance(message, dict):
+                    diagnostics["content_chars"] = sum(
+                        len(value)
+                        for value in RealLLMAdapter._response_text_fragments(
+                            message.get("content")
+                        )
+                    )
+                    diagnostics["reasoning_chars"] = sum(
+                        len(value)
+                        for key in ("reasoning_content", "reasoning")
+                        for value in RealLLMAdapter._response_text_fragments(
+                            message.get(key)
+                        )
+                    )
+            return diagnostics
+
+        output_value = response_payload.get("output_text")
+        if output_value is None:
+            output_value = response_payload.get("output")
+        if output_value is None:
+            output_value = response_payload.get("response")
+        diagnostics["content_chars"] = sum(
+            len(value)
+            for value in RealLLMAdapter._response_text_fragments(output_value)
+        )
+        status = response_payload.get("status")
+        if isinstance(status, str) and status.strip():
+            diagnostics["finish_reason"] = status.strip().casefold()
+        diagnostics["reasoning_chars"] = RealLLMAdapter._reasoning_text_length(
+            response_payload
+        )
+        return diagnostics
+
+    @staticmethod
+    def _reasoning_text_length(value: Any, *, depth: int = 0) -> int:
+        if depth > 8:
+            return 0
+        if isinstance(value, list):
+            return sum(
+                RealLLMAdapter._reasoning_text_length(item, depth=depth + 1)
+                for item in value
+            )
+        if not isinstance(value, dict):
+            return 0
+        total = 0
+        for key, child in value.items():
+            if key in {"reasoning_content", "reasoning_text"}:
+                total += sum(
+                    len(fragment)
+                    for fragment in RealLLMAdapter._response_text_fragments(child)
+                )
+            elif key == "reasoning" and isinstance(child, str):
+                total += len(child.strip())
+            else:
+                total += RealLLMAdapter._reasoning_text_length(
+                    child,
+                    depth=depth + 1,
+                )
+        return total
+
     def _post_with_retries(self, payload: dict[str, Any]) -> dict[str, Any]:
         last_error: Exception | None = None
         for attempt in range(self._max_retries + 1):
+            started = time.monotonic()
+            self._log_route_started(
+                transport="non_stream",
+                attempt=attempt,
+                payload=payload,
+            )
             try:
                 endpoint = (
                     "responses" if self._wire_api == "responses" else "chat/completions"
@@ -1257,17 +1849,47 @@ Return exactly one JSON object now."""
                 response = self._client.post(f"{self._base_url}/{endpoint}", json=payload)
                 response.raise_for_status()
                 try:
-                    return response.json()
+                    response_payload = response.json()
                 except (json.JSONDecodeError, ValueError) as exc:
                     content_type = response.headers.get("content-type", "unknown")
-                    raise LLMRequestError(
+                    error = LLMRequestError(
                         "LLM endpoint returned a non-JSON success response "
                         f"(content-type: {content_type}).",
                         category="provider_protocol",
                         recoverable=True,
-                    ) from exc
+                    )
+                    self._log_route_finished(
+                        transport="non_stream",
+                        attempt=attempt,
+                        started=started,
+                        outcome="failure",
+                        status_code=response.status_code,
+                        category=error.category,
+                        error=error,
+                    )
+                    raise error from exc
+                self._log_route_finished(
+                    transport="non_stream",
+                    attempt=attempt,
+                    started=started,
+                    outcome="http_success",
+                    status_code=response.status_code,
+                    category="success",
+                    response_payload=response_payload,
+                )
+                return response_payload
             except httpx.TimeoutException as exc:
                 last_error = exc
+                will_retry = attempt < self._max_retries
+                self._log_route_finished(
+                    transport="non_stream",
+                    attempt=attempt,
+                    started=started,
+                    outcome="failure",
+                    category="timeout",
+                    will_retry=will_retry,
+                    error=exc,
+                )
                 if attempt >= self._max_retries:
                     raise LLMRequestError(
                         "LLM request timed out after exhausting retries.",
@@ -1277,6 +1899,18 @@ Return exactly one JSON object now."""
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
                 response_detail = self._extract_error_detail(exc.response)
+                category = "provider_http" if status_code < 500 else "provider_gateway"
+                will_retry = status_code >= 500 and attempt < self._max_retries
+                self._log_route_finished(
+                    transport="non_stream",
+                    attempt=attempt,
+                    started=started,
+                    outcome="failure",
+                    status_code=status_code,
+                    category=category,
+                    will_retry=will_retry,
+                    error=LLMRequestError(response_detail, category=category),
+                )
                 if 400 <= status_code < 500:
                     raise LLMRequestError(
                         "LLM request failed with non-retryable status "
@@ -1296,6 +1930,16 @@ Return exactly one JSON object now."""
                     ) from exc
             except httpx.HTTPError as exc:
                 last_error = exc
+                will_retry = attempt < self._max_retries
+                self._log_route_finished(
+                    transport="non_stream",
+                    attempt=attempt,
+                    started=started,
+                    outcome="failure",
+                    category="transport",
+                    will_retry=will_retry,
+                    error=exc,
+                )
                 if attempt >= self._max_retries:
                     error_detail = str(exc).strip()[:500] or "no error detail"
                     raise LLMRequestError(
@@ -1312,15 +1956,25 @@ Return exactly one JSON object now."""
         payload: dict[str, Any],
         *,
         on_delta: Callable[[str, bool], None] | None,
+        cancel_event: threading.Event | None = None,
     ) -> tuple[str, dict[str, Any] | None, str | None, str | None]:
         endpoint = "responses" if self._wire_api == "responses" else "chat/completions"
         stream_payload = {**payload, "stream": True}
         last_error: Exception | None = None
         for attempt in range(self._max_retries + 1):
+            if cancel_event is not None and cancel_event.is_set():
+                raise _HedgedRequestCancelled()
+            started = time.monotonic()
+            self._log_route_started(
+                transport="stream",
+                attempt=attempt,
+                payload=payload,
+            )
             received = False
             preview_started = False
             pending_deltas: list[str] = []
             pending_characters = 0
+            reasoning_characters = 0
             last_flush = time.monotonic()
             text_parts: list[str] = []
             usage: dict[str, Any] | None = None
@@ -1339,6 +1993,8 @@ Return exactly one JSON object now."""
                         response.read()
                     response.raise_for_status()
                     for line in response.iter_lines():
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise _HedgedRequestCancelled()
                         if not line.startswith("data:"):
                             continue
                         data = line[5:].strip()
@@ -1350,6 +2006,9 @@ Return exactly one JSON object now."""
                             continue
                         if not isinstance(event, dict):
                             continue
+                        reasoning_characters += self._stream_event_reasoning_char_count(
+                            event
+                        )
                         delta = self._stream_event_text_delta(event)
                         if delta:
                             received = True
@@ -1380,19 +2039,59 @@ Return exactly one JSON object now."""
                 if text_parts:
                     if stream_termination is None:
                         stream_termination = "stream_ended_without_terminal_event"
+                    self._log_route_finished(
+                        transport="stream",
+                        attempt=attempt,
+                        started=started,
+                        outcome="success",
+                        status_code=response.status_code,
+                        category="success",
+                        content_chars=sum(len(part) for part in text_parts),
+                        reasoning_chars=reasoning_characters,
+                        finish_reason=stream_termination,
+                    )
                     return (
                         "".join(text_parts),
                         usage,
                         response_id,
                         stream_termination,
                     )
-                raise LLMRequestError(
+                empty_error = LLMRequestError(
                     "LLM stream did not contain output text.",
                     category="empty_response",
                     recoverable=True,
                 )
+                setattr(empty_error, "stream_termination", stream_termination)
+                setattr(empty_error, "reasoning_characters", reasoning_characters)
+                raise empty_error
+            except _HedgedRequestCancelled:
+                self._log_route_finished(
+                    transport="stream",
+                    attempt=attempt,
+                    started=started,
+                    outcome="cancelled",
+                    category="hedge_cancelled",
+                    will_retry=False,
+                    content_chars=sum(len(part) for part in text_parts),
+                    reasoning_chars=reasoning_characters,
+                    finish_reason=stream_termination,
+                )
+                raise
             except httpx.TimeoutException as exc:
                 last_error = exc
+                will_retry = not received and attempt < self._max_retries
+                self._log_route_finished(
+                    transport="stream",
+                    attempt=attempt,
+                    started=started,
+                    outcome="failure",
+                    category="timeout",
+                    will_retry=will_retry,
+                    error=exc,
+                    content_chars=sum(len(part) for part in text_parts),
+                    reasoning_chars=reasoning_characters,
+                    finish_reason=stream_termination,
+                )
                 if received or attempt >= self._max_retries:
                     raise LLMRequestError(
                         "LLM streaming request timed out after exhausting retries.",
@@ -1402,6 +2101,25 @@ Return exactly one JSON object now."""
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
                 response_detail = self._extract_error_detail(exc.response)
+                category = "provider_http" if status_code < 500 else "provider_gateway"
+                will_retry = (
+                    not received
+                    and status_code >= 500
+                    and attempt < self._max_retries
+                )
+                self._log_route_finished(
+                    transport="stream",
+                    attempt=attempt,
+                    started=started,
+                    outcome="failure",
+                    status_code=status_code,
+                    category=category,
+                    will_retry=will_retry,
+                    error=LLMRequestError(response_detail, category=category),
+                    content_chars=sum(len(part) for part in text_parts),
+                    reasoning_chars=reasoning_characters,
+                    finish_reason=stream_termination,
+                )
                 if received or 400 <= status_code < 500:
                     raise LLMRequestError(
                         "LLM streaming request failed with non-retryable status "
@@ -1421,6 +2139,19 @@ Return exactly one JSON object now."""
                     ) from exc
             except httpx.HTTPError as exc:
                 last_error = exc
+                will_retry = not received and attempt < self._max_retries
+                self._log_route_finished(
+                    transport="stream",
+                    attempt=attempt,
+                    started=started,
+                    outcome="failure",
+                    category="transport",
+                    will_retry=will_retry,
+                    error=exc,
+                    content_chars=sum(len(part) for part in text_parts),
+                    reasoning_chars=reasoning_characters,
+                    finish_reason=stream_termination,
+                )
                 if received or attempt >= self._max_retries:
                     error_detail = str(exc).strip()[:500] or "no error detail"
                     raise LLMRequestError(
@@ -1431,6 +2162,19 @@ Return exactly one JSON object now."""
                     ) from exc
             except LLMRequestError as exc:
                 last_error = exc
+                will_retry = not received and attempt < self._max_retries
+                self._log_route_finished(
+                    transport="stream",
+                    attempt=attempt,
+                    started=started,
+                    outcome="failure",
+                    category=exc.category,
+                    will_retry=will_retry,
+                    error=exc,
+                    content_chars=sum(len(part) for part in text_parts),
+                    reasoning_chars=reasoning_characters,
+                    finish_reason=stream_termination,
+                )
                 if received or attempt >= self._max_retries:
                     raise
 
@@ -1452,6 +2196,31 @@ Return exactly one JSON object now."""
             return ""
         content = delta.get("content")
         return content if isinstance(content, str) else ""
+
+    @staticmethod
+    def _stream_event_reasoning_char_count(event: dict[str, Any]) -> int:
+        event_type = str(event.get("type") or "").strip().casefold()
+        if event_type in {
+            "response.reasoning_text.delta",
+            "response.reasoning_summary_text.delta",
+        }:
+            delta = event.get("delta")
+            return len(delta) if isinstance(delta, str) else 0
+        choices = event.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return 0
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            return 0
+        delta = choice.get("delta")
+        if not isinstance(delta, dict):
+            return 0
+        return sum(
+            len(value)
+            for key in ("reasoning_content", "reasoning")
+            for value in [delta.get(key)]
+            if isinstance(value, str)
+        )
 
     @staticmethod
     def _stream_event_usage(event: dict[str, Any]) -> dict[str, Any] | None:
@@ -1992,20 +2761,46 @@ class ModelFailoverLLMAdapter(LLMAdapter):
     request format without leaking provider-specific envelopes across models.
     """
 
-    def __init__(self, *, primary: LLMAdapter, fallback: LLMAdapter) -> None:
+    def __init__(
+        self,
+        *,
+        primary: LLMAdapter,
+        fallback: LLMAdapter,
+        circuit_failure_threshold: int = 2,
+        circuit_cooldown_seconds: float = 60.0,
+        hedge_delay_seconds: float | None = None,
+    ) -> None:
         self._primary = primary
         self._fallback = fallback
+        self._circuit_failure_threshold = max(1, int(circuit_failure_threshold))
+        self._circuit_cooldown_seconds = max(1.0, float(circuit_cooldown_seconds))
+        self._hedge_delay_seconds = (
+            max(0.01, float(hedge_delay_seconds))
+            if hedge_delay_seconds is not None
+            else None
+        )
+        self._circuit_lock = threading.Lock()
+        self._primary_failure_count = 0
+        self._primary_circuit_open_until = 0.0
 
     def generate_text(self, prompt: str, *, strategy: GenerationStrategy) -> str:
         primary_error: Exception
+        circuit_open = self._primary_circuit_is_open()
         try:
-            return self._primary.generate_text(prompt, strategy=strategy)
+            if circuit_open:
+                raise self._circuit_open_error()
+            result = self._primary.generate_text(prompt, strategy=strategy)
+            self._record_primary_success()
+            return result
         except (LLMStructuredOutputError, MissingLLMConfigurationError) as error:
             primary_error = error
+            self._record_primary_failure(error)
         except LLMRequestError as error:
             if not self._should_fail_over(error):
                 raise
             primary_error = error
+            self._record_primary_failure(error)
+        self._log_failover(primary_error)
         try:
             return self._fallback.generate_text(prompt, strategy=strategy)
         except LLMRequestError as fallback_error:
@@ -2039,6 +2834,16 @@ class ModelFailoverLLMAdapter(LLMAdapter):
         output_schema: dict[str, Any] | None = None,
         on_delta: Callable[[str, bool], None] | None = None,
     ) -> dict[str, Any]:
+        if (
+            self._hedge_delay_seconds is not None
+            and not self._primary_circuit_is_open()
+        ):
+            return self._generate_structured_output_stream_hedged(
+                prompt,
+                strategy=strategy,
+                output_schema=output_schema,
+                on_delta=on_delta,
+            )
         return self._generate_structured(
             primary_call=lambda: self._primary.generate_structured_output_stream(
                 prompt,
@@ -2054,6 +2859,196 @@ class ModelFailoverLLMAdapter(LLMAdapter):
             ),
         )
 
+    def _generate_structured_output_stream_hedged(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None,
+        on_delta: Callable[[str, bool], None] | None,
+    ) -> dict[str, Any]:
+        """Race an equivalent route only while the primary has no visible output."""
+
+        completion_queue: Queue[
+            tuple[str, dict[str, Any] | None, Exception | None]
+        ] = Queue()
+        primary_cancel = threading.Event()
+        fallback_cancel = threading.Event()
+        primary_output_seen = threading.Event()
+        winner_selected = threading.Event()
+        preview_lock = threading.Lock()
+        fallback_started = False
+        hedge_started = False
+        errors: dict[str, Exception] = {}
+
+        def primary_delta(delta: str, reset: bool) -> None:
+            if delta:
+                primary_output_seen.set()
+            with preview_lock:
+                if winner_selected.is_set():
+                    raise _HedgedRequestCancelled()
+                if on_delta is not None:
+                    on_delta(delta, reset)
+
+        def fallback_delta(_delta: str, _reset: bool) -> None:
+            if winner_selected.is_set():
+                raise _HedgedRequestCancelled()
+
+        def run_route(
+            route_name: str,
+            adapter: LLMAdapter,
+            cancel_event: threading.Event,
+            delta_callback: Callable[[str, bool], None],
+        ) -> None:
+            try:
+                result = adapter.generate_structured_output_stream_cancellable(
+                    prompt,
+                    strategy=strategy,
+                    output_schema=output_schema,
+                    on_delta=delta_callback,
+                    cancel_event=cancel_event,
+                )
+            except Exception as error:  # noqa: BLE001 - carried back to request thread
+                completion_queue.put((route_name, None, error))
+            else:
+                completion_queue.put((route_name, result, None))
+
+        def start_route(
+            route_name: str,
+            adapter: LLMAdapter,
+            cancel_event: threading.Event,
+            delta_callback: Callable[[str, bool], None],
+        ) -> None:
+            threading.Thread(
+                target=run_route,
+                args=(route_name, adapter, cancel_event, delta_callback),
+                name=f"llm-{route_name}-route",
+                daemon=True,
+            ).start()
+
+        def select_result(
+            route_name: str,
+            result: dict[str, Any],
+        ) -> dict[str, Any]:
+            with preview_lock:
+                winner_selected.set()
+                if route_name == "primary":
+                    fallback_cancel.set()
+                else:
+                    primary_cancel.set()
+                    if on_delta is not None:
+                        preview = {
+                            key: value for key, value in result.items() if key != "_meta"
+                        }
+                        on_delta(json.dumps(preview, ensure_ascii=False), True)
+            metadata = result.setdefault("_meta", {})
+            if isinstance(metadata, dict) and hedge_started:
+                metadata.update({
+                    "model_hedge_started": True,
+                    "model_hedge_winner": route_name,
+                    "model_hedge_delay_seconds": self._hedge_delay_seconds,
+                })
+                if route_name == "fallback":
+                    metadata["model_hedge_used"] = True
+            if route_name == "primary":
+                self._record_primary_success()
+            if hedge_started:
+                logger.warning(
+                    "LLM route hedge winner selected winner=%s delay_seconds=%.2f",
+                    route_name,
+                    self._hedge_delay_seconds or 0.0,
+                )
+            return result
+
+        def start_fallback(*, as_hedge: bool, primary_error: Exception | None) -> None:
+            nonlocal fallback_started, hedge_started
+            if fallback_started:
+                return
+            fallback_started = True
+            hedge_started = as_hedge
+            if as_hedge:
+                from_provider, from_model, from_gateway, _ = self._route_log_identity(
+                    self._primary
+                )
+                to_provider, to_model, to_gateway, _ = self._route_log_identity(
+                    self._fallback
+                )
+                logger.warning(
+                    "LLM route slow-request hedge started from_provider=%s "
+                    "from_model=%s from_gateway=%s to_provider=%s to_model=%s "
+                    "to_gateway=%s delay_seconds=%.2f",
+                    from_provider,
+                    from_model,
+                    from_gateway,
+                    to_provider,
+                    to_model,
+                    to_gateway,
+                    self._hedge_delay_seconds or 0.0,
+                )
+            elif primary_error is not None:
+                self._log_failover(primary_error)
+            start_route(
+                "fallback",
+                self._fallback,
+                fallback_cancel,
+                fallback_delta,
+            )
+
+        start_route("primary", self._primary, primary_cancel, primary_delta)
+        try:
+            first_completion = completion_queue.get(
+                timeout=self._hedge_delay_seconds
+            )
+        except Empty:
+            if not primary_output_seen.is_set():
+                start_fallback(as_hedge=True, primary_error=None)
+            first_completion = completion_queue.get()
+
+        pending_completion = first_completion
+        while True:
+            route_name, result, error = pending_completion
+            if result is not None:
+                if route_name == "fallback" and not hedge_started:
+                    primary_error = errors.get("primary")
+                    if primary_error is not None:
+                        result = self._annotate_fallback_result(
+                            result,
+                            primary_error=primary_error,
+                            circuit_open=False,
+                        )
+                return select_result(route_name, result)
+            if error is not None and not isinstance(error, _HedgedRequestCancelled):
+                errors[route_name] = error
+            if route_name == "primary" and error is not None:
+                if isinstance(error, LLMRequestError) and not self._should_fail_over(error):
+                    fallback_cancel.set()
+                    raise error
+                if not isinstance(
+                    error,
+                    (LLMRequestError, LLMStructuredOutputError, MissingLLMConfigurationError),
+                ):
+                    fallback_cancel.set()
+                    raise error
+                self._record_primary_failure(error)
+                start_fallback(as_hedge=False, primary_error=error)
+            if len(errors) >= 2:
+                primary_error = errors["primary"]
+                fallback_error = errors["fallback"]
+                if isinstance(fallback_error, LLMRequestError):
+                    if isinstance(primary_error, LLMStructuredOutputError):
+                        setattr(
+                            primary_error,
+                            "fallback_request_failure",
+                            self._bounded_reason(fallback_error),
+                        )
+                        raise primary_error from fallback_error
+                    raise self._combined_failure(
+                        primary_error,
+                        fallback_error,
+                    ) from fallback_error
+                raise fallback_error
+            pending_completion = completion_queue.get()
+
     def _generate_structured(
         self,
         *,
@@ -2061,16 +3056,27 @@ class ModelFailoverLLMAdapter(LLMAdapter):
         fallback_call: Callable[[], dict[str, Any]],
     ) -> dict[str, Any]:
         primary_error: Exception
+        circuit_open = self._primary_circuit_is_open()
         try:
-            return primary_call()
+            if circuit_open:
+                raise self._circuit_open_error()
+            result = primary_call()
+            self._record_primary_success()
+            return result
         except (LLMStructuredOutputError, MissingLLMConfigurationError) as error:
             primary_error = error
             failover_reason = self._bounded_reason(error)
+            self._record_primary_failure(error)
         except LLMRequestError as error:
             if not self._should_fail_over(error):
                 raise
             primary_error = error
             failover_reason = self._bounded_reason(error)
+            self._record_primary_failure(error)
+        if circuit_open:
+            failover_reason = self._bounded_reason(primary_error)
+
+        self._log_failover(primary_error)
 
         try:
             result = fallback_call()
@@ -2086,18 +3092,37 @@ class ModelFailoverLLMAdapter(LLMAdapter):
                 primary_error,
                 fallback_error,
             ) from fallback_error
+        return self._annotate_fallback_result(
+            result,
+            primary_error=primary_error,
+            circuit_open=circuit_open,
+            failover_reason=failover_reason,
+        )
+
+    def _annotate_fallback_result(
+        self,
+        result: dict[str, Any],
+        *,
+        primary_error: Exception,
+        circuit_open: bool,
+        failover_reason: str | None = None,
+    ) -> dict[str, Any]:
         metadata = result.setdefault("_meta", {})
         if isinstance(metadata, dict):
             primary_info = self._primary.get_model_info()
             fallback_info = self._fallback.get_model_info()
             metadata.update({
                 "model_failover_used": True,
-                "model_failover_reason": failover_reason,
+                "model_failover_reason": (
+                    failover_reason or self._bounded_reason(primary_error)
+                ),
                 "primary_model_provider": primary_info.provider,
                 "primary_model_name": primary_info.model_name,
                 "fallback_model_provider": fallback_info.provider,
                 "fallback_model_name": fallback_info.model_name,
             })
+            if circuit_open:
+                metadata["primary_circuit_open"] = True
         return result
 
     def validate_output(
@@ -2124,9 +3149,101 @@ class ModelFailoverLLMAdapter(LLMAdapter):
         detail = str(error).strip() or type(error).__name__
         return f"{type(error).__name__}: {detail}"[:500]
 
+    @classmethod
+    def _route_log_identity(cls, adapter: LLMAdapter) -> tuple[str, str, str, str]:
+        info = adapter.get_model_info()
+        base_url = getattr(adapter, "_base_url", "")
+        wire_api = getattr(adapter, "_wire_api", "")
+        pooled_adapters = getattr(adapter, "_adapters", ())
+        if pooled_adapters:
+            first = pooled_adapters[0]
+            base_url = base_url or getattr(first, "_base_url", "")
+            wire_api = wire_api or getattr(first, "_wire_api", "")
+        primary = getattr(adapter, "_primary", None)
+        if primary is not None and not base_url:
+            _, _, base_url, nested_wire_api = cls._route_log_identity(primary)
+            wire_api = wire_api or nested_wire_api
+            return info.provider, info.model_name, base_url, wire_api or "unknown"
+        parsed = urlparse(str(base_url))
+        gateway = parsed.hostname or str(base_url).split("/", 1)[0] or "unknown"
+        return info.provider, info.model_name, gateway, wire_api or "unknown"
+
+    def _log_failover(self, error: Exception) -> None:
+        from_provider, from_model, from_gateway, from_wire_api = (
+            self._route_log_identity(self._primary)
+        )
+        to_provider, to_model, to_gateway, to_wire_api = self._route_log_identity(
+            self._fallback
+        )
+        logger.warning(
+            "LLM route failover selected from_provider=%s from_model=%s "
+            "from_gateway=%s from_wire_api=%s to_provider=%s to_model=%s "
+            "to_gateway=%s to_wire_api=%s reason_type=%s category=%s "
+            "status_code=%s detail=%s",
+            from_provider,
+            from_model,
+            from_gateway,
+            from_wire_api,
+            to_provider,
+            to_model,
+            to_gateway,
+            to_wire_api,
+            type(error).__name__,
+            getattr(error, "category", "structured_output"),
+            getattr(error, "status_code", None) or "none",
+            RealLLMAdapter._safe_route_log_detail(error),
+        )
+
     @staticmethod
     def _should_fail_over(error: LLMRequestError) -> bool:
         return is_recoverable_llm_request_error(error)
+
+    def _primary_circuit_is_open(self) -> bool:
+        with self._circuit_lock:
+            return time.monotonic() < self._primary_circuit_open_until
+
+    def _record_primary_success(self) -> None:
+        with self._circuit_lock:
+            self._primary_failure_count = 0
+            self._primary_circuit_open_until = 0.0
+
+    def _record_primary_failure(self, error: Exception) -> None:
+        if not self._counts_for_circuit(error):
+            return
+        with self._circuit_lock:
+            self._primary_failure_count += 1
+            if self._primary_failure_count >= self._circuit_failure_threshold:
+                self._primary_circuit_open_until = (
+                    time.monotonic() + self._circuit_cooldown_seconds
+                )
+
+    @staticmethod
+    def _counts_for_circuit(error: Exception) -> bool:
+        if isinstance(error, MissingLLMConfigurationError):
+            return True
+        if isinstance(error, LLMRequestError):
+            if error.category == "circuit_open":
+                return False
+            return is_recoverable_llm_request_error(error)
+        if isinstance(error, LLMStructuredOutputError):
+            # Empty and interrupted streams are route health failures. A
+            # normal schema/JSON mistake should still get another chance.
+            return bool(error.empty_response or error.stream_termination)
+        return False
+
+    def _circuit_open_error(self) -> LLMRequestError:
+        with self._circuit_lock:
+            failures = self._primary_failure_count
+            remaining = max(
+                0.0,
+                self._primary_circuit_open_until - time.monotonic(),
+            )
+        return LLMRequestError(
+            "Primary model route is temporarily bypassed after "
+            f"{failures} transient failures; retrying it in {remaining:.0f}s.",
+            category="circuit_open",
+            recoverable=True,
+        )
 
     @classmethod
     def _combined_failure(
@@ -2136,7 +3253,7 @@ class ModelFailoverLLMAdapter(LLMAdapter):
     ) -> LLMRequestError:
         primary = cls._bounded_reason(primary_error)
         fallback = cls._bounded_reason(fallback_error)
-        return LLMRequestError(
+        combined = LLMRequestError(
             "All configured model routes failed. "
             f"Primary: {primary}; fallback: {fallback}",
             status_code=(
@@ -2146,6 +3263,15 @@ class ModelFailoverLLMAdapter(LLMAdapter):
             category="failover_exhausted",
             recoverable=True,
         )
+        setattr(
+            combined,
+            "route_failure_categories",
+            (
+                getattr(primary_error, "category", "structured_output"),
+                getattr(fallback_error, "category", "unknown"),
+            ),
+        )
+        return combined
 
 
 class PooledLLMAdapter(LLMAdapter):
@@ -2170,6 +3296,9 @@ class PooledLLMAdapter(LLMAdapter):
         thinking_mode: str | None = None,
         use_strict_schema: bool = True,
         send_response_format: bool = True,
+        retry_empty_response: bool = True,
+        defer_schema_container_repair: bool = False,
+        retry_gateway_stream_as_non_stream: bool = True,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         normalized_keys = tuple(key.strip() for key in api_keys if key.strip())
@@ -2194,6 +3323,9 @@ class PooledLLMAdapter(LLMAdapter):
                 thinking_mode=thinking_mode,
                 use_strict_schema=use_strict_schema,
                 send_response_format=send_response_format,
+                retry_empty_response=retry_empty_response,
+                defer_schema_container_repair=defer_schema_container_repair,
+                retry_gateway_stream_as_non_stream=retry_gateway_stream_as_non_stream,
                 transport=transport,
             )
             for key in normalized_keys
@@ -2236,6 +3368,25 @@ class PooledLLMAdapter(LLMAdapter):
                 strategy=strategy,
                 output_schema=output_schema,
                 on_delta=on_delta,
+            )
+        )
+
+    def generate_structured_output_stream_cancellable(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta: Callable[[str, bool], None] | None = None,
+        cancel_event: threading.Event,
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda adapter: adapter.generate_structured_output_stream_cancellable(
+                prompt,
+                strategy=strategy,
+                output_schema=output_schema,
+                on_delta=on_delta,
+                cancel_event=cancel_event,
             )
         )
 

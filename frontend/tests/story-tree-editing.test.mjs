@@ -10,10 +10,17 @@ async function source(path) {
 test("the recursive story tree has one resumable full-tree coordinator", async () => {
   const panel = await source("components/story-plan-node-panel.tsx");
   const coordinator = await source("lib/story-tree-expansion.ts");
+  const roadmapCoordinator = await source("lib/episode-roadmap-generation.ts");
   const background = await source("lib/story-planning-background.ts");
 
   assert.match(panel, /kind:\s*"full_tree"/);
   assert.match(panel, /runFullStoryTreeExpansion/);
+  assert.match(panel, /summarizeStoryPlanTreeProgress/);
+  assert.match(panel, /treeProgress\.expansionComplete/);
+  assert.match(panel, /storyPlanNode\.roadmapOverallProgress/);
+  assert.match(panel, /runFullEpisodeRoadmapGeneration/);
+  assert.match(panel, /storyPlanNode\.generateAllRoadmaps/);
+  assert.match(panel, /storyPlanNode\.continueAllRoadmaps/);
   assert.match(panel, /useTrackedPlanningTask/);
   assert.doesNotMatch(panel, /usePlanningTask/);
   assert.match(coordinator, /FULL_TREE_INITIAL_CONCURRENCY = 3/);
@@ -30,6 +37,10 @@ test("the recursive story tree has one resumable full-tree coordinator", async (
   assert.match(coordinator, /checkpointRebasedRoadmaps/);
   assert.match(coordinator, /episodeReadyLeafNodes\(activeNodes\)/);
   assert.doesNotMatch(coordinator, /generateEpisodePlanBatch/);
+  assert.match(roadmapCoordinator, /generateEpisodePlanBatch/);
+  assert.match(roadmapCoordinator, /onCheckpoint/);
+  assert.match(roadmapCoordinator, /episodeReadyStoryPlanLeaves/);
+  assert.match(roadmapCoordinator, /episodeRoadmaps: workingRoadmaps/);
   assert.match(background, /"full_tree"/);
   assert.match(background, /FULL_TREE_RESERVED_SLOTS = 4/);
   assert.match(background, /const result = await task\.run\(\)/);
@@ -85,19 +96,36 @@ test("parent revisions require an explicit descendant policy", async () => {
   assert.match(panel, /aiCandidate && !descendantDecision/);
   assert.match(panel, /activeBranchInteractions\.size > 0/);
   assert.match(panel, /onInteractionChange=\{updateBranchInteraction\}/);
-  assert.match(panel, /onClick=\{isEditing \? cancelEditing : startEditing\}/);
+  assert.match(panel, /resolveStoryPlanNodeWorkflow/);
+  assert.match(panel, /story-plan-node-action-menu/);
+  assert.match(panel, /workflow\.action === "decompose"/);
   assert.match(panel, /onRequestResplit\?\.\(\)/);
   assert.match(panel, /autoExpansionRequested/);
   assert.match(panel, /onRoadmapCheckpoint: async/);
   assert.match(panel, /onTreeCheckpoint:/);
   assert.match(panel, /await persistProjectUpdate/);
-  assert.doesNotMatch(panel, /result\.episodeRoadmaps/);
+  assert.match(panel, /const episodeRoadmaps = current\.episodeRoadmaps \?\? \[\]/);
   assert.match(panel, /const branchLocked = operationLocked \|\| isEditing/);
   assert.match(panel, /const concurrentLeafAccess = treeBusy/);
   assert.match(panel, /treeUnlockedNodeIds/);
   assert.match(panel, /if \(treeBusy \|\| isEditing \|\| decomposeTaskActive\) return/);
   assert.match(panel, /if \(treeInteractionLocked \|\| isEditing \|\| roadmapTaskActive/);
+  assert.match(panel, /depth === 0 && !effectiveEditing/);
+  assert.match(panel, /depth === 1 && !effectiveEditing/);
   assert.match(client, /descendant_policy=\$\{descendantPolicy\}/);
+});
+
+test("story parts use confirmation without exposing approval-state badges", async () => {
+  const panel = await source("components/story-plan-node-panel.tsx");
+  const locale = await source("providers/locale-provider.tsx");
+
+  assert.match(panel, /workflow\.action === "confirm"/);
+  assert.doesNotMatch(panel, /workflow\.action === "approve"/);
+  assert.doesNotMatch(panel, /story-plan-node-state/);
+  assert.doesNotMatch(panel, /storyPlanNode\.statusApproved/);
+  assert.match(locale, /"storyPlanNode\.confirm": "确认这个部分"/);
+  assert.doesNotMatch(locale, /"storyPlanNode\.statusApproved"/);
+  assert.match(locale, /"workspace\.confirmEpisode": "批准本集"/);
 });
 
 test("each episode roadmap exposes manual and AI revision with candidate review", async () => {
@@ -108,7 +136,8 @@ test("each episode roadmap exposes manual and AI revision with candidate review"
   assert.match(panel, /storyPlanNode\.aiEditRoadmap/);
   assert.match(panel, /<EpisodeRoadmapEditorDialog/);
   assert.match(panel, /<EpisodeRoadmapCandidatePreview/);
-  assert.match(panel, /replaceEpisodeRoadmapDraft/);
+  assert.match(panel, /replaceEpisodeRoadmapItem/);
+  assert.doesNotMatch(panel, /approveRoadmap/);
   assert.match(client, /export async function modifyEpisodePlanItem/);
   assert.match(client, /episode-plans\/\$\{item\.episode_number\}\/modify/);
   assert.match(client, /predecessor_plan: predecessorPlan/);

@@ -1,6 +1,6 @@
 import type { ProjectMarketProfile, ScriptProject } from "@/lib/types";
 import { normalizeGenerationSettings } from "@/lib/generation-planning";
-import { approvedEpisodeRoadmapCoverageThrough } from "@/lib/planning-coverage";
+import { episodeRoadmapCoverageThrough } from "@/lib/planning-coverage";
 
 const DATABASE_NAME = "ai-comic-content-os";
 const DATABASE_VERSION = 1;
@@ -81,7 +81,7 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
             : [];
         const episodeRoadmaps = project.episodeRoadmaps ?? [];
         const recoveredPlanningCoverage = project.episodeRoadmapRequired === true
-          ? approvedEpisodeRoadmapCoverageThrough(episodeRoadmaps)
+          ? episodeRoadmapCoverageThrough(episodeRoadmaps)
           : project.episodePlansReadyThrough ?? 0;
         return {
           ...project,

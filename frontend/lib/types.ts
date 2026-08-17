@@ -236,6 +236,19 @@ export interface GenerationRecoveryTask {
   serverBacked?: boolean;
 }
 
+export interface EpisodeSceneExecutionBeat {
+  scene_number: number;
+  scene_heading: string;
+  character_refs: string[];
+  scene_objective: string;
+  visible_action: string;
+  turn_or_reveal: string;
+  dialogue_objective: string;
+  dialogue_line_target: number;
+  shot_target: number;
+  exit_state: string;
+}
+
 export interface EpisodeRoadmapItem {
   source_node_id: string;
   source_node_version: number;
@@ -245,6 +258,7 @@ export interface EpisodeRoadmapItem {
   target_duration_seconds: number;
   planned_scene_count: number;
   planned_shot_count: number;
+  planned_dialogue_line_count?: number;
   episode_goal: string;
   entry_state: string;
   central_conflict: string;
@@ -266,6 +280,7 @@ export interface EpisodeRoadmapItem {
   ending_hook_type: string;
   next_episode_obligation: string;
   hook_payoff_target_episode: number | null;
+  scene_execution_plan?: EpisodeSceneExecutionBeat[];
 }
 
 export type EpisodeStatus =

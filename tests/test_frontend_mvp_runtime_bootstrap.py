@@ -63,7 +63,7 @@ def test_frontend_runtime_bootstrap_defaults_to_mainland_china() -> None:
     assert general_strategy["target_platform"] == "mainland china comic drama"
     assert general_strategy["status"] == "draft"
     assert general_strategy["draft_knowledge_bundle_id"] == (
-        "knowledge_bundle.draft.cn_mainland_longform_foundation.v1"
+        "knowledge_bundle.draft.cn_mainland_serial_short_drama.v1"
     )
     assert general_strategy["deepening_mode"] == "disabled"
     assert general_strategy["deepening_prompt_ids"] == []
@@ -75,9 +75,10 @@ def test_frontend_runtime_bootstrap_defaults_to_mainland_china() -> None:
     )
     assert candidate_strategy["status"] == "active"
     assert candidate_strategy["draft_knowledge_bundle_id"] == (
-        "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2"
+        "knowledge_bundle.draft.cn_mainland_serial_short_drama.v1"
     )
-    assert candidate_strategy["version"] == "v2"
+    assert candidate_strategy["version"] == "v3"
+    assert "Short-Drama" in candidate_strategy["name"]
     PlatformProfileCreate.model_validate(platform_payload)
     for ontology_payload in ontology_payloads:
         OntologyNodeCreate.model_validate(ontology_payload)

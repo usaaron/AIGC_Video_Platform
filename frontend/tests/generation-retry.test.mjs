@@ -6,6 +6,7 @@ import {
   generateWithFailurePolicy,
   isTransientGenerationFailure,
   MAX_AUTOMATIC_GENERATION_ATTEMPTS,
+  MAX_EPISODE_ROADMAP_API_ATTEMPTS,
   automaticRetryDelayMs,
   roadmapRetryDelayMs,
 } from "../lib/generation-retry.ts";
@@ -206,6 +207,25 @@ test("roadmap rate limits use a longer bounded cooldown and allow a third attemp
   assert.equal(result, "accepted");
   assert.equal(attempts, 3);
   assert.deepEqual(waits, [10_000, 30_000]);
+});
+
+test("episode roadmap API does not repeat its existing two-model failover chain", async () => {
+  let attempts = 0;
+  await assert.rejects(
+    generateWithFailurePolicy({
+      mode: "automatic",
+      generate: async () => {
+        attempts += 1;
+        throw Object.assign(new Error("provider routes unavailable"), { status: 503 });
+      },
+      shouldRetry: isTransientGenerationFailure,
+      maxAutomaticAttempts: MAX_EPISODE_ROADMAP_API_ATTEMPTS,
+      wait: async () => {},
+    }),
+    /provider routes unavailable/,
+  );
+  assert.equal(MAX_EPISODE_ROADMAP_API_ATTEMPTS, 1);
+  assert.equal(attempts, 1);
 });
 
 test("legacy projects always normalize to automatic transient recovery", () => {

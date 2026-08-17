@@ -12,8 +12,14 @@ from app.modules.script_engine.models import (
     PromptLibraryItem,
 )
 from app.script_delivery_contract import (
+    EPISODE_DIALOGUE_LINE_MAX,
+    EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
     EPISODE_RUNTIME_MIN_SECONDS,
+    EPISODE_SCENE_MAX,
+    EPISODE_SCENE_MIN,
+    EPISODE_SHOT_UNIT_MAX,
+    EPISODE_SHOT_UNIT_MIN,
     SERIES_RUNTIME_MIN_MINUTES,
 )
 from app.modules.script_engine.script_body_length import script_body_length_guidance
@@ -124,10 +130,10 @@ class TemplatePromptBuilder(PromptBuilder):
             ("SceneCountReference", rendered_variables.get("desired_scene_count", "")),
             (
                 "SceneCountPolicy",
-                "Treat the scene count as a planning reference selected from this "
-                "episode's dramatic load. Use the fewest scenes that fully enact the "
-                "planned conflict, turning points, payoff and ending pressure; do not "
-                "pad with transitional scenes.",
+                f"Use {EPISODE_SCENE_MIN}-{EPISODE_SCENE_MAX} scenes according to this "
+                "episode's dramatic load; the upper bound is mandatory. One scene is "
+                "valid when it fully enacts the planned conflict, turning points, payoff "
+                "and ending pressure. Do not pad with transitional scenes.",
             ),
             ("TargetDurationSeconds", rendered_variables.get("target_duration_seconds", "")),
             ("HookRequirement", rendered_variables.get("hook_requirement", "")),
@@ -204,6 +210,19 @@ class TemplatePromptBuilder(PromptBuilder):
                 "visibly answered, never through narration or an unrelated surprise.",
             ),
             (
+                "LedgerCompressionContract",
+                "Preserve every material continuity fact, but serialize each fact once and keep "
+                "ledger prose compact. In character_state_updates, relationship_state_updates, "
+                "continuity_state_updates, story_line_updates and setup_payoff_updates, keep each "
+                "summary, state, cause, constraint or next-step string to one concrete clause, "
+                "normally no more than 80 visible characters. Cite scene numbers instead of "
+                "repeating scene action or dialogue, reuse approved IDs and refs exactly, and omit "
+                "decorative recap. Compression must never omit a material death, injury, ability "
+                "limit, knowledge split, relationship change, location or access change, item "
+                "ownership or destruction, story-line advance, setup/payoff action, or ending-hook "
+                "obligation that later episodes must obey.",
+            ),
+            (
                 "ApprovedStoryBibleContract",
                 "When EpisodeContext.story_bible_context is present, treat it as the "
                 "approved canonical story constraint for this episode. Preserve its "
@@ -248,6 +267,13 @@ class TemplatePromptBuilder(PromptBuilder):
                     f"单集最终成片不得少于{EPISODE_RUNTIME_MIN_SECONDS}秒、不得超过"
                     f"{EPISODE_RUNTIME_MAX_SECONDS}秒，以TargetDurationSeconds为参考，"
                     "并为后期剪辑预留空间。"
+                    f"每集场景总数必须为{EPISODE_SCENE_MIN}至{EPISODE_SCENE_MAX}个；"
+                    f"一场可以完成本集时不得强行拆场，绝不超过{EPISODE_SCENE_MAX}场。"
+                    "若EpisodeContext.approved_episode_plan.scene_execution_plan存在，"
+                    "必须按其场景顺序、场景标题、人物范围、场景目标、可见行动、转折、"
+                    "对白目的和退出状态写作；每场dialogues数量贴合dialogue_line_target，"
+                    "每场character_actions数量贴合shot_target。不得重新设计场景结构，"
+                    "只把该执行蓝图扩写成正式可拍正文。"
                     "每场setting必须直接写成场景标题：INT.或EXT. + 具体地点 + 日/夜/黄昏/黎明，"
                     "需要时在末尾加 - CONTINUOUS、- LATER、- SAME TIME或（FLASHBACK）。"
                     "△是对白之外的画面描述、场景动作和演员调度指示符；系统会在导出时为"
@@ -255,11 +281,17 @@ class TemplatePromptBuilder(PromptBuilder):
                     "环境声、道具变化和场面调度；不写特写、镜头推进等镜头语言，不写心想、"
                     "意识到、感到、觉得、仿佛、似乎、殊不知或全知解释。每项是一个可独立拍摄"
                     "的简洁动作单元，不超过180个有效字符，不含换行或Markdown。"
+                    f"每集所有场景的character_actions合计必须为{EPISODE_SHOT_UNIT_MIN}至"
+                    f"{EPISODE_SHOT_UNIT_MAX}项，每项按一个独立镜头执行单元计数；不得拆分同一"
+                    "动作、堆空镜或写镜头语言凑数。"
                     "dialogues中character_name是人物名，可在人物名后使用（O.S.）、（V.O.）、"
                     "（continued）或（pre-lap）；intent只写可表演的括号提示，如低声、停顿、"
                     "头也不抬或beat；text只写演员真正说出口的台词。对白采用美国短剧的短句、"
                     "打断、反击和潜台词节奏：嘴上说A，实际目的为B；删掉不推进冲突、关系、"
-                    "信息或选择的台词。尽量少留空镜，增加可拍画面，但不堆砌无效环境描写。"
+                    f"信息或选择的台词。每集所有场景的dialogues合计必须为{EPISODE_DIALOGUE_LINE_MIN}"
+                    f"至{EPISODE_DIALOGUE_LINE_MAX}条，每个dialogues条目按一句演员实际说出的台词"
+                    "计数；不得拆句、重复或添加解释性台词凑数。尽量少留空镜，增加可拍画面，"
+                    "但不堆砌无效环境描写。"
                     "允许FADE IN、FADE OUT、SMASH CUT TO、DISSOLVE TO和MONTAGE语义，"
                     "但只在时空跳转确有必要时使用。每场必须发生冲突并改变状态；每个非大结局"
                     "的最后可见动作或最后一句对白必须形成悬念和钩子，并与continuation_hook及"
@@ -278,6 +310,11 @@ class TemplatePromptBuilder(PromptBuilder):
                     f"{EPISODE_RUNTIME_MIN_SECONDS}至{EPISODE_RUNTIME_MAX_SECONDS}秒和完整因果节奏，"
                     "交由产品在生成前提示用户调整；正文不得擅自增加分集，也不得用空镜或重复对白补偿。"
                     "DNA、ICU、VIP及型号等必要缩写可以保留。"
+                    "高推理模式只用于核对已批准的分集路线图、人物状态和因果链，"
+                    "不要重新规划世界观、另起支线或反复思考同一选择；完成核对后尽早输出最终JSON。"
+                    "顶层字段建议按title、logline、synopsis、hook、characters、scenes、"
+                    "各类状态账本、continuation_hook、next_episode_question的顺序输出；"
+                    "场景正文优先，账本每条只保留一条可执行事实，绝不复制整段动作或对白。"
                 ),
             )
         target_script_body_characters = rendered_variables.get(
@@ -372,8 +409,9 @@ class TemplatePromptBuilder(PromptBuilder):
                     "Write only this requested episode from its approved route. Begin from prior "
                     "consequences, advance rather than repeat resolved beats, and reach the assigned "
                     "exit state and hook/payoff. Treat Story Bible, locked facts and the newest explicit "
-                    "continuity state as canonical; a later provisional state overrides an older "
-                    "checkpoint only for that recorded entity. episode_instruction may add detail but "
+                    "continuity state as canonical; continuity_checkpoint is the newest compact dynamic "
+                    "state slice and overrides older state only for its recorded entities. "
+                    "episode_instruction may add detail but "
                     "cannot contradict them. approved_story_node is the approved recursive-tree boundary: "
                     "stay inside its unit purpose, current episode function, resolution and handoff pressure. "
                     "approved_episode_plan is the exact per-episode execution contract. Do not redesign an "

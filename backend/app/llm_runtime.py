@@ -71,11 +71,12 @@ class LLMRuntimeConfig:
             else 0
         )
         script_reasoning_effort = (
-            os.getenv("LLM_SCRIPT_REASONING_EFFORT", "medium").strip().casefold()
-            or "medium"
+            os.getenv("LLM_SCRIPT_REASONING_EFFORT", "high").strip().casefold()
+            or "high"
         )
         script_thinking_mode = (
-            os.getenv("LLM_SCRIPT_THINKING_MODE", "").strip().casefold() or None
+            os.getenv("LLM_SCRIPT_THINKING_MODE", "enabled").strip().casefold()
+            or "enabled"
         )
         script_wire_api = os.getenv("LLM_SCRIPT_WIRE_API", "").strip() or None
         return cls(
@@ -111,6 +112,9 @@ class LLMRuntimeConfig:
         wire_api: str | None = None,
         use_strict_schema: bool = True,
         send_response_format: bool = True,
+        retry_empty_response: bool = True,
+        defer_schema_container_repair: bool = False,
+        retry_gateway_stream_as_non_stream: bool = True,
     ) -> LLMAdapter:
         selected_provider = provider or self.provider
         selected_api_key = api_key or self.api_key
@@ -142,6 +146,9 @@ class LLMRuntimeConfig:
             thinking_mode=thinking_mode or self.thinking_mode,
             use_strict_schema=use_strict_schema,
             send_response_format=send_response_format,
+            retry_empty_response=retry_empty_response,
+            defer_schema_container_repair=defer_schema_container_repair,
+            retry_gateway_stream_as_non_stream=retry_gateway_stream_as_non_stream,
         )
 
 
@@ -189,6 +196,8 @@ def build_story_bible_llm_adapter_from_env() -> LLMAdapter:
         default_model_env="LLM_MODEL",
         default_timeout_seconds=300,
         default_max_retries=0,
+        default_thinking_mode="disabled",
+        default_retry_empty_response=False,
         default_reasoning_effort="medium",
         inherit_fallback_runtime_tuning=False,
     )
@@ -250,51 +259,133 @@ def build_episode_plan_llm_adapter_from_env() -> LLMAdapter:
         default_model_env="LLM_MODEL",
         default_timeout_seconds=600,
         default_max_retries=1,
+        default_thinking_mode="disabled",
     )
+    routes: list[LLMAdapter] = [primary]
+    for alternate_index in range(1, 3):
+        alternate = _build_explicit_episode_alternate(
+            f"LLM_EPISODE_PLAN_ALTERNATE_{alternate_index:02d}"
+        )
+        if alternate is not None:
+            routes.append(alternate)
+
     fallback_prefixes = (
         "LLM_EPISODE_PLAN_FALLBACK",
         "LLM_SCRIPT_REPAIR",
         "LLM_SCRIPT_FALLBACK",
         "LLM_SCRIPT",
     )
-    if not any(
+    if any(
         key.startswith(f"{fallback_prefix}_") and value.strip()
         for fallback_prefix in fallback_prefixes
         for key, value in os.environ.items()
     ):
+        try:
+            fallback = _build_role_adapter_from_env(
+                "LLM_EPISODE_PLAN_FALLBACK",
+                fallback_prefixes=(
+                    "LLM_SCRIPT_REPAIR",
+                    "LLM_SCRIPT_FALLBACK",
+                    "LLM_SCRIPT",
+                ),
+                default_model_env="LLM_MODEL",
+                default_timeout_seconds=300,
+                default_max_retries=0,
+                default_use_strict_schema=False,
+                default_thinking_mode="disabled",
+            )
+        except MissingLLMConfigurationError as exc:
+            logger.warning(
+                "Ignoring invalid episode-plan fallback configuration; primary planning "
+                "model remains available: %s",
+                exc,
+            )
+        else:
+            if _adapter_route_identity(routes[-1]) != _adapter_route_identity(
+                fallback
+            ):
+                routes.append(fallback)
+
+    if len(routes) == 1:
         return primary
+    return _build_episode_failover_chain(routes)
+
+
+def _build_explicit_episode_alternate(prefix: str) -> LLMAdapter | None:
+    """Build an optional episode route without inheriting the primary secret.
+
+    A partially filled alternate is ignored with a warning so one optional
+    gateway cannot take down the configured primary route. It is never allowed
+    to fall back to ``LLM_API_KEY`` or ``LLM_BASE_URL``.
+    """
+
+    configured = any(
+        os.getenv(f"{prefix}_{suffix}", "").strip()
+        for suffix in ("PROVIDER", "MODEL", "API_KEY", "BASE_URL", "WIRE_API")
+    ) or bool(_role_api_key_pool(prefix))
+    if not configured:
+        return None
+    model = os.getenv(f"{prefix}_MODEL", "").strip()
+    base_url = os.getenv(f"{prefix}_BASE_URL", "").strip()
+    api_key = os.getenv(f"{prefix}_API_KEY", "").strip()
+    if not api_key and not _role_api_key_pool(prefix):
+        return None
+    if not model or not base_url:
+        logger.warning("Ignoring %s: MODEL and BASE_URL are both required.", prefix)
+        return None
     try:
-        fallback = _build_role_adapter_from_env(
-            "LLM_EPISODE_PLAN_FALLBACK",
-            fallback_prefixes=(
-                "LLM_SCRIPT_REPAIR",
-                "LLM_SCRIPT_FALLBACK",
-                "LLM_SCRIPT",
-            ),
-            default_model_env="LLM_MODEL",
-            default_timeout_seconds=300,
+        return _build_role_adapter_from_env(
+            prefix,
+            fallback_prefixes=(),
+            default_model_env=f"{prefix}_MODEL",
+            default_timeout_seconds=45,
             default_max_retries=0,
             default_use_strict_schema=False,
+            default_thinking_mode="disabled",
+            inherit_fallback_runtime_tuning=False,
         )
     except MissingLLMConfigurationError as exc:
-        logger.warning(
-            "Ignoring invalid episode-plan fallback configuration; primary planning "
-            "model remains available: %s",
-            exc,
+        logger.warning("Ignoring invalid optional episode route %s: %s", prefix, exc)
+        return None
+
+
+def _build_episode_failover_chain(routes: list[LLMAdapter]) -> LLMAdapter:
+    threshold = _parse_role_positive_int(
+        "LLM_EPISODE_PLAN",
+        fallback_prefixes=(),
+        suffix="CIRCUIT_FAILURE_THRESHOLD",
+        default=1,
+    )
+    cooldown = _parse_positive_float_env(
+        "LLM_EPISODE_PLAN_CIRCUIT_COOLDOWN_SECONDS",
+        default=180.0,
+    )
+    adapter = routes[-1]
+    for route in reversed(routes[:-1]):
+        adapter = ModelFailoverLLMAdapter(
+            primary=route,
+            fallback=adapter,
+            circuit_failure_threshold=threshold,
+            circuit_cooldown_seconds=cooldown,
         )
-        return primary
-    primary_info = primary.get_model_info()
-    fallback_info = fallback.get_model_info()
-    if (
-        primary_info.provider.casefold() == fallback_info.provider.casefold()
-        and primary_info.model_name.casefold() == fallback_info.model_name.casefold()
-    ):
-        return primary
-    return ModelFailoverLLMAdapter(primary=primary, fallback=fallback)
+    return adapter
+
+
+def _adapter_route_identity(adapter: LLMAdapter) -> tuple[str, str, str]:
+    info = adapter.get_model_info()
+    base_url = getattr(adapter, "_base_url", "")
+    pooled_adapters = getattr(adapter, "_adapters", ())
+    if not base_url and pooled_adapters:
+        base_url = getattr(pooled_adapters[0], "_base_url", "")
+    return (
+        info.provider.casefold(),
+        info.model_name.casefold(),
+        str(base_url).rstrip("/").casefold(),
+    )
 
 
 def build_script_repair_llm_adapter_from_env() -> LLMAdapter:
-    """Build the fast adapter for bounded JSON and screenplay repairs."""
+    """Build the high-reasoning adapter for bounded screenplay repairs."""
 
     primary = _build_role_adapter_from_env(
         "LLM_SCRIPT_REPAIR",
@@ -302,6 +393,11 @@ def build_script_repair_llm_adapter_from_env() -> LLMAdapter:
         default_model_env="LLM_MODEL",
         default_timeout_seconds=300,
         default_max_retries=0,
+        default_reasoning_effort="high",
+        default_thinking_mode="enabled",
+        default_retry_empty_response=False,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=False,
     )
     return _with_optional_script_alternate(primary)
 
@@ -334,6 +430,9 @@ def build_script_generation_adapter(config: LLMRuntimeConfig) -> LLMAdapter:
             reasoning_effort=config.script_reasoning_effort,
             thinking_mode=config.script_thinking_mode,
             wire_api=config.script_wire_api,
+            retry_empty_response=False,
+            defer_schema_container_repair=True,
+            retry_gateway_stream_as_non_stream=False,
         )
 
     from app.modules.script_engine.llm_adapter import PooledLLMAdapter
@@ -348,6 +447,9 @@ def build_script_generation_adapter(config: LLMRuntimeConfig) -> LLMAdapter:
         wire_api=config.script_wire_api or config.wire_api,
         reasoning_effort=config.script_reasoning_effort or config.reasoning_effort,
         thinking_mode=config.script_thinking_mode or config.thinking_mode,
+        retry_empty_response=False,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=False,
     )
 
 
@@ -364,11 +466,20 @@ def build_script_generation_adapter_from_env() -> LLMAdapter:
             default_model_env="LLM_MODEL",
             default_timeout_seconds=600,
             default_max_retries=0,
+            default_reasoning_effort="high",
+            default_thinking_mode="enabled",
+            default_retry_empty_response=False,
+            defer_schema_container_repair=True,
+            retry_gateway_stream_as_non_stream=False,
         )
-    return _with_optional_script_alternate(primary)
+    return _with_optional_script_alternate(primary, enable_slow_hedge=True)
 
 
-def _with_optional_script_alternate(primary: LLMAdapter) -> LLMAdapter:
+def _with_optional_script_alternate(
+    primary: LLMAdapter,
+    *,
+    enable_slow_hedge: bool = False,
+) -> LLMAdapter:
     """Add an explicitly configured second screenplay inference route.
 
     API keys are scoped to their configured host and are never reused for the
@@ -397,10 +508,28 @@ def _with_optional_script_alternate(primary: LLMAdapter) -> LLMAdapter:
     alternate = _build_role_adapter_from_env(
         "LLM_SCRIPT_ALTERNATE",
         default_model_env="LLM_SCRIPT_MODEL",
-        default_timeout_seconds=600,
+        default_timeout_seconds=180,
         default_max_retries=0,
+        default_reasoning_effort="high",
+        default_thinking_mode="enabled",
+        default_retry_empty_response=False,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=False,
     )
-    return ModelFailoverLLMAdapter(primary=primary, fallback=alternate)
+    return ModelFailoverLLMAdapter(
+        primary=primary,
+        fallback=alternate,
+        circuit_failure_threshold=1,
+        circuit_cooldown_seconds=180,
+        hedge_delay_seconds=(
+            _parse_positive_float_env(
+                "LLM_SCRIPT_HEDGE_DELAY_SECONDS",
+                default=35.0,
+            )
+            if enable_slow_hedge
+            else None
+        ),
+    )
 
 
 def build_script_fallback_llm_adapter_from_env() -> LLMAdapter:
@@ -442,6 +571,10 @@ def _build_role_adapter_from_env(
     default_max_retries: int,
     default_use_strict_schema: bool = True,
     default_reasoning_effort: str | None = None,
+    default_thinking_mode: str | None = None,
+    default_retry_empty_response: bool = True,
+    defer_schema_container_repair: bool = False,
+    retry_gateway_stream_as_non_stream: bool = True,
     inherit_fallback_runtime_tuning: bool = True,
 ) -> LLMAdapter:
     """Build one independently configurable model role with safe legacy fallbacks."""
@@ -482,8 +615,12 @@ def _build_role_adapter_from_env(
     )
     thinking_mode = value(
         "THINKING_MODE",
-        config.thinking_mode,
-        fallback_chain=runtime_fallback_prefixes,
+        default_thinking_mode or config.thinking_mode,
+        fallback_chain=(
+            ()
+            if default_thinking_mode is not None
+            else runtime_fallback_prefixes
+        ),
     )
     timeout_seconds = _parse_role_positive_int(
         prefix,
@@ -496,6 +633,12 @@ def _build_role_adapter_from_env(
         fallback_prefixes=runtime_fallback_prefixes,
         suffix="MAX_RETRIES",
         default=default_max_retries,
+    )
+    retry_empty_response = _parse_role_flag(
+        prefix,
+        fallback_prefixes=fallback_prefixes,
+        suffix="RETRY_EMPTY_RESPONSE",
+        default=default_retry_empty_response,
     )
     api_keys = _role_api_key_pool(prefix)
     if not api_keys:
@@ -543,6 +686,9 @@ def _build_role_adapter_from_env(
             thinking_mode=thinking_mode,
             use_strict_schema=use_strict_schema,
             send_response_format=send_response_format,
+            retry_empty_response=retry_empty_response,
+            defer_schema_container_repair=defer_schema_container_repair,
+            retry_gateway_stream_as_non_stream=retry_gateway_stream_as_non_stream,
         )
     return config.build_adapter(
         provider=provider,
@@ -566,6 +712,9 @@ def _build_role_adapter_from_env(
             suffix="SEND_RESPONSE_FORMAT",
             default=True,
         ),
+        retry_empty_response=retry_empty_response,
+        defer_schema_container_repair=defer_schema_container_repair,
+        retry_gateway_stream_as_non_stream=retry_gateway_stream_as_non_stream,
     )
 
 
@@ -679,6 +828,21 @@ def _parse_positive_int(name: str, *, default: int) -> int:
     except ValueError as exc:
         raise MissingLLMConfigurationError(
             f"{name} must be an integer, received '{raw}'."
+        ) from exc
+    if value <= 0:
+        raise MissingLLMConfigurationError(f"{name} must be greater than 0.")
+    return value
+
+
+def _parse_positive_float_env(name: str, *, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise MissingLLMConfigurationError(
+            f"{name} must be a number, received '{raw}'."
         ) from exc
     if value <= 0:
         raise MissingLLMConfigurationError(f"{name} must be greater than 0.")

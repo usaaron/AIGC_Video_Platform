@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.script_delivery_contract import EPISODE_SCENE_MAX, EPISODE_SCENE_MIN
+
 
 class OrchestrationStatus(str, Enum):
     ready = "ready"
@@ -44,7 +46,11 @@ class OrchestrationPlanCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content_spec_id: str = Field(min_length=3, max_length=80)
-    desired_scene_count: int = Field(default=3, ge=2, le=8)
+    desired_scene_count: int = Field(
+        default=3,
+        ge=EPISODE_SCENE_MIN,
+        le=EPISODE_SCENE_MAX,
+    )
 
 
 class OrchestrationPlan(BaseModel):
@@ -57,10 +63,16 @@ class OrchestrationPlan(BaseModel):
     creative_hook: str = Field(min_length=5, max_length=240)
     episode_goal: str = Field(min_length=5, max_length=240)
     target_duration_seconds: int = Field(ge=5, le=600)
-    desired_scene_count: int = Field(ge=2, le=8)
+    desired_scene_count: int = Field(
+        ge=EPISODE_SCENE_MIN,
+        le=EPISODE_SCENE_MAX,
+    )
     asset_requests: list[AssetRequest] = Field(min_length=1, max_length=20)
     script_constraints: list[ScriptConstraint] = Field(min_length=1, max_length=20)
-    scene_blueprints: list[SceneBlueprint] = Field(min_length=2, max_length=8)
+    scene_blueprints: list[SceneBlueprint] = Field(
+        min_length=EPISODE_SCENE_MIN,
+        max_length=EPISODE_SCENE_MAX,
+    )
     status: OrchestrationStatus
     blocking_issues: list[str] = Field(default_factory=list, max_length=10)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

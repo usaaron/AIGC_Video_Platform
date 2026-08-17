@@ -13,7 +13,7 @@ import { PlanningRevisionModeControl } from "@/components/planning-revision-mode
 import { SectionHelp } from "@/components/section-help";
 import { userFacingError } from "@/lib/api-error";
 import {
-  approveStoryBible,
+  confirmStoryBible,
   creativeDirectionInputSignature,
   generateStoryBibleDraft,
   loadStoryBible,
@@ -51,7 +51,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   const { createProject, syncProjectSnapshot, updateProject } = useProjects();
   const [storyBible, setStoryBible] = useState<StoryBible | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [busy, setBusy] = useState<"load" | "generate" | "version" | "save" | "approve" | "ai" | null>("load");
+  const [busy, setBusy] = useState<"load" | "generate" | "version" | "save" | "confirm" | "ai" | null>("load");
   const [message, setMessage] = useState<string | null>(null);
   const [aiCandidate, setAiCandidate] = useState<StoryBible | null>(null);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
@@ -76,7 +76,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     && storyBible.status !== "superseded"
     && (isCurrentInput || storyBible.status === "approved"),
   );
-  const approvedPlanningLineage = storyBible?.status === "approved"
+  const confirmedPlanningLineage = storyBible?.status === "approved"
     && !isEditing;
   const storyBibleCharacterNames = new Map(
     (storyBible?.character_registry ?? []).map((character) => [
@@ -179,44 +179,44 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     }
   }
 
-  async function approveDraft() {
+  async function confirmDraft() {
     if (!storyBible || storyBible.status === "approved") return;
-    setBusy("approve");
+    setBusy("confirm");
     setMessage(null);
     try {
-      const approved = await approveStoryBible(storyBible);
-      const approvedCharacters = storyBibleProjectCharacters(
-        approved,
+      const confirmed = await confirmStoryBible(storyBible);
+      const confirmedCharacters = storyBibleProjectCharacters(
+        confirmed,
         project.characters,
       );
-      setStoryBible(approved);
+      setStoryBible(confirmed);
       onProjectUpdate?.({
-        ...(project.titleSource === "user" || !approved.project_title?.trim()
+        ...(project.titleSource === "user" || !confirmed.project_title?.trim()
           ? {}
           : {
-              title: approved.project_title.trim(),
+              title: confirmed.project_title.trim(),
               titleSource: "generated" as const,
             }),
-        storyBibleStatus: approved.status,
-        storyBibleVersion: approved.version,
-        characters: approvedCharacters,
+        storyBibleStatus: confirmed.status,
+        storyBibleVersion: confirmed.version,
+        characters: confirmedCharacters,
         storyLines: storyBibleProjectStoryLines(
-          approved,
-          approvedCharacters,
+          confirmed,
+          confirmedCharacters,
           project.storyLines,
         ),
         characterRelationships: storyBibleProjectRelationships(
-          approved,
-          approvedCharacters,
+          confirmed,
+          confirmedCharacters,
           project.characterRelationships,
         ),
         episodeRoadmapRequired: true,
         episodeRoadmaps: [],
       });
       setIsEditing(false);
-      setMessage(t("storyBible.approved"));
+      setMessage(t("storyBible.confirmed"));
     } catch (error) {
-      setMessage(userFacingError(error, t("storyBible.approveFailed")));
+      setMessage(userFacingError(error, t("storyBible.confirmFailed")));
     } finally {
       setBusy(null);
     }
@@ -224,17 +224,17 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
 
   async function saveDraft() {
     if (!storyBible || storyBible.status === "superseded" || regenerationLocked) return;
-    const invalidatesApprovedPlanning = storyBible.status === "approved";
+    const invalidatesConfirmedPlanning = storyBible.status === "approved";
     if (
-      invalidatesApprovedPlanning
-      && !window.confirm(t("storyBible.modifyApprovedConfirm"))
+      invalidatesConfirmedPlanning
+      && !window.confirm(t("storyBible.modifyConfirmedConfirm"))
     ) return;
     setBusy("save");
     setMessage(null);
     try {
       const saved = await saveStoryBibleDraft(storyBible);
       setStoryBible(saved);
-      onProjectUpdate?.(invalidatesApprovedPlanning
+      onProjectUpdate?.(invalidatesConfirmedPlanning
         ? storyBibleRegenerationPatch(project, saved)
         : {
             storyBibleStatus: saved.status,
@@ -280,7 +280,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
 
   async function applyAiModification() {
     if (!aiCandidate) return;
-    const invalidatesApprovedPlanning = storyBible?.status === "approved";
+    const invalidatesConfirmedPlanning = storyBible?.status === "approved";
     setBusy("save");
     setMessage(null);
     try {
@@ -288,7 +288,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
       setStoryBible(saved);
       setAiCandidate(null);
       setAiInstruction("");
-      onProjectUpdate?.(invalidatesApprovedPlanning
+      onProjectUpdate?.(invalidatesConfirmedPlanning
         ? storyBibleRegenerationPatch(project, saved)
         : {
             storyBibleStatus: saved.status,
@@ -375,8 +375,8 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
             </button>
           ) : null}
           {storyBible?.status === "draft" && isCurrentInput ? (
-            <button className="primary-action" disabled={Boolean(busy) || isEditing} onClick={() => void approveDraft()} type="button">
-              {busy === "approve" ? t("storyBible.approving") : t("storyBible.approve")}
+            <button className="primary-action" disabled={Boolean(busy) || isEditing} onClick={() => void confirmDraft()} type="button">
+              {busy === "confirm" ? t("storyBible.confirming") : t("storyBible.confirm")}
             </button>
           ) : null}
         </div>
@@ -578,7 +578,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
           </div>
         </div>
       ) : null}
-      {approvedPlanningLineage ? (
+      {confirmedPlanningLineage ? (
         <StoryPlanNodePanel onProjectUpdate={onProjectUpdate} project={project} storyBible={storyBible} />
       ) : null}
     </section>

@@ -3,6 +3,11 @@ import type { FailureRetryMode } from "./types.ts";
 // An attempt includes the first request. Keep this small: the backend already
 // has provider-route and bounded contract recovery of its own.
 export const MAX_AUTOMATIC_GENERATION_ATTEMPTS = 3;
+// One roadmap API request already tries the planning model and its independent
+// fallback route. Do not repeat that full two-model chain in the browser: one
+// click remains automatically recoverable while staying below the 105-second
+// combined provider timeout.
+export const MAX_EPISODE_ROADMAP_API_ATTEMPTS = 1;
 
 const TRANSIENT_STATUSES = new Set([408, 429, 502, 503, 504]);
 const DETERMINISTIC_FAILURE_CLASSES = new Set([

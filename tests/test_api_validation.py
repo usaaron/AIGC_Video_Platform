@@ -12,10 +12,17 @@ from app.api.routes.script_generation import (
     _raise_llm_configuration_unavailable,
     _raise_llm_upstream_unavailable,
 )
-from app.api.routes.story_projects import _raise_planning_upstream_unavailable
+from app.api.routes.story_projects import (
+    _raise_planning_output_incomplete,
+    _raise_planning_upstream_unavailable,
+)
 from app.modules.script_engine.llm_adapter import (
     LLMRequestError,
+    LLMStructuredOutputError,
     MissingLLMConfigurationError,
+)
+from app.modules.script_engine.story_planning_service import (
+    StoryPlanningTransientOutputError,
 )
 
 
@@ -72,6 +79,34 @@ def test_missing_model_configuration_is_never_automatically_retried() -> None:
         "X-Generation-Retryable": "false",
         "X-Generation-Failure-Class": "configuration",
         "X-Generation-Error-Type": "configuration_unavailable",
+    }
+
+
+def test_planning_output_metadata_separates_transport_from_contract_failures() -> None:
+    with pytest.raises(HTTPException) as transient:
+        _raise_planning_output_incomplete(
+            StoryPlanningTransientOutputError("empty streamed decomposition"),
+        )
+    assert transient.value.status_code == 503
+    assert transient.value.headers == {
+        "X-Generation-Retryable": "true",
+        "X-Generation-Failure-Class": "transient_upstream",
+        "X-Generation-Error-Type": "stream_incomplete",
+    }
+
+    with pytest.raises(HTTPException) as contract:
+        _raise_planning_output_incomplete(
+            LLMStructuredOutputError(
+                "complete response used the wrong contract",
+                raw_content='{"unexpected":true}',
+                stream_termination="completed",
+            ),
+        )
+    assert contract.value.status_code == 422
+    assert contract.value.headers == {
+        "X-Generation-Retryable": "false",
+        "X-Generation-Failure-Class": "contract",
+        "X-Generation-Error-Type": "output_incomplete",
     }
 
 

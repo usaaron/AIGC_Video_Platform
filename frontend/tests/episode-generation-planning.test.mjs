@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   adaptiveEpisodeSceneCount,
   approvedDirectScriptCoverageThrough,
-  approvedEpisodeRoadmapCoverageThrough,
+  episodeRoadmapCoverageThrough,
   buildEpisodeGenerationWindows,
   contiguousEpisodeCoverageThrough,
   episodeGenerationInstruction,
@@ -13,9 +13,9 @@ import {
   episodeGenerationLedgerPlan,
   isDirectScriptNode,
   longRangeStoryAnchor,
-  hasCompleteApprovedRoadmap,
+  hasCompleteEpisodeRoadmap,
   mergeEpisodeRoadmaps,
-  replaceEpisodeRoadmapDraft,
+  replaceEpisodeRoadmapItem,
   nextApprovedScriptLeafRange,
   plannedEpisodeBodyReference,
   plannedEpisodeDurationSeconds,
@@ -49,11 +49,23 @@ test("scene count adapts to each episode's planned dramatic load", () => {
   };
 
   assert.equal(adaptiveEpisodeSceneCount(undefined), 3);
-  assert.equal(adaptiveEpisodeSceneCount({ episodeNumber: 1, episodePlan: lightPlan }), 2);
+  assert.equal(adaptiveEpisodeSceneCount({ episodeNumber: 1, episodePlan: lightPlan }), 1);
   assert.equal(adaptiveEpisodeSceneCount({ episodeNumber: 1, episodePlan: densePlan }), 5);
 });
 
-test("roadmap production values vary episode duration, scenes, shots, and body reference", () => {
+test("roadmap production values carry scene, dialogue, and shot execution budgets", () => {
+  const sceneExecutionPlan = Array.from({ length: 5 }, (_, index) => ({
+    scene_number: index + 1,
+    scene_heading: `INT. 安全屋${index + 1} 日`,
+    character_refs: ["character.mara"],
+    scene_objective: "护送证人离开当前危险区域。",
+    visible_action: "主角检查出口并带证人穿过封锁区域。",
+    turn_or_reveal: "新的出口暴露第二名内应。",
+    dialogue_objective: "逼证人说出负责封锁的人。",
+    dialogue_line_target: index < 4 ? 5 : 4,
+    shot_target: 4,
+    exit_state: "主角打开一条通路但失去备用出口。",
+  }));
   const constraint = {
     episodeNumber: 1,
     episodeRoadmap: {
@@ -61,12 +73,17 @@ test("roadmap production values vary episode duration, scenes, shots, and body r
       target_duration_seconds: 114,
       planned_scene_count: 5,
       planned_shot_count: 22,
+      planned_dialogue_line_count: 24,
+      scene_execution_plan: sceneExecutionPlan,
     },
   };
+  const executionPlan = episodeGenerationExecutionPlan(constraint);
 
   assert.equal(plannedEpisodeDurationSeconds(constraint), 114);
   assert.equal(adaptiveEpisodeSceneCount(constraint), 5);
-  assert.equal(plannedEpisodeShotCount(constraint), 22);
+  assert.equal(plannedEpisodeShotCount(constraint), 20);
+  assert.equal(executionPlan?.planned_dialogue_line_count, 24);
+  assert.deepEqual(executionPlan?.scene_execution_plan, sceneExecutionPlan);
   assert.ok(plannedEpisodeBodyReference(constraint, 1000) > 1000);
 });
 
@@ -344,6 +361,7 @@ test("approved per-episode roadmap refs override broad node refs", () => {
       target_duration_seconds: 90,
       planned_scene_count: 3,
       planned_shot_count: 16,
+      planned_dialogue_line_count: 24,
       episode_goal: "迫使主角确认线索来源",
       entry_state: "主角持有未经验证的证据",
       central_conflict: "公开证据会暴露证人",
@@ -365,6 +383,7 @@ test("approved per-episode roadmap refs override broad node refs", () => {
       ending_hook_type: "身份暴露",
       next_episode_obligation: "下一集必须保护证人",
       hook_payoff_target_episode: 5,
+      scene_execution_plan: [],
     },
   );
 });
@@ -425,7 +444,7 @@ test("direct-script readiness advances only across contiguous approved leaves", 
   );
 });
 
-test("roadmap-gated readiness waits for every episode in the approved leaf", () => {
+test("roadmap-gated readiness waits for every saved episode in the approved leaf", () => {
   const node = {
     ...storyNode(1, 8),
     node_id: "story_plan.demo.leaf",
@@ -462,11 +481,11 @@ test("roadmap-gated readiness waits for every episode in the approved leaf", () 
         roadmap(8, "draft"),
       ],
     }),
-    0,
+    8,
   );
 });
 
-test("roadmap approval requires the exact episode split without duplicates or foreign episodes", () => {
+test("roadmap readiness requires the exact episode split without duplicates or foreign episodes", () => {
   const node = {
     ...storyNode(209, 218),
     node_id: "story_plan.demo.209",
@@ -480,9 +499,9 @@ test("roadmap approval requires the exact episode split without duplicates or fo
     status: "approved",
   });
   const exact = Array.from({ length: 10 }, (_, index) => roadmap(209 + index));
-  assert.equal(hasCompleteApprovedRoadmap(node, exact), true);
-  assert.equal(hasCompleteApprovedRoadmap(node, [...exact.slice(0, 9), roadmap(217)]), false);
-  assert.equal(hasCompleteApprovedRoadmap(node, [...exact.slice(0, 9), roadmap(219)]), false);
+  assert.equal(hasCompleteEpisodeRoadmap(node, exact), true);
+  assert.equal(hasCompleteEpisodeRoadmap(node, [...exact.slice(0, 9), roadmap(217)]), false);
+  assert.equal(hasCompleteEpisodeRoadmap(node, [...exact.slice(0, 9), roadmap(219)]), false);
 });
 
 test("script generation resumes inside the approved leaf and never crosses its split", () => {
@@ -606,19 +625,19 @@ test("episode constraints ignore an approved roadmap from an obsolete leaf versi
   assert.equal(constraints[0].episodeRoadmap.source_node_version, 3);
 });
 
-test("approved roadmap coverage restores the synchronized contiguous checkpoint", () => {
+test("saved roadmap coverage restores the synchronized contiguous checkpoint", () => {
   const roadmap = (episodeNumber, status = "approved") => ({
     episode_number: episodeNumber,
     status,
   });
   assert.equal(
-    approvedEpisodeRoadmapCoverageThrough([
+    episodeRoadmapCoverageThrough([
       roadmap(1), roadmap(2), roadmap(3), roadmap(5), roadmap(4, "draft"),
     ]),
-    3,
+    5,
   );
   assert.equal(
-    approvedEpisodeRoadmapCoverageThrough([
+    episodeRoadmapCoverageThrough([
       roadmap(1), roadmap(2), roadmap(3), roadmap(4), roadmap(5),
     ]),
     5,
@@ -694,7 +713,7 @@ test("editing one roadmap episode invalidates its dependent tail across later le
     roadmap("leaf.alpha", 23),
     roadmap("leaf.beta", 31),
   ];
-  const revised = replaceEpisodeRoadmapDraft(current, {
+  const revised = replaceEpisodeRoadmapItem(current, {
     ...roadmap("leaf.alpha", 22),
     episode_goal: "revised-22",
   });
@@ -703,7 +722,7 @@ test("editing one roadmap episode invalidates its dependent tail across later le
     revised.map((item) => [item.source_node_id, item.episode_number, item.status]),
     [
       ["leaf.alpha", 21, "approved"],
-      ["leaf.alpha", 22, "draft"],
+      ["leaf.alpha", 22, "approved"],
     ],
   );
   assert.equal(revised.find((item) => item.episode_number === 22)?.episode_goal, "revised-22");

@@ -387,7 +387,7 @@ def _build_mainland_prompt_library_payload(suffix: str) -> list[dict[str, Any]]:
             "output_schema": {"type": "object"},
             "evaluation_notes": [
                 "This is a bounded generation instruction, not professional mainland-market validation.",
-                "Long-form planning and continuity ledger remain pending capabilities.",
+                "Recursive planning must preserve short-episode payoff, hook, and continuity contracts.",
             ],
         },
     ]
@@ -401,7 +401,7 @@ def _build_mainland_generation_strategy_payload(
     serialization_prompt_id = f"prompt.mainland_serialization.{suffix}"
     return {
         "id": "strategy.cn_mainland.frontend_mvp.general.v1",
-        "name": "Mainland China General Story Foundation Strategy",
+        "name": "Mainland China Serialized Short-Drama Foundation Strategy",
         "target_platform": "mainland china comic drama",
         "target_content_type": "serialized_ai_comic_source_story",
         "applicable_tags": [],
@@ -430,7 +430,7 @@ def _build_mainland_generation_strategy_payload(
         ],
         "prompt_ids": [story_prompt_id, serialization_prompt_id],
         "draft_knowledge_bundle_id": (
-            "knowledge_bundle.draft.cn_mainland_longform_foundation.v1"
+            "knowledge_bundle.draft.cn_mainland_serial_short_drama.v1"
         ),
         "deepening_mode": "disabled",
         "deepening_prompt_ids": [],
@@ -440,8 +440,8 @@ def _build_mainland_generation_strategy_payload(
         "human_review_required": True,
         "output_schema": {"type": "object"},
         "version": "v1",
-        # Keep the foundation strategy available for explicit comparisons, but
-        # make the long-form strategy below the only default mainland choice.
+        # Keep the foundation strategy available for explicit comparisons; the
+        # active compatibility strategy below uses the same short-drama contract.
         "status": "draft",
     }
 
@@ -454,11 +454,11 @@ def _build_mainland_longform_knowledge_candidate_strategy_payload(
     payload.update(
         {
             "id": "strategy.cn_mainland.longform_knowledge_candidate.v2",
-            "name": "Mainland China Longform Story Strategy v2",
+            "name": "Mainland China Serialized Short-Drama Strategy v3",
             "draft_knowledge_bundle_id": (
-                "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2"
+                "knowledge_bundle.draft.cn_mainland_serial_short_drama.v1"
             ),
-            "version": "v2",
+            "version": "v3",
             "status": "active",
         }
     )

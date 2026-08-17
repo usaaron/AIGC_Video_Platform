@@ -169,7 +169,7 @@ async def test_create_orchestration_plan() -> None:
         content_spec_id = await seed_content_spec(client, "orch_create")
         response = await client.post(
             "/orchestrations",
-            json={"content_spec_id": content_spec_id, "desired_scene_count": 3},
+            json={"content_spec_id": content_spec_id, "desired_scene_count": 4},
         )
     assert response.status_code == 201
     data = response.json()["data"]
@@ -207,7 +207,7 @@ async def test_get_orchestration_plan_by_id() -> None:
         content_spec_id = await seed_content_spec(client, "orch_get")
         create_response = await client.post(
             "/orchestrations",
-            json={"content_spec_id": content_spec_id, "desired_scene_count": 4},
+            json={"content_spec_id": content_spec_id, "desired_scene_count": 3},
         )
         plan_id = create_response.json()["data"]["id"]
         response = await client.get(f"/orchestrations/{plan_id}")

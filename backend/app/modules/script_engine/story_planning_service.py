@@ -6,18 +6,25 @@ import json
 import logging
 import math
 import re
+from collections.abc import Iterable
 from time import monotonic
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from typing import TypeVar
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.modules.content_spec.models import ContentSpec
 from app.modules.content_spec.repository import ContentSpecRepository
 from app.script_delivery_contract import (
+    EPISODE_DIALOGUE_LINE_MAX,
+    EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
     EPISODE_RUNTIME_MIN_SECONDS,
+    EPISODE_SCENE_MAX,
+    EPISODE_SCENE_MIN,
+    EPISODE_SHOT_UNIT_MAX,
+    EPISODE_SHOT_UNIT_MIN,
     SERIES_RUNTIME_MIN_MINUTES,
 )
 from app.modules.script_engine.knowledge_bundle import (
@@ -25,6 +32,7 @@ from app.modules.script_engine.knowledge_bundle import (
     StaticKnowledgeBundleCatalog,
 )
 from app.modules.script_engine.mainland_language import (
+    mainland_text_violates_language_contract,
     planning_output_chinese_issues,
     story_bible_chinese_issues,
 )
@@ -39,6 +47,7 @@ from app.modules.script_engine.long_story_models import (
     EpisodePlanGenerationItem,
     EpisodePlanItemDraftRequest,
     EpisodePlanItemModificationRequest,
+    EpisodeSceneExecutionBeat,
     MAX_EPISODE_READY_SPAN,
     MIN_EPISODE_READY_SPAN,
     PlanningApprovalStatus,
@@ -71,6 +80,48 @@ class StoryPlanningInputError(ValueError):
     pass
 
 
+class StoryPlanningTransientOutputError(LLMStructuredOutputError):
+    """A planning response was empty or ended before its JSON transport completed."""
+
+
+def is_transient_story_planning_output_error(error: Exception) -> bool:
+    if isinstance(error, StoryPlanningTransientOutputError):
+        return True
+    if not isinstance(error, LLMStructuredOutputError) or error.refusal:
+        return False
+    if error.empty_response:
+        return True
+    if error.raw_content is not None and not error.raw_content.strip():
+        return True
+    termination = (error.stream_termination or "").strip().casefold()
+    if not termination or termination == "completed":
+        return False
+    return any(marker in termination for marker in (
+        "incomplete",
+        "failed",
+        "cancelled",
+        "length",
+        "max_output",
+        "token",
+        "ended_without_terminal",
+        "disconnect",
+        "terminated",
+        "eof",
+    ))
+
+
+def _planning_output_failure(
+    message: str,
+    *causes: Exception | None,
+) -> StoryPlanningInputError | StoryPlanningTransientOutputError:
+    if any(
+        cause is not None and is_transient_story_planning_output_error(cause)
+        for cause in causes
+    ):
+        return StoryPlanningTransientOutputError(message)
+    return StoryPlanningInputError(message)
+
+
 class _InactiveStoryPlanLineageError(StoryPlanningInputError):
     """A planning request lost its active node lineage while it was running."""
 
@@ -90,6 +141,18 @@ class _EpisodeRoadmapTransportError(LLMStructuredOutputError):
     def __init__(self, message: str, *, provider_attempt_count: int) -> None:
         super().__init__(message, raw_content="")
         self.provider_attempt_count = provider_attempt_count
+
+
+class _EpisodePlanDiversityPatch(BaseModel):
+    """Small creative patch applied only after a complete item passed hard contracts."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    episode_payoff: str = Field(min_length=3, max_length=800)
+    pressure_escalation: str = Field(min_length=3, max_length=800)
+    cliffhanger: str = Field(min_length=5, max_length=800)
+    ending_hook_type: str = Field(min_length=2, max_length=80)
+    next_episode_obligation: str = Field(min_length=3, max_length=500)
 
 
 logger = logging.getLogger(__name__)
@@ -117,6 +180,13 @@ EPISODE_ROADMAP_RECOVERY_CHUNK_SIZE = 4
 EPISODE_ROADMAP_RECOVERY_HARD_MAX_MODEL_CALLS = 24
 EPISODE_ROADMAP_SEGMENT_MIN_OUTPUT_TOKENS = 3_200
 EPISODE_ROADMAP_SEGMENT_MAX_OUTPUT_TOKENS = 5_000
+# A single roadmap item excludes scene_execution_plan and is normally well below
+# 2,000 output tokens. Do not reserve the legacy multi-item segment budget for
+# every episode: large reservations materially increase reasoning latency on
+# Responses-compatible planning gateways.
+EPISODE_ROADMAP_ITEM_MIN_OUTPUT_TOKENS = 1_800
+EPISODE_ROADMAP_ITEM_MAX_OUTPUT_TOKENS = 2_800
+EPISODE_ROADMAP_DIVERSITY_REPAIR_MAX_OUTPUT_TOKENS = 1_200
 
 
 def _story_decomposition_output_token_budget(
@@ -958,6 +1028,10 @@ _EPISODE_PLAN_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "planned_shot_count": (
         "planned_shot_count", "shot_count", "shots", "本集镜头数", "镜头数",
     ),
+    "planned_dialogue_line_count": (
+        "planned_dialogue_line_count", "dialogue_line_count", "dialogue_count",
+        "本集台词数", "台词数",
+    ),
     "episode_goal": ("episode_goal", "goal", "本集目标", "集目标"),
     "entry_state": ("entry_state", "starting_state", "start_state", "进入状态", "开场状态"),
     "central_conflict": (
@@ -1021,7 +1095,132 @@ _EPISODE_PLAN_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "回收目标集",
         "钩子回收集数",
     ),
+    "scene_execution_plan": (
+        "scene_execution_plan", "scene_plan", "scene_blueprint", "场景执行蓝图", "场景规划",
+    ),
 }
+
+
+_SCENE_EXECUTION_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "scene_heading": ("scene_heading", "setting", "场景标题", "场景"),
+    "character_refs": ("character_refs", "characters", "出场人物", "人物引用"),
+    "scene_objective": ("scene_objective", "objective", "场景目标"),
+    "visible_action": ("visible_action", "action", "可见行动", "核心行动"),
+    "turn_or_reveal": ("turn_or_reveal", "turn", "reveal", "转折或揭示", "转折"),
+    "dialogue_objective": ("dialogue_objective", "dialogue_goal", "对白目的"),
+    "dialogue_line_target": ("dialogue_line_target", "dialogue_lines", "台词条数"),
+    "shot_target": ("shot_target", "shots", "镜头数"),
+    "exit_state": ("exit_state", "outcome", "退出状态", "场景结果"),
+}
+
+
+def _rebalance_integer_targets(
+    values: list[int],
+    *,
+    total: int,
+    minimum: int,
+) -> list[int]:
+    if not values:
+        return []
+    balanced = [max(minimum, value) for value in values]
+    while sum(balanced) < total:
+        index = min(range(len(balanced)), key=lambda item: balanced[item])
+        balanced[index] += 1
+    while sum(balanced) > total:
+        candidates = [
+            index for index, value in enumerate(balanced) if value > minimum
+        ]
+        if not candidates:
+            break
+        index = max(candidates, key=lambda item: balanced[item])
+        balanced[index] -= 1
+    return balanced
+
+
+def _normalize_scene_execution_plan(
+    value: object,
+    *,
+    dialogue_total: int,
+    shot_total: int,
+    fallback_character_refs: list[str],
+) -> list[dict[str, object]]:
+    decoded = _decode_nested_json_value(value)
+    if not isinstance(decoded, list) or not decoded:
+        return []
+    scenes: list[dict[str, object]] = []
+    dialogue_targets: list[int] = []
+    shot_targets: list[int] = []
+    for index, raw_scene in enumerate(decoded[:EPISODE_SCENE_MAX], start=1):
+        raw_scene = _decode_nested_json_value(raw_scene)
+        if not isinstance(raw_scene, dict):
+            return []
+        scene: dict[str, object] = {"scene_number": index}
+        for field_name, aliases in _SCENE_EXECUTION_FIELD_ALIASES.items():
+            field_value = next(
+                (
+                    raw_scene[key]
+                    for key in aliases
+                    if key in raw_scene and raw_scene[key] is not None
+                ),
+                None,
+            )
+            if field_value is not None:
+                scene[field_name] = field_value
+        heading_value = scene.get("scene_heading")
+        if not isinstance(heading_value, str) or not heading_value.strip():
+            return []
+        heading = heading_value.strip()
+        if heading.upper().startswith("INT."):
+            heading = f"INT.{heading[4:]}"
+        elif heading.upper().startswith("EXT."):
+            heading = f"EXT.{heading[4:]}"
+        else:
+            heading = f"INT. {heading}"
+        scene["scene_heading"] = heading
+        character_refs = _normalize_string_list(
+            scene.get("character_refs", []),
+            split_identifiers=True,
+        )
+        allowed_character_refs = set(fallback_character_refs)
+        scene["character_refs"] = (
+            [reference for reference in character_refs if reference in allowed_character_refs]
+            or fallback_character_refs[:1]
+        )
+        for field_name in (
+            "scene_objective",
+            "visible_action",
+            "turn_or_reveal",
+            "dialogue_objective",
+            "exit_state",
+        ):
+            field_value = scene.get(field_name)
+            if not isinstance(field_value, str) or not field_value.strip():
+                return []
+            scene[field_name] = field_value.strip()
+        dialogue_targets.append(
+            _parse_positive_int(scene.get("dialogue_line_target")) or 0
+        )
+        shot_targets.append(_parse_positive_int(scene.get("shot_target")) or 1)
+        scenes.append(scene)
+    dialogue_targets = _rebalance_integer_targets(
+        dialogue_targets,
+        total=dialogue_total,
+        minimum=0,
+    )
+    shot_targets = _rebalance_integer_targets(
+        shot_targets,
+        total=shot_total,
+        minimum=1,
+    )
+    for scene, dialogue_target, shot_target in zip(
+        scenes,
+        dialogue_targets,
+        shot_targets,
+        strict=True,
+    ):
+        scene["dialogue_line_target"] = dialogue_target
+        scene["shot_target"] = shot_target
+    return scenes
 
 
 _EPISODE_PLAN_COLLECTION_ALIASES = (
@@ -1035,6 +1234,37 @@ _EPISODE_PLAN_COLLECTION_ALIASES = (
     "分集线路图",
     "集",
 )
+
+
+_EPISODE_HOOK_TYPE_FALLBACK = "因果压力"
+_EPISODE_HOOK_TYPE_LABEL_MAX_CHARS = 24
+_EPISODE_HOOK_TYPE_LABEL_PATTERN = re.compile(
+    r"^(?P<label>.{2,24}?(?:型悬念|类悬念|悬念|反转|压力|危机|威胁|倒计时|抉择|揭示|钩子))"
+)
+
+
+def _normalize_episode_hook_type(value: object) -> str:
+    """Reduce provider prose to the short classification label this field stores."""
+
+    if not isinstance(value, str):
+        return _EPISODE_HOOK_TYPE_FALLBACK
+    normalized = re.sub(r"\s+", " ", value).strip()
+    if not normalized:
+        return _EPISODE_HOOK_TYPE_FALLBACK
+    candidate = re.split(
+        r"\s*(?:—+|–+|：|:|；|;|。|\r?\n)\s*",
+        normalized,
+        maxsplit=1,
+    )[0].strip(" \t\r\n\"'“”‘’《》【】[]（）()，,。；;：:—–-")
+    label_match = _EPISODE_HOOK_TYPE_LABEL_PATTERN.match(candidate)
+    if label_match is not None:
+        candidate = label_match.group("label")
+    if (
+        not 2 <= len(candidate) <= _EPISODE_HOOK_TYPE_LABEL_MAX_CHARS
+        or mainland_text_violates_language_contract(candidate)
+    ):
+        return _EPISODE_HOOK_TYPE_FALLBACK
+    return candidate
 
 _EPISODE_PLAN_WRAPPER_ALIASES = (
     "roadmap",
@@ -1163,8 +1393,13 @@ def normalize_episode_plan_batch_generation_output(
                 normalized["episode_number"] = number
         for field_name, minimum, maximum in (
             ("target_duration_seconds", 75, 115),
-            ("planned_scene_count", 2, 5),
-            ("planned_shot_count", 8, 24),
+            ("planned_scene_count", EPISODE_SCENE_MIN, EPISODE_SCENE_MAX),
+            ("planned_shot_count", EPISODE_SHOT_UNIT_MIN, EPISODE_SHOT_UNIT_MAX),
+            (
+                "planned_dialogue_line_count",
+                EPISODE_DIALOGUE_LINE_MIN,
+                EPISODE_DIALOGUE_LINE_MAX,
+            ),
         ):
             if field_name not in normalized:
                 continue
@@ -1173,9 +1408,28 @@ def normalize_episode_plan_batch_generation_output(
                 normalized.pop(field_name, None)
             else:
                 normalized[field_name] = min(maximum, max(minimum, parsed))
+        if "scene_execution_plan" in normalized:
+            scenes = _normalize_scene_execution_plan(
+                normalized["scene_execution_plan"],
+                dialogue_total=int(normalized.get("planned_dialogue_line_count", 24)),
+                shot_total=int(normalized.get("planned_shot_count", 16)),
+                fallback_character_refs=list(normalized.get("character_refs", [])),
+            )
+            if scenes:
+                normalized["planned_scene_count"] = len(scenes)
+                normalized["scene_execution_plan"] = scenes
+            else:
+                normalized.pop("scene_execution_plan", None)
         reveal = normalized.get("reveal")
         if isinstance(reveal, str) and len(reveal.strip()) < 3:
             normalized.pop("reveal", None)
+        if "ending_hook_type" in normalized:
+            # This is classification metadata, not authored story content. Keep
+            # provider explanations from forcing an otherwise valid episode
+            # through a second full model pass.
+            normalized["ending_hook_type"] = _normalize_episode_hook_type(
+                normalized["ending_hook_type"]
+            )
         normalized_items.append(normalized)
 
     if expected_episode_numbers is not None and (
@@ -1405,6 +1659,35 @@ def _has_invalid_decomposition_envelope(payload: dict[str, object]) -> bool:
             *_DECOMPOSITION_CHILD_CONTAINER_ALIASES,
             *_DECOMPOSITION_WRAPPER_ALIASES,
         )
+    )
+
+
+def _decomposition_children_are_structurally_empty(
+    payload: dict[str, object],
+) -> bool:
+    """Detect empty child shells before expensive repair cascades begin."""
+    children = _story_plan_decomposition_children(payload)
+    if not children or any(not isinstance(item, dict) for item in children):
+        return False
+    required_fields = (
+        "title",
+        "narrative_purpose",
+        "synopsis",
+        "entry_state",
+        "central_conflict",
+        "turning_points",
+        "emotional_direction",
+        "exit_state",
+        "unit_story_beats",
+        "unit_resolution",
+        "handoff_pressure",
+    )
+    return all(
+        sum(
+            field_name in normalize_story_plan_node_generation_output(item, child=True)
+            for field_name in required_fields
+        ) < 3
+        for item in children
     )
 
 
@@ -1919,6 +2202,7 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
                 strategy=strategy,
                 content_spec=content_spec,
                 preferred_categories=[
+                    "short_drama_structure",
                     "story_structure_and_serialization",
                     "story_structure",
                     "character_design",
@@ -2105,6 +2389,7 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
                 strategy=strategy,
                 content_spec=self._content_spec_for_story_bible(source),
                 preferred_categories=[
+                    "short_drama_structure",
                     "story_structure_and_serialization",
                     "story_structure",
                     "character_design",
@@ -2576,6 +2861,7 @@ Return only JSON matching the provided schema."""
                 strategy=strategy,
                 content_spec=content_spec,
                 preferred_categories=[
+                    "short_drama_structure",
                     "story_structure_and_serialization",
                     "story_structure",
                     "character_design",
@@ -2684,6 +2970,7 @@ Return only JSON matching the provided schema."""
                 strategy=strategy,
                 content_spec=self._content_spec_for_story_bible(story_bible),
                 preferred_categories=[
+                    "short_drama_structure",
                     "story_structure_and_serialization",
                     "story_structure",
                     "character_design",
@@ -2878,6 +3165,7 @@ Return only JSON matching the provided schema."""
                     strategy=strategy,
                     content_spec=content_spec,
                     preferred_categories=[
+                        "short_drama_structure",
                         "story_structure_and_serialization",
                         "story_structure",
                         "conflict_and_emotion",
@@ -2901,7 +3189,7 @@ Return only JSON matching the provided schema."""
                     output_model=StoryPlanNodeDecompositionOutput,
                     artifact_name="Story Plan Node decomposition",
                 )
-            except StoryPlanningInputError:
+            except (StoryPlanningInputError, StoryPlanningTransientOutputError):
                 logger.warning(
                     "Story plan decomposition batch transport remained incomplete; "
                     "switching to segmented recovery node=%s",
@@ -2955,7 +3243,7 @@ Return only JSON matching the provided schema."""
                     requested_child_count=payload.requested_child_count,
                     max_episode_ready_span=episode_ready_ceiling,
                 )
-            except StoryPlanningInputError:
+            except (StoryPlanningInputError, StoryPlanningTransientOutputError):
                 if used_segmented_recovery:
                     raise
                 logger.warning(
@@ -3129,12 +3417,16 @@ Return only JSON matching the provided schema."""
             first_stage = stage_group[0]
             last_stage = stage_group[-1]
             is_final = index == len(stage_groups) - 1
+            last_payoff = cls._planning_clause(last_stage.stage_payoff)
+            last_escalation = cls._planning_clause(
+                last_stage.escalation_to_next
+            )
             exit_state = (
                 parent.exit_state
                 if is_final
                 else cls._bounded_planning_text(
-                    f"已完成“{last_stage.title}”阶段结算：{last_stage.stage_payoff}"
-                    f"；由此形成下一阶段必须承接的局面：{last_stage.escalation_to_next}",
+                    f"已完成“{last_stage.title}”阶段结算：{last_payoff}"
+                    f"；由此形成下一阶段必须承接的局面：{last_escalation}。",
                     1_500,
                 )
             )
@@ -3143,10 +3435,16 @@ Return only JSON matching the provided schema."""
                 if len(stage_group) == 1
                 else f"{first_stage.title}至{last_stage.title}"
             )
-            goals = "；".join(stage.stage_goal for stage in stage_group)
-            oppositions = "；".join(stage.stage_opposition for stage in stage_group)
-            payoffs = "；".join(stage.stage_payoff for stage in stage_group)
-            escalations = "；".join(
+            goals = cls._join_planning_clauses(
+                stage.stage_goal for stage in stage_group
+            )
+            oppositions = cls._join_planning_clauses(
+                stage.stage_opposition for stage in stage_group
+            )
+            payoffs = cls._join_planning_clauses(
+                stage.stage_payoff for stage in stage_group
+            )
+            escalations = cls._join_planning_clauses(
                 stage.escalation_to_next for stage in stage_group
             )
             narrative_purpose = cls._bounded_planning_text(
@@ -3231,10 +3529,34 @@ Return only JSON matching the provided schema."""
 
     @staticmethod
     def _bounded_planning_text(value: str, maximum: int) -> str:
-        normalized = re.sub(r"\s+", " ", value).strip()
+        normalized = StoryPlanningService._normalize_planning_punctuation(value)
         if len(normalized) <= maximum:
             return normalized
         return normalized[: maximum - 1].rstrip("；，。 ") + "。"
+
+    @staticmethod
+    def _planning_clause(value: str) -> str:
+        normalized = re.sub(r"\s+", " ", value).strip()
+        return re.sub(r"[，,。；;：:！？!?、\s]+$", "", normalized)
+
+    @classmethod
+    def _join_planning_clauses(cls, values: Iterable[str]) -> str:
+        clauses = [
+            clause
+            for value in values
+            if (clause := cls._planning_clause(str(value)))
+        ]
+        return "；".join(clauses)
+
+    @staticmethod
+    def _normalize_planning_punctuation(value: str) -> str:
+        normalized = re.sub(r"\s+", " ", value).strip()
+        normalized = re.sub(r"。+\s*[；;]+", "；", normalized)
+        normalized = re.sub(r"[；;]+\s*。+", "。", normalized)
+        normalized = re.sub(r"。{2,}", "。", normalized)
+        normalized = re.sub(r"[；;]{2,}", "；", normalized)
+        normalized = re.sub(r"。+\s*[，,]+", "，", normalized)
+        return re.sub(r"[，,]+\s*。+", "。", normalized)
 
     @staticmethod
     def _escalation_stage_weight(stage: ShortDramaEscalationStage) -> int:
@@ -3466,10 +3788,11 @@ Return only JSON matching the provided schema."""
                 strategy=strategy,
                 content_spec=self._content_spec_for_story_bible(story_bible),
                 preferred_categories=[
+                    "short_drama_structure",
+                    "story_structure",
                     "conflict_and_emotion",
                     "character_design",
                     "visual_narrative",
-                    "story_structure",
                 ],
                 max_items=7,
             ),
@@ -3477,15 +3800,24 @@ Return only JSON matching the provided schema."""
         item_strategy = strategy.model_copy(
             update={
                 "max_tokens": min(
-                    EPISODE_ROADMAP_SEGMENT_MAX_OUTPUT_TOKENS,
-                    max(strategy.max_tokens, EPISODE_ROADMAP_SEGMENT_MIN_OUTPUT_TOKENS),
+                    EPISODE_ROADMAP_ITEM_MAX_OUTPUT_TOKENS,
+                    max(strategy.max_tokens, EPISODE_ROADMAP_ITEM_MIN_OUTPUT_TOKENS),
                 )
             }
         )
         adapter = self._adapter_for_artifact("Episode roadmap")
-        schema = EpisodePlanGenerationItem.model_json_schema()
         generated: dict[str, object] | None = None
         failure: Exception | None = None
+        started = monotonic()
+        logger.info(
+            "Episode roadmap item started project=%s node=%s episode=%d "
+            "prompt_chars=%d max_tokens=%d",
+            payload.story_project_id,
+            payload.source_node_id,
+            payload.episode_number,
+            len(prompt),
+            item_strategy.max_tokens,
+        )
         for attempt in range(2):
             attempt_prompt = (
                 prompt
@@ -3502,7 +3834,12 @@ Return only JSON matching the provided schema."""
                     adapter,
                     attempt_prompt,
                     strategy=item_strategy,
-                    output_schema=schema,
+                    # The episode-roadmap gateway repeatedly returned an empty body
+                    # when response_format/schema was supplied. The prompt already
+                    # carries the exact root contract, and the result is normalized
+                    # and Pydantic-validated below, so native JSON avoids one doomed
+                    # upstream round trip without weakening the application contract.
+                    output_schema=None,
                     artifact_name=(
                         "Episode roadmap item"
                         if attempt == 0
@@ -3553,20 +3890,62 @@ Return only JSON matching the provided schema."""
                         "Episode roadmap item contains non-Chinese narrative fields: "
                         + ", ".join(language_issues[:12])
                     )
+                diversity_issues = self._episode_plan_diversity_issues(
+                    candidate,
+                    focus_episode_number=payload.episode_number,
+                )
+                quality_repair_attempted = False
+                if diversity_issues and attempt == 0:
+                    quality_repair_attempted = True
+                    item, diversity_issues = self._repair_episode_plan_item_diversity(
+                        adapter=adapter,
+                        strategy=item_strategy,
+                        node=node,
+                        story_bible=story_bible,
+                        item=item,
+                        accepted_plans=payload.accepted_plans,
+                        issues=diversity_issues,
+                        project_id=payload.story_project_id,
+                        source_node_id=payload.source_node_id,
+                    )
+                if diversity_issues:
+                    logger.warning(
+                        "Episode roadmap item accepted with diversity warning "
+                        "project=%s node=%s episode=%d issues=%s",
+                        payload.story_project_id,
+                        payload.source_node_id,
+                        payload.episode_number,
+                        ",".join(diversity_issues),
+                    )
                 self._require_active_story_plan_lineage(node)
                 logger.info(
                     "Episode roadmap item accepted project=%s node=%s episode=%d "
-                    "attempt=%d/%d",
+                    "attempt=%d/%d quality_repair=%s duration_seconds=%.2f",
                     payload.story_project_id,
                     payload.source_node_id,
                     payload.episode_number,
                     attempt + 1,
                     2,
+                    str(quality_repair_attempted).lower(),
+                    monotonic() - started,
                 )
                 return item
             except (LLMStructuredOutputError, ValidationError, StoryPlanningInputError) as error:
                 if isinstance(error, _InactiveStoryPlanLineageError):
                     raise
+                if is_transient_story_planning_output_error(error):
+                    logger.warning(
+                        "Episode roadmap item interrupted project=%s node=%s "
+                        "episode=%d duration_seconds=%.2f",
+                        payload.story_project_id,
+                        payload.source_node_id,
+                        payload.episode_number,
+                        monotonic() - started,
+                    )
+                    raise StoryPlanningTransientOutputError(
+                        "Episode roadmap provider returned an empty or interrupted "
+                        f"response for episode {payload.episode_number}."
+                    ) from error
                 failure = error
                 logger.warning(
                     "Episode roadmap item rejected project=%s node=%s episode=%d "
@@ -3643,9 +4022,10 @@ Return only JSON matching the provided schema."""
             strategy=strategy,
             content_spec=self._content_spec_for_story_bible(story_bible),
             preferred_categories=[
+                "short_drama_structure",
+                "story_structure",
                 "conflict_and_emotion",
                 "visual_narrative",
-                "story_structure",
             ],
             max_items=5,
         )
@@ -3662,16 +4042,15 @@ Return only JSON matching the provided schema."""
         item_strategy = strategy.model_copy(
             update={
                 "max_tokens": min(
-                    EPISODE_ROADMAP_SEGMENT_MAX_OUTPUT_TOKENS,
+                    EPISODE_ROADMAP_ITEM_MAX_OUTPUT_TOKENS,
                     max(
                         strategy.max_tokens,
-                        EPISODE_ROADMAP_SEGMENT_MIN_OUTPUT_TOKENS,
+                        EPISODE_ROADMAP_ITEM_MIN_OUTPUT_TOKENS,
                     ),
                 )
             }
         )
         adapter = self._adapter_for_artifact("Episode roadmap item modification")
-        schema = EpisodePlanGenerationItem.model_json_schema()
         failure: Exception | None = None
         generated: dict[str, object] | None = None
         for attempt in range(2):
@@ -3691,14 +4070,14 @@ Return only JSON matching the provided schema."""
                     adapter,
                     attempt_prompt,
                     strategy=item_strategy,
-                    output_schema=schema,
+                    output_schema=None,
                     artifact_name=(
                         "Episode roadmap item modification"
                         if attempt == 0
                         else "Episode roadmap item modification repair"
                     ),
                     allow_stream=False,
-                    allow_relaxed_transport=True,
+                    allow_relaxed_transport=False,
                 )
                 item = EpisodePlanGenerationItem.model_validate(
                     normalize_episode_plan_generation_item(
@@ -3706,19 +4085,34 @@ Return only JSON matching the provided schema."""
                         expected_episode_number=payload.episode_number,
                     )
                 )
-                item = self._ensure_episode_item_short_drama_fields(item)
                 # Event assignments and reference IDs are planning boundaries, not
                 # editable prose. Keeping them from the approved item prevents an AI
                 # revision from silently invalidating downstream continuity.
+                protected_character_refs = list(current.character_refs)
+                scene_execution_plan = [
+                    scene.model_copy(update={
+                        "character_refs": (
+                            [
+                                reference
+                                for reference in scene.character_refs
+                                if reference in protected_character_refs
+                            ]
+                            or protected_character_refs[:1]
+                        )
+                    })
+                    for scene in item.scene_execution_plan
+                ]
                 item = item.model_copy(update={
                     "episode_number": current.episode_number,
-                    "character_refs": current.character_refs,
+                    "character_refs": protected_character_refs,
                     "story_line_refs": current.story_line_refs,
                     "setup_refs": current.setup_refs,
                     "payoff_refs": current.payoff_refs,
                     "source_turning_points": current.source_turning_points,
                     "source_unit_story_beats": current.source_unit_story_beats,
+                    "scene_execution_plan": scene_execution_plan,
                 })
+                item = self._ensure_episode_item_short_drama_fields(item)
                 candidate = [*payload.accepted_plans, item]
                 self._validate_episode_plan_prefix(
                     candidate,
@@ -3739,6 +4133,11 @@ Return only JSON matching the provided schema."""
             except (LLMStructuredOutputError, ValidationError, StoryPlanningInputError) as error:
                 if isinstance(error, _InactiveStoryPlanLineageError):
                     raise
+                if is_transient_story_planning_output_error(error):
+                    raise StoryPlanningTransientOutputError(
+                        "Episode roadmap revision provider returned an empty or "
+                        f"interrupted response for episode {payload.episode_number}."
+                    ) from error
                 failure = error
                 logger.warning(
                     "Episode roadmap item revision rejected project=%s node=%s episode=%d "
@@ -3809,7 +4208,7 @@ Immediately preceding checkpoint:
 {json.dumps(previous_checkpoint, ensure_ascii=False, separators=(',', ':'))}
 
 Current approved roadmap item (identity, references and source assignments are immutable):
-{current_plan.model_dump_json()}
+{current_plan.model_dump_json(exclude={'scene_execution_plan'})}
 
 Immutable values that must be copied exactly:
 - episode_number: {current_plan.episode_number}
@@ -3823,11 +4222,13 @@ Immutable values that must be copied exactly:
 {knowledge_context}
 
 Requirements:
-1. Keep episode_number exactly {current_plan.episode_number}; target_duration_seconds must be {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count 2-5, planned_shot_count 8-24.
+1. Keep episode_number exactly {current_plan.episode_number}; target_duration_seconds must be {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count {EPISODE_SCENE_MIN}-{EPISODE_SCENE_MAX}, planned_dialogue_line_count {EPISODE_DIALOGUE_LINE_MIN}-{EPISODE_DIALOGUE_LINE_MAX}, and planned_shot_count {EPISODE_SHOT_UNIT_MIN}-{EPISODE_SHOT_UNIT_MAX}.
 2. Continue causally from the preceding checkpoint and produce a distinct pressure-action-payoff cycle with an observable exit state and concrete cliffhanger.
 3. Preserve the approved segment's local resolution and handoff pressure; do not invent a new plot chain or postpone this episode's contribution.
-4. Copy every immutable value above exactly. Keep all narrative values concise and production-ready.
-5. Return only the complete JSON object matching the authoritative schema."""
+4. Copy every immutable value above exactly. Keep all narrative values concise and production-ready. ending_hook_type must be only a 2-20 character Simplified-Chinese classification label with no explanation.
+5. Do not return scene_execution_plan. The service derives the executable scene blueprint
+   locally from the validated episode fields and production budgets.
+6. Return only the complete JSON object matching the authoritative schema."""
 
     @staticmethod
     def _validate_episode_plan_predecessor(
@@ -4137,7 +4538,70 @@ Requirements:
             )
         if item.pressure_escalation == "当前结果引出更高一级的因果压力。":
             updates["pressure_escalation"] = item.cliffhanger
+        if not item.scene_execution_plan:
+            prepared = item.model_copy(update=updates) if updates else item
+            updates["scene_execution_plan"] = (
+                StoryPlanningService._fallback_episode_scene_execution_plan(prepared)
+            )
         return item.model_copy(update=updates) if updates else item
+
+    @staticmethod
+    def _fallback_episode_scene_execution_plan(
+        item: EpisodePlanGenerationItem,
+    ) -> list[EpisodeSceneExecutionBeat]:
+        scene_count = item.planned_scene_count
+
+        def distribute(total: int) -> list[int]:
+            base, remainder = divmod(total, scene_count)
+            return [base + (1 if index < remainder else 0) for index in range(scene_count)]
+
+        dialogue_targets = distribute(item.planned_dialogue_line_count)
+        shot_targets = distribute(item.planned_shot_count)
+        scenes: list[EpisodeSceneExecutionBeat] = []
+        for index in range(scene_count):
+            first_scene = index == 0
+            final_scene = index == scene_count - 1
+            if first_scene:
+                objective = item.episode_goal
+                visible_action = (
+                    f"人物从“{item.entry_state}”出发，以可见行动进入本集冲突："
+                    f"{item.central_conflict}"
+                )
+            elif final_scene:
+                objective = item.episode_payoff
+                visible_action = (
+                    f"主角执行“{item.protagonist_decision}”，形成可见结果并触发结尾压力。"
+                )
+            else:
+                objective = item.central_conflict
+                visible_action = (
+                    f"对手落实“{item.stage_opposition}”，迫使主角改变行动或承担代价。"
+                )
+            turn_or_reveal = (
+                item.cliffhanger
+                if final_scene
+                else item.reveal or item.protagonist_decision
+            )
+            exit_state = (
+                item.exit_state
+                if final_scene
+                else f"本场结果把压力推进到下一步：{item.pressure_escalation}"
+            )
+            scenes.append(EpisodeSceneExecutionBeat(
+                scene_number=index + 1,
+                scene_heading=f"INT. 第{index + 1}场核心行动地点 日",
+                character_refs=item.character_refs,
+                scene_objective=objective,
+                visible_action=visible_action,
+                turn_or_reveal=turn_or_reveal,
+                dialogue_objective=(
+                    f"通过短句交锋推进“{item.emotional_movement}”，并逼出选择或信息变化。"
+                ),
+                dialogue_line_target=dialogue_targets[index],
+                shot_target=shot_targets[index],
+                exit_state=exit_state,
+            ))
+        return scenes
 
     def _generate_planning_output(
         self,
@@ -4189,6 +4653,8 @@ Requirements:
                 artifact_name=artifact_name,
             )
             return validate(generated)
+        except StoryPlanningTransientOutputError:
+            raise
         except LLMStructuredOutputError as error:
             structured_error = error
             logger.warning(
@@ -4233,6 +4699,21 @@ Requirements:
         if (
             output_model is StoryPlanNodeDecompositionOutput
             and validation_error is not None
+            and _decomposition_children_are_structurally_empty(generated_payload)
+        ):
+            # An all-empty child array cannot benefit from envelope or child-level
+            # repair. Let the caller make one segmented recovery attempt instead
+            # of stacking several full-size model calls behind the same timeout.
+            logger.warning(
+                "Skipping redundant decomposition repairs for structurally empty "
+                "children; switching to segmented recovery."
+            )
+            raise StoryPlanningInputError(
+                f"{artifact_name} returned structurally empty child nodes."
+            ) from validation_error
+        if (
+            output_model is StoryPlanNodeDecompositionOutput
+            and validation_error is not None
             and _has_invalid_decomposition_envelope(generated_payload)
         ):
             try:
@@ -4256,8 +4737,9 @@ Requirements:
                     )
                 )
             except LLMStructuredOutputError as envelope_error:
-                raise StoryPlanningInputError(
-                    f"{artifact_name} envelope repair returned invalid JSON."
+                raise _planning_output_failure(
+                    f"{artifact_name} envelope repair returned invalid JSON.",
+                    envelope_error,
                 ) from envelope_error
             except ValidationError as envelope_error:
                 raise StoryPlanningInputError(
@@ -4334,14 +4816,18 @@ Requirements:
             return validate(repaired)
         except LLMStructuredOutputError as repair_error:
             if validation_error is not None:
-                raise StoryPlanningInputError(
+                raise _planning_output_failure(
                     f"{artifact_name} did not satisfy its structured contract, and "
                     "the bounded format repair returned invalid JSON. Initial failure: "
-                    + self._validation_error_summary(validation_error)
+                    + self._validation_error_summary(validation_error),
+                    repair_error,
+                    structured_error,
                 ) from repair_error
-            raise StoryPlanningInputError(
+            raise _planning_output_failure(
                 f"{artifact_name} remained invalid JSON after one bounded "
-                "format-repair attempt."
+                "format-repair attempt.",
+                repair_error,
+                structured_error,
             ) from repair_error
         except _EpisodePlanCoverageError as repair_error:
             raise StoryPlanningInputError(
@@ -4376,6 +4862,11 @@ Requirements:
                         source_children=repaired_children,
                     )
                 except (LLMStructuredOutputError, ValidationError) as child_error:
+                    if is_transient_story_planning_output_error(child_error):
+                        raise StoryPlanningTransientOutputError(
+                            f"{artifact_name} child-level recovery received an "
+                            "incomplete provider response."
+                        ) from child_error
                     logger.warning(
                         "Decomposition child-level contract recovery failed "
                         "artifact=%s error=%s",
@@ -4410,8 +4901,10 @@ Requirements:
                         )
                     )
                 except LLMStructuredOutputError as envelope_error:
-                    raise StoryPlanningInputError(
-                        f"{artifact_name} envelope repair returned invalid JSON."
+                    raise _planning_output_failure(
+                        f"{artifact_name} envelope repair returned invalid JSON.",
+                        envelope_error,
+                        structured_error,
                     ) from envelope_error
                 except ValidationError as envelope_error:
                     raise StoryPlanningInputError(
@@ -4419,10 +4912,11 @@ Requirements:
                         "collection after one bounded envelope-repair attempt. "
                         + self._validation_error_summary(envelope_error)
                     ) from envelope_error
-            raise StoryPlanningInputError(
+            raise _planning_output_failure(
                 f"{artifact_name} did not satisfy its structured contract after "
                 "one bounded format-repair attempt. "
-                + self._validation_error_summary(repair_error)
+                + self._validation_error_summary(repair_error),
+                structured_error,
             ) from repair_error
 
     def _recover_decomposition_child_contracts(
@@ -4639,7 +5133,7 @@ Original authoritative decomposition contract:
         prompt: str,
         *,
         strategy: GenerationStrategy,
-        output_schema: dict[str, object],
+        output_schema: dict[str, object] | None,
         artifact_name: str,
         allow_stream: bool = True,
         allow_relaxed_transport: bool = True,
@@ -4654,13 +5148,15 @@ Original authoritative decomposition contract:
         )
         model_info = llm_adapter.get_model_info()
         started = monotonic()
+        transport_mode = "schema" if output_schema is not None else "native_json"
         logger.info(
             "Planning model call started artifact=%s provider=%s model=%s "
-            "stream=%s prompt_chars=%d max_tokens=%d",
+            "stream=%s transport=%s prompt_chars=%d max_tokens=%d",
             artifact_name,
             model_info.provider,
             model_info.model_name,
             use_stream,
+            transport_mode,
             len(prompt),
             strategy.max_tokens,
         )
@@ -4680,18 +5176,36 @@ Original authoritative decomposition contract:
                     )
             except LLMStructuredOutputError as structured_error:
                 # Some OpenAI-compatible gateways return an empty or truncated
-                # response when a large episode collection uses a structured
+                # response when a large planning object uses a structured
                 # response format. Keep the retry bounded and relax only the
                 # transport format; the caller still validates the full model
-                # contract and all episode semantics immediately afterwards.
-                if not artifact_name.startswith("Episode roadmap"):
+                # contract and all planning semantics immediately afterwards.
+                is_episode_roadmap = artifact_name.startswith("Episode roadmap")
+                is_story_decomposition = (
+                    artifact_name.startswith("Story Plan Node decomposition")
+                    or artifact_name.startswith(
+                        "Story Plan Node segmented child recovery"
+                    )
+                )
+                if not (is_episode_roadmap or is_story_decomposition):
+                    raise
+                if (
+                    is_story_decomposition
+                    and not is_transient_story_planning_output_error(structured_error)
+                ):
                     raise
                 if not allow_relaxed_transport:
-                    if not (structured_error.raw_content or "").strip():
+                    if is_episode_roadmap and not (
+                        structured_error.raw_content or ""
+                    ).strip():
                         raise _EpisodeRoadmapTransportError(
                             "Episode roadmap provider returned no readable content; "
                             "retry a smaller episode segment.",
                             provider_attempt_count=1,
+                        ) from structured_error
+                    if is_story_decomposition:
+                        raise StoryPlanningTransientOutputError(
+                            "Story decomposition provider returned no readable content."
                         ) from structured_error
                     raise
                 relaxed_prompt = (
@@ -4699,18 +5213,18 @@ Original authoritative decomposition contract:
                     "BOUNDED JSON TRANSPORT FALLBACK: the response-format transport "
                     "did not return readable content. Return one complete native JSON "
                     "object now, with no Markdown, comments, or explanatory text. "
-                    "Preserve every requested episode, field, reference, episode "
-                    "number, and constraint. The application will validate this "
+                    "Preserve every requested field, range, reference, continuity "
+                    "boundary, and constraint. The application will validate this "
                     "object against the authoritative schema after receiving it.\n"
                     "AUTHORITATIVE FALLBACK JSON SCHEMA:\n"
                     + json.dumps(
-                        output_schema,
+                        output_schema or {},
                         ensure_ascii=False,
                         separators=(",", ":"),
                     )
                 )
                 logger.warning(
-                    "Planning structured response failed; retrying roadmap "
+                    "Planning structured response failed; retrying artifact "
                     "in bounded JSON mode artifact=%s raw_chars=%d",
                     artifact_name,
                     len(structured_error.raw_content or ""),
@@ -4729,11 +5243,22 @@ Original authoritative decomposition contract:
                             output_schema=None,
                         )
                 except LLMStructuredOutputError as relaxed_error:
-                    if not (relaxed_error.raw_content or "").strip():
+                    if (
+                        is_episode_roadmap
+                        and not (relaxed_error.raw_content or "").strip()
+                    ):
                         raise _EpisodeRoadmapTransportError(
                             "Episode roadmap provider returned no readable content "
                             "after the structured and bounded JSON transport attempts.",
                             provider_attempt_count=2,
+                        ) from relaxed_error
+                    if (
+                        is_story_decomposition
+                        and is_transient_story_planning_output_error(relaxed_error)
+                    ):
+                        raise StoryPlanningTransientOutputError(
+                            "Story decomposition provider returned no readable content "
+                            "after structured and bounded JSON transport attempts."
                         ) from relaxed_error
                     raise
                 metadata = result.setdefault("_meta", {})
@@ -4766,9 +5291,11 @@ Original authoritative decomposition contract:
             return result
         finally:
             logger.info(
-                "Planning model call finished artifact=%s stream=%s duration_seconds=%.2f",
+                "Planning model call finished artifact=%s stream=%s transport=%s "
+                "duration_seconds=%.2f",
                 artifact_name,
                 use_stream,
+                transport_mode,
                 monotonic() - started,
             )
 
@@ -5838,23 +6365,24 @@ Requirements:
 6. Distribute every approved segment turning point verbatim into exactly one episode's source_turning_points. Do not omit, paraphrase, merge or assign one turning point to multiple episodes. The receiving episode must execute that event in its goal, conflict, decision, reveal, exit state or cliffhanger.
 7. Each episode must make a distinct causal contribution. Adjacent episodes must not repeat the same reveal, obstacle or cliffhanger function using different wording.
 8. Assign story_line_refs only from the approved Story line refs and only when the episode materially advances that line. Every episode must advance at least one approved line.
-9. For each episode define ending_hook_type, a concrete next_episode_obligation, and a realistic hook_payoff_target_episode when the hook is intended to stay open beyond the next episode. Rotate hook functions according to the story; do not create unrelated surprise calls, arrivals, doors, or identity reveals solely for suspense.
+9. For each episode define ending_hook_type as a short 2-20 character Simplified-Chinese classification label with no explanation, plus a concrete next_episode_obligation and a realistic hook_payoff_target_episode when the hook is intended to stay open beyond the next episode. Rotate hook functions according to the story; do not create unrelated surprise calls, arrivals, doors, or identity reveals solely for suspense.
 10. continuity_requirements must name facts, character states, relationship states, prior hooks, or setup/payoff obligations that the script must preserve or advance. They are not generic writing advice.
 11. Short drama cannot delay all satisfaction until the final opponent. Every episode must contain at least one compact pressure-action-payoff cycle: identify the immediate stage_opposition, make the protagonist act or choose, deliver a visible episode_payoff, then use pressure_escalation to raise the opponent, cost, secret, relationship conflict or decision difficulty. A payoff is a real local win, counterattack, exposure, rescue, acquisition, reversal or relationship change, not only a promise that something may happen later.
 12. Across adjacent episodes, repeat the cycle but escalate its level. Do not write several consecutive episodes that only investigate, prepare, travel, explain or wait for the same final confrontation.
 13. Distribute every approved unit-story beat verbatim into exactly one episode's source_unit_story_beats. The episode goal, action, decision and state change must execute that beat. Do not add a new core event chain to compensate for an incomplete segment plan.
 14. The batch must complete the segment's Required local resolution by the final episode, then preserve the Required handoff pressure as the concrete next-segment obligation. Do not postpone this segment's climax or local settlement to a later planning module.
-15. Plan production load independently for every episode. target_duration_seconds must be {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count must be 2-5, and planned_shot_count must be 8-24. Choose them from that episode's actual conflict, action, reveal, payoff and hook load. Do not evenly distribute the segment and do not copy one duration, scene count or shot count across all episodes merely for consistency. More time or shots must correspond to visible dramatic work, never padding. Keep deliberate editing headroom inside the runtime range.
+15. Plan production load independently for every episode. target_duration_seconds must be {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count must be {EPISODE_SCENE_MIN}-{EPISODE_SCENE_MAX}, planned_dialogue_line_count must be {EPISODE_DIALOGUE_LINE_MIN}-{EPISODE_DIALOGUE_LINE_MAX}, and planned_shot_count must be {EPISODE_SHOT_UNIT_MIN}-{EPISODE_SHOT_UNIT_MAX}. One scene is valid when it can complete the episode; never split scenes or actions merely to reach a count. Choose the load from that episode's actual conflict, action, reveal, payoff and hook work. Do not evenly distribute the segment and do not copy one duration, scene count, dialogue count or shot count across all episodes merely for consistency. More time, dialogue or shots must correspond to visible dramatic work, never padding. Keep deliberate editing headroom inside the runtime range.
+16. scene_execution_plan must contain exactly planned_scene_count ordered scene objects. Each object must define scene_number, an INT./EXT. scene_heading, character_refs, scene_objective, visible_action, turn_or_reveal, dialogue_objective, dialogue_line_target, shot_target and exit_state. Scene character_refs must be a subset of the episode character_refs. Dialogue targets must sum to planned_dialogue_line_count and shot targets must sum to planned_shot_count. Make every scene causally change the state; plan dialogue intent only and do not write actual lines.
 
 The top-level object must contain only episode_plans. Every item must use these exact fields:
-episode_number, target_duration_seconds, planned_scene_count, planned_shot_count,
+episode_number, target_duration_seconds, planned_scene_count, planned_shot_count, planned_dialogue_line_count,
 episode_goal, entry_state, central_conflict, protagonist_decision, reveal,
 emotional_movement, stage_opposition, episode_payoff, pressure_escalation, setup_refs,
 payoff_refs, exit_state, cliffhanger, character_refs, story_line_refs,
 continuity_requirements, source_turning_points, source_unit_story_beats, ending_hook_type,
-next_episode_obligation, hook_payoff_target_episode.
+next_episode_obligation, hook_payoff_target_episode, scene_execution_plan.
 Use whole integers for episode_number, target_duration_seconds, planned_scene_count,
-planned_shot_count and hook_payoff_target_episode. Use arrays of strings
+planned_shot_count, planned_dialogue_line_count and hook_payoff_target_episode. Use arrays of strings
 for all fields ending in _refs, plus continuity_requirements, source_turning_points and
 source_unit_story_beats.
 
@@ -5907,10 +6435,13 @@ Return only JSON matching the provided schema."""
                 "target_duration_seconds": item.target_duration_seconds,
                 "planned_scene_count": item.planned_scene_count,
                 "planned_shot_count": item.planned_shot_count,
+                "planned_dialogue_line_count": item.planned_dialogue_line_count,
                 "episode_goal": item.episode_goal,
                 "episode_payoff": item.episode_payoff,
+                "pressure_escalation": item.pressure_escalation,
                 "exit_state": item.exit_state,
                 "cliffhanger": item.cliffhanger,
+                "ending_hook_type": item.ending_hook_type,
                 "next_episode_obligation": item.next_episode_obligation,
             }
             for item in accepted_plans
@@ -5990,15 +6521,21 @@ Rules:
    lists assigned to this episode above. Never move, paraphrase, add, or repeat them.
 5. episode_payoff must be a visible local result, not preparation or a future promise.
 6. cliffhanger and next_episode_obligation must arise from this episode's action and must
-   not repeat an earlier hook function.
+   not repeat an earlier hook function. Before writing them, compare the earlier accepted
+   episode_payoff, cliffhanger and ending_hook_type values above. Do not copy an earlier
+   payoff or cliffhanger sentence; choose a distinct story-native action result and ending
+   pressure without inventing an unrelated surprise. ending_hook_type must be only a short
+   2-20 character Simplified-Chinese classification label, never a sentence or explanation.
 7. {completion_rule}
 8. Independently choose target_duration_seconds from {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count from
-   2-5, and planned_shot_count from 8-24 according to this episode's dramatic load.
+   {EPISODE_SCENE_MIN}-{EPISODE_SCENE_MAX}, planned_dialogue_line_count from {EPISODE_DIALOGUE_LINE_MIN}-{EPISODE_DIALOGUE_LINE_MAX}, and planned_shot_count from {EPISODE_SHOT_UNIT_MIN}-{EPISODE_SHOT_UNIT_MAX} according to this episode's dramatic load.
    Do not copy the preceding episode's production values by default and do not pad to
    imitate an even distribution.
+9. Do not return scene_execution_plan. The service derives the executable scene blueprint
+   locally from this validated episode core and its production budgets.
 
 Return exactly these root fields:
-episode_number, target_duration_seconds, planned_scene_count, planned_shot_count,
+episode_number, target_duration_seconds, planned_scene_count, planned_shot_count, planned_dialogue_line_count,
 episode_goal, entry_state, central_conflict, protagonist_decision, reveal,
 emotional_movement, stage_opposition, episode_payoff, pressure_escalation, setup_refs,
 payoff_refs, exit_state, cliffhanger, character_refs, story_line_refs,
@@ -6088,6 +6625,186 @@ Previous response, usable only for valid episode content:
 Correct only Episode {episode_number}. Return one complete native JSON object with the
 exact root fields required above. Do not return an array, wrapper, fragment, Markdown,
 or explanation."""
+
+    @staticmethod
+    def _build_episode_plan_item_diversity_repair_prompt(
+        *,
+        node: StoryPlanNode,
+        item: EpisodePlanGenerationItem,
+        accepted_plans: list[EpisodePlanGenerationItem],
+        issues: list[str],
+    ) -> str:
+        previous_contracts = [
+            {
+                "episode_number": accepted.episode_number,
+                "episode_payoff": accepted.episode_payoff,
+                "pressure_escalation": accepted.pressure_escalation,
+                "cliffhanger": accepted.cliffhanger,
+                "ending_hook_type": accepted.ending_hook_type,
+                "next_episode_obligation": accepted.next_episode_obligation,
+            }
+            for accepted in accepted_plans
+        ]
+        editable_fields = {
+            "episode_payoff": item.episode_payoff,
+            "pressure_escalation": item.pressure_escalation,
+            "cliffhanger": item.cliffhanger,
+            "ending_hook_type": item.ending_hook_type,
+            "next_episode_obligation": item.next_episode_obligation,
+        }
+        protected_context = {
+            "episode_number": item.episode_number,
+            "episode_goal": item.episode_goal,
+            "central_conflict": item.central_conflict,
+            "protagonist_decision": item.protagonist_decision,
+            "reveal": item.reveal,
+            "exit_state": item.exit_state,
+            "source_turning_points": item.source_turning_points,
+            "source_unit_story_beats": item.source_unit_story_beats,
+            "required_local_resolution": node.unit_resolution or node.exit_state,
+            "required_handoff_pressure": node.handoff_pressure or node.exit_state,
+        }
+        return f"""DIVERSITY-ONLY EPISODE ROADMAP REPAIR
+Episode {item.episode_number} is already structurally complete and has passed all hard
+continuity, reference and approved-event contracts. Rewrite only its local payoff and
+ending pressure so they do not copy an earlier episode. Do not change its event chain,
+outcome, character state, reference IDs or assigned source events.
+
+Detected duplicate fields: {json.dumps(issues, ensure_ascii=False)}
+
+Protected episode context:
+{json.dumps(protected_context, ensure_ascii=False, separators=(',', ':'))}
+
+Earlier accepted payoff and hook contracts; do not copy them:
+{json.dumps(previous_contracts, ensure_ascii=False, separators=(',', ':'))}
+
+Current editable fields:
+{json.dumps(editable_fields, ensure_ascii=False, separators=(',', ':'))}
+
+Rules:
+1. Preserve the exact causal result and handoff pressure already established by the
+   protected context. Do not invent a new reveal, character, location or plot branch.
+2. Make episode_payoff a distinct visible action result, not preparation or a promise.
+3. Make cliffhanger and next_episode_obligation arise directly from this episode's exit
+   state and use a story-native hook function not copied from an earlier episode.
+4. All values must be natural Simplified Chinese. ending_hook_type must be only a short
+   2-20 character classification label with no explanation.
+5. Return only one native JSON object with exactly these five string fields:
+episode_payoff, pressure_escalation, cliffhanger, ending_hook_type,
+next_episode_obligation. Do not return any other field, wrapper, Markdown or explanation."""
+
+    def _repair_episode_plan_item_diversity(
+        self,
+        *,
+        adapter: LLMAdapter,
+        strategy: GenerationStrategy,
+        node: StoryPlanNode,
+        story_bible: StoryBible,
+        item: EpisodePlanGenerationItem,
+        accepted_plans: list[EpisodePlanGenerationItem],
+        issues: list[str],
+        project_id: str,
+        source_node_id: str,
+    ) -> tuple[EpisodePlanGenerationItem, list[str]]:
+        repair_prompt = self._build_episode_plan_item_diversity_repair_prompt(
+            node=node,
+            item=item,
+            accepted_plans=accepted_plans,
+            issues=issues,
+        )
+        repair_strategy = strategy.model_copy(update={
+            "max_tokens": min(
+                strategy.max_tokens,
+                EPISODE_ROADMAP_DIVERSITY_REPAIR_MAX_OUTPUT_TOKENS,
+            )
+        })
+        started = monotonic()
+        logger.info(
+            "Episode roadmap diversity repair started project=%s node=%s "
+            "episode=%d issues=%s max_tokens=%d",
+            project_id,
+            source_node_id,
+            item.episode_number,
+            ",".join(issues),
+            repair_strategy.max_tokens,
+        )
+        try:
+            generated = self._generate_structured_planning_response(
+                adapter,
+                repair_prompt,
+                strategy=repair_strategy,
+                output_schema=None,
+                artifact_name="Episode roadmap diversity repair",
+                allow_stream=False,
+                allow_relaxed_transport=False,
+            )
+            patch_source: object = generated
+            for wrapper in ("data", "result", "patch", "episode_plan"):
+                if isinstance(patch_source, dict) and isinstance(
+                    patch_source.get(wrapper),
+                    dict,
+                ):
+                    patch_source = patch_source[wrapper]
+                    break
+            if isinstance(patch_source, dict) and "ending_hook_type" in patch_source:
+                patch_source = {
+                    **patch_source,
+                    "ending_hook_type": _normalize_episode_hook_type(
+                        patch_source["ending_hook_type"]
+                    ),
+                }
+            patch = _EpisodePlanDiversityPatch.model_validate(patch_source)
+            repaired = item.model_copy(update={
+                **patch.model_dump(),
+                # The executable scene blueprint is derived locally. Rebuild it so
+                # its payoff and final turn match the repaired creative fields.
+                "scene_execution_plan": [],
+            })
+            repaired = self._ensure_episode_item_short_drama_fields(repaired)
+            candidate = [*accepted_plans, repaired]
+            self._validate_episode_plan_prefix(
+                candidate,
+                node=node,
+                story_bible=story_bible,
+                require_complete=(item.episode_number == node.planned_end_episode),
+            )
+            language_issues = planning_output_chinese_issues(
+                EpisodePlanBatchGenerationOutput(episode_plans=[repaired])
+            )
+            if language_issues:
+                raise StoryPlanningInputError(
+                    "Episode roadmap diversity patch contains non-Chinese narrative "
+                    "fields: " + ", ".join(language_issues[:12])
+                )
+            remaining = self._episode_plan_diversity_issues(
+                candidate,
+                focus_episode_number=item.episode_number,
+            )
+            logger.info(
+                "Episode roadmap diversity repair finished project=%s node=%s "
+                "episode=%d duration_seconds=%.2f remaining_issues=%s",
+                project_id,
+                source_node_id,
+                item.episode_number,
+                monotonic() - started,
+                ",".join(remaining) or "none",
+            )
+            return repaired, remaining
+        except _InactiveStoryPlanLineageError:
+            raise
+        except (LLMStructuredOutputError, ValidationError, StoryPlanningInputError) as error:
+            # Diversity is a quality target, not a persistence boundary. A complete
+            # hard-valid item remains usable when this optional micro-repair fails.
+            logger.warning(
+                "Episode roadmap diversity repair skipped project=%s node=%s "
+                "episode=%d duration_seconds=%.2f error=%s",
+                project_id,
+                source_node_id,
+                item.episode_number,
+                monotonic() - started,
+                str(error)[:1000],
+            )
+            return item, issues
 
     @staticmethod
     def _build_episode_plan_repair_prompt(
@@ -6255,22 +6972,47 @@ Previous Episode Plan batch:
                 "verbatim exactly once; " + "; ".join(details)
             )
 
-        normalized_cliffhangers = [
-            re.sub(r"\s+", "", item.cliffhanger).casefold()
+    @staticmethod
+    def _episode_plan_diversity_issues(
+        plans: list[EpisodePlanGenerationItem],
+        *,
+        focus_episode_number: int,
+    ) -> list[str]:
+        """Return exact-copy quality issues introduced by the focused episode.
+
+        These checks intentionally remain narrow and deterministic. They trigger a
+        compact creative repair, but never replace the hard planning contracts above.
+        """
+
+        focused = next(
+            (
+                item
+                for item in plans
+                if item.episode_number == focus_episode_number
+            ),
+            None,
+        )
+        if focused is None:
+            return []
+        earlier = [
+            item
             for item in plans
+            if item.episode_number < focus_episode_number
         ]
-        if len(normalized_cliffhangers) != len(set(normalized_cliffhangers)):
-            raise StoryPlanningInputError(
-                "Episode Plans must not repeat the same cliffhanger within one batch."
-            )
-        normalized_payoffs = [
-            re.sub(r"\s+", "", item.episode_payoff).casefold()
-            for item in plans
-        ]
-        if len(normalized_payoffs) != len(set(normalized_payoffs)):
-            raise StoryPlanningInputError(
-                "Episode Plans must deliver distinct visible short-drama payoffs."
-            )
+
+        def normalized(value: str) -> str:
+            return re.sub(r"\s+", "", value).casefold()
+
+        issues: list[str] = []
+        if normalized(focused.cliffhanger) in {
+            normalized(item.cliffhanger) for item in earlier
+        }:
+            issues.append("cliffhanger")
+        if normalized(focused.episode_payoff) in {
+            normalized(item.episode_payoff) for item in earlier
+        }:
+            issues.append("episode_payoff")
+        return issues
 
     @staticmethod
     def _build_story_plan_node_prompt(

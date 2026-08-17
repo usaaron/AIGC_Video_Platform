@@ -192,84 +192,44 @@
       "source_reference": "Research/Knowledge_Items/knowledge.visual.channel_separation.v1.md; practitioner observation classified as informal, medium confidence"
     },
     {
-      "knowledge_id": "knowledge.serialization.sustainable_story_engine.v1",
+      "knowledge_id": "knowledge.short_drama.compact_episode_cycle.v1",
+      "version": "v1",
+      "category": "short_drama_structure",
+      "principle": "Each 75-115 second episode must form a compact pressure-action-payoff-hook cycle instead of behaving like one fragment of a conventional long-drama scene sequence.",
+      "application_rules": [
+        "Make the immediate pressure legible early and let the protagonist act before background explanation takes over.",
+        "Make every one of the episode's one to five scenes change an observable state, and deliver a visible local payoff before the ending hook.",
+        "Make the hook arise from the episode's action and create one concrete obligation for the next episode."
+      ],
+      "limitations": [
+        "A quieter emotional episode is valid when it still changes a relationship, decision, knowledge state, or risk.",
+        "Do not add disconnected shocks, artificial reversals, extra dialogue, or extra scenes merely to imitate pace."
+      ],
+      "anti_patterns": [
+        "Most of the episode explains background while the protagonist does not act.",
+        "Several consecutive episodes only investigate, prepare, travel, or wait while postponing all satisfaction."
+      ],
+      "source_reference": "Product contract: mainland serialized comic-drama episodes are 75-115 seconds with one to five scenes and an episode-level payoff and hook"
+    },
+    {
+      "knowledge_id": "knowledge.serialization.short_drama_escalation_engine.v1",
       "version": "v1",
       "category": "story_structure_and_serialization",
-      "principle": "A continuing story needs a sustainable dramatic engine that creates related but non-repetitive goals, opposition, choices, and accumulating consequences.",
+      "principle": "A long serialized short-drama project stays sustainable by changing tactics, costs, power, information, and relationships while every short episode still completes its own compact dramatic cycle.",
       "application_rules": [
-        "Name the repeatable source of dramatic action and explain how its consequences accumulate instead of resetting.",
-        "Show how protagonist action and opposition response can evolve across multiple major movements.",
-        "Identify when the engine should end, transform, or receive genuinely new story material."
+        "Let each episode's visible result cause the next episode's pressure instead of resetting or merely extending the same confrontation.",
+        "Escalate across episode groups through changed strategy, opposition, cost, relationship, or knowledge, not only louder danger.",
+        "End or transform a conflict engine once its local question is resolved, then hand off one causal pressure rather than opening decorative subplots."
       ],
       "limitations": [
-        "Do not force an episodic reset pattern onto a finite serialized story.",
-        "Do not use a target episode count as proof that the premise is sustainable."
+        "Do not postpone all payoff to a distant stage finale in order to preserve a long project.",
+        "Do not require multiple parallel lines, a fixed act count, equal branch sizes, or gradual television pacing."
       ],
       "anti_patterns": [
-        "Repeating the same investigation or confrontation while only changing names and locations.",
-        "Stretching one unresolved problem without changing strategy, power, relationships, or consequences."
+        "Importing conventional television A/B/C plot loads into every 75-115 second episode.",
+        "Treating an eight-to-twelve-episode leaf as one slow conventional-drama act with no episode-level settlement."
       ],
-      "source_reference": "Research/Knowledge_Items/knowledge.serialization.sustainable_story_engine.v1.md; Screen Australia, Story Documents - Drama, July 2018"
-    },
-    {
-      "knowledge_id": "knowledge.story.macro_sequence_turning.v1",
-      "version": "v1",
-      "category": "story_structure",
-      "principle": "Organize a long story into content-derived movements whose escalations, revelations, or reversals change narrative direction or power balance.",
-      "application_rules": [
-        "Give each major movement a dramatic question, strategy, opposition, and irreversible exit state.",
-        "Make every major turn change subsequent goals, choices, resources, knowledge, or power.",
-        "Pass a concrete unresolved obligation into the next movement."
-      ],
-      "limitations": [
-        "Do not impose a fixed act count, equal branch size, or equal recursive depth.",
-        "Do not label ordinary activity as a turning point without a state change."
-      ],
-      "anti_patterns": [
-        "Planning nodes differ only by episode range while repeating the same strategy and stakes.",
-        "A reveal changes exposition but not character choice or power."
-      ],
-      "source_reference": "Research/Knowledge_Items/knowledge.story.macro_sequence_turning.v1.md; Screen Australia, Story Documents - Drama, July 2018"
-    },
-    {
-      "knowledge_id": "knowledge.character.long_arc_trajectory.v1",
-      "version": "v1",
-      "category": "character_design",
-      "principle": "A major serialized character needs an ongoing struggle, contradiction, and trajectory so repeated pressure creates development without arbitrary personality changes.",
-      "application_rules": [
-        "Define a persistent struggle and contradiction that can be tested in different ways.",
-        "Connect trajectory milestones to consequential choices rather than only backstory revelations.",
-        "Allow change, resistance, deterioration, or stabilization according to the story direction."
-      ],
-      "limitations": [
-        "Do not require every character to transform positively.",
-        "Do not predetermine choices so tightly that scenes lose discovery and surprise."
-      ],
-      "anti_patterns": [
-        "A character changes values only because the plot requires a twist.",
-        "The same emotional lesson is learned and forgotten in every movement."
-      ],
-      "source_reference": "Research/Knowledge_Items/knowledge.character.long_arc_trajectory.v1.md; Screen Australia, Story Documents - Drama, July 2018"
-    },
-    {
-      "knowledge_id": "knowledge.storyline.character_driven_parallel_arcs.v1",
-      "version": "v1",
-      "category": "story_structure_and_serialization",
-      "principle": "Parallel storylines should arise from characters with distinct goals and alter one another through consequential intersections rather than decorative side plots.",
-      "application_rules": [
-        "Assign each active line a character owner, goal, conflict, local resolution, and effect on another line.",
-        "Plan intersections around choices or consequences rather than coincidental meetings.",
-        "Allow a line to pause, conclude, or change ownership when its dramatic function is complete."
-      ],
-      "limitations": [
-        "Do not require three storylines in every episode or planning node.",
-        "Do not keep a subplot active after it has no independent question or consequence."
-      ],
-      "anti_patterns": [
-        "A relationship line only comments emotionally on the main investigation.",
-        "A supporting character exists only to deliver one clue and disappear."
-      ],
-      "source_reference": "Research/Knowledge_Items/knowledge.storyline.character_driven_parallel_arcs.v1.md; Sundance Collab, TV Writing: Mapping Your Series, 2023"
+      "source_reference": "Product contract: recursive 8-12 episode leaves with per-episode pressure-action-payoff cycles and causal handoffs"
     }
   ],
   "bundles": [
@@ -310,6 +270,28 @@
       "target_stage": "creative_deepening"
     },
     {
+      "bundle_id": "knowledge_bundle.draft.cn_mainland_serial_short_drama.v1",
+      "version": "v1",
+      "knowledge_ids": [
+        "knowledge.story.causal_sequence.v1",
+        "knowledge.character.choice_reveals_character.v1",
+        "knowledge.conflict.progressive_cost.v1",
+        "knowledge.payoff.logical_necessity.v1",
+        "knowledge.short_drama.compact_episode_cycle.v1",
+        "knowledge.serialization.short_drama_escalation_engine.v1",
+        "knowledge.visual.scene_context.v1",
+        "knowledge.visual.observable_action.v1",
+        "knowledge.visual.channel_separation.v1",
+        "knowledge.emotion.audience_participation.v1"
+      ],
+      "applicable_conditions": {
+        "target_platforms": ["mainland china comic drama"],
+        "platform_profile_ids": ["cn_mainland_comic_drama_v1"]
+      },
+      "source_reference": "Product contract: mainland serialized comic-drama short-episode workflow",
+      "target_stage": "draft_generation"
+    },
+    {
       "bundle_id": "knowledge_bundle.draft.cn_mainland_longform_foundation.v1",
       "version": "v1",
       "knowledge_ids": [
@@ -317,6 +299,9 @@
         "knowledge.character.choice_reveals_character.v1",
         "knowledge.conflict.progressive_cost.v1",
         "knowledge.payoff.logical_necessity.v1",
+        "knowledge.short_drama.compact_episode_cycle.v1",
+        "knowledge.serialization.short_drama_escalation_engine.v1",
+        "knowledge.visual.scene_context.v1",
         "knowledge.visual.observable_action.v1",
         "knowledge.visual.channel_separation.v1",
         "knowledge.emotion.audience_participation.v1"
@@ -336,19 +321,18 @@
         "knowledge.character.choice_reveals_character.v1",
         "knowledge.conflict.progressive_cost.v1",
         "knowledge.payoff.logical_necessity.v1",
-        "knowledge.serialization.sustainable_story_engine.v1",
-        "knowledge.story.macro_sequence_turning.v1",
-        "knowledge.character.long_arc_trajectory.v1",
-        "knowledge.storyline.character_driven_parallel_arcs.v1",
+        "knowledge.short_drama.compact_episode_cycle.v1",
+        "knowledge.serialization.short_drama_escalation_engine.v1",
         "knowledge.visual.scene_context.v1",
         "knowledge.visual.observable_action.v1",
-        "knowledge.visual.channel_separation.v1"
+        "knowledge.visual.channel_separation.v1",
+        "knowledge.emotion.audience_participation.v1"
       ],
       "applicable_conditions": {
         "target_platforms": ["mainland china comic drama"],
         "platform_profile_ids": ["cn_mainland_comic_drama_v1"]
       },
-      "source_reference": "AI_Comic_Content_OS_Docs/Research/Longform_Creative_Knowledge_Bootstrap_v1.md",
+      "source_reference": "Compatibility alias mapped to the mainland serialized short-drama knowledge contract",
       "target_stage": "draft_generation"
     }
   ]
