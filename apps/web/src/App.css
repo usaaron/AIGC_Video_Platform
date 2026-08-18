@@ -12638,10 +12638,32 @@
   flex: none;
 }
 
+.organization-switch-section {
+  display: grid;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.organization-switch-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.organization-switch-heading strong {
+  color: #3f4a42;
+  font-size: 9px;
+}
+
+.organization-switch-heading span {
+  color: #8a9189;
+  font-size: 8px;
+}
+
 .organization-switch-list {
   display: grid;
   gap: 7px;
-  margin-top: 14px;
 }
 
 .organization-switch-list button {

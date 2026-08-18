@@ -87,7 +87,7 @@ function App() {
     setAccountSessions(sessions)
 
     const failedSections = [
-      organizationsResult.status === 'rejected' ? '创作组织' : null,
+      organizationsResult.status === 'rejected' ? '数据范围' : null,
       sessionsResult.status === 'rejected' ? '登录设备' : null,
     ].filter(Boolean)
     if (failedSections.length) {

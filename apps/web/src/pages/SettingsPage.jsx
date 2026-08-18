@@ -47,17 +47,25 @@ export function SettingsPage({
   const currentOrganization = useMemo(
     () =>
       organizationMemberships.find((item) => {
-        const organization = item.organization ?? item.workspace
+        const organization = membershipOrganization(item)
         return organization?.id === currentOrganizationId
       }) ?? null,
     [currentOrganizationId, organizationMemberships],
   )
   const isOrganizationAdmin = account.roles.includes('organization_admin')
-  const personalSpace = !isOrganizationAdmin && account.roles.includes('member')
-  const organizationName =
-    currentOrganization?.organization?.name ??
-    currentOrganization?.workspace?.name ??
-    (personalSpace ? '个人创作空间' : '当前创作组织')
+  const isOrganizationMember = account.roles.includes('organization_member')
+  const currentOrganizationType = membershipOrganizationType(currentOrganization)
+  const organizationSpace = isOrganizationAdmin || isOrganizationMember || currentOrganizationType === 'enterprise'
+  const organizationName = membershipOrganization(currentOrganization)?.name ?? '当前组织空间'
+  const scopeTitle = organizationSpace ? organizationName : '当前账号数据'
+  const scopeEyebrow = organizationSpace ? '组织空间' : '数据范围'
+  const scopeBadge = organizationSpace ? '组织空间' : '当前账号'
+  const scopeDescription = organizationSpace
+    ? '项目和成员都归属于当前组织空间，切换后数据范围会同步切换。'
+    : '项目、资产和积分仅归当前账号使用。'
+  const switchableMemberships = organizationMemberships.filter((item) => membershipOrganization(item)?.id)
+  const showScopeSwitcher =
+    switchableMemberships.length > 1 && switchableMemberships.some((item) => isOrganizationScopeMembership(item))
   const membershipRoles = currentOrganization?.membership?.roles ?? account.roles
   const usage = billing?.monthlyUsage
   const availableCredits = billing?.credits ?? account.credits ?? 0
@@ -111,7 +119,7 @@ export function SettingsPage({
     setAccountMessage({ status: 'idle', message: '' })
     try {
       await onSwitchOrganization(organizationId)
-      setAccountMessage({ status: 'success', message: '已切换创作组织。' })
+      setAccountMessage({ status: 'success', message: '已切换数据范围。' })
     } catch (error) {
       setAccountMessage({ status: 'error', message: error.message })
     } finally {
@@ -176,7 +184,7 @@ export function SettingsPage({
 
   return (
     <div className="page account-center-page">
-      <PageHeader eyebrow="账号" title="账号中心" description="管理身份、积分、创作组织和登录安全。">
+      <PageHeader eyebrow="账号" title="账号中心" description="管理身份、积分、数据范围和登录安全。">
         {canOpenAdminConsole && (
           <a className="button secondary" href={adminConsoleUrl} target="_blank" rel="noreferrer">
             <ExternalLink size={16} /> 管理后台
@@ -279,58 +287,67 @@ export function SettingsPage({
       <section className="account-center-panel account-organization-panel">
         <div className="account-panel-topline">
           <div>
-            <p>创作组织</p>
-            <h2>组织：{personalSpace ? '个人' : organizationName}</h2>
+            <p>{scopeEyebrow}</p>
+            <h2>{scopeTitle}</h2>
           </div>
-          <span className={personalSpace ? 'organization-type personal' : 'organization-type team'}>
-            {personalSpace ? '个人空间' : '组织空间'}
+          <span className={organizationSpace ? 'organization-type team' : 'organization-type personal'}>
+            {scopeBadge}
           </span>
         </div>
 
         <div className="organization-current-row">
           <span className="organization-icon">
-            <Building2 size={20} />
+            {organizationSpace ? <Building2 size={20} /> : <UserRound size={20} />}
           </span>
           <div>
-            <strong>{organizationName}</strong>
-            <span>
-              {personalSpace
-                ? '项目、资产和积分仅归当前账号使用。'
-                : '项目和成员都归属于当前组织，切换组织后数据范围会同步切换。'}
-            </span>
+            <strong>{scopeTitle}</strong>
+            <span>{scopeDescription}</span>
           </div>
-          <span className="organization-role-label">{organizationRoleLabel(membershipRoles)}</span>
+          <span className="organization-role-label">
+            {organizationSpace ? organizationRoleLabel(membershipRoles) : '当前账号数据'}
+          </span>
         </div>
 
-        {organizationMemberships.length > 1 && (
-          <div className="organization-switch-list">
-            {organizationMemberships.map((item) => {
-              const organization = item.organization ?? item.workspace
-              const organizationId = organization?.id
-              if (!organizationId) return null
-              const active = organizationId === currentOrganizationId
-              return (
-                <button
-                  key={organizationId}
-                  type="button"
-                  className={active ? 'active' : ''}
-                  disabled={active || accountBusy === `organization:${organizationId}`}
-                  onClick={() => switchOrganization(organizationId)}
-                >
-                  <span>
-                    <strong>{organization.name}</strong>
-                    <small>{organizationRoleLabel(item.membership?.roles ?? [])}</small>
-                  </span>
-                  {active ? (
-                    <Check size={16} />
-                  ) : accountBusy === `organization:${organizationId}` ? (
-                    <LoaderCircle size={16} className="spin" />
-                  ) : (
-                    <span>切换</span>
-                  )}
-                </button>
-              )
-            })}
+        {showScopeSwitcher && (
+          <div className="organization-switch-section">
+            <div className="organization-switch-heading">
+              <strong>切换组织/空间</strong>
+              <span>切换后项目、资产和积分范围会同步更新。</span>
+            </div>
+            <div className="organization-switch-list">
+              {switchableMemberships.map((item) => {
+                const organization = membershipOrganization(item)
+                const organizationId = organization?.id
+                if (!organizationId) return null
+                const active = organizationId === currentOrganizationId
+                const organizationScope = isOrganizationScopeMembership(item)
+                return (
+                  <button
+                    key={organizationId}
+                    type="button"
+                    className={active ? 'active' : ''}
+                    disabled={active || accountBusy === `organization:${organizationId}`}
+                    onClick={() => switchOrganization(organizationId)}
+                  >
+                    <span>
+                      <strong>{organizationScope ? organization.name : '当前账号数据'}</strong>
+                      <small>
+                        {organizationScope
+                          ? `${organizationRoleLabel(item.membership?.roles ?? [])} · 组织空间`
+                          : '当前账号数据'}
+                      </small>
+                    </span>
+                    {active ? (
+                      <Check size={16} />
+                    ) : accountBusy === `organization:${organizationId}` ? (
+                      <LoaderCircle size={16} className="spin" />
+                    ) : (
+                      <span>切换</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         )}
 
@@ -340,7 +357,7 @@ export function SettingsPage({
               <UsersRound size={18} />
               <div>
                 <strong>邀请组织成员</strong>
-                <span>成员通过邮件完成注册后，将以组织成员身份加入当前空间。</span>
+                <span>成员通过邮件完成注册后，将以组织成员身份加入当前组织空间。</span>
               </div>
             </div>
             <label>
@@ -505,6 +522,28 @@ export function SettingsPage({
   )
 }
 
+function membershipOrganization(item) {
+  return item?.organization ?? item?.workspace ?? null
+}
+
+function membershipOrganizationType(item) {
+  return (
+    item?.membership?.organizationType ??
+    item?.organization?.organizationType ??
+    item?.workspace?.organizationType ??
+    null
+  )
+}
+
+function isOrganizationScopeMembership(item) {
+  const roles = item?.membership?.roles ?? []
+  return (
+    membershipOrganizationType(item) === 'enterprise' ||
+    roles.includes('organization_admin') ||
+    roles.includes('organization_member')
+  )
+}
+
 function roleName(role) {
   return (
     {
@@ -523,7 +562,7 @@ function organizationRoleLabel(roles) {
   if (roles.includes('organization_member')) return '组织成员'
   if (roles.includes('owner')) return '平台所有者'
   if (roles.includes('super_admin') || roles.includes('admin')) return '平台管理'
-  return '个人所有者'
+  return '当前账号数据'
 }
 
 function formatNumber(value) {
