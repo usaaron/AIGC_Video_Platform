@@ -32,7 +32,7 @@ export const adminSessionParams = z.object({ sessionId: z.string().min(1).max(12
 
 const listQuery = z.object({
   q: z.string().trim().min(1).max(200).optional(),
-  status: z.enum(['active', 'disabled']).optional(),
+  status: z.enum(['active', 'disabled', 'deleted']).optional(),
   tenantId: z.string().min(1).max(256).optional(),
   userId: z.string().min(1).max(256).optional(),
   membershipId: z.string().min(1).max(512).optional(),

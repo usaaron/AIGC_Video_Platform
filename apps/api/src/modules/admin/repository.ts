@@ -834,6 +834,12 @@ export class AdminRepository {
         [userId],
       )
       if (!user.rows[0]) return null
+      if (status === 'deleted') {
+        throw new AppError(400, 'USE_DELETE_ACCOUNT_ENDPOINT', 'Use the delete account endpoint')
+      }
+      if (user.rows[0].status === 'deleted') {
+        throw new AppError(409, 'ACCOUNT_ALREADY_DELETED', 'Deleted accounts cannot be enabled or disabled')
+      }
       if (principal.userId === userId && status === 'disabled') {
         throw new AppError(400, 'CANNOT_DISABLE_SELF_ACCOUNT', 'Cannot disable your own account')
       }
@@ -937,6 +943,132 @@ export class AdminRepository {
         metadata: {
           previousStatus: user.rows[0].status,
           status,
+        },
+      })
+
+      return await readAdminUser(client, userId)
+    })
+  }
+
+  async deleteAccount(
+    principal: Principal,
+    userId: string,
+    metadata?: SessionMetadata,
+  ): Promise<AdminUser | null> {
+    return this.database.transaction(async (client) => {
+      const user = await client.query<{ id: string; status: AdminAccountStatus }>(
+        `
+        SELECT id, status
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [userId],
+      )
+      if (!user.rows[0]) return null
+      if (principal.userId === userId) {
+        throw new AppError(400, 'CANNOT_DELETE_SELF_ACCOUNT', 'Cannot delete your own account')
+      }
+      if (!isPlatformAdmin(principal)) {
+        throw new AppError(403, 'PLATFORM_ADMIN_REQUIRED', 'Only owners or super admins can delete accounts')
+      }
+      if (user.rows[0].status === 'deleted') return await readAdminUser(client, userId)
+
+      const memberships = await client.query<{ tenant_id: string; roles: Role[]; status: string }>(
+        `
+        SELECT tenant_id, roles, status
+        FROM tenant_memberships
+        WHERE user_id = $1
+        FOR UPDATE
+        `,
+        [userId],
+      )
+      if (
+        memberships.rows.some(
+          (membership) =>
+            (hasOwnerRole(membership.roles) || hasSuperAdminRole(membership.roles)) && !isOwner(principal),
+        )
+      ) {
+        throw new AppError(
+          403,
+          'ELEVATED_ACCOUNT_REQUIRES_OWNER',
+          'Only owners can delete owner or super admin accounts',
+        )
+      }
+      if (memberships.rows.some((membership) => !canManageElevatedRoles(principal, membership.roles))) {
+        throw new AppError(
+          403,
+          'ELEVATED_ACCOUNT_REQUIRES_PLATFORM_ADMIN',
+          'Only owners or super admins can delete elevated accounts',
+        )
+      }
+
+      for (const membership of memberships.rows) {
+        if (!membership.roles.includes(ROLES.OWNER) || membership.status !== 'active') continue
+        const remainingOwners = await client.query<{ count: number }>(
+          `
+          SELECT count(*)::int AS count
+          FROM tenant_memberships m
+          JOIN users u ON u.id = m.user_id AND u.status = 'active'
+          WHERE m.tenant_id = $1
+            AND m.status = 'active'
+            AND m.user_id <> $2
+            AND m.roles @> ARRAY['owner']::text[]
+          `,
+          [membership.tenant_id, userId],
+        )
+        if ((remainingOwners.rows[0]?.count ?? 0) <= 0) {
+          throw new AppError(409, 'LAST_OWNER_CANNOT_BE_DELETED', 'The last owner cannot be deleted')
+        }
+      }
+
+      const revokedSessionCount = await revokeSessionsForUser(client, userId)
+      await client.query(
+        `
+        UPDATE users
+        SET status = 'deleted',
+            password_reset_required = false,
+            password_reset_required_at = NULL,
+            password_reset_required_by_user_id = NULL,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [userId],
+      )
+      await client.query(
+        `
+        UPDATE auth_identities
+        SET status = 'deleted',
+            updated_at = now()
+        WHERE user_id = $1
+        `,
+        [userId],
+      )
+      await client.query(
+        `
+        UPDATE tenant_memberships
+        SET status = 'disabled',
+            is_primary = false,
+            updated_at = now()
+        WHERE user_id = $1
+        `,
+        [userId],
+      )
+      await insertAuditLog(client, {
+        tenantId: null,
+        userId,
+        actorUserId: principal.userId,
+        action: 'admin.account.deleted',
+        resourceType: 'user',
+        resourceId: userId,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: {
+          previousStatus: user.rows[0].status,
+          membershipCount: memberships.rows.length,
+          revokedSessionCount,
+          scope: 'admin_console',
         },
       })
 
@@ -2250,11 +2382,11 @@ function isPromptLikePath(path: string): boolean {
   ].some((key) => normalized.includes(key))
 }
 
-function classifyComplianceRisk(promptText: string): AdminComplianceRiskTag[] {
+export function classifyComplianceRisk(promptText: string): AdminComplianceRiskTag[] {
   const normalized = promptText.toLowerCase()
   return complianceRiskRules
     .map((rule) => {
-      const hits = rule.terms.filter((term) => normalized.includes(term.toLowerCase())).length
+      const hits = rule.terms.filter((term) => termMatchesComplianceRule(rule.category, term, normalized)).length
       return hits > 0
         ? {
             category: rule.category,
@@ -2265,6 +2397,32 @@ function classifyComplianceRisk(promptText: string): AdminComplianceRiskTag[] {
         : null
     })
     .filter((tag): tag is AdminComplianceRiskTag => Boolean(tag))
+}
+
+function termMatchesComplianceRule(
+  category: AdminComplianceRiskCategory,
+  term: string,
+  normalized: string,
+): boolean {
+  if (!normalized.includes(term.toLowerCase())) return false
+  if (category !== 'sexual_content') return true
+  if (term !== '裸露' && term !== '裸体') return true
+
+  const hasHumanBodyContext = hasContextNearTerm(normalized, term, complianceSexualHumanContextTerms)
+  const hasNonSexualContext = hasContextNearTerm(normalized, term, complianceSexualNonHumanContextTerms)
+
+  return hasHumanBodyContext || !hasNonSexualContext
+}
+
+function hasContextNearTerm(normalized: string, term: string, contextTerms: string[]): boolean {
+  const normalizedTerm = term.toLowerCase()
+  let offset = normalized.indexOf(normalizedTerm)
+  while (offset >= 0) {
+    const context = normalized.slice(Math.max(0, offset - 24), offset + normalizedTerm.length + 24)
+    if (contextTerms.some((contextTerm) => context.includes(contextTerm))) return true
+    offset = normalized.indexOf(normalizedTerm, offset + normalizedTerm.length)
+  }
+  return false
 }
 
 function complianceRiskScore(tags: AdminComplianceRiskTag[]): number {
@@ -2330,6 +2488,56 @@ const complianceRiskRules: Array<{
     severity: 'medium',
     terms: ['自杀', '自残', '割腕', '上吊', '服毒', 'suicide', 'self-harm'],
   },
+]
+
+const complianceSexualHumanContextTerms = [
+  '人体',
+  '身体',
+  '皮肤',
+  '肌肤',
+  '胸部',
+  '乳房',
+  '臀部',
+  '大腿',
+  '腿部',
+  '肩膀',
+  '腰部',
+  '腹部',
+  '胸',
+  '臀',
+  '腿',
+  '性感',
+  '内衣',
+  '泳衣',
+  '裸照',
+]
+
+const complianceSexualNonHumanContextTerms = [
+  '岩石',
+  '岩壁',
+  '岩层',
+  '山体',
+  '山峰',
+  '山脊',
+  '山坡',
+  '高山',
+  '雪山',
+  '地表',
+  '地貌',
+  '石壁',
+  '石块',
+  '石头',
+  '雕塑',
+  '石像',
+  '艺术',
+  '建筑',
+  '机械',
+  '金属',
+  '电线',
+  '线路',
+  '土层',
+  '露岩',
+  '裸岩',
 ]
 
 function promptPreview(value: string): string {

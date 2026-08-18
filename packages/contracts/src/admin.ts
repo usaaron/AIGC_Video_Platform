@@ -15,7 +15,7 @@ export const adminOverviewSchema = z.object({
   generatedAt: z.string().datetime(),
 })
 
-export const adminAccountStatusSchema = z.enum(['active', 'disabled'])
+export const adminAccountStatusSchema = z.enum(['active', 'disabled', 'deleted'])
 export const adminMembershipStatusSchema = z.enum(['active', 'disabled'])
 export const adminTenantStatusSchema = z.enum(['active', 'disabled'])
 export const adminOrganizationStatusSchema = adminTenantStatusSchema

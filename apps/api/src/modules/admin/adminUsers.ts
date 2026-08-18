@@ -109,6 +109,21 @@ export function registerAdminUsersRoutes(app: FastifyInstance, context: AdminRou
     },
   )
 
+  app.delete(
+    '/admin/users/:userId',
+    { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
+    async (request) => {
+      const { userId } = parse(adminUserParams, request.params)
+      const updated = await requireAdminRepository(context.adminRepository).deleteAccount(
+        request.principal!,
+        userId,
+        sessionMetadataFromRequest(request),
+      )
+      if (!updated) throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
+      return updated
+    },
+  )
+
   app.patch(
     '/admin/users/:userId/password-reset-requirement',
     { preHandler: requirePermission(PERMISSIONS.USER_MANAGE) },
