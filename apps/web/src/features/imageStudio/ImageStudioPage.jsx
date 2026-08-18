@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Film, ShieldCheck, Zap } from 'lucide-react'
+import { Film, ImagePlus, ShieldCheck, Zap } from 'lucide-react'
 import {
   IMAGE2_CREDITS_PER_IMAGE,
   IMAGE2_MAX_INPUT_IMAGES,
   IMAGE2_MAX_REFERENCE_IMAGES,
   IMAGE2_PROVIDER_DISPLAY_NAME,
 } from '@seqora/contracts'
+import { Image2CreditConfirmDialog } from './Image2CreditConfirmDialog'
 import { ImageResultGallery } from './ImageResultGallery'
 import { PromptComposer } from './PromptComposer'
 import { ReferenceStrip } from './ReferenceStrip'
@@ -33,10 +34,13 @@ export function ImageStudioPage({
   const [quality, setQuality] = useState('low')
   const [imageCount, setImageCount] = useState(1)
   const [references, setReferences] = useState([])
+  const [referencePanelOpen, setReferencePanelOpen] = useState(false)
   const [assist, setAssist] = useState({ promptOptimization: false, referenceVision: false })
   const [nextReferenceNumber, setNextReferenceNumber] = useState(1)
   const [insertRequest, setInsertRequest] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false)
+  const [creditConfirmAction, setCreditConfirmAction] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [resultAction, setResultAction] = useState(null)
@@ -64,7 +68,47 @@ export function ImageStudioPage({
   const promptWarnings = useMemo(() => getPromptReferenceWarnings(prompt, references), [prompt, references])
   const selectedBatch = batches.find((batch) => batch.batchId === selectedBatchId) ?? batches[0] ?? null
   const providerConfigured = image2ProviderStatus === 'configured'
-  const providerStatusMessage = providerConfigured ? '' : '序幕 image2 服务尚未配置，当前无法提交批次。'
+  const providerStatusMessage = providerConfigured ? '' : '生图大师服务尚未配置，当前无法提交批次。'
+
+  const getSubmitValidationMessage = () => {
+    const cleanPrompt = prompt.trim()
+    if (!project?.id) return '请先选择项目'
+    if (!providerConfigured) return providerStatusMessage
+    if (!cleanPrompt) return '请先输入提示词'
+    if (estimatedCredits > availableCredits) {
+      return `当前可用 ${availableCredits} 积分，本批预计 ${estimatedCredits} 积分`
+    }
+    return ''
+  }
+
+  const handleSubmitRequest = () => {
+    const validationMessage = getSubmitValidationMessage()
+    if (validationMessage) {
+      setMessage(validationMessage)
+      return
+    }
+    setMessage('')
+    setSubmitConfirmOpen(true)
+  }
+
+  const handleCancelSubmit = () => {
+    setSubmitConfirmOpen(false)
+  }
+
+  const handleConfirmSubmit = async () => {
+    setSubmitConfirmOpen(false)
+    await handleSubmit()
+  }
+
+  const getSingleImageCreditValidationMessage = (actionLabel) => {
+    if (!project?.id) return '请先选择项目'
+    if (!providerConfigured) return providerStatusMessage
+    if (availableCredits < IMAGE2_CREDITS_PER_IMAGE) {
+      return `当前可用 ${availableCredits} 积分，${actionLabel}需要 ${IMAGE2_CREDITS_PER_IMAGE} 积分`
+    }
+    return ''
+  }
+
   const handleRoleChange = (mediaId, role) => {
     const nextReferences = references.map((item) => {
       if (item.mediaId === mediaId) return { ...item, role }
@@ -86,6 +130,8 @@ export function ImageStudioPage({
     setHiddenResultIds([])
     setCachedResults([])
     setSelectedBatchId(null)
+    setReferencePanelOpen(false)
+    setCreditConfirmAction(null)
     if (!project?.id) return undefined
     loadCachedImageResults(project.id)
       .then((results) => {
@@ -149,6 +195,7 @@ export function ImageStudioPage({
         nextNumber += 1
       }
       setReferences((current) => [...current, ...uploadedReferences])
+      setReferencePanelOpen(true)
       setNextReferenceNumber(nextNumber)
       setMessage(
         trimmedCount > 0
@@ -158,6 +205,7 @@ export function ImageStudioPage({
     } catch (error) {
       if (uploadedReferences.length) {
         setReferences((current) => [...current, ...uploadedReferences])
+        setReferencePanelOpen(true)
         setNextReferenceNumber(nextNumber)
       }
       setMessage(error.message || '引用图上传失败')
@@ -227,6 +275,17 @@ export function ImageStudioPage({
     }
   }
 
+  const removeResultTaskRecord = async (task) => {
+    try {
+      await deleteImage2Task(task.id)
+    } catch (error) {
+      if (error?.status !== 404) throw error
+    }
+    await removeCachedImageResult(task.id)
+    setCachedResults((current) => current.filter((result) => result.id !== task.id))
+    setHiddenResultIds((current) => (current.includes(task.id) ? current : [...current, task.id]))
+  }
+
   const handleRedo = async (task) => {
     if (!project?.id) throw new Error('请先选择项目')
     if (!providerConfigured) throw new Error(providerStatusMessage)
@@ -253,6 +312,64 @@ export function ImageStudioPage({
     }
   }
 
+  const handleRedoRequest = (task) => {
+    const validationMessage = getSingleImageCreditValidationMessage('重做')
+    if (validationMessage) throw new Error(validationMessage)
+    setMessage('')
+    setCreditConfirmAction({ type: 'redo', task })
+  }
+
+  const handleRetryFailed = async (task) => {
+    if (task.status !== 'failed') return
+    if (!project?.id) {
+      setMessage('请先选择项目')
+      return
+    }
+    if (!providerConfigured) {
+      setMessage(providerStatusMessage)
+      return
+    }
+    if (availableCredits < IMAGE2_CREDITS_PER_IMAGE) {
+      setMessage(`当前可用 ${availableCredits} 积分，重试需要 ${IMAGE2_CREDITS_PER_IMAGE} 积分`)
+      return
+    }
+
+    setResultAction({ type: 'retry', taskId: task.id })
+    setMessage('')
+    try {
+      const result = await createImage2Batch({
+        clientRequestId: nextClientRequestId(),
+        ...image2BatchInputFromTask(task, project.id),
+      })
+      setSelectedBatchId(result.batchId)
+      await removeResultTaskRecord(task)
+      await onRefresh?.()
+      setMessage('已重新提交失败图片，原失败记录已移除')
+    } catch (error) {
+      setMessage(error.message || '重试失败图片提交失败')
+      throw error
+    } finally {
+      setResultAction(null)
+    }
+  }
+
+  const handleRetryFailedRequest = (task) => {
+    if (task.status !== 'failed') return
+    const validationMessage = getSingleImageCreditValidationMessage('重试')
+    if (validationMessage) {
+      setMessage(validationMessage)
+      return
+    }
+    setMessage('')
+    setCreditConfirmAction({ type: 'retry', task })
+  }
+
+  const handleConfirmCreditAction = async () => {
+    if (!creditConfirmAction) return false
+    if (creditConfirmAction.type === 'redo') return handleRedo(creditConfirmAction.task)
+    return handleRetryFailed(creditConfirmAction.task)
+  }
+
   const handleEditResult = async (task, image) => {
     if (!project?.id) throw new Error('请先选择项目')
     setResultAction({ type: 'edit', taskId: task.id })
@@ -267,6 +384,7 @@ export function ImageStudioPage({
       setImageCount(form.imageCount)
       setAssist(form.assist)
       setReferences(form.references)
+      setReferencePanelOpen(true)
       setNextReferenceNumber(form.nextReferenceNumber)
       setInsertRequest(null)
       setMessage('已把当前结果设为主体图，可修改提示词后再次生成')
@@ -307,6 +425,7 @@ export function ImageStudioPage({
         inputNumber: nextReferenceNumber,
       }
       setReferences((current) => [...current, reference])
+      setReferencePanelOpen(true)
       setNextReferenceNumber((current) => Math.max(current, reference.inputNumber + 1))
       setMessage(`已将当前结果加入引用图，编号为图 ${reference.inputNumber}`)
       requestAnimationFrame(() => {
@@ -329,14 +448,7 @@ export function ImageStudioPage({
     setResultAction({ type: 'delete', taskId: task.id })
     setMessage('')
     try {
-      try {
-        await deleteImage2Task(task.id)
-      } catch (error) {
-        if (error?.status !== 404) throw error
-      }
-      await removeCachedImageResult(task.id)
-      setCachedResults((current) => current.filter((result) => result.id !== task.id))
-      setHiddenResultIds((current) => (current.includes(task.id) ? current : [...current, task.id]))
+      await removeResultTaskRecord(task)
       await onRefresh?.()
       setMessage('已从结果记录中删除图片，已消耗积分不会退回')
     } catch (error) {
@@ -351,12 +463,12 @@ export function ImageStudioPage({
     return (
       <section
         className="tool-studio-frame image-studio-frame image2-workbench"
-        aria-label="序幕 image2 工作台"
+        aria-label="生图大师工作台"
       >
         <div className="image2-empty-workspace">
           <Film size={28} />
           <strong>请选择项目</strong>
-          <span>序幕 image2 会把批次任务写入当前项目。</span>
+          <span>生图大师会把批次任务写入当前项目。</span>
         </div>
       </section>
     )
@@ -365,13 +477,18 @@ export function ImageStudioPage({
   return (
     <section
       className="tool-studio-frame image-studio-frame image2-workbench"
-      aria-label="序幕 image2 工作台"
+      aria-label="生图大师工作台"
     >
       <header className="image2-toolbar">
         <div className="image2-toolbar-title">
-          <span className="eyebrow">IMAGE2</span>
-          <strong>{IMAGE2_PROVIDER_DISPLAY_NAME}</strong>
-          <small>{project.name}</small>
+          <span className="image2-toolbar-mark" aria-hidden="true">
+            <ImagePlus size={18} />
+          </span>
+          <div>
+            <span className="eyebrow">IMAGE2</span>
+            <strong>{IMAGE2_PROVIDER_DISPLAY_NAME}</strong>
+            <small>{project.name}</small>
+          </div>
         </div>
         <div className="image2-toolbar-metrics">
           <span>
@@ -381,7 +498,7 @@ export function ImageStudioPage({
             本批 {estimatedCredits}
           </span>
           <span className={providerConfigured ? '' : 'warning'}>
-            <ShieldCheck size={14} /> {providerConfigured ? '服务端结算' : '序幕 image2 未配置'}
+            <ShieldCheck size={14} /> {providerConfigured ? '服务端结算' : '生图大师未配置'}
           </span>
         </div>
         <button className="button secondary image2-toolbar-billing" type="button" onClick={onOpenBilling}>
@@ -390,21 +507,6 @@ export function ImageStudioPage({
       </header>
 
       <div className="image-studio-layout image2-layout">
-        <div className="image2-results-stage">
-          <ImageResultGallery
-            batch={selectedBatch}
-            batches={batches}
-            selectedBatchId={selectedBatch?.batchId ?? null}
-            onSelectBatch={setSelectedBatchId}
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            onRedo={handleRedo}
-            onEdit={handleEditResult}
-            onUseAsReference={handleUseAsReference}
-            onDelete={handleDeleteResult}
-          />
-        </div>
-
         <div ref={controlsStageRef} className="image2-controls-stage">
           <PromptComposer
             prompt={prompt}
@@ -424,31 +526,94 @@ export function ImageStudioPage({
               submitting ||
               uploading ||
               Boolean(resultAction) ||
+              submitConfirmOpen ||
               !providerConfigured ||
               estimatedCredits > availableCredits
             }
+            submitConfirmOpen={submitConfirmOpen}
             insertRequest={insertRequest}
             error={message || providerStatusMessage}
             onPromptChange={setPrompt}
             onNegativePromptChange={setNegativePrompt}
-            onSubmit={handleSubmit}
+            onSubmitRequest={handleSubmitRequest}
+            onConfirmSubmit={handleConfirmSubmit}
+            onCancelSubmit={handleCancelSubmit}
           />
-          <ReferenceStrip
-            references={references}
-            uploading={uploading}
-            disabled={uploading || Boolean(resultAction) || references.length >= IMAGE2_MAX_INPUT_IMAGES}
-            warnings={promptWarnings}
-            onUpload={handleUpload}
-            onRemove={(mediaId) =>
-              setReferences((current) => current.filter((item) => item.mediaId !== mediaId))
-            }
-            onRoleChange={handleRoleChange}
-            onInsertReference={(number) =>
-              setInsertRequest({ text: `图 ${number}`, nonce: `${number}-${Date.now()}` })
-            }
+          {referencePanelOpen ? (
+            <ReferenceStrip
+              id="image2-reference-strip"
+              references={references}
+              uploading={uploading}
+              disabled={uploading || Boolean(resultAction) || references.length >= IMAGE2_MAX_INPUT_IMAGES}
+              warnings={promptWarnings}
+              onCollapse={() => setReferencePanelOpen(false)}
+              onUpload={handleUpload}
+              onRemove={(mediaId) =>
+                setReferences((current) => current.filter((item) => item.mediaId !== mediaId))
+              }
+              onRoleChange={handleRoleChange}
+              onInsertReference={(number) =>
+                setInsertRequest({ text: `图 ${number}`, nonce: `${number}-${Date.now()}` })
+              }
+            />
+          ) : (
+            <button
+              className={`image2-reference-toggle ${promptWarnings.length ? 'warning' : ''}`}
+              type="button"
+              aria-controls="image2-reference-strip"
+              aria-expanded="false"
+              onClick={() => setReferencePanelOpen(true)}
+            >
+              <span className="image2-reference-toggle-icon" aria-hidden="true">
+                <ImagePlus size={15} />
+              </span>
+              <span>
+                <strong>添加引用图</strong>
+                <small>主体、服装、风格、构图等参考，需要时再展开</small>
+              </span>
+              <em>
+                {promptWarnings.length
+                  ? `引用检查 ${promptWarnings.length}`
+                  : `${references.length} / ${IMAGE2_MAX_INPUT_IMAGES}`}
+              </em>
+            </button>
+          )}
+        </div>
+
+        <div className="image2-results-stage">
+          <ImageResultGallery
+            batch={selectedBatch}
+            batches={batches}
+            selectedBatchId={selectedBatch?.batchId ?? null}
+            onSelectBatch={setSelectedBatchId}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            onRedo={handleRedoRequest}
+            onEdit={handleEditResult}
+            onUseAsReference={handleUseAsReference}
+            onDelete={handleDeleteResult}
+            onRetryFailed={handleRetryFailedRequest}
+            retryingTaskId={resultAction?.type === 'retry' ? resultAction.taskId : null}
           />
         </div>
       </div>
+      {creditConfirmAction && (
+        <Image2CreditConfirmDialog
+          open
+          title={creditConfirmAction.type === 'redo' ? '确认按原参数重做' : '确认重试失败图片'}
+          actionDescription={
+            creditConfirmAction.type === 'redo'
+              ? '按这张图片的完整生成快照重新生成 1 张图片'
+              : '按失败图片的完整生成快照重新提交 1 张图片，原失败记录会在提交成功后移除'
+          }
+          confirmLabel={creditConfirmAction.type === 'redo' ? '确认重做' : '确认重试'}
+          imageCount={1}
+          estimatedCredits={IMAGE2_CREDITS_PER_IMAGE}
+          availableCredits={availableCredits}
+          onConfirm={handleConfirmCreditAction}
+          onCancel={() => setCreditConfirmAction(null)}
+        />
+      )}
     </section>
   )
 }

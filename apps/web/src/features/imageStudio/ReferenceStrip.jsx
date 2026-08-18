@@ -15,13 +15,15 @@ export function ReferenceStrip({
   uploading,
   disabled,
   warnings = [],
+  id,
+  onCollapse,
   onUpload,
   onRemove,
   onRoleChange,
   onInsertReference,
 }) {
   return (
-    <section className="image2-panel image2-reference-strip" aria-label="引用图">
+    <section id={id} className="image2-panel image2-reference-strip" aria-label="引用图">
       <div className="image2-panel-head">
         <div>
           <span className="eyebrow">引用图</span>
@@ -29,21 +31,34 @@ export function ReferenceStrip({
             {references.length} / {IMAGE2_MAX_INPUT_IMAGES}
           </strong>
         </div>
-        <label className={`image2-upload ${disabled || uploading ? 'disabled' : ''}`}>
-          {uploading ? <LoaderCircle size={14} className="spin" /> : <ImagePlus size={14} />}
-          <span>{uploading ? '上传中' : disabled ? '已满' : '添加'}</span>
-          <input
-            accept="image/jpeg,image/png,image/webp"
-            disabled={disabled || uploading}
-            multiple
-            type="file"
-            onChange={(event) => {
-              const files = Array.from(event.target.files ?? [])
-              event.target.value = ''
-              if (files.length) onUpload(files)
-            }}
-          />
-        </label>
+        <span className="image2-reference-head-actions">
+          <label className={`image2-upload ${disabled || uploading ? 'disabled' : ''}`}>
+            {uploading ? <LoaderCircle size={14} className="spin" /> : <ImagePlus size={14} />}
+            <span>{uploading ? '上传中' : disabled ? '已满' : '添加'}</span>
+            <input
+              accept="image/jpeg,image/png,image/webp"
+              disabled={disabled || uploading}
+              multiple
+              type="file"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? [])
+                event.target.value = ''
+                if (files.length) onUpload(files)
+              }}
+            />
+          </label>
+          {onCollapse && (
+            <button
+              className="image2-icon-button image2-reference-collapse"
+              type="button"
+              disabled={uploading}
+              onClick={onCollapse}
+            >
+              <X size={13} />
+              <span>收起</span>
+            </button>
+          )}
+        </span>
       </div>
 
       <div className="image2-reference-list">

@@ -26,7 +26,7 @@ describe('app shell account entry', () => {
     expect(functionStack).toBeGreaterThan(projectLibrary)
     expect(creativeFlow).toBeGreaterThan(functionStack)
     expect(html).toContain('一句成片')
-    expect(html).toContain('序幕 image2')
+    expect(html).toContain('生图大师')
     expect(html).toContain('剧本大师')
   })
 

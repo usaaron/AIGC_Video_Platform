@@ -40,7 +40,7 @@ export class Image2BatchService {
     traceId?: string | null,
   ): Promise<Image2BatchResult> {
     if (!this.imageProviderAvailable) {
-      throw new AppError(503, 'IMAGE2_PROVIDER_NOT_CONFIGURED', '序幕 image2 服务尚未配置')
+      throw new AppError(503, 'IMAGE2_PROVIDER_NOT_CONFIGURED', '生图大师服务尚未配置')
     }
     if (!(await this.generationTasks.canCreate(input.projectId, principal))) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成')
@@ -175,7 +175,7 @@ export class Image2BatchService {
       throw new AppError(400, 'SOURCE_TASK_PROJECT_MISMATCH', '重做源任务必须属于当前项目')
     }
     if (sourceTask.kind !== 'image' || sourceTask.provider !== 'img2') {
-      throw new AppError(400, 'SOURCE_TASK_NOT_REUSABLE', '只有序幕 image2 任务可以严格重做')
+      throw new AppError(400, 'SOURCE_TASK_NOT_REUSABLE', '只有生图大师任务可以严格重做')
     }
     if (sourceTask.status !== 'completed') {
       throw new AppError(400, 'SOURCE_TASK_NOT_COMPLETED', '只有已完成的图片任务才有可复用快照')

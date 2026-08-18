@@ -7,7 +7,7 @@ export const IMAGE2_MAX_REFERENCE_IMAGES = 4
 export const IMAGE2_MAX_INPUT_IMAGES = IMAGE2_MAX_REFERENCE_IMAGES + 1
 export const IMAGE2_MAX_REFERENCES = IMAGE2_MAX_INPUT_IMAGES
 export const IMAGE2_REFERENCE_NUMBER_MAX = 999
-export const IMAGE2_PROVIDER_DISPLAY_NAME = '序幕 image2'
+export const IMAGE2_PROVIDER_DISPLAY_NAME = '生图大师'
 export const IMAGE2_MODEL_ID = 'seqora-image2'
 export const IMAGE2_REFERENCE_ROLES = [
   'subject',
@@ -165,7 +165,7 @@ export const createImage2BatchSchema = z
 
 export const image2BatchSchema = z.object({
   batchId: z.string().min(1).max(128),
-  providerName: z.literal(IMAGE2_PROVIDER_DISPLAY_NAME),
+  providerName: z.union([z.literal(IMAGE2_PROVIDER_DISPLAY_NAME), z.literal('序幕 image2')]),
   model: z.literal(IMAGE2_MODEL_ID),
   creditsPerImage: z.literal(IMAGE2_CREDITS_PER_IMAGE),
   estimatedCredits: z.number().int().positive(),
