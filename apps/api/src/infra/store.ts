@@ -1,6 +1,9 @@
+import { assetLibraryItemRecordSchema, assetLibraryItemVersionRecordSchema } from '@seqora/contracts'
 import type {
   AiJob,
   Asset,
+  AssetLibraryItemRecord,
+  AssetLibraryItemVersionRecord,
   GenerationTask,
   LedgerEntry,
   MediaKind,
@@ -74,6 +77,8 @@ export type AppState = {
   aiJobs: AiJob[]
   ledger: LedgerEntry[]
   media: StoredMedia[]
+  assetLibraryItems: AssetLibraryItemRecord[]
+  assetLibraryItemVersions: AssetLibraryItemVersionRecord[]
   novelDocuments: StoredNovelDocument[]
   novelChapters: StoredNovelChapter[]
   novelChapterSummaries: StoredNovelChapterSummary[]
@@ -125,6 +130,8 @@ export class AppStore {
   private generationTaskPersistenceBackup: Pick<AppState, 'tasks'> | null = null
   private aiJobRuntimeCache: Pick<AppState, 'aiJobs'> | null = null
   private aiJobPersistenceBackup: Pick<AppState, 'aiJobs'> | null = null
+  private libraryRuntimeCache: Pick<AppState, 'assetLibraryItems' | 'assetLibraryItemVersions'> | null = null
+  private libraryPersistenceBackup: Pick<AppState, 'assetLibraryItems' | 'assetLibraryItemVersions'> | null = null
 
   constructor(
     private readonly filePath: string | null,
@@ -163,6 +170,7 @@ export class AppStore {
     this.applyProjectWorkspaceRuntimeCache()
     this.applyGenerationTaskRuntimeCache()
     this.applyAiJobRuntimeCache()
+    this.applyLibraryRuntimeCache()
     return structuredClone(reader(this.state))
   }
 
@@ -190,6 +198,7 @@ export class AppStore {
     this.applyProjectWorkspaceRuntimeCache()
     this.applyGenerationTaskRuntimeCache()
     this.applyAiJobRuntimeCache()
+    this.applyLibraryRuntimeCache()
     if (!this.accountPersistenceBackup) {
       this.accountPersistenceBackup = structuredClone({
         users: this.state.users,
@@ -235,10 +244,45 @@ export class AppStore {
     this.applyAiJobRuntimeCache()
   }
 
+  replaceLibraryRuntimeCache(input: Pick<AppState, 'assetLibraryItems' | 'assetLibraryItemVersions'>): void {
+    if (!this.libraryPersistenceBackup) {
+      this.libraryPersistenceBackup = structuredClone({
+        assetLibraryItems: this.state.assetLibraryItems,
+        assetLibraryItemVersions: this.state.assetLibraryItemVersions,
+      })
+    }
+    this.libraryRuntimeCache = structuredClone(input)
+    this.applyLibraryRuntimeCache()
+  }
+
+  mutateLibraryRuntimeCache<T>(mutator: (state: AppState) => T): T {
+    this.applyAccountRuntimeCache()
+    this.applyProjectWorkspaceRuntimeCache()
+    this.applyGenerationTaskRuntimeCache()
+    this.applyAiJobRuntimeCache()
+    this.applyLibraryRuntimeCache()
+    if (!this.libraryPersistenceBackup) {
+      this.libraryPersistenceBackup = structuredClone({
+        assetLibraryItems: this.state.assetLibraryItems,
+        assetLibraryItemVersions: this.state.assetLibraryItemVersions,
+      })
+    }
+    if (!this.libraryRuntimeCache) {
+      this.libraryRuntimeCache = structuredClone({
+        assetLibraryItems: this.state.assetLibraryItems,
+        assetLibraryItemVersions: this.state.assetLibraryItemVersions,
+      })
+    }
+    const result = mutator(this.state)
+    this.captureLibraryRuntimeCache()
+    return structuredClone(result)
+  }
+
   mutateProjectWorkspaceRuntimeCache<T>(mutator: (state: AppState) => T): T {
     this.applyProjectWorkspaceRuntimeCache()
     this.applyGenerationTaskRuntimeCache()
     this.applyAiJobRuntimeCache()
+    this.applyLibraryRuntimeCache()
     const result = mutator(this.state)
     this.captureProjectWorkspaceRuntimeCache()
     this.captureGenerationTaskRuntimeCache()
@@ -255,6 +299,7 @@ export class AppStore {
         this.applyProjectWorkspaceRuntimeCache()
         this.applyGenerationTaskRuntimeCache()
         this.applyAiJobRuntimeCache()
+        this.applyLibraryRuntimeCache()
         const snapshot = structuredClone(this.state)
         try {
           result = await mutator(this.state)
@@ -262,6 +307,7 @@ export class AppStore {
           this.captureProjectWorkspaceRuntimeCache()
           this.captureGenerationTaskRuntimeCache()
           this.captureAiJobRuntimeCache()
+          this.captureLibraryRuntimeCache()
           await this.persist()
         } catch (error) {
           this.state = snapshot
@@ -301,6 +347,7 @@ export class AppStore {
       this.applyProjectWorkspaceRuntimeCache()
       this.applyGenerationTaskRuntimeCache()
       this.applyAiJobRuntimeCache()
+      this.applyLibraryRuntimeCache()
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
@@ -317,6 +364,7 @@ export class AppStore {
     this.applyProjectWorkspaceRuntimeCache()
     this.applyGenerationTaskRuntimeCache()
     this.applyAiJobRuntimeCache()
+    this.applyLibraryRuntimeCache()
   }
 
   private applyAccountRuntimeCache(): void {
@@ -340,6 +388,12 @@ export class AppStore {
   private applyAiJobRuntimeCache(): void {
     if (!this.aiJobRuntimeCache) return
     this.state.aiJobs = structuredClone(this.aiJobRuntimeCache.aiJobs)
+  }
+
+  private applyLibraryRuntimeCache(): void {
+    if (!this.libraryRuntimeCache) return
+    this.state.assetLibraryItems = structuredClone(this.libraryRuntimeCache.assetLibraryItems)
+    this.state.assetLibraryItemVersions = structuredClone(this.libraryRuntimeCache.assetLibraryItemVersions)
   }
 
   private captureAccountRuntimeCache(): void {
@@ -369,12 +423,21 @@ export class AppStore {
     this.aiJobRuntimeCache = structuredClone({ aiJobs: this.state.aiJobs })
   }
 
+  private captureLibraryRuntimeCache(): void {
+    if (!this.libraryRuntimeCache) return
+    this.libraryRuntimeCache = structuredClone({
+      assetLibraryItems: this.state.assetLibraryItems,
+      assetLibraryItemVersions: this.state.assetLibraryItemVersions,
+    })
+  }
+
   private stateForPersistence(): AppState {
     if (
       !this.accountPersistenceBackup &&
       !this.projectWorkspacePersistenceBackup &&
       !this.generationTaskPersistenceBackup &&
-      !this.aiJobPersistenceBackup
+      !this.aiJobPersistenceBackup &&
+      !this.libraryPersistenceBackup
     )
       return this.state
     const persisted = {
@@ -394,6 +457,10 @@ export class AppStore {
     }
     if (this.aiJobPersistenceBackup) {
       persisted.aiJobs = structuredClone(this.aiJobPersistenceBackup.aiJobs)
+    }
+    if (this.libraryPersistenceBackup) {
+      persisted.assetLibraryItems = structuredClone(this.libraryPersistenceBackup.assetLibraryItems)
+      persisted.assetLibraryItemVersions = structuredClone(this.libraryPersistenceBackup.assetLibraryItemVersions)
     }
     return persisted
   }
@@ -536,6 +603,8 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
     tasks: [],
     aiJobs: [],
     media: [],
+    assetLibraryItems: [],
+    assetLibraryItemVersions: [],
     novelDocuments: [],
     novelChapters: [],
     novelChapterSummaries: [],
@@ -568,6 +637,8 @@ function createEmptyState(): AppState {
     aiJobs: [],
     ledger: [],
     media: [],
+    assetLibraryItems: [],
+    assetLibraryItemVersions: [],
     novelDocuments: [],
     novelChapters: [],
     novelChapterSummaries: [],
@@ -812,6 +883,8 @@ function normalizeState(
     aiJobs: (input.aiJobs ?? []).map((job) => normalizeAiJobLifecycle(job)),
     ledger: input.ledger ?? [],
     media: input.media ?? [],
+    assetLibraryItems: normalizeAssetLibraryItems(input.assetLibraryItems ?? []),
+    assetLibraryItemVersions: normalizeAssetLibraryItemVersions(input.assetLibraryItemVersions ?? []),
     novelDocuments: input.novelDocuments ?? [],
     novelChapters: input.novelChapters ?? [],
     novelChapterSummaries: input.novelChapterSummaries ?? [],
@@ -820,6 +893,62 @@ function normalizeState(
     novelBoundaries: input.novelBoundaries ?? [],
     novelStoryBibles: input.novelStoryBibles ?? [],
   }
+}
+
+function normalizeAssetLibraryItems(items: readonly unknown[]): AssetLibraryItemRecord[] {
+  return items.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const record = item as Partial<AssetLibraryItemRecord>
+    const parsed = assetLibraryItemRecordSchema.safeParse({
+      ...record,
+      description: typeof record.description === 'string' ? record.description : '',
+      sourceProjectId: nullableString(record.sourceProjectId),
+      sourceProjectName: nullableString(record.sourceProjectName),
+      sourceAssetId: nullableString(record.sourceAssetId),
+      sourceTaskId: nullableString(record.sourceTaskId),
+      sourceMediaId: nullableString(record.sourceMediaId),
+      sourceSnapshot:
+        record.sourceSnapshot && typeof record.sourceSnapshot === 'object' && !Array.isArray(record.sourceSnapshot)
+          ? record.sourceSnapshot
+          : {},
+      contentHash: typeof record.contentHash === 'string' && record.contentHash ? record.contentHash : `legacy:${record.id}`,
+      previewStorageKey: nullableString(record.previewStorageKey),
+      sizeBytes: Number(record.sizeBytes),
+      duplicateOfItemId: nullableString(record.duplicateOfItemId),
+      currentVersion: Number(record.currentVersion ?? 1),
+      tags: Array.isArray(record.tags) ? record.tags : [],
+      restoredAt: nullableString(record.restoredAt),
+      deletedAt: nullableString(record.deletedAt),
+    })
+    return parsed.success ? [parsed.data] : []
+  })
+}
+
+function normalizeAssetLibraryItemVersions(items: readonly unknown[]): AssetLibraryItemVersionRecord[] {
+  return items.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const record = item as Partial<AssetLibraryItemVersionRecord>
+    const itemId = typeof record.itemId === 'string' && record.itemId ? record.itemId : ''
+    const version = Number(record.version ?? 1)
+    const parsed = assetLibraryItemVersionRecordSchema.safeParse({
+      ...record,
+      id: typeof record.id === 'string' && record.id ? record.id : `${itemId}:v${version}`,
+      itemId,
+      version,
+      sourceSnapshot:
+        record.sourceSnapshot && typeof record.sourceSnapshot === 'object' && !Array.isArray(record.sourceSnapshot)
+          ? record.sourceSnapshot
+          : {},
+      contentHash: typeof record.contentHash === 'string' && record.contentHash ? record.contentHash : `legacy:${itemId}`,
+      sizeBytes: Number(record.sizeBytes),
+      createdBy: typeof record.createdBy === 'string' && record.createdBy ? record.createdBy : record.ownerUserId,
+    })
+    return parsed.success ? [parsed.data] : []
+  })
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === 'string' && value ? value : null
 }
 
 function normalizeStoredRoles(roles: readonly unknown[], normalizeLegacyRoleAliases: boolean): Role[] {

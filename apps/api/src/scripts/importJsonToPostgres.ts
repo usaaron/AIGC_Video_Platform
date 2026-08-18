@@ -8,6 +8,7 @@ import { createObjectStorage } from '../infra/objectStorage.js'
 import { AppStore } from '../infra/store.js'
 import { StoreCreditLedger } from '../modules/billing/creditLedger.js'
 import { GenerationTaskRepository } from '../modules/generation/repository.js'
+import { AssetLibraryRepository } from '../modules/library/repository.js'
 import { NovelRepository } from '../modules/novels/repository.js'
 import { ProjectRepository } from '../modules/projects/repository.js'
 import { UserRepository } from '../modules/users/repository.js'
@@ -70,6 +71,8 @@ try {
     config.STORAGE_DRIVER === 'gcs' ? config.GCS_BUCKET : null,
   )
   const mediaResult = await media.importFromStore()
+  const library = new AssetLibraryRepository(store, database)
+  const libraryResult = await library.importFromStore()
   const generationTasks = new GenerationTaskRepository(store, creditLedger, database)
   const taskResult = await generationTasks.importFromStore()
   const novels = new NovelRepository(store, database, createObjectStorage(config))
@@ -85,6 +88,8 @@ try {
       `  assets: inserted ${projectResult.assets.inserted}, skipped ${projectResult.assets.skipped}`,
       `  shots: inserted ${projectResult.shots.inserted}, skipped ${projectResult.shots.skipped}`,
       `  media_objects: inserted ${mediaResult.media.inserted}, skipped ${mediaResult.media.skipped}`,
+      `  asset_library_items: inserted ${libraryResult.assetLibraryItems.inserted}, skipped ${libraryResult.assetLibraryItems.skipped}`,
+      `  asset_library_item_versions: inserted ${libraryResult.assetLibraryItemVersions.inserted}, skipped ${libraryResult.assetLibraryItemVersions.skipped}`,
       `  generation_tasks: inserted ${taskResult.tasks.inserted}, skipped ${taskResult.tasks.skipped}`,
       `  novel_documents: inserted ${novelResult.documents.inserted}, skipped ${novelResult.documents.skipped}`,
       `  novel_chapters: inserted ${novelResult.chapters.inserted}, skipped ${novelResult.chapters.skipped}`,

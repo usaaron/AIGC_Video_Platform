@@ -16,6 +16,7 @@ import { registerAuthRoutes } from '../modules/auth/routes.js'
 import { registerBillingRoutes } from '../modules/billing/routes.js'
 import { registerGenerationRoutes } from '../modules/generation/routes.js'
 import { registerImage2Routes } from '../modules/image2/routes.js'
+import { registerLibraryRoutes } from '../modules/library/routes.js'
 import { registerMediaRoutes } from '../modules/media/routes.js'
 import { registerNovelRoutes } from '../modules/novels/routes.js'
 import { registerProjectRoutes } from '../modules/projects/routes.js'
@@ -103,6 +104,7 @@ export async function registerRuntimeRoutes(input: {
       await registerNovelRoutes(api, services.novelService)
       await registerQuickStartRoutes(api, services.quickStartService)
       await registerMediaRoutes(api, services.mediaService, config.MAX_UPLOAD_BYTES)
+      await registerLibraryRoutes(api, services.assetLibraryService)
       await registerTrustedAssetRoutes(api, services.trustedAssetService)
       await registerAiJobRoutes(api, services.aiJobService)
       await registerImage2Routes(api, services.image2BatchService)

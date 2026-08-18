@@ -905,6 +905,8 @@ function unusedJsonState(): AppState {
     aiJobs: [],
     ledger: [],
     media: [],
+    assetLibraryItems: [],
+    assetLibraryItemVersions: [],
     novelDocuments: [],
     novelChapters: [],
     novelChapterSummaries: [],
