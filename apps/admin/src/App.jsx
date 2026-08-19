@@ -169,7 +169,7 @@ const complianceCategoryLabels = {
   graphic_violence: '极端血腥暴力',
   extremism: '极端主义/仇恨',
   self_harm: '自伤自杀',
-  other: '其他',
+  other: '其他违法/高危',
 }
 const consoleRoleFilterOptions = [
   'owner',
@@ -5760,6 +5760,13 @@ function CompliancePromptDetailDrawer({
           <ComplianceRiskTags tags={item.riskTags} expanded />
         </DrawerSection>
 
+        <DrawerSection
+          title="规则引擎解释"
+          count={(item.riskPolicyMatches?.length ?? 0) + (item.suppressedRiskTags?.length ?? 0)}
+        >
+          <ComplianceRuleEngineExplanation item={item} />
+        </DrawerSection>
+
         <DrawerSection title="审查动作历史" count={item.reviewActions?.length ?? 0}>
           <div className="compliance-review-history">
             {(item.reviewActions ?? []).map((action) => (
@@ -9039,16 +9046,84 @@ function ComplianceRiskTags({ tags, expanded = false }) {
   if (!tags.length) return <span className="compliance-risk-empty">未命中</span>
   return (
     <div className={expanded ? 'compliance-risk-tags expanded' : 'compliance-risk-tags'}>
-      {tags.map((tag) => (
-        <span key={tag.category} className={`compliance-risk-tag ${tag.severity}`}>
-          {tag.label}
-          <small>
-            {complianceSeverityName(tag.severity)} · {tag.hits}
-          </small>
-        </span>
-      ))}
+      {tags.map((tag) => {
+        const matches = tag.matches ?? []
+        const firstMatch = matches[0] ?? null
+        const hiddenMatchCount = Math.max(0, matches.length - 1)
+        const tagTitle = complianceRiskMatchTitle(tag)
+        return expanded ? (
+          <article key={tag.category} className={`compliance-risk-tag detail ${tag.severity}`} title={tagTitle}>
+            <div className="compliance-risk-tag-head">
+              <strong>{tag.label}</strong>
+              <small>
+                {complianceSeverityName(tag.severity)} · {tag.hits}
+              </small>
+            </div>
+            {matches.length ? (
+              <ul className="compliance-risk-matches">
+                {matches.map((match, index) => (
+                  <li key={`${tag.category}:${match.term}:${index}`}>
+                    <span>命中：{match.term}</span>
+                    <small>{match.reason}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="compliance-risk-match-empty">暂无命中详情</p>
+            )}
+          </article>
+        ) : (
+          <span key={tag.category} className={`compliance-risk-tag ${tag.severity}`} title={tagTitle}>
+            {tag.label}
+            <small>
+              {complianceSeverityName(tag.severity)} · {tag.hits}
+            </small>
+            {firstMatch && (
+              <small className="compliance-risk-term">
+                命中：{firstMatch.term}
+                {hiddenMatchCount ? ` +${hiddenMatchCount}` : ''}
+              </small>
+            )}
+          </span>
+        )
+      })}
     </div>
   )
+}
+
+function ComplianceRuleEngineExplanation({ item }) {
+  const policies = item.riskPolicyMatches ?? []
+  const suppressedTags = item.suppressedRiskTags ?? []
+  if (!policies.length && !suppressedTags.length) {
+    return <p className="panel-empty compact">未应用特殊语境策略，也没有被降噪的命中。</p>
+  }
+  return (
+    <div className="compliance-rule-explanation">
+      {policies.length > 0 && (
+        <div className="compliance-policy-list">
+          <strong>已应用策略</strong>
+          {policies.map((policy) => (
+            <article key={policy.id}>
+              <span>{policy.label}</span>
+              <small>{policy.reason}</small>
+            </article>
+          ))}
+        </div>
+      )}
+      {suppressedTags.length > 0 && (
+        <div className="compliance-policy-list">
+          <strong>已降噪命中</strong>
+          <ComplianceRiskTags tags={suppressedTags} expanded />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function complianceRiskMatchTitle(tag) {
+  const matches = tag.matches ?? []
+  if (!matches.length) return `${tag.label} · ${complianceSeverityName(tag.severity)} · ${tag.hits}`
+  return matches.map((match) => `命中：${match.term}\n原因：${match.reason}`).join('\n\n')
 }
 
 function ComplianceReviewBadge({ item }) {

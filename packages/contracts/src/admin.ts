@@ -161,6 +161,22 @@ export const adminComplianceRiskTagSchema = z.object({
   label: z.string().min(1).max(40),
   severity: adminComplianceSeveritySchema,
   hits: z.number().int().nonnegative(),
+  matches: z
+    .array(
+      z.object({
+        term: z.string().min(1).max(80),
+        severity: adminComplianceSeveritySchema,
+        reason: z.string().min(1).max(240),
+      }),
+    )
+    .max(40)
+    .default([]),
+})
+
+export const adminComplianceRiskPolicyMatchSchema = z.object({
+  id: z.string().min(1).max(80),
+  label: z.string().min(1).max(80),
+  reason: z.string().min(1).max(300),
 })
 
 export const adminComplianceReviewStatusSchema = z.enum(['pending', 'reviewed', 'warned'])
@@ -198,6 +214,8 @@ export const adminCompliancePromptItemSchema = z.object({
   inputKeys: z.array(z.string().min(1).max(120)),
   riskTags: z.array(adminComplianceRiskTagSchema),
   riskScore: z.number().int().nonnegative(),
+  riskPolicyMatches: z.array(adminComplianceRiskPolicyMatchSchema).default([]),
+  suppressedRiskTags: z.array(adminComplianceRiskTagSchema).default([]),
   reviewStatus: adminComplianceReviewStatusSchema.default('pending'),
   lastReviewAction: adminComplianceReviewActionEntrySchema.nullable().default(null),
   reviewActions: z.array(adminComplianceReviewActionEntrySchema).default([]),
@@ -339,6 +357,7 @@ export type AdminCompliancePromptSource = z.infer<typeof adminCompliancePromptSo
 export type AdminComplianceRiskCategory = z.infer<typeof adminComplianceRiskCategorySchema>
 export type AdminComplianceSeverity = z.infer<typeof adminComplianceSeveritySchema>
 export type AdminComplianceRiskTag = z.infer<typeof adminComplianceRiskTagSchema>
+export type AdminComplianceRiskPolicyMatch = z.infer<typeof adminComplianceRiskPolicyMatchSchema>
 export type AdminComplianceReviewStatus = z.infer<typeof adminComplianceReviewStatusSchema>
 export type AdminComplianceReviewActionEntry = z.infer<typeof adminComplianceReviewActionEntrySchema>
 export type AdminCompliancePromptItem = z.infer<typeof adminCompliancePromptItemSchema>

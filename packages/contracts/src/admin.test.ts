@@ -253,9 +253,24 @@ describe('admin console contracts', () => {
                 label: '极端血腥暴力',
                 severity: 'high',
                 hits: 1,
+                matches: [
+                  {
+                    term: '血腥',
+                    severity: 'medium',
+                    reason: '血腥伤害词与暴力、死亡或犯罪上下文同时出现',
+                  },
+                ],
               },
             ],
             riskScore: 71,
+            riskPolicyMatches: [
+              {
+                id: 'film-production',
+                label: '影视创作语境',
+                reason: '项目或提示词处于影视创作语境。',
+              },
+            ],
+            suppressedRiskTags: [],
             reviewStatus: 'warned',
             lastReviewAction: {
               action: 'warned',

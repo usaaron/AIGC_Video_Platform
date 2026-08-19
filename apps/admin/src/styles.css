@@ -130,21 +130,41 @@ p {
 }
 
 .topbar-actions {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 0;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f8f3;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
 .operator-chip {
-  min-width: 188px;
+  min-width: 160px;
+  max-width: 190px;
+  height: 40px;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
-  padding: 7px 9px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #fff;
+  padding: 0 11px 0 8px;
+  border: 0;
+  border-right: 1px solid #dfe5d8;
+  border-radius: 5px 0 0 5px;
+  background: transparent;
+}
+
+.operator-chip strong {
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.operator-chip small {
+  margin-top: 2px;
+  font-size: 9px;
+  line-height: 1.2;
 }
 
 .operator-chip > span,
@@ -159,8 +179,11 @@ p {
 }
 
 .operator-chip > span {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #d9e8a1;
+  background: #eef5cf;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.62);
 }
 
 .admin-layout {
@@ -553,6 +576,7 @@ p {
 
 .compliance-risk-tags.expanded {
   gap: 8px;
+  align-items: stretch;
 }
 
 .compliance-risk-tag,
@@ -575,6 +599,104 @@ p {
   color: inherit;
   font-size: 10px;
   opacity: 0.72;
+}
+
+.compliance-risk-term {
+  max-width: 118px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compliance-risk-tag.detail {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  min-height: auto;
+  padding: 9px 10px;
+  border-radius: 8px;
+  white-space: normal;
+}
+
+.compliance-risk-tag-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.compliance-risk-tag-head strong {
+  font-size: 12px;
+}
+
+.compliance-risk-matches {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.compliance-risk-matches li {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid rgba(56, 65, 50, 0.1);
+  border-radius: 6px;
+  background: rgba(253, 254, 251, 0.58);
+}
+
+.compliance-risk-matches span {
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.compliance-risk-matches small,
+.compliance-risk-match-empty {
+  margin: 0;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+  opacity: 0.72;
+}
+
+.compliance-rule-explanation {
+  display: grid;
+  gap: 10px;
+}
+
+.compliance-policy-list {
+  display: grid;
+  gap: 7px;
+}
+
+.compliance-policy-list > strong {
+  color: #384132;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.compliance-policy-list article {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid #d8ded1;
+  border-radius: 7px;
+  background: #fdfefb;
+}
+
+.compliance-policy-list article span {
+  color: #384132;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.compliance-policy-list article small {
+  color: #72786e;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .compliance-risk-tag.medium {
@@ -1681,6 +1803,25 @@ p {
   padding: 0;
 }
 
+.topbar-actions .icon-text-button,
+.topbar-actions .icon-button {
+  height: 40px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+}
+
+.topbar-actions .icon-text-button {
+  min-width: 72px;
+  padding: 0 11px;
+  border-right: 1px solid #dfe5d8;
+}
+
+.topbar-actions .icon-button {
+  width: 40px;
+}
+
 .row-button:active:not(:disabled),
 .icon-text-button:active:not(:disabled),
 .primary-button:active:not(:disabled),
@@ -1797,6 +1938,13 @@ button[data-tooltip]:focus-visible::after {
 .icon-button:hover:not(:disabled) {
   border-color: #b8c776;
   background: #f7faec;
+}
+
+.topbar-actions .icon-text-button:hover:not(:disabled),
+.topbar-actions .icon-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(36, 39, 32, 0.08);
 }
 
 .row-button.danger {
