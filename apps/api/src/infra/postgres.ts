@@ -148,7 +148,7 @@ export class AccountDatabase {
 
   private async loadAppliedMigrationNames(): Promise<Set<string>> {
     const table = await this.query<{ table_name: string | null }>(
-      "SELECT to_regclass('public.schema_migrations')::text AS table_name",
+      "SELECT to_regclass('schema_migrations')::text AS table_name",
     )
     if (!table.rows[0]?.table_name) {
       throw new Error(
