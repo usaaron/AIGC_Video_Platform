@@ -47,6 +47,7 @@ export function AssetLibraryPage({
   onRestore,
   onPermanentDelete,
   onLoadVersions,
+  onImportToProject,
 }) {
   const [tab, setTab] = useState('active')
   const [kind, setKind] = useState('')
@@ -91,7 +92,10 @@ export function AssetLibraryPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, kind, query, page])
 
-  const activeKinds = useMemo(() => stats?.byKind?.filter((item) => item.count > 0 || item.trashed > 0) || [], [stats])
+  const activeKinds = useMemo(
+    () => stats?.byKind?.filter((item) => item.count > 0 || item.trashed > 0) || [],
+    [stats],
+  )
   const maxPage = Math.max(1, Math.ceil((itemsResult.total || 0) / (itemsResult.pageSize || 12)))
 
   const openVersions = async (item) => {
@@ -146,7 +150,11 @@ export function AssetLibraryPage({
           <button className={tab === 'active' ? 'active' : ''} onClick={() => setTab('active')} type="button">
             全部资产
           </button>
-          <button className={tab === 'duplicates' ? 'active' : ''} onClick={() => setTab('duplicates')} type="button">
+          <button
+            className={tab === 'duplicates' ? 'active' : ''}
+            onClick={() => setTab('duplicates')}
+            type="button"
+          >
             重复项
           </button>
           <button className={tab === 'trash' ? 'active' : ''} onClick={() => setTab('trash')} type="button">
@@ -205,7 +213,19 @@ export function AssetLibraryPage({
                     mode={tab}
                     busy={busy}
                     onOpenVersions={openVersions}
-                    onDelete={() => runAction(`delete:${item.id}`, () => onDelete(item.id), '资产已移入回收站')}
+                    onDelete={() =>
+                      runAction(`delete:${item.id}`, () => onDelete(item.id), '资产已移入回收站')
+                    }
+                    onImport={
+                      currentProject && onImportToProject
+                        ? () =>
+                            runAction(
+                              `import:${item.id}`,
+                              () => onImportToProject(item.id, 'auto'),
+                              '资产已导入当前项目',
+                            )
+                        : null
+                    }
                     onRestore={() => runAction(`restore:${item.id}`, () => onRestore(item.id), '资产已恢复')}
                     onPermanentDelete={() =>
                       runAction(
@@ -230,7 +250,11 @@ export function AssetLibraryPage({
                 <span>
                   {page} / {maxPage}
                 </span>
-                <button className="button secondary" disabled={page >= maxPage} onClick={() => setPage(page + 1)}>
+                <button
+                  className="button secondary"
+                  disabled={page >= maxPage}
+                  onClick={() => setPage(page + 1)}
+                >
                   下一页
                 </button>
               </div>
@@ -336,6 +360,7 @@ function LibraryItemRow({
   mode,
   busy,
   onOpenVersions,
+  onImport,
   onDelete,
   onRestore,
   onPermanentDelete,
@@ -369,6 +394,16 @@ function LibraryItemRow({
         <a className="button secondary" href={item.packageUrl}>
           <PackageOpen size={14} /> 包
         </a>
+        {onImport && mode !== 'trash' && (
+          <button
+            className="button secondary"
+            disabled={busy === `import:${item.id}`}
+            onClick={onImport}
+            type="button"
+          >
+            <ArchiveRestore size={14} /> 导入当前项目
+          </button>
+        )}
         {mode === 'trash' ? (
           <>
             <button

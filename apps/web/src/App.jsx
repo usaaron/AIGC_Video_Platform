@@ -1169,6 +1169,11 @@ function App() {
           onRestore={(itemId) => api.restoreLibraryItem(itemId)}
           onPermanentDelete={(itemId) => api.permanentlyDeleteLibraryItem(itemId)}
           onLoadVersions={(itemId) => api.libraryItemVersions(itemId)}
+          onImportToProject={async (itemId, target = 'auto') => {
+            const result = await api.importLibraryItem(project.id, { itemId, target })
+            setToast(`${result.item.title} 已导入当前项目`)
+            return result
+          }}
         />
       ),
       billing: (
