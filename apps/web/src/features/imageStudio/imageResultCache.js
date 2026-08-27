@@ -110,7 +110,7 @@ function normalizeRecord(record) {
     projectId: record.projectId,
     batchId: record.batchId,
     url: record.url,
-    alt: typeof record.alt === 'string' ? record.alt : '序幕 image2 结果',
+    alt: typeof record.alt === 'string' ? record.alt : '生图大师结果',
     fileName: typeof record.fileName === 'string' ? record.fileName : `${record.id}.png`,
     savedAt: Number(record.savedAt) || Date.now(),
     task: record.task && typeof record.task === 'object' ? record.task : null,

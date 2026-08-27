@@ -1,6 +1,9 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { Image2CreditConfirmDialog } from './Image2CreditConfirmDialog'
+import { ImageResultGallery } from './ImageResultGallery'
 import { ImageStudioPage, getPromptReferenceWarnings } from './ImageStudioPage'
+import { PromptComposer } from './PromptComposer'
 import { ReferenceStrip } from './ReferenceStrip'
 
 describe('ImageStudioPage', () => {
@@ -14,28 +17,90 @@ describe('ImageStudioPage', () => {
       />,
     )
 
-    expect(html).toContain('序幕 image2 服务尚未配置')
-    expect(html).toContain('aria-label="序幕 image2 工作台"')
+    expect(html).toContain('生图大师服务尚未配置')
+    expect(html).toContain('aria-label="生图大师工作台"')
+    expect(html).toContain('image2-toolbar-mark')
     expect(html).toContain('aria-label="结果画廊"')
     expect(html).not.toContain('批次提示词')
-    expect(html).toContain('aria-label="提示词编写"')
+    expect(html).toContain('aria-label="提示词编排"')
     expect(html).toContain('aria-label="生成设置"')
+    expect(html).toContain('image2-submit-summary')
     expect(html).toContain('0 / 5')
-    expect(html).toContain('图片尺寸')
+    expect(html).toContain('画幅比例')
     expect(html).toContain('自适应 auto')
     expect(html).toContain('2160×3840')
     expect(html).toContain('提示词优化')
     expect(html).toContain('引用图视觉解析')
-    expect(html).toContain('序幕 TV 影视制作提示词模板')
-    expect(html).toContain('人物定妆照')
-    expect(html).toContain('连戏参考图')
-    expect(html).toContain('场景气氛图')
+    expect(html).toContain('image2-reference-toggle')
+    expect(html).toContain('添加引用图')
+    expect(html).not.toContain('序幕 TV 影视制作提示词模板')
+    expect(html).not.toContain('人物定妆照')
+    expect(html).not.toContain('连戏参考图')
+    expect(html).not.toContain('场景气氛图')
     expect(html).not.toContain('API Key')
     expect(html).not.toContain('API 地址')
     expect(html).not.toContain('/chat/completions')
     expect(html).not.toContain('等待第一个 image2 批次')
-    expect(html.indexOf('aria-label="结果画廊"')).toBeLessThan(html.indexOf('aria-label="提示词编写"'))
-    expect(html.indexOf('aria-label="生成设置"')).toBeLessThan(html.indexOf('提交批次'))
+    expect(html).not.toContain('image2-reference-empty')
+    expect(html.indexOf('aria-label="提示词编排"')).toBeLessThan(html.indexOf('aria-label="结果画廊"'))
+    expect(html.indexOf('aria-label="生成设置"')).toBeLessThan(html.indexOf('image2-submit-summary'))
+  })
+
+  it('renders the submit summary beside the button and the confirmation dialog copy', () => {
+    const html = renderToStaticMarkup(
+      <PromptComposer
+        prompt="sunset portrait"
+        negativePrompt=""
+        availableCredits={42}
+        estimatedCredits={18}
+        aspectRatio="auto"
+        quality="low"
+        imageCount={3}
+        onAspectRatioChange={() => undefined}
+        onQualityChange={() => undefined}
+        onImageCountChange={() => undefined}
+        assist={{ promptOptimization: false, referenceVision: false }}
+        onAssistChange={() => undefined}
+        submitting={false}
+        disabled={false}
+        submitConfirmOpen
+        onSubmitRequest={() => undefined}
+        onConfirmSubmit={() => undefined}
+        onCancelSubmit={() => undefined}
+        insertRequest={null}
+        onPromptChange={() => undefined}
+        onNegativePromptChange={() => undefined}
+        error=""
+      />,
+    )
+
+    expect(html).toContain('image2-submit-summary')
+    expect(html).toContain('image2-submit-confirm')
+    expect(html).toContain('本次将生成 <strong>3</strong> 张图片')
+    expect(html).toContain('预计消耗 <strong>18</strong> 积分')
+    expect(html).toContain('当前余额 <strong>42</strong> 积分')
+  })
+
+  it('renders action, estimated credits, and remaining balance before a rerun', () => {
+    const html = renderToStaticMarkup(
+      <Image2CreditConfirmDialog
+        open
+        title="确认按原参数重做"
+        actionDescription="按这张图片的完整生成快照重新生成 1 张图片"
+        confirmLabel="确认重做"
+        imageCount={1}
+        estimatedCredits={6}
+        availableCredits={42}
+        onConfirm={() => undefined}
+        onCancel={() => undefined}
+      />,
+    )
+
+    expect(html).toContain('确认按原参数重做')
+    expect(html).toContain('本次将按这张图片的完整生成快照重新生成 1 张图片')
+    expect(html).toContain('预计消耗 <strong>6</strong> 积分')
+    expect(html).toContain('当前余额 <strong>42</strong> 积分')
+    expect(html).toContain('确认重做')
   })
 
   it('renders stable reference numbers and migrated roles', () => {
@@ -62,6 +127,45 @@ describe('ImageStudioPage', () => {
     expect(html).toContain('帽子/配饰')
     expect(html).toContain('色调')
     expect(html).toContain('multiple')
+  })
+
+  it('renders failed result tiles as retry actions', () => {
+    const html = renderToStaticMarkup(
+      <ImageResultGallery
+        batch={{
+          batchId: 'image2-batch-1',
+          label: '第 1 次生成',
+          prompt: '夜景人物肖像',
+          originalPrompt: '夜景人物肖像',
+          completedCount: 0,
+          totalCount: 1,
+          tasks: [
+            {
+              id: 'task-failed-1',
+              projectId: 'project-1',
+              status: 'failed',
+              progress: 0,
+              updatedAt: '2026-08-14T10:00:00.000Z',
+              metadata: {
+                image2BatchId: 'image2-batch-1',
+                batchIndex: 1,
+                batchSize: 1,
+              },
+              outputs: [],
+            },
+          ],
+        }}
+        batches={[]}
+        selectedBatchId="image2-batch-1"
+        onRetryFailed={() => undefined}
+      />,
+    )
+
+    expect(html).toContain('class="image2-result-tile failed retryable"')
+    expect(html).toContain('aria-label="重试失败图片 1"')
+    expect(html).toContain('title="重试失败图片"')
+    expect(html).toContain('点击重试')
+    expect(html).not.toContain('disabled=""')
   })
 
   it('checks prompt image numbers and subject-role conflicts', () => {

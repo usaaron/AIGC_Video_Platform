@@ -17,6 +17,7 @@ import type {
   AdminComplianceReviewStatus,
   AdminCompliancePromptSource,
   AdminComplianceRiskCategory,
+  AdminComplianceRiskPolicyMatch,
   AdminComplianceRiskTag,
   AdminComplianceSeverity,
   AdminMembership,
@@ -40,6 +41,12 @@ import type {
 } from '@seqora/contracts'
 import { ROLES } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
+import type {
+  ComplianceRiskPolicyProfile,
+  ComplianceRiskRule,
+  ComplianceRiskTermGroup,
+} from './complianceRules.js'
+import { complianceRiskPolicyProfiles, complianceRiskRules } from './complianceRules.js'
 import {
   hasAdminRole,
   hasElevatedRole,
@@ -56,6 +63,19 @@ import type { SessionMetadata } from '../auth/accounts.js'
 
 const defaultLimit = 50
 const maxLimit = 100
+const maxComplianceMatchDetails = 20
+
+type ComplianceRiskMatch = AdminComplianceRiskTag['matches'][number]
+
+type ComplianceClassificationContext = {
+  projectContentType?: string | null
+}
+
+type ComplianceClassificationResult = {
+  riskTags: AdminComplianceRiskTag[]
+  riskPolicyMatches: AdminComplianceRiskPolicyMatch[]
+  suppressedRiskTags: AdminComplianceRiskTag[]
+}
 
 export type AdminListOptions = {
   q?: string | undefined
@@ -834,6 +854,12 @@ export class AdminRepository {
         [userId],
       )
       if (!user.rows[0]) return null
+      if (status === 'deleted') {
+        throw new AppError(400, 'USE_DELETE_ACCOUNT_ENDPOINT', 'Use the delete account endpoint')
+      }
+      if (user.rows[0].status === 'deleted') {
+        throw new AppError(409, 'ACCOUNT_ALREADY_DELETED', 'Deleted accounts cannot be enabled or disabled')
+      }
       if (principal.userId === userId && status === 'disabled') {
         throw new AppError(400, 'CANNOT_DISABLE_SELF_ACCOUNT', 'Cannot disable your own account')
       }
@@ -937,6 +963,132 @@ export class AdminRepository {
         metadata: {
           previousStatus: user.rows[0].status,
           status,
+        },
+      })
+
+      return await readAdminUser(client, userId)
+    })
+  }
+
+  async deleteAccount(
+    principal: Principal,
+    userId: string,
+    metadata?: SessionMetadata,
+  ): Promise<AdminUser | null> {
+    return this.database.transaction(async (client) => {
+      const user = await client.query<{ id: string; status: AdminAccountStatus }>(
+        `
+        SELECT id, status
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [userId],
+      )
+      if (!user.rows[0]) return null
+      if (principal.userId === userId) {
+        throw new AppError(400, 'CANNOT_DELETE_SELF_ACCOUNT', 'Cannot delete your own account')
+      }
+      if (!isPlatformAdmin(principal)) {
+        throw new AppError(403, 'PLATFORM_ADMIN_REQUIRED', 'Only owners or super admins can delete accounts')
+      }
+      if (user.rows[0].status === 'deleted') return await readAdminUser(client, userId)
+
+      const memberships = await client.query<{ tenant_id: string; roles: Role[]; status: string }>(
+        `
+        SELECT tenant_id, roles, status
+        FROM tenant_memberships
+        WHERE user_id = $1
+        FOR UPDATE
+        `,
+        [userId],
+      )
+      if (
+        memberships.rows.some(
+          (membership) =>
+            (hasOwnerRole(membership.roles) || hasSuperAdminRole(membership.roles)) && !isOwner(principal),
+        )
+      ) {
+        throw new AppError(
+          403,
+          'ELEVATED_ACCOUNT_REQUIRES_OWNER',
+          'Only owners can delete owner or super admin accounts',
+        )
+      }
+      if (memberships.rows.some((membership) => !canManageElevatedRoles(principal, membership.roles))) {
+        throw new AppError(
+          403,
+          'ELEVATED_ACCOUNT_REQUIRES_PLATFORM_ADMIN',
+          'Only owners or super admins can delete elevated accounts',
+        )
+      }
+
+      for (const membership of memberships.rows) {
+        if (!membership.roles.includes(ROLES.OWNER) || membership.status !== 'active') continue
+        const remainingOwners = await client.query<{ count: number }>(
+          `
+          SELECT count(*)::int AS count
+          FROM tenant_memberships m
+          JOIN users u ON u.id = m.user_id AND u.status = 'active'
+          WHERE m.tenant_id = $1
+            AND m.status = 'active'
+            AND m.user_id <> $2
+            AND m.roles @> ARRAY['owner']::text[]
+          `,
+          [membership.tenant_id, userId],
+        )
+        if ((remainingOwners.rows[0]?.count ?? 0) <= 0) {
+          throw new AppError(409, 'LAST_OWNER_CANNOT_BE_DELETED', 'The last owner cannot be deleted')
+        }
+      }
+
+      const revokedSessionCount = await revokeSessionsForUser(client, userId)
+      await client.query(
+        `
+        UPDATE users
+        SET status = 'deleted',
+            password_reset_required = false,
+            password_reset_required_at = NULL,
+            password_reset_required_by_user_id = NULL,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [userId],
+      )
+      await client.query(
+        `
+        UPDATE auth_identities
+        SET status = 'deleted',
+            updated_at = now()
+        WHERE user_id = $1
+        `,
+        [userId],
+      )
+      await client.query(
+        `
+        UPDATE tenant_memberships
+        SET status = 'disabled',
+            is_primary = false,
+            updated_at = now()
+        WHERE user_id = $1
+        `,
+        [userId],
+      )
+      await insertAuditLog(client, {
+        tenantId: null,
+        userId,
+        actorUserId: principal.userId,
+        action: 'admin.account.deleted',
+        resourceType: 'user',
+        resourceId: userId,
+        ipAddress: metadata?.ipAddress ?? null,
+        userAgent: metadata?.userAgent ?? null,
+        metadata: {
+          previousStatus: user.rows[0].status,
+          membershipCount: memberships.rows.length,
+          revokedSessionCount,
+          scope: 'admin_console',
         },
       })
 
@@ -1211,6 +1363,7 @@ type AdminCompliancePromptRow = {
   source_id: string
   client_request_id: string
   project_id: string
+  project_content_type: string | null
   tenant_id: string
   tenant_name: string | null
   organization_type: AdminTenant['organizationType'] | null
@@ -1715,6 +1868,7 @@ function compliancePromptUnionSql(): string {
       gt.id AS source_id,
       gt.client_request_id,
       gt.project_id,
+      p.content_type AS project_content_type,
       gt.tenant_id,
       t.name AS tenant_name,
       t.organization_type,
@@ -1740,6 +1894,7 @@ function compliancePromptUnionSql(): string {
     FROM generation_tasks gt
     JOIN users u ON u.id = gt.user_id
     JOIN tenants t ON t.id = gt.tenant_id
+    LEFT JOIN projects p ON p.id = gt.project_id AND p.tenant_id = gt.tenant_id
     LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
     LEFT JOIN LATERAL (${complianceReviewActionSql('gt.id', 'generation_task')}) review ON true
     WHERE gt.prompt <> ''
@@ -1752,6 +1907,7 @@ function compliancePromptUnionSql(): string {
       aj.id AS source_id,
       aj.client_request_id,
       aj.project_id,
+      p.content_type AS project_content_type,
       aj.tenant_id,
       t.name AS tenant_name,
       t.organization_type,
@@ -1780,6 +1936,7 @@ function compliancePromptUnionSql(): string {
     FROM ai_jobs aj
     JOIN users u ON u.id = aj.user_id
     JOIN tenants t ON t.id = aj.tenant_id
+    LEFT JOIN projects p ON p.id = aj.project_id AND p.tenant_id = aj.tenant_id
     LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
     LEFT JOIN LATERAL (${complianceReviewActionSql('aj.id', 'ai_job')}) review ON true
     WHERE aj.input <> '{}'::jsonb
@@ -2121,7 +2278,9 @@ function toAdminAuditLogEntry(row: AdminAuditLogEntryRow): AdminAuditLogEntry {
 
 function toAdminCompliancePromptItem(row: AdminCompliancePromptRow): AdminCompliancePromptItem {
   const promptText = promptTextFromComplianceRow(row)
-  const riskTags = classifyComplianceRisk(promptText)
+  const complianceRisk = classifyComplianceRiskDetailed(promptText, {
+    projectContentType: row.project_content_type,
+  })
   const reviewActions = complianceReviewActions(row.review_actions)
   const lastReviewAction = reviewActions[0] ?? null
   return {
@@ -2147,8 +2306,10 @@ function toAdminCompliancePromptItem(row: AdminCompliancePromptRow): AdminCompli
     promptPreview: promptPreview(promptText),
     promptText,
     inputKeys: Object.keys(jsonRecord(row.input)).slice(0, 30),
-    riskTags,
-    riskScore: complianceRiskScore(riskTags),
+    riskTags: complianceRisk.riskTags,
+    riskScore: complianceRiskScore(complianceRisk.riskTags),
+    riskPolicyMatches: complianceRisk.riskPolicyMatches,
+    suppressedRiskTags: complianceRisk.suppressedRiskTags,
     reviewStatus: complianceReviewStatus(lastReviewAction),
     lastReviewAction,
     reviewActions,
@@ -2250,21 +2411,221 @@ function isPromptLikePath(path: string): boolean {
   ].some((key) => normalized.includes(key))
 }
 
-function classifyComplianceRisk(promptText: string): AdminComplianceRiskTag[] {
-  const normalized = promptText.toLowerCase()
-  return complianceRiskRules
-    .map((rule) => {
-      const hits = rule.terms.filter((term) => normalized.includes(term.toLowerCase())).length
-      return hits > 0
-        ? {
-            category: rule.category,
-            label: rule.label,
-            severity: rule.severity,
-            hits,
-          }
-        : null
-    })
-    .filter((tag): tag is AdminComplianceRiskTag => Boolean(tag))
+export function classifyComplianceRisk(
+  promptText: string,
+  context: ComplianceClassificationContext = {},
+): AdminComplianceRiskTag[] {
+  return classifyComplianceRiskDetailed(promptText, context).riskTags
+}
+
+function classifyComplianceRiskDetailed(
+  promptText: string,
+  context: ComplianceClassificationContext = {},
+): ComplianceClassificationResult {
+  const normalized = normalizeComplianceText(promptText)
+  const activeProfiles = activeComplianceRiskPolicyProfiles(normalized, context)
+  const riskTags: AdminComplianceRiskTag[] = []
+  const suppressedRiskTags: AdminComplianceRiskTag[] = []
+
+  for (const rule of complianceRiskRules) {
+    const result = evaluateComplianceRule(rule, normalized)
+    if (!result.hits) continue
+
+    const threshold = complianceRiskReportingThreshold(rule.category, activeProfiles)
+    const tag: AdminComplianceRiskTag = {
+      category: rule.category,
+      label: rule.label,
+      severity: result.severity,
+      hits: result.hits,
+      matches: withCompliancePolicyReasons(result.matches, rule.category, activeProfiles),
+    }
+
+    if (threshold && complianceSeverityRank[result.severity] < complianceSeverityRank[threshold]) {
+      suppressedRiskTags.push({
+        ...tag,
+        matches: withSuppressedCompliancePolicyReasons(tag.matches, threshold),
+      })
+      continue
+    }
+    riskTags.push(tag)
+  }
+
+  return {
+    riskTags,
+    riskPolicyMatches: activeProfiles.map(toComplianceRiskPolicyMatch),
+    suppressedRiskTags,
+  }
+}
+
+function normalizeComplianceText(value: string): string {
+  return value.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ')
+}
+
+function evaluateComplianceRule(
+  rule: ComplianceRiskRule,
+  normalized: string,
+): { hits: number; severity: AdminComplianceSeverity; matches: ComplianceRiskMatch[] } {
+  let hits = 0
+  let severity = rule.defaultSeverity
+  const matches: ComplianceRiskMatch[] = []
+  for (const group of rule.groups) {
+    const groupResult = group.terms.reduce(
+      (result, term) => {
+        const termResult = countTermMatches(normalized, term, group)
+        return {
+          hits: result.hits + termResult.hits,
+          matches: [...result.matches, ...termResult.matches],
+        }
+      },
+      { hits: 0, matches: [] as ComplianceRiskMatch[] },
+    )
+    const groupHits = groupResult.hits
+    if (!groupHits) continue
+    hits += groupHits
+    severity = maxComplianceSeverity(severity, group.severity)
+    if (matches.length < maxComplianceMatchDetails) {
+      matches.push(...groupResult.matches.slice(0, maxComplianceMatchDetails - matches.length))
+    }
+  }
+  return { hits, severity, matches }
+}
+
+function activeComplianceRiskPolicyProfiles(
+  normalized: string,
+  context: ComplianceClassificationContext,
+): ComplianceRiskPolicyProfile[] {
+  const projectContentType = context.projectContentType?.trim()
+  return complianceRiskPolicyProfiles.filter((profile) => {
+    const matchesProject =
+      projectContentType &&
+      profile.projectContentTypes?.some((contentType) => contentType === projectContentType)
+    const matchesContext = profile.contextTerms?.some((term) =>
+      normalized.includes(normalizeComplianceText(term)),
+    )
+    return Boolean(matchesProject || matchesContext)
+  })
+}
+
+function complianceRiskReportingThreshold(
+  category: AdminComplianceRiskCategory,
+  profiles: ComplianceRiskPolicyProfile[],
+): AdminComplianceSeverity | null {
+  return profiles.reduce<AdminComplianceSeverity | null>((threshold, profile) => {
+    const next = profile.categoryThresholds[category]
+    if (!next) return threshold
+    return threshold ? maxComplianceSeverity(threshold, next) : next
+  }, null)
+}
+
+function toComplianceRiskPolicyMatch(profile: ComplianceRiskPolicyProfile): AdminComplianceRiskPolicyMatch {
+  return {
+    id: profile.id,
+    label: profile.label,
+    reason: profile.reason,
+  }
+}
+
+function withCompliancePolicyReasons(
+  matches: ComplianceRiskMatch[],
+  category: AdminComplianceRiskCategory,
+  profiles: ComplianceRiskPolicyProfile[],
+): ComplianceRiskMatch[] {
+  const profileLabels = profiles
+    .filter((profile) => Boolean(profile.categoryThresholds[category]))
+    .map((profile) => profile.label)
+  if (!profileLabels.length) return matches
+  const policyReason = `已应用${uniqueNonEmpty(profileLabels).join('、')}阈值，本条仍达到上报等级`
+  return matches.map((match) => ({
+    ...match,
+    reason: truncateText(`${match.reason}；${policyReason}`, 240),
+  }))
+}
+
+function withSuppressedCompliancePolicyReasons(
+  matches: ComplianceRiskMatch[],
+  threshold: AdminComplianceSeverity,
+): ComplianceRiskMatch[] {
+  return matches.map((match) => ({
+    ...match,
+    reason: truncateText(
+      `${match.reason}；低于当前语境的${complianceSeverityLabel(threshold)}风险上报阈值，已降噪`,
+      240,
+    ),
+  }))
+}
+
+function complianceSeverityLabel(severity: AdminComplianceSeverity): string {
+  const labels: Record<AdminComplianceSeverity, string> = {
+    low: '低',
+    medium: '中',
+    high: '高',
+    critical: '严重',
+  }
+  return labels[severity]
+}
+
+function countTermMatches(
+  normalized: string,
+  term: string,
+  group: ComplianceRiskTermGroup,
+): { hits: number; matches: ComplianceRiskMatch[] } {
+  const normalizedTerm = normalizeComplianceText(term)
+  let offset = normalized.indexOf(normalizedTerm)
+  let hits = 0
+  const matches: ComplianceRiskMatch[] = []
+  while (offset >= 0) {
+    const end = offset + normalizedTerm.length
+    const context = complianceContextAround(normalized, offset, normalizedTerm.length, group.window ?? 36)
+    const hasBoundary =
+      !isAsciiComplianceTerm(normalizedTerm) || hasAsciiTermBoundary(normalized, offset, end)
+    const blockedBySafeContext = group.excludeNear?.some((safeTerm) =>
+      context.includes(normalizeComplianceText(safeTerm)),
+    )
+    const matchedRequiredTerms =
+      group.requiresAny?.filter((contextTerm) => context.includes(normalizeComplianceText(contextTerm))) ?? []
+    const missingRequiredContext = group.requiresAny && !matchedRequiredTerms.length
+
+    if (hasBoundary && !blockedBySafeContext && !missingRequiredContext) {
+      hits += 1
+      if (matches.length < maxComplianceMatchDetails) {
+        matches.push({
+          term,
+          severity: group.severity,
+          reason: complianceMatchReason(group, matchedRequiredTerms),
+        })
+      }
+    }
+    offset = normalized.indexOf(normalizedTerm, end)
+  }
+  return { hits, matches }
+}
+
+function complianceMatchReason(group: ComplianceRiskTermGroup, matchedRequiredTerms: string[]): string {
+  const contextSummary = uniqueNonEmpty(matchedRequiredTerms).slice(0, 4).join('、')
+  return contextSummary ? `${group.reason}；附近上下文：${contextSummary}` : group.reason
+}
+
+function complianceContextAround(normalized: string, offset: number, length: number, window: number): string {
+  return normalized.slice(Math.max(0, offset - window), offset + length + window)
+}
+
+function isAsciiComplianceTerm(value: string): boolean {
+  return /^[a-z0-9_-]+$/i.test(value)
+}
+
+function hasAsciiTermBoundary(normalized: string, start: number, end: number): boolean {
+  return !isAsciiWordChar(normalized[start - 1] ?? '') && !isAsciiWordChar(normalized[end] ?? '')
+}
+
+function isAsciiWordChar(value: string): boolean {
+  return /^[a-z0-9_]$/i.test(value)
+}
+
+function maxComplianceSeverity(
+  current: AdminComplianceSeverity,
+  next: AdminComplianceSeverity,
+): AdminComplianceSeverity {
+  return complianceSeverityRank[next] > complianceSeverityRank[current] ? next : current
 }
 
 function complianceRiskScore(tags: AdminComplianceRiskTag[]): number {
@@ -2277,60 +2638,12 @@ function complianceRiskScore(tags: AdminComplianceRiskTag[]): number {
   return tags.reduce((score, tag) => Math.max(score, severityWeight[tag.severity] + tag.hits), 0)
 }
 
-const complianceRiskRules: Array<{
-  category: AdminComplianceRiskCategory
-  label: string
-  severity: AdminComplianceSeverity
-  terms: string[]
-}> = [
-  {
-    category: 'terrorism',
-    label: '涉恐/爆炸物',
-    severity: 'critical',
-    terms: [
-      '恐怖袭击',
-      '恐怖组织',
-      '炸弹',
-      '爆炸物',
-      '自制炸药',
-      '劫持',
-      '人质',
-      '袭击机场',
-      'jihad',
-      'terrorist',
-    ],
-  },
-  {
-    category: 'sexual_content',
-    label: '涉黄/性内容',
-    severity: 'high',
-    terms: ['色情', '裸露', '裸体', '性行为', '成人视频', '未成年性', '强奸', '性侵', 'porn', 'rape'],
-  },
-  {
-    category: 'graphic_violence',
-    label: '极端血腥暴力',
-    severity: 'high',
-    terms: ['血腥', '肢解', '虐杀', '斩首', '内脏', '残肢', '酷刑', '爆头', 'gore', 'beheading'],
-  },
-  {
-    category: 'political_sensitive',
-    label: '政治敏感',
-    severity: 'medium',
-    terms: ['政治敏感', '敏感政治', '政变', '颠覆', '分裂国家', '台独', '港独', '藏独', '疆独'],
-  },
-  {
-    category: 'extremism',
-    label: '极端主义/仇恨',
-    severity: 'high',
-    terms: ['极端主义', '纳粹', '种族清洗', '仇恨宣言', '大屠杀', 'genocide', 'nazi'],
-  },
-  {
-    category: 'self_harm',
-    label: '自伤自杀',
-    severity: 'medium',
-    terms: ['自杀', '自残', '割腕', '上吊', '服毒', 'suicide', 'self-harm'],
-  },
-]
+const complianceSeverityRank: Record<AdminComplianceSeverity, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4,
+}
 
 function promptPreview(value: string): string {
   return truncateText(value.replace(/\s+/g, ' ').trim(), 500)

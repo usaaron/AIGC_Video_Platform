@@ -42,6 +42,7 @@ const IDLE_TASK_POLL_MS = 12_000
 const BACKGROUND_TASK_POLL_MS = 30_000
 
 const AssetsPage = lazyNamed(() => import('./pages/AssetsPage'), 'AssetsPage')
+const AssetLibraryPage = lazyNamed(() => import('./pages/AssetLibraryPage'), 'AssetLibraryPage')
 const BillingPage = lazyNamed(() => import('./pages/BillingPage'), 'BillingPage')
 const FilmPage = lazyNamed(() => import('./pages/FilmPage'), 'FilmPage')
 const GenerationPage = lazyNamed(() => import('./pages/GenerationPage'), 'GenerationPage')
@@ -116,7 +117,7 @@ function App() {
     setAccountSessions(sessions)
 
     const failedSections = [
-      organizationsResult.status === 'rejected' ? '创作组织' : null,
+      organizationsResult.status === 'rejected' ? '数据范围' : null,
       sessionsResult.status === 'rejected' ? '登录设备' : null,
     ].filter(Boolean)
     if (failedSections.length) {
@@ -822,6 +823,22 @@ function App() {
         />
       )
     }
+    if (!project && activeStep === 'library') {
+      return (
+        <AssetLibraryPage
+          currentProject={null}
+          onToast={setToast}
+          onLoadItems={(query) => api.libraryItems(query)}
+          onLoadStats={() => api.libraryStats()}
+          onLoadDuplicates={() => api.libraryDuplicates()}
+          onDedupe={() => api.dedupeLibraryItems()}
+          onDelete={(itemId) => api.deleteLibraryItem(itemId)}
+          onRestore={(itemId) => api.restoreLibraryItem(itemId)}
+          onPermanentDelete={(itemId) => api.permanentlyDeleteLibraryItem(itemId)}
+          onLoadVersions={(itemId) => api.libraryItemVersions(itemId)}
+        />
+      )
+    }
     if (!project) {
       return <ProjectHomePage projects={[]} onCreate={() => setNewProjectOpen(true)} />
     }
@@ -1312,7 +1329,36 @@ function App() {
               return null
             }
           }}
+          onSaveTaskToLibrary={async (task, input) => {
+            const item = await api.createLibraryItem({
+              sourceType: 'task',
+              projectId: project.id,
+              taskId: task.id,
+              ...input,
+            })
+            setToast(`${item.title} 已存入资产库`)
+            return item
+          }}
           onExport={() => exportProject(workspace, tasks)}
+        />
+      ),
+      library: (
+        <AssetLibraryPage
+          currentProject={project}
+          onToast={setToast}
+          onLoadItems={(query) => api.libraryItems(query)}
+          onLoadStats={() => api.libraryStats()}
+          onLoadDuplicates={() => api.libraryDuplicates()}
+          onDedupe={() => api.dedupeLibraryItems()}
+          onDelete={(itemId) => api.deleteLibraryItem(itemId)}
+          onRestore={(itemId) => api.restoreLibraryItem(itemId)}
+          onPermanentDelete={(itemId) => api.permanentlyDeleteLibraryItem(itemId)}
+          onLoadVersions={(itemId) => api.libraryItemVersions(itemId)}
+          onImportToProject={async (itemId, target = 'auto') => {
+            const result = await api.importLibraryItem(project.id, { itemId, target })
+            setToast(`${result.item.title} 已导入当前项目`)
+            return result
+          }}
         />
       ),
       billing: (
@@ -1376,7 +1422,7 @@ function App() {
         activeStep={activeStep}
         mobileNav={mobileNav}
         billing={billing}
-        assetCount={workspace?.assets.length ?? 0}
+        assetCount=""
         canOpenAdminAccounts={canOpenAdminAccounts}
         adminConsoleUrl={adminConsoleUrl}
         onNavigate={navigateTo}

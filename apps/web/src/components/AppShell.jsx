@@ -247,7 +247,10 @@ export function AppSidebar({
         })}
       </nav>
       <div className="sidebar-spacer" />
-      <button className="sidebar-link" onClick={() => onNavigate('assets')}>
+      <button
+        className={`sidebar-link ${activeStep === 'library' ? 'active' : ''}`}
+        onClick={() => onNavigate('library')}
+      >
         <PackageOpen size={17} /> 资产库 <span>{assetCount}</span>
       </button>
       <button

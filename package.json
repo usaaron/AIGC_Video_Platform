@@ -32,6 +32,8 @@
     "test:backend:security": "pnpm build:shared && pnpm --filter @seqora/api test:security",
     "test:backend:pyramid": "pnpm test:backend:unit && pnpm test:backend:contract && pnpm test:backend:integration",
     "test:backend:full": "pnpm test:backend:pyramid && pnpm test:backend:legacy && pnpm test:backend:security",
+    "test:e2e": "pnpm --filter @seqora/e2e test",
+    "test:full:stable": "node scripts/test-full-stable.mjs",
     "security:audit": "pnpm audit --prod --audit-level high",
     "security:dependency-check": "node scripts/security/dependency-check.mjs",
     "security:sonar": "node scripts/security/sonar-scan.mjs",
@@ -46,7 +48,7 @@
     "preprod:anonymize": "pnpm --filter @seqora/api db:anonymize-preprod",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "check": "pnpm format:check && pnpm check:deployment-security && pnpm lint && pnpm test && pnpm build"
+    "check": "pnpm format:check && pnpm check:deployment-security && pnpm lint && pnpm test:full:stable && pnpm build"
   },
   "devDependencies": {
     "prettier": "3.9.5"

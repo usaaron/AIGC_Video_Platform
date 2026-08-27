@@ -4429,7 +4429,7 @@ describe('local authentication', () => {
         content_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       })
       const chapterRows = await database.query<{ table_name: string | null }>(
-        "SELECT to_regclass('public.novel_chapters')::text AS table_name",
+        "SELECT to_regclass('novel_chapters')::text AS table_name",
       )
       expect(chapterRows.rows[0]?.table_name).toBe('novel_chapters')
       const stored = await new LocalObjectStorage(testConfig.UPLOAD_DIR).get(

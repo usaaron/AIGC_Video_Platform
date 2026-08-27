@@ -288,7 +288,7 @@ describe('admin console api', { timeout: 30_000 }, () => {
         projectId: project.json().id,
         kind: 'image',
         label: 'Compliance Review Prompt',
-        prompt: 'compliance-review-risk-prompt 血腥 violence test',
+        prompt: 'compliance-review-risk-prompt 血腥暴力镜头，斩首和残肢画面。',
         provider: 'local',
         estimatedCredits: 1,
       },
@@ -318,8 +318,21 @@ describe('admin console api', { timeout: 30_000 }, () => {
           userId: 'user-member',
           promptPreview: expect.stringContaining('compliance-review-risk-prompt'),
           riskTags: expect.arrayContaining([
-            expect.objectContaining({ category: 'graphic_violence', severity: 'high' }),
+            expect.objectContaining({
+              category: 'graphic_violence',
+              severity: 'high',
+              matches: expect.arrayContaining([
+                expect.objectContaining({
+                  term: '斩首',
+                  reason: expect.stringContaining('直接命中极端血腥或残虐暴力词'),
+                }),
+              ]),
+            }),
           ]),
+          riskPolicyMatches: expect.arrayContaining([
+            expect.objectContaining({ id: 'film-production', label: '影视创作语境' }),
+          ]),
+          suppressedRiskTags: expect.any(Array),
         }),
       ],
       meta: expect.objectContaining({ total: 1, limit: 10, offset: 0 }),

@@ -293,7 +293,7 @@ describe('api client', () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
         batchId: 'image2-demo',
-        providerName: '序幕 image2',
+        providerName: '生图大师',
         model: 'seqora-image2',
         creditsPerImage: 6,
         estimatedCredits: 12,

@@ -51,7 +51,7 @@ describe('postgres migrations', { timeout: 30_000 }, () => {
       )
 
       const table = await database.query<{ table_name: string | null }>(
-        `SELECT to_regclass('public.${tableName}')::text AS table_name`,
+        `SELECT to_regclass('${tableName}')::text AS table_name`,
       )
       expect(table.rows[0]?.table_name).toBeNull()
     } finally {
@@ -87,8 +87,8 @@ describe('postgres migrations', { timeout: 30_000 }, () => {
       }>(
         `
         SELECT
-          to_regclass('public.${okTableName}')::text AS ok_table_name,
-          to_regclass('public.${failedTableName}')::text AS failed_table_name
+          to_regclass('${okTableName}')::text AS ok_table_name,
+          to_regclass('${failedTableName}')::text AS failed_table_name
         `,
       )
       expect(tables.rows[0]).toEqual({
@@ -129,14 +129,14 @@ describe('postgres migrations', { timeout: 30_000 }, () => {
       }>(
         `
         SELECT
-          to_regclass('public.projects')::text AS projects_table,
-          to_regclass('public.project_versions')::text AS project_versions_table,
-          to_regclass('public.assets')::text AS assets_table,
-          to_regclass('public.shots')::text AS shots_table,
-          to_regclass('public.generation_tasks')::text AS generation_tasks_table,
-          to_regclass('public.ai_jobs')::text AS ai_jobs_table,
-          to_regclass('public.outbox_events')::text AS outbox_events_table,
-          to_regclass('public.media_objects')::text AS media_objects_table
+          to_regclass('projects')::text AS projects_table,
+          to_regclass('project_versions')::text AS project_versions_table,
+          to_regclass('assets')::text AS assets_table,
+          to_regclass('shots')::text AS shots_table,
+          to_regclass('generation_tasks')::text AS generation_tasks_table,
+          to_regclass('ai_jobs')::text AS ai_jobs_table,
+          to_regclass('outbox_events')::text AS outbox_events_table,
+          to_regclass('media_objects')::text AS media_objects_table
         `,
       )
       expect(tables.rows[0]).toEqual({

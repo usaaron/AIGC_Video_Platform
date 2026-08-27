@@ -55,16 +55,16 @@ export function GenerationSettings({
       <div className="image2-settings-inline" aria-label="生成设置">
         <div className="image2-setting-group compact size">
           <span>
-            <Ratio size={14} /> 图片尺寸
+            <Ratio size={14} /> 画幅比例
           </span>
           <ImageSizeSelect value={aspectRatio} onChange={onAspectRatioChange} />
         </div>
 
         <div className="image2-setting-group compact quality">
           <span>
-            <SlidersHorizontal size={14} /> 清晰度
+            <SlidersHorizontal size={14} /> 生成质量
           </span>
-          <div className="image2-segmented compact" role="group" aria-label="清晰度">
+          <div className="image2-segmented compact" role="group" aria-label="生成质量">
             {qualityOptions.map((option) => (
               <button
                 key={option.value}
@@ -100,16 +100,16 @@ export function GenerationSettings({
 
       <div className="image2-setting-group">
         <span>
-          <Ratio size={14} /> 图片尺寸
+          <Ratio size={14} /> 画幅比例
         </span>
         <ImageSizeSelect value={aspectRatio} onChange={onAspectRatioChange} />
       </div>
 
       <div className="image2-setting-group">
         <span>
-          <SlidersHorizontal size={14} /> 清晰度
+          <SlidersHorizontal size={14} /> 生成质量
         </span>
-        <div className="image2-segmented" role="group" aria-label="清晰度">
+        <div className="image2-segmented" role="group" aria-label="生成质量">
           {qualityOptions.map((option) => (
             <button
               key={option.value}
@@ -138,7 +138,7 @@ function ImageSizeSelect({ value, onChange }) {
     <select
       className="image2-size-select"
       value={value}
-      aria-label="图片尺寸"
+      aria-label="画幅比例"
       onChange={(event) => onChange(event.target.value)}
     >
       {imageSizeGroups.map((group) => (

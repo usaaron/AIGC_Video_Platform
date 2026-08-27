@@ -110,7 +110,7 @@ export class Image2AssistService {
   }): Promise<Image2PromptOptimizationResult> {
     const startedAt = Date.now()
     if (!this.options.apiKey) {
-      return skippedPromptOptimization(input.prompt, '序幕 image2 chat 服务尚未配置', 0, this.options.model)
+      return skippedPromptOptimization(input.prompt, '生图大师 chat 服务尚未配置', 0, this.options.model)
     }
 
     try {
@@ -159,7 +159,7 @@ export class Image2AssistService {
         summary: {
           requested: true,
           status: 'skipped',
-          reason: '序幕 image2 chat 服务尚未配置',
+          reason: '生图大师 chat 服务尚未配置',
           elapsedMs: 0,
           analyzedCount: 0,
           model: this.options.model,
@@ -451,12 +451,12 @@ async function chatError(response: Response): Promise<Error> {
   } catch {
     // Keep bounded raw text when the provider does not return JSON.
   }
-  return new Error(`序幕 image2 chat 请求失败 (${response.status})${message ? `: ${message}` : ''}`)
+  return new Error(`生图大师 chat 请求失败 (${response.status})${message ? `: ${message}` : ''}`)
 }
 
 function readableError(error: unknown): string {
   if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
-    return '序幕 image2 chat 等待超时'
+    return '生图大师 chat 等待超时'
   }
   return error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500)
 }

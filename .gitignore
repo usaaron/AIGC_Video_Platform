@@ -42,6 +42,7 @@ pnpm-debug.log*
 !.vscode/settings.json
 .cursor/
 .codex/
+.codex-logs/
 *.swp
 *.swo
 *.suo

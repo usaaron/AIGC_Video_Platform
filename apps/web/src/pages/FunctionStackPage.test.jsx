@@ -17,8 +17,8 @@ describe('function stack pages', () => {
   it('renders image-studio as the formal image2 workspace', () => {
     const html = renderToStaticMarkup(<FunctionStackPage tool="image-studio" />)
 
-    expect(html).toContain('序幕 image2')
-    expect(html).toContain('aria-label="序幕 image2 工作台"')
+    expect(html).toContain('生图大师')
+    expect(html).toContain('aria-label="生图大师工作台"')
     expect(html).not.toContain('UI 预览 · 开发中')
   })
 })

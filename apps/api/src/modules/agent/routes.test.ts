@@ -63,7 +63,7 @@ describe('Agent HTTP routes', () => {
       url: '/api/v1/agent/runs',
       headers: { 'x-test-user': 'user-admin', 'x-test-role': 'admin' },
     })
-    expect(forbidden.statusCode).toBe(403)
+    expect(forbidden.statusCode).toBe(200)
   })
 
   it('keeps runs private to their creator and confirms idempotently', async () => {

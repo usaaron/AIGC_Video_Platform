@@ -26,6 +26,8 @@ export function ImageResultGallery({
   onEdit,
   onUseAsReference,
   onDelete,
+  onRetryFailed,
+  retryingTaskId = null,
 }) {
   const [previewTaskId, setPreviewTaskId] = useState(null)
   const [page, setPage] = useState(1)
@@ -47,7 +49,7 @@ export function ImageResultGallery({
         task,
         url: imageUrl,
         alt: `${batch.label} ${batchIndex}`,
-        fileName: `序幕-image2-结果-${batchIndex}.png`,
+        fileName: `生图大师-结果-${batchIndex}.png`,
       },
     ]
   })
@@ -161,21 +163,49 @@ export function ImageResultGallery({
       <div className="image2-result-grid">
         {pageTasks.map((task, index) => {
           const imageUrl = imageUrlForTask(task)
-          const completed = task.status === 'completed' && imageUrl
+          const completed = task.status === 'completed' && Boolean(imageUrl)
+          const failed = task.status === 'failed'
+          const retrying = failed && retryingTaskId === task.id
+          const retryable = failed && Boolean(onRetryFailed) && !retrying
+          const interactive = completed || retryable
+          const tileClassName = [
+            'image2-result-tile',
+            task.status,
+            retryable ? 'retryable' : '',
+            retrying ? 'retrying' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')
           const resultIndex = Number(task.metadata?.batchIndex) || pageStart + index + 1
           return (
             <button
               key={task.id}
-              className={`image2-result-tile ${task.status}`}
+              className={tileClassName}
               type="button"
-              disabled={!completed}
-              onClick={() => setPreviewTaskId(task.id)}
+              disabled={!interactive}
+              aria-label={
+                completed
+                  ? `预览第 ${resultIndex} 张图片`
+                  : retryable
+                    ? `重试失败图片 ${resultIndex}`
+                    : undefined
+              }
+              title={completed ? '预览图片' : retryable ? '重试失败图片' : undefined}
+              onClick={() => {
+                if (completed) {
+                  setPreviewTaskId(task.id)
+                  return
+                }
+                if (retryable) onRetryFailed(task)
+              }}
             >
               {completed ? (
                 <img src={imageUrl} alt={`${batch.label} ${resultIndex}`} />
               ) : (
                 <span className="image2-result-placeholder">
-                  {task.status === 'failed' ? (
+                  {retrying ? (
+                    <LoaderCircle size={22} className="spin" />
+                  ) : task.status === 'failed' ? (
                     <AlertTriangle size={22} />
                   ) : task.status === 'completed' ? (
                     <Check size={22} />
@@ -184,9 +214,10 @@ export function ImageResultGallery({
                   ) : (
                     <ImageIcon size={22} />
                   )}
+                  {retryable && <small>点击重试</small>}
                 </span>
               )}
-              <span className="image2-result-state">{resultStateLabel(task)}</span>
+              <span className="image2-result-state">{retrying ? '重试中' : resultStateLabel(task)}</span>
             </button>
           )
         })}

@@ -24,6 +24,8 @@ import {
 import { BillingPaymentService } from '../modules/billing/paymentService.js'
 import { GenerationTaskRepository } from '../modules/generation/repository.js'
 import { GenerationService } from '../modules/generation/service.js'
+import { AssetLibraryRepository } from '../modules/library/repository.js'
+import { AssetLibraryService } from '../modules/library/service.js'
 import { Image2AssistService } from '../modules/image2/assist.js'
 import { Image2BatchService } from '../modules/image2/service.js'
 import { MediaRepository } from '../modules/media/repository.js'
@@ -45,6 +47,7 @@ export type RuntimeRepositories = {
   generationTaskRepository: GenerationTaskRepository
   mediaRepository: MediaRepository
   aiJobRepository: AiJobRepository
+  assetLibraryRepository: AssetLibraryRepository
   outboxRepository: OutboxRepository | null
   agentRunRepository: AgentRunRepository
   creditLedger: StoreCreditLedger
@@ -56,6 +59,7 @@ export type RuntimeServices = {
   accountManagementService: AccountManagementService | null
   generationService: GenerationService
   image2BatchService: Image2BatchService
+  assetLibraryService: AssetLibraryService
   projectService: ProjectService
   novelService: NovelService
   aiJobService: AiJobService
@@ -85,6 +89,12 @@ export async function createRuntimeRepositories(input: {
 
   const projectRepository = new ProjectRepository(store, database)
   await projectRepository.refreshRuntimeCacheFromDatabase()
+
+  const assetLibraryRepository = new AssetLibraryRepository(store, database)
+  if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
+    await assetLibraryRepository.bootstrapFromStore()
+  }
+  await assetLibraryRepository.refreshRuntimeCacheFromDatabase()
 
   const creditLedger = new StoreCreditLedger(store, users, false, database)
   if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
@@ -128,6 +138,7 @@ export async function createRuntimeRepositories(input: {
     generationTaskRepository,
     mediaRepository,
     aiJobRepository,
+    assetLibraryRepository,
     outboxRepository,
     agentRunRepository,
     creditLedger,
@@ -244,6 +255,13 @@ export function createRuntimeServices(input: {
   )
   const mediaRepository = repositories.mediaRepository
   const mediaService = new MediaService(mediaRepository, objectStorage)
+  const assetLibraryService = new AssetLibraryService(
+    repositories.assetLibraryRepository,
+    repositories.projectRepository,
+    mediaRepository,
+    objectStorage,
+    repositories.generationTaskRepository,
+  )
   const image2AssistService = new Image2AssistService({
     baseUrl: config.SEQORA_IMAGE2_BASE_URL,
     apiKey: config.SEQORA_IMAGE2_API_KEY,
@@ -294,6 +312,7 @@ export function createRuntimeServices(input: {
     accountManagementService,
     generationService,
     image2BatchService,
+    assetLibraryService,
     projectService,
     novelService,
     aiJobService,

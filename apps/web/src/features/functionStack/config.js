@@ -8,8 +8,8 @@ export const FUNCTION_STACK_ITEMS = [
   },
   {
     id: 'image-studio',
-    label: '序幕 image2',
-    title: '序幕 image2',
+    label: '生图大师',
+    title: '生图大师',
     eyebrow: 'IMAGE STUDIO / 02',
     description: '文本生成图、引用图与 1-20 张批次任务共用序幕TV积分。',
   },

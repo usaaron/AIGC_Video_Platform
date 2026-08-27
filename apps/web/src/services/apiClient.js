@@ -29,6 +29,15 @@ async function request(path, options = {}) {
 
 const json = (method, body) => ({ method, body: JSON.stringify(body) })
 const emptyJsonPost = () => json('POST', {})
+const queryString = (query) => {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query || {})) {
+    if (value === undefined || value === null || value === '') continue
+    params.set(key, String(value))
+  }
+  const text = params.toString()
+  return text ? `?${text}` : ''
+}
 const organizations = () => request('/organizations')
 const switchOrganization = (organizationId) =>
   request(`/organizations/${encodeURIComponent(organizationId)}/switch`, emptyJsonPost())
@@ -226,6 +235,29 @@ export const api = {
   recentTasks: () => request('/generation/tasks/recent'),
   createTask: (input) => request('/generation/tasks', json('POST', input)),
   createImage2Batch: (input) => request('/image2/batches', json('POST', input)),
+  libraryItems: (query = {}) => request(`/library/items${queryString(query)}`),
+  libraryStats: () => request('/library/stats'),
+  libraryDuplicates: () => request('/library/duplicates'),
+  dedupeLibraryItems: () => request('/library/dedupe', emptyJsonPost()),
+  createLibraryItem: (input) => request('/library/items', json('POST', input)),
+  updateLibraryItem: (itemId, input) =>
+    request(`/library/items/${encodeURIComponent(itemId)}`, json('PATCH', input)),
+  deleteLibraryItem: (itemId) =>
+    request(`/library/items/${encodeURIComponent(itemId)}`, { method: 'DELETE' }),
+  restoreLibraryItem: (itemId) =>
+    request(`/library/items/${encodeURIComponent(itemId)}/restore`, emptyJsonPost()),
+  permanentlyDeleteLibraryItem: (itemId) =>
+    request(`/library/items/${encodeURIComponent(itemId)}/permanent`, { method: 'DELETE' }),
+  libraryItemVersions: (itemId) => request(`/library/items/${encodeURIComponent(itemId)}/versions`),
+  createLibraryItemVersion: (itemId, input) =>
+    request(`/library/items/${encodeURIComponent(itemId)}/versions`, json('POST', input)),
+  importLibraryItem: (projectId, input) =>
+    request(`/projects/${projectId}/library/import`, json('POST', input)),
+  saveProjectAssetToLibrary: (projectId, assetId, input) =>
+    request(`/projects/${projectId}/assets/${assetId}/save-to-library`, json('POST', input)),
+  libraryItemPackageUrl: (itemId) => `${API_BASE}/library/items/${encodeURIComponent(itemId)}/package`,
+  libraryItemVersionDownloadUrl: (itemId, version) =>
+    `${API_BASE}/library/items/${encodeURIComponent(itemId)}/versions/${encodeURIComponent(version)}/download`,
   createFilmPreview: (projectId, mode = 'full', force = false, episodeNumber = null) =>
     request(`/projects/${projectId}/film-preview`, json('POST', { mode, force, episodeNumber })),
   pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, { method: 'POST' }),

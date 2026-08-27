@@ -250,7 +250,7 @@ describe('image2 contracts', () => {
             tenantId: 'tenant-1',
             userId: 'user-1',
             kind: 'image',
-            label: '序幕 image2',
+            label: '生图大师',
             prompt: 'A quiet production still',
             negativePrompt: '',
             provider: 'img2',
@@ -276,7 +276,7 @@ describe('image2 contracts', () => {
         ],
       }),
     ).toMatchObject({
-      providerName: '序幕 image2',
+      providerName: '生图大师',
       model: IMAGE2_MODEL_ID,
       creditsPerImage: IMAGE2_CREDITS_PER_IMAGE,
     })

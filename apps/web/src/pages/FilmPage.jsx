@@ -34,10 +34,12 @@ export function FilmPage({
   onSave,
   onEdit,
   onComposePreview,
+  onSaveTaskToLibrary,
   onExport,
 }) {
   const [viewMode, setViewMode] = useState('full')
   const [composeSubmitting, setComposeSubmitting] = useState(null)
+  const [librarySaving, setLibrarySaving] = useState(null)
   const [loadedVideoUrl, setLoadedVideoUrl] = useState(null)
   const [failedVideoUrl, setFailedVideoUrl] = useState(null)
   const episodeNumbers = [...new Set(shots.map((item) => item.episodeNumber || 1))].sort(
@@ -129,6 +131,57 @@ export function FilmPage({
     } finally {
       setComposeSubmitting(null)
     }
+  }
+
+  const saveTaskToLibrary = async (task, kind, title, mode) => {
+    if (!task || !onSaveTaskToLibrary || librarySaving) return null
+    setLibrarySaving(mode)
+    try {
+      const item = await onSaveTaskToLibrary(task, {
+        kind,
+        title,
+        description:
+          kind === 'final-cut'
+            ? `${project.name} 成片导出，${episodeNumber ? `第 ${episodeNumber} 集` : '全部剧集'}`
+            : `${project.name} 镜头视频，${shot.title}`,
+        tags:
+          kind === 'final-cut'
+            ? ['final-cut', previewMode, episodeNumber ? `episode-${episodeNumber}` : 'all-episodes']
+            : ['video', `shot-${shot.order}`],
+        sourceSnapshot:
+          kind === 'final-cut'
+            ? {
+                exportType: 'film-preview',
+                previewMode,
+                episodeNumber,
+                projectVersion: numericMetadata(task, 'projectVersion', project.version),
+                sourceVideoTaskIds: previewMode === 'partial' ? partialSourceTaskIds : sourceTaskIds,
+                sourceShotCount: previewShotCount,
+                duration: previewDuration,
+              }
+            : {
+                exportType: 'shot-video',
+                shotId: shot.id,
+                shotOrder: shot.order,
+                shotTitle: shot.title,
+                duration: normalizedVideoDuration(task.metadata?.duration ?? shot.duration, shotMinDuration),
+              },
+      })
+      return item
+    } finally {
+      setLibrarySaving(null)
+    }
+  }
+
+  const saveAndDownloadPackage = async (task, kind, title, mode) => {
+    const item = await saveTaskToLibrary(task, kind, title, mode)
+    if (!item?.packageUrl) return
+    const anchor = document.createElement('a')
+    anchor.href = item.packageUrl
+    anchor.download = ''
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
   }
 
   const playNextCompletedVideo = () => {
@@ -244,6 +297,50 @@ export function FilmPage({
                 <Download size={15} />
                 下载{episodeNumber ? '当集成片' : '全集'}
               </a>
+              {onSaveTaskToLibrary && previewTask && (
+                <>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={Boolean(librarySaving)}
+                    onClick={() =>
+                      void saveTaskToLibrary(
+                        previewTask,
+                        'final-cut',
+                        previewDownloadName.replace(/\.mp4$/i, ''),
+                        'final-save',
+                      )
+                    }
+                  >
+                    {librarySaving === 'final-save' ? (
+                      <LoaderCircle size={15} className="spin" />
+                    ) : (
+                      <Save size={15} />
+                    )}
+                    存入资产库
+                  </button>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={Boolean(librarySaving)}
+                    onClick={() =>
+                      void saveAndDownloadPackage(
+                        previewTask,
+                        'final-cut',
+                        previewDownloadName.replace(/\.mp4$/i, ''),
+                        'final-package',
+                      )
+                    }
+                  >
+                    {librarySaving === 'final-package' ? (
+                      <LoaderCircle size={15} className="spin" />
+                    ) : (
+                      <Download size={15} />
+                    )}
+                    下载成片包
+                  </button>
+                </>
+              )}
             </>
           )}
           {(!previewUrl || !previewIsCurrent) && (
@@ -374,6 +471,50 @@ export function FilmPage({
               </dd>
             </div>
           </dl>
+          {viewMode === 'shot' && videoUrl && videoTask && onSaveTaskToLibrary && (
+            <div className="film-library-actions">
+              <button
+                className="button secondary full"
+                type="button"
+                disabled={Boolean(librarySaving)}
+                onClick={() =>
+                  void saveTaskToLibrary(
+                    videoTask,
+                    'video',
+                    `${project.name}-${String(shot.order).padStart(2, '0')}-${shot.title}`,
+                    'shot-save',
+                  )
+                }
+              >
+                {librarySaving === 'shot-save' ? (
+                  <LoaderCircle size={15} className="spin" />
+                ) : (
+                  <Save size={15} />
+                )}
+                单镜头存入资产库
+              </button>
+              <button
+                className="button secondary full"
+                type="button"
+                disabled={Boolean(librarySaving)}
+                onClick={() =>
+                  void saveAndDownloadPackage(
+                    videoTask,
+                    'video',
+                    `${project.name}-${String(shot.order).padStart(2, '0')}-${shot.title}`,
+                    'shot-package',
+                  )
+                }
+              >
+                {librarySaving === 'shot-package' ? (
+                  <LoaderCircle size={15} className="spin" />
+                ) : (
+                  <Download size={15} />
+                )}
+                下载镜头包
+              </button>
+            </div>
+          )}
           <button className="button secondary full" onClick={onEdit}>
             <RefreshCw size={15} /> 返回修改分镜
           </button>

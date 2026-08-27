@@ -26,12 +26,19 @@ import {
   Search,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   UserPlus,
   UsersRound,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { api } from './apiClient'
+import {
+  buildAdminViewSearch,
+  createDefaultComplianceFilters,
+  createDefaultConsoleFilters,
+  readAdminViewState,
+} from './adminViewState'
 import {
   assignableRoleOptions,
   auditLogTone,
@@ -106,6 +113,8 @@ const tabGroups = [
   { label: '风控审计', tabIds: ['compliance', 'sessions', 'session-risk', 'audit'] },
 ]
 
+const adminTabIds = tabs.map((tab) => tab.id)
+
 const loginInitialState = { email: '', password: '' }
 const adjustmentInitialState = { amount: '', reason: '' }
 const grantInitialState = { amount: '', reason: '' }
@@ -140,18 +149,8 @@ const batchOrganizationInvitationInitialState = {
   emails: '',
 }
 const sessionRiskAuditInitialState = { userId: '', items: [], loading: false, error: '' }
-const consoleFilterInitialState = { tenantId: '', role: '', status: '', limit: 50, offset: 0 }
-const complianceFilterInitialState = {
-  q: '',
-  userId: '',
-  tenantId: '',
-  source: '',
-  category: 'all',
-  queue: 'all',
-  limit: 50,
-  offset: 0,
-  sample: false,
-}
+const consoleFilterInitialState = createDefaultConsoleFilters()
+const complianceFilterInitialState = createDefaultComplianceFilters()
 const complianceActionInitialState = { action: 'reviewed', reason: '', category: '' }
 const consolePageSizeOptions = [25, 50, 100]
 const complianceSourceLabels = {
@@ -171,7 +170,7 @@ const complianceCategoryLabels = {
   graphic_violence: '极端血腥暴力',
   extremism: '极端主义/仇恨',
   self_harm: '自伤自杀',
-  other: '其他',
+  other: '其他违法/高危',
 }
 const consoleRoleFilterOptions = [
   'owner',
@@ -181,7 +180,7 @@ const consoleRoleFilterOptions = [
   'organization_admin',
   'organization_member',
 ]
-const consoleStatusFilterOptions = ['active', 'disabled']
+const consoleStatusFilterOptions = ['active', 'disabled', 'deleted']
 const organizationAdminTransferInitialState = {
   organizationId: '',
   currentOrganizationAdminUserId: '',
@@ -193,6 +192,7 @@ const WEB_ORIGIN = (
   'http://localhost:5173'
 ).replace(/\/+$/, '')
 const organizationScopedRoles = new Set(['organization_admin', 'organization_member'])
+const systemAccountRoleOrder = ['admin', 'super_admin']
 const usageTabIds = new Set(['usage-realtime', 'usage-users', 'usage-organizations'])
 const workflowTabIds = new Set(['delivery'])
 
@@ -208,6 +208,23 @@ function roleRequiresOrganization(role) {
   return organizationScopedRoles.has(role)
 }
 
+function personalAccountRoleOptions(session) {
+  return assignableRoleOptions(session, null).filter((role) => role === 'member')
+}
+
+function systemAccountRoleOptions(session) {
+  return assignableRoleOptions(session, null).filter((role) => systemAccountRoleOrder.includes(role))
+}
+
+function accountScopeDescription(scope) {
+  const descriptions = {
+    personal: 'C 端个人空间（自动创建）',
+    system: '平台内部系统组织',
+    organization: '指定企业组织',
+  }
+  return descriptions[scope] ?? '请选择账号范围'
+}
+
 function canCreatePlatformInvitation(session) {
   return assignableRoleOptions(session, null).includes('member')
 }
@@ -215,10 +232,6 @@ function canCreatePlatformInvitation(session) {
 function organizationInvitationRoleOptions(session, organization) {
   if (!organization) return []
   return assignableRoleOptions(session, organization).filter(roleRequiresOrganization)
-}
-
-function platformRoleScopeName(role) {
-  return role === 'member' ? 'C 端个人空间（自动创建）' : '平台内部系统组织'
 }
 
 function invitationScopeName(scope) {
@@ -234,11 +247,64 @@ function invitationUrlFor(token) {
   return `${WEB_ORIGIN}/register?token=${encodeURIComponent(token)}`
 }
 
-function disabledButtonProps(disabled, reason) {
+function tooltipProps(hint) {
+  if (!hint) return {}
+  return {
+    title: hint,
+    'data-tooltip': hint,
+    'aria-label': hint,
+  }
+}
+
+function disabledButtonProps(disabled, reason, enabledHint) {
+  const hint = disabled ? reason || '当前状态下不可操作' : enabledHint
   return {
     disabled,
-    title: disabled ? reason || '当前状态下不可操作' : undefined,
+    ...tooltipProps(hint),
   }
+}
+
+const overlayStack = []
+let overlayLockCount = 0
+let overlaySavedBodyOverflow = ''
+let overlayNextId = 1
+
+function handleOverlayKeydown(event) {
+  if (event.key !== 'Escape') return
+  const top = overlayStack[overlayStack.length - 1]
+  const close = top?.closeRef.current
+  if (typeof close !== 'function') return
+  event.preventDefault()
+  close()
+}
+
+function useOverlayControls(onClose, active = true) {
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+
+  useEffect(() => {
+    if (!active || typeof document === 'undefined') return undefined
+
+    const entry = { id: overlayNextId++, closeRef }
+    overlayStack.push(entry)
+
+    if (overlayLockCount === 0) {
+      overlaySavedBodyOverflow = document.body.style.overflow
+      document.addEventListener('keydown', handleOverlayKeydown)
+    }
+    overlayLockCount += 1
+    document.body.style.overflow = 'hidden'
+
+    return () => {
+      const index = overlayStack.findIndex((item) => item.id === entry.id)
+      if (index >= 0) overlayStack.splice(index, 1)
+      overlayLockCount = Math.max(0, overlayLockCount - 1)
+      if (overlayLockCount === 0) {
+        document.body.style.overflow = overlaySavedBodyOverflow
+        document.removeEventListener('keydown', handleOverlayKeydown)
+      }
+    }
+  }, [active, closeRef])
 }
 
 function billingAdjustmentDisabledReason({
@@ -261,6 +327,17 @@ function billingAdjustmentDisabledReason({
 }
 
 export function App() {
+  const initialViewState =
+    typeof window === 'undefined'
+      ? {
+          activeTab: 'overview',
+          queryDraft: '',
+          query: '',
+          consoleFilters: createDefaultConsoleFilters(),
+          complianceFilters: createDefaultComplianceFilters(),
+        }
+      : readAdminViewState(window.location.search, { allowedTabIds: adminTabIds })
+
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [authError, setAuthError] = useState('')
@@ -275,15 +352,15 @@ export function App() {
   const [compliancePrompts, setCompliancePrompts] = useState(null)
   const [complianceLoading, setComplianceLoading] = useState(false)
   const [complianceError, setComplianceError] = useState('')
-  const [complianceFilters, setComplianceFilters] = useState(complianceFilterInitialState)
+  const [complianceFilters, setComplianceFilters] = useState(initialViewState.complianceFilters)
   const [complianceDetailId, setComplianceDetailId] = useState('')
   const [complianceActionTarget, setComplianceActionTarget] = useState(null)
   const [complianceActionForm, setComplianceActionForm] = useState(complianceActionInitialState)
   const [notice, setNotice] = useState('')
-  const [queryDraft, setQueryDraft] = useState('')
-  const [query, setQuery] = useState('')
-  const [consoleFilters, setConsoleFilters] = useState(consoleFilterInitialState)
-  const [activeTab, setActiveTab] = useState('overview')
+  const [queryDraft, setQueryDraft] = useState(initialViewState.queryDraft)
+  const [query, setQuery] = useState(initialViewState.query)
+  const [consoleFilters, setConsoleFilters] = useState(initialViewState.consoleFilters)
+  const [activeTab, setActiveTabState] = useState(initialViewState.activeTab)
   const [busy, setBusy] = useState('')
   const [adjustTarget, setAdjustTarget] = useState(null)
   const [adjustmentForm, setAdjustmentForm] = useState(adjustmentInitialState)
@@ -351,6 +428,19 @@ export function App() {
   )
   const [nextStepHint, setNextStepHint] = useState(null)
   const [confirmRequest, setConfirmRequest] = useState(null)
+  const hasHydratedUrlRef = useRef(false)
+  const pendingHistoryActionRef = useRef('replace')
+
+  const setActiveTab = (tabId, { history = 'push' } = {}) => {
+    if (!tabId || tabId === activeTab) return
+    pendingHistoryActionRef.current = history
+    setActiveTabState(tabId)
+  }
+
+  const updateQueryDraft = (value) => {
+    setQueryDraft(value)
+    setConsoleFilters((current) => (current.offset === 0 ? current : { ...current, offset: 0 }))
+  }
 
   const confirmAction = (request) =>
     new Promise((resolve) => {
@@ -483,21 +573,60 @@ export function App() {
   }, [session?.account?.id, canReadConsole, activeTab, canReviewCompliance, complianceFilters])
 
   useEffect(() => {
-    if (activeTab === 'compliance' && !canReviewCompliance) setActiveTab('overview')
-  }, [activeTab, canReviewCompliance])
+    if (authLoading) return
+    if (activeTab === 'compliance' && !canReviewCompliance) setActiveTab('overview', { history: 'replace' })
+  }, [activeTab, authLoading, canReviewCompliance])
 
   useEffect(() => {
+    if (!hasHydratedUrlRef.current) return undefined
     const timer = window.setTimeout(() => {
-      setConsoleFilters((current) => (current.offset === 0 ? current : { ...current, offset: 0 }))
       setQuery(queryDraft.trim())
     }, 300)
     return () => window.clearTimeout(timer)
   }, [queryDraft])
 
   useEffect(() => {
-    setConsoleFilters((current) => (current.offset === 0 ? current : { ...current, offset: 0 }))
+    if (!hasHydratedUrlRef.current) return
     setError('')
   }, [activeTab])
+
+  useEffect(() => {
+    if (!hasHydratedUrlRef.current) return
+    const nextSearch = buildAdminViewSearch({
+      activeTab,
+      query,
+      queryDraft,
+      consoleFilters,
+      complianceFilters,
+    })
+    const nextUrl = `${window.location.pathname}${nextSearch}${window.location.hash}`
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    if (nextUrl === currentUrl) {
+      pendingHistoryActionRef.current = 'replace'
+      return
+    }
+    const historyMethod = pendingHistoryActionRef.current === 'push' ? 'pushState' : 'replaceState'
+    window.history[historyMethod]({ adminView: true }, '', nextUrl)
+    pendingHistoryActionRef.current = 'replace'
+  }, [activeTab, query, queryDraft, consoleFilters, complianceFilters])
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextViewState = readAdminViewState(window.location.search, { allowedTabIds: adminTabIds })
+      pendingHistoryActionRef.current = 'replace'
+      setActiveTabState(nextViewState.activeTab)
+      setQueryDraft(nextViewState.queryDraft)
+      setQuery(nextViewState.query)
+      setConsoleFilters(nextViewState.consoleFilters)
+      setComplianceFilters(nextViewState.complianceFilters)
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    hasHydratedUrlRef.current = true
+  }, [])
 
   useEffect(() => {
     if (!notice) return undefined
@@ -603,8 +732,14 @@ export function App() {
     if (!snapshot) return null
     return {
       users: snapshot.users.items,
-      organizations: enterpriseOrganizationItems,
-      personalAccounts: personalAccountMemberships,
+      organizations:
+        activeTab === 'organizations'
+          ? paginateClientRows(enterpriseOrganizationItems, consoleFilters)
+          : enterpriseOrganizationItems,
+      personalAccounts:
+        activeTab === 'personal-accounts'
+          ? paginateClientRows(personalAccountMemberships, consoleFilters)
+          : personalAccountMemberships,
       memberships: snapshot.memberships.items,
       billingAccounts: snapshot.billingAccounts.items,
       billingLedgerEntries: snapshot.billingLedgerEntries.items,
@@ -613,7 +748,7 @@ export function App() {
       sessions: snapshot.sessions.items,
       auditLogs: snapshot.auditLogs.items,
     }
-  }, [snapshot, enterpriseOrganizationItems, personalAccountMemberships])
+  }, [snapshot, activeTab, consoleFilters, enterpriseOrganizationItems, personalAccountMemberships])
 
   const summary = useMemo(() => summarizeConsole(snapshot), [snapshot])
   const createUserOrganization = useMemo(
@@ -626,7 +761,8 @@ export function App() {
         ? assignableRoleOptions(session, createUserOrganization).filter(roleRequiresOrganization)
         : []
     }
-    return assignableRoleOptions(session, null).filter((role) => role === 'member' || role === 'admin')
+    if (createUserForm.scope === 'system') return systemAccountRoleOptions(session)
+    return personalAccountRoleOptions(session)
   }, [session, createUserForm.scope, createUserOrganization])
   const addExistingMemberOrganization = useMemo(
     () =>
@@ -778,6 +914,10 @@ export function App() {
   }
 
   const setUserStatus = async (user) => {
+    if (user.status === 'deleted') {
+      setNotice('已删除账号不能重新启用')
+      return
+    }
     const nextStatus = user.status === 'active' ? 'disabled' : 'active'
     const confirmed = await confirmAction({
       title: `${nextStatus === 'disabled' ? '禁用' : '启用'}账号`,
@@ -798,6 +938,47 @@ export function App() {
       await loadConsole()
       if (activeTab === 'compliance') await loadCompliancePrompts()
       setNotice(`账号已${nextStatus === 'disabled' ? '禁用' : '启用'}`)
+    })
+  }
+
+  const deleteUser = async (user) => {
+    if (user.status === 'deleted') {
+      setNotice('账号已删除')
+      return
+    }
+    const firstConfirmed = await confirmAction({
+      title: '删除账号',
+      tone: 'danger',
+      summary: '删除后该账号将无法登录，所有账号归属会被停用，现有 session 会被撤销。',
+      details: [
+        { label: '账号', value: user.email ?? user.id },
+        { label: '用户', value: user.name },
+        { label: '当前状态', value: statusName(user.status) },
+      ],
+      impact: '这是运营删除，不会物理清除账单、审计、生成记录等历史数据，但不能直接恢复使用。',
+      confirmLabel: '继续删除',
+      busyId: `delete-user:${user.id}`,
+    })
+    if (!firstConfirmed) return
+    const secondConfirmed = await confirmAction({
+      title: '再次确认删除账号',
+      tone: 'danger',
+      summary: '请再次确认这是要删除的目标账号。',
+      details: [
+        { label: '账号', value: user.email ?? user.id },
+        { label: '用户', value: user.name },
+      ],
+      impact: '确认后账号状态会变为已删除，不能再用于登录或继续交付。',
+      confirmLabel: '确认删除账号',
+      busyId: `delete-user:${user.id}`,
+    })
+    if (!secondConfirmed) return
+    await runAction(`delete-user:${user.id}`, async () => {
+      await api.deleteUser(user.id)
+      setUserDetailId('')
+      await loadConsole()
+      if (activeTab === 'compliance') await loadCompliancePrompts()
+      setNotice('账号已删除')
     })
   }
 
@@ -832,11 +1013,20 @@ export function App() {
     const organization = isOrganizationScope
       ? (creatableOrganizations.find((item) => item.id === organizationId) ?? creatableOrganizations[0])
       : null
-    const roles = isOrganizationScope
+    let scope = isOrganizationScope ? 'organization' : 'personal'
+    let roles = isOrganizationScope
       ? organization
         ? assignableRoleOptions(session, organization).filter(roleRequiresOrganization)
         : []
-      : assignableRoleOptions(session, null).filter((item) => item === 'member' || item === 'admin')
+      : personalAccountRoleOptions(session)
+    if (!isOrganizationScope && preferredRole && systemAccountRoleOptions(session).includes(preferredRole)) {
+      scope = 'system'
+      roles = systemAccountRoleOptions(session)
+    }
+    if (!isOrganizationScope && !roles.length) {
+      scope = 'system'
+      roles = systemAccountRoleOptions(session)
+    }
     const role = roles.includes(preferredRole) ? preferredRole : roles[0]
     if (!roles.length || !role) {
       setNotice('当前身份不允许添加账号')
@@ -844,7 +1034,7 @@ export function App() {
     }
     setCreateUserForm({
       ...createUserInitialState,
-      scope: isOrganizationScope ? 'organization' : 'personal',
+      scope,
       organizationId: isOrganizationScope ? (organization?.id ?? '') : '',
       role,
     })
@@ -1113,11 +1303,25 @@ export function App() {
 
   const submitCreateUser = async (event) => {
     event.preventDefault()
-    const needsOrganization = roleRequiresOrganization(createUserForm.role)
+    const needsOrganization = createUserForm.scope === 'organization'
+    const isSystemScope = createUserForm.scope === 'system'
     const organizationName = createUserOrganization?.name ?? createUserForm.organizationId
     const scopeLine = needsOrganization
       ? `组织：${organizationName}`
-      : `范围：${platformRoleScopeName(createUserForm.role)}`
+      : accountScopeDescription(createUserForm.scope)
+    const createdAccountTitle = needsOrganization
+      ? '组织账号已创建'
+      : isSystemScope
+        ? '系统账号已创建'
+        : '个人账号已创建'
+    const createdAccountDescription = needsOrganization
+      ? '继续完成组织账号交付：需要时给成员改套餐，或在组织共享池给企业充值。'
+      : isSystemScope
+        ? '系统账号已进入平台内部组织；重新登录后可以进入管理后台，也可以进入创作端使用前端功能。'
+        : '继续完成个人交付：可以给个人账号充值、改套餐，并把临时密码交付给用户。'
+    const createdAccountAction = needsOrganization
+      ? { label: '查看企业组织', tabId: 'organizations', icon: Building2 }
+      : { label: '查看个人账号', tabId: 'personal-accounts', icon: IdCard }
     const confirmed = await confirmAction({
       title: `创建${roleName(createUserForm.role)}账号`,
       summary: '将直接创建账号并设置初始临时密码。',
@@ -1150,16 +1354,9 @@ export function App() {
       setCreateUserForm(createUserInitialState)
       await loadConsole()
       setNextStepHint({
-        title: needsOrganization ? '组织账号已创建' : '个人账号已创建',
-        description: needsOrganization
-          ? '继续完成组织账号交付：需要时给成员改套餐，或在组织共享池给企业充值。'
-          : '继续完成个人交付：可以给个人账号充值、改套餐，并把临时密码交付给用户。',
-        actions: [
-          { label: '去账单调账', tabId: 'adjustments', icon: PencilLine },
-          needsOrganization
-            ? { label: '查看企业组织', tabId: 'organizations', icon: Building2 }
-            : { label: '查看个人账号', tabId: 'personal-accounts', icon: IdCard },
-        ],
+        title: createdAccountTitle,
+        description: createdAccountDescription,
+        actions: [{ label: '去账单调账', tabId: 'adjustments', icon: PencilLine }, createdAccountAction],
       })
       setNotice('账号已创建')
     })
@@ -2097,7 +2294,10 @@ export function App() {
             <ArrowLeft size={16} />
             返回工作台
           </a>
-          <div className="operator-chip">
+          <div
+            className="operator-chip"
+            title={`当前登录账号：${session.account.name}；身份：${session.account.roles.map(roleName).join('、')}`}
+          >
             <span>{session.account.name.slice(0, 1)}</span>
             <div>
               <strong>{session.account.name}</strong>
@@ -2107,6 +2307,9 @@ export function App() {
           <button
             className="icon-text-button"
             type="button"
+            {...tooltipProps(
+              loading || usageLoading || complianceLoading ? '后台数据正在刷新' : '刷新当前后台页面的数据',
+            )}
             onClick={refreshActiveData}
             disabled={loading || usageLoading || complianceLoading}
           >
@@ -2117,7 +2320,12 @@ export function App() {
             )}
             刷新
           </button>
-          <button className="icon-button" type="button" aria-label="退出" onClick={logout}>
+          <button
+            className="icon-button"
+            type="button"
+            {...tooltipProps('退出当前后台账号')}
+            onClick={logout}
+          >
             <LogOut size={18} />
           </button>
         </div>
@@ -2134,6 +2342,7 @@ export function App() {
                     key={tab.id}
                     type="button"
                     className={activeTab === tab.id ? 'active' : ''}
+                    title={`打开${tab.label}页面`}
                     onClick={() => setActiveTab(tab.id)}
                   >
                     <tab.icon size={17} />
@@ -2162,7 +2371,7 @@ export function App() {
                 <Search size={16} />
                 <input
                   value={queryDraft}
-                  onChange={(event) => setQueryDraft(event.target.value)}
+                  onChange={(event) => updateQueryDraft(event.target.value)}
                   placeholder="搜索用户、组织、账单、session 或审计"
                 />
               </label>
@@ -2274,6 +2483,7 @@ export function App() {
                   busy={busy}
                   onOpenDetail={openUserDetail}
                   onSetStatus={setUserStatus}
+                  onDeleteUser={deleteUser}
                   onOpenPasswordReset={openPasswordReset}
                   onForcePasswordReset={forcePasswordReset}
                 />
@@ -2292,6 +2502,7 @@ export function App() {
                   onUpdatePlan={openMembershipPlan}
                   onOpenPasswordReset={openPasswordReset}
                   onSetStatus={setUserStatus}
+                  onDeleteUser={deleteUser}
                   onCreateUser={openCreateUser}
                   onCreateInvitation={openCreatePlatformInvitation}
                 />
@@ -2475,6 +2686,13 @@ export function App() {
                   onActionFilterChange={setAuditActionFilter}
                   onResourceFilterChange={setAuditResourceFilter}
                   onOpenDetail={openAuditDetail}
+                />
+              )}
+              {usesConsoleServerControls(activeTab) && activeListMeta && (
+                <ConsolePaginationFooter
+                  activeMeta={activeListMeta}
+                  loading={loading}
+                  onPageOffsetChange={goToConsoleOffset}
                 />
               )}
             </>
@@ -2697,6 +2915,7 @@ export function App() {
           busy={busy}
           onClose={() => setUserDetailId('')}
           onSetStatus={setUserStatus}
+          onDeleteUser={deleteUser}
           onOpenPasswordReset={openPasswordReset}
           onForcePasswordReset={forcePasswordReset}
           onOpenMembership={openMembershipDetail}
@@ -2828,7 +3047,12 @@ export function App() {
 
 function LoadingScreen({ label, compact = false }) {
   return (
-    <div className={compact ? 'loading-state compact' : 'loading-state'}>
+    <div
+      className={compact ? 'loading-state compact' : 'loading-state'}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
       <LoaderCircle size={compact ? 20 : 28} className="spin" />
       <span>{label}</span>
     </div>
@@ -2837,7 +3061,11 @@ function LoadingScreen({ label, compact = false }) {
 
 function DismissibleNotice({ tone = 'success', children, onClose }) {
   return (
-    <div className={`notice ${tone} dismissible`}>
+    <div
+      className={`notice ${tone} dismissible`}
+      role={tone === 'error' ? 'alert' : 'status'}
+      aria-live={tone === 'error' ? 'assertive' : 'polite'}
+    >
       <span>{children}</span>
       <button className="notice-dismiss" type="button" onClick={onClose} aria-label="关闭提示">
         <X size={14} />
@@ -2849,18 +3077,25 @@ function DismissibleNotice({ tone = 'success', children, onClose }) {
 function NextStepNotice({ hint, onAction, onClose }) {
   return (
     <section className="next-step-notice">
-      <div>
+      <ShieldCheck size={16} />
+      <div className="next-step-copy">
         <strong>{hint.title}</strong>
         <span>{hint.description}</span>
       </div>
-      <div>
+      <div className="next-step-actions">
         {(hint.actions ?? []).map((action) => (
-          <button key={action.label} className="row-button" type="button" onClick={() => onAction(action)}>
+          <button
+            key={action.label}
+            className="row-button"
+            type="button"
+            {...tooltipProps(action.description ?? `执行：${action.label}`)}
+            onClick={() => onAction(action)}
+          >
             {action.icon ? <action.icon size={14} /> : <Check size={14} />}
             {action.label}
           </button>
         ))}
-        <button className="icon-button" type="button" aria-label="关闭下一步提示" onClick={onClose}>
+        <button className="icon-button" type="button" {...tooltipProps('关闭下一步提示')} onClick={onClose}>
           <X size={16} />
         </button>
       </div>
@@ -3037,7 +3272,7 @@ function DeliveryWorkbench({
           </header>
           <ol>
             <li>确认公账或线下款项对应个人用户。</li>
-            <li>选择邀请普通成员，或直接创建个人账号。</li>
+            <li>选择邀请成员，或直接创建个人账号。</li>
             <li>在账单调账里给个人 membership 充值或改套餐。</li>
             <li>交付注册链接或临时密码，并确认用户首次登录。</li>
           </ol>
@@ -3054,11 +3289,11 @@ function DeliveryWorkbench({
             <button
               className="row-button"
               type="button"
-              {...disabledButtonProps(!canInvitePersonal, '当前身份不能邀请普通成员')}
+              {...disabledButtonProps(!canInvitePersonal, '当前身份不能邀请成员')}
               onClick={onInvitePersonalAccount}
             >
               <MailPlus size={14} />
-              邀请普通成员
+              邀请成员
             </button>
             <button className="row-button" type="button" onClick={onOpenAdjustments}>
               <PencilLine size={14} />
@@ -3338,6 +3573,11 @@ function ConsoleServerControls({
   const hasPrevious = offset > 0
   const hasNext = offset + limit < total
   const hasActiveList = Boolean(activeMeta)
+  const summary = !hasActiveList
+    ? '筛选会应用到用户、组织、成员、账单、Session 和审计列表'
+    : loading
+      ? '正在读取服务端列表'
+      : `服务端分页 ${from}-${to} / ${total}`
 
   return (
     <section className="server-list-controls">
@@ -3391,7 +3631,11 @@ function ConsoleServerControls({
         <button
           className="row-button"
           type="button"
-          disabled={!query && !filters.tenantId && !filters.role && !filters.status && filters.limit === 50}
+          {...disabledButtonProps(
+            !query && !filters.tenantId && !filters.role && !filters.status && filters.limit === 50,
+            '当前没有可清空的筛选条件',
+            '清空搜索、组织、身份、状态和分页筛选',
+          )}
           onClick={onClear}
         >
           <X size={14} />
@@ -3399,36 +3643,88 @@ function ConsoleServerControls({
         </button>
       </div>
 
-      <div className="server-pagination-row">
-        <span>
-          {!hasActiveList
-            ? '筛选会应用到用户、组织、成员、账单、Session 和审计列表'
-            : loading
-              ? '正在读取服务端列表'
-              : `服务端分页 ${from}-${to} / ${total}`}
-        </span>
-        {hasActiveList && (
-          <div>
-            <button
-              className="row-button"
-              type="button"
-              disabled={!hasPrevious || loading}
-              onClick={() => onPageOffsetChange(Math.max(0, offset - limit))}
-            >
-              上一页
-            </button>
-            <button
-              className="row-button"
-              type="button"
-              disabled={!hasNext || loading}
-              onClick={() => onPageOffsetChange(offset + limit)}
-            >
-              下一页
-            </button>
-          </div>
-        )}
-      </div>
+      <ListPaginationRow
+        summary={summary}
+        loading={loading}
+        hasPrevious={hasPrevious}
+        hasNext={hasNext}
+        onPrevious={hasActiveList ? () => onPageOffsetChange(Math.max(0, offset - limit)) : null}
+        onNext={hasActiveList ? () => onPageOffsetChange(offset + limit) : null}
+      />
     </section>
+  )
+}
+
+function ConsolePaginationFooter({ activeMeta, loading, onPageOffsetChange }) {
+  if (!activeMeta) return null
+  const limit = activeMeta.limit
+  const offset = activeMeta.offset
+  const total = activeMeta.total
+  const from = total ? offset + 1 : 0
+  const to = Math.min(offset + limit, total)
+  const hasPrevious = offset > 0
+  const hasNext = offset + limit < total
+
+  return (
+    <section className="list-pagination-footer" aria-label="列表底部分页">
+      <ListPaginationRow
+        summary={loading ? '正在读取服务端列表' : `服务端分页 ${from}-${to} / ${total}`}
+        loading={loading}
+        hasPrevious={hasPrevious}
+        hasNext={hasNext}
+        onPrevious={() => onPageOffsetChange(Math.max(0, offset - limit))}
+        onNext={() => onPageOffsetChange(offset + limit)}
+      />
+    </section>
+  )
+}
+
+function ListPaginationRow({ summary, loading, hasPrevious, hasNext, onPrevious, onNext }) {
+  const canPaginate = Boolean(onPrevious && onNext)
+  return (
+    <div className="server-pagination-row">
+      <span>{summary}</span>
+      {canPaginate && (
+        <div>
+          <button
+            className="row-button"
+            type="button"
+            {...disabledButtonProps(
+              !hasPrevious || loading,
+              loading ? '正在读取服务端列表' : '已经是第一页',
+              '查看上一页服务端数据',
+            )}
+            onClick={onPrevious}
+          >
+            上一页
+          </button>
+          <button
+            className="row-button"
+            type="button"
+            {...disabledButtonProps(
+              !hasNext || loading,
+              loading ? '正在读取服务端列表' : '已经是最后一页',
+              '查看下一页服务端数据',
+            )}
+            onClick={onNext}
+          >
+            下一页
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RowMoreMenu({ title = '打开更多操作', children }) {
+  return (
+    <details className="row-more-menu">
+      <summary title={title} aria-label={title}>
+        <MoreHorizontal size={14} />
+        <span>更多</span>
+      </summary>
+      <div>{children}</div>
+    </details>
   )
 }
 
@@ -3439,6 +3735,7 @@ function UsersTable({
   busy,
   onOpenDetail,
   onSetStatus,
+  onDeleteUser,
   onOpenPasswordReset,
   onForcePasswordReset,
 }) {
@@ -3457,78 +3754,159 @@ function UsersTable({
           </tr>
         </thead>
         <tbody>
-          {users.map((user) => (
-            <tr key={user.id}>
-              <td>
-                <IdentityCell name={user.name} detail={user.email ?? user.id} />
-              </td>
-              <td>
-                <StatusBadge status={user.status} />
-              </td>
-              <td>
-                <PasswordResetBadge required={user.passwordResetRequired} />
-              </td>
-              <td>
-                <RolePills roles={user.roles} />
-              </td>
-              <td>
-                {user.activeMembershipCount} / {user.membershipCount}
-              </td>
-              <td>{formatDate(user.updatedAt)}</td>
-              <td>
-                <div className="row-actions">
-                  <button className="row-button" type="button" onClick={() => onOpenDetail(user)}>
-                    <FileText size={14} />
-                    详情
-                  </button>
-                  <button
-                    className="row-button"
-                    type="button"
-                    disabled={!canManage || user.id === currentUserId || busy === `password:${user.id}`}
-                    onClick={() => onOpenPasswordReset(user)}
-                  >
-                    {busy === `password:${user.id}` ? (
-                      <LoaderCircle size={14} className="spin" />
-                    ) : (
-                      <KeyRound size={14} />
-                    )}
-                    重置临时密码
-                  </button>
-                  <button
-                    className="row-button danger"
-                    type="button"
-                    disabled={
-                      !canManage ||
-                      user.id === currentUserId ||
-                      user.passwordResetRequired ||
-                      busy === `force-password:${user.id}`
-                    }
-                    onClick={() => onForcePasswordReset(user)}
-                  >
-                    {busy === `force-password:${user.id}` ? (
-                      <LoaderCircle size={14} className="spin" />
-                    ) : (
-                      <ShieldCheck size={14} />
-                    )}
-                    强制改密
-                  </button>
-                  <button
-                    className={user.status === 'active' ? 'row-button danger' : 'row-button'}
-                    type="button"
-                    disabled={!canManage || user.id === currentUserId || busy === `user:${user.id}`}
-                    onClick={() => onSetStatus(user)}
-                  >
-                    {busy === `user:${user.id}` ? (
-                      <LoaderCircle size={14} className="spin" />
-                    ) : (
-                      <Power size={14} />
-                    )}
-                    {user.status === 'active' ? '禁用' : '启用'}
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
+          {users.map((user) => {
+            const deleted = user.status === 'deleted'
+            return (
+              <tr key={user.id}>
+                <td>
+                  <IdentityCell name={user.name} detail={user.email ?? user.id} />
+                </td>
+                <td>
+                  <StatusBadge status={user.status} />
+                </td>
+                <td>
+                  <PasswordResetBadge required={user.passwordResetRequired} />
+                </td>
+                <td>
+                  <RolePills roles={user.roles} />
+                </td>
+                <td>
+                  {user.activeMembershipCount} / {user.membershipCount}
+                </td>
+                <td>{formatDate(user.updatedAt)}</td>
+                <td>
+                  <div className="row-actions">
+                    <button
+                      className="row-button"
+                      type="button"
+                      {...tooltipProps('查看用户详情、所属组织、账单和 Session')}
+                      onClick={() => onOpenDetail(user)}
+                    >
+                      <FileText size={14} />
+                      详情
+                    </button>
+                    <button
+                      className="row-button"
+                      type="button"
+                      disabled={
+                        !canManage || user.id === currentUserId || deleted || busy === `password:${user.id}`
+                      }
+                      {...tooltipProps(
+                        !canManage
+                          ? '当前身份不能设置临时密码'
+                          : user.id === currentUserId
+                            ? '不能给当前登录账号设置临时密码'
+                            : deleted
+                              ? '账号已删除，不能设置临时密码'
+                              : busy === `password:${user.id}`
+                                ? '正在设置临时密码'
+                                : '设置新的临时密码，并可要求用户下次登录修改',
+                      )}
+                      onClick={() => onOpenPasswordReset(user)}
+                    >
+                      {busy === `password:${user.id}` ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <KeyRound size={14} />
+                      )}
+                      重置临时密码
+                    </button>
+                    <RowMoreMenu title="打开更多用户操作">
+                      <button
+                        className="row-button danger"
+                        type="button"
+                        disabled={
+                          !canManage ||
+                          user.id === currentUserId ||
+                          deleted ||
+                          user.passwordResetRequired ||
+                          busy === `force-password:${user.id}`
+                        }
+                        {...tooltipProps(
+                          !canManage
+                            ? '当前身份不能强制用户改密'
+                            : user.id === currentUserId
+                              ? '不能强制当前登录账号改密'
+                              : deleted
+                                ? '账号已删除，不能强制改密'
+                                : user.passwordResetRequired
+                                  ? '用户已经需要下次登录改密'
+                                  : busy === `force-password:${user.id}`
+                                    ? '正在设置强制改密'
+                                    : '要求用户下次登录必须修改密码',
+                        )}
+                        onClick={() => onForcePasswordReset(user)}
+                      >
+                        {busy === `force-password:${user.id}` ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
+                          <ShieldCheck size={14} />
+                        )}
+                        强制改密
+                      </button>
+                      <button
+                        className={user.status === 'active' ? 'row-button danger' : 'row-button'}
+                        type="button"
+                        disabled={
+                          !canManage || user.id === currentUserId || deleted || busy === `user:${user.id}`
+                        }
+                        {...tooltipProps(
+                          !canManage
+                            ? '当前身份不能变更账号状态'
+                            : user.id === currentUserId
+                              ? '不能禁用或启用当前登录账号'
+                              : deleted
+                                ? '账号已删除，不能变更状态'
+                                : busy === `user:${user.id}`
+                                  ? '正在更新账号状态'
+                                  : user.status === 'active'
+                                    ? '禁用账号，阻止继续登录和使用'
+                                    : '启用账号，恢复登录和使用',
+                        )}
+                        onClick={() => onSetStatus(user)}
+                      >
+                        {busy === `user:${user.id}` ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
+                          <Power size={14} />
+                        )}
+                        {deleted ? '已删除' : user.status === 'active' ? '禁用' : '启用'}
+                      </button>
+                      <button
+                        className="row-button danger"
+                        type="button"
+                        disabled={
+                          !canManage ||
+                          user.id === currentUserId ||
+                          deleted ||
+                          busy === `delete-user:${user.id}`
+                        }
+                        {...tooltipProps(
+                          !canManage
+                            ? '当前身份不能删除账号'
+                            : user.id === currentUserId
+                              ? '不能删除当前登录账号'
+                              : deleted
+                                ? '账号已删除'
+                                : busy === `delete-user:${user.id}`
+                                  ? '正在删除账号'
+                                  : '删除账号，需要两次确认，并禁用该用户所有归属和登录 Session',
+                        )}
+                        onClick={() => onDeleteUser(user)}
+                      >
+                        {busy === `delete-user:${user.id}` ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
+                          <Trash2 size={14} />
+                        )}
+                        删除账号
+                      </button>
+                    </RowMoreMenu>
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
           <EmptyRow visible={!users.length} columns={7} />
         </tbody>
       </table>
@@ -3549,19 +3927,20 @@ function PersonalAccountsTable({
   onUpdatePlan,
   onOpenPasswordReset,
   onSetStatus,
+  onDeleteUser,
   onCreateUser,
   onCreateInvitation,
 }) {
   const createUserDisabled = !canManageUsers(session) || busy === 'create-user'
-  const createUserDisabledReason = !canManageUsers(session) ? '当前身份不能直接创建个人账号' : '正在创建账号'
+  const createUserDisabledReason = !canManageUsers(session) ? '当前身份不能直接创建账号' : '正在创建账号'
   const createInvitationDisabled = !canCreatePlatformInvitation(session) || busy === 'create-invitation'
   const createInvitationDisabledReason = !canCreatePlatformInvitation(session)
-    ? '当前身份不能邀请普通成员'
+    ? '当前身份不能邀请成员'
     : '正在创建邀请'
 
   return (
     <DataSection title="个人账号" count={memberships.length}>
-      <div className="section-actions">
+      <div className="section-actions leading-actions">
         <button
           className="row-button"
           type="button"
@@ -3569,7 +3948,7 @@ function PersonalAccountsTable({
           onClick={() => onCreateUser()}
         >
           {busy === 'create-user' ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}
-          直接创建个人账号
+          直接创建账号
         </button>
         <button
           className="primary-button"
@@ -3582,7 +3961,7 @@ function PersonalAccountsTable({
           ) : (
             <MailPlus size={14} />
           )}
-          邀请普通成员
+          邀请成员
         </button>
       </div>
       <table className="data-table wide">
@@ -3606,6 +3985,8 @@ function PersonalAccountsTable({
             const canUpdatePlan = canUpdateMembershipPlan(session, membership)
             const passwordDisabled = !canManage || passwordBusy
             const accountDisabled = !canManage || membership.userId === currentUserId || accountBusy
+            const deleteBusy = busy === `delete-user:${membership.userId}`
+            const deleted = membership.userStatus === 'deleted'
             return (
               <tr key={membership.id}>
                 <td>
@@ -3636,7 +4017,12 @@ function PersonalAccountsTable({
                 </td>
                 <td>
                   <div className="row-actions">
-                    <button className="row-button" type="button" onClick={() => onOpenDetail(membership)}>
+                    <button
+                      className="row-button"
+                      type="button"
+                      {...tooltipProps('查看该账号归属的详情、账单和最近操作')}
+                      onClick={() => onOpenDetail(membership)}
+                    >
                       <FileText size={14} />
                       详情
                     </button>
@@ -3646,6 +4032,7 @@ function PersonalAccountsTable({
                       {...disabledButtonProps(
                         !canAdjustTarget,
                         !canAdjustBilling ? '当前身份不能调账' : '当前身份不能调整该账号归属的账单',
+                        '更改该账号归属的积分余额',
                       )}
                       onClick={() => onAdjust(membership)}
                     >
@@ -3655,40 +4042,71 @@ function PersonalAccountsTable({
                     <button
                       className="row-button"
                       type="button"
-                      {...disabledButtonProps(!canUpdatePlan, '当前身份不能修改该账号归属的套餐')}
+                      {...disabledButtonProps(
+                        !canUpdatePlan,
+                        '当前身份不能修改该账号归属的套餐',
+                        '修改套餐，必要时发放会员积分',
+                      )}
                       onClick={() => onUpdatePlan(membership)}
                     >
                       <Crown size={14} />
                       改套餐/冲会员
                     </button>
-                    <button
-                      className="row-button"
-                      type="button"
-                      {...disabledButtonProps(
-                        passwordDisabled,
-                        !canManage ? '当前身份不能设置密码' : '正在设置密码',
-                      )}
-                      onClick={() => onOpenPasswordReset(userTarget)}
-                    >
-                      {passwordBusy ? <LoaderCircle size={14} className="spin" /> : <KeyRound size={14} />}
-                      设置密码
-                    </button>
-                    <button
-                      className="row-button danger"
-                      type="button"
-                      {...disabledButtonProps(
-                        accountDisabled,
-                        !canManage
-                          ? '当前身份不能变更账号状态'
-                          : membership.userId === currentUserId
-                            ? '不能禁用或启用当前登录账号'
-                            : '正在更新账号状态',
-                      )}
-                      onClick={() => onSetStatus(userTarget)}
-                    >
-                      {accountBusy ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
-                      {membership.userStatus === 'active' ? '禁用账号' : '启用账号'}
-                    </button>
+                    <RowMoreMenu title="打开更多个人账号操作">
+                      <button
+                        className="row-button"
+                        type="button"
+                        {...disabledButtonProps(
+                          passwordDisabled || deleted,
+                          !canManage ? '当前身份不能设置密码' : deleted ? '账号已删除' : '正在设置密码',
+                          '设置新的登录密码或临时密码',
+                        )}
+                        onClick={() => onOpenPasswordReset(userTarget)}
+                      >
+                        {passwordBusy ? <LoaderCircle size={14} className="spin" /> : <KeyRound size={14} />}
+                        设置密码
+                      </button>
+                      <button
+                        className="row-button danger"
+                        type="button"
+                        {...disabledButtonProps(
+                          accountDisabled || deleted,
+                          !canManage
+                            ? '当前身份不能变更账号状态'
+                            : deleted
+                              ? '已删除账号不能重新启用'
+                              : membership.userId === currentUserId
+                                ? '不能禁用或启用当前登录账号'
+                                : '正在更新账号状态',
+                          membership.userStatus === 'active'
+                            ? '禁用账号，阻止继续登录和使用'
+                            : '启用账号，恢复登录和使用',
+                        )}
+                        onClick={() => onSetStatus(userTarget)}
+                      >
+                        {accountBusy ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
+                        {membership.userStatus === 'active' ? '禁用账号' : '启用账号'}
+                      </button>
+                      <button
+                        className="row-button danger"
+                        type="button"
+                        {...disabledButtonProps(
+                          !canManage || membership.userId === currentUserId || deleted || deleteBusy,
+                          !canManage
+                            ? '当前身份不能删除账号'
+                            : membership.userId === currentUserId
+                              ? '不能删除当前登录账号'
+                              : deleted
+                                ? '账号已删除'
+                                : '正在删除账号',
+                          '删除账号，需要两次确认，并禁用该用户所有归属和登录 Session',
+                        )}
+                        onClick={() => onDeleteUser(userTarget)}
+                      >
+                        {deleteBusy ? <LoaderCircle size={14} className="spin" /> : <Trash2 size={14} />}
+                        删除账号
+                      </button>
+                    </RowMoreMenu>
                   </div>
                 </td>
               </tr>
@@ -3739,7 +4157,7 @@ function OrganizationsTable({
 
   return (
     <DataSection title="企业组织列表" count={visibleOrganizations.length}>
-      <div className="inline-filter-bar organization-filter-bar">
+      <div className="section-actions leading-actions">
         <button
           className="primary-button"
           type="button"
@@ -3819,7 +4237,12 @@ function OrganizationsTable({
                 <td>{formatDate(organization.updatedAt)}</td>
                 <td>
                   <div className="row-actions">
-                    <button className="row-button" type="button" onClick={() => onOpenDetail(organization)}>
+                    <button
+                      className="row-button"
+                      type="button"
+                      {...tooltipProps('查看企业组织详情、成员、账单和审计记录')}
+                      onClick={() => onOpenDetail(organization)}
+                    >
                       <FileText size={14} />
                       详情
                     </button>
@@ -3831,6 +4254,7 @@ function OrganizationsTable({
                         organizationType.type !== 'enterprise'
                           ? '只有企业组织有共享积分池'
                           : '当前身份不能查看该组织共享积分池',
+                        '查看或调整该企业组织的共享积分池',
                       )}
                       onClick={() => onOpenOrganizationBilling(organization)}
                     >
@@ -3843,135 +4267,140 @@ function OrganizationsTable({
                       {...disabledButtonProps(
                         !canCreateTarget,
                         inactiveReason || '当前身份不能在该组织内直接创建账号',
+                        '在该企业组织内直接创建一个新账号',
                       )}
                       onClick={() => onCreateUser(organization.id)}
                     >
                       <Plus size={14} />
                       直接创建组织账号
                     </button>
-                    <button
-                      className="row-button"
-                      type="button"
-                      {...disabledButtonProps(
-                        !canAddExistingTarget || busy === 'add-existing-member',
-                        inactiveReason ||
-                          (!canAddExistingTarget ? '当前身份不能把已有账号加入该组织' : '正在加入已有账号'),
-                      )}
-                      onClick={() => onAddExistingMember(organization.id)}
-                    >
-                      {busy === 'add-existing-member' ? (
-                        <LoaderCircle size={14} className="spin" />
-                      ) : (
-                        <UserPlus size={14} />
-                      )}
-                      加入已有账号
-                    </button>
-                    <button
-                      className="row-button"
-                      type="button"
-                      {...disabledButtonProps(
-                        !canInviteOrganizationMember || busy === 'create-invitation',
-                        inactiveReason ||
-                          (!canInviteOrganizationMember ? '当前身份不能邀请组织成员' : '正在创建邀请'),
-                      )}
-                      onClick={() => onCreateInvitation(organization.id, 'organization_member')}
-                    >
-                      {busy === 'create-invitation' ? (
-                        <LoaderCircle size={14} className="spin" />
-                      ) : (
-                        <MailPlus size={14} />
-                      )}
-                      邀请组织成员
-                    </button>
-                    <button
-                      className="row-button"
-                      type="button"
-                      {...disabledButtonProps(
-                        !canInviteOrganizationAdmin || busy === 'create-invitation',
-                        inactiveReason ||
-                          (!canInviteOrganizationAdmin ? '当前身份不能邀请组织管理员' : '正在创建邀请'),
-                      )}
-                      onClick={() => onCreateInvitation(organization.id, 'organization_admin')}
-                    >
-                      {busy === 'create-invitation' ? (
-                        <LoaderCircle size={14} className="spin" />
-                      ) : (
-                        <Crown size={14} />
-                      )}
-                      邀请组织管理员
-                    </button>
-                    <details className="row-more-menu">
-                      <summary title="打开低频组织操作">
-                        <MoreHorizontal size={14} />
-                        更多
-                      </summary>
-                      <div>
-                        <button
-                          className="row-button"
-                          type="button"
-                          {...disabledButtonProps(
-                            !canRenameTarget || busy === `organization-rename:${organization.id}`,
-                            !canRenameTarget ? '当前身份不能重命名该组织' : '正在重命名组织',
-                          )}
-                          onClick={() => onRename(organization)}
-                        >
-                          {busy === `organization-rename:${organization.id}` ? (
-                            <LoaderCircle size={14} className="spin" />
-                          ) : (
-                            <PencilLine size={14} />
-                          )}
-                          改名
-                        </button>
-                        <button
-                          className="row-button"
-                          type="button"
-                          {...disabledButtonProps(!canManageTarget, '当前身份不能管理该组织邀请')}
-                          onClick={() => onManageInvitations(organization)}
-                        >
+                    <RowMoreMenu title="打开更多组织操作">
+                      <button
+                        className="row-button"
+                        type="button"
+                        {...disabledButtonProps(
+                          !canAddExistingTarget || busy === 'add-existing-member',
+                          inactiveReason ||
+                            (!canAddExistingTarget ? '当前身份不能把已有账号加入该组织' : '正在加入已有账号'),
+                          '把一个已有账号加入该企业组织',
+                        )}
+                        onClick={() => onAddExistingMember(organization.id)}
+                      >
+                        {busy === 'add-existing-member' ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
+                          <UserPlus size={14} />
+                        )}
+                        加入已有账号
+                      </button>
+                      <button
+                        className="row-button"
+                        type="button"
+                        {...disabledButtonProps(
+                          !canInviteOrganizationMember || busy === 'create-invitation',
+                          inactiveReason ||
+                            (!canInviteOrganizationMember ? '当前身份不能邀请组织成员' : '正在创建邀请'),
+                          '创建组织成员邀请链接',
+                        )}
+                        onClick={() => onCreateInvitation(organization.id, 'organization_member')}
+                      >
+                        {busy === 'create-invitation' ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
                           <MailPlus size={14} />
-                          邀请管理
-                        </button>
-                        <button
-                          className="row-button"
-                          type="button"
-                          {...disabledButtonProps(
-                            !canTransferTarget || busy === `organization-admin-change:${organization.id}`,
-                            !canTransferOrganizationAdmin(session, organization)
-                              ? '只有平台管理员可以更换组织负责人'
-                              : organization.activeOrganizationAdminCount < 1
-                                ? '该组织没有可更换的组织管理员'
-                                : '正在更换组织负责人',
-                          )}
-                          onClick={() => onTransferOrganizationAdmin(organization)}
-                        >
-                          {busy === `organization-admin-change:${organization.id}` ? (
-                            <LoaderCircle size={14} className="spin" />
-                          ) : (
-                            <ShieldCheck size={14} />
-                          )}
-                          更换组织负责人
-                        </button>
-                        <button
-                          className="row-button danger"
-                          type="button"
-                          {...disabledButtonProps(
-                            !canDisableTarget || busy === `organization-disable:${organization.id}`,
-                            inactiveReason ||
-                              (!canDisableOrganization(session, organization)
-                                ? '只有 owner 可以禁用企业组织'
-                                : '正在禁用组织'),
-                          )}
-                          onClick={() => onDisable(organization)}
-                        >
-                          {busy === `organization-disable:${organization.id}` ? (
-                            <LoaderCircle size={14} className="spin" />
-                          ) : (
-                            <Power size={14} />
-                          )}
-                          禁用
-                        </button>
-                      </div>
-                    </details>
+                        )}
+                        邀请组织成员
+                      </button>
+                      <button
+                        className="row-button"
+                        type="button"
+                        {...disabledButtonProps(
+                          !canInviteOrganizationAdmin || busy === 'create-invitation',
+                          inactiveReason ||
+                            (!canInviteOrganizationAdmin ? '当前身份不能邀请组织管理员' : '正在创建邀请'),
+                          '创建组织管理员邀请链接',
+                        )}
+                        onClick={() => onCreateInvitation(organization.id, 'organization_admin')}
+                      >
+                        {busy === 'create-invitation' ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
+                          <Crown size={14} />
+                        )}
+                        邀请组织管理员
+                      </button>
+                      <button
+                        className="row-button"
+                        type="button"
+                        {...disabledButtonProps(
+                          !canRenameTarget || busy === `organization-rename:${organization.id}`,
+                          !canRenameTarget ? '当前身份不能重命名该组织' : '正在重命名组织',
+                          '重命名该企业组织',
+                        )}
+                        onClick={() => onRename(organization)}
+                      >
+                        {busy === `organization-rename:${organization.id}` ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
+                          <PencilLine size={14} />
+                        )}
+                        改名
+                      </button>
+                      <button
+                        className="row-button"
+                        type="button"
+                        {...disabledButtonProps(
+                          !canManageTarget,
+                          '当前身份不能管理该组织邀请',
+                          '查看、刷新或撤销该组织邀请',
+                        )}
+                        onClick={() => onManageInvitations(organization)}
+                      >
+                        <MailPlus size={14} />
+                        邀请管理
+                      </button>
+                      <button
+                        className="row-button"
+                        type="button"
+                        {...disabledButtonProps(
+                          !canTransferTarget || busy === `organization-admin-change:${organization.id}`,
+                          !canTransferOrganizationAdmin(session, organization)
+                            ? '只有平台管理员可以更换组织负责人'
+                            : organization.activeOrganizationAdminCount < 1
+                              ? '该组织没有可更换的组织管理员'
+                              : '正在更换组织负责人',
+                          '把组织负责人转给另一个组织成员',
+                        )}
+                        onClick={() => onTransferOrganizationAdmin(organization)}
+                      >
+                        {busy === `organization-admin-change:${organization.id}` ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
+                          <ShieldCheck size={14} />
+                        )}
+                        更换组织负责人
+                      </button>
+                      <button
+                        className="row-button danger"
+                        type="button"
+                        {...disabledButtonProps(
+                          !canDisableTarget || busy === `organization-disable:${organization.id}`,
+                          inactiveReason ||
+                            (!canDisableOrganization(session, organization)
+                              ? '只有 owner 可以禁用企业组织'
+                              : '正在禁用组织'),
+                          '禁用该企业组织，阻止继续使用',
+                        )}
+                        onClick={() => onDisable(organization)}
+                      >
+                        {busy === `organization-disable:${organization.id}` ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
+                          <Power size={14} />
+                        )}
+                        禁用
+                      </button>
+                    </RowMoreMenu>
                   </div>
                 </td>
               </tr>
@@ -4038,14 +4467,23 @@ function MembershipsTable({
               <td>{formatDate(membership.updatedAt)}</td>
               <td>
                 <div className="row-actions">
-                  <button className="row-button" type="button" onClick={() => onOpenDetail(membership)}>
+                  <button
+                    className="row-button"
+                    type="button"
+                    {...tooltipProps('查看该账号归属的详情、账单和关联 Session')}
+                    onClick={() => onOpenDetail(membership)}
+                  >
                     <FileText size={14} />
                     详情
                   </button>
                   <button
                     className="row-button"
                     type="button"
-                    disabled={!canAdjustBilling || !canManageBillingAccount(session, membership)}
+                    {...disabledButtonProps(
+                      !canAdjustBilling || !canManageBillingAccount(session, membership),
+                      !canAdjustBilling ? '当前身份不能调账' : '当前身份不能调整该账号归属的积分',
+                      '更改该账号归属的积分余额',
+                    )}
                     onClick={() => onAdjust(membership)}
                   >
                     <PencilLine size={14} />
@@ -4054,29 +4492,41 @@ function MembershipsTable({
                   <button
                     className="row-button"
                     type="button"
-                    disabled={!canUpdateMembershipPlan(session, membership)}
+                    {...disabledButtonProps(
+                      !canUpdateMembershipPlan(session, membership),
+                      '当前身份不能修改该账号归属的套餐',
+                      '修改套餐，必要时发放会员积分',
+                    )}
                     onClick={() => onUpdatePlan(membership)}
                   >
                     <Crown size={14} />
                     改套餐/冲会员
                   </button>
-                  <button
-                    className="row-button danger"
-                    type="button"
-                    disabled={
-                      membership.status !== 'active' ||
-                      !canManageMembership(session, membership) ||
-                      busy === `member-disable:${membership.id}`
-                    }
-                    onClick={() => onDisableMembership(membership)}
-                  >
-                    {busy === `member-disable:${membership.id}` ? (
-                      <LoaderCircle size={14} className="spin" />
-                    ) : (
-                      <Power size={14} />
-                    )}
-                    移除
-                  </button>
+                  <RowMoreMenu title="打开更多账号归属操作">
+                    <button
+                      className="row-button danger"
+                      type="button"
+                      {...disabledButtonProps(
+                        membership.status !== 'active' ||
+                          !canManageMembership(session, membership) ||
+                          busy === `member-disable:${membership.id}`,
+                        membership.status !== 'active'
+                          ? '该归属已经不是启用状态'
+                          : !canManageMembership(session, membership)
+                            ? '当前身份不能移除该账号归属'
+                            : '正在移除该账号归属',
+                        '移除该账号与当前组织/空间的归属关系',
+                      )}
+                      onClick={() => onDisableMembership(membership)}
+                    >
+                      {busy === `member-disable:${membership.id}` ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <Power size={14} />
+                      )}
+                      移除
+                    </button>
+                  </RowMoreMenu>
                 </div>
               </td>
             </tr>
@@ -4117,6 +4567,19 @@ function ComplianceReviewPage({
   const hasNext = offset + meta.limit < meta.total && !filters.sample
   const riskCount = allPrompts.filter((item) => item.riskTags.length > 0).length
   const queueSummary = summarizeComplianceQueues(allPrompts)
+  const compliancePaginationSummary = [
+    loading
+      ? '正在读取审查样本'
+      : filters.sample
+        ? `随机抽查 ${allPrompts.length} 条 / 匹配 ${meta.total} 条`
+        : `审查分页 ${from}-${to} / ${meta.total}`,
+    generatedAt ? formatDate(generatedAt) : '',
+    filters.category !== 'all' ? `当前风险筛选 ${prompts.length} 条` : '',
+    filters.queue !== 'all' ? `队列筛选 ${prompts.length} 条` : '',
+    riskCount ? `风险命中 ${riskCount} 条` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <div className="compliance-page">
@@ -4226,37 +4689,14 @@ function ComplianceReviewPage({
             随机抽查
           </button>
         </div>
-        <div className="server-pagination-row">
-          <span>
-            {loading
-              ? '正在读取审查样本'
-              : filters.sample
-                ? `随机抽查 ${allPrompts.length} 条 / 匹配 ${meta.total} 条`
-                : `审查分页 ${from}-${to} / ${meta.total}`}
-            {generatedAt ? ` · ${formatDate(generatedAt)}` : ''}
-            {filters.category !== 'all' ? ` · 当前风险筛选 ${prompts.length} 条` : ''}
-            {filters.queue !== 'all' ? ` · 队列筛选 ${prompts.length} 条` : ''}
-            {riskCount ? ` · 风险命中 ${riskCount} 条` : ''}
-          </span>
-          <div>
-            <button
-              className="row-button"
-              type="button"
-              disabled={!hasPrevious || loading}
-              onClick={() => onPageOffsetChange(Math.max(0, offset - meta.limit))}
-            >
-              上一页
-            </button>
-            <button
-              className="row-button"
-              type="button"
-              disabled={!hasNext || loading}
-              onClick={() => onPageOffsetChange(offset + meta.limit)}
-            >
-              下一页
-            </button>
-          </div>
-        </div>
+        <ListPaginationRow
+          summary={compliancePaginationSummary}
+          loading={loading}
+          hasPrevious={hasPrevious}
+          hasNext={hasNext}
+          onPrevious={() => onPageOffsetChange(Math.max(0, offset - meta.limit))}
+          onNext={() => onPageOffsetChange(offset + meta.limit)}
+        />
       </section>
 
       {error && <div className="notice error">{error}</div>}
@@ -4314,52 +4754,69 @@ function ComplianceReviewPage({
                   <td>{formatDate(item.createdAt)}</td>
                   <td>
                     <div className="row-actions">
-                      <button className="row-button" type="button" onClick={() => onOpenDetail(item)}>
+                      <button
+                        className="row-button"
+                        type="button"
+                        {...tooltipProps('查看提示词、风险标签和审查动作历史')}
+                        onClick={() => onOpenDetail(item)}
+                      >
                         <FileText size={14} />
                         详情
-                      </button>
-                      <button className="row-button" type="button" onClick={() => onOpenUser(item)}>
-                        <UsersRound size={14} />
-                        账号
-                      </button>
-                      <button className="row-button" type="button" onClick={() => onOpenOrganization(item)}>
-                        <Building2 size={14} />
-                        归属
                       </button>
                       <button
                         className="row-button"
                         type="button"
-                        {...disabledButtonProps(actionBusy, '正在记录审查动作')}
+                        {...disabledButtonProps(actionBusy, '正在记录审查动作', '标记该提示词已人工审查')}
                         onClick={() => onReview(item)}
                       >
                         {actionBusy ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
                         已审查
                       </button>
-                      <button
-                        className="row-button"
-                        type="button"
-                        {...disabledButtonProps(actionBusy, '正在记录审查动作')}
-                        onClick={() => onWarn(item)}
-                      >
-                        <AlertTriangle size={14} />
-                        警告
-                      </button>
-                      <button
-                        className="row-button danger"
-                        type="button"
-                        {...disabledButtonProps(
-                          item.userStatus !== 'active' || item.userId === currentUserId || accountBusy,
-                          item.userStatus !== 'active'
-                            ? '账号已禁用'
-                            : item.userId === currentUserId
-                              ? '不能封禁当前登录账号'
-                              : '正在更新账号状态',
-                        )}
-                        onClick={() => onDisableUser(item)}
-                      >
-                        {accountBusy ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
-                        封号
-                      </button>
+                      <RowMoreMenu title="打开更多审查操作">
+                        <button
+                          className="row-button"
+                          type="button"
+                          {...tooltipProps('打开该提示词所属账号详情')}
+                          onClick={() => onOpenUser(item)}
+                        >
+                          <UsersRound size={14} />
+                          账号
+                        </button>
+                        <button
+                          className="row-button"
+                          type="button"
+                          {...tooltipProps('打开该提示词所属组织或空间详情')}
+                          onClick={() => onOpenOrganization(item)}
+                        >
+                          <Building2 size={14} />
+                          归属
+                        </button>
+                        <button
+                          className="row-button"
+                          type="button"
+                          {...disabledButtonProps(actionBusy, '正在记录审查动作', '给该账号发送合规警告')}
+                          onClick={() => onWarn(item)}
+                        >
+                          <AlertTriangle size={14} />
+                          警告
+                        </button>
+                        <button
+                          className="row-button danger"
+                          type="button"
+                          {...disabledButtonProps(
+                            item.userStatus !== 'active' || item.userId === currentUserId || accountBusy,
+                            item.userStatus !== 'active'
+                              ? '账号已禁用'
+                              : item.userId === currentUserId
+                                ? '不能封禁当前登录账号'
+                                : '正在更新账号状态',
+                          )}
+                          onClick={() => onDisableUser(item)}
+                        >
+                          {accountBusy ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
+                          封号
+                        </button>
+                      </RowMoreMenu>
                     </div>
                   </td>
                 </tr>
@@ -4369,6 +4826,16 @@ function ComplianceReviewPage({
           </tbody>
         </table>
       </DataSection>
+      <section className="list-pagination-footer" aria-label="合规审查底部分页">
+        <ListPaginationRow
+          summary={compliancePaginationSummary}
+          loading={loading}
+          hasPrevious={hasPrevious}
+          hasNext={hasNext}
+          onPrevious={() => onPageOffsetChange(Math.max(0, offset - meta.limit))}
+          onNext={() => onPageOffsetChange(offset + meta.limit)}
+        />
+      </section>
     </div>
   )
 }
@@ -4445,7 +4912,7 @@ function InvitationsPage({
             type="button"
             {...disabledButtonProps(
               !canCreateMemberInvitation || busy === 'create-invitation',
-              !canCreateMemberInvitation ? '当前身份不能邀请普通成员' : '正在创建邀请',
+              !canCreateMemberInvitation ? '当前身份不能邀请成员' : '正在创建邀请',
             )}
             onClick={onCreatePlatformInvitation}
           >
@@ -4454,7 +4921,7 @@ function InvitationsPage({
             ) : (
               <MailPlus size={14} />
             )}
-            邀请普通成员
+            邀请成员
           </button>
           <button
             className="row-button"
@@ -5221,13 +5688,21 @@ function CompliancePromptDetailDrawer({
 }) {
   const actionBusy = busy.startsWith(`compliance:${item.id}`)
   const accountBusy = busy === `user:${item.userId}`
+  const titleId = useId()
+  useOverlayControls(onClose)
   return (
     <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+      <aside
+        className="side-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="drawer-header">
           <div>
             <span className="eyebrow">Compliance Review</span>
-            <h2>提示词审查详情</h2>
+            <h2 id={titleId}>提示词审查详情</h2>
             <p>
               {complianceSourceName(item.source)} · {item.sourceId}
             </p>
@@ -5303,6 +5778,13 @@ function CompliancePromptDetailDrawer({
           <ComplianceRiskTags tags={item.riskTags} expanded />
         </DrawerSection>
 
+        <DrawerSection
+          title="规则引擎解释"
+          count={(item.riskPolicyMatches?.length ?? 0) + (item.suppressedRiskTags?.length ?? 0)}
+        >
+          <ComplianceRuleEngineExplanation item={item} />
+        </DrawerSection>
+
         <DrawerSection title="审查动作历史" count={item.reviewActions?.length ?? 0}>
           <div className="compliance-review-history">
             {(item.reviewActions ?? []).map((action) => (
@@ -5358,6 +5840,7 @@ function UserDetailDrawer({
   busy,
   onClose,
   onSetStatus,
+  onDeleteUser,
   onOpenPasswordReset,
   onForcePasswordReset,
   onOpenMembership,
@@ -5390,18 +5873,27 @@ function UserDetailDrawer({
       (entry) => rowMatchesUser(entry, user.id) || rowMatchesAnyMembership(entry, userMembershipIds),
     ),
   )
+  const titleId = useId()
+  useOverlayControls(onClose)
   const activeSessions = userSessionRows.filter((item) => item.status === 'active').length
   const totalCredits = userBillingRows.reduce((total, account) => total + Number(account.credits ?? 0), 0)
   const openAlerts = userAlertRows.filter((alert) => alert.status !== 'resolved').length
   const canEditUser = canManage && user.id !== currentUserId
+  const deleted = user.status === 'deleted'
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+      <aside
+        className="side-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="drawer-header">
           <div>
             <span className="eyebrow">用户详情</span>
-            <h2>{user.name}</h2>
+            <h2 id={titleId}>{user.name}</h2>
             <p>{user.email ?? user.id}</p>
           </div>
           <button className="icon-button" type="button" aria-label="关闭用户详情" onClick={onClose}>
@@ -5460,7 +5952,7 @@ function UserDetailDrawer({
           <button
             className="row-button"
             type="button"
-            disabled={!canEditUser || busy === `password:${user.id}`}
+            disabled={!canEditUser || deleted || busy === `password:${user.id}`}
             onClick={() => onOpenPasswordReset(user)}
           >
             {busy === `password:${user.id}` ? (
@@ -5473,7 +5965,9 @@ function UserDetailDrawer({
           <button
             className="row-button danger"
             type="button"
-            disabled={!canEditUser || user.passwordResetRequired || busy === `force-password:${user.id}`}
+            disabled={
+              !canEditUser || deleted || user.passwordResetRequired || busy === `force-password:${user.id}`
+            }
             onClick={() => onForcePasswordReset(user)}
           >
             {busy === `force-password:${user.id}` ? (
@@ -5486,11 +5980,24 @@ function UserDetailDrawer({
           <button
             className={user.status === 'active' ? 'row-button danger' : 'row-button'}
             type="button"
-            disabled={!canEditUser || busy === `user:${user.id}`}
+            disabled={!canEditUser || deleted || busy === `user:${user.id}`}
             onClick={() => onSetStatus(user)}
           >
             {busy === `user:${user.id}` ? <LoaderCircle size={14} className="spin" /> : <Power size={14} />}
-            {user.status === 'active' ? '禁用账号' : '启用账号'}
+            {deleted ? '已删除' : user.status === 'active' ? '禁用账号' : '启用账号'}
+          </button>
+          <button
+            className="row-button danger"
+            type="button"
+            disabled={!canEditUser || deleted || busy === `delete-user:${user.id}`}
+            onClick={() => onDeleteUser(user)}
+          >
+            {busy === `delete-user:${user.id}` ? (
+              <LoaderCircle size={14} className="spin" />
+            ) : (
+              <Trash2 size={14} />
+            )}
+            删除账号
           </button>
         </div>
 
@@ -5713,14 +6220,22 @@ function MembershipDetailDrawer({
     ),
   )
   const activeSessions = sessionRows.filter((item) => item.status === 'active').length
+  const titleId = useId()
+  useOverlayControls(onClose)
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+      <aside
+        className="side-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="drawer-header">
           <div>
             <span className="eyebrow">Membership 详情</span>
-            <h2>{membership.name}</h2>
+            <h2 id={titleId}>{membership.name}</h2>
             <p>
               {membership.email ?? membership.userId} · {membershipId}
             </p>
@@ -6044,14 +6559,22 @@ function OrganizationDetailDrawer({
     organization.status === 'active' && invitationRoles.includes('organization_admin')
   const canLeaveTarget = canLeaveOrganization(session, organization, memberRows)
   const canReadBillingPool = canReadOrganizationBilling(session, organization)
+  const titleId = useId()
+  useOverlayControls(onClose)
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+      <aside
+        className="side-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="drawer-header">
           <div>
             <span className="eyebrow">组织详情</span>
-            <h2>{organization.name}</h2>
+            <h2 id={titleId}>{organization.name}</h2>
             <p>{organization.id}</p>
           </div>
           <button className="icon-button" type="button" aria-label="关闭组织详情" onClick={onClose}>
@@ -6395,24 +6918,36 @@ function SessionsTable({ sessions, canManage, busy, onRevoke }) {
               <td>{formatDate(session.lastSeenAt ?? session.createdAt)}</td>
               <td>{formatDate(session.expiresAt)}</td>
               <td>
-                <button
-                  className="row-button danger"
-                  type="button"
-                  disabled={
-                    !canManage ||
-                    session.current ||
-                    session.status !== 'active' ||
-                    busy === `session:${session.sessionId}`
-                  }
-                  onClick={() => onRevoke(session)}
-                >
-                  {busy === `session:${session.sessionId}` ? (
-                    <LoaderCircle size={14} className="spin" />
-                  ) : (
-                    <LogOut size={14} />
-                  )}
-                  {session.current ? '当前' : '撤销'}
-                </button>
+                <div className="row-actions">
+                  <RowMoreMenu title="打开更多 Session 操作">
+                    <button
+                      className="row-button danger"
+                      type="button"
+                      {...disabledButtonProps(
+                        !canManage ||
+                          session.current ||
+                          session.status !== 'active' ||
+                          busy === `session:${session.sessionId}`,
+                        session.current
+                          ? '不能撤销当前登录 Session'
+                          : session.status !== 'active'
+                            ? '该 Session 不是启用状态'
+                            : busy === `session:${session.sessionId}`
+                              ? '正在撤销 Session'
+                              : '不能撤销该 Session',
+                        '撤销该会话',
+                      )}
+                      onClick={() => onRevoke(session)}
+                    >
+                      {busy === `session:${session.sessionId}` ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <LogOut size={14} />
+                      )}
+                      {session.current ? '当前' : '撤销'}
+                    </button>
+                  </RowMoreMenu>
+                </div>
               </td>
             </tr>
           ))}
@@ -6447,14 +6982,22 @@ function SessionRiskDetailDrawer({
   const forcePasswordBusy = busy === `force-password:${session.userId}`
   const organizationId = organizationIdFromRow(session)
   const organizationName = session.organizationName ?? session.tenantName
+  const titleId = useId()
+  useOverlayControls(onClose)
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+      <aside
+        className="side-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="drawer-header">
           <div>
             <span className="eyebrow">Session 风险详情</span>
-            <h2>{session.name}</h2>
+            <h2 id={titleId}>{session.name}</h2>
             <p>{session.email ?? session.userId}</p>
           </div>
           <button className="icon-button" type="button" aria-label="关闭 Session 风险详情" onClick={onClose}>
@@ -6710,47 +7253,76 @@ function SessionRiskView({
                   </td>
                   <td>
                     <div className="row-actions risk-actions">
-                      <button className="row-button" type="button" onClick={() => onOpenDetail(session)}>
+                      <button
+                        className="row-button"
+                        type="button"
+                        {...tooltipProps('查看该 Session 的完整风险详情')}
+                        onClick={() => onOpenDetail(session)}
+                      >
                         <FileText size={14} />
                         详情
                       </button>
-                      <button
-                        className="row-button danger"
-                        type="button"
-                        disabled={!canManageTargetUser || session.activeCount < 1 || revokeUserBusy}
-                        onClick={() => onRevokeUserSessions(session)}
-                      >
-                        {revokeUserBusy ? <LoaderCircle size={14} className="spin" /> : <LogOut size={14} />}
-                        踢用户
-                      </button>
-                      <button
-                        className="row-button danger"
-                        type="button"
-                        disabled={!canManageTargetUser || forcePasswordBusy}
-                        onClick={() => onForcePasswordReset(session)}
-                      >
-                        {forcePasswordBusy ? (
-                          <LoaderCircle size={14} className="spin" />
-                        ) : (
-                          <ShieldCheck size={14} />
-                        )}
-                        强制改密
-                      </button>
-                      <button
-                        className="row-button danger"
-                        type="button"
-                        disabled={
-                          !canManage || session.current || session.status !== 'active' || revokeSessionBusy
-                        }
-                        onClick={() => onRevoke(session)}
-                      >
-                        {revokeSessionBusy ? (
-                          <LoaderCircle size={14} className="spin" />
-                        ) : (
-                          <LogOut size={14} />
-                        )}
-                        撤销
-                      </button>
+                      <RowMoreMenu title="打开更多风险操作">
+                        <button
+                          className="row-button danger"
+                          type="button"
+                          {...disabledButtonProps(
+                            !canManageTargetUser || session.activeCount < 1 || revokeUserBusy,
+                            !canManageTargetUser
+                              ? '不能踢下线当前登录用户'
+                              : session.activeCount < 1
+                                ? '该用户没有可踢下线的 Session'
+                                : '正在踢下线该用户的 Session',
+                            '踢下线该用户的所有活跃 Session',
+                          )}
+                          onClick={() => onRevokeUserSessions(session)}
+                        >
+                          {revokeUserBusy ? (
+                            <LoaderCircle size={14} className="spin" />
+                          ) : (
+                            <LogOut size={14} />
+                          )}
+                          踢用户
+                        </button>
+                        <button
+                          className="row-button danger"
+                          type="button"
+                          {...disabledButtonProps(
+                            !canManageTargetUser || forcePasswordBusy,
+                            !canManageTargetUser ? '不能强制当前用户改密' : '正在强制该用户改密',
+                            '要求该用户下次登录修改密码',
+                          )}
+                          onClick={() => onForcePasswordReset(session)}
+                        >
+                          {forcePasswordBusy ? (
+                            <LoaderCircle size={14} className="spin" />
+                          ) : (
+                            <ShieldCheck size={14} />
+                          )}
+                          强制改密
+                        </button>
+                        <button
+                          className="row-button danger"
+                          type="button"
+                          {...disabledButtonProps(
+                            !canManage || session.current || session.status !== 'active' || revokeSessionBusy,
+                            session.current
+                              ? '不能撤销当前登录 Session'
+                              : session.status !== 'active'
+                                ? '该 Session 不是启用状态'
+                                : '正在撤销 Session',
+                            '撤销该会话',
+                          )}
+                          onClick={() => onRevoke(session)}
+                        >
+                          {revokeSessionBusy ? (
+                            <LoaderCircle size={14} className="spin" />
+                          ) : (
+                            <LogOut size={14} />
+                          )}
+                          撤销
+                        </button>
+                      </RowMoreMenu>
                     </div>
                   </td>
                 </tr>
@@ -6925,14 +7497,22 @@ function AuditLogDetailDrawer({
     alerts,
     onOpenBilling,
   })
+  const titleId = useId()
+  useOverlayControls(onClose)
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="side-drawer" onClick={(event) => event.stopPropagation()}>
+      <aside
+        className="side-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="drawer-header">
           <div>
             <span className="eyebrow">审计日志详情</span>
-            <h2>{entry.action}</h2>
+            <h2 id={titleId}>{entry.action}</h2>
             <p>
               {entry.resourceType} · {entry.resourceId ? shortId(entry.resourceId) : '-'}
             </p>
@@ -7473,20 +8053,61 @@ function CreateOrganizationUserModal({
   onSubmit,
 }) {
   const isOrganizationScope = form.scope === 'organization'
+  const isSystemScope = form.scope === 'system'
   const organizationOptions = organizations.filter(
     (organization) =>
-      organization.status === 'active' && assignableRoleOptions(session, organization).includes(form.role),
+      organization.status === 'active' &&
+      assignableRoleOptions(session, organization).some(roleRequiresOrganization),
   )
-  const needsOrganization = roleRequiresOrganization(form.role)
+  const scopeOptions = [
+    personalAccountRoleOptions(session).length
+      ? { value: 'personal', label: '个人空间', description: accountScopeDescription('personal') }
+      : null,
+    systemAccountRoleOptions(session).length
+      ? { value: 'system', label: '系统组织', description: accountScopeDescription('system') }
+      : null,
+    organizationOptions.length
+      ? { value: 'organization', label: '企业组织', description: accountScopeDescription('organization') }
+      : null,
+  ].filter(Boolean)
   const valid =
-    (!needsOrganization || form.organizationId) &&
+    scopeOptions.some((option) => option.value === form.scope) &&
+    (!isOrganizationScope || form.organizationId) &&
     form.email.trim().includes('@') &&
     form.name.trim().length > 0 &&
     form.password.length >= 8 &&
     roleOptions.includes(form.role)
 
+  const selectScope = (scope) => {
+    if (scope === 'organization') {
+      const organization =
+        organizationOptions.find((item) => item.id === form.organizationId) ?? organizationOptions[0]
+      const roles = organization
+        ? assignableRoleOptions(session, organization).filter(roleRequiresOrganization)
+        : []
+      onChange({
+        ...form,
+        scope,
+        organizationId: organization?.id ?? '',
+        role: roles.includes(form.role) ? form.role : (roles[0] ?? form.role),
+      })
+      return
+    }
+    const roles = scope === 'system' ? systemAccountRoleOptions(session) : personalAccountRoleOptions(session)
+    onChange({
+      ...form,
+      scope,
+      organizationId: '',
+      role: roles.includes(form.role) ? form.role : (roles[0] ?? form.role),
+    })
+  }
+
   const selectRole = (role) => {
-    const nextOrganizations = organizations.filter(
+    if (!isOrganizationScope) {
+      onChange({ ...form, role, organizationId: '' })
+      return
+    }
+    const nextOrganizations = organizationOptions.filter(
       (organization) =>
         organization.status === 'active' && assignableRoleOptions(session, organization).includes(role),
     )
@@ -7501,8 +8122,25 @@ function CreateOrganizationUserModal({
     })
   }
 
+  const selectOrganization = (organizationId) => {
+    const organization = organizationOptions.find((item) => item.id === organizationId)
+    const roles = organization
+      ? assignableRoleOptions(session, organization).filter(roleRequiresOrganization)
+      : []
+    onChange({
+      ...form,
+      organizationId,
+      role: roles.includes(form.role) ? form.role : (roles[0] ?? form.role),
+    })
+  }
+
   return (
-    <Modal title={isOrganizationScope ? '直接创建组织账号' : '直接创建个人账号'} onClose={onClose}>
+    <Modal
+      title={
+        isOrganizationScope ? '直接创建组织账号' : isSystemScope ? '直接创建系统账号' : '直接创建个人账号'
+      }
+      onClose={onClose}
+    >
       <form className="modal-form" onSubmit={onSubmit}>
         <label>
           <span>邮箱</span>
@@ -7534,7 +8172,18 @@ function CreateOrganizationUserModal({
             autoComplete="new-password"
             required
           />
-          <small>创建后交给用户首次登录；系统会立即要求用户设置自己的新密码。</small>
+          <small>至少 8 位。创建后交给用户首次登录；系统会立即要求用户设置自己的新密码。</small>
+        </label>
+        <label>
+          <span>账号范围</span>
+          <select value={form.scope} onChange={(event) => selectScope(event.target.value)} required>
+            {scopeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <small>{accountScopeDescription(form.scope)}</small>
         </label>
         <label>
           <span>身份</span>
@@ -7546,12 +8195,12 @@ function CreateOrganizationUserModal({
             ))}
           </select>
         </label>
-        {needsOrganization ? (
+        {isOrganizationScope ? (
           <label>
             <span>企业组织</span>
             <select
               value={form.organizationId}
-              onChange={(event) => onChange({ ...form, organizationId: event.target.value })}
+              onChange={(event) => selectOrganization(event.target.value)}
               disabled={!organizationOptions.length}
               required
             >
@@ -7563,13 +8212,15 @@ function CreateOrganizationUserModal({
             </select>
           </label>
         ) : (
-          <p className="modal-hint">范围：{platformRoleScopeName(form.role)}</p>
+          <p className="modal-hint">范围：{accountScopeDescription(form.scope)}</p>
         )}
         <ModalActions
           busy={busy}
           valid={valid}
           onClose={onClose}
-          submitLabel={isOrganizationScope ? '直接创建组织账号' : '直接创建个人账号'}
+          submitLabel={
+            isOrganizationScope ? '直接创建组织账号' : isSystemScope ? '直接创建系统账号' : '直接创建个人账号'
+          }
         />
       </form>
     </Modal>
@@ -7661,24 +8312,50 @@ function AddExistingMemberModal({
 function CreateInvitationModal({ form, organizations, session, busy, onChange, onClose, onSubmit }) {
   const needsOrganization = form.kind === 'organization'
   const roleLabel = roleName(form.role)
-  const organizationOptions = needsOrganization
-    ? organizations.filter((organization) =>
-        organizationInvitationRoleOptions(session, organization).includes(form.role),
-      )
-    : []
+  const canInvitePlatformMember = canCreatePlatformInvitation(session)
+  const organizationScopeOptions = organizations.filter(
+    (organization) => organizationInvitationRoleOptions(session, organization).length > 0,
+  )
   const selectedOrganization =
-    organizationOptions.find((organization) => organization.id === form.organizationId) ?? null
-  const valid = form.email.trim().includes('@') && (!needsOrganization || Boolean(selectedOrganization))
+    organizationScopeOptions.find((organization) => organization.id === form.organizationId) ??
+    organizationScopeOptions[0] ??
+    null
+  const organizationRoleOptions = selectedOrganization
+    ? organizationInvitationRoleOptions(session, selectedOrganization)
+    : []
+  const valid =
+    form.email.trim().includes('@') &&
+    (needsOrganization
+      ? Boolean(selectedOrganization) && organizationRoleOptions.includes(form.role)
+      : canInvitePlatformMember)
+
+  const selectKind = (kind) => {
+    if (kind === 'organization') {
+      const organization = selectedOrganization ?? organizationScopeOptions[0]
+      const roles = organization ? organizationInvitationRoleOptions(session, organization) : []
+      onChange({
+        ...form,
+        kind,
+        organizationId: organization?.id ?? '',
+        role: roles.includes(form.role) ? form.role : (roles[0] ?? 'organization_member'),
+      })
+      return
+    }
+    onChange({ ...form, kind, organizationId: '', role: 'member' })
+  }
 
   const selectOrganization = (organizationId) => {
+    const organization = organizationScopeOptions.find((item) => item.id === organizationId)
+    const roles = organization ? organizationInvitationRoleOptions(session, organization) : []
     onChange({
       ...form,
       organizationId,
+      role: roles.includes(form.role) ? form.role : (roles[0] ?? form.role),
     })
   }
 
   return (
-    <Modal title={needsOrganization ? `邀请${roleLabel}` : '邀请普通成员'} onClose={onClose}>
+    <Modal title="创建邀请" onClose={onClose}>
       <form className="modal-form" onSubmit={onSubmit}>
         <label>
           <span>受邀邮箱</span>
@@ -7690,34 +8367,58 @@ function CreateInvitationModal({ form, organizations, session, busy, onChange, o
             required
           />
         </label>
+        <label>
+          <span>邀请范围</span>
+          <select value={form.kind} onChange={(event) => selectKind(event.target.value)} required>
+            {canInvitePlatformMember && <option value="platform">个人空间</option>}
+            {organizationScopeOptions.length > 0 && <option value="organization">企业组织</option>}
+          </select>
+          <small>
+            {needsOrganization ? '受邀人注册后进入指定企业组织。' : '受邀人注册后自动创建自己的个人空间。'}
+          </small>
+        </label>
         {needsOrganization ? (
           <>
-            <p className="modal-hint">身份：{roleLabel}。邀请只面向企业组织，不会进入个人空间入口。</p>
             <label>
               <span>企业组织</span>
               <select
                 value={form.organizationId}
                 onChange={(event) => selectOrganization(event.target.value)}
-                disabled={!organizationOptions.length}
+                disabled={!organizationScopeOptions.length}
                 required
               >
-                {organizationOptions.map((organization) => (
+                {organizationScopeOptions.map((organization) => (
                   <option key={organization.id} value={organization.id}>
                     {organization.name} · {organization.id}
                   </option>
                 ))}
               </select>
             </label>
+            <label>
+              <span>身份</span>
+              <select
+                value={form.role}
+                onChange={(event) => onChange({ ...form, role: event.target.value })}
+                disabled={!organizationRoleOptions.length}
+                required
+              >
+                {organizationRoleOptions.map((role) => (
+                  <option key={role} value={role}>
+                    {roleName(role)}
+                  </option>
+                ))}
+              </select>
+            </label>
           </>
         ) : (
-          <p className="modal-hint">身份：{roleLabel}。注册后会自动创建个人空间。</p>
+          <p className="modal-hint">身份：普通成员。注册后会自动创建个人空间。</p>
         )}
         <p className="modal-hint">邀请码只在创建后显示一次，同时会按邮件配置发送邀请邮件。</p>
         <ModalActions
           busy={busy}
           valid={valid}
           onClose={onClose}
-          submitLabel={needsOrganization ? `邀请${roleLabel}` : '邀请普通成员'}
+          submitLabel={needsOrganization ? `邀请${roleLabel}` : '邀请成员'}
         />
       </form>
     </Modal>
@@ -8241,9 +8942,10 @@ function CompliancePromptActionModal({ item, form, busy, onChange, onClose, onSu
 
 function ActionConfirmModal({ request, busy, onCancel, onConfirm }) {
   const details = request.details ?? []
+  const titleId = useId()
   return (
-    <Modal title={request.title} onClose={busy ? () => {} : onCancel}>
-      <div className={`confirm-panel ${request.tone ?? 'default'}`}>
+    <Modal title={request.title} onClose={busy ? () => {} : onCancel} titleId={titleId}>
+      <div className={`confirm-panel ${request.tone ?? 'default'}`} aria-labelledby={titleId}>
         {request.summary && <p>{request.summary}</p>}
         {request.message && <pre>{request.message}</pre>}
         {details.length > 0 && (
@@ -8259,14 +8961,19 @@ function ActionConfirmModal({ request, busy, onCancel, onConfirm }) {
         {request.impact && <p className="confirm-impact">{request.impact}</p>}
       </div>
       <div className="modal-actions">
-        <button className="row-button" type="button" onClick={onCancel} disabled={busy}>
+        <button
+          className="row-button"
+          type="button"
+          {...disabledButtonProps(busy, '正在处理，暂不能取消', '关闭确认弹窗')}
+          onClick={onCancel}
+        >
           {request.cancelLabel ?? '取消'}
         </button>
         <button
           className={request.tone === 'danger' ? 'row-button danger solid' : 'primary-button'}
           type="button"
+          {...disabledButtonProps(busy, '正在处理，请稍候', request.confirmLabel ?? '确认')}
           onClick={onConfirm}
-          disabled={busy}
         >
           {busy ? <LoaderCircle size={15} className="spin" /> : <ShieldCheck size={15} />}
           {request.confirmLabel ?? '确认'}
@@ -8276,15 +8983,21 @@ function ActionConfirmModal({ request, busy, onCancel, onConfirm }) {
   )
 }
 
-function Modal({ title, children, onClose, wide = false }) {
+function Modal({ title, children, onClose, wide = false, titleId }) {
+  const generatedTitleId = useId()
+  const resolvedTitleId = titleId ?? generatedTitleId
+  useOverlayControls(onClose)
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <section
         className={wide ? 'modal wide-modal' : 'modal'}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={resolvedTitleId}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header>
-          <h2>{title}</h2>
+          <h2 id={resolvedTitleId}>{title}</h2>
           <button className="icon-button" type="button" aria-label="关闭" onClick={onClose}>
             <X size={18} />
           </button>
@@ -8298,10 +9011,23 @@ function Modal({ title, children, onClose, wide = false }) {
 function ModalActions({ busy, valid, onClose, submitLabel }) {
   return (
     <div className="modal-actions">
-      <button className="row-button" type="button" onClick={onClose} disabled={busy}>
+      <button
+        className="row-button"
+        type="button"
+        {...disabledButtonProps(busy, '正在提交，暂不能取消', '关闭弹窗')}
+        onClick={onClose}
+      >
         取消
       </button>
-      <button className="primary-button" type="submit" disabled={busy || !valid}>
+      <button
+        className="primary-button"
+        type="submit"
+        {...disabledButtonProps(
+          busy || !valid,
+          busy ? '正在提交，请稍候' : '请先补齐必填项再提交',
+          submitLabel,
+        )}
+      >
         {busy ? <LoaderCircle size={15} className="spin" /> : <ShieldCheck size={15} />}
         {submitLabel}
       </button>
@@ -8369,16 +9095,88 @@ function ComplianceRiskTags({ tags, expanded = false }) {
   if (!tags.length) return <span className="compliance-risk-empty">未命中</span>
   return (
     <div className={expanded ? 'compliance-risk-tags expanded' : 'compliance-risk-tags'}>
-      {tags.map((tag) => (
-        <span key={tag.category} className={`compliance-risk-tag ${tag.severity}`}>
-          {tag.label}
-          <small>
-            {complianceSeverityName(tag.severity)} · {tag.hits}
-          </small>
-        </span>
-      ))}
+      {tags.map((tag) => {
+        const matches = tag.matches ?? []
+        const firstMatch = matches[0] ?? null
+        const hiddenMatchCount = Math.max(0, matches.length - 1)
+        const tagTitle = complianceRiskMatchTitle(tag)
+        return expanded ? (
+          <article
+            key={tag.category}
+            className={`compliance-risk-tag detail ${tag.severity}`}
+            title={tagTitle}
+          >
+            <div className="compliance-risk-tag-head">
+              <strong>{tag.label}</strong>
+              <small>
+                {complianceSeverityName(tag.severity)} · {tag.hits}
+              </small>
+            </div>
+            {matches.length ? (
+              <ul className="compliance-risk-matches">
+                {matches.map((match, index) => (
+                  <li key={`${tag.category}:${match.term}:${index}`}>
+                    <span>命中：{match.term}</span>
+                    <small>{match.reason}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="compliance-risk-match-empty">暂无命中详情</p>
+            )}
+          </article>
+        ) : (
+          <span key={tag.category} className={`compliance-risk-tag ${tag.severity}`} title={tagTitle}>
+            {tag.label}
+            <small>
+              {complianceSeverityName(tag.severity)} · {tag.hits}
+            </small>
+            {firstMatch && (
+              <small className="compliance-risk-term">
+                命中：{firstMatch.term}
+                {hiddenMatchCount ? ` +${hiddenMatchCount}` : ''}
+              </small>
+            )}
+          </span>
+        )
+      })}
     </div>
   )
+}
+
+function ComplianceRuleEngineExplanation({ item }) {
+  const policies = item.riskPolicyMatches ?? []
+  const suppressedTags = item.suppressedRiskTags ?? []
+  if (!policies.length && !suppressedTags.length) {
+    return <p className="panel-empty compact">未应用特殊语境策略，也没有被降噪的命中。</p>
+  }
+  return (
+    <div className="compliance-rule-explanation">
+      {policies.length > 0 && (
+        <div className="compliance-policy-list">
+          <strong>已应用策略</strong>
+          {policies.map((policy) => (
+            <article key={policy.id}>
+              <span>{policy.label}</span>
+              <small>{policy.reason}</small>
+            </article>
+          ))}
+        </div>
+      )}
+      {suppressedTags.length > 0 && (
+        <div className="compliance-policy-list">
+          <strong>已降噪命中</strong>
+          <ComplianceRiskTags tags={suppressedTags} expanded />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function complianceRiskMatchTitle(tag) {
+  const matches = tag.matches ?? []
+  if (!matches.length) return `${tag.label} · ${complianceSeverityName(tag.severity)} · ${tag.hits}`
+  return matches.map((match) => `命中：${match.term}\n原因：${match.reason}`).join('\n\n')
 }
 
 function ComplianceReviewBadge({ item }) {
@@ -8530,7 +9328,13 @@ function EmptyRow({ visible, columns }) {
   return (
     <tr>
       <td colSpan={columns}>
-        <p className="empty-table">没有匹配的数据。</p>
+        <div className="empty-table">
+          <FileText size={15} />
+          <div>
+            <strong>没有匹配的数据。</strong>
+            <span>调整筛选条件后再试，或先创建一条记录。</span>
+          </div>
+        </div>
       </td>
     </tr>
   )
@@ -8598,11 +9402,26 @@ function activeConsoleListMeta(snapshot, activeTab) {
 }
 
 function clientListMeta(total, filters) {
+  const offset = clientPageOffset(total, filters)
   return {
     limit: filters.limit,
-    offset: 0,
+    offset,
     total,
   }
+}
+
+function clientPageOffset(total, filters) {
+  const limit = Math.max(1, Number(filters.limit) || consoleFilterInitialState.limit)
+  const requestedOffset = Math.max(0, Number(filters.offset) || 0)
+  if (!total) return 0
+  const maxOffset = Math.floor((total - 1) / limit) * limit
+  return Math.min(requestedOffset, maxOffset)
+}
+
+function paginateClientRows(rows, filters) {
+  const offset = clientPageOffset(rows.length, filters)
+  const limit = Math.max(1, Number(filters.limit) || consoleFilterInitialState.limit)
+  return rows.slice(offset, offset + limit)
 }
 
 function organizationOptionsForFilter(organizations, selectedOrganizationId) {

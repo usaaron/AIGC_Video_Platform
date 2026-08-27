@@ -40,7 +40,7 @@ export async function downloadImagesAsZip(images, requestedName) {
       const blob = await fetchImageBlob(image.url)
       return {
         blob,
-        fileName: imageDownloadFileName(image.fileName || image.alt || '序幕-image2-结果', blob.type),
+        fileName: imageDownloadFileName(image.fileName || image.alt || '生图大师-结果', blob.type),
       }
     }),
   )
@@ -76,7 +76,7 @@ export function imageArchiveFileName(requestedName) {
   const baseName = sanitizeFileName(requestedName)
     .replace(/\.zip$/i, '')
     .trim()
-  return `${baseName || '序幕-image2-结果'}.zip`
+  return `${baseName || '生图大师-结果'}.zip`
 }
 
 async function fetchImageBlob(url) {

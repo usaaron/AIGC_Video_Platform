@@ -12,6 +12,7 @@ export const roleLabels = {
 export const statusLabels = {
   active: '启用',
   disabled: '禁用',
+  deleted: '已删除',
   revoked: '已撤销',
   expired: '已过期',
 }

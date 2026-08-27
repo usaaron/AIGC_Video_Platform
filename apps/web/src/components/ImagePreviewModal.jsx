@@ -30,7 +30,7 @@ export function ImagePreviewModal({
   onUseAsReference,
   onDelete,
   onDownloadGroup,
-  groupFileName = '序幕-image2-结果',
+  groupFileName = '生图大师-结果',
   batchPrompt = '',
   batchOriginalPrompt = '',
 }) {
@@ -680,17 +680,15 @@ export function ImagePreviewModal({
   )
 }
 
-async function copyTextToClipboard(text) {
+export async function copyTextToClipboard(text) {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    if (typeof navigator.clipboard.readText === 'function') {
-      try {
-        return (await navigator.clipboard.readText()) === text
-      } catch {
-        return true
-      }
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // Fall back to the legacy copy path below. Some embedded browsers expose
+      // navigator.clipboard but reject writes until a stricter permission check passes.
     }
-    return true
   }
 
   if (typeof document === 'undefined') {
@@ -711,13 +709,6 @@ async function copyTextToClipboard(text) {
   document.body.removeChild(textarea)
   if (!success) {
     return false
-  }
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
-    try {
-      return (await navigator.clipboard.readText()) === text
-    } catch {
-      return true
-    }
   }
   return true
 }

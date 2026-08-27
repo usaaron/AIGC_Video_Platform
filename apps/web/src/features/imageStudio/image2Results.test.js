@@ -52,6 +52,27 @@ describe('image2 result aggregation', () => {
     expect(mergeImage2Tasks([liveTask], cachedResults, 'project-1')).toEqual([liveTask])
   })
 
+  it('uses the finalized generation snapshot as the copyable batch prompt', () => {
+    const sourceTask = {
+      ...task('task-1', 'batch-1', 'completed', '2026-08-14T10:00:00.000Z', 1, 1),
+      prompt: '',
+      metadata: {
+        ...task('task-1', 'batch-1', 'completed', '2026-08-14T10:00:00.000Z', 1, 1).metadata,
+        originalPrompt: 'browser draft prompt',
+        generationSnapshot: {
+          finalized: true,
+          prompt: 'final provider prompt',
+          originalPrompt: 'original user prompt',
+        },
+      },
+    }
+
+    const [batch] = groupImage2Batches([sourceTask], 'project-1')
+
+    expect(batch.prompt).toBe('final provider prompt')
+    expect(batch.originalPrompt).toBe('original user prompt')
+  })
+
   it('keeps task metadata needed by redo and restores cached image URLs', () => {
     const sourceTask = {
       ...task('task-1', 'batch-1', 'completed', '2026-08-14T10:00:00.000Z', 1, 1),

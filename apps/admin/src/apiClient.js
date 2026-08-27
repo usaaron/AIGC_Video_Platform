@@ -111,6 +111,7 @@ export const api = {
     request(`/admin/memberships/${encodeURIComponent(membershipId)}`, { method: 'DELETE' }),
   updateUserStatus: (userId, status) =>
     request(`/admin/users/${encodeURIComponent(userId)}/status`, json('PATCH', { status })),
+  deleteUser: (userId) => request(`/admin/users/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
   updatePasswordResetRequirement: (userId, input) =>
     request(`/admin/users/${encodeURIComponent(userId)}/password-reset-requirement`, json('PATCH', input)),
   setUserPassword: (userId, input) =>
