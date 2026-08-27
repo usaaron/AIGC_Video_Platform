@@ -1,6 +1,6 @@
 # 序幕TV 文档索引
 
-本目录按“当前事实、开发边界、专项能力、质量、运维、历史”组织。新 Agent 先读根目录 `AGENTS.md`，再读 `CURRENT_STATE.md`。
+本目录按“当前事实、开发边界、专项能力、质量、运维、历史”组织。新 Agent 先读根目录 `AGENTS.md`，再读 `CURRENT_STATE.md`。工程化升级前的全量审查见 [ENGINEERING_AUDIT.md](ENGINEERING_AUDIT.md)。
 
 ## 当前事实
 

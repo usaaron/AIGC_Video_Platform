@@ -966,7 +966,7 @@ export async function addStoryboardVideosToArchive(zip, videos, fetchVideo = glo
 }
 
 async function mapWithConcurrency(items, concurrency, operation) {
-  const results = new Array(items.length)
+  const results = Array.from({ length: items.length })
   let nextIndex = 0
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
     while (nextIndex < items.length) {

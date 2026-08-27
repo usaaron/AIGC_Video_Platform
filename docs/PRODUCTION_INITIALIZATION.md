@@ -61,16 +61,16 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
 
 ```bash
 docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
-curl --fail https://zjh.ai/api/v1/health
+curl --fail https://xumutv.com/api/v1/health
 ```
 
 5. 初始化后检查。
 
 ```bash
-curl --fail https://zjh.ai/api/v1/health/readiness
+curl --fail https://xumutv.com/api/v1/health/readiness
 ```
 
-用 owner 账号登录 `https://zjh.ai/admin/`，确认：
+用 owner 账号登录 `https://xumutv.com/admin/`，确认：
 
 - 只有 1 个 owner。
 - super_admin 数量不超过 5。

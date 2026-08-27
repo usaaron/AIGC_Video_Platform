@@ -1,20 +1,20 @@
 # SEQORA 生产运维手册
 
-> 核对日期：2026-08-03。本手册只记录安全的基础设施标识和操作步骤，不记录密码、邀请码、API Key、Cookie 或用户数据。
+> 核对日期：2026-08-27。本手册只记录安全的基础设施标识和操作步骤，不记录密码、邀请码、API Key、Cookie 或用户数据。
 
 ## 生产清单
 
-| 项目            | 当前值                                      |
-| --------------- | ------------------------------------------- |
-| 站点            | `https://zjh.ai`                            |
-| 健康检查        | `https://zjh.ai/api/v1/health`              |
-| Readiness       | `https://zjh.ai/api/v1/health/readiness`    |
-| GCP Project     | `project-b3b9bf9e-3c8b-4fbc-9cc`            |
-| GCE Instance    | `instance-20260726-112218`                  |
-| Zone            | `asia-east2-b`                              |
-| 部署根目录      | `/opt/seqora`                               |
-| Compose Project | `seqora-demo`                               |
-| 服务            | `postgres`、`redis`、`api`、`worker`、`web` |
+| 项目            | 当前值                                       |
+| --------------- | -------------------------------------------- |
+| 站点            | `https://xumutv.com`                         |
+| 健康检查        | `https://xumutv.com/api/v1/health`           |
+| Readiness       | `https://xumutv.com/api/v1/health/readiness` |
+| GCP Project     | `project-b3b9bf9e-3c8b-4fbc-9cc`             |
+| GCE Instance    | `instance-20260726-112218`                   |
+| Zone            | `asia-east2-b`                               |
+| 部署根目录      | `/opt/seqora`                                |
+| Compose Project | `seqora-demo`                                |
+| 服务            | `postgres`、`redis`、`api`、`worker`、`web`  |
 
 生产密钥位于服务器 `/opt/seqora/deploy/demo.env`，权限应为 `600`。不要执行会把该文件内容输出到终端、聊天、CI 日志或文档的命令。
 
@@ -23,8 +23,8 @@
 公网检查：
 
 ```powershell
-Invoke-RestMethod https://zjh.ai/api/v1/health
-Invoke-WebRequest -UseBasicParsing https://zjh.ai/api/v1/health/readiness
+Invoke-RestMethod https://xumutv.com/api/v1/health
+Invoke-WebRequest -UseBasicParsing https://xumutv.com/api/v1/health/readiness
 ```
 
 `health` 需要关注：
@@ -137,12 +137,12 @@ gcloud compute ssh instance-20260726-112218 `
 最少验证：
 
 ```powershell
-$health = Invoke-RestMethod https://zjh.ai/api/v1/health
+$health = Invoke-RestMethod https://xumutv.com/api/v1/health
 $health.status
 $health.readiness.ready
 
 try {
-  Invoke-WebRequest -UseBasicParsing https://zjh.ai/api/v1/auth/me
+  Invoke-WebRequest -UseBasicParsing https://xumutv.com/api/v1/auth/me
 } catch {
   $_.Exception.Response.StatusCode.value__
 }

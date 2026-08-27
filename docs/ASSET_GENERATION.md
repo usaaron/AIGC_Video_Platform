@@ -29,10 +29,10 @@ Seedance 2.0 不允许把任意含真人人脸的公网图片或 Base64 直接�
 
 真人素材建议使用清晰正面图。全身参考图为竖版、人物全身正面；人脸特写图为竖版、正面无表情、肩部以上且面部约占画面三分之二。图片支持 JPEG/JPG/PNG/WebP/GIF/HEIC，小于 30MB，宽高比在 `(0.4, 2.5)`，边长在 300 到 6000px。一个真人素材组只能保存同一演员的不同妆造；每次补充素材都会做人脸一致性校验。
 
-视频和可信素材全走弦序，但使用两个弦序入口和两种凭证：Seedance 视频接口 `https://maas.stringx.top/api/v3` 使用 `sk-` Bearer Token，MaaS 素材库 `https://maas-ark.stringx.top` 使用一对 Access Key/Secret Key + 火山 SigV4。两类弦序凭证必须属于同一租户/项目，素材的 `ProjectName` 当前默认 `default`。Aideos 只剩历史适配器源码和测试，当前 `VIDEO_PROVIDER` 仅允许 `stringx | volc-ark`，不能把 Aideos 写进新环境配置。服务端变量：
+视频和可信素材全走弦序，但使用两个弦序入口和两种凭证：Seedance 视频接口 `https://maas.stringx.top/api/v3` 使用 Bearer Token，MaaS 素材库 `https://maas-ark.stringx.top` 使用一对 Access Key/Secret Key + 火山 SigV4。两类弦序凭证必须属于同一租户/项目，素材的 `ProjectName` 当前默认 `default`。当前 `VIDEO_PROVIDER` 仅允许 `stringx | volc-ark`，服务端变量：
 
 ```dotenv
-PUBLIC_API_BASE_URL=https://zjh.ai
+PUBLIC_API_BASE_URL=https://xumutv.com
 VOLC_ASSET_BASE_URL=https://maas-ark.stringx.top
 VOLC_ACCESS_KEY=
 VOLC_SECRET_KEY=
@@ -146,7 +146,7 @@ Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默�
 - `GET https://maas.stringx.top/api/v3/contents/generations/tasks/:taskId`：查询任务状态并取得 `video_url/last_frame_url`
 - `POST https://maas.stringx.top/api/v3/contents/generations/tasks/:taskId/cancel`：取消远端任务
 
-官方火山 Provider 通过 `VIDEO_PROVIDER=volc-ark` 显式启用，只作为回滚通道。弦序任务记录 `providerName=stringx-seedance`，便于审计真实提交路径；Aideos 适配器不在当前运行时装配中。
+官方火山 Provider 通过 `VIDEO_PROVIDER=volc-ark` 显式启用，只作为回滚通道。弦序任务记录 `providerName=stringx-seedance`，便于审计真实提交路径。
 
 分镜页会根据镜头标题和提示词，从已生成的人物、场景、物品和服装中选择最多三项相关资产。人物优先使用已确认全身基准，选择结果写入图片任务的 `references`，并写入图片和视频任务的 `referenceAssetIds`。旧分镜图没有当前资产标记时会显示“需同步资产”，生成视频时忽略这类旧图，直接使用当前资产。
 

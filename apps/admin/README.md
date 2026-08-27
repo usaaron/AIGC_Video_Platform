@@ -2,7 +2,7 @@
 
 管理员端是独立 Vite/React 应用，不与创作端共享页面代码。当前首屏消费 `GET /api/v1/admin/console`，统一展示 overview、用户、组织、membership、账单账户、账单流水、session 和审计日志。
 
-生产构建由 `deploy/web.Dockerfile` 同时打包创作端和管理员端，管理员端挂载在 `https://zjh.ai/admin/`。Caddy 先调用 `/api/v1/admin/access` 做 `forward_auth`，页面内和所有 `/api/v1/admin/*` 接口仍继续做后端权限检查；普通用户不能通过直接输入 URL 进入。
+生产构建由 `deploy/web.Dockerfile` 同时打包创作端和管理员端，管理员端挂载在 `https://xumutv.com/admin/`。Caddy 先调用 `/api/v1/admin/access` 做 `forward_auth`，页面内和所有 `/api/v1/admin/*` 接口仍继续做后端权限检查；普通用户不能通过直接输入 URL 进入。
 
 ## 本地运行
 

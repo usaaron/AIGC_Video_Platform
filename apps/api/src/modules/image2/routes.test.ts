@@ -442,7 +442,9 @@ async function uploadImage(
 
 function memberCredits(): number {
   if (!store) throw new Error('Store is not ready')
-  const user = store.read((state) => state.users.find((item) => item.id === 'user-member' && item.tenantId === 'tenant-seqora-demo'))
+  const user = store.read((state) =>
+    state.users.find((item) => item.id === 'user-member' && item.tenantId === 'tenant-seqora-demo'),
+  )
   if (!user) throw new Error('Member user not found')
   return user.credits
 }
@@ -450,7 +452,9 @@ function memberCredits(): number {
 async function setMemberCredits(credits: number): Promise<void> {
   if (!store) throw new Error('Store is not ready')
   await store.mutate((state) => {
-    const user = state.users.find((item) => item.id === 'user-member' && item.tenantId === 'tenant-seqora-demo')
+    const user = state.users.find(
+      (item) => item.id === 'user-member' && item.tenantId === 'tenant-seqora-demo',
+    )
     if (!user) throw new Error('Member user not found')
     user.credits = credits
   })

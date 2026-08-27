@@ -137,7 +137,7 @@ git diff --check
 
 ## 生产规则
 
-当前生产域名是 `https://zjh.ai`，运行在 GCE 单机 Docker Compose。安全的实例、路径、发布和故障处理命令见 `docs/OPERATIONS_RUNBOOK.md`。
+当前生产域名是 `https://xumutv.com`；现有生产仍运行在 GCE 单机 Docker Compose，迁移到阿里云前不得假设架构已经切换。安全的实例、路径、发布和故障处理命令见 `docs/OPERATIONS_RUNBOOK.md`。
 
 - `/opt/seqora` 当前是源码包部署目录，不包含 `.git`；不要在服务器执行 `git pull`。
 - 优先使用验证后的 CI/CD 镜像发布；人工回退使用 `deploy/package.ps1`、GCloud SCP 和 `deploy/update-source.sh`。

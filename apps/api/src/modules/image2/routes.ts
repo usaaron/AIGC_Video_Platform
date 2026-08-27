@@ -5,10 +5,7 @@ import { requirePermission } from '../../core/auth/authorization.js'
 import { AppError } from '../../core/errors.js'
 import type { Image2BatchService } from './service.js'
 
-export async function registerImage2Routes(
-  app: FastifyInstance,
-  service: Image2BatchService,
-): Promise<void> {
+export async function registerImage2Routes(app: FastifyInstance, service: Image2BatchService): Promise<void> {
   app.post(
     '/image2/batches',
     { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },

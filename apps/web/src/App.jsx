@@ -76,11 +76,30 @@ function App() {
   const [notificationPopups, setNotificationPopups] = useState([])
   const taskStatusesRef = useRef(readTaskStatusCache())
   const notificationHistoryReadyRef = useRef(false)
+  const workspaceCacheRef = useRef(new Map())
+  const activeProjectIdRef = useRef(null)
 
   const replaceTasks = useCallback((projectId, nextTasks) => {
     setTasks(nextTasks)
     if (projectId) writeProjectTaskCache(projectId, nextTasks)
   }, [])
+
+  const hydrateProject = useCallback(
+    async (projectId) => {
+      try {
+        const [nextWorkspace, nextTasks] = await Promise.all([api.project(projectId), api.tasks(projectId)])
+        workspaceCacheRef.current.set(projectId, nextWorkspace)
+        if (activeProjectIdRef.current !== projectId) return nextWorkspace
+        setWorkspace(nextWorkspace)
+        replaceTasks(projectId, nextTasks)
+        return nextWorkspace
+      } catch (error) {
+        if (activeProjectIdRef.current === projectId) setToast(error.message || '项目内容暂时无法加载。')
+        throw error
+      }
+    },
+    [replaceTasks],
+  )
 
   const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
   const canOpenAdminAccounts = canOpenAccountAdmin(session)
@@ -135,14 +154,22 @@ function App() {
     setLoading(true)
     setLoadError('')
     Promise.all([api.projects(), api.billing(), api.health().catch(() => null)])
-      .then(async ([projectList, billingSummary, health]) => {
+      .then(([projectList, billingSummary, health]) => {
         setProjects(projectList)
         setBilling(billingSummary)
         setProviderHealth(health)
         if (projectList[0]) {
           const initialProjectId = projectList[0].id
-          setWorkspace(await api.project(initialProjectId))
+          activeProjectIdRef.current = initialProjectId
+          setWorkspace(
+            workspaceCacheRef.current.get(initialProjectId) || {
+              project: projectList[0],
+              assets: [],
+              shots: [],
+            },
+          )
           replaceTasks(initialProjectId, readProjectTaskCache(initialProjectId))
+          void hydrateProject(initialProjectId).catch(() => {})
         }
       })
       .catch((error) => {
@@ -167,23 +194,29 @@ function App() {
       requestInFlight = true
       let nextDelay = IDLE_TASK_POLL_MS
       try {
-        const [nextTasks, nextWorkspace, nextBilling, nextProjects, nextRecentTasks] = await Promise.all([
+        const [nextTasks, nextWorkspace] = await Promise.all([
           api.tasks(workspace.project.id),
           api.project(workspace.project.id),
-          api.billing(),
-          api.projects(),
-          api.recentTasks(),
         ])
         if (cancelled) return
+        workspaceCacheRef.current.set(workspace.project.id, nextWorkspace)
         replaceTasks(workspace.project.id, nextTasks)
         setWorkspace(nextWorkspace)
-        setBilling(nextBilling)
-        setProjects(nextProjects)
-        setRecentTasks(nextRecentTasks)
-        setRecentTasksLoaded(true)
-        nextDelay = nextTasks.some((task) => activeTaskStatuses.has(task.status))
-          ? ACTIVE_TASK_POLL_MS
-          : IDLE_TASK_POLL_MS
+        const hasActiveTasks = nextTasks.some((task) => activeTaskStatuses.has(task.status))
+        nextDelay = hasActiveTasks ? ACTIVE_TASK_POLL_MS : IDLE_TASK_POLL_MS
+        if (!hasActiveTasks) {
+          void Promise.allSettled([api.billing(), api.projects(), api.recentTasks()]).then(
+            ([billingResult, projectsResult, recentTasksResult]) => {
+              if (cancelled) return
+              if (billingResult.status === 'fulfilled') setBilling(billingResult.value)
+              if (projectsResult.status === 'fulfilled') setProjects(projectsResult.value)
+              if (recentTasksResult.status === 'fulfilled') {
+                setRecentTasks(recentTasksResult.value)
+                setRecentTasksLoaded(true)
+              }
+            },
+          )
+        }
       } catch {
         nextDelay = IDLE_TASK_POLL_MS
       } finally {
@@ -383,8 +416,13 @@ function App() {
   const refreshWorkspace = async (projectId = project?.id) => {
     if (!projectId) return
     const next = await api.project(projectId)
+    workspaceCacheRef.current.set(projectId, next)
     setWorkspace(next)
-    setProjects(await api.projects())
+    void api
+      .projects()
+      .then(setProjects)
+      .catch((error) => setToast(error.message || '项目列表暂时无法同步。'))
+    return next
   }
 
   const mergeWorkspaceAsset = (updatedAsset) => {
@@ -538,6 +576,25 @@ function App() {
     }
   }
 
+  const openProject = (projectId) => {
+    const projectSummary = projects.find((item) => item.id === projectId)
+    const cachedWorkspace = workspaceCacheRef.current.get(projectId)
+    activeProjectIdRef.current = projectId
+    setWorkspace(
+      cachedWorkspace ||
+        (projectSummary
+          ? {
+              project: projectSummary,
+              assets: [],
+              shots: [],
+            }
+          : null),
+    )
+    replaceTasks(projectId, readProjectTaskCache(projectId))
+    navigateTo('overview')
+    void hydrateProject(projectId).catch(() => {})
+  }
+
   const markNotificationRead = (notificationId) => {
     setNotifications((current) =>
       current.map((item) => (item.id === notificationId ? { ...item, read: true } : item)),
@@ -546,9 +603,7 @@ function App() {
 
   const openNotification = async (notification) => {
     markNotificationRead(notification.id)
-    replaceTasks(notification.projectId, readProjectTaskCache(notification.projectId))
-    await refreshWorkspace(notification.projectId)
-    replaceTasks(notification.projectId, await api.tasks(notification.projectId))
+    openProject(notification.projectId)
     navigateTo(notification.target)
   }
 
@@ -687,12 +742,7 @@ function App() {
         <ProjectHomePage
           projects={projects}
           onCreate={() => setNewProjectOpen(true)}
-          onOpen={async (projectId) => {
-            replaceTasks(projectId, readProjectTaskCache(projectId))
-            await refreshWorkspace(projectId)
-            replaceTasks(projectId, await api.tasks(projectId))
-            navigateTo('overview')
-          }}
+          onOpen={openProject}
           onRename={async (projectId, name) => {
             await api.updateProject(projectId, { name })
             if (project?.id === projectId) await refreshWorkspace(projectId)
@@ -730,12 +780,7 @@ function App() {
           image2ProviderStatus={providerHealth?.providers?.img2 ?? null}
           onRefreshImageStudio={refreshCurrentProjectData}
           onOpenBilling={() => navigateTo('billing')}
-          onOpenProject={async (projectId) => {
-            replaceTasks(projectId, readProjectTaskCache(projectId))
-            await refreshWorkspace(projectId)
-            replaceTasks(projectId, await api.tasks(projectId))
-            navigateTo('overview')
-          }}
+          onOpenProject={openProject}
           onProjectCreated={async (projectId) => {
             setProjects(await api.projects())
             await refreshBilling()
@@ -1351,12 +1396,9 @@ function App() {
           projects={projects}
           currentId={project?.id}
           onClose={() => setProjectMenuOpen(false)}
-          onSelect={async (id) => {
-            replaceTasks(id, readProjectTaskCache(id))
-            await refreshWorkspace(id)
-            replaceTasks(id, await api.tasks(id))
+          onSelect={(id) => {
             setProjectMenuOpen(false)
-            navigateTo('overview')
+            openProject(id)
           }}
           onCreate={() => {
             setProjectMenuOpen(false)

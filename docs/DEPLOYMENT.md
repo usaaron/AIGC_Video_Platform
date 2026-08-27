@@ -1,6 +1,6 @@
 # 外部测试部署
 
-> 本文用于搭建新环境和检查上线门槛。当前 `zjh.ai` 的实例标识、源码包发布、日志、备份和故障命令以 [生产运维手册](OPERATIONS_RUNBOOK.md) 为准。
+> 本文用于搭建新环境和检查上线门槛。当前 `xumutv.com` 的实例标识、源码包发布、日志、备份和故障命令以 [生产运维手册](OPERATIONS_RUNBOOK.md) 为准。
 
 当前推荐把 Demo 部署到一台 Google Compute Engine VM，通过 Docker Compose 运行 Postgres、Redis、API、Worker 和 Web。Caddy 在同一域名下提供静态站点、`/api` 反向代理和自动 HTTPS，并启用 `strict_sni_host` 拒绝 TLS SNI 与 HTTP Host 不一致的域名前置请求；账号/auth/账单账本、项目、资产、分镜和生成任务写入 Postgres 持久卷，任务触发队列写入 Redis/BullMQ，媒体写入私有 GCS Bucket。API 的 `8787` 端口不对公网开放。
 
@@ -23,7 +23,7 @@
 - `apps/api` worker：复用 API 镜像，执行 `node dist/worker.js`，消费 Redis/BullMQ 里的生成任务触发。
 - `apps/admin`：独立管理员静态站点，消费 `/api/v1/admin/console`；当前生产构建在 `/admin/`，同时经过 Caddy `forward_auth` 和后端角色权限，普通用户不能直接访问。
 
-Web 使用 `VITE_API_BASE_URL` 指向 API。API 使用 `WEB_ORIGIN` 限制跨域来源。当前生产采用同域 `https://zjh.ai` 和相对 API 前缀 `/api/v1`。
+Web 使用 `VITE_API_BASE_URL` 指向 API。API 使用 `WEB_ORIGIN` 限制跨域来源。当前生产采用同域 `https://xumutv.com` 和相对 API 前缀 `/api/v1`。
 
 当前 Compose 使用同域部署，Web 保持默认 `VITE_API_BASE_URL=/api/v1`，浏览器 Cookie 不跨站。不要把 Web 和 API 临时部署到两个无关域名，否则登录 Cookie 在部分浏览器中会失效。
 
@@ -75,7 +75,7 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
   node dist/scripts/initProductionAccounts.js
 docker compose --env-file deploy/demo.env -f compose.demo.yml up -d --build
 docker compose --env-file deploy/demo.env -f compose.demo.yml ps
-curl --fail https://zjh.ai/api/v1/health
+curl --fail https://xumutv.com/api/v1/health
 ```
 
 Production account initialization is explicit. API and Worker startup must keep

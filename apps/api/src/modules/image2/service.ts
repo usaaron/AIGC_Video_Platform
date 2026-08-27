@@ -48,10 +48,10 @@ export class Image2BatchService {
     const requestKey = input.clientRequestId || randomUUID()
     const batchId = `image2-${requestKey}`
     const sourceTaskId = input.sourceTaskId?.trim() || ''
-    const strictRedo = sourceTaskId ? await this.loadStrictRedoSource(sourceTaskId, principal, input.projectId) : null
-    const assistReferences = strictRedo
-      ? []
-      : await this.buildAssistReferences(input, principal)
+    const strictRedo = sourceTaskId
+      ? await this.loadStrictRedoSource(sourceTaskId, principal, input.projectId)
+      : null
+    const assistReferences = strictRedo ? [] : await this.buildAssistReferences(input, principal)
     const assist = strictRedo
       ? null
       : await this.assistService.prepare({
@@ -71,9 +71,7 @@ export class Image2BatchService {
           references,
         })
     const tasks = await this.generationTasks.createBatchWithCharge(
-      Array.from(
-        { length: strictRedo ? 1 : input.imageCount },
-        (_, index): CreateGenerationTask => ({
+      Array.from({ length: strictRedo ? 1 : input.imageCount }, (_, index): CreateGenerationTask => ({
         clientRequestId: `${batchId}-${index + 1}`,
         projectId: input.projectId,
         kind: 'image',
@@ -106,8 +104,7 @@ export class Image2BatchService {
           references,
           generationSnapshot,
         },
-      }),
-      ),
+      })),
       principal,
       traceContext(traceId),
     )
@@ -216,7 +213,10 @@ type StrictRedoSource = {
   snapshot: Record<string, unknown>
 }
 
-function normalizeStrictRedoSnapshot(task: GenerationTask, snapshot: Record<string, unknown>): StrictRedoSource {
+function normalizeStrictRedoSnapshot(
+  task: GenerationTask,
+  snapshot: Record<string, unknown>,
+): StrictRedoSource {
   const references = snapshotReferences(snapshot)
   const prompt = stringValue(snapshot['prompt'], '')
   const originalPrompt = stringValue(snapshot['originalPrompt'], prompt)
@@ -224,7 +224,9 @@ function normalizeStrictRedoSnapshot(task: GenerationTask, snapshot: Record<stri
   const aspectRatio = stringValue(snapshot['aspectRatio'], '')
   const quality = image2Quality(snapshot['quality'])
   const assistResults = objectValue(snapshot['assistResults'])
-  const promptOptimization = objectValue(assistResults['promptOptimization'] ?? snapshot['promptOptimization'])
+  const promptOptimization = objectValue(
+    assistResults['promptOptimization'] ?? snapshot['promptOptimization'],
+  )
   const referenceVision = objectValue(assistResults['referenceVision'] ?? snapshot['referenceVision'])
 
   if (!prompt || !aspectRatio || !quality || !references.length) {

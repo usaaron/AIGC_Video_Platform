@@ -63,7 +63,7 @@ describe('FilmPreviewComposer', () => {
     }
     let target: { width: number; height: number } | null = null
     const onStateChange = vi.fn(async () => {})
-    const composer = new FilmPreviewComposer(store, provider, storage, 'ffmpeg', 60_000, 'aideos-seedance', {
+    const composer = new FilmPreviewComposer(store, provider, storage, 'ffmpeg', 60_000, 'stringx-seedance', {
       onStateChange,
       composeRunner: async (inputPaths, outputPath, nextTarget) => {
         expect(inputPaths).toHaveLength(2)
@@ -246,7 +246,7 @@ describe('FilmPreviewComposer', () => {
       },
       'ffmpeg',
       60_000,
-      'aideos-seedance',
+      'stringx-seedance',
       { ioTimeoutMs: 20, stateChangeTimeoutMs: 20, leaseTtlMs: 1_000 },
     )
 

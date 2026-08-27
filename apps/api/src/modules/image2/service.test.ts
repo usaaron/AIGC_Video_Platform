@@ -38,13 +38,7 @@ describe('Image2BatchService', () => {
         throw new Error('assist should not run for strict redo')
       }),
     } as unknown as Image2AssistService
-    const service = new Image2BatchService(
-      generationTasks,
-      mediaRepository,
-      dispatcher,
-      true,
-      assistService,
-    )
+    const service = new Image2BatchService(generationTasks, mediaRepository, dispatcher, true, assistService)
 
     const result = await service.createBatch(
       {
@@ -86,9 +80,7 @@ describe('Image2BatchService', () => {
       estimatedCredits: IMAGE2_CREDITS_PER_IMAGE,
     })
 
-    const inputs = generationTasks.createBatchWithCharge.mock.calls[0]?.[0] as Array<
-      Record<string, unknown>
-    >
+    const inputs = generationTasks.createBatchWithCharge.mock.calls[0]?.[0] as Array<Record<string, unknown>>
     expect(inputs).toHaveLength(1)
     expect(inputs[0]).toMatchObject({
       clientRequestId: 'image2-redo-1-1',
@@ -271,11 +263,7 @@ function makeSourceTask(): GenerationTask {
   }
 }
 
-function makeQueuedTask(
-  input: Record<string, unknown>,
-  index: number,
-  principal: Principal,
-): GenerationTask {
+function makeQueuedTask(input: Record<string, unknown>, index: number, principal: Principal): GenerationTask {
   const now = new Date().toISOString()
   return {
     id: `task-${index + 1}`,

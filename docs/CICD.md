@@ -11,7 +11,7 @@
 3. Review 通过后合并到 `main`。
 4. CI 根据本次完整 Push 的文件变化生成发布清单。
 5. `.github/workflows/deploy.yml` 使用 Workload Identity Federation 获取短期 Google 凭据，推送不可变 Commit SHA 镜像，并通过 IAP SSH 更新 GCE。
-6. `deploy/update-release.sh` 备份数据和旧镜像清单、更新目标模块、检查 `https://zjh.ai/api/v1/health`；失败时自动恢复旧镜像。
+6. `deploy/update-release.sh` 备份数据和旧镜像清单、更新目标模块、检查 `https://xumutv.com/api/v1/health`；失败时自动恢复旧镜像。
 
 不把 Google 服务账号 JSON、模型 Key、密码或 `deploy/demo.env` 保存到 GitHub 仓库。GitHub 到 Google Cloud 只使用短期身份令牌。
 
@@ -128,7 +128,7 @@ echo "$DEPLOY_SA_EMAIL"
 | `ARTIFACT_REGISTRY_REPOSITORY` | `seqora`                                       |
 | `GCE_INSTANCE`                 | `instance-20260726-112218`                     |
 | `GCE_ZONE`                     | `asia-east2-b`                                 |
-| `SYNTHETIC_BASE_URL`           | `https://zjh.ai`                               |
+| `SYNTHETIC_BASE_URL`           | `https://xumutv.com`                           |
 | `SYNTHETIC_ORGANIZATION_ID`    | Dedicated non-system synthetic organization id |
 
 在 `Settings -> Branches` 保护 `main`：要求 `CI / quality`、`CI / database` 通过、至少一位 Review、禁止强推。三人协作时采用短功能分支和小 PR，避免多人直接覆盖 `main`。

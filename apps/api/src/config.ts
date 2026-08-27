@@ -333,7 +333,8 @@ const configSchema = z
       context.addIssue({
         code: 'custom',
         path: ['SEQORA_IMAGE2_API_KEY'],
-        message: 'SEQORA_IMAGE2_API_KEY or legacy TOKENADVENT_API_KEY is required for production image2 generation',
+        message:
+          'SEQORA_IMAGE2_API_KEY or legacy TOKENADVENT_API_KEY is required for production image2 generation',
       })
     }
     if (Boolean(config.VOLC_ACCESS_KEY) !== Boolean(config.VOLC_SECRET_KEY)) {

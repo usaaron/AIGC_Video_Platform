@@ -78,7 +78,11 @@ export class Image2AssistService {
     const vision = input.assist.referenceVision
       ? await this.analyzeReferences(input.references)
       : { descriptions: new Map<string, string>(), summary: disabledReferenceVision() }
-    const references = referencesWithVisionDescriptions(input.references, vision.descriptions, this.options.model)
+    const references = referencesWithVisionDescriptions(
+      input.references,
+      vision.descriptions,
+      this.options.model,
+    )
     const optimization = input.assist.promptOptimization
       ? await this.optimizePrompt({
           prompt: input.prompt,
@@ -118,7 +122,12 @@ export class Image2AssistService {
       const optimizedPrompt = parseOptimizedPrompt(text)
       const elapsedMs = Date.now() - startedAt
       if (!isUsableOptimizedPrompt(optimizedPrompt)) {
-        return skippedPromptOptimization(input.prompt, '优化模型未返回可用提示词', elapsedMs, this.options.model)
+        return skippedPromptOptimization(
+          input.prompt,
+          '优化模型未返回可用提示词',
+          elapsedMs,
+          this.options.model,
+        )
       }
       return {
         requested: true,
@@ -129,7 +138,12 @@ export class Image2AssistService {
         model: this.options.model,
       }
     } catch (error) {
-      return skippedPromptOptimization(input.prompt, readableError(error), Date.now() - startedAt, this.options.model)
+      return skippedPromptOptimization(
+        input.prompt,
+        readableError(error),
+        Date.now() - startedAt,
+        this.options.model,
+      )
     }
   }
 
@@ -312,9 +326,7 @@ function referencesWithVisionDescriptions(
 ): Image2AssistReference[] {
   return references.map((reference) => {
     const visionDescription = descriptions.get(reference.id)
-    return visionDescription
-      ? { ...reference, visionDescription, visionModel: model }
-      : reference
+    return visionDescription ? { ...reference, visionDescription, visionModel: model } : reference
   })
 }
 
@@ -346,7 +358,9 @@ function parseOptimizedPrompt(text: string): string {
 }
 
 function parseReferenceVisionDescription(text: string): string {
-  return normalizeDescription(parseJsonStringField(text, ['visual_description', 'visualDescription', 'description']))
+  return normalizeDescription(
+    parseJsonStringField(text, ['visual_description', 'visualDescription', 'description']),
+  )
 }
 
 function parseJsonStringField(text: string, keys: string[]): string {

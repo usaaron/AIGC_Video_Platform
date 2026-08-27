@@ -99,6 +99,36 @@ type ProjectTaskPreviewRow = QueryResultRow & {
   updated_at: Date | string
 }
 
+type ProjectListAssetRow = QueryResultRow & {
+  project_id: string
+  kind: Asset['kind']
+  reference_items: unknown
+  attributes: unknown
+  image_url: string | null
+  updated_at: Date | string
+}
+
+type ProjectListShotRow = QueryResultRow & {
+  project_id: string
+  shot_order: number | string
+  image_url: string | null
+}
+
+type ProjectPreviewTask = Pick<
+  GenerationTask,
+  'id' | 'projectId' | 'label' | 'kind' | 'status' | 'progress' | 'metadata' | 'outputs' | 'updatedAt'
+>
+type ProjectPreviewAsset = Pick<
+  Asset,
+  'projectId' | 'kind' | 'references' | 'attributes' | 'imageUrl' | 'updatedAt'
+>
+type ProjectPreviewShot = Pick<Shot, 'projectId' | 'order' | 'imageUrl'>
+type ProjectPreviewState = {
+  tasks: ProjectPreviewTask[]
+  assets: ProjectPreviewAsset[]
+  shots: ProjectPreviewShot[]
+}
+
 const projectColumns = `
   id,
   tenant_id,
@@ -247,7 +277,101 @@ export class ProjectRepository {
       `,
       [principal.tenantId, canReadAll, principal.userId],
     )
-    return await Promise.all(result.rows.map(projectFromRow).map((project) => this.decorateProject(project)))
+    const projects = result.rows.map(projectFromRow)
+    if (!projects.length) return projects
+
+    const projectIds = projects.map((project) => project.id)
+    const [tasks, assets, shots] = await Promise.all([
+      this.database.query<ProjectTaskPreviewRow>(
+        `
+        WITH candidate_tasks AS (
+          SELECT
+            id,
+            project_id,
+            tenant_id,
+            kind,
+            label,
+            status,
+            progress,
+            metadata,
+            outputs,
+            updated_at,
+            ROW_NUMBER() OVER (
+              PARTITION BY project_id, kind, (status = 'completed')
+              ORDER BY updated_at DESC, id DESC
+            ) AS preview_rank
+          FROM generation_tasks
+          WHERE tenant_id = $1
+            AND project_id = ANY($2::text[])
+            AND (
+              status IN ('queued', 'paused', 'running', 'failed')
+              OR (status = 'completed' AND kind IN ('image', 'video'))
+            )
+        )
+        SELECT id, project_id, tenant_id, kind, label, status, progress, metadata, outputs, updated_at
+        FROM candidate_tasks
+        WHERE status <> 'completed' OR preview_rank = 1
+        ORDER BY updated_at DESC, id DESC
+        `,
+        [principal.tenantId, projectIds],
+      ),
+      this.database.query<ProjectListAssetRow>(
+        `
+        SELECT project_id, kind, reference_items, attributes, image_url, updated_at
+        FROM assets
+        WHERE tenant_id = $1
+          AND project_id = ANY($2::text[])
+          AND kind <> 'audio'
+        ORDER BY updated_at DESC
+        `,
+        [principal.tenantId, projectIds],
+      ),
+      this.database.query<ProjectListShotRow>(
+        `
+        SELECT project_id, shot_order, image_url
+        FROM shots
+        WHERE tenant_id = $1
+          AND project_id = ANY($2::text[])
+          AND image_url IS NOT NULL
+        ORDER BY project_id, shot_order ASC
+        `,
+        [principal.tenantId, projectIds],
+      ),
+    ])
+
+    const stateByProject = new Map<string, ProjectPreviewState>()
+    for (const project of projects) {
+      stateByProject.set(project.id, { tasks: [], assets: [], shots: [] })
+    }
+    for (const row of tasks.rows) {
+      stateByProject.get(row.project_id)?.tasks.push(projectPreviewTaskFromRow(row))
+    }
+    for (const row of assets.rows) {
+      stateByProject.get(row.project_id)?.assets.push({
+        projectId: row.project_id,
+        kind: row.kind,
+        references: jsonValue(row.reference_items, []),
+        attributes: jsonValue(row.attributes, { type: row.kind }) as Asset['attributes'],
+        imageUrl: row.image_url,
+        updatedAt: isoString(row.updated_at),
+      })
+    }
+    for (const row of shots.rows) {
+      stateByProject.get(row.project_id)?.shots.push({
+        projectId: row.project_id,
+        order: Number(row.shot_order),
+        imageUrl: row.image_url,
+      })
+    }
+
+    return projects.map((project) => {
+      const state = stateByProject.get(project.id)!
+      return {
+        ...project,
+        previewUrl: projectPreviewUrl(project.id, state),
+        generationSummary: projectGenerationSummary(project.id, state),
+      }
+    })
   }
 
   async workspace(projectId: string, principal: Principal): Promise<ProjectWorkspace | null> {
@@ -1815,10 +1939,7 @@ function upsertShot(state: AppState, shot: Shot): void {
   }
 }
 
-export function projectPreviewUrl(
-  projectId: string,
-  state: Pick<AppState, 'tasks' | 'shots' | 'assets'>,
-): string | null {
+export function projectPreviewUrl(projectId: string, state: ProjectPreviewState): string | null {
   const completedVideoFrame = state.tasks
     .filter((task) => task.projectId === projectId && task.kind === 'video' && task.status === 'completed')
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -1848,7 +1969,7 @@ export function projectPreviewUrl(
 
 export function projectGenerationSummary(
   projectId: string,
-  state: Pick<AppState, 'tasks'>,
+  state: Pick<ProjectPreviewState, 'tasks'>,
 ): ProjectGenerationSummary {
   const relevantStatuses = new Set(['queued', 'paused', 'running', 'failed'])
   const tasks = state.tasks
@@ -1876,7 +1997,7 @@ export function projectGenerationSummary(
   }
 }
 
-function assetPreviewUrl(asset: Asset): string | null {
+function assetPreviewUrl(asset: ProjectPreviewAsset): string | null {
   if (asset.imageUrl) return asset.imageUrl
   const attributes = asset.attributes as Record<string, unknown>
   const faceReference = attributes.faceReference as { url?: unknown } | null | undefined

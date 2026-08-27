@@ -1,6 +1,6 @@
 # 序幕TV 当前状态
 
-> 核对日期：2026-08-04。本文描述 `main` 和 `https://zjh.ai` 当前产品状态。若与历史开发记忆冲突，以 contracts、Service、Repository、实际 UI 和本文为准。
+> 核对日期：2026-08-27。本文描述 `main` 和 `https://xumutv.com` 当前产品状态。若与历史开发记忆冲突，以 contracts、Service、Repository、实际 UI 和本文为准。
 
 ## 产品定位
 
@@ -117,7 +117,7 @@ Postgres 是账号、组织、账单、项目、资产、分镜、生成任务�
 
 ## 生产快照
 
-- 域名：`https://zjh.ai`
+- 域名：`https://xumutv.com`
 - GCE 项目：`project-b3b9bf9e-3c8b-4fbc-9cc`
 - 实例：`instance-20260726-112218`
 - 区域：`asia-east2-b`
@@ -158,5 +158,7 @@ Postgres 是账号、组织、账单、项目、资产、分镜、生成任务�
 ## 下一位开发者建议
 
 不要从功能栈 UI 直接写一个巨大 Agent。先把当前主流程抽成可恢复的阶段状态机：`plan -> confirm -> script -> assets -> shots -> videos -> compose`，每阶段保存输入、输出、成本、任务 ID 和人工确认。第一优先级仍应是服务端定价和带音轨成片，它们直接决定外测可信度和成本安全。
+
 ## 序幕 image2
+
 `image-studio` 已切换为正式的 `序幕 image2` 工作台。前端只负责提示词、引用图、比例、清晰度和张数，批次提交走服务端专用接口，浏览器不再保存 provider key，也不再直接信任估算积分。

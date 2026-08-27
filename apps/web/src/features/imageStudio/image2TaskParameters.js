@@ -15,9 +15,7 @@ export function image2BatchInputFromTask(task, projectId) {
     aspectRatio: form.aspectRatio,
     quality: form.quality,
     imageCount: 1,
-    assist: reuseFinalPrompt
-      ? { promptOptimization: false, referenceVision: false }
-      : form.assist,
+    assist: reuseFinalPrompt ? { promptOptimization: false, referenceVision: false } : form.assist,
     references: form.references.map((reference) => ({
       mediaId: reference.mediaId,
       role: reference.role,
@@ -49,8 +47,7 @@ export function image2FormFromTask(task) {
   const metadata = task?.metadata ?? {}
   const snapshot = generationSnapshotFromTask(task)
   const snapshotAssist = isRecord(snapshot?.assist) ? snapshot.assist : null
-  const fallbackNegativePrompt =
-    cleanText(metadata.userNegativePrompt) || cleanText(task?.negativePrompt)
+  const fallbackNegativePrompt = cleanText(metadata.userNegativePrompt) || cleanText(task?.negativePrompt)
   return {
     prompt: snapshot
       ? snapshotText(snapshot, 'prompt', cleanText(task?.prompt))
@@ -70,7 +67,9 @@ export function image2FormFromTask(task) {
       ),
       referenceVision: assistWasRequested(snapshotAssist?.referenceVision ?? metadata.referenceVision),
     },
-    references: taskReferences(Array.isArray(snapshot?.references) ? snapshot.references : metadata.references),
+    references: taskReferences(
+      Array.isArray(snapshot?.references) ? snapshot.references : metadata.references,
+    ),
   }
 }
 
@@ -106,9 +105,7 @@ function taskReferences(value) {
     referenceNumbers.add(inputNumber)
   }
 
-  return references
-    .sort((left, right) => left.order - right.order)
-    .map((entry) => entry.reference)
+  return references.sort((left, right) => left.order - right.order).map((entry) => entry.reference)
 }
 
 function assistWasRequested(value) {
@@ -128,7 +125,8 @@ function snapshotText(snapshot, key, fallback = '') {
 }
 
 function valueFromSnapshotOrMetadata(snapshot, key, metadataValue, fallback, allowedValues = null) {
-  const value = snapshot && Object.prototype.hasOwnProperty.call(snapshot, key) ? snapshot[key] : metadataValue
+  const value =
+    snapshot && Object.prototype.hasOwnProperty.call(snapshot, key) ? snapshot[key] : metadataValue
   return (!allowedValues || allowedValues.has(value)) && typeof value === 'string' ? value : fallback
 }
 
