@@ -2,6 +2,8 @@ node_modules
 dist
 coverage
 pnpm-lock.yaml
+apps/e2e/playwright-report
+apps/e2e/test-results
 apps/web/public/demo
 artifacts
 data

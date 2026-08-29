@@ -34,7 +34,7 @@ export default defineConfig({
   projects: [
     {
       name: 'web',
-      testMatch: /web\/.*\.spec\.js/,
+      testMatch: /[\\/]tests[\\/]web[\\/].*\.spec\.js$/,
       use: {
         ...devices['Desktop Chrome'],
         ...browserLaunch,
@@ -43,7 +43,7 @@ export default defineConfig({
     },
     {
       name: 'admin',
-      testMatch: /admin\/.*\.spec\.js/,
+      testMatch: /[\\/]tests[\\/]admin[\\/].*\.spec\.js$/,
       use: {
         ...devices['Desktop Chrome'],
         ...browserLaunch,
