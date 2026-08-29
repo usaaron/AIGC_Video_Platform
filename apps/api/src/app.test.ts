@@ -3409,11 +3409,17 @@ describe('API authorization', () => {
       'x-demo-tenant-id': 'tenant-seqora-demo',
     }
     const script = Array.from({ length: 10 }, (_, index) => `剧本段落 ${index + 1}`).join('\n')
-    const updated = await app.inject({
-      method: 'PATCH',
+    const workspace = await app.inject({
+      method: 'GET',
       url: '/api/v1/projects/project-midnight-film',
       headers,
-      payload: { script },
+    })
+    const episodeId = workspace.json().scriptEpisodes[0].id
+    const updated = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/episodes/save',
+      headers,
+      payload: { episodeId, content: script },
     })
     expect(updated.statusCode).toBe(200)
 
@@ -3508,11 +3514,17 @@ describe('API authorization', () => {
         '运镜：稳定缓慢推进',
         '衔接：动作方向保持一致',
       ].join('｜')
-    await app.inject({
-      method: 'PATCH',
+    const workspace = await app.inject({
+      method: 'GET',
       url: '/api/v1/projects/project-midnight-film',
       headers,
-      payload: { script: `${scene(1)}\n${scene(2)}` },
+    })
+    const episodeId = workspace.json().scriptEpisodes[0].id
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/episodes/save',
+      headers,
+      payload: { episodeId, content: `${scene(1)}\n${scene(2)}` },
     })
 
     const response = await app.inject({
