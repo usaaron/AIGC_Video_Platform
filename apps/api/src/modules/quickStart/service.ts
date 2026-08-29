@@ -1,13 +1,14 @@
-import type {
-  Asset,
-  ExecuteQuickStartRequest,
-  GenerationTask,
-  Principal,
-  QuickStartAssetProposal,
-  QuickStartEstimate,
-  QuickStartExecutionResult,
-  QuickStartPlan,
-  ScriptModel,
+import {
+  DEFAULT_SCRIPT_MODEL,
+  type Asset,
+  type ExecuteQuickStartRequest,
+  type GenerationTask,
+  type Principal,
+  type QuickStartAssetProposal,
+  type QuickStartEstimate,
+  type QuickStartExecutionResult,
+  type QuickStartPlan,
+  type ScriptModel,
 } from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -115,7 +116,7 @@ export class QuickStartService {
   async plan(
     projectId: string,
     principal: Principal,
-    model: ScriptModel = 'glm-5.2',
+    model: ScriptModel = DEFAULT_SCRIPT_MODEL,
   ): Promise<QuickStartPlan> {
     const context = this.projectContext(projectId, principal)
     const script = context.project.script.trim()

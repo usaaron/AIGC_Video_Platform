@@ -40,7 +40,7 @@ export function LongFormStudioPlaceholder({
         : '点击“同步当前短剧本”，以现有内容作为长篇扩写种子。'
 
   return (
-    <section className="long-form-studio" aria-label="长剧本创作待开发">
+    <section className="long-form-studio" aria-label="长剧本生成建设中">
       <header className="long-form-studio-head">
         <div>
           <span className="long-form-symbol">
@@ -48,7 +48,7 @@ export function LongFormStudioPlaceholder({
           </span>
           <div>
             <span className="eyebrow">LONG FORM STUDIO</span>
-            <h2>长剧本创作</h2>
+            <h2>长剧本生成</h2>
           </div>
         </div>
         <span className="development-badge">待开发</span>

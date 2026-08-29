@@ -16,7 +16,7 @@ describe('production configuration', () => {
     expect(config.BOOTSTRAP_DEMO_WORKSPACE).toBe(false)
     expect(config.BOOTSTRAP_ACCOUNTS_ON_START).toBe(false)
     expect(config.EMAIL_PROVIDER).toBe('resend')
-    expect(config.TEXT_MODEL).toBe('glm-5.2')
+    expect(config.TEXT_MODEL).toBe('deepseek-v4-flash')
     expect(config.TASK_QUEUE_DRIVER).toBe('bullmq')
     expect(config.REDIS_URL).toBe('redis://redis:6379')
   })
@@ -199,13 +199,13 @@ describe('production configuration', () => {
     expect(
       loadConfig({
         ...productionConfig(),
-        TEXT_MODEL: 'deepseek-v4-flash',
+        TEXT_MODEL: 'deepseek-v4-pro',
         DEEPSEEK_V4_API_KEY: 'production-deepseek-v4-token',
       }),
     ).toMatchObject({
-      DEEPSEEK_V4_BASE_URL: 'https://openrouter.icu/v1',
+      DEEPSEEK_V4_BASE_URL: 'https://hk.shanyoucloud.com',
       DEEPSEEK_V4_MODEL: 'deepseek-v4-flash',
-      DEEPSEEK_V4_CHAT_COMPLETIONS_PATH: '/chat/completions',
+      DEEPSEEK_V4_CHAT_COMPLETIONS_PATH: '/v1/chat/completions',
     })
   })
 
@@ -231,6 +231,7 @@ function productionConfig(overrides: Record<string, string> = {}): Record<string
     EMAIL_FROM: 'Seqora <no-reply@example.com>',
     RESEND_API_KEY: 'resend-production-token',
     STRINGX_API_KEY: 'production-video-token',
+    DEEPSEEK_V4_API_KEY: 'production-deepseek-v4-token',
     TOKENADVENT_API_KEY: 'production-image-token',
     REHDASU_API_KEY: 'production-text-token',
     REDIS_URL: 'redis://redis:6379',

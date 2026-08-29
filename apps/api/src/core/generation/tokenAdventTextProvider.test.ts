@@ -168,6 +168,20 @@ describe('TokenAdventTextProvider', () => {
     )
   })
 
+  it('rejects reasoning-only responses instead of writing analysis into the script', async () => {
+    let calls = 0
+    const provider = createProvider(async () => {
+      calls += 1
+      return Response.json({ choices: [{ message: { reasoning_content: '内部分析' } }] })
+    })
+
+    await expect(provider.generate({ systemPrompt: 'test', userPrompt: 'test' })).rejects.toMatchObject({
+      name: 'TextGenerationProviderError',
+      message: expect.stringContaining('格式异常'),
+    })
+    expect(calls).toBe(1)
+  })
+
   it('assembles streamed completion chunks', async () => {
     const encoder = new TextEncoder()
     const stream = new ReadableStream({

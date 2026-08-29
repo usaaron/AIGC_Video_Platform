@@ -98,26 +98,26 @@ const configSchema = z
     DEEPSEEK_MODEL: z.string().min(1).default('deepseekV3'),
     DEEPSEEK_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/api/v1/chat/completions'),
     DEEPSEEK_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
-    DEEPSEEK_V4_BASE_URL: z.string().url().default('https://openrouter.icu/v1'),
+    DEEPSEEK_V4_BASE_URL: z.string().url().default('https://hk.shanyoucloud.com'),
     DEEPSEEK_V4_API_KEY: z.string().default(''),
     DEEPSEEK_V4_MODEL: z.string().min(1).default('deepseek-v4-flash'),
-    DEEPSEEK_V4_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/chat/completions'),
+    DEEPSEEK_V4_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/v1/chat/completions'),
     DEEPSEEK_V4_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
     REHDASU_BASE_URL: z.string().url().default('https://tokenadvent.com'),
     REHDASU_API_KEY: z.string().default(''),
     REHDASU_MODEL: z.string().min(1).default('glm-5.2'),
     REHDASU_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/v1/chat/completions'),
     REHDASU_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
-    TOKENADVENT_BASE_URL: z.string().url().default('https://tokenadvent.com'),
+    TOKENADVENT_BASE_URL: z.string().url().default('https://hk.shanyoucloud.com'),
     TOKENADVENT_API_KEY: z.string().default(''),
-    SEQORA_IMAGE2_BASE_URL: z.string().url().default('https://tokenadvent.com'),
+    SEQORA_IMAGE2_BASE_URL: z.string().url().default('https://hk.shanyoucloud.com'),
     SEQORA_IMAGE2_API_KEY: z.string().default(''),
     SEQORA_IMAGE2_MODEL: z.string().min(1).default('gpt-image-2'),
     SEQORA_IMAGE2_ASSIST_MODEL: z.string().min(1).default('gpt-5.4'),
     SEQORA_IMAGE2_ASSIST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(180_000).default(60_000),
     IMG2_MODEL: z.string().min(1).default('gpt-image-2'),
     IMG2_QUALITY: z.enum(['low', 'medium', 'high']).default('low'),
-    TEXT_MODEL: z.string().min(1).default('glm-5.2'),
+    TEXT_MODEL: z.string().min(1).default('deepseek-v4-flash'),
     TOKENADVENT_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
   })
   .superRefine((config, context) => {
@@ -309,6 +309,17 @@ const configSchema = z
     }
     if (
       config.NODE_ENV === 'production' &&
+      isGptTextModel(config.TEXT_MODEL) &&
+      !config.TOKENADVENT_API_KEY
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['TOKENADVENT_API_KEY'],
+        message: 'TOKENADVENT_API_KEY is required for the selected production text model',
+      })
+    }
+    if (
+      config.NODE_ENV === 'production' &&
       isDeepSeekV4TextModel(config.TEXT_MODEL) &&
       !config.DEEPSEEK_V4_API_KEY
     ) {
@@ -423,7 +434,12 @@ function isDeepSeekV3TextModel(model: string): boolean {
 }
 
 function isDeepSeekV4TextModel(model: string): boolean {
-  return model.trim().toLowerCase() === 'deepseek-v4-flash'
+  return ['deepseek-v4-flash', 'deepseek-v4-pro'].includes(model.trim().toLowerCase())
+}
+
+function isGptTextModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase()
+  return normalized === 'seqora-5.6' || normalized.startsWith('gpt-')
 }
 
 function normalizeCsv(value: string | undefined): string {

@@ -7,11 +7,12 @@ import {
 } from '@seqora/contracts'
 import type { AppStore } from '../../infra/store.js'
 import type { ProjectService } from '../../modules/projects/service.js'
+import type { LocalTaskExecutionContext } from './localTaskHandler.js'
 
-export type TextTaskHandler = (task: GenerationTask) => Promise<unknown>
+export type TextTaskHandler = (task: GenerationTask, context?: LocalTaskExecutionContext) => Promise<unknown>
 
 export function createScriptTaskHandler(store: AppStore, service: ProjectService): TextTaskHandler {
-  return async (task) => {
+  return async (task, context) => {
     const principal = principalForTask(store, task)
     const operation = task.metadata.scriptOperation
 
@@ -27,6 +28,7 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         episodeDurationSeconds: task.metadata.episodeDurationSeconds,
         model: task.model ?? task.metadata.model,
         revisionNote: task.metadata.revisionNote,
+        episodeId: task.metadata.episodeId,
       })
       return service.generateScript(
         task.projectId,
@@ -42,6 +44,9 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         input.revisionNote,
         task.metadata.billingMode === 'prepaid' ? 'prepaid' : 'direct',
         input.episodeDurationSeconds,
+        context?.onTextProgress,
+        context?.onTextTiming,
+        input.episodeId,
       )
     }
 
@@ -55,6 +60,7 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         episodeDurationSeconds: task.metadata.episodeDurationSeconds,
         model: task.model ?? task.metadata.model,
         revisionNote: task.metadata.revisionNote,
+        episodeId: task.metadata.episodeId,
       })
       return service.enrichScript(
         task.projectId,
@@ -68,6 +74,9 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         input.revisionNote,
         task.metadata.billingMode === 'prepaid' ? 'prepaid' : 'direct',
         input.episodeDurationSeconds,
+        context?.onTextProgress,
+        context?.onTextTiming,
+        input.episodeId,
       )
     }
 

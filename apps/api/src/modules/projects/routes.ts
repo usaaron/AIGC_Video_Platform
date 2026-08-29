@@ -9,6 +9,7 @@ import {
   generateShotsRequestSchema,
   PERMISSIONS,
   reviewScriptRequestSchema,
+  saveScriptEpisodeRequestSchema,
   updateAssetSchema,
   updateProjectSchema,
   updateShotSchema,
@@ -24,6 +25,7 @@ import type { ProjectService } from './service.js'
 const projectParams = z.object({ projectId: z.string().min(1) })
 const assetParams = projectParams.extend({ assetId: z.string().min(1) })
 const shotParams = projectParams.extend({ shotId: z.string().min(1) })
+const episodeParams = projectParams.extend({ episodeId: z.string().min(1) })
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value)
   if (!result.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(result.error))
@@ -105,6 +107,9 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         input.revisionNote,
         'direct',
         input.episodeDurationSeconds,
+        undefined,
+        undefined,
+        input.episodeId,
       )
     },
   )
@@ -141,7 +146,44 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
         input.revisionNote,
         'direct',
         input.episodeDurationSeconds,
+        undefined,
+        undefined,
+        input.episodeId,
       )
+    },
+  )
+
+  app.post(
+    '/projects/:projectId/script/episodes/save',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
+    (request) => {
+      const input = parse(saveScriptEpisodeRequestSchema, request.body ?? {})
+      return service.saveScriptEpisode(
+        parse(projectParams, request.params).projectId,
+        input.episodeId ?? null,
+        input.content,
+        request.principal!,
+        input.title,
+      )
+    },
+  )
+
+  app.delete(
+    '/projects/:projectId/script/episodes/:episodeId',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
+    async (request, reply) => {
+      const { projectId, episodeId } = parse(episodeParams, request.params)
+      await service.deleteLastScriptEpisode(projectId, episodeId, request.principal!)
+      return reply.code(204).send()
+    },
+  )
+
+  app.delete(
+    '/projects/:projectId/script/episodes',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
+    async (request, reply) => {
+      await service.clearScriptEpisodes(parse(projectParams, request.params).projectId, request.principal!)
+      return reply.code(204).send()
     },
   )
 

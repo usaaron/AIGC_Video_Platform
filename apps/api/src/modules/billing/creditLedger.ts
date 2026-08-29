@@ -899,6 +899,7 @@ function unusedJsonState(): AppState {
   return {
     users: [],
     projects: [],
+    scriptEpisodes: [],
     assets: [],
     shots: [],
     tasks: [],

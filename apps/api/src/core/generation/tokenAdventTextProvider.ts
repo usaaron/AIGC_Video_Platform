@@ -2,6 +2,7 @@ import {
   TextGenerationProviderError,
   type TextGenerationProvider,
   type TextGenerationRequest,
+  type TextGenerationTiming,
 } from './textProvider.js'
 import {
   providerTokenUsageFromPayload,
@@ -32,7 +33,7 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
     let lastError: unknown
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        return await this.generateOnce(request)
+        return await this.generateOnce(request, attempt + 1)
       } catch (error) {
         lastError = error
         if (attempt > 0 || !isRetryable(error)) break
@@ -42,22 +43,48 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
     throw publicProviderError(lastError, this.resolveModel(request.model))
   }
 
-  private async generateOnce(request: TextGenerationRequest): Promise<string> {
+  private async generateOnce(request: TextGenerationRequest, attempt: number): Promise<string> {
+    const startedAt = Date.now()
     const model = this.resolveModel(request.model)
     let response = await this.requestCompletion(request, model, true)
     if (!response.ok && response.status === 400 && request.responseFormat === 'json') {
       response = await this.requestCompletion(request, model, false)
     }
     if (!response.ok) throw await textProviderError(response)
+    const responseHeadersMs = Date.now() - startedAt
 
     if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
-      const completion = await readCompletionStream(response.body, this.options.requestTimeoutMs)
+      const completion = await readCompletionStream(
+        response.body,
+        this.options.requestTimeoutMs,
+        request.onTextProgress,
+      )
+      notifyTextTiming(request.onTextTiming, {
+        ...(request.timingLabel ? { label: request.timingLabel } : {}),
+        responseHeadersMs,
+        firstTokenMs:
+          completion.firstTokenAfterHeadersMs === null
+            ? null
+            : responseHeadersMs + completion.firstTokenAfterHeadersMs,
+        generationMs: completion.generationMs,
+        totalMs: Date.now() - startedAt,
+        attempt,
+      })
       this.recordTokenUsage(request, model, completion.usage)
       return completion.text
     }
     const payload = await response.json()
     const content = completionText(payload)
     if (!content) throw new InvalidTextResponseError()
+    notifyTextProgress(request.onTextProgress, content.trim())
+    notifyTextTiming(request.onTextTiming, {
+      ...(request.timingLabel ? { label: request.timingLabel } : {}),
+      responseHeadersMs,
+      firstTokenMs: responseHeadersMs,
+      generationMs: Math.max(0, Date.now() - startedAt - responseHeadersMs),
+      totalMs: Date.now() - startedAt,
+      attempt,
+    })
     this.recordTokenUsage(request, model, providerTokenUsageFromPayload(payload))
     return content.trim()
   }
@@ -136,13 +163,20 @@ class InvalidTextResponseError extends Error {
 async function readCompletionStream(
   body: ReadableStream<Uint8Array>,
   timeoutMs: number,
-): Promise<{ text: string; usage: ProviderTokenUsage | null }> {
+  onTextProgress?: (text: string) => void,
+): Promise<{
+  text: string
+  usage: ProviderTokenUsage | null
+  firstTokenAfterHeadersMs: number | null
+  generationMs: number | null
+}> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   const startedAt = Date.now()
   let buffered = ''
   let content = ''
   let usage: ProviderTokenUsage | null = null
+  let firstTokenAt: number | null = null
 
   const consume = (line: string) => {
     if (!line.startsWith('data:')) return
@@ -156,7 +190,12 @@ async function readCompletionStream(
     }
     if (!isRecord(value)) return
     usage = providerTokenUsageFromPayload(value) ?? usage
-    content += completionText(value)
+    const next = completionText(value)
+    content += next
+    if (next) {
+      firstTokenAt ??= Date.now()
+      notifyTextProgress(onTextProgress, content)
+    }
   }
 
   const readWithTimeout = async () => {
@@ -194,7 +233,33 @@ async function readCompletionStream(
   if (buffered) consume(buffered)
   const result = content.trim()
   if (!result) throw new InvalidTextResponseError()
-  return { text: result, usage }
+  return {
+    text: result,
+    usage,
+    firstTokenAfterHeadersMs: firstTokenAt === null ? null : Math.max(0, firstTokenAt - startedAt),
+    generationMs: firstTokenAt === null ? null : Math.max(0, Date.now() - firstTokenAt),
+  }
+}
+
+function notifyTextProgress(onTextProgress: ((text: string) => void) | undefined, text: string): void {
+  if (!onTextProgress || !text) return
+  try {
+    onTextProgress(text)
+  } catch {
+    // A preview must never interrupt the provider completion.
+  }
+}
+
+function notifyTextTiming(
+  onTextTiming: ((timing: TextGenerationTiming) => void) | undefined,
+  timing: TextGenerationTiming,
+): void {
+  if (!onTextTiming) return
+  try {
+    onTextTiming(timing)
+  } catch {
+    // Timing is diagnostic data and must never interrupt generation.
+  }
 }
 
 function timeoutError(): DOMException {
@@ -211,13 +276,7 @@ function completionText(value: unknown): string {
       const delta = isRecord(choice.delta) ? choice.delta : undefined
       const message = isRecord(choice.message) ? choice.message : undefined
       const content = textFromValue(
-        delta?.content ??
-          delta?.text ??
-          message?.content ??
-          message?.text ??
-          message?.reasoning_content ??
-          choice.text ??
-          choice.content,
+        delta?.content ?? delta?.text ?? message?.content ?? message?.text ?? choice.text ?? choice.content,
       )
       if (content) return content
     }

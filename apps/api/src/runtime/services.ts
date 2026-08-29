@@ -227,6 +227,7 @@ export function createRuntimeServices(input: {
     videoProviderName(config),
     objectStorage,
     filmPreviewComposer,
+    providers.textProvider,
   )
   const projectService = new ProjectService(
     repositories.projectRepository,

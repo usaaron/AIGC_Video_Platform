@@ -157,8 +157,10 @@ export const api = {
       'kimi-3',
       'deepseek-v3',
       'deepseek-v4-flash',
+      'deepseek-v4-pro',
       'qwen3.8',
       'gpt-5.6-terra',
+      'gpt-5.6-sol',
       'kimi-k3',
       'glm-5.2',
     ])
@@ -195,6 +197,10 @@ export const api = {
       `/projects/${id}/script/enrich`,
       json('POST', { clientRequestId, script, direction, ...options }),
     ),
+  saveScriptEpisode: (id, input) => request(`/projects/${id}/script/episodes/save`, json('POST', input)),
+  deleteScriptEpisode: (id, episodeId) =>
+    request(`/projects/${id}/script/episodes/${encodeURIComponent(episodeId)}`, { method: 'DELETE' }),
+  clearScriptEpisodes: (id) => request(`/projects/${id}/script/episodes`, { method: 'DELETE' }),
   reviewScript: (id, script, direction, clientRequestId = crypto.randomUUID(), options = {}) =>
     request(
       `/projects/${id}/script/review`,

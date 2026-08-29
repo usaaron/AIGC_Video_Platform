@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  ArrowLeft,
   ArrowUp,
   CircleAlert,
   BookOpenText,
@@ -7,16 +8,12 @@ import {
   ChevronRight,
   CircleDashed,
   Download,
-  FileText,
-  Layers3,
   LoaderCircle,
-  Mic2,
   Pause,
   Play,
   Plus,
   RefreshCw,
   Sparkles,
-  UsersRound,
   WandSparkles,
 } from 'lucide-react'
 import { BrandMark } from '../components/BrandMark'
@@ -34,6 +31,7 @@ export function FunctionStackPage({
   onRefreshImageStudio,
   onOpenBilling,
   onOpenProject,
+  onOpenScript,
   onProjectCreated,
 }) {
   const item = FUNCTION_STACK_ITEMS.find((entry) => entry.id === tool) ?? FUNCTION_STACK_ITEMS[0]
@@ -47,7 +45,7 @@ export function FunctionStackPage({
           </span>
         ) : item.id === 'writing-studio' ? (
           <span className="tool-development-badge">
-            <CircleDashed size={13} /> UI 预览 · 开发中
+            <CircleDashed size={13} /> 外部模块 · 等待接入
           </span>
         ) : null}
       </PageHeader>
@@ -64,7 +62,7 @@ export function FunctionStackPage({
           onOpenBilling={onOpenBilling}
         />
       ) : null}
-      {item.id === 'writing-studio' ? <WritingStudio /> : null}
+      {item.id === 'writing-studio' ? <WritingStudio onOpenScript={onOpenScript} /> : null}
     </div>
   )
 }
@@ -649,106 +647,43 @@ function upsertRun(setter, run) {
   setter((current) => [run, ...current.filter((item) => item.id !== run.id)])
 }
 
-function WritingStudio() {
+function WritingStudio({ onOpenScript }) {
   return (
-    <section className="tool-studio-frame writing-studio-frame" aria-label="剧本大师预览">
+    <section className="tool-studio-frame writing-studio-frame" aria-label="剧本大师接入说明">
       <header className="tool-frame-header">
         <div className="tool-frame-identity">
           <span className="tool-frame-mark">
             <BookOpenText size={18} />
           </span>
           <div>
-            <strong>长篇项目 · 未命名</strong>
-            <span>世界观与分集规划</span>
+            <strong>剧本大师</strong>
+            <span>长篇故事与批量分集由外部团队研发</span>
           </div>
         </div>
-        <div className="tool-frame-status writing-studio-live">
-          <i /> 结构草稿 · 自动保存
-        </div>
+        <div className="tool-frame-status">等待接口接入</div>
       </header>
-      <div className="writing-studio-progress" aria-label="剧本大师工作流预览">
-        <div className="active">
-          <span>01</span>
-          <strong>输入种子</strong>
-          <small>当前阶段</small>
-        </div>
-        <div>
-          <span>02</span>
-          <strong>大纲候选</strong>
-          <small>等待确认</small>
-        </div>
-        <div>
-          <span>03</span>
-          <strong>设定档案</strong>
-          <small>确认后生成</small>
-        </div>
-        <div>
-          <span>04</span>
-          <strong>分集规划</strong>
-          <small>长剧本输出</small>
-        </div>
-      </div>
-      <div className="writing-studio-layout">
-        <aside className="writing-module-rail">
-          <span className="tool-section-label">故事资料库</span>
-          {[
-            ['故事总纲', FileText, '01'],
-            ['人物关系', UsersRound, '08'],
-            ['世界设定', Sparkles, '12'],
-            ['分集大纲', Layers3, '60'],
-            ['对白素材', Mic2, '24'],
-          ].map(([label, Icon, count], index) => (
-            <button type="button" className={index === 0 ? 'active' : ''} key={label} disabled>
-              <Icon size={15} />
-              <span>{label}</span>
-              <small>{count}</small>
-            </button>
-          ))}
-        </aside>
-        <article className="writing-document">
-          <header>
-            <span>STORY BIBLE / V0.1</span>
-            <strong>《倒计时车站》故事总纲</strong>
-            <small>1,284 字 · 最后编辑于 2 分钟前</small>
-          </header>
-          <div className="writing-document-body">
-            <h2>核心命题</h2>
-            <p>当一个人提前看见自己的选择，她是在改变未来，还是正在完成未来？</p>
-            <h2>第一幕 · 失序</h2>
-            <p>
-              调查员岚星在停运车站醒来。站内所有屏幕比现实快五分钟，画面中的她正沿着一条从未走过的通道奔跑。
-            </p>
-            <h2>人物动力</h2>
-            <p>岚星必须在列车重新启动前找到屏幕信号源，同时确认画面里不断接近她的人究竟是谁。</p>
-            <span className="writing-cursor" aria-hidden="true" />
+      <div className="writing-studio-handoff">
+        <span className="eyebrow">LONG-FORM HANDOFF</span>
+        <h2>长剧本能力尚未接入当前版本</h2>
+        <p>
+          当前工作台只负责单集剧本生成。长篇世界观、人物关系、批量分集和数十万字正文由剧本大师团队独立研发，接口完成后再接入这里。
+        </p>
+        <div className="writing-studio-boundaries">
+          <div>
+            <strong>当前可用</strong>
+            <span>单次生成 1 集、6～8 个可制作场次，并继续进入资产与分镜。</span>
           </div>
-        </article>
-        <aside className="writing-insight-rail">
-          <span className="tool-section-label">结构检查</span>
-          <div className="writing-score">
-            <strong>82</strong>
-            <span>叙事完整度</span>
+          <div>
+            <strong>等待接入</strong>
+            <span>长篇总纲、人物档案、分集规划，以及按集按场次的批量交付。</span>
           </div>
-          {[
-            ['核心冲突', '明确', true],
-            ['人物目标', '明确', true],
-            ['中段升级', '待补充', false],
-            ['结尾钩子', '已建立', true],
-          ].map(([label, state, ready]) => (
-            <div className="writing-check" key={label}>
-              <span className={ready ? 'ready' : ''}>
-                {ready ? <Check size={11} /> : <CircleDashed size={11} />}
-              </span>
-              <div>
-                <strong>{label}</strong>
-                <small>{state}</small>
-              </div>
-            </div>
-          ))}
-          <button type="button" disabled>
-            <Sparkles size={14} /> 深度分析
-          </button>
-        </aside>
+        </div>
+        <p className="writing-studio-safe-note">
+          此页面不会创建生成任务，也不会显示虚假的“生成中”或“自动保存”状态。
+        </p>
+        <button type="button" className="button primary" onClick={onOpenScript}>
+          <ArrowLeft size={15} /> 返回单集剧本
+        </button>
       </div>
     </section>
   )

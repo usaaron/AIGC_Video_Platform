@@ -2,6 +2,7 @@ import {
   TextGenerationProviderError,
   type TextGenerationProvider,
   type TextGenerationRequest,
+  type TextGenerationTiming,
 } from './textProvider.js'
 import {
   providerTokenUsageFromPayload,
@@ -38,7 +39,7 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
     const maxAttempts = this.options.maxAttempts ?? 2
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
-        return await this.generateOnce(request, attempt === 0)
+        return await this.generateOnce(request, attempt === 0, attempt + 1)
       } catch (error) {
         lastError = error
         if (attempt >= maxAttempts - 1 || !isRetryable(error)) break
@@ -48,15 +49,36 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
     throw publicProviderError(this.options.providerLabel, lastError)
   }
 
-  private async generateOnce(request: TextGenerationRequest, stream: boolean): Promise<string> {
+  private async generateOnce(
+    request: TextGenerationRequest,
+    stream: boolean,
+    attempt: number,
+  ): Promise<string> {
+    const startedAt = Date.now()
     let response = await this.requestCompletion(request, stream, true)
     if (!response.ok && response.status === 400 && request.responseFormat === 'json') {
       response = await this.requestCompletion(request, stream, false)
     }
     if (!response.ok) throw await textProviderError(this.options.providerLabel, response)
+    const responseHeadersMs = Date.now() - startedAt
 
     if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
-      const completion = await readCompletionStream(response.body, this.options.requestTimeoutMs)
+      const completion = await readCompletionStream(
+        response.body,
+        this.options.requestTimeoutMs,
+        request.onTextProgress,
+      )
+      notifyTextTiming(request.onTextTiming, {
+        ...(request.timingLabel ? { label: request.timingLabel } : {}),
+        responseHeadersMs,
+        firstTokenMs:
+          completion.firstTokenAfterHeadersMs === null
+            ? null
+            : responseHeadersMs + completion.firstTokenAfterHeadersMs,
+        generationMs: completion.generationMs,
+        totalMs: Date.now() - startedAt,
+        attempt,
+      })
       this.recordTokenUsage(request, completion.usage)
       return completion.text
     }
@@ -68,6 +90,15 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
     }
     const result = completionText(payload)
     if (!result) throw new InvalidTextResponseError(this.options.providerLabel)
+    notifyTextProgress(request.onTextProgress, result.trim())
+    notifyTextTiming(request.onTextTiming, {
+      ...(request.timingLabel ? { label: request.timingLabel } : {}),
+      responseHeadersMs,
+      firstTokenMs: responseHeadersMs,
+      generationMs: Math.max(0, Date.now() - startedAt - responseHeadersMs),
+      totalMs: Date.now() - startedAt,
+      attempt,
+    })
     this.recordTokenUsage(request, providerTokenUsageFromPayload(payload))
     return result.trim()
   }
@@ -131,14 +162,20 @@ class InvalidTextResponseError extends Error {
 async function readCompletionStream(
   body: ReadableStream<Uint8Array>,
   timeoutMs: number,
-): Promise<{ text: string; usage: ProviderTokenUsage | null }> {
+  onTextProgress?: (text: string) => void,
+): Promise<{
+  text: string
+  usage: ProviderTokenUsage | null
+  firstTokenAfterHeadersMs: number | null
+  generationMs: number | null
+}> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   const startedAt = Date.now()
   let buffered = ''
   let content = ''
-  let reasoningContent = ''
   let usage: ProviderTokenUsage | null = null
+  let firstTokenAt: number | null = null
 
   const consume = (line: string) => {
     if (!line.startsWith('data:')) return
@@ -153,7 +190,10 @@ async function readCompletionStream(
     usage = providerTokenUsageFromPayload(value) ?? usage
     const text = completionParts(value)
     content += text.content
-    reasoningContent += text.reasoning
+    if (text.content) {
+      firstTokenAt ??= Date.now()
+      notifyTextProgress(onTextProgress, content)
+    }
   }
 
   const readWithTimeout = async () => {
@@ -189,14 +229,40 @@ async function readCompletionStream(
   }
   buffered += decoder.decode()
   if (buffered) consume(buffered)
-  const result = (content || reasoningContent).trim()
+  const result = content.trim()
   if (!result) throw new InvalidTextResponseError('OpenAI-compatible text provider')
-  return { text: result, usage }
+  return {
+    text: result,
+    usage,
+    firstTokenAfterHeadersMs: firstTokenAt === null ? null : Math.max(0, firstTokenAt - startedAt),
+    generationMs: firstTokenAt === null ? null : Math.max(0, Date.now() - firstTokenAt),
+  }
+}
+
+function notifyTextProgress(onTextProgress: ((text: string) => void) | undefined, text: string): void {
+  if (!onTextProgress || !text) return
+  try {
+    onTextProgress(text)
+  } catch {
+    // A preview must never interrupt the provider completion.
+  }
+}
+
+function notifyTextTiming(
+  onTextTiming: ((timing: TextGenerationTiming) => void) | undefined,
+  timing: TextGenerationTiming,
+): void {
+  if (!onTextTiming) return
+  try {
+    onTextTiming(timing)
+  } catch {
+    // Timing is diagnostic data and must never interrupt generation.
+  }
 }
 
 function completionText(value: unknown): string {
   const parts = completionParts(value)
-  return parts.content || parts.reasoning
+  return parts.content
 }
 
 function completionParts(value: unknown): { content: string; reasoning: string } {

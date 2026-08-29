@@ -12,6 +12,7 @@ import type {
   ImageGenerationRequest,
   ImageReference,
 } from '../generation/imageProvider.js'
+import type { TextGenerationTiming } from '../generation/textProvider.js'
 import type {
   VideoGenerationProvider,
   VideoGenerationRequest,
@@ -45,6 +46,12 @@ export type ClaimedRemoteTasks = {
   video: GenerationTask[]
   image: GenerationTask[]
   local: GenerationTask[]
+}
+
+export type LocalTaskDiagnostics = {
+  executionStartedAtMs: number
+  firstPreviewAtMs: number | null
+  textTimings: TextGenerationTiming[]
 }
 
 export class DependencyResolver {
@@ -170,15 +177,25 @@ export class TaskClaimer {
             recordGenerationTaskTerminal(task, new Error(task.error))
           })
 
-        const running = userTasks.filter(
+        const runningTasks = userTasks.filter(
           (task) => task.status === 'running' && task.provider !== 'local-compose',
         )
-        const available = Math.max(0, (user.plan === 'member' ? 3 : 1) - running.length)
-        let claimed = 0
-        for (const task of userTasks) {
-          if (claimed >= available) break
+        let availableTextSlots = Math.max(0, 1 - runningTasks.filter((task) => task.kind === 'text').length)
+        let availableMediaSlots = Math.max(
+          0,
+          (user.plan === 'member' ? 3 : 1) - runningTasks.filter((task) => task.kind !== 'text').length,
+        )
+        const queuedTasks = userTasks
+          .filter((task) => task.status === 'queued' && task.provider !== 'local-compose')
+          .sort((left, right) => {
+            const kindPriority = Number(left.kind !== 'text') - Number(right.kind !== 'text')
+            if (kindPriority !== 0) return kindPriority
+            return Date.parse(left.createdAt) - Date.parse(right.createdAt)
+          })
+        for (const task of queuedTasks) {
+          const usesTextSlot = task.kind === 'text'
+          if (usesTextSlot ? availableTextSlots <= 0 : availableMediaSlots <= 0) continue
           if (task.status !== 'queued') continue
-          if (task.provider === 'local-compose') continue
           const retryNotBefore = Date.parse(stringValue(task.metadata.providerRetryNotBefore, ''))
           if (Number.isFinite(retryNotBefore) && retryNotBefore > now.getTime()) continue
           if (this.dependencyResolver.state(task, userTasks) !== 'ready') continue
@@ -207,9 +224,15 @@ export class TaskClaimer {
             if (this.isRemoteVideoTask(task)) selectedVideoTasks.push(task)
             if (this.isRemoteImageTask(task)) selectedImageTasks.push(task)
           } else {
+            task.metadata = {
+              ...task.metadata,
+              localTaskStartedAt: nowIso,
+              localTaskQueueWaitMs: durationSince(task.createdAt, now.getTime()),
+            }
             selectedLocalTasks.push(task)
           }
-          claimed += 1
+          if (usesTextSlot) availableTextSlots -= 1
+          else availableMediaSlots -= 1
         }
       }
 
@@ -352,23 +375,55 @@ export class TaskWritebackService {
     })
   }
 
-  async completeLocalTask(taskId: string, leaseToken: string, result: unknown): Promise<void> {
+  async completeLocalTask(
+    taskId: string,
+    leaseToken: string,
+    result: unknown,
+    diagnostics?: LocalTaskDiagnostics,
+  ): Promise<void> {
     await this.store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task || task.status !== 'running') return
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
-      const now = new Date().toISOString()
+      const nowMs = Date.now()
+      const now = new Date(nowMs).toISOString()
+      const {
+        textPreview: _textPreview,
+        textPreviewUpdatedAt: _textPreviewUpdatedAt,
+        textFirstPreviewAt: _textFirstPreviewAt,
+        ...metadata
+      } = task.metadata
       task.status = 'completed'
       task.progress = 100
       task.error = null
       task.metadata = {
-        ...task.metadata,
+        ...metadata,
         localTaskCompletedAt: now,
+        ...(diagnostics ? { textTiming: summarizeTextTiming(task, diagnostics, nowMs) } : {}),
         ...(task.kind === 'text' ? { textResult: result } : {}),
       }
       task.updatedAt = now
       releaseGenerationTaskLease(task)
       recordGenerationTaskTerminal(task)
+    })
+  }
+
+  async updateLocalTextPreview(taskId: string, leaseToken: string, preview: string): Promise<void> {
+    await this.store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === taskId)
+      if (!task || task.kind !== 'text' || task.status !== 'running') return
+      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
+      const now = new Date().toISOString()
+      const boundedPreview = preview.slice(0, 24_000)
+      task.progress = Math.max(task.progress, Math.min(88, 12 + Math.floor(boundedPreview.length / 40)))
+      task.metadata = {
+        ...task.metadata,
+        textPreview: boundedPreview,
+        textPreviewUpdatedAt: now,
+        textFirstPreviewAt:
+          typeof task.metadata.textFirstPreviewAt === 'string' ? task.metadata.textFirstPreviewAt : now,
+      }
+      task.updatedAt = now
     })
   }
 
@@ -1569,6 +1624,49 @@ function recordGenerationTaskTerminal(task: GenerationTask, error?: unknown): vo
 
 function taskMetricKind(task: GenerationTask): string {
   return `${task.kind}:${task.provider}`
+}
+
+function summarizeTextTiming(
+  task: GenerationTask,
+  diagnostics: LocalTaskDiagnostics,
+  completedAtMs: number,
+): Record<string, unknown> {
+  const calls = diagnostics.textTimings.map((timing, index) => ({
+    label: timing.label || `call-${index + 1}`,
+    responseHeadersMs: timing.responseHeadersMs,
+    firstTokenMs: timing.firstTokenMs,
+    firstTokenWaitMs:
+      timing.firstTokenMs === null || timing.responseHeadersMs === null
+        ? null
+        : Math.max(0, timing.firstTokenMs - timing.responseHeadersMs),
+    generationMs: timing.generationMs,
+    totalMs: timing.totalMs,
+    attempt: timing.attempt,
+  }))
+  const providerMs = calls.reduce((total, call) => total + call.totalMs, 0)
+  const executionMs = Math.max(0, completedAtMs - diagnostics.executionStartedAtMs)
+  const createdAtMs = Date.parse(task.createdAt)
+  const queueWaitMs = Number.isFinite(createdAtMs)
+    ? Math.max(0, diagnostics.executionStartedAtMs - createdAtMs)
+    : 0
+  const primary = calls[0] ?? null
+  return {
+    queueWaitMs,
+    responseHeadersMs: primary?.responseHeadersMs ?? null,
+    firstTokenWaitMs: primary?.firstTokenWaitMs ?? null,
+    firstTokenMs: primary?.firstTokenMs ?? null,
+    generationMs: primary?.generationMs ?? null,
+    providerMs,
+    appProcessingMs: Math.max(0, executionMs - providerMs),
+    executionMs,
+    totalMs: Number.isFinite(createdAtMs) ? Math.max(0, completedAtMs - createdAtMs) : executionMs,
+    firstVisibleMs:
+      diagnostics.firstPreviewAtMs === null
+        ? null
+        : Math.max(0, diagnostics.firstPreviewAtMs - diagnostics.executionStartedAtMs),
+    extraModelCalls: Math.max(0, calls.length - 1),
+    calls,
+  }
 }
 
 function durationSince(startIso: string, now = Date.now()): number {

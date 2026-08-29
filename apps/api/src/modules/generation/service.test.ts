@@ -12,6 +12,30 @@ const principal: Principal = {
 }
 
 describe('GenerationService task creation', () => {
+  it('rejects text tasks before charging when the text provider is unavailable', async () => {
+    const input: CreateGenerationTask = {
+      clientRequestId: 'service-text-provider-missing',
+      projectId: 'project-midnight-film',
+      kind: 'text',
+      label: '生成剧本',
+      provider: 'text',
+      estimatedCredits: 8,
+    }
+    const repository = {
+      canCreate: vi.fn(() => true),
+      createWithCharge: vi.fn(),
+    } as unknown as GenerationTaskRepository
+    const dispatcher = { dispatch: vi.fn() } as unknown as TaskDispatcher
+    const service = new GenerationService(repository, dispatcher)
+
+    await expect(service.createTask(input, principal)).rejects.toMatchObject({
+      statusCode: 503,
+      code: 'TEXT_PROVIDER_NOT_CONFIGURED',
+    })
+    expect(repository.createWithCharge).not.toHaveBeenCalled()
+    expect(dispatcher.dispatch).not.toHaveBeenCalled()
+  })
+
   it('uses charged repository creation and does not reserve credits separately', async () => {
     const input: CreateGenerationTask = {
       clientRequestId: 'service-atomic-create',

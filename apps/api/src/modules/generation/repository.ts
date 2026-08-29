@@ -1975,6 +1975,7 @@ function shotFromRow(row: GenerationShotRow): Shot {
     id: row.id,
     projectId: row.project_id,
     tenantId: row.tenant_id,
+    scriptEpisodeId: null,
     order: Number(row.shot_order),
     title: row.title,
     framing: row.framing,

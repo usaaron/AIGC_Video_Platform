@@ -1,4 +1,5 @@
 import type { GenerationTask } from '@seqora/contracts'
+import type { TextGenerationTiming } from '../generation/textProvider.js'
 import type { AppStore } from '../../infra/store.js'
 import type { ProjectService } from '../../modules/projects/service.js'
 import type { TrustedAssetService } from '../../modules/trustedAssets/service.js'
@@ -7,7 +8,12 @@ import { createTrustedAssetTaskHandler } from './trustedAssetTaskHandler.js'
 
 export type LocalGenerationTaskHandler = {
   canHandle(task: GenerationTask): boolean
-  execute(task: GenerationTask): Promise<unknown>
+  execute(task: GenerationTask, context?: LocalTaskExecutionContext): Promise<unknown>
+}
+
+export type LocalTaskExecutionContext = {
+  onTextProgress?: (text: string) => void
+  onTextTiming?: (timing: TextGenerationTiming) => void
 }
 
 export function createLocalGenerationTaskHandler(
@@ -24,11 +30,11 @@ export function createLocalGenerationTaskHandler(
         (task.provider === 'asset-library' && task.metadata.trustedAssetOperation === 'register-virtual')
       )
     },
-    async execute(task) {
+    async execute(task, context) {
       if (task.kind === 'text' && task.provider === 'text') {
         const service = services.projectService()
         if (!service) throw new Error('Project text service is not ready')
-        return createScriptTaskHandler(store, service)(task)
+        return createScriptTaskHandler(store, service)(task, context)
       }
       if (task.provider === 'asset-library') {
         const service = services.trustedAssetService()

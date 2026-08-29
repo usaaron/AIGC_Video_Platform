@@ -4,13 +4,39 @@ import { ScriptPage } from './ScriptPage'
 
 const noop = () => {}
 
-function renderScriptPage(project) {
+function renderScriptPage(project, textProviderStatus = 'configured', tasks = [], scriptEpisodes = []) {
+  return renderToStaticMarkup(
+    <ScriptPage
+      project={project}
+      scriptEpisodes={scriptEpisodes}
+      assets={[]}
+      billing={{ credits: 2_000 }}
+      tasks={tasks}
+      textProviderStatus={textProviderStatus}
+      onSave={noop}
+      onSaveEpisode={noop}
+      onDeleteEpisode={noop}
+      onClearEpisodes={noop}
+      onGenerate={noop}
+      onGenerateSegment={noop}
+      onSuggestAssets={noop}
+      onCreateAsset={noop}
+      onUpload={noop}
+      onCancelTask={noop}
+      onUpdateEpisodeDuration={noop}
+      onNext={noop}
+    />,
+  )
+}
+
+function renderUnavailableScriptPage(project) {
   return renderToStaticMarkup(
     <ScriptPage
       project={project}
       assets={[]}
       billing={{ credits: 2_000 }}
       tasks={[]}
+      textProviderStatus="unavailable"
       onSave={noop}
       onGenerate={noop}
       onGenerateSegment={noop}
@@ -71,5 +97,133 @@ describe('script content modes', () => {
     expect(html).toContain('续写短片')
     expect(html).toContain('续写时长')
     expect(html).not.toContain('剧本追加')
+  })
+
+  it('defaults to DeepSeek Flash and keeps the model list in provider order', () => {
+    const html = renderScriptPage({
+      id: 'model-order-1',
+      name: '模型顺序测试',
+      contentType: 'short-drama',
+      episodeDurationSeconds: 60,
+      aspectRatio: '9:16',
+      synopsis: '验证前端模型顺序。',
+      script: '',
+    })
+
+    const flashIndex = html.indexOf('DeepSeek V4 Flash')
+    const proIndex = html.indexOf('DeepSeek V4 Pro')
+    const glmIndex = html.indexOf('GLM 5.2（密钥未开通）')
+    const seqoraIndex = html.indexOf('序幕-5.6')
+
+    expect(flashIndex).toBeGreaterThan(-1)
+    expect(flashIndex).toBeLessThan(proIndex)
+    expect(proIndex).toBeLessThan(glmIndex)
+    expect(glmIndex).toBeLessThan(seqoraIndex)
+    expect(html).toContain('<option value="glm-5.2" disabled="">')
+    expect(html).toContain('<option value="deepseek-v4-flash" selected="">')
+  })
+
+  it('shows the accumulated model text as a read-only live draft', () => {
+    const html = renderScriptPage(
+      {
+        id: 'streaming-script-1',
+        name: '实时剧本测试',
+        contentType: 'short-drama',
+        episodeDurationSeconds: 60,
+        aspectRatio: '9:16',
+        synopsis: '主角在雨夜追查真相。',
+        script: '',
+      },
+      'configured',
+      [
+        {
+          id: 'task-streaming-script',
+          kind: 'text',
+          label: '智能生成网剧剧本',
+          status: 'running',
+          metadata: {
+            generationStage: 'script-generate',
+            scriptOperation: 'generate',
+            textPreview: '场次：S01｜剧情：主角推开仓库门。',
+          },
+        },
+      ],
+    )
+
+    expect(html).toContain('实时初稿')
+    expect(html).toContain('正在边生成边校验')
+    expect(html).toContain('主角推开仓库门')
+    expect(html).toContain('校验通过后才会覆盖正式剧本')
+  })
+
+  it('collapses saved web-series episodes and only offers deletion on the final episode', () => {
+    const project = {
+      id: 'series-episodes-1',
+      name: '追光者',
+      contentType: 'short-drama',
+      episodeDurationSeconds: 60,
+      aspectRatio: '9:16',
+      synopsis: '',
+      script: '第一集\n\n【强制下一集】\n\n第二集',
+    }
+    const baseEpisode = {
+      projectId: project.id,
+      tenantId: 'tenant-1',
+      draftContent: '',
+      status: 'saved',
+      summary: '',
+      continuityState: {},
+      revision: 1,
+      lastEditedBy: 'user-1',
+      createdAt: '2026-08-30T00:00:00.000Z',
+      updatedAt: '2026-08-30T00:00:00.000Z',
+    }
+    const html = renderScriptPage(
+      project,
+      'configured',
+      [],
+      [
+        { ...baseEpisode, id: 'episode-1', episodeNumber: 1, title: '第 1 集', content: '第一集' },
+        { ...baseEpisode, id: 'episode-2', episodeNumber: 2, title: '第 2 集', content: '第二集' },
+      ],
+    )
+
+    expect(html).toContain('已建立 2 集')
+    expect(html).toContain('继续生成第 3 集')
+    expect(html).toContain('aria-label="删除第 2 集"')
+    expect(html).not.toContain('aria-label="删除第 1 集"')
+  })
+
+  it('does not offer a false generating state when the text provider is unavailable', () => {
+    const html = renderUnavailableScriptPage({
+      id: 'unavailable-1',
+      name: '预发测试',
+      contentType: 'short-drama',
+      episodeDurationSeconds: 60,
+      aspectRatio: '9:16',
+      synopsis: '测试文本模型不可用时的提示。',
+      script: '',
+    })
+
+    expect(html).toContain('当前预发环境未配置可用的文本模型')
+    expect(html).toContain('disabled=""')
+  })
+
+  it('fails closed when provider health is not available yet', () => {
+    const html = renderScriptPage(
+      {
+        id: 'unknown-provider-1',
+        name: '状态检查中',
+        contentType: 'short-drama',
+        episodeDurationSeconds: 60,
+        aspectRatio: '9:16',
+        synopsis: '测试健康检查未返回时的提示。',
+        script: '',
+      },
+      null,
+    )
+
+    expect(html).toContain('暂时无法确认文本模型状态')
+    expect(html).toContain('disabled=""')
   })
 })

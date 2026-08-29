@@ -51,8 +51,10 @@ export const scriptModelSchema = z.enum([
   'kimi-3',
   'deepseek-v3',
   'deepseek-v4-flash',
+  'deepseek-v4-pro',
   'qwen3.8',
   'gpt-5.6-terra',
+  'gpt-5.6-sol',
   'kimi-k3',
   'glm-5.2',
   'glm-5.2-fast',
@@ -62,7 +64,7 @@ export const scriptModelSchema = z.enum([
   'gpt-5.6',
 ])
 export const textModelSchema = scriptModelSchema
-export const DEFAULT_SCRIPT_MODEL = 'glm-5.2' as const
+export const DEFAULT_SCRIPT_MODEL = 'deepseek-v4-flash' as const
 
 export const scriptCreativeDirectionSchema = z.object({
   style: z
@@ -93,6 +95,7 @@ export const generateScriptRequestSchema = z.object({
   episodeDurationSeconds: z.number().int().min(5).max(300).default(60),
   model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
   revisionNote: z.string().trim().max(2_000).default(''),
+  episodeId: z.string().min(1).max(128).optional(),
 })
 
 export const enrichScriptRequestSchema = z.object({
@@ -104,6 +107,7 @@ export const enrichScriptRequestSchema = z.object({
   episodeDurationSeconds: z.number().int().min(5).max(300).default(60),
   model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
   revisionNote: z.string().trim().max(2_000).default(''),
+  episodeId: z.string().min(1).max(128).optional(),
 })
 
 export const reviewScriptRequestSchema = z.object({
@@ -145,6 +149,7 @@ export const generateShotsRequestSchema = z.object({
   maxShots: z.number().int().min(3).max(120).default(8),
   mode: z.enum(['scene', 'beat']).default('scene'),
   episodeDurationSeconds: z.number().int().min(5).max(300).default(60),
+  episodeId: z.string().min(1).max(128).optional(),
 })
 
 export const autoSplitShotsRequestSchema = z.object({
@@ -389,6 +394,29 @@ export const projectSchema = z.object({
   updatedAt: z.string().datetime(),
 })
 
+export const scriptEpisodeSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  tenantId: z.string().min(1),
+  episodeNumber: z.number().int().positive(),
+  title: z.string().min(1).max(120),
+  content: z.string().max(100_000),
+  draftContent: z.string().max(100_000),
+  status: z.enum(['draft', 'saved']),
+  summary: z.string().max(2_000),
+  continuityState: z.record(z.string(), z.unknown()).default({}),
+  revision: z.number().int().positive(),
+  lastEditedBy: z.string().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
+
+export const saveScriptEpisodeRequestSchema = z.object({
+  episodeId: z.string().min(1).max(128).optional(),
+  title: z.string().trim().min(1).max(120).optional(),
+  content: z.string().trim().min(1).max(100_000),
+})
+
 export const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(120),
   contentType: z.enum(['short-drama', 'advertisement', 'animation']).default('short-drama'),
@@ -496,6 +524,7 @@ export const shotSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
   tenantId: z.string().min(1),
+  scriptEpisodeId: z.string().min(1).max(128).nullable().default(null),
   order: z.number().int().positive(),
   title: z.string().min(1).max(120),
   framing: z.string().min(1).max(80),
@@ -516,6 +545,7 @@ export const shotSchema = z.object({
 })
 
 const shotInputFields = {
+  scriptEpisodeId: z.string().min(1).max(128).nullable(),
   title: z.string().trim().min(1).max(120),
   framing: z.string().trim().min(1).max(80),
   duration: z.number().int().min(3).max(15),
@@ -533,6 +563,7 @@ const shotInputFields = {
 } as const
 
 export const createShotSchema = z.object({
+  scriptEpisodeId: shotInputFields.scriptEpisodeId.default(null),
   title: shotInputFields.title,
   framing: shotInputFields.framing.default('中景'),
   duration: shotInputFields.duration.default(4),
@@ -552,6 +583,7 @@ export const createShotSchema = z.object({
 
 export const updateShotSchema = z
   .object({
+    scriptEpisodeId: shotInputFields.scriptEpisodeId.optional(),
     title: shotInputFields.title.optional(),
     framing: shotInputFields.framing.optional(),
     duration: shotInputFields.duration.optional(),
@@ -572,11 +604,14 @@ export const updateShotSchema = z
 
 export const projectWorkspaceSchema = z.object({
   project: projectSchema,
+  scriptEpisodes: z.array(scriptEpisodeSchema),
   assets: z.array(assetSchema),
   shots: z.array(shotSchema),
 })
 
 export type Project = z.infer<typeof projectSchema>
+export type ScriptEpisode = z.infer<typeof scriptEpisodeSchema>
+export type SaveScriptEpisodeRequest = z.infer<typeof saveScriptEpisodeRequestSchema>
 export type ProjectGenerationSummary = z.infer<typeof projectGenerationSummarySchema>
 export type CreateProject = z.infer<typeof createProjectSchema>
 export type UpdateProject = z.infer<typeof updateProjectSchema>

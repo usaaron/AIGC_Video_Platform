@@ -9,6 +9,7 @@ import type { VideoGenerationProvider } from '../../core/generation/videoProvide
 import type { VideoProviderName } from '../../core/generation/videoProvider.js'
 import type { ObjectStorage, ObjectStorageStream } from '../../infra/objectStorage.js'
 import { AppError } from '../../core/errors.js'
+import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
 import type { GenerationTaskRepository } from './repository.js'
 
 export type FilmPreviewMode = 'full' | 'partial'
@@ -21,6 +22,7 @@ export class GenerationService {
     private readonly videoProviderName: VideoProviderName = 'stringx-seedance',
     private readonly objectStorage: ObjectStorage | null = null,
     private readonly filmPreviewComposer: FilmPreviewDispatcher | null = null,
+    private readonly textProvider: TextGenerationProvider | null = null,
   ) {}
 
   async createTask(
@@ -30,6 +32,9 @@ export class GenerationService {
   ): Promise<GenerationTask> {
     if (!(await this.repository.canCreate(input.projectId, principal))) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成')
+    }
+    if (input.kind === 'text' && input.provider === 'text' && !this.textProvider) {
+      throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     }
     const existingTrustedPortraitTask = await this.findActiveTrustedPortraitTask(input, principal)
     if (existingTrustedPortraitTask) return existingTrustedPortraitTask

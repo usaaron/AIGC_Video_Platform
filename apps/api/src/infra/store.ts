@@ -17,6 +17,7 @@ import type {
   Plan,
   Project,
   Role,
+  ScriptEpisode,
   Shot,
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
@@ -71,6 +72,7 @@ export type StoredNovelStoryBible = NovelStoryBible
 export type AppState = {
   users: StoredUser[]
   projects: Project[]
+  scriptEpisodes: ScriptEpisode[]
   assets: Asset[]
   shots: Shot[]
   tasks: GenerationTask[]
@@ -124,8 +126,14 @@ export class AppStore {
   private readonly lockPath: string | null
   private accountRuntimeCache: Pick<AppState, 'users' | 'ledger'> | null = null
   private accountPersistenceBackup: Pick<AppState, 'users' | 'ledger'> | null = null
-  private projectWorkspaceRuntimeCache: Pick<AppState, 'projects' | 'assets' | 'shots'> | null = null
-  private projectWorkspacePersistenceBackup: Pick<AppState, 'projects' | 'assets' | 'shots'> | null = null
+  private projectWorkspaceRuntimeCache: Pick<
+    AppState,
+    'projects' | 'scriptEpisodes' | 'assets' | 'shots'
+  > | null = null
+  private projectWorkspacePersistenceBackup: Pick<
+    AppState,
+    'projects' | 'scriptEpisodes' | 'assets' | 'shots'
+  > | null = null
   private generationTaskRuntimeCache: Pick<AppState, 'tasks'> | null = null
   private generationTaskPersistenceBackup: Pick<AppState, 'tasks'> | null = null
   private aiJobRuntimeCache: Pick<AppState, 'aiJobs'> | null = null
@@ -217,10 +225,13 @@ export class AppStore {
     return structuredClone(result)
   }
 
-  replaceProjectWorkspaceRuntimeCache(input: Pick<AppState, 'projects' | 'assets' | 'shots'>): void {
+  replaceProjectWorkspaceRuntimeCache(
+    input: Pick<AppState, 'projects' | 'scriptEpisodes' | 'assets' | 'shots'>,
+  ): void {
     if (!this.projectWorkspacePersistenceBackup) {
       this.projectWorkspacePersistenceBackup = structuredClone({
         projects: this.state.projects,
+        scriptEpisodes: this.state.scriptEpisodes,
         assets: this.state.assets,
         shots: this.state.shots,
       })
@@ -377,6 +388,7 @@ export class AppStore {
   private applyProjectWorkspaceRuntimeCache(): void {
     if (!this.projectWorkspaceRuntimeCache) return
     this.state.projects = structuredClone(this.projectWorkspaceRuntimeCache.projects)
+    this.state.scriptEpisodes = structuredClone(this.projectWorkspaceRuntimeCache.scriptEpisodes)
     this.state.assets = structuredClone(this.projectWorkspaceRuntimeCache.assets)
     this.state.shots = structuredClone(this.projectWorkspaceRuntimeCache.shots)
   }
@@ -409,6 +421,7 @@ export class AppStore {
     if (!this.projectWorkspaceRuntimeCache) return
     this.projectWorkspaceRuntimeCache = structuredClone({
       projects: this.state.projects,
+      scriptEpisodes: this.state.scriptEpisodes,
       assets: this.state.assets,
       shots: this.state.shots,
     })
@@ -450,6 +463,7 @@ export class AppStore {
     }
     if (this.projectWorkspacePersistenceBackup) {
       persisted.projects = structuredClone(this.projectWorkspacePersistenceBackup.projects)
+      persisted.scriptEpisodes = structuredClone(this.projectWorkspacePersistenceBackup.scriptEpisodes)
       persisted.assets = structuredClone(this.projectWorkspacePersistenceBackup.assets)
       persisted.shots = structuredClone(this.projectWorkspacePersistenceBackup.shots)
     }
@@ -601,6 +615,26 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
           },
         ]
       : [],
+    scriptEpisodes: demoWorkspace
+      ? [
+          {
+            id: `legacy-${projectId}`,
+            projectId,
+            tenantId,
+            episodeNumber: 1,
+            title: '第 1 集',
+            content: DEFAULT_SCRIPT,
+            draftContent: '',
+            status: 'saved',
+            summary: DEFAULT_SCRIPT.replace(/\s+/g, ' ').slice(0, 500),
+            continuityState: {},
+            revision: 1,
+            lastEditedBy: memberId,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ]
+      : [],
     assets: demoWorkspace ? seedAssets(projectId, tenantId, now) : [],
     shots: demoWorkspace ? seedShots(projectId, tenantId, now) : [],
     tasks: [],
@@ -634,6 +668,7 @@ function createEmptyState(): AppState {
   return {
     users: [],
     projects: [],
+    scriptEpisodes: [],
     assets: [],
     shots: [],
     tasks: [],
@@ -812,6 +847,7 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
     id: id as string,
     projectId,
     tenantId,
+    scriptEpisodeId: `legacy-${projectId}`,
     order: order as number,
     title: title as string,
     framing: framing as string,
@@ -880,12 +916,52 @@ function normalizeState(
     metadata: task.metadata ?? {},
     outputs: task.outputs ?? [],
   }))
+  const projects = input.projects ?? []
+  const storedEpisodes = input.scriptEpisodes ?? []
+  const migratedEpisodes = projects.flatMap((project) => {
+    if (
+      project.contentType !== 'short-drama' ||
+      !project.script.trim() ||
+      storedEpisodes.some(
+        (episode) => episode.projectId === project.id && episode.tenantId === project.tenantId,
+      )
+    ) {
+      return []
+    }
+    return [
+      {
+        id: `legacy-${project.id}`,
+        projectId: project.id,
+        tenantId: project.tenantId,
+        episodeNumber: 1,
+        title: '第 1 集',
+        content: project.script,
+        draftContent: '',
+        status: 'saved' as const,
+        summary: project.script.replace(/\s+/g, ' ').slice(0, 500),
+        continuityState: {},
+        revision: 1,
+        lastEditedBy: project.ownerId,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+      },
+    ]
+  })
   return {
     users,
-    projects: input.projects ?? [],
+    projects,
+    scriptEpisodes: [...storedEpisodes, ...migratedEpisodes].map((episode) => ({
+      ...episode,
+      draftContent: episode.draftContent ?? '',
+      status: episode.status ?? 'saved',
+      summary: episode.summary ?? episode.content.replace(/\s+/g, ' ').slice(0, 500),
+      continuityState: episode.continuityState ?? {},
+      revision: episode.revision ?? 1,
+    })),
     assets,
     shots: (input.shots ?? []).map((shot) => ({
       ...shot,
+      scriptEpisodeId: shot.scriptEpisodeId ?? null,
       negativePrompt: shot.negativePrompt ?? '',
       continuityMode: shot.continuityMode ?? 'independent',
       continuityNote: shot.continuityNote ?? '',

@@ -102,10 +102,10 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
         apiKey: config.DEEPSEEK_V4_API_KEY,
         model: config.DEEPSEEK_V4_MODEL,
         completionsPath: config.DEEPSEEK_V4_CHAT_COMPLETIONS_PATH,
-        requestTimeoutMs: Math.min(config.DEEPSEEK_V4_REQUEST_TIMEOUT_MS, 15_000),
+        requestTimeoutMs: config.DEEPSEEK_V4_REQUEST_TIMEOUT_MS,
         maxAttempts: 1,
-        providerLabel: 'DeepSeek V4 Flash',
-        providerName: 'deepseek-v4-flash',
+        providerLabel: 'DeepSeek V4',
+        providerName: 'deepseek-v4',
       })
     : null
   const gptProvider = config.TOKENADVENT_API_KEY
@@ -139,7 +139,7 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
 }
 
 export function textProviderName(config: AppConfig): string {
-  if (isDeepSeekV4Model(config.TEXT_MODEL)) return 'deepseek-v4-flash'
+  if (isDeepSeekV4Model(config.TEXT_MODEL)) return config.TEXT_MODEL.trim().toLowerCase()
   if (isRehdasuModel(config.TEXT_MODEL)) return 'rehdasu'
   return isGptModel(config.TEXT_MODEL) ? 'tokenadvent-gpt' : 'deepseek-v3'
 }
@@ -162,11 +162,11 @@ class RoutedTextProvider implements TextGenerationProvider {
       if (!this.deepSeekV4Provider) return this.generateWithDeepSeekV4Fallback(request, requestedModel)
       try {
         return await observeProviderCall(
-          { provider: 'deepseek-v4-flash', operation: 'text.generate', ...request.usageContext },
+          { provider: 'deepseek-v4', operation: 'text.generate', ...request.usageContext },
           () =>
             this.deepSeekV4Provider!.generate({
               ...request,
-              model: this.deepSeekV4Model,
+              model: requestedModel || this.deepSeekV4Model,
             }),
         )
       } catch (error) {
@@ -228,7 +228,7 @@ function isGptModel(model: string): boolean {
 }
 
 function resolveGptModel(model: string): string {
-  return model.trim().toLowerCase() === 'seqora-5.6' ? 'gpt-5.6' : model
+  return model.trim().toLowerCase() === 'seqora-5.6' ? 'gpt-5.6-sol' : model
 }
 
 function isDeepSeekModel(model: string): boolean {
@@ -236,7 +236,7 @@ function isDeepSeekModel(model: string): boolean {
 }
 
 function isDeepSeekV4Model(model: string): boolean {
-  return model.trim().toLowerCase() === 'deepseek-v4-flash'
+  return ['deepseek-v4-flash', 'deepseek-v4-pro'].includes(model.trim().toLowerCase())
 }
 
 function isRehdasuModel(model: string): boolean {

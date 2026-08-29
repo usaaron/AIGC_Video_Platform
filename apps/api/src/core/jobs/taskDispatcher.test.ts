@@ -8,6 +8,7 @@ import { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { usageCollector } from '../observability/usage.js'
 import { GenerationTaskRunner } from './taskDispatcher.js'
+import { DependencyResolver, TaskClaimer } from './taskRunnerComponents.js'
 import type { TaskRunnerLock } from './taskRunnerLock.js'
 
 describe('GenerationTaskRunner Seedance integration', () => {
@@ -118,6 +119,103 @@ describe('GenerationTaskRunner Seedance integration', () => {
     )
   })
 
+  it('persists a throttled text preview while a local script task is running', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'streaming-script-task',
+      clientRequestId: 'streaming-script-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-member',
+      kind: 'text',
+      label: 'Streaming script',
+      prompt: '',
+      negativePrompt: '',
+      provider: 'text',
+      model: 'deepseek-v4-flash',
+      metadata: { scriptOperation: 'generate' },
+      status: 'queued',
+      progress: 0,
+      estimatedCredits: 3,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+    let finishGeneration: (() => void) | null = null
+    const execute = vi.fn(
+      async (
+        _task: GenerationTask,
+        context?: {
+          onTextProgress?: (text: string) => void
+          onTextTiming?: (timing: {
+            label?: string
+            responseHeadersMs: number | null
+            firstTokenMs: number | null
+            generationMs: number | null
+            totalMs: number
+            attempt: number
+          }) => void
+        },
+      ) => {
+        context?.onTextProgress?.('场次：S01｜剧情：主角推门进入。')
+        context?.onTextTiming?.({
+          label: 'first-draft',
+          responseHeadersMs: 120,
+          firstTokenMs: 900,
+          generationMs: 2_400,
+          totalMs: 3_300,
+          attempt: 1,
+        })
+        await new Promise<void>((resolve) => {
+          finishGeneration = resolve
+        })
+        return { script: '完整剧本' }
+      },
+    )
+    const runner = new GenerationTaskRunner(store, {
+      localTaskHandler: {
+        canHandle: (candidate) => candidate.provider === 'text',
+        execute,
+      },
+    })
+
+    await runner.tick()
+    await vi.waitFor(
+      () =>
+        expect(
+          store.read((state) => state.tasks.find((item) => item.id === task.id)?.metadata.textPreview),
+        ).toContain('主角推门进入'),
+      { timeout: 2_000 },
+    )
+
+    finishGeneration!()
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+        status: 'completed',
+        progress: 100,
+        metadata: { textResult: { script: '完整剧本' } },
+      }),
+    )
+    expect(
+      store.read((state) => state.tasks.find((item) => item.id === task.id)?.metadata.textTiming),
+    ).toMatchObject({
+      responseHeadersMs: 120,
+      firstTokenWaitMs: 780,
+      generationMs: 2_400,
+      providerMs: 3_300,
+      extraModelCalls: 0,
+      calls: [{ label: 'first-draft', attempt: 1 }],
+    })
+    expect(
+      store.read((state) => state.tasks.find((item) => item.id === task.id)?.metadata.textPreview),
+    ).toBeUndefined()
+  })
+
   it('starts three independent provider submissions in one tick for a member', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -203,6 +301,39 @@ describe('GenerationTaskRunner Seedance integration', () => {
         state.tasks.filter((task) => task.id.startsWith('parallel-video-')).map((task) => task.status),
       ),
     ).toEqual(['running', 'queued', 'queued'])
+  })
+
+  it('reserves one text slot when a member already has three running media tasks', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const textTask = queuedTextTask('priority-text-task')
+    await store.mutate((state) => {
+      state.users.find((user) => user.id === 'user-member')!.plan = 'member'
+      state.tasks.unshift(
+        textTask,
+        ...queuedVideoTasks(3).map((task) => ({ ...task, status: 'running' as const })),
+      )
+    })
+
+    const claimed = await createTaskClaimer(store).claimQueuedTasks()
+
+    expect(claimed.local.map((task) => task.id)).toEqual([textTask.id])
+    expect(store.read((state) => state.tasks.find((task) => task.id === textTask.id)?.status)).toBe('running')
+  })
+
+  it('keeps a second text task queued while the user text slot is occupied', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const runningTextTask = { ...queuedTextTask('running-text-task'), status: 'running' as const }
+    const queuedText = queuedTextTask('queued-text-task')
+    await store.mutate((state) => state.tasks.unshift(queuedText, runningTextTask))
+
+    const claimed = await createTaskClaimer(store).claimQueuedTasks()
+
+    expect(claimed.local).toEqual([])
+    expect(store.read((state) => state.tasks.find((task) => task.id === queuedText.id)?.status)).toBe(
+      'queued',
+    )
   })
 
   it('skips worker work when the task runner lock is already held', async () => {
@@ -1996,6 +2127,43 @@ function queuedVideoTasks(count: number): GenerationTask[] {
       outputs: [],
       error: null,
     }
+  })
+}
+
+function queuedTextTask(id: string): GenerationTask {
+  const now = new Date().toISOString()
+  return {
+    id,
+    clientRequestId: `${id}-client`,
+    projectId: 'project-midnight-film',
+    tenantId: 'tenant-seqora-demo',
+    userId: 'user-member',
+    kind: 'text',
+    label: id,
+    prompt: '生成一集网剧',
+    negativePrompt: '',
+    provider: 'text',
+    model: 'deepseek-v4-flash',
+    metadata: { scriptOperation: 'generate' },
+    status: 'queued',
+    progress: 0,
+    estimatedCredits: 3,
+    createdAt: now,
+    updatedAt: now,
+    resultUrl: null,
+    outputs: [],
+    error: null,
+  }
+}
+
+function createTaskClaimer(store: AppStore): TaskClaimer {
+  return new TaskClaimer(store, new DependencyResolver(), {
+    leaseOwnerId: 'test-worker',
+    leaseTtlMs: 30_000,
+    videoProviderName: 'stringx-seedance',
+    hasVideoProvider: true,
+    hasImageProvider: true,
+    hasObjectStorage: true,
   })
 }
 

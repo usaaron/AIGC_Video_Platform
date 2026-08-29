@@ -159,7 +159,7 @@ JSON `apps/api/data/app.json`：
 
 ### 文本和图片
 
-剧本默认通过 Rehdasu 路由调用 `glm-5.2`，GPT/DeepSeek 按所选模型路由到各自 Provider；正式 UI 把剧本生成、续写和资产建议创建为 `generation_tasks.kind=text` 后台任务，由 Worker 执行并写回。剧本 Provider 输出必须为简体中文；英文占比异常时同一任务自动校正一次，仍异常则禁止写回。多场结构化原稿的改写保持场次数量。Img2 当前只调用 TokenAdvent GPT Image 2。图片结果写入对象存储，完成后同步更新对应 `asset.imageUrl` 或 `shot.imageUrl`。混元图片模型目前只是禁用选项，没有 Provider 实现。
+剧本默认通过独立路由调用 `deepseek-v4-flash`，DeepSeek V4 Pro、序幕-5.6（`gpt-5.6-sol`）和 GLM/Kimi 按所选模型路由到各自 Provider；正式 UI 把剧本生成、续写和资产建议创建为 `generation_tasks.kind=text` 后台任务，由 Worker 执行并写回。Provider 的 `reasoning_content` 绝不能作为正文写回；剧本输出必须为简体中文，英文占比异常时同一任务自动校正一次，仍异常则禁止写回。多场结构化原稿的改写保持场次数量。Img2 当前调用 GPT Image 2。图片结果写入对象存储，完成后同步更新对应 `asset.imageUrl` 或 `shot.imageUrl`。混元图片模型目前只是禁用选项，没有 Provider 实现。
 
 ### 视频
 
@@ -198,6 +198,7 @@ JSON `apps/api/data/app.json`：
 | 修改登录和账号         | `modules/auth/`、`AuthProvider.jsx`、`LoginPage.jsx`                                          |
 | 修改注册/邀请/邮箱     | `modules/accountManagement/`、`core/email/`、`LoginPage.jsx`、`AUTHORIZATION.md`              |
 | 修改剧本生成/资产建议  | `modules/projects/service.ts`、`core/jobs/scriptTaskHandler.ts`、`ScriptPage.jsx`             |
+| 修改网剧分集与保存     | `035_script_episodes.sql`、项目 Repository/Routes、`ScriptPage.jsx`                           |
 | 修改积分、套餐或退款   | `modules/billing/`、`modules/generation/`、`taskDispatcher.ts`                                |
 | 修改图片生成           | `core/generation/tokenAdventImageProvider.ts`、资产功能目录                                   |
 | 修改视频请求           | `stringXSeedanceProvider.ts`、`taskDispatcher.ts`、`packages/prompting`                       |

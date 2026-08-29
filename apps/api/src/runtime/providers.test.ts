@@ -5,7 +5,7 @@ import { createImageProvider, createTextProvider, textProviderName } from './pro
 afterEach(() => vi.unstubAllGlobals())
 
 describe('runtime providers', () => {
-  it('routes the default GLM text model through Rehdasu', async () => {
+  it('routes an explicitly selected GLM text model through Rehdasu', async () => {
     let capturedBody = ''
     vi.stubGlobal(
       'fetch',
@@ -18,6 +18,7 @@ describe('runtime providers', () => {
     const config = loadConfig({
       NODE_ENV: 'test',
       REHDASU_API_KEY: 'test-rehdasu-key',
+      TEXT_MODEL: 'glm-5.2',
     })
     const provider = createTextProvider(config)
 
@@ -46,7 +47,7 @@ describe('runtime providers', () => {
     await expect(
       provider?.generate({ systemPrompt: 'test', userPrompt: 'reply', model: 'seqora-5.6' }),
     ).resolves.toBe('available')
-    expect(JSON.parse(capturedBody).model).toBe('gpt-5.6')
+    expect(JSON.parse(capturedBody).model).toBe('gpt-5.6-sol')
   })
 
   it('routes DeepSeek V4 Flash through its independent relay', async () => {
@@ -72,8 +73,32 @@ describe('runtime providers', () => {
       provider?.generate({ systemPrompt: '测试', userPrompt: '回复可用', model: 'deepseek-v4-flash' }),
     ).resolves.toBe('可用')
     expect(textProviderName(config)).toBe('deepseek-v4-flash')
-    expect(capturedUrl).toBe('https://openrouter.icu/v1/chat/completions')
+    expect(capturedUrl).toBe('https://hk.shanyoucloud.com/v1/chat/completions')
     expect(JSON.parse(capturedBody).model).toBe('deepseek-v4-flash')
+  })
+
+  it('routes DeepSeek V4 Pro through the same independent relay without replacing the model', async () => {
+    let capturedBody = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = String(init?.body)
+        return Response.json({ choices: [{ message: { content: 'Pro 可用' } }] })
+      }),
+    )
+
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      DEEPSEEK_V4_API_KEY: 'test-deepseek-v4-key',
+      TEXT_MODEL: 'deepseek-v4-pro',
+    })
+    const provider = createTextProvider(config)
+
+    await expect(
+      provider?.generate({ systemPrompt: '测试', userPrompt: '回复可用', model: 'deepseek-v4-pro' }),
+    ).resolves.toBe('Pro 可用')
+    expect(textProviderName(config)).toBe('deepseek-v4-pro')
+    expect(JSON.parse(capturedBody).model).toBe('deepseek-v4-pro')
   })
 
   it('falls back to GLM 5.2 when the DeepSeek V4 relay is unavailable', async () => {
@@ -83,7 +108,7 @@ describe('runtime providers', () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body)) as { model: string }
         requests.push({ url: String(input), model: body.model })
-        if (String(input).includes('openrouter.icu')) {
+        if (String(input).includes('shanyoucloud.com')) {
           return new Response('Bad gateway', { status: 502 })
         }
         return Response.json({ choices: [{ message: { content: 'GLM 回退可用' } }] })
@@ -101,7 +126,7 @@ describe('runtime providers', () => {
     await expect(
       provider?.generate({ systemPrompt: '测试', userPrompt: '回复可用', model: 'deepseek-v4-flash' }),
     ).resolves.toBe('GLM 回退可用')
-    expect(requests.filter((request) => request.url.includes('openrouter.icu'))).toHaveLength(1)
+    expect(requests.filter((request) => request.url.includes('shanyoucloud.com'))).toHaveLength(1)
     expect(requests.at(-1)).toMatchObject({ model: 'glm-5.2' })
   })
 
@@ -111,7 +136,7 @@ describe('runtime providers', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         requests.push(String(input))
-        if (String(input).includes('openrouter.icu')) {
+        if (String(input).includes('shanyoucloud.com')) {
           const timeout = new Error('The operation was aborted due to timeout')
           timeout.name = 'TimeoutError'
           throw timeout
@@ -130,7 +155,7 @@ describe('runtime providers', () => {
     await expect(
       provider?.generate({ systemPrompt: 'test', userPrompt: 'reply', model: 'deepseek-v4-flash' }),
     ).resolves.toBe('GLM timeout fallback')
-    expect(requests.filter((url) => url.includes('openrouter.icu'))).toHaveLength(1)
+    expect(requests.filter((url) => url.includes('shanyoucloud.com'))).toHaveLength(1)
     expect(requests.at(-1)).toContain('tokenadvent.com')
   })
 

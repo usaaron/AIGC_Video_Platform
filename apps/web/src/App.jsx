@@ -165,6 +165,7 @@ function App() {
           setWorkspace(
             workspaceCacheRef.current.get(initialProjectId) || {
               project: projectList[0],
+              scriptEpisodes: [],
               assets: [],
               shots: [],
             },
@@ -586,6 +587,7 @@ function App() {
         (projectSummary
           ? {
               project: projectSummary,
+              scriptEpisodes: [],
               assets: [],
               shots: [],
             }
@@ -782,6 +784,7 @@ function App() {
           onRefreshImageStudio={refreshCurrentProjectData}
           onOpenBilling={() => navigateTo('billing')}
           onOpenProject={openProject}
+          onOpenScript={() => navigateTo('script')}
           onProjectCreated={async (projectId) => {
             setProjects(await api.projects())
             await refreshBilling()
@@ -863,20 +866,42 @@ function App() {
       script: (
         <ScriptPage
           project={project}
+          scriptEpisodes={workspace.scriptEpisodes || []}
           assets={workspace.assets}
           billing={billing}
           tasks={tasks}
+          textProviderStatus={providerHealth?.providers?.text ?? null}
+          onOpenLongForm={() => navigateTo('writing-studio')}
           onSave={async (script) => {
             await api.updateProject(project.id, { script })
             await refreshWorkspace()
             setToast('剧本已保存')
+          }}
+          onSaveEpisode={async (episodeId, content) => {
+            const episode = await api.saveScriptEpisode(project.id, {
+              ...(episodeId ? { episodeId } : {}),
+              content,
+            })
+            await refreshWorkspace()
+            setToast(`${episode.title}已保存`)
+            return episode
+          }}
+          onDeleteEpisode={async (episodeId) => {
+            await api.deleteScriptEpisode(project.id, episodeId)
+            await refreshWorkspace()
+            setToast('最后一集已删除')
+          }}
+          onClearEpisodes={async () => {
+            await api.clearScriptEpisodes(project.id)
+            await refreshWorkspace()
+            setToast('所有剧集已清空')
           }}
           onUpdateEpisodeDuration={async (episodeDurationSeconds) => {
             await api.updateProject(project.id, { episodeDurationSeconds })
             await refreshWorkspace()
             setToast(
               project.contentType === 'short-drama'
-                ? `已设置每集 ${episodeDurationSeconds} 秒，分镜会沿用该时长`
+                ? '网剧剧本按单集生成；该时长仅用于后续分镜分集'
                 : `已设置目标成片 ${episodeDurationSeconds} 秒，脚本与分镜会沿用该时长`,
             )
           }}
@@ -888,18 +913,24 @@ function App() {
             model,
             revisionNote,
             setPhase,
+            episodeId,
           ) => {
             setPhase?.('submitting')
-            return createScriptJob(scriptGenerationTaskLabel(project.contentType), 'generate', {
-              draft,
-              direction,
-              mode: 'quick',
-              productionMode,
-              episodeDurationSeconds,
-              episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
-              model,
-              revisionNote,
-            })
+            const isRevision = Boolean(revisionNote?.trim())
+            return createScriptJob(
+              isRevision ? '改写当前剧集' : scriptGenerationTaskLabel(project.contentType),
+              isRevision ? 'enrich' : 'generate',
+              {
+                ...(isRevision ? { script: draft } : { draft, mode: 'quick' }),
+                direction,
+                productionMode,
+                episodeDurationSeconds,
+                episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
+                model,
+                revisionNote,
+                episodeId,
+              },
+            )
           }}
           onGenerateSegment={async (
             draft,
@@ -910,6 +941,7 @@ function App() {
             model,
             revisionNote,
             setPhase,
+            episodeId,
           ) => {
             setPhase?.('submitting')
             return createScriptJob(scriptSegmentTaskLabel(project.contentType), 'generate', {
@@ -922,52 +954,8 @@ function App() {
               episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
               model,
               revisionNote,
+              episodeId,
             })
-          }}
-          onImportNovel={async (input) => {
-            const result = await api.importNovel(project.id, input)
-            setProjects(await api.projects())
-            setToast(`小说已切分为 ${result.document.chapterCount} 章/段`)
-            return result
-          }}
-          onPreviewNovelSplit={(input) => api.previewNovelSplit(project.id, input)}
-          onListNovels={() => api.novels(project.id)}
-          onGetNovel={(documentId) => api.novel(project.id, documentId)}
-          onGetNovelSummaries={(documentId) => api.novelSummaries(project.id, documentId)}
-          onGenerateNovelSummaries={async (documentId, input) => {
-            try {
-              const result = await api.generateNovelSummaries(project.id, documentId, input)
-              setToast(
-                result.completed ? '章节摘要已全部完成' : `已生成 ${result.generatedSummaries.length} 章摘要`,
-              )
-              return result
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
-          }}
-          onGetNovelStoryBible={(documentId) => api.novelStoryBible(project.id, documentId)}
-          onGenerateNovelStoryBible={async (documentId, input) => {
-            try {
-              const result = await api.generateNovelStoryBible(project.id, documentId, input)
-              setToast('全书故事概要已生成')
-              return result
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
-          }}
-          onSuggestNovelAssets={async (documentId, input) => {
-            const result = await api.suggestNovelAssets(project.id, documentId, input)
-            setToast('小说资产建议已生成')
-            return result
-          }}
-          onGenerateNovelChapterAdaptation={async (documentId, input) => {
-            try {
-              const result = await api.generateNovelChapterAdaptation(project.id, documentId, input)
-              setToast('章节视频改编剧本已生成')
-              return result
-            } finally {
-              await refreshBilling().catch(() => {})
-            }
           }}
           onSuggestAssets={(script, direction, sourceScriptFingerprint, model) =>
             createScriptJob('资产建议', 'suggest-assets', {
@@ -1591,7 +1579,7 @@ function ProjectMenu({ projects, currentId, onClose, onSelect, onCreate }) {
 function scriptGenerationTaskLabel(contentType) {
   if (contentType === 'advertisement') return '广告脚本'
   if (contentType === 'animation') return '短片剧本'
-  return '网剧剧本'
+  return '生成本集'
 }
 
 function scriptSegmentTaskLabel(contentType) {

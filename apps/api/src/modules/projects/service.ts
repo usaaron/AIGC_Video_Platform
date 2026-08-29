@@ -9,6 +9,7 @@ import type {
   Principal,
   ScriptCreativeDirection,
   ScriptAssetSuggestion,
+  ScriptEpisode,
   ScriptModel,
   UpdateAsset,
   UpdateProject,
@@ -25,7 +26,7 @@ import {
 import { jsonrepair } from 'jsonrepair'
 import { z } from 'zod'
 import { AppError } from '../../core/errors.js'
-import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
+import type { TextGenerationProvider, TextGenerationTiming } from '../../core/generation/textProvider.js'
 import { traceMetadata } from '../../core/observability/trace.js'
 import type { SessionMetadata } from '../auth/accounts.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
@@ -60,6 +61,45 @@ export class ProjectService {
     const project = await this.repository.update(projectId, input, principal)
     if (!project) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
     return project
+  }
+
+  async saveScriptEpisode(
+    projectId: string,
+    episodeId: string | null,
+    content: string,
+    principal: Principal,
+    title?: string,
+  ) {
+    const workspace = await this.workspace(projectId, principal)
+    if (workspace.project.contentType !== 'short-drama') {
+      throw new AppError(400, 'SCRIPT_EPISODES_NOT_SUPPORTED', '只有网剧项目支持分集保存')
+    }
+    const episode = await this.repository.saveScriptEpisode(projectId, episodeId, content, principal, title)
+    if (!episode) throw new AppError(404, 'SCRIPT_EPISODE_NOT_FOUND', '剧集不存在或无权修改')
+    return episode
+  }
+
+  async deleteLastScriptEpisode(projectId: string, episodeId: string, principal: Principal) {
+    const outcome = await this.repository.deleteLastScriptEpisode(projectId, episodeId, principal)
+    if (outcome === 'active') {
+      throw new AppError(409, 'SCRIPT_EPISODE_TASK_ACTIVE', '该集仍有生成任务运行，请先停止或等待任务完成')
+    }
+    if (outcome === 'not_last') {
+      throw new AppError(409, 'SCRIPT_EPISODE_NOT_LAST', '只能删除最后一集；如需删除中间集，请从末集依次删回')
+    }
+    if (outcome === 'not_found') {
+      throw new AppError(404, 'SCRIPT_EPISODE_NOT_FOUND', '剧集不存在或无权删除')
+    }
+  }
+
+  async clearScriptEpisodes(projectId: string, principal: Principal) {
+    const outcome = await this.repository.clearScriptEpisodes(projectId, principal)
+    if (outcome === 'active') {
+      throw new AppError(409, 'SCRIPT_EPISODE_TASK_ACTIVE', '项目仍有生成任务运行，请先停止或等待任务完成')
+    }
+    if (outcome === 'not_found') {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
+    }
   }
 
   async archive(projectId: string, principal: Principal, metadata?: SessionMetadata) {
@@ -185,12 +225,26 @@ export class ProjectService {
     revisionNote = '',
     billingMode: ScriptBillingMode = 'direct',
     episodeDurationSeconds = episodeMinutes * 60,
+    onTextProgress?: (text: string) => void,
+    onTextTiming?: (timing: TextGenerationTiming) => void,
+    episodeId?: string,
   ) {
     const workspace = await this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const scriptMode = resolveScriptContentMode(workspace.project.contentType, productionMode)
+    const hasEpisodeWorkspace = Array.isArray(workspace.scriptEpisodes)
+    const scriptEpisodes = workspace.scriptEpisodes ?? []
+    const targetEpisode =
+      scriptMode === 'web-series' && episodeId
+        ? scriptEpisodes.find((episode) => episode.id === episodeId)
+        : undefined
+    if (hasEpisodeWorkspace && scriptMode === 'web-series' && episodeId && !targetEpisode) {
+      throw new AppError(404, 'SCRIPT_EPISODE_NOT_FOUND', '当前剧集不存在，请刷新后重试')
+    }
     const source =
       draft.trim() ||
+      targetEpisode?.draftContent.trim() ||
+      targetEpisode?.content.trim() ||
       workspace.project.synopsis.trim() ||
       `用户尚未提供完整剧本正文。请根据项目《${workspace.project.name}》和已有资产构思一个可制作的故事。`
     const sourceLength = contentLength(source)
@@ -209,6 +263,21 @@ export class ProjectService {
 
     const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${scriptModeContext(scriptMode, episodeSeconds)}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}`
     if (mode === 'quick' && sourceLength >= SINGLE_REWRITE_MAX_LENGTH) {
+      if (hasEpisodeWorkspace && scriptMode === 'web-series') {
+        const episode = await this.repository.writeScriptEpisodeDraft(
+          projectId,
+          episodeId ?? null,
+          source,
+          principal,
+        )
+        if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
+        return {
+          script: source,
+          episode,
+          mode: 'quick' as const,
+          warnings: ['检测到超过 1 万字的内容，已保留为本集草稿；请拆分后再生成。'],
+        }
+      }
       const updated = await this.repository.update(projectId, { script: source }, principal)
       if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
       return {
@@ -235,6 +304,21 @@ export class ProjectService {
         : scriptGenerationOperationLabel(scriptMode),
       async () => {
         if (mode === 'segment') {
+          const savedEpisodes = scriptEpisodes.filter((episode) => episode.status === 'saved')
+          if (
+            hasEpisodeWorkspace &&
+            scriptMode === 'web-series' &&
+            scriptEpisodes.some((episode) => episode.status === 'draft')
+          ) {
+            throw new AppError(409, 'SCRIPT_EPISODE_DRAFT_EXISTS', '请先保存当前剧集，再继续生成下一集')
+          }
+          if (hasEpisodeWorkspace && scriptMode === 'web-series' && !savedEpisodes.length) {
+            throw new AppError(400, 'SCRIPT_EPISODE_REQUIRED', '请先保存第 1 集')
+          }
+          const segmentSource =
+            hasEpisodeWorkspace && scriptMode === 'web-series'
+              ? episodeContinuationContext(savedEpisodes)
+              : source
           const segmentSeconds = segment.targetSeconds ?? segment.targetMinutes * 60
           let segmentText = await ensureChineseScriptOutput(
             this.textProvider!,
@@ -243,19 +327,39 @@ export class ProjectService {
               userPrompt: scriptSegmentUserPrompt(
                 scriptMode,
                 projectContext,
-                source,
+                segmentSource,
                 segment.goal,
                 segmentSeconds,
               ),
-              maxOutputTokens: segmentMaxOutputTokens(segmentSeconds),
+              maxOutputTokens: segmentMaxOutputTokens(segmentSeconds, scriptMode),
               model,
               usageContext: usageContextForPrincipal(principal),
+              ...(onTextProgress ? { onTextProgress } : {}),
+              ...(onTextTiming ? { onTextTiming, timingLabel: 'next-episode' } : {}),
             }),
             model,
+            onTextTiming,
           )
           if (!segmentText) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', '分段剧本为空')
           segmentText = completeMissingWebSeriesDialogue(segmentText, scriptMode)
           assertWebSeriesDialogueCoverage(segmentText, scriptMode)
+          if (hasEpisodeWorkspace && scriptMode === 'web-series') {
+            const episode = await this.repository.writeScriptEpisodeDraft(
+              projectId,
+              null,
+              segmentText,
+              principal,
+              { createNext: true },
+            )
+            if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
+            return {
+              script: segmentText,
+              segment: segmentText,
+              episode,
+              mode: 'segment' as const,
+              warnings: segmentScriptIssues(segmentText, scriptMode),
+            }
+          }
           const script = appendScriptSegment(draft.trim() || workspace.project.script.trim(), segmentText)
           const updated = await this.repository.update(projectId, { script }, principal)
           if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
@@ -263,7 +367,7 @@ export class ProjectService {
             script: updated.script,
             segment: segmentText,
             mode: 'segment' as const,
-            warnings: segmentScriptIssues(segmentText),
+            warnings: segmentScriptIssues(segmentText, scriptMode),
           }
         }
         const generatedCandidate = await ensureChineseScriptOutput(
@@ -279,8 +383,11 @@ export class ProjectService {
             ),
             model,
             usageContext: usageContextForPrincipal(principal),
+            ...(onTextProgress ? { onTextProgress } : {}),
+            ...(onTextTiming ? { onTextTiming, timingLabel: 'first-draft' } : {}),
           }),
           model,
+          onTextTiming,
         )
         let candidate = structuredSource
           ? alignEnrichedSceneRows(source, generatedCandidate)
@@ -288,12 +395,13 @@ export class ProjectService {
         if (enforceWebSeriesSceneBudget && countStructuredScenes(candidate) < sceneBudget.minimum) {
           const repaired = await this.textProvider!.generate({
             systemPrompt: withChineseScriptRules(WEB_SERIES_SCRIPT_SYSTEM_PROMPT),
-            userPrompt: `${projectContext}\n\n上一次生成只返回了 ${countStructuredScenes(candidate)} 个可识别场次，低于制作要求。请完整重写并只返回剧本正文：必须输出 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 个场次，建议 ${sceneBudget.target} 个；每个场次单独占一行，每场对应一个 4 到 15 秒视频镜头，保留以下素材的核心人物、冲突和因果，不得把整集压成一段。\n\n用户素材：\n${source}`,
-            maxOutputTokens: webSeriesMaxOutputTokens(episodeSeconds),
+            userPrompt: `${projectContext}\n\n上一次生成只返回了 ${countStructuredScenes(candidate)} 个可识别场次，低于制作要求。请完整重写并只返回剧本正文：本次只生成 1 集，必须输出 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 个场次，建议 ${sceneBudget.target} 个；每个场次单独占一行，保留以下素材的核心人物、冲突和因果，不得把整集压成一段，也不要生成其他集。\n\n用户素材：\n${source}`,
+            maxOutputTokens: webSeriesMaxOutputTokens(),
             model,
             usageContext: usageContextForPrincipal(principal),
+            ...(onTextTiming ? { onTextTiming, timingLabel: 'scene-repair' } : {}),
           })
-          candidate = await ensureChineseScriptOutput(this.textProvider!, repaired, model)
+          candidate = await ensureChineseScriptOutput(this.textProvider!, repaired, model, onTextTiming)
         }
         const contentSceneBudget = scriptContentSceneBudget(scriptMode, episodeSeconds)
         const shouldRepairContentStructure =
@@ -315,8 +423,9 @@ export class ProjectService {
             maxOutputTokens: scriptGenerationMaxOutputTokens(scriptMode, episodeSeconds, true, source),
             model,
             usageContext: usageContextForPrincipal(principal),
+            ...(onTextTiming ? { onTextTiming, timingLabel: 'structure-repair' } : {}),
           })
-          candidate = await ensureChineseScriptOutput(this.textProvider!, repaired, model)
+          candidate = await ensureChineseScriptOutput(this.textProvider!, repaired, model, onTextTiming)
         }
         candidate = completeMissingWebSeriesDialogue(candidate, scriptMode)
         assertRequestedSceneCount(source, candidate)
@@ -342,6 +451,16 @@ export class ProjectService {
         }
         const script = candidate
         const warnings = quickScriptIssues(script, scriptMode, episodeSeconds)
+        if (hasEpisodeWorkspace && scriptMode === 'web-series') {
+          const episode = await this.repository.writeScriptEpisodeDraft(
+            projectId,
+            episodeId ?? null,
+            script,
+            principal,
+          )
+          if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
+          return { script, episode, mode: 'quick' as const, warnings }
+        }
         const updated = await this.repository.update(projectId, { script }, principal)
         if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
         return { script: updated.script, mode: 'quick' as const, warnings }
@@ -362,11 +481,24 @@ export class ProjectService {
     revisionNote = '',
     billingMode: ScriptBillingMode = 'direct',
     episodeDurationSeconds = episodeMinutes * 60,
+    onTextProgress?: (text: string) => void,
+    onTextTiming?: (timing: TextGenerationTiming) => void,
+    episodeId?: string,
   ) {
     const workspace = await this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const scriptMode = resolveScriptContentMode(workspace.project.contentType, productionMode)
-    const source = script.trim() || workspace.project.script.trim()
+    const hasEpisodeWorkspace = Array.isArray(workspace.scriptEpisodes)
+    const scriptEpisodes = workspace.scriptEpisodes ?? []
+    const targetEpisode = episodeId ? scriptEpisodes.find((episode) => episode.id === episodeId) : undefined
+    if (hasEpisodeWorkspace && scriptMode === 'web-series' && !targetEpisode) {
+      throw new AppError(404, 'SCRIPT_EPISODE_NOT_FOUND', '请先打开需要改写的剧集')
+    }
+    const source =
+      script.trim() ||
+      targetEpisode?.draftContent.trim() ||
+      targetEpisode?.content.trim() ||
+      workspace.project.script.trim()
     if (!source)
       throw new AppError(400, 'SCRIPT_REQUIRED', `请先生成或填写${scriptModeDisplayName(scriptMode)}`)
     const episodeSeconds = normalizeScriptDurationSeconds(
@@ -392,8 +524,11 @@ export class ProjectService {
               : SCRIPT_DETAIL_MAX_TOKENS,
             model,
             usageContext: usageContextForPrincipal(principal),
+            ...(onTextProgress ? { onTextProgress } : {}),
+            ...(onTextTiming ? { onTextTiming, timingLabel: 'rewrite' } : {}),
           }),
           model,
+          onTextTiming,
         )
         const candidateWithBreaks = preserveScriptBreakMarkers(source, candidate)
         let sceneAlignedCandidate = alignEnrichedSceneRows(source, candidateWithBreaks)
@@ -404,6 +539,16 @@ export class ProjectService {
         const warnings = preserved
           ? ['检测到长篇原稿，AI 输出过短，系统已自动保留原稿，避免剧情被压缩。']
           : detailedScriptIssues(enriched, scriptMode, episodeSeconds)
+        if (hasEpisodeWorkspace && scriptMode === 'web-series') {
+          const episode = await this.repository.writeScriptEpisodeDraft(
+            projectId,
+            targetEpisode!.id,
+            enriched,
+            principal,
+          )
+          if (!episode) throw new AppError(404, 'SCRIPT_EPISODE_NOT_FOUND', '剧集不存在或无权修改')
+          return { script: enriched, episode, mode: 'detailed' as const, warnings }
+        }
         const updated = await this.repository.update(projectId, { script: enriched }, principal)
         if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
         return { script: updated.script, mode: 'detailed' as const, warnings }
@@ -532,6 +677,40 @@ export class ProjectService {
 
   async generateShots(projectId: string, input: GenerateShotsRequest, principal: Principal) {
     const workspace = await this.workspace(projectId, principal)
+    if (workspace.project.contentType === 'short-drama' && workspace.scriptEpisodes?.length) {
+      const savedEpisodes = workspace.scriptEpisodes.filter(
+        (episode) => episode.status === 'saved' && episode.content.trim(),
+      )
+      const selectedEpisodes = input.episodeId
+        ? savedEpisodes.filter((episode) => episode.id === input.episodeId)
+        : savedEpisodes
+      if (!selectedEpisodes.length) {
+        throw new AppError(
+          400,
+          'SCRIPT_EPISODE_REQUIRED',
+          input.episodeId ? '该集尚未保存，请先保存本集' : '请先保存至少一集剧本',
+        )
+      }
+      const generated = selectedEpisodes.flatMap((episode) => {
+        const paragraphs = expandLongScriptParagraphs(splitScriptParagraphs(episode.content))
+        const shots =
+          input.mode === 'beat'
+            ? splitScriptIntoBeatShots(paragraphs, input.maxShots, true)
+            : splitScriptIntoSmartSceneShots(paragraphs, input.maxShots, true)
+        return shots.map((shot, index) => ({
+          ...shot,
+          scriptEpisodeId: episode.id,
+          episodeBreakBefore: index === 0 && episode.episodeNumber > 1,
+          episodeNumber: episode.episodeNumber,
+          episodeTitle: episode.title,
+          episodeKind: 'standard' as const,
+        }))
+      })
+      if (input.episodeId) {
+        return this.repository.replaceEpisodeShots(projectId, selectedEpisodes[0]!, generated, principal)
+      }
+      return this.repository.replaceShots(projectId, generated, principal)
+    }
     const source = workspace.project.script.trim()
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本')
 
@@ -543,7 +722,10 @@ export class ProjectService {
         : splitScriptIntoSmartSceneShots(paragraphs, input.maxShots, isWebSeries)
     return this.repository.replaceShots(
       projectId,
-      assignShotEpisodes(shots, input.episodeDurationSeconds),
+      assignShotEpisodes(
+        shots.map((shot) => ({ ...shot, scriptEpisodeId: null })),
+        input.episodeDurationSeconds,
+      ),
       principal,
     )
   }
@@ -574,6 +756,25 @@ function usageContextForPrincipal(principal: Principal) {
     organizationId: principal.organizationId ?? principal.tenantId,
     userId: principal.userId,
   }
+}
+
+function episodeContinuationContext(episodes: ScriptEpisode[]): string {
+  const ordered = [...episodes].sort((left, right) => left.episodeNumber - right.episodeNumber)
+  const latest = ordered.at(-1)
+  const history = ordered
+    .slice(0, -1)
+    .map(
+      (episode) =>
+        `第 ${episode.episodeNumber} 集摘要：${episode.summary || episode.content.replace(/\s+/g, ' ').slice(0, 500)}`,
+    )
+    .join('\n')
+  return [
+    '以下内容是连续网剧的前情上下文。只生成下一集，不得复述旧集。',
+    history ? `历史集摘要：\n${history}` : '',
+    latest ? `上一集全文：\n${latest.content}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 export function assignShotEpisodes<
@@ -664,6 +865,14 @@ const SCENE_PRODUCTION_RULES = `每个场次是一条可以直接交给分镜师
 - 不要凭空添加原稿没有的主要角色、关键道具或新空间规则；保持服装、位置、视线、光线和关键物件连续。
 - 每一行都必须同时包含场次、剧情、目标、阻力、变化、场景、角色、入场状态、动作、对白、出场状态、风格、构图、光影、运镜、衔接，场次值使用 S01、S02 这样的稳定编号；每个场次尽量保持 320 到 560 个中文字符的信息密度，不能为了凑字数重复形容词。`
 
+const FAST_WEB_SERIES_SCENE_RULES = `初稿只负责讲清剧情与表演，不要提前承担导演分镜层的工作。
+- 每行只使用：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜衔接：；禁止输出风格、构图、光影、运镜、提示词、负面提示词或资产外观复述。
+- 剧情字段用一句话压缩写清“目标→阻力→变化”；场景只写稳定地点与时间；角色只列本场实际出镜人物，不重复完整外貌和服装设定。
+- 动作字段写一个核心事件和 2 个连续可见拍点，包含至少一次表情、视线或姿态变化，并以明确结束状态收尾；不要把一个场次塞入多个独立事件。
+- 对白字段保留一句推动冲突的短对白、画外音或内心独白，并补一种必要的现场音或音乐提示；不要写长段解释。
+- 衔接字段只写需要交给下一场的人物位置、动作方向、视线或关键物件状态，不重复上一场全文。
+- 每场控制在 100 到 180 个中文字符，优先保证新信息、动作结果和对白，不用形容词凑字数。`
+
 const ADVERTISEMENT_PRODUCTION_RULES = `每个广告段落是一条可直接交给分镜师和视频模型的制作记录，不要只写口号或抽象氛围。
 - 每段必须写清“本段传播任务→观众看到的主体与动作→获得的核心信息→段尾画面结果”，屏幕文字必须给出确切内容与出现时机。
 - 场景字段写清地点、时间、空间布局、前中后景、主体陈设和主光源；产品字段信息应写入剧情与动作，名称、位置、朝向、材质和使用状态保持一致。
@@ -748,14 +957,14 @@ const SHORT_FILM_REWRITE_SYSTEM_PROMPT = `你是中文叙事短片的剧本编�
 const WEB_SERIES_SCRIPT_SYSTEM_PROMPT = `你是中文网剧漫剧的主编剧和短视频导演。请把用户素材写成一集可以直接进入分镜制作的网剧剧本，不要写成长篇小说或提纲。
 
 硬性规格：
-1. 本集目标时长由用户提供，约 1 到 5 分钟；每个场次对应一个 4 到 15 秒的可生成视频镜头，以约 5 秒一场倒推场次数量，例如 60 秒通常为 10 到 15 场、120 秒通常为 20 到 30 场。不要用空镜填充时长，也不要在场次内部再次计算额外视频数量。
-2. 输出数量必须服从目标时长预算，每行一个场次、对应一个视频镜头；每行必须使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：。
-3. 每场都要有可拍摄的目标、阻力、变化和结果，动作明确到人物位置、视线、表情、手部或关键物件状态；每个动作单元都要能单独生成一个有起承转收的短视频，并明确主角、配角、背景角色各自做什么。
+1. 本次只生成 1 集，不生成多集，不按分钟凑字数。全篇输出 6 到 8 个场次，建议 7 个；总长度控制在约 700 到 1100 个中文字符，已经讲清就停止，不要为了接近上限灌水。每个场次是一个可继续拆分镜的视频制作单元，不要用空镜填充内容。
+2. 每行一个场次、对应一个视频镜头；从 S01 正文直接开始，不要先写创作说明、人物小传或全剧摘要。
+3. 每场都要有可拍摄的目标、阻力、变化和结果，动作明确到人物位置、视线、表情、手部或关键物件状态；每个动作单元只完成一个核心事件，并明确主角和必要配角各自做什么。
 4. 保持人物身份、服装、时间、地点、光线和关键物件连续；每场都写清场内角色与物件的相对位置，不要突然新增人物、道具或空间规则。
 5. 前段快速建立冲突，中段持续升级，后段制造明显波动；最后一行的场次值必须写“剧情钩子”，且不直接解决。
 6. 钩子可以是秘密即将揭示、主角受辱后即将反击、关键物件即将启动、敌人误判实力或即将进入反转/装逼时刻；必须停在动作或悬念接点。
-7. 对白必须真正可听见并推动本场冲突：每个场次必须写 1 句短对白、画外音或内心独白，使用“[对白]角色：内容”“[画外音]内容”“[内心独白]角色：内容”标记；禁止写“无台词”。每场另写至少一种[音效]和一种[音乐/环境声]，不能返回空白、静音或只写“人物反应”。
-8. ${SCENE_PRODUCTION_RULES}
+7. 对白必须真正可听见并推动本场冲突：每个场次必须写 1 句短对白、画外音或内心独白，使用“[对白]角色：内容”“[画外音]内容”“[内心独白]角色：内容”标记；禁止写“无台词”。每场另写至少一种[音效]或[音乐/环境声]，不能返回空白或静音。
+8. ${FAST_WEB_SERIES_SCENE_RULES}
 9. 只输出剧本正文，不要标题、解释、Markdown 或分析。`
 
 const WEB_SERIES_REWRITE_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧编剧和分镜前置统筹。输入是一份 1500 到 10000 字的已有剧本，必须在不改变原剧情的前提下重写整理为可制作的网剧剧本。
@@ -829,20 +1038,16 @@ const CHINESE_SCRIPT_REPAIR_SYSTEM_PROMPT = `你是中文剧本格式校对员�
 3. AI、CG、2D、3D、Alpha 以及原稿中的既有外文专名可以保留；不要增加剧情、解释、标题、Markdown 或 JSON。
 4. 只输出修复后的完整剧本正文。`
 
-function webSeriesMaxOutputTokens(episodeSeconds: number): number {
-  return Math.min(24_000, Math.max(7_000, Math.ceil(episodeSeconds / 60) * 6_500))
+function webSeriesMaxOutputTokens(_episodeSeconds = 0): number {
+  return 1_500
 }
 
-function webSeriesSceneBudget(episodeSeconds: number): {
+function webSeriesSceneBudget(_episodeSeconds = 0): {
   minimum: number
   target: number
   maximum: number
 } {
-  return {
-    minimum: Math.max(4, Math.min(120, Math.ceil(episodeSeconds / 6))),
-    target: Math.max(5, Math.min(120, Math.ceil(episodeSeconds / 5))),
-    maximum: Math.max(6, Math.min(120, Math.ceil(episodeSeconds / 4))),
-  }
+  return { minimum: 6, target: 7, maximum: 8 }
 }
 
 type ScriptSceneBudget = ReturnType<typeof webSeriesSceneBudget>
@@ -867,7 +1072,7 @@ function scriptModeDisplayName(mode: ScriptContentMode): string {
 function scriptModeContext(mode: ScriptContentMode, durationSeconds: number): string {
   if (mode === 'advertisement') return `广告创作模式，目标成片 ${formatDuration(durationSeconds)}`
   if (mode === 'short-film') return `短片创作模式，目标成片 ${formatDuration(durationSeconds)}`
-  if (mode === 'web-series') return `网剧模式，每集 ${formatDuration(durationSeconds)}`
+  if (mode === 'web-series') return '网剧模式，按单集生产；本次只生成 1 集'
   return `短视频模式，目标成片 ${formatDuration(durationSeconds)}`
 }
 
@@ -914,7 +1119,10 @@ function scriptGenerationInstruction(input: {
   const { scriptMode, sourceLength, shouldExpandFromIdea, episodeSeconds, sourceHasStructuredScene } = input
   const budget =
     scriptMode === 'web-series' ? input.sceneBudget : scriptContentSceneBudget(scriptMode, episodeSeconds)
-  const durationRule = `目标成片时长 ${formatDuration(episodeSeconds)}，输出 ${budget.minimum} 到 ${budget.maximum} 个可识别场次/段落，建议 ${budget.target} 个；每行一个场次，不得把全部内容压成一段。`
+  const durationRule =
+    scriptMode === 'web-series'
+      ? `本次只生成 1 集，输出 ${budget.minimum} 到 ${budget.maximum} 个可识别场次，建议 ${budget.target} 个；全篇约 700 到 1100 个中文字符，表达完整后立即停止；每行一个场次，不得把全部内容压成一段，也不要生成其他集。`
+      : `目标成片时长 ${formatDuration(episodeSeconds)}，输出 ${budget.minimum} 到 ${budget.maximum} 个可识别场次/段落，建议 ${budget.target} 个；每行一个场次，不得把全部内容压成一段。`
 
   if (shouldExpandFromIdea) {
     if (scriptMode === 'advertisement') {
@@ -923,7 +1131,10 @@ function scriptGenerationInstruction(input: {
     if (scriptMode === 'short-film') {
       return `当前素材仅 ${sourceLength} 字，属于短片创意输入。必须补全人物目标、可见阻力、因果转折和结尾情绪落点，形成完整独立短片，禁止原样复述或只生成故事梗概。${durationRule}`
     }
-    return `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产，生成约 1800 到 2600 字的高信息密度制作剧本；如果原始内容是系统提示语，也要把它转化为具体剧情，不要原样复述。每个场次必须有明确角色、空间、动作拍点、对白类型、视觉执行和上下场衔接。${scriptMode === 'web-series' ? durationRule : ''}`
+    if (scriptMode === 'web-series') {
+      return `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产，直接生成高信息密度网剧初稿；不要原样复述，也不要输出人物小传或导演说明。每场只保留剧情目标与阻力、角色、空间、两个可见动作拍点、推动冲突的短对白和场尾连续状态，视觉导演信息留给后续分镜层。${durationRule}`
+    }
+    return `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产生成高信息密度制作剧本；如果原始内容是系统提示语，也要把它转化为具体剧情，不要原样复述。每个场次必须有明确角色、空间、动作拍点、对白类型和上下场衔接。`
   }
 
   const preserveRule = sourceHasStructuredScene
@@ -961,8 +1172,8 @@ function scriptGenerationMaxOutputTokens(
   shouldExpandFromIdea: boolean,
   source: string,
 ): number {
+  if (mode === 'web-series') return webSeriesMaxOutputTokens()
   if (!shouldExpandFromIdea) return longScriptMaxOutputTokens(source)
-  if (mode === 'web-series') return webSeriesMaxOutputTokens(durationSeconds)
   if (mode === 'advertisement') {
     return Math.min(12_000, Math.max(3_500, Math.ceil(durationSeconds / 30) * 3_000))
   }
@@ -1052,7 +1263,11 @@ function scriptSegmentUserPrompt(
       : mode === 'short-film'
         ? '请只输出续写的新场次，不要重写已有短片。'
         : '请只生成下一段剧本正文，不要重写已有内容。'
-  return `${projectContext}\n\n已有脚本上下文：\n${scriptSegmentContext(source)}\n\n本次目标：${goal || fallbackGoal}\n追加时长：${formatDuration(segmentSeconds)}\n\n${finalInstruction}`
+  const segmentBudget =
+    mode === 'web-series'
+      ? '本次只生成 1 个下一集生产单元，输出 6 到 8 个连续场次，建议 7 个；全篇约 700 到 1100 个中文字符，表达完整后立即停止。'
+      : `追加时长：${formatDuration(segmentSeconds)}`
+  return `${projectContext}\n\n已有脚本上下文：\n${scriptSegmentContext(source)}\n\n本次目标：${goal || fallbackGoal}\n${segmentBudget}\n\n${finalInstruction}`
 }
 
 function withChineseScriptRules(systemPrompt: string): string {
@@ -1086,8 +1301,8 @@ const SHORT_FILM_SEGMENT_SYSTEM_PROMPT = `你是中文叙事短片的编剧和�
 5. ${SCENE_PRODUCTION_RULES}
 6. 只输出续写的新场次正文，不要复述已有剧本，不要解释、Markdown、表格或分析。`
 
-const WEB_SERIES_SEGMENT_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧编剧。请基于已有剧本只续写下一集或下一段，严禁重写已有内容。
-1. 输出连续、可制作的场次，每个场次对应一个视频镜头，以 4 到 5 秒快切为主，必要时才延长到 15 秒；本段总时长约为用户指定分钟数。
+const WEB_SERIES_SEGMENT_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧编剧。请基于已有剧本只续写下一集，严禁重写已有内容。
+1. 本次只生成 1 个下一集生产单元，输出 6 到 8 个连续场次，建议 7 个；每个场次对应一个视频镜头，不生成下一集之后的内容。
 2. 承接上一段最后的时间、地点、人物状态、服装、视线、动作和关键物件，前两场要明确接住上一段尾部动作。
 3. 每场使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；每场都有目标、阻力、变化和结果。
 4. 对白不能被压缩成“无台词”：每个场次必须有[对白]、[画外音]或[内心独白]，台词要推进本段冲突；每场必须写[音效]和[环境声]，不得出现静音场次。
@@ -1193,6 +1408,7 @@ async function ensureChineseScriptOutput(
   provider: TextGenerationProvider,
   raw: string,
   model: ScriptModel,
+  onTextTiming?: (timing: TextGenerationTiming) => void,
 ): Promise<string> {
   const candidate = normalizeExpandedScript(raw)
   if (!hasUnexpectedEnglish(candidate)) return candidate
@@ -1203,6 +1419,7 @@ async function ensureChineseScriptOutput(
       userPrompt: `请修复下面的剧本并完整返回：\n\n${candidate}`,
       maxOutputTokens: Math.min(24_000, Math.max(2_400, Math.ceil(contentLength(candidate) * 1.5))),
       model,
+      ...(onTextTiming ? { onTextTiming, timingLabel: 'language-repair' } : {}),
     }),
   )
   if (!repaired || hasUnexpectedEnglish(repaired)) {
@@ -1317,7 +1534,8 @@ function longScriptMaxOutputTokens(source: string): number {
   return Math.min(LONG_SCRIPT_MAX_TOKENS, Math.max(6_000, Math.ceil(contentLength(source) * 1.6)))
 }
 
-function segmentMaxOutputTokens(targetSeconds: number): number {
+function segmentMaxOutputTokens(targetSeconds: number, mode: ScriptContentMode = 'short-video'): number {
+  if (mode === 'web-series') return webSeriesMaxOutputTokens()
   return Math.min(5_500, Math.max(2_400, Math.ceil(targetSeconds / 60) * 650))
 }
 
@@ -1354,11 +1572,13 @@ function appendScriptSegment(currentScript: string, segment: string): string {
   return `${currentScript.trim()}\n\n${segment.trim()}`
 }
 
-function segmentScriptIssues(segment: string): string[] {
+function segmentScriptIssues(segment: string, mode: ScriptContentMode = 'short-video'): string[] {
   const issues: string[] = []
   const scenes = scriptScenes(segment)
-  if (scenes.length < 2 || scenes.length > 6)
-    issues.push(`本段生成 ${scenes.length} 个场次，建议保持 2 到 6 个`)
+  const minimum = mode === 'web-series' ? 6 : 2
+  const maximum = mode === 'web-series' ? 8 : 6
+  if (scenes.length < minimum || scenes.length > maximum)
+    issues.push(`本段生成 ${scenes.length} 个场次，建议保持 ${minimum} 到 ${maximum} 个`)
   for (const field of QUICK_SCRIPT_FIELDS) {
     const missing = scenes.filter((scene) => !new RegExp(`${field}[：:]`).test(scene)).length
     if (missing) issues.push(`${missing} 个场次缺少“${field}”字段`)
@@ -2612,14 +2832,20 @@ function quickScriptIssues(
       ? Math.max(500, budget.target * 160)
       : mode === 'short-film'
         ? Math.max(800, budget.target * 190)
-        : 1_800
+        : mode === 'web-series'
+          ? 700
+          : 1_800
 
   if (characterCount < minimumCharacters)
     issues.push(
       `内容仅 ${characterCount} 字，建议补充到 ${minimumCharacters} 字以上，确保每段有足够的可执行动作和衔接信息`,
     )
   if (scenes.length < budget.minimum || scenes.length > budget.maximum)
-    issues.push(`当前 ${scenes.length} 个场景，目标时长建议保持 ${budget.minimum} 到 ${budget.maximum} 个`)
+    issues.push(
+      mode === 'web-series'
+        ? `本集当前 ${scenes.length} 个场次，建议保持 ${budget.minimum} 到 ${budget.maximum} 个`
+        : `当前 ${scenes.length} 个场景，目标时长建议保持 ${budget.minimum} 到 ${budget.maximum} 个`,
+    )
   for (const field of QUICK_SCRIPT_FIELDS) {
     const missing = scenes.filter((scene) => !new RegExp(`${field}[：:]`).test(scene)).length
     if (missing) issues.push(`${missing} 个场景缺少“${field}”字段`)
@@ -2663,7 +2889,7 @@ const SHOT_FIELD_NAMES = [
 const SCENE_DIRECTION_FIELD_NAMES = ['目标', '阻力', '变化', '入场状态', '出场状态'] as const
 type SceneDirectionFields = Partial<Record<(typeof SCENE_DIRECTION_FIELD_NAMES)[number], string>>
 
-type ShotDraft = Omit<CreateShot, 'episodeNumber' | 'episodeTitle' | 'episodeKind'> & {
+type ShotDraft = Omit<CreateShot, 'scriptEpisodeId' | 'episodeNumber' | 'episodeTitle' | 'episodeKind'> & {
   episodeKind?: 'standard' | 'hook'
 }
 

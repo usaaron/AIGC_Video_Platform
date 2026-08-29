@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { aiJobSchema } from './aiJob.js'
-import { scriptAssetSuggestionsContentSchema, textModelSchema } from './project.js'
+import { DEFAULT_SCRIPT_MODEL, scriptAssetSuggestionsContentSchema, textModelSchema } from './project.js'
 
 export const novelSourceFormatSchema = z.enum(['txt', 'markdown'])
 export const novelSplitModeSchema = z.enum(['auto', 'heading', 'fixed'])
@@ -393,13 +393,13 @@ export const generateNovelStoryBibleRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   force: z.boolean().default(false),
   summaryLimit: z.number().int().min(1).max(1_000).optional(),
-  model: textModelSchema.default('glm-5.2'),
+  model: textModelSchema.default(DEFAULT_SCRIPT_MODEL),
 })
 
 export const generateNovelAssetSuggestionsRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   maxAssets: z.number().int().min(4).max(16).default(12),
-  model: textModelSchema.default('glm-5.2'),
+  model: textModelSchema.default(DEFAULT_SCRIPT_MODEL),
 })
 
 export const novelChapterAdaptationModeSchema = z.enum(['scene', 'opening', 'summary'])
@@ -418,7 +418,7 @@ export const generateNovelChapterAdaptationRequestSchema = z.object({
   chapterIds: z.array(z.string().min(1).max(128)).min(1).max(6),
   targetSeconds: z.number().int().min(15).max(180).default(60),
   mode: novelChapterAdaptationModeSchema.default('scene'),
-  model: textModelSchema.default('glm-5.2'),
+  model: textModelSchema.default(DEFAULT_SCRIPT_MODEL),
   sourceOptions: novelChapterAdaptationSourcesSchema.optional(),
 })
 

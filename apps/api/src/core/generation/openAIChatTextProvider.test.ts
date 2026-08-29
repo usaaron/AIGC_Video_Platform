@@ -8,6 +8,7 @@ describe('OpenAIChatTextProvider', () => {
   })
 
   it('parses streamed chunks that include extra OpenAI-compatible choice fields', async () => {
+    const previews: string[] = []
     const stream = [
       'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"glm-5.2","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}',
       '',
@@ -42,8 +43,10 @@ describe('OpenAIChatTextProvider', () => {
           userId: 'user-1',
           traceId: 'trace-text-usage',
         },
+        onTextProgress: (text) => previews.push(text),
       }),
     ).resolves.toBe('可用')
+    expect(previews).toEqual(['可', '可用'])
     expect(usageCollector.snapshot({ userId: 'user-1' })).toMatchObject({
       tpm: 3,
       inputTokens: 1,
@@ -70,18 +73,44 @@ describe('OpenAIChatTextProvider', () => {
     await expect(provider.generate({ systemPrompt: 'system', userPrompt: 'user' })).resolves.toBe('剧本正文')
   })
 
-  it('uses reasoning content only when the provider returns no final content', async () => {
-    const stream = [
-      'data: {"choices":[{"delta":{"reasoning_content":"兼容正文"}}]}',
-      '',
-      'data: [DONE]',
-      '',
-    ].join('\n')
-    const provider = providerWithFetcher(
-      async () => new Response(stream, { headers: { 'content-type': 'text/event-stream' } }),
+  it('reports response, first-token, and generation timing for a completed request', async () => {
+    const timings: Array<Record<string, unknown>> = []
+    const provider = providerWithFetcher(async () =>
+      Response.json({ choices: [{ message: { content: '及时返回' } }] }),
     )
 
-    await expect(provider.generate({ systemPrompt: 'system', userPrompt: 'user' })).resolves.toBe('兼容正文')
+    await expect(
+      provider.generate({
+        systemPrompt: 'system',
+        userPrompt: 'user',
+        timingLabel: 'first-draft',
+        onTextTiming: (timing) => timings.push(timing),
+      }),
+    ).resolves.toBe('及时返回')
+
+    expect(timings).toHaveLength(1)
+    expect(timings[0]).toMatchObject({
+      label: 'first-draft',
+      attempt: 1,
+    })
+    expect(Number(timings[0]?.responseHeadersMs)).toBeGreaterThanOrEqual(0)
+    expect(Number(timings[0]?.firstTokenMs)).toBeGreaterThanOrEqual(0)
+    expect(Number(timings[0]?.generationMs)).toBeGreaterThanOrEqual(0)
+    expect(Number(timings[0]?.totalMs)).toBeGreaterThanOrEqual(0)
+  })
+
+  it('rejects reasoning-only responses instead of exposing internal analysis as final text', async () => {
+    let calls = 0
+    const provider = providerWithFetcher(async () => {
+      calls += 1
+      return Response.json({ choices: [{ message: { reasoning_content: '内部推理过程' } }] })
+    })
+
+    await expect(provider.generate({ systemPrompt: 'system', userPrompt: 'user' })).rejects.toMatchObject({
+      name: 'TextGenerationProviderError',
+      message: expect.stringContaining('格式异常'),
+    })
+    expect(calls).toBe(2)
   })
 
   it('retries an empty stream as a non-stream completion', async () => {

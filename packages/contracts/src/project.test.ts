@@ -151,7 +151,7 @@ describe('script workflow contracts', () => {
       segment: { goal: '', targetMinutes: 5 },
       productionMode: 'short-video',
       episodeMinutes: 1,
-      model: 'glm-5.2',
+      model: 'deepseek-v4-flash',
       revisionNote: '',
       direction: {
         style: 'auto',
@@ -175,11 +175,11 @@ describe('script workflow contracts', () => {
       focus: 'balanced',
     })
     expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
-      model: 'glm-5.2',
+      model: 'deepseek-v4-flash',
       revisionNote: '',
     })
     expect(reviewScriptRequestSchema.parse({ script: 'scene: river crossing' })).toMatchObject({
-      model: 'glm-5.2',
+      model: 'deepseek-v4-flash',
     })
     expect(generateShotsRequestSchema.parse({})).toMatchObject({
       maxShots: 8,

@@ -356,6 +356,67 @@ describe('ProjectService script billing', () => {
     expect(repository.update).toHaveBeenCalledOnce()
   })
 
+  it('uses a bounded single-episode request for initial and next-episode generation', async () => {
+    const generated = Array.from(
+      { length: 7 },
+      (_, index) =>
+        `场次：S0${index + 1}｜剧情：主角推进第${index + 1}个冲突并获得新线索。｜场景：旧车站夜间。｜角色：主角；对手。｜动作：动作1：主角向前并观察对手；动作2：对手改变站位，主角握紧信物。｜对白：[对白]主角：我不会停在这里。｜风格：现实漫剧。｜构图：主角左侧、对手右侧，中景。｜光影：冷色顶光。｜运镜：跟随推进。｜衔接：保留双方位置和信物状态。`,
+    ).join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '单集预算测试',
+          contentType: 'short-drama',
+          synopsis: '主角在车站追查失踪线索。',
+          aspectRatio: '9:16',
+          script: '',
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = {
+      generate: vi.fn(async () => generated),
+    }
+    const service = new ProjectService(repository, textProvider)
+    const principal = { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] as const }
+
+    await service.generateScript(
+      'project-1',
+      '主角在车站追查失踪线索',
+      DEFAULT_SCRIPT_DIRECTION,
+      'quick',
+      { goal: '', targetMinutes: 1 },
+      'web-series',
+      1,
+      'bounded-first-episode',
+      principal,
+    )
+    const firstRequest = vi.mocked(textProvider.generate).mock.calls[0]?.[0]
+    expect(firstRequest?.maxOutputTokens).toBe(1_500)
+    expect(firstRequest?.userPrompt).toContain('本次只生成 1 集')
+    expect(firstRequest?.userPrompt).toContain('约 700 到 1100 个中文字符')
+    expect(splitScriptParagraphs(repository.update.mock.calls[0]?.[1]?.script || '')).toHaveLength(7)
+
+    const previous = generated
+    await service.generateScript(
+      'project-1',
+      previous,
+      DEFAULT_SCRIPT_DIRECTION,
+      'segment',
+      { goal: '承接上一集结尾继续推进', targetMinutes: 1 },
+      'web-series',
+      1,
+      'bounded-next-episode',
+      principal,
+    )
+    const nextRequest = vi.mocked(textProvider.generate).mock.calls[1]?.[0]
+    expect(nextRequest?.maxOutputTokens).toBe(1_500)
+    expect(nextRequest?.userPrompt).toContain('1 个下一集生产单元')
+    expect(nextRequest?.userPrompt).toContain('约 700 到 1100 个中文字符')
+    expect(splitScriptParagraphs(repository.update.mock.calls[1]?.[1]?.script || '')).toHaveLength(14)
+  })
+
   it('uses the project content type to generate a timed advertising production script', async () => {
     const generatedScript = Array.from(
       { length: 4 },
@@ -684,6 +745,102 @@ describe('ProjectRepository shot ordering', () => {
     expect(afterDelete?.shots.map((shot) => shot.order)).toEqual(
       Array.from({ length: afterDelete.shots.length }, (_, index) => index + 1),
     )
+  })
+})
+
+describe('ProjectRepository script episodes', () => {
+  it('keeps generated text as a draft until the episode is explicitly saved', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new ProjectRepository(store)
+    const principal = {
+      userId: 'user-member',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['member'] as const,
+    }
+    const before = await repository.workspace('project-midnight-film', principal)
+    const originalAggregate = before!.project.script
+    const firstEpisode = before!.scriptEpisodes[0]!
+
+    const draft = await repository.writeScriptEpisodeDraft(
+      'project-midnight-film',
+      firstEpisode.id,
+      '第一集改写草稿',
+      principal,
+    )
+    expect(draft).toMatchObject({ status: 'draft', draftContent: '第一集改写草稿' })
+    expect((await repository.workspace('project-midnight-film', principal))?.project.script).toBe(
+      originalAggregate,
+    )
+
+    await repository.saveScriptEpisode(
+      'project-midnight-film',
+      firstEpisode.id,
+      draft!.draftContent,
+      principal,
+    )
+    const saved = await repository.workspace('project-midnight-film', principal)
+    expect(saved?.scriptEpisodes[0]).toMatchObject({
+      status: 'saved',
+      content: '第一集改写草稿',
+      draftContent: '',
+    })
+    expect(saved?.project.script).toBe('第一集改写草稿')
+  })
+
+  it('only deletes the final episode and removes its linked shots', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new ProjectRepository(store)
+    const principal = {
+      userId: 'user-member',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['member'] as const,
+    }
+    const first = (await repository.workspace('project-midnight-film', principal))!.scriptEpisodes[0]!
+    const secondDraft = await repository.writeScriptEpisodeDraft(
+      'project-midnight-film',
+      null,
+      '第二集草稿',
+      principal,
+      { createNext: true },
+    )
+    const second = await repository.saveScriptEpisode(
+      'project-midnight-film',
+      secondDraft!.id,
+      secondDraft!.draftContent,
+      principal,
+    )
+    await repository.createShot(
+      'project-midnight-film',
+      {
+        scriptEpisodeId: second!.id,
+        title: '第二集分镜',
+        framing: '中景',
+        duration: 4,
+        prompt: '第二集动作',
+        negativePrompt: '',
+        imageUrl: null,
+        continuityMode: 'independent',
+        continuityNote: '',
+        episodeBreakBefore: true,
+        episodeNumber: 2,
+        episodeTitle: '第 2 集',
+        episodeKind: 'standard',
+      },
+      principal,
+    )
+
+    await expect(
+      repository.deleteLastScriptEpisode('project-midnight-film', first.id, principal),
+    ).resolves.toBe('not_last')
+    await expect(
+      repository.deleteLastScriptEpisode('project-midnight-film', second!.id, principal),
+    ).resolves.toBe('deleted')
+    const remaining = await repository.workspace('project-midnight-film', principal)
+    expect(remaining?.scriptEpisodes.map((episode) => episode.id)).toEqual([first.id])
+    expect(remaining?.shots.some((shot) => shot.scriptEpisodeId === second!.id)).toBe(false)
+    expect(remaining?.project.script).not.toContain('第二集草稿')
   })
 })
 

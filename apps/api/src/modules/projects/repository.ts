@@ -9,6 +9,7 @@ import type {
   Project,
   ProjectGenerationSummary,
   ProjectWorkspace,
+  ScriptEpisode,
   Shot,
   UpdateAsset,
   UpdateProject,
@@ -67,6 +68,7 @@ type ShotRow = QueryResultRow & {
   id: string
   project_id: string
   tenant_id: string
+  script_episode_id: string | null
   shot_order: number | string
   title: string
   framing: string
@@ -82,6 +84,23 @@ type ShotRow = QueryResultRow & {
   episode_number: number | string
   episode_title: string
   episode_kind: Shot['episodeKind']
+  created_at: Date | string
+  updated_at: Date | string
+}
+
+type ScriptEpisodeRow = QueryResultRow & {
+  id: string
+  project_id: string
+  tenant_id: string
+  episode_number: number | string
+  title: string
+  content: string
+  draft_content: string
+  status: ScriptEpisode['status']
+  summary: string
+  continuity_state: unknown
+  revision: number | string
+  last_edited_by: string
   created_at: Date | string
   updated_at: Date | string
 }
@@ -171,6 +190,7 @@ const shotColumns = `
   id,
   project_id,
   tenant_id,
+  script_episode_id,
   shot_order,
   title,
   framing,
@@ -186,6 +206,23 @@ const shotColumns = `
   episode_number,
   episode_title,
   episode_kind,
+  created_at,
+  updated_at
+`
+
+const scriptEpisodeColumns = `
+  id,
+  project_id,
+  tenant_id,
+  episode_number,
+  title,
+  content,
+  draft_content,
+  status,
+  summary,
+  continuity_state,
+  revision,
+  last_edited_by,
   created_at,
   updated_at
 `
@@ -212,6 +249,7 @@ export class ProjectRepository {
     }
     const snapshot = this.store.read((state) => ({
       projects: state.projects,
+      scriptEpisodes: state.scriptEpisodes,
       assets: state.assets,
       shots: state.shots,
     }))
@@ -234,6 +272,9 @@ export class ProjectRepository {
         } else {
           result.assets.skipped += 1
         }
+      }
+      for (const episode of snapshot.scriptEpisodes) {
+        await insertScriptEpisodeFromStore(client, episode)
       }
       for (const shot of snapshot.shots) {
         if (await insertShotFromStore(client, shot)) {
@@ -380,7 +421,16 @@ export class ProjectRepository {
     const project = await this.findReadableProject(this.database, projectId, principal)
     if (!project) return null
 
-    const [assets, shots] = await Promise.all([
+    const [scriptEpisodes, assets, shots] = await Promise.all([
+      this.database.query<ScriptEpisodeRow>(
+        `
+        SELECT ${scriptEpisodeColumns}
+        FROM script_episodes
+        WHERE project_id = $1 AND tenant_id = $2
+        ORDER BY episode_number ASC
+        `,
+        [projectId, principal.tenantId],
+      ),
       this.database.query<AssetRow>(
         `
         SELECT ${assetColumns}
@@ -403,6 +453,7 @@ export class ProjectRepository {
 
     return {
       project,
+      scriptEpisodes: scriptEpisodes.rows.map(scriptEpisodeFromRow),
       assets: assets.rows.map(assetFromRow),
       shots: shots.rows.map(shotFromRow),
     }
@@ -581,6 +632,401 @@ export class ProjectRepository {
     const project = result.rows[0] ? projectFromRow(result.rows[0]) : null
     if (project) await this.mirrorProject(project)
     return project
+  }
+
+  async writeScriptEpisodeDraft(
+    projectId: string,
+    episodeId: string | null,
+    content: string,
+    principal: Principal,
+    options: { createNext?: boolean; title?: string } = {},
+  ): Promise<ScriptEpisode | null> {
+    if (!this.database) {
+      return this.requireStore().mutate((state) => {
+        const project = state.projects.find(
+          (item) =>
+            item.id === projectId &&
+            item.tenantId === principal.tenantId &&
+            item.ownerId === principal.userId,
+        )
+        if (!project) return null
+        const episodes = state.scriptEpisodes
+          .filter((item) => item.projectId === projectId && item.tenantId === principal.tenantId)
+          .sort((left, right) => left.episodeNumber - right.episodeNumber)
+        let episode = episodeId ? episodes.find((item) => item.id === episodeId) : undefined
+        if (!episode && !episodeId && !options.createNext) {
+          episode = [...episodes].reverse().find((item) => item.status === 'draft')
+        }
+        const now = new Date().toISOString()
+        if (!episode) {
+          const episodeNumber = (episodes.at(-1)?.episodeNumber ?? 0) + 1
+          episode = {
+            id: randomUUID(),
+            projectId,
+            tenantId: principal.tenantId,
+            episodeNumber,
+            title: options.title?.trim() || `第 ${episodeNumber} 集`,
+            content: '',
+            draftContent: content,
+            status: 'draft',
+            summary: '',
+            continuityState: {},
+            revision: 1,
+            lastEditedBy: principal.userId,
+            createdAt: now,
+            updatedAt: now,
+          }
+          state.scriptEpisodes.push(episode)
+        } else {
+          episode.draftContent = content
+          episode.status = 'draft'
+          episode.title = options.title?.trim() || episode.title
+          episode.lastEditedBy = principal.userId
+          episode.revision += 1
+          episode.updatedAt = now
+        }
+        project.updatedAt = now
+        return episode
+      })
+    }
+
+    const episode = await this.database.transaction(async (client) => {
+      const project = await this.findWritableProject(client, projectId, principal, true)
+      if (!project) return null
+      const result = await client.query<ScriptEpisodeRow>(
+        `SELECT ${scriptEpisodeColumns} FROM script_episodes
+         WHERE project_id = $1 AND tenant_id = $2 ORDER BY episode_number ASC FOR UPDATE`,
+        [projectId, principal.tenantId],
+      )
+      const episodes = result.rows.map(scriptEpisodeFromRow)
+      let current = episodeId ? episodes.find((item) => item.id === episodeId) : undefined
+      if (!current && episodeId) return null
+      if (!current && !options.createNext) {
+        current = [...episodes].reverse().find((item) => item.status === 'draft')
+      }
+      const now = new Date().toISOString()
+      if (current) {
+        const updated = await client.query<ScriptEpisodeRow>(
+          `UPDATE script_episodes
+           SET draft_content = $4, status = 'draft', title = $5, revision = revision + 1,
+               last_edited_by = $6, updated_at = $7
+           WHERE id = $1 AND project_id = $2 AND tenant_id = $3
+           RETURNING ${scriptEpisodeColumns}`,
+          [
+            current.id,
+            projectId,
+            principal.tenantId,
+            content,
+            options.title?.trim() || current.title,
+            principal.userId,
+            now,
+          ],
+        )
+        await touchProject(client, projectId, principal.tenantId, now)
+        return updated.rows[0] ? scriptEpisodeFromRow(updated.rows[0]) : null
+      }
+      const episodeNumber = (episodes.at(-1)?.episodeNumber ?? 0) + 1
+      const inserted = await client.query<ScriptEpisodeRow>(
+        `INSERT INTO script_episodes (
+           id, project_id, tenant_id, episode_number, title, content, draft_content,
+           status, summary, continuity_state, revision, last_edited_by, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, '', $6, 'draft', '', '{}'::jsonb, 1, $7, $8, $8)
+         RETURNING ${scriptEpisodeColumns}`,
+        [
+          randomUUID(),
+          projectId,
+          principal.tenantId,
+          episodeNumber,
+          options.title?.trim() || `第 ${episodeNumber} 集`,
+          content,
+          principal.userId,
+          now,
+        ],
+      )
+      await touchProject(client, projectId, principal.tenantId, now)
+      return inserted.rows[0] ? scriptEpisodeFromRow(inserted.rows[0]) : null
+    })
+    if (episode) await this.mirrorScriptEpisode(episode)
+    return episode
+  }
+
+  async saveScriptEpisode(
+    projectId: string,
+    episodeId: string | null,
+    content: string,
+    principal: Principal,
+    title?: string,
+  ): Promise<ScriptEpisode | null> {
+    if (!this.database) {
+      return this.requireStore().mutate((state) => {
+        const project = state.projects.find(
+          (item) =>
+            item.id === projectId &&
+            item.tenantId === principal.tenantId &&
+            item.ownerId === principal.userId,
+        )
+        if (!project) return null
+        const episodes = state.scriptEpisodes
+          .filter((item) => item.projectId === projectId && item.tenantId === principal.tenantId)
+          .sort((left, right) => left.episodeNumber - right.episodeNumber)
+        let episode = episodeId ? episodes.find((item) => item.id === episodeId) : undefined
+        const now = new Date().toISOString()
+        if (!episode) {
+          if (episodeId) return null
+          const episodeNumber = (episodes.at(-1)?.episodeNumber ?? 0) + 1
+          episode = {
+            id: randomUUID(),
+            projectId,
+            tenantId: principal.tenantId,
+            episodeNumber,
+            title: title?.trim() || `第 ${episodeNumber} 集`,
+            content,
+            draftContent: '',
+            status: 'saved',
+            summary: summarizeEpisodeContent(content),
+            continuityState: {},
+            revision: 1,
+            lastEditedBy: principal.userId,
+            createdAt: now,
+            updatedAt: now,
+          }
+          state.scriptEpisodes.push(episode)
+        } else {
+          episode.content = content
+          episode.draftContent = ''
+          episode.status = 'saved'
+          episode.title = title?.trim() || episode.title
+          episode.summary = summarizeEpisodeContent(content)
+          episode.lastEditedBy = principal.userId
+          episode.revision += 1
+          episode.updatedAt = now
+        }
+        project.script = aggregateSavedEpisodes(state.scriptEpisodes, projectId, principal.tenantId)
+        project.updatedAt = now
+        return episode
+      })
+    }
+
+    const result = await this.database.transaction(async (client) => {
+      const project = await this.findWritableProject(client, projectId, principal, true)
+      if (!project) return null
+      const rows = await client.query<ScriptEpisodeRow>(
+        `SELECT ${scriptEpisodeColumns} FROM script_episodes
+         WHERE project_id = $1 AND tenant_id = $2 ORDER BY episode_number ASC FOR UPDATE`,
+        [projectId, principal.tenantId],
+      )
+      const episodes = rows.rows.map(scriptEpisodeFromRow)
+      const current = episodeId ? episodes.find((item) => item.id === episodeId) : undefined
+      if (episodeId && !current) return null
+      const now = new Date().toISOString()
+      let savedRow: ScriptEpisodeRow | undefined
+      if (current) {
+        const updated = await client.query<ScriptEpisodeRow>(
+          `UPDATE script_episodes
+           SET content = $4, draft_content = '', status = 'saved', title = $5, summary = $6,
+               revision = revision + 1, last_edited_by = $7, updated_at = $8
+           WHERE id = $1 AND project_id = $2 AND tenant_id = $3
+           RETURNING ${scriptEpisodeColumns}`,
+          [
+            current.id,
+            projectId,
+            principal.tenantId,
+            content,
+            title?.trim() || current.title,
+            summarizeEpisodeContent(content),
+            principal.userId,
+            now,
+          ],
+        )
+        savedRow = updated.rows[0]
+      } else {
+        const episodeNumber = (episodes.at(-1)?.episodeNumber ?? 0) + 1
+        const inserted = await client.query<ScriptEpisodeRow>(
+          `INSERT INTO script_episodes (
+             id, project_id, tenant_id, episode_number, title, content, draft_content,
+             status, summary, continuity_state, revision, last_edited_by, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, '', 'saved', $7, '{}'::jsonb, 1, $8, $9, $9)
+           RETURNING ${scriptEpisodeColumns}`,
+          [
+            randomUUID(),
+            projectId,
+            principal.tenantId,
+            episodeNumber,
+            title?.trim() || `第 ${episodeNumber} 集`,
+            content,
+            summarizeEpisodeContent(content),
+            principal.userId,
+            now,
+          ],
+        )
+        savedRow = inserted.rows[0]
+      }
+      if (!savedRow) return null
+      const aggregateRows = await client.query<ScriptEpisodeRow>(
+        `SELECT ${scriptEpisodeColumns} FROM script_episodes
+         WHERE project_id = $1 AND tenant_id = $2 AND status = 'saved' ORDER BY episode_number ASC`,
+        [projectId, principal.tenantId],
+      )
+      const aggregate = aggregateEpisodeList(aggregateRows.rows.map(scriptEpisodeFromRow))
+      const updatedProject = await client.query<ProjectRow>(
+        `UPDATE projects SET script = $3, updated_at = $4
+         WHERE id = $1 AND tenant_id = $2 RETURNING ${projectColumns}`,
+        [projectId, principal.tenantId, aggregate, now],
+      )
+      return {
+        episode: scriptEpisodeFromRow(savedRow),
+        project: updatedProject.rows[0] ? projectFromRow(updatedProject.rows[0]) : project,
+      }
+    })
+    if (!result) return null
+    await this.mirrorProject(result.project)
+    await this.mirrorScriptEpisode(result.episode)
+    return result.episode
+  }
+
+  async deleteLastScriptEpisode(
+    projectId: string,
+    episodeId: string,
+    principal: Principal,
+  ): Promise<'deleted' | 'not_found' | 'not_last' | 'active'> {
+    if (!this.database) {
+      return this.requireStore().mutate((state) => {
+        const project = state.projects.find(
+          (item) =>
+            item.id === projectId &&
+            item.tenantId === principal.tenantId &&
+            item.ownerId === principal.userId,
+        )
+        const episodes = state.scriptEpisodes
+          .filter((item) => item.projectId === projectId && item.tenantId === principal.tenantId)
+          .sort((left, right) => left.episodeNumber - right.episodeNumber)
+        const episode = episodes.find((item) => item.id === episodeId)
+        if (!project || !episode) return 'not_found'
+        if (episodes.at(-1)?.id !== episodeId) return 'not_last'
+        const shotIds = new Set(
+          state.shots.filter((shot) => shot.scriptEpisodeId === episodeId).map((shot) => shot.id),
+        )
+        const active = state.tasks.some(
+          (task) =>
+            task.projectId === projectId &&
+            ['queued', 'paused', 'running'].includes(task.status) &&
+            (task.metadata.episodeId === episodeId || shotIds.has(String(task.metadata.shotId || ''))),
+        )
+        if (active) return 'active'
+        state.scriptEpisodes = state.scriptEpisodes.filter((item) => item.id !== episodeId)
+        state.shots = state.shots.filter((shot) => shot.scriptEpisodeId !== episodeId)
+        renumberProjectShots(state.shots, projectId, principal.tenantId)
+        project.script = aggregateSavedEpisodes(state.scriptEpisodes, projectId, principal.tenantId)
+        project.updatedAt = new Date().toISOString()
+        return 'deleted'
+      })
+    }
+
+    const result = await this.database.transaction(async (client) => {
+      const project = await this.findWritableProject(client, projectId, principal, true)
+      if (!project) return { outcome: 'not_found' as const }
+      const rows = await client.query<ScriptEpisodeRow>(
+        `SELECT ${scriptEpisodeColumns} FROM script_episodes
+         WHERE project_id = $1 AND tenant_id = $2 ORDER BY episode_number ASC FOR UPDATE`,
+        [projectId, principal.tenantId],
+      )
+      const episodes = rows.rows.map(scriptEpisodeFromRow)
+      if (!episodes.some((item) => item.id === episodeId)) return { outcome: 'not_found' as const }
+      if (episodes.at(-1)?.id !== episodeId) return { outcome: 'not_last' as const }
+      const active = await client.query(
+        `SELECT 1
+         FROM generation_tasks task
+         LEFT JOIN shots shot
+           ON shot.id = task.metadata->>'shotId' AND shot.project_id = task.project_id
+         WHERE task.project_id = $1 AND task.tenant_id = $2
+           AND task.status IN ('queued', 'paused', 'running')
+           AND (task.metadata->>'episodeId' = $3 OR shot.script_episode_id = $3)
+         LIMIT 1`,
+        [projectId, principal.tenantId, episodeId],
+      )
+      if (active.rowCount) return { outcome: 'active' as const }
+      await client.query('DELETE FROM shots WHERE script_episode_id = $1 AND tenant_id = $2', [
+        episodeId,
+        principal.tenantId,
+      ])
+      await client.query('DELETE FROM script_episodes WHERE id = $1 AND tenant_id = $2', [
+        episodeId,
+        principal.tenantId,
+      ])
+      await renumberShotsInDatabase(client, projectId, principal.tenantId)
+      const remaining = episodes.filter((item) => item.id !== episodeId && item.status === 'saved')
+      const now = new Date().toISOString()
+      const updated = await client.query<ProjectRow>(
+        `UPDATE projects SET script = $3, updated_at = $4
+         WHERE id = $1 AND tenant_id = $2 RETURNING ${projectColumns}`,
+        [projectId, principal.tenantId, aggregateEpisodeList(remaining), now],
+      )
+      return {
+        outcome: 'deleted' as const,
+        project: updated.rows[0] ? projectFromRow(updated.rows[0]) : project,
+      }
+    })
+    if (result.outcome === 'deleted') await this.refreshRuntimeCacheFromDatabase()
+    return result.outcome
+  }
+
+  async clearScriptEpisodes(
+    projectId: string,
+    principal: Principal,
+  ): Promise<'deleted' | 'not_found' | 'active'> {
+    if (!this.database) {
+      return this.requireStore().mutate((state) => {
+        const project = state.projects.find(
+          (item) =>
+            item.id === projectId &&
+            item.tenantId === principal.tenantId &&
+            item.ownerId === principal.userId,
+        )
+        if (!project) return 'not_found'
+        if (
+          state.tasks.some(
+            (task) => task.projectId === projectId && ['queued', 'paused', 'running'].includes(task.status),
+          )
+        ) {
+          return 'active'
+        }
+        state.scriptEpisodes = state.scriptEpisodes.filter((item) => item.projectId !== projectId)
+        state.shots = state.shots.filter((item) => item.projectId !== projectId)
+        project.script = ''
+        project.updatedAt = new Date().toISOString()
+        return 'deleted'
+      })
+    }
+    const result = await this.database.transaction(async (client) => {
+      const project = await this.findWritableProject(client, projectId, principal, true)
+      if (!project) return { outcome: 'not_found' as const }
+      const active = await client.query(
+        `SELECT 1 FROM generation_tasks
+         WHERE project_id = $1 AND tenant_id = $2 AND status IN ('queued', 'paused', 'running') LIMIT 1`,
+        [projectId, principal.tenantId],
+      )
+      if (active.rowCount) return { outcome: 'active' as const }
+      await client.query('DELETE FROM shots WHERE project_id = $1 AND tenant_id = $2', [
+        projectId,
+        principal.tenantId,
+      ])
+      await client.query('DELETE FROM script_episodes WHERE project_id = $1 AND tenant_id = $2', [
+        projectId,
+        principal.tenantId,
+      ])
+      const now = new Date().toISOString()
+      const updated = await client.query<ProjectRow>(
+        `UPDATE projects SET script = '', updated_at = $3
+         WHERE id = $1 AND tenant_id = $2 RETURNING ${projectColumns}`,
+        [projectId, principal.tenantId, now],
+      )
+      return {
+        outcome: 'deleted' as const,
+        project: updated.rows[0] ? projectFromRow(updated.rows[0]) : project,
+      }
+    })
+    if (result.outcome === 'deleted') await this.refreshRuntimeCacheFromDatabase()
+    return result.outcome
   }
 
   async archive(projectId: string, principal: Principal): Promise<boolean> {
@@ -922,6 +1368,7 @@ export class ProjectRepository {
           id,
           project_id,
           tenant_id,
+          script_episode_id,
           shot_order,
           title,
           framing,
@@ -938,7 +1385,7 @@ export class ProjectRepository {
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
         RETURNING ${shotColumns}
         `,
         shotInsertParams(shot),
@@ -983,6 +1430,8 @@ export class ProjectRepository {
 
       const updated: Shot = {
         ...current,
+        scriptEpisodeId:
+          input.scriptEpisodeId === undefined ? current.scriptEpisodeId : input.scriptEpisodeId,
         order: input.order ?? current.order,
         title: input.title ?? current.title,
         framing: input.framing ?? current.framing,
@@ -1006,22 +1455,23 @@ export class ProjectRepository {
         `
         UPDATE shots
         SET
-          shot_order = $4,
-          title = $5,
-          framing = $6,
-          duration_seconds = $7,
-          prompt = $8,
-          negative_prompt = $9,
-           image_url = $10,
-           selected_image_task_id = $11,
-           selected_video_task_id = $12,
-           continuity_mode = $13,
-           continuity_note = $14,
-           episode_break_before = $15,
-           episode_number = $16,
-           episode_title = $17,
-           episode_kind = $18,
-           updated_at = $19
+          script_episode_id = $4,
+          shot_order = $5,
+          title = $6,
+          framing = $7,
+          duration_seconds = $8,
+          prompt = $9,
+          negative_prompt = $10,
+           image_url = $11,
+           selected_image_task_id = $12,
+           selected_video_task_id = $13,
+           continuity_mode = $14,
+           continuity_note = $15,
+           episode_break_before = $16,
+           episode_number = $17,
+           episode_title = $18,
+           episode_kind = $19,
+           updated_at = $20
         WHERE id = $1 AND project_id = $2 AND tenant_id = $3
         RETURNING ${shotColumns}
         `,
@@ -1029,6 +1479,7 @@ export class ProjectRepository {
           shotId,
           projectId,
           principal.tenantId,
+          updated.scriptEpisodeId,
           updated.order,
           updated.title,
           updated.framing,
@@ -1152,6 +1603,7 @@ export class ProjectRepository {
             id,
             project_id,
             tenant_id,
+            script_episode_id,
             shot_order,
             title,
             framing,
@@ -1168,7 +1620,7 @@ export class ProjectRepository {
            created_at,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
           RETURNING ${shotColumns}
           `,
           shotInsertParams(shot),
@@ -1180,6 +1632,110 @@ export class ProjectRepository {
     })
 
     if (result) await this.mirrorReplacedShots(projectId, result)
+    return result
+  }
+
+  async replaceEpisodeShots(
+    projectId: string,
+    episode: ScriptEpisode,
+    shots: CreateShot[],
+    principal: Principal,
+  ): Promise<Shot[] | null> {
+    if (!this.database) {
+      return this.requireStore().mutate((state) => {
+        const project = state.projects.find(
+          (item) =>
+            item.id === projectId &&
+            item.tenantId === principal.tenantId &&
+            item.ownerId === principal.userId,
+        )
+        if (!project) return null
+        const now = new Date().toISOString()
+        state.shots = state.shots.filter((shot) => shot.scriptEpisodeId !== episode.id)
+        const next = shots.map((input, index) => ({
+          id: randomUUID(),
+          projectId,
+          tenantId: principal.tenantId,
+          order: state.shots.length + index + 1,
+          ...input,
+          scriptEpisodeId: episode.id,
+          episodeNumber: episode.episodeNumber,
+          episodeTitle: episode.title,
+          createdAt: now,
+          updatedAt: now,
+        }))
+        state.shots.push(...next)
+        state.shots
+          .filter((shot) => shot.projectId === projectId && shot.tenantId === principal.tenantId)
+          .sort((left, right) => left.episodeNumber - right.episodeNumber || left.order - right.order)
+          .forEach((shot, index) => {
+            shot.order = index + 1
+          })
+        project.updatedAt = now
+        return next.sort((left, right) => left.order - right.order)
+      })
+    }
+
+    const result = await this.database.transaction(async (client) => {
+      const project = await this.findWritableProject(client, projectId, principal, true)
+      if (!project) return null
+      const ownedEpisode = await client.query<ScriptEpisodeRow>(
+        `SELECT ${scriptEpisodeColumns} FROM script_episodes
+         WHERE id = $1 AND project_id = $2 AND tenant_id = $3`,
+        [episode.id, projectId, principal.tenantId],
+      )
+      if (!ownedEpisode.rows[0]) return null
+      await client.query('DELETE FROM shots WHERE script_episode_id = $1 AND tenant_id = $2', [
+        episode.id,
+        principal.tenantId,
+      ])
+      const maxOrder = await client.query<{ value: number | string }>(
+        'SELECT COALESCE(MAX(shot_order), 0) AS value FROM shots WHERE project_id = $1 AND tenant_id = $2',
+        [projectId, principal.tenantId],
+      )
+      const baseOrder = Number(maxOrder.rows[0]?.value ?? 0)
+      const now = new Date().toISOString()
+      for (const [index, input] of shots.entries()) {
+        const shot: Shot = {
+          id: randomUUID(),
+          projectId,
+          tenantId: principal.tenantId,
+          order: baseOrder + index + 1,
+          ...input,
+          scriptEpisodeId: episode.id,
+          episodeNumber: episode.episodeNumber,
+          episodeTitle: episode.title,
+          createdAt: now,
+          updatedAt: now,
+        }
+        await client.query(
+          `INSERT INTO shots (
+             id, project_id, tenant_id, script_episode_id, shot_order, title, framing,
+             duration_seconds, prompt, negative_prompt, image_url, continuity_mode,
+             continuity_note, episode_break_before, episode_number, episode_title,
+             episode_kind, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+          shotInsertParams(shot),
+        )
+      }
+      await client.query(
+        `WITH ranked AS (
+           SELECT id, ROW_NUMBER() OVER (ORDER BY episode_number ASC, shot_order ASC, created_at ASC) AS next_order
+           FROM shots WHERE project_id = $1 AND tenant_id = $2
+         )
+         UPDATE shots shot SET shot_order = ranked.next_order
+         FROM ranked WHERE shot.id = ranked.id`,
+        [projectId, principal.tenantId],
+      )
+      await touchProject(client, projectId, principal.tenantId, now)
+      const created = await client.query<ShotRow>(
+        `SELECT ${shotColumns} FROM shots
+         WHERE script_episode_id = $1 AND tenant_id = $2 ORDER BY shot_order ASC`,
+        [episode.id, principal.tenantId],
+      )
+      return created.rows.map(shotFromRow)
+    })
+    if (result) await this.refreshRuntimeCacheFromDatabase()
     return result
   }
 
@@ -1255,6 +1811,9 @@ export class ProjectRepository {
     if (!project) return null
     return this.requireStore().read((state) => ({
       project,
+      scriptEpisodes: state.scriptEpisodes
+        .filter((episode) => episode.projectId === projectId && episode.tenantId === principal.tenantId)
+        .sort((left, right) => left.episodeNumber - right.episodeNumber),
       assets: state.assets.filter(
         (asset) => asset.projectId === projectId && asset.tenantId === principal.tenantId,
       ),
@@ -1613,8 +2172,11 @@ export class ProjectRepository {
 
   async refreshRuntimeCacheFromDatabase(): Promise<void> {
     if (!this.database || !this.store) return
-    const [projects, assets, shots] = await Promise.all([
+    const [projects, scriptEpisodes, assets, shots] = await Promise.all([
       this.database.query<ProjectRow>(`SELECT ${projectColumns} FROM projects ORDER BY updated_at DESC`),
+      this.database.query<ScriptEpisodeRow>(
+        `SELECT ${scriptEpisodeColumns} FROM script_episodes ORDER BY project_id, episode_number ASC`,
+      ),
       this.database.query<AssetRow>(
         `SELECT ${assetColumns} FROM assets ORDER BY updated_at DESC, created_at DESC`,
       ),
@@ -1622,6 +2184,7 @@ export class ProjectRepository {
     ])
     this.store.replaceProjectWorkspaceRuntimeCache({
       projects: projects.rows.map(projectFromRow),
+      scriptEpisodes: scriptEpisodes.rows.map(scriptEpisodeFromRow),
       assets: assets.rows.map(assetFromRow),
       shots: shots.rows.map(shotFromRow),
     })
@@ -1630,6 +2193,21 @@ export class ProjectRepository {
   private async mirrorProject(project: Project): Promise<void> {
     if (!this.store) return
     this.store.mutateProjectWorkspaceRuntimeCache((state) => upsertProject(state, project))
+  }
+
+  private async mirrorScriptEpisode(episode: ScriptEpisode): Promise<void> {
+    if (!this.store) return
+    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
+      const index = state.scriptEpisodes.findIndex(
+        (item) => item.id === episode.id && item.tenantId === episode.tenantId,
+      )
+      if (index >= 0) state.scriptEpisodes[index] = episode
+      else state.scriptEpisodes.push(episode)
+      const project = state.projects.find(
+        (item) => item.id === episode.projectId && item.tenantId === episode.tenantId,
+      )
+      if (project && project.updatedAt < episode.updatedAt) project.updatedAt = episode.updatedAt
+    })
   }
 
   private async mirrorAsset(asset: Asset): Promise<void> {
@@ -1695,6 +2273,49 @@ function insertionOrderFor(shots: Shot[], insertAfterShotId: string | null | und
   if (insertAfterShotId === null) return 1
   const anchor = shots.find((shot) => shot.id === insertAfterShotId)
   return anchor ? anchor.order + 1 : null
+}
+
+function summarizeEpisodeContent(content: string): string {
+  return content.replace(/\s+/g, ' ').trim().slice(0, 500)
+}
+
+function aggregateEpisodeList(episodes: ScriptEpisode[]): string {
+  return episodes
+    .filter((episode) => episode.status === 'saved' && episode.content.trim())
+    .sort((left, right) => left.episodeNumber - right.episodeNumber)
+    .map((episode) => episode.content.trim())
+    .join('\n\n【强制下一集】\n\n')
+}
+
+function aggregateSavedEpisodes(episodes: ScriptEpisode[], projectId: string, tenantId: string): string {
+  return aggregateEpisodeList(
+    episodes.filter((episode) => episode.projectId === projectId && episode.tenantId === tenantId),
+  )
+}
+
+function renumberProjectShots(shots: Shot[], projectId: string, tenantId: string): void {
+  shots
+    .filter((shot) => shot.projectId === projectId && shot.tenantId === tenantId)
+    .sort((left, right) => left.order - right.order)
+    .forEach((shot, index) => {
+      shot.order = index + 1
+    })
+}
+
+async function renumberShotsInDatabase(
+  queryable: Queryable,
+  projectId: string,
+  tenantId: string,
+): Promise<void> {
+  await queryable.query(
+    `WITH ranked AS (
+       SELECT id, ROW_NUMBER() OVER (ORDER BY shot_order ASC, created_at ASC, id ASC) AS next_order
+       FROM shots WHERE project_id = $1 AND tenant_id = $2
+     )
+     UPDATE shots shot SET shot_order = ranked.next_order
+     FROM ranked WHERE shot.id = ranked.id`,
+    [projectId, tenantId],
+  )
 }
 
 async function insertProjectFromStore(client: PoolClient, project: Project): Promise<boolean> {
@@ -1777,6 +2398,38 @@ async function insertAssetFromStore(client: PoolClient, asset: Asset): Promise<b
   return (result.rowCount ?? 0) > 0
 }
 
+async function insertScriptEpisodeFromStore(client: PoolClient, episode: ScriptEpisode): Promise<boolean> {
+  const result = await client.query(
+    `
+    INSERT INTO script_episodes (
+      id, project_id, tenant_id, episode_number, title, content, draft_content,
+      status, summary, continuity_state, revision, last_edited_by, created_at, updated_at
+    )
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14
+    WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
+    ON CONFLICT (id) DO NOTHING
+    RETURNING id
+    `,
+    [
+      episode.id,
+      episode.projectId,
+      episode.tenantId,
+      episode.episodeNumber,
+      episode.title,
+      episode.content,
+      episode.draftContent,
+      episode.status,
+      episode.summary,
+      JSON.stringify(episode.continuityState),
+      episode.revision,
+      episode.lastEditedBy,
+      episode.createdAt,
+      episode.updatedAt,
+    ],
+  )
+  return (result.rowCount ?? 0) > 0
+}
+
 async function insertShotFromStore(client: PoolClient, shot: Shot): Promise<boolean> {
   const result = await client.query(
     `
@@ -1784,6 +2437,7 @@ async function insertShotFromStore(client: PoolClient, shot: Shot): Promise<bool
       id,
       project_id,
       tenant_id,
+      script_episode_id,
       shot_order,
       title,
       framing,
@@ -1800,7 +2454,7 @@ async function insertShotFromStore(client: PoolClient, shot: Shot): Promise<bool
       created_at,
       updated_at
     )
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
     WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
     ON CONFLICT (id) DO NOTHING
     RETURNING id
@@ -1888,6 +2542,7 @@ function shotInsertParams(shot: Shot): unknown[] {
     shot.id,
     shot.projectId,
     shot.tenantId,
+    shot.scriptEpisodeId,
     shot.order,
     shot.title,
     shot.framing,
@@ -2024,6 +2679,25 @@ function projectFromRow(row: ProjectRow): Project {
   }
 }
 
+function scriptEpisodeFromRow(row: ScriptEpisodeRow): ScriptEpisode {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    tenantId: row.tenant_id,
+    episodeNumber: Number(row.episode_number),
+    title: row.title,
+    content: row.content,
+    draftContent: row.draft_content,
+    status: row.status,
+    summary: row.summary,
+    continuityState: jsonValue(row.continuity_state, {}),
+    revision: Number(row.revision),
+    lastEditedBy: row.last_edited_by,
+    createdAt: isoString(row.created_at),
+    updatedAt: isoString(row.updated_at),
+  }
+}
+
 function assetFromRow(row: AssetRow): Asset {
   return {
     id: row.id,
@@ -2052,6 +2726,7 @@ function shotFromRow(row: ShotRow): Shot {
     id: row.id,
     projectId: row.project_id,
     tenantId: row.tenant_id,
+    scriptEpisodeId: row.script_episode_id,
     order: Number(row.shot_order),
     title: row.title,
     framing: row.framing,

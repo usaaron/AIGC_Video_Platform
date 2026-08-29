@@ -446,8 +446,14 @@ describe('novel contracts', () => {
         ],
       }).success,
     ).toBe(true)
-    expect(generateNovelStoryBibleRequestSchema.parse({})).toEqual({ force: false, model: 'glm-5.2' })
-    expect(generateNovelAssetSuggestionsRequestSchema.parse({})).toEqual({ maxAssets: 12, model: 'glm-5.2' })
+    expect(generateNovelStoryBibleRequestSchema.parse({})).toEqual({
+      force: false,
+      model: 'deepseek-v4-flash',
+    })
+    expect(generateNovelAssetSuggestionsRequestSchema.parse({})).toEqual({
+      maxAssets: 12,
+      model: 'deepseek-v4-flash',
+    })
     expect(
       novelAssetSuggestionsResultSchema.safeParse({
         summary: '已从小说事实源提取核心人物和场景建议。',

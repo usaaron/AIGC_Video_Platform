@@ -1,6 +1,7 @@
 import type { GenerationTask } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type { ImageGenerationProvider } from '../generation/imageProvider.js'
+import type { TextGenerationTiming } from '../generation/textProvider.js'
 import type { VideoGenerationProvider, VideoProviderName } from '../generation/videoProvider.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppStore } from '../../infra/store.js'
@@ -290,12 +291,69 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const handler = this.localTaskHandler
     if (!leaseToken || !handler) return
     const stopHeartbeat = this.startTaskHeartbeat(task.id, leaseToken)
+    const executionStartedAtMs = Date.now()
+    let firstPreviewAtMs: number | null = null
+    const textTimings: TextGenerationTiming[] = []
+    let latestPreview = ''
+    let persistedPreview = ''
+    let previewTimer: NodeJS.Timeout | null = null
+    let previewWrite = Promise.resolve()
+    const flushPreview = (): Promise<void> => {
+      const preview = latestPreview
+      if (!preview || preview === persistedPreview) return previewWrite
+      previewWrite = previewWrite
+        .catch(() => {})
+        .then(() =>
+          this.runTaskMutation(() => this.writeback.updateLocalTextPreview(task.id, leaseToken, preview)),
+        )
+        .then(() => {
+          persistedPreview = preview
+        })
+      return previewWrite
+    }
+    const schedulePreview = (text: string) => {
+      const preview = text.trimStart().slice(0, 24_000)
+      if (!preview || preview === latestPreview) return
+      firstPreviewAtMs ??= Date.now()
+      latestPreview = preview
+      if (previewTimer) return
+      previewTimer = setTimeout(() => {
+        previewTimer = null
+        void flushPreview().catch((error) => this.warnTaskRunnerFailure('text preview', task.id, error))
+      }, 800)
+      previewTimer.unref?.()
+    }
     try {
-      const result = await handler.execute(task)
-      await this.runTaskMutation(() => this.writeback.completeLocalTask(task.id, leaseToken, result))
+      const result = await handler.execute(
+        task,
+        task.kind === 'text'
+          ? {
+              onTextProgress: schedulePreview,
+              onTextTiming: (timing) => textTimings.push(timing),
+            }
+          : undefined,
+      )
+      if (previewTimer) {
+        clearTimeout(previewTimer)
+        previewTimer = null
+      }
+      await flushPreview()
+      await this.runTaskMutation(() =>
+        this.writeback.completeLocalTask(task.id, leaseToken, result, {
+          executionStartedAtMs,
+          firstPreviewAtMs,
+          textTimings,
+        }),
+      )
     } catch (error) {
+      if (previewTimer) {
+        clearTimeout(previewTimer)
+        previewTimer = null
+      }
+      await flushPreview().catch(() => {})
       await this.runTaskMutation(() => this.writeback.failTask(task.id, localTaskError(error), leaseToken))
     } finally {
+      if (previewTimer) clearTimeout(previewTimer)
       stopHeartbeat()
     }
   }
