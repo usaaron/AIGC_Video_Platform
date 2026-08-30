@@ -166,7 +166,7 @@ class RoutedTextProvider implements TextGenerationProvider {
           () =>
             this.deepSeekV4Provider!.generate({
               ...request,
-              model: requestedModel || this.deepSeekV4Model,
+              model: resolveDeepSeekV4Model(requestedModel, this.deepSeekV4Model),
             }),
         )
       } catch (error) {
@@ -237,6 +237,10 @@ function isDeepSeekModel(model: string): boolean {
 
 function isDeepSeekV4Model(model: string): boolean {
   return ['deepseek-v4-flash', 'deepseek-v4-pro'].includes(model.trim().toLowerCase())
+}
+
+function resolveDeepSeekV4Model(requestedModel: string, configuredFlashModel: string): string {
+  return requestedModel.trim().toLowerCase() === 'deepseek-v4-flash' ? configuredFlashModel : requestedModel
 }
 
 function isRehdasuModel(model: string): boolean {

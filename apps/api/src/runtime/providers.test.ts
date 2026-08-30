@@ -77,6 +77,30 @@ describe('runtime providers', () => {
     expect(JSON.parse(capturedBody).model).toBe('deepseek-v4-flash')
   })
 
+  it('maps the public DeepSeek V4 Flash name to the configured upstream model', async () => {
+    let capturedBody = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = String(init?.body)
+        return Response.json({ choices: [{ message: { content: '可用' } }] })
+      }),
+    )
+
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      DEEPSEEK_V4_API_KEY: 'test-deepseek-v4-key',
+      DEEPSEEK_V4_MODEL: 'deepseek-v4-flash-0731',
+      TEXT_MODEL: 'deepseek-v4-flash',
+    })
+    const provider = createTextProvider(config)
+
+    await expect(
+      provider?.generate({ systemPrompt: '测试', userPrompt: '回复可用', model: 'deepseek-v4-flash' }),
+    ).resolves.toBe('可用')
+    expect(JSON.parse(capturedBody).model).toBe('deepseek-v4-flash-0731')
+  })
+
   it('routes DeepSeek V4 Pro through the same independent relay without replacing the model', async () => {
     let capturedBody = ''
     vi.stubGlobal(
