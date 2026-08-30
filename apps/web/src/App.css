@@ -6340,6 +6340,7 @@
 .script-background-task small {
   color: #767e70;
   font-size: 9px;
+  font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
 }
 
 .script-live-preview {
@@ -6382,12 +6383,23 @@
 .script-live-preview strong {
   color: #30372b;
   font-size: 12px;
+  font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  font-weight: 700;
 }
 
 .script-live-preview small,
 .script-live-preview footer {
   color: #7a8175;
-  font-size: 9px;
+  font-size: 10px;
+  font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+}
+
+.script-live-preview .eyebrow {
+  color: #6b765e;
+  font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0;
 }
 
 .script-live-preview pre {
@@ -6402,8 +6414,8 @@
   background: #fff;
   color: #434a3e;
   font-family: 'Noto Serif SC', 'Songti SC', serif;
-  font-size: 11px;
-  line-height: 1.75;
+  font-size: 12px;
+  line-height: 1.8;
   letter-spacing: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

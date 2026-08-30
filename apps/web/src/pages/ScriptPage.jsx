@@ -1062,7 +1062,9 @@ export function ScriptPage({
                       <strong>{activeScriptTask.label}</strong>
                       <span>
                         {activeScriptTask.status === 'running'
-                          ? `序幕TV 正在生成 · ${scriptTaskStage(activeScriptTask)}`
+                          ? `序幕TV 正在生成 · ${
+                              hasDisplayedTextPreview ? '已收到片段，继续补全' : scriptTaskStage(activeScriptTask)
+                            }`
                           : activeScriptTask.status === 'paused'
                             ? '任务已暂停，可前往生成队列继续'
                             : '已提交模型，正在等待执行'}
@@ -1077,9 +1079,11 @@ export function ScriptPage({
                     <header>
                       <div>
                         <span className="eyebrow">
-                          实时初稿 · {isSeries ? `第 ${activePreviewEpisodeNumber} 集` : '当前内容'}
+                          实时草稿 · {isSeries ? `第 ${activePreviewEpisodeNumber} 集` : '当前内容'}
                         </span>
-                        <strong>{textPreviewStageLabel(activePreviewStage)}</strong>
+                        <strong>
+                          {hasDisplayedTextPreview ? '已生成片段 · 校验同步进行' : textPreviewStageLabel(activePreviewStage)}
+                        </strong>
                       </div>
                       <small>
                         {hasDisplayedTextPreview
@@ -1101,7 +1105,11 @@ export function ScriptPage({
                         <span />
                       </div>
                     )}
-                    <footer>当前内容仅供预览，格式与完整性校验通过后才会覆盖正式剧本。</footer>
+                    <footer>
+                      {hasDisplayedTextPreview
+                        ? '以下为已生成片段，模型仍在继续补全；完整校验通过后才会写入正文。'
+                        : '等待模型返回首段内容；完整校验通过后才会写入正文。'}
+                    </footer>
                   </section>
                 </div>
               )}

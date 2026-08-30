@@ -157,12 +157,13 @@ describe('script content modes', () => {
       ],
     )
 
-    expect(html).toContain('实时初稿')
-    expect(html).toContain('正在边生成边校验')
+    expect(html).toContain('实时草稿')
+    expect(html).toContain('已生成片段 · 校验同步进行')
+    expect(html).toContain('已收到片段，继续补全')
     expect(html).toContain('主角推开仓库门')
     expect(html).toContain('已识别 2 场')
     expect(html).toContain('已校验 1 场')
-    expect(html).toContain('校验通过后才会覆盖正式剧本')
+    expect(html).toContain('模型仍在继续补全；完整校验通过后才会写入正文')
   })
 
   it('keeps a live preview frame visible before the first model text arrives', () => {
