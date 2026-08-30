@@ -8,12 +8,51 @@ import { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { usageCollector } from '../observability/usage.js'
 import { GenerationTaskRunner } from './taskDispatcher.js'
-import { DependencyResolver, TaskClaimer } from './taskRunnerComponents.js'
+import { DependencyResolver, TaskClaimer, TaskRefundService } from './taskRunnerComponents.js'
 import type { TaskRunnerLock } from './taskRunnerLock.js'
+import type { CreditLedger } from '../../modules/billing/creditLedger.js'
 
 describe('GenerationTaskRunner Seedance integration', () => {
   beforeEach(() => {
     usageCollector.resetForTests()
+  })
+
+  it('marks terminal refunds as handled so historical failures are not rescanned', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'refund-once-task',
+      clientRequestId: 'refund-once-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-member',
+      kind: 'text',
+      label: 'Refund once',
+      prompt: '',
+      negativePrompt: '',
+      provider: 'text',
+      model: 'deepseek-v4-flash',
+      metadata: {},
+      status: 'failed',
+      progress: 100,
+      estimatedCredits: 3,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: 'provider failed',
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+    const refundGeneration = vi.fn(async () => {})
+    const creditLedger = { refundGeneration } as unknown as CreditLedger
+    const refunds = new TaskRefundService(store, creditLedger)
+
+    await refunds.refundTerminalTasks()
+    await refunds.refundTerminalTasks()
+
+    expect(refundGeneration).toHaveBeenCalledOnce()
+    expect(store.read((state) => state.tasks[0]?.metadata.creditsRefundedAt)).toEqual(expect.any(String))
   })
 
   it('leaves local FFmpeg composition progress under the composer ownership', async () => {

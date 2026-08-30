@@ -301,18 +301,36 @@ export class TaskRefundService {
   ) {}
 
   async refundTerminalTasks(): Promise<void> {
-    const hasRefundableTask = this.store.read((state) =>
-      state.tasks.some((task) => canPotentiallyRefundTask(task)),
-    )
-    if (!hasRefundableTask) return
+    const candidates = this.store.read((state) => state.tasks.filter((task) => canPotentiallyRefundTask(task)))
+    if (!candidates.length) return
     const creditLedger = this.creditLedger
-    await this.store.mutate(async (state) => {
+    if (creditLedger) {
+      const handledTaskIds: string[] = []
+      for (const task of candidates) {
+        // The Postgres ledger owns the refund transaction. Do not hold the AppStore
+        // write lock while waiting on one database operation per historical task.
+        await creditLedger.refundGeneration(task, refundDescription(task))
+        handledTaskIds.push(task.id)
+      }
+      if (!handledTaskIds.length) return
+      await this.store.mutate((state) => {
+        const handled = new Set(handledTaskIds)
+        const now = new Date().toISOString()
+        for (const task of state.tasks) {
+          if (!handled.has(task.id)) continue
+          task.metadata = {
+            ...task.metadata,
+            creditsRefundedAt:
+              typeof task.metadata.creditsRefundedAt === 'string' ? task.metadata.creditsRefundedAt : now,
+          }
+        }
+      })
+      return
+    }
+
+    await this.store.mutate((state) => {
       for (const task of state.tasks) {
         if (!canPotentiallyRefundTask(task)) continue
-        if (creditLedger) {
-          await creditLedger.refundGenerationInState(state, task, refundDescription(task))
-          continue
-        }
         const ledgerIds = state.ledger.map((entry) => entry.id)
         if (!canRefundTask(task, ledgerIds)) continue
         const refundId = `refund-${task.id}`
@@ -1825,6 +1843,7 @@ function isTimeoutError(error: Error): boolean {
 
 function canPotentiallyRefundTask(task: GenerationTask): boolean {
   if (task.estimatedCredits <= 0) return false
+  if (typeof task.metadata.creditsRefundedAt === 'string') return false
   if (task.status === 'failed') return true
   if (task.status === 'paused') return typeof task.metadata.queueHiddenAt === 'string'
   if (task.status !== 'cancelled') return false

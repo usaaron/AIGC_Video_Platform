@@ -190,6 +190,11 @@ export class GenerationTaskRunner implements TaskDispatcher {
       .runExclusive(async () => {
         maintenanceWork = await this.runTick(context)
       })
+      // Refund bookkeeping performs database calls for historical terminal tasks.
+      // Keep it outside the claim lock so it cannot starve new generations.
+      .then(async () => {
+        await this.refundService.refundTerminalTasks()
+      })
       .then(() => undefined)
     this.tickPromise = tickPromise
 
@@ -223,7 +228,6 @@ export class GenerationTaskRunner implements TaskDispatcher {
         availableMaintenanceSlots,
         this.scheduledProviderCancellations,
       )
-      await this.refundService.refundTerminalTasks()
       const hasActiveTasks = this.store.read((state) =>
         state.tasks.some((task) => task.status === 'queued' || task.status === 'running'),
       )
@@ -231,7 +235,6 @@ export class GenerationTaskRunner implements TaskDispatcher {
 
       const remoteTasks = await this.claimer.claimQueuedTasks()
 
-      await this.refundService.refundTerminalTasks()
       this.scheduleClaimedTasks({
         video: [...recoveredSubmissions.video, ...remoteTasks.video],
         image: [...recoveredSubmissions.image, ...remoteTasks.image],
