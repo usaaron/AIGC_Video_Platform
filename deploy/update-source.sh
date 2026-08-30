@@ -37,7 +37,7 @@ rollback() {
     if [[ -d "$BACKUP_ROOT" ]]; then
       mv "$BACKUP_ROOT" "$ROOT" || true
       # The previous images are the rollback target; do not re-enter a network-dependent build.
-      docker compose --env-file "$ROOT/deploy/demo.env" -f "$ROOT/compose.demo.yml" up -d || true
+      docker compose --env-file "$ROOT/deploy/demo.env" -f "$ROOT/compose.demo.yml" up -d --no-build || true
     fi
   fi
   rm -rf "$NEW_ROOT" "$PRESERVE_DIR"
