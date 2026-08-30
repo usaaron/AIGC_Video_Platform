@@ -138,6 +138,7 @@ describe('script content modes', () => {
       [
         {
           id: 'task-streaming-script',
+          projectId: 'streaming-script-1',
           kind: 'text',
           label: '智能生成网剧剧本',
           status: 'running',
@@ -179,6 +180,7 @@ describe('script content modes', () => {
       [
         {
           id: 'task-waiting-script',
+          projectId: 'waiting-script-1',
           kind: 'text',
           label: '智能生成网剧剧本',
           status: 'running',
@@ -196,6 +198,51 @@ describe('script content modes', () => {
     expect(html).toContain('正在等待首段内容')
     expect(html).toContain('script-live-preview-skeleton')
     expect(html).toContain('第 1 集')
+  })
+
+  it('removes the live preview for completed tasks and ignores another project task', () => {
+    const project = {
+      id: 'preview-isolation-1',
+      name: '预览隔离测试',
+      contentType: 'short-drama',
+      episodeDurationSeconds: 60,
+      aspectRatio: '9:16',
+      synopsis: '验证任务状态和项目隔离。',
+      script: '',
+    }
+    const completedHtml = renderScriptPage(project, 'configured', [
+      {
+        id: 'completed-script-task',
+        projectId: project.id,
+        kind: 'text',
+        label: '已完成的剧本任务',
+        status: 'completed',
+        metadata: {
+          generationStage: 'script-generate',
+          scriptOperation: 'generate',
+          textPreview: '这段内容不应继续显示。',
+        },
+      },
+    ])
+    const otherProjectHtml = renderScriptPage(project, 'configured', [
+      {
+        id: 'other-project-script-task',
+        projectId: 'another-project',
+        kind: 'text',
+        label: '其他项目的剧本任务',
+        status: 'running',
+        metadata: {
+          generationStage: 'script-generate',
+          scriptOperation: 'generate',
+          textPreview: '其他项目内容不应显示。',
+        },
+      },
+    ])
+
+    expect(completedHtml).not.toContain('script-live-preview')
+    expect(completedHtml).not.toContain('这段内容不应继续显示')
+    expect(otherProjectHtml).not.toContain('script-live-preview')
+    expect(otherProjectHtml).not.toContain('其他项目内容不应显示')
   })
 
   it('collapses saved web-series episodes and only offers deletion on the final episode', () => {

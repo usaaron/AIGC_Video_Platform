@@ -865,6 +865,7 @@ function App() {
       ),
       script: (
         <ScriptPage
+          key={project.id}
           project={project}
           scriptEpisodes={workspace.scriptEpisodes || []}
           assets={workspace.assets}
