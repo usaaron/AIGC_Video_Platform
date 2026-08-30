@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS build
+FROM dockerproxy.net/library/node:22-bookworm-slim AS build
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -19,7 +19,7 @@ COPY packages/prompting packages/prompting
 RUN pnpm build:shared && pnpm --filter @seqora/api build
 RUN pnpm --filter @seqora/api deploy --prod --legacy /opt/seqora-api
 
-FROM node:22-bookworm-slim AS runtime
+FROM dockerproxy.net/library/node:22-bookworm-slim AS runtime
 
 ENV NODE_ENV=production
 ENV API_HOST=0.0.0.0

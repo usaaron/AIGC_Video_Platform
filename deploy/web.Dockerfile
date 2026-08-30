@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS build
+FROM dockerproxy.net/library/node:22-bookworm-slim AS build
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -22,7 +22,7 @@ RUN pnpm build:shared \
   && VITE_ADMIN_CONSOLE_URL=/admin/ pnpm --filter @seqora/web build \
   && pnpm --filter @seqora/admin exec vite build --base=/admin/
 
-FROM caddy:2.10-alpine AS runtime
+FROM dockerproxy.net/library/caddy:2.10-alpine AS runtime
 
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /workspace/apps/web/dist /srv
