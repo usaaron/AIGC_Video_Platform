@@ -164,6 +164,40 @@ describe('script content modes', () => {
     expect(html).toContain('校验通过后才会覆盖正式剧本')
   })
 
+  it('keeps a live preview frame visible before the first model text arrives', () => {
+    const html = renderScriptPage(
+      {
+        id: 'waiting-script-1',
+        name: '等待首字测试',
+        contentType: 'short-drama',
+        episodeDurationSeconds: 60,
+        aspectRatio: '9:16',
+        synopsis: '主角准备推门。',
+        script: '',
+      },
+      'configured',
+      [
+        {
+          id: 'task-waiting-script',
+          kind: 'text',
+          label: '智能生成网剧剧本',
+          status: 'running',
+          createdAt: '2026-08-30T00:00:00.000Z',
+          updatedAt: '2026-08-30T00:00:00.000Z',
+          metadata: {
+            generationStage: 'script-generate',
+            scriptOperation: 'generate',
+          },
+        },
+      ],
+    )
+
+    expect(html).toContain('script-live-preview is-waiting')
+    expect(html).toContain('正在等待首段内容')
+    expect(html).toContain('script-live-preview-skeleton')
+    expect(html).toContain('第 1 集')
+  })
+
   it('collapses saved web-series episodes and only offers deletion on the final episode', () => {
     const project = {
       id: 'series-episodes-1',
@@ -196,10 +230,38 @@ describe('script content modes', () => {
       ],
     )
 
-    expect(html).toContain('已建立 2 集')
+    const navigatorIndex = html.indexOf('class="script-episode-navigator"')
+    const editorIndex = html.indexOf('class="script-textarea-wrap"')
+
+    expect(html).not.toContain('script-episode-stack')
+    expect(html).toContain('已保存 2 集')
+    expect(html).toContain('aria-label="选择要编辑的剧集"')
+    expect(html).toContain('第 1 集 · 3 字 · 已保存')
+    expect(navigatorIndex).toBeGreaterThan(-1)
+    expect(navigatorIndex).toBeLessThan(editorIndex)
     expect(html).toContain('继续生成第 3 集')
-    expect(html).toContain('aria-label="删除第 2 集"')
+    expect(html).toContain('aria-label="清空全部剧集"')
     expect(html).not.toContain('aria-label="删除第 1 集"')
+
+    const draftHtml = renderScriptPage(
+      project,
+      'configured',
+      [],
+      [
+        { ...baseEpisode, id: 'episode-1', episodeNumber: 1, title: '第 1 集', content: '第一集' },
+        {
+          ...baseEpisode,
+          id: 'episode-2',
+          episodeNumber: 2,
+          title: '第 2 集',
+          content: '第二集',
+          draftContent: '第二集草稿',
+          status: 'draft',
+        },
+      ],
+    )
+    expect(draftHtml).toContain('aria-label="删除第 2 集"')
+    expect(draftHtml).not.toContain('aria-label="删除第 1 集"')
   })
 
   it('does not offer a false generating state when the text provider is unavailable', () => {

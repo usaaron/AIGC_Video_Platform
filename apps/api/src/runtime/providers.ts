@@ -59,6 +59,7 @@ export function createVideoProvider(config: AppConfig): VideoGenerationProvider 
         pro: config.STRINGX_SEEDANCE_PRO_MODEL,
       },
       requestTimeoutMs: config.STRINGX_REQUEST_TIMEOUT_MS,
+      statusTimeoutMs: config.VIDEO_STATUS_TIMEOUT_MS,
     })
   }
   if (!config.ARK_API_KEY) return null
@@ -67,6 +68,7 @@ export function createVideoProvider(config: AppConfig): VideoGenerationProvider 
     apiKey: config.ARK_API_KEY,
     defaultModel: config.ARK_VIDEO_MODEL,
     requestTimeoutMs: config.ARK_REQUEST_TIMEOUT_MS,
+    statusTimeoutMs: config.VIDEO_STATUS_TIMEOUT_MS,
   })
 }
 

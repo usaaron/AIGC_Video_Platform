@@ -4,8 +4,10 @@ import {
   BadgeCheck,
   BookOpenText,
   Clapperboard,
+  ChevronLeft,
   ChevronRight,
   CircleHelp,
+  Eraser,
   Layers3,
   LoaderCircle,
   Save,
@@ -202,6 +204,11 @@ export function ScriptPage({
   const textArea = useRef(null)
   const activeEpisode = orderedEpisodes.find((episode) => episode.id === activeEpisodeId) || null
   const latestEpisode = orderedEpisodes.at(-1) || null
+  const activeEpisodeIndex = activeEpisode
+    ? orderedEpisodes.findIndex((episode) => episode.id === activeEpisode.id)
+    : -1
+  const previousEpisode = activeEpisode ? orderedEpisodes[activeEpisodeIndex - 1] : latestEpisode
+  const nextEpisode = activeEpisode ? orderedEpisodes[activeEpisodeIndex + 1] : null
   const episodeSnapshotKey = orderedEpisodes
     .map((episode) => `${episode.id}:${episode.status}:${episode.revision}:${episode.updatedAt}`)
     .join('|')
@@ -231,6 +238,13 @@ export function ScriptPage({
   const activeTextPreview = String(activeScriptTask?.metadata?.textPreview || '').trim()
   const activePreviewStage = String(activeScriptTask?.metadata?.textPreviewStage || 'first-draft')
   const activePreviewValidation = activeScriptTask?.metadata?.textPreviewValidation || null
+  const activeTaskEpisode = orderedEpisodes.find(
+    (episode) => episode.id === activeScriptTask?.metadata?.episodeId,
+  )
+  const activePreviewEpisodeNumber =
+    activeTaskEpisode?.episodeNumber ||
+    activeEpisode?.episodeNumber ||
+    (isSeries ? orderedEpisodes.length + 1 : null)
   const latestScriptTimingTask = [...tasks]
     .filter(
       (task) =>
@@ -241,6 +255,7 @@ export function ScriptPage({
     )
     .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0]
   const latestTextTiming = latestScriptTimingTask?.metadata?.textTiming || null
+  const scriptGenerationBusy = generating || Boolean(activeScriptTask)
   const busy = generating || saving || Boolean(activeScriptTask)
 
   const stopScriptTask = async (task, label) => {
@@ -670,12 +685,18 @@ export function ScriptPage({
           <Upload size={16} /> 导入文本
         </button>
         <button
-          className="button primary"
+          className="button primary script-header-save"
           disabled={saving || saved || !script.trim()}
           onClick={() => void save()}
         >
           {saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
-          {saving ? '保存中' : saved ? '已保存' : isSeries ? '保存本集' : `保存${contentConfig.documentName}`}
+          {saving
+            ? '保存中'
+            : saved
+              ? '已保存'
+              : isSeries
+                ? '保存当前剧集'
+                : `保存${contentConfig.documentName}`}
         </button>
       </PageHeader>
 
@@ -701,67 +722,6 @@ export function ScriptPage({
           </button>
         ))}
       </section>
-
-      {isSeries && orderedEpisodes.length > 0 && (
-        <section className="script-episode-stack" aria-label="已保存剧集">
-          <header>
-            <div>
-              <span className="direction-symbol">
-                <Layers3 size={17} />
-              </span>
-              <div>
-                <span className="eyebrow">剧集列表</span>
-                <strong>已建立 {orderedEpisodes.length} 集</strong>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="script-clear-episodes"
-              disabled={busy}
-              onClick={() => void clearAllEpisodes()}
-            >
-              <Trash2 size={14} /> 清空全部
-            </button>
-          </header>
-          <div className="script-episode-list">
-            {orderedEpisodes.map((episode) => {
-              const isActive = episode.id === activeEpisodeId
-              const isLast = episode.id === latestEpisode?.id
-              const source = episode.draftContent || episode.content
-              return (
-                <article key={episode.id} className={`script-episode-card ${isActive ? 'active' : ''}`}>
-                  <button type="button" className="script-episode-open" onClick={() => openEpisode(episode)}>
-                    <span className="script-episode-number">
-                      {String(episode.episodeNumber).padStart(2, '0')}
-                    </span>
-                    <span>
-                      <strong>{episode.title}</strong>
-                      <small>
-                        {episode.status === 'draft'
-                          ? '待保存草稿'
-                          : `${source.replace(/\s/g, '').length} 字 · 已保存`}
-                      </small>
-                    </span>
-                    <ChevronRight size={17} />
-                  </button>
-                  {isLast && (
-                    <button
-                      type="button"
-                      className="script-episode-delete"
-                      title="删除最后一集"
-                      aria-label={`删除${episode.title}`}
-                      disabled={busy}
-                      onClick={() => void deleteLastEpisode(episode)}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
-                </article>
-              )
-            })}
-          </div>
-        </section>
-      )}
 
       <>
         <section className="script-direction-bar script-generation-console" aria-label="剧本生成设置">
@@ -913,27 +873,44 @@ export function ScriptPage({
           </div>
         )}
 
-        {activeScriptTask && activeTextPreview && (
-          <section className="script-live-preview" aria-label="模型实时生成的剧本初稿">
+        {activeScriptTask && (
+          <section
+            className={`script-live-preview ${activeTextPreview ? 'has-content' : 'is-waiting'}`}
+            aria-label="模型实时生成的剧本初稿"
+          >
             <header>
               <div>
-                <span className="eyebrow">实时初稿</span>
+                <span className="eyebrow">
+                  实时初稿 · {isSeries ? `第 ${activePreviewEpisodeNumber} 集` : '当前内容'}
+                </span>
                 <strong>{textPreviewStageLabel(activePreviewStage)}</strong>
               </div>
               <small>
-                {activeTextPreview.replace(/\s/g, '').length} 字
-                {Number(activePreviewValidation?.recognizedScenes) > 0
-                  ? ` · 已识别 ${activePreviewValidation.recognizedScenes} 场 · 已校验 ${activePreviewValidation.checkedScenes} 场`
-                  : ''}
+                {activeTextPreview
+                  ? `${activeTextPreview.replace(/\s/g, '').length} 字${
+                      Number(activePreviewValidation?.recognizedScenes) > 0
+                        ? ` · 已识别 ${activePreviewValidation.recognizedScenes} 场 · 已校验 ${activePreviewValidation.checkedScenes} 场`
+                        : ''
+                    }`
+                  : '正在等待首段内容'}
               </small>
             </header>
-            <pre>{activeTextPreview}</pre>
+            {activeTextPreview ? (
+              <pre>{activeTextPreview}</pre>
+            ) : (
+              <div className="script-live-preview-skeleton" role="presentation">
+                <span />
+                <span />
+                <span />
+                <span />
+              </div>
+            )}
             <footer>当前内容仅供预览，格式与完整性校验通过后才会覆盖正式剧本。</footer>
           </section>
         )}
 
         <div className={`script-workspace ${hasGeneratedScript ? 'with-revision-tools' : 'full-width'}`}>
-          <section className="script-document" aria-busy={generating}>
+          <section className="script-document" aria-busy={busy}>
             <div className="script-document-toolbar">
               <span className="script-document-toolbar-label">
                 {isSeries
@@ -946,23 +923,117 @@ export function ScriptPage({
                 </span>
               </div>
             </div>
-            <div className="script-textarea-wrap">
-              {isSeries && orderedEpisodes.length > 0 && !activeEpisode ? (
-                <div className="script-episode-empty-state">
-                  <span>
-                    <Clapperboard size={24} />
+            {isSeries && orderedEpisodes.length > 0 && (
+              <nav className="script-episode-navigator" aria-label="剧集导航">
+                <div className="script-episode-navigator-summary">
+                  <span className="script-episode-navigator-icon">
+                    <Layers3 size={17} />
                   </span>
-                  <strong>上一集已保存</strong>
-                  <p>可继续生成第 {orderedEpisodes.length + 1} 集，或打开上方任意剧集修改。</p>
+                  <span>
+                    <small>剧集</small>
+                    <strong>{activeEpisode?.title || `已保存 ${orderedEpisodes.length} 集`}</strong>
+                  </span>
+                </div>
+                <div className="script-episode-navigator-controls">
                   <button
-                    className="button primary"
                     type="button"
-                    disabled={busy}
-                    onClick={() => void generateSegment()}
+                    className="script-episode-nav-button"
+                    title="上一集"
+                    aria-label="打开上一集"
+                    disabled={busy || !previousEpisode}
+                    onClick={() => openEpisode(previousEpisode)}
                   >
-                    <Sparkles size={16} /> 继续生成第 {orderedEpisodes.length + 1} 集
+                    <ChevronLeft size={16} />
+                  </button>
+                  <select
+                    value={activeEpisodeId || ''}
+                    aria-label="选择要编辑的剧集"
+                    disabled={busy}
+                    onChange={(event) => {
+                      const episode = orderedEpisodes.find((item) => item.id === event.target.value)
+                      if (episode) openEpisode(episode)
+                    }}
+                  >
+                    <option value="">继续生成第 {orderedEpisodes.length + 1} 集</option>
+                    {orderedEpisodes.map((episode) => {
+                      const source = episode.draftContent || episode.content
+                      return (
+                        <option key={episode.id} value={episode.id}>
+                          第 {episode.episodeNumber} 集 · {source.replace(/\s/g, '').length} 字 ·{' '}
+                          {episode.status === 'draft' ? '待保存' : '已保存'}
+                        </option>
+                      )
+                    })}
+                  </select>
+                  <button
+                    type="button"
+                    className="script-episode-nav-button"
+                    title="下一集"
+                    aria-label="打开下一集"
+                    disabled={busy || !nextEpisode}
+                    onClick={() => openEpisode(nextEpisode)}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                  {activeEpisode?.id === latestEpisode?.id && (
+                    <button
+                      type="button"
+                      className="script-episode-nav-button danger"
+                      title="删除最后一集"
+                      aria-label={`删除${activeEpisode.title}`}
+                      disabled={busy}
+                      onClick={() => void deleteLastEpisode(activeEpisode)}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="script-episode-nav-button danger"
+                    title="清空全部剧集"
+                    aria-label="清空全部剧集"
+                    disabled={busy}
+                    onClick={() => void clearAllEpisodes()}
+                  >
+                    <Eraser size={15} />
+                    <span className="script-episode-clear-label">清空</span>
                   </button>
                 </div>
+              </nav>
+            )}
+            <div className="script-textarea-wrap">
+              {isSeries && orderedEpisodes.length > 0 && !activeEpisode ? (
+                scriptGenerationBusy ? (
+                  <div className="script-episode-generating-state" role="status" aria-live="polite">
+                    <div className="script-episode-generating-mark">
+                      <BrandMark spin />
+                      <span />
+                    </div>
+                    <strong>正在生成第 {activePreviewEpisodeNumber} 集</strong>
+                    <p>{scriptTaskStage(activeScriptTask) || contentConfig.progressText}</p>
+                    <div className="script-generation-bars" aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="script-episode-empty-state">
+                    <span>
+                      <Clapperboard size={24} />
+                    </span>
+                    <strong>上一集已保存</strong>
+                    <p>可继续生成第 {orderedEpisodes.length + 1} 集，或从上方剧集导航打开已有内容。</p>
+                    <button
+                      className="button primary script-continue-episode"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void generateSegment()}
+                    >
+                      <Sparkles size={17} /> 继续生成第 {orderedEpisodes.length + 1} 集
+                    </button>
+                  </div>
+                )
               ) : (
                 <AssetAwareTextarea
                   inputRef={textArea}
@@ -999,9 +1070,13 @@ export function ScriptPage({
               <span>{count} 字</span>
               <span>{paragraphCount} 段</span>
               <span>{usesDuration ? `约 ${estimatedMinutes} 分钟` : '单集制作单元 · 6～8 场'}</span>
-              <button disabled={saving || saved || !script.trim()} onClick={() => void save()}>
-                {saving ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />}
-                {saving ? '保存中' : saved ? '已保存' : isSeries ? '保存本集' : '保存'}
+              <button
+                className="script-document-save"
+                disabled={saving || saved || !script.trim()}
+                onClick={() => void save()}
+              >
+                {saving ? <LoaderCircle size={17} className="spin" /> : <Save size={17} />}
+                {saving ? '保存中' : saved ? '当前内容已保存' : isSeries ? '保存当前剧集' : '保存当前内容'}
               </button>
             </div>
           </section>
@@ -1299,6 +1374,7 @@ function scriptTaskOperation(task) {
 }
 
 function scriptTaskStage(task) {
+  if (!task) return ''
   if (task?.metadata?.textPreviewStage) {
     return textPreviewStageLabel(task.metadata.textPreviewStage)
   }

@@ -49,6 +49,8 @@ type GenerationTaskRunnerOptions = {
   creditLedger?: CreditLedger | null
   providerPollIntervalMs?: number
   providerStallTimeoutMs?: number
+  providerStatusTimeoutMs?: number
+  providerPollConcurrency?: number
   leaseTtlMs?: number
   taskMutationLockTimeoutMs?: number
   beforeTick?: () => Promise<void>
@@ -60,9 +62,18 @@ type GenerationTaskRunnerOptions = {
   localTaskHandler?: LocalGenerationTaskHandler | null
 }
 
+type ProviderMaintenanceWork = {
+  videoPolls: GenerationTask[]
+  cancellations: GenerationTask[]
+}
+
+type ProviderMaintenanceTask =
+  { kind: 'video-poll'; task: GenerationTask } | { kind: 'video-cancellation'; task: GenerationTask }
+
 export class GenerationTaskRunner implements TaskDispatcher {
   private timer: NodeJS.Timeout | null = null
   private tickPromise: Promise<void> | null = null
+  private tickRequested = false
   private readonly beforeTick: (() => Promise<void>) | null
   private readonly afterTick: (() => Promise<void>) | null
   private readonly refreshTask: ((taskId: string) => Promise<void>) | null
@@ -76,6 +87,11 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly providerPoller: ProviderPoller
   private readonly localTaskHandler: LocalGenerationTaskHandler | null
   private readonly activeExecutions = new Set<string>()
+  private readonly providerMaintenanceQueue: ProviderMaintenanceTask[] = []
+  private readonly scheduledProviderPolls = new Set<string>()
+  private readonly scheduledProviderCancellations = new Set<string>()
+  private providerMaintenancePromise: Promise<void> | null = null
+  private readonly providerPollConcurrency: number
   private readonly leaseTtlMs: number
   private readonly taskMutationLockTimeoutMs: number
 
@@ -89,6 +105,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const objectStorage = options.objectStorage ?? null
     const leaseTtlMs = options.leaseTtlMs ?? 120_000
     this.leaseTtlMs = leaseTtlMs
+    this.providerPollConcurrency = Math.max(1, Math.floor(options.providerPollConcurrency ?? 6))
     this.taskMutationLockTimeoutMs = Math.max(1, options.taskMutationLockTimeoutMs ?? 30_000)
     const leaseOwnerId = `generation-task-runner-${process.pid}-${randomUUID()}`
     const dependencyResolver = new DependencyResolver()
@@ -134,6 +151,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
       videoProviderName,
       providerPollIntervalMs: options.providerPollIntervalMs ?? 5_000,
       providerStallTimeoutMs: options.providerStallTimeoutMs ?? 6 * 60_000,
+      providerStatusTimeoutMs: options.providerStatusTimeoutMs ?? 10_000,
       leaseOwnerId,
       leaseTtlMs,
       objectStorage,
@@ -162,33 +180,54 @@ export class GenerationTaskRunner implements TaskDispatcher {
   }
 
   async tick(context?: TaskDispatchContext): Promise<void> {
-    if (this.tickPromise) return this.tickPromise
+    if (this.tickPromise) {
+      this.tickRequested = true
+      return this.tickPromise
+    }
 
-    const tickPromise = this.taskRunnerLock.runExclusive(() => this.runTick(context)).then(() => undefined)
+    let maintenanceWork: ProviderMaintenanceWork = { videoPolls: [], cancellations: [] }
+    const tickPromise = this.taskRunnerLock
+      .runExclusive(async () => {
+        maintenanceWork = await this.runTick(context)
+      })
+      .then(() => undefined)
     this.tickPromise = tickPromise
 
+    let maintenancePromise: Promise<void> | null = null
     try {
       await tickPromise
+      this.enqueueProviderMaintenance(maintenanceWork)
+      maintenancePromise = this.providerMaintenancePromise
     } finally {
       if (this.tickPromise === tickPromise) this.tickPromise = null
     }
+    if (this.tickRequested) {
+      this.tickRequested = false
+      void this.tick(context).catch(() => {})
+    }
+    await maintenancePromise
   }
 
   async recoverInterrupted(): Promise<void> {
     await this.tick()
   }
 
-  private async runTick(_context?: TaskDispatchContext): Promise<void> {
+  private async runTick(_context?: TaskDispatchContext): Promise<ProviderMaintenanceWork> {
+    const maintenanceWork: ProviderMaintenanceWork = { videoPolls: [], cancellations: [] }
     await this.beforeTick?.()
     try {
       await this.providerPoller.recoverStatusParseFailures()
       const recoveredSubmissions = await this.claimer.recoverStaleRunningTasks()
-      await this.providerPoller.reconcileCancelledRemoteTasks()
+      const availableMaintenanceSlots = this.availableProviderMaintenanceSlots()
+      maintenanceWork.cancellations = await this.providerPoller.claimCancelledRemoteTasks(
+        availableMaintenanceSlots,
+        this.scheduledProviderCancellations,
+      )
       await this.refundService.refundTerminalTasks()
       const hasActiveTasks = this.store.read((state) =>
         state.tasks.some((task) => task.status === 'queued' || task.status === 'running'),
       )
-      if (!hasActiveTasks) return
+      if (!hasActiveTasks) return maintenanceWork
 
       const remoteTasks = await this.claimer.claimQueuedTasks()
 
@@ -200,16 +239,112 @@ export class GenerationTaskRunner implements TaskDispatcher {
       })
 
       await this.writeback.advanceLocalTasks((task) => this.localTaskHandler?.canHandle(task) ?? false)
-      await this.providerPoller.pollRemoteVideos()
-
-      // A provider poll can complete a continuity source and persist its tail frame. Claim again
-      // in the same tick so the next shot does not wait for the next BullMQ polling interval.
-      const newlyReadyTasks = await this.claimer.claimQueuedTasks()
-      await this.refundService.refundTerminalTasks()
-      this.scheduleClaimedTasks(newlyReadyTasks)
+      maintenanceWork.videoPolls = await this.providerPoller.claimRemoteVideoPolls(
+        Math.max(0, availableMaintenanceSlots - maintenanceWork.cancellations.length),
+        this.scheduledProviderPolls,
+      )
+      return maintenanceWork
     } finally {
       await this.afterTick?.()
     }
+  }
+
+  private availableProviderMaintenanceSlots(): number {
+    return Math.max(
+      0,
+      this.providerPollConcurrency -
+        this.scheduledProviderPolls.size -
+        this.scheduledProviderCancellations.size,
+    )
+  }
+
+  private enqueueProviderMaintenance(work: ProviderMaintenanceWork): void {
+    for (const task of work.cancellations) {
+      if (this.scheduledProviderCancellations.has(task.id)) continue
+      this.scheduledProviderCancellations.add(task.id)
+      this.providerMaintenanceQueue.push({ kind: 'video-cancellation', task })
+    }
+    for (const task of work.videoPolls) {
+      if (this.scheduledProviderPolls.has(task.id)) continue
+      this.scheduledProviderPolls.add(task.id)
+      this.providerMaintenanceQueue.push({ kind: 'video-poll', task })
+    }
+    this.startProviderMaintenanceBatch()
+  }
+
+  private startProviderMaintenanceBatch(): void {
+    if (this.providerMaintenancePromise || this.providerMaintenanceQueue.length === 0) return
+    const batch = this.drainProviderMaintenance().catch((error) => {
+      this.warnTaskRunnerFailure('provider maintenance batch', 'batch', error)
+    })
+    this.providerMaintenancePromise = batch
+    void batch.then(() => {
+      if (this.providerMaintenancePromise === batch) this.providerMaintenancePromise = null
+      this.startProviderMaintenanceBatch()
+    })
+  }
+
+  private async drainProviderMaintenance(): Promise<void> {
+    const worker = async () => {
+      while (true) {
+        const work = this.providerMaintenanceQueue.shift()
+        if (!work) return
+        let shouldRunFollowUpTick = false
+        try {
+          shouldRunFollowUpTick =
+            work.kind === 'video-poll'
+              ? await this.processProviderVideoPoll(work.task)
+              : await this.processProviderCancellation(work.task)
+        } catch (error) {
+          this.warnTaskRunnerFailure('provider maintenance', work.task.id, error)
+        } finally {
+          if (work.kind === 'video-poll') this.scheduledProviderPolls.delete(work.task.id)
+          else this.scheduledProviderCancellations.delete(work.task.id)
+          if (shouldRunFollowUpTick) void this.tick().catch(() => {})
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: this.providerPollConcurrency }, () => worker()))
+  }
+
+  private async processProviderVideoPoll(task: GenerationTask): Promise<boolean> {
+    const leaseToken = task.leaseToken
+    if (!leaseToken) return false
+    const stopHeartbeat = this.startTaskHeartbeat(task.id, leaseToken)
+    try {
+      const outcome = await this.providerPoller.requestRemoteVideoPoll(task)
+      const applied = await this.runLocalTaskMutation(
+        task.id,
+        () => this.providerPoller.applyRemoteVideoPoll(task, outcome),
+        true,
+      )
+      if (applied.stalledProviderTaskId) {
+        this.providerPoller.cancelStalledProviderTask(applied.stalledProviderTaskId)
+      }
+      if (applied.completedTask) {
+        await this.providerPoller.notifyVideoCompleted(applied.completedTask)
+      }
+      return Boolean(
+        applied.completedTask ||
+        applied.stalledProviderTaskId ||
+        (outcome.kind === 'status' && outcome.status.status === 'failed'),
+      )
+    } finally {
+      stopHeartbeat()
+    }
+  }
+
+  private async processProviderCancellation(task: GenerationTask): Promise<boolean> {
+    const outcome = await this.providerPoller.requestRemoteCancellation(task)
+    await this.runLocalTaskMutation(
+      task.id,
+      async () => {
+        await this.providerPoller.applyRemoteCancellation(task, outcome)
+        await this.refundService.refundTerminalTasks()
+      },
+      true,
+    )
+    return true
   }
 
   private scheduleClaimedTasks(tasks: ClaimedRemoteTasks): void {
@@ -422,23 +557,24 @@ export class GenerationTaskRunner implements TaskDispatcher {
     throw new Error('Timed out while persisting local generation task state')
   }
 
-  private async runLocalTaskMutation(
+  private async runLocalTaskMutation<T>(
     taskId: string,
-    operation: () => Promise<void>,
+    operation: () => Promise<T>,
     refreshFirst: boolean,
-  ): Promise<void> {
+  ): Promise<T> {
     const deadline = Date.now() + this.taskMutationLockTimeoutMs
     do {
+      let result: T | undefined
       const acquired = await this.taskRunnerLock.runExclusive(async () => {
         if (refreshFirst) {
           if (this.refreshTask) await this.refreshTask(taskId)
           else await this.beforeTick?.()
         }
-        await operation()
+        result = await operation()
         if (this.persistTask) await this.persistTask(taskId)
         else await this.afterTick?.()
       })
-      if (acquired) return
+      if (acquired) return result as T
       const remainingMs = deadline - Date.now()
       if (remainingMs > 0) await delay(Math.min(100, remainingMs))
     } while (Date.now() < deadline)

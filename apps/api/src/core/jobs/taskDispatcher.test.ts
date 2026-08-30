@@ -462,6 +462,62 @@ describe('GenerationTaskRunner Seedance integration', () => {
     expect(calls).toEqual(['lock', 'refresh'])
   })
 
+  it('starts queued text work while a remote video status request is still pending', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    await store.mutate((state) => {
+      state.users.find((user) => user.id === 'user-member')!.plan = 'member'
+      state.tasks.unshift(...queuedVideoTasks(1))
+    })
+    let completeStatus!: () => void
+    const pendingStatus = new Promise<{
+      status: 'completed'
+      progress: number
+      error: null
+    }>((resolve) => {
+      completeStatus = () => resolve({ status: 'completed', progress: 100, error: null })
+    })
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(async () => ({
+        providerTaskId: 'pending-status-video',
+        status: 'queued',
+        progress: 0,
+      })),
+      getStatus: vi.fn(() => pendingStatus),
+      getContent: vi.fn(),
+    }
+    const executeText = vi.fn(async () => ({ script: '第一集完成' }))
+    const runner = new GenerationTaskRunner(store, {
+      videoProvider: provider,
+      providerPollIntervalMs: 0,
+      providerStatusTimeoutMs: 60_000,
+      localTaskHandler: {
+        canHandle: (task) => task.provider === 'text',
+        execute: executeText,
+      },
+    })
+
+    const videoPoll = runner.tick()
+    await vi.waitFor(() => expect(provider.getStatus).toHaveBeenCalledOnce())
+
+    const textTask = queuedTextTask('text-during-video-status-poll')
+    await store.mutate((state) => state.tasks.unshift(textTask))
+    const textTick = runner.tick()
+
+    await vi.waitFor(() => expect(executeText).toHaveBeenCalledOnce())
+    expect(store.read((state) => state.tasks.find((task) => task.id === textTask.id)?.status)).not.toBe(
+      'queued',
+    )
+
+    completeStatus()
+    await Promise.all([videoPoll, textTick])
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((task) => task.id === 'parallel-video-1'))).toMatchObject(
+        { status: 'completed', progress: 100 },
+      ),
+    )
+  })
+
   it('keeps claiming member image work while a previous Img2 request is still pending', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -906,10 +962,12 @@ describe('GenerationTaskRunner Seedance integration', () => {
       progress: 100,
       error: '上游视频生成长时间无进度，自动重试后仍未恢复；本次任务已停止并退回积分',
     })
-    expect(store.read((state) => state.tasks.find((task) => task.id === linked!.id))).toMatchObject({
-      status: 'failed',
-      error: '依赖的上一镜任务失败、已删除或不存在，请从该镜头重新生成',
-    })
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((task) => task.id === linked!.id))).toMatchObject({
+        status: 'failed',
+        error: '依赖的上一镜任务失败、已删除或不存在，请从该镜头重新生成',
+      }),
+    )
   })
 
   it('persists a remote image failure before the runtime cache is refreshed', async () => {
@@ -1474,7 +1532,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
     await runner.tick()
 
     await vi.waitFor(() => expect(provider.submit).toHaveBeenCalledTimes(2))
-    expect(provider.getStatus).toHaveBeenCalledTimes(1)
+    expect(provider.getStatus).toHaveBeenCalledWith(`remote-${source!.id}`)
     expect(provider.submit).toHaveBeenLastCalledWith(
       expect.objectContaining({
         taskId: linked!.id,
@@ -1493,7 +1551,6 @@ describe('GenerationTaskRunner Seedance integration', () => {
       },
     })
     expect(store.read((state) => state.tasks.find((task) => task.id === linked!.id))).toMatchObject({
-      status: 'running',
       metadata: { providerTaskId: `remote-${linked!.id}` },
     })
   })

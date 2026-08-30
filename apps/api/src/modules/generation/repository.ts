@@ -248,13 +248,30 @@ export class GenerationTaskRepository {
 
   async flushRuntimeTaskToDatabase(taskId: string): Promise<boolean> {
     if (!this.database || !this.store) return false
-    const task = this.store.read((state) => {
+    const snapshot = this.store.read((state) => {
       const current = state.tasks.find((item) => item.id === taskId)
-      return current ? normalizeGenerationTaskLifecycle(current) : null
+      if (!current) return null
+      const task = normalizeGenerationTaskLifecycle(current)
+      const shotId = metadataString(task.metadata, 'shotId')
+      const shot = shotId ? state.shots.find((item) => item.id === shotId) : null
+      return {
+        task,
+        shotId,
+        shotSelection: shot
+          ? {
+              imageTaskId: shot.selectedImageTaskId ?? null,
+              videoTaskId: shot.selectedVideoTaskId ?? null,
+            }
+          : undefined,
+      }
     })
-    if (!task) return false
-    const persisted = await updateGenerationTaskLifecycle(this.database, task)
-    return Boolean(persisted)
+    if (!snapshot) return false
+    return this.database.transaction(async (client) => {
+      const persisted = await updateGenerationTaskLifecycle(client, snapshot.task)
+      if (!persisted) return false
+      await updateTaskResultTargets(client, persisted, snapshot.shotId ? snapshot.shotSelection : undefined)
+      return true
+    })
   }
 
   async canCreate(projectId: string, principal: Principal): Promise<boolean> {

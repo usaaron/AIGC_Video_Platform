@@ -54,6 +54,24 @@ export type LocalTaskDiagnostics = {
   textTimings: TextGenerationTiming[]
 }
 
+export type ProviderVideoPollOutcome =
+  | {
+      kind: 'status'
+      status: VideoGenerationStatus
+      videoDescriptor: GeneratedOutputDescriptor | null
+      videoCacheError: string | null
+      lastFrameDescriptor: GeneratedOutputDescriptor | null
+      lastFrameError: string | null
+    }
+  | { kind: 'error'; error: string }
+
+export type ProviderCancellationOutcome = { kind: 'cancelled' } | { kind: 'error'; error: string }
+
+export type AppliedVideoPollOutcome = {
+  completedTask: GenerationTask | null
+  stalledProviderTaskId: string | null
+}
+
 export class DependencyResolver {
   state(task: GenerationTask, userTasks: GenerationTask[]): 'ready' | 'waiting' | 'failed' {
     const dependencyIds = Array.isArray(task.metadata.dependsOnTaskIds)
@@ -1055,6 +1073,7 @@ export class ProviderPoller {
       videoProviderName: VideoProviderName
       providerPollIntervalMs: number
       providerStallTimeoutMs: number
+      providerStatusTimeoutMs: number
       leaseOwnerId: string
       leaseTtlMs: number
       objectStorage: ObjectStorage | null
@@ -1092,26 +1111,24 @@ export class ProviderPoller {
     })
   }
 
-  async reconcileCancelledRemoteTasks(): Promise<void> {
-    const tasks = this.store.read((state) =>
-      state.tasks.filter(
-        (task) =>
-          task.status === 'cancelled' &&
-          task.metadata.providerName === this.options.videoProviderName &&
-          typeof task.metadata.providerTaskId === 'string' &&
-          typeof task.metadata.providerCancelRequestedAt === 'string' &&
-          typeof task.metadata.providerCancelCompletedAt !== 'string' &&
-          typeof task.metadata.providerCancelSkippedAt !== 'string',
-      ),
-    )
-    if (!tasks.length) return
-
+  async claimCancelledRemoteTasks(
+    limit: number,
+    excludedTaskIds: ReadonlySet<string> = new Set(),
+  ): Promise<GenerationTask[]> {
     if (!this.options.videoProvider?.cancel) {
       await this.store.mutate((state) => {
         const now = new Date().toISOString()
-        for (const task of tasks) {
-          const stored = state.tasks.find((item) => item.id === task.id)
-          if (!stored || stored.status !== 'cancelled') continue
+        for (const stored of state.tasks) {
+          if (
+            stored.status !== 'cancelled' ||
+            stored.metadata.providerName !== this.options.videoProviderName ||
+            typeof stored.metadata.providerTaskId !== 'string' ||
+            typeof stored.metadata.providerCancelRequestedAt !== 'string' ||
+            typeof stored.metadata.providerCancelCompletedAt === 'string' ||
+            typeof stored.metadata.providerCancelSkippedAt === 'string'
+          ) {
+            continue
+          }
           const lock = cancellationResourceLockForTask(stored)
           const {
             cancelClaimedAt: _claimedAt,
@@ -1130,209 +1147,269 @@ export class ProviderPoller {
           stored.updatedAt = now
         }
       })
-      return
+      return []
     }
-
-    const claimedTasks = await this.claimCancelledRemoteTasks(tasks)
-
-    for (const task of claimedTasks) {
-      const providerTaskId = stringValue(task.metadata.providerTaskId, '')
-      if (!providerTaskId) continue
-      try {
-        await observeProviderCall(
-          {
-            provider: this.options.videoProviderName,
-            operation: 'video.cancel',
-            tenantId: task.tenantId,
-            organizationId: task.tenantId,
-            userId: task.userId,
-            taskId: task.id,
-            traceId: traceIdFromGenerationTask(task),
-          },
-          () => this.options.videoProvider!.cancel!(providerTaskId),
-        )
-        await this.store.mutate((state) => {
-          const stored = state.tasks.find((item) => item.id === task.id)
-          if (!stored || stored.status !== 'cancelled') return
-          const now = new Date().toISOString()
-          const {
-            providerCancelError: _error,
-            providerCancelFailedAt: _failedAt,
-            cancelClaimedAt: _claimedAt,
-            cancelLeaseExpiresAt: _leaseExpiresAt,
-            ...metadata
-          } = stored.metadata
-          stored.metadata = {
-            ...metadata,
-            providerState: 'cancelled',
-            providerCancelCompletedAt: now,
-          }
-          stored.updatedAt = now
-        })
-      } catch (error) {
-        await this.store.mutate((state) => {
-          const stored = state.tasks.find((item) => item.id === task.id)
-          if (!stored || stored.status !== 'cancelled') return
-          const now = new Date().toISOString()
-          stored.metadata = {
-            ...stored.metadata,
-            providerCancelError: messageFor(error),
-            providerCancelFailedAt: now,
-          }
-          stored.updatedAt = now
-        })
-      }
-    }
+    return this.claimCancelableTasks(limit, excludedTaskIds)
   }
 
-  async pollRemoteVideos(): Promise<void> {
-    if (!this.options.videoProvider) return
+  async claimRemoteVideoPolls(
+    limit: number,
+    excludedTaskIds: ReadonlySet<string> = new Set(),
+  ): Promise<GenerationTask[]> {
+    if (!this.options.videoProvider) return []
     const now = Date.now()
-    const tasks = this.store.read((state) =>
-      state.tasks.filter(
-        (task) =>
-          task.status === 'running' &&
-          task.metadata.providerName === this.options.videoProviderName &&
-          task.leaseOwnerId === this.options.leaseOwnerId &&
-          generationTaskLeaseActive(task, now) &&
-          typeof task.metadata.providerTaskId === 'string' &&
-          now - numberValue(task.metadata.providerPolledAt, 0) >= this.options.providerPollIntervalMs,
-      ),
-    )
+    const boundedLimit = Math.max(0, Math.floor(limit))
+    if (boundedLimit === 0) return []
+    return this.store.mutate((state) => {
+      const tasks = state.tasks
+        .filter(
+          (task) =>
+            !excludedTaskIds.has(task.id) &&
+            task.status === 'running' &&
+            task.metadata.providerName === this.options.videoProviderName &&
+            task.leaseOwnerId === this.options.leaseOwnerId &&
+            generationTaskLeaseActive(task, now) &&
+            typeof task.metadata.providerTaskId === 'string' &&
+            now - numberValue(task.metadata.providerPolledAt, 0) >= this.options.providerPollIntervalMs,
+        )
+        .sort(
+          (left, right) =>
+            numberValue(left.metadata.providerPolledAt, 0) -
+              numberValue(right.metadata.providerPolledAt, 0) ||
+            left.createdAt.localeCompare(right.createdAt) ||
+            left.id.localeCompare(right.id),
+        )
+        .slice(0, boundedLimit)
 
-    for (const task of tasks) {
-      const providerTaskId = String(task.metadata.providerTaskId)
-      const leaseToken = stringValue(task.leaseToken, '')
-      if (!leaseToken) continue
-      await this.store.mutate((state) => {
-        const stored = state.tasks.find((item) => item.id === task.id)
-        if (!stored || !generationTaskLeaseMatches(stored, this.options.leaseOwnerId, leaseToken)) return
+      for (const stored of tasks) {
+        const leaseToken = stringValue(stored.leaseToken, '')
+        if (!leaseToken) continue
         stored.metadata = { ...stored.metadata, providerPolledAt: now }
         renewGenerationTaskLease(stored, this.options.leaseOwnerId, leaseToken, this.options.leaseTtlMs)
-      })
-      try {
-        const status = await observeProviderCall(
-          {
-            provider: this.options.videoProviderName,
-            operation: 'video.getStatus',
-            tenantId: task.tenantId,
-            organizationId: task.tenantId,
-            userId: task.userId,
-            taskId: task.id,
-            traceId: traceIdFromGenerationTask(task),
-          },
-          () => this.options.videoProvider!.getStatus(providerTaskId),
-        )
-        if (
-          status.status === 'running' &&
-          videoProcessingStalled(task, status, this.options.providerStallTimeoutMs)
-        ) {
-          const stalled = await this.options.writeback.handleStalledVideoProcessing(
-            task.id,
-            leaseToken,
-            providerTaskId,
-          )
-          if (stalled) this.cancelStalledProviderTask(providerTaskId)
-          continue
-        }
-        let videoDescriptor: GeneratedOutputDescriptor | null = null
-        let videoCacheError: string | null = null
-        const hasCachedVideo = generatedDescriptors(task).some(
-          (item) => item.view === 'single' && item.contentType.startsWith('video/'),
-        )
-        if (status.status === 'completed' && !hasCachedVideo && this.options.objectStorage) {
-          try {
-            videoDescriptor = await observeProviderCall(
-              {
-                provider: this.options.videoProviderName,
-                operation: 'video.getContent',
-                tenantId: task.tenantId,
-                organizationId: task.tenantId,
-                userId: task.userId,
-                taskId: task.id,
-                traceId: traceIdFromGenerationTask(task),
-              },
-              () =>
-                this.options.writeback.persistVideoContent(task, providerTaskId, this.options.videoProvider!),
-            )
-          } catch (error) {
-            videoCacheError = messageFor(error)
-          }
-        }
-        let lastFrameDescriptor: GeneratedOutputDescriptor | null = null
-        let lastFrameError: string | null = null
-        const hasLastFrame = generatedDescriptors(task).some((item) => item.view === 'last-frame')
-        if (
-          status.status === 'completed' &&
-          !hasLastFrame &&
-          this.options.videoProvider.getLastFrameContent &&
-          this.options.objectStorage
-        ) {
-          try {
-            lastFrameDescriptor = await observeProviderCall(
-              {
-                provider: this.options.videoProviderName,
-                operation: 'video.getLastFrameContent',
-                tenantId: task.tenantId,
-                organizationId: task.tenantId,
-                userId: task.userId,
-                taskId: task.id,
-                traceId: traceIdFromGenerationTask(task),
-              },
-              () =>
-                this.options.writeback.persistVideoLastFrame(
-                  task,
-                  providerTaskId,
-                  this.options.videoProvider!,
-                ),
-            )
-          } catch (error) {
-            lastFrameError = messageFor(error)
-          }
-        }
-        await this.options.writeback.writeVideoPollResult({
+      }
+      return tasks
+    })
+  }
+
+  async requestRemoteVideoPoll(task: GenerationTask): Promise<ProviderVideoPollOutcome> {
+    if (!this.options.videoProvider) return { kind: 'error', error: 'Video provider is not configured' }
+    const providerTaskId = stringValue(task.metadata.providerTaskId, '')
+    if (!providerTaskId) return { kind: 'error', error: 'Video provider task ID is missing' }
+    try {
+      const status = await observeProviderCall(
+        {
+          provider: this.options.videoProviderName,
+          operation: 'video.getStatus',
+          tenantId: task.tenantId,
+          organizationId: task.tenantId,
+          userId: task.userId,
           taskId: task.id,
-          leaseToken,
-          status,
-          videoDescriptor,
-          videoCacheError,
-          lastFrameDescriptor,
-          lastFrameError,
-        })
-        if (status.status === 'completed' && this.options.onVideoCompleted) {
-          const completedTask = this.store.read(
-            (state) => state.tasks.find((item) => item.id === task.id) ?? null,
+          traceId: traceIdFromGenerationTask(task),
+        },
+        () =>
+          withTimeout(
+            () => this.options.videoProvider!.getStatus(providerTaskId),
+            this.options.providerStatusTimeoutMs,
+            'Video provider status request timed out',
+          ),
+      )
+      let videoDescriptor: GeneratedOutputDescriptor | null = null
+      let videoCacheError: string | null = null
+      const hasCachedVideo = generatedDescriptors(task).some(
+        (item) => item.view === 'single' && item.contentType.startsWith('video/'),
+      )
+      if (status.status === 'completed' && !hasCachedVideo && this.options.objectStorage) {
+        try {
+          videoDescriptor = await observeProviderCall(
+            {
+              provider: this.options.videoProviderName,
+              operation: 'video.getContent',
+              tenantId: task.tenantId,
+              organizationId: task.tenantId,
+              userId: task.userId,
+              taskId: task.id,
+              traceId: traceIdFromGenerationTask(task),
+            },
+            () =>
+              this.options.writeback.persistVideoContent(task, providerTaskId, this.options.videoProvider!),
           )
-          if (completedTask?.status === 'completed') {
-            await this.options.onVideoCompleted(completedTask).catch(() => {})
-          }
-        }
-      } catch (error) {
-        const attempts = numberValue(task.metadata.providerPollErrors, 0) + 1
-        if (attempts >= 3) {
-          await this.options.writeback.failTask(task.id, messageFor(error), leaseToken)
-        } else {
-          await this.options.writeback.markProviderPollError(task.id, leaseToken, attempts)
+        } catch (error) {
+          videoCacheError = messageFor(error)
         }
       }
+      let lastFrameDescriptor: GeneratedOutputDescriptor | null = null
+      let lastFrameError: string | null = null
+      const hasLastFrame = generatedDescriptors(task).some((item) => item.view === 'last-frame')
+      if (
+        status.status === 'completed' &&
+        !hasLastFrame &&
+        this.options.videoProvider.getLastFrameContent &&
+        this.options.objectStorage
+      ) {
+        try {
+          lastFrameDescriptor = await observeProviderCall(
+            {
+              provider: this.options.videoProviderName,
+              operation: 'video.getLastFrameContent',
+              tenantId: task.tenantId,
+              organizationId: task.tenantId,
+              userId: task.userId,
+              taskId: task.id,
+              traceId: traceIdFromGenerationTask(task),
+            },
+            () =>
+              this.options.writeback.persistVideoLastFrame(task, providerTaskId, this.options.videoProvider!),
+          )
+        } catch (error) {
+          lastFrameError = messageFor(error)
+        }
+      }
+      return {
+        kind: 'status',
+        status,
+        videoDescriptor,
+        videoCacheError,
+        lastFrameDescriptor,
+        lastFrameError,
+      }
+    } catch (error) {
+      return { kind: 'error', error: messageFor(error) }
     }
   }
 
-  private cancelStalledProviderTask(providerTaskId: string): void {
+  async applyRemoteVideoPoll(
+    task: GenerationTask,
+    outcome: ProviderVideoPollOutcome,
+  ): Promise<AppliedVideoPollOutcome> {
+    const leaseToken = stringValue(task.leaseToken, '')
+    const providerTaskId = stringValue(task.metadata.providerTaskId, '')
+    if (!leaseToken || !providerTaskId) {
+      return { completedTask: null, stalledProviderTaskId: null }
+    }
+    if (outcome.kind === 'error') {
+      const attempts = this.store.read((state) => {
+        const stored = state.tasks.find((item) => item.id === task.id)
+        return numberValue(stored?.metadata.providerPollErrors, 0) + 1
+      })
+      if (attempts >= 3) {
+        await this.options.writeback.failTask(task.id, outcome.error, leaseToken)
+      } else {
+        await this.options.writeback.markProviderPollError(task.id, leaseToken, attempts)
+      }
+      return { completedTask: null, stalledProviderTaskId: null }
+    }
+    if (
+      outcome.status.status === 'running' &&
+      videoProcessingStalled(task, outcome.status, this.options.providerStallTimeoutMs)
+    ) {
+      const stalled = await this.options.writeback.handleStalledVideoProcessing(
+        task.id,
+        leaseToken,
+        providerTaskId,
+      )
+      return {
+        completedTask: null,
+        stalledProviderTaskId: stalled ? providerTaskId : null,
+      }
+    }
+    const completedTask = await this.options.writeback.writeVideoPollResult({
+      taskId: task.id,
+      leaseToken,
+      status: outcome.status,
+      videoDescriptor: outcome.videoDescriptor,
+      videoCacheError: outcome.videoCacheError,
+      lastFrameDescriptor: outcome.lastFrameDescriptor,
+      lastFrameError: outcome.lastFrameError,
+    })
+    return {
+      completedTask: completedTask?.status === 'completed' ? completedTask : null,
+      stalledProviderTaskId: null,
+    }
+  }
+
+  async requestRemoteCancellation(task: GenerationTask): Promise<ProviderCancellationOutcome> {
+    const providerTaskId = stringValue(task.metadata.providerTaskId, '')
+    if (!providerTaskId || !this.options.videoProvider?.cancel) {
+      return { kind: 'error', error: 'Video provider cancellation is not configured' }
+    }
+    try {
+      await observeProviderCall(
+        {
+          provider: this.options.videoProviderName,
+          operation: 'video.cancel',
+          tenantId: task.tenantId,
+          organizationId: task.tenantId,
+          userId: task.userId,
+          taskId: task.id,
+          traceId: traceIdFromGenerationTask(task),
+        },
+        () => this.options.videoProvider!.cancel!(providerTaskId),
+      )
+      return { kind: 'cancelled' }
+    } catch (error) {
+      return { kind: 'error', error: messageFor(error) }
+    }
+  }
+
+  async applyRemoteCancellation(task: GenerationTask, outcome: ProviderCancellationOutcome): Promise<void> {
+    const claimToken = stringValue(task.metadata.cancelClaimedAt, '')
+    await this.store.mutate((state) => {
+      const stored = state.tasks.find((item) => item.id === task.id)
+      if (
+        !stored ||
+        stored.status !== 'cancelled' ||
+        stringValue(stored.metadata.cancelClaimedAt, '') !== claimToken
+      ) {
+        return
+      }
+      const now = new Date().toISOString()
+      if (outcome.kind === 'cancelled') {
+        const {
+          providerCancelError: _error,
+          providerCancelFailedAt: _failedAt,
+          cancelClaimedAt: _claimedAt,
+          cancelLeaseExpiresAt: _leaseExpiresAt,
+          ...metadata
+        } = stored.metadata
+        stored.metadata = {
+          ...metadata,
+          providerState: 'cancelled',
+          providerCancelCompletedAt: now,
+        }
+      } else {
+        stored.metadata = {
+          ...stored.metadata,
+          providerCancelError: outcome.error,
+          providerCancelFailedAt: now,
+        }
+      }
+      stored.updatedAt = now
+    })
+  }
+
+  async notifyVideoCompleted(task: GenerationTask): Promise<void> {
+    await this.options.onVideoCompleted?.(task).catch(() => {})
+  }
+
+  cancelStalledProviderTask(providerTaskId: string): void {
     if (!this.options.videoProvider?.cancel) return
     void this.options.videoProvider.cancel(providerTaskId).catch(() => {})
   }
 
-  private async claimCancelledRemoteTasks(tasks: GenerationTask[]): Promise<GenerationTask[]> {
+  private async claimCancelableTasks(
+    limit: number,
+    excludedTaskIds: ReadonlySet<string>,
+  ): Promise<GenerationTask[]> {
+    const boundedLimit = Math.max(0, Math.floor(limit))
+    if (boundedLimit === 0) return []
     return this.store.mutate((state) => {
       const now = new Date()
       const nowIso = now.toISOString()
       const leaseExpiresAt = new Date(now.getTime() + this.options.leaseTtlMs).toISOString()
-      const requestedTaskIds = new Set(tasks.map((task) => task.id))
       const eligible = state.tasks
         .filter(
           (task) =>
-            requestedTaskIds.has(task.id) &&
+            !excludedTaskIds.has(task.id) &&
             task.status === 'cancelled' &&
             task.metadata.providerName === this.options.videoProviderName &&
             typeof task.metadata.providerTaskId === 'string' &&
@@ -1357,12 +1434,11 @@ export class ProviderPoller {
       const claimedLocks = new Set<string>()
       const claimedTasks: GenerationTask[] = []
       for (const task of eligible) {
+        if (claimedTasks.length >= boundedLimit) break
         const lock = cancellationResourceLockForTask(task)
         const lockId = taskResourceLockId(lock)
         if (activeLocks.has(lockId) || claimedLocks.has(lockId)) continue
-        const stored = state.tasks.find((item) => item.id === task.id)
-        if (!stored || stored.status !== 'cancelled') continue
-        if (this.cancelClaimActive(stored, now.getTime())) {
+        if (this.cancelClaimActive(task, now.getTime())) {
           activeLocks.add(lockId)
           continue
         }
@@ -1375,17 +1451,17 @@ export class ProviderPoller {
           cancelClaimedAt: _claimedAt,
           cancelLeaseExpiresAt: _leaseExpiresAt,
           ...metadata
-        } = stored.metadata
-        stored.metadata = {
+        } = task.metadata
+        task.metadata = {
           ...metadata,
           cancelResourceLockKind: lock.kind,
           cancelResourceLockKey: lock.key,
           cancelClaimedAt: nowIso,
           cancelLeaseExpiresAt: leaseExpiresAt,
         }
-        stored.updatedAt = nowIso
+        task.updatedAt = nowIso
         claimedLocks.add(lockId)
-        claimedTasks.push(stored)
+        claimedTasks.push(task)
       }
 
       return claimedTasks
@@ -1711,6 +1787,25 @@ function summarizeTextTiming(
 function durationSince(startIso: string, now = Date.now()): number {
   const startedAt = Date.parse(startIso)
   return Number.isFinite(startedAt) ? Math.max(0, now - startedAt) : 0
+}
+
+async function withTimeout<T>(operation: () => Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | null = null
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(message)
+          error.name = 'TimeoutError'
+          reject(error)
+        }, timeoutMs)
+        timer.unref?.()
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 function messageFor(error: unknown): string {

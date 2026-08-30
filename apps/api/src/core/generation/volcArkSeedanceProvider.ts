@@ -37,6 +37,7 @@ export type VolcArkSeedanceOptions = {
   defaultTier?: 'mini' | 'fast' | 'pro'
   tierModels?: Partial<Record<'mini' | 'fast' | 'pro', string>>
   requestTimeoutMs: number
+  statusTimeoutMs?: number
   providerLabel?: string
   fetcher?: Fetcher
 }
@@ -96,7 +97,7 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
   }
 
   async getStatus(providerTaskId: string): Promise<VideoGenerationStatus> {
-    const parsed = await this.readTask(providerTaskId)
+    const parsed = await this.readTask(providerTaskId, this.options.statusTimeoutMs)
     const providerStatus = parsed.status.trim().toLowerCase()
     if (providerStatus === 'succeeded' || providerStatus === 'completed') {
       const contentUrl = parsed.content?.video_url
@@ -204,10 +205,11 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
     return secureUrl
   }
 
-  private async readTask(providerTaskId: string) {
+  private async readTask(providerTaskId: string, timeoutMs?: number) {
     const response = await this.requestJson(
       `/contents/generations/tasks/${encodeURIComponent(providerTaskId)}`,
       { method: 'GET' },
+      timeoutMs,
     )
     return taskResponseSchema.parse(response)
   }
@@ -218,7 +220,7 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
     return (effectiveTier ? this.options.tierModels?.[effectiveTier] : undefined) ?? this.options.defaultModel
   }
 
-  private async requestJson(path: string, init: RequestInit): Promise<unknown> {
+  private async requestJson(path: string, init: RequestInit, timeoutMs?: number): Promise<unknown> {
     const response = await this.fetcher(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
@@ -226,7 +228,7 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...init.headers,
       },
-      signal: AbortSignal.timeout(this.options.requestTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs ?? this.options.requestTimeoutMs),
     })
     if (response.ok) {
       return response.json().catch(() => {
