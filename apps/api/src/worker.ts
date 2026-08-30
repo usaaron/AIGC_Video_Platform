@@ -162,6 +162,12 @@ const taskRunner = new GenerationTaskRunner(store, {
         afterTick: async () => {
           await generationTaskRepository.flushRuntimeCacheToDatabase()
         },
+        refreshTask: async (taskId: string) => {
+          await generationTaskRepository.refreshRuntimeTaskFromDatabase(taskId)
+        },
+        persistTask: async (taskId: string) => {
+          await generationTaskRepository.flushRuntimeTaskToDatabase(taskId)
+        },
       }
     : {}),
   ...(database ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database) } : {}),

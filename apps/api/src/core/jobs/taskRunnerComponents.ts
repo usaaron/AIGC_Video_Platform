@@ -391,6 +391,7 @@ export class TaskWritebackService {
         textPreview: _textPreview,
         textPreviewUpdatedAt: _textPreviewUpdatedAt,
         textFirstPreviewAt: _textFirstPreviewAt,
+        textPreviewValidation: _textPreviewValidation,
         ...metadata
       } = task.metadata
       task.status = 'completed'
@@ -420,6 +421,7 @@ export class TaskWritebackService {
         ...task.metadata,
         textPreview: boundedPreview,
         textPreviewUpdatedAt: now,
+        textPreviewValidation: progressiveTextValidation(boundedPreview),
         textFirstPreviewAt:
           typeof task.metadata.textFirstPreviewAt === 'string' ? task.metadata.textFirstPreviewAt : now,
       }
@@ -1624,6 +1626,24 @@ function recordGenerationTaskTerminal(task: GenerationTask, error?: unknown): vo
 
 function taskMetricKind(task: GenerationTask): string {
   return `${task.kind}:${task.provider}`
+}
+
+function progressiveTextValidation(preview: string): Record<string, number> {
+  const scenes = preview
+    .split(/(?=场次\s*[:：])/u)
+    .map((scene) => scene.trim())
+    .filter((scene) => /^场次\s*[:：]/u.test(scene))
+  const closedScenes = scenes.slice(0, -1)
+  const structurallyCompleteScenes = closedScenes.filter((scene) =>
+    ['剧情', '场景', '角色', '动作'].every((field) => new RegExp(`${field}\\s*[:：]`, 'u').test(scene)),
+  )
+  const dialogueScenes = closedScenes.filter((scene) => /(?:对白|画外音|内心独白)\s*[:：]/u.test(scene))
+  return {
+    recognizedScenes: scenes.length,
+    checkedScenes: closedScenes.length,
+    structurallyCompleteScenes: structurallyCompleteScenes.length,
+    dialogueScenes: dialogueScenes.length,
+  }
 }
 
 function summarizeTextTiming(

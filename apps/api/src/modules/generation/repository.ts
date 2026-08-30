@@ -195,6 +195,23 @@ export class GenerationTaskRepository {
     this.store.replaceGenerationTaskRuntimeCache(result.rows.map(taskFromRow))
   }
 
+  async refreshRuntimeTaskFromDatabase(taskId: string): Promise<boolean> {
+    if (!this.database || !this.store) return false
+    const result = await this.database.query<GenerationTaskRow>(
+      `
+      SELECT ${generationTaskColumns}
+      FROM generation_tasks
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [taskId],
+    )
+    const task = result.rows[0] ? taskFromRow(result.rows[0]) : null
+    if (!task) return false
+    this.mirrorTasks([task])
+    return true
+  }
+
   async flushRuntimeCacheToDatabase(): Promise<number> {
     if (!this.database || !this.store) return 0
 

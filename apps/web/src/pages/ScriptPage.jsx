@@ -229,6 +229,7 @@ export function ScriptPage({
   const activeRevisionTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'revise')
   const activeSegmentTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'segment')
   const activeTextPreview = String(activeScriptTask?.metadata?.textPreview || '').trim()
+  const activePreviewValidation = activeScriptTask?.metadata?.textPreviewValidation || null
   const latestScriptTimingTask = [...tasks]
     .filter(
       (task) =>
@@ -918,7 +919,12 @@ export function ScriptPage({
                 <span className="eyebrow">实时初稿</span>
                 <strong>正在边生成边校验</strong>
               </div>
-              <small>{activeTextPreview.replace(/\s/g, '').length} 字</small>
+              <small>
+                {activeTextPreview.replace(/\s/g, '').length} 字
+                {Number(activePreviewValidation?.recognizedScenes) > 0
+                  ? ` · 已识别 ${activePreviewValidation.recognizedScenes} 场 · 已校验 ${activePreviewValidation.checkedScenes} 场`
+                  : ''}
+              </small>
             </header>
             <pre>{activeTextPreview}</pre>
             <footer>当前内容仅供预览，格式与完整性校验通过后才会覆盖正式剧本。</footer>

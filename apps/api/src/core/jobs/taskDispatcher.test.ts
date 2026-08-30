@@ -162,7 +162,9 @@ describe('GenerationTaskRunner Seedance integration', () => {
           }) => void
         },
       ) => {
-        context?.onTextProgress?.('场次：S01｜剧情：主角推门进入。')
+        context?.onTextProgress?.(
+          '场次：S01｜剧情：主角推门进入｜场景：仓库｜角色：主角｜动作：推门｜对白：谁在里面\n场次：S02｜剧情：主角抬头。',
+        )
         context?.onTextTiming?.({
           label: 'first-draft',
           responseHeadersMs: 120,
@@ -177,11 +179,15 @@ describe('GenerationTaskRunner Seedance integration', () => {
         return { script: '完整剧本' }
       },
     )
+    const refreshTask = vi.fn(async () => {})
+    const persistTask = vi.fn(async () => {})
     const runner = new GenerationTaskRunner(store, {
       localTaskHandler: {
         canHandle: (candidate) => candidate.provider === 'text',
         execute,
       },
+      refreshTask,
+      persistTask,
     })
 
     await runner.tick()
@@ -192,6 +198,15 @@ describe('GenerationTaskRunner Seedance integration', () => {
         ).toContain('主角推门进入'),
       { timeout: 2_000 },
     )
+    expect(
+      store.read((state) => state.tasks.find((item) => item.id === task.id)?.metadata.textPreviewValidation),
+    ).toMatchObject({
+      recognizedScenes: 2,
+      checkedScenes: 1,
+      structurallyCompleteScenes: 1,
+      dialogueScenes: 1,
+    })
+    expect(persistTask).toHaveBeenCalledWith(task.id)
 
     finishGeneration!()
     await vi.waitFor(() =>
@@ -214,6 +229,8 @@ describe('GenerationTaskRunner Seedance integration', () => {
     expect(
       store.read((state) => state.tasks.find((item) => item.id === task.id)?.metadata.textPreview),
     ).toBeUndefined()
+    expect(refreshTask).toHaveBeenCalledWith(task.id)
+    expect(persistTask.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 
   it('starts three independent provider submissions in one tick for a member', async () => {

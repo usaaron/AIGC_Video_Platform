@@ -145,6 +145,12 @@ describe('script content modes', () => {
             generationStage: 'script-generate',
             scriptOperation: 'generate',
             textPreview: '场次：S01｜剧情：主角推开仓库门。',
+            textPreviewValidation: {
+              recognizedScenes: 2,
+              checkedScenes: 1,
+              structurallyCompleteScenes: 1,
+              dialogueScenes: 1,
+            },
           },
         },
       ],
@@ -153,6 +159,8 @@ describe('script content modes', () => {
     expect(html).toContain('实时初稿')
     expect(html).toContain('正在边生成边校验')
     expect(html).toContain('主角推开仓库门')
+    expect(html).toContain('已识别 2 场')
+    expect(html).toContain('已校验 1 场')
     expect(html).toContain('校验通过后才会覆盖正式剧本')
   })
 
