@@ -229,6 +229,7 @@ export function ScriptPage({
   const activeRevisionTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'revise')
   const activeSegmentTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'segment')
   const activeTextPreview = String(activeScriptTask?.metadata?.textPreview || '').trim()
+  const activePreviewStage = String(activeScriptTask?.metadata?.textPreviewStage || 'first-draft')
   const activePreviewValidation = activeScriptTask?.metadata?.textPreviewValidation || null
   const latestScriptTimingTask = [...tasks]
     .filter(
@@ -917,7 +918,7 @@ export function ScriptPage({
             <header>
               <div>
                 <span className="eyebrow">实时初稿</span>
-                <strong>正在边生成边校验</strong>
+                <strong>{textPreviewStageLabel(activePreviewStage)}</strong>
               </div>
               <small>
                 {activeTextPreview.replace(/\s/g, '').length} 字
@@ -1298,8 +1299,18 @@ function scriptTaskOperation(task) {
 }
 
 function scriptTaskStage(task) {
+  if (task?.metadata?.textPreviewStage) {
+    return textPreviewStageLabel(task.metadata.textPreviewStage)
+  }
   const elapsedSeconds = Math.max(0, (Date.now() - Date.parse(task.updatedAt || task.createdAt)) / 1_000)
   if (elapsedSeconds < 4) return '整理项目与资产上下文'
   if (elapsedSeconds < 10) return '调用编剧模型'
   return '撰写并校验剧本结构'
+}
+
+function textPreviewStageLabel(stage) {
+  if (stage === 'scene-completion') return '保留首轮内容，正在补齐缺少场次'
+  if (stage === 'structure-repair') return '正在修复场次结构'
+  if (stage === 'language-repair') return '正在统一中文与格式'
+  return '正在边生成边校验'
 }

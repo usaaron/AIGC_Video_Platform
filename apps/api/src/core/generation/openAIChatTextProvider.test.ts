@@ -101,16 +101,29 @@ describe('OpenAIChatTextProvider', () => {
 
   it('rejects reasoning-only responses instead of exposing internal analysis as final text', async () => {
     let calls = 0
+    const timings: Array<Record<string, unknown>> = []
     const provider = providerWithFetcher(async () => {
       calls += 1
       return Response.json({ choices: [{ message: { reasoning_content: '内部推理过程' } }] })
     })
 
-    await expect(provider.generate({ systemPrompt: 'system', userPrompt: 'user' })).rejects.toMatchObject({
+    await expect(
+      provider.generate({
+        systemPrompt: 'system',
+        userPrompt: 'user',
+        timingLabel: 'format-check',
+        onTextTiming: (timing) => timings.push(timing),
+      }),
+    ).rejects.toMatchObject({
       name: 'TextGenerationProviderError',
       message: expect.stringContaining('格式异常'),
     })
     expect(calls).toBe(2)
+    expect(timings).toHaveLength(2)
+    expect(timings).toEqual([
+      expect.objectContaining({ label: 'format-check', attempt: 1, outcome: 'failed' }),
+      expect.objectContaining({ label: 'format-check', attempt: 2, outcome: 'failed' }),
+    ])
   })
 
   it('retries an empty stream as a non-stream completion', async () => {

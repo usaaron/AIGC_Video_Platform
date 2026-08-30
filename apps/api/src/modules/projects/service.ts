@@ -225,7 +225,7 @@ export class ProjectService {
     revisionNote = '',
     billingMode: ScriptBillingMode = 'direct',
     episodeDurationSeconds = episodeMinutes * 60,
-    onTextProgress?: (text: string) => void,
+    onTextProgress?: (text: string, stage?: string) => void,
     onTextTiming?: (timing: TextGenerationTiming) => void,
     episodeId?: string,
   ) {
@@ -339,6 +339,7 @@ export class ProjectService {
             }),
             model,
             onTextTiming,
+            onTextProgress ? (text: string) => onTextProgress(text, 'language-repair') : undefined,
           )
           if (!segmentText) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', '分段剧本为空')
           segmentText = completeWebSeriesSpokenContent(segmentText, scriptMode)
@@ -388,20 +389,42 @@ export class ProjectService {
           }),
           model,
           onTextTiming,
+          onTextProgress ? (text: string) => onTextProgress(text, 'language-repair') : undefined,
         )
         let candidate = structuredSource
           ? alignEnrichedSceneRows(source, generatedCandidate)
           : generatedCandidate
         if (enforceWebSeriesSceneBudget && countStructuredScenes(candidate) < sceneBudget.minimum) {
-          const repaired = await this.textProvider!.generate({
+          const existingCandidate = candidate
+          const existingSceneCount = countStructuredScenes(existingCandidate)
+          const missingMinimum = Math.max(1, sceneBudget.minimum - existingSceneCount)
+          const missingTarget = Math.max(missingMinimum, sceneBudget.target - existingSceneCount)
+          const missingMaximum = Math.max(missingTarget, sceneBudget.maximum - existingSceneCount)
+          const continuation = await this.textProvider!.generate({
             systemPrompt: withChineseScriptRules(WEB_SERIES_SCRIPT_SYSTEM_PROMPT),
-            userPrompt: `${projectContext}\n\n上一次生成只返回了 ${countStructuredScenes(candidate)} 个可识别场次，低于制作要求。请完整重写并只返回剧本正文：本次只生成 1 集，必须输出 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 个场次，建议 ${sceneBudget.target} 个；每个场次单独占一行，保留以下素材的核心人物、冲突和因果，不得把整集压成一段，也不要生成其他集。\n\n用户素材：\n${source}`,
-            maxOutputTokens: webSeriesMaxOutputTokens(),
+            userPrompt: `${projectContext}\n\n首轮已经生成 ${existingSceneCount} 个可识别场次，低于单集最低 ${sceneBudget.minimum} 场。保留首轮内容，不要重复或改写；请从其动作终点继续，只输出后续 ${missingMinimum} 到 ${missingMaximum} 个新场次，建议 ${missingTarget} 个，使本集达到 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 场并在最后形成明确钩子。新场次逐行完整包含场次、剧情、场景、角色、动作、对白、风格、构图、光影、运镜、衔接字段。\n\n用户原始素材：\n${source}\n\n已经生成的首轮内容：\n${existingCandidate}`,
+            maxOutputTokens: Math.min(webSeriesMaxOutputTokens(), Math.max(600, missingTarget * 220)),
             model,
             usageContext: usageContextForPrincipal(principal),
-            ...(onTextTiming ? { onTextTiming, timingLabel: 'scene-repair' } : {}),
+            ...(onTextProgress
+              ? {
+                  onTextProgress: (text: string) =>
+                    onTextProgress(appendScriptSegment(existingCandidate, text), 'scene-completion'),
+                }
+              : {}),
+            ...(onTextTiming ? { onTextTiming, timingLabel: 'scene-completion' } : {}),
           })
-          candidate = await ensureChineseScriptOutput(this.textProvider!, repaired, model, onTextTiming)
+          const normalizedContinuation = await ensureChineseScriptOutput(
+            this.textProvider!,
+            continuation,
+            model,
+            onTextTiming,
+            onTextProgress
+              ? (text: string) =>
+                  onTextProgress(appendScriptSegment(existingCandidate, text), 'language-repair')
+              : undefined,
+          )
+          candidate = appendScriptSegment(existingCandidate, normalizedContinuation)
         }
         const contentSceneBudget = scriptContentSceneBudget(scriptMode, episodeSeconds)
         const shouldRepairContentStructure =
@@ -423,9 +446,18 @@ export class ProjectService {
             maxOutputTokens: scriptGenerationMaxOutputTokens(scriptMode, episodeSeconds, true, source),
             model,
             usageContext: usageContextForPrincipal(principal),
+            ...(onTextProgress
+              ? { onTextProgress: (text: string) => onTextProgress(text, 'structure-repair') }
+              : {}),
             ...(onTextTiming ? { onTextTiming, timingLabel: 'structure-repair' } : {}),
           })
-          candidate = await ensureChineseScriptOutput(this.textProvider!, repaired, model, onTextTiming)
+          candidate = await ensureChineseScriptOutput(
+            this.textProvider!,
+            repaired,
+            model,
+            onTextTiming,
+            onTextProgress ? (text: string) => onTextProgress(text, 'language-repair') : undefined,
+          )
         }
         candidate = completeWebSeriesSpokenContent(candidate, scriptMode)
         assertRequestedSceneCount(source, candidate)
@@ -481,7 +513,7 @@ export class ProjectService {
     revisionNote = '',
     billingMode: ScriptBillingMode = 'direct',
     episodeDurationSeconds = episodeMinutes * 60,
-    onTextProgress?: (text: string) => void,
+    onTextProgress?: (text: string, stage?: string) => void,
     onTextTiming?: (timing: TextGenerationTiming) => void,
     episodeId?: string,
   ) {
@@ -529,6 +561,7 @@ export class ProjectService {
           }),
           model,
           onTextTiming,
+          onTextProgress ? (text: string) => onTextProgress(text, 'language-repair') : undefined,
         )
         const candidateWithBreaks = preserveScriptBreakMarkers(source, candidate)
         let sceneAlignedCandidate = alignEnrichedSceneRows(source, candidateWithBreaks)
@@ -1420,6 +1453,7 @@ async function ensureChineseScriptOutput(
   raw: string,
   model: ScriptModel,
   onTextTiming?: (timing: TextGenerationTiming) => void,
+  onTextProgress?: (text: string) => void,
 ): Promise<string> {
   const candidate = normalizeExpandedScript(raw)
   if (!hasUnexpectedEnglish(candidate)) return candidate
@@ -1430,6 +1464,7 @@ async function ensureChineseScriptOutput(
       userPrompt: `请修复下面的剧本并完整返回：\n\n${candidate}`,
       maxOutputTokens: Math.min(24_000, Math.max(2_400, Math.ceil(contentLength(candidate) * 1.5))),
       model,
+      ...(onTextProgress ? { onTextProgress } : {}),
       ...(onTextTiming ? { onTextTiming, timingLabel: 'language-repair' } : {}),
     }),
   )

@@ -1,5 +1,6 @@
 export type TextGenerationTiming = {
   label?: string
+  outcome?: 'completed' | 'failed'
   responseHeadersMs: number | null
   firstTokenMs: number | null
   generationMs: number | null

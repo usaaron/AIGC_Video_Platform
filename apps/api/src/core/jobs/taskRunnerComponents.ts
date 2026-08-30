@@ -392,6 +392,7 @@ export class TaskWritebackService {
         textPreviewUpdatedAt: _textPreviewUpdatedAt,
         textFirstPreviewAt: _textFirstPreviewAt,
         textPreviewValidation: _textPreviewValidation,
+        textPreviewStage: _textPreviewStage,
         ...metadata
       } = task.metadata
       task.status = 'completed'
@@ -409,7 +410,12 @@ export class TaskWritebackService {
     })
   }
 
-  async updateLocalTextPreview(taskId: string, leaseToken: string, preview: string): Promise<void> {
+  async updateLocalTextPreview(
+    taskId: string,
+    leaseToken: string,
+    preview: string,
+    stage = 'first-draft',
+  ): Promise<void> {
     await this.store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task || task.kind !== 'text' || task.status !== 'running') return
@@ -420,6 +426,7 @@ export class TaskWritebackService {
       task.metadata = {
         ...task.metadata,
         textPreview: boundedPreview,
+        textPreviewStage: stage,
         textPreviewUpdatedAt: now,
         textPreviewValidation: progressiveTextValidation(boundedPreview),
         textFirstPreviewAt:
@@ -440,7 +447,12 @@ export class TaskWritebackService {
     })
   }
 
-  async failTask(taskId: string, error: string, leaseToken?: string): Promise<void> {
+  async failTask(
+    taskId: string,
+    error: string,
+    leaseToken?: string,
+    diagnostics?: LocalTaskDiagnostics,
+  ): Promise<void> {
     await this.store.mutate((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task) return
@@ -449,6 +461,12 @@ export class TaskWritebackService {
       task.status = 'failed'
       task.progress = 100
       task.error = error.slice(0, 1_000)
+      if (diagnostics) {
+        task.metadata = {
+          ...task.metadata,
+          textTiming: summarizeTextTiming(task, diagnostics, Date.now()),
+        }
+      }
       if (isRemoteProviderName(task.metadata.providerName)) {
         task.metadata = {
           ...task.metadata,
@@ -1653,6 +1671,7 @@ function summarizeTextTiming(
 ): Record<string, unknown> {
   const calls = diagnostics.textTimings.map((timing, index) => ({
     label: timing.label || `call-${index + 1}`,
+    outcome: timing.outcome || 'completed',
     responseHeadersMs: timing.responseHeadersMs,
     firstTokenMs: timing.firstTokenMs,
     firstTokenWaitMs:

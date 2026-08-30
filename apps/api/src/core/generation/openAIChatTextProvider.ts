@@ -55,52 +55,73 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
     attempt: number,
   ): Promise<string> {
     const startedAt = Date.now()
-    let response = await this.requestCompletion(request, stream, true)
-    if (!response.ok && response.status === 400 && request.responseFormat === 'json') {
-      response = await this.requestCompletion(request, stream, false)
-    }
-    if (!response.ok) throw await textProviderError(this.options.providerLabel, response)
-    const responseHeadersMs = Date.now() - startedAt
+    let responseHeadersMs: number | null = null
+    let timingRecorded = false
+    try {
+      let response = await this.requestCompletion(request, stream, true)
+      if (!response.ok && response.status === 400 && request.responseFormat === 'json') {
+        response = await this.requestCompletion(request, stream, false)
+      }
+      if (!response.ok) throw await textProviderError(this.options.providerLabel, response)
+      responseHeadersMs = Date.now() - startedAt
 
-    if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
-      const completion = await readCompletionStream(
-        response.body,
-        this.options.requestTimeoutMs,
-        request.onTextProgress,
-      )
+      if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
+        const completion = await readCompletionStream(
+          response.body,
+          this.options.requestTimeoutMs,
+          request.onTextProgress,
+        )
+        notifyTextTiming(request.onTextTiming, {
+          ...(request.timingLabel ? { label: request.timingLabel } : {}),
+          outcome: 'completed',
+          responseHeadersMs,
+          firstTokenMs:
+            completion.firstTokenAfterHeadersMs === null
+              ? null
+              : responseHeadersMs + completion.firstTokenAfterHeadersMs,
+          generationMs: completion.generationMs,
+          totalMs: Date.now() - startedAt,
+          attempt,
+        })
+        timingRecorded = true
+        this.recordTokenUsage(request, completion.usage)
+        return completion.text
+      }
+      let payload: unknown
+      try {
+        payload = await response.json()
+      } catch {
+        throw new InvalidTextResponseError(this.options.providerLabel)
+      }
+      const result = completionText(payload)
+      if (!result) throw new InvalidTextResponseError(this.options.providerLabel)
+      notifyTextProgress(request.onTextProgress, result.trim())
       notifyTextTiming(request.onTextTiming, {
         ...(request.timingLabel ? { label: request.timingLabel } : {}),
+        outcome: 'completed',
         responseHeadersMs,
-        firstTokenMs:
-          completion.firstTokenAfterHeadersMs === null
-            ? null
-            : responseHeadersMs + completion.firstTokenAfterHeadersMs,
-        generationMs: completion.generationMs,
+        firstTokenMs: responseHeadersMs,
+        generationMs: Math.max(0, Date.now() - startedAt - responseHeadersMs),
         totalMs: Date.now() - startedAt,
         attempt,
       })
-      this.recordTokenUsage(request, completion.usage)
-      return completion.text
+      timingRecorded = true
+      this.recordTokenUsage(request, providerTokenUsageFromPayload(payload))
+      return result.trim()
+    } catch (error) {
+      if (!timingRecorded) {
+        notifyTextTiming(request.onTextTiming, {
+          ...(request.timingLabel ? { label: request.timingLabel } : {}),
+          outcome: 'failed',
+          responseHeadersMs,
+          firstTokenMs: null,
+          generationMs: null,
+          totalMs: Date.now() - startedAt,
+          attempt,
+        })
+      }
+      throw error
     }
-    let payload: unknown
-    try {
-      payload = await response.json()
-    } catch {
-      throw new InvalidTextResponseError(this.options.providerLabel)
-    }
-    const result = completionText(payload)
-    if (!result) throw new InvalidTextResponseError(this.options.providerLabel)
-    notifyTextProgress(request.onTextProgress, result.trim())
-    notifyTextTiming(request.onTextTiming, {
-      ...(request.timingLabel ? { label: request.timingLabel } : {}),
-      responseHeadersMs,
-      firstTokenMs: responseHeadersMs,
-      generationMs: Math.max(0, Date.now() - startedAt - responseHeadersMs),
-      totalMs: Date.now() - startedAt,
-      attempt,
-    })
-    this.recordTokenUsage(request, providerTokenUsageFromPayload(payload))
-    return result.trim()
   }
 
   private requestCompletion(

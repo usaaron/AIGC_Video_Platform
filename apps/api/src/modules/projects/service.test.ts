@@ -354,10 +354,10 @@ describe('ProjectService script billing', () => {
   it('repairs a web-series response that was incorrectly compressed into one scene', async () => {
     const shortCandidate =
       '场次：S01｜剧情：女剑客进入山门并发现追兵。｜场景：宗门山门。｜角色：女剑客；追兵。｜动作：女剑客回头，追兵逼近。｜对白：无台词。'
-    const completeCandidate = Array.from(
-      { length: 10 },
+    const continuationCandidate = Array.from(
+      { length: 5 },
       (_, index) =>
-        `场次：S${String(index + 1).padStart(2, '0')}｜剧情：女剑客推进第${index + 1}个冲突节点。｜场景：宗门山门。｜角色：女剑客；追兵。｜动作：动作1：女剑客移动并改变视线；动作2：追兵做出对应反应。｜对白：[对白]追兵：站住。｜风格：影视CG。｜构图：中景。｜光影：冷色月光。｜运镜：跟随推进。｜衔接：保留人物位置和追兵方向。`,
+        `场次：S${String(index + 2).padStart(2, '0')}｜剧情：女剑客推进第${index + 2}个冲突节点。｜场景：宗门山门。｜角色：女剑客；追兵。｜动作：动作1：女剑客移动并改变视线；动作2：追兵做出对应反应。｜对白：[对白]追兵：站住。｜风格：影视CG。｜构图：中景。｜光影：冷色月光。｜运镜：跟随推进。｜衔接：保留人物位置和追兵方向。`,
     ).join('\n')
     const repository = {
       workspace: () => ({
@@ -373,9 +373,19 @@ describe('ProjectService script billing', () => {
       update: vi.fn(async (_projectId, input) => ({ script: input.script })),
     } as unknown as ProjectRepository
     const textProvider: TextGenerationProvider = {
-      generate: vi.fn().mockResolvedValueOnce(shortCandidate).mockResolvedValueOnce(completeCandidate),
+      generate: vi
+        .fn()
+        .mockImplementationOnce(async (request) => {
+          request.onTextProgress?.(shortCandidate)
+          return shortCandidate
+        })
+        .mockImplementationOnce(async (request) => {
+          request.onTextProgress?.(continuationCandidate)
+          return continuationCandidate
+        }),
     }
     const service = new ProjectService(repository, textProvider)
+    const previews: Array<{ text: string; stage?: string }> = []
 
     const result = await service.generateScript(
       'project-1',
@@ -391,10 +401,18 @@ describe('ProjectService script billing', () => {
       '',
       'prepaid',
       60,
+      (text, stage) => previews.push({ text, stage }),
     )
 
-    expect(splitScriptParagraphs(result.script)).toHaveLength(10)
+    expect(splitScriptParagraphs(result.script)).toHaveLength(6)
+    expect(result.script).toContain('场次：S01')
+    expect(result.script).toContain('场次：S06')
     expect(textProvider.generate).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(textProvider.generate).mock.calls[1]?.[0].userPrompt).toContain(
+      '保留首轮内容，不要重复或改写',
+    )
+    expect(previews.at(-1)).toMatchObject({ stage: 'scene-completion' })
+    expect(splitScriptParagraphs(previews.at(-1)?.text || '')).toHaveLength(6)
     expect(repository.update).toHaveBeenCalledOnce()
   })
 

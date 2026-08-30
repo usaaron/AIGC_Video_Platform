@@ -12,7 +12,7 @@ export type LocalGenerationTaskHandler = {
 }
 
 export type LocalTaskExecutionContext = {
-  onTextProgress?: (text: string) => void
+  onTextProgress?: (text: string, stage?: string) => void
   onTextTiming?: (timing: TextGenerationTiming) => void
 }
 

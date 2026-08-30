@@ -233,6 +233,72 @@ describe('GenerationTaskRunner Seedance integration', () => {
     expect(persistTask.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 
+  it('keeps text timing diagnostics when a streamed local task fails', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'failed-streaming-script-task',
+      clientRequestId: 'failed-streaming-script-client',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-member',
+      kind: 'text',
+      label: 'Failed streaming script',
+      prompt: '',
+      negativePrompt: '',
+      provider: 'text',
+      model: 'deepseek-v4-flash',
+      metadata: { scriptOperation: 'generate' },
+      status: 'queued',
+      progress: 0,
+      estimatedCredits: 3,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+    const runner = new GenerationTaskRunner(store, {
+      localTaskHandler: {
+        canHandle: (candidate) => candidate.provider === 'text',
+        execute: async (_task, context) => {
+          context?.onTextProgress?.(
+            '场次：S01｜剧情：主角进入仓库。｜场景：仓库。｜角色：主角。｜动作：推门。',
+            'scene-completion',
+          )
+          context?.onTextTiming?.({
+            label: 'scene-completion',
+            outcome: 'failed',
+            responseHeadersMs: 100,
+            firstTokenMs: null,
+            generationMs: null,
+            totalMs: 2_100,
+            attempt: 1,
+          })
+          throw new Error('provider format failed')
+        },
+      },
+      refreshTask: async () => {},
+      persistTask: async () => {},
+    })
+
+    await runner.tick()
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+        status: 'failed',
+        metadata: {
+          textPreviewStage: 'scene-completion',
+          textTiming: {
+            providerMs: 2_100,
+            calls: [{ label: 'scene-completion', outcome: 'failed', attempt: 1 }],
+          },
+        },
+      }),
+    )
+  })
+
   it('starts three independent provider submissions in one tick for a member', async () => {
     const store = new AppStore(null)
     await store.initialize()

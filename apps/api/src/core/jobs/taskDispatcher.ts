@@ -301,31 +301,36 @@ export class GenerationTaskRunner implements TaskDispatcher {
     let firstPreviewAtMs: number | null = null
     const textTimings: TextGenerationTiming[] = []
     let latestPreview = ''
+    let latestPreviewStage = 'first-draft'
     let persistedPreview = ''
+    let persistedPreviewStage = ''
     let previewTimer: NodeJS.Timeout | null = null
     let previewWrite = Promise.resolve()
     const flushPreview = (): Promise<void> => {
       const preview = latestPreview
-      if (!preview || preview === persistedPreview) return previewWrite
+      const stage = latestPreviewStage
+      if (!preview || (preview === persistedPreview && stage === persistedPreviewStage)) return previewWrite
       previewWrite = previewWrite
         .catch(() => {})
         .then(() =>
           this.runLocalTaskMutation(
             task.id,
-            () => this.writeback.updateLocalTextPreview(task.id, leaseToken, preview),
+            () => this.writeback.updateLocalTextPreview(task.id, leaseToken, preview, stage),
             false,
           ),
         )
         .then(() => {
           persistedPreview = preview
+          persistedPreviewStage = stage
         })
       return previewWrite
     }
-    const schedulePreview = (text: string) => {
+    const schedulePreview = (text: string, stage = 'first-draft') => {
       const preview = text.trimStart().slice(0, 24_000)
-      if (!preview || preview === latestPreview) return
+      if (!preview || (preview === latestPreview && stage === latestPreviewStage)) return
       firstPreviewAtMs ??= Date.now()
       latestPreview = preview
+      latestPreviewStage = stage
       if (previewTimer) return
       previewTimer = setTimeout(() => {
         previewTimer = null
@@ -366,7 +371,12 @@ export class GenerationTaskRunner implements TaskDispatcher {
       await flushPreview().catch(() => {})
       await this.runLocalTaskMutation(
         task.id,
-        () => this.writeback.failTask(task.id, localTaskError(error), leaseToken),
+        () =>
+          this.writeback.failTask(task.id, localTaskError(error), leaseToken, {
+            executionStartedAtMs,
+            firstPreviewAtMs,
+            textTimings,
+          }),
         true,
       )
     } finally {
