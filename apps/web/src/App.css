@@ -11171,6 +11171,29 @@
 .episode-group .shot-list {
   margin-top: 8px;
 }
+.episode-empty-state {
+  min-height: 108px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 20px;
+  border: 1px dashed #cbd1c5;
+  background: #f8f9f5;
+}
+.episode-empty-state > div {
+  display: grid;
+  gap: 6px;
+}
+.episode-empty-state strong {
+  color: #30362d;
+  font-size: 12px;
+}
+.episode-empty-state span {
+  color: #777f72;
+  font-size: 9px;
+}
 .shot-list {
   display: grid;
   gap: 8px;

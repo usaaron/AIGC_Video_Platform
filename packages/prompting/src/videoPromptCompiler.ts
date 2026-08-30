@@ -1,4 +1,4 @@
-export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v13'
+export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v14'
 
 export type PromptProject = {
   aspectRatio: string
@@ -78,9 +78,12 @@ export function compileStoryboardVideoPrompt(input: {
     continuityMode === 'continue' && shot.continuityNote
       ? `【场景衔接上下文】${sentence(shot.continuityNote)}`
       : '',
+    continuityMode === 'independent' && shot.continuityNote
+      ? `【剧情承接（仅叙事约束）】${sentence(shot.continuityNote)}`
+      : '',
     continuityMode === 'continue'
       ? '【镜头衔接】严格承接上一镜头尾帧，人物身份、动作方向、视线、空间位置、光线和服装保持连续，首帧不要跳变。输入参考图列表的第一张是唯一的上一镜真实尾帧；后续参考图仅用于确认当前镜头的角色、场景和关键物品身份，不得用后续参考图重构首帧，不得重演上一镜已经完成的动作。'
-      : '【独立镜头】本镜不读取、不复述上一镜或上一集的剧情、动作和状态；只依据当前镜头提示词与当前资产完成本镜。',
+      : '【独立镜头】本镜禁止使用上一镜或上一集尾帧，不沿用其构图和人物空间位置；剧情关系只读取“剧情承接”文字，当前场景、人物位置和动作必须以当前分镜事实为准。',
     identityRules ? `【资产一致性】${identityRules}。严格沿用输入参考图，不得更换人物或重设计资产。` : '',
     explicitTimeline
       ? '【时间轴执行】严格逐段执行导演时间轴；每个时间区间只执行该区间指定的动作、机位和状态，前一段的结果必须成为后一段的起始状态。不得省略、调换、合并或重复任何区间，不得把结尾状态提前到开头。'

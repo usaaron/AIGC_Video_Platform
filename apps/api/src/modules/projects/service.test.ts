@@ -266,6 +266,48 @@ describe('ProjectService script billing', () => {
     expect(repository.update).toHaveBeenCalledOnce()
   })
 
+  it('adds compact voiceover beats when a generated episode only contains character dialogue', async () => {
+    const generated = Array.from(
+      { length: 6 },
+      (_, index) =>
+        `场次：S0${index + 1}｜剧情：林砚推进第${index + 1}个冲突节点并获得新线索。｜场景：${index < 3 ? '宗门大殿' : '后山石阶'}。｜角色：林砚；长老。｜动作：动作1：林砚向前一步；动作2：长老抬眼回应。｜对白：[对白]林砚：我会查清。；[音效]脚步声；[环境声]殿内回响。｜风格：影视CG。｜构图：中景。｜光影：冷色顶光。｜运镜：稳定推进。｜衔接：两人位置和视线保持连续。`,
+    ).join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '宗门疑云',
+          contentType: 'short-drama',
+          synopsis: '林砚追查宗门秘密。',
+          aspectRatio: '9:16',
+          script: '',
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = { generate: vi.fn(async () => generated) }
+    const service = new ProjectService(repository, textProvider)
+
+    const result = await service.generateScript(
+      'project-1',
+      '林砚追查宗门秘密',
+      DEFAULT_SCRIPT_DIRECTION,
+      'quick',
+      { goal: '', targetMinutes: 1 },
+      'web-series',
+      1,
+      'voiceover-density',
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(result.script.match(/\[画外音\]/gu)).toHaveLength(3)
+    expect(result.script).toContain('[对白]林砚：我会查清。')
+    expect(vi.mocked(textProvider.generate).mock.calls[0]?.[0].systemPrompt).toContain(
+      '整集中至少 3 场包含[画外音]',
+    )
+    expect(repository.update).toHaveBeenCalledOnce()
+  })
+
   it('keeps a generated web-series script when the provider dialogue repair still misses a scene', async () => {
     const scene = (index: number, dialogue: string) =>
       `场次：S0${index}｜剧情：林砚在大殿中推进第${index}个冲突节点。｜场景：宗门大殿。｜角色：林砚；长老。｜动作：动作1：林砚向前一步；动作2：长老抬眼回应。｜对白：${dialogue}｜风格：影视CG。｜构图：中景。｜光影：冷色顶光。｜运镜：稳定推进。｜衔接：两人位置和视线保持连续。`

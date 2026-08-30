@@ -3507,7 +3507,7 @@ describe('API authorization', () => {
         '场景：雨夜旧站台，湿润铁轨和冷白顶灯',
         '角色：林夏，黑色长发，深色轻甲',
         '动作：林夏踏入积水；她举起信封确认地址；她抬头看向倒转的挂钟',
-        '对白：林夏低声读信；她停止说话；她屏住呼吸',
+        '对白：[对白]林夏：地址没错。；[内心独白]林夏：有人来过。；[音效]脚步溅水声；[环境声]雨声。',
         '风格：国漫二维',
         '构图：9:16大全景',
         '光影：冷白顶光',
@@ -3543,16 +3543,22 @@ describe('API authorization', () => {
       continuityMode: 'independent',
       prompt: expect.stringContaining('动作：林夏踏入积水'),
     })
+    expect(response.json()[0].prompt).toContain('[对白]林夏：地址没错。')
+    expect(response.json()[0].prompt).toContain('[音效]脚步溅水声')
+    expect(response.json()[0].prompt).not.toContain('[内心独白]林夏：有人来过。')
     expect(response.json()[1]).toMatchObject({
       title: '场次 1 · 动作 2',
-      framing: '中景',
+      framing: '特写',
       continuityMode: 'continue',
       continuityNote: expect.stringContaining('上一镜已完成'),
       prompt: expect.stringContaining('动作：她举起信封确认地址'),
     })
+    expect(response.json()[1].prompt).toContain('[内心独白]林夏：有人来过。')
+    expect(response.json()[1].prompt).not.toContain('[音效]脚步溅水声')
+    expect(response.json()[1].prompt).not.toContain('配角 黑色长发')
     expect(response.json()[2]).toMatchObject({
       title: '场次 1 · 动作 3',
-      framing: '特写',
+      framing: '近景',
       prompt: expect.not.stringContaining('她举起信封确认地址'),
     })
     expect(response.json()[3]).toMatchObject({
@@ -3560,6 +3566,134 @@ describe('API authorization', () => {
       continuityMode: 'continue',
       continuityNote: expect.stringContaining('上一场已完成'),
     })
+  })
+
+  it('continues shots in one location but starts a clean visual lane after place or time changes', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const scene = (number: number, location: string, action: string) =>
+      [
+        `场次：${number}`,
+        `场景：${location}`,
+        '角色：林夏，黑色长发，深色风衣',
+        `动作：${action}`,
+        '入场状态：林夏保持上一动作结束姿态',
+        `出场状态：${action}已经完成`,
+      ].join('｜')
+    const workspace = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+    const episodeId = workspace.json().scriptEpisodes[0].id
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/episodes/save',
+      headers,
+      payload: {
+        episodeId,
+        content: [
+          scene(1, '雨夜旧站台，冷白顶灯', '林夏推开候车室木门'),
+          scene(2, '雨夜旧站台，冷白顶灯', '林夏走到长椅前拿起信封'),
+          scene(3, '清晨出租屋，窗外天光', '林夏把信封放到书桌上'),
+          scene(4, '夜晚出租屋，暖色台灯', '林夏重新拿起信封'),
+        ].join('\n'),
+      },
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/shots/generate',
+      headers,
+      payload: { mode: 'scene', maxShots: 12, episodeId },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toHaveLength(4)
+    expect(response.json()[0]).toMatchObject({ continuityMode: 'independent' })
+    expect(response.json()[1]).toMatchObject({
+      continuityMode: 'continue',
+      continuityNote: expect.stringContaining('上一镜终态'),
+    })
+    expect(response.json()[1].continuityNote).toContain('本镜动作起点')
+    expect(response.json()[2]).toMatchObject({
+      continuityMode: 'independent',
+      continuityNote: expect.stringContaining('只承接剧情状态，不携带上一场画面构图'),
+    })
+    expect(response.json()[2].continuityNote).toContain('人物位置、构图与光线按本镜新场景重新建立')
+    expect(response.json()[3]).toMatchObject({ continuityMode: 'independent' })
+  })
+
+  it('regenerates one episode without replacing other episodes and carries narrative state without a tail frame', async () => {
+    app = await buildApp({ config: testConfig, startWorker: false })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const initialWorkspace = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+    const firstEpisodeId = initialWorkspace.json().scriptEpisodes[0].id
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/episodes/save',
+      headers,
+      payload: {
+        episodeId: firstEpisodeId,
+        title: '失踪的信封',
+        content: '场次：S01｜场景：雨夜旧站台｜角色：林夏｜动作：林夏发现信封已经被人取走',
+      },
+    })
+    const firstShots = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/shots/generate',
+      headers,
+      payload: { mode: 'scene', maxShots: 12, episodeId: firstEpisodeId },
+    })
+    const secondEpisode = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/script/episodes/save',
+      headers,
+      payload: {
+        title: '追踪者',
+        content: '场次：S01｜场景：清晨出租屋｜角色：林夏｜动作：林夏根据线索拨通陌生号码',
+      },
+    })
+
+    const secondShots = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-midnight-film/shots/generate',
+      headers,
+      payload: { mode: 'scene', maxShots: 12, episodeId: secondEpisode.json().id },
+    })
+    const finalWorkspace = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film',
+      headers,
+    })
+
+    expect(firstShots.statusCode).toBe(200)
+    expect(secondShots.statusCode).toBe(200)
+    expect(secondShots.json()[0]).toMatchObject({
+      scriptEpisodeId: secondEpisode.json().id,
+      episodeNumber: 2,
+      continuityMode: 'independent',
+      continuityNote: expect.stringContaining('上一集剧情终态'),
+    })
+    expect(secondShots.json()[0].continuityNote).toContain('不得读取上一集尾帧作为视觉参考')
+    expect(finalWorkspace.json().shots).toHaveLength(firstShots.json().length + secondShots.json().length)
+    expect(
+      finalWorkspace
+        .json()
+        .shots.some((shot: { scriptEpisodeId: string }) => shot.scriptEpisodeId === firstEpisodeId),
+    ).toBe(true)
   })
 
   it('serves a generated image after the background task completes', async () => {

@@ -341,7 +341,7 @@ export class ProjectService {
             onTextTiming,
           )
           if (!segmentText) throw new AppError(502, 'PROVIDER_RESPONSE_INVALID', '分段剧本为空')
-          segmentText = completeMissingWebSeriesDialogue(segmentText, scriptMode)
+          segmentText = completeWebSeriesSpokenContent(segmentText, scriptMode)
           assertWebSeriesDialogueCoverage(segmentText, scriptMode)
           if (hasEpisodeWorkspace && scriptMode === 'web-series') {
             const episode = await this.repository.writeScriptEpisodeDraft(
@@ -427,7 +427,7 @@ export class ProjectService {
           })
           candidate = await ensureChineseScriptOutput(this.textProvider!, repaired, model, onTextTiming)
         }
-        candidate = completeMissingWebSeriesDialogue(candidate, scriptMode)
+        candidate = completeWebSeriesSpokenContent(candidate, scriptMode)
         assertRequestedSceneCount(source, candidate)
         assertWebSeriesDialogueCoverage(candidate, scriptMode)
         if (enforceWebSeriesSceneBudget && countStructuredScenes(candidate) < sceneBudget.minimum) {
@@ -532,7 +532,7 @@ export class ProjectService {
         )
         const candidateWithBreaks = preserveScriptBreakMarkers(source, candidate)
         let sceneAlignedCandidate = alignEnrichedSceneRows(source, candidateWithBreaks)
-        sceneAlignedCandidate = completeMissingWebSeriesDialogue(sceneAlignedCandidate, scriptMode)
+        sceneAlignedCandidate = completeWebSeriesSpokenContent(sceneAlignedCandidate, scriptMode)
         assertWebSeriesDialogueCoverage(sceneAlignedCandidate, scriptMode)
         const preserved = isProtectedLongScript(source) && candidateIsTooShort(source, sceneAlignedCandidate)
         const enriched = preserved ? source : sceneAlignedCandidate
@@ -691,16 +691,27 @@ export class ProjectService {
           input.episodeId ? '该集尚未保存，请先保存本集' : '请先保存至少一集剧本',
         )
       }
+      const orderedSavedEpisodes = [...savedEpisodes].sort(
+        (left, right) => left.episodeNumber - right.episodeNumber,
+      )
       const generated = selectedEpisodes.flatMap((episode) => {
         const paragraphs = expandLongScriptParagraphs(splitScriptParagraphs(episode.content))
         const shots =
           input.mode === 'beat'
             ? splitScriptIntoBeatShots(paragraphs, input.maxShots, true)
             : splitScriptIntoSmartSceneShots(paragraphs, input.maxShots, true)
+        const previousEpisode = orderedSavedEpisodes
+          .filter((candidate) => candidate.episodeNumber < episode.episodeNumber)
+          .at(-1)
         return shots.map((shot, index) => ({
           ...shot,
           scriptEpisodeId: episode.id,
           episodeBreakBefore: index === 0 && episode.episodeNumber > 1,
+          continuityMode: index === 0 ? ('independent' as const) : shot.continuityMode,
+          continuityNote:
+            index === 0
+              ? episodeOpeningContinuityNote(previousEpisode, episode, shot.continuityNote)
+              : shot.continuityNote,
           episodeNumber: episode.episodeNumber,
           episodeTitle: episode.title,
           episodeKind: 'standard' as const,
@@ -858,7 +869,7 @@ const SCENE_PRODUCTION_RULES = `每个场次是一条可以直接交给分镜师
 - 角色字段必须列出所有画面内角色，并为每个人写清主次、画面位置、朝向、视线、服装、当前表情、起始姿态和本镜反应；配角与背景角色不能只作为名单，必须有符合场景的动作或表情变化。
 - 动作字段必须拆成 2 到 3 个可被摄像机看见的微节拍，用“动作1：…；动作2：…；动作3：…”分开；这些微节拍共同完成当前场次的一个核心事件，不代表新增场次，也不能把同一事件换词重复。每个微节拍写清主角起势、执行、一次表情或视线变化和结束姿态；配角、群演只做同步反应。
 - 核心人物每 2 到 3 秒必须有一次可见的表情、视线、姿态或情绪状态变化；配角和背景角色也必须在对应节拍发生至少一次反应，这些变化必须落到动作或角色字段中，不能只写“情绪升级”。
-- 对白字段按实际情况明确标记“[对白]角色：内容”“[画外音]内容”“[内心独白]角色：内容”或“[音效]内容”；台词要短但推进冲突，没有台词时也要写至少两种现场声音和人物反应，不能返回空白或“无声”。
+- 对白字段按实际情况明确标记“[对白]角色：内容”“[画外音]内容”“[内心独白]角色：内容”或“[音效]内容”；优先写 1 到 2 句短而能推进冲突的发声内容，单句尽量 4 到 12 个中文字符、整场口播尽量不超过 24 个中文字符，禁止用长台词解释画面；没有人物对白时用简短画外音补充画面无法表达的信息，并写至少两种现场声音和人物反应，不能返回空白或“无声”。
 - 风格字段写材质、色彩、角色与场景的统一规则；构图字段写景别、主体位置、视线方向、前中后景和画面重心；光影字段写主光方向、软硬、色温、阴影落点；运镜字段写机位、运动方式、速度、跟随对象和结束画面。
 - 每个场次都必须额外写清“目标：”“阻力：”“变化：”“入场状态：”“出场状态：”。目标是本场角色要完成的事；阻力是画面中实际发生的阻碍；变化是本场结束后不可逆的新信息、关系或情绪状态；入场状态必须可作为本场第一镜首帧，出场状态必须可作为本场最后一镜尾帧。
 - 衔接字段必须同时写上一镜头尾帧如何接入本场，以及本场结尾把哪个人物位置、动作方向、视线、服装、物件状态或光线交给下一镜，禁止让每个镜头像独立照片。
@@ -869,7 +880,7 @@ const FAST_WEB_SERIES_SCENE_RULES = `初稿只负责讲清剧情与表演，不�
 - 每行只使用：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜衔接：；禁止输出风格、构图、光影、运镜、提示词、负面提示词或资产外观复述。
 - 剧情字段用一句话压缩写清“目标→阻力→变化”；场景只写稳定地点与时间；角色只列本场实际出镜人物，不重复完整外貌和服装设定。
 - 动作字段写一个核心事件和 2 个连续可见拍点，包含至少一次表情、视线或姿态变化，并以明确结束状态收尾；不要把一个场次塞入多个独立事件。
-- 对白字段保留一句推动冲突的短对白、画外音或内心独白，并补一种必要的现场音或音乐提示；不要写长段解释。
+- 对白字段保留 1 到 2 句推动冲突的短对白、画外音或内心独白，单句尽量 4 到 12 个中文字符、整场口播不超过 24 个中文字符，并补一种必要的现场音或音乐提示；整集至少 3 个场次包含[画外音]，优先用于开场交代人物处境、换场补充必要信息和反转前制造预期，不复述已经看得见的动作。
 - 衔接字段只写需要交给下一场的人物位置、动作方向、视线或关键物件状态，不重复上一场全文。
 - 每场控制在 100 到 180 个中文字符，优先保证新信息、动作结果和对白，不用形容词凑字数。`
 
@@ -878,7 +889,7 @@ const ADVERTISEMENT_PRODUCTION_RULES = `每个广告段落是一条可直接交�
 - 场景字段写清地点、时间、空间布局、前中后景、主体陈设和主光源；产品字段信息应写入剧情与动作，名称、位置、朝向、材质和使用状态保持一致。
 - 人物不是必选项。纯产品、界面或场景广告应在角色字段明确写“无人物，主体为……”，禁止为了满足格式凭空增加模特；有人物时写清位置、朝向、表情、起始姿态和与产品的真实交互。
 - 动作拆成 2 到 3 个可见微节拍，写清主体起始状态、运动过程、局部细节变化与结束状态；禁止用多个形容词替代实际动作。
-- 对白字段按需要标记“[旁白]”“[对白]”“[音效]”“[音乐]”；无人声时可写“无旁白”，但必须给出现场音或设计音，不能返回空白。
+- 对白字段按需要标记“[旁白]”“[对白]”“[音效]”“[音乐]”；开场、核心价值证明和落版段优先各写一句 6 到 18 个中文字符的短旁白，其余段落按画面需要使用短对白；无人声时可写“无旁白”，但必须给出现场音或设计音，不能返回空白。
 - 构图写景别、主体位置、文字安全区域、前中后景和画面重心；光影写光源方向、软硬、色温、产品高光与阴影；运镜写机位、运动方式、速度、跟随主体和结束画面。
 - 衔接字段必须写清产品状态、主体位置、运动方向、色彩、光线、声音或文字如何交给下一段，避免每段像互不相关的素材拼接。
 - 每一行必须包含场次、剧情、场景、角色、动作、对白、风格、构图、光影、运镜、衔接，场次使用 A01、A02 等稳定编号；信息具体紧凑，不要重复口号凑字数。`
@@ -891,7 +902,7 @@ const QUICK_SCRIPT_SYSTEM_PROMPT = `你是中文漫剧的快速编剧。你的�
 3. 每行使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：。
 4. 剧情必须有明确目标、阻力、变化和结果；不要写空泛的“氛围感”“电影感”。
 5. 动作必须是可以被摄像机看见的连续动作，明确谁在什么位置做什么，并包含至少 2 个动作拍点和一个结束姿态；不要只写心理活动。
-6. 对白要短、口语化并推动冲突；按“对白/画外音/内心独白/音效”标记表达方式，没有台词时写“无台词”，同时写清人物反应和现场声音。
+6. 每场安排 1 到 2 句短、口语化且推动冲突的对白、画外音或内心独白，单句尽量 4 到 12 个中文字符、整场口播不超过 24 个中文字符；优先让人物互相回应，不用长旁白解释可见动作，同时写清必要音效和现场声音。
 7. 场景之间必须保持人物、地点、时间、服装和关键物件连续；每一场都要推动主线。
 8. 结尾留下一个清晰的悬念、决定或下一步动作，方便后续补齐专业视觉细节。
 9. ${SCENE_PRODUCTION_RULES}
@@ -963,7 +974,7 @@ const WEB_SERIES_SCRIPT_SYSTEM_PROMPT = `你是中文网剧漫剧的主编剧和
 4. 保持人物身份、服装、时间、地点、光线和关键物件连续；每场都写清场内角色与物件的相对位置，不要突然新增人物、道具或空间规则。
 5. 前段快速建立冲突，中段持续升级，后段制造明显波动；最后一行的场次值必须写“剧情钩子”，且不直接解决。
 6. 钩子可以是秘密即将揭示、主角受辱后即将反击、关键物件即将启动、敌人误判实力或即将进入反转/装逼时刻；必须停在动作或悬念接点。
-7. 对白必须真正可听见并推动本场冲突：每个场次必须写 1 句短对白、画外音或内心独白，使用“[对白]角色：内容”“[画外音]内容”“[内心独白]角色：内容”标记；禁止写“无台词”。每场另写至少一种[音效]或[音乐/环境声]，不能返回空白或静音。
+7. 对白必须真正可听见并推动本场冲突：每个场次必须写 1 到 2 句短对白、画外音或内心独白，使用“[对白]角色：内容”“[画外音]内容”“[内心独白]角色：内容”标记；单句尽量 4 到 12 个中文字符、整场口播不超过 24 个中文字符，禁止写“无台词”。6 到 8 场的整集中至少 3 场包含[画外音]：S01 用一句介绍人物处境，中段换场时补充画面无法表达的信息，反转前一句建立预期；画外音不能复述可见动作。人物同场对峙时优先使用两句一问一答或一压一顶的短对白。每场另写至少一种[音效]或[音乐/环境声]，不能返回空白或静音。
 8. ${FAST_WEB_SERIES_SCENE_RULES}
 9. 只输出剧本正文，不要标题、解释、Markdown 或分析。`
 
@@ -974,7 +985,7 @@ const WEB_SERIES_REWRITE_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧�
 2. 场景数量、编号和顺序必须与原稿完全一致，不得新增、拆分、合并或删除场次；每个原场次单独占一行并对应一个 4 到 15 秒视频镜头，场内动作只作为该镜头的微节拍。
 3. 每行使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；缺失字段根据已有上下文补齐，不要任意新增人物、道具或空间规则。
 4. 每场都要有目标、阻力、变化和结果，动作明确到人物位置、视线、表情、手部或关键物件状态，并保持镜头之间的连续性；缺失信息要从原稿上下文恢复，不要用“沿用上一场”代替具体状态。
-5. 对白不能被压缩成“无台词”：每个场次必须有一句可听见的[对白]、[画外音]或[内心独白]，并且台词要改变人物选择、关系或信息；每场同时写[音效]和[环境声]，不得出现静音场次。
+5. 对白不能被压缩成“无台词”：每个场次必须有 1 到 2 句可听见的[对白]、[画外音]或[内心独白]，单句尽量 4 到 12 个中文字符、整场口播不超过 24 个中文字符，并且台词要改变人物选择、关系或信息；整集至少 3 场保留或补充[画外音]，分别承担开场介绍、必要转场信息和反转预期，不得复述画面；每场同时写[音效]和[环境声]，不得出现静音场次。
 6. 结尾保留并强化原稿的高波动钩子；如果原稿存在“【强制下一集】”，必须独占一行并原样保留。
 7. ${SCENE_PRODUCTION_RULES}
 8. 只输出重写后的剧本正文，不要标题、解释、Markdown 或分析。`
@@ -1015,7 +1026,7 @@ const WEB_SERIES_DETAIL_SYSTEM_PROMPT = `你是中文网剧漫剧的视觉导演
 硬性规格：
 1. 保留原有场次、人物、对白、地点、关键物件和剧情因果，不压缩长稿，不另起新故事；每个动作单元都必须提供足够的角色和空间状态。
 2. 每个场次完整输出：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；禁止只输出镜头语言字段。每场对应一个视频镜头，以 4 到 5 秒快切为主，必要时延长到 15 秒；每行都要写清可见动作和动作终点。
-3. 对白字段必须补齐可听见的[对白]、[画外音]或[内心独白]；每个场次都不能写“无台词”，每场同时补充[音效]和[环境声/音乐]，确保视频不是无声空镜。
+3. 对白字段必须补齐 1 到 2 句可听见的[对白]、[画外音]或[内心独白]，单句尽量 4 到 12 个中文字符、整场口播不超过 24 个中文字符；整集至少 3 场有简短[画外音]，用于开场介绍、必要转场信息和反转预期，不能复述画面；每个场次都不能写“无台词”，每场同时补充[音效]和[环境声/音乐]，确保视频不是无声空镜。
 4. 风格写明材质、色彩和角色/场景的一致性；构图写景别、主体位置、前中后景和视线方向；光影写光源、方向、色温和明暗关系；运镜写机位、移动方式、速度、运动对象和落点。
 5. 衔接必须写清上一镜尾帧如何接入本镜，以及本镜如何把人物位置、动作、视线、服装、物件和光线交给下一镜，避免镜头像独立照片。
 6. 最后一个场次保留并强化高波动钩子，不提前揭示结果；原稿中的“【强制下一集】”必须独占一行并原样保留；不要增加拍摄设备、文字、水印或无关人物。
@@ -1305,7 +1316,7 @@ const WEB_SERIES_SEGMENT_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧�
 1. 本次只生成 1 个下一集生产单元，输出 6 到 8 个连续场次，建议 7 个；每个场次对应一个视频镜头，不生成下一集之后的内容。
 2. 承接上一段最后的时间、地点、人物状态、服装、视线、动作和关键物件，前两场要明确接住上一段尾部动作。
 3. 每场使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：；每场都有目标、阻力、变化和结果。
-4. 对白不能被压缩成“无台词”：每个场次必须有[对白]、[画外音]或[内心独白]，台词要推进本段冲突；每场必须写[音效]和[环境声]，不得出现静音场次。
+4. 对白不能被压缩成“无台词”：每个场次必须有 1 到 2 句[对白]、[画外音]或[内心独白]，单句尽量 4 到 12 个中文字符、整场口播不超过 24 个中文字符，台词要推进本段冲突；本集至少 3 场使用简短[画外音]承接开场处境、转场信息或反转预期，不得复述可见动作；每场必须写[音效]和[环境声]，不得出现静音场次。
 5. 本段末尾保留高波动钩子：悬念、受辱后反击前一秒、身份/实力即将揭示、关键物件启动或敌人误判；最后一行的场次值写“剧情钩子”，不要直接解决。
 6. ${SCENE_PRODUCTION_RULES}
 7. 只输出下一段剧本正文，不要标题、解释、Markdown、JSON 或分析。`
@@ -1479,6 +1490,66 @@ function completeMissingWebSeriesDialogue(script: string, mode: ScriptContentMod
     .join('\n')
 }
 
+function completeWebSeriesSpokenContent(script: string, mode: ScriptContentMode): string {
+  const completed = completeMissingWebSeriesDialogue(script, mode)
+  if (mode !== 'web-series') return completed
+
+  const paragraphs = splitScriptParagraphs(completed)
+  const fields = paragraphs.map((paragraph) => parseShotFields(paragraph.text))
+  const sceneIndexes = fields.flatMap((scene, index) => (scene.场次 ? [index] : []))
+  if (!sceneIndexes.length) return completed
+
+  const desiredVoiceoverScenes = Math.min(
+    sceneIndexes.length,
+    sceneIndexes.length >= 6 ? 3 : Math.max(1, Math.ceil(sceneIndexes.length / 3)),
+  )
+  const selected = new Set(
+    sceneIndexes.filter((index) => /\[画外音\]/u.test(String(fields[index]?.对白 || ''))),
+  )
+  const sceneChanges = sceneIndexes.filter((index, position) => {
+    if (position === 0) return true
+    const previous = fields[sceneIndexes[position - 1]!]?.场景 || ''
+    const current = fields[index]?.场景 || ''
+    return Boolean(
+      previous && current && normalizedSceneIdentity(previous) !== normalizedSceneIdentity(current),
+    )
+  })
+  const candidates = [
+    sceneIndexes[0],
+    ...sceneChanges,
+    sceneIndexes[Math.floor(sceneIndexes.length / 2)],
+    sceneIndexes[Math.max(0, sceneIndexes.length - 2)],
+    ...sceneIndexes,
+  ].filter((index): index is number => typeof index === 'number')
+
+  for (const index of candidates) {
+    if (selected.size >= desiredVoiceoverScenes) break
+    if (selected.has(index)) continue
+    const scene = fields[index] || {}
+    const dialogue = String(scene.对白 || '').trim()
+    const availableCharacters = Math.max(6, 24 - dialogueTextForTiming(dialogue).length)
+    const voiceover = shortVoiceoverContext(scene.剧情 || scene.动作, Math.min(16, availableCharacters))
+    if (!voiceover) continue
+    const replacement = `对白：[画外音]${voiceover}；${dialogue}`
+    paragraphs[index]!.text = /(^|｜)\s*对白\s*[：:][^｜]*/u.test(paragraphs[index]!.text)
+      ? paragraphs[index]!.text.replace(/(^|｜)\s*对白\s*[：:][^｜]*/u, `$1${replacement}`)
+      : `${paragraphs[index]!.text}｜${replacement}`
+    selected.add(index)
+  }
+
+  return paragraphs
+    .map((paragraph) =>
+      [
+        paragraph.forceEpisodeBreakBefore ? FORCE_EPISODE_BREAK_MARKER : '',
+        paragraph.forceShotBreakBefore ? FORCE_SHOT_BREAK_MARKER : '',
+        paragraph.text,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    )
+    .join('\n')
+}
+
 function sceneHasSpokenDialogue(dialogue: string | undefined): boolean {
   return (
     /\[(?:对白|画外音|内心独白)\]/u.test(String(dialogue || '')) && !/无台词/u.test(String(dialogue || ''))
@@ -1493,6 +1564,25 @@ function compactDialogueContext(value: string | undefined): string {
   if (!normalized) return ''
   const sentence = normalized.split(/(?<=[。！？!?])/u)[0] || normalized
   return sentence.length <= 52 ? sentence : `${sentence.slice(0, 52)}。`
+}
+
+function shortVoiceoverContext(value: string | undefined, limit: number): string {
+  const normalized = String(value || '')
+    .replace(/(?:目标|阻力|变化|结果)\s*[：:]/gu, '')
+    .replace(/动作\s*\d+\s*[：:]/gu, '')
+    .replace(/[“”"']/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  if (!normalized) return ''
+  const clause =
+    normalized
+      .split(/[。！？!?；;，,]/u)
+      .find(Boolean)
+      ?.trim() || normalized
+  const text = (clause.length >= 4 ? clause : normalized)
+    .slice(0, Math.max(4, limit))
+    .replace(/[。！？!?；;，,]+$/u, '')
+  return text ? `${text}。` : ''
 }
 
 function assertWebSeriesDialogueCoverage(script: string, mode: ScriptContentMode): void {
@@ -2904,35 +2994,48 @@ function splitScriptIntoBeatShots(
     const fields = parseShotFields(paragraph)
     const direction = parseSceneDirectionFields(paragraph)
     const beats = splitFieldBeats(fields.动作 || fields.剧情 || paragraph).slice(0, 4)
-    const dialogueBeats = splitFieldBeats(fields.对白 || '')
+    const dialogueBeats = spokenDialogueCues(fields.对白)
+    const soundCues = nonSpokenSoundCues(fields.对白)
     const sceneNumber = fields.场次 || String(sceneIndex + 1)
+    const previousParagraph = paragraphs[sceneIndex - 1]
+    const continuesPreviousScene =
+      sceneIndex > 0 &&
+      !scriptParagraph.forceShotBreakBefore &&
+      scenesShareVisualContinuity(previousParagraph?.text || '', paragraph)
     for (const [beatIndex, beat] of beats.entries()) {
       if (shots.length >= maxShots) return shots
-      const dialogue =
+      const spokenDialogue =
         dialogueBeats.length > 1
           ? dialogueBeats[beatIndex] || ''
           : beatIndex === 0
             ? dialogueBeats[0] || ''
             : ''
+      const dialogue = [spokenDialogue, beatIndex === 0 ? soundCues.join('；') : '']
+        .filter(Boolean)
+        .join('；')
       const duration = estimateShotDuration(beat, dialogue, fields, isWebSeries)
+      const previousSource =
+        beatIndex > 0
+          ? continuitySource(fields, direction, beats[beatIndex - 1] || '')
+          : previousParagraph?.text || ''
+      const currentSource = continuitySource(fields, direction, beat)
       shots.push({
         title: `场次 ${sceneNumber} · 动作 ${beatIndex + 1}`,
-        framing: beatFraming(fields.构图, beatIndex, beats.length),
+        framing: beatFraming(fields.构图, beat, dialogue, beatIndex, beats.length),
         duration,
         prompt: compactShotPrompt(fields, direction, beat, dialogue, duration, beatIndex, beats.length),
         negativePrompt: '',
         imageUrl: null,
         episodeBreakBefore: beatIndex === 0 && scriptParagraph.forceEpisodeBreakBefore,
         episodeKind: isHookParagraph(paragraph) && beatIndex === beats.length - 1 ? 'hook' : 'standard',
-        continuityMode: shots.length === 0 ? 'independent' : 'continue',
-        continuityNote: continuityNoteFor(
-          beatIndex > 0 ? beats[beatIndex - 1] || '' : paragraphs[sceneIndex - 1]?.text || '',
-          beatIndex > 0 ? '上一镜' : '上一场',
-          {
-            entryState: beatIndex === 0 ? direction.入场状态 : undefined,
-            exitState: beatIndex === beats.length - 1 ? direction.出场状态 : undefined,
-          },
-        ),
+        continuityMode:
+          shots.length === 0 || (beatIndex === 0 && !continuesPreviousScene) ? 'independent' : 'continue',
+        continuityNote: continuityNoteFor(previousSource, beatIndex > 0 ? '上一镜' : '上一场', {
+          entryState: beatIndex === 0 ? direction.入场状态 : undefined,
+          exitState: beatIndex === beats.length - 1 ? direction.出场状态 : undefined,
+          current: currentSource,
+          visualContinuity: beatIndex > 0 || continuesPreviousScene,
+        }),
       })
     }
   }
@@ -2949,9 +3052,14 @@ function splitScriptIntoSceneShots(
     const fields = parseShotFields(paragraph)
     const direction = parseSceneDirectionFields(paragraph)
     const structured = Object.keys(fields).length > 1
+    const previousParagraph = paragraphs[index - 1]
+    const continuesPreviousScene =
+      index > 0 &&
+      !scriptParagraph.forceShotBreakBefore &&
+      scenesShareVisualContinuity(previousParagraph?.text || '', paragraph)
     return {
       title: `镜头 ${String(index + 1).padStart(2, '0')}`,
-      framing: index === 0 ? '大全景' : index % 3 === 0 ? '特写' : '中景',
+      framing: sceneFraming(fields, index),
       duration: structured
         ? estimateShotDuration(fields.动作 || fields.剧情 || paragraph, fields.对白, fields, isWebSeries)
         : Math.min(15, Math.max(isWebSeries ? 3 : 4, Math.ceil(paragraph.length / 18))),
@@ -2971,10 +3079,13 @@ function splitScriptIntoSceneShots(
       imageUrl: null,
       episodeBreakBefore: scriptParagraph.forceEpisodeBreakBefore,
       episodeKind: isHookParagraph(paragraph) ? ('hook' as const) : ('standard' as const),
-      continuityMode: index === 0 ? ('independent' as const) : ('continue' as const),
-      continuityNote: continuityNoteFor(paragraphs[index - 1]?.text || '', '上一场', {
+      continuityMode:
+        index === 0 || !continuesPreviousScene ? ('independent' as const) : ('continue' as const),
+      continuityNote: continuityNoteFor(previousParagraph?.text || '', '上一场', {
         entryState: direction.入场状态,
         exitState: direction.出场状态,
+        current: paragraph,
+        visualContinuity: continuesPreviousScene,
       }),
     }
   })
@@ -3000,17 +3111,115 @@ function isHookParagraph(paragraph: string): boolean {
 function continuityNoteFor(
   previous: string,
   previousLabel: '上一场' | '上一镜',
-  sceneState: { entryState?: string | undefined; exitState?: string | undefined } = {},
+  sceneState: {
+    entryState?: string | undefined
+    exitState?: string | undefined
+    current?: string | undefined
+    visualContinuity?: boolean | undefined
+  } = {},
 ): string {
   if (!previous.trim()) return ''
   const previousDirection = parseSceneDirectionFields(previous)
+  const previousFields = parseShotFields(previous)
+  const currentFields = parseShotFields(sceneState.current || '')
+  const previousAction = previousFields.动作 || previousFields.剧情 || previous
+  const currentAction = currentFields.动作 || currentFields.剧情 || sceneState.current || ''
   return [
-    `${previousLabel}已完成；首帧直接承接该镜真实尾帧，不得重演、解释或复述上一镜已经完成的事件。`,
-    previousDirection.出场状态 ? `已形成状态：${tailExcerpt(previousDirection.出场状态, 220)}` : '',
-    sceneState.entryState ? `本镜入场状态：${headExcerpt(sceneState.entryState, 220)}` : '',
-    '人物位置、视线、动作方向、服装、关键物品和光线保持连续；本镜直接执行自己的主动作。',
+    sceneState.visualContinuity
+      ? `${previousLabel}已完成；首帧直接承接该镜真实尾帧，不得重演、解释或复述上一镜已经完成的事件。`
+      : `${previousLabel}已完成；本镜使用独立首帧，只承接剧情状态，不携带上一场画面构图。`,
+    `上一镜终态：${[
+      previousFields.场景 ? `场景在${headExcerpt(previousFields.场景, 100)}` : '',
+      previousFields.角色 ? `人物为${headExcerpt(previousFields.角色, 140)}` : '',
+      previousAction ? `已完成${tailExcerpt(previousAction, 180)}` : '',
+      previousDirection.出场状态 ? `形成${tailExcerpt(previousDirection.出场状态, 180)}` : '',
+    ]
+      .filter(Boolean)
+      .join('；')}`,
+    `本镜动作起点：${[
+      currentFields.场景 ? `场景为${headExcerpt(currentFields.场景, 100)}` : '',
+      currentFields.角色 ? `画内人物为${headExcerpt(currentFields.角色, 140)}` : '',
+      sceneState.entryState ? headExcerpt(sceneState.entryState, 180) : '',
+      currentAction ? `随后只执行${headExcerpt(currentAction, 180)}` : '',
+    ]
+      .filter(Boolean)
+      .join('；')}`,
+    sceneState.visualContinuity
+      ? '人物位置、视线、动作方向、服装、关键物品和光线保持连续；本镜直接执行自己的主动作。'
+      : '人物身份、服装和关键物品归属保持连续；人物位置、构图与光线按本镜新场景重新建立。',
     '本镜结束时保留清晰的结束姿态、视线落点和物件状态，供下一镜真实尾帧直接承接。',
     sceneState.exitState ? `本镜所在场次的最终出场状态：${tailExcerpt(sceneState.exitState, 220)}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function continuitySource(
+  fields: Partial<Record<(typeof SHOT_FIELD_NAMES)[number], string>>,
+  direction: SceneDirectionFields,
+  action: string,
+): string {
+  return [
+    fieldPart('场景', fields.场景, 320),
+    fieldPart('角色', fields.角色, 420),
+    fieldPart('动作', action, 520),
+    fieldPart('入场状态', direction.入场状态, 240),
+    fieldPart('出场状态', direction.出场状态, 240),
+  ]
+    .filter(Boolean)
+    .join('｜')
+}
+
+function scenesShareVisualContinuity(previous: string, current: string): boolean {
+  if (!previous.trim() || !current.trim()) return false
+  const previousScene = parseShotFields(previous).场景 || ''
+  const currentScene = parseShotFields(current).场景 || ''
+  if (/^(?:沿用|承接|继续)(?:上一场|上场|前场)/u.test(currentScene.trim())) return true
+  if (!previousScene.trim() && !currentScene.trim()) return true
+  if (!previousScene.trim() || !currentScene.trim()) return false
+  const previousMoment = sceneMoment(previousScene)
+  const currentMoment = sceneMoment(currentScene)
+  if (previousMoment && currentMoment && previousMoment !== currentMoment) return false
+  const previousIdentity = normalizedSceneIdentity(previousScene)
+  const currentIdentity = normalizedSceneIdentity(currentScene)
+  if (!previousIdentity || !currentIdentity) return false
+  return (
+    previousIdentity === currentIdentity ||
+    (Math.min(previousIdentity.length, currentIdentity.length) >= 4 &&
+      (previousIdentity.includes(currentIdentity) || currentIdentity.includes(previousIdentity)))
+  )
+}
+
+function sceneMoment(value: string): 'dawn' | 'day' | 'sunset' | 'night' | '' {
+  if (/清晨|黎明|拂晓|日出/u.test(value)) return 'dawn'
+  if (/黄昏|傍晚|日落/u.test(value)) return 'sunset'
+  if (/深夜|夜晚|夜间|雨夜|雪夜|午夜/u.test(value)) return 'night'
+  if (/白天|上午|中午|下午|日间/u.test(value)) return 'day'
+  return ''
+}
+
+function normalizedSceneIdentity(value: string): string {
+  return value
+    .split(/[，,；;。]/u)[0]!
+    .replace(/(?:清晨|早晨|上午|中午|下午|傍晚|黄昏|深夜|夜晚|夜间|白天|雨天|雪天|晴天|雾天)/gu, '')
+    .replace(/[\s·|｜()（）【】\-—]/gu, '')
+    .trim()
+}
+
+function episodeOpeningContinuityNote(
+  previousEpisode: ScriptEpisode | undefined,
+  episode: ScriptEpisode,
+  shotContinuityNote: string,
+): string {
+  if (!previousEpisode) return shotContinuityNote
+  const previousState = Object.keys(previousEpisode.continuityState || {}).length
+    ? JSON.stringify(previousEpisode.continuityState)
+    : previousEpisode.summary || previousEpisode.content.replace(/\s+/gu, ' ').slice(-500)
+  return [
+    `剧集边界：第 ${episode.episodeNumber} 集使用独立首帧，不得读取上一集尾帧作为视觉参考。`,
+    `上一集剧情终态：${tailExcerpt(previousState, 500)}`,
+    '只承接人物关系、已知信息、情绪和关键物品归属；当前镜头的场景、时间、人物位置与动作以本集开场分镜为准。',
+    shotContinuityNote,
   ]
     .filter(Boolean)
     .join('\n')
@@ -3080,6 +3289,29 @@ function splitFieldBeats(value: string, splitCommas = false): string[] {
   return text
     .split(/(?<=[。！？!?])/u)
     .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function spokenDialogueCues(value: string | undefined): string[] {
+  const text = String(value || '').trim()
+  if (!text) return []
+  const tagged = splitTaggedAudioCues(text).filter((cue) => /^\[(?:对白|台词|画外音|内心独白)\]/u.test(cue))
+  if (tagged.length) return tagged
+  return splitFieldBeats(text).filter(
+    (cue) => !/无台词|静音|^\[(?:音效|环境声|音乐|音乐\/环境声)\]/u.test(cue),
+  )
+}
+
+function nonSpokenSoundCues(value: string | undefined): string[] {
+  return splitTaggedAudioCues(String(value || '')).filter((cue) =>
+    /^\[(?:音效|环境声|音乐|音乐\/环境声)\]/u.test(cue),
+  )
+}
+
+function splitTaggedAudioCues(value: string): string[] {
+  return value
+    .split(/(?=\[(?:对白|台词|画外音|内心独白|音效|环境声|音乐|音乐\/环境声)\])/u)
+    .map((cue) => cue.trim().replace(/^[；;]+|[；;]+$/gu, ''))
     .filter(Boolean)
 }
 
@@ -3155,9 +3387,12 @@ function estimateShotDuration(
 }
 
 function dialogueTextForTiming(dialogue: string | undefined): string {
-  return String(dialogue || '')
-    .replace(/\[(?:台词|画外音|内心独白)\]/gu, '')
-    .replace(/^[^：:\n]{1,16}[：:]/u, '')
+  const source = String(dialogue || '')
+  const spokenCues = spokenDialogueCues(source)
+  return (spokenCues.length ? spokenCues.join('；') : source)
+    .replace(/\[(?:对白|台词|画外音|内心独白)\]/gu, '')
+    .replace(/(?:^|[；;])[^：:\n]{1,16}[：:]/gu, '')
+    .replace(/\[(?:音效|环境声|音乐|音乐\/环境声)\][^；;]*/gu, '')
     .replace(/[\s，。！？、；;“”"'（）()——-]/gu, '')
     .trim()
 }
@@ -3198,7 +3433,8 @@ function namedRolesForDirector(roleField: string | undefined): string[] {
     .filter((name): name is string => Boolean(name))
   if (profiledRoles.length) return profiledRoles
   return raw
-    .split(/[、，,；;]/u)
+    .split(/[；;]/u)
+    .flatMap((role) => (role.split(/[，,]/u)[0] || '').split('、'))
     .map((role) => role.replace(/[（(].*$/u, '').trim())
     .filter(Boolean)
 }
@@ -3208,16 +3444,41 @@ function fieldPart(label: string, value: string | undefined, limit: number): str
   return text ? `${label}：${text.slice(0, limit)}` : ''
 }
 
-function beatFraming(composition: string | undefined, beatIndex: number, beatCount: number): string {
+function beatFraming(
+  composition: string | undefined,
+  beat: string,
+  dialogue: string | undefined,
+  beatIndex: number,
+  beatCount: number,
+): string {
+  const explicit = ['大全景', '全景', '广角', '俯拍', '中景', '中近景', '近景', '特写'].find((framing) =>
+    composition?.includes(framing),
+  )
   if (beatIndex === 0) {
-    return (
-      ['大全景', '全景', '广角', '俯拍', '中景', '中近景', '近景', '特写'].find((framing) =>
-        composition?.includes(framing),
-      ) || '大全景'
-    )
+    return explicit || (/走|跑|冲|进入|离开|战斗|追逐/u.test(beat) ? '全景' : '大全景')
   }
-  if (beatIndex === beatCount - 1) return '特写'
+  if (/看清|发现|信封|手机|屏幕|戒指|钥匙|照片|证据|按钮|伤口/u.test(beat)) return '特写'
+  if (dialogueTextForTiming(dialogue).length || /表情|眼神|皱眉|流泪|惊愕|错愕|警觉/u.test(beat)) {
+    return beatIndex === beatCount - 1 ? '特写' : '近景'
+  }
+  if (/走|跑|冲|进入|离开|打|击|躲|转身|起身|坐下|拥抱|推|拉/u.test(beat)) return '中景'
+  if (beatIndex === beatCount - 1) return '近景'
   return '中景'
+}
+
+function sceneFraming(
+  fields: Partial<Record<(typeof SHOT_FIELD_NAMES)[number], string>>,
+  index: number,
+): string {
+  const action = fields.动作 || fields.剧情 || ''
+  const explicit = ['大全景', '全景', '广角', '俯拍', '中景', '中近景', '近景', '特写'].find((framing) =>
+    fields.构图?.includes(framing),
+  )
+  if (explicit) return explicit
+  if (/看清|发现|信封|手机|屏幕|戒指|钥匙|照片|证据|按钮|伤口/u.test(action)) return '特写'
+  if (fields.对白 || /表情|眼神|皱眉|流泪|惊愕|错愕|警觉/u.test(action)) return '中近景'
+  if (/走|跑|冲|进入|离开|战斗|追逐|人群|全貌/u.test(action)) return '全景'
+  return index === 0 ? '大全景' : '中景'
 }
 
 function assetSummary(assets: Asset[]): string {

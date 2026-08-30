@@ -42,7 +42,7 @@ describe('compileStoryboardVideoPrompt', () => {
       references: [{ id: 'lin' }, { id: 'station' }],
     })
 
-    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v13')
+    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v14')
     expect(prompt).toContain('连续4秒、9:16画幅')
     expect(prompt).toContain('【当前镜头】镜头，特写')
     expect(prompt).not.toContain('上一镜结束：场景：雨夜旧火车站。')
@@ -77,7 +77,7 @@ describe('compileStoryboardVideoPrompt', () => {
     expect(prompt).toContain('【场景衔接上下文】上一场人物右手握住门把手')
   })
 
-  it('does not leak continuity text into an independent shot', () => {
+  it('uses episode continuity as narrative context without carrying over the previous frame', () => {
     const prompt = compileStoryboardVideoPrompt({
       project: { aspectRatio: '9:16' },
       shot: {
@@ -88,7 +88,9 @@ describe('compileStoryboardVideoPrompt', () => {
     })
 
     expect(prompt).toContain('【独立镜头】')
-    expect(prompt).not.toContain('上一集结尾')
+    expect(prompt).toContain('【剧情承接（仅叙事约束）】上一集结尾')
+    expect(prompt).toContain('禁止使用上一镜或上一集尾帧')
+    expect(prompt).toContain('当前场景、人物位置和动作必须以当前分镜事实为准')
     expect(prompt).not.toContain('【场景衔接上下文】')
   })
 

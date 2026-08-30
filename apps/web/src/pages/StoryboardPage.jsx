@@ -43,6 +43,7 @@ const VIDEO_RESOLUTIONS = [
 
 export function StoryboardPage({
   project,
+  scriptEpisodes = [],
   shots,
   assets,
   tasks,
@@ -76,24 +77,33 @@ export function StoryboardPage({
   const [deletingShotId, setDeletingShotId] = useState('')
   const isWebSeries = project?.contentType === 'short-drama'
   const shotMinDuration = isWebSeries ? 3 : 4
-  const totalDuration = shots.reduce(
-    (sum, shot) => sum + normalizedVideoDuration(shot.duration, shotMinDuration),
-    0,
+  const episodes = groupShotsByEpisode(shots, shotMinDuration, scriptEpisodes)
+  const [selectedEpisode, setSelectedEpisode] = useState(
+    () => episodeKeyForShot(shots[0]) || (episodes[0] ? episodeKey(episodes[0]) : 'all'),
   )
-  const batchPlan = planVideoBatch(shots, batchMode, concurrency)
-  const activeBatchTasks = activeVideoTasksForShots(tasks, shots)
-  const batchLocked = activeBatchTasks.length > 0
-  const controlsLocked = batchLocked || Boolean(splitting) || splittingEpisodes || generatingAll
-  const activeShotCount = new Set(activeBatchTasks.map((task) => task.metadata?.shotId)).size
-  const episodes = groupShotsByEpisode(shots, shotMinDuration)
-  const [selectedEpisode, setSelectedEpisode] = useState(() => episodeKeyForShot(shots[0]) || 'all')
   const visibleEpisodes =
     selectedEpisode === 'all'
       ? episodes
       : episodes.filter((episode) => episodeKey(episode) === selectedEpisode)
   const selectedEpisodeIndex = episodes.findIndex((episode) => episodeKey(episode) === selectedEpisode)
+  const currentEpisode = selectedEpisode === 'all' ? null : episodes[selectedEpisodeIndex] || null
+  const hasScriptEpisodeWorkflow = episodes.some((episode) => Boolean(episode.scriptEpisodeId))
+  const rangeShots = selectedEpisode === 'all' ? shots : visibleEpisodes.flatMap((episode) => episode.shots)
+  const activeBatchTasks = activeVideoTasksForShots(tasks, rangeShots)
+  const batchLocked = activeBatchTasks.length > 0
+  const controlsLocked = batchLocked || Boolean(splitting) || splittingEpisodes || generatingAll
+  const activeShotCount = new Set(activeBatchTasks.map((task) => task.metadata?.shotId)).size
+  const totalDuration = rangeShots.reduce(
+    (sum, shot) => sum + normalizedVideoDuration(shot.duration, shotMinDuration),
+    0,
+  )
+  const batchPlan = planVideoBatch(rangeShots, batchMode, concurrency)
+  const continuityPointCount = visibleEpisodes.reduce(
+    (count, episode) => count + Math.max(0, episode.shots.length - 1),
+    0,
+  )
   const historyShot = shots.find((shot) => shot.id === historyShotId) || null
-  const downloadableVideos = shots.flatMap((shot) => {
+  const downloadableVideos = rangeShots.flatMap((shot) => {
     const taskId = selectedVersionTaskId(tasks, shot, 'video')
     const task = tasks.find((item) => item.id === taskId && item.status === 'completed')
     const url = taskOutputUrl(task, 'video')
@@ -111,13 +121,14 @@ export function StoryboardPage({
     }
   }, [episodes, selectedEpisode])
 
-  const splitFromScript = async (mode) => {
+  const splitFromScript = async (mode, episodeOverride = null) => {
     if (controlsLocked) return
+    const targetEpisode = episodeOverride || currentEpisode
     setSplitting(mode)
     setOperationError('')
     setOperationNotice('')
     try {
-      const generatedShots = await onRegenerate(mode, episodeDuration)
+      const generatedShots = await onRegenerate(mode, episodeDuration, targetEpisode?.scriptEpisodeId)
       const generatedCount = Array.isArray(generatedShots) ? generatedShots.length : 0
       if (generatedCount) {
         setOperationNotice(
@@ -163,7 +174,7 @@ export function StoryboardPage({
     setOperationError('')
     setOperationNotice('')
     try {
-      await onGenerateAllVideos(shots, batchResolution, mode)
+      await onGenerateAllVideos(rangeShots, batchResolution, mode)
     } catch (error) {
       setOperationError(error.message)
     } finally {
@@ -203,22 +214,29 @@ export function StoryboardPage({
   }
 
   const latestEpisode = episodes.at(-1)
-  const newShotDraft = (episodeNumber = latestEpisode?.number || 1, forceNewEpisode = false) => ({
-    title: forceNewEpisode ? `第 ${episodeNumber} 集 · 开场镜头` : `镜头 ${shots.length + 1}`,
-    framing: '中景',
-    duration: shotMinDuration,
-    prompt: '',
-    negativePrompt: '',
-    imageUrl: null,
-    continuityMode: forceNewEpisode || !shots.length ? 'independent' : 'continue',
-    continuityNote: '',
-    episodeBreakBefore: forceNewEpisode,
-    episodeNumber,
-    episodeTitle: forceNewEpisode
-      ? `第 ${episodeNumber} 集`
-      : latestEpisode?.title || `第 ${episodeNumber} 集`,
-    episodeKind: 'standard',
-  })
+  const newShotDraft = (
+    episodeNumber = currentEpisode?.number || latestEpisode?.number || 1,
+    forceNewEpisode = false,
+  ) => {
+    const targetEpisode = currentEpisode || latestEpisode
+    return {
+      title: forceNewEpisode ? `第 ${episodeNumber} 集 · 开场镜头` : `镜头 ${shots.length + 1}`,
+      framing: '中景',
+      duration: shotMinDuration,
+      prompt: '',
+      negativePrompt: '',
+      imageUrl: null,
+      scriptEpisodeId: forceNewEpisode ? null : targetEpisode?.scriptEpisodeId || null,
+      continuityMode: forceNewEpisode || !targetEpisode?.shots.length ? 'independent' : 'continue',
+      continuityNote: '',
+      episodeBreakBefore: forceNewEpisode,
+      episodeNumber,
+      episodeTitle: forceNewEpisode
+        ? `第 ${episodeNumber} 集`
+        : targetEpisode?.title || `第 ${episodeNumber} 集`,
+      episodeKind: 'standard',
+    }
+  }
 
   const deleteShot = async (shot) => {
     const videoTask = taskFor(tasks, shot, 'video')
@@ -249,10 +267,20 @@ export function StoryboardPage({
           className="button secondary"
           onClick={() => void splitFromScript('scene')}
           disabled={controlsLocked}
-          title="扫描完整剧本并批量生成：标准剧本按场次拆分；只识别到一个超长文本块时自动按语义段落补充分镜"
+          title={
+            currentEpisode
+              ? `只重新生成第 ${currentEpisode.number} 集分镜，不影响其他集`
+              : '扫描全部已保存剧集并按场次批量生成分镜'
+          }
         >
           {splitting === 'scene' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
-          {splitting === 'scene' ? '正在批量拆分全剧本' : '批量智能分镜'}
+          {splitting === 'scene'
+            ? currentEpisode
+              ? `正在生成第 ${currentEpisode.number} 集`
+              : '正在批量拆分全部剧集'
+            : currentEpisode
+              ? `生成第 ${currentEpisode.number} 集分镜`
+              : '生成全部剧集分镜'}
         </button>
         <button
           className="button secondary"
@@ -260,7 +288,11 @@ export function StoryboardPage({
           disabled={controlsLocked}
         >
           {splitting === 'beat' ? <LoaderCircle size={16} className="spin" /> : <Scissors size={16} />}
-          {splitting === 'beat' ? '正在按动作拆分' : '按动作拆分镜头'}
+          {splitting === 'beat'
+            ? '正在按动作拆分'
+            : currentEpisode
+              ? `细拆第 ${currentEpisode.number} 集动作`
+              : '细拆全部剧集动作'}
         </button>
         <button
           type="button"
@@ -270,14 +302,16 @@ export function StoryboardPage({
         >
           <Plus size={16} /> 添加分镜
         </button>
-        <button
-          type="button"
-          className="button secondary"
-          onClick={() => setEditing(newShotDraft((latestEpisode?.number || 0) + 1, true))}
-          disabled={controlsLocked}
-        >
-          <BookOpenText size={16} /> 添加分集
-        </button>
+        {!hasScriptEpisodeWorkflow && (
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => setEditing(newShotDraft((latestEpisode?.number || 0) + 1, true))}
+            disabled={controlsLocked}
+          >
+            <BookOpenText size={16} /> 添加分集
+          </button>
+        )}
         <label className="batch-resolution-control">
           <span>批量清晰度</span>
           <select
@@ -317,10 +351,16 @@ export function StoryboardPage({
         <button
           className="button primary"
           onClick={() => void generateAll()}
-          disabled={!shots.length || controlsLocked}
+          disabled={!rangeShots.length || controlsLocked}
         >
           {generatingAll ? <LoaderCircle size={16} className="spin" /> : <Video size={16} />}
-          {generatingAll ? '正在加入队列' : batchMode === 'parallel' ? '安全并发生成' : '全片串联生成'}
+          {generatingAll
+            ? '正在加入队列'
+            : currentEpisode
+              ? `生成第 ${currentEpisode.number} 集视频`
+              : batchMode === 'parallel'
+                ? '安全并发生成全部剧集'
+                : '按集串联生成'}
         </button>
         <span className="safe-parallel-help" tabIndex={0} aria-label="安全并发生成说明">
           <CircleHelp size={16} />
@@ -329,7 +369,7 @@ export function StoryboardPage({
         <button
           className="button secondary"
           onClick={() => void generateAll('independent')}
-          disabled={!shots.length || controlsLocked}
+          disabled={!rangeShots.length || controlsLocked}
           title="忽略尾帧承接，把所有镜头作为独立任务同时提交"
         >
           <Zap size={16} /> 全部独立生成
@@ -341,56 +381,64 @@ export function StoryboardPage({
           title={`下载当前选中的已完成视频版本，共 ${downloadableVideos.length} 条`}
         >
           {downloadingVideos ? <LoaderCircle size={16} className="spin" /> : <Download size={16} />}
-          {downloadingVideos ? '正在打包' : `批量下载 ${downloadableVideos.length} 条`}
+          {downloadingVideos
+            ? '正在打包'
+            : currentEpisode
+              ? `下载第 ${currentEpisode.number} 集 · ${downloadableVideos.length} 条`
+              : `批量下载 ${downloadableVideos.length} 条`}
         </button>
       </PageHeader>
-      <div className="episode-split-toolbar">
-        <div>
-          <span className="eyebrow">剧集结构</span>
-          <strong>按目标时长自动分集</strong>
-          <small>镜头保持完整，钩子留在本集末镜；强制分集标记优先生效</small>
+      {!hasScriptEpisodeWorkflow && (
+        <div className="episode-split-toolbar">
+          <div>
+            <span className="eyebrow">剧集结构</span>
+            <strong>按目标时长自动分集</strong>
+            <small>镜头保持完整，钩子留在本集末镜；强制分集标记优先生效</small>
+          </div>
+          <label>
+            <span>每集时长</span>
+            <span className="episode-duration-input">
+              <input
+                aria-label="分镜每集时长（秒）"
+                type="number"
+                min="30"
+                max="300"
+                step="1"
+                value={episodeDuration}
+                disabled={controlsLocked}
+                onChange={(event) => setEpisodeDuration(Number(event.target.value) || 0)}
+                onBlur={() => {
+                  const next = Math.min(300, Math.max(30, Math.round(Number(episodeDuration) || 60)))
+                  setEpisodeDuration(next)
+                  if (next !== projectEpisodeDurationSeconds && onUpdateEpisodeDuration) {
+                    void onUpdateEpisodeDuration(next).catch((error) => setOperationError(error.message))
+                  }
+                }}
+              />
+              <em>秒</em>
+            </span>
+            <span className="episode-duration-source">沿用剧本设置</span>
+          </label>
+          <button
+            className="button secondary"
+            disabled={!shots.length || controlsLocked}
+            onClick={() => void autoSplitEpisodes()}
+          >
+            {splittingEpisodes ? <LoaderCircle size={16} className="spin" /> : <Scissors size={16} />}
+            {splittingEpisodes ? '正在分集' : '自动分集'}
+          </button>
         </div>
-        <label>
-          <span>每集时长</span>
-          <span className="episode-duration-input">
-            <input
-              aria-label="分镜每集时长（秒）"
-              type="number"
-              min="30"
-              max="300"
-              step="1"
-              value={episodeDuration}
-              disabled={controlsLocked}
-              onChange={(event) => setEpisodeDuration(Number(event.target.value) || 0)}
-              onBlur={() => {
-                const next = Math.min(300, Math.max(30, Math.round(Number(episodeDuration) || 60)))
-                setEpisodeDuration(next)
-                if (next !== projectEpisodeDurationSeconds && onUpdateEpisodeDuration) {
-                  void onUpdateEpisodeDuration(next).catch((error) => setOperationError(error.message))
-                }
-              }}
-            />
-            <em>秒</em>
-          </span>
-          <span className="episode-duration-source">沿用剧本设置</span>
-        </label>
-        <button
-          className="button secondary"
-          disabled={!shots.length || controlsLocked}
-          onClick={() => void autoSplitEpisodes()}
-        >
-          {splittingEpisodes ? <LoaderCircle size={16} className="spin" /> : <Scissors size={16} />}
-          {splittingEpisodes ? '正在分集' : '自动分集'}
-        </button>
-      </div>
+      )}
       <div className="storyboard-summary">
         <span>
-          <Film size={16} /> {episodes.length} 集 · {shots.length} 个镜头
+          <Film size={16} />
+          {currentEpisode ? `第 ${currentEpisode.number} 集` : `${episodes.length} 集`} · {rangeShots.length}{' '}
+          个镜头
         </span>
         <div>
-          <span>{shots.length} 个镜头</span>
+          <span>{rangeShots.length} 个镜头</span>
           <span>{totalDuration} 秒</span>
-          <span>{Math.max(0, shots.length - 1)} 个衔接点</span>
+          <span>{continuityPointCount} 个镜内衔接点</span>
           <span>
             {batchPlan.immediateLaneCount} / {unlimitedConcurrency ? '演示不限' : concurrency} 路链路
           </span>
@@ -482,9 +530,24 @@ export function StoryboardPage({
               </div>
             </header>
             <div className="shot-list">
-              {episode.shots.map((shot) => {
-                const globalIndex = shots.findIndex((item) => item.id === shot.id)
-                const previousShot = globalIndex > 0 ? shots[globalIndex - 1] : null
+              {!episode.shots.length && (
+                <div className="episode-empty-state">
+                  <div>
+                    <strong>本集还没有分镜</strong>
+                    <span>从已保存的第 {episode.number} 集剧本按场次生成，不会覆盖其他集。</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="button primary"
+                    disabled={controlsLocked || !episode.scriptEpisodeId}
+                    onClick={() => void splitFromScript('scene', episode)}
+                  >
+                    <Film size={16} /> 生成本集分镜
+                  </button>
+                </div>
+              )}
+              {episode.shots.map((shot, shotIndex) => {
+                const previousShot = shotIndex > 0 ? episode.shots[shotIndex - 1] : null
                 return (
                   <ShotRow
                     key={shot.id}
@@ -1010,8 +1073,21 @@ function formatVersionTime(value) {
   }).format(new Date(value))
 }
 
-export function groupShotsByEpisode(shots, minDuration = 4) {
+export function groupShotsByEpisode(shots, minDuration = 4, scriptEpisodes = []) {
   const groups = new Map()
+  for (const episode of scriptEpisodes) {
+    if (episode.status !== 'saved' || !episode.content?.trim()) continue
+    const key = String(episode.episodeNumber)
+    groups.set(key, {
+      number: episode.episodeNumber,
+      title: episode.title || `第 ${episode.episodeNumber} 集`,
+      scriptEpisodeId: episode.id,
+      kind: 'standard',
+      hasHook: false,
+      duration: 0,
+      shots: [],
+    })
+  }
   for (const shot of shots) {
     const number = shot.episodeNumber || 1
     const kind = shot.episodeKind || 'standard'
@@ -1019,12 +1095,14 @@ export function groupShotsByEpisode(shots, minDuration = 4) {
     const current = groups.get(key) || {
       number,
       title: shot.episodeTitle || `第 ${number} 集`,
+      scriptEpisodeId: shot.scriptEpisodeId || null,
       kind: 'standard',
       hasHook: false,
       duration: 0,
       shots: [],
     }
     current.shots.push(shot)
+    current.scriptEpisodeId ||= shot.scriptEpisodeId || null
     current.duration += normalizedVideoDuration(shot.duration, minDuration)
     current.hasHook ||= kind === 'hook'
     current.kind = current.hasHook ? 'hook' : 'standard'
@@ -1156,6 +1234,7 @@ function ShotEditor({
   const [negativePrompt, setNegativePrompt] = useState(shot.negativePrompt || '')
   const [continuityNote, setContinuityNote] = useState(shot.continuityNote || '')
   const [imageUrl, setImageUrl] = useState(shot.imageUrl || '')
+  const [scriptEpisodeId, setScriptEpisodeId] = useState(shot.scriptEpisodeId || null)
   const [episodeNumber, setEpisodeNumber] = useState(shot.episodeNumber || 1)
   const [episodeTitle, setEpisodeTitle] = useState(shot.episodeTitle || `第 ${shot.episodeNumber || 1} 集`)
   const [episodeKind, setEpisodeKind] = useState(shot.episodeKind || 'standard')
@@ -1176,6 +1255,7 @@ function ShotEditor({
     const next = orderedShots[nextIndex] || null
     const episode = previous || next
     if (episode) {
+      setScriptEpisodeId(episode.scriptEpisodeId || null)
       setEpisodeNumber(episode.episodeNumber || 1)
       setEpisodeTitle(episode.episodeTitle || `第 ${episode.episodeNumber || 1} 集`)
       setEpisodeKind('standard')
@@ -1212,6 +1292,7 @@ function ShotEditor({
             negativePrompt,
             continuityNote,
             imageUrl: imageUrl || null,
+            scriptEpisodeId,
             episodeBreakBefore: Boolean(shot.episodeBreakBefore),
             episodeNumber: Number(episodeNumber),
             episodeTitle: episodeTitle.trim() || `第 ${episodeNumber} 集`,

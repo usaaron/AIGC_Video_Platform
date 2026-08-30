@@ -62,6 +62,64 @@ describe('groupShotsByEpisode', () => {
     })
   })
 
+  it('keeps saved script episodes visible before their storyboards are generated', () => {
+    const groups = groupShotsByEpisode([], 3, [
+      {
+        id: 'episode-1',
+        episodeNumber: 1,
+        title: '第一集',
+        status: 'saved',
+        content: '场次：S01｜动作：主角推门。',
+      },
+      {
+        id: 'episode-draft',
+        episodeNumber: 2,
+        title: '草稿',
+        status: 'draft',
+        content: '尚未保存',
+      },
+    ])
+
+    expect(groups).toMatchObject([
+      { number: 1, title: '第一集', scriptEpisodeId: 'episode-1', duration: 0, shots: [] },
+    ])
+  })
+
+  it('shows one-click episode generation instead of legacy duration splitting for saved episodes', () => {
+    const html = renderToStaticMarkup(
+      createElement(StoryboardPage, {
+        project: { id: 'project-1', contentType: 'short-drama' },
+        scriptEpisodes: [
+          {
+            id: 'episode-1',
+            episodeNumber: 1,
+            title: '第一集',
+            status: 'saved',
+            content: '场次：S01｜动作：主角推门。',
+          },
+        ],
+        shots: [],
+        assets: [],
+        tasks: [],
+        onUpdateEpisodeDuration: vi.fn(),
+        onRegenerate: vi.fn(),
+        onAutoSplitEpisodes: vi.fn(),
+        onCreate: vi.fn(),
+        onUpdate: vi.fn(),
+        onDelete: vi.fn(),
+        onUpload: vi.fn(),
+        onGenerateVideo: vi.fn(),
+        onGenerateAllVideos: vi.fn(),
+        onNext: vi.fn(),
+      }),
+    )
+
+    expect(html).toContain('本集还没有分镜')
+    expect(html).toContain('生成第 1 集分镜')
+    expect(html).not.toContain('按目标时长自动分集')
+    expect(html).not.toContain('添加分集')
+  })
+
   it('renders the selected completed video directly inside the shot row', () => {
     const html = renderToStaticMarkup(
       createElement(StoryboardPage, {
@@ -106,7 +164,7 @@ describe('groupShotsByEpisode', () => {
     expect(html).toContain('<video')
     expect(html).toContain('/generated/shot-1.mp4')
     expect(html).toContain('成片预览')
-    expect(html).toContain('批量下载 1 条')
-    expect(html).toContain('批量智能分镜')
+    expect(html).toContain('下载第 1 集 · 1 条')
+    expect(html).toContain('生成第 1 集分镜')
   })
 })

@@ -1130,6 +1130,7 @@ function App() {
       storyboard: (
         <StoryboardPage
           project={project}
+          scriptEpisodes={workspace.scriptEpisodes}
           shots={workspace.shots}
           assets={workspace.assets}
           tasks={tasks}
@@ -1141,11 +1142,12 @@ function App() {
           }}
           concurrency={billing.concurrency}
           unlimitedConcurrency={billing.unlimitedConcurrency}
-          onRegenerate={async (mode = 'scene', episodeDurationSeconds = 60) => {
+          onRegenerate={async (mode = 'scene', episodeDurationSeconds = 60, episodeId) => {
             const generatedShots = await api.generateShots(project.id, {
               maxShots: project.contentType === 'short-drama' ? 120 : 48,
               mode,
               episodeDurationSeconds,
+              ...(episodeId ? { episodeId } : {}),
             })
             await refreshWorkspace()
             setToast(
