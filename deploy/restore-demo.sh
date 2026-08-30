@@ -108,6 +108,13 @@ if [[ -f "${backup_dir}/json/app.json" || -f "${backup_dir}/json/uploads.tgz" ]]
         tar -xzf /backup/uploads.tgz -C /data
       fi
     '
+
+  # The API and worker images run as the unprivileged node user (UID 1000).
+  # Restore files as that user so the JSON store can acquire its lock.
+  docker run --rm \
+    -v "${DATA_VOLUME}:/data" \
+    alpine:3.21 \
+    chown -R 1000:1000 /data
 fi
 
 if [[ "$RUN_MIGRATIONS" == 'true' ]]; then
