@@ -103,6 +103,7 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
         model: config.DEEPSEEK_V4_MODEL,
         completionsPath: config.DEEPSEEK_V4_CHAT_COMPLETIONS_PATH,
         requestTimeoutMs: config.DEEPSEEK_V4_REQUEST_TIMEOUT_MS,
+        extraBody: { enable_thinking: false },
         maxAttempts: 1,
         providerLabel: 'DeepSeek V4',
         providerName: 'deepseek-v4',

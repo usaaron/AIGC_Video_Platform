@@ -75,6 +75,7 @@ describe('runtime providers', () => {
     expect(textProviderName(config)).toBe('deepseek-v4-flash')
     expect(capturedUrl).toBe('https://hk.shanyoucloud.com/v1/chat/completions')
     expect(JSON.parse(capturedBody).model).toBe('deepseek-v4-flash')
+    expect(JSON.parse(capturedBody).enable_thinking).toBe(false)
   })
 
   it('maps the public DeepSeek V4 Flash name to the configured upstream model', async () => {

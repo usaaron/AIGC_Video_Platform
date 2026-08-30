@@ -19,6 +19,7 @@ export type OpenAIChatTextOptions = {
   providerName?: string
   completionsPath?: string
   maxTokensMode?: 'both' | 'max_tokens' | 'max_completion_tokens'
+  extraBody?: Readonly<Record<string, unknown>>
   maxAttempts?: 1 | 2
   fetcher?: typeof fetch
 }
@@ -137,6 +138,7 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
         'Content-Type': 'application/json; charset=utf-8',
       },
       body: JSON.stringify({
+        ...this.options.extraBody,
         model: request.model ?? this.options.model,
         messages: [
           { role: 'system', content: request.systemPrompt },
