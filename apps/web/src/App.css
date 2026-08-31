@@ -6768,6 +6768,16 @@
   color: #58634d;
 }
 
+.script-asset-suggestions-loading > span {
+  min-width: 0;
+  flex: 1;
+}
+
+.script-asset-suggestions-loading > .button {
+  min-height: 30px;
+  flex: none;
+}
+
 .script-asset-suggestions-warning {
   border: 1px solid #e7d6a5;
   background: #fffaf0;
@@ -14315,6 +14325,17 @@
     grid-template-columns: 1fr;
   }
   .script-asset-suggestions-head .button {
+    width: 100%;
+    justify-content: center;
+  }
+  .script-asset-suggestions-head-actions {
+    width: 100%;
+  }
+  .script-asset-suggestions-loading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .script-asset-suggestions-loading > .button {
     width: 100%;
     justify-content: center;
   }

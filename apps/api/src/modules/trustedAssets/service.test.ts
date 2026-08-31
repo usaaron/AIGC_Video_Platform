@@ -309,7 +309,7 @@ describe('TrustedAssetService', () => {
     })
   })
 
-  it('keeps a processing portrait pending when the upstream lookup is eventually consistent', async () => {
+  it('recovers from the whitelist when the direct upstream lookup remains eventually consistent', async () => {
     const store = new AppStore(null)
     await store.initialize()
     const now = new Date().toISOString()
@@ -351,6 +351,24 @@ describe('TrustedAssetService', () => {
     })
 
     let requestedGroupType = ''
+    let listedActive = false
+    const listPortraits = vi.fn(async () =>
+      listedActive
+        ? [
+            {
+              assetId: 'asset-eventual',
+              groupId: 'group-eventual',
+              groupType: 'AIGC' as const,
+              name: '等待验证人物',
+              assetType: 'Image' as const,
+              status: 'active' as const,
+              previewUrl: null,
+              errorCode: null,
+              errorMessage: null,
+            },
+          ]
+        : [],
+    )
     const provider: AssetLibraryProvider = {
       createVirtualGroup: async () => 'unused-group',
       createVirtualAsset: async () => {
@@ -360,7 +378,7 @@ describe('TrustedAssetService', () => {
         requestedGroupType = groupType || ''
         throw new Error('当前人物尚未能建立可靠资源验证')
       },
-      listPortraits: async () => [],
+      listPortraits,
       listAuthorizedPortraits: async () => [],
     }
     const service = new TrustedAssetService(
@@ -381,6 +399,18 @@ describe('TrustedAssetService', () => {
     expect(requestedGroupType).toBe('AIGC')
     expect(updated.attributes).toMatchObject({
       trustedPortrait: { assetId: 'asset-eventual', status: 'processing' },
+    })
+
+    listedActive = true
+    const recovered = await service.refresh('project-midnight-film', 'character-eventual', {
+      userId: 'user-member',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['member'],
+    })
+
+    expect(listPortraits).toHaveBeenCalledTimes(2)
+    expect(recovered.attributes).toMatchObject({
+      trustedPortrait: { assetId: 'asset-eventual', status: 'active' },
     })
   })
 

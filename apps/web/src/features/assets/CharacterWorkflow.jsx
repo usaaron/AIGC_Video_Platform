@@ -17,6 +17,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { ImagePreviewModal } from '../../components/ImagePreviewModal'
 import { confirmCharacterFace } from './assetDraft'
+import { isTrustedPortraitTaskActive } from './assetTaskState'
 
 const STAGES = [
   ['face', '面部定稿', ScanFace],
@@ -56,7 +57,7 @@ export function CharacterWorkflow({
   const bodyTask = taskFor('body')
   const turnaroundTask = taskFor('turnaround')
   const registrationTask = latestTask(relatedTasks, 'trusted-portrait')
-  const registrationTaskActive = ['queued', 'paused', 'running'].includes(registrationTask?.status)
+  const registrationTaskActive = isTrustedPortraitTaskActive(attributes.trustedPortrait, registrationTask)
   const generatedFaceCandidate = completedOutput(faceTask)
   const completedFaceTask = latestCompletedTask(relatedTasks, 'face')
   const completedFaceCandidate = completedOutput(completedFaceTask)
@@ -469,7 +470,7 @@ function TrustedPortraitPanel({
   const refreshTrustedPortraitRef = useRef(onRefreshTrustedPortrait)
   const attributesChangeRef = useRef(onAttributesChange)
   const portrait = attributes.trustedPortrait
-  const registrationTaskFailed = registrationTask?.status === 'failed'
+  const registrationTaskFailed = portrait?.status !== 'active' && registrationTask?.status === 'failed'
   const status = registrationTaskActive
     ? 'processing'
     : registrationTaskFailed && portrait?.status !== 'active'
@@ -614,22 +615,26 @@ function TrustedPortraitPanel({
           >
             {busyAction === 'register' || registrationTaskActive ? (
               <LoaderCircle size={15} className="spin" />
+            ) : portrait?.status === 'active' ? (
+              <CheckCircle2 size={15} />
             ) : (
               <CloudUpload size={15} />
             )}
-            {registrationTaskActive
-              ? registrationTask?.status === 'queued'
-                ? '等待创建资源'
-                : '正在创建资源'
-              : !configuration
-                ? '正在检查配置'
-                : !configuration.virtualRegistrationReady
-                  ? '需要公网地址'
-                  : registrationTaskFailed || portrait?.status === 'failed'
-                    ? '重试 AI 人像资源'
-                    : portrait?.groupType === 'AIGC'
-                      ? '重新提交 AI 人像'
-                      : '创建 AI 人像资源'}
+            {portrait?.status === 'active'
+              ? 'AI 人像已可用'
+              : registrationTaskActive
+                ? registrationTask?.status === 'queued'
+                  ? '等待创建资源'
+                  : '正在创建资源'
+                : !configuration
+                  ? '正在检查配置'
+                  : !configuration.virtualRegistrationReady
+                    ? '需要公网地址'
+                    : registrationTaskFailed || portrait?.status === 'failed'
+                      ? '重试 AI 人像资源'
+                      : portrait?.groupType === 'AIGC'
+                        ? '重新提交 AI 人像'
+                        : '创建 AI 人像资源'}
           </button>
         </span>
 

@@ -133,6 +133,7 @@ export class ProjectService {
     principal: Principal,
     onTextProgress?: (text: string, stage?: string) => void,
     onTextTiming?: (timing: TextGenerationTiming) => void,
+    strategy: 'model' | 'fast' = 'model',
   ) {
     const workspace = await this.workspace(projectId, principal)
     const source = script.trim()
@@ -148,7 +149,10 @@ export class ProjectService {
     let warnings: string[] = []
     let result: { summary: string; assets: ScriptAssetSuggestion[] }
 
-    if (!this.textProvider) {
+    if (strategy === 'fast') {
+      warnings = ['已使用剧本结构快速提取基础资产；建议在资产设计页核对名称、外观和优先级']
+      result = fallbackResult
+    } else if (!this.textProvider) {
       warnings = ['文本服务未配置，已根据剧本文本做基础资产建议']
       result = fallbackResult
     } else {

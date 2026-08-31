@@ -1005,6 +1005,16 @@ function App() {
               model: ASSET_SUGGESTION_MODEL,
             })
           }
+          onSuggestAssetsFast={(script, direction) =>
+            api.suggestScriptAssets(
+              project.id,
+              script,
+              direction,
+              ASSET_SUGGESTION_MODEL,
+              crypto.randomUUID(),
+              'fast',
+            )
+          }
           onCreateAsset={async (input) => {
             const created = await api.createAsset(project.id, input)
             await refreshWorkspace()
@@ -1043,10 +1053,10 @@ function App() {
             return task
           }}
           onUpload={(file) => api.uploadMedia(project.id, file)}
-          onCancelTask={async (taskId) => {
+          onCancelTask={async (taskId, successMessage = '已停止剧本生成，可以切换模型后重试') => {
             await api.deleteTask(taskId)
             replaceTasks(project.id, await api.tasks(project.id))
-            setToast('已停止剧本生成，可以切换模型后重试')
+            setToast(successMessage)
           }}
           onNext={() => navigateTo('assets')}
         />

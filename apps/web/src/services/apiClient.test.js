@@ -640,6 +640,33 @@ describe('api client', () => {
     )
   })
 
+  it('requests fast script asset extraction without waiting for a model', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ summary: '快速资产建议', assets: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.suggestScriptAssets(
+      'project-1',
+      '场次：1｜场景：边城药铺｜角色：女剑客',
+      undefined,
+      'deepseek-v4-flash',
+      'asset-suggestions-fast-1',
+      'fast',
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/projects/project-1/script/asset-suggestions',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          clientRequestId: 'asset-suggestions-fast-1',
+          script: '场次：1｜场景：边城药铺｜角色：女剑客',
+          model: 'deepseek-v4-flash',
+          strategy: 'fast',
+        }),
+      }),
+    )
+  })
+
   it('requests novel asset suggestions from the selected document', async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ summary: '小说资产建议', assets: [] }))
     vi.stubGlobal('fetch', fetchMock)

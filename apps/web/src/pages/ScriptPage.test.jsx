@@ -4,6 +4,15 @@ import { ScriptPage } from './ScriptPage'
 
 const noop = () => {}
 
+function suggestionFingerprint(value) {
+  let hash = 2166136261
+  for (const character of value.trim()) {
+    hash ^= character.codePointAt(0) || 0
+    hash = Math.imul(hash, 16777619)
+  }
+  return `${value.trim().length}:${(hash >>> 0).toString(16)}`
+}
+
 function renderScriptPage(project, textProviderStatus = 'configured', tasks = [], scriptEpisodes = []) {
   return renderToStaticMarkup(
     <ScriptPage
@@ -20,6 +29,7 @@ function renderScriptPage(project, textProviderStatus = 'configured', tasks = []
       onGenerate={noop}
       onGenerateSegment={noop}
       onSuggestAssets={noop}
+      onSuggestAssetsFast={noop}
       onCreateAsset={noop}
       onUpload={noop}
       onCancelTask={noop}
@@ -41,6 +51,7 @@ function renderUnavailableScriptPage(project) {
       onGenerate={noop}
       onGenerateSegment={noop}
       onSuggestAssets={noop}
+      onSuggestAssetsFast={noop}
       onCreateAsset={noop}
       onUpload={noop}
       onCancelTask={noop}
@@ -199,6 +210,38 @@ describe('script content modes', () => {
     expect(html).toContain('正在等待首段内容')
     expect(html).toContain('script-live-preview-skeleton')
     expect(html).toContain('第 1 集')
+  })
+
+  it('offers stop, fast extraction, and skip actions while asset analysis is running', () => {
+    const script = '场次：S01｜场景：雨夜车站｜角色：林夏｜道具：旧雨伞'
+    const project = {
+      id: 'asset-analysis-controls-1',
+      name: '资产分析控制测试',
+      contentType: 'short-drama',
+      episodeDurationSeconds: 60,
+      aspectRatio: '9:16',
+      synopsis: '',
+      script,
+    }
+    const html = renderScriptPage(project, 'configured', [
+      {
+        id: 'asset-analysis-task-1',
+        projectId: project.id,
+        kind: 'text',
+        status: 'running',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        metadata: {
+          generationStage: 'script-asset-suggestions',
+          scriptOperation: 'suggest-assets',
+          sourceScriptFingerprint: suggestionFingerprint(script),
+          assetRevision: 'none',
+        },
+      },
+    ])
+
+    expect(html).toContain('停止资产分析')
+    expect(html).toContain('使用剧本快速提取')
+    expect(html).toContain('跳过并进入资产设计')
   })
 
   it('removes the live preview for completed tasks and ignores another project task', () => {

@@ -87,6 +87,17 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         direction: task.metadata.direction,
         model: task.model ?? task.metadata.model,
       })
+      if (input.strategy === 'fast') {
+        return service.suggestScriptAssets(
+          task.projectId,
+          input.script,
+          input.direction,
+          principal,
+          context?.onTextProgress,
+          context?.onTextTiming,
+          'fast',
+        )
+      }
       return service.suggestScriptAssets(
         task.projectId,
         input.script,

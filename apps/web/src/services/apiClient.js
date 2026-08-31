@@ -150,6 +150,7 @@ export const api = {
     direction,
     modelOrClientRequestId,
     clientRequestId = crypto.randomUUID(),
+    strategy = 'model',
   ) => {
     const modelValues = new Set([
       'seqora-5.6',
@@ -172,6 +173,7 @@ export const api = {
         script,
         direction,
         ...(hasModel ? { model: modelOrClientRequestId } : {}),
+        ...(strategy === 'fast' ? { strategy } : {}),
       }),
     )
   },

@@ -166,7 +166,14 @@ describe('script workflow contracts', () => {
     ).toMatchObject({
       script: 'scene: river crossing',
       direction: expect.objectContaining({ style: 'auto' }),
+      strategy: 'model',
     })
+    expect(
+      generateScriptAssetSuggestionsRequestSchema.parse({
+        script: '场景：河岸',
+        strategy: 'fast',
+      }).strategy,
+    ).toBe('fast')
     expect(enrichScriptRequestSchema.parse({ script: 'scene: river crossing' }).direction).toMatchObject({
       style: 'auto',
       composition: 'auto',

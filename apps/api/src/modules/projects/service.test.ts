@@ -742,6 +742,42 @@ describe('ProjectService asset suggestions', () => {
     request?.onTextProgress?.('{"summary":"处理中"}')
     expect(onTextProgress).toHaveBeenCalledWith('{"summary":"处理中"}', 'asset-suggestions')
   })
+
+  it('returns the fast script fallback without calling the text provider', async () => {
+    const repository = {
+      workspace: vi.fn(async () => ({
+        project: {
+          name: '雨夜来信',
+          contentType: 'short-drama',
+          visualStyle: 'cinematic-cg',
+          aspectRatio: '9:16',
+        },
+        assets: [],
+      })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = { generate: vi.fn() }
+    const service = new ProjectService(repository, textProvider)
+
+    const result = await service.suggestScriptAssets(
+      'project-1',
+      '场次：S01｜场景：雨夜车站｜角色：林夏｜道具：旧雨伞',
+      DEFAULT_SCRIPT_DIRECTION,
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      undefined,
+      undefined,
+      'fast',
+    )
+
+    expect(textProvider.generate).not.toHaveBeenCalled()
+    expect(result.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'character', name: '林夏' }),
+        expect.objectContaining({ kind: 'scene', name: '车站' }),
+        expect.objectContaining({ kind: 'prop', name: '旧雨伞' }),
+      ]),
+    )
+    expect(result.warnings).toEqual([expect.stringContaining('快速提取基础资产')])
+  })
 })
 
 describe('ProjectService director beat splitting', () => {

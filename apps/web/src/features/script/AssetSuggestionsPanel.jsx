@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  ArrowRight,
   CheckSquare2,
   LoaderCircle,
   Badge,
@@ -33,11 +34,15 @@ export function AssetSuggestionsPanel({
   creatingKeys,
   createdKeys,
   onRefresh,
+  onCancel,
+  onFastExtract,
+  onSkip,
   onCreate,
   onCreateAndGenerate,
   onImportSelected,
   onInspect,
   importing = false,
+  stopping = false,
   disabled = false,
   copy = {},
 }) {
@@ -48,6 +53,8 @@ export function AssetSuggestionsPanel({
   const [selectedKeys, setSelectedKeys] = useState(() => new Set())
   const [importingSelected, setImportingSelected] = useState(false)
   const isSuggesting = status === 'suggesting'
+  const isExtracting = status === 'extracting'
+  const isBusy = isSuggesting || isExtracting
   const importBusy = importing || importingSelected
   const hasResult = Boolean(result)
   const creating = creatingKeys || new Set()
@@ -57,7 +64,7 @@ export function AssetSuggestionsPanel({
     eyebrow: '资产建议',
     title: '从剧本提取人物、场景、物品、服装和品牌',
     refresh: hasResult ? '重新分析当前剧本' : '后台生成资产建议',
-    loading: '资产建议正在后台生成，完成后会自动显示',
+    loading: '模型正在后台分析资产；你可以停止、切换为快速提取，或直接进入资产设计。',
     empty: '提交后会在后台分析剧本，即使离开当前页面也会继续生成。',
     ...copy,
   }
@@ -107,7 +114,7 @@ export function AssetSuggestionsPanel({
   }
 
   return (
-    <section className="script-asset-suggestions" aria-busy={isSuggesting}>
+    <section className="script-asset-suggestions" aria-busy={isBusy}>
       <div className="script-asset-suggestions-head">
         <div>
           <span className="eyebrow">{labels.eyebrow}</span>
@@ -127,22 +134,51 @@ export function AssetSuggestionsPanel({
                 : `一键导入资产${selectedAssets.length ? `（${selectedAssets.length}）` : ''}`}
             </button>
           )}
-          <button
-            className="button secondary"
-            type="button"
-            disabled={disabled || isSuggesting}
-            onClick={onRefresh}
-          >
-            {isSuggesting ? <LoaderCircle size={15} className="spin" /> : <RefreshCcw size={15} />}
-            {labels.refresh}
-          </button>
+          {isSuggesting ? (
+            <>
+              <button
+                className="button secondary"
+                type="button"
+                disabled={disabled || stopping}
+                onClick={onCancel}
+              >
+                {stopping ? <LoaderCircle size={15} className="spin" /> : <Square size={14} />}
+                {stopping ? '正在停止' : '停止资产分析'}
+              </button>
+              <button
+                className="button primary"
+                type="button"
+                disabled={disabled || stopping}
+                onClick={onFastExtract}
+              >
+                <ListChecks size={15} />
+                使用剧本快速提取
+              </button>
+            </>
+          ) : (
+            <button
+              className="button secondary"
+              type="button"
+              disabled={disabled || isExtracting}
+              onClick={onRefresh}
+            >
+              {isExtracting ? <LoaderCircle size={15} className="spin" /> : <RefreshCcw size={15} />}
+              {isExtracting ? '正在快速提取' : labels.refresh}
+            </button>
+          )}
         </div>
       </div>
 
-      {isSuggesting && (
+      {isBusy && (
         <div className="script-asset-suggestions-loading" role="status">
           <LoaderCircle size={19} className="spin" />
-          <span>{labels.loading}</span>
+          <span>{isExtracting ? '正在从剧本结构中快速提取人物、场景和关键物件。' : labels.loading}</span>
+          {isSuggesting && onSkip && (
+            <button className="button ghost" type="button" disabled={stopping} onClick={onSkip}>
+              跳过并进入资产设计
+              <ArrowRight size={14} />
+            </button>
+          )}
         </div>
       )}
 
@@ -316,9 +352,7 @@ export function AssetSuggestionsPanel({
         </>
       )}
 
-      {!hasResult && !isSuggesting && !error && (
-        <p className="script-asset-suggestion-empty">{labels.empty}</p>
-      )}
+      {!hasResult && !isBusy && !error && <p className="script-asset-suggestion-empty">{labels.empty}</p>}
     </section>
   )
 }

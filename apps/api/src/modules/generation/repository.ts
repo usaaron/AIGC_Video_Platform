@@ -1542,7 +1542,7 @@ async function preemptActiveScriptTasksInDatabase(
       AND kind = 'text'
       AND provider = 'text'
       AND metadata->>'generationStage' LIKE 'script-%'
-      AND metadata->>'scriptOperation' IN ('generate', 'enrich')
+      AND metadata->>'scriptOperation' IN ('generate', 'enrich', 'suggest-assets')
       AND status IN ('queued', 'paused', 'running')
       AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
     RETURNING ${generationTaskColumns}
@@ -1583,6 +1583,16 @@ function isScriptGenerationTask(input: CreateGenerationTask | GenerationTask): b
   )
 }
 
+function isPreemptibleScriptTask(input: CreateGenerationTask | GenerationTask): boolean {
+  return (
+    isScriptGenerationTask(input) ||
+    (input.kind === 'text' &&
+      input.provider === 'text' &&
+      String(input.metadata?.generationStage || '').startsWith('script-') &&
+      input.metadata?.scriptOperation === 'suggest-assets')
+  )
+}
+
 function isNextEpisodeScriptTask(input: CreateGenerationTask | GenerationTask): boolean {
   return isScriptGenerationTask(input) && input.metadata?.mode === 'segment'
 }
@@ -1604,7 +1614,7 @@ function preemptActiveScriptTasksInState(
       (task) =>
         task.tenantId === principal.tenantId &&
         task.userId === principal.userId &&
-        isScriptGenerationTask(task) &&
+        isPreemptibleScriptTask(task) &&
         ['queued', 'paused', 'running'].includes(task.status) &&
         typeof task.metadata.queueHiddenAt !== 'string',
     )

@@ -390,7 +390,7 @@ export function AssetEditor({
                 references={draft.references}
                 tasks={tasks}
                 onStageChange={setCharacterStage}
-                onAttributesChange={(attributes) => setDraft({ ...draft, attributes })}
+                onAttributesChange={(attributes) => setDraft((current) => ({ ...current, attributes }))}
                 onPersist={persistCharacterAttributes}
                 onGenerate={generateCharacterStage}
                 onGenerateAndClose={(stage) => generateCharacterStage(stage, true)}

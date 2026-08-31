@@ -279,12 +279,19 @@ export class TrustedAssetService {
     provider: AssetLibraryProvider,
     current: TrustedPortrait,
   ): Promise<ProviderPortrait | null> {
+    let directPortrait: ProviderPortrait | null = null
     try {
-      const portrait = await provider.getPortrait(current.assetId, current.groupType)
-      if (portrait.status === 'active') return portrait
-      const listed = await provider.listPortraits(current.groupType)
-      return listed.find((candidate) => candidate.assetId === current.assetId) ?? portrait
+      directPortrait = await provider.getPortrait(current.assetId, current.groupType)
+      if (directPortrait.status === 'active') return directPortrait
     } catch (error) {
+      if (!isPendingPortraitLookupError(error)) throw this.providerError(error)
+    }
+
+    try {
+      const listed = await provider.listPortraits(current.groupType)
+      return listed.find((candidate) => candidate.assetId === current.assetId) ?? directPortrait
+    } catch (error) {
+      if (directPortrait) return directPortrait
       if (isPendingPortraitLookupError(error)) return null
       throw this.providerError(error)
     }

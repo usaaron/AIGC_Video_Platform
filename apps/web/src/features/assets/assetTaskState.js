@@ -20,6 +20,10 @@ export function characterAssetStatus(asset) {
   return '全身已确认'
 }
 
+export function isTrustedPortraitTaskActive(portrait, task) {
+  return portrait?.status !== 'active' && ACTIVE_TASK_STATUSES.has(task?.status)
+}
+
 function taskTimestamp(task) {
   const value = Date.parse(task.updatedAt || task.createdAt || '')
   return Number.isFinite(value) ? value : 0

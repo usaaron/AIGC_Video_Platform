@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeAssetImageTask, characterAssetStatus } from './assetTaskState'
+import { activeAssetImageTask, characterAssetStatus, isTrustedPortraitTaskActive } from './assetTaskState'
 
 describe('asset task state', () => {
   it('does not show a trusted portrait task as image production progress', () => {
@@ -34,5 +34,12 @@ describe('asset task state', () => {
         attributes: { faceStatus: 'approved', trustedPortrait: { status: 'active' } },
       }),
     ).toBe('可信人像可用')
+  })
+
+  it('lets a persisted active portrait override a stale running registration task', () => {
+    const task = { status: 'running' }
+
+    expect(isTrustedPortraitTaskActive({ status: 'processing' }, task)).toBe(true)
+    expect(isTrustedPortraitTaskActive({ status: 'active' }, task)).toBe(false)
   })
 })

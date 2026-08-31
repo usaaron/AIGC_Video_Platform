@@ -454,6 +454,84 @@ describe('GenerationTaskRepository charged creation', () => {
     })
   })
 
+  it('preempts slow asset suggestions when the same account starts a script task', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new GenerationTaskRepository(store)
+    const suggestionInput = taskInput({
+      clientRequestId: 'asset-suggestion-before-script',
+      kind: 'text',
+      provider: 'text',
+      label: '资产建议',
+      estimatedCredits: 2,
+      metadata: {
+        generationStage: 'script-asset-suggestions',
+        scriptOperation: 'suggest-assets',
+      },
+    })
+    const scriptInput = taskInput({
+      clientRequestId: 'script-after-asset-suggestion',
+      kind: 'text',
+      provider: 'text',
+      label: '生成第 1 集',
+      estimatedCredits: 12,
+      metadata: { generationStage: 'script-generate', scriptOperation: 'generate', mode: 'quick' },
+    })
+
+    const suggestion = await repository.createWithCharge(suggestionInput, memberPrincipal)
+    await store.mutate((state) => {
+      state.tasks.find((task) => task.id === suggestion.id)!.status = 'running'
+    })
+    const script = await repository.createWithCharge(scriptInput, memberPrincipal)
+
+    expect(store.read((state) => state.tasks.find((task) => task.id === suggestion.id))).toMatchObject({
+      status: 'cancelled',
+      progress: 100,
+      error: '同一账号已启动新的剧本任务，本任务已自动停止',
+      metadata: {
+        cancelReason: 'new_script_task',
+        queueHiddenAt: expect.any(String),
+      },
+    })
+    expect(script).toMatchObject({ status: 'queued', metadata: { scriptOperation: 'generate' } })
+  })
+
+  it('does not preempt an active script task when asset suggestions are requested', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new GenerationTaskRepository(store)
+    const scriptInput = taskInput({
+      clientRequestId: 'script-before-asset-suggestion',
+      kind: 'text',
+      provider: 'text',
+      label: '生成第 1 集',
+      estimatedCredits: 12,
+      metadata: { generationStage: 'script-generate', scriptOperation: 'generate', mode: 'quick' },
+    })
+    const suggestionInput = taskInput({
+      clientRequestId: 'asset-suggestion-after-script',
+      kind: 'text',
+      provider: 'text',
+      label: '资产建议',
+      estimatedCredits: 2,
+      metadata: {
+        generationStage: 'script-asset-suggestions',
+        scriptOperation: 'suggest-assets',
+      },
+    })
+
+    const script = await repository.createWithCharge(scriptInput, memberPrincipal)
+    await store.mutate((state) => {
+      state.tasks.find((task) => task.id === script.id)!.status = 'running'
+    })
+    await repository.createWithCharge(suggestionInput, memberPrincipal)
+
+    expect(store.read((state) => state.tasks.find((task) => task.id === script.id))).toMatchObject({
+      status: 'running',
+      metadata: { scriptOperation: 'generate' },
+    })
+  })
+
   it('rejects next-episode generation before charging when a draft episode exists', async () => {
     const store = new AppStore(null)
     await store.initialize()

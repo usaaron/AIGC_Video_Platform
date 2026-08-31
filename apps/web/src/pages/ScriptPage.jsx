@@ -150,6 +150,7 @@ export function ScriptPage({
   onGenerate,
   onGenerateSegment,
   onSuggestAssets,
+  onSuggestAssetsFast,
   onCreateAsset,
   onCreateAndGenerateAsset,
   onImportAssets,
@@ -245,6 +246,13 @@ export function ScriptPage({
           (currentAssetRevision === 'none' && !task.metadata?.assetRevision)),
     )
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0]
+  const activeAssetSuggestionTask = ['queued', 'paused', 'running'].includes(
+    latestAssetSuggestionTask?.status,
+  )
+    ? latestAssetSuggestionTask
+    : null
+  const visibleAssetSuggestionStatus =
+    activeAssetSuggestionTask && assetSuggestionStatus === 'idle' ? 'suggesting' : assetSuggestionStatus
   const activeScriptTasks = projectTasks
     .filter(
       (task) =>
@@ -512,6 +520,12 @@ export function ScriptPage({
       setAssetSuggestionResult(null)
       setAssetSuggestionError(latestAssetSuggestionTask.error || '资产建议生成失败，请重试。')
       setAssetSuggestionStatus('ready')
+      return
+    }
+    if (latestAssetSuggestionTask.status === 'cancelled') {
+      setAssetSuggestionResult(null)
+      setAssetSuggestionError('')
+      setAssetSuggestionStatus((current) => (current === 'extracting' ? current : 'idle'))
     }
   }, [latestAssetSuggestionTask])
 
@@ -606,6 +620,45 @@ export function ScriptPage({
     } catch (suggestError) {
       setAssetSuggestionError(suggestError.message)
       setAssetSuggestionStatus('ready')
+    }
+  }
+
+  const stopAssetSuggestions = async () => {
+    if (!activeAssetSuggestionTask || !onCancelTask || stoppingTaskId) return
+    setStoppingTaskId(activeAssetSuggestionTask.id)
+    setAssetSuggestionError('')
+    try {
+      await onCancelTask(activeAssetSuggestionTask.id, '已停止资产分析，其他剧本任务可继续运行')
+      setAssetSuggestionStatus('idle')
+      setAssetSuggestionResult(null)
+    } catch (stopError) {
+      setAssetSuggestionError(stopError.message)
+    } finally {
+      setStoppingTaskId(null)
+    }
+  }
+
+  const extractAssetsFast = async () => {
+    const source = script.trim()
+    if (!source || !onSuggestAssetsFast || stoppingTaskId) return
+    setAssetSuggestionStatus('extracting')
+    setAssetSuggestionResult(null)
+    setAssetSuggestionError('')
+    try {
+      if (activeAssetSuggestionTask && onCancelTask) {
+        setStoppingTaskId(activeAssetSuggestionTask.id)
+        await onCancelTask(activeAssetSuggestionTask.id, '已切换为剧本快速提取')
+      }
+      const result = await onSuggestAssetsFast(source, direction)
+      if (!isAssetSuggestionResult(result)) throw new Error('快速提取没有返回有效资产，请重试')
+      setAssetSuggestionResult(result)
+      setAssetSuggestionStatus('ready')
+      setCreatedAssetKeys(new Set())
+    } catch (extractError) {
+      setAssetSuggestionError(extractError.message)
+      setAssetSuggestionStatus('ready')
+    } finally {
+      setStoppingTaskId(null)
     }
   }
 
@@ -846,6 +899,21 @@ export function ScriptPage({
   const continueToAssets = async () => {
     if (!saved && !(await save())) return
     onNext()
+  }
+
+  const skipAssetSuggestions = async () => {
+    if (activeAssetSuggestionTask && onCancelTask) {
+      try {
+        setStoppingTaskId(activeAssetSuggestionTask.id)
+        await onCancelTask(activeAssetSuggestionTask.id, '已跳过资产建议')
+      } catch (skipError) {
+        setAssetSuggestionError(skipError.message)
+        return
+      } finally {
+        setStoppingTaskId(null)
+      }
+    }
+    await continueToAssets()
   }
 
   return (
@@ -1415,12 +1483,16 @@ export function ScriptPage({
         </div>
 
         <AssetSuggestionsPanel
-          status={assetSuggestionStatus}
+          status={visibleAssetSuggestionStatus}
           result={assetSuggestionResult}
           error={assetSuggestionError}
           creatingKeys={creatingAssetKeys}
           createdKeys={createdAssetKeys}
           onRefresh={() => void suggestAssetsForScript(script)}
+          onCancel={() => void stopAssetSuggestions()}
+          onFastExtract={() => void extractAssetsFast()}
+          onSkip={() => void skipAssetSuggestions()}
+          stopping={Boolean(stoppingTaskId && stoppingTaskId === activeAssetSuggestionTask?.id)}
           onInspect={openSuggestedAssetEditor}
           onCreateAndGenerate={createAndGenerateSuggestedAsset}
           onImportSelected={importSuggestedAssets}
