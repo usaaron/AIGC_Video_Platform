@@ -21,6 +21,7 @@ import { AssetEditor } from '../features/assets/AssetEditor'
 import { ASSET_TABS, IMAGE_MODEL_OPTIONS } from '../features/assets/assetOptions'
 import { GenerationProgress } from '../features/assets/GenerationProgress'
 import { getAssetPreviewUrl } from '../features/assets/assetPreview'
+import { activeAssetImageTask, characterAssetStatus } from '../features/assets/assetTaskState'
 import { summarizeAsset } from '../features/assets/promptCompiler'
 
 const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, brand: Badge, audio: Music2 }
@@ -159,10 +160,7 @@ export function AssetsPage({
                 : null
             }
             onEdit={() => setEditing(asset)}
-            task={tasks.find(
-              (task) =>
-                task.metadata?.assetId === asset.id && ['queued', 'paused', 'running'].includes(task.status),
-            )}
+            task={activeAssetImageTask(asset, tasks)}
             onGenerate={async () => {
               setBusyAssetId(asset.id)
               try {
@@ -331,7 +329,5 @@ function AssetCard({ asset, task, linkedCharacterName, onEdit, onGenerate, onPre
 }
 
 function characterStatus(asset) {
-  if (asset.attributes?.faceStatus !== 'approved') return '待确认面部'
-  if (asset.attributes?.bodyStatus !== 'approved') return '面部已确认'
-  return '全身已确认'
+  return characterAssetStatus(asset)
 }
