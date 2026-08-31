@@ -3086,18 +3086,34 @@ code {
   .admin-sidebar {
     position: static;
     height: auto;
-    overflow-x: auto;
+    overflow: hidden;
+    padding: 12px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
 
   .admin-sidebar nav {
-    display: flex;
-    min-width: max-content;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-width: 0;
+    gap: 8px;
   }
 
   .admin-sidebar button {
-    min-width: 132px;
+    width: 100%;
+    min-width: 0;
+    padding: 0 8px;
+  }
+
+  .sidebar-group {
+    min-width: 0;
+  }
+
+  .sidebar-group h2 {
+    overflow: hidden;
+    padding: 0 5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .console-toolbar,
@@ -3140,18 +3156,44 @@ code {
   }
 
   .topbar-actions {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    width: 100%;
   }
 
   .workbench-return {
-    flex: 1;
     width: 100%;
-    justify-content: space-between;
+    justify-content: center;
   }
 
   .operator-chip {
     min-width: 0;
-    flex: 1;
+    max-width: none;
+  }
+
+  .admin-sidebar {
+    padding: 10px 8px 12px;
+  }
+
+  .admin-sidebar nav {
+    gap: 5px;
+  }
+
+  .admin-sidebar button {
+    min-height: 40px;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    gap: 5px;
+    padding: 0 6px;
+    font-size: 10px;
+  }
+
+  .admin-sidebar button svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .admin-sidebar button small {
+    font-size: 9px;
   }
 
   .admin-main {

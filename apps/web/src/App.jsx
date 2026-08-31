@@ -31,6 +31,12 @@ import {
   readProjectTaskCache,
   writeProjectTaskCache,
 } from './features/generation/projectTaskCache'
+import {
+  clearNotificationDismissals,
+  pruneNotificationDismissals,
+  readNotificationDismissals,
+  writeNotificationDismissals,
+} from './features/notifications/notificationDismissals'
 
 const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const videoResolutions = new Set(['480p', '720p', '1080p', '4k'])
@@ -85,6 +91,7 @@ function App() {
   const [notificationPopups, setNotificationPopups] = useState([])
   const taskStatusesRef = useRef(readTaskStatusCache())
   const notificationHistoryReadyRef = useRef(false)
+  const dismissedNotificationIdsRef = useRef(readNotificationDismissals())
   const workspaceCacheRef = useRef(new Map())
   const activeProjectIdRef = useRef(null)
 
@@ -327,7 +334,9 @@ function App() {
     if (!recentTasksLoaded) return
     if (!recentTasks.length) {
       taskStatusesRef.current = {}
+      dismissedNotificationIdsRef.current = new Set()
       window.localStorage.setItem(TASK_STATUS_CACHE_KEY, '{}')
+      clearNotificationDismissals()
       setNotifications([])
       notificationHistoryReadyRef.current = true
       return
@@ -335,6 +344,9 @@ function App() {
     const previousStatuses = taskStatusesRef.current
     const nextStatuses = {}
     const recentIds = new Set(recentTasks.map((task) => task.id))
+    const dismissedIds = pruneNotificationDismissals(dismissedNotificationIdsRef.current, recentIds)
+    dismissedNotificationIdsRef.current = dismissedIds
+    writeNotificationDismissals(dismissedIds)
     const now = Date.now()
     const newlyFinished = []
 
@@ -354,8 +366,13 @@ function App() {
     taskStatusesRef.current = nextStatuses
     window.localStorage.setItem(TASK_STATUS_CACHE_KEY, JSON.stringify(nextStatuses))
     setNotifications((current) => {
-      const byId = new Map(current.filter((item) => recentIds.has(item.id)).map((item) => [item.id, item]))
+      const byId = new Map(
+        current
+          .filter((item) => recentIds.has(item.id) && !dismissedIds.has(item.id))
+          .map((item) => [item.id, item]),
+      )
       for (const task of recentTasks.filter((item) => terminalTaskStatuses.has(item.status)).slice(0, 30)) {
+        if (dismissedIds.has(task.id)) continue
         const existing = byId.get(task.id)
         const isNew = newlyFinished.some((item) => item.id === task.id)
         byId.set(task.id, createNotification(task, projects, isNew ? false : (existing?.read ?? true)))
@@ -363,10 +380,12 @@ function App() {
       return [...byId.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     })
     if (newlyFinished.length) {
-      const popups = newlyFinished.map((task) => ({
-        ...createNotification(task, projects, false),
-        expiresAt: now + 15_000,
-      }))
+      const popups = newlyFinished
+        .filter((task) => !dismissedIds.has(task.id))
+        .map((task) => ({
+          ...createNotification(task, projects, false),
+          expiresAt: now + 15_000,
+        }))
       setNotificationPopups((current) => [...popups, ...current].slice(0, 4))
     }
     notificationHistoryReadyRef.current = true
@@ -612,6 +631,15 @@ function App() {
     setNotifications((current) =>
       current.map((item) => (item.id === notificationId ? { ...item, read: true } : item)),
     )
+  }
+
+  const clearNotifications = () => {
+    const dismissedIds = new Set(dismissedNotificationIdsRef.current)
+    notifications.forEach((notification) => dismissedIds.add(notification.id))
+    dismissedNotificationIdsRef.current = dismissedIds
+    writeNotificationDismissals(dismissedIds)
+    setNotifications([])
+    setNotificationPopups([])
   }
 
   const openNotification = async (notification) => {
@@ -1414,6 +1442,7 @@ function App() {
         onNotificationOpen={openNotification}
         onNotificationRetry={retryNotification}
         onNotificationRead={markNotificationRead}
+        onNotificationsClear={clearNotifications}
         onOpenNav={() => setMobileNav(true)}
         onProjectClick={() => setProjectMenuOpen(true)}
         onCreditsClick={() => navigateTo('billing')}
@@ -1457,19 +1486,28 @@ function App() {
       {notificationPopups.length > 0 && (
         <div className="notification-toast-stack" aria-live="polite">
           {notificationPopups.map((notification) => (
-            <button
-              key={notification.id}
-              className={`notification-toast ${notification.status}`}
-              onClick={() => void openNotification(notification)}
-            >
+            <article key={notification.id} className={`notification-toast ${notification.status}`}>
               <span className="notification-status-dot" />
-              <span>
+              <button
+                type="button"
+                className="notification-toast-open"
+                onClick={() => void openNotification(notification)}
+              >
                 <strong>{notification.title}</strong>
                 <small>
                   {notification.projectName} · {notification.label}
                 </small>
-              </span>
-            </button>
+              </button>
+              <IconButton
+                label="关闭提示"
+                className="notification-toast-close"
+                onClick={() =>
+                  setNotificationPopups((current) => current.filter((item) => item.id !== notification.id))
+                }
+              >
+                <X size={15} />
+              </IconButton>
+            </article>
           ))}
         </div>
       )}

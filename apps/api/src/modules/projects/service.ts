@@ -161,7 +161,6 @@ export class ProjectService {
           maxAttempts: 1,
           responseFormat: 'json',
           model: ASSET_SUGGESTION_MODEL,
-          providerRoute: 'bailian',
           ...(onTextProgress
             ? { onTextProgress: (text: string) => onTextProgress(text, 'asset-suggestions') }
             : {}),

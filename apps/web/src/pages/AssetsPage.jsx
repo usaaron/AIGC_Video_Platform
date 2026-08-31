@@ -25,6 +25,14 @@ import { activeAssetImageTask, characterAssetStatus } from '../features/assets/a
 import { summarizeAsset } from '../features/assets/promptCompiler'
 
 const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, brand: Badge, audio: Music2 }
+const emptyAssetCopy = {
+  character: ['人物形象待生成', '确认设定后生成面部与全身形象'],
+  scene: ['场景画面待生成', '将根据环境、光线与构图生成'],
+  prop: ['物品形象待生成', '将根据材质与用途生成'],
+  costume: ['服装形象待生成', '将根据角色与设计要求生成'],
+  brand: ['品牌视觉待生成', '将严格保留品牌文字与标识'],
+  audio: ['音频素材待生成', '生成后可在项目内复用'],
+}
 
 export function AssetsPage({
   project,
@@ -253,6 +261,7 @@ export function AssetsPage({
 
 function AssetCard({ asset, task, linkedCharacterName, onEdit, onGenerate, onPreview, busy }) {
   const EmptyIcon = emptyIcons[asset.kind] || Sparkles
+  const [emptyTitle, emptyDescription] = emptyAssetCopy[asset.kind] || ['资产待生成', '完成生成后在此预览']
   const tags = [...(linkedCharacterName ? [`归属：${linkedCharacterName}`] : []), ...summarizeAsset(asset)]
   const previewUrl = getAssetPreviewUrl(asset)
   return (
@@ -270,7 +279,13 @@ function AssetCard({ asset, task, linkedCharacterName, onEdit, onGenerate, onPre
             <img src={previewUrl} alt={asset.name} loading="eager" decoding="async" />
           </button>
         ) : (
-          <EmptyIcon size={42} />
+          <div className={`asset-empty-state asset-empty-${asset.kind}`}>
+            <span>
+              <EmptyIcon size={28} />
+            </span>
+            <strong>{emptyTitle}</strong>
+            <small>{emptyDescription}</small>
+          </div>
         )}
         {(busy || task) && (
           <div className="asset-generation-overlay" role="status" aria-live="polite">

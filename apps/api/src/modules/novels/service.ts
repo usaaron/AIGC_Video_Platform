@@ -900,7 +900,6 @@ export class NovelService implements AiJobHandler {
           userPrompt: novelAssetSuggestionsPrompt(source, input.maxAssets),
           maxOutputTokens: NOVEL_ASSET_SUGGESTIONS_MAX_TOKENS,
           model: ASSET_SUGGESTION_MODEL,
-          providerRoute: 'bailian',
           usageContext: usageContextForPrincipal(principal),
         })
         result = scriptAssetSuggestionsContentSchema.parse(

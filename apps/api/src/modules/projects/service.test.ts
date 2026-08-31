@@ -699,7 +699,7 @@ describe('ProjectService script billing', () => {
 })
 
 describe('ProjectService asset suggestions', () => {
-  it('uses the bounded DeepSeek V4 request with timing and progress hooks', async () => {
+  it('uses the bounded DeepSeek V4 request with timing, progress hooks, and configured route fallback', async () => {
     const repository = {
       workspace: vi.fn(async () => ({
         project: {
@@ -728,7 +728,6 @@ describe('ProjectService asset suggestions', () => {
     expect(textProvider.generate).toHaveBeenCalledWith(
       expect.objectContaining({
         model: 'deepseek-v4-flash',
-        providerRoute: 'bailian',
         responseFormat: 'json',
         timeoutMs: 45_000,
         timingLabel: 'asset-suggestions',
@@ -737,6 +736,7 @@ describe('ProjectService asset suggestions', () => {
       }),
     )
     const request = vi.mocked(textProvider.generate).mock.calls[0]?.[0]
+    expect(request?.providerRoute).toBeUndefined()
     expect(request?.maxOutputTokens).toBeGreaterThanOrEqual(2_200)
     expect(request?.maxOutputTokens).toBeLessThanOrEqual(3_200)
     request?.onTextProgress?.('{"summary":"处理中"}')

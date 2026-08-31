@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowRight,
   Bell,
@@ -57,11 +57,30 @@ export function AppHeader({
   onNotificationOpen,
   onNotificationRetry,
   onNotificationRead,
+  onNotificationsClear,
 }) {
   const [notificationOpen, setNotificationOpen] = useState(false)
+  const notificationCenterRef = useRef(null)
   const unread = notifications.filter((item) => !item.read)
   const hasUnreadFailure = unread.some((item) => item.status === 'failed')
   const hasUnreadSuccess = unread.some((item) => item.status === 'completed')
+
+  useEffect(() => {
+    if (!notificationOpen) return undefined
+    const closeOutside = (event) => {
+      if (!notificationCenterRef.current?.contains(event.target)) setNotificationOpen(false)
+    }
+    const closeWithKeyboard = (event) => {
+      if (event.key === 'Escape') setNotificationOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    document.addEventListener('keydown', closeWithKeyboard)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('keydown', closeWithKeyboard)
+    }
+  }, [notificationOpen])
+
   return (
     <header className="topbar">
       <div className="brand-block">
@@ -87,6 +106,7 @@ export function AppHeader({
           {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '生成服务正常'}
         </div>
         <div
+          ref={notificationCenterRef}
           className="notification-center"
           onMouseEnter={() => setNotificationOpen(true)}
           onMouseLeave={() => setNotificationOpen(false)}
@@ -113,6 +133,23 @@ export function AppHeader({
                   <strong>消息中心</strong>
                   <span>{unread.length ? `${unread.length} 条未读` : '任务状态已同步'}</span>
                 </div>
+                <div className="notification-popover-actions">
+                  {notifications.length > 0 && (
+                    <button
+                      type="button"
+                      className="notification-clear"
+                      onClick={() => {
+                        onNotificationsClear?.()
+                        setNotificationOpen(false)
+                      }}
+                    >
+                      清空
+                    </button>
+                  )}
+                  <IconButton label="关闭消息中心" onClick={() => setNotificationOpen(false)}>
+                    <X size={16} />
+                  </IconButton>
+                </div>
               </header>
               <div className="notification-list">
                 {notifications.length ? (
@@ -126,7 +163,10 @@ export function AppHeader({
                       <button
                         type="button"
                         className="notification-preview"
-                        onClick={() => void onNotificationOpen?.(notification)}
+                        onClick={() => {
+                          setNotificationOpen(false)
+                          void onNotificationOpen?.(notification)
+                        }}
                       >
                         <strong>
                           {notification.title} · {notification.label}
