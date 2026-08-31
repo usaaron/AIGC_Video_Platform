@@ -258,10 +258,62 @@ export function ScriptPage({
         scriptTaskStatusPriority(right) - scriptTaskStatusPriority(left) ||
         taskTimestamp(right) - taskTimestamp(left),
     )
-  const activeScriptTask = activeScriptTasks[0]
-  const activeGenerateTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'generate')
-  const activeRevisionTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'revise')
-  const activeSegmentTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'segment')
+  const activeScriptTaskCandidate = activeScriptTasks[0]
+  const activeTaskEpisodeId =
+    activeScriptTaskCandidate?.metadata?.mode === 'segment'
+      ? ''
+      : String(activeScriptTaskCandidate?.metadata?.episodeId || '')
+  const activeTaskStartedAt = Date.parse(
+    String(
+      activeScriptTaskCandidate?.metadata?.localTaskStartedAt || activeScriptTaskCandidate?.createdAt || '',
+    ),
+  )
+  const activeTaskEpisodeById = activeTaskEpisodeId
+    ? orderedEpisodes.find((episode) => episode.id === activeTaskEpisodeId)
+    : null
+  const activeTaskEpisodeByMarker = activeScriptTaskCandidate
+    ? orderedEpisodes.find(
+        (episode) =>
+          episode.continuityState?.generationClientRequestId === activeScriptTaskCandidate.clientRequestId,
+      )
+    : null
+  const activeTaskLegacyEpisode =
+    activeScriptTaskCandidate && !activeTaskEpisodeId
+      ? [...orderedEpisodes]
+          .filter(
+            (episode) =>
+              episode.status === 'draft' &&
+              Boolean((episode.draftContent || '').trim()) &&
+              (!Number.isFinite(activeTaskStartedAt) || Date.parse(episode.updatedAt) >= activeTaskStartedAt),
+          )
+          .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0]
+      : null
+  const activeTaskEpisode =
+    activeTaskEpisodeByMarker || activeTaskEpisodeById || activeTaskLegacyEpisode || null
+  const activeTaskDraftText = String(activeTaskEpisode?.draftContent || '').trim()
+  const activeTaskWritebackMarker = String(
+    activeTaskEpisode?.continuityState?.generationClientRequestId || '',
+  )
+  const activeTaskHasWriteback = Boolean(
+    activeScriptTaskCandidate &&
+    activeTaskDraftText &&
+    (activeTaskWritebackMarker === activeScriptTaskCandidate.clientRequestId ||
+      (!activeTaskWritebackMarker &&
+        (!Number.isFinite(activeTaskStartedAt) ||
+          Date.parse(activeTaskEpisode?.updatedAt || '') >= activeTaskStartedAt))),
+  )
+  // Once the matching episode draft is durable, the editor is usable immediately.
+  // The worker still reconciles the task status in the background.
+  const activeScriptTask = activeTaskHasWriteback ? null : activeScriptTaskCandidate
+  const activeGenerateTask = activeScriptTask
+    ? activeScriptTasks.find((task) => scriptTaskOperation(task) === 'generate')
+    : null
+  const activeRevisionTask = activeScriptTask
+    ? activeScriptTasks.find((task) => scriptTaskOperation(task) === 'revise')
+    : null
+  const activeSegmentTask = activeScriptTask
+    ? activeScriptTasks.find((task) => scriptTaskOperation(task) === 'segment')
+    : null
   const activeTextPreview = String(activeScriptTask?.metadata?.textPreview || '')
   const activePreviewSessionKey = activeScriptTask
     ? `${project.id}:${activeScriptTask.id}`
@@ -276,9 +328,6 @@ export function ScriptPage({
   const hasDisplayedTextPreview = Boolean(displayedTextPreview.trim())
   const activePreviewStage = String(activeScriptTask?.metadata?.textPreviewStage || 'first-draft')
   const activePreviewValidation = activeScriptTask?.metadata?.textPreviewValidation || null
-  const activeTaskEpisode = orderedEpisodes.find(
-    (episode) => episode.id === activeScriptTask?.metadata?.episodeId,
-  )
   const activePreviewEpisodeNumber =
     activeTaskEpisode?.episodeNumber ||
     activeEpisode?.episodeNumber ||
@@ -359,13 +408,24 @@ export function ScriptPage({
   }, [activePreviewSessionKey, activeTextPreview, completedScriptText, hasActiveScriptTask])
 
   useEffect(() => {
-    if (hasActiveScriptTask || !completedScriptText) return
+    if (hasActiveScriptTask || activeTaskHasWriteback || !completedScriptText) return
     clearPreviewAnimation()
     setScript((current) => (current === completedScriptText ? current : completedScriptText))
     setHasGeneratedScript(true)
     if (isSeries && completedScriptEpisodeId) setActiveEpisodeId(completedScriptEpisodeId)
     setSaved(!isSeries)
-  }, [completedScriptEpisodeId, completedScriptText, hasActiveScriptTask, isSeries])
+  }, [activeTaskHasWriteback, completedScriptEpisodeId, completedScriptText, hasActiveScriptTask, isSeries])
+
+  useEffect(() => {
+    if (!activeTaskHasWriteback || !activeTaskEpisode || !activeTaskDraftText) return
+    clearPreviewAnimation()
+    setScript((current) => (current === activeTaskDraftText ? current : activeTaskDraftText))
+    setHasGeneratedScript(true)
+    if (isSeries) setActiveEpisodeId(activeTaskEpisode.id)
+    setSaved(!isSeries)
+    setGenerating(false)
+    setGenerationPhase('idle')
+  }, [activeTaskDraftText, activeTaskEpisode?.id, activeTaskHasWriteback, isSeries])
 
   useEffect(() => {
     const previewElement = previewContentRef.current

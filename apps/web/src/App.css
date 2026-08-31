@@ -7687,10 +7687,11 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  height: 36px;
-  max-width: 260px;
+  min-width: 184px;
+  height: 40px;
+  max-width: 300px;
   margin-left: 18px;
-  padding: 0 11px;
+  padding: 0 14px;
   background: #f7f8f3;
   border: 1px solid #d9ddd3;
   border-radius: 6px;
@@ -7699,6 +7700,8 @@
   font-weight: 600;
 }
 .project-switcher span {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -327,6 +327,8 @@ export function NewProjectModal({ onClose, onCreate }) {
         <input
           className="text-input"
           value={name}
+          placeholder="输入项目名称"
+          onFocus={() => setName((current) => (current === '未命名影片' ? '' : current))}
           onChange={(event) => setName(event.target.value)}
           id="new-project-name"
         />
@@ -382,7 +384,7 @@ export function NewProjectModal({ onClose, onCreate }) {
             className="button primary"
             onClick={() =>
               onCreate({
-                name: name || '未命名影片',
+                name: name.trim() || '未命名影片',
                 contentType,
                 visualStyle,
                 aspectRatio,

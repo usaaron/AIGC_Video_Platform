@@ -221,6 +221,85 @@ describe('ProjectService script billing', () => {
     expect(result.script).not.toContain('围观弟子')
   })
 
+  it('uses an explicitly requested scene count when rewriting a structured script', async () => {
+    const scene = (index: number) =>
+      `场次：S${String(index).padStart(2, '0')}｜剧情：林砚推进第${index}个冲突并获得新线索。｜场景：宗门大殿。｜角色：林砚；长老。｜动作：动作1：林砚向前一步；动作2：长老抬眼回应。｜对白：[对白]林砚：我会查清；[音效]脚步声；[环境声]殿内回响。｜风格：影视CG。｜构图：中景。｜光影：冷色顶光。｜运镜：稳定推进。｜衔接：两人位置和视线保持连续。`
+    const source = Array.from({ length: 14 }, (_, index) => scene(index + 1)).join('\n')
+    const candidate = Array.from({ length: 10 }, (_, index) => scene(index + 1)).join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '宗门测试',
+          contentType: 'short-drama',
+          synopsis: '林砚参加测试。',
+          aspectRatio: '9:16',
+          script: source,
+        },
+        assets: [],
+      }),
+      update: vi.fn(async (_projectId, input) => ({ script: input.script })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = { generate: vi.fn(async () => candidate) }
+    const service = new ProjectService(repository, textProvider)
+
+    const result = await service.enrichScript(
+      'project-1',
+      source,
+      DEFAULT_SCRIPT_DIRECTION,
+      'web-series',
+      1,
+      'rewrite-to-ten-scenes',
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      'deepseek-v4-flash',
+      '只要10个场次，保留核心剧情并压紧节奏。',
+      'prepaid',
+    )
+
+    expect(splitScriptParagraphs(result.script)).toHaveLength(10)
+    expect(vi.mocked(textProvider.generate).mock.calls[0]?.[0].systemPrompt).toContain('必须恰好输出 10 行')
+    expect(vi.mocked(textProvider.generate).mock.calls[0]?.[0].maxOutputTokens).toBe(7_000)
+    expect(repository.update).toHaveBeenCalledWith('project-1', { script: result.script }, expect.anything())
+  })
+
+  it('does not write back a rewrite that exceeds an explicitly requested scene count', async () => {
+    const scene = (index: number) =>
+      `场次：S${String(index).padStart(2, '0')}｜剧情：推进第${index}个冲突。｜场景：宗门大殿。｜角色：林砚。｜动作：林砚确认线索。｜对白：[对白]林砚：继续；[音效]脚步声；[环境声]殿内回响。｜风格：影视CG。｜构图：中景。｜光影：冷光。｜运镜：推进。｜衔接：保持连续。`
+    const source = Array.from({ length: 14 }, (_, index) => scene(index + 1)).join('\n')
+    const candidate = Array.from({ length: 12 }, (_, index) => scene(index + 1)).join('\n')
+    const repository = {
+      workspace: () => ({
+        project: {
+          name: '宗门测试',
+          contentType: 'short-drama',
+          synopsis: '',
+          aspectRatio: '9:16',
+          script: source,
+        },
+        assets: [],
+      }),
+      update: vi.fn(),
+    } as unknown as ProjectRepository
+    const generate = vi.fn(async () => candidate)
+    const service = new ProjectService(repository, { generate })
+
+    await expect(
+      service.enrichScript(
+        'project-1',
+        source,
+        DEFAULT_SCRIPT_DIRECTION,
+        'web-series',
+        1,
+        'reject-extra-scenes',
+        { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+        'deepseek-v4-flash',
+        '只保留10场。',
+        'prepaid',
+      ),
+    ).rejects.toThrow('明确要求 10 个场次，实际返回 12 个')
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(repository.update).not.toHaveBeenCalled()
+  })
+
   it('completes missing web-series dialogue without a second provider request', async () => {
     const scene = (index: number, dialogue: string) =>
       `场次：S0${index}｜剧情：林砚在测试中推进第${index}步。｜场景：宗门大殿。｜角色：林砚；长老。｜动作：动作1：林砚向前一步；动作2：长老抬眼回应。｜对白：${dialogue}｜风格：影视CG。｜构图：中景。｜光影：冷色顶光。｜运镜：稳定推进。｜衔接：两人位置和视线保持连续。`

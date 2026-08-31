@@ -639,7 +639,7 @@ export class ProjectRepository {
     episodeId: string | null,
     content: string,
     principal: Principal,
-    options: { createNext?: boolean; title?: string } = {},
+    options: { createNext?: boolean; title?: string; generationClientRequestId?: string } = {},
   ): Promise<ScriptEpisode | null> {
     if (!this.database) {
       return this.requireStore().mutate((state) => {
@@ -658,6 +658,11 @@ export class ProjectRepository {
           episode = [...episodes].reverse().find((item) => item.status === 'draft')
         }
         const now = new Date().toISOString()
+        const continuityState = draftContinuityState(
+          episode?.continuityState,
+          options.generationClientRequestId,
+          now,
+        )
         if (!episode) {
           const episodeNumber = (episodes.at(-1)?.episodeNumber ?? 0) + 1
           episode = {
@@ -670,7 +675,7 @@ export class ProjectRepository {
             draftContent: content,
             status: 'draft',
             summary: '',
-            continuityState: {},
+            continuityState,
             revision: 1,
             lastEditedBy: principal.userId,
             createdAt: now,
@@ -681,6 +686,7 @@ export class ProjectRepository {
           episode.draftContent = content
           episode.status = 'draft'
           episode.title = options.title?.trim() || episode.title
+          episode.continuityState = continuityState
           episode.lastEditedBy = principal.userId
           episode.revision += 1
           episode.updatedAt = now
@@ -705,11 +711,16 @@ export class ProjectRepository {
         current = [...episodes].reverse().find((item) => item.status === 'draft')
       }
       const now = new Date().toISOString()
+      const continuityState = draftContinuityState(
+        current?.continuityState,
+        options.generationClientRequestId,
+        now,
+      )
       if (current) {
         const updated = await client.query<ScriptEpisodeRow>(
           `UPDATE script_episodes
-           SET draft_content = $4, status = 'draft', title = $5, revision = revision + 1,
-               last_edited_by = $6, updated_at = $7
+           SET draft_content = $4, status = 'draft', title = $5, continuity_state = $6::jsonb,
+               revision = revision + 1, last_edited_by = $7, updated_at = $8
            WHERE id = $1 AND project_id = $2 AND tenant_id = $3
            RETURNING ${scriptEpisodeColumns}`,
           [
@@ -718,6 +729,7 @@ export class ProjectRepository {
             principal.tenantId,
             content,
             options.title?.trim() || current.title,
+            JSON.stringify(continuityState),
             principal.userId,
             now,
           ],
@@ -730,7 +742,7 @@ export class ProjectRepository {
         `INSERT INTO script_episodes (
            id, project_id, tenant_id, episode_number, title, content, draft_content,
            status, summary, continuity_state, revision, last_edited_by, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, '', $6, 'draft', '', '{}'::jsonb, 1, $7, $8, $8)
+         ) VALUES ($1, $2, $3, $4, $5, '', $6, 'draft', '', $7::jsonb, 1, $8, $9, $9)
          RETURNING ${scriptEpisodeColumns}`,
         [
           randomUUID(),
@@ -739,6 +751,7 @@ export class ProjectRepository {
           episodeNumber,
           options.title?.trim() || `第 ${episodeNumber} 集`,
           content,
+          JSON.stringify(continuityState),
           principal.userId,
           now,
         ],
@@ -795,6 +808,7 @@ export class ProjectRepository {
           episode.content = content
           episode.draftContent = ''
           episode.status = 'saved'
+          episode.continuityState = {}
           episode.title = title?.trim() || episode.title
           episode.summary = summarizeEpisodeContent(content)
           episode.lastEditedBy = principal.userId
@@ -824,7 +838,7 @@ export class ProjectRepository {
         const updated = await client.query<ScriptEpisodeRow>(
           `UPDATE script_episodes
            SET content = $4, draft_content = '', status = 'saved', title = $5, summary = $6,
-               revision = revision + 1, last_edited_by = $7, updated_at = $8
+               continuity_state = '{}'::jsonb, revision = revision + 1, last_edited_by = $7, updated_at = $8
            WHERE id = $1 AND project_id = $2 AND tenant_id = $3
            RETURNING ${scriptEpisodeColumns}`,
           [
@@ -2277,6 +2291,23 @@ function insertionOrderFor(shots: Shot[], insertAfterShotId: string | null | und
 
 function summarizeEpisodeContent(content: string): string {
   return content.replace(/\s+/g, ' ').trim().slice(0, 500)
+}
+
+function draftContinuityState(
+  current: unknown,
+  generationClientRequestId: string | undefined,
+  writtenAt: string,
+): Record<string, unknown> {
+  const existing =
+    current && typeof current === 'object' && !Array.isArray(current)
+      ? (current as Record<string, unknown>)
+      : {}
+  if (!generationClientRequestId) return existing
+  return {
+    ...existing,
+    generationClientRequestId,
+    generationDraftWrittenAt: writtenAt,
+  }
 }
 
 function aggregateEpisodeList(episodes: ScriptEpisode[]): string {

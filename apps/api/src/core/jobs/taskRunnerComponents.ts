@@ -141,8 +141,11 @@ export class TaskClaimer {
         .forEach((task) => {
           const providerName = this.remoteProviderName(task)
           if (!this.ownsTask(task, providerName)) return
-          if (generationTaskLeaseActive(task, now.getTime())) return
-          if (recoverScriptTaskFromDraft(task, state, nowIso)) return
+          const leaseActive = generationTaskLeaseActive(task, now.getTime())
+          // A script handler writes its episode draft before returning its result. Finish
+          // from that durable writeback even if the final task mutation was interrupted.
+          if (recoverScriptTaskFromDraft(task, state, nowIso, leaseActive)) return
+          if (leaseActive) return
           if (providerName && !task.metadata.providerTaskId) {
             claimGenerationTaskLease(task, this.options.leaseOwnerId, this.options.leaseTtlMs, now, {
               countAttempt: false,
@@ -1923,16 +1926,15 @@ function taskCreatedAt(task: GenerationTask): number {
   return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER
 }
 
-function recoverScriptTaskFromDraft(task: GenerationTask, state: AppState, nowIso: string): boolean {
-  if (
-    !isScriptTask(task) ||
-    typeof task.metadata.textPreview !== 'string' ||
-    !task.metadata.textPreview.trim()
-  ) {
-    return false
-  }
+function recoverScriptTaskFromDraft(
+  task: GenerationTask,
+  state: AppState,
+  nowIso: string,
+  requireWritebackMarker = false,
+): boolean {
+  if (!isScriptTask(task)) return false
   const startedAt = Date.parse(stringValue(task.metadata.localTaskStartedAt, ''))
-  const requestedEpisodeId = stringValue(task.metadata.episodeId, '')
+  const requestedEpisodeId = task.metadata.mode === 'segment' ? '' : stringValue(task.metadata.episodeId, '')
   const draft = state.scriptEpisodes
     .filter(
       (episode) =>
@@ -1946,6 +1948,20 @@ function recoverScriptTaskFromDraft(task: GenerationTask, state: AppState, nowIs
     .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
   const episode = draft[0]
   if (!episode) return false
+
+  const generationClientRequestId = stringValue(episode.continuityState?.generationClientRequestId, '')
+  const hasWritebackMarker = generationClientRequestId === task.clientRequestId
+  if (requireWritebackMarker && !hasWritebackMarker) return false
+  const hasLegacyPreview = Boolean(stringValue(task.metadata.textPreview, '').trim())
+  const episodeUpdatedAt = Date.parse(episode.updatedAt)
+  const episodeCreatedAt = Date.parse(episode.createdAt)
+  const hasLegacyWritebackEvidence =
+    hasLegacyPreview ||
+    (Number.isFinite(startedAt) &&
+      ((requestedEpisodeId && episode.id === requestedEpisodeId) ||
+        (Number.isFinite(episodeCreatedAt) && episodeCreatedAt >= startedAt)) &&
+      episodeUpdatedAt >= startedAt)
+  if (!hasWritebackMarker && !hasLegacyWritebackEvidence) return false
 
   const {
     textPreview: _textPreview,
@@ -1962,6 +1978,7 @@ function recoverScriptTaskFromDraft(task: GenerationTask, state: AppState, nowIs
   task.metadata = {
     ...metadata,
     localTaskRecoveredAt: nowIso,
+    scriptWritebackRecoveredAt: nowIso,
     textResult: {
       script,
       episode,

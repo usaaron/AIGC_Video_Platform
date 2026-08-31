@@ -279,6 +279,7 @@ export class ProjectService {
           episodeId ?? null,
           source,
           principal,
+          { generationClientRequestId: clientRequestId },
         )
         if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
         return {
@@ -360,7 +361,7 @@ export class ProjectService {
               null,
               segmentText,
               principal,
-              { createNext: true },
+              { createNext: true, generationClientRequestId: clientRequestId },
             )
             if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
             return {
@@ -499,6 +500,7 @@ export class ProjectService {
             episodeId ?? null,
             script,
             principal,
+            { generationClientRequestId: clientRequestId },
           )
           if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
           return { script, episode, mode: 'quick' as const, warnings }
@@ -548,6 +550,7 @@ export class ProjectService {
       episodeMinutes * 60,
       scriptMode,
     )
+    const requestedSceneCount = explicitRequestedSceneCount(revisionNote)
 
     const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${scriptModeContext(scriptMode, episodeSeconds)}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}`
     return this.runBillableScriptOperation(
@@ -559,11 +562,16 @@ export class ProjectService {
         const candidate = await ensureChineseScriptOutput(
           this.textProvider!,
           await this.textProvider!.generate({
-            systemPrompt: withChineseScriptRules(scriptDetailSystemPrompt(scriptMode)),
-            userPrompt: scriptDetailUserPrompt(scriptMode, projectContext, source),
-            maxOutputTokens: isProtectedLongScript(source)
-              ? longScriptMaxOutputTokens(source)
-              : SCRIPT_DETAIL_MAX_TOKENS,
+            systemPrompt: withChineseScriptRules(scriptDetailSystemPrompt(scriptMode, requestedSceneCount)),
+            userPrompt: scriptDetailUserPrompt(scriptMode, projectContext, source, requestedSceneCount),
+            maxOutputTokens: requestedSceneCount
+              ? Math.min(
+                  LONG_SCRIPT_MAX_TOKENS,
+                  Math.max(SCRIPT_DETAIL_MAX_TOKENS, requestedSceneCount * 700),
+                )
+              : isProtectedLongScript(source)
+                ? longScriptMaxOutputTokens(source)
+                : SCRIPT_DETAIL_MAX_TOKENS,
             model,
             usageContext: usageContextForPrincipal(principal),
             ...(onTextProgress ? { onTextProgress } : {}),
@@ -573,11 +581,46 @@ export class ProjectService {
           onTextTiming,
           onTextProgress ? (text: string) => onTextProgress(text, 'language-repair') : undefined,
         )
-        const candidateWithBreaks = preserveScriptBreakMarkers(source, candidate)
-        let sceneAlignedCandidate = alignEnrichedSceneRows(source, candidateWithBreaks)
+        let candidateWithBreaks = preserveScriptBreakMarkers(source, candidate)
+        let sceneAlignedCandidate = requestedSceneCount
+          ? candidateWithBreaks
+          : alignEnrichedSceneRows(source, candidateWithBreaks)
+        if (requestedSceneCount && countStructuredScenes(sceneAlignedCandidate) !== requestedSceneCount) {
+          const repairedCandidate = await ensureChineseScriptOutput(
+            this.textProvider!,
+            await this.textProvider!.generate({
+              systemPrompt: withChineseScriptRules(scriptDetailSystemPrompt(scriptMode, requestedSceneCount)),
+              userPrompt: scriptSceneCountRepairPrompt(
+                projectContext,
+                source,
+                sceneAlignedCandidate,
+                requestedSceneCount,
+              ),
+              maxOutputTokens: Math.min(
+                LONG_SCRIPT_MAX_TOKENS,
+                Math.max(SCRIPT_DETAIL_MAX_TOKENS, requestedSceneCount * 700),
+              ),
+              model,
+              usageContext: usageContextForPrincipal(principal),
+              ...(onTextProgress
+                ? { onTextProgress: (text: string) => onTextProgress(text, 'scene-count-repair') }
+                : {}),
+              ...(onTextTiming ? { onTextTiming, timingLabel: 'scene-count-repair' } : {}),
+            }),
+            model,
+            onTextTiming,
+            onTextProgress ? (text: string) => onTextProgress(text, 'language-repair') : undefined,
+          )
+          candidateWithBreaks = preserveScriptBreakMarkers(source, repairedCandidate)
+          sceneAlignedCandidate = candidateWithBreaks
+        }
         sceneAlignedCandidate = completeWebSeriesSpokenContent(sceneAlignedCandidate, scriptMode)
+        assertRequestedSceneCount(revisionNote, sceneAlignedCandidate)
         assertWebSeriesDialogueCoverage(sceneAlignedCandidate, scriptMode)
-        const preserved = isProtectedLongScript(source) && candidateIsTooShort(source, sceneAlignedCandidate)
+        const preserved =
+          !requestedSceneCount &&
+          isProtectedLongScript(source) &&
+          candidateIsTooShort(source, sceneAlignedCandidate)
         const enriched = preserved ? source : sceneAlignedCandidate
         const warnings = preserved
           ? ['检测到长篇原稿，AI 输出过短，系统已自动保留原稿，避免剧情被压缩。']
@@ -588,6 +631,7 @@ export class ProjectService {
             targetEpisode!.id,
             enriched,
             principal,
+            { generationClientRequestId: clientRequestId },
           )
           if (!episode) throw new AppError(404, 'SCRIPT_EPISODE_NOT_FOUND', '剧集不存在或无权修改')
           return { script: enriched, episode, mode: 'detailed' as const, warnings }
@@ -1273,21 +1317,47 @@ function scriptDetailOperationLabel(mode: ScriptContentMode): string {
   return '补齐剧本专业视觉细节'
 }
 
-function scriptDetailSystemPrompt(mode: ScriptContentMode): string {
-  if (mode === 'advertisement') return ADVERTISEMENT_DETAIL_SYSTEM_PROMPT
-  if (mode === 'short-film') return SHORT_FILM_DETAIL_SYSTEM_PROMPT
-  if (mode === 'web-series') return WEB_SERIES_DETAIL_SYSTEM_PROMPT
-  return SCRIPT_DETAIL_SYSTEM_PROMPT
+function scriptDetailSystemPrompt(
+  mode: ScriptContentMode,
+  requestedSceneCount: number | null = null,
+): string {
+  const basePrompt =
+    mode === 'advertisement'
+      ? ADVERTISEMENT_DETAIL_SYSTEM_PROMPT
+      : mode === 'short-film'
+        ? SHORT_FILM_DETAIL_SYSTEM_PROMPT
+        : mode === 'web-series'
+          ? WEB_SERIES_DETAIL_SYSTEM_PROMPT
+          : SCRIPT_DETAIL_SYSTEM_PROMPT
+  if (!requestedSceneCount) return basePrompt
+  return `${basePrompt}\n\n最高优先级数量覆盖：用户明确要求最终为 ${requestedSceneCount} 个场次。你必须恰好输出 ${requestedSceneCount} 行以“场次：”开头的完整场次，不得多一场或少一场。此规则覆盖上文“保持原场次数量”的要求；可在不改变核心剧情因果的前提下合并或拆分原场次，并按 S01 到 S${String(requestedSceneCount).padStart(2, '0')} 连续编号。`
 }
 
-function scriptDetailUserPrompt(mode: ScriptContentMode, projectContext: string, source: string): string {
+function scriptDetailUserPrompt(
+  mode: ScriptContentMode,
+  projectContext: string,
+  source: string,
+  requestedSceneCount: number | null = null,
+): string {
   const request =
     mode === 'advertisement'
       ? '请保留广告事实、传播结构、屏幕文字和行动引导，补齐产品展示、声音、光影、运镜及段落衔接'
       : mode === 'short-film'
         ? '请保留短片剧情因果、转折和结尾，补齐表演、声音、光影、运镜及场次衔接'
         : '请在保留原有场景数量、剧情因果、人物关系和对白的前提下，补齐制作字段与镜头衔接'
-  return `${projectContext}\n\n${request}；本次改写要求必须优先执行：\n${source}`
+  const sceneCountRule = requestedSceneCount
+    ? `\n数量验收标准：最终正文必须恰好包含 ${requestedSceneCount} 个可识别场次，编号连续；生成结束前自行计数，数量不符不得返回。`
+    : ''
+  return `${projectContext}${sceneCountRule}\n\n${request}；本次改写要求必须优先执行：\n${source}`
+}
+
+function scriptSceneCountRepairPrompt(
+  projectContext: string,
+  source: string,
+  candidate: string,
+  requestedSceneCount: number,
+): string {
+  return `${projectContext}\n\n上一次改写返回了 ${countStructuredScenes(candidate)} 个可识别场次，不符合用户明确要求。请重新组织并完整输出恰好 ${requestedSceneCount} 个场次：不得多一场或少一场，编号必须从 S01 连续到 S${String(requestedSceneCount).padStart(2, '0')}。数量要求优先于保持原场次数量；合并或拆分时保留核心剧情因果、人物关系、关键物件和有效对白。每行必须以“场次：”开头并包含完整制作字段。只输出修复后的正文。\n\n原稿：\n${source}\n\n上一次改写结果：\n${candidate}`
 }
 
 function scriptSegmentSystemPrompt(mode: ScriptContentMode): string {
@@ -1443,20 +1513,34 @@ function assertRequestedSceneCount(source: string, candidate: string): void {
   const actual = splitScriptParagraphs(candidate).filter((paragraph) =>
     Boolean(parseShotFields(paragraph.text).场次),
   ).length
-  if (actual >= expected) return
+  if (actual === expected) return
+  if (actual < expected) {
+    throw new AppError(
+      502,
+      'PROVIDER_RESPONSE_TRUNCATED',
+      `文本服务返回不完整：明确要求 ${expected} 个场次，实际只返回 ${actual} 个；原剧本未被覆盖，请重试或切换模型`,
+    )
+  }
   throw new AppError(
     502,
-    'PROVIDER_RESPONSE_TRUNCATED',
-    `文本服务返回不完整：明确要求 ${expected} 个场次，实际只返回 ${actual} 个；原剧本未被覆盖，请重试或切换模型`,
+    'PROVIDER_RESPONSE_SCENE_COUNT_MISMATCH',
+    `文本服务未遵守数量要求：明确要求 ${expected} 个场次，实际返回 ${actual} 个；原剧本未被覆盖，请重试或调整要求`,
   )
 }
 
 function explicitRequestedSceneCount(source: string): number | null {
-  for (const match of source.matchAll(/(\d{1,3})\s*个(?:场次|场景|镜头)/gu)) {
+  const matches = [
+    ...source.matchAll(/(\d{1,3})\s*(?:个)?(?:场次|场景|镜头)/gu),
+    ...source.matchAll(
+      /(?:只要|只保留|改成|调整(?:为|到)|压缩(?:为|到)|控制(?:为|在)|限制(?:为|在)|总共|共)\s*(\d{1,3})\s*(?:个)?场(?![次景])/gu,
+    ),
+  ].sort((left, right) => (left.index ?? 0) - (right.index ?? 0))
+  let requested: number | null = null
+  for (const match of matches) {
     const count = Number(match[1])
-    if (Number.isInteger(count) && count >= 2 && count <= 100) return count
+    if (Number.isInteger(count) && count >= 2 && count <= 100) requested = count
   }
-  return null
+  return requested
 }
 
 async function ensureChineseScriptOutput(

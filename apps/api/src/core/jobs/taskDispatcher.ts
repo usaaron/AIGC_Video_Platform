@@ -465,10 +465,13 @@ export class GenerationTaskRunner implements TaskDispatcher {
     let generationSettled = false
     const schedulePreviewFlush = () => {
       if (generationSettled || previewTimer || previewWrite) return
-      previewTimer = setTimeout(() => {
-        previewTimer = null
-        flushPreview()
-      }, 800)
+      previewTimer = setTimeout(
+        () => {
+          previewTimer = null
+          flushPreview()
+        },
+        persistedPreview ? 800 : 200,
+      )
       previewTimer.unref?.()
     }
     const flushPreview = (): void => {
@@ -552,6 +555,9 @@ export class GenerationTaskRunner implements TaskDispatcher {
       return
     }
 
+    // Non-streaming compatible endpoints only emit progress once with the full
+    // response. Start one final preview write without delaying terminal writeback.
+    flushPreview()
     settlePreview()
     try {
       await this.runFinalLocalTaskMutation(
