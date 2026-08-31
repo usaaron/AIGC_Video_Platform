@@ -1,4 +1,4 @@
-import type { GenerationTask } from '@seqora/contracts'
+import type { GenerationTask, ScriptEpisode } from '@seqora/contracts'
 import { VIDEO_PROMPT_VERSION } from '@seqora/prompting'
 import { Readable } from 'node:stream'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -272,6 +272,112 @@ describe('GenerationTaskRunner Seedance integration', () => {
     expect(persistTask.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 
+  it('completes without waiting for an in-flight preview persistence call', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const task = queuedTextTask('non-blocking-preview-task')
+    await store.mutate((state) => state.tasks.unshift(task))
+    let finishGeneration!: () => void
+    const generationHold = new Promise<void>((resolve) => {
+      finishGeneration = resolve
+    })
+    let releasePreviewPersistence!: () => void
+    const previewPersistenceHold = new Promise<void>((resolve) => {
+      releasePreviewPersistence = resolve
+    })
+    let persistCalls = 0
+    const persistTask = vi.fn(async () => {
+      persistCalls += 1
+      if (persistCalls === 1) await previewPersistenceHold
+    })
+    let lockHeld = false
+    const taskRunnerLock: TaskRunnerLock = {
+      runExclusive: vi.fn(async (operation) => {
+        if (lockHeld) return false
+        lockHeld = true
+        try {
+          await operation()
+          return true
+        } finally {
+          lockHeld = false
+        }
+      }),
+    }
+    const runner = new GenerationTaskRunner(store, {
+      persistTask,
+      taskRunnerLock,
+      taskMutationLockTimeoutMs: 50,
+      localTaskHandler: {
+        canHandle: (candidate) => candidate.id === task.id,
+        execute: async (_task, context) => {
+          context?.onTextProgress?.('场次：S01｜剧情：主角进入大厅。')
+          await generationHold
+          return { script: '完整剧本' }
+        },
+      },
+    })
+
+    await runner.tick()
+    await vi.waitFor(() => expect(persistTask).toHaveBeenCalledTimes(1), { timeout: 2_000 })
+    finishGeneration()
+
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+        status: 'completed',
+        metadata: { textResult: { script: '完整剧本' } },
+      }),
+    )
+    expect(persistTask).toHaveBeenCalledTimes(2)
+    expect(taskRunnerLock.runExclusive).toHaveBeenCalledTimes(2)
+    releasePreviewPersistence()
+  })
+
+  it('retries final text writeback without rerunning a successful provider call', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const task = queuedTextTask('retry-final-writeback-task')
+    await store.mutate((state) => state.tasks.unshift(task))
+    let allowFinalWriteback = false
+    const taskRunnerLock: TaskRunnerLock = {
+      runExclusive: vi.fn(async (operation) => {
+        const status = store.read((state) => state.tasks.find((item) => item.id === task.id)?.status)
+        if (status !== 'queued' && !allowFinalWriteback) return false
+        await operation()
+        return true
+      }),
+    }
+    const execute = vi.fn(async () => ({ script: '已完成的模型结果' }))
+    const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {})
+    const runner = new GenerationTaskRunner(store, {
+      taskRunnerLock,
+      taskMutationLockTimeoutMs: 20,
+      persistTask: async () => {},
+      localTaskHandler: {
+        canHandle: (candidate) => candidate.id === task.id,
+        execute,
+      },
+    })
+
+    await runner.tick()
+    await vi.waitFor(() =>
+      expect(warning).toHaveBeenCalledWith(
+        expect.stringContaining(`final writeback retry 1 failed for ${task.id}`),
+        expect.objectContaining({ code: 'SEQORA_GENERATION_TASK_BACKGROUND_FAILURE' }),
+      ),
+    )
+    allowFinalWriteback = true
+
+    await vi.waitFor(
+      () =>
+        expect(store.read((state) => state.tasks.find((item) => item.id === task.id)?.status)).toBe(
+          'completed',
+        ),
+      { timeout: 1_000 },
+    )
+    expect(execute).toHaveBeenCalledOnce()
+    warning.mockRestore()
+  })
+
   it('keeps text timing diagnostics when a streamed local task fails', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -336,6 +442,88 @@ describe('GenerationTaskRunner Seedance integration', () => {
         },
       }),
     )
+  })
+
+  it('recovers a stale script task from a draft written before worker interruption', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const startedAt = new Date(Date.now() - 10 * 60_000).toISOString()
+    const now = new Date().toISOString()
+    const draft: ScriptEpisode = {
+      id: 'recovered-script-episode',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      episodeNumber: 1,
+      title: '第 1 集',
+      content: '',
+      draftContent: '场次：S01｜剧情：恢复后的草稿。',
+      status: 'draft',
+      summary: '',
+      continuityState: {},
+      revision: 1,
+      lastEditedBy: 'user-member',
+      createdAt: startedAt,
+      updatedAt: now,
+    }
+    const task: GenerationTask = {
+      id: 'stale-script-task',
+      clientRequestId: 'stale-script-client',
+      projectId: draft.projectId,
+      tenantId: draft.tenantId,
+      userId: 'user-member',
+      kind: 'text',
+      label: '续写下一集',
+      prompt: '',
+      negativePrompt: '',
+      provider: 'text',
+      model: 'deepseek-v4-flash',
+      metadata: {
+        generationStage: 'script-generate',
+        scriptOperation: 'generate',
+        mode: 'segment',
+        localTaskStartedAt: startedAt,
+        textPreview: '场次：S01｜剧情：恢复后的草稿。',
+      },
+      status: 'running',
+      progress: 36,
+      estimatedCredits: 3,
+      createdAt: startedAt,
+      updatedAt: startedAt,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+      leaseOwnerId: 'stopped-worker',
+      leaseToken: 'stale-lease',
+      leaseExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+    }
+    await store.mutate((state) => {
+      state.scriptEpisodes.push(draft)
+      state.tasks.unshift(task)
+    })
+    const execute = vi.fn(async () => {
+      throw new Error('should not call provider during recovery')
+    })
+    const runner = new GenerationTaskRunner(store, {
+      localTaskHandler: {
+        canHandle: (candidate) => candidate.provider === 'text',
+        execute,
+      },
+    })
+
+    await runner.tick()
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+      status: 'completed',
+      progress: 100,
+      metadata: {
+        localTaskRecoveredAt: expect.any(String),
+        textResult: { script: draft.draftContent, episode: draft, mode: 'segment' },
+      },
+    })
+    expect(
+      store.read((state) => state.tasks.find((item) => item.id === task.id)?.metadata.textPreview),
+    ).toBeUndefined()
   })
 
   it('starts three independent provider submissions in one tick for a member', async () => {
@@ -499,6 +687,90 @@ describe('GenerationTaskRunner Seedance integration', () => {
     await new GenerationTaskRunner(store, { beforeTick, taskRunnerLock }).tick()
 
     expect(calls).toEqual(['lock', 'refresh'])
+  })
+
+  it('persists only tasks changed by the current tick', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const activeTask = queuedTextTask('selective-tick-task')
+    const historicalTask = {
+      ...queuedTextTask('selective-tick-history'),
+      status: 'completed' as const,
+      progress: 100,
+    }
+    activeTask.updatedAt = new Date(Date.now() - 1_000).toISOString()
+    historicalTask.updatedAt = new Date(Date.now() - 1_000).toISOString()
+    await store.mutate((state) => state.tasks.unshift(activeTask, historicalTask))
+    const persistTickTasks = vi.fn(async (_taskIds: readonly string[]) => {})
+    const runner = new GenerationTaskRunner(store, {
+      persistTickTasks,
+      localTaskHandler: {
+        canHandle: (task) => task.id === activeTask.id,
+        execute: async () => ({ script: '当前任务结果' }),
+      },
+    })
+
+    await runner.tick()
+
+    expect(persistTickTasks).toHaveBeenCalledWith([activeTask.id])
+    expect(persistTickTasks).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets a waiting local completion writeback run before a queued follow-up tick', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const task = queuedTextTask('writeback-priority-task')
+    await store.mutate((state) => state.tasks.unshift(task))
+    let releaseTick!: () => void
+    const tickHold = new Promise<void>((resolve) => {
+      releaseTick = resolve
+    })
+    let lockHeld = false
+    const lockTaskStates: string[] = []
+    const persistedTickStates: string[] = []
+    const persistTask = vi.fn(async (_taskId: string) => {})
+    const taskRunnerLock: TaskRunnerLock = {
+      runExclusive: vi.fn(async (operation) => {
+        lockTaskStates.push(store.read((state) => state.tasks.find((item) => item.id === task.id)!.status))
+        if (lockHeld) return false
+        lockHeld = true
+        try {
+          await operation()
+          return true
+        } finally {
+          lockHeld = false
+        }
+      }),
+    }
+    const runner = new GenerationTaskRunner(store, {
+      taskRunnerLock,
+      taskMutationLockTimeoutMs: 1_000,
+      persistTask,
+      persistTickTasks: async () => {
+        persistedTickStates.push(
+          store.read((state) => state.tasks.find((item) => item.id === task.id)!.status),
+        )
+        if (persistedTickStates.length === 1) await tickHold
+      },
+      localTaskHandler: {
+        canHandle: (candidate) => candidate.id === task.id,
+        execute: async () => ({ script: '完成结果' }),
+      },
+    })
+
+    const firstTick = runner.tick()
+    runner.tick()
+    await vi.waitFor(() => expect(lockTaskStates).toContain('running'))
+    releaseTick()
+    await firstTick
+    await vi.waitFor(() =>
+      expect(store.read((state) => state.tasks.find((item) => item.id === task.id)?.status)).toBe(
+        'completed',
+      ),
+    )
+    await vi.waitFor(() => expect(persistedTickStates).toHaveLength(2))
+    expect(persistedTickStates).toEqual(['running', 'completed'])
+    expect(persistTask).toHaveBeenCalledWith(task.id)
   })
 
   it('starts queued text work while a remote video status request is still pending', async () => {

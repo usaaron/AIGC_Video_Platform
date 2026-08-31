@@ -31,12 +31,13 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
 
   async generate(request: TextGenerationRequest): Promise<string> {
     let lastError: unknown
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    const maxAttempts = request.maxAttempts ?? 2
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
         return await this.generateOnce(request, attempt + 1)
       } catch (error) {
         lastError = error
-        if (attempt > 0 || !isRetryable(error)) break
+        if (attempt >= maxAttempts - 1 || !isRetryable(error)) break
         await new Promise((resolve) => setTimeout(resolve, 300))
       }
     }
@@ -56,7 +57,7 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
     if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
       const completion = await readCompletionStream(
         response.body,
-        this.options.requestTimeoutMs,
+        request.timeoutMs ?? this.options.requestTimeoutMs,
         request.onTextProgress,
       )
       notifyTextTiming(request.onTextTiming, {
@@ -94,6 +95,7 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
     model: string,
     includeResponseFormat: boolean,
   ): Promise<Response> {
+    const timeoutMs = request.timeoutMs ?? this.options.requestTimeoutMs
     return this.fetcher(`${this.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -112,7 +114,7 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
           : {}),
         stream: true,
       }),
-      signal: AbortSignal.timeout(this.options.requestTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     })
   }
 
@@ -177,11 +179,16 @@ async function readCompletionStream(
   let content = ''
   let usage: ProviderTokenUsage | null = null
   let firstTokenAt: number | null = null
+  let streamFinished = false
 
-  const consume = (line: string) => {
+  const consume = (line: string): void => {
     if (!line.startsWith('data:')) return
     const payload = line.slice(5).trim()
-    if (!payload || payload === '[DONE]') return
+    if (!payload) return
+    if (payload === '[DONE]') {
+      streamFinished = true
+      return
+    }
     let value: unknown
     try {
       value = JSON.parse(payload)
@@ -196,6 +203,7 @@ async function readCompletionStream(
       firstTokenAt ??= Date.now()
       notifyTextProgress(onTextProgress, content)
     }
+    if (streamChunkFinished(value)) streamFinished = true
   }
 
   const readWithTimeout = async () => {
@@ -221,7 +229,14 @@ async function readCompletionStream(
       buffered += decoder.decode(value, { stream: true })
       const lines = buffered.split(/\r?\n/)
       buffered = lines.pop() ?? ''
-      for (const line of lines) consume(line)
+      for (const line of lines) {
+        consume(line)
+        if (streamFinished) break
+      }
+      if (streamFinished) {
+        await reader.cancel().catch(() => {})
+        break
+      }
     }
   } catch (error) {
     await reader.cancel().catch(() => {})
@@ -239,6 +254,16 @@ async function readCompletionStream(
     firstTokenAfterHeadersMs: firstTokenAt === null ? null : Math.max(0, firstTokenAt - startedAt),
     generationMs: firstTokenAt === null ? null : Math.max(0, Date.now() - firstTokenAt),
   }
+}
+
+function streamChunkFinished(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  if (value.done === true || value.finished === true || value.status === 'completed') return true
+  if (!Array.isArray(value.choices)) return false
+  return value.choices.some(
+    (choice) =>
+      isRecord(choice) && typeof choice.finish_reason === 'string' && choice.finish_reason.length > 0,
+  )
 }
 
 function notifyTextProgress(onTextProgress: ((text: string) => void) | undefined, text: string): void {

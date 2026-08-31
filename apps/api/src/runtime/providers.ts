@@ -98,7 +98,21 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
         requestTimeoutMs: config.DEEPSEEK_REQUEST_TIMEOUT_MS,
       })
     : null
-  const deepSeekV4Provider = config.DEEPSEEK_V4_API_KEY
+  const bailianDeepSeekV4Provider = config.DASHSCOPE_API_KEY
+    ? new OpenAIChatTextProvider({
+        baseUrl: config.DASHSCOPE_BASE_URL,
+        apiKey: config.DASHSCOPE_API_KEY,
+        model: config.DASHSCOPE_MODEL,
+        completionsPath: config.DASHSCOPE_CHAT_COMPLETIONS_PATH,
+        requestTimeoutMs: config.DASHSCOPE_REQUEST_TIMEOUT_MS,
+        extraBody: { enable_thinking: false },
+        maxTokensMode: 'max_tokens',
+        maxAttempts: 1,
+        providerLabel: 'Bailian DeepSeek V4',
+        providerName: 'bailian-deepseek-v4',
+      })
+    : null
+  const relayDeepSeekV4Provider = config.DEEPSEEK_V4_API_KEY
     ? new OpenAIChatTextProvider({
         baseUrl: config.DEEPSEEK_V4_BASE_URL,
         apiKey: config.DEEPSEEK_V4_API_KEY,
@@ -106,11 +120,13 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
         completionsPath: config.DEEPSEEK_V4_CHAT_COMPLETIONS_PATH,
         requestTimeoutMs: config.DEEPSEEK_V4_REQUEST_TIMEOUT_MS,
         extraBody: { enable_thinking: false },
+        maxTokensMode: 'both',
         maxAttempts: 1,
         providerLabel: 'DeepSeek V4',
         providerName: 'deepseek-v4',
       })
     : null
+  const deepSeekV4Provider = bailianDeepSeekV4Provider ?? relayDeepSeekV4Provider
   const gptProvider = config.TOKENADVENT_API_KEY
     ? new TokenAdventTextProvider({
         baseUrl: config.TOKENADVENT_BASE_URL,
@@ -132,10 +148,11 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
   return new RoutedTextProvider(
     config.TEXT_MODEL,
     config.DEEPSEEK_MODEL,
-    config.DEEPSEEK_V4_MODEL,
+    config.DASHSCOPE_API_KEY ? config.DASHSCOPE_MODEL : config.DEEPSEEK_V4_MODEL,
     config.REHDASU_MODEL,
     deepSeekProvider,
     deepSeekV4Provider,
+    bailianDeepSeekV4Provider,
     gptProvider,
     rehdasuProvider,
   )
@@ -155,33 +172,58 @@ class RoutedTextProvider implements TextGenerationProvider {
     private readonly rehdasuModel: string,
     private readonly deepSeekProvider: TextGenerationProvider | null,
     private readonly deepSeekV4Provider: TextGenerationProvider | null,
+    private readonly bailianDeepSeekV4Provider: TextGenerationProvider | null,
     private readonly gptProvider: TextGenerationProvider | null,
     private readonly rehdasuProvider: TextGenerationProvider | null,
   ) {}
 
   async generate(request: TextGenerationRequest): Promise<string> {
     const requestedModel = (request.model || this.defaultModel).trim()
+    const deadlineAt = request.timeoutMs ? Date.now() + request.timeoutMs : null
+    const routedRequest = requestWithRemainingTimeout(request, deadlineAt)
+    if (request.providerRoute === 'bailian') {
+      if (!isDeepSeekV4Model(requestedModel)) {
+        throw new TextGenerationProviderError(`文本模型 ${requestedModel} 不支持百炼专用路由`)
+      }
+      if (!this.bailianDeepSeekV4Provider) {
+        throw new TextGenerationProviderError('阿里云百炼 DeepSeek V4 Provider 尚未配置')
+      }
+      return observeProviderCall(
+        { provider: 'bailian-deepseek-v4', operation: 'text.generate', ...request.usageContext },
+        () =>
+          this.bailianDeepSeekV4Provider!.generate({
+            ...routedRequest,
+            model: resolveDeepSeekV4Model(requestedModel, this.deepSeekV4Model),
+          }),
+      )
+    }
     if (isDeepSeekV4Model(requestedModel)) {
-      if (!this.deepSeekV4Provider) return this.generateWithDeepSeekV4Fallback(request, requestedModel)
+      if (!this.deepSeekV4Provider) {
+        return this.generateWithDeepSeekV4Fallback(routedRequest, requestedModel)
+      }
       try {
         return await observeProviderCall(
           { provider: 'deepseek-v4', operation: 'text.generate', ...request.usageContext },
           () =>
             this.deepSeekV4Provider!.generate({
-              ...request,
+              ...routedRequest,
               model: resolveDeepSeekV4Model(requestedModel, this.deepSeekV4Model),
             }),
         )
       } catch (error) {
         if (!isProviderAvailabilityError(error)) throw error
-        return this.generateWithDeepSeekV4Fallback(request, requestedModel, error)
+        return this.generateWithDeepSeekV4Fallback(
+          requestWithRemainingTimeout(request, deadlineAt),
+          requestedModel,
+          error,
+        )
       }
     }
     if (isGptModel(requestedModel)) {
       if (!this.gptProvider) throw modelNotConfigured(requestedModel)
       return observeProviderCall(
         { provider: 'tokenadvent-gpt', operation: 'text.generate', ...request.usageContext },
-        () => this.gptProvider!.generate({ ...request, model: resolveGptModel(requestedModel) }),
+        () => this.gptProvider!.generate({ ...routedRequest, model: resolveGptModel(requestedModel) }),
       )
     }
     if (isDeepSeekModel(requestedModel)) {
@@ -190,7 +232,7 @@ class RoutedTextProvider implements TextGenerationProvider {
         { provider: 'deepseek-v3', operation: 'text.generate', ...request.usageContext },
         () =>
           this.deepSeekProvider!.generate({
-            ...request,
+            ...routedRequest,
             model: isDeepSeekPublicAlias(requestedModel) ? this.deepSeekModel : requestedModel,
           }),
       )
@@ -201,7 +243,7 @@ class RoutedTextProvider implements TextGenerationProvider {
         { provider: 'rehdasu', operation: 'text.generate', ...request.usageContext },
         () =>
           this.rehdasuProvider!.generate({
-            ...request,
+            ...routedRequest,
             model: isRehdasuPublicAlias(requestedModel) ? this.rehdasuModel : requestedModel,
           }),
       )
@@ -223,6 +265,14 @@ class RoutedTextProvider implements TextGenerationProvider {
       () => this.rehdasuProvider!.generate({ ...request, model: this.rehdasuModel }),
     )
   }
+}
+
+function requestWithRemainingTimeout(
+  request: TextGenerationRequest,
+  deadlineAt: number | null,
+): TextGenerationRequest {
+  if (deadlineAt === null) return request
+  return { ...request, timeoutMs: Math.max(1, deadlineAt - Date.now()) }
 }
 
 function isGptModel(model: string): boolean {

@@ -159,6 +159,8 @@ JSON `apps/api/data/app.json`：
 
 ### 文本和图片
 
+DeepSeek V4 在配置 `DASHSCOPE_API_KEY` 时优先走阿里云百炼 OpenAI 兼容接口（Flash 使用 `deepseek-v4-flash-0731`）；未配置时才走旧 `DEEPSEEK_V4_*` 中转回滚路径。
+
 剧本默认通过独立路由调用 `deepseek-v4-flash`，DeepSeek V4 Pro、序幕-5.6（`gpt-5.6-sol`）和 GLM/Kimi 按所选模型路由到各自 Provider；正式 UI 把剧本生成、续写和资产建议创建为 `generation_tasks.kind=text` 后台任务，由 Worker 执行并写回。Provider 的 `reasoning_content` 绝不能作为正文写回；剧本输出必须为简体中文，英文占比异常时同一任务自动校正一次，仍异常则禁止写回。多场结构化原稿的改写保持场次数量。Img2 当前调用 GPT Image 2。图片结果写入对象存储，完成后同步更新对应 `asset.imageUrl` 或 `shot.imageUrl`。混元图片模型目前只是禁用选项，没有 Provider 实现。
 
 ### 视频

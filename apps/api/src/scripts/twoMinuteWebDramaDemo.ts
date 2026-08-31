@@ -390,7 +390,7 @@ async function ensureAssetSuggestions(projectId: string, script: string) {
           kind: 'text',
           label: '资产建议',
           provider: 'text',
-          model: 'glm-5.2',
+          model: 'deepseek-v4-flash',
           estimatedCredits: 2,
           metadata: {
             generationStage: 'script-asset-suggestions',
@@ -398,7 +398,7 @@ async function ensureAssetSuggestions(projectId: string, script: string) {
             billingMode: 'prepaid',
             script,
             direction,
-            model: 'glm-5.2',
+            model: 'deepseek-v4-flash',
           },
         })
   const result = await waitForTask(projectId, task.id, 8 * 60_000)

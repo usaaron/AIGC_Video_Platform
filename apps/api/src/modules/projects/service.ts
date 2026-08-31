@@ -16,6 +16,7 @@ import type {
   UpdateShot,
 } from '@seqora/contracts'
 import {
+  ASSET_SUGGESTION_MODEL,
   DEFAULT_SCRIPT_MODEL,
   FORCE_EPISODE_BREAK_MARKER,
   FORCE_SHOT_BREAK_MARKER,
@@ -130,13 +131,14 @@ export class ProjectService {
     script: string,
     direction: ScriptCreativeDirection,
     principal: Principal,
-    model: ScriptModel = DEFAULT_SCRIPT_MODEL,
+    onTextProgress?: (text: string, stage?: string) => void,
+    onTextTiming?: (timing: TextGenerationTiming) => void,
   ) {
     const workspace = await this.workspace(projectId, principal)
     const source = script.trim()
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本内容')
 
-    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目视觉风格：${projectVisualStyleLabel(workspace.project.visualStyle)}（后续所有资产必须继承，不要让用户再次选择）\n画面比例：${workspace.project.aspectRatio}\n创作方向（必须落地）：${directionSummary(direction)}\n已有资产：${assetSummary(workspace.assets)}`
+    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n视觉风格：${projectVisualStyleLabel(workspace.project.visualStyle)}\n画面比例：${workspace.project.aspectRatio}\n创作方向：${directionSummary(direction)}\n已有资产：${assetSuggestionSummary(workspace.assets)}`
     const fallbackResult = fallbackAssetSuggestions(
       source,
       direction,
@@ -155,8 +157,16 @@ export class ProjectService {
           systemPrompt: SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
           userPrompt: `${projectContext}\n\n全剧资产证据（已覆盖开头、中段和结尾；只基于这些证据筛选核心资产）：\n${assetEvidence.text}`,
           maxOutputTokens: scriptAssetSuggestionMaxTokens(assetEvidence.candidateCount),
+          timeoutMs: SCRIPT_ASSET_SUGGESTIONS_TIMEOUT_MS,
+          maxAttempts: 1,
           responseFormat: 'json',
-          model,
+          model: ASSET_SUGGESTION_MODEL,
+          providerRoute: 'bailian',
+          ...(onTextProgress
+            ? { onTextProgress: (text: string) => onTextProgress(text, 'asset-suggestions') }
+            : {}),
+          ...(onTextTiming ? { onTextTiming } : {}),
+          timingLabel: 'asset-suggestions',
           usageContext: usageContextForPrincipal(principal),
         })
         result = parseProviderJson(
@@ -893,8 +903,9 @@ brand.brandType logo/wordmark/combination/product-mark；usage end-card/packagin
 返回示例：
 {"summary":"优先建立主角、核心场景和关键物件。","assets":[{"kind":"character","name":"女剑客","description":"贯穿主线的退隐女剑客。","visualNotes":"青年女性，克制冷静，古风武侠身份。","reason":"主角跨场出现，需要保持身份一致。","priority":5,"attributes":{"subjectType":"human","gender":"female","ageGroup":"young"}}]}`
 
-const SCRIPT_ASSET_SUGGESTIONS_MIN_TOKENS = 2_800
-const SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS = 4_000
+const SCRIPT_ASSET_SUGGESTIONS_TIMEOUT_MS = 45_000
+const SCRIPT_ASSET_SUGGESTIONS_MIN_TOKENS = 2_200
+const SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS = 3_200
 
 const SCENE_PRODUCTION_RULES = `每个场次是一条可以直接交给分镜师和视频模型的制作记录，不要只写镜头语言，也不要用“氛围感”“人物展开”“镜头表现”等空泛占位语。
 - 每个场次必须写清“谁想做什么→遇到什么阻力→发生什么可见变化→场尾留下什么结果或悬念”，剧情字段不能只复述故事梗概。
@@ -3532,6 +3543,23 @@ function assetSummary(assets: Asset[]): string {
     .join('；')
 }
 
+function assetSuggestionSummary(assets: Asset[]): string {
+  if (!assets.length) return '暂无；只建立剧本明确且可复用的核心资产'
+  return assets
+    .slice(0, 12)
+    .map((asset) => {
+      const details = [
+        `${asset.kind}:${asset.name}`,
+        asset.description ? headExcerpt(asset.description, 120) : '',
+        assetAttributeSummary(asset),
+      ]
+        .filter(Boolean)
+        .join('；')
+      return details
+    })
+    .join('｜')
+}
+
 function assetAttributeSummary(asset: Asset): string {
   const attributes = asset.attributes
   if (attributes.type === 'character') {
@@ -3847,10 +3875,10 @@ function normalizeProviderAssetSuggestion(value: unknown): Record<string, unknow
 }
 
 function scriptAssetSuggestionMaxTokens(candidateCount: number): number {
-  const expectedAssetCount = Math.min(16, Math.max(8, candidateCount))
+  const expectedAssetCount = Math.min(16, Math.max(6, candidateCount))
   return Math.min(
     SCRIPT_ASSET_SUGGESTIONS_MAX_TOKENS,
-    Math.max(SCRIPT_ASSET_SUGGESTIONS_MIN_TOKENS, 2_200 + expectedAssetCount * 110),
+    Math.max(SCRIPT_ASSET_SUGGESTIONS_MIN_TOKENS, 1_600 + expectedAssetCount * 90),
   )
 }
 
@@ -3865,7 +3893,7 @@ function buildScriptAssetEvidence(script: string): { text: string; candidateCoun
   }
   const indexLines = (Object.entries(names) as [ScriptAssetKind, string[]][])
     .filter(([, values]) => values.length)
-    .map(([kind, values]) => `${labels[kind]}候选：${values.join('、')}`)
+    .map(([kind, values]) => `${labels[kind]}候选：${values.slice(0, 16).join('、')}`)
 
   const rankedNames = (Object.entries(names) as [ScriptAssetKind, string[]][])
     .flatMap(([kind, values]) =>
@@ -3877,12 +3905,12 @@ function buildScriptAssetEvidence(script: string): { text: string; candidateCoun
       })),
     )
     .sort((left, right) => right.occurrences - left.occurrences || left.index - right.index)
-    .slice(0, 16)
+    .slice(0, 12)
   const detailLines = rankedNames.flatMap(({ kind, name }) => {
     const evidence = assetEvidenceSnippets(name, script)
     return evidence ? [`${labels[kind]}「${name}」证据：${evidence}`] : []
   })
-  const sceneSamples = distributedScriptParagraphs(script, 6, 340)
+  const sceneSamples = distributedScriptParagraphs(script, 4, 220)
   const candidateCount = new Set(rankedNames.map(({ kind, name }) => `${kind}:${name}`)).size
 
   return {
@@ -3924,7 +3952,7 @@ function assetEvidenceSnippets(name: string, script: string): string {
   if (!name || !script) return ''
   const snippets: string[] = []
   let from = 0
-  while (from < script.length && snippets.length < 6) {
+  while (from < script.length && snippets.length < 4) {
     const index = script.indexOf(name, from)
     if (index < 0) break
     const start = Math.max(0, index - 100)
@@ -3934,7 +3962,7 @@ function assetEvidenceSnippets(name: string, script: string): string {
       .replace(/\s+/gu, ' ')
       .replace(/^.*?(?=(?:场次|剧情|场景|角色|人物|主角|关键物件|道具|服装|品牌)\s*[：:])/u, '')
       .trim()
-    const compactSnippet = headExcerpt(snippet, 170)
+    const compactSnippet = headExcerpt(snippet, 120)
     if (compactSnippet && !snippets.includes(compactSnippet)) snippets.push(compactSnippet)
     from = index + name.length
   }

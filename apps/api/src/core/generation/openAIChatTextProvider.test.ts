@@ -73,6 +73,55 @@ describe('OpenAIChatTextProvider', () => {
     await expect(provider.generate({ systemPrompt: 'system', userPrompt: 'user' })).resolves.toBe('剧本正文')
   })
 
+  it('finishes when the upstream sends finish_reason without closing the stream', async () => {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('data: {"choices":[{"delta":{"content":"已完成"},"finish_reason":null}]}\n\n'),
+        )
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'))
+        // Deliberately leave the stream open. A compatible relay may do this.
+      },
+    })
+    const provider = new OpenAIChatTextProvider({
+      baseUrl: 'https://example.com',
+      apiKey: 'test-key',
+      model: 'glm-5.2',
+      requestTimeoutMs: 100,
+      providerLabel: 'Test Provider',
+      maxAttempts: 1,
+      fetcher: (async () =>
+        new Response(stream, { headers: { 'content-type': 'text/event-stream' } })) as typeof fetch,
+    })
+
+    await expect(provider.generate({ systemPrompt: 'system', userPrompt: 'user' })).resolves.toBe('已完成')
+  })
+
+  it('honors a per-request timeout override while consuming a stream', async () => {
+    const encoder = new TextEncoder()
+    const provider = new OpenAIChatTextProvider({
+      baseUrl: 'https://example.com',
+      apiKey: 'test-key',
+      model: 'glm-5.2',
+      requestTimeoutMs: 1_000,
+      providerLabel: 'Test Provider',
+      maxAttempts: 1,
+      fetcher: (async () => {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"部分"}}]}\n\n'))
+          },
+        })
+        return new Response(stream, { headers: { 'content-type': 'text/event-stream' } })
+      }) as typeof fetch,
+    })
+
+    await expect(
+      provider.generate({ systemPrompt: 'system', userPrompt: 'timeout', timeoutMs: 20 }),
+    ).rejects.toMatchObject({ name: 'TextGenerationProviderError' })
+  })
+
   it('reports response, first-token, and generation timing for a completed request', async () => {
     const timings: Array<Record<string, unknown>> = []
     const provider = providerWithFetcher(async () =>

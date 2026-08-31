@@ -215,8 +215,17 @@ export class GenerationTaskRepository {
   async flushRuntimeCacheToDatabase(): Promise<number> {
     if (!this.database || !this.store) return 0
 
+    const taskIds = this.store.read((state) => state.tasks.map((task) => task.id))
+    return this.flushRuntimeTasksToDatabase(taskIds)
+  }
+
+  async flushRuntimeTasksToDatabase(taskIds: Iterable<string>): Promise<number> {
+    if (!this.database || !this.store) return 0
+
+    const ids = new Set(taskIds)
+    if (!ids.size) return 0
     const snapshot = this.store.read((state) => ({
-      tasks: state.tasks.map(normalizeGenerationTaskLifecycle),
+      tasks: state.tasks.filter((task) => ids.has(task.id)).map(normalizeGenerationTaskLifecycle),
       shotSelections: new Map(
         state.shots.map((shot) => [
           shot.id,
@@ -272,6 +281,44 @@ export class GenerationTaskRepository {
       await updateTaskResultTargets(client, persisted, snapshot.shotId ? snapshot.shotSelection : undefined)
       return true
     })
+  }
+
+  async flushRuntimeTextPreviewToDatabase(taskId: string): Promise<boolean> {
+    if (!this.database || !this.store) return false
+    const snapshot = this.store.read((state) => {
+      const task = state.tasks.find((item) => item.id === taskId)
+      if (!task || task.kind !== 'text' || task.status !== 'running' || !task.leaseToken) return null
+      return {
+        id: task.id,
+        metadata: task.metadata,
+        progress: task.progress,
+        updatedAt: task.updatedAt,
+        leaseToken: task.leaseToken,
+      }
+    })
+    if (!snapshot) return false
+    const result = await this.database.query<{ id: string }>(
+      `
+      UPDATE generation_tasks
+      SET metadata = $2::jsonb,
+          progress = $3,
+          updated_at = $4::timestamptz
+      WHERE id = $1
+        AND kind = 'text'
+        AND status = 'running'
+        AND lease_token = $5
+        AND updated_at <= $4::timestamptz
+      RETURNING id
+      `,
+      [
+        snapshot.id,
+        JSON.stringify(snapshot.metadata),
+        snapshot.progress,
+        snapshot.updatedAt,
+        snapshot.leaseToken,
+      ],
+    )
+    return result.rows.length > 0
   }
 
   async canCreate(projectId: string, principal: Principal): Promise<boolean> {
@@ -709,6 +756,7 @@ export class GenerationTaskRepository {
         if (task.status !== 'paused' || typeof task.metadata.queueHiddenAt === 'string') {
           return { outcome: 'not_resumable' as const, task }
         }
+        await assertNoDraftScriptEpisode(client, task, principal)
         const now = new Date().toISOString()
         const { pausedAt: _pausedAt, ...metadata } = task.metadata
         task.status = 'queued'
@@ -731,6 +779,7 @@ export class GenerationTaskRepository {
       if (task.status !== 'paused' || typeof task.metadata.queueHiddenAt === 'string') {
         return { outcome: 'not_resumable' as const, task }
       }
+      assertNoDraftScriptEpisodeInState(state, task, principal)
       const now = new Date().toISOString()
       const { pausedAt: _pausedAt, ...metadata } = task.metadata
       task.status = 'queued'
@@ -941,11 +990,21 @@ export class GenerationTaskRepository {
     chargeCredits: boolean,
     options: { traceId?: string | null } = {},
   ): Promise<GenerationTask> {
+    const preemptedScriptTasks: GenerationTask[] = []
     const created = await this.database!.transaction(async (client) => {
       const replayed = await findTaskByClientRequest(client, input.clientRequestId, principal)
       if (replayed) {
         await this.outbox?.enqueueGenerationTaskDispatch(client, replayed)
         return { task: replayed, credits: null }
+      }
+
+      preemptedScriptTasks.push(...(await preemptActiveScriptTasksInDatabase(client, input, principal)))
+      const replayedAfterScriptLock = isScriptGenerationTask(input)
+        ? await findTaskByClientRequest(client, input.clientRequestId, principal)
+        : null
+      if (replayedAfterScriptLock) {
+        await this.outbox?.enqueueGenerationTaskDispatch(client, replayedAfterScriptLock)
+        return { task: replayedAfterScriptLock, credits: null }
       }
 
       await assertNoActiveShotTask(client, input, principal)
@@ -1064,6 +1123,7 @@ export class GenerationTaskRepository {
       return { task: inserted, credits: membership.billingScope === 'organization' ? null : nextCredits }
     })
 
+    for (const task of preemptedScriptTasks) await this.mirrorTask(task, null)
     await this.mirrorTask(created.task, created.credits)
     return created.task
   }
@@ -1078,6 +1138,8 @@ export class GenerationTaskRepository {
         (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
       )
       if (existing) return existing
+
+      preemptActiveScriptTasksInState(state, input, principal)
 
       assertNoActiveShotTaskInState(state, input, principal)
       const now = new Date().toISOString()
@@ -1108,12 +1170,29 @@ export class GenerationTaskRepository {
         }
       }
 
+      assertSingleScriptTaskInput(newInputs)
+      const preemptedScriptTasks = newInputs.some(isScriptGenerationTask)
+        ? await preemptActiveScriptTasksInDatabase(client, newInputs.find(isScriptGenerationTask)!, principal)
+        : []
+      const scriptInput = newInputs.find(isScriptGenerationTask)
+      if (scriptInput) {
+        const replayedAfterScriptLock = await findTaskByClientRequest(
+          client,
+          scriptInput.clientRequestId,
+          principal,
+        )
+        if (replayedAfterScriptLock) {
+          tasksByClientRequest.set(scriptInput.clientRequestId, replayedAfterScriptLock)
+          newInputs.splice(newInputs.indexOf(scriptInput), 1)
+        }
+      }
+      const totalCredits = newInputs.reduce((total, input) => total + Math.max(0, input.estimatedCredits), 0)
+
       const membership = await resolveMembershipForTask(client, principal, newInputs.length > 0)
       if (!membership) {
         throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
       }
 
-      const totalCredits = newInputs.reduce((total, input) => total + Math.max(0, input.estimatedCredits), 0)
       if (totalCredits > 0 && (membership.credits === null || membership.credits < totalCredits)) {
         throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
       }
@@ -1147,9 +1226,11 @@ export class GenerationTaskRepository {
       return {
         tasks: inputs.map((input) => tasksByClientRequest.get(input.clientRequestId)!),
         credits: membership.billingScope === 'organization' ? null : nextCredits,
+        preemptedScriptTasks,
       }
     })
 
+    for (const task of created.preemptedScriptTasks) await this.mirrorTask(task, null)
     await this.mirrorTaskBatch(created.tasks, created.credits)
     return created.tasks
   }
@@ -1182,6 +1263,10 @@ export class GenerationTaskRepository {
       )
       if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
       if (user.credits < totalCredits) throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')
+
+      assertSingleScriptTaskInput(newInputs)
+      const scriptInput = newInputs.find(isScriptGenerationTask)
+      if (scriptInput) preemptActiveScriptTasksInState(state, scriptInput, principal)
 
       const now = new Date().toISOString()
       for (const input of newInputs) {
@@ -1225,6 +1310,8 @@ export class GenerationTaskRepository {
         (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
       )
       if (existing) return existing
+
+      preemptActiveScriptTasksInState(state, input, principal)
 
       assertNoActiveShotTaskInState(state, input, principal)
       const user = state.users.find(
@@ -1415,6 +1502,161 @@ async function findTaskByClientRequest(
     [principal.tenantId, principal.userId, clientRequestId],
   )
   return result.rows[0] ? taskFromRow(result.rows[0]) : null
+}
+
+async function preemptActiveScriptTasksInDatabase(
+  queryable: Queryable,
+  input: CreateGenerationTask,
+  principal: Principal,
+): Promise<GenerationTask[]> {
+  if (!isScriptGenerationTask(input)) return []
+
+  // Serialize script creation per account so a new project cannot be blocked by an old script task.
+  await queryable.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+    scriptAccountLockKey(principal.userId, principal.tenantId),
+  ])
+  const replayed = await findTaskByClientRequest(queryable, input.clientRequestId, principal)
+  if (replayed) return []
+  await assertNoDraftScriptEpisode(queryable, input, principal)
+  const result = await queryable.query<GenerationTaskRow>(
+    `
+    UPDATE generation_tasks
+    SET status = 'cancelled',
+        progress = 100,
+        error = $3,
+        metadata = metadata || jsonb_build_object(
+          'providerState', 'cancelled',
+          'accountPreemptedAt', $4::text,
+          'cancelReason', 'new_script_task',
+          'cancelledAt', $4::text,
+          'queueHiddenAt', $4::text
+        ),
+        lease_owner_id = NULL,
+        lease_token = NULL,
+        lease_acquired_at = NULL,
+        lease_heartbeat_at = NULL,
+        lease_expires_at = NULL,
+        updated_at = $4::timestamptz
+    WHERE tenant_id = $1
+      AND user_id = $2
+      AND kind = 'text'
+      AND provider = 'text'
+      AND metadata->>'generationStage' LIKE 'script-%'
+      AND metadata->>'scriptOperation' IN ('generate', 'enrich')
+      AND status IN ('queued', 'paused', 'running')
+      AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
+    RETURNING ${generationTaskColumns}
+    `,
+    [principal.tenantId, principal.userId, SCRIPT_TASK_PREEMPT_ERROR, new Date().toISOString()],
+  )
+  return result.rows.map(taskFromRow)
+}
+
+async function assertNoDraftScriptEpisode(
+  queryable: Queryable,
+  input: CreateGenerationTask | GenerationTask,
+  principal: Principal,
+): Promise<void> {
+  if (!isNextEpisodeScriptTask(input)) return
+  const result = await queryable.query<{ id: string }>(
+    `
+    SELECT id
+    FROM script_episodes
+    WHERE project_id = $1
+      AND tenant_id = $2
+      AND status = 'draft'
+      AND btrim(draft_content) <> ''
+    ORDER BY episode_number DESC
+    LIMIT 1
+    `,
+    [input.projectId, principal.tenantId],
+  )
+  if (result.rows[0]) throw scriptEpisodeDraftConflict()
+}
+
+function isScriptGenerationTask(input: CreateGenerationTask | GenerationTask): boolean {
+  return (
+    input.kind === 'text' &&
+    input.provider === 'text' &&
+    String(input.metadata?.generationStage || '').startsWith('script-') &&
+    (input.metadata?.scriptOperation === 'generate' || input.metadata?.scriptOperation === 'enrich')
+  )
+}
+
+function isNextEpisodeScriptTask(input: CreateGenerationTask | GenerationTask): boolean {
+  return isScriptGenerationTask(input) && input.metadata?.mode === 'segment'
+}
+
+function scriptAccountLockKey(userId: string, tenantId: string): string {
+  return `seqora:script-account:${tenantId}:${userId}`
+}
+
+function preemptActiveScriptTasksInState(
+  state: AppState,
+  input: CreateGenerationTask,
+  principal: Principal,
+): GenerationTask[] {
+  if (!isScriptGenerationTask(input)) return []
+  assertNoDraftScriptEpisodeInState(state, input, principal)
+  const now = new Date().toISOString()
+  return state.tasks
+    .filter(
+      (task) =>
+        task.tenantId === principal.tenantId &&
+        task.userId === principal.userId &&
+        isScriptGenerationTask(task) &&
+        ['queued', 'paused', 'running'].includes(task.status) &&
+        typeof task.metadata.queueHiddenAt !== 'string',
+    )
+    .map((task) => {
+      task.status = 'cancelled'
+      task.progress = 100
+      task.error = SCRIPT_TASK_PREEMPT_ERROR
+      task.metadata = {
+        ...task.metadata,
+        providerState: 'cancelled',
+        accountPreemptedAt: now,
+        cancelReason: 'new_script_task',
+        cancelledAt: now,
+        queueHiddenAt: now,
+      }
+      releaseGenerationTaskLease(task)
+      task.updatedAt = now
+      return task
+    })
+}
+
+function assertSingleScriptTaskInput(inputs: CreateGenerationTask[]): void {
+  const count = inputs.filter(isScriptGenerationTask).length
+  if (count > 1) {
+    throw new AppError(409, 'SCRIPT_TASK_BATCH_CONFLICT', '一次只能提交一个剧本生成任务')
+  }
+}
+
+const SCRIPT_TASK_PREEMPT_ERROR = '同一账号已启动新的剧本任务，本任务已自动停止'
+
+function assertNoDraftScriptEpisodeInState(
+  state: AppState,
+  input: CreateGenerationTask | GenerationTask,
+  principal: Principal,
+): void {
+  if (!isNextEpisodeScriptTask(input)) return
+  const hasDraft = state.scriptEpisodes.some(
+    (episode) =>
+      episode.projectId === input.projectId &&
+      episode.tenantId === principal.tenantId &&
+      episode.status === 'draft' &&
+      episode.draftContent.trim().length > 0,
+  )
+  if (hasDraft) throw scriptEpisodeDraftConflict()
+}
+
+function scriptEpisodeDraftConflict(): AppError {
+  return new AppError(
+    409,
+    'SCRIPT_EPISODE_DRAFT_EXISTS',
+    '当前项目已有未保存的剧集草稿，请先保存本集后再继续生成',
+  )
 }
 
 async function findControlledTaskInDatabase(

@@ -21,7 +21,7 @@ import {
   normalizedVideoDuration,
   VIDEO_PROMPT_VERSION,
 } from '@seqora/prompting'
-import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
+import { ASSET_SUGGESTION_MODEL, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 import { FUNCTION_STACK_IDS, FUNCTION_STACK_ITEMS } from './features/functionStack/config'
 import { compileCharacterStagePrompt } from './features/assets/promptCompiler'
 import { warmAssetPreviewCache } from './features/assets/assetPreview'
@@ -40,6 +40,14 @@ const TASK_STATUS_CACHE_KEY = 'seqora:task-status-cache'
 const ACTIVE_TASK_POLL_MS = 2_500
 const IDLE_TASK_POLL_MS = 12_000
 const BACKGROUND_TASK_POLL_MS = 30_000
+
+function assetSuggestionRevision(assets) {
+  const revision = (Array.isArray(assets) ? assets : [])
+    .map((asset) => `${asset.id}:${asset.updatedAt}`)
+    .sort()
+    .join('|')
+  return revision || 'none'
+}
 
 const AssetsPage = lazyNamed(() => import('./pages/AssetsPage'), 'AssetsPage')
 const AssetLibraryPage = lazyNamed(() => import('./pages/AssetLibraryPage'), 'AssetLibraryPage')
@@ -531,6 +539,7 @@ function App() {
   const createScriptJob = async (label, operation, input) => {
     if (!project) return null
     try {
+      const taskModel = operation === 'suggest-assets' ? ASSET_SUGGESTION_MODEL : input.model
       const generationStage =
         operation === 'enrich'
           ? 'script-enrich'
@@ -543,7 +552,7 @@ function App() {
         kind: 'text',
         label,
         provider: 'text',
-        model: input.model,
+        model: taskModel,
         estimatedCredits:
           operation === 'enrich'
             ? SCRIPT_OPERATION_CREDITS.enrich
@@ -555,6 +564,7 @@ function App() {
           scriptOperation: operation,
           billingMode: 'prepaid',
           ...input,
+          model: taskModel,
         },
       })
       replaceTasks(project.id, await api.tasks(project.id))
@@ -958,12 +968,13 @@ function App() {
               episodeId,
             })
           }}
-          onSuggestAssets={(script, direction, sourceScriptFingerprint, model) =>
+          onSuggestAssets={(script, direction, sourceScriptFingerprint) =>
             createScriptJob('资产建议', 'suggest-assets', {
               script,
               direction,
               sourceScriptFingerprint,
-              model,
+              assetRevision: assetSuggestionRevision(workspace?.assets),
+              model: ASSET_SUGGESTION_MODEL,
             })
           }
           onCreateAsset={async (input) => {

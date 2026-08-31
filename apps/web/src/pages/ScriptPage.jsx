@@ -217,13 +217,32 @@ export function ScriptPage({
   const paragraphCount = script.split(/\n+/).filter(Boolean).length
   const estimatedMinutes = script.trim() ? Math.max(1, Math.ceil(count / 120)) : 0
   const assetSuggestionFingerprint = scriptSuggestionFingerprint(script)
+  const currentAssetRevision = assetSuggestionRevision(assets)
   const projectTasks = tasks.filter((task) => task.projectId === project.id)
+  const scriptTasks = projectTasks
+    .filter(
+      (task) =>
+        task.kind === 'text' &&
+        String(task.metadata?.generationStage || '').startsWith('script-') &&
+        task.metadata?.scriptOperation !== 'suggest-assets',
+    )
+    .sort((left, right) => taskTimestamp(right) - taskTimestamp(left))
+  const latestScriptTask = scriptTasks[0]
+  const latestFailedScriptTask = latestScriptTask?.status === 'failed' ? latestScriptTask : null
+  const latestCompletedScriptTask = latestScriptTask?.status === 'completed' ? latestScriptTask : null
+  const completedScriptText = scriptResultText(latestCompletedScriptTask)
+  const completedScriptEpisodeId =
+    latestCompletedScriptTask?.metadata?.episodeId ||
+    latestCompletedScriptTask?.metadata?.textResult?.episode?.id ||
+    ''
   const latestAssetSuggestionTask = [...projectTasks]
     .filter(
       (task) =>
         task.kind === 'text' &&
         task.metadata?.scriptOperation === 'suggest-assets' &&
-        task.metadata?.sourceScriptFingerprint === assetSuggestionFingerprint,
+        task.metadata?.sourceScriptFingerprint === assetSuggestionFingerprint &&
+        (task.metadata?.assetRevision === currentAssetRevision ||
+          (currentAssetRevision === 'none' && !task.metadata?.assetRevision)),
     )
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0]
   const activeScriptTasks = projectTasks
@@ -234,7 +253,11 @@ export function ScriptPage({
         task.metadata?.scriptOperation !== 'suggest-assets' &&
         ['queued', 'paused', 'running'].includes(task.status),
     )
-    .sort((left, right) => taskTimestamp(right) - taskTimestamp(left))
+    .sort(
+      (left, right) =>
+        scriptTaskStatusPriority(right) - scriptTaskStatusPriority(left) ||
+        taskTimestamp(right) - taskTimestamp(left),
+    )
   const activeScriptTask = activeScriptTasks[0]
   const activeGenerateTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'generate')
   const activeRevisionTask = activeScriptTasks.find((task) => scriptTaskOperation(task) === 'revise')
@@ -248,8 +271,8 @@ export function ScriptPage({
     text: activeTextPreview,
   }))
   const previewTextRef = useRef({ key: activePreviewSessionKey, text: activeTextPreview })
-  const displayedTextPreview =
-    previewState.key === activePreviewSessionKey ? previewState.text : ''
+  const previewTimerRef = useRef(null)
+  const displayedTextPreview = previewState.key === activePreviewSessionKey ? previewState.text : ''
   const hasDisplayedTextPreview = Boolean(displayedTextPreview.trim())
   const activePreviewStage = String(activeScriptTask?.metadata?.textPreviewStage || 'first-draft')
   const activePreviewValidation = activeScriptTask?.metadata?.textPreviewValidation || null
@@ -274,13 +297,26 @@ export function ScriptPage({
   const busy = generating || saving || Boolean(activeScriptTask)
   const hasActiveScriptTask = Boolean(activeScriptTask)
 
+  const clearPreviewAnimation = () => {
+    if (previewTimerRef.current === null) return
+    window.clearInterval(previewTimerRef.current)
+    previewTimerRef.current = null
+  }
+
   useEffect(() => {
     if (!hasActiveScriptTask) {
-      previewTextRef.current = { key: activePreviewSessionKey, text: '' }
-      setPreviewState({ key: activePreviewSessionKey, text: '' })
+      clearPreviewAnimation()
+      if (completedScriptText) {
+        previewTextRef.current = { key: activePreviewSessionKey, text: completedScriptText }
+        setPreviewState({ key: activePreviewSessionKey, text: completedScriptText })
+      } else {
+        previewTextRef.current = { key: activePreviewSessionKey, text: '' }
+        setPreviewState({ key: activePreviewSessionKey, text: '' })
+      }
       return undefined
     }
 
+    clearPreviewAnimation()
     const current = previewTextRef.current
     const base =
       current.key === activePreviewSessionKey && activeTextPreview.startsWith(current.text)
@@ -297,10 +333,12 @@ export function ScriptPage({
       const currentText = previewTextRef.current
       if (currentText.key !== activePreviewSessionKey) {
         window.clearInterval(timer)
+        if (previewTimerRef.current === timer) previewTimerRef.current = null
         return
       }
       if (currentText.text === activeTextPreview) {
         window.clearInterval(timer)
+        if (previewTimerRef.current === timer) previewTimerRef.current = null
         return
       }
       const remaining = activeTextPreview.length - currentText.text.length
@@ -312,9 +350,22 @@ export function ScriptPage({
       previewTextRef.current = { key: activePreviewSessionKey, text: nextText }
       setPreviewState({ key: activePreviewSessionKey, text: nextText })
     }, 8)
+    previewTimerRef.current = timer
 
-    return () => window.clearInterval(timer)
-  }, [activePreviewSessionKey, activeTextPreview, hasActiveScriptTask])
+    return () => {
+      window.clearInterval(timer)
+      if (previewTimerRef.current === timer) previewTimerRef.current = null
+    }
+  }, [activePreviewSessionKey, activeTextPreview, completedScriptText, hasActiveScriptTask])
+
+  useEffect(() => {
+    if (hasActiveScriptTask || !completedScriptText) return
+    clearPreviewAnimation()
+    setScript((current) => (current === completedScriptText ? current : completedScriptText))
+    setHasGeneratedScript(true)
+    if (isSeries && completedScriptEpisodeId) setActiveEpisodeId(completedScriptEpisodeId)
+    setSaved(!isSeries)
+  }, [completedScriptEpisodeId, completedScriptText, hasActiveScriptTask, isSeries])
 
   useEffect(() => {
     const previewElement = previewContentRef.current
@@ -485,9 +536,10 @@ export function ScriptPage({
     setAssetSuggestionResult(null)
     setAssetSuggestionError('')
     try {
-      const task = await onSuggestAssets(source, direction, scriptSuggestionFingerprint(source), scriptModel)
+      const task = await onSuggestAssets(source, direction, scriptSuggestionFingerprint(source))
       if (!isQueuedTextTask(task)) {
-        setAssetSuggestionResult(task)
+        const cachedResult = task?.metadata?.textResult
+        setAssetSuggestionResult(cachedResult && typeof cachedResult === 'object' ? cachedResult : task)
         setAssetSuggestionStatus('ready')
       }
       setCreatedAssetKeys(new Set())
@@ -910,6 +962,17 @@ export function ScriptPage({
           </div>
         )}
 
+        {latestFailedScriptTask && (
+          <div className="script-generation-note script-generation-note-error" role="alert">
+            <CircleHelp size={15} />
+            <span>
+              <strong>本次剧本任务已停止</strong>
+              <span>{latestFailedScriptTask.error || '生成未完成，请检查当前草稿后重试。'}</span>
+              <small>已生成的剧集草稿不会被删除；请先保存当前剧集，再继续生成下一集。</small>
+            </span>
+          </div>
+        )}
+
         {generationWarnings.length > 0 && (
           <div className="script-generation-note" role="status">
             <Sparkles size={15} />
@@ -1063,7 +1126,9 @@ export function ScriptPage({
                       <span>
                         {activeScriptTask.status === 'running'
                           ? `序幕TV 正在生成 · ${
-                              hasDisplayedTextPreview ? '已收到片段，继续补全' : scriptTaskStage(activeScriptTask)
+                              hasDisplayedTextPreview
+                                ? '已收到片段，继续补全'
+                                : scriptTaskStage(activeScriptTask)
                             }`
                           : activeScriptTask.status === 'paused'
                             ? '任务已暂停，可前往生成队列继续'
@@ -1082,7 +1147,9 @@ export function ScriptPage({
                           实时草稿 · {isSeries ? `第 ${activePreviewEpisodeNumber} 集` : '当前内容'}
                         </span>
                         <strong>
-                          {hasDisplayedTextPreview ? '已生成片段 · 校验同步进行' : textPreviewStageLabel(activePreviewStage)}
+                          {hasDisplayedTextPreview
+                            ? '已生成片段 · 校验同步进行'
+                            : textPreviewStageLabel(activePreviewStage)}
                         </strong>
                       </div>
                       <small>
@@ -1429,6 +1496,22 @@ function taskTimestamp(task) {
   return Number.isFinite(value) ? value : 0
 }
 
+function scriptTaskStatusPriority(status) {
+  if (status === 'running') return 3
+  if (status === 'queued') return 2
+  if (status === 'paused') return 1
+  return 0
+}
+
+function scriptResultText(task) {
+  const result = task?.metadata?.textResult
+  if (typeof result === 'string') return result.trim()
+  if (!result || typeof result !== 'object') return ''
+  if (typeof result.script === 'string') return result.script.trim()
+  if (typeof result.segment === 'string') return result.segment.trim()
+  return ''
+}
+
 function commonPrefix(left, right) {
   const limit = Math.min(left.length, right.length)
   let index = 0
@@ -1443,6 +1526,14 @@ function scriptSuggestionFingerprint(value) {
     hash = Math.imul(hash, 16777619)
   }
   return `${value.trim().length}:${(hash >>> 0).toString(16)}`
+}
+
+function assetSuggestionRevision(assets) {
+  const revision = (Array.isArray(assets) ? assets : [])
+    .map((asset) => `${asset.id}:${asset.updatedAt}`)
+    .sort()
+    .join('|')
+  return revision || 'none'
 }
 
 function scriptTaskOperation(task) {

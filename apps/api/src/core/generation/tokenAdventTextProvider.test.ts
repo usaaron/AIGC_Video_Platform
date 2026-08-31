@@ -168,6 +168,29 @@ describe('TokenAdventTextProvider', () => {
     )
   })
 
+  it('finishes when the relay sends finish_reason without closing the stream', async () => {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('data: {"choices":[{"delta":{"content":"已完成"},"finish_reason":null}]}\n\n'),
+        )
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'))
+        // Deliberately leave the stream open. A relay can emit the terminal chunk first.
+      },
+    })
+    const provider = new TokenAdventTextProvider({
+      baseUrl: 'https://tokenadvent.example',
+      apiKey: 'test-key',
+      model: 'gpt-5.4',
+      requestTimeoutMs: 100,
+      fetcher: (async () =>
+        new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } })) as typeof fetch,
+    })
+
+    await expect(provider.generate({ systemPrompt: 'test', userPrompt: 'test' })).resolves.toBe('已完成')
+  })
+
   it('rejects reasoning-only responses instead of writing analysis into the script', async () => {
     let calls = 0
     const provider = createProvider(async () => {

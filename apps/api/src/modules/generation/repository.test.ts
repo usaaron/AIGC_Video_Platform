@@ -1,4 +1,4 @@
-import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/contracts'
+import type { CreateGenerationTask, GenerationTask, Principal, ScriptEpisode } from '@seqora/contracts'
 import { describe, expect, it } from 'vitest'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import { AppStore } from '../../infra/store.js'
@@ -173,6 +173,35 @@ describe('GenerationTaskRepository charged creation', () => {
       leaseToken: 'current-token',
       metadata: { compositionStage: 'uploading' },
     })
+  })
+
+  it('flushes only the requested runtime tasks', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const selected = generationTask({ id: 'selected-runtime-task', status: 'running' })
+    const untouched = generationTask({ id: 'untouched-runtime-task', status: 'running' })
+    await store.mutate((state) => state.tasks.unshift(selected, untouched))
+    const updatedTaskIds: string[] = []
+    const database = {
+      transaction: async (
+        operation: (client: {
+          query: (sql: string, params: readonly unknown[]) => Promise<{ rows: unknown[] }>
+        }) => Promise<number>,
+      ) =>
+        operation({
+          query: async (sql: string, params: readonly unknown[]) => {
+            if (!sql.includes('UPDATE generation_tasks')) throw new Error(`Unexpected query: ${sql}`)
+            const taskId = String(params[0])
+            updatedTaskIds.push(taskId)
+            const task = store.read((state) => state.tasks.find((item) => item.id === taskId))
+            return { rows: task ? [generationTaskRow(task)] : [] }
+          },
+        }),
+    } as unknown as AccountDatabase
+    const repository = new GenerationTaskRepository(store, null, database)
+
+    await expect(repository.flushRuntimeTasksToDatabase([selected.id])).resolves.toBe(1)
+    expect(updatedTaskIds).toEqual([selected.id])
   })
 
   it('reads the canonical storyboard prompt from postgres instead of the runtime cache', async () => {
@@ -370,6 +399,104 @@ describe('GenerationTaskRepository charged creation', () => {
       ledgerCount: 1,
       taskCount: 1,
     })
+  })
+
+  it('preempts an active script task when the same account starts a new project', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new GenerationTaskRepository(store)
+    const firstInput = taskInput({
+      clientRequestId: 'script-task-first',
+      kind: 'text',
+      provider: 'text',
+      label: '生成第 1 集',
+      estimatedCredits: 12,
+      metadata: { generationStage: 'script-generate', scriptOperation: 'generate', mode: 'quick' },
+    })
+    const secondInput = {
+      ...firstInput,
+      clientRequestId: 'script-task-second',
+      projectId: 'project-second-script',
+      label: '生成另一个项目的第 1 集',
+    }
+
+    const first = await repository.createWithCharge(firstInput, memberPrincipal)
+    await store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === first.id)!
+      task.status = 'running'
+    })
+    const second = await repository.createWithCharge(secondInput, memberPrincipal)
+    const persisted = store.read((state) => ({
+      credits: state.users.find((user) => user.id === memberPrincipal.userId)!.credits,
+      firstTask: state.tasks.find((item) => item.id === first.id),
+      secondTask: state.tasks.find((item) => item.id === second.id),
+      ledgerCount: state.ledger.filter((entry) => entry.type === 'generation').length,
+    }))
+
+    expect(second.id).not.toBe(first.id)
+    expect(persisted).toMatchObject({
+      credits: 262,
+      firstTask: {
+        status: 'cancelled',
+        progress: 100,
+        error: '同一账号已启动新的剧本任务，本任务已自动停止',
+        metadata: {
+          providerState: 'cancelled',
+          cancelReason: 'new_script_task',
+          accountPreemptedAt: expect.any(String),
+          cancelledAt: expect.any(String),
+          queueHiddenAt: expect.any(String),
+        },
+        leaseToken: null,
+      },
+      secondTask: { status: 'queued', projectId: 'project-second-script' },
+      ledgerCount: 2,
+    })
+  })
+
+  it('rejects next-episode generation before charging when a draft episode exists', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    await store.mutate((state) => {
+      const now = new Date().toISOString()
+      const draft: ScriptEpisode = {
+        id: 'draft-episode-for-generation-guard',
+        projectId: 'project-midnight-film',
+        tenantId: memberPrincipal.tenantId,
+        episodeNumber: 1,
+        title: '第 1 集',
+        content: '',
+        draftContent: '场次：S01｜剧情：草稿内容。',
+        status: 'draft',
+        summary: '',
+        continuityState: {},
+        revision: 1,
+        lastEditedBy: memberPrincipal.userId,
+        createdAt: now,
+        updatedAt: now,
+      }
+      state.scriptEpisodes.push(draft)
+    })
+    const repository = new GenerationTaskRepository(store)
+    const input = taskInput({
+      clientRequestId: 'script-segment-draft-guard',
+      kind: 'text',
+      provider: 'text',
+      label: '续写下一集',
+      estimatedCredits: 12,
+      metadata: { generationStage: 'script-generate', scriptOperation: 'generate', mode: 'segment' },
+    })
+
+    await expect(repository.createWithCharge(input, memberPrincipal)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'SCRIPT_EPISODE_DRAFT_EXISTS',
+    })
+    expect(
+      store.read((state) => ({
+        credits: state.users.find((user) => user.id === memberPrincipal.userId)!.credits,
+        taskCount: state.tasks.filter((item) => item.clientRequestId === input.clientRequestId).length,
+      })),
+    ).toEqual({ credits: 286, taskCount: 0 })
   })
 
   it('tags running cancellations with a resource lock', async () => {

@@ -12,6 +12,10 @@ export type TextGenerationRequest = {
   systemPrompt: string
   userPrompt: string
   maxOutputTokens?: number
+  /** Optional end-to-end deadline. Falls back to the provider default. */
+  timeoutMs?: number
+  /** Optional retry count for latency-sensitive operations. */
+  maxAttempts?: 1 | 2
   responseFormat?: 'text' | 'json'
   /** Receives the accumulated visible completion while an upstream stream is active. */
   onTextProgress?: (text: string) => void
@@ -21,6 +25,8 @@ export type TextGenerationRequest = {
   timingLabel?: string
   /** Logical model selected in the product; providers may map it to an upstream model. */
   model?: string
+  /** Require a specific upstream route instead of silently switching providers. */
+  providerRoute?: 'bailian'
   usageContext?: {
     tenantId?: string | null
     organizationId?: string | null

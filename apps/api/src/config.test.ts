@@ -17,6 +17,8 @@ describe('production configuration', () => {
     expect(config.BOOTSTRAP_ACCOUNTS_ON_START).toBe(false)
     expect(config.EMAIL_PROVIDER).toBe('resend')
     expect(config.TEXT_MODEL).toBe('deepseek-v4-flash')
+    expect(config.DASHSCOPE_BASE_URL).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
+    expect(config.DASHSCOPE_MODEL).toBe('deepseek-v4-flash-0731')
     expect(config.TASK_QUEUE_DRIVER).toBe('bullmq')
     expect(config.REDIS_URL).toBe('redis://redis:6379')
   })
@@ -194,7 +196,7 @@ describe('production configuration', () => {
         TEXT_MODEL: 'deepseek-v4-flash',
         DEEPSEEK_V4_API_KEY: '',
       }),
-    ).toThrow('DEEPSEEK_V4_API_KEY is required')
+    ).toThrow('DASHSCOPE_API_KEY or DEEPSEEK_V4_API_KEY is required')
 
     expect(
       loadConfig({
@@ -218,6 +220,19 @@ describe('production configuration', () => {
     })
 
     expect(config.REHDASU_API_KEY).toBe('legacy-rehdasu-token')
+  })
+
+  it('accepts Bailian as the preferred DeepSeek V4 route', () => {
+    const config = loadConfig({
+      ...productionConfig(),
+      DEEPSEEK_V4_API_KEY: '',
+      DASHSCOPE_API_KEY: 'production-dashscope-token',
+      TEXT_MODEL: 'deepseek-v4-flash',
+    })
+
+    expect(config.DASHSCOPE_API_KEY).toBe('production-dashscope-token')
+    expect(config.DASHSCOPE_BASE_URL).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
+    expect(config.DASHSCOPE_MODEL).toBe('deepseek-v4-flash-0731')
   })
 })
 

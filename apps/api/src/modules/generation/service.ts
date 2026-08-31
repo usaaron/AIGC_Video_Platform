@@ -36,6 +36,8 @@ export class GenerationService {
     if (input.kind === 'text' && input.provider === 'text' && !this.textProvider) {
       throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     }
+    const existingAssetSuggestionTask = await this.findExistingAssetSuggestionTask(input, principal)
+    if (existingAssetSuggestionTask) return existingAssetSuggestionTask
     const existingTrustedPortraitTask = await this.findActiveTrustedPortraitTask(input, principal)
     if (existingTrustedPortraitTask) return existingTrustedPortraitTask
 
@@ -83,6 +85,33 @@ export class GenerationService {
           task.metadata.assetId === assetId &&
           (task.status === 'queued' || task.status === 'paused' || task.status === 'running'),
       ) ?? null
+    )
+  }
+
+  private async findExistingAssetSuggestionTask(
+    input: CreateGenerationTask,
+    principal: Principal,
+  ): Promise<GenerationTask | null> {
+    const cacheKey = assetSuggestionCacheKey(input)
+    if (!cacheKey) return null
+    const tasks = await this.repository.listByProject(input.projectId, principal)
+    return (
+      tasks.find((task) => {
+        if (
+          task.kind !== 'text' ||
+          task.provider !== 'text' ||
+          task.metadata?.scriptOperation !== 'suggest-assets' ||
+          assetSuggestionCacheKey(task) !== cacheKey
+        ) {
+          return false
+        }
+        if (task.status === 'queued' || task.status === 'paused' || task.status === 'running') return true
+        if (task.status !== 'completed') return false
+        const result = task.metadata?.textResult
+        return Boolean(
+          result && typeof result === 'object' && Array.isArray((result as { assets?: unknown }).assets),
+        )
+      }) ?? null
     )
   }
 
@@ -370,6 +399,32 @@ export class GenerationService {
 
     return bufferVideoContent(await storage.get(storageKey), range)
   }
+}
+
+function assetSuggestionCacheKey(input: CreateGenerationTask | GenerationTask): string | null {
+  const metadata = input.metadata ?? {}
+  const fingerprint = metadata.sourceScriptFingerprint
+  const assetRevision = metadata.assetRevision
+  if (
+    typeof fingerprint !== 'string' ||
+    !fingerprint ||
+    typeof assetRevision !== 'string' ||
+    !assetRevision
+  ) {
+    return null
+  }
+  const direction = metadata.direction
+  const directionKey =
+    direction && typeof direction === 'object'
+      ? JSON.stringify({
+          style: (direction as Record<string, unknown>).style ?? 'auto',
+          composition: (direction as Record<string, unknown>).composition ?? 'auto',
+          lighting: (direction as Record<string, unknown>).lighting ?? 'auto',
+          camera: (direction as Record<string, unknown>).camera ?? 'auto',
+          focus: (direction as Record<string, unknown>).focus ?? 'balanced',
+        })
+      : '{}'
+  return JSON.stringify([fingerprint, assetRevision, input.model ?? metadata.model ?? '', directionKey])
 }
 
 function promptHash(value: string): string {

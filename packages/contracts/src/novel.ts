@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { aiJobSchema } from './aiJob.js'
-import { DEFAULT_SCRIPT_MODEL, scriptAssetSuggestionsContentSchema, textModelSchema } from './project.js'
+import {
+  ASSET_SUGGESTION_MODEL,
+  DEFAULT_SCRIPT_MODEL,
+  scriptAssetSuggestionsContentSchema,
+  textModelSchema,
+} from './project.js'
 
 export const novelSourceFormatSchema = z.enum(['txt', 'markdown'])
 export const novelSplitModeSchema = z.enum(['auto', 'heading', 'fixed'])
@@ -399,7 +404,7 @@ export const generateNovelStoryBibleRequestSchema = z.object({
 export const generateNovelAssetSuggestionsRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   maxAssets: z.number().int().min(4).max(16).default(12),
-  model: textModelSchema.default(DEFAULT_SCRIPT_MODEL),
+  model: textModelSchema.default(ASSET_SUGGESTION_MODEL),
 })
 
 export const novelChapterAdaptationModeSchema = z.enum(['scene', 'opening', 'summary'])

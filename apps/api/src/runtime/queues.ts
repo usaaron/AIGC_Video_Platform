@@ -118,14 +118,16 @@ export async function createRuntimeQueues(input: {
       : {}),
     ...(database
       ? {
-          afterTick: async () => {
-            await repositories.generationTaskRepository.flushRuntimeCacheToDatabase()
-          },
+          persistTickTasks: (taskIds: readonly string[]) =>
+            repositories.generationTaskRepository.flushRuntimeTasksToDatabase(taskIds).then(() => {}),
           refreshTask: async (taskId: string) => {
             await repositories.generationTaskRepository.refreshRuntimeTaskFromDatabase(taskId)
           },
           persistTask: async (taskId: string) => {
             await repositories.generationTaskRepository.flushRuntimeTaskToDatabase(taskId)
+          },
+          persistTextPreview: async (taskId: string) => {
+            await repositories.generationTaskRepository.flushRuntimeTextPreviewToDatabase(taskId)
           },
         }
       : {}),

@@ -161,14 +161,16 @@ const taskRunner = new GenerationTaskRunner(store, {
   ...(refreshProjectDomainRuntimeCache ? { beforeTick: refreshProjectDomainRuntimeCache } : {}),
   ...(database
     ? {
-        afterTick: async () => {
-          await generationTaskRepository.flushRuntimeCacheToDatabase()
-        },
+        persistTickTasks: (taskIds: readonly string[]) =>
+          generationTaskRepository.flushRuntimeTasksToDatabase(taskIds).then(() => {}),
         refreshTask: async (taskId: string) => {
           await generationTaskRepository.refreshRuntimeTaskFromDatabase(taskId)
         },
         persistTask: async (taskId: string) => {
           await generationTaskRepository.flushRuntimeTaskToDatabase(taskId)
+        },
+        persistTextPreview: async (taskId: string) => {
+          await generationTaskRepository.flushRuntimeTextPreviewToDatabase(taskId)
         },
       }
     : {}),

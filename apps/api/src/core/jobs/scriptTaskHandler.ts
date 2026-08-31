@@ -92,7 +92,8 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         input.script,
         input.direction,
         principal,
-        input.model,
+        context?.onTextProgress,
+        context?.onTextTiming,
       )
     }
 

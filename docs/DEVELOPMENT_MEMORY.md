@@ -16,7 +16,7 @@
 - 生产邮件已接 Resend，覆盖注册验证码、邮箱验证、邀请和密码重置。已有邮箱加入新组织时必须输入原账号密码，忘记密码先重置。
 - 正式用户主流程是项目库 -> 智能生成/改写剧本 -> 资产建议/定稿 -> 分镜/分集 -> Seedance 队列 -> 分集/完整预览。
 - 项目库“对话一句成片、图片大师、剧本大师”、小说/长剧本 UI 仍是待开发；Quick Start API 和旧弹窗仍在仓库，但当前正式 UI 没有一键尝鲜入口。
-- 剧本和资产建议通过后台 `text` 任务运行。默认文本模型是 `deepseek-v4-flash`；DeepSeek V4 Pro 复用同一独立路由，序幕-5.6 对应 `gpt-5.6-sol`。GLM/Kimi 仅在对应 Key 已获得模型授权时开放，Provider 内部推理字段不得写入业务正文。
+- 剧本和资产建议通过后台 `text` 任务运行。默认文本模型是 `deepseek-v4-flash`；配置 `DASHSCOPE_API_KEY` 时 DeepSeek V4 Flash/Pro 使用阿里云百炼 OpenAI 兼容路由（Flash 对应 `deepseek-v4-flash-0731`），没有该 key 才回退到旧 `DEEPSEEK_V4_*` 中转。序幕-5.6 对应 `gpt-5.6-sol`。GLM/Kimi 仅在对应 Key 已获得模型授权时开放，Provider 内部推理字段不得写入业务正文。
 - 图片只实现 TokenAdvent GPT Image 2。混元图片模型是禁用占位，不能写成已接入。
 - 视频与可信人像全走弦序的两套接口：Seedance 使用 Bearer Token，MaaS 素材库使用同租户 AK/SK。分镜图片不是生成视频的前置条件。
 - 网剧镜头按 3 到 15 秒，其他内容按 4 到 15 秒；有效并发为免费 1、会员 3。旧 Demo 不限并发变量没有接到账单摘要，不生效。

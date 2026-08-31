@@ -78,6 +78,94 @@ describe('runtime providers', () => {
     expect(JSON.parse(capturedBody).enable_thinking).toBe(false)
   })
 
+  it('routes DeepSeek V4 through Bailian when a DashScope key is configured', async () => {
+    let capturedUrl = ''
+    let capturedBody = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        capturedUrl = String(input)
+        capturedBody = String(init?.body)
+        return Response.json({ choices: [{ message: { content: '百炼可用' } }] })
+      }),
+    )
+
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      DASHSCOPE_API_KEY: 'test-dashscope-key',
+      DEEPSEEK_V4_API_KEY: 'legacy-relay-key',
+      DEEPSEEK_V4_BASE_URL: 'https://legacy-relay.example.com/v1',
+      TEXT_MODEL: 'deepseek-v4-flash',
+    })
+    const provider = createTextProvider(config)
+
+    await expect(
+      provider?.generate({
+        systemPrompt: '测试',
+        userPrompt: '回复可用',
+        model: 'deepseek-v4-flash',
+        maxOutputTokens: 2_200,
+      }),
+    ).resolves.toBe('百炼可用')
+    expect(capturedUrl).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions')
+    expect(JSON.parse(capturedBody).model).toBe('deepseek-v4-flash-0731')
+    expect(JSON.parse(capturedBody).max_tokens).toBe(2_200)
+    expect(JSON.parse(capturedBody).max_completion_tokens).toBeUndefined()
+    expect(JSON.parse(capturedBody).enable_thinking).toBe(false)
+  })
+
+  it('keeps Bailian-only asset requests on Bailian when other fallbacks are configured', async () => {
+    const requests: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        requests.push(String(input))
+        return new Response('Bad gateway', { status: 502 })
+      }),
+    )
+
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      DASHSCOPE_API_KEY: 'test-dashscope-key',
+      DEEPSEEK_V4_API_KEY: 'legacy-relay-key',
+      REHDASU_API_KEY: 'test-rehdasu-key',
+      TEXT_MODEL: 'deepseek-v4-flash',
+    })
+    const provider = createTextProvider(config)
+
+    await expect(
+      provider?.generate({
+        systemPrompt: '资产建议',
+        userPrompt: '返回 JSON',
+        model: 'deepseek-v4-flash',
+        providerRoute: 'bailian',
+      }),
+    ).rejects.toThrow()
+    expect(requests).toEqual(['https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'])
+  })
+
+  it('rejects a Bailian-only asset request when only the legacy relay is configured', async () => {
+    const fetcher = vi.fn()
+    vi.stubGlobal('fetch', fetcher)
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      DASHSCOPE_API_KEY: '',
+      DEEPSEEK_V4_API_KEY: 'legacy-relay-key',
+      TEXT_MODEL: 'deepseek-v4-flash',
+    })
+    const provider = createTextProvider(config)
+
+    await expect(
+      provider?.generate({
+        systemPrompt: '资产建议',
+        userPrompt: '返回 JSON',
+        model: 'deepseek-v4-flash',
+        providerRoute: 'bailian',
+      }),
+    ).rejects.toThrow('阿里云百炼 DeepSeek V4 Provider 尚未配置')
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
   it('maps the public DeepSeek V4 Flash name to the configured upstream model', async () => {
     let capturedBody = ''
     vi.stubGlobal(

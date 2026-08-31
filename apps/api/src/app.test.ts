@@ -106,11 +106,16 @@ const testConfig: AppConfig = {
   DEEPSEEK_MODEL: 'deepseekV3',
   DEEPSEEK_CHAT_COMPLETIONS_PATH: '/api/v1/chat/completions',
   DEEPSEEK_REQUEST_TIMEOUT_MS: 180_000,
-  DEEPSEEK_V4_BASE_URL: 'https://openrouter.icu/v1',
+  DEEPSEEK_V4_BASE_URL: 'https://hk.shanyoucloud.com',
   DEEPSEEK_V4_API_KEY: '',
   DEEPSEEK_V4_MODEL: 'deepseek-v4-flash',
   DEEPSEEK_V4_CHAT_COMPLETIONS_PATH: '/chat/completions',
   DEEPSEEK_V4_REQUEST_TIMEOUT_MS: 180_000,
+  DASHSCOPE_BASE_URL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  DASHSCOPE_API_KEY: '',
+  DASHSCOPE_MODEL: 'deepseek-v4-flash-0731',
+  DASHSCOPE_CHAT_COMPLETIONS_PATH: '/chat/completions',
+  DASHSCOPE_REQUEST_TIMEOUT_MS: 180_000,
   REHDASU_BASE_URL: 'https://tokenadvent.com',
   REHDASU_API_KEY: '',
   REHDASU_MODEL: 'glm-5.2',
@@ -1177,8 +1182,9 @@ describe('API authorization', () => {
     expect(generate.mock.calls[0][0]).toMatchObject({
       systemPrompt: expect.stringContaining('资产制片'),
       userPrompt: expect.stringContaining('已有资产'),
-      maxOutputTokens: 3_080,
     })
+    expect(generate.mock.calls[0][0].maxOutputTokens).toBeGreaterThanOrEqual(2_200)
+    expect(generate.mock.calls[0][0].maxOutputTokens).toBeLessThanOrEqual(3_200)
     expect(generate.mock.calls[0][0].systemPrompt).toContain('不要返回完整生产提示词')
     expect(generate.mock.calls[0][0].userPrompt).toContain('全剧结构化字段索引')
     expect(generate.mock.calls[0][0].userPrompt).toContain('服装候选：女剑客雪夜衣装')

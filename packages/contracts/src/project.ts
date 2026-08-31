@@ -65,6 +65,7 @@ export const scriptModelSchema = z.enum([
 ])
 export const textModelSchema = scriptModelSchema
 export const DEFAULT_SCRIPT_MODEL = 'deepseek-v4-flash' as const
+export const ASSET_SUGGESTION_MODEL = 'deepseek-v4-flash' as const
 
 export const scriptCreativeDirectionSchema = z.object({
   style: z
@@ -338,7 +339,7 @@ export const generateScriptAssetSuggestionsRequestSchema = z.object({
   clientRequestId: z.string().min(1).max(128).optional(),
   script: z.string().trim().min(1).max(100_000),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
-  model: scriptModelSchema.default(DEFAULT_SCRIPT_MODEL),
+  model: scriptModelSchema.default(ASSET_SUGGESTION_MODEL),
 })
 
 export const scriptAssetSuggestionsContentSchema = z.object({

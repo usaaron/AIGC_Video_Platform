@@ -105,6 +105,13 @@ const configSchema = z
     DEEPSEEK_V4_MODEL: z.string().min(1).default('deepseek-v4-flash'),
     DEEPSEEK_V4_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/v1/chat/completions'),
     DEEPSEEK_V4_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
+    // Alibaba Cloud Bailian DeepSeek route. When configured, this takes precedence
+    // over the legacy DEEPSEEK_V4_* relay; the legacy route remains supported for rollback.
+    DASHSCOPE_BASE_URL: z.string().url().default('https://dashscope.aliyuncs.com/compatible-mode/v1'),
+    DASHSCOPE_API_KEY: z.string().default(''),
+    DASHSCOPE_MODEL: z.string().min(1).default('deepseek-v4-flash-0731'),
+    DASHSCOPE_CHAT_COMPLETIONS_PATH: z.string().min(1).default('/chat/completions'),
+    DASHSCOPE_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
     REHDASU_BASE_URL: z.string().url().default('https://tokenadvent.com'),
     REHDASU_API_KEY: z.string().default(''),
     REHDASU_MODEL: z.string().min(1).default('glm-5.2'),
@@ -323,12 +330,14 @@ const configSchema = z
     if (
       config.NODE_ENV === 'production' &&
       isDeepSeekV4TextModel(config.TEXT_MODEL) &&
+      !config.DASHSCOPE_API_KEY &&
       !config.DEEPSEEK_V4_API_KEY
     ) {
       context.addIssue({
         code: 'custom',
-        path: ['DEEPSEEK_V4_API_KEY'],
-        message: 'DEEPSEEK_V4_API_KEY is required for the selected production text model',
+        path: ['DASHSCOPE_API_KEY'],
+        message:
+          'DASHSCOPE_API_KEY or DEEPSEEK_V4_API_KEY is required for the selected production text model',
       })
     }
     if (

@@ -5,7 +5,7 @@ import type { ProjectService } from '../../modules/projects/service.js'
 import { createScriptTaskHandler } from './scriptTaskHandler.js'
 
 describe('createScriptTaskHandler', () => {
-  it('runs asset suggestions as an independent background operation', async () => {
+  it('does not let a queued task override the asset suggestion model', async () => {
     const store = new AppStore(null)
     await store.initialize()
     const service = {
@@ -50,14 +50,17 @@ describe('createScriptTaskHandler', () => {
       error: null,
     } satisfies GenerationTask
 
-    const result = await createScriptTaskHandler(store, service)(task)
+    const onTextProgress = vi.fn()
+    const onTextTiming = vi.fn()
+    const result = await createScriptTaskHandler(store, service)(task, { onTextProgress, onTextTiming })
 
     expect(service.suggestScriptAssets).toHaveBeenCalledWith(
       task.projectId,
       task.metadata.script,
       task.metadata.direction,
       { userId: 'user-member', tenantId: 'tenant-seqora-demo', roles: ['member'] },
-      'glm-5.2-fast',
+      onTextProgress,
+      onTextTiming,
     )
     expect(result).toMatchObject({ summary: '建议先建立主角和核心场景', assets: [] })
   })

@@ -62,9 +62,8 @@ describe('worker generation task DB writeback', { timeout: 30_000 }, () => {
         imageProvider,
         objectStorage,
         beforeTick: () => tasks.refreshRuntimeCacheFromDatabase(),
-        afterTick: async () => {
-          await tasks.flushRuntimeCacheToDatabase()
-        },
+        persistTickTasks: (taskIds) => tasks.flushRuntimeTasksToDatabase(taskIds).then(() => {}),
+        persistTask: (taskId) => tasks.flushRuntimeTaskToDatabase(taskId).then(() => {}),
       })
 
       await runner.tick()

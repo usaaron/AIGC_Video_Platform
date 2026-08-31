@@ -6072,6 +6072,27 @@
   margin-top: 1px;
 }
 
+.script-generation-note-error {
+  border-color: #e2b6b0;
+  background: #fff5f3;
+  color: #8c3d34;
+}
+
+.script-generation-note-error > span {
+  display: grid;
+  gap: 3px;
+}
+
+.script-generation-note-error strong {
+  color: #77332c;
+  font-size: 11px;
+}
+
+.script-generation-note-error small {
+  color: #9b5b53;
+  font-size: 10px;
+}
+
 .script-workspace {
   display: grid;
   gap: 14px;

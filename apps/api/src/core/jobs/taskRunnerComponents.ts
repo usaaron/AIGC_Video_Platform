@@ -21,7 +21,7 @@ import type {
   VideoProviderName,
 } from '../generation/videoProvider.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
-import type { AppStore } from '../../infra/store.js'
+import type { AppState, AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../../modules/billing/creditLedger.js'
 import type { MediaRepository } from '../../modules/media/repository.js'
 import { observabilityMetrics, observeProviderCall } from '../observability/metrics.js'
@@ -142,6 +142,7 @@ export class TaskClaimer {
           const providerName = this.remoteProviderName(task)
           if (!this.ownsTask(task, providerName)) return
           if (generationTaskLeaseActive(task, now.getTime())) return
+          if (recoverScriptTaskFromDraft(task, state, nowIso)) return
           if (providerName && !task.metadata.providerTaskId) {
             claimGenerationTaskLease(task, this.options.leaseOwnerId, this.options.leaseTtlMs, now, {
               countAttempt: false,
@@ -177,6 +178,47 @@ export class TaskClaimer {
       const selectedVideoTasks: GenerationTask[] = []
       const selectedImageTasks: GenerationTask[] = []
       const selectedLocalTasks: GenerationTask[] = []
+
+      // Older clients could enqueue a second script task while the first one was
+      // still running. Finish those stale queue entries before they consume a
+      // text slot and later collide with the first task's episode draft.
+      const activeScriptTasks = state.tasks
+        .filter((task) => isActiveScriptTask(task))
+        .sort((left, right) => taskCreatedAt(left) - taskCreatedAt(right) || left.id.localeCompare(right.id))
+      const firstScriptTaskByProject = new Map<string, GenerationTask>()
+      for (const task of activeScriptTasks) {
+        const key = `${task.tenantId}:${task.projectId}`
+        const first = firstScriptTaskByProject.get(key)
+        if (!first) {
+          firstScriptTaskByProject.set(key, task)
+          continue
+        }
+        if (task.status !== 'queued') continue
+        task.status = 'failed'
+        task.progress = 100
+        task.error = '同一项目已有剧本任务正在执行，本次重复任务已停止；请等待前一个任务完成后再提交'
+        task.updatedAt = nowIso
+        releaseGenerationTaskLease(task)
+        recordGenerationTaskTerminal(task, new Error(task.error))
+      }
+
+      for (const task of state.tasks) {
+        if (task.status !== 'queued' || !isNextEpisodeScriptTask(task)) continue
+        const hasDraft = state.scriptEpisodes.some(
+          (episode) =>
+            episode.projectId === task.projectId &&
+            episode.tenantId === task.tenantId &&
+            episode.status === 'draft' &&
+            episode.draftContent.trim().length > 0,
+        )
+        if (!hasDraft) continue
+        task.status = 'failed'
+        task.progress = 100
+        task.error = '当前项目已有未保存的剧集草稿，请先保存本集后再继续生成'
+        task.updatedAt = nowIso
+        releaseGenerationTaskLease(task)
+        recordGenerationTaskTerminal(task, new Error(task.error))
+      }
 
       for (const user of state.users) {
         const userTasks = state.tasks.filter((task) => task.userId === user.id)
@@ -301,7 +343,9 @@ export class TaskRefundService {
   ) {}
 
   async refundTerminalTasks(): Promise<void> {
-    const candidates = this.store.read((state) => state.tasks.filter((task) => canPotentiallyRefundTask(task)))
+    const candidates = this.store.read((state) =>
+      state.tasks.filter((task) => canPotentiallyRefundTask(task)),
+    )
     if (!candidates.length) return
     const creditLedger = this.creditLedger
     if (creditLedger) {
@@ -1204,6 +1248,7 @@ export class ProviderPoller {
         if (!leaseToken) continue
         stored.metadata = { ...stored.metadata, providerPolledAt: now }
         renewGenerationTaskLease(stored, this.options.leaseOwnerId, leaseToken, this.options.leaseTtlMs)
+        stored.updatedAt = new Date().toISOString()
       }
       return tasks
     })
@@ -1854,6 +1899,80 @@ function canPotentiallyRefundTask(task: GenerationTask): boolean {
     typeof task.metadata.providerCancelCompletedAt === 'string' ||
     typeof task.metadata.providerCancelSkippedAt === 'string'
   )
+}
+
+function isScriptTask(task: GenerationTask): boolean {
+  return (
+    task.kind === 'text' &&
+    task.provider === 'text' &&
+    String(task.metadata.generationStage || '').startsWith('script-') &&
+    (task.metadata.scriptOperation === 'generate' || task.metadata.scriptOperation === 'enrich')
+  )
+}
+
+function isActiveScriptTask(task: GenerationTask): boolean {
+  return isScriptTask(task) && ['queued', 'paused', 'running'].includes(task.status)
+}
+
+function isNextEpisodeScriptTask(task: GenerationTask): boolean {
+  return isScriptTask(task) && task.metadata.mode === 'segment'
+}
+
+function taskCreatedAt(task: GenerationTask): number {
+  const value = Date.parse(task.createdAt)
+  return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER
+}
+
+function recoverScriptTaskFromDraft(task: GenerationTask, state: AppState, nowIso: string): boolean {
+  if (
+    !isScriptTask(task) ||
+    typeof task.metadata.textPreview !== 'string' ||
+    !task.metadata.textPreview.trim()
+  ) {
+    return false
+  }
+  const startedAt = Date.parse(stringValue(task.metadata.localTaskStartedAt, ''))
+  const requestedEpisodeId = stringValue(task.metadata.episodeId, '')
+  const draft = state.scriptEpisodes
+    .filter(
+      (episode) =>
+        episode.projectId === task.projectId &&
+        episode.tenantId === task.tenantId &&
+        episode.status === 'draft' &&
+        episode.draftContent.trim().length > 0 &&
+        (!requestedEpisodeId || episode.id === requestedEpisodeId) &&
+        (!Number.isFinite(startedAt) || Date.parse(episode.updatedAt) >= startedAt),
+    )
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+  const episode = draft[0]
+  if (!episode) return false
+
+  const {
+    textPreview: _textPreview,
+    textPreviewUpdatedAt: _textPreviewUpdatedAt,
+    textFirstPreviewAt: _textFirstPreviewAt,
+    textPreviewValidation: _textPreviewValidation,
+    textPreviewStage: _textPreviewStage,
+    ...metadata
+  } = task.metadata
+  const script = episode.draftContent.trim()
+  task.status = 'completed'
+  task.progress = 100
+  task.error = null
+  task.metadata = {
+    ...metadata,
+    localTaskRecoveredAt: nowIso,
+    textResult: {
+      script,
+      episode,
+      ...(task.metadata.mode === 'segment' ? { segment: script } : {}),
+      mode: task.metadata.mode === 'segment' ? 'segment' : 'quick',
+    },
+  }
+  task.updatedAt = nowIso
+  releaseGenerationTaskLease(task)
+  recordGenerationTaskTerminal(task)
+  return true
 }
 
 function canRefundTask(task: GenerationTask, ledgerIds: string[]): boolean {

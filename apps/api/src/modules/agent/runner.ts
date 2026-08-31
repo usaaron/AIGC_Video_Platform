@@ -1,5 +1,6 @@
 import {
   AGENT_CREDIT_COSTS,
+  ASSET_SUGGESTION_MODEL,
   DEFAULT_SCRIPT_DIRECTION,
   DEFAULT_SCRIPT_MODEL,
   type AgentRun,
@@ -186,7 +187,7 @@ export class AgentRunner {
           kind: 'text',
           label: `${run.plan.projectName} · Agent 资产分析`,
           provider: 'text',
-          model: DEFAULT_SCRIPT_MODEL,
+          model: ASSET_SUGGESTION_MODEL,
           estimatedCredits: AGENT_CREDIT_COSTS.assetAnalysis,
           metadata: {
             generationStage: 'script-asset-suggestions',

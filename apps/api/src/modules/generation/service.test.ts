@@ -98,6 +98,103 @@ describe('GenerationService task creation', () => {
     expect(dispatcher.dispatch).not.toHaveBeenCalled()
   })
 
+  it('reuses an active asset suggestion for the same script and asset revision', async () => {
+    const input: CreateGenerationTask = {
+      clientRequestId: 'asset-suggestion-duplicate',
+      projectId: 'project-midnight-film',
+      kind: 'text',
+      label: '资产建议',
+      provider: 'text',
+      model: 'deepseek-v4-flash',
+      estimatedCredits: 1,
+      metadata: {
+        generationStage: 'script-asset-suggestions',
+        scriptOperation: 'suggest-assets',
+        sourceScriptFingerprint: '42:abc123',
+        assetRevision: 'none',
+        direction: {
+          style: 'auto',
+          composition: 'auto',
+          lighting: 'auto',
+          camera: 'auto',
+          focus: 'balanced',
+        },
+      },
+    }
+    const active = generationTask({ ...input, clientRequestId: 'asset-suggestion-active' })
+    active.id = 'asset-suggestion-active-task'
+    active.status = 'running'
+    const repository = {
+      canCreate: vi.fn(() => true),
+      listByProject: vi.fn(async () => [active]),
+      createWithCharge: vi.fn(),
+    } as unknown as GenerationTaskRepository
+    const dispatcher = { dispatch: vi.fn() } as unknown as TaskDispatcher
+    const textProvider = { generate: vi.fn() }
+    const service = new GenerationService(
+      repository,
+      dispatcher,
+      null,
+      'stringx-seedance',
+      null,
+      null,
+      textProvider,
+    )
+
+    await expect(service.createTask(input, principal)).resolves.toBe(active)
+    expect(repository.listByProject).toHaveBeenCalledWith(input.projectId, principal)
+    expect(repository.createWithCharge).not.toHaveBeenCalled()
+    expect(dispatcher.dispatch).not.toHaveBeenCalled()
+  })
+
+  it('reuses a completed asset suggestion only when it contains a structured result', async () => {
+    const input: CreateGenerationTask = {
+      clientRequestId: 'asset-suggestion-completed-duplicate',
+      projectId: 'project-midnight-film',
+      kind: 'text',
+      label: '资产建议',
+      provider: 'text',
+      model: 'deepseek-v4-flash',
+      estimatedCredits: 1,
+      metadata: {
+        generationStage: 'script-asset-suggestions',
+        scriptOperation: 'suggest-assets',
+        sourceScriptFingerprint: '42:abc123',
+        assetRevision: 'asset-1:2026-08-31T00:00:00.000Z',
+        direction: {
+          style: 'auto',
+          composition: 'auto',
+          lighting: 'auto',
+          camera: 'auto',
+          focus: 'balanced',
+        },
+      },
+    }
+    const completed = generationTask({ ...input, clientRequestId: 'asset-suggestion-completed' })
+    completed.id = 'asset-suggestion-completed-task'
+    completed.status = 'completed'
+    completed.metadata = { ...completed.metadata, textResult: { summary: 'ok', assets: [] } }
+    const repository = {
+      canCreate: vi.fn(() => true),
+      listByProject: vi.fn(async () => [completed]),
+      createWithCharge: vi.fn(),
+    } as unknown as GenerationTaskRepository
+    const dispatcher = { dispatch: vi.fn() } as unknown as TaskDispatcher
+    const textProvider = { generate: vi.fn() }
+    const service = new GenerationService(
+      repository,
+      dispatcher,
+      null,
+      'stringx-seedance',
+      null,
+      null,
+      textProvider,
+    )
+
+    await expect(service.createTask(input, principal)).resolves.toBe(completed)
+    expect(repository.createWithCharge).not.toHaveBeenCalled()
+  })
+
   it('captures the current storyboard prompt instead of trusting a stale client prompt', async () => {
     const input: CreateGenerationTask = {
       clientRequestId: 'snapshot-current-shot',

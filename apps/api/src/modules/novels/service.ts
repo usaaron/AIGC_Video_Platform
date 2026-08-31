@@ -40,6 +40,7 @@ import type {
   ScriptAssetSuggestion,
 } from '@seqora/contracts'
 import {
+  ASSET_SUGGESTION_MODEL,
   NOVEL_OPERATION_CREDITS,
   novelBoundaryNotesContentSchema,
   novelChapterSummariesContentSchema,
@@ -898,6 +899,8 @@ export class NovelService implements AiJobHandler {
           systemPrompt: NOVEL_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
           userPrompt: novelAssetSuggestionsPrompt(source, input.maxAssets),
           maxOutputTokens: NOVEL_ASSET_SUGGESTIONS_MAX_TOKENS,
+          model: ASSET_SUGGESTION_MODEL,
+          providerRoute: 'bailian',
           usageContext: usageContextForPrincipal(principal),
         })
         result = scriptAssetSuggestionsContentSchema.parse(

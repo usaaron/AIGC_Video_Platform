@@ -619,6 +619,52 @@ describe('ProjectService script billing', () => {
   })
 })
 
+describe('ProjectService asset suggestions', () => {
+  it('uses the bounded DeepSeek V4 request with timing and progress hooks', async () => {
+    const repository = {
+      workspace: vi.fn(async () => ({
+        project: {
+          name: '雨夜来信',
+          contentType: 'short-drama',
+          visualStyle: 'cinematic-cg',
+          aspectRatio: '9:16',
+        },
+        assets: [],
+      })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = { generate: vi.fn(async () => '{}') }
+    const service = new ProjectService(repository, textProvider)
+
+    const onTextProgress = vi.fn()
+    const onTextTiming = vi.fn()
+    await service.suggestScriptAssets(
+      'project-1',
+      '场次：S01｜场景：雨夜车站｜角色：林夏｜道具：旧雨伞',
+      DEFAULT_SCRIPT_DIRECTION,
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      onTextProgress,
+      onTextTiming,
+    )
+
+    expect(textProvider.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'deepseek-v4-flash',
+        providerRoute: 'bailian',
+        responseFormat: 'json',
+        timeoutMs: 45_000,
+        timingLabel: 'asset-suggestions',
+        onTextTiming,
+        maxOutputTokens: expect.any(Number),
+      }),
+    )
+    const request = vi.mocked(textProvider.generate).mock.calls[0]?.[0]
+    expect(request?.maxOutputTokens).toBeGreaterThanOrEqual(2_200)
+    expect(request?.maxOutputTokens).toBeLessThanOrEqual(3_200)
+    request?.onTextProgress?.('{"summary":"处理中"}')
+    expect(onTextProgress).toHaveBeenCalledWith('{"summary":"处理中"}', 'asset-suggestions')
+  })
+})
+
 describe('ProjectService director beat splitting', () => {
   it('keeps labelled action details together and carries scene state into two executable shots', async () => {
     const script =

@@ -37,7 +37,7 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
 
   async generate(request: TextGenerationRequest): Promise<string> {
     let lastError: unknown
-    const maxAttempts = this.options.maxAttempts ?? 2
+    const maxAttempts = request.maxAttempts ?? this.options.maxAttempts ?? 2
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
         return await this.generateOnce(request, attempt === 0, attempt + 1)
@@ -69,7 +69,7 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
       if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
         const completion = await readCompletionStream(
           response.body,
-          this.options.requestTimeoutMs,
+          request.timeoutMs ?? this.options.requestTimeoutMs,
           request.onTextProgress,
         )
         notifyTextTiming(request.onTextTiming, {
@@ -131,6 +131,7 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
     includeResponseFormat: boolean,
   ): Promise<Response> {
     const maxTokens = maxTokenPayload(request.maxOutputTokens, this.options.maxTokensMode ?? 'both')
+    const timeoutMs = request.timeoutMs ?? this.options.requestTimeoutMs
     return this.fetcher(`${this.baseUrl}${this.completionsPath}`, {
       method: 'POST',
       headers: {
@@ -150,7 +151,7 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
           : {}),
         stream,
       }),
-      signal: AbortSignal.timeout(this.options.requestTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     })
   }
 
@@ -199,11 +200,16 @@ async function readCompletionStream(
   let content = ''
   let usage: ProviderTokenUsage | null = null
   let firstTokenAt: number | null = null
+  let streamFinished = false
 
-  const consume = (line: string) => {
+  const consume = (line: string): void => {
     if (!line.startsWith('data:')) return
     const payload = line.slice(5).trim()
-    if (!payload || payload === '[DONE]') return
+    if (!payload) return
+    if (payload === '[DONE]') {
+      streamFinished = true
+      return
+    }
     let value: unknown
     try {
       value = JSON.parse(payload)
@@ -217,6 +223,7 @@ async function readCompletionStream(
       firstTokenAt ??= Date.now()
       notifyTextProgress(onTextProgress, content)
     }
+    if (streamChunkFinished(value)) streamFinished = true
   }
 
   const readWithTimeout = async () => {
@@ -242,7 +249,14 @@ async function readCompletionStream(
       buffered += decoder.decode(value, { stream: true })
       const lines = buffered.split(/\r?\n/)
       buffered = lines.pop() ?? ''
-      for (const line of lines) consume(line)
+      for (const line of lines) {
+        consume(line)
+        if (streamFinished) break
+      }
+      if (streamFinished) {
+        await reader.cancel().catch(() => {})
+        break
+      }
     }
   } catch (error) {
     await reader.cancel().catch(() => {})
@@ -260,6 +274,16 @@ async function readCompletionStream(
     firstTokenAfterHeadersMs: firstTokenAt === null ? null : Math.max(0, firstTokenAt - startedAt),
     generationMs: firstTokenAt === null ? null : Math.max(0, Date.now() - firstTokenAt),
   }
+}
+
+function streamChunkFinished(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  if (value.done === true || value.finished === true || value.status === 'completed') return true
+  if (!Array.isArray(value.choices)) return false
+  return value.choices.some(
+    (choice) =>
+      isRecord(choice) && typeof choice.finish_reason === 'string' && choice.finish_reason.length > 0,
+  )
 }
 
 function notifyTextProgress(onTextProgress: ((text: string) => void) | undefined, text: string): void {

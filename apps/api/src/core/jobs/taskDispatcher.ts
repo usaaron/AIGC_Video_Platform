@@ -53,8 +53,11 @@ type GenerationTaskRunnerOptions = {
   providerPollConcurrency?: number
   leaseTtlMs?: number
   taskMutationLockTimeoutMs?: number
+  textPreviewPersistTimeoutMs?: number
   beforeTick?: () => Promise<void>
   afterTick?: () => Promise<void>
+  persistTickTasks?: (taskIds: readonly string[]) => Promise<void>
+  persistTextPreview?: (taskId: string) => Promise<void>
   refreshTask?: (taskId: string) => Promise<void>
   persistTask?: (taskId: string) => Promise<void>
   taskRunnerLock?: TaskRunnerLock | null
@@ -76,6 +79,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private tickRequested = false
   private readonly beforeTick: (() => Promise<void>) | null
   private readonly afterTick: (() => Promise<void>) | null
+  private readonly persistTickTasks: ((taskIds: readonly string[]) => Promise<void>) | null
+  private readonly persistTextPreview: ((taskId: string) => Promise<void>) | null
   private readonly refreshTask: ((taskId: string) => Promise<void>) | null
   private readonly persistTask: ((taskId: string) => Promise<void>) | null
   private readonly taskRunnerLock: TaskRunnerLock
@@ -94,6 +99,9 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly providerPollConcurrency: number
   private readonly leaseTtlMs: number
   private readonly taskMutationLockTimeoutMs: number
+  private readonly textPreviewPersistTimeoutMs: number
+  private pendingTaskMutations = 0
+  private mutationIdleWaiters: Array<() => void> = []
 
   constructor(
     private readonly store: AppStore,
@@ -107,11 +115,14 @@ export class GenerationTaskRunner implements TaskDispatcher {
     this.leaseTtlMs = leaseTtlMs
     this.providerPollConcurrency = Math.max(1, Math.floor(options.providerPollConcurrency ?? 6))
     this.taskMutationLockTimeoutMs = Math.max(1, options.taskMutationLockTimeoutMs ?? 30_000)
+    this.textPreviewPersistTimeoutMs = Math.max(1, options.textPreviewPersistTimeoutMs ?? 1_500)
     const leaseOwnerId = `generation-task-runner-${process.pid}-${randomUUID()}`
     const dependencyResolver = new DependencyResolver()
 
     this.beforeTick = options.beforeTick ?? null
     this.afterTick = options.afterTick ?? null
+    this.persistTickTasks = options.persistTickTasks ?? null
+    this.persistTextPreview = options.persistTextPreview ?? null
     this.refreshTask = options.refreshTask ?? null
     this.persistTask = options.persistTask ?? null
     this.taskRunnerLock = options.taskRunnerLock ?? noopTaskRunnerLock
@@ -186,16 +197,20 @@ export class GenerationTaskRunner implements TaskDispatcher {
     }
 
     let maintenanceWork: ProviderMaintenanceWork = { videoPolls: [], cancellations: [] }
-    const tickPromise = this.taskRunnerLock
-      .runExclusive(async () => {
+    // Register the in-flight tick before waiting for a pending task writeback. This
+    // preserves tick coalescing when a timer and a dispatch arrive together.
+    const tickPromise = (async () => {
+      // A completed provider/local task has priority over a periodic follow-up tick.
+      // Otherwise a queued tick can repeatedly win the advisory lock while a final
+      // task writeback is waiting for it.
+      await this.waitForTaskMutations()
+      await this.taskRunnerLock.runExclusive(async () => {
         maintenanceWork = await this.runTick(context)
       })
       // Refund bookkeeping performs database calls for historical terminal tasks.
       // Keep it outside the claim lock so it cannot starve new generations.
-      .then(async () => {
-        await this.refundService.refundTerminalTasks()
-      })
-      .then(() => undefined)
+      await this.refundService.refundTerminalTasks()
+    })()
     this.tickPromise = tickPromise
 
     let maintenancePromise: Promise<void> | null = null
@@ -220,6 +235,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private async runTick(_context?: TaskDispatchContext): Promise<ProviderMaintenanceWork> {
     const maintenanceWork: ProviderMaintenanceWork = { videoPolls: [], cancellations: [] }
     await this.beforeTick?.()
+    const taskVersionsBeforeTick = this.captureTaskVersions()
     try {
       await this.providerPoller.recoverStatusParseFailures()
       const recoveredSubmissions = await this.claimer.recoverStaleRunningTasks()
@@ -248,7 +264,9 @@ export class GenerationTaskRunner implements TaskDispatcher {
       )
       return maintenanceWork
     } finally {
-      await this.afterTick?.()
+      const changedTaskIds = this.changedTaskIdsSince(taskVersionsBeforeTick)
+      if (this.persistTickTasks) await this.persistTickTasks(changedTaskIds)
+      else await this.afterTick?.()
     }
   }
 
@@ -423,7 +441,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     } finally {
       stopHeartbeat()
       try {
-        await this.runTaskMutation(async () => {}, false)
+        await this.runTaskMutation(task.id, async () => {}, false)
       } catch (error) {
         this.warnTaskRunnerFailure('final state refresh', task.id, error)
       }
@@ -443,25 +461,49 @@ export class GenerationTaskRunner implements TaskDispatcher {
     let persistedPreview = ''
     let persistedPreviewStage = ''
     let previewTimer: NodeJS.Timeout | null = null
-    let previewWrite = Promise.resolve()
-    const flushPreview = (): Promise<void> => {
+    let previewWrite: Promise<void> | null = null
+    let generationSettled = false
+    const schedulePreviewFlush = () => {
+      if (generationSettled || previewTimer || previewWrite) return
+      previewTimer = setTimeout(() => {
+        previewTimer = null
+        flushPreview()
+      }, 800)
+      previewTimer.unref?.()
+    }
+    const flushPreview = (): void => {
+      if (generationSettled || previewWrite) return
       const preview = latestPreview
       const stage = latestPreviewStage
-      if (!preview || (preview === persistedPreview && stage === persistedPreviewStage)) return previewWrite
-      previewWrite = previewWrite
-        .catch(() => {})
-        .then(() =>
-          this.runLocalTaskMutation(
-            task.id,
-            () => this.writeback.updateLocalTextPreview(task.id, leaseToken, preview, stage),
-            false,
-          ),
-        )
-        .then(() => {
+      if (!preview || (preview === persistedPreview && stage === persistedPreviewStage)) return
+      const write = this.tryRunTextPreviewMutation(
+        task.id,
+        () => this.writeback.updateLocalTextPreview(task.id, leaseToken, preview, stage),
+        () => !generationSettled,
+      )
+        .then((applied) => {
+          if (!applied && generationSettled) return
           persistedPreview = preview
           persistedPreviewStage = stage
         })
-      return previewWrite
+        .catch((error) => this.warnTaskRunnerFailure('text preview', task.id, error))
+        .finally(() => {
+          if (previewWrite === write) previewWrite = null
+          if (
+            !generationSettled &&
+            (latestPreview !== persistedPreview || latestPreviewStage !== persistedPreviewStage)
+          ) {
+            schedulePreviewFlush()
+          }
+        })
+      previewWrite = write
+    }
+    const settlePreview = () => {
+      generationSettled = true
+      if (previewTimer) {
+        clearTimeout(previewTimer)
+        previewTimer = null
+      }
     }
     const schedulePreview = (text: string, stage = 'first-draft') => {
       const preview = text.trimStart().slice(0, 24_000)
@@ -469,15 +511,11 @@ export class GenerationTaskRunner implements TaskDispatcher {
       firstPreviewAtMs ??= Date.now()
       latestPreview = preview
       latestPreviewStage = stage
-      if (previewTimer) return
-      previewTimer = setTimeout(() => {
-        previewTimer = null
-        void flushPreview().catch((error) => this.warnTaskRunnerFailure('text preview', task.id, error))
-      }, 800)
-      previewTimer.unref?.()
+      schedulePreviewFlush()
     }
+    let result: unknown
     try {
-      const result = await handler.execute(
+      result = await handler.execute(
         task,
         task.kind === 'text'
           ? {
@@ -486,12 +524,37 @@ export class GenerationTaskRunner implements TaskDispatcher {
             }
           : undefined,
       )
-      if (previewTimer) {
-        clearTimeout(previewTimer)
-        previewTimer = null
+    } catch (error) {
+      settlePreview()
+      try {
+        await this.runFinalLocalTaskMutation(
+          task.id,
+          async () => {
+            if (latestPreview) {
+              await this.writeback.updateLocalTextPreview(
+                task.id,
+                leaseToken,
+                latestPreview,
+                latestPreviewStage,
+              )
+            }
+            await this.writeback.failTask(task.id, localTaskError(error), leaseToken, {
+              executionStartedAtMs,
+              firstPreviewAtMs,
+              textTimings,
+            })
+          },
+          true,
+        )
+      } finally {
+        stopHeartbeat()
       }
-      await flushPreview()
-      await this.runLocalTaskMutation(
+      return
+    }
+
+    settlePreview()
+    try {
+      await this.runFinalLocalTaskMutation(
         task.id,
         () =>
           this.writeback.completeLocalTask(task.id, leaseToken, result, {
@@ -501,26 +564,29 @@ export class GenerationTaskRunner implements TaskDispatcher {
           }),
         true,
       )
-    } catch (error) {
-      if (previewTimer) {
-        clearTimeout(previewTimer)
-        previewTimer = null
-      }
-      await flushPreview().catch(() => {})
-      await this.runLocalTaskMutation(
-        task.id,
-        () =>
-          this.writeback.failTask(task.id, localTaskError(error), leaseToken, {
-            executionStartedAtMs,
-            firstPreviewAtMs,
-            textTimings,
-          }),
-        true,
-      )
     } finally {
-      if (previewTimer) clearTimeout(previewTimer)
       stopHeartbeat()
     }
+  }
+
+  private async tryRunTextPreviewMutation(
+    taskId: string,
+    operation: () => Promise<void>,
+    shouldContinue: () => boolean,
+  ): Promise<boolean> {
+    if (!shouldContinue()) return false
+    const persistence = (async () => {
+      if (!shouldContinue()) return false
+      await operation()
+      if (this.persistTextPreview) await this.persistTextPreview(taskId)
+      else if (this.persistTask) await this.persistTask(taskId)
+      else await this.afterTick?.()
+      return true
+    })().catch((error) => {
+      this.warnTaskRunnerFailure('text preview persistence', taskId, error)
+      return false
+    })
+    return Promise.race([persistence, delay(this.textPreviewPersistTimeoutMs).then(() => false)])
   }
 
   private startTaskHeartbeat(taskId: string, leaseToken: string): () => void {
@@ -545,22 +611,62 @@ export class GenerationTaskRunner implements TaskDispatcher {
     return () => clearInterval(timer)
   }
 
-  private async runTaskMutation(operation: () => Promise<void>, refreshFirst = true): Promise<void> {
-    const deadline = Date.now() + this.taskMutationLockTimeoutMs
-    do {
-      const acquired = await this.taskRunnerLock.runExclusive(async () => {
-        if (refreshFirst) await this.beforeTick?.()
-        await operation()
-        await this.afterTick?.()
-      })
-      if (acquired) return
-      const remainingMs = deadline - Date.now()
-      if (remainingMs > 0) await delay(Math.min(100, remainingMs))
-    } while (Date.now() < deadline)
-    throw new Error('Timed out while persisting local generation task state')
+  private async runTaskMutation(
+    taskId: string,
+    operation: () => Promise<void>,
+    refreshFirst = true,
+  ): Promise<void> {
+    return this.withPendingTaskMutation(async () => {
+      const deadline = Date.now() + this.taskMutationLockTimeoutMs
+      do {
+        const acquired = await this.taskRunnerLock.runExclusive(async () => {
+          if (refreshFirst) {
+            if (this.refreshTask) await this.refreshTask(taskId)
+            else await this.beforeTick?.()
+          }
+          await operation()
+          if (this.persistTask) await this.persistTask(taskId)
+          else await this.afterTick?.()
+        })
+        if (acquired) return
+        const remainingMs = deadline - Date.now()
+        if (remainingMs > 0) await delay(Math.min(100, remainingMs))
+      } while (Date.now() < deadline)
+      throw new Error('Timed out while persisting local generation task state')
+    })
   }
 
   private async runLocalTaskMutation<T>(
+    taskId: string,
+    operation: () => Promise<T>,
+    refreshFirst: boolean,
+  ): Promise<T> {
+    return this.withPendingTaskMutation(() =>
+      this.runLocalTaskMutationAttempt(taskId, operation, refreshFirst),
+    )
+  }
+
+  private async runFinalLocalTaskMutation<T>(
+    taskId: string,
+    operation: () => Promise<T>,
+    refreshFirst: boolean,
+  ): Promise<T> {
+    return this.withPendingTaskMutation(async () => {
+      const maxAttempts = 3
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          return await this.runLocalTaskMutationAttempt(taskId, operation, refreshFirst)
+        } catch (error) {
+          if (!isTaskMutationTimeout(error) || attempt === maxAttempts) throw error
+          this.warnTaskRunnerFailure(`final writeback retry ${attempt}`, taskId, error)
+          await delay(attempt * 250)
+        }
+      }
+      throw new Error('Unreachable final task writeback state')
+    })
+  }
+
+  private async runLocalTaskMutationAttempt<T>(
     taskId: string,
     operation: () => Promise<T>,
     refreshFirst: boolean,
@@ -584,6 +690,34 @@ export class GenerationTaskRunner implements TaskDispatcher {
     throw new Error('Timed out while persisting local generation task state')
   }
 
+  private captureTaskVersions(): Map<string, string> {
+    return this.store.read((state) => new Map(state.tasks.map((task) => [task.id, task.updatedAt])))
+  }
+
+  private changedTaskIdsSince(before: Map<string, string>): string[] {
+    return this.store.read((state) =>
+      state.tasks.filter((task) => before.get(task.id) !== task.updatedAt).map((task) => task.id),
+    )
+  }
+
+  private async withPendingTaskMutation<T>(operation: () => Promise<T>): Promise<T> {
+    this.pendingTaskMutations += 1
+    try {
+      return await operation()
+    } finally {
+      this.pendingTaskMutations -= 1
+      if (this.pendingTaskMutations === 0) {
+        const waiters = this.mutationIdleWaiters.splice(0)
+        waiters.forEach((resolve) => resolve())
+      }
+    }
+  }
+
+  private async waitForTaskMutations(): Promise<void> {
+    if (this.pendingTaskMutations === 0) return
+    await new Promise<void>((resolve) => this.mutationIdleWaiters.push(resolve))
+  }
+
   private warnTaskRunnerFailure(operation: string, taskId: string, error: unknown): void {
     process.emitWarning(`Generation task ${operation} failed for ${taskId}: ${localTaskError(error)}`, {
       code: 'SEQORA_GENERATION_TASK_BACKGROUND_FAILURE',
@@ -593,6 +727,10 @@ export class GenerationTaskRunner implements TaskDispatcher {
 
 function localTaskError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function isTaskMutationTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message === 'Timed out while persisting local generation task state'
 }
 
 function delay(milliseconds: number): Promise<void> {

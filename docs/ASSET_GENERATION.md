@@ -130,7 +130,7 @@ Content-Type: multipart/form-data
 
 智能生成按输入结构和长度处理：少于 1500 个非空白字符且不是多场结构化剧本时，结合项目简介、已确认资产、内容类型和修改意见扩写为约 1800 到 2600 字制作剧本；已经包含至少两个结构化场次时，即使不足 1500 字也按原场次改写，输出数量、编号和顺序必须一致。1500 到 9999 字时保留核心剧情、关系、因果、物件和对白，重写为可分镜格式且禁止压缩成提纲；达到 10000 字时保护原稿，不进行一次性重写。所有剧本输出强制使用简体中文；检测到大量英文句子时，同一任务自动调用一次语言校正，仍不合格则阻止写回并退款。网剧继承 `episodeDurationSeconds`（30 到 300 秒），每场对应一个 4 到 15 秒视频镜头，并包含动作微节拍、配角反应、对白/画外音/内心独白和集尾钩子。
 
-默认文本模型是 `deepseek-v4-flash`。DeepSeek V4 Flash/Pro 使用独立的 `DEEPSEEK_V4_*` 配置，序幕-5.6（`gpt-5.6-sol`）与图片生成使用 `TOKENADVENT_API_KEY`，Kimi/GLM 走 `REHDASU_*` 路由。前端选择的模型会冻结到任务，Worker 必须沿用，禁止悄悄改回默认模型；仅返回 `reasoning_content` 的响应视为格式异常，不能写入剧本或资产建议。
+默认文本模型是 `deepseek-v4-flash`。配置 `DASHSCOPE_API_KEY` 后，DeepSeek V4 Flash/Pro 优先走阿里云百炼 OpenAI 兼容接口（`DASHSCOPE_*`，Flash 映射到 `deepseek-v4-flash-0731`）；未配置时才使用旧的 `DEEPSEEK_V4_*` 中转路由。序幕-5.6（`gpt-5.6-sol`）与图片生成使用 `TOKENADVENT_API_KEY`，Kimi/GLM 走 `REHDASU_*` 路由。前端选择的模型会冻结到任务，Worker 必须沿用，禁止悄悄改回默认模型；仅返回 `reasoning_content` 的响应视为格式异常，不能写入剧本或资产建议。
 
 `POST /script/enrich` 的按场次制作字段补齐逻辑仍保留兼容，但当前正式 UI 已把光影、运镜、台词和衔接并入“智能生成”，不再展示独立补齐按钮。原来的场景卡、角色卡、对白段快捷按钮也已移除。
 
