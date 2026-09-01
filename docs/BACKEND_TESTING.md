@@ -24,7 +24,7 @@ pnpm test:backend:unit
 
 ### 2. 集成测试
 
-目标是验证真实外部依赖和事务边界，不使用 H2 或内存数据库替代 Postgres。当前测试 fixture 会启动真实 Postgres 16 容器；Redis/BullMQ 测试使用真实 Redis 7。CI 的 `database` job 也会起 Postgres 和 Redis service，先执行 migration，再跑关键集成测试。
+目标是验证真实外部依赖和事务边界，不使用 H2 或内存数据库替代 Postgres。当前 DB fixture 优先复用共享测试 Postgres，并为每个测试 fixture 建立独立 schema；Redis/BullMQ 测试使用真实 Redis 7。CI 的 `database` job 也会起 Postgres 和 Redis service，先执行 migration，再跑关键集成测试。
 
 运行：
 
@@ -40,7 +40,9 @@ pnpm test:backend:integration
 - billing ledger 扣费、退款、grant、adjustment、Stripe sandbox webhook 和对账。
 - project、asset、shot、generation task 的 Postgres 持久化和跨组织隔离。
 - BullMQ 通过 Redis 投递任务到 Worker。
-- 每个集成测试文件都使用独立 Postgres fixture，并在 `beforeEach` 里 reset，避免测试之间共享状态。
+- DB 测试固定串行运行，避免多个测试同时迁移或抢占 Docker 资源。
+- Postgres fixture 失败时会输出相关 `docker logs` 和 `docker inspect` 诊断，避免只看到断连错误。
+- 每个集成测试 fixture 使用独立 schema，避免测试之间共享状态；测试结束后清理 schema。
 - 预发布匿名化脚本通过 Postgres fixture 验证 dry-run、系统组织保护、保留账号保护和创作域脱敏。
 
 ### 3. 契约测试
@@ -82,6 +84,22 @@ pnpm test
 ```
 
 `pnpm test` 会覆盖所有 workspace 包和历史综合测试；`test:backend:pyramid` 用于后端专项回归和 CI 数据库链路。
+
+稳定全量验收入口：
+
+```bash
+pnpm test:full:stable
+```
+
+`test:full:stable` 会按顺序运行 contracts、prompting、admin、web、API unit 和 API DB integration，并用 compose 共享测试 Postgres/Redis，结束后执行 `down -v` 清理测试资源。
+
+独立浏览器 E2E：
+
+```bash
+pnpm test:e2e
+```
+
+`test:e2e` 位于 `apps/e2e`，使用 Playwright route mock 覆盖生图大师积分确认/重试/复制提示词、资产库下载导入、后台个人账号创建删除和套餐修改。它不调用真实 Provider、不扣真实积分，也不依赖生产数据库。
 
 ## CI 规则
 
