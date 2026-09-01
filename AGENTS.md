@@ -9,8 +9,9 @@
 1. `docs/CURRENT_STATE.md`：当前真正开放的功能、占位功能、生产状态和已知风险。
 2. `docs/HANDOFF_GUIDE.md`：产品流程、技术栈和核心链路。
 3. `docs/README.md`：按任务选择专项文档。
-4. 目标模块的 contracts、Service、Repository、页面和测试。
-5. `docs/DEVELOPMENT_MEMORY.md`：只在需要历史决策和事故背景时查阅。
+4. `CONTEXT-MAP.md` 和对应 `CONTEXT.md`：按产品上下文校准命名。
+5. 目标模块的 contracts、Service、Repository、页面和测试。
+6. `docs/DEVELOPMENT_MEMORY.md`：只在需要历史决策和事故背景时查阅。
 
 文档冲突时，事实优先级是：
 
@@ -37,7 +38,7 @@ SEQORA 是面向网剧、广告和短片的 AIGC 视频制作 Agent。当前主�
 
 以下入口当前只是 UI 或实验能力，不得写成已交付：
 
-- 项目库“对话一句成片 / 图片大师 / 剧本大师”功能栈。
+- 项目库“对话一句成片 / 剧本大师”功能栈。
 - 剧本页“小说上传与章节”“长剧本创作”正式用户流程。
 - 音频资产 AI 生成、配音、字幕、混音和正式交付导出。
 - Nano Banana 图片 Provider。
@@ -82,7 +83,7 @@ scripts/        开发、监控、压测和安全工具
 - 分镜图片不是视频前置条件；已有匹配图片时可以作为参考，没有图片时直接使用资产或纯文本。
 - 网剧镜头按 3 到 15 秒规范化，其他内容按 4 到 15 秒规范化；单集目标时长是 30 到 300 秒。
 - Seedance 单镜头请求启用音频，但 FFmpeg 完整成片合成当前使用 `-an`，所以完整预览仍是无声版本。
-- 图片 Provider 当前只有 TokenAdvent GPT Image 2；Nano Banana 选择项处于未配置禁用状态。
+- 生图大师是当前正式图片工作台；内部仍使用 `image2`/`img2`/TokenAdvent 兼容命名。Nano Banana 选择项处于未配置禁用状态。
 - 用户密码契约最少 8 位；生产 bootstrap 密码配置仍要求至少 12 位。
 - 新注册使用 8 位数字邀请码和 6 位邮箱验证码。已有账号接受新组织邀请时，密码栏必须输入原账号密码；忘记时先重置密码。
 - 管理员页面必须同时经过 Caddy `/admin/` 的 `forward_auth` 和后端 `/api/v1/admin/*` 权限检查。

@@ -1,16 +1,18 @@
 # 序幕TV 文档索引
 
-本目录按“当前事实、开发边界、专项能力、质量、运维、历史”组织。新 Agent 先读根目录 `AGENTS.md`，再读 `CURRENT_STATE.md`。
+本目录按“当前事实、开发边界、专项能力、质量、运维、历史”组织。新 Agent 先读根目录 `AGENTS.md`，再读 `CURRENT_STATE.md` 和根目录 `CONTEXT-MAP.md`。
 
 ## 当前事实
 
 | 文档                                                   | 用途                                 | 状态                        |
 | ------------------------------------------------------ | ------------------------------------ | --------------------------- |
-| [CURRENT_STATE.md](CURRENT_STATE.md)                   | 当前功能矩阵、生产状态、限制和优先级 | 当前事实源，2026-08-03 核对 |
+| [CURRENT_STATE.md](CURRENT_STATE.md)                   | 当前功能矩阵、生产状态、限制和优先级 | 当前事实源，2026-08-21 核对 |
 | [HANDOFF_GUIDE.md](HANDOFF_GUIDE.md)                   | 30 分钟项目总览和代码地图            | 当前交接入口                |
 | [DEVELOPMENT_MEMORY.md](DEVELOPMENT_MEMORY.md)         | 历史决策、事故、验收和迁移记录       | 历史日志，顶部当前快照优先  |
 | [PRODUCT_VOCABULARY.md](PRODUCT_VOCABULARY.md)         | 产品词汇和角色冻结                   | 有效                        |
 | [ACCOUNT_DELIVERY_GUIDE.md](ACCOUNT_DELIVERY_GUIDE.md) | 公账付款后的 C 端/B 端账号交付 SOP   | 有效                        |
+| [../CONTEXT-MAP.md](../CONTEXT-MAP.md)                 | 多上下文词汇地图                     | 有效                        |
+| [ADMIN_ACCOUNT_MODEL.md](ADMIN_ACCOUNT_MODEL.md)       | 个人账号、组织空间和后台文案边界     | 有效                        |
 
 ## 架构与开发
 
@@ -29,6 +31,8 @@
 | 文档                                                     | 用途                                   | 当前阶段                    |
 | -------------------------------------------------------- | -------------------------------------- | --------------------------- |
 | [ASSET_GENERATION.md](ASSET_GENERATION.md)               | 资产、可信人像、图片、视频、分镜和成片 | 主流程有效                  |
+| [ASSET_LIBRARY.md](ASSET_LIBRARY.md)                     | 账号级资产库、项目资产导入导出和版本   | 已开放                      |
+| [IMAGE2_STUDIO.md](IMAGE2_STUDIO.md)                     | 生图大师工作台、服务端托管和复用规则   | 已开放                      |
 | [DIRECTOR_PIPELINE_AUDIT.md](DIRECTOR_PIPELINE_AUDIT.md) | 剧本到有声粗剪的链路审计与升级方案     | 2026-08-04 调研结论         |
 | [NOVEL_TO_VIDEO_AGENT.md](NOVEL_TO_VIDEO_AGENT.md)       | 长篇小说到视频的阶段方案               | 后端实验，前端开发中        |
 | [NOVEL_REGRESSION.md](NOVEL_REGRESSION.md)               | 小说真实样本回归                       | 手工显式执行                |
@@ -44,6 +48,14 @@
 | [RELIABILITY_GATES.md](RELIABILITY_GATES.md)           | CI 与生产拨测门禁                          |
 | [OBSERVABILITY.md](OBSERVABILITY.md)                   | 日志、健康、readiness、指标和 trace        |
 | [USAGE_METRICS.md](USAGE_METRICS.md)                   | 用量指标名称、时间窗口、计数规则和可见范围 |
+
+## 决策记录
+
+| 文档                                                                                   | 用途                        |
+| -------------------------------------------------------------------------------------- | --------------------------- |
+| [adr/0001-server-owned-image2-batches.md](adr/0001-server-owned-image2-batches.md)     | 生图大师服务端托管批次决策  |
+| [adr/0002-account-level-asset-library.md](adr/0002-account-level-asset-library.md)     | 账号级资产库与项目资产拆分  |
+| [adr/0003-stable-tests-and-isolated-e2e.md](adr/0003-stable-tests-and-isolated-e2e.md) | 稳定全量测试与独立 E2E 策略 |
 
 ## 部署与运维
 

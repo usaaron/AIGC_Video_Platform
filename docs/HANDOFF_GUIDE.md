@@ -19,7 +19,7 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 - 分镜按场次或动作拆分、资产匹配、尾帧承接和会员三路并发。
 - Seedance 单镜头启用对白/现场声音频，FFmpeg 按分镜顺序合成无声完整 MP4 工作预览。
 
-项目库“对话一句成片 / 图片大师 / 剧本大师”、小说上传与章节和长剧本创作仍是禁用或开发中入口。Quick Start Service/API 与旧弹窗文件仍存在，但没有挂到当前正式 UI，不能把它当成一键成片 Agent。
+生图大师已经是正式图片工作台；项目库“对话一句成片 / 剧本大师”、小说上传与章节和长剧本创作仍是禁用或开发中入口。Quick Start Service/API 与旧弹窗文件仍存在，但没有挂到当前正式 UI，不能把它当成一键成片 Agent。
 
 尚未完成完整成片音轨、配音/字幕/混音、正式支付、投递失败运营、Worker 横向扩缩容演练和正式商用监控。Resend 已用于注册验证码、邮箱验证、邀请和密码重置。账号/auth、组织 membership、session、账单、项目、资产、分镜、任务、通用 AI Job 和小说域已经迁入 Postgres；任务触发通过事务 Outbox 投递到 Redis/BullMQ，由独立 Worker 消费。当前定位是封闭客户测试和小团队联合开发。
 
@@ -34,15 +34,17 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 
 常用命令：
 
-| 命令              | 用途                        |
-| ----------------- | --------------------------- |
-| `pnpm dev`        | 同时启动 Web、API 和 Worker |
-| `pnpm dev:web`    | 仅启动 Vite Web             |
-| `pnpm dev:api`    | 构建共享包并启动 API        |
-| `pnpm dev:worker` | 构建共享包并启动 Worker     |
-| `pnpm test`       | 运行全部测试                |
-| `pnpm build`      | 构建全部工作区              |
-| `pnpm check`      | 提交前完整检查              |
+| 命令                    | 用途                        |
+| ----------------------- | --------------------------- |
+| `pnpm dev`              | 同时启动 Web、API 和 Worker |
+| `pnpm dev:web`          | 仅启动 Vite Web             |
+| `pnpm dev:api`          | 构建共享包并启动 API        |
+| `pnpm dev:worker`       | 构建共享包并启动 Worker     |
+| `pnpm test`             | 运行全部测试                |
+| `pnpm test:e2e`         | 运行独立 Playwright E2E     |
+| `pnpm test:full:stable` | 稳定全量验收入口            |
+| `pnpm build`            | 构建全部工作区              |
+| `pnpm check`            | 提交前完整检查              |
 
 本地端口：创作端 `5173`，独立管理员端 `5174`，API `8787`。两个 Vite 应用都会将 `/api` 代理到本地 API。
 
