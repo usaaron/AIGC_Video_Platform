@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  EMPTY_INSPIRATION_BRIEF,
   INSPIRATION_SESSION_KEY,
   mergeStoryInspirationBrief,
   storyInspirationSessionForSections,
@@ -78,6 +79,42 @@ test("a later inspiration response cannot erase earlier confirmed directions", (
   assert.equal(merged.story_promise, "逐层揭开责任链");
   assert.equal(merged.protagonist_and_goal, "主角必须保护证人");
   assert.deepEqual(merged.must_keep, ["证人必须存活"]);
+  assert.deepEqual(merged.creative_decisions, []);
+});
+
+test("legacy sessions default the invisible creative decision ledger safely", () => {
+  const session = storyInspirationSessionForSections({
+    [INSPIRATION_SESSION_KEY]: persistedSession(),
+  });
+
+  assert.deepEqual(session.brief.creative_decisions, []);
+});
+
+test("a newer decision record replaces the same decision without erasing others", () => {
+  const baseDecision = {
+    decision_key: "ending.direction",
+    title: "结局方向",
+    value: null,
+    authority: "provisional",
+    status: "unresolved",
+    source: "grill_answer",
+    owner: "user",
+    ai_permission: "none",
+    locked: false,
+  };
+  const current = { ...EMPTY_INSPIRATION_BRIEF, creative_decisions: [baseDecision] };
+  const next = {
+    ...EMPTY_INSPIRATION_BRIEF,
+    creative_decisions: [
+      { ...baseDecision, value: "结局保留希望，但必须付出真实代价", status: "current_direction" },
+      { ...baseDecision, decision_key: "story.must_keep", title: "必须保留" },
+    ],
+  };
+
+  const merged = mergeStoryInspirationBrief(current, next);
+
+  assert.equal(merged.creative_decisions.length, 2);
+  assert.equal(merged.creative_decisions[0].status, "current_direction");
 });
 
 test("new non-empty values can revise a direction while list constraints accumulate", () => {

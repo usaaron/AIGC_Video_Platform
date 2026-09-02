@@ -118,6 +118,66 @@ class MemoryLayer(str, Enum):
     provisional = "provisional"
 
 
+class CreativeDecisionStatus(str, Enum):
+    """Author-facing lifecycle of one story-content decision."""
+
+    current_direction = "current_direction"
+    confirmed = "confirmed"
+    proposed = "proposed"
+    unresolved = "unresolved"
+    delegated = "delegated"
+    conflicted = "conflicted"
+
+
+class CreativeDecisionSource(str, Enum):
+    """Origin of a decision without changing its authority."""
+
+    user_input = "user_input"
+    uploaded_reference = "uploaded_reference"
+    grill_answer = "grill_answer"
+    ai_proposal = "ai_proposal"
+    system_derived = "system_derived"
+    legacy = "legacy"
+
+
+class CreativeDecisionOwner(str, Enum):
+    user = "user"
+    assistant = "assistant"
+    system = "system"
+
+
+class CreativeAIPermission(str, Enum):
+    """Maximum content authority explicitly granted to AI for one decision."""
+
+    none = "none"
+    suggest_only = "suggest_only"
+    decide = "decide"
+
+
+class CreativeDecisionRecord(BaseModel):
+    """Invisible provenance for a story decision; UI may render a simpler summary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision_key: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    title: str = Field(min_length=2, max_length=80)
+    value: str | None = Field(default=None, max_length=2_000)
+    authority: MemoryLayer = MemoryLayer.provisional
+    status: CreativeDecisionStatus = CreativeDecisionStatus.current_direction
+    source: CreativeDecisionSource = CreativeDecisionSource.user_input
+    owner: CreativeDecisionOwner = CreativeDecisionOwner.user
+    ai_permission: CreativeAIPermission = CreativeAIPermission.suggest_only
+    locked: bool = False
+    required_before_stage: Literal[
+        "story_bible",
+        "story_tree",
+        "episode_roadmap",
+        "script",
+        "final_arc",
+    ] | None = None
+    required_before_episode: int | None = Field(default=None, ge=1, le=2_000)
+
+
 class StorylineDutyRole(str, Enum):
     """Narrative role used when allocating limited episode scene time."""
 
@@ -359,6 +419,10 @@ class StoryBible(BaseModel):
     major_setup_payoff_refs: list[str] = Field(default_factory=list, max_length=100)
     locked_facts: list[str] = Field(default_factory=list, max_length=100)
     avoid_patterns: list[str] = Field(default_factory=list, max_length=50)
+    creative_decisions: list[CreativeDecisionRecord] = Field(
+        default_factory=list,
+        max_length=80,
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     approved_at: datetime | None = None
 
@@ -730,6 +794,10 @@ class StoryInspirationBrief(BaseModel):
     must_avoid: list[str] = Field(default_factory=list, max_length=12)
     unresolved: list[str] = Field(default_factory=list, max_length=12)
     additional_notes: list[str] = Field(default_factory=list, max_length=20)
+    creative_decisions: list[CreativeDecisionRecord] = Field(
+        default_factory=list,
+        max_length=80,
+    )
 
 
 class StoryInspirationBriefPatch(BaseModel):

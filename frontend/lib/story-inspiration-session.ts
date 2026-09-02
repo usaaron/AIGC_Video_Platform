@@ -24,6 +24,7 @@ export const EMPTY_INSPIRATION_BRIEF: StoryInspirationBrief = {
   must_avoid: [],
   unresolved: [],
   additional_notes: [],
+  creative_decisions: [],
 };
 
 const INSPIRATION_SCALAR_FIELDS = [
@@ -41,6 +42,15 @@ function mergeUniqueBriefItems(current: string[], next: string[], limit: number)
   return [...new Set([...current, ...next].map((item) => item.trim()).filter(Boolean))].slice(0, limit);
 }
 
+function mergeCreativeDecisions(
+  current: StoryInspirationBrief["creative_decisions"],
+  next: StoryInspirationBrief["creative_decisions"],
+): StoryInspirationBrief["creative_decisions"] {
+  const byKey = new Map(current.map((decision) => [decision.decision_key, decision]));
+  for (const decision of next) byKey.set(decision.decision_key, decision);
+  return [...byKey.values()].slice(0, 80);
+}
+
 export function mergeStoryInspirationBrief(
   current: StoryInspirationBrief,
   next: StoryInspirationBrief,
@@ -54,6 +64,10 @@ export function mergeStoryInspirationBrief(
       current.additional_notes,
       next.additional_notes,
       20,
+    ),
+    creative_decisions: mergeCreativeDecisions(
+      current.creative_decisions,
+      next.creative_decisions,
     ),
   };
   for (const field of INSPIRATION_SCALAR_FIELDS) {
@@ -148,6 +162,9 @@ export function normalizeStoryInspirationSession(value: unknown): StoryInspirati
   const persistedBrief = candidate.brief && typeof candidate.brief === "object"
     ? { ...EMPTY_INSPIRATION_BRIEF, ...candidate.brief }
     : { ...EMPTY_INSPIRATION_BRIEF };
+  persistedBrief.creative_decisions = Array.isArray(persistedBrief.creative_decisions)
+    ? persistedBrief.creative_decisions
+    : [];
   const brief = mergeStoryInspirationBrief(
     recoverStoryInspirationBriefFromMessages(messages),
     persistedBrief,

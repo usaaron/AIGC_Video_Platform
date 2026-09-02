@@ -3325,6 +3325,9 @@
           "unavailable_entity_usage",
           "unknown_story_line",
           "missing_planned_story_line_progress",
+          "missing_storyline_duty_progress",
+          "storyline_duty_scene_mismatch",
+          "storyline_duty_unsupported_evidence",
           "story_line_plan_deviation",
           "premature_story_line_resolution",
           "missing_hook_response",
@@ -3760,6 +3763,16 @@
         "title": "ContinuityWorldState",
         "type": "object"
       },
+      "CreativeAIPermission": {
+        "description": "Maximum content authority explicitly granted to AI for one decision.",
+        "enum": [
+          "none",
+          "suggest_only",
+          "decide"
+        ],
+        "title": "CreativeAIPermission",
+        "type": "string"
+      },
       "CreativeBrief": {
         "additionalProperties": false,
         "properties": {
@@ -3812,6 +3825,134 @@
         ],
         "title": "CreativeBrief",
         "type": "object"
+      },
+      "CreativeDecisionOwner": {
+        "enum": [
+          "user",
+          "assistant",
+          "system"
+        ],
+        "title": "CreativeDecisionOwner",
+        "type": "string"
+      },
+      "CreativeDecisionRecord": {
+        "additionalProperties": false,
+        "description": "Invisible provenance for a story decision; UI may render a simpler summary.",
+        "properties": {
+          "ai_permission": {
+            "$ref": "#/components/schemas/CreativeAIPermission",
+            "default": "suggest_only"
+          },
+          "authority": {
+            "$ref": "#/components/schemas/MemoryLayer",
+            "default": "provisional"
+          },
+          "decision_key": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Decision Key",
+            "type": "string"
+          },
+          "locked": {
+            "default": false,
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/CreativeDecisionOwner",
+            "default": "user"
+          },
+          "required_before_episode": {
+            "anyOf": [
+              {
+                "maximum": 2000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Before Episode"
+          },
+          "required_before_stage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "story_bible",
+                  "story_tree",
+                  "episode_roadmap",
+                  "script",
+                  "final_arc"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Before Stage"
+          },
+          "source": {
+            "$ref": "#/components/schemas/CreativeDecisionSource",
+            "default": "user_input"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CreativeDecisionStatus",
+            "default": "current_direction"
+          },
+          "title": {
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Title",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "decision_key",
+          "title"
+        ],
+        "title": "CreativeDecisionRecord",
+        "type": "object"
+      },
+      "CreativeDecisionSource": {
+        "description": "Origin of a decision without changing its authority.",
+        "enum": [
+          "user_input",
+          "uploaded_reference",
+          "grill_answer",
+          "ai_proposal",
+          "system_derived",
+          "legacy"
+        ],
+        "title": "CreativeDecisionSource",
+        "type": "string"
+      },
+      "CreativeDecisionStatus": {
+        "description": "Author-facing lifecycle of one story-content decision.",
+        "enum": [
+          "current_direction",
+          "confirmed",
+          "proposed",
+          "unresolved",
+          "delegated",
+          "conflicted"
+        ],
+        "title": "CreativeDecisionStatus",
+        "type": "string"
       },
       "CreativeDeepeningChange": {
         "additionalProperties": false,
@@ -6339,6 +6480,14 @@
               }
             ],
             "title": "Story Bible Context"
+          },
+          "storyline_duties": {
+            "items": {
+              "$ref": "#/components/schemas/StorylineDuty"
+            },
+            "maxItems": 20,
+            "title": "Storyline Duties",
+            "type": "array"
           },
           "total_episodes": {
             "maximum": 2000.0,
@@ -15007,6 +15156,14 @@
             "title": "Created At",
             "type": "string"
           },
+          "creative_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/CreativeDecisionRecord"
+            },
+            "maxItems": 80,
+            "title": "Creative Decisions",
+            "type": "array"
+          },
           "ending_direction": {
             "maxLength": 1200,
             "minLength": 10,
@@ -15211,6 +15368,14 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "creative_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/CreativeDecisionRecord"
+            },
+            "maxItems": 80,
+            "title": "Creative Decisions",
+            "type": "array"
           },
           "ending_direction": {
             "maxLength": 1200,
@@ -15970,6 +16135,14 @@
             "maxLength": 500,
             "title": "Core Obstacle",
             "type": "string"
+          },
+          "creative_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/CreativeDecisionRecord"
+            },
+            "maxItems": 80,
+            "title": "Creative Decisions",
+            "type": "array"
           },
           "ending_direction": {
             "default": "",
@@ -18165,6 +18338,123 @@
         ],
         "title": "StoryStagePlanResponse",
         "type": "object"
+      },
+      "StorylineDuty": {
+        "additionalProperties": false,
+        "description": "A bounded, evidence-backed resource contract for one story line.",
+        "properties": {
+          "assigned_scene_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 20,
+            "title": "Assigned Scene Numbers",
+            "type": "array"
+          },
+          "can_defer": {
+            "default": true,
+            "title": "Can Defer",
+            "type": "boolean"
+          },
+          "defer_reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defer Reason"
+          },
+          "defer_until_episode": {
+            "anyOf": [
+              {
+                "maximum": 2000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defer Until Episode"
+          },
+          "last_progressed_episode": {
+            "default": 0,
+            "maximum": 2000.0,
+            "minimum": 0.0,
+            "title": "Last Progressed Episode",
+            "type": "integer"
+          },
+          "must_progress": {
+            "default": false,
+            "title": "Must Progress",
+            "type": "boolean"
+          },
+          "next_required_step": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Required Step"
+          },
+          "objective": {
+            "maxLength": 800,
+            "minLength": 3,
+            "title": "Objective",
+            "type": "string"
+          },
+          "required_progress": {
+            "maxLength": 800,
+            "minLength": 3,
+            "title": "Required Progress",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/StorylineDutyRole"
+          },
+          "silence_episodes": {
+            "default": 0,
+            "maximum": 2000.0,
+            "minimum": 0.0,
+            "title": "Silence Episodes",
+            "type": "integer"
+          },
+          "story_line_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Story Line Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "story_line_id",
+          "role",
+          "objective",
+          "required_progress"
+        ],
+        "title": "StorylineDuty",
+        "type": "object"
+      },
+      "StorylineDutyRole": {
+        "description": "Narrative role used when allocating limited episode scene time.",
+        "enum": [
+          "main",
+          "subplot",
+          "character_arc"
+        ],
+        "title": "StorylineDutyRole",
+        "type": "string"
       },
       "TagRef": {
         "additionalProperties": false,

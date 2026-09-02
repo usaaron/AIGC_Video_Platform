@@ -2595,7 +2595,7 @@ export interface components {
          * ContinuityQCIssueType
          * @enum {string}
          */
-        ContinuityQCIssueType: "dead_character_action" | "dead_character_revived" | "capability_conflict" | "knowledge_conflict" | "irreversible_state_conflict" | "unavailable_entity_usage" | "unknown_story_line" | "missing_planned_story_line_progress" | "story_line_plan_deviation" | "premature_story_line_resolution" | "missing_hook_response" | "unknown_hook_response" | "overdue_hook" | "missing_planned_setup" | "missing_planned_payoff" | "unknown_setup_payoff" | "setup_payoff_plan_deviation";
+        ContinuityQCIssueType: "dead_character_action" | "dead_character_revived" | "capability_conflict" | "knowledge_conflict" | "irreversible_state_conflict" | "unavailable_entity_usage" | "unknown_story_line" | "missing_planned_story_line_progress" | "missing_storyline_duty_progress" | "storyline_duty_scene_mismatch" | "storyline_duty_unsupported_evidence" | "story_line_plan_deviation" | "premature_story_line_resolution" | "missing_hook_response" | "unknown_hook_response" | "overdue_hook" | "missing_planned_setup" | "missing_planned_payoff" | "unknown_setup_payoff" | "setup_payoff_plan_deviation";
         /** ContinuityQCReport */
         ContinuityQCReport: {
             /**
@@ -2722,6 +2722,12 @@ export interface components {
             /** State Domain */
             state_domain: string;
         };
+        /**
+         * CreativeAIPermission
+         * @description Maximum content authority explicitly granted to AI for one decision.
+         * @enum {string}
+         */
+        CreativeAIPermission: "none" | "suggest_only" | "decide";
         /** CreativeBrief */
         CreativeBrief: {
             /** Asset Constraints */
@@ -2737,6 +2743,54 @@ export interface components {
             /** Tone */
             tone: string;
         };
+        /**
+         * CreativeDecisionOwner
+         * @enum {string}
+         */
+        CreativeDecisionOwner: "user" | "assistant" | "system";
+        /**
+         * CreativeDecisionRecord
+         * @description Invisible provenance for a story decision; UI may render a simpler summary.
+         */
+        CreativeDecisionRecord: {
+            /** @default suggest_only */
+            ai_permission: components["schemas"]["CreativeAIPermission"];
+            /** @default provisional */
+            authority: components["schemas"]["MemoryLayer"];
+            /** Decision Key */
+            decision_key: string;
+            /**
+             * Locked
+             * @default false
+             */
+            locked: boolean;
+            /** @default user */
+            owner: components["schemas"]["CreativeDecisionOwner"];
+            /** Required Before Episode */
+            required_before_episode?: number | null;
+            /** Required Before Stage */
+            required_before_stage?: ("story_bible" | "story_tree" | "episode_roadmap" | "script" | "final_arc") | null;
+            /** @default user_input */
+            source: components["schemas"]["CreativeDecisionSource"];
+            /** @default current_direction */
+            status: components["schemas"]["CreativeDecisionStatus"];
+            /** Title */
+            title: string;
+            /** Value */
+            value?: string | null;
+        };
+        /**
+         * CreativeDecisionSource
+         * @description Origin of a decision without changing its authority.
+         * @enum {string}
+         */
+        CreativeDecisionSource: "user_input" | "uploaded_reference" | "grill_answer" | "ai_proposal" | "system_derived" | "legacy";
+        /**
+         * CreativeDecisionStatus
+         * @description Author-facing lifecycle of one story-content decision.
+         * @enum {string}
+         */
+        CreativeDecisionStatus: "current_direction" | "confirmed" | "proposed" | "unresolved" | "delegated" | "conflicted";
         /** CreativeDeepeningChange */
         CreativeDeepeningChange: {
             change_type: components["schemas"]["CreativeDeepeningChangeType"];
@@ -3538,6 +3592,8 @@ export interface components {
             relevant_character_refs?: string[];
             /** Story Bible Context */
             story_bible_context?: string | null;
+            /** Storyline Duties */
+            storyline_duties?: components["schemas"]["StorylineDuty"][];
             /** Total Episodes */
             total_episodes: number;
         };
@@ -6371,6 +6427,8 @@ export interface components {
              * Format: date-time
              */
             created_at?: string;
+            /** Creative Decisions */
+            creative_decisions?: components["schemas"]["CreativeDecisionRecord"][];
             /** Ending Direction */
             ending_direction: string;
             /** Escalation Stages */
@@ -6439,6 +6497,8 @@ export interface components {
              * Format: date-time
              */
             created_at?: string;
+            /** Creative Decisions */
+            creative_decisions?: components["schemas"]["CreativeDecisionRecord"][];
             /** Ending Direction */
             ending_direction: string;
             /** Escalation Stages */
@@ -6718,6 +6778,8 @@ export interface components {
              * @default
              */
             core_obstacle: string;
+            /** Creative Decisions */
+            creative_decisions?: components["schemas"]["CreativeDecisionRecord"][];
             /**
              * Ending Direction
              * @default
@@ -7500,6 +7562,53 @@ export interface components {
         StoryStagePlanResponse: {
             data: components["schemas"]["StoryStagePlan"];
         };
+        /**
+         * StorylineDuty
+         * @description A bounded, evidence-backed resource contract for one story line.
+         */
+        StorylineDuty: {
+            /** Assigned Scene Numbers */
+            assigned_scene_numbers?: number[];
+            /**
+             * Can Defer
+             * @default true
+             */
+            can_defer: boolean;
+            /** Defer Reason */
+            defer_reason?: string | null;
+            /** Defer Until Episode */
+            defer_until_episode?: number | null;
+            /**
+             * Last Progressed Episode
+             * @default 0
+             */
+            last_progressed_episode: number;
+            /**
+             * Must Progress
+             * @default false
+             */
+            must_progress: boolean;
+            /** Next Required Step */
+            next_required_step?: string | null;
+            /** Objective */
+            objective: string;
+            /** Required Progress */
+            required_progress: string;
+            role: components["schemas"]["StorylineDutyRole"];
+            /**
+             * Silence Episodes
+             * @default 0
+             */
+            silence_episodes: number;
+            /** Story Line Id */
+            story_line_id: string;
+        };
+        /**
+         * StorylineDutyRole
+         * @description Narrative role used when allocating limited episode scene time.
+         * @enum {string}
+         */
+        StorylineDutyRole: "main" | "subplot" | "character_arc";
         /** TagRef */
         TagRef: {
             /** Category */

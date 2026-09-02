@@ -43,6 +43,7 @@ import {
   type ScriptProject,
   type StoryBibleInteractiveCandidate,
   type StoryBibleInteractiveStep,
+  type CreativeDecisionRecord,
   type StoryInspirationBrief,
   type StoryInspirationFrontierQuestion,
   type StoryInspirationMessage,
@@ -367,6 +368,7 @@ export interface StoryBible {
   major_setup_payoff_refs: string[];
   locked_facts: string[];
   avoid_patterns: string[];
+  creative_decisions: CreativeDecisionRecord[];
   created_at: string;
   approved_at: string | null;
 }

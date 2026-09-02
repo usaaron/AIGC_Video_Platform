@@ -321,6 +321,43 @@ export interface StoryBibleInteractiveCandidate {
   fields: Record<string, unknown>;
 }
 
+export type CreativeDecisionAuthority = "canonical" | "derived" | "provisional";
+export type CreativeDecisionStatus =
+  | "current_direction"
+  | "confirmed"
+  | "proposed"
+  | "unresolved"
+  | "delegated"
+  | "conflicted";
+export type CreativeDecisionSource =
+  | "user_input"
+  | "uploaded_reference"
+  | "grill_answer"
+  | "ai_proposal"
+  | "system_derived"
+  | "legacy";
+export type CreativeAIPermission = "none" | "suggest_only" | "decide";
+
+export interface CreativeDecisionRecord {
+  decision_key: string;
+  title: string;
+  value?: string | null;
+  authority: CreativeDecisionAuthority;
+  status: CreativeDecisionStatus;
+  source: CreativeDecisionSource;
+  owner: "user" | "assistant" | "system";
+  ai_permission: CreativeAIPermission;
+  locked: boolean;
+  required_before_stage?:
+    | "story_bible"
+    | "story_tree"
+    | "episode_roadmap"
+    | "script"
+    | "final_arc"
+    | null;
+  required_before_episode?: number | null;
+}
+
 export interface StoryInspirationBrief {
   story_promise: string;
   protagonist_and_goal: string;
@@ -334,6 +371,7 @@ export interface StoryInspirationBrief {
   must_avoid: string[];
   unresolved: string[];
   additional_notes: string[];
+  creative_decisions: CreativeDecisionRecord[];
 }
 
 export interface StoryInspirationFrontierQuestion {

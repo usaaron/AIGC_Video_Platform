@@ -4,6 +4,10 @@ import pytest
 from pydantic import ValidationError
 
 from app.modules.script_engine.long_story_models import (
+    CreativeAIPermission,
+    CreativeDecisionRecord,
+    CreativeDecisionSource,
+    CreativeDecisionStatus,
     ContinuityLedger,
     EpisodeArtifactCreate,
     EpisodePlan,
@@ -26,6 +30,25 @@ from app.modules.script_engine.long_story_models import (
     StoryProjectWorkspaceSave,
     StoryStagePlan,
 )
+
+
+def test_creative_decision_contract_is_additive_and_tracks_authority() -> None:
+    assert StoryInspirationBrief().creative_decisions == []
+
+    decision = CreativeDecisionRecord(
+        decision_key="ending.direction",
+        title="结局方向",
+        value=None,
+        authority=MemoryLayer.provisional,
+        status=CreativeDecisionStatus.unresolved,
+        source=CreativeDecisionSource.grill_answer,
+        ai_permission=CreativeAIPermission.none,
+        required_before_stage="final_arc",
+    )
+
+    assert decision.status == CreativeDecisionStatus.unresolved
+    assert decision.ai_permission == CreativeAIPermission.none
+    assert decision.required_before_stage == "final_arc"
 
 
 def test_unfinished_inspiration_turn_requires_an_actionable_question() -> None:
