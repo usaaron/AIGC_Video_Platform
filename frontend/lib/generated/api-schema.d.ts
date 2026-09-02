@@ -3556,6 +3556,8 @@ export interface components {
             };
             /** Confirmed Continuity Checkpoint */
             confirmed_continuity_checkpoint?: string | null;
+            /** Creative Decisions */
+            creative_decisions?: components["schemas"]["CreativeDecisionRecord"][];
             /** Episode Instruction */
             episode_instruction?: string | null;
             /** Episode Number */

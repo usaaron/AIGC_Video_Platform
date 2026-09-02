@@ -700,6 +700,18 @@ def test_script_generation_service_preserves_serialized_episode_context() -> Non
         module_handoff="DUPLICATE_MODULE_HANDOFF",
         long_range_anchor="DUPLICATE_LONG_RANGE_ANCHOR",
         story_bible_context="CANONICAL_STORY_BIBLE_ANCHOR",
+        creative_decisions=[
+            {
+                "decision_key": "ending.direction",
+                "title": "结局方向",
+                "value": None,
+                "authority": "provisional",
+                "status": "unresolved",
+                "source": "grill_answer",
+                "owner": "user",
+                "ai_permission": "none",
+            }
+        ],
         approved_story_node=ApprovedStoryNodeContext(
             node_id="story_plan.conspiracy_leaf",
             node_version=3,
@@ -793,6 +805,8 @@ def test_script_generation_service_preserves_serialized_episode_context() -> Non
     assert "dialogues.chinese_translation" in result.prompt_build_result.prompt_text
     assert "中文名（ENGLISH NAME）" in result.prompt_build_result.prompt_text
     assert "CharacterIdentityLedgerContract:" in result.prompt_build_result.prompt_text
+    assert "AuthorDecisionAuthorityContract:" in result.prompt_build_result.prompt_text
+    assert "unresolved values must remain open" in result.prompt_build_result.prompt_text
     assert "one real story identity" in result.prompt_build_result.prompt_text
     assert "never as duplicate character cards" in result.prompt_build_result.prompt_text
     assert result.draft_master_script.target_duration_seconds == 75
@@ -811,6 +825,9 @@ def test_script_generation_service_preserves_serialized_episode_context() -> Non
     ]
     prompt_episode_context = json.loads(episode_context_json)
     assert prompt_episode_context["total_episodes"] == 4
+    assert prompt_episode_context["creative_decisions"][0]["decision_key"] == (
+        "ending.direction"
+    )
     for redundant_field in (
         "entry_state",
         "central_conflict",
@@ -886,6 +903,38 @@ def test_episode_context_accepts_the_full_frontend_continuity_summary_budget() -
             total_episodes=334,
             project_continuity_summary="状" * 7001,
         )
+
+
+def test_script_generation_stops_before_model_for_due_author_decision() -> None:
+    unresolved = EpisodeGenerationContext(
+        generation_mode=EpisodeGenerationMode.sequential,
+        episode_number=8,
+        total_episodes=20,
+        creative_decisions=[
+            {
+                "decision_key": "relationship.direction",
+                "title": "人物关系方向",
+                "value": None,
+                "authority": "provisional",
+                "status": "unresolved",
+                "source": "grill_answer",
+                "owner": "user",
+                "ai_permission": "none",
+                "required_before_stage": "script",
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="人物关系方向"):
+        ScriptGenerationService._validate_author_decisions_for_script(unresolved)
+
+    deferred = unresolved.model_copy(update={
+        "creative_decisions": [
+            unresolved.creative_decisions[0].model_copy(update={
+                "required_before_stage": "final_arc",
+            })
+        ],
+    })
+    ScriptGenerationService._validate_author_decisions_for_script(deferred)
 
 
 def test_script_generation_service_reviews_and_modifies_creator_draft(

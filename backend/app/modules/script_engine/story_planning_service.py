@@ -154,10 +154,13 @@ def _creative_decision_prompt_contract(
 
 Decision authority rules:
 - confirmed/canonical values are author-owned facts. Preserve their meaning and never contradict them.
+- an author_revision record means the current saved Story Bible text is the author's newer decision and takes
+  precedence over an older raw-input statement where those two differ.
 - unresolved values must remain visibly open. Do not choose a concrete outcome, identity, betrayal, death, twist,
   relationship result, theme conclusion, or ending on the author's behalf.
 - delegated values grant only the recorded ai_permission. suggest_only permits a provisional draft direction,
-  never a new canonical fact.
+  never a new canonical fact. If the author later saves and confirms the resulting visible Story Bible text,
+  that approved text becomes canonical while any field still visibly marked 待定 remains unresolved.
 - Missing content is not permission to invent high-impact story facts. Use an explicit Chinese “待定” structural
   statement when the schema needs a value, and leave optional collections empty.
 - Structural derivations may organize episode capacity, pacing functions, causal slots, and review checkpoints,
@@ -575,19 +578,19 @@ STORY_BIBLE_REFERENCE_FORMAT_CONTRACT = """参考《前期故事开发大纲》�
 二、核心故事：用连续的整剧叙述说明主角从起点到结局的主要变化，映射 core_premise、series_goal、central_conflict、ending_direction。
 三、核心人物：每个关键人物的身份、功能、起点和目标状态，映射 character_registry、character_arc_targets。
 四、核心关系：只写会改变主线因果的关系及其方向，映射 relationships。
-五、核心剧情线：优先组织为三条彼此分工明确的整剧线，通常是一条主线、一条外部危机/悬疑线和一条人物或关系线，映射 story_lines；不要写成分集列表。
+五、核心剧情线：整理素材中已经存在且能够持续发展的主线、支线和人物线，映射 story_lines；不要为了套模板强制凑成三条，也不要写成分集列表。
 六、核心冲突：同时交代外部压力的升级顺序和主角的内部问题，映射 central_conflict、character_arc_targets、escalation_stages。
 七、故事发展方向：明确前期/中段/后段各自的叙事重点，映射 escalation_stages 及其 stage_goal、stage_payoff、escalation_to_next；只写宽阶段，不写集数和场景。
 八、高潮方向：说明全剧最终反转、核心对抗和主角主动选择，映射最后一个 escalation_stage。
-九、结局方向：说明主要危机、人物关系、身份/价值选择如何收束，映射 ending_direction、story_lines.planned_resolution。
+九、结局方向：整理作者已经明确的收束；未决定的危机、关系、身份或价值结果继续标记待定，映射 ending_direction、story_lines.planned_resolution。
 十、创作核心原则：锁定主角行动主体、人物能力的结构作用、爱情/阴谋/危机的边界和不可违背的主题问题，映射 locked_facts、major_setup_payoff_refs、avoid_patterns、world_rules。
 每一部分都要服务同一个核心问题；不要把“故事定位”写成营销文案，也不要把“核心故事”拆成章节梗概。"""
 
 STORY_LINE_BALANCE_CONTRACT = """【主线与支线平衡要求｜总纲阶段】
-总纲必须同时建立清晰、有持续推进能力的主线与支线。主线承担全剧最大的核心冲突、主要悬念和最终结局方向，但不得成为唯一被规划的故事线。
+总纲必须识别素材中已经存在且有持续推进能力的主线与支线。主线可承担全剧最大的核心冲突、主要悬念和最终结局方向，但不得吞并作者已经提出的支线。
 只要素材中存在能够持续影响剧情的人物问题、关系问题、外部危机、悬疑线索或价值冲突，就必须将其登记为独立的 subplot 或 character_arc；不要把它们压缩成主线中的装饰性描述，也不要为了凑数量凭空创造支线。
 每条故事线都必须有独立的核心问题或戏剧目标、相关人物或势力、对抗力量或代价、阶段性推进方向，以及与主线之间的因果影响、人物选择、资源冲突、信息交叉或主题对照。
-每条 subplot 或 character_arc 还必须说明引入方向、升级方向和计划收束方向。它可以延期，但必须保留延期原因、重新推进的阶段或条件，以及下一步必须完成的动作；不能被无声遗忘。
+每条 subplot 或 character_arc 应在作者已明确的范围内说明引入、升级和收束方向；尚未决定的结果应保持待定。它可以延期，但必须保留延期原因、重新评估的阶段或条件，以及下一步需要作者决定或推进的事项；不能被无声遗忘。
 总纲只写全剧承诺、人物终点和宽阶段，不写逐集列表，但每条故事线必须具备足够清晰的阶段节点，使后续规划能够为它分配具体集数和场景。
 输出前自检：输入中存在的可持续支线是否都已登记；每条支线是否有独立目标、冲突、人物、推进和收束；是否有只有标题没有剧情职责的支线；主线是否承担最大冲突但没有吞掉全部故事空间。"""
 
@@ -609,7 +612,7 @@ STORY_TREE_LENGTH_TARGET_CONTRACT = """剧情树子节点篇幅目标（按每�
 
 STORY_LINE_PLANNING_CONTRACT = """【故事线平衡与支线承接要求｜剧情树规划阶段】
 剧情树不能只把主线拆成连续阶段。每个节点都必须检查已批准的 main、subplot 和 character_arc：节点涉及的故事线要有明确职责、局部目标、可见状态变化和下一步义务。
-主线可以承担最大冲突和更多叙事资源，但不能吞掉所有节点。只要一条支线在当前阶段有总纲职责、被父节点引用，或已经接近系统设定的沉默阈值，就必须在本节点获得真实的推进位置；如果暂不推进，必须明确延期原因、回收阶段或条件和下一步，不能静默排除。
+主线可以承担最大冲突和更多叙事资源，但不能吞掉所有节点。支线在当前阶段有已批准职责或被父节点引用时，必须获得真实的推进位置；接近沉默阈值但未被当前规划引用的支线只生成复核提醒，由作者或后续已批准规划决定推进或延期，系统不得为消除提醒而自行编写剧情。
 支线推进必须通过人物选择、关系变化、信息改变、资源得失、风险代价、局部目标完成或 setup/payoff 条件变化体现。只在摘要中提及、重复主线冲突或保留一个 story_line_refs 不算推进。
 每个子节点都要保留与其范围相关的故事线引用，不得无理由丢弃已批准支线，也不得提前解决其全剧收束。"""
 
@@ -622,7 +625,7 @@ STORY_LINE_EPISODE_DUTY_CONTRACT = """【故事线职责调度与支线连续性
 分集规划必须回答：本集需要推进哪些故事线，每条被选中的故事线获得了什么叙事资源，本集结束时它发生了什么可验证的变化。
 主线可以承担本集最大的冲突、高潮和转折，也可以获得最多场景资源，但不得默认占用全部场景。对每条本集需要处理的支线，必须写明局部目标、必须产生的状态变化、对应场景或动作、可见结果和下一集义务。
 只有在场景中发生人物选择、关系变化、信息揭示、资源得失、风险代价、局部目标完成或 setup/payoff 条件变化，才算故事线推进。只填写 story_line_refs、只在对白或旁白中提及、重复已有信息或写“继续推进”都不算。
-必须主动检查记忆和已批准规划中的沉默故事线。即使原始规划没有引用，只要达到系统设定的沉默阈值（当前默认三集），就必须安排实际推进，或明确记录延期原因、回收集数或条件和下一步；支线可以延期，但不能无声遗忘。
+必须主动检查记忆和已批准规划中的沉默故事线。达到系统设定的沉默阈值（当前默认三集）时应生成复核提醒，但只有已批准分集规划引用后才成为本集强制职责。系统不得仅为消除提醒而自行安排支线事件；支线可以由作者决定推进或延期，但不能无声遗忘。
 被列入本集职责的故事线必须出现在至少一个具体事件或场景中；被延期的故事线不能同时被描述为本集已推进。输出前检查主线是否获得主要冲突资源、到期支线是否获得真实场景、每条职责是否有状态变化，以及下一集是否保留承接义务。"""
 
 EPISODE_TITLE_NAMING_CONTRACT = """单集标题是作品标题，不是计划摘要：
@@ -5541,9 +5544,37 @@ Return only JSON matching the provided schema."""
         if len(output.escalation_stages) >= 3:
             return output
         if creative_decisions:
-            # A recovery helper may restore transport structure, but it must
-            # not author a three-act event direction the user never supplied.
-            return output
+            structural_slots = [
+                ShortDramaEscalationStage(
+                    stage_id="structure.promise.tbd",
+                    title="承诺建立槽位",
+                    stage_goal="待定：明确本阶段需要建立的观众期待与人物行动目标。",
+                    stage_opposition="待定：由作者决定阻止目标的具体人物、规则或资源门槛。",
+                    stage_payoff="待定：由作者决定本阶段交付的可见结果与情绪回报。",
+                    escalation_to_next="结构职责：当前结果必须形成下一阶段可承接的更高压力。",
+                ),
+                ShortDramaEscalationStage(
+                    stage_id="structure.escalation.tbd",
+                    title="压力升级槽位",
+                    stage_goal="待定：明确中段需要改变的目标、处境、信息或人物关系。",
+                    stage_opposition="待定：由作者决定本阶段新增或升级的具体阻力。",
+                    stage_payoff="待定：由作者决定中段需要兑现的阶段结果。",
+                    escalation_to_next="结构职责：阶段兑现后必须把因果压力交接给最终部分。",
+                ),
+                ShortDramaEscalationStage(
+                    stage_id="structure.payoff.tbd",
+                    title="最终兑现槽位",
+                    stage_goal="待定：明确全剧最终要回答的故事问题和人物选择。",
+                    stage_opposition="待定：由作者决定最终选择面对的具体阻力与代价。",
+                    stage_payoff="待定：由作者决定最终交付的故事与情绪回报。",
+                    escalation_to_next="结构职责：完成作者确认的结局收束，不再擅自增加更高层冲突。",
+                ),
+            ]
+            completed = [
+                *output.escalation_stages,
+                *structural_slots[len(output.escalation_stages):],
+            ]
+            return output.model_copy(update={"escalation_stages": completed})
         main_line = next(
             (line for line in output.story_lines if line.story_line_type == "main"),
             output.story_lines[0],
@@ -6168,6 +6199,9 @@ Return only JSON matching the provided schema."""
             "unaffected narrative facts and causal structure."
         )
         market_contract = StoryPlanningService._story_bible_market_contract_text(story_bible)
+        decision_contract = _creative_decision_prompt_contract(
+            list(getattr(story_bible, "creative_decisions", []) or [])
+        )
         if selection_context is None:
             selection_contract = (
                 "No text selection was provided. Infer the smallest affected node fields from the instruction."
@@ -6207,6 +6241,8 @@ Approved Story Bible boundaries:
 - Allowed character refs: {json.dumps(story_bible.character_refs, ensure_ascii=False)}
 - Allowed story-line refs: {json.dumps([item.story_line_id for item in story_bible.story_lines], ensure_ascii=False)}
 
+{decision_contract}
+
 Current node JSON:
 {source.model_dump_json(exclude={"schema_version", "node_id", "story_project_id", "story_bible_id", "story_bible_version", "version", "status", "created_at", "approved_at"})}
 
@@ -6220,6 +6256,8 @@ Revision rules:
 2. Preserve the node's episode range, estimated episode count, body allocation, parent, predecessor and sequence position.
 3. Preserve existing character, story-line, setup and payoff reference IDs; do not invent IDs.
 4. Maintain causal continuity from entry state through turning points and unit resolution to exit state and handoff pressure.
+   Do not resolve an unresolved author decision or promote a provisional suggestion into fact unless this modification
+   instruction explicitly supplies that decision.
 5. Treat ancestor boundaries, the previous sibling exit, the next sibling entry, and direct-child
    entry/exit states in the supplied continuity context as binding. When the requested change affects
    one of those handoffs, update every dependent field inside this node instead of hiding the conflict.
@@ -6886,6 +6924,9 @@ Return only JSON matching the provided schema."""
             f"{node.node_id} v{node.version}" for node in sampled_leaves
         )
         market_contract = StoryPlanningService._story_bible_market_contract_text(story_bible)
+        decision_contract = _creative_decision_prompt_contract(
+            list(getattr(story_bible, "creative_decisions", []) or [])
+        )
         return f"""{market_contract}
 你是当前市场路径漫剧的剧情总编审。只做审校，不改写剧情，不生成分集路线图。
 所有可读文本必须遵循上述市场契约。
@@ -6895,6 +6936,8 @@ Return only JSON matching the provided schema."""
 主题：{story_bible.theme}
 中心冲突：{story_bible.central_conflict}
 结局方向：{story_bible.ending_direction}
+
+{decision_contract}
 
 全体叶节点索引（用于判断重复、升级和整体节奏）：
 {leaf_index}
@@ -6908,6 +6951,7 @@ Return only JSON matching the provided schema."""
 3. 冲突、对手门槛与爽点是否持续升级，而非换词重复。
 4. 伏笔、剧情线和结局方向是否得到推进或回收。
 5. 进入状态、退出状态和下一段压力是否连续。
+6. 已确认作者决定是否被保留；待定项是否仍保持待定，未被规划静默补成事实。
 只有会实质影响单集路线图和正文的明确问题才标记 needs_revision；轻微措辞问题必须判定 pass。
 issue_codes 使用简短英文标识。needs_revision 必须给出可直接用于局部 AI 修改的中文 repair_instruction，且必须保持节点集数范围和前后边界不变。
 只返回符合 schema 的 JSON。"""
@@ -9504,6 +9548,10 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
                 )
                 for stage in relevant_escalation_stages
             ],
+            "creative_decisions": [
+                decision.model_dump(mode="json")
+                for decision in getattr(story_bible, "creative_decisions", [])
+            ],
             "allowed_character_refs": [
                 reference
                 for reference in getattr(story_bible, "character_refs", [])
@@ -10768,8 +10816,11 @@ subsequent segmented instruction."""
             )
             for item in relevant_escalation_stages
         ) or "未指定"
-        author_instruction_text = author_instruction.strip() or "未提供；请根据父节点和已批准边界自主选择最稳妥的拆分方向。"
+        author_instruction_text = author_instruction.strip() or "未提供；只组织已确认内容，未决定的高影响剧情保留为结构槽位。"
         market_contract = cls._story_bible_market_contract_text(story_bible)
+        decision_contract = _creative_decision_prompt_contract(
+            list(getattr(story_bible, "creative_decisions", []) or [])
+        )
         return f"""{market_contract}
 
 You are decomposing one approved long-story planning node into content-driven contiguous child nodes for a serialized comic.
@@ -10807,14 +10858,16 @@ Locked facts: {'；'.join(getattr(story_bible, 'locked_facts', [])) or '未指�
 Avoid patterns: {'；'.join(getattr(story_bible, 'avoid_patterns', [])) or '未指定'}
 Hard planning leaf policy: every episode_ready child must cover {MIN_EPISODE_READY_SPAN}-{max_episode_ready_span} episodes. Every expandable child must cover at least 16 episodes. Never return a child covering 1-7 or 13-15 episodes.
 
+{decision_contract}
+
 {knowledge_context}
 
 Author control for this decomposition turn:
 {author_instruction_text}
-Treat it as a high-priority creative preference. Use it to choose the branch emphasis, event order,
-relationship focus, or pacing when compatible with approved facts, exact episode coverage, causal handoffs,
-and all structural contracts. If it conflicts with a hard constraint, preserve the hard constraint and
-satisfy the remaining intent.
+Treat explicit author content as a high-priority creative instruction. Use it to organize branch emphasis,
+event order, relationship focus, or pacing when compatible with approved facts and structural contracts.
+Do not interpret missing detail as permission to choose new identities, secrets, betrayals, deaths, relationship
+outcomes, theme conclusions or endings. A structural slot may state its required function and remain 待定.
 
 Requirements:
 1. {child_count_contract} Their episode ranges must be contiguous, ordered, cover the parent range exactly, and never overlap.
@@ -10835,8 +10888,14 @@ movement belong in one child; unrelated movements must not be compressed merely 
 12. Do not divide the parent into fixed equal quotas. Preserve natural dramatic boundaries wherever they comply with the hard {MIN_EPISODE_READY_SPAN}-{max_episode_ready_span} episode leaf window. If a coherent movement needs at least 16 episodes, keep it as an expandable intermediate child and let the next recursive pass find its internal dramatic boundaries. Different branches may therefore have different child counts and recursive depths.
 13. Treat world rules, locked facts, canonical identities, protected character traits, relationship directions, planned story-line resolutions, and avoid patterns as binding constraints. A child may causally evolve an unlocked state, but must not silently contradict, rename, merge, or prematurely resolve it.
 14. Preserve the approved short-drama escalation ladder in order. Each child must serve one or more concrete stage goals, opponents/barriers, and visible payoffs. Do not spend a long branch merely approaching the final opponent: resolve a reachable stage opponent or barrier, deliver a real reward, then let its consequence expose a stronger next pressure.
-15. Every child must own a complete unit-story movement rather than a placeholder. unit_story_beats must contain 4-12 distinct, concrete, causal events covering trigger, goal/action, escalation, irreversible choice or reversal, climax/payoff, and the resulting state change. unit_resolution states what this child actually settles. handoff_pressure states the new unresolved pressure passed forward; it must not defer this child's climax or local resolution.
-16. Episode Plans downstream may distribute and stage these events, but may not invent the missing core plot. For every episode-ready child, synopsis, turning_points, unit_story_beats, unit_resolution and handoff_pressure together must be specific enough to explain the whole unit story before any Episode Plan is generated.
+15. Every child must own a complete structural movement; unit_story_beats must contain 4-12 distinct approved
+events or explicit functional slots covering trigger, goal/action, escalation, consequential choice or reversal,
+payoff, and resulting state change. Make events concrete only when supported by confirmed author
+content. For an unresolved story-specific fact, state the dramatic function and mark its content 待定 instead of
+borrowing a familiar plot template. unit_resolution states what the child must settle; handoff_pressure states what follows.
+16. Episode Plans downstream may distribute and stage approved events, but may not invent the missing core plot.
+For an episode-ready child, every content decision required for its episodes must be confirmed before script generation;
+structural slots are not permission for the roadmap or script model to fill them silently.
 17. Do not repeat a previous sibling's resolved movement or preempt the next sibling's
 entry requirement. Keep every child inside the ancestor and adjacent boundaries supplied
 above; if a boundary must change, move the complete causal movement and state handoff,
@@ -10890,6 +10949,9 @@ Return one corrected JSON object only."""
         planning_memory: EpisodePlanningContinuityMemory | None = None,
     ) -> str:
         market_contract = StoryPlanningService._story_bible_market_contract_text(story_bible)
+        decision_contract = _creative_decision_prompt_contract(
+            list(getattr(story_bible, "creative_decisions", []) or [])
+        )
         predecessor_context = (
             json.dumps(
                 {
@@ -10935,6 +10997,8 @@ Story line refs: {'、'.join(line.story_line_id for line in story_bible.story_li
 Short-drama escalation ladder:
 {chr(10).join(f'- {item.stage_id}《{item.title}》：阶段目标={item.stage_goal}；阶段对手/门槛={item.stage_opposition}；阶段回报={item.stage_payoff}；升级={item.escalation_to_next}' for item in getattr(story_bible, 'escalation_stages', [])) or '- 未指定'}
 
+{decision_contract}
+
 Immediately preceding leaf checkpoint: {predecessor_context}
 Durable planning memory: {memory_context}
 
@@ -10955,6 +11019,8 @@ Requirements:
 11. Short drama cannot delay all satisfaction until the final opponent. Every episode must contain at least one compact pressure-action-payoff cycle: identify the immediate stage_opposition, make the protagonist act or choose, deliver a visible episode_payoff, then use pressure_escalation to raise the opponent, cost, secret, relationship conflict or decision difficulty. A payoff is a real local win, counterattack, exposure, rescue, acquisition, reversal or relationship change, not only a promise that something may happen later.
 12. Across adjacent episodes, repeat the cycle but escalate its level. Do not write several consecutive episodes that only investigate, prepare, travel, explain or wait for the same final confrontation.
 13. Distribute every approved unit-story beat verbatim into exactly one episode's source_unit_story_beats. The episode goal, action, decision and state change must execute that beat. Do not add a new core event chain to compensate for an incomplete segment plan.
+13a. Do not turn an unresolved or suggest-only author decision into an episode fact. If the approved segment still
+contains a story-specific 待定 slot, preserve it as a visible planning blocker rather than filling it with a familiar trope.
 14. The batch must complete the segment's Required local resolution by the final episode, then preserve the Required handoff pressure as the concrete next-segment obligation. Do not postpone this segment's climax or local settlement to a later planning module.
 15. Plan production load independently for every episode. target_duration_seconds must be {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count must be {EPISODE_SCENE_MIN}-{EPISODE_SCENE_MAX}, planned_dialogue_line_count must be {EPISODE_DIALOGUE_LINE_MIN}-{EPISODE_DIALOGUE_LINE_MAX}, and planned_shot_count must be {EPISODE_SHOT_UNIT_MIN}-{EPISODE_SHOT_UNIT_MAX}. One scene is valid when it can complete the episode; never split scenes or actions merely to reach a count. Choose the load from that episode's actual conflict, action, reveal, payoff and hook work. Do not evenly distribute the segment and do not copy one duration, scene count, dialogue count or shot count across all episodes merely for consistency. More time, dialogue or shots must correspond to visible dramatic work, never padding. Keep deliberate editing headroom inside the runtime range.
 16. Do not return scene_execution_plan or layer_contracts. The service derives both locally from the validated episode fields and production budgets.
@@ -11052,6 +11118,9 @@ Return only JSON matching the provided schema."""
             "in this episode. Leave later events available for later episodes."
         )
         market_contract = StoryPlanningService._story_bible_market_contract_text(story_bible)
+        decision_contract = _creative_decision_prompt_contract(
+            list(getattr(story_bible, "creative_decisions", []) or [])
+        )
         return f"""{market_contract}
 
 SINGLE EPISODE ROADMAP CONTRACT
@@ -11076,6 +11145,8 @@ Allowed character_refs: {json.dumps(story_bible.character_refs, ensure_ascii=Fal
 Allowed story_line_refs: {json.dumps([line.story_line_id for line in story_bible.story_lines], ensure_ascii=False)}
 Allowed setup_refs: {json.dumps(node.setup_refs, ensure_ascii=False)}
 Allowed payoff_refs: {json.dumps(node.payoff_refs, ensure_ascii=False)}
+
+{decision_contract}
 
 Immediately preceding accepted checkpoint:
 {json.dumps(previous_checkpoint, ensure_ascii=False, separators=(',', ':'))}
@@ -11119,6 +11190,8 @@ Rules:
    2-20 character Simplified-Chinese classification label, never a sentence or explanation.
 7. Keep every still-active item in the durable continuity memory true. Do not silently drop
    an unresolved setup, open hook, character state, relationship state or story-line obligation.
+7a. Do not turn an unresolved or suggest-only author decision into an episode fact. A story-specific
+    待定 slot is a planning blocker, not permission to fill it with an unrelated or formulaic event.
 8. {completion_rule}
 9. Independently choose target_duration_seconds from {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count from
    {EPISODE_SCENE_MIN}-{EPISODE_SCENE_MAX}, planned_dialogue_line_count from {EPISODE_DIALOGUE_LINE_MIN}-{EPISODE_DIALOGUE_LINE_MAX}, and planned_shot_count from {EPISODE_SHOT_UNIT_MIN}-{EPISODE_SHOT_UNIT_MAX} according to this episode's dramatic load.
@@ -12172,7 +12245,8 @@ Contract requirements:
    what develops across the whole story and how it is intended to resolve, never an episode list. Every item must
    have a specific title, premise/responsibility, and planned_resolution. Do not use generic placeholders such as
    "故事线 1", "围绕主线冲突推进并形成阶段性变化。" or "在后续剧情中完成与主线方向一致的收束。"
-9. Build escalation_stages only from confirmed development content or explicit AI-decision permission. Otherwise use
+9. When confirmed development content supports it, build 3-5 genuinely different whole-story milestones. Build
+   escalation_stages only from confirmed development content or explicit AI-decision permission. Otherwise use
    functional structural milestones such as 建立承诺、升级压力、阶段兑现、最终兑现, with the story-specific person,
    event, secret, relationship outcome and payoff visibly marked 待定. Structure the pressure curve without authoring
    the missing plot on the user's behalf.

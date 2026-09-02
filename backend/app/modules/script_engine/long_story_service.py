@@ -18,6 +18,11 @@ from app.modules.script_engine.long_story_models import (
     ContinuityLedgerAudit,
     ContinuityLedgerAuditStatus,
     ContinuityLedgerRollbackRequest,
+    CreativeAIPermission,
+    CreativeDecisionOwner,
+    CreativeDecisionRecord,
+    CreativeDecisionSource,
+    CreativeDecisionStatus,
     EpisodeArtifact,
     EpisodeArtifactCreate,
     EpisodeArtifactKind,
@@ -1136,6 +1141,14 @@ class LongStoryService:
                 }
             )
             if current is not None and normalized_story_bible.version == current.version + 1:
+                if (
+                    current.status == PlanningApprovalStatus.draft
+                    and normalized_story_bible.status == PlanningApprovalStatus.draft
+                ):
+                    normalized_story_bible = self._record_direct_story_bible_edit(
+                        current,
+                        normalized_story_bible,
+                    )
                 same_content = self._same_story_bible_content(
                     current,
                     normalized_story_bible,
@@ -1832,6 +1845,53 @@ class LongStoryService:
         return left.model_dump(exclude=ignored_fields) == right.model_dump(
             exclude=ignored_fields
         )
+
+    @staticmethod
+    def _record_direct_story_bible_edit(
+        current: StoryBible,
+        candidate: StoryBible,
+    ) -> StoryBible:
+        """Register a saved text-area edit as newer author-owned direction."""
+
+        ignored = {
+            "version",
+            "status",
+            "created_at",
+            "approved_at",
+            "creative_decisions",
+        }
+        current_values = current.model_dump(exclude=ignored)
+        candidate_values = candidate.model_dump(exclude=ignored)
+        changed_fields = [
+            field
+            for field in candidate_values
+            if candidate_values.get(field) != current_values.get(field)
+        ]
+        if not changed_fields or candidate.creative_decisions != current.creative_decisions:
+            return candidate
+        revision_key = f"author_revision.story_bible_v{candidate.version}"
+        decision = CreativeDecisionRecord(
+            decision_key=revision_key,
+            title="作者直接编辑总纲",
+            value=(
+                "作者直接编辑并保存了当前总纲字段："
+                + "、".join(changed_fields[:20])
+                + "。当前总纲内容优先于更早的输入或建议。"
+            ),
+            authority=MemoryLayer.canonical,
+            status=CreativeDecisionStatus.confirmed,
+            source=CreativeDecisionSource.user_input,
+            owner=CreativeDecisionOwner.user,
+            ai_permission=CreativeAIPermission.none,
+        )
+        decisions = {
+            item.decision_key: item
+            for item in candidate.creative_decisions
+        }
+        decisions[revision_key] = decision
+        return candidate.model_copy(update={
+            "creative_decisions": list(decisions.values())[-80:],
+        })
 
     @staticmethod
     def _validate_version_sequence(

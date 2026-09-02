@@ -1898,8 +1898,8 @@ function StoryInspirationDialog({
                                 >
                                   <span aria-hidden="true" className="story-inspiration-choice-indicator" />
                                   <span className="story-inspiration-choice-copy">
-                                    <span>还没想好</span>
-                                    <small>保留到真正需要时再决定，不会自动补成剧情。</small>
+                                      <span>还没想好</span>
+                                      <small>暂时不确定，保留到真正需要时再决定，不会自动补成剧情。</small>
                                   </span>
                                 </button>
                                 <button

@@ -449,6 +449,9 @@ class ScriptGenerationService:
                     f"{market_contract.profile} requires {expected_region.value}."
                 )
 
+        if payload.episode_context is not None:
+            self._validate_author_decisions_for_script(payload.episode_context)
+
         generation_strategy = self._generation_strategy_repository.get(
             payload.generation_strategy_id
         )
@@ -2529,6 +2532,48 @@ class ScriptGenerationService:
             extra_variables=extra_variables,
         )
 
+    @staticmethod
+    def _validate_author_decisions_for_script(
+        episode_context: EpisodeGenerationContext,
+    ) -> None:
+        """Stop before generation when an author decision reaches its deadline."""
+
+        blocking_titles: list[str] = []
+        for decision in episode_context.creative_decisions:
+            status = getattr(decision.status, "value", decision.status)
+            ai_permission = getattr(
+                decision.ai_permission,
+                "value",
+                decision.ai_permission,
+            )
+            if status not in {"unresolved", "delegated", "proposed", "conflicted"}:
+                continue
+            if ai_permission == "decide":
+                continue
+            required_stage = decision.required_before_stage
+            stage_due = required_stage in {
+                "story_bible",
+                "story_tree",
+                "episode_roadmap",
+                "script",
+            }
+            final_due = (
+                required_stage == "final_arc"
+                and episode_context.episode_number == episode_context.total_episodes
+            )
+            episode_due = (
+                decision.required_before_episode is not None
+                and decision.required_before_episode <= episode_context.episode_number
+            )
+            if stage_due or final_due or episode_due:
+                blocking_titles.append(decision.title)
+        if blocking_titles:
+            titles = "、".join(dict.fromkeys(blocking_titles))
+            raise ValueError(
+                f"以下创作内容已到必须由作者确认的阶段：{titles}。"
+                "请先在总纲或规划中明确它们，再生成正文；系统不会代替作者决定。"
+            )
+
     @classmethod
     def _episode_execution_context_payload(
         cls,
@@ -2539,6 +2584,25 @@ class ScriptGenerationService:
         """Compile the stored episode context into one bounded writing packet."""
 
         payload = episode_context.model_dump(mode="json", exclude_none=True)
+        decisions = payload.get("creative_decisions")
+        if isinstance(decisions, list):
+            open_statuses = {"unresolved", "delegated", "proposed", "conflicted"}
+            prioritized = [
+                item for item in decisions
+                if isinstance(item, dict) and item.get("status") in open_statuses
+            ]
+            prioritized.extend(
+                item for item in reversed(decisions)
+                if isinstance(item, dict) and item not in prioritized
+            )
+            compact_decisions: list[dict[str, object]] = []
+            for item in prioritized[:30]:
+                compact_item = dict(item)
+                value = compact_item.get("value")
+                if isinstance(value, str):
+                    compact_item["value"] = value[:600]
+                compact_decisions.append(compact_item)
+            payload["creative_decisions"] = compact_decisions
         supporting_context_scale = min(
             1.0,
             max(0.35, model_context_tokens / 128_000),

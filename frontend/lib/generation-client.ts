@@ -25,6 +25,7 @@ import {
 import { getTag, resolveLegacyTagId } from "@/lib/tag-catalog";
 import type {
   BilingualScriptView,
+  CreativeDecisionRecord,
   CreativeDeepeningRun,
   GeneratedDraft,
   ScriptDraftModificationResult,
@@ -133,6 +134,7 @@ export interface EpisodeGenerationContext {
   relevantCharacterRefs?: string[];
   plannedStoryLineRefs?: string[];
   storylineDuties?: StorylineDuty[];
+  creativeDecisions?: CreativeDecisionRecord[];
   plannedSetupRefs?: string[];
   plannedPayoffRefs?: string[];
   plannedStoryBeat?: string;
@@ -434,6 +436,7 @@ export async function generateSingleEpisode(
         relevant_character_refs: episode.relevantCharacterRefs ?? [],
         planned_story_line_refs: episode.plannedStoryLineRefs ?? [],
         storyline_duties: storylineDuties,
+        creative_decisions: episode.creativeDecisions ?? [],
         planned_setup_refs: episode.plannedSetupRefs ?? [],
         planned_payoff_refs: episode.plannedPayoffRefs ?? [],
         planned_story_beat: episode.plannedStoryBeat?.trim() || null,

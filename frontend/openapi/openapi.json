@@ -6294,6 +6294,14 @@
             ],
             "title": "Confirmed Continuity Checkpoint"
           },
+          "creative_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/CreativeDecisionRecord"
+            },
+            "maxItems": 80,
+            "title": "Creative Decisions",
+            "type": "array"
+          },
           "episode_instruction": {
             "anyOf": [
               {

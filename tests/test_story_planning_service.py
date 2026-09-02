@@ -39,6 +39,7 @@ from app.modules.script_engine.long_story_models import (
     EpisodePlanningStateHandoff,
     PlanningApprovalStatus,
     PlanningRevisionMode,
+    StoryBible,
     StoryBibleCharacterInput,
     StoryBibleGenerationOutput,
     StoryBibleDraftRequest,
@@ -3332,7 +3333,7 @@ def test_story_planning_service_accepts_canonical_name_alias_without_repair(
     runtime.engine.dispose()
 
 
-def test_story_planning_service_fills_escalation_before_final_persistence(tmp_path) -> None:
+def test_story_planning_service_fills_author_safe_structure_before_persistence(tmp_path) -> None:
     runtime = create_database_runtime(f"sqlite:///{tmp_path / 'story_escalation.db'}")
     SQLModel.metadata.create_all(runtime.engine)
     content_specs = ContentSpecRepository()
@@ -3366,10 +3367,11 @@ def test_story_planning_service_fills_escalation_before_final_persistence(tmp_pa
     )
 
     assert [stage.stage_id for stage in story_bible.escalation_stages] == [
-        "escalation.entry_breakthrough",
-        "escalation.counterattack",
-        "escalation.final_settlement",
+        "structure.promise.tbd",
+        "structure.escalation.tbd",
+        "structure.payoff.tbd",
     ]
+    assert all("待定" in stage.stage_goal for stage in story_bible.escalation_stages)
     runtime.engine.dispose()
 
 
@@ -3518,6 +3520,7 @@ def test_story_planning_service_repairs_non_chinese_narrative_once(tmp_path) -> 
                     "content_spec_id",
                     "version",
                     "status",
+                    "creative_decisions",
                     "created_at",
                     "approved_at",
                 }
@@ -4859,6 +4862,41 @@ def test_story_bible_prompt_contains_author_control_instruction() -> None:
     assert "unresolved values must remain visibly open" in prompt
     assert "它不自动授权新增身份、秘密、背叛、死亡、关系结果、主题结论或结局" in prompt
     assert "可以选择、组合或补充候选方向" not in prompt
+
+
+def test_direct_story_bible_edit_becomes_new_author_owned_direction() -> None:
+    current = StoryBible.model_validate({
+        "story_bible_id": "story_bible.direct_edit",
+        "story_project_id": "story_project.direct_edit",
+        "content_spec_id": "content_spec.direct_edit",
+        "version": 1,
+        "core_premise": "主角从一份来源可疑的材料开始追查被掩盖的责任链。",
+        "series_goal": "主角要取得能够公开验证的证据并保护无辜知情者。",
+        "theme": "真相需要承担代价。",
+        "central_conflict": "越接近证据源头，主角越可能令无辜知情者暴露。",
+        "ending_direction": "待定：最终如何公开证据由作者后续决定。",
+        "character_refs": ["character.protagonist"],
+        "story_lines": [{
+            "story_line_id": "storyline.investigation",
+            "title": "责任链调查",
+            "story_line_type": "main",
+            "premise": "主角逐步核验责任链。",
+            "planned_resolution": "具体收束方式待作者决定。",
+            "character_refs": ["character.protagonist"],
+        }],
+    })
+    candidate = current.model_copy(update={
+        "version": 2,
+        "theme": "公开真相之前必须先保护具体的人。",
+    })
+
+    recorded = LongStoryService._record_direct_story_bible_edit(current, candidate)
+
+    assert recorded.creative_decisions[-1].decision_key == (
+        "author_revision.story_bible_v2"
+    )
+    assert recorded.creative_decisions[-1].authority.value == "canonical"
+    assert "theme" in (recorded.creative_decisions[-1].value or "")
 
 
 def test_short_project_becomes_one_leaf_without_tiny_sibling_decomposition() -> None:

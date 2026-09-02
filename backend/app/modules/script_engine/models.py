@@ -22,6 +22,7 @@ from app.script_delivery_contract import (
     normalize_episode_dialogue_plan_payload,
 )
 from app.modules.script_engine.long_story_models import (
+    CreativeDecisionRecord,
     EpisodeSceneExecutionBeat,
     MemoryLayer,
     StoryBibleSelectionContext,
@@ -1413,6 +1414,10 @@ class EpisodeGenerationContext(BaseModel):
     relevant_character_refs: list[str] = Field(default_factory=list, max_length=20)
     planned_story_line_refs: list[str] = Field(default_factory=list, max_length=20)
     storyline_duties: list[StorylineDuty] = Field(default_factory=list, max_length=20)
+    creative_decisions: list[CreativeDecisionRecord] = Field(
+        default_factory=list,
+        max_length=80,
+    )
     planned_setup_refs: list[str] = Field(default_factory=list, max_length=30)
     planned_payoff_refs: list[str] = Field(default_factory=list, max_length=30)
     planned_story_beat: str | None = Field(default=None, max_length=1_000)

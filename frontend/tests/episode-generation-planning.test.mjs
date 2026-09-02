@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   adaptiveEpisodeSceneCount,
   approvedDirectScriptCoverageThrough,
+  buildStorylineDuties,
   episodeRoadmapCoverageThrough,
   buildEpisodeGenerationWindows,
   contiguousEpisodeCoverageThrough,
@@ -298,6 +299,58 @@ test("direct-script instructions assign distinct duties across one leaf", () => 
     ),
     /结尾追看点类型/,
   );
+});
+
+test("storyline duties enforce approved work while quiet lines remain review reminders", () => {
+  const project = {
+    storyLines: [
+      {
+        id: "storyline.main",
+        title: "调查主线",
+        type: "main",
+        summary: "主角调查旧案。",
+        currentState: "主角刚取得第一份证据。",
+        lastProgressedEpisode: 8,
+        nextRequiredStep: "核验证据来源",
+        status: "active",
+        characterIds: [],
+        episodeBeats: [],
+        userEdited: false,
+      },
+      {
+        id: "storyline.relationship",
+        title: "关系支线",
+        type: "subplot",
+        summary: "主角与证人的信任仍未确定。",
+        currentState: "双方保持戒备。",
+        lastProgressedEpisode: 2,
+        nextRequiredStep: "由作者决定何时改变信任状态",
+        status: "active",
+        characterIds: [],
+        episodeBeats: [],
+        userEdited: false,
+      },
+    ],
+  };
+
+  const duties = buildStorylineDuties(
+    project,
+    10,
+    ["storyline.main"],
+    3,
+  );
+  const main = duties.find((duty) => duty.story_line_id === "storyline.main");
+  const relationship = duties.find(
+    (duty) => duty.story_line_id === "storyline.relationship",
+  );
+
+  assert.equal(main.must_progress, true);
+  assert.deepEqual(main.assigned_scene_numbers, [1]);
+  assert.equal(relationship.must_progress, false);
+  assert.deepEqual(relationship.assigned_scene_numbers, []);
+  assert.equal(relationship.defer_until_episode, 11);
+  assert.match(relationship.defer_reason, /系统复核提醒/);
+  assert.match(relationship.defer_reason, /不自动生成剧情/);
 });
 
 test("episode context carries approved global rules and only relevant story constraints", () => {

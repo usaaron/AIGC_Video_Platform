@@ -445,9 +445,10 @@ class TemplatePromptBuilder(PromptBuilder):
                     "every duty with must_progress=true must receive visible action in at least one of its "
                     "assigned_scene_numbers, produce a changed state or causal result, and have a matching "
                     "story_line_updates entry whose evidence_scene_numbers stays inside those assigned scenes. "
-                    "Do not satisfy a duty by writing a ledger row alone. A duty with must_progress=false may "
-                    "only be deferred when can_defer=true, defer_until_episode and defer_reason are explicit; "
-                    "never silently omit a quiet subplot. The main line may carry the largest conflict, but it "
+                    "Do not satisfy a duty by writing a ledger row alone. A duty with must_progress=false is a "
+                    "monitoring or deferral record, not permission to invent an event for that line; use it only "
+                    "when the approved episode plan also references the line. Never silently promote a quiet "
+                    "subplot reminder into episode content. The main line may carry the largest conflict, but it "
                     "must not consume every scene when another mandatory duty is scheduled. title is the dramatic "
                     "title only, with no "
                     "第N集/Episode N prefix.",
@@ -455,6 +456,17 @@ class TemplatePromptBuilder(PromptBuilder):
             )
             context_fields.insert(
                 1,
+                (
+                    "AuthorDecisionAuthorityContract",
+                    "EpisodeContext.creative_decisions is the author decision ledger. confirmed canonical values "
+                    "are immutable story facts. unresolved values must remain open; delegated or suggest_only "
+                    "values are proposals, not canon. Missing detail never authorizes a new identity, secret, "
+                    "betrayal, death, relationship outcome, theme conclusion or ending. Write only the approved "
+                    "episode route; do not use screenplay generation to settle an author decision.",
+                ),
+            )
+            context_fields.insert(
+                2,
                 (
                     "UserReferenceMaterialContract",
                     "When EpisodeContext.reference_material_context is present, apply every "

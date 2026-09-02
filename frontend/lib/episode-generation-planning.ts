@@ -678,8 +678,9 @@ export function episodeGenerationLedgerPlan(
  * Compile a bounded narrative-resource schedule for one episode.
  *
  * The approved route remains the source of episode intent. This additional
- * schedule only decides which existing story lines must receive visible
- * scene time, including quiet subplots that have not been named by the route.
+ * schedule only allocates scene time for duties already named by the approved
+ * route. Quiet lines remain visible as review reminders without authoring a
+ * new event merely because a threshold was reached.
  */
 export function buildStorylineDuties(
   project: Pick<ScriptProject, "storyLines">,
@@ -734,7 +735,8 @@ export function buildStorylineDuties(
       );
       const isPlanned = planned.has(lineId);
       const isMain = role === "main";
-      const mustProgress = isMain || isPlanned || silenceEpisodes >= STORYLINE_SILENCE_THRESHOLD;
+      const mustProgress = isPlanned;
+      const needsReview = !isPlanned && silenceEpisodes >= STORYLINE_SILENCE_THRESHOLD;
       const nextRequiredStep = line.nextRequiredStep?.trim() || null;
       const objective = isPlanned && nextRequiredStep
         ? `完成${line.title}的本集局部目标：${nextRequiredStep}`
@@ -751,11 +753,13 @@ export function buildStorylineDuties(
         required_progress: compactDutyText(requiredProgress),
         assigned_scene_numbers: [],
         can_defer: canDefer,
-        defer_until_episode: mustProgress ? null : episodeNumber + 2,
+        defer_until_episode: mustProgress ? null : needsReview ? episodeNumber + 1 : episodeNumber + 2,
         defer_reason: mustProgress
           ? null
-          : silenceEpisodes > 0
-            ? `本集资源优先给已批准职责；连续沉默${silenceEpisodes}集，下一次应重新评估。`
+          : needsReview
+            ? `系统复核提醒：已连续沉默${silenceEpisodes}集；尚未被本集批准规划引用，不自动生成剧情，请在下一集规划时决定推进或延期。`
+            : silenceEpisodes > 0
+              ? `本集资源优先给已批准职责；已连续沉默${silenceEpisodes}集，尚未达到复核阈值。`
             : "尚未达到支线沉默阈值，暂不占用本集场景。",
         last_progressed_episode: lastProgressedEpisode,
         silence_episodes: silenceEpisodes,

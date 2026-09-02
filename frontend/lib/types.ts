@@ -903,6 +903,7 @@ export interface GeneratedEpisodeGenerationContext {
   relevant_character_refs?: string[];
   planned_story_line_refs?: string[];
   storyline_duties?: StorylineDuty[];
+  creative_decisions?: CreativeDecisionRecord[];
   planned_setup_refs?: string[];
   planned_payoff_refs?: string[];
   planned_story_beat?: string | null;

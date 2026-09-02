@@ -1530,6 +1530,7 @@ export function ScriptWorkspace() {
             storyBible,
             generationConstraint,
           ),
+          creativeDecisions: storyBible.creative_decisions ?? [],
           batch: {
             batchNumber,
             startEpisode: batchRange.startEpisode,
@@ -2755,6 +2756,7 @@ function InitialScriptBatchLauncher({
             storyBible,
             generationConstraint,
           ),
+          creativeDecisions: storyBible.creative_decisions ?? [],
           batch: {
             batchNumber: 1,
             startEpisode: batchRange.startEpisode,
