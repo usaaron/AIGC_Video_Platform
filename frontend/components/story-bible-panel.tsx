@@ -1019,9 +1019,17 @@ function inspirationBriefInstruction(brief: StoryInspirationBrief, directInput =
     ["其他作者想法", brief.additional_notes.join("；")],
     ["自由整理原始方向", directDirection],
   ].filter(([, value]) => value.trim());
+  const unresolved = brief.creative_decisions
+    .filter((decision) => decision.status === "unresolved")
+    .map((decision) => decision.title);
+  const delegated = brief.creative_decisions
+    .filter((decision) => decision.status === "delegated")
+    .map((decision) => decision.title);
   return [
     "以下内容来自使用者确认过的剧本灵感对话。请将其作为总纲创作约束，保持现有总纲格式，不要写分集、场景或对白：",
     ...lines.map(([label, value]) => `${label}：${value}`),
+    ...(unresolved.length > 0 ? [`暂时保留到后续决定：${unresolved.join("；")}`] : []),
+    ...(delegated.length > 0 ? [`仅允许剧本大师先提可修改方案：${delegated.join("；")}`] : []),
   ].join("\n").slice(0, 7_500);
 }
 
@@ -1416,6 +1424,7 @@ function InteractiveStoryBibleBuilder({
         undefined,
         inspirationBriefInstruction(completedSession.brief, additionalDirectInput),
         controller.signal,
+        completedSession.brief.creative_decisions,
       );
       // Start persistence only after generation succeeds, but do not keep the
       // completed Story Bible behind another network round trip. The session

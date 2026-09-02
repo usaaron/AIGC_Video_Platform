@@ -2499,12 +2499,28 @@ def test_story_planning_service_repairs_invalid_structure_once(tmp_path) -> None
             content_spec_id=content_spec.id,
             generation_strategy_id=strategy.id,
             creative_prompt="调查旧案。",
+            creative_decisions=[
+                {
+                    "decision_key": "ending.direction",
+                    "title": "结局方向",
+                    "value": None,
+                    "authority": "provisional",
+                    "status": "unresolved",
+                    "source": "grill_answer",
+                    "owner": "user",
+                    "ai_permission": "none",
+                }
+            ],
             target_episode_count=334,
         )
     )
 
     assert adapter.calls == 2
     assert story_bible.core_premise.startswith("一名落魄调查记者")
+    assert {item.decision_key for item in story_bible.creative_decisions} == {
+        "creative_input.original",
+        "ending.direction",
+    }
 
 
 def test_inspiration_chat_uses_compact_dedicated_profile(tmp_path) -> None:
@@ -4819,6 +4835,18 @@ def test_story_bible_prompt_contains_author_control_instruction() -> None:
         generation_strategy_id="strategy.prompt_control",
         creative_prompt="调查一桩被掩盖的旧案。",
         author_instruction="强化主角与证人的互不信任，但不要提前揭示最终真相。",
+        creative_decisions=[
+            {
+                "decision_key": "ending.direction",
+                "title": "结局方向",
+                "value": None,
+                "authority": "provisional",
+                "status": "unresolved",
+                "source": "grill_answer",
+                "owner": "user",
+                "ai_permission": "none",
+            }
+        ],
     )
     prompt = StoryPlanningService._build_prompt(
         payload=request,
@@ -4827,7 +4855,10 @@ def test_story_bible_prompt_contains_author_control_instruction() -> None:
         knowledge_context="KnowledgeBundle: bounded",
     )
     assert "强化主角与证人的互不信任，但不要提前揭示最终真相" in prompt
-    assert "可以选择、组合或补充候选方向" in prompt
+    assert '"decision_key":"ending.direction"' in prompt
+    assert "unresolved values must remain visibly open" in prompt
+    assert "它不自动授权新增身份、秘密、背叛、死亡、关系结果、主题结论或结局" in prompt
+    assert "可以选择、组合或补充候选方向" not in prompt
 
 
 def test_short_project_becomes_one_leaf_without_tiny_sibling_decomposition() -> None:

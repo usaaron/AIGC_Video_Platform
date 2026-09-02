@@ -612,6 +612,10 @@ class StoryBibleDraftRequest(BaseModel):
             "or override generated directions without replacing hard project constraints."
         ),
     )
+    creative_decisions: list[CreativeDecisionRecord] = Field(
+        default_factory=list,
+        max_length=80,
+    )
     characters: list[StoryBibleCharacterInput] = Field(default_factory=list, max_length=20)
     target_episode_count: int = Field(default=300, ge=1, le=2_000)
 

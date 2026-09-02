@@ -6583,6 +6583,8 @@ export interface components {
             characters?: components["schemas"]["StoryBibleCharacterInput"][];
             /** Content Spec Id */
             content_spec_id?: string | null;
+            /** Creative Decisions */
+            creative_decisions?: components["schemas"]["CreativeDecisionRecord"][];
             /**
              * Creative Prompt
              * @default

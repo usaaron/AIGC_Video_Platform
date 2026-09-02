@@ -725,6 +725,7 @@ export async function generateStoryBibleDraft(
   onAutomaticRetry?: (event: AutomaticRetryEvent) => void,
   authorInstruction = "",
   signal?: AbortSignal,
+  creativeDecisions: CreativeDecisionRecord[] = [],
 ): Promise<StoryBible> {
   if (!project.contentSpecId || !project.generationStrategyId) {
     throw new Error("当前项目尚未形成创作规格，无法生成长篇总纲。");
@@ -752,6 +753,7 @@ export async function generateStoryBibleDraft(
               selected_tag_labels: selectedTagLabels,
               selected_creative_direction: project.selectedCreativeDirection ?? null,
               author_instruction: authorInstruction.trim(),
+              creative_decisions: creativeDecisions,
               characters: [],
               target_episode_count: project.generationSettings.episodeCount,
             }),
