@@ -833,7 +833,7 @@ class StoryInspirationFrontierQuestion(BaseModel):
         max_length=4,
     )
     recommended_choice: str | None = Field(default=None, min_length=2, max_length=300)
-    recommended_answer: str = Field(min_length=8, max_length=400)
+    recommended_answer: str | None = Field(default=None, min_length=8, max_length=400)
 
     @model_validator(mode="after")
     def ensure_actionable_question(self) -> "StoryInspirationFrontierQuestion":
@@ -844,9 +844,10 @@ class StoryInspirationFrontierQuestion(BaseModel):
             raise ValueError("frontier choices must be distinct")
         if self.recommended_choice is not None and self.recommended_choice not in self.choices:
             raise ValueError("frontier recommended_choice must exactly match one choice")
-        recommendation = re.sub(r"[\s，。,.；;：:]", "", self.recommended_answer.casefold())
-        if recommendation in {"由你决定", "都可以", "任选", "看你", "没有建议"}:
-            raise ValueError("frontier recommendation must make a defensible choice")
+        if self.recommended_answer is not None:
+            recommendation = re.sub(r"[\s，。,.；;：:]", "", self.recommended_answer.casefold())
+            if recommendation in {"由你决定", "都可以", "任选", "看你", "没有建议"}:
+                raise ValueError("frontier recommendation must make a defensible choice")
         return self
 
 

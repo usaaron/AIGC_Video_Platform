@@ -98,6 +98,17 @@ def test_inspiration_recommendation_must_reference_an_available_choice() -> None
     )
     assert question.recommended_choice == "秘密逐层揭露"
 
+    neutral = StoryInspirationFrontierQuestion(
+        question_id="Q2",
+        decision_key="ending.direction",
+        title="结局方向",
+        question="结局方向现在是否已经确定？",
+        choices=[],
+        recommended_answer=None,
+    )
+    assert neutral.recommended_choice is None
+    assert neutral.recommended_answer is None
+
 
 def build_episode_plan_generation_item(episode_number: int = 1) -> dict:
     return {

@@ -2609,7 +2609,7 @@ def test_inspiration_chat_uses_compact_dedicated_profile(tmp_path) -> None:
     assert "彼此独立" in inspiration_adapter.prompts[0]
     assert "后续问题必须明显建立在使用者刚才的具体回答上" in inspiration_adapter.prompts[0]
     assert "主动压力测试含糊、矛盾和未经证明的假设" in inspiration_adapter.prompts[0]
-    assert "基于当前故事的明确推荐及理由" in inspiration_adapter.prompts[0]
+    assert "不得默认选中" in inspiration_adapter.prompts[0]
 
 
 @pytest.mark.parametrize(
@@ -2722,9 +2722,75 @@ def test_inspiration_chat_fallback_explains_the_decision_and_consequences() -> N
     assert len(result.questions) == 3
     assert [question.question_id for question in result.questions] == ["Q1", "Q2", "Q3"]
     assert all(question.question.endswith("？") for question in result.questions)
-    assert all(len(question.choices) == 3 for question in result.questions)
-    assert all(question.recommended_choice in question.choices for question in result.questions)
-    assert all(question.recommended_answer for question in result.questions)
+    assert all(question.choices == [] for question in result.questions)
+    assert all(question.recommended_choice is None for question in result.questions)
+    assert all(question.recommended_answer is None for question in result.questions)
+
+
+def test_inspiration_recommendation_is_preserved_only_after_author_requests_it() -> None:
+    question = StoryInspirationFrontierQuestion(
+        question_id="Q1",
+        decision_key="story_promise.viewer_reward",
+        title="观看期待",
+        question="基于当前故事，你更希望观众持续等待哪一种变化？",
+        choices=["人物关系改变", "主角处境改变"],
+        recommended_choice="人物关系改变",
+        recommended_answer="人物关系已经出现在输入中，因此先沿用它，代价是外部冲突会推进得更慢。",
+    )
+    output = StoryInspirationChatOutput(
+        assistant_message="当前可以比较两种方向。",
+        questions=[question],
+        brief=StoryInspirationBrief(),
+        ready_to_generate=False,
+    )
+    base_payload = StoryInspirationChatRequest(
+        story_project_id="story_project.recommendation_opt_in",
+        content_spec_id="content_spec.recommendation_opt_in",
+        generation_strategy_id="strategy.recommendation_opt_in",
+    )
+
+    neutral = StoryPlanningService._ensure_unique_story_inspiration_turn(
+        base_payload,
+        output,
+    )
+    requested = StoryPlanningService._ensure_unique_story_inspiration_turn(
+        base_payload.model_copy(update={"user_message": "你建议我怎么选？"}),
+        output,
+    )
+
+    assert neutral.questions[0].recommended_choice is None
+    assert neutral.questions[0].recommended_answer is None
+    assert requested.questions[0].recommended_choice == "人物关系改变"
+    assert requested.questions[0].recommended_answer == question.recommended_answer
+
+
+def test_inspiration_timeout_recovery_does_not_copy_control_choices_into_story_fields() -> None:
+    frontier = [StoryInspirationFrontierQuestion(
+        question_id="Q1",
+        decision_key="ending_direction.foundation",
+        title="结局方向",
+        question="结局现在已经确定到什么程度？",
+        choices=[],
+    )]
+    result = StoryPlanningService._fallback_story_inspiration_turn(
+        StoryInspirationChatRequest(
+            story_project_id="story_project.control_marker",
+            content_spec_id="content_spec.control_marker",
+            generation_strategy_id="strategy.control_marker",
+            messages=[StoryInspirationMessage(
+                role="assistant",
+                content="当前可以确认结局方向。",
+                questions=frontier,
+            )],
+            current_brief=StoryInspirationBrief(),
+            user_message=(
+                "Q1｜结局方向\n"
+                "方向：暂时不确定，保留到后续阶段再决定。"
+            ),
+        )
+    )
+
+    assert result.brief.ending_direction == ""
 
 
 @pytest.mark.parametrize(
@@ -2818,7 +2884,10 @@ def test_inspiration_chat_replaces_semantically_repeated_questions() -> None:
     result = StoryPlanningService._ensure_unique_story_inspiration_turn(payload, repeated)
 
     assert all(question.question != repeated.questions[0].question for question in result.questions)
-    assert any("主角" in question.question for question in result.questions)
+    assert any(
+        question.decision_key.startswith("protagonist_and_goal")
+        for question in result.questions
+    )
 
 
 def test_inspiration_chat_allows_distinct_downstream_question_in_same_topic() -> None:
@@ -2858,10 +2927,13 @@ def test_inspiration_chat_allows_distinct_downstream_question_in_same_topic() ->
 
     result = StoryPlanningService._ensure_unique_story_inspiration_turn(payload, output)
 
-    assert result.questions == output.questions
+    assert [question.question for question in result.questions] == [
+        question.question for question in output.questions
+    ]
+    assert result.questions[0].recommended_answer is None
 
 
-def test_inspiration_chat_requires_deep_coverage_before_auto_ready() -> None:
+def test_inspiration_chat_can_finish_after_one_round_when_current_direction_is_sufficient() -> None:
     brief = StoryInspirationBrief(
         story_promise="观众会追看主角揭开责任链。",
         protagonist_and_goal="主角要保护证人并公开真相。",
@@ -2897,19 +2969,8 @@ def test_inspiration_chat_requires_deep_coverage_before_auto_ready() -> None:
         premature_payload,
         proposed_ready,
     )
-    assert premature.ready_to_generate is False
-
-    deep_payload = premature_payload.model_copy(update={
-        "messages": [
-            StoryInspirationMessage(role="user", content=f"已回答-{index}")
-            for index in range(3)
-        ],
-    })
-    deep = StoryPlanningService._ensure_unique_story_inspiration_turn(
-        deep_payload,
-        proposed_ready,
-    )
-    assert deep.ready_to_generate is True
+    assert premature.ready_to_generate is True
+    assert premature.questions == []
 
 
 def test_inspiration_chat_honors_an_explicit_request_for_another_round() -> None:

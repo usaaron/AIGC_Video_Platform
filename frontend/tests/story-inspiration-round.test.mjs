@@ -61,6 +61,7 @@ test("custom answers require text while unsure is immediately complete", () => {
   assert.equal(storyInspirationAnswerIsComplete({ kind: "custom", value: "", note: "" }), false);
   assert.equal(storyInspirationAnswerIsComplete({ kind: "custom", value: "强化身份秘密", note: "" }), true);
   assert.equal(storyInspirationAnswerIsComplete({ kind: "unsure", value: "", note: "" }), true);
+  assert.equal(storyInspirationAnswerIsComplete({ kind: "delegate", value: "", note: "" }), true);
 });
 
 test("the live brief preview reflects selected answers before the round is submitted", () => {
@@ -84,14 +85,30 @@ test("the live brief preview reflects selected answers before the round is submi
   assert.equal(original.stakes, "");
 });
 
-test("an unsure answer has a visible but non-empty preview value", () => {
+test("an unsure answer remains outside the story fields and enters the decision ledger", () => {
   const preview = previewStoryInspirationBrief(
     brief(),
-    [question({ decision_key: "ending_direction.choice" })],
+    [question({ decision_key: "ending_direction.choice", title: "结局方向" })],
     { "ending_direction.choice": { kind: "unsure", value: "", note: "" } },
   );
 
-  assert.match(preview.ending_direction, /暂时不确定/);
+  assert.equal(preview.ending_direction, "");
+  assert.equal(preview.creative_decisions[0].status, "unresolved");
+  assert.equal(preview.creative_decisions[0].ai_permission, "none");
+  assert.match(preview.unresolved[0], /结局方向/);
+});
+
+test("delegating a decision grants a proposal without making it a story fact", () => {
+  const preview = previewStoryInspirationBrief(
+    brief(),
+    [question({ decision_key: "ending_direction.choice", title: "结局方向" })],
+    { "ending_direction.choice": { kind: "delegate", value: "", note: "" } },
+  );
+
+  assert.equal(preview.creative_decisions[0].status, "delegated");
+  assert.equal(preview.creative_decisions[0].authority, "provisional");
+  assert.equal(preview.creative_decisions[0].ai_permission, "suggest_only");
+  assert.equal(preview.unresolved.length, 0);
 });
 
 test("one submitted message preserves every answer and stays within the API limit", () => {
@@ -137,4 +154,19 @@ test("submitted round messages can restore their structured answers", () => {
     note: "每个阶段兑现一次。",
   });
   assert.equal(restored["stakes.loss"].kind, "unsure");
+});
+
+test("round messages keep unsure and delegated answers distinguishable", () => {
+  const questions = [
+    question({ decision_key: "ending_direction.choice", title: "结局方向" }),
+    question({ question_id: "Q2", decision_key: "stakes.loss", title: "失败代价" }),
+  ];
+  const message = buildStoryInspirationRoundMessage(questions, {
+    "ending_direction.choice": { kind: "unsure", value: "", note: "" },
+    "stakes.loss": { kind: "delegate", value: "", note: "先看一个方案" },
+  });
+  const restored = storyInspirationRoundAnswersFromMessage(questions, message);
+
+  assert.equal(restored["ending_direction.choice"].kind, "unsure");
+  assert.equal(restored["stakes.loss"].kind, "delegate");
 });

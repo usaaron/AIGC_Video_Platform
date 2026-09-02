@@ -97,7 +97,7 @@ function isFrontierQuestion(value: unknown): value is StoryInspirationFrontierQu
     && typeof question.title === "string"
     && typeof question.question === "string"
     && Array.isArray(question.choices)
-    && typeof question.recommended_answer === "string"
+    && (question.recommended_answer == null || typeof question.recommended_answer === "string")
   );
 }
 

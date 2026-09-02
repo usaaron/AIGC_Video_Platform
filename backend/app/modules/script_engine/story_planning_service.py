@@ -149,8 +149,8 @@ _INSPIRATION_FIELD_PREREQUISITES: dict[str, tuple[str, ...]] = {
         "reveal_or_twist",
     ),
 }
-STORY_INSPIRATION_MIN_CONFIRMED_FIELDS = len(_INSPIRATION_CORE_FIELDS)
-STORY_INSPIRATION_MIN_COMPLETED_ROUNDS = 3
+STORY_INSPIRATION_MIN_CONFIRMED_FIELDS = 2
+STORY_INSPIRATION_MIN_COMPLETED_ROUNDS = 1
 STORY_INSPIRATION_MAX_USER_ANSWERS = 12
 
 
@@ -248,6 +248,19 @@ def _story_inspiration_answered_field(
     return field if field in _INSPIRATION_CORE_FIELDS else None
 
 
+def _story_inspiration_field_is_handled(
+    brief: StoryInspirationBrief,
+    field: str,
+) -> bool:
+    if getattr(brief, field).strip():
+        return True
+    return any(
+        decision.decision_key.split(".", 1)[0] == field
+        and decision.status.value in {"confirmed", "unresolved", "delegated"}
+        for decision in brief.creative_decisions
+    )
+
+
 def _apply_story_inspiration_user_answer(
     payload: StoryInspirationChatRequest,
     brief: StoryInspirationBrief,
@@ -283,6 +296,13 @@ def _apply_story_inspiration_user_answer(
         cleaned = value[:500].strip()
         if not cleaned:
             continue
+        if cleaned.startswith((
+            "暂时不确定，保留到后续阶段再决定",
+            "已授权剧本大师先提出方案",
+        )):
+            # The structured brief already carries this control choice. Never
+            # copy it into a story-content field during timeout recovery.
+            continue
         if field and not getattr(brief, field).strip():
             setattr(brief, field, cleaned)
         else:
@@ -295,10 +315,16 @@ def _story_inspiration_has_depth_floor(
     brief: StoryInspirationBrief,
 ) -> bool:
     confirmed_fields = sum(bool(getattr(brief, field).strip()) for field in _INSPIRATION_CORE_FIELDS)
+    handled_fields = sum(
+        _story_inspiration_field_is_handled(brief, field)
+        for field in _INSPIRATION_CORE_FIELDS
+    )
     return (
         _story_inspiration_user_answer_count(payload) >= STORY_INSPIRATION_MIN_COMPLETED_ROUNDS
-        and confirmed_fields >= STORY_INSPIRATION_MIN_CONFIRMED_FIELDS
-        and not brief.unresolved
+        and (
+            confirmed_fields >= STORY_INSPIRATION_MIN_CONFIRMED_FIELDS
+            or handled_fields >= 3
+        )
     )
 
 
@@ -322,6 +348,20 @@ def _story_inspiration_deeper_round_requested(
     if not message or _story_inspiration_explicit_generation_requested(payload):
         return False
     return any(phrase in message for phrase in ("继续深入", "再深入", "继续追问", "再问一轮"))
+
+
+def _story_inspiration_recommendations_requested(
+    payload: StoryInspirationChatRequest,
+) -> bool:
+    """Recommendations are opt-in, not implied by opening a question."""
+
+    message = payload.user_message.strip()
+    if not message:
+        return False
+    return any(
+        phrase in message
+        for phrase in ("推荐", "建议", "给个方案", "给我方案", "你觉得哪个好", "哪个更好", "怎么选")
+    )
 
 
 def is_transient_story_planning_output_error(error: Exception) -> bool:
@@ -4565,6 +4605,7 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
         answer_count = _story_inspiration_user_answer_count(payload)
         explicit_generation_requested = _story_inspiration_explicit_generation_requested(payload)
         deeper_round_requested = _story_inspiration_deeper_round_requested(payload)
+        recommendations_requested = _story_inspiration_recommendations_requested(payload)
         # The model may suggest early completion, but the service owns this
         # quality gate. At the hard conversation cap, finish gracefully rather
         # than asking an unbounded stream of increasingly narrow questions.
@@ -4587,12 +4628,13 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
                 continue
             if _story_inspiration_question_is_repeated(candidate.question, seen_questions):
                 continue
-            unique_questions.append(candidate.model_copy(update={
-                "question_id": f"Q{len(unique_questions) + 1}",
-            }))
+            updates = {"question_id": f"Q{len(unique_questions) + 1}"}
+            if not recommendations_requested:
+                updates.update({"recommended_choice": None, "recommended_answer": None})
+            unique_questions.append(candidate.model_copy(update=updates))
             seen_questions.append(candidate.question)
             seen_decision_keys.add(candidate.decision_key)
-            if len(unique_questions) == 4:
+            if len(unique_questions) == 3:
                 break
         if unique_questions:
             return output.model_copy(update={
@@ -4663,177 +4705,90 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
         question_fields = [
             (
                 "story_promise",
-                "核心追看回报",
-                "当故事推进到中段以后，你最希望观众为了看到哪一种变化而继续追下去？",
-                [
-                    "高难度逆转：主角每个阶段夺回一部分主动权，最终完成一次有代价的翻盘。",
-                    "秘密逐层揭露：每次查证都推翻一层旧认知，并把主角引向更高层的责任者。",
-                    "关系持续变化：两名核心人物从互相利用走向信任，最后共同承担选择的后果。",
-                ],
-                "优先选择最能贯穿全剧、且每个阶段都能兑现一小部分的回报；不要只选开篇噱头。",
+                "观众持续观看的期待",
+                "按你现在的想法，观众持续看下去主要在等待什么变化；如果还不确定，也可以先保留？",
             ),
             (
                 "protagonist_and_goal",
-                "主角的可验证目标",
-                "主角是谁，他在故事开端最先必须完成的具体目标是什么？",
-                [
-                    "夺回被剥夺的身份或权力：主角必须主动搜集筹码，并逐步挑战现有规则。",
-                    "保护一个不能失去的人：主角的每次行动都要在救人和暴露自己之间取舍。",
-                    "查清一件被掩盖的真相：主角必须找到可验证的证据，并承担触怒既得利益者的风险。",
-                ],
-                "把目标写成能看出完成或失败的行动结果，并确保第一阶段由主角主动迈出第一步。",
-            ),
-            (
-                "core_obstacle",
-                "持续反制的核心阻力",
-                "哪一种人、关系或规则最有能力持续阻止主角，并迫使他改变原来的做法？",
-                [
-                    "掌握资源和规则的强大对手：对方能封锁证据、制造舆论，并迫使主角转入非常规行动。",
-                    "主角不能公开的身份或秘密：越接近目标，暴露秘密的代价越高，主角也越难获得盟友信任。",
-                    "互相利用又不能割舍的关系：关键盟友既提供帮助又保留私心，使每次合作都伴随背叛风险。",
-                ],
-                "优先选择能够主动学习和升级的阻力，让它针对主角上一阶段的办法作出反制。",
-            ),
-            (
-                "stakes",
-                "不可逆的失败代价",
-                "如果主角最终没有完成目标，他会具体失去什么，而且为什么这项损失无法轻易挽回？",
-                [
-                    "失去重要的人或关系：对方因主角的选择受伤、离开或不再信任他。",
-                    "身份和过去被公开：主角失去现有生活，同时让身边的人被卷入危险。",
-                    "彻底失去翻身或求证机会：关键证据、资格或时间窗口消失，真相可能永远被掩埋。",
-                ],
-                "选择既打击外部目标、又伤及主角核心关系或身份的代价，高潮才不会只剩输赢。",
-            ),
-            (
-                "relationship_direction",
-                "核心关系的变化",
-                "哪一段关系必须成为故事的情感主轴，它要从什么状态变化到什么状态？",
-                [
-                    "互相利用到共同承担：两人先交换利益，后来因为共同后果而必须真正站在一起。",
-                    "信任到决裂再重建：一次无法回避的隐瞒造成破裂，只有付出实际代价才能重新合作。",
-                    "对立到彼此成全：双方目标始终冲突，但最后一次选择要证明他们理解了对方的代价。",
-                ],
-                "选择会被主线事件反复考验、并能改变关键行动的关系，不要只设定口头上的亲疏变化。",
-            ),
-            (
-                "reveal_or_twist",
-                "会重写前文理解的真相",
-                "哪一个秘密或反转必须在故事后段改变观众对前面事件的理解？",
-                [
-                    "责任链上移：主角以为已经找到幕后者，后来发现真正的决定来自更高层的利益关系。",
-                    "身份重新解释：一个人物一直隐瞒的身份改变了他此前行动的动机，但不能抹掉已有因果。",
-                    "选择本身才是关键：事件真相并非唯一重点，真正的反转是主角主动选择承担它的后果。",
-                ],
-                "优先选择能够解释既有行为、同时迫使主角重新选择的真相，而不是凭空加入新幕后者。",
+                "当前行动中心",
+                "现阶段你最确定由谁推动故事，他眼下最想做到什么；哪些部分还不需要现在决定？",
             ),
             (
                 "tone_and_pacing",
-                "推进节奏与情绪回报",
-                "你希望这部剧整体以什么节奏和情绪推进，并在哪些时刻刻意放慢或加速？",
-                [
-                    "持续高压：短回报、强反制、连续选择，只有在关键真相处短暂停下来。",
-                    "悬疑递进：先用可验证的小线索稳步推进，在中段和后段分别完成一次认知翻转。",
-                    "关系拉扯：外部事件保持推进，但把关键停顿留给人物试探、隐瞒和情感决裂。",
-                ],
-                "先确定主要推进方式，再明确一类必须放慢的时刻，避免全程同一强度造成疲劳。",
+                "观看感受与节奏",
+                "你目前最想让观众获得怎样的观看感受；哪些节奏偏好可以留到规划阶段再调整？",
+            ),
+            (
+                "core_obstacle",
+                "当前核心阻力",
+                "基于你已经确定的行动目标，现在最明确的阻力是什么；还有哪些阻力不适合提前写死？",
+            ),
+            (
+                "stakes",
+                "当前可确认的风险",
+                "如果行动暂时失败，现阶段你已经确定会失去什么；哪些代价需要等人物发展后再决定？",
+            ),
+            (
+                "relationship_direction",
+                "当前核心关系",
+                "现阶段哪段关系最值得保留，它现在处于什么状态；未来变化是否需要先保持开放？",
+            ),
+            (
+                "reveal_or_twist",
+                "信息与认知变化",
+                "故事是否需要某个信息在后段改变人物或观众对前文的理解；如果需要，什么内容必须保持开放？",
             ),
             (
                 "ending_direction",
-                "结局证明的选择",
-                "你希望主角最后得到怎样的结果，又必须为这个结果付出哪一种真实代价？",
-                [
-                    "主角完成目标但失去原有生活：胜利成立，但他无法回到故事开始时的状态。",
-                    "真相被公开但核心关系破裂：外部问题得到解决，人物情感留下不可逆的伤痕。",
-                    "取得阶段性胜利并承担更大责任：本季主线收束，同时由主角的选择自然打开后续空间。",
-                ],
-                "让结局同时回应开篇目标和人物改变；胜利可以不完整，但不能靠突然获得外援完成。",
+                "结局方向",
+                "结局现在已经确定到什么程度；哪些结果可以先保持开放，等接近终局规划时再决定？",
             ),
         ]
-        recommended_choice_indexes = {
-            "story_promise": 1,
-            "protagonist_and_goal": 2,
-            "core_obstacle": 0,
-            "stakes": 0,
-            "relationship_direction": 1,
-            "reveal_or_twist": 0,
-            "tone_and_pacing": 1,
-            "ending_direction": 0,
-        }
         candidates = [
             StoryInspirationFrontierQuestion(
                 question_id="Q1",
                 decision_key=f"{field}.foundation",
                 title=title,
                 question=question,
-                choices=answers,
-                recommended_choice=answers[recommended_choice_indexes[field]],
-                recommended_answer=recommendation,
+                # The deterministic path must remain a neutral prompt when the
+                # model is unavailable. Do not steer the author with template
+                # choices or a hidden default recommendation.
+                choices=[],
+                recommended_choice=None,
+                recommended_answer=None,
             )
-            for field, title, question, answers, recommendation in question_fields
-            if not getattr(brief, field).strip()
+            for field, title, question in question_fields
+            if not _story_inspiration_field_is_handled(brief, field)
             and all(getattr(brief, prerequisite).strip() for prerequisite in _INSPIRATION_FIELD_PREREQUISITES[field])
             and not _story_inspiration_question_is_repeated(question, excluded_questions)
-        ][:4]
+        ][:3]
         if not candidates:
-            pressure_questions = (
-                StoryInspirationFrontierQuestion(
-                    question_id="Q1",
-                    decision_key="creative_boundaries.rejection",
-                    title="可能推翻方向的假设",
-                    question="站在反对这版故事的角度看，哪一项隐含假设最可能让你拒绝当前总纲方向；它必须怎样修改才可接受？",
-                    choices=[
-                        "人物不可信：明确主角绝不会做出的选择，以及必须补足的动机。",
-                        "冲突太套路：指出最不接受的反派手段、误会或巧合，并给出替代原则。",
-                        "结局不成立：说明哪一种胜利或牺牲会背叛前面的故事承诺。",
-                        "没有致命问题：保留当前方向，直接进入总纲生成。",
-                    ],
-                    recommended_choice="人物不可信：明确主角绝不会做出的选择，以及必须补足的动机。",
-                    recommended_answer="优先指出会迫使整条主线重写的问题；只影响局部场面的偏好可以留到规划阶段再处理。",
-                ),
-                StoryInspirationFrontierQuestion(
-                    question_id="Q1",
-                    decision_key="creative_boundaries.causal_weakness",
-                    title="最脆弱的因果连接",
-                    question="如果只能挑出一处最容易让观众觉得剧情在强行推进的因果连接，会是哪一步；人物必须提前做出什么选择才能让它成立？",
-                    choices=[
-                        "主角获得线索过于容易：让他先付出可见代价，线索才成为主动选择的结果。",
-                        "对手失误缺少动机：把失误改成对手为了更大目标主动承担的风险。",
-                        "关系转变缺少事件：安排一次会改变双方利益和信任的共同后果。",
-                    ],
-                    recommended_choice="主角获得线索过于容易：让他先付出可见代价，线索才成为主动选择的结果。",
-                    recommended_answer="优先修正连接故事中段与结局的那一步，因为它会决定前期铺垫能否真正兑现。",
-                ),
-                StoryInspirationFrontierQuestion(
-                    question_id="Q1",
-                    decision_key="creative_boundaries.character_cost",
-                    title="人物选择的真实代价",
-                    question="主角最后的关键选择如果没有足够代价，哪一种损失最能证明他真的发生了变化，同时又不会背叛这部剧的核心承诺？",
-                    choices=[
-                        "失去原有身份或生活：目标完成，但主角无法回到故事开始时的安全位置。",
-                        "失去一段重要关系：胜利成立，但隐瞒或选择造成的伤害不能立即修复。",
-                        "承担新的长期责任：阶段危机解决，但主角必须主动接下更难逃避的后果。",
-                    ],
-                    recommended_choice="失去一段重要关系：胜利成立，但隐瞒或选择造成的伤害不能立即修复。",
-                    recommended_answer="选择能同时回应开篇欲望和核心关系的代价，让结局证明人物改变，而不只是宣布胜利。",
-                ),
+            boundary_question = StoryInspirationFrontierQuestion(
+                question_id="Q1",
+                decision_key="creative_boundaries.author_control",
+                title="作者保留的创作空间",
+                question="还有哪一项剧情决定现在不适合被系统补写，必须由你以后亲自决定？",
+                choices=[],
+                recommended_choice=None,
+                recommended_answer=None,
             )
-            candidates = [
-                question
-                for question in pressure_questions
-                if not _story_inspiration_question_is_repeated(
-                    question.question,
-                    excluded_questions,
-                )
-            ][:1]
+            candidates = [] if _story_inspiration_question_is_repeated(
+                boundary_question.question,
+                excluded_questions,
+            ) else [boundary_question]
         candidates = [
             question.model_copy(update={"question_id": f"Q{index}"})
             for index, question in enumerate(candidates, start=1)
         ]
         user_answer_count = _story_inspiration_user_answer_count(payload)
-        ready = user_answer_count >= STORY_INSPIRATION_MIN_COMPLETED_ROUNDS and sum(
-            bool(getattr(brief, name).strip()) for name in _INSPIRATION_CORE_FIELDS
-        ) >= STORY_INSPIRATION_MIN_CONFIRMED_FIELDS and not brief.unresolved
+        ready = user_answer_count >= STORY_INSPIRATION_MIN_COMPLETED_ROUNDS and (
+            sum(bool(getattr(brief, name).strip()) for name in _INSPIRATION_CORE_FIELDS)
+            >= STORY_INSPIRATION_MIN_CONFIRMED_FIELDS
+            or sum(
+                _story_inspiration_field_is_handled(brief, name)
+                for name in _INSPIRATION_CORE_FIELDS
+            ) >= 3
+        )
         ready = (
             _story_inspiration_explicit_generation_requested(payload)
             or user_answer_count >= STORY_INSPIRATION_MAX_USER_ANSWERS
@@ -4848,7 +4803,7 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
         else:
             assistant_message = (
                 "我把已经确定的内容保留下来，并只列出当前不依赖其他未决答案的决策。"
-                "请按 Q1、Q2 的编号逐题回答；可以同意推荐、选择其他方向，也可以直接反驳问题本身。"
+                "你可以直接回答，也可以选择还没想好或让我先给一个待确认的方案。"
             )
         return StoryInspirationChatOutput(
             assistant_message=assistant_message,
@@ -4892,7 +4847,7 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
 把这次对话当成一棵“创作决策树”，不是八项表单，也不是替使用者写方案：
 - 先从初始输入、参考资料、已有对话和当前结构化结论中重建决策树。每个未决问题都有前置条件；只有
   前置条件已确定的问题，才属于这一轮可以询问的“当前前沿”。
-- 每轮返回当前前沿中 1-4 个最重要的问题。它们必须彼此独立：如果 Q2 的答案会因 Q1 的选择而改变，
+- 每轮返回当前前沿中 1-3 个最重要的问题。它们必须彼此独立：如果 Q2 的答案会因 Q1 的选择而改变，
   Q2 不能出现在本轮，必须等下一轮重新计算前沿后再问。不要为了凑数量提出低价值问题。
 - 每轮回答都会重塑决策树。下一轮先确认哪些分支已解决、哪些回答产生了新分支，再重新计算前沿。
   后续问题必须明显建立在使用者刚才的具体回答上。
@@ -4903,9 +4858,9 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
   问题要能让使用者反对、修改或捍卫一个真实决定，而不是只能回答“是”。
 - 查找事实不是使用者的任务。凡是能从当前项目、参考资料、市场合同或已知内容判断的信息，直接使用；
   只把真正的创作选择交给使用者。
-- 使用者可以回答“我不知道”。此时给出差异真实、剧情后果不同的 choices；在 recommended_choice 中
-  原样复制你明确推荐的一个 choice，并在 recommended_answer 中说明理由、主要代价或风险。推荐是可反驳的
-  建议，不是替使用者做决定。
+- 使用者可以回答“还没想好”。把该决定保留为 unresolved，并转向当前仍可回答的问题；不得替使用者
+  决定，也不要在后续轮次重复追问。使用者明确要求“你先给个方案”时，才可以针对该项提出 provisional
+  方案，并清楚说明它仍需确认。
 - 不要追问只能靠看到成品才能判断的抽象感受，例如“你希望它感觉怎样”。把它转成可讨论的具体后果，
   例如信息释放频率、人物要付出的代价或某个关系在关键选择中的变化。
 - 问题只能涉及剧本创作，例如故事承诺、主角欲望、核心阻力、失败代价、人物关系、
@@ -4917,9 +4872,10 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
 - 标量字段不能用空字符串覆盖已确认内容。must_keep、must_avoid 和 additional_notes 如需更新，
   返回本轮需要追加的条目；unresolved 如需更新，返回处理本轮回答后的完整未决列表。
 - 不能删除使用者已经明确的要求；互相矛盾且尚未解决的内容放入 unresolved。
-- 结束条件不是“问够数量”，而是当前前沿为空：故事承诺、人物行动、因果升级、核心关系、信息揭示、
-  失败代价、结局回应和创作边界的所有重要分支都已访问，不再有静默假设或根本矛盾。只有这时才将
-  ready_to_generate 设为 true，并返回空 questions。
+- 不要求使用者在开写前确定全部主题、支线、反转和结局。只确认当前生成总纲不可缺少的方向；其他决定
+  可以保留到真正需要的规划阶段。未决项不阻止生成，但不得被静默补成故事事实。
+- 当前关键方向已经足以支持一版可修改总纲，且本轮没有更高优先级问题时，将 ready_to_generate 设为
+  true 并返回空 questions。
 - 使用者明确说“可以生成总纲”“开始生成”或同义表达时，可以尊重其决定提前收束；否则最多探索
   12 轮，达到上限后必须给出可生成状态，不要无限追问。
 
@@ -4939,14 +4895,14 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
 - assistant_message 使用 2-4 句自然中文：具体总结刚刚确定了什么、指出出现的张力或矛盾，并说明本轮
   前沿为什么现在可以被回答。不要只说“已记录”“请继续补充”。
 - questions 中每题使用唯一 decision_key（英文稳定标识，如 protagonist.goal.first_test），question_id
-  按 Q1、Q2、Q3、Q4 排列。title 必须概括具体取舍，不能写“更多细节”“其他问题”。
+  按 Q1、Q2、Q3 排列。title 必须概括具体取舍，不能写“更多细节”“其他问题”。
 - question 可以包含必要背景和多个段落，但只解决一个决策。明确两种选择会怎样改变人物行动、因果链、
   冲突升级、关系或结局，使没看过内部字段名的创作者也知道为什么现在要决定。
 - choices 仅在能帮助判断时提供 2-4 项，每项使用“选择方向：直接剧情后果”的形式；尽量使用当前故事
   已有人物、目标、阻力和关系，禁止可套用于任何故事的空泛标签。开放问题可以返回空 choices。
-- choices 非空时，recommended_choice 必须原样复制其中一个 choice；choices 为空时必须为 null。
-  recommended_answer 必须给出基于当前故事的明确推荐及理由，并同时指出主要代价或风险；禁止只写
-  “由你决定”“都可以”或复述某个 choice。
+- choices 可以帮助用户比较，但不得默认选中。只有使用者本轮明确要求推荐、建议或“先给个方案”时，
+  recommended_choice 才能原样复制其中一个 choice，recommended_answer 才给出基于当前故事的理由与
+  风险；其他情况两者都必须为 null。
 - 以上解释服务于创作判断，不得提前编写完整总纲、分集路线、场景或对白。
 根据“当前结构化结论 + brief_patch”判断 ready_to_generate。brief_patch 没有变化时返回空对象。
 Return only JSON matching the provided schema."""

@@ -381,7 +381,7 @@ export interface StoryInspirationFrontierQuestion {
   question: string;
   choices: string[];
   recommended_choice?: string | null;
-  recommended_answer: string;
+  recommended_answer?: string | null;
 }
 
 export interface StoryInspirationMessage {

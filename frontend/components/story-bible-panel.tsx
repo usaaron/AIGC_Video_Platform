@@ -1618,19 +1618,28 @@ function StoryInspirationDialog({
     roundAnswers,
   );
   const summaryFields = [
-    ["故事承诺", previewBrief.story_promise],
-    ["主角与目标", previewBrief.protagonist_and_goal],
-    ["核心阻力", previewBrief.core_obstacle],
-    ["失败代价", previewBrief.stakes],
-    ["人物关系", previewBrief.relationship_direction],
-    ["秘密或反转", previewBrief.reveal_or_twist],
-    ["结局方向", previewBrief.ending_direction],
-    ["情绪与节奏", previewBrief.tone_and_pacing],
-  ];
-  const summary = summaryFields.filter(([, value]) => value.trim());
+    ["story_promise", "故事承诺", previewBrief.story_promise],
+    ["protagonist_and_goal", "主角与目标", previewBrief.protagonist_and_goal],
+    ["core_obstacle", "核心阻力", previewBrief.core_obstacle],
+    ["stakes", "失败代价", previewBrief.stakes],
+    ["relationship_direction", "人物关系", previewBrief.relationship_direction],
+    ["reveal_or_twist", "秘密或反转", previewBrief.reveal_or_twist],
+    ["ending_direction", "结局方向", previewBrief.ending_direction],
+    ["tone_and_pacing", "情绪与节奏", previewBrief.tone_and_pacing],
+  ] as const;
+  const summary = summaryFields.filter(([, , value]) => value.trim());
+  const handledDecisionFields = new Set(previewBrief.creative_decisions
+    .filter((decision) => decision.status === "unresolved" || decision.status === "delegated")
+    .map((decision) => decision.decision_key.split(".", 1)[0]));
   const missingSummary = summaryFields
-    .filter(([, value]) => !value.trim())
-    .map(([label]) => label);
+    .filter(([field, , value]) => !value.trim() && !handledDecisionFields.has(field))
+    .map(([, label]) => label);
+  const deferredDecisions = previewBrief.creative_decisions
+    .filter((decision) => decision.status === "unresolved")
+    .map((decision) => decision.title);
+  const delegatedDecisions = previewBrief.creative_decisions
+    .filter((decision) => decision.status === "delegated")
+    .map((decision) => decision.title);
 
   useEffect(() => {
     const transcript = transcriptRef.current;
@@ -1749,7 +1758,7 @@ function StoryInspirationDialog({
             <strong>当前创作方向</strong>
             {summary.length ? (
               <dl>
-                {summary.map(([label, value]) => (
+                {summary.map(([, label, value]) => (
                   <div key={label}>
                     <dt>{label}</dt>
                     <dd>{value}</dd>
@@ -1758,6 +1767,8 @@ function StoryInspirationDialog({
               </dl>
             ) : <p>对话中的明确选择会整理在这里。</p>}
             {missingSummary.length ? <p><b>还可细化</b>{missingSummary.join("、")}</p> : null}
+            {deferredDecisions.length ? <p><b>以后再决定</b>{deferredDecisions.join("、")}</p> : null}
+            {delegatedDecisions.length ? <p><b>剧本大师先提方案</b>{delegatedDecisions.join("、")}</p> : null}
             {previewBrief.must_keep.length ? <p><b>必须保留</b>{previewBrief.must_keep.join("；")}</p> : null}
             {previewBrief.must_avoid.length ? <p><b>必须避免</b>{previewBrief.must_avoid.join("；")}</p> : null}
           </aside>
@@ -1878,8 +1889,22 @@ function StoryInspirationDialog({
                                 >
                                   <span aria-hidden="true" className="story-inspiration-choice-indicator" />
                                   <span className="story-inspiration-choice-copy">
-                                    <span>暂时不确定</span>
-                                    <small>让剧本大师依据当前故事推荐，同时保留主要风险。</small>
+                                    <span>还没想好</span>
+                                    <small>保留到真正需要时再决定，不会自动补成剧情。</small>
+                                  </span>
+                                </button>
+                                <button
+                                  aria-checked={activeAnswer?.kind === "delegate"}
+                                  className={activeAnswer?.kind === "delegate" ? "is-selected" : ""}
+                                  disabled={busy}
+                                  onClick={() => selectRoundAnswer("delegate")}
+                                  role="radio"
+                                  type="button"
+                                >
+                                  <span aria-hidden="true" className="story-inspiration-choice-indicator" />
+                                  <span className="story-inspiration-choice-copy">
+                                    <span>你先给个方案</span>
+                                    <small>只提出一个可修改的方案，未经确认不会成为故事事实。</small>
                                   </span>
                                 </button>
                               </div>

@@ -3,7 +3,7 @@ import type {
   StoryInspirationFrontierQuestion,
 } from "./types.ts";
 
-export type StoryInspirationAnswerKind = "choice" | "custom" | "unsure";
+export type StoryInspirationAnswerKind = "choice" | "custom" | "unsure" | "delegate";
 
 export interface StoryInspirationRoundAnswer {
   kind: StoryInspirationAnswerKind;
@@ -40,7 +40,7 @@ function inspirationBriefFieldForQuestion(
 }
 
 function roundAnswerPreview(answer: StoryInspirationRoundAnswer): string {
-  if (answer.kind === "unsure") return "暂时不确定，交由剧本大师依据当前故事决定";
+  if (answer.kind === "unsure" || answer.kind === "delegate") return "";
   return answer.value.trim();
 }
 
@@ -60,14 +60,41 @@ export function previewStoryInspirationBrief(
     must_avoid: [...brief.must_avoid],
     unresolved: [...brief.unresolved],
     additional_notes: [...brief.additional_notes],
+    creative_decisions: [...(brief.creative_decisions ?? [])],
   };
+  const decisions = new Map(
+    preview.creative_decisions.map((decision) => [decision.decision_key, decision]),
+  );
   for (const question of questions) {
     const answer = answers[question.decision_key];
     if (!answer || !storyInspirationAnswerIsComplete(answer)) continue;
     const field = inspirationBriefFieldForQuestion(question);
     const value = roundAnswerPreview(answer);
     if (field && value) preview[field] = value;
+    const isUnresolved = answer.kind === "unsure";
+    const isDelegated = answer.kind === "delegate";
+    preview.unresolved = preview.unresolved.filter((item) => !item.startsWith(`${question.title}：`));
+    decisions.set(question.decision_key, {
+      decision_key: question.decision_key,
+      title: question.title,
+      value: isUnresolved || isDelegated ? null : answer.value.trim(),
+      authority: isUnresolved || isDelegated ? "provisional" : "canonical",
+      status: isUnresolved ? "unresolved" : isDelegated ? "delegated" : "confirmed",
+      source: "grill_answer",
+      owner: "user",
+      ai_permission: isDelegated ? "suggest_only" : "none",
+      locked: false,
+    });
+    if (isUnresolved) {
+      preview.unresolved = [
+        ...new Set([
+          ...preview.unresolved,
+          `${question.title}：暂时不确定，保留到后续阶段再决定`,
+        ]),
+      ].slice(-12);
+    }
   }
+  preview.creative_decisions = [...decisions.values()].slice(0, 80);
   return preview;
 }
 
@@ -85,10 +112,12 @@ export function storyInspirationRoundAnswersFromMessage(
     ));
     const value = block?.[1]?.trim() ?? "";
     if (!value) continue;
-    const unsure = value.startsWith("暂时不确定");
+    const delegate = value.startsWith("已授权剧本大师先提出方案")
+      || value.startsWith("暂时不确定，请剧本大师依据当前故事给出最佳方案");
+    const unsure = value.startsWith("暂时不确定") && !delegate;
     answers[question.decision_key] = {
-      kind: unsure ? "unsure" : question.choices.includes(value) ? "choice" : "custom",
-      value: unsure ? "" : value,
+      kind: delegate ? "delegate" : unsure ? "unsure" : question.choices.includes(value) ? "choice" : "custom",
+      value: unsure || delegate ? "" : value,
       note: block?.[2]?.trim() ?? "",
     };
   }
@@ -108,12 +137,14 @@ export function recommendedChoiceForQuestion(
   const explicit = question.recommended_choice?.trim();
   if (explicit) return question.choices.includes(explicit) ? explicit : null;
 
-  const recommendation = question.recommended_answer
+  const recommendation = question.recommended_answer?.trim();
+  if (!recommendation) return null;
+  const normalizedRecommendation = recommendation
     .replace(/[\s，。,.；;：:、“”‘’]/g, "")
     .toLocaleLowerCase();
   const matches = question.choices.filter((choice) => {
     const label = normalizedChoiceLabel(choice);
-    return label.length >= 2 && recommendation.includes(label);
+    return label.length >= 2 && normalizedRecommendation.includes(label);
   });
   return matches.length === 1 ? matches[0] : null;
 }
@@ -122,7 +153,7 @@ export function storyInspirationAnswerIsComplete(
   answer: StoryInspirationRoundAnswer | undefined,
 ): boolean {
   if (!answer) return false;
-  if (answer.kind === "unsure") return true;
+  if (answer.kind === "unsure" || answer.kind === "delegate") return true;
   return answer.value.trim().length > 0;
 }
 
@@ -134,8 +165,10 @@ export function buildStoryInspirationRoundMessage(
     const answer = answers[question.decision_key];
     const title = question.title.trim().slice(0, 40);
     const direction = answer?.kind === "unsure"
-      ? "暂时不确定，请剧本大师依据当前故事给出最佳方案，同时保留主要风险。"
-      : answer?.value.trim().slice(0, 260) ?? "";
+      ? "暂时不确定，保留到后续阶段再决定。"
+      : answer?.kind === "delegate"
+        ? "已授权剧本大师先提出方案，但未经我确认不能写入故事事实。"
+        : answer?.value.trim().slice(0, 260) ?? "";
     const note = answer?.note.trim().slice(0, 140);
     return [
       `${question.question_id}｜${title}`,

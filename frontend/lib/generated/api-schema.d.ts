@@ -6884,7 +6884,7 @@ export interface components {
             /** Question Id */
             question_id: string;
             /** Recommended Answer */
-            recommended_answer: string;
+            recommended_answer?: string | null;
             /** Recommended Choice */
             recommended_choice?: string | null;
             /** Title */
