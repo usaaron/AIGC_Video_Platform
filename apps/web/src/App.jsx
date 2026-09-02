@@ -910,6 +910,7 @@ function App() {
           billing={billing}
           tasks={tasks}
           textProviderStatus={providerHealth?.providers?.text ?? null}
+          scriptModelCapabilities={providerHealth?.scriptModels ?? []}
           onOpenLongForm={() => navigateTo('writing-studio')}
           onSave={async (script) => {
             await api.updateProject(project.id, { script })

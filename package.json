@@ -22,6 +22,8 @@
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
     "check:organization-api": "node scripts/check-deprecated-organization-routes.mjs",
+    "check:architecture": "node scripts/check-architecture.mjs",
+    "architecture:baseline": "node scripts/check-architecture.mjs --write-baseline",
     "check:deployment-security": "node scripts/check-deployment-security.mjs",
     "test": "pnpm build:shared && pnpm -r test",
     "test:backend:unit": "pnpm build:shared && pnpm --filter @seqora/api test:unit",
@@ -48,7 +50,7 @@
     "preprod:anonymize": "pnpm --filter @seqora/api db:anonymize-preprod",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "check": "pnpm format:check && pnpm check:deployment-security && pnpm lint && pnpm test:full:stable && pnpm build"
+    "check": "pnpm format:check && pnpm check:architecture && pnpm check:deployment-security && pnpm lint && pnpm test:full:stable && pnpm build"
   },
   "devDependencies": {
     "prettier": "3.9.5"

@@ -13,7 +13,13 @@ function suggestionFingerprint(value) {
   return `${value.trim().length}:${(hash >>> 0).toString(16)}`
 }
 
-function renderScriptPage(project, textProviderStatus = 'configured', tasks = [], scriptEpisodes = []) {
+function renderScriptPage(
+  project,
+  textProviderStatus = 'configured',
+  tasks = [],
+  scriptEpisodes = [],
+  scriptModelCapabilities = [],
+) {
   return renderToStaticMarkup(
     <ScriptPage
       project={project}
@@ -22,6 +28,7 @@ function renderScriptPage(project, textProviderStatus = 'configured', tasks = []
       billing={{ credits: 2_000 }}
       tasks={tasks}
       textProviderStatus={textProviderStatus}
+      scriptModelCapabilities={scriptModelCapabilities}
       onSave={noop}
       onSaveEpisode={noop}
       onDeleteEpisode={noop}
@@ -123,7 +130,7 @@ describe('script content modes', () => {
 
     const flashIndex = html.indexOf('DeepSeek V4 Flash')
     const proIndex = html.indexOf('DeepSeek V4 Pro')
-    const glmIndex = html.indexOf('GLM 5.2（密钥未开通）')
+    const glmIndex = html.indexOf('GLM 5.2（当前不可用）')
     const seqoraIndex = html.indexOf('序幕-5.6')
 
     expect(flashIndex).toBeGreaterThan(-1)
@@ -132,6 +139,35 @@ describe('script content modes', () => {
     expect(glmIndex).toBeLessThan(seqoraIndex)
     expect(html).toContain('<option value="glm-5.2" disabled="">')
     expect(html).toContain('<option value="deepseek-v4-flash" selected="">')
+  })
+
+  it('uses server capabilities instead of hard-coded model availability', () => {
+    const html = renderScriptPage(
+      {
+        id: 'model-capabilities-1',
+        name: '模型能力测试',
+        contentType: 'short-drama',
+        episodeDurationSeconds: 60,
+        aspectRatio: '9:16',
+        synopsis: '',
+        script: '',
+      },
+      'configured',
+      [],
+      [],
+      [
+        { id: 'deepseek-v4-flash', available: true },
+        { id: 'deepseek-v4-pro', available: false },
+        { id: 'glm-5.2', available: true },
+        { id: 'gpt-5.6-sol', available: false },
+      ],
+    )
+
+    expect(html).toContain('<option value="glm-5.2">GLM 5.2</option>')
+    expect(html).toContain(
+      '<option value="deepseek-v4-pro" disabled="">DeepSeek V4 Pro（当前不可用）</option>',
+    )
+    expect(html).toContain('<option value="gpt-5.6-sol" disabled="">序幕-5.6（当前不可用）</option>')
   })
 
   it('shows the accumulated model text as a read-only live draft', () => {

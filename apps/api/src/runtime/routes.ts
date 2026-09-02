@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { IMAGE2_PROVIDER_DISPLAY_NAME } from '@seqora/contracts'
+import { IMAGE2_PROVIDER_DISPLAY_NAME, SCRIPT_MODEL_CATALOG, textModelFamily } from '@seqora/contracts'
 import type { AppConfig } from '../config.js'
 import { installAuth } from '../core/auth/installAuth.js'
 import { createAuthProvider } from '../core/auth/provider.js'
@@ -145,9 +145,24 @@ function runtimeHealth(config: AppConfig, providers: RuntimeProviders) {
       text: providers.textProvider ? textProviderName(config) : 'unavailable',
       assetLibrary: providers.assetLibraryProvider ? 'stringx-maas' : 'unavailable',
     },
+    scriptModels: SCRIPT_MODEL_CATALOG.map((model) => ({
+      id: model.id,
+      available: scriptModelAvailable(config, model.id),
+    })),
     taskQueue: {
       driver: config.TASK_QUEUE_DRIVER,
       name: config.TASK_QUEUE_NAME,
     },
   }
+}
+
+function scriptModelAvailable(config: AppConfig, model: string): boolean {
+  const family = textModelFamily(model)
+  if (family === 'deepseek-v3') return Boolean(config.DEEPSEEK_API_KEY)
+  if (family === 'deepseek-v4') {
+    return Boolean(config.DASHSCOPE_API_KEY || config.DEEPSEEK_V4_API_KEY || config.REHDASU_API_KEY)
+  }
+  if (family === 'gpt') return Boolean(config.TOKENADVENT_API_KEY)
+  if (family === 'rehdasu') return Boolean(config.REHDASU_API_KEY)
+  return false
 }

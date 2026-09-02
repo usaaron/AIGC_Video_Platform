@@ -21,14 +21,12 @@ import { AssetEditor } from '../features/assets/AssetEditor'
 import { AssetAwareTextarea, AssetShortcutBar } from '../features/assets/AssetShortcutBar'
 import { AssetSuggestionsPanel, assetSuggestionKey } from '../features/script/AssetSuggestionsPanel'
 import { suggestionToAssetInput } from '../features/script/assetSuggestionInput'
-import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
-
-const SCRIPT_MODEL_OPTIONS = [
-  ['deepseek-v4-flash', 'DeepSeek V4 Flash'],
-  ['deepseek-v4-pro', 'DeepSeek V4 Pro'],
-  ['glm-5.2', 'GLM 5.2（密钥未开通）', true],
-  ['gpt-5.6-sol', '序幕-5.6'],
-]
+import {
+  DEFAULT_SCRIPT_MODEL,
+  DEFAULT_SCRIPT_DIRECTION,
+  SCRIPT_MODEL_CATALOG,
+  SCRIPT_OPERATION_CREDITS,
+} from '@seqora/contracts'
 
 const SCRIPT_CONTENT_CONFIGS = {
   'short-drama': {
@@ -142,6 +140,7 @@ export function ScriptPage({
   billing,
   tasks = [],
   textProviderStatus = null,
+  scriptModelCapabilities = [],
   onSave,
   onSaveEpisode,
   onDeleteEpisode,
@@ -201,6 +200,20 @@ export function ScriptPage({
   const [createdAssetKeys, setCreatedAssetKeys] = useState(() => new Set())
   const [suggestedAssetEditor, setSuggestedAssetEditor] = useState(null)
   const [stoppingTaskId, setStoppingTaskId] = useState(null)
+  const scriptModelAvailability = new Map(
+    scriptModelCapabilities.map((capability) => [capability.id, capability.available]),
+  )
+  const scriptModelOptions = SCRIPT_MODEL_CATALOG.map((model) => ({
+    ...model,
+    // During a rolling API/Web deployment, preserve the old conservative GLM fallback until the
+    // health response includes per-model capabilities.
+    available: scriptModelAvailability.get(model.id) ?? model.id !== 'glm-5.2',
+  }))
+  const scriptModelCapabilityKey = scriptModelCapabilities
+    .map((capability) => `${capability.id}:${capability.available ? '1' : '0'}`)
+    .join('|')
+  const selectedScriptModelUnavailable =
+    scriptModelOptions.find((model) => model.id === scriptModel)?.available === false
   const fileInput = useRef(null)
   const textArea = useRef(null)
   const previewContentRef = useRef(null)
@@ -219,6 +232,12 @@ export function ScriptPage({
   const estimatedMinutes = script.trim() ? Math.max(1, Math.ceil(count / 120)) : 0
   const assetSuggestionFingerprint = scriptSuggestionFingerprint(script)
   const currentAssetRevision = assetSuggestionRevision(assets)
+
+  useEffect(() => {
+    if (!scriptModelCapabilityKey || !selectedScriptModelUnavailable) return
+    const firstAvailable = scriptModelOptions.find((model) => model.available)
+    if (firstAvailable) setScriptModel(firstAvailable.id)
+  }, [scriptModelCapabilityKey, selectedScriptModelUnavailable])
   const projectTasks = tasks.filter((task) => task.projectId === project.id)
   const scriptTasks = projectTasks
     .filter(
@@ -740,6 +759,10 @@ export function ScriptPage({
       )
       return
     }
+    if (selectedScriptModelUnavailable) {
+      setError('当前生成模型未在服务器配置，请选择其他可用模型。')
+      return
+    }
     if (intent === 'revise' && !revisionNote.trim()) {
       setError('请先填写希望修改或补充的内容')
       return
@@ -810,6 +833,10 @@ export function ScriptPage({
           ? '当前文本模型暂不可用，请先配置文本 Provider 后再追加剧本。'
           : '暂时无法确认文本模型状态，请刷新页面后再追加剧本。',
       )
+      return
+    }
+    if (selectedScriptModelUnavailable) {
+      setError('当前生成模型未在服务器配置，请选择其他可用模型。')
       return
     }
     const continuationEpisode = isSeries ? latestEpisode : null
@@ -1033,9 +1060,10 @@ export function ScriptPage({
               </div>
               <label className="script-control-field">
                 <select value={scriptModel} onChange={(event) => setScriptModel(event.target.value)}>
-                  {SCRIPT_MODEL_OPTIONS.map(([value, label, disabled = false]) => (
-                    <option key={value} value={value} disabled={disabled}>
-                      {label}
+                  {scriptModelOptions.map((model) => (
+                    <option key={model.id} value={model.id} disabled={!model.available}>
+                      {model.label}
+                      {model.available ? '' : '（当前不可用）'}
                     </option>
                   ))}
                 </select>
@@ -1051,6 +1079,7 @@ export function ScriptPage({
                 disabled={
                   saving ||
                   textGenerationUnavailable ||
+                  selectedScriptModelUnavailable ||
                   (Boolean(activeScriptTask) && !activeGenerateTask) ||
                   (generating && !activeGenerateTask) ||
                   Boolean(stoppingTaskId)

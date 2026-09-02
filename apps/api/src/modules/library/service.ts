@@ -663,7 +663,7 @@ function mergeSnapshot(
   serverSnapshot: Record<string, unknown>,
 ): Record<string, unknown> {
   return {
-    ...(clientSnapshot ?? {}),
+    ...clientSnapshot,
     ...serverSnapshot,
     savedAt: new Date().toISOString(),
   }
@@ -845,7 +845,7 @@ function safeFileName(title: string, contentType: string): string {
 function safeBaseName(value: string): string {
   return String(value || 'asset')
     .replace(/\.[a-z0-9]{1,8}$/i, '')
-    .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, '-')
+    .replace(/[<>:"/\\|?*\p{Cc}]+/gu, '-')
     .replace(/\s+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80)

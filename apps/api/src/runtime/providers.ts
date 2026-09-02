@@ -1,3 +1,10 @@
+import {
+  isDeepSeekPublicAlias,
+  isRehdasuPublicAlias,
+  resolveDeepSeekV4TextModel,
+  resolveGptTextModel,
+  textModelFamily,
+} from '@seqora/contracts'
 import type { AppConfig } from '../config.js'
 import { observeProviderCall } from '../core/observability/metrics.js'
 import type { AssetLibraryProvider } from '../core/generation/volcArkAssetLibraryProvider.js'
@@ -159,9 +166,10 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
 }
 
 export function textProviderName(config: AppConfig): string {
-  if (isDeepSeekV4Model(config.TEXT_MODEL)) return config.TEXT_MODEL.trim().toLowerCase()
-  if (isRehdasuModel(config.TEXT_MODEL)) return 'rehdasu'
-  return isGptModel(config.TEXT_MODEL) ? 'tokenadvent-gpt' : 'deepseek-v3'
+  const family = textModelFamily(config.TEXT_MODEL)
+  if (family === 'deepseek-v4') return config.TEXT_MODEL.trim().toLowerCase()
+  if (family === 'rehdasu') return 'rehdasu'
+  return family === 'gpt' ? 'tokenadvent-gpt' : 'deepseek-v3'
 }
 
 class RoutedTextProvider implements TextGenerationProvider {
@@ -182,7 +190,7 @@ class RoutedTextProvider implements TextGenerationProvider {
     const deadlineAt = request.timeoutMs ? Date.now() + request.timeoutMs : null
     const routedRequest = requestWithRemainingTimeout(request, deadlineAt)
     if (request.providerRoute === 'bailian') {
-      if (!isDeepSeekV4Model(requestedModel)) {
+      if (textModelFamily(requestedModel) !== 'deepseek-v4') {
         throw new TextGenerationProviderError(`文本模型 ${requestedModel} 不支持百炼专用路由`)
       }
       if (!this.bailianDeepSeekV4Provider) {
@@ -193,11 +201,11 @@ class RoutedTextProvider implements TextGenerationProvider {
         () =>
           this.bailianDeepSeekV4Provider!.generate({
             ...routedRequest,
-            model: resolveDeepSeekV4Model(requestedModel, this.deepSeekV4Model),
+            model: resolveDeepSeekV4TextModel(requestedModel, this.deepSeekV4Model),
           }),
       )
     }
-    if (isDeepSeekV4Model(requestedModel)) {
+    if (textModelFamily(requestedModel) === 'deepseek-v4') {
       if (!this.deepSeekV4Provider) {
         return this.generateWithDeepSeekV4Fallback(routedRequest, requestedModel)
       }
@@ -207,7 +215,7 @@ class RoutedTextProvider implements TextGenerationProvider {
           () =>
             this.deepSeekV4Provider!.generate({
               ...routedRequest,
-              model: resolveDeepSeekV4Model(requestedModel, this.deepSeekV4Model),
+              model: resolveDeepSeekV4TextModel(requestedModel, this.deepSeekV4Model),
             }),
         )
       } catch (error) {
@@ -219,14 +227,14 @@ class RoutedTextProvider implements TextGenerationProvider {
         )
       }
     }
-    if (isGptModel(requestedModel)) {
+    if (textModelFamily(requestedModel) === 'gpt') {
       if (!this.gptProvider) throw modelNotConfigured(requestedModel)
       return observeProviderCall(
         { provider: 'tokenadvent-gpt', operation: 'text.generate', ...request.usageContext },
-        () => this.gptProvider!.generate({ ...routedRequest, model: resolveGptModel(requestedModel) }),
+        () => this.gptProvider!.generate({ ...routedRequest, model: resolveGptTextModel(requestedModel) }),
       )
     }
-    if (isDeepSeekModel(requestedModel)) {
+    if (textModelFamily(requestedModel) === 'deepseek-v3') {
       if (!this.deepSeekProvider) throw modelNotConfigured(requestedModel)
       return observeProviderCall(
         { provider: 'deepseek-v3', operation: 'text.generate', ...request.usageContext },
@@ -237,7 +245,7 @@ class RoutedTextProvider implements TextGenerationProvider {
           }),
       )
     }
-    if (isRehdasuModel(requestedModel)) {
+    if (textModelFamily(requestedModel) === 'rehdasu') {
       if (!this.rehdasuProvider) throw modelNotConfigured(requestedModel)
       return observeProviderCall(
         { provider: 'rehdasu', operation: 'text.generate', ...request.usageContext },
@@ -273,39 +281,6 @@ function requestWithRemainingTimeout(
 ): TextGenerationRequest {
   if (deadlineAt === null) return request
   return { ...request, timeoutMs: Math.max(1, deadlineAt - Date.now()) }
-}
-
-function isGptModel(model: string): boolean {
-  const normalized = model.trim().toLowerCase()
-  return normalized === 'seqora-5.6' || normalized.startsWith('gpt-')
-}
-
-function resolveGptModel(model: string): string {
-  return model.trim().toLowerCase() === 'seqora-5.6' ? 'gpt-5.6-sol' : model
-}
-
-function isDeepSeekModel(model: string): boolean {
-  return model.trim().toLowerCase().startsWith('deepseek')
-}
-
-function isDeepSeekV4Model(model: string): boolean {
-  return ['deepseek-v4-flash', 'deepseek-v4-pro'].includes(model.trim().toLowerCase())
-}
-
-function resolveDeepSeekV4Model(requestedModel: string, configuredFlashModel: string): string {
-  return requestedModel.trim().toLowerCase() === 'deepseek-v4-flash' ? configuredFlashModel : requestedModel
-}
-
-function isRehdasuModel(model: string): boolean {
-  return /^(glm-5\.2|glm-5\.2-fast|kimi-k3|kimi-k3-thinking)$/i.test(model.trim())
-}
-
-function isDeepSeekPublicAlias(model: string): boolean {
-  return ['deepseekv3', 'deepseek-v3'].includes(model.trim().toLowerCase())
-}
-
-function isRehdasuPublicAlias(model: string): boolean {
-  return ['rehdasu', 'rehdasu-default'].includes(model.trim().toLowerCase())
 }
 
 function modelNotConfigured(model: string): TextGenerationProviderError {

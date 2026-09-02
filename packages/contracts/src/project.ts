@@ -1,4 +1,20 @@
 import { z } from 'zod'
+import { ASSET_SUGGESTION_MODEL, DEFAULT_SCRIPT_MODEL, scriptModelSchema } from './textModels.js'
+
+export {
+  ASSET_SUGGESTION_MODEL,
+  DEFAULT_SCRIPT_MODEL,
+  SCRIPT_MODEL_CATALOG,
+  SCRIPT_MODEL_IDS,
+  isDeepSeekPublicAlias,
+  isRehdasuPublicAlias,
+  resolveDeepSeekV4TextModel,
+  resolveGptTextModel,
+  scriptModelSchema,
+  textModelFamily,
+  textModelSchema,
+} from './textModels.js'
+export type { ScriptModel, ScriptModelDefinition, TextModel, TextModelFamily } from './textModels.js'
 
 export const projectStatusSchema = z.enum(['draft', 'producing', 'completed', 'archived'])
 export const assetKindSchema = z.enum(['character', 'scene', 'prop', 'costume', 'brand', 'audio'])
@@ -42,30 +58,6 @@ export const DEFAULT_SCRIPT_DIRECTION = {
 export const scriptProductionModeSchema = z.enum(['short-video', 'web-series'])
 export const FORCE_EPISODE_BREAK_MARKER = '【强制下一集】'
 export const FORCE_SHOT_BREAK_MARKER = '【强制分镜】'
-
-// Keep the original logical values for stored tasks, while allowing models that
-// are actually available from the configured OpenAI-compatible relay.
-export const scriptModelSchema = z.enum([
-  'seqora-5.6',
-  'seqora-op-5',
-  'kimi-3',
-  'deepseek-v3',
-  'deepseek-v4-flash',
-  'deepseek-v4-pro',
-  'qwen3.8',
-  'gpt-5.6-terra',
-  'gpt-5.6-sol',
-  'kimi-k3',
-  'glm-5.2',
-  'glm-5.2-fast',
-  'kimi-k2.5',
-  'gpt-5.4',
-  'gpt-5.5',
-  'gpt-5.6',
-])
-export const textModelSchema = scriptModelSchema
-export const DEFAULT_SCRIPT_MODEL = 'deepseek-v4-flash' as const
-export const ASSET_SUGGESTION_MODEL = 'deepseek-v4-flash' as const
 
 export const scriptCreativeDirectionSchema = z.object({
   style: z
@@ -627,8 +619,6 @@ export type CreateShot = z.infer<typeof createShotSchema>
 export type UpdateShot = z.infer<typeof updateShotSchema>
 export type ProjectWorkspace = z.infer<typeof projectWorkspaceSchema>
 export type ScriptCreativeDirection = z.infer<typeof scriptCreativeDirectionSchema>
-export type ScriptModel = z.infer<typeof scriptModelSchema>
-export type TextModel = ScriptModel
 export type ScriptProductionMode = z.infer<typeof scriptProductionModeSchema>
 export type GenerateScriptAssetSuggestionsRequest = z.infer<
   typeof generateScriptAssetSuggestionsRequestSchema

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { textModelFamily } from '@seqora/contracts'
 
 const developmentAuthSecret = 'seqora-development-secret-change-me'
 const developmentMemberPassword = 'MemberPassword123!'
@@ -307,7 +308,7 @@ const configSchema = z
     }
     if (
       config.NODE_ENV === 'production' &&
-      isDeepSeekV3TextModel(config.TEXT_MODEL) &&
+      textModelFamily(config.TEXT_MODEL) === 'deepseek-v3' &&
       !config.DEEPSEEK_API_KEY
     ) {
       context.addIssue({
@@ -318,7 +319,7 @@ const configSchema = z
     }
     if (
       config.NODE_ENV === 'production' &&
-      isGptTextModel(config.TEXT_MODEL) &&
+      textModelFamily(config.TEXT_MODEL) === 'gpt' &&
       !config.TOKENADVENT_API_KEY
     ) {
       context.addIssue({
@@ -329,7 +330,7 @@ const configSchema = z
     }
     if (
       config.NODE_ENV === 'production' &&
-      isDeepSeekV4TextModel(config.TEXT_MODEL) &&
+      textModelFamily(config.TEXT_MODEL) === 'deepseek-v4' &&
       !config.DASHSCOPE_API_KEY &&
       !config.DEEPSEEK_V4_API_KEY
     ) {
@@ -342,7 +343,7 @@ const configSchema = z
     }
     if (
       config.NODE_ENV === 'production' &&
-      isRehdasuTextModel(config.TEXT_MODEL) &&
+      textModelFamily(config.TEXT_MODEL) === 'rehdasu' &&
       !config.REHDASU_API_KEY
     ) {
       context.addIssue({
@@ -434,23 +435,6 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     STRINGX_SEEDANCE_FAST_MODEL: environment.STRINGX_SEEDANCE_FAST_MODEL || environment.STRINGX_VIDEO_MODEL,
     STRINGX_SEEDANCE_PRO_MODEL: environment.STRINGX_SEEDANCE_PRO_MODEL || environment.STRINGX_VIDEO_MODEL,
   })
-}
-
-function isRehdasuTextModel(model: string): boolean {
-  return /^(glm-5\.2|glm-5\.2-fast|kimi-k3|kimi-k3-thinking)$/i.test(model.trim())
-}
-
-function isDeepSeekV3TextModel(model: string): boolean {
-  return ['deepseekv3', 'deepseek-v3'].includes(model.trim().toLowerCase())
-}
-
-function isDeepSeekV4TextModel(model: string): boolean {
-  return ['deepseek-v4-flash', 'deepseek-v4-pro'].includes(model.trim().toLowerCase())
-}
-
-function isGptTextModel(model: string): boolean {
-  const normalized = model.trim().toLowerCase()
-  return normalized === 'seqora-5.6' || normalized.startsWith('gpt-')
 }
 
 function normalizeCsv(value: string | undefined): string {

@@ -283,6 +283,12 @@ describe('API authorization', () => {
     expect(response.json()).toMatchObject({
       providers: { seedance: 'configured' },
       providerNames: { seedance: 'stringx-seedance', img2: 'local-mock' },
+      scriptModels: [
+        { id: 'deepseek-v4-flash', available: false },
+        { id: 'deepseek-v4-pro', available: false },
+        { id: 'glm-5.2', available: false },
+        { id: 'gpt-5.6-sol', available: false },
+      ],
       readiness: {
         database: { status: 'disabled' },
         redis: { status: 'disabled' },
