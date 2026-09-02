@@ -2,7 +2,6 @@ import type { AppConfig } from '../config.js'
 import { AiJobRunner } from '../core/jobs/aiJobRunner.js'
 import { createBullMqTaskDispatcher, type BullMqTaskDispatcher } from '../core/jobs/bullMqQueue.js'
 import { OutboxRelay, OutboxTaskDispatcher } from '../core/jobs/outbox.js'
-import { createAutoFilmPreviewCallback } from '../core/jobs/taskCompletion.js'
 import { GenerationTaskRunner, noopTaskDispatcher, type TaskDispatcher } from '../core/jobs/taskDispatcher.js'
 import { PostgresAdvisoryTaskRunnerLock } from '../core/jobs/taskRunnerLock.js'
 import type { ObjectStorage } from '../infra/objectStorage.js'
@@ -132,7 +131,6 @@ export async function createRuntimeQueues(input: {
         }
       : {}),
     ...(database ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database) } : {}),
-    onVideoCompleted: createAutoFilmPreviewCallback(store, getGenerationService),
     localTaskHandler: createLocalGenerationTaskHandler(store, {
       projectService: getProjectService,
       trustedAssetService: getTrustedAssetService,

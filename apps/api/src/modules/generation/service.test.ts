@@ -283,6 +283,18 @@ describe('GenerationService film preview idempotency', () => {
     expect(composer.start).not.toHaveBeenCalled()
   })
 
+  it('reuses an active preview for the same episode when shot versions change', async () => {
+    const running = previewTask('running')
+    running.metadata.sourceVideoTaskIds = ['older-video-version']
+    const { service, repository, composer } = filmPreviewService([running])
+
+    await expect(service.createFilmPreview('project-midnight-film', principal, 'full', true)).resolves.toBe(
+      running,
+    )
+    expect(repository.create).not.toHaveBeenCalled()
+    expect(composer.start).not.toHaveBeenCalled()
+  })
+
   it('allows an explicit user retry after a failed preview', async () => {
     const failed = previewTask('failed')
     const replacement = previewTask('queued')

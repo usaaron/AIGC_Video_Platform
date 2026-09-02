@@ -1,15 +1,20 @@
 const VIDEO_CACHE_LIMIT = 24
+const VIDEO_WARM_BATCH_SIZE = 2
+const VIDEO_RETRY_COOLDOWN_MS = 60_000
 const videoMetadataCache = new Map()
+const videoRetryAfterCache = new Map()
 
 export function warmVideoPlaybackCache(tasks = []) {
   if (typeof window === 'undefined' || typeof window.document?.createElement !== 'function') return
-  for (const task of tasks) {
-    const url = completedVideoUrl(task)
-    if (!url) continue
+  const urls = [...new Set(tasks.map(completedVideoUrl).filter(Boolean))].slice(0, VIDEO_CACHE_LIMIT)
+  let started = 0
+  for (const url of urls) {
     if (videoMetadataCache.has(url)) {
       touchVideoCache(url)
       continue
     }
+    if ((videoRetryAfterCache.get(url) || 0) > Date.now()) continue
+    if (started >= VIDEO_WARM_BATCH_SIZE) break
 
     const video = window.document.createElement('video')
     video.preload = 'metadata'
@@ -19,9 +24,13 @@ export function warmVideoPlaybackCache(tasks = []) {
     videoMetadataCache.set(url, entry)
     video.onloadedmetadata = () => markVideoMetadataLoaded(url)
     video.oncanplay = () => markVideoMetadataLoaded(url)
-    video.onerror = () => videoMetadataCache.delete(url)
+    video.onerror = () => {
+      videoMetadataCache.delete(url)
+      videoRetryAfterCache.set(url, Date.now() + VIDEO_RETRY_COOLDOWN_MS)
+    }
     video.src = url
     video.load?.()
+    started += 1
     trimVideoCache()
   }
 }
@@ -32,6 +41,7 @@ export function hasVideoMetadataLoaded(url) {
 
 export function markVideoMetadataLoaded(url) {
   if (!url) return
+  videoRetryAfterCache.delete(url)
   const entry = videoMetadataCache.get(url) || { video: null, ready: true }
   entry.ready = true
   videoMetadataCache.set(url, entry)

@@ -36,4 +36,31 @@ describe('video playback cache', () => {
     markVideoMetadataLoaded('/video/current.mp4')
     expect(hasVideoMetadataLoaded('/video/current.mp4')).toBe(true)
   })
+
+  it('backs off after a metadata preload fails instead of repeatedly requesting the video', () => {
+    const videos = []
+    vi.stubGlobal('window', {
+      document: {
+        createElement: () => {
+          const video = { load: vi.fn() }
+          videos.push(video)
+          return video
+        },
+      },
+    })
+    const tasks = [
+      {
+        id: 'video-failed-preload',
+        kind: 'video',
+        status: 'completed',
+        resultUrl: '/api/v1/generation/tasks/video-failed-preload/content',
+      },
+    ]
+
+    warmVideoPlaybackCache(tasks)
+    videos[0].onerror()
+    warmVideoPlaybackCache(tasks)
+
+    expect(videos).toHaveLength(1)
+  })
 })

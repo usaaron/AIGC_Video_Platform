@@ -215,7 +215,19 @@ export class GenerationService {
     const selectedShots = selectedSources.map((source) => source.shot)
     const sourceTasks = selectedSources.map((source) => source.task!)
     const sourceVideoTaskIds = sourceTasks.map((task) => task.id)
-    const existing = (await this.repository.listByProject(projectId, principal)).find(
+    const projectTasks = await this.repository.listByProject(projectId, principal)
+    const active = projectTasks.find(
+      (task) =>
+        task.provider === 'local-compose' &&
+        task.metadata.generationStage === 'film-preview' &&
+        sameEpisodeScope(task.metadata.episodeNumber, episodeNumber) &&
+        (task.status === 'queued' || task.status === 'running' || task.status === 'paused'),
+    )
+    // A compose can be expensive and streams every source clip. Never start another compose for
+    // the same project scope while one is active, even if a shot version changed in the meantime.
+    if (active) return active
+
+    const existing = projectTasks.find(
       (task) =>
         task.provider === 'local-compose' &&
         task.metadata.generationStage === 'film-preview' &&
@@ -437,6 +449,11 @@ function sameStringArray(value: unknown, expected: string[]): boolean {
     value.length === expected.length &&
     value.every((item, index) => item === expected[index])
   )
+}
+
+function sameEpisodeScope(value: unknown, expected: number | null): boolean {
+  if (expected === null) return value === null || value === undefined
+  return Number(value) === expected
 }
 
 function bufferVideoContent(content: Buffer, range?: string) {

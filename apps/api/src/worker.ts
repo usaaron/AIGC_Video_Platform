@@ -7,7 +7,6 @@ import {
   type BullMqTaskDispatcher,
 } from './core/jobs/bullMqQueue.js'
 import { OutboxRelay, OutboxRepository } from './core/jobs/outbox.js'
-import { createAutoFilmPreviewCallback } from './core/jobs/taskCompletion.js'
 import { createLocalGenerationTaskHandler } from './core/jobs/localTaskHandler.js'
 import { AiJobRunner } from './core/jobs/aiJobRunner.js'
 import {
@@ -175,7 +174,6 @@ const taskRunner = new GenerationTaskRunner(store, {
       }
     : {}),
   ...(database ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database) } : {}),
-  onVideoCompleted: createAutoFilmPreviewCallback(store, () => generationService),
   localTaskHandler: createLocalGenerationTaskHandler(store, {
     projectService: () => projectService,
     trustedAssetService: () => trustedAssetService,

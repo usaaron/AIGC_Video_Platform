@@ -108,7 +108,10 @@ export async function registerGenerationRoutes(
 
   app.get(
     '/generation/tasks/:taskId/content',
-    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ) },
+    {
+      config: { rateLimit: false },
+      preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ),
+    },
     async (request, reply) => {
       const parsed = taskParamsSchema.safeParse(request.params)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
